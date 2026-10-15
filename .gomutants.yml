@@ -1,0 +1,45 @@
+# gomutants mutation testing configuration — read by gomutants itself from the
+# module root, and by scripts/mutshard for exclude-files and tags only, so the
+# shard plan names the same files gomutants mutates.
+#
+# Run it through the task runner (`just test-mutation-pkg PKG`,
+# `just test-mutation-diff BASE`, `just test-mutation`): the recipes give each
+# run its own scratch dir and report path, and judge the result.
+#
+# The pass/fail thresholds are NOT here — gomutants has no config key for them.
+# They are the `mutation_efficacy` / `mutation_mcover` variables in
+# build/ci.justfile, applied by mutshard's aggregate to the whole run.
+
+# Files never mutated, matched unanchored against the module-relative path.
+# Test files, build-tagged files (tests/integration, tests/acceptance),
+# testdata and nested modules (third_party/, agent worktrees under .claude/)
+# need no entry: gomutants resolves packages with `go list`, which never
+# yields them. Generated code and mocks are compiled but never tested, so their
+# mutants would land NOT COVERED and drag both scores down.
+exclude-files:
+  - "\\.pb\\.go$"
+  - "(^|/)mock_[^/]*\\.go$"
+
+# Per-package routing only: a mutant is judged by its own package's tests.
+# MUST stay false — see tests/arch/gomutants_integration_test.go for why.
+integration: false
+
+# Every run is a fresh measurement. A cached verdict would be reported by a
+# shard without having been measured on this commit, and the cache file would
+# land in the working tree.
+cache: "off"
+
+# Parallel mutants. Each runs a package's tests, some of which spawn
+# subprocesses and containers; NumCPU of those at once starves them, and a
+# starved test reads as TIMED OUT. Raise only against a measured run.
+workers: 4
+
+# The per-mutant deadline is adaptive: the covering tests' own recorded
+# duration times timeout-margin (default 3), clamped to [timeout-min,
+# timeout-coefficient x the baseline test time], and on expiry gomutants kills
+# the test's whole process group. A mutant that hangs a test is therefore held
+# a few times that test's own run, not the module's. The floor absorbs process
+# start-up and contention from the other workers: at gomutants' default 2s a
+# fast test beside three busy workers can miss it and void the mutant as
+# TIMED OUT. Do not lower it without a measured run.
+timeout-min: 10s

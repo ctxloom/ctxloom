@@ -74,10 +74,10 @@ func TestProjectRulesRedirectBareToolInvocations(t *testing.T) {
 			wantSuggestion: "just release-snapshot   # or `just release-check` to validate .goreleaser.yml only",
 		},
 		{
-			name:           "gremlins",
-			command:        "gremlins unleash",
+			name:           "gomutants",
+			command:        "gomutants ./...",
 			wantReasonHas:  "task runner",
-			wantSuggestion: "just test-mutation-pkg internal/shared/tasks/triggers   # or `just test-mutation` for the whole module",
+			wantSuggestion: "just test-mutation-pkg internal/shared/tasks/triggers   # or `just test-mutation-diff BASE` for a change",
 		},
 		{
 			name:           "bare buf generate",
@@ -134,7 +134,8 @@ func TestProjectRulesAllowTheirOwnJustTargets(t *testing.T) {
 		"just build",
 		"just install",
 		"just release-snapshot",
-		"just test-mutation",
+		"just test-mutation-pkg internal/shared/tasks/triggers",
+		"just test-mutation-diff HEAD",
 		"just proto",
 		"just gen-mcp-schemas",
 	} {

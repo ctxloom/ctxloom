@@ -4,19 +4,22 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"reflect"
+	"strings"
 )
 
 // report is one shard's result: what it was asked to cover, on which commit,
-// and gremlins' own --output for the run (absent when the plan gave it nothing).
+// and gomutants' own --output for the run (absent when the plan gave it
+// nothing).
 type report struct {
 	Scope     string          `json:"scope"`
 	Head      string          `json:"head"`
 	MergeBase string          `json:"merge_base,omitempty"`
 	Shard     int             `json:"shard"`
 	Shards    int             `json:"shards"`
-	Files     []string        `json:"files"`
-	Gremlins  json.RawMessage `json:"gremlins,omitempty"`
+	Packages  []string        `json:"packages"`
+	Gomutants json.RawMessage `json:"gomutants,omitempty"`
 }
 
 // stamp is what every report of one run must agree on with the aggregate.
@@ -24,38 +27,49 @@ type stamp struct {
 	scope, head, mergeBase string
 }
 
-// gremlinsOutput mirrors gremlins' --output format
-// (internal/report/internal.OutputResult) — only the parts judged here.
-type gremlinsOutput struct {
-	Files      []gremlinsFile `json:"files"`
-	Total      int            `json:"mutants_total"`
-	Killed     int            `json:"mutants_killed"`
-	Lived      int            `json:"mutants_lived"`
-	NotViable  int            `json:"mutants_not_viable"`
-	NotCovered int            `json:"mutants_not_covered"`
+// gomutantsOutput mirrors gomutants' --output format (internal/report,
+// JSONReport) — only the parts judged here.
+type gomutantsOutput struct {
+	GoModule   string          `json:"go_module"`
+	Files      []gomutantsFile `json:"files"`
+	Total      int             `json:"mutants_total"`
+	Killed     int             `json:"mutants_killed"`
+	Lived      int             `json:"mutants_lived"`
+	NotViable  int             `json:"mutants_not_viable"`
+	NotCovered int             `json:"mutants_not_covered"`
+	TimedOut   int             `json:"mutants_timed_out"`
+	InfraError int             `json:"mutants_infra_error"`
 }
 
-type gremlinsFile struct {
-	Filename  string             `json:"file_name"`
-	Mutations []gremlinsMutation `json:"mutations"`
+type gomutantsFile struct {
+	Mutations []gomutantsMutation `json:"mutations"`
 }
 
-type gremlinsMutation struct {
-	Type   string `json:"type"`
+// gomutantsMutation is one mutant. Its file is read from ID, never from the
+// report's file_name: gomutants names a file relative to the longest import
+// path the run's packages share, so file_name changes with the package set.
+// The stable ID leads with the module-relative path ("dir/f.go:Func:TYPE#n").
+type gomutantsMutation struct {
+	ID     string `json:"id"`
 	Status string `json:"status"`
 	Line   int    `json:"line"`
-	Column int    `json:"column"`
 }
 
-// gremlins' mutator.Status strings.
+// file is the module-relative file the mutant is in.
+func (m gomutantsMutation) file() string {
+	f, _, _ := strings.Cut(m.ID, ":")
+	return f
+}
+
+// gomutants' mutator.MutantStatus strings.
 const (
 	statusKilled     = "KILLED"
 	statusLived      = "LIVED"
 	statusNotCovered = "NOT COVERED"
 	statusTimedOut   = "TIMED OUT"
 	statusNotViable  = "NOT VIABLE"
-	statusSkipped    = "SKIPPED"
-	statusRunnable   = "RUNNABLE"
+	statusInfraError = "INFRA ERROR"
+	statusPending    = "PENDING"
 )
 
 type thresholds struct {
@@ -63,7 +77,7 @@ type thresholds struct {
 }
 
 type tally struct {
-	killed, lived, notCovered, timedOut, notViable, skipped int
+	killed, lived, notCovered, timedOut, notViable, infraError int
 }
 
 func (t *tally) add(o tally) {
@@ -72,7 +86,7 @@ func (t *tally) add(o tally) {
 	t.notCovered += o.notCovered
 	t.timedOut += o.timedOut
 	t.notViable += o.notViable
-	t.skipped += o.skipped
+	t.infraError += o.infraError
 }
 
 // scored counts the mutants an efficacy can be measured over: KILLED and LIVED.
@@ -80,8 +94,20 @@ func (t tally) scored() int {
 	return t.killed + t.lived
 }
 
-// efficacy and mutantCoverage are gremlins' formulas (report.newReport),
-// including 0 when nothing was killed.
+// total counts every mutant the run reported.
+func (t tally) total() int {
+	return t.killed + t.lived + t.notCovered + t.timedOut + t.notViable + t.infraError
+}
+
+// survived counts the mutants nothing verified: LIVED (a test ran and did not
+// notice) and NOT COVERED (no test ran the line).
+func (t tally) survived() int {
+	return t.lived + t.notCovered
+}
+
+// efficacy and mutantCoverage are gomutants' gate formulas
+// (--threshold-efficacy, --threshold-mcover), including 0 when nothing was
+// killed.
 func (t tally) efficacy() float64 {
 	if t.killed == 0 {
 		return 0
@@ -100,13 +126,13 @@ var (
 	errMissingShard    = errors.New("the union is incomplete: a shard's report is missing or duplicated")
 	errStale           = errors.New("a shard's report is for a different run")
 	errMeasuredNothing = errors.New("a shard measured nothing")
-	errLeak            = errors.New("a shard mutated a file the plan gave another shard")
-	errUnreadable      = errors.New("a shard's gremlins report cannot be read")
+	errLeak            = errors.New("a shard mutated a package the plan gave another shard")
+	errUnreadable      = errors.New("a shard's gomutants report cannot be read")
 	errEfficacy        = errors.New("test efficacy is not above the threshold")
 	errMutantCoverage  = errors.New("mutant coverage is not above the threshold")
 )
 
-// exitCode is gremlins' own for its two threshold failures, 1 for a refusal.
+// exitCode is gomutants' own for its two threshold failures, 1 for a refusal.
 func exitCode(err error) int {
 	switch {
 	case errors.Is(err, errEfficacy):
@@ -118,21 +144,19 @@ func exitCode(err error) int {
 }
 
 // judge applies the gate to the UNION of the shards' results, exactly as one
-// unsharded gremlins run applies it to its own: the counts are summed and the
-// thresholds are judged once (report.assess — failing AT the threshold, not
-// only below it). Before any arithmetic it refuses a union it cannot vouch
-// for: a missing, duplicated or stale shard, a shard whose run left no
-// evidence of having looked, and a shard that tested a file it was not given.
+// unsharded run would apply it to its own: the counts are summed and the
+// thresholds are judged once — failing AT the threshold, not only below it.
+// Before any arithmetic it refuses a union it cannot vouch for: a missing,
+// duplicated or stale shard, a shard given packages that carries no gomutants
+// report, and a shard that tested a package it was not given.
 //
 // A vouched-for union with NOTHING SCORED — no KILLED and no LIVED mutant —
-// passes with nothing to judge: its in-scope mutants, if any, all went
-// uncovered, timed out or were not viable, so there is no efficacy to
-// measure, and the coverage gates still judge the uncovered lines (owner
-// ruling #34, 2026-10-12, reversing the 2026-10-06 choice to refuse a union
-// with in-scope mutants and no kill). With only SKIPPED records it is the
-// line-level analogue of the plan's "no mutable Go files" skip. It needs at
-// least one shard that was given files, since only those had to show they
-// looked; without one, zero is not evidence of anything and is judged.
+// passes with nothing to judge: its mutants, if any, all went uncovered, timed
+// out or were not viable, so there is no efficacy to measure, and the coverage
+// gates still judge the uncovered lines (owner ruling #34, 2026-10-12). It
+// needs at least one shard that was given packages, since only those had to
+// show they looked; without one, zero is not evidence of anything and is
+// judged.
 func judge(shards [][]string, st stamp, reports []report, th thresholds) (tally, error) {
 	var total tally
 	byShard, err := indexReports(len(shards), reports)
@@ -140,17 +164,17 @@ func judge(shards [][]string, st stamp, reports []report, th thresholds) (tally,
 		return total, err
 	}
 	looked := false
-	for k, files := range shards {
+	for k, pkgs := range shards {
 		r, ok := byShard[k]
 		if !ok {
 			return total, fmt.Errorf("%w: no report from shard %d of %d", errMissingShard, k, len(shards))
 		}
-		t, err := vetShard(k, files, r, st)
+		t, err := vetShard(k, pkgs, r, st)
 		if err != nil {
 			return total, err
 		}
 		total.add(t)
-		looked = looked || len(files) > 0
+		looked = looked || len(pkgs) > 0
 	}
 	if looked && total.scored() == 0 {
 		return total, nil
@@ -176,22 +200,22 @@ func indexReports(n int, reports []report) (map[int]report, error) {
 
 // vetShard holds shard k's report to the plan and the stamp, then tallies it.
 // A shard the plan gave nothing counts nothing.
-func vetShard(k int, files []string, r report, st stamp) (tally, error) {
+func vetShard(k int, pkgs []string, r report, st stamp) (tally, error) {
 	if r.Scope != st.scope || r.Head != st.head || r.MergeBase != st.mergeBase {
 		return tally{}, fmt.Errorf("%w: shard %d ran %s at %s (merge base %q), the aggregate is judging %s at %s (merge base %q)",
 			errStale, k, r.Scope, r.Head, r.MergeBase, st.scope, st.head, st.mergeBase)
 	}
-	if !reflect.DeepEqual(nonNil(r.Files), nonNil(files)) {
-		return tally{}, fmt.Errorf("%w: shard %d covered %v, the plan gives it %v", errStale, k, r.Files, files)
+	if !reflect.DeepEqual(nonNil(r.Packages), nonNil(pkgs)) {
+		return tally{}, fmt.Errorf("%w: shard %d covered %v, the plan gives it %v", errStale, k, r.Packages, pkgs)
 	}
-	if len(files) == 0 {
+	if len(pkgs) == 0 {
 		return tally{}, nil
 	}
-	return shardTally(k, files, r.Gremlins)
+	return shardTally(k, pkgs, r.Gomutants)
 }
 
-// assess is gremlins' own judgement of the union (report.assess): failing AT
-// a threshold, not only below it; a zero threshold is not judged.
+// assess is gomutants' own judgement of the union: failing AT a threshold, not
+// only below it; a zero threshold is not judged.
 func (th thresholds) assess(t tally) error {
 	if th.efficacy > 0 && t.efficacy() <= th.efficacy {
 		return fmt.Errorf("%w: %.2f%% <= %.2f%%", errEfficacy, t.efficacy(), th.efficacy)
@@ -209,46 +233,46 @@ func nonNil(s []string) []string {
 	return s
 }
 
-// shardTally reads one shard's gremlins report into counts. Evidence that the
-// shard LOOKED is a report with at least one mutation record: every shard
-// walks the whole tree bar other shards' files, so a healthy run reports
-// thousands, SKIPPED included. gremlins writes no report at all when it found
-// no mutant anywhere.
-func shardTally(k int, files []string, raw json.RawMessage) (tally, error) {
+// shardTally reads one shard's gomutants report into counts. Evidence that
+// the shard LOOKED is the report itself: gomutants writes it only after
+// resolving the packages, collecting coverage and discovering mutants, and a
+// run that failed exits nonzero, which fails the shard before it reports. A
+// diff whose changed lines hold no mutable token reports zero mutants, and
+// that is a look, not a failure.
+func shardTally(k int, pkgs []string, raw json.RawMessage) (tally, error) {
 	var t tally
 	if len(raw) == 0 {
-		return t, fmt.Errorf("%w: shard %d was given %d file(s) and carries no gremlins report", errMeasuredNothing, k, len(files))
+		return t, fmt.Errorf("%w: shard %d was given %d package(s) and carries no gomutants report", errMeasuredNothing, k, len(pkgs))
 	}
-	var out gremlinsOutput
+	var out gomutantsOutput
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return t, fmt.Errorf("%w: shard %d: %v", errUnreadable, k, err)
 	}
-	mine := map[string]bool{}
-	for _, f := range files {
-		mine[f] = true
+	if out.GoModule == "" {
+		return t, fmt.Errorf("%w: shard %d: the report names no go_module — it is not a gomutants report", errUnreadable, k)
 	}
-	records := 0
+	mine := map[string]bool{}
+	for _, p := range pkgs {
+		mine[p] = true
+	}
 	for _, f := range out.Files {
 		for _, m := range f.Mutations {
-			records++
-			scored, err := t.count(k, f.Filename, m)
-			if err != nil {
+			if err := t.count(k, m); err != nil {
 				return t, err
 			}
-			if scored && !mine[f.Filename] {
-				return t, fmt.Errorf("%w: shard %d scored %s %s:%d", errLeak, k, m.Status, f.Filename, m.Line)
+			if !mine[path.Dir(m.file())] {
+				return t, fmt.Errorf("%w: shard %d scored %s %s:%d", errLeak, k, m.Status, m.file(), m.Line)
 			}
 		}
-	}
-	if records == 0 {
-		return t, fmt.Errorf("%w: shard %d's gremlins report holds no mutation at all", errMeasuredNothing, k)
 	}
 	return t, t.agrees(k, out)
 }
 
-// count adds one mutation record to t. scored is false for a SKIPPED record:
-// it is outside the diff, so not tested, wherever it is.
-func (t *tally) count(k int, file string, m gremlinsMutation) (scored bool, err error) {
+// count adds one mutation record to t.
+func (t *tally) count(k int, m gomutantsMutation) error {
+	if m.file() == "" {
+		return fmt.Errorf("%w: shard %d: a mutation carries no id", errUnreadable, k)
+	}
 	switch m.Status {
 	case statusKilled:
 		t.killed++
@@ -260,23 +284,24 @@ func (t *tally) count(k int, file string, m gremlinsMutation) (scored bool, err 
 		t.timedOut++
 	case statusNotViable:
 		t.notViable++
-	case statusSkipped:
-		t.skipped++
-		return false, nil
-	case statusRunnable:
+	case statusInfraError:
+		t.infraError++
+	case statusPending:
 		// A dry run's status; a real run never leaves one.
-		return false, fmt.Errorf("%w: shard %d: %s:%d is RUNNABLE — the run was never executed", errMeasuredNothing, k, file, m.Line)
+		return fmt.Errorf("%w: shard %d: %s:%d is PENDING — the run was never executed", errMeasuredNothing, k, m.file(), m.Line)
 	default:
-		return false, fmt.Errorf("%w: shard %d: unknown status %q at %s:%d", errUnreadable, k, m.Status, file, m.Line)
+		return fmt.Errorf("%w: shard %d: unknown status %q at %s:%d", errUnreadable, k, m.Status, m.file(), m.Line)
 	}
-	return true, nil
+	return nil
 }
 
 // agrees refuses a report whose mutation records and summary counters differ.
-func (t tally) agrees(k int, out gremlinsOutput) error {
-	if t.killed != out.Killed || t.lived != out.Lived || t.notCovered != out.NotCovered || t.notViable != out.NotViable {
-		return fmt.Errorf("%w: shard %d: records say %d/%d/%d/%d killed/lived/not-covered/not-viable, gremlins' counters say %d/%d/%d/%d",
-			errUnreadable, k, t.killed, t.lived, t.notCovered, t.notViable, out.Killed, out.Lived, out.NotCovered, out.NotViable)
+func (t tally) agrees(k int, out gomutantsOutput) error {
+	rec := []int{t.total(), t.killed, t.lived, t.notCovered, t.notViable, t.timedOut, t.infraError}
+	sum := []int{out.Total, out.Killed, out.Lived, out.NotCovered, out.NotViable, out.TimedOut, out.InfraError}
+	if !reflect.DeepEqual(rec, sum) {
+		return fmt.Errorf("%w: shard %d: records say %v total/killed/lived/not-covered/not-viable/timed-out/infra-error, gomutants' counters say %v",
+			errUnreadable, k, rec, sum)
 	}
 	return nil
 }

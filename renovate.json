@@ -25,9 +25,9 @@
       "customType": "regex",
       "fileMatch": ["^justfile$"],
       "matchStrings": [
-        "go install github\\.com/go-gremlins/gremlins/cmd/gremlins@v(?<currentValue>[^\\s]+)"
+        "go install github\\.com/gomutants/gomutants@v(?<currentValue>[^\\s]+)"
       ],
-      "depNameTemplate": "github.com/go-gremlins/gremlins",
+      "depNameTemplate": "github.com/gomutants/gomutants",
       "datasourceTemplate": "go"
     },
     {

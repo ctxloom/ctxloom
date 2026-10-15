@@ -555,8 +555,8 @@ func TestDevcontainerJSONBuildArgsMatchToolVersionsEnv(t *testing.T) {
 func TestHostInstallRecipesDeriveFromToolVersionsEnv(t *testing.T) {
 	for _, tc := range []struct{ recipe, versionVar string }{
 		{"gitleaks-install", "GITLEAKS_VERSION"},
-		{"test-mutation-install", "GREMLINS_VERSION"},
-		{"test-mutation-container", "GREMLINS_VERSION"},
+		{"test-mutation-install", "GOMUTANTS_VERSION"},
+		{"test-mutation-container", "GOMUTANTS_VERSION"},
 	} {
 		t.Run(tc.recipe, func(t *testing.T) {
 			body := recipeBody(t, justfilePath, tc.recipe)

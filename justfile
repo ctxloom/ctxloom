@@ -270,7 +270,7 @@ test-default: build _ensure-covdata vet-integration _ensure-gotmpdir
     #!/usr/bin/env bash
     set -e
     export GOTMPDIR="{{go_tmp}}"
-    # Gate on BOTH configurations, not just -race. gremlins and `just cover`
+    # Gate on BOTH configurations, not just -race. gomutants and `just cover`
     # both run WITHOUT -race, and that no-race path has caught a real flake
     # that -race's slower goroutine scheduling was masking —
     # -race made the bug pass, it didn't report it (a genuine data race would
@@ -1169,53 +1169,70 @@ test-pkg PKG *ARGS: _require-generated _ensure-gotmpdir && _trim-go-cache
 
 # ===== Mutation testing =====
 
-# `mutation_tmp` and the gremlins recipes — the shard/aggregate pair CI runs,
-# and `test-mutation` / `test-mutation-diff`, which compose that pair on one
-# machine — come from build/ci.justfile (imported at the top of this file AND
-# by justfile.container). They live there because CI runs them:
-# mutation-weekly.yml used to call a bare `gremlins unleash`, which is the same
-# operation WITHOUT the TMPDIR pinning below — the recipe existed here and CI
-# ran past it. The recipes below are host-only and keep
-# using the shared `mutation_tmp`.
+# `mutation_tmp`, the thresholds and the gomutants recipes — the shard/aggregate
+# pair CI runs, and `test-mutation` / `test-mutation-diff`, which compose that
+# pair on one machine — come from build/ci.justfile (imported at the top of
+# this file AND by justfile.container). They live there because CI runs them:
+# mutation-weekly.yml used to call a bare mutation tool, which is the same
+# operation WITHOUT the TMPDIR pinning — the recipe existed here and CI ran past
+# it. The recipes below are host-only and keep using the shared `mutation_tmp`.
 
-# Run mutation tests on specific package
-# gremlins appends /... to the target itself; passing it here yields
-# ./pkg/.../... which matches nothing and fails with "no packages to test".
-# "$@" (not {{ARGS}}), same reasoning as test-mutation above.
+# Mutate one package directory PKG and everything under it, judged against the
+# project thresholds:
 #
-# `--diff BASE` cannot go to gremlins with the package as its target: gremlins
-# then names the files it walks relative to the package while its diff names
-# them relative to the module root, nothing matches, and the run measures
-# nothing, green. So a package diff is planned by mutshard narrowed to the
-# package (-pkg) and gremlins runs from the module root — one shard of one, then
-# the aggregate, as test-mutation-diff. Nothing else rides along with --diff:
-# gremlins reads a command-line --exclude-files as the whole list, so a
-# forwarded flag would replace .gremlins.yaml's.
+#   just test-mutation-pkg internal/core/spool
+#   just test-mutation-pkg internal/core/spool --diff origin/main   changed lines only
+#
+# One shard of one, then the aggregate — the same path as test-mutation-diff,
+# narrowed to PKG (mutshard -pkg), so a package run is planned, skipped and
+# judged exactly as the module run would judge that package. Nothing else is
+# forwarded: the run's settings are .gomutants.yml's.
 test-mutation-pkg PKG *ARGS: _mutation-prereqs
     #!/usr/bin/env bash
     set -euo pipefail
     pkg="$1"; shift
-    diff=0 base="" rest=()
-    while [ "$#" -gt 0 ]; do
-        case "$1" in
-            --diff) diff=1; base="${2:-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
-            --diff=*) diff=1; base="${1#--diff=}"; shift ;;
-            *) rest+=("$1"); shift ;;
-        esac
-    done
-    if [ "$diff" -eq 0 ]; then
-        exec bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gremlins unleash "./$pkg" ${rest[@]+"${rest[@]}"}
-    fi
-    if [ -z "$base" ] || [ "${#rest[@]}" -gt 0 ]; then
-        echo "error: test-mutation-pkg PKG --diff BASE takes nothing else (got base '$base', extra: ${rest[*]:-none})" >&2
-        exit 2
-    fi
+    scope=tree
+    case "$#:${1:-}" in
+        0:) ;;
+        2:--diff) scope="diff:$2" ;;
+        1:--diff=?*) scope="diff:${1#--diff=}" ;;
+        *)
+            echo "error: test-mutation-pkg PKG takes nothing but an optional --diff BASE (got: $*)" >&2
+            exit 2
+            ;;
+    esac
     {{_mutshard}}
     reports="$(mktemp -d)"
     trap 'rm -rf "$reports"' EXIT
-    mutshard run -scope "diff:$base" -pkg "$pkg" -out "$reports" -- \
-        bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gremlins
-    mutshard aggregate -scope "diff:$base" -pkg "$pkg" -reports "$reports"
+    mutshard run -scope "$scope" -pkg "$pkg" -out "$reports" -- \
+        bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gomutants
+    mutshard aggregate -scope "$scope" -pkg "$pkg" -reports "$reports" \
+        -efficacy "{{mutation_efficacy}}" -mcover "{{mutation_mcover}}"
+
+# Mutate one package directory PKG whole and judge it by the SURVIVOR RATCHET:
+# its count of unverified mutants (LIVED + NOT COVERED) against PKG's row in
+# tests/mutation/survivor_baseline.txt, which states the rules. The efficacy
+# threshold is printed, and is not this recipe's verdict: a standing package
+# that misses it would red every run, and a gate that reds on recorded debt is
+# never run.
+#
+# Record the measured count as the row (a new package, or one whose survivors
+# went down):
+#
+#   CTXLOOM_MUTATION_BASELINE=update just test-mutation-ratchet internal/adapters/isolation
+test-mutation-ratchet PKG: _mutation-prereqs
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{_mutshard}}
+    update=()
+    [ "${CTXLOOM_MUTATION_BASELINE:-}" != update ] || update=(-update)
+    reports="$(mktemp -d)"
+    trap 'rm -rf "$reports"' EXIT
+    mutshard run -scope tree -pkg "$1" -out "$reports" -- \
+        bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gomutants
+    mutshard aggregate -scope tree -pkg "$1" -reports "$reports" \
+        -efficacy "{{mutation_efficacy}}" -mcover "{{mutation_mcover}}" \
+        -ratchet tests/mutation/survivor_baseline.txt ${update[@]+"${update[@]}"}
 
 # Install gitleaks, the secret scanner lefthook's pre-commit `gitleaks` command
 # runs, at the version pinned in .devcontainer/tool-versions.env. `go install`
@@ -1246,24 +1263,26 @@ secrets-scan-staged:
         exit 1
     fi
 
-# Install gremlins
+# Install gomutants, the mutation tool, at the version pinned in
+# .devcontainer/tool-versions.env. `go install` honours GOBIN.
 test-mutation-install:
     #!/usr/bin/env bash
     set -euo pipefail
     set -a
     . .devcontainer/tool-versions.env
     set +a
-    go install github.com/go-gremlins/gremlins/cmd/gremlins@v${GREMLINS_VERSION}
+    go install github.com/gomutants/gomutants@v${GOMUTANTS_VERSION}
 
-# Run mutation tests in container
+# Mutate the whole module in a container, judged by gomutants' own thresholds
+# at the project's values.
 # The checkout is NOT mounted: tests/mutation/mutation_source.sh streams the
 # module's source in on stdin and it is unpacked into the container's own
 # layer, so nothing the run writes can reach the working tree, however the run
-# ends (see that script for why).
-# The container path carries the same TMPDIR hazard as the host recipes: gremlins
-# copies the module per worker, so its scratch space must be a bind-mounted disk
-# dir, never the container's default (which is backed by the host's /tmp). The
-# image tag reads the same GREMLINS_VERSION test-mutation-install builds, so a
+# ends (see that script for why). The copy carries no .git, so this lane cannot
+# take a diff scope and is not judged by mutshard.
+# The run's scratch — gomutants and the Go build and module caches it fills —
+# is the per-run dir mutation_tmp.sh makes, bind-mounted from disk. gomutants
+# is installed at the GOMUTANTS_VERSION test-mutation-install builds, so a
 # container run and a host run mutate identically.
 test-mutation-container: _mutation-prereqs
     #!/usr/bin/env bash
@@ -1279,150 +1298,21 @@ test-mutation-container: _mutation-prereqs
     # The run's own temp dir is the mount: mutation_tmp.sh exports it as
     # TMPDIR to the command, so it is read inside the command, not here.
     # /tmp/work, not a -w dir: docker creates a missing workdir as root, and
-    # the image runs as an unprivileged user.
+    # the image may run as an unprivileged user.
     bash tests/mutation/mutation_source.sh | bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" bash -c '
         exec docker run --rm -i "$@" \
             -v "$TMPDIR:/mutation-tmp" \
             -e TMPDIR=/mutation-tmp \
-            "gogremlins/gremlins:v${GREMLINS_VERSION}" \
-            bash -c "mkdir /tmp/work && tar -C /tmp/work -xf - && cd /tmp/work && exec gremlins unleash"
+            -e XDG_RUNTIME_DIR=/mutation-tmp/xdg-runtime \
+            -e HOME=/mutation-tmp \
+            -e GOPATH=/mutation-tmp/go \
+            -e GOCACHE=/mutation-tmp/cache \
+            "golang:${GO_VERSION}" \
+            bash -c "go install github.com/gomutants/gomutants@v${GOMUTANTS_VERSION} \
+                && mkdir /tmp/work && tar -C /tmp/work -xf - && cd /tmp/work \
+                && exec /mutation-tmp/go/bin/gomutants --output /mutation-tmp/report.json \
+                    --threshold-efficacy {{mutation_efficacy}} --threshold-mcover {{mutation_mcover}} ./..."
     ' _ "${user_flag[@]}"
-
-# Mutate one source file per target and drive the CUCUMBER acceptance suite
-# against a binary rebuilt from each mutant (github.com/gtramontina/ooze).
-#
-# THIS IS THE ONLY HARNESS THAT CAN MEASURE THE ACCEPTANCE SUITE. The gremlins
-# recipes above mutate source and run `go test`, which is coverage-gated; the
-# acceptance suite execs a PRE-BUILT ctxloom binary
-# (tests/integration/testenv/environment.go), so the mutant is never in the
-# process under test and Go coverage cannot cross the exec boundary. See the
-# doc comment on tests/mutation/acceptance_mutation_test.go. ooze's laboratory
-# instead symlinks the repo into a tmpdir, overwrites ONLY the mutated file
-# with real bytes at that path (never the source tree), and runs
-# tests/mutation/run_scoped_suite.sh with that tmpdir as cwd — which
-# rebuilds ctxloom FROM the mutant and then runs the cucumber suite scoped
-# (ACCEPTANCE_PATHS) to just the features that CLAIM to cover that file. A
-# survivor is a mechanism one of those features claims to cover but does not
-# actually verify.
-#
-# Which file is paired with which features is the mutationTargets table in
-# tests/mutation/acceptance_mutation_test.go — a data change, not a code
-# change. Each entry runs as its own subtest of TestAcceptanceMutation, so a
-# single one can be run alone:
-#
-#   just test-mutation-acceptance -run 'TestAcceptanceMutation/^remote_registry$'
-#
-# Cost: every mutant is a full build + a ~15-20s scoped suite run (measured
-# ~28s/mutant on this machine), so one entry is tens of minutes and the whole
-# table is a multi-hour job that can outrun the driver's -timeout.
-# Nightly/scoped, never a per-PR gate — and run entries one at a time unless
-# you mean to spend the night on it.
-#
-# Scope is enforced inside the test file, built programmatically by walking
-# the repo and ignoring every other .go file — see that file's doc comment for
-# why (RE2 has no lookahead; ooze's own file discovery is as scope-blind as
-# gremlins'). The scoping and the table are pinned by cheap unit tests that
-# need no mutation run:
-#
-#   just test-pkg ./tests/mutation/... -tags mutation -run TestMutationTargets
-#
-# THE RESULT IS RATCHETED, per target, against tests/mutation/survivor_baseline.txt:
-# a target that measures MORE survivors than its recorded count fails this
-# recipe. The harness itself cannot do that — it releases with
-# WithMinimumThreshold(0) so a threshold is never chosen before a measurement
-# exists — so without the ratchet the only thing that can red this gate is a
-# run producing no score at all. Re-record after coverage work with
-# CTXLOOM_MUTATION_BASELINE=update; the baseline file states what each
-# provenance word licenses.
-# The lanes recurse into it through "{{just_executable()}}" --justfile
-# "{{justfile()}}", never a bare `just`: a bare one resolves the justfile
-# afresh, from JUST_JUSTFILE when the environment sets it, and CI's container
-# jobs set it to justfile.container, which has no mutation lanes.
-_mutation-driver LANE *ARGS:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    # just hands a shebang recipe its parameters as POSITIONAL ARGS, and the
-    # driver forwards "$@" to go test (not {{ARGS}}, per the reasoning on
-    # test-mutation above). LANE is a parameter, so without this shift it
-    # rides along as an extra package pattern.
-    shift
-    # The laboratory builds its own ctxloom (run_scoped_suite.sh); it must carry
-    # the same stamp `just build` applies, or every scenario dies at startup and
-    # the pre-flight refuses the run.
-    export CTXLOOM_VERSION_LDFLAG='{{version_ldflag}}'
-    # A per-run TMPDIR on disk for every tool this driver can release, from
-    # the same script as every other mutation recipe (see mutation_tmp.sh).
-    # Everything past the environment — the run, its refusals, the score
-    # correction, and which lane is ratcheted against what — is the driver's,
-    # where mutation_driver_test.go can see it.
-    bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" bash tests/mutation/mutation_driver.sh "{{LANE}}" "$@"
-
-# Mutate one source file per target and drive the CUCUMBER acceptance suite
-# against a binary rebuilt from each mutant. Ratcheted against
-# tests/mutation/survivor_baseline.txt. Nightly/scoped — never a per-PR gate.
-test-mutation-acceptance *ARGS: _mutation-prereqs
-    @"{{just_executable()}}" --justfile "{{justfile()}}" _mutation-driver acceptance "$@"
-
-# Mutate one source file per target and judge every mutant with the SINGLE test
-# that claims to verify it — the authoring-time check behind "a test does not
-# pass until a mutation dies".
-#
-# Not a CI gate and deliberately unratcheted: the suite covers regression. This
-# answers "does the test I just wrote look at the code it names", which a
-# package-wide judge cannot, because it reports KILLED when ANY test catches the
-# mutant. Measured ~6s/mutant, and it never writes the source tree.
-#
-#   just test-mutation-unit -run 'TestUnitMutation/^premise_instruction$'
-test-mutation-unit *ARGS: _mutation-prereqs
-    @"{{just_executable()}}" --justfile "{{justfile()}}" _mutation-driver unit "$@"
-
-# Run ONE entry from the mutation target table (see `just test-mutation-entries`).
-# Per-entry is the recommended way to run this: the full table is ~111 minutes,
-# and a single entry gives a number you can act on today.
-#
-#   just test-mutation-entry isolation_axes
-test-mutation-entry NAME *ARGS:
-    @shift; "{{just_executable()}}" --justfile "{{justfile()}}" test-mutation-acceptance -run 'TestAcceptanceMutation/^{{NAME}}$' "$@"
-
-# Run ONE standing gremlins PACKAGE target (see `just test-mutation-entries`),
-# ratcheted against tests/mutation/survivor_baseline.txt like the acceptance
-# entries. This is `test-mutation-pkg` with a memory: same tool, same
-# .gremlins.yaml, but the package is named in a table, its unverified count
-# (LIVED + NOT COVERED) has a row, and a run that leaves more unverified than
-# the row fails. gremlins' own efficacy threshold does NOT fail this recipe —
-# the harness logs the miss and hands the tally to the ratchet, because a
-# standing gate that reds on every recorded debt is never run. The threshold
-# stays where .gremlins.yaml puts it; nothing here lowers it.
-#
-# Scheduled, not per-PR: minutes to tens of minutes per package. Record the
-# first measurement, or a lower one, with CTXLOOM_MUTATION_BASELINE=update.
-#
-#   just test-mutation-package isolation
-test-mutation-package NAME *ARGS: _mutation-prereqs
-    @shift; "{{just_executable()}}" --justfile "{{justfile()}}" _mutation-driver package -run 'TestPackageMutation/^{{NAME}}$' "$@"
-
-# List the mutation target table's entry names, with the file each one mutates.
-# Reads the table itself, so it cannot drift from the code the way a hand-kept
-# list in a comment would.
-test-mutation-entries:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    # Every table is listed because they all live in tests/mutation/*_test.go.
-    # ACCEPTANCE entries are addressable by `just test-mutation-entry NAME`
-    # (TestAcceptanceMutation); PACKAGE entries by `just test-mutation-package
-    # NAME` (TestPackageMutation); a unit entry is run with
-    # `just test-mutation-unit -run 'TestUnitMutation/^NAME$'`. An entry that
-    # names a .go FILE is an ooze entry; one that names a directory is gremlins'.
-    echo "mutation target tables (tests/mutation/):"
-    echo "  acceptance -> just test-mutation-entry NAME"
-    echo "  package    -> just test-mutation-package NAME"
-    echo "  unit       -> just test-mutation-unit -run 'TestUnitMutation/^NAME\$'"
-    echo
-    grep -A2 -E '^\s+Name:\s+"' tests/mutation/*_test.go \
-      | grep -oE '"(([a-z_]+)|(internal/[^"]+))"' \
-      | tr -d '"' \
-      | paste - - \
-      | awk '{ printf "  %-16s %s\n", $1, $2 }'
 
 # Clean build artifacts
 clean:

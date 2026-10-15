@@ -370,18 +370,36 @@ install-script-hashes:
 
 # ===== Mutation testing =====
 
-# gremlins copies the whole Go module into TMPDIR once per worker. On a tmpfs
-# /tmp that exhausts RAM and wedges the machine (it has emptied a 16G tmpfs
-# here), so every recipe that runs a mutation tool runs it through
+# Every recipe that runs a mutation tool runs it through
 # tests/mutation/mutation_tmp.sh, which gives the run its own temp dir under
-# this one and removes it afterwards. Shared with the host justfile's other
-# mutation recipes.
+# this one, on disk, and removes it afterwards. Shared with the host
+# justfile's other mutation recipes.
 mutation_tmp := env_var_or_default("CTXLOOM_MUTATION_TMP", "/var/tmp/ctxloom-mutation")
 
-# gremlins mutation testing, SHARDED: one run split into disjoint slices that
-# run on separate machines (.github/workflows/mutation.yml), then judged as
-# ONE run. SCOPE is `tree` (the whole module; the weekly cron) or `diff:<base>`
-# (the changeset against base, gremlins --diff; every push and PR).
+# THE GATE, applied by mutshard's aggregate to a whole run (gomutants has no
+# config key for it). EFFICACY is the mutant KILL RATE (killed / killed+lived)
+# and is set to the project standard of 80%, decided 2026-08-06. It is
+# expected to FAIL until the tests earn it — that is the point. A gate set to
+# the current state measures nothing and ratchets nothing; a gate set to the
+# standard names the gap every time it runs.
+#
+# Do NOT lower this to make a run green. Four separate times a threshold was
+# chosen before a measurement and tuned until it passed. Raising coverage is
+# the way to green, not editing this number.
+#
+# MUTANT COVERAGE stays 0 deliberately, and is NOT the same knob. It measures
+# how many mutants the coverage profile could even see, which is bounded by
+# instrumentation rather than by test quality — and for anything driven as a
+# subprocess it is structurally near-zero. Gating on it would fail for a
+# reason no test author can fix.
+mutation_efficacy := "80"
+mutation_mcover := "0"
+
+# gomutants mutation testing, SHARDED: one run split into disjoint slices of
+# packages that run on separate machines (.github/workflows/mutation.yml), then
+# judged as ONE run. SCOPE is `tree` (the whole module; the weekly cron) or
+# `diff:<base>` (the changeset against base, gomutants --changed-since; every
+# push and PR).
 #
 # Why a shard is still the unsharded run, and why only the aggregate judges:
 # the doc comment on scripts/mutshard/main.go. The shard count is not stated
@@ -390,17 +408,17 @@ mutation_tmp := env_var_or_default("CTXLOOM_MUTATION_TMP", "/var/tmp/ctxloom-mut
 #
 # Skipped, never red: a diff with no usable base (a first push, or the
 # all-zeroes SHA GitHub sends for a branch creation), and a scope with no
-# mutable Go — gremlins scores an empty changeset 0% and would fail the gate
-# for having nothing to test. "Mutable" is gremlins' own file rule plus
-# .gremlins.yaml's exclude-files, read from that file, not restated. Mutable
-# files whose diffed lines yield no KILLED and no LIVED mutant (a comment-only
-# change, or lines whose mutants all went uncovered, timed out or were not
-# viable) do run, and the aggregate passes them as nothing to judge, printing
-# the not-covered, timed-out and not-viable counts — but only once every shard
-# has shown it looked. The coverage gates still judge uncovered lines.
+# mutable Go. "Mutable" is a production file of a package `go list` yields,
+# less .gomutants.yml's exclude-files, read from that file, not restated.
+# Mutable files whose changed lines yield no KILLED and no LIVED mutant (a
+# comment-only change, or lines whose mutants all went uncovered, timed out or
+# were not viable) do run, and the aggregate passes them as nothing to judge,
+# printing the not-covered, timed-out and not-viable counts — but only once
+# every shard has shown it looked. The coverage gates still judge uncovered
+# lines.
 
 # mutshard builds scripts/mutshard and runs it. Built, not `go run`: `go run`
-# reports every failing exit as 1, and the aggregate's exit code is gremlins'
+# reports every failing exit as 1, and the aggregate's exit code is gomutants'
 # own (10 efficacy, 11 mutant coverage).
 _mutshard := '''
 mutshard() {
@@ -413,7 +431,7 @@ mutshard() {
 }
 '''
 
-# Print the files shard SHARD (0-based) of SHARDS mutates for SCOPE.
+# Print the packages shard SHARD (0-based) of SHARDS mutates for SCOPE.
 #   just mutation-shard-plan diff:origin/main 0 8
 mutation-shard-plan SCOPE SHARD SHARDS:
     #!/usr/bin/env bash
@@ -422,23 +440,23 @@ mutation-shard-plan SCOPE SHARD SHARDS:
     mutshard plan -scope "$1" -shard "$2" -shards "$3"
 
 # Run shard SHARD of SHARDS for SCOPE; writes OUT/shard-SHARD.json for
-# test-mutation-aggregate. Passes whatever gremlins measured: the verdict is the
-# aggregate's.
+# test-mutation-aggregate. Passes whatever gomutants measured: the verdict is
+# the aggregate's.
 test-mutation-shard SCOPE SHARD SHARDS OUT: _mutation-prereqs
     #!/usr/bin/env bash
     set -euo pipefail
     {{_mutshard}}
     mutshard run -scope "$1" -shard "$2" -shards "$3" -out "$4" -- \
-        bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gremlins
+        bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gomutants
 
 # Judge the union of the shard reports under REPORTS: refuses a missing,
-# stale or never-looked shard, then applies .gremlins.yaml's thresholds to the
-# summed counts (exit 10/11 as gremlins' own).
+# stale or never-looked shard, then applies the thresholds above to the summed
+# counts (exit 10/11 as gomutants' own).
 test-mutation-aggregate SCOPE REPORTS:
     #!/usr/bin/env bash
     set -euo pipefail
     {{_mutshard}}
-    mutshard aggregate -scope "$1" -reports "$2"
+    mutshard aggregate -scope "$1" -reports "$2" -efficacy "{{mutation_efficacy}}" -mcover "{{mutation_mcover}}"
 
 # The whole module on this machine: one shard of one, then the aggregate.
 # Far too slow to gate a push.

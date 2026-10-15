@@ -1,11 +1,11 @@
 name: Mutation
 
-# One gremlins mutation run, SHARDED across runners and judged as one run.
+# One gomutants mutation run, SHARDED across runners and judged as one run.
 # Called by ci.yml (the diff against the PR/push base) and mutation-weekly.yml
 # (the whole tree) — one definition of the shape, so the two cannot drift.
 #
-# Each shard runs `just test-mutation-shard` on a disjoint slice of the files
-# and uploads its report; `verdict` runs `just test-mutation-aggregate` over
+# Each shard runs `just test-mutation-shard` on a disjoint slice of the
+# packages and uploads its report; `verdict` runs `just test-mutation-aggregate` over
 # all of them. Why a shard's result is the unsharded run's, and why only the
 # aggregate applies the thresholds: scripts/mutshard/main.go. The same pair of
 # recipes reproduces any of this locally (build/ci.justfile).

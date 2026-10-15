@@ -4,30 +4,41 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
 
-// mut is one mutation record in a fake gremlins report.
+// mut is one mutation record in a fake gomutants report.
 type mut struct {
 	file, status string
 	line         int
 }
 
-// gremlinsJSON builds a gremlins --output report from records, with the
-// top-level counters gremlins itself would compute from them.
-func gremlinsJSON(t *testing.T, muts ...mut) json.RawMessage {
+// gomutantsJSON builds a gomutants --output report from records, with the
+// top-level counters gomutants itself would compute from them. file_name is
+// deliberately NOT the module path: gomutants names a file relative to the
+// run's common import prefix, and only the id carries the module path.
+func gomutantsJSON(t *testing.T, muts ...mut) json.RawMessage {
 	t.Helper()
-	out := gremlinsOutput{}
+	type file struct {
+		Name      string              `json:"file_name"`
+		Mutations []gomutantsMutation `json:"mutations"`
+	}
+	out := struct {
+		gomutantsOutput
+		Files []file `json:"files"`
+	}{gomutantsOutput: gomutantsOutput{GoModule: "lab"}}
 	byFile := map[string]int{}
-	for _, m := range muts {
-		i, ok := byFile[m.file]
+	for i, m := range muts {
+		k, ok := byFile[m.file]
 		if !ok {
-			i = len(out.Files)
-			byFile[m.file] = i
-			out.Files = append(out.Files, gremlinsFile{Filename: m.file})
+			k = len(out.Files)
+			byFile[m.file] = k
+			out.Files = append(out.Files, file{Name: "x.go"})
 		}
-		out.Files[i].Mutations = append(out.Files[i].Mutations, gremlinsMutation{Type: "CONDITIONALS_NEGATION", Status: m.status, Line: m.line, Column: 1})
+		id := fmt.Sprintf("%s:F:CONDITIONALS_NEGATION#%d", m.file, i+1)
+		out.Files[k].Mutations = append(out.Files[k].Mutations, gomutantsMutation{ID: id, Status: m.status, Line: m.line})
 		switch m.status {
 		case statusKilled:
 			out.Killed++
@@ -37,6 +48,10 @@ func gremlinsJSON(t *testing.T, muts ...mut) json.RawMessage {
 			out.NotCovered++
 		case statusNotViable:
 			out.NotViable++
+		case statusTimedOut:
+			out.TimedOut++
+		case statusInfraError:
+			out.InfraError++
 		}
 		out.Total++
 	}
@@ -58,12 +73,12 @@ func many(file, status string, n int) []mut {
 
 var testStamp = stamp{scope: "diff:origin/main", head: "h", mergeBase: "m"}
 
-func rep(shard, shards int, files []string, g json.RawMessage) report {
+func rep(shard, shards int, pkgs []string, g json.RawMessage) report {
 	return report{Scope: testStamp.scope, Head: testStamp.head, MergeBase: testStamp.mergeBase,
-		Shard: shard, Shards: shards, Files: files, Gremlins: g}
+		Shard: shard, Shards: shards, Packages: pkgs, Gomutants: g}
 }
 
-var twoShards = [][]string{{"a.go"}, {"b.go"}}
+var twoShards = [][]string{{"a"}, {"b"}}
 
 func concat(parts ...[]mut) []mut {
 	var all []mut
@@ -74,15 +89,14 @@ func concat(parts ...[]mut) []mut {
 }
 
 // THE VERDICT IS THE UNION'S. Each shard alone would be judged differently —
-// shard 0 passes at 85%, shard 1 fails at 70% — but the gate that existed
-// before sharding saw 24 killed of 30, which is 80%, and gremlins fails
-// efficacy AT the threshold, not only below it. A per-shard verdict (any rule
-// that looks at a shard's own percentage) gets this wrong in one direction or
-// the other.
-func TestJudge_EfficacyIsJudgedOverTheUnionAtGremlinsBoundary(t *testing.T) {
+// shard 0 passes at 85%, shard 1 fails at 70% — but one run over both
+// packages sees 24 killed of 30, which is 80%, and the gate fails AT the
+// threshold, not only below it. A per-shard verdict (any rule that looks at a
+// shard's own percentage) gets this wrong in one direction or the other.
+func TestJudge_EfficacyIsJudgedOverTheUnionAtTheBoundary(t *testing.T) {
 	reports := []report{
-		rep(0, 2, twoShards[0], gremlinsJSON(t, concat(many("a.go", statusKilled, 17), many("a.go", statusLived, 3))...)),
-		rep(1, 2, twoShards[1], gremlinsJSON(t, concat(many("b.go", statusKilled, 7), many("b.go", statusLived, 3))...)),
+		rep(0, 2, twoShards[0], gomutantsJSON(t, concat(many("a/a.go", statusKilled, 17), many("a/a.go", statusLived, 3))...)),
+		rep(1, 2, twoShards[1], gomutantsJSON(t, concat(many("b/b.go", statusKilled, 7), many("b/b.go", statusLived, 3))...)),
 	}
 	got, err := judge(twoShards, testStamp, reports, thresholds{efficacy: 80})
 	if !errors.Is(err, errEfficacy) {
@@ -94,87 +108,65 @@ func TestJudge_EfficacyIsJudgedOverTheUnionAtGremlinsBoundary(t *testing.T) {
 
 	// One more kill in the weak shard lifts the UNION over the line, though
 	// that shard alone is still under it.
-	reports[1] = rep(1, 2, twoShards[1], gremlinsJSON(t, concat(many("b.go", statusKilled, 8), many("b.go", statusLived, 3))...))
+	reports[1] = rep(1, 2, twoShards[1], gomutantsJSON(t, concat(many("b/b.go", statusKilled, 8), many("b/b.go", statusLived, 3))...))
 	if _, err := judge(twoShards, testStamp, reports, thresholds{efficacy: 80}); err != nil {
 		t.Errorf("25/31 = 80.6%%: err = %v, want pass", err)
 	}
 }
 
-// A shard that legitimately tested nothing (its diffed lines held no
-// mutable token) is not refused on its own account — the unsharded gate never
-// refused a file for that — as long as it demonstrably LOOKED: gremlins
-// walked the tree and reported.
-func TestJudge_AShardWithNoTestedMutantsIsFineIfItLooked(t *testing.T) {
+// A shard that legitimately tested nothing (its changed lines held no
+// mutable token) is not refused on its own account, as long as it LOOKED:
+// gomutants ran over its packages and wrote its report, zero mutants and all.
+func TestJudge_AShardWithNoMutantsIsFineIfItLooked(t *testing.T) {
 	reports := []report{
-		rep(0, 2, twoShards[0], gremlinsJSON(t, mut{"other.go", statusSkipped, 1})),
-		rep(1, 2, twoShards[1], gremlinsJSON(t, many("b.go", statusKilled, 9)...)),
+		rep(0, 2, twoShards[0], gomutantsJSON(t)),
+		rep(1, 2, twoShards[1], gomutantsJSON(t, many("b/b.go", statusKilled, 9)...)),
 	}
 	if _, err := judge(twoShards, testStamp, reports, thresholds{efficacy: 80}); err != nil {
 		t.Errorf("err = %v, want pass", err)
 	}
 }
 
-// NOTHING SCORED IS NOTHING TO JUDGE (owner ruling #34, 2026-10-12, which
-// reverses the 2026-10-06 choice to refuse it). A union with no KILLED and no
-// LIVED mutant has no efficacy to measure — its in-scope mutants all went
-// uncovered, timed out or were not viable — so it passes, whatever the
-// thresholds; the coverage gates still judge the uncovered lines. One that has
-// a survivor and no kill is still 0% and refused.
+// NOTHING SCORED IS NOTHING TO JUDGE (owner ruling #34, 2026-10-12). A union
+// with no KILLED and no LIVED mutant has no efficacy to measure — its mutants
+// all went uncovered, timed out or were not viable — so it passes, whatever
+// the thresholds; the coverage gates still judge the uncovered lines. One that
+// has a survivor and no kill is still 0% and refused.
 func TestJudge_NothingKilledOrLivedAnywherePasses(t *testing.T) {
 	reports := []report{
-		rep(0, 2, twoShards[0], gremlinsJSON(t, mut{"a.go", statusNotCovered, 1}, mut{"a.go", statusTimedOut, 2})),
-		rep(1, 2, twoShards[1], gremlinsJSON(t, mut{"b.go", statusNotViable, 1}, mut{"b.go", statusSkipped, 2})),
+		rep(0, 2, twoShards[0], gomutantsJSON(t, mut{"a/a.go", statusNotCovered, 1}, mut{"a/a.go", statusTimedOut, 2})),
+		rep(1, 2, twoShards[1], gomutantsJSON(t, mut{"b/b.go", statusNotViable, 1}, mut{"b/b.go", statusInfraError, 2})),
 	}
 	got, err := judge(twoShards, testStamp, reports, thresholds{efficacy: 80, mutantCoverage: 70})
 	if err != nil {
 		t.Fatalf("err = %v, want pass: nothing was killed or lived", err)
 	}
-	if got.notCovered != 1 || got.timedOut != 1 || got.notViable != 1 || got.skipped != 1 {
-		t.Errorf("tally = %+v, want 1 not covered / 1 timed out / 1 not viable / 1 skipped", got)
+	if got != (tally{notCovered: 1, timedOut: 1, notViable: 1, infraError: 1}) {
+		t.Errorf("tally = %+v, want one each of not covered / timed out / not viable / infra error", got)
 	}
 
-	reports[1] = rep(1, 2, twoShards[1], gremlinsJSON(t, mut{"b.go", statusLived, 1}))
+	reports[1] = rep(1, 2, twoShards[1], gomutantsJSON(t, mut{"b/b.go", statusLived, 1}))
 	if _, err := judge(twoShards, testStamp, reports, thresholds{efficacy: 80}); !errors.Is(err, errEfficacy) {
 		t.Errorf("a survivor and no kill: err = %v, want errEfficacy", err)
 	}
 }
 
-// A fully-checked union whose every record is SKIPPED — the diff touched Go
-// files but no mutable token (a comment-only change) — has nothing in scope
-// to judge, and passes: the line-level analogue of the plan's "no mutable Go
-// files" skip. Every shard still had to show it LOOKED.
-func TestJudge_ZeroInScopeMutantsInAFullyCheckedUnionPasses(t *testing.T) {
-	reports := []report{
-		rep(0, 2, twoShards[0], gremlinsJSON(t, mut{"other.go", statusSkipped, 1})),
-		rep(1, 2, twoShards[1], gremlinsJSON(t, mut{"other.go", statusSkipped, 2})),
-	}
-	got, err := judge(twoShards, testStamp, reports, thresholds{efficacy: 80, mutantCoverage: 70})
-	if err != nil {
-		t.Fatalf("err = %v, want pass: nothing in scope to judge", err)
-	}
-	if got != (tally{skipped: 2}) {
-		t.Errorf("tally = %+v, want 2 skipped and nothing else", got)
-	}
-}
-
 // Nothing scored passes ONLY over a union every shard vouched for. Without
 // that, "nothing to mutate" is indistinguishable from a broken plan or a
-// shard that never ran. A lone timed-out or not-viable mutant is nothing
-// scored, and passes over a vouched-for union (ruling #34).
-func TestJudge_ZeroInScopeIsRefusedWithoutEveryShardsEvidence(t *testing.T) {
-	skippedOnly := gremlinsJSON(t, mut{"other.go", statusSkipped, 1})
+// shard that never ran.
+func TestJudge_NothingScoredIsRefusedWithoutEveryShardsEvidence(t *testing.T) {
+	empty := gomutantsJSON(t)
 	cases := []struct {
 		name    string
 		plan    [][]string
 		reports []report
 		want    error
 	}{
-		{"a shard's report is missing", twoShards, []report{rep(0, 2, twoShards[0], skippedOnly)}, errMissingShard},
-		{"a shard never reported a gremlins run", twoShards, []report{rep(0, 2, twoShards[0], skippedOnly), rep(1, 2, twoShards[1], nil)}, errMeasuredNothing},
-		{"gremlins walked nothing", twoShards, []report{rep(0, 2, twoShards[0], skippedOnly), rep(1, 2, twoShards[1], gremlinsJSON(t))}, errMeasuredNothing},
+		{"a shard's report is missing", twoShards, []report{rep(0, 2, twoShards[0], empty)}, errMissingShard},
+		{"a shard never reported a gomutants run", twoShards, []report{rep(0, 2, twoShards[0], empty), rep(1, 2, twoShards[1], nil)}, errMeasuredNothing},
+		{"a shard's report is not gomutants'", twoShards, []report{rep(0, 2, twoShards[0], empty), rep(1, 2, twoShards[1], json.RawMessage(`{}`))}, errUnreadable},
 		{"no shard was given anything to look at", [][]string{nil, nil}, []report{rep(0, 2, nil, nil), rep(1, 2, nil, nil)}, errEfficacy},
-		{"the only in-scope mutant timed out", twoShards, []report{rep(0, 2, twoShards[0], gremlinsJSON(t, mut{"a.go", statusTimedOut, 1})), rep(1, 2, twoShards[1], skippedOnly)}, nil},
-		{"the only in-scope mutant was not viable", twoShards, []report{rep(0, 2, twoShards[0], gremlinsJSON(t, mut{"a.go", statusNotViable, 1})), rep(1, 2, twoShards[1], skippedOnly)}, nil},
+		{"a dry run", twoShards, []report{rep(0, 2, twoShards[0], gomutantsJSON(t, mut{"a/a.go", statusPending, 1})), rep(1, 2, twoShards[1], empty)}, errMeasuredNothing},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -189,8 +181,8 @@ func TestJudge_ZeroInScopeIsRefusedWithoutEveryShardsEvidence(t *testing.T) {
 // that were not scored, rather than a 0.00% efficacy beside a green verdict.
 func TestReportVerdict_SaysNothingWasScoredAndCountsTheRest(t *testing.T) {
 	var out bytes.Buffer
-	reportVerdict(&out, 2, scope{base: "origin/main"}, tally{notCovered: 2, timedOut: 3, notViable: 4, skipped: 5}, nil)
-	for _, want := range []string{msgNothingScored, "Not covered: 2", "Timed out: 3", "Not viable: 4", "Skipped: 5"} {
+	reportVerdict(&out, 2, scope{base: "origin/main"}, tally{notCovered: 2, timedOut: 3, notViable: 4, infraError: 5}, nil)
+	for _, want := range []string{msgNothingScored, "Not covered: 2", "Timed out: 3", "Not viable: 4", "Infra error: 5"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output = %q, want it to carry %q", out.String(), want)
 		}
@@ -202,8 +194,8 @@ func TestReportVerdict_SaysNothingWasScoredAndCountsTheRest(t *testing.T) {
 
 func TestJudge_MutantCoverageThresholdIsHonoured(t *testing.T) {
 	reports := []report{
-		rep(0, 2, twoShards[0], gremlinsJSON(t, concat(many("a.go", statusKilled, 5), many("a.go", statusNotCovered, 5))...)),
-		rep(1, 2, twoShards[1], gremlinsJSON(t, many("b.go", statusKilled, 5)...)),
+		rep(0, 2, twoShards[0], gomutantsJSON(t, concat(many("a/a.go", statusKilled, 5), many("a/a.go", statusNotCovered, 5))...)),
+		rep(1, 2, twoShards[1], gomutantsJSON(t, many("b/b.go", statusKilled, 5)...)),
 	}
 	if _, err := judge(twoShards, testStamp, reports, thresholds{mutantCoverage: 70}); !errors.Is(err, errMutantCoverage) {
 		t.Errorf("10/15 covered: err = %v, want errMutantCoverage", err)
@@ -217,8 +209,8 @@ func TestJudge_MutantCoverageThresholdIsHonoured(t *testing.T) {
 // arithmetic: a verdict over part of the work would be a verdict nobody asked
 // for, and it would be lenient in exactly the way sharding must not be.
 func TestJudge_RefusesAnIncompleteOrInconsistentUnion(t *testing.T) {
-	good0 := gremlinsJSON(t, many("a.go", statusKilled, 9)...)
-	good1 := gremlinsJSON(t, many("b.go", statusKilled, 9)...)
+	good0 := gomutantsJSON(t, many("a/a.go", statusKilled, 9)...)
+	good1 := gomutantsJSON(t, many("b/b.go", statusKilled, 9)...)
 	cases := []struct {
 		name    string
 		plan    [][]string
@@ -229,18 +221,19 @@ func TestJudge_RefusesAnIncompleteOrInconsistentUnion(t *testing.T) {
 		{"a shard's report is missing", twoShards, []report{rep(0, 2, twoShards[0], good0)}, errMissingShard},
 		{"a shard reported twice", twoShards, []report{rep(0, 2, twoShards[0], good0), rep(0, 2, twoShards[0], good0)}, errMissingShard},
 		{"shards disagree on the count", twoShards, []report{rep(0, 2, twoShards[0], good0), rep(1, 3, twoShards[1], good1)}, errStale},
-		{"reports were cut for another shard count", twoShards, []report{rep(0, 1, []string{"a.go", "b.go"}, good0)}, errStale},
-		{"a shard ran another plan", twoShards, []report{rep(0, 2, []string{"b.go"}, good0), rep(1, 2, twoShards[1], good1)}, errStale},
+		{"reports were cut for another shard count", twoShards, []report{rep(0, 1, []string{"a", "b"}, good0)}, errStale},
+		{"a shard ran another plan", twoShards, []report{rep(0, 2, []string{"b"}, good0), rep(1, 2, twoShards[1], good1)}, errStale},
 		{"a shard ran another commit", twoShards, []report{rep(0, 2, twoShards[0], good0), func() report {
 			r := rep(1, 2, twoShards[1], good1)
 			r.Head = "other"
 			return r
 		}()}, errStale},
-		{"a shard never reported a gremlins run", twoShards, []report{rep(0, 2, twoShards[0], nil), rep(1, 2, twoShards[1], good1)}, errMeasuredNothing},
-		{"gremlins walked nothing", twoShards, []report{rep(0, 2, twoShards[0], gremlinsJSON(t)), rep(1, 2, twoShards[1], good1)}, errMeasuredNothing},
-		{"a shard tested another shard's file", twoShards, []report{rep(0, 2, twoShards[0], gremlinsJSON(t, concat(many("a.go", statusKilled, 9), many("b.go", statusLived, 1))...)), rep(1, 2, twoShards[1], good1)}, errLeak},
-		{"counters disagree with the records", twoShards, []report{rep(0, 2, twoShards[0], json.RawMessage(`{"files":[{"file_name":"a.go","mutations":[{"status":"KILLED"}]}],"mutants_killed":7}`)), rep(1, 2, twoShards[1], good1)}, errUnreadable},
-		{"an unknown status", twoShards, []report{rep(0, 2, twoShards[0], gremlinsJSON(t, mut{"a.go", "MAYBE", 1})), rep(1, 2, twoShards[1], good1)}, errUnreadable},
+		{"a shard tested another shard's package", twoShards, []report{rep(0, 2, twoShards[0], gomutantsJSON(t, concat(many("a/a.go", statusKilled, 9), many("b/b.go", statusLived, 1))...)), rep(1, 2, twoShards[1], good1)}, errLeak},
+		{"a shard tested a subpackage it was not given", twoShards, []report{rep(0, 2, twoShards[0], gomutantsJSON(t, mut{"a/sub/s.go", statusKilled, 1})), rep(1, 2, twoShards[1], good1)}, errLeak},
+		{"counters disagree with the records", twoShards, []report{rep(0, 2, twoShards[0], json.RawMessage(`{"go_module":"lab","files":[{"mutations":[{"id":"a/a.go:F:T#1","status":"KILLED"}]}],"mutants_total":1,"mutants_killed":7}`)), rep(1, 2, twoShards[1], good1)}, errUnreadable},
+		{"the total disagrees with the records", twoShards, []report{rep(0, 2, twoShards[0], json.RawMessage(`{"go_module":"lab","files":[{"mutations":[{"id":"a/a.go:F:T#1","status":"KILLED"}]}],"mutants_total":2,"mutants_killed":1}`)), rep(1, 2, twoShards[1], good1)}, errUnreadable},
+		{"a mutation with no id", twoShards, []report{rep(0, 2, twoShards[0], json.RawMessage(`{"go_module":"lab","files":[{"mutations":[{"status":"KILLED"}]}],"mutants_total":1,"mutants_killed":1}`)), rep(1, 2, twoShards[1], good1)}, errUnreadable},
+		{"an unknown status", twoShards, []report{rep(0, 2, twoShards[0], gomutantsJSON(t, mut{"a/a.go", "MAYBE", 1})), rep(1, 2, twoShards[1], good1)}, errUnreadable},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -251,18 +244,37 @@ func TestJudge_RefusesAnIncompleteOrInconsistentUnion(t *testing.T) {
 	}
 }
 
-// A shard the plan gave nothing to (more shards than candidate files) carries
-// no gremlins run, and needs none.
-func TestJudge_AnEmptyShardNeedsNoRun(t *testing.T) {
-	plan := [][]string{{"a.go"}, nil}
-	reports := []report{rep(0, 2, plan[0], gremlinsJSON(t, many("a.go", statusKilled, 3)...)), rep(1, 2, nil, nil)}
+// The module's root package is ".", and a mutant in it names a bare file.
+func TestJudge_TheRootPackageOwnsItsBareFiles(t *testing.T) {
+	plan := [][]string{{"."}}
+	reports := []report{rep(0, 1, plan[0], gomutantsJSON(t, many("root.go", statusKilled, 3)...))}
 	if _, err := judge(plan, testStamp, reports, thresholds{efficacy: 80}); err != nil {
 		t.Errorf("err = %v, want pass", err)
 	}
 }
 
-func TestExitCode_MirrorsGremlins(t *testing.T) {
-	for err, want := range map[error]int{errEfficacy: 10, errMutantCoverage: 11, errLeak: 1, errMissingShard: 1} {
+// A shard the plan gave nothing to (more shards than candidate packages)
+// carries no gomutants run, and needs none.
+func TestJudge_AnEmptyShardNeedsNoRun(t *testing.T) {
+	plan := [][]string{{"a"}, nil}
+	reports := []report{rep(0, 2, plan[0], gomutantsJSON(t, many("a/a.go", statusKilled, 3)...)), rep(1, 2, nil, nil)}
+	if _, err := judge(plan, testStamp, reports, thresholds{efficacy: 80}); err != nil {
+		t.Errorf("err = %v, want pass", err)
+	}
+}
+
+// The union sums EVERY count across shards — a count only one shard reports
+// cannot show a sum that keeps only the last shard's.
+func TestTally_AddSumsEveryCount(t *testing.T) {
+	u := tally{1, 2, 3, 4, 5, 6}
+	u.add(tally{10, 20, 30, 40, 50, 60})
+	if u != (tally{11, 22, 33, 44, 55, 66}) {
+		t.Errorf("sum = %+v", u)
+	}
+}
+
+func TestExitCode_MirrorsGomutants(t *testing.T) {
+	for err, want := range map[error]int{errEfficacy: 10, errMutantCoverage: 11, errLeak: 1, errMissingShard: 1, errRegressed: 1} {
 		if got := exitCode(err); got != want {
 			t.Errorf("exitCode(%v) = %d, want %d", err, got, want)
 		}

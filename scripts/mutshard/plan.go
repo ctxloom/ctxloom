@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path"
@@ -15,17 +14,15 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
-
-	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // scope is what a mutation run covers: the whole tree, or the changeset
-// against a base — all of it, or only the files under pkg.
+// against a base — all of it, or only the packages under pkg.
 type scope struct {
 	base string
 	tree bool
-	// pkg narrows a diff to one directory (module-relative, slash-separated,
-	// its subdirectories included); empty is the whole changeset.
+	// pkg narrows the scope to one directory (module-relative,
+	// slash-separated, its subdirectories included); empty is the whole scope.
 	pkg string
 }
 
@@ -49,36 +46,25 @@ func parseScope(s string) (scope, error) {
 }
 
 func (s scope) String() string {
-	if s.tree {
-		return scopeTree
+	name := scopeTree
+	if !s.tree {
+		name = scopeDiffPrefix + s.base
 	}
 	if s.pkg != "" {
-		return scopeDiffPrefix + s.base + " under " + s.pkg + "/"
+		name += " under " + s.pkg + "/"
 	}
-	return scopeDiffPrefix + s.base
+	return name
 }
 
-var (
-	errPkgNeedsDiff = errors.New("a package narrows a diff scope only; `gremlins unleash ./<pkg>` measures a package whole")
-	errPkgNotADir   = errors.New("the package is not a directory of the module")
-)
+var errPkgNotADir = errors.New("the package is not a directory of the module")
 
-// withPkg is s narrowed to the package directory pkg, named as `go test` and
-// gremlins take it ("./x", "x/", "x/..."), relative to the module at root.
-//
-// A package diff cannot be gremlins' own package target: `gremlins unleash
-// ./pkg --diff BASE` names the files it walks relative to the package while
-// its diff names them relative to the module root, so nothing matches and the
-// run measures nothing, green. Narrowing the PLAN instead keeps gremlins at the
-// module root, where both name a file alike.
+// withPkg is s narrowed to the package directory pkg, named as `go test`
+// takes it ("./x", "x/", "x/..."), relative to the module at root.
 func (s scope) withPkg(root, pkg string) (scope, error) {
 	pkg = strings.TrimSuffix(filepath.ToSlash(pkg), "...")
 	pkg = path.Clean(strings.TrimPrefix(pkg, "./"))
 	if pkg == "." {
 		return s, nil
-	}
-	if s.tree {
-		return s, errPkgNeedsDiff
 	}
 	if fi, err := os.Stat(filepath.Join(root, filepath.FromSlash(pkg))); err != nil || !fi.IsDir() {
 		return s, fmt.Errorf("%w: %q", errPkgNotADir, pkg)
@@ -87,9 +73,10 @@ func (s scope) withPkg(root, pkg string) (scope, error) {
 	return s, nil
 }
 
-// covers reports whether the module-relative file f is in the scope's package.
-func (s scope) covers(f string) bool {
-	return s.pkg == "" || strings.HasPrefix(f, s.pkg+"/")
+// covers reports whether the module-relative package directory dir is in the
+// scope's package.
+func (s scope) covers(dir string) bool {
+	return s.pkg == "" || dir == s.pkg || strings.HasPrefix(dir, s.pkg+"/")
 }
 
 // skipReason is non-empty when the scope cannot name any work at all.
@@ -100,7 +87,8 @@ func (s scope) skipReason() string {
 	return ""
 }
 
-// candidate is a file gremlins would mutate, with an estimate of what it costs.
+// candidate is a package gomutants would mutate (its module-relative
+// directory), with an estimate of what it costs.
 type candidate struct {
 	path string
 	cost int
@@ -136,98 +124,111 @@ func assign(cands []candidate, n int) [][]string {
 	return shards
 }
 
-// gremlinsConfig is the project's .gremlins.yaml: the document itself, so a
-// shard's config can be derived from it without restating any setting, and the
-// parts this tool must interpret the way gremlins does.
-type gremlinsConfig struct {
-	doc            map[string]any
-	excludes       []*regexp.Regexp
-	efficacy       float64
-	mutantCoverage float64
+// gomutantsConfig is the part of the project's .gomutants.yml this tool must
+// interpret the way gomutants does: which files it would mutate. gomutants
+// itself reads the file; nothing here is restated to it.
+type gomutantsConfig struct {
+	excludes []*regexp.Regexp
+	tags     string
 }
 
-func loadGremlinsConfig(path string) (*gremlinsConfig, error) {
-	raw, err := os.ReadFile(path)
+func loadGomutantsConfig(file string) (*gomutantsConfig, error) {
+	raw, err := os.ReadFile(file)
 	if err != nil {
 		return nil, err
 	}
-	var doc map[string]any
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
 	var typed struct {
-		Unleash struct {
-			ExcludeFiles []string `yaml:"exclude-files"`
-			Threshold    struct {
-				Efficacy       float64 `yaml:"efficacy"`
-				MutantCoverage float64 `yaml:"mutant-coverage"`
-			} `yaml:"threshold"`
-		} `yaml:"unleash"`
+		ExcludeFiles []string `yaml:"exclude-files"`
+		Tags         string   `yaml:"tags"`
 	}
 	if err := yaml.Unmarshal(raw, &typed); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", file, err)
 	}
-	cfg := &gremlinsConfig{doc: doc, efficacy: typed.Unleash.Threshold.Efficacy, mutantCoverage: typed.Unleash.Threshold.MutantCoverage}
-	for _, e := range typed.Unleash.ExcludeFiles {
+	cfg := &gomutantsConfig{tags: typed.Tags}
+	for _, e := range typed.ExcludeFiles {
 		re, err := regexp.Compile(e)
 		if err != nil {
-			return nil, fmt.Errorf("%s: exclude-files %q: %w", path, e, err)
+			return nil, fmt.Errorf("%s: exclude-files %q: %w", file, e, err)
 		}
 		cfg.excludes = append(cfg.excludes, re)
 	}
 	return cfg, nil
 }
 
-// mutable is gremlins' own file rule (engine.Run: a .go file that is not a
-// test) followed by the project's exclusions, matched against the same
-// module-relative slash path gremlins walks.
-func (c *gremlinsConfig) mutable(path string) bool {
-	if filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
-		return false
-	}
+// mutable reports whether gomutants would mutate the module-relative file f, a
+// production file of a listed package: no exclude-files regexp matches it
+// (unanchored, against the module-relative path, as gomutants matches it).
+func (c *gomutantsConfig) mutable(f string) bool {
 	for _, re := range c.excludes {
-		if re.MatchString(path) {
+		if re.MatchString(f) {
 			return false
 		}
 	}
 	return true
 }
 
-// shardConfig is the project config for a shard that must leave others' files
-// alone: the project's exclusions EXTENDED (gremlins reads exclude-files as one
-// setting, so a command-line --exclude-files would replace the list), and the
-// thresholds zeroed, because a shard's slice is not the thing being judged.
-func (c *gremlinsConfig) shardConfig(others []string) ([]byte, error) {
-	var doc map[string]any
-	// Round-trip for a deep copy: the loaded document is shared.
-	raw, err := yamlx.Marshal(c.doc)
+// packageFiles is every package of the module at root, by module-relative
+// directory, with the module-relative paths of its mutable files. It is what
+// gomutants resolves: `go list` under the config's build tags, so a
+// tag-gated file, a nested module and a testdata tree are never planned.
+func packageFiles(root string, cfg *gomutantsConfig) (map[string][]string, error) {
+	abs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
 	}
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		return nil, err
+	args := []string{"list", "-f", "{{.Dir}}\t{{join .GoFiles \"\\t\"}}"}
+	if cfg.tags != "" {
+		args = append(args, "-tags", cfg.tags)
 	}
-	unleash, _ := doc["unleash"].(map[string]any)
-	if unleash == nil {
-		unleash = map[string]any{}
-		doc["unleash"] = unleash
+	cmd := exec.Command("go", append(args, "./...")...)
+	cmd.Dir = abs
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("go list ./...: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
-	if len(others) > 0 {
-		quoted := make([]string, len(others))
-		for i, p := range others {
-			quoted[i] = regexp.QuoteMeta(p)
+	pkgs := map[string][]string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		fields := strings.Split(line, "\t")
+		rel, err := filepath.Rel(abs, fields[0])
+		if err != nil {
+			return nil, err
 		}
-		excl, _ := unleash["exclude-files"].([]any)
-		unleash["exclude-files"] = append(excl, "^(?:"+strings.Join(quoted, "|")+")$")
+		dir := filepath.ToSlash(rel)
+		for _, name := range fields[1:] {
+			if f := path.Join(dir, name); name != "" && cfg.mutable(f) {
+				pkgs[dir] = append(pkgs[dir], f)
+			}
+		}
 	}
-	unleash["threshold"] = map[string]any{"efficacy": 0, "mutant-coverage": 0}
-	return yamlx.Marshal(doc)
+	return pkgs, nil
 }
 
-// diffCandidates is gremlins' changeset for base — it runs `git diff
-// --merge-base <base>`, so the working tree counts — narrowed to mutable files.
-// Cost is the added-line count: --diff mutates only changed lines.
-func diffCandidates(root, base string, cfg *gremlinsConfig) ([]candidate, error) {
+// treeCandidates is every package with a mutable file, costed by the line
+// count of those files, in no particular order: assign's result does not
+// depend on it. So for diffCandidates.
+func treeCandidates(root string, pkgs map[string][]string) ([]candidate, error) {
+	var cands []candidate
+	for dir, files := range pkgs {
+		cost := 0
+		for _, f := range files {
+			b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(f)))
+			if err != nil {
+				return nil, err
+			}
+			cost += bytes.Count(b, []byte("\n"))
+		}
+		cands = append(cands, candidate{path: dir, cost: cost})
+	}
+	return cands, nil
+}
+
+// diffCandidates is every package holding a mutable file of the changeset
+// gomutants --changed-since would see — `git diff --merge-base <base>`, so the
+// working tree's tracked edits count — costed by the lines added to them, since
+// only changed lines are mutated.
+func diffCandidates(root, base string, pkgs map[string][]string) ([]candidate, error) {
 	cmd := exec.Command("git", "diff", "--merge-base", base, "--numstat", "-z", "--no-renames", "--diff-filter=d", "--", "*.go")
 	cmd.Dir = root
 	var stderr bytes.Buffer
@@ -236,62 +237,42 @@ func diffCandidates(root, base string, cfg *gremlinsConfig) ([]candidate, error)
 	if err != nil {
 		return nil, fmt.Errorf("git diff --merge-base %s: %w: %s", base, err, strings.TrimSpace(stderr.String()))
 	}
-	var cands []candidate
+	owner := map[string]string{}
+	for dir, files := range pkgs {
+		for _, f := range files {
+			owner[f] = dir
+		}
+	}
+	cost := map[string]int{}
 	for _, rec := range strings.Split(string(out), "\x00") {
 		fields := strings.SplitN(rec, "\t", 3)
-		if len(fields) != 3 || !cfg.mutable(fields[2]) {
+		if len(fields) != 3 {
+			continue
+		}
+		dir, ok := owner[fields[2]]
+		if !ok {
 			continue
 		}
 		added, _ := strconv.Atoi(fields[0]) // "-" (binary) counts as 0
-		cands = append(cands, candidate{path: fields[2], cost: added})
+		cost[dir] += added
 	}
-	sort.Slice(cands, func(i, j int) bool { return cands[i].path < cands[j].path })
+	var cands []candidate
+	for dir, c := range cost {
+		cands = append(cands, candidate{path: dir, cost: c})
+	}
 	return cands, nil
 }
 
-// treeCandidates walks the filesystem from root as gremlins does — every
-// directory, tracked or not — and costs each mutable file by its line count.
-func treeCandidates(root string, cfg *gremlinsConfig) ([]candidate, error) {
-	var cands []candidate
-	err := fs.WalkDir(os.DirFS(root), ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !cfg.mutable(path) {
-			return nil // gremlins ignores walk errors too
-		}
-		b, err := os.ReadFile(filepath.Join(root, path))
-		if err != nil {
-			return err
-		}
-		cands = append(cands, candidate{path: path, cost: bytes.Count(b, []byte("\n"))})
-		return nil
-	})
-	return cands, err
-}
-
-// plan is every shard's files for one scope and shard count, or why there is
-// no work at all.
+// plan is every shard's packages for one scope and shard count, or why there
+// is no work at all.
 type plan struct {
 	shards [][]string
-	// outside is every changed mutable file beyond the scope's package: every
-	// shard excludes it, since gremlins --diff mutates the whole changeset.
-	outside []string
-	skip    string
-}
-
-// excluded is what shard k must leave alone: every other shard's files and
-// every file outside the scope.
-func (p plan) excluded(k int) []string {
-	others := append([]string(nil), p.outside...)
-	for i, files := range p.shards {
-		if i != k {
-			others = append(others, files...)
-		}
-	}
-	return others
+	skip   string
 }
 
 var errShardCount = errors.New("shard count must be at least 1")
 
-func makePlan(root string, sc scope, n int, cfg *gremlinsConfig) (plan, error) {
+func makePlan(root string, sc scope, n int, cfg *gomutantsConfig) (plan, error) {
 	if n < 1 {
 		return plan{}, fmt.Errorf("%w, got %d", errShardCount, n)
 	}
@@ -299,12 +280,15 @@ func makePlan(root string, sc scope, n int, cfg *gremlinsConfig) (plan, error) {
 	if p.skip = sc.skipReason(); p.skip != "" {
 		return p, nil
 	}
+	pkgs, err := packageFiles(root, cfg)
+	if err != nil {
+		return plan{}, err
+	}
 	var cands []candidate
-	var err error
 	if sc.tree {
-		cands, err = treeCandidates(root, cfg)
+		cands, err = treeCandidates(root, pkgs)
 	} else {
-		cands, err = diffCandidates(root, sc.base, cfg)
+		cands, err = diffCandidates(root, sc.base, pkgs)
 	}
 	if err != nil {
 		return plan{}, err
@@ -313,15 +297,25 @@ func makePlan(root string, sc scope, n int, cfg *gremlinsConfig) (plan, error) {
 	for _, c := range cands {
 		if sc.covers(c.path) {
 			inside = append(inside, c)
-		} else {
-			p.outside = append(p.outside, c.path)
 		}
 	}
-	cands = inside
-	if len(cands) == 0 {
-		p.skip = "no mutable Go files in " + sc.String() + " — skipping mutation testing"
+	if len(inside) == 0 {
+		p.skip = "no mutable Go in " + sc.String() + " — skipping mutation testing"
 		return p, nil
 	}
-	p.shards = assign(cands, n)
+	p.shards = assign(inside, n)
 	return p, nil
+}
+
+// patterns is the gomutants package pattern for each module-relative package
+// directory.
+func patterns(dirs []string) []string {
+	out := make([]string, len(dirs))
+	for i, d := range dirs {
+		out[i] = "./" + d
+		if d == "." {
+			out[i] = "."
+		}
+	}
+	return out
 }

@@ -490,7 +490,7 @@ tag the files that must be edited by hand and let `area:` carry the rest.
 ```
 sig:coord.Coordinator.terminateRun
 sig:remote.ParseRepoURL
-sig:"justfile.test-mutation-cucumber"
+sig:"justfile.test-mutation-diff"
 ```
 
 **Not every addressable unit is a Go symbol.** A justfile recipe, a shell

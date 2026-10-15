@@ -33,14 +33,20 @@ Every behaviour you add or change ships with its test IN THE SAME TURN. You do
 not mutate it now — close-out runs `test-mutation-diff` over the whole change
 and scores every changed line — but write each test knowing that run is
 coming, because a mutant that LIVES there is a test you have to come back and
-fix. Per `.gremlins.yaml`, on each line you change it will:
+fix. With gomutants' mutators (`.gomutants.yml`), on each line you change it
+will:
 
 - flip conditional boundaries and negations (`<`→`<=`, `==`→`!=`) — test BOTH
   sides of every condition you add, at the boundary value itself;
-- swap `&&`/`||` and arithmetic, increments, sign and assignment operators —
-  assert the exact computed value, not just non-zero or "changed";
-- turn `break`/`continue` around and drop self-assignments — assert what the
-  loop produced or skipped, element by element.
+- swap `&&`/`||` and arithmetic, increments, sign, bitwise and assignment
+  operators, and nudge integer and float literals — assert the exact computed
+  value, not just non-zero or "changed";
+- turn `break`/`continue` around, break out of loops early and drop
+  self-assignments — assert what the loop produced or skipped, element by
+  element;
+- empty `if`/`else`/`case` bodies, remove statements, and force returns to
+  `nil` error, zero value, `true` or `false` — assert every effect and every
+  returned value, and errors by identity, not merely that one occurred.
 
 And the shapes no mutator needs to find, because they pass with the code
 deleted: green-is-not-passing lists them (exit 0 without the effect, the
@@ -82,7 +88,7 @@ covered / timed out — systematic, repeatable, and faster than editing by hand.
 Run it, then read its LIVED and NOT COVERED lists. Do not swap in hand mutation
 because the tool "covers the whole diff" (that is the point) or seems slow.
 
-Hand mutation is for ONE gap only. gremlins is coverage-gated: it mutates
+Hand mutation is for ONE gap only. gomutants is coverage-gated: it mutates
 source and runs `go test`, and the acceptance suite and testenv integration
 tests exec a PRE-BUILT binary, so a mutant reachable only through the CLI
 reports NOT COVERED and is never attempted.

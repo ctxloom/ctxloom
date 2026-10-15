@@ -1,29 +1,36 @@
-// Command mutshard splits one gremlins mutation run into disjoint shards that
+// Command mutshard splits one gomutants mutation run into disjoint shards that
 // run on separate machines, and judges the union of their results as the
 // single run would have been judged.
 //
-//	mutshard plan      -scope S -shard K -shards N          print shard K's files
-//	mutshard run       -scope S -shard K -shards N -out DIR -- <launcher...>
-//	mutshard aggregate -scope S -reports DIR
+//	mutshard plan      -scope S [-pkg DIR] -shard K -shards N          print shard K's packages
+//	mutshard run       -scope S [-pkg DIR] -shard K -shards N -out DIR -- <launcher...>
+//	mutshard aggregate -scope S [-pkg DIR] -reports DIR [-efficacy P] [-mcover P]
+//	                   [-ratchet FILE [-update]]
 //
-// S is "tree" (the whole module) or "diff:<base>" (gremlins --diff <base>);
-// -pkg DIR narrows a diff to the changed files under DIR (scope.withPkg).
+// S is "tree" (the whole module) or "diff:<base>" (gomutants --changed-since
+// <base>); -pkg DIR narrows either to the packages under DIR.
 //
-// A shard is the SAME gremlins invocation as the unsharded run — whole-module
-// coverage, the same timeout budget (derived from that coverage run), the
-// same per-package test for each mutant — with every other shard's files added
-// to the project's exclusions. A mutant's verdict depends only on its own
-// package's tests and that budget, so the union of the shards scores every
-// mutant as the single run would. What a shard does NOT do is judge: its
-// thresholds are zeroed and `aggregate` applies the project's to the summed
-// counts, because an efficacy threshold over a slice is a different gate.
+// gomutants has no sharding of its own, so a shard is a slice of the
+// PACKAGES: each runs gomutants over its own packages only. With gomutants'
+// default per-package routing a mutant is judged by its own package's tests
+// alone, so the union of the shards scores every mutant as one run over all
+// the packages would. What a shard does NOT do is judge: it runs with no
+// threshold, and `aggregate` applies the thresholds to the summed counts,
+// because an efficacy threshold over a slice is a different gate.
 //
 // The plan is recomputed from the checkout by every shard and by the
 // aggregate; each report is stamped with what it covered, so a shard that ran
 // a different plan or commit is refused rather than summed.
 //
-// <launcher...> is the command that runs gremlins (the recipe prefixes the
-// per-run temp dir wrapper); `unleash` and its arguments are appended.
+// <launcher...> is the command that runs gomutants (the recipe prefixes the
+// per-run temp dir wrapper); its flags and the package patterns are appended.
+// The project's settings are gomutants' own .gomutants.yml, which it reads
+// from the module root; this tool reads only its exclude-files and tags, to
+// plan the same files gomutants mutates.
+//
+// -ratchet makes the aggregate of a whole-package run (-scope tree -pkg DIR)
+// judge the survivor count against DIR's row in FILE instead of the
+// thresholds; -update records the count as the row (ratchet.go).
 package main
 
 import (
@@ -35,11 +42,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 )
 
-const gremlinsConfigFile = ".gremlins.yaml"
+const gomutantsConfigFile = ".gomutants.yml"
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -57,7 +63,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "run":
 		err = cmdRun(args[1:], stdout, stderr)
 	case "aggregate":
-		err = cmdAggregate(args[1:], stdout, stderr)
+		err = cmdAggregate(args[1:], stdout)
 	default:
 		_, _ = fmt.Fprintf(stderr, "mutshard: unknown command %q\n", args[0])
 		return 2
@@ -82,7 +88,7 @@ type shardFlags struct {
 func parseShardFlags(fs *flag.FlagSet, args []string, extra func()) (shardFlags, error) {
 	var sf shardFlags
 	scopeArg := fs.String("scope", "", `"tree" or "diff:<base>"`)
-	pkgArg := fs.String("pkg", "", "narrow a diff scope to this package directory")
+	pkgArg := fs.String("pkg", "", "narrow the scope to the packages under this directory")
 	fs.IntVar(&sf.shard, "shard", 0, "this shard's index, 0-based")
 	fs.IntVar(&sf.shards, "shards", 1, "the shard count")
 	if extra != nil {
@@ -102,7 +108,7 @@ func parseShardFlags(fs *flag.FlagSet, args []string, extra func()) (shardFlags,
 }
 
 func loadPlan(sc scope, shards int) (plan, error) {
-	cfg, err := loadGremlinsConfig(gremlinsConfigFile)
+	cfg, err := loadGomutantsConfig(gomutantsConfigFile)
 	if err != nil {
 		return plan{}, err
 	}
@@ -121,8 +127,8 @@ func cmdPlan(args []string, stdout, stderr io.Writer) error {
 	if p.skip != "" {
 		_, _ = fmt.Fprintln(stderr, p.skip)
 	}
-	for _, f := range p.shards[sf.shard] {
-		_, _ = fmt.Fprintln(stdout, f)
+	for _, d := range p.shards[sf.shard] {
+		_, _ = fmt.Fprintln(stdout, d)
 	}
 	return nil
 }
@@ -164,11 +170,7 @@ func cmdRun(args []string, stdout, stderr io.Writer) error {
 	if outDir == "" || len(launcher) == 0 {
 		return fmt.Errorf("-out and a launcher command after -- are required")
 	}
-	cfg, err := loadGremlinsConfig(gremlinsConfigFile)
-	if err != nil {
-		return err
-	}
-	p, err := makePlan(".", sf.scope, sf.shards, cfg)
+	p, err := loadPlan(sf.scope, sf.shards)
 	if err != nil {
 		return err
 	}
@@ -176,12 +178,12 @@ func cmdRun(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	rep := report{Scope: st.scope, Head: st.head, MergeBase: st.mergeBase, Shard: sf.shard, Shards: sf.shards, Files: nonNil(p.shards[sf.shard])}
+	rep := report{Scope: st.scope, Head: st.head, MergeBase: st.mergeBase, Shard: sf.shard, Shards: sf.shards, Packages: nonNil(p.shards[sf.shard])}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return err
 	}
 
-	if rep.Gremlins, err = measureShard(cfg, p, sf, outDir, launcher, stdout, stderr); err != nil {
+	if rep.Gomutants, err = measureShard(p, sf, outDir, launcher, stdout, stderr); err != nil {
 		return err
 	}
 	b, err := json.MarshalIndent(rep, "", "  ")
@@ -191,126 +193,99 @@ func cmdRun(args []string, stdout, stderr io.Writer) error {
 	return os.WriteFile(filepath.Join(outDir, fmt.Sprintf("shard-%d.json", sf.shard)), b, 0o644)
 }
 
-// measureShard runs gremlins over the shard's files, or says why there is
+// measureShard runs gomutants over the shard's packages, or says why there is
 // nothing to run: no work in scope at all, or none the plan gave this shard.
-// Either leaves the report without a gremlins result.
-func measureShard(cfg *gremlinsConfig, p plan, sf shardFlags, outDir string, launcher []string, stdout, stderr io.Writer) (json.RawMessage, error) {
+// Either leaves the report without a gomutants result.
+func measureShard(p plan, sf shardFlags, outDir string, launcher []string, stdout, stderr io.Writer) (json.RawMessage, error) {
 	switch {
 	case p.skip != "":
 		_, _ = fmt.Fprintln(stdout, p.skip)
 		return nil, nil
 	case len(p.shards[sf.shard]) == 0:
-		_, _ = fmt.Fprintf(stdout, "shard %d of %d: the plan gives this shard no files\n", sf.shard, sf.shards)
+		_, _ = fmt.Fprintf(stdout, "shard %d of %d: the plan gives this shard no packages\n", sf.shard, sf.shards)
 		return nil, nil
 	}
-	return runGremlins(cfg, p, sf, outDir, launcher, stdout, stderr)
+	return runGomutants(p, sf, outDir, launcher, stdout, stderr)
 }
 
-// runGremlins stages the shard's derived config under outDir, the directory the
-// caller named: a tool here is handed its paths, never reads the process's temp
-// root (TestArch_EnvLiteralsOnce).
-func runGremlins(cfg *gremlinsConfig, p plan, sf shardFlags, outDir string, launcher []string, stdout, stderr io.Writer) (json.RawMessage, error) {
+// runGomutants writes gomutants' report under outDir, the directory the
+// caller named: a tool here is handed its paths, never reads the process's
+// temp root (TestArch_EnvLiteralsOnce).
+func runGomutants(p plan, sf shardFlags, outDir string, launcher []string, stdout, stderr io.Writer) (json.RawMessage, error) {
 	tmp, err := os.MkdirTemp(outDir, ".mutshard-")
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
-	shardCfg, err := cfg.shardConfig(p.excluded(sf.shard))
-	if err != nil {
-		return nil, err
-	}
-	cfgPath := filepath.Join(tmp, "gremlins.yaml")
-	if err := os.WriteFile(cfgPath, shardCfg, 0o644); err != nil {
-		return nil, err
-	}
-	outPath := filepath.Join(tmp, "gremlins.json")
-	argv := append(append([]string(nil), launcher...), "unleash")
+	outPath := filepath.Join(tmp, "gomutants.json")
+	argv := append(append([]string(nil), launcher...), "--output", outPath)
 	if !sf.scope.tree {
-		argv = append(argv, "--diff", sf.scope.base)
+		argv = append(argv, "--changed-since", sf.scope.base)
 	}
-	argv = append(argv, "--config", cfgPath, "--output", outPath)
+	pkgs := p.shards[sf.shard]
+	argv = append(argv, patterns(pkgs)...)
 
-	files := p.shards[sf.shard]
-	_, _ = fmt.Fprintf(stdout, "shard %d of %d: %d file(s)\n", sf.shard, sf.shards, len(files))
-	for _, f := range files {
-		_, _ = fmt.Fprintf(stdout, "  %s\n", f)
+	_, _ = fmt.Fprintf(stdout, "shard %d of %d: %d package(s)\n", sf.shard, sf.shards, len(pkgs))
+	for _, d := range pkgs {
+		_, _ = fmt.Fprintf(stdout, "  %s\n", d)
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdout, cmd.Stderr = stdout, stderr
-	if !sf.scope.tree {
-		cmd.Env = zeroDiffContext(os.Environ())
-	}
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("gremlins: %w", err)
+		return nil, fmt.Errorf("gomutants: %w", err)
 	}
 	raw, err := os.ReadFile(outPath)
 	if os.IsNotExist(err) {
-		return nil, fmt.Errorf("%w: gremlins exited 0 and wrote no report (it found no mutant at all)", errMeasuredNothing)
+		return nil, fmt.Errorf("%w: gomutants exited 0 and wrote no report", errMeasuredNothing)
 	}
 	return raw, err
 }
 
-// zeroDiffContext is env with git's diff.context set to 0, for gremlins --diff.
-// gremlins (v0.6.0, internal/diff) runs a porcelain `git diff --merge-base`
-// and derives ONE line range per hunk: from after the hunk's leading context,
-// as long as its added-line count. That is exact only when every hunk carries
-// zero context; with git's default three lines, nearby edits merge into one
-// hunk whose range covers unchanged lines between them and can miss later
-// edits (unmerged upstream fixes: go-gremlins/gremlins#302, #312). Zero context
-// makes git emit one hunk per change. The setting goes through
-// GIT_CONFIG_COUNT (git >= 2.31), appended after any the caller already set.
-func zeroDiffContext(env []string) []string {
-	n := 0
-	for _, kv := range env {
-		if v, ok := strings.CutPrefix(kv, "GIT_CONFIG_COUNT="); ok {
-			if c, err := strconv.Atoi(v); err == nil && c > 0 {
-				n = c
-			}
-		}
-	}
-	out := make([]string, 0, len(env)+3)
-	for _, kv := range env {
-		if !strings.HasPrefix(kv, "GIT_CONFIG_COUNT=") {
-			out = append(out, kv)
-		}
-	}
-	return append(out,
-		fmt.Sprintf("GIT_CONFIG_COUNT=%d", n+1),
-		fmt.Sprintf("GIT_CONFIG_KEY_%d=diff.context", n),
-		fmt.Sprintf("GIT_CONFIG_VALUE_%d=0", n),
-	)
+// aggregateFlags is everything `aggregate` is told.
+type aggregateFlags struct {
+	scope   scope
+	reports string
+	th      thresholds
+	ratchet string
+	update  bool
 }
 
-func cmdAggregate(args []string, stdout, stderr io.Writer) error {
-	sc, dir, err := parseAggregateFlags(args)
+func cmdAggregate(args []string, stdout io.Writer) error {
+	af, err := parseAggregateFlags(args)
 	if err != nil {
 		return err
 	}
-	cfg, err := loadGremlinsConfig(gremlinsConfigFile)
+	cfg, err := loadGomutantsConfig(gomutantsConfigFile)
 	if err != nil {
 		return err
 	}
-	if idle, err := nothingToMeasure(sc, cfg, stdout); err != nil || idle {
+	if idle, err := nothingToMeasure(af.scope, cfg, stdout); err != nil || idle {
 		return err
 	}
-	reports, err := readReports(dir)
+	reports, err := readReports(af.reports)
 	if err != nil {
 		return err
 	}
 	if len(reports) == 0 {
-		return fmt.Errorf("%w: no shard-*.json under %q", errMissingShard, dir)
+		return fmt.Errorf("%w: no shard-*.json under %q", errMissingShard, af.reports)
 	}
-	p, err := makePlan(".", sc, reports[0].Shards, cfg)
+	p, err := makePlan(".", af.scope, reports[0].Shards, cfg)
 	if err != nil {
 		return err
 	}
-	st, err := stampFor(sc, false)
+	st, err := stampFor(af.scope, false)
 	if err != nil {
 		return err
 	}
-	t, verdict := judge(p.shards, st, reports, thresholds{efficacy: cfg.efficacy, mutantCoverage: cfg.mutantCoverage})
-	reportVerdict(stdout, len(p.shards), sc, t, verdict)
-	return verdict
+	t, verdict := judge(p.shards, st, reports, af.th)
+	reportVerdict(stdout, len(p.shards), af.scope, t, verdict)
+	if af.ratchet == "" || !judged(verdict) {
+		return verdict
+	}
+	if verdict != nil {
+		_, _ = fmt.Fprintf(stdout, "(%v — reported, not the verdict: the survivor ratchet is)\n", verdict)
+	}
+	return ratchet(stdout, af.ratchet, af.scope.pkg, t, af.update)
 }
 
 // msgNothingScored is what a pass over a union with no killed and no lived
@@ -324,22 +299,36 @@ func reportVerdict(stdout io.Writer, shards int, sc scope, t tally, verdict erro
 	switch {
 	case verdict == nil && t.scored() == 0:
 		_, _ = fmt.Fprintf(stdout, "\nMutation testing, %d shard(s) of %s: %s (every shard looked)\n", shards, sc, msgNothingScored)
-		_, _ = fmt.Fprintf(stdout, "Not covered: %d, Timed out: %d, Not viable: %d, Skipped: %d\n", t.notCovered, t.timedOut, t.notViable, t.skipped)
+		_, _ = fmt.Fprintf(stdout, "Not covered: %d, Timed out: %d, Not viable: %d, Infra error: %d\n", t.notCovered, t.timedOut, t.notViable, t.infraError)
 	case judged(verdict):
 		printTally(stdout, shards, sc, t)
 	}
 }
 
-func parseAggregateFlags(args []string) (scope, string, error) {
+func parseAggregateFlags(args []string) (aggregateFlags, error) {
+	var af aggregateFlags
 	fs := flag.NewFlagSet("aggregate", flag.ContinueOnError)
 	scopeArg := fs.String("scope", "", `"tree" or "diff:<base>"`)
-	pkgArg := fs.String("pkg", "", "narrow a diff scope to this package directory")
-	dir := fs.String("reports", "", "directory holding the shards' shard-<K>.json")
+	pkgArg := fs.String("pkg", "", "narrow the scope to the packages under this directory")
+	fs.StringVar(&af.reports, "reports", "", "directory holding the shards' shard-<K>.json")
+	fs.Float64Var(&af.th.efficacy, "efficacy", 0, "fail at or below this test efficacy %% (0 disables)")
+	fs.Float64Var(&af.th.mutantCoverage, "mcover", 0, "fail at or below this mutant coverage %% (0 disables)")
+	fs.StringVar(&af.ratchet, "ratchet", "", "judge the survivor count against this baseline file instead of the thresholds")
+	fs.BoolVar(&af.update, "update", false, "with -ratchet: record the count as the package's row")
 	if err := fs.Parse(args); err != nil {
-		return scope{}, "", err
+		return af, err
 	}
-	sc, err := parseScopeFlags(*scopeArg, *pkgArg)
-	return sc, *dir, err
+	var err error
+	if af.scope, err = parseScopeFlags(*scopeArg, *pkgArg); err != nil {
+		return af, err
+	}
+	if af.ratchet != "" && (!af.scope.tree || af.scope.pkg == "") {
+		return af, errRatchetScope
+	}
+	if af.update && af.ratchet == "" {
+		return af, fmt.Errorf("-update records a ratchet row and needs -ratchet")
+	}
+	return af, nil
 }
 
 // parseScopeFlags is -scope narrowed by -pkg, against the module in the
@@ -356,7 +345,7 @@ func parseScopeFlags(scopeArg, pkgArg string) (scope, error) {
 // nothingToMeasure reports, and says why, when the scope holds no work — in
 // which case there is no union to judge. Whether there is any work does not
 // depend on the shard count.
-func nothingToMeasure(sc scope, cfg *gremlinsConfig, stdout io.Writer) (bool, error) {
+func nothingToMeasure(sc scope, cfg *gomutantsConfig, stdout io.Writer) (bool, error) {
 	p, err := makePlan(".", sc, 1, cfg)
 	if err != nil {
 		return false, err
@@ -378,7 +367,7 @@ func judged(verdict error) bool {
 func printTally(stdout io.Writer, shards int, sc scope, t tally) {
 	_, _ = fmt.Fprintf(stdout, "\nMutation testing, %d shard(s) of %s:\n", shards, sc)
 	_, _ = fmt.Fprintf(stdout, "Killed: %d, Lived: %d, Not covered: %d\n", t.killed, t.lived, t.notCovered)
-	_, _ = fmt.Fprintf(stdout, "Timed out: %d, Not viable: %d, Skipped: %d\n", t.timedOut, t.notViable, t.skipped)
+	_, _ = fmt.Fprintf(stdout, "Timed out: %d, Not viable: %d, Infra error: %d\n", t.timedOut, t.notViable, t.infraError)
 	_, _ = fmt.Fprintf(stdout, "Test efficacy: %.2f%%\nMutator coverage: %.2f%%\n", t.efficacy(), t.mutantCoverage())
 }
 
@@ -388,14 +377,14 @@ func readReports(dir string) ([]report, error) {
 		return nil, err
 	}
 	var reports []report
-	for _, path := range paths {
-		b, err := os.ReadFile(path)
+	for _, p := range paths {
+		b, err := os.ReadFile(p)
 		if err != nil {
 			return nil, err
 		}
 		var r report
 		if err := json.Unmarshal(b, &r); err != nil {
-			return nil, fmt.Errorf("%w: %s: %v", errUnreadable, path, err)
+			return nil, fmt.Errorf("%w: %s: %v", errUnreadable, p, err)
 		}
 		reports = append(reports, r)
 	}

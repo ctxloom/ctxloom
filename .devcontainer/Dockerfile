@@ -97,7 +97,7 @@ ARG GOLANGCI_LINT_VERSION
 ARG BUF_VERSION
 ARG PROTOC_GEN_GO_VERSION
 ARG PROTOC_GEN_GO_GRPC_VERSION
-ARG GREMLINS_VERSION
+ARG GOMUTANTS_VERSION
 ARG VERSIONATOR_VERSION
 ARG GORELEASER_VERSION
 ARG LIZARD_VERSION
@@ -120,7 +120,7 @@ RUN : "${GO_VERSION:?missing --build-arg GO_VERSION — build via 'just dev-imag
     && : "${BUF_VERSION:?missing --build-arg BUF_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${PROTOC_GEN_GO_VERSION:?missing --build-arg PROTOC_GEN_GO_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${PROTOC_GEN_GO_GRPC_VERSION:?missing --build-arg PROTOC_GEN_GO_GRPC_VERSION — see .devcontainer/tool-versions.env}" \
-    && : "${GREMLINS_VERSION:?missing --build-arg GREMLINS_VERSION — see .devcontainer/tool-versions.env}" \
+    && : "${GOMUTANTS_VERSION:?missing --build-arg GOMUTANTS_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${VERSIONATOR_VERSION:?missing --build-arg VERSIONATOR_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${GORELEASER_VERSION:?missing --build-arg GORELEASER_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${LIZARD_VERSION:?missing --build-arg LIZARD_VERSION — see .devcontainer/tool-versions.env}" \
@@ -293,8 +293,8 @@ RUN case "${TARGETARCH}" in \
 RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v${PROTOC_GEN_GO_VERSION} && \
     go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v${PROTOC_GEN_GO_GRPC_VERSION}
 
-# Install gremlins for mutation testing
-RUN go install github.com/go-gremlins/gremlins/cmd/gremlins@v${GREMLINS_VERSION}
+# Install gomutants for mutation testing
+RUN go install github.com/gomutants/gomutants@v${GOMUTANTS_VERSION}
 
 # Install versionator for version management
 RUN go install github.com/benjaminabbitt/versionator@v${VERSIONATOR_VERSION}

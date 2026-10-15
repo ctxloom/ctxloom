@@ -296,7 +296,9 @@ func TestInterceptor_SimilarKeysPassByteIdentical(t *testing.T) {
 // still become the prefix waits for the next read: a lone Esc, or Alt+[,
 // reaches the engine in the read it arrived in.
 func TestInterceptor_UnheldTailIsNotDelayed(t *testing.T) {
-	for _, tail := range []string{"\x1b", "\x1b[", "\x1bO"} {
+	// "\x1b[9=" and "\x1b[9 " are incomplete CSI sequences no key encoding
+	// spells: a private-marker byte or an intermediate after the digits.
+	for _, tail := range []string{"\x1b", "\x1b[", "\x1bO", "\x1b[9=", "\x1b[9 "} {
 		h := newHarness("a"+tail, "z")
 		buf := make([]byte, 64)
 		n, err := h.ic.Read(buf)
@@ -327,4 +329,93 @@ func TestInterceptor_OffReleasesAHeldTail(t *testing.T) {
 	h.ic.src = &chunkReader{chunks: [][]byte{[]byte(";5u")}}
 	assert.Equal(t, "\x1b[93;5u", h.drain(t), "pure passthrough, held bytes first")
 	assert.Zero(t, h.engaged)
+}
+
+// TestInterceptor_OffDropsTheViewersTail: a tail the VIEWER was collecting
+// when the machine went off was never the engine's, so it is dropped rather
+// than sent ahead of the next read the way a passthrough tail is.
+func TestInterceptor_OffDropsTheViewersTail(t *testing.T) {
+	h := newHarness("\x1dj\x1b[9")
+	_, err := h.ic.Read(make([]byte, 64))
+	require.ErrorIs(t, err, io.EOF)
+	require.Equal(t, 1, h.engaged)
+	h.ic.Off()
+	h.ic.src = &chunkReader{chunks: [][]byte{[]byte("x")}}
+	assert.Equal(t, "x", h.drain(t), "none of the viewer's tail reaches the engine")
+}
+
+// TestInterceptor_EveryPrefixShapedTailIsHeld pins holdable's character
+// classes at their edges: a tail torn anywhere inside an encoding of the
+// prefix — after its first digit, on a '0', a '9', a ':' or a ';', and at the
+// longest tail held (maxHeldTail) — waits for the read that completes it, and
+// the prefix engages.
+func TestInterceptor_EveryPrefixShapedTailIsHeld(t *testing.T) {
+	longest := "\x1b[0000093:0000125:0000093;000005" // kitty, the key fields at csiNum's seven digits
+	require.Len(t, longest, maxHeldTail)
+	for _, split := range [][2]string{
+		{"\x1b[9", "3;5u"},     // shortest held tail
+		{"\x1b[0", "093;5u"},   // '0' opening the parameters
+		{"\x1b[93;0", "5u"},    // '0' inside them
+		{"\x1b[27;5;9", "3~"},  // '9' inside them (modifyOtherKeys)
+		{"\x1b[93:1", "25;5u"}, // ':' (kitty's shifted alternate)
+		{longest, "u"},         // exactly maxHeldTail
+	} {
+		h := newHarness("ab"+split[0], split[1]+"j")
+		assert.Equal(t, "ab", h.drain(t), "%q|%q: no byte of the prefix reaches the engine", split[0], split[1])
+		assert.Equal(t, 1, h.engaged, "%q|%q engages", split[0], split[1])
+		assert.Equal(t, "j", h.ui.String(), "%q|%q", split[0], split[1])
+	}
+}
+
+// TestInterceptor_TailBeyondMaxHeldIsNotDelayed: one byte past maxHeldTail is
+// no longer held, even when it is still prefix-shaped.
+func TestInterceptor_TailBeyondMaxHeldIsNotDelayed(t *testing.T) {
+	tail := "\x1b[0000093:0000125:0000093;0000005"
+	require.Len(t, tail, maxHeldTail+1)
+	h := newHarness(tail, "u")
+	buf := make([]byte, 64)
+	n, err := h.ic.Read(buf)
+	require.NoError(t, err)
+	assert.Equal(t, tail, string(buf[:n]), "delivered in its own read")
+	assert.Equal(t, "u", h.drain(t))
+	assert.Zero(t, h.engaged)
+}
+
+// TestInterceptor_TailInAPasteIsNotHeld: pasted text is never the prefix, so
+// a prefix-shaped tail inside a paste reaches the engine in its own read.
+func TestInterceptor_TailInAPasteIsNotHeld(t *testing.T) {
+	h := newHarness("\x1b[200~ab\x1b[93", ";5u\x1b[201~")
+	buf := make([]byte, 64)
+	n, err := h.ic.Read(buf)
+	require.NoError(t, err)
+	assert.Equal(t, "\x1b[200~ab\x1b[93", string(buf[:n]))
+	assert.Equal(t, ";5u\x1b[201~", h.drain(t))
+	assert.Zero(t, h.engaged)
+}
+
+// TestInterceptor_PartlyForwardedTailIsNotHeld: once part of a tail has gone
+// to the engine (it could not yet be the prefix), what follows it is
+// forwarded read by read too — the token can no longer be the prefix, so
+// nothing waits for it to complete.
+func TestInterceptor_PartlyForwardedTailIsNotHeld(t *testing.T) {
+	h := newHarness("a\x1b[", "9", ";5u")
+	buf := make([]byte, 64)
+	for _, want := range []string{"a\x1b[", "9", ";5u"} {
+		n, err := h.ic.Read(buf)
+		require.NoError(t, err)
+		assert.Equal(t, want, string(buf[:n]), "each read's bytes in that read")
+	}
+	assert.Empty(t, h.drain(t))
+	assert.Zero(t, h.engaged)
+}
+
+// TestInterceptor_HalfForwardedPrefixIsNotThePrefix: an encoding whose head
+// already reached the engine (forwarded before it was prefix-shaped) is not
+// the prefix when it completes — the engine has half of it, so it gets the
+// rest, and nothing engages.
+func TestInterceptor_HalfForwardedPrefixIsNotThePrefix(t *testing.T) {
+	h := newHarness("ab\x1b[", "93;5uj")
+	assert.Equal(t, "ab\x1b[93;5uj", h.drain(t))
+	assert.Zero(t, h.engaged)
+	assert.Empty(t, h.ui.String())
 }

@@ -787,9 +787,14 @@ func TestController_KittyEncodedPrefixOpensTheViewer(t *testing.T) {
 	h.sized(t, 24, 80)
 
 	h.typeKeys(t, "\x1b[93;5u\x1b[106u")
+	// typeKeys returns only after the pump has handed the engine whatever
+	// this read gave it, so an unrecognised prefix shows here at once. Checked
+	// BEFORE the overlay's start, which a missed prefix never sends: waiting on
+	// it first parked the test to the binary's deadline instead of failing.
+	require.Empty(t, h.engine.String(), "neither the prefix nor the viewer key reaches the engine")
 	await(t, "the overlay's start", h.overlay.started)
 	h.overlay.ui.waitUntil(t, "the viewer key", func(s string) bool { return s == "\x1b[106u" })
-	assert.Empty(t, h.engine.String(), "neither the prefix nor the viewer key reaches the engine")
+	assert.Empty(t, h.engine.String(), "still nothing for the engine once the viewer has the key")
 
 	h.overlay.release <- nil
 	h.drainTranslated(t)

@@ -75,6 +75,25 @@ var unitMutationTargets = []mutationTarget{
 			Run: "^TestParentCommit_",
 		},
 	},
+	// newPrefixKey's byte-to-character switch sits on `case` lines, gremlins'
+	// blind spot: its conditions always score NOT COVERED there.
+	{
+		Name:          "termui_prefixkey_derive",
+		SourceRelPath: "internal/adapters/termui/prefixkey.go",
+		Judge: unitJudge{
+			Pkg: "./internal/adapters/termui",
+			Run: "^TestPrefixKey_EachByteDerivesItsKey$",
+		},
+	},
+	// unreadDigest's switch, likewise on `case` lines.
+	{
+		Name:          "termui_unread_digest",
+		SourceRelPath: "internal/adapters/termui/surround.go",
+		Judge: unitJudge{
+			Pkg: "./internal/adapters/termui",
+			Run: "^TestRosterDigest_NamesUnreadMail$",
+		},
+	},
 }
 
 // TestUnitMutation releases ooze against each unit target, judging every mutant

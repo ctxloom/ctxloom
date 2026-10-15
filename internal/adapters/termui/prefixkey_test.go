@@ -153,3 +153,68 @@ func TestPrefixKey_EachByteDerivesItsKey(t *testing.T) {
 		assert.Equal(t, keyPress, k.hit([]byte(xterm)), "byte %#x: modifyOtherKeys %q", c.b, xterm)
 	}
 }
+
+// TestPrefixKey_MalformedKittyKeyFieldIsNoKey pins kitty's key field: the
+// code is required and numeric, and there are at most three sub-fields
+// (code:shifted:base). A field that breaks any of that is no key at all, even
+// when its shifted alternate names the prefix exactly.
+func TestPrefixKey_MalformedKittyKeyFieldIsNoKey(t *testing.T) {
+	ctrlBracket := newPrefixKey(0x1d)
+	require.Equal(t, keyPress, ctrlBracket.hit([]byte("\x1b[93:93;6u")), "control: ctrl+shift with ] as the shifted key")
+	for _, c := range []struct{ name, tok string }{
+		{"empty code, shifted key ]", "\x1b[:93;6u"},
+		{"non-numeric code, shifted key ]", "\x1b[x:93;6u"},
+		{"four key sub-fields", "\x1b[93:93:93:93;6u"},
+		{"four key sub-fields, plain ctrl", "\x1b[93:125:93:1;5u"},
+	} {
+		assert.Equal(t, keyMiss, ctrlBracket.hit([]byte(c.tok)), "%s: %q", c.name, c.tok)
+	}
+}
+
+// TestPrefixKey_EmptyEventIsAPress: kitty's event sub-field defaults to 1
+// (press) when empty, as every optional parameter takes its default.
+func TestPrefixKey_EmptyEventIsAPress(t *testing.T) {
+	assert.Equal(t, keyPress, newPrefixKey(0x1d).hit([]byte("\x1b[93;5:u")))
+}
+
+// TestPrefixKey_ShiftMakesEveryLetterAnotherKey pins the letter range at both
+// ends: ctrl+shift+a and ctrl+shift+z are not ctrl+a and ctrl+z (ParsePrefixKey
+// rejects ctrl-z, but chord's letter rule holds over the whole range).
+func TestPrefixKey_ShiftMakesEveryLetterAnotherKey(t *testing.T) {
+	for _, c := range []struct {
+		b    byte
+		code int
+	}{{1, 'a'}, {26, 'z'}} {
+		k := newPrefixKey(c.b)
+		assert.Equal(t, keyPress, k.hit(fmt.Appendf(nil, "\x1b[%d;5u", c.code)), "ctrl+%c", c.code)
+		assert.Equal(t, keyMiss, k.hit(fmt.Appendf(nil, "\x1b[%d;6u", c.code)), "ctrl+shift+%c is another key", c.code)
+	}
+}
+
+// TestPrefixKey_ParameterDigits pins csiNum's digit rule through the matcher:
+// every digit counts ('0' included: ctrl+f is code 102), leading zeros are
+// harmless up to seven digits and an eighth makes the parameter unusable, and
+// a non-digit is never folded into the number ("8=" is not 8*10+('='-'0') = 93).
+func TestPrefixKey_ParameterDigits(t *testing.T) {
+	ctrlF, ctrlBracket := newPrefixKey(6), newPrefixKey(0x1d)
+	assert.Equal(t, keyPress, ctrlF.hit([]byte("\x1b[102;5u")), "kitty ctrl+f")
+	assert.Equal(t, keyPress, ctrlF.hit([]byte("\x1b[27;5;102~")), "modifyOtherKeys ctrl+f")
+	assert.Equal(t, keyPress, ctrlBracket.hit([]byte("\x1b[0000093;5u")), "seven digits")
+	assert.Equal(t, keyMiss, ctrlBracket.hit([]byte("\x1b[00000093;5u")), "eight digits")
+	assert.Equal(t, keyMiss, ctrlBracket.hit([]byte("\x1b[8=;5u")), "kitty, a non-digit in the code")
+	assert.Equal(t, keyMiss, ctrlBracket.hit([]byte("\x1b[27;5;8=~")), "modifyOtherKeys, a non-digit in the code")
+}
+
+// TestCsiNum_EmptyTakesTheDefault: an empty parameter is def, usable unless
+// def is negative (the parameter is required).
+func TestCsiNum_EmptyTakesTheDefault(t *testing.T) {
+	for _, c := range []struct {
+		def  int
+		ok   bool
+		name string
+	}{{1, true, "optional, default 1"}, {0, true, "optional, default 0"}, {-1, false, "required"}} {
+		n, ok := csiNum(nil, c.def)
+		assert.Equal(t, c.def, n, c.name)
+		assert.Equal(t, c.ok, ok, c.name)
+	}
+}

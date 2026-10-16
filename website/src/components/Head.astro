@@ -1,0 +1,46 @@
+---
+// Starlight's <head>, plus the terminal player on generated journey pages
+// only. scripts/gendocs/livingdocs renders a [data-cast] mount per captured
+// run beside its step/output grid; this script turns each into an
+// asciinema-player playing that run's paced recording from /journeys/.
+// The player and its stylesheet are bundled by the site build (vendored from
+// node_modules, never fetched from a CDN), and imported dynamically so their
+// chunks are requested only by a page that has a mount.
+import Default from '@astrojs/starlight/components/Head.astro';
+
+const isJourney = Astro.locals.starlightRoute.id.startsWith('journeys/');
+---
+
+<Default><slot /></Default>
+{
+	isJourney && (
+		<script>
+			const mounts = document.querySelectorAll<HTMLElement>('[data-cast]');
+			if (mounts.length > 0) {
+				// `?url`, not a plain CSS import: a plain import is extracted at
+				// build time and linked from every page that carries this
+				// script; as a URL it is fetched only here, beside the player.
+				const [{ create }, { default: cssHref }] = await Promise.all([
+					import('asciinema-player'),
+					import('asciinema-player/dist/bundle/asciinema-player.css?url'),
+				]);
+				const link = document.createElement('link');
+				link.rel = 'stylesheet';
+				link.href = cssHref;
+				document.head.appendChild(link);
+				const dark = document.documentElement.dataset.theme === 'dark';
+				for (const el of mounts) {
+					// The recordings carry an "m" marker per Gherkin step, which
+					// the player shows on its seek bar without configuration.
+					create(el.dataset.cast!, el, {
+						fit: false, // fixed size: the recording's own 100x24
+						terminalFontSize: '13px',
+						idleTimeLimit: 2,
+						poster: 'npt:0:01', // a frame of the run before play, not a blank terminal
+						theme: dark ? 'monokai' : 'asciinema',
+					});
+				}
+			}
+		</script>
+	)
+}

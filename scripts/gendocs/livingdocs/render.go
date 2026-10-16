@@ -35,6 +35,7 @@ const pageStyle = `<style>
   overflow-wrap: anywhere;
   word-break: break-word;
 }
+.living-doc-cast { margin: 0.75rem 0; max-width: 100%; overflow-x: auto; }
 @media (max-width: 720px) {
   .living-doc-grid { grid-template-columns: 1fr; gap: 0.2rem; }
 }
@@ -279,9 +280,17 @@ func assertAllHaveEvidence(featurePath, scenarioName string, captures []DocCaptu
 // --cast-out-dir (website/public/journeys/ is served at /journeys/).
 const castURLPrefix = "/journeys/"
 
-// renderRecordingLink names the run's terminal recording beneath its
-// checklist: the asciicast v2 file, paced for a reader, that copyCasts
-// publishes under the same name.
+// renderCastPlayer is the mount the site's terminal player (website/src/
+// components/Head.astro, journey pages only) replaces with a player of the
+// run's paced recording. It sits beside the step/output grid, never instead
+// of it: the grid is the searchable text of the same run.
+func renderCastPlayer(cap DocCapture) string {
+	return fmt.Sprintf(`<div class="living-doc-cast" data-cast="%s%s"></div>`, castURLPrefix, cap.Cast)
+}
+
+// renderRecordingLink names the run's terminal recording beneath its player:
+// the asciicast v2 file, paced for a reader, that publishCasts publishes
+// under the same name — playable where the player is not.
 func renderRecordingLink(cap DocCapture) string {
 	return fmt.Sprintf("Terminal recording of this run: [`%s`](%s%s) (asciicast v2).", cap.Cast, castURLPrefix, cap.Cast)
 }
@@ -321,7 +330,7 @@ func assertAllRecorded(featurePath, scenarioName string, captures []DocCapture) 
 }
 
 // renderScenario renders one scenario section: header, then either the
-// checklist+grid for each capture (an Outline's Examples rows each get their
+// checklist, player, recording link and grid for each capture (an Outline's Examples rows each get their
 // own "Example N" block) or, with no capture at all, the raw Gherkin plus a
 // "not captured" note. Narration prose for this scenario, if any, comes last.
 func renderScenario(sc Scenario, narr Narration, captures []DocCapture) string {
@@ -337,6 +346,7 @@ func renderScenario(sc Scenario, narr Narration, captures []DocCapture) string {
 				out = append(out, fmt.Sprintf("**Example %d**", idx+1), "")
 			}
 			out = append(out, renderChecklist(cap), "")
+			out = append(out, renderCastPlayer(cap), "")
 			out = append(out, renderRecordingLink(cap), "")
 			out = append(out, renderStepGrid(cap), "")
 		}

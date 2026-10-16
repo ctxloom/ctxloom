@@ -40,6 +40,8 @@ func TestGeneratePage_AllPassedRendersGrid(t *testing.T) {
 	assert.Contains(t, page, "ok output")
 	assert.Contains(t, page, "✓ a precondition")
 	assert.Contains(t, page, "[`run.cast`](/journeys/run.cast)", "each captured run links its terminal recording")
+	assert.Contains(t, page, `<div class="living-doc-cast" data-cast="/journeys/run.cast"></div>`, "and mounts the site's player for it")
+	assert.Less(t, strings.Index(page, `data-cast=`), strings.Index(page, `<div class="living-doc-grid">`), "the player sits beside the grid, which stays")
 	assert.NotContains(t, page, "Not captured in this build")
 }
 

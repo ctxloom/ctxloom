@@ -24,6 +24,10 @@ export default defineConfig({
 				baseUrl: 'https://github.com/ctxloom/ctxloom/edit/main/website/',
 			},
 			customCss: ['./src/styles/custom.css'],
+			components: {
+				// Adds the journey pages' terminal player; see the file.
+				Head: './src/components/Head.astro',
+			},
 			lastUpdated: true,
 			sidebar: [
 				{

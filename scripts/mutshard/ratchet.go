@@ -78,18 +78,18 @@ func readBaseline(file string) (map[string]baselineRow, error) {
 // PROVENANCE), or says what is wrong with them.
 func parseBaselineRow(f []string) (row baselineRow, complaint string) {
 	if len(f) != 4 || !provenances[f[3]] {
-		return row, "want TARGET TOTAL SURVIVED measured|stale|unknown"
+		return baselineRow{}, "want TARGET TOTAL SURVIVED measured|stale|unknown"
 	}
 	row.provenance = f[3]
 	if f[3] == provenanceUnknown {
 		if f[1] != "-" || f[2] != "-" {
-			return row, `an unknown row records no counts ("-")`
+			return baselineRow{}, `an unknown row records no counts ("-")`
 		}
 		return row, ""
 	}
 	var ok bool
 	if row.total, row.survived, ok = parseCounts(f[1], f[2]); !ok {
-		return row, "counts must be whole numbers with SURVIVED <= TOTAL"
+		return baselineRow{}, "counts must be whole numbers with SURVIVED <= TOTAL"
 	}
 	return row, ""
 }
@@ -101,8 +101,9 @@ func parseCounts(totalField, survivedField string) (total, survived int, ok bool
 	if err == nil {
 		survived, err = strconv.Atoi(survivedField)
 	}
-	if err != nil || total < 0 || survived < 0 || survived > total {
-		return 0, 0, false
+	// SURVIVED >= 0 and SURVIVED <= TOTAL leave TOTAL no room to be negative.
+	if err != nil || survived < 0 || survived > total {
+		return total, survived, false
 	}
 	return total, survived, true
 }

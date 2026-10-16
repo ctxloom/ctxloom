@@ -225,9 +225,7 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 		return "", unknownFormatError(format)
 	}
 
-	var answer strings.Builder
-	final := map[string]bool{}
-	enc := json.NewEncoder(out)
+	rr := &ownedRunRenderer{out: out, enc: json.NewEncoder(out), format: format, capture: capture, turnIdle: turnIdle, final: map[string]bool{}}
 	// The watchHub ring (consumer.go) this channel is fed from is a
 	// lossy, per-subscriber buffer that a busy coordinator's OTHER concurrent
 	// runs can also fill (this run's subscription is scoped, but the ring
@@ -240,93 +238,123 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 	for {
 		select {
 		case ev := <-events:
-			lost, marker := seqs.Observe(ev)
-			if lost.Count() > 0 {
-				clidiag.Warn("ctxloom", "run %s: lost %d event(s) at seq %s — the coordinator's live event buffer was full (likely other concurrent runs competing for it) and could not queue them; this run's rendered output may be INCOMPLETE", runID, lost.Count(), lost.RangesText())
-			}
-			if marker || ev.GetRunId() != runID {
+			if !ownedRunEventFor(seqs, ev, runID) {
 				continue
 			}
-			switch p := ev.GetPayload().(type) {
-			case *agentcoordpb.AgentEvent_MessageStarted:
-				if p.MessageStarted.GetChannel() == agentcoordpb.MessageChannel_MESSAGE_CHANNEL_FINAL {
-					final[p.MessageStarted.GetMessageId()] = true
-				}
-			case *agentcoordpb.AgentEvent_MessageCompleted:
-				// The item contract is started -> delta* -> completed, so a
-				// completed id is spent: releasing it keeps this map sized to
-				// the messages currently OPEN rather than to every message the
-				// session has ever produced (a warm engine's run is long-lived
-				// and its message ids are monotonic, so nothing here is ever
-				// reused). Mirrors the sibling adapter over this same stream,
-				// internal/adapters/operations/sessionfeed.go, which drops its
-				// per-message state at the same point.
-				delete(final, p.MessageCompleted.GetMessageId())
-			case *agentcoordpb.AgentEvent_MessageDelta:
-				if !final[p.MessageDelta.GetMessageId()] {
-					continue
-				}
-				text := p.MessageDelta.GetText()
-				if text == "" {
-					continue
-				}
-				if capture {
-					answer.WriteString(text)
-				}
-				switch format {
-				case formatJSON:
-					if err := enc.Encode(chatEventJSON{Type: chatEventTypeEntry, Entry: &chatEntryJSON{
-						Type: string(agent.EntryTypeAssistant), Content: text,
-					}}); err != nil {
-						return answer.String(), err
-					}
-				default:
-					if _, err := io.WriteString(out, text); err != nil {
-						return answer.String(), err
-					}
-				}
-			case *agentcoordpb.AgentEvent_Custom:
-				if p.Custom.GetName() == coord.CustomTurnIdle {
-					select {
-					case turnIdle <- answer.String():
-					default:
-					}
-				}
-			case *agentcoordpb.AgentEvent_RunCompleted:
-				// SUCCESS IS AN ALLOW-LIST. This used to test
-				// `== RUN_STATUS_FAILED`, which made the enum's zero value —
-				// and CANCELLED, TIMED_OUT, BUDGET_EXCEEDED, and any value
-				// proto3's open enums let through — exit 0. A run that was
-				// killed or ran out of time reported success to the shell.
-				// Same discipline as the approval ladder's
-				// interactionResolution: only SUCCEEDED succeeds.
-				r := p.RunCompleted.GetResult()
-				if r.GetStatus() == agentcoordpb.Result_RUN_STATUS_SUCCEEDED {
-					return answer.String(), nil
-				}
-				// A stopped run's result carries its cause (who stopped it,
-				// and why) as its error message, whichever terminal reached
-				// the watch stream first (coord.withEndCause).
-				msg := r.GetError().GetMessage()
-				cancelled := r.GetStatus() == agentcoordpb.Result_RUN_STATUS_CANCELLED
-				switch {
-				case r == nil:
-					clidiag.Warn("ctxloom", "run ended with no terminal result — treating as a failure")
-				case cancelled && msg != "":
-					clidiag.Warn("ctxloom", "run was cancelled: %s", msg)
-				case cancelled:
-					clidiag.Warn("ctxloom", "%s", runCancelledNotice)
-				case msg != "":
-					clidiag.Warn("ctxloom", "run failed: %s", msg)
-				case r.GetStatus() != agentcoordpb.Result_RUN_STATUS_FAILED:
-					clidiag.Warn("ctxloom", "run did not succeed: %s", r.GetStatus())
-				}
-				return answer.String(), clifmt.ExitStatus{Code: failedRunExitCode(r)}
+			if done, err := rr.handle(ev); done || err != nil {
+				return rr.answer.String(), err
 			}
 		case <-ctx.Done():
-			return answer.String(), ctx.Err()
+			return rr.answer.String(), ctx.Err()
 		}
 	}
+}
+
+// ownedRunEventFor observes ev on seqs, warning about any events lost before
+// it, and reports whether it is one of runID's own events to render (not the
+// hub's loss marker, nor another run's).
+func ownedRunEventFor(seqs *agentcoordpb.SeqWatch, ev *agentcoordpb.AgentEvent, runID string) bool {
+	lost, marker := seqs.Observe(ev)
+	if lost.Count() > 0 {
+		clidiag.Warn("ctxloom", "run %s: lost %d event(s) at seq %s — the coordinator's live event buffer was full (likely other concurrent runs competing for it) and could not queue them; this run's rendered output may be INCOMPLETE", runID, lost.Count(), lost.RangesText())
+	}
+	return !marker && ev.GetRunId() == runID
+}
+
+// ownedRunRenderer is one renderOwnedRunEvents stream's state: the FINAL
+// messages open, and the answer accumulated so far.
+type ownedRunRenderer struct {
+	out      io.Writer
+	enc      *json.Encoder
+	format   string
+	capture  bool
+	turnIdle chan<- string
+	final    map[string]bool
+	answer   strings.Builder
+}
+
+// handle renders one of the run's events; done is true at RunCompleted, with
+// err its outcome.
+func (rr *ownedRunRenderer) handle(ev *agentcoordpb.AgentEvent) (done bool, err error) {
+	switch p := ev.GetPayload().(type) {
+	case *agentcoordpb.AgentEvent_MessageStarted:
+		if p.MessageStarted.GetChannel() == agentcoordpb.MessageChannel_MESSAGE_CHANNEL_FINAL {
+			rr.final[p.MessageStarted.GetMessageId()] = true
+		}
+	case *agentcoordpb.AgentEvent_MessageCompleted:
+		// The item contract is started -> delta* -> completed, so a
+		// completed id is spent: releasing it keeps this map sized to
+		// the messages currently OPEN rather than to every message the
+		// session has ever produced (a warm engine's run is long-lived
+		// and its message ids are monotonic, so nothing here is ever
+		// reused). Mirrors the sibling adapter over this same stream,
+		// internal/adapters/operations/sessionfeed.go, which drops its
+		// per-message state at the same point.
+		delete(rr.final, p.MessageCompleted.GetMessageId())
+	case *agentcoordpb.AgentEvent_MessageDelta:
+		return false, rr.delta(p.MessageDelta)
+	case *agentcoordpb.AgentEvent_Custom:
+		if p.Custom.GetName() == coord.CustomTurnIdle {
+			select {
+			case rr.turnIdle <- rr.answer.String():
+			default:
+			}
+		}
+	case *agentcoordpb.AgentEvent_RunCompleted:
+		return true, ownedRunCompletion(p.RunCompleted.GetResult())
+	}
+	return false, nil
+}
+
+// delta renders one message delta, if it belongs to an open FINAL message.
+func (rr *ownedRunRenderer) delta(d *agentcoordpb.MessageDelta) error {
+	text := d.GetText()
+	if !rr.final[d.GetMessageId()] || text == "" {
+		return nil
+	}
+	if rr.capture {
+		rr.answer.WriteString(text)
+	}
+	if rr.format == formatJSON {
+		return rr.enc.Encode(chatEventJSON{Type: chatEventTypeEntry, Entry: &chatEntryJSON{
+			Type: string(agent.EntryTypeAssistant), Content: text,
+		}})
+	}
+	_, err := io.WriteString(rr.out, text)
+	return err
+}
+
+// ownedRunCompletion is a run's outcome from its terminal result: nil when it
+// succeeded, else a warning saying why and a clifmt.ExitStatus.
+func ownedRunCompletion(r *agentcoordpb.Result) error {
+	// SUCCESS IS AN ALLOW-LIST. This used to test
+	// `== RUN_STATUS_FAILED`, which made the enum's zero value —
+	// and CANCELLED, TIMED_OUT, BUDGET_EXCEEDED, and any value
+	// proto3's open enums let through — exit 0. A run that was
+	// killed or ran out of time reported success to the shell.
+	// Same discipline as the approval ladder's
+	// interactionResolution: only SUCCEEDED succeeds.
+	if r.GetStatus() == agentcoordpb.Result_RUN_STATUS_SUCCEEDED {
+		return nil
+	}
+	// A stopped run's result carries its cause (who stopped it,
+	// and why) as its error message, whichever terminal reached
+	// the watch stream first (coord.withEndCause).
+	msg := r.GetError().GetMessage()
+	cancelled := r.GetStatus() == agentcoordpb.Result_RUN_STATUS_CANCELLED
+	switch {
+	case r == nil:
+		clidiag.Warn("ctxloom", "run ended with no terminal result — treating as a failure")
+	case cancelled && msg != "":
+		clidiag.Warn("ctxloom", "run was cancelled: %s", msg)
+	case cancelled:
+		clidiag.Warn("ctxloom", "%s", runCancelledNotice)
+	case msg != "":
+		clidiag.Warn("ctxloom", "run failed: %s", msg)
+	case r.GetStatus() != agentcoordpb.Result_RUN_STATUS_FAILED:
+		clidiag.Warn("ctxloom", "run did not succeed: %s", r.GetStatus())
+	}
+	return clifmt.ExitStatus{Code: failedRunExitCode(r)}
 }
 
 // runCancelledNotice is what a cancelled run with no error message says: it

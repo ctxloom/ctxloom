@@ -140,3 +140,19 @@ func TestFormatEnumerationsAgree(t *testing.T) {
 		}
 	}
 }
+
+// FormatNames is SupportedFormats spelled as strings, element for element,
+// so a schema enum or a completion list bound to it cannot drift from the
+// formats Render accepts.
+func TestFormatNames_MatchesSupportedFormats(t *testing.T) {
+	formats := SupportedFormats()
+	names := FormatNames()
+	if len(names) != len(formats) {
+		t.Fatalf("FormatNames() = %v, SupportedFormats() = %v", names, formats)
+	}
+	for i, f := range formats {
+		if names[i] != string(f) {
+			t.Errorf("FormatNames()[%d] = %q, want %q", i, names[i], f)
+		}
+	}
+}

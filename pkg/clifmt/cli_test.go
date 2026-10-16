@@ -30,7 +30,7 @@ func TestResolveFormat(t *testing.T) {
 		{" txt ", true, false, FormatText},
 	}
 	for _, tc := range cases {
-		got, err := ResolveFormat(tc.requested, tc.explicit, tc.terminal)
+		got, err := ResolveFormat(tc.requested, tc.explicit, tc.terminal, "")
 		if err != nil {
 			t.Errorf("ResolveFormat(%q, %v, %v): %v", tc.requested, tc.explicit, tc.terminal, err)
 			continue
@@ -39,11 +39,43 @@ func TestResolveFormat(t *testing.T) {
 			t.Errorf("ResolveFormat(%q, %v, %v) = %q, want %q", tc.requested, tc.explicit, tc.terminal, got, tc.want)
 		}
 	}
-	if _, err := ResolveFormat("xml", true, true); !errors.Is(err, ErrUnsupportedFormat) {
+	if _, err := ResolveFormat("xml", true, true, ""); !errors.Is(err, ErrUnsupportedFormat) {
 		t.Errorf("an explicit unknown format: err = %v, want ErrUnsupportedFormat", err)
 	}
-	if f, err := ResolveFormat("xml", false, true); err != nil || f != FormatText {
+	if f, err := ResolveFormat("xml", false, true, ""); err != nil || f != FormatText {
 		t.Errorf("an unrequested bad value is never parsed: got %q, %v", f, err)
+	}
+}
+
+// An off-terminal default replaces json only where json was derived: an
+// unrequested invocation off a terminal. A terminal still gets text, an
+// explicit request still wins, and a default naming no format is refused
+// rather than quietly read as json.
+func TestResolveFormat_OffTerminalDefault(t *testing.T) {
+	cases := []struct {
+		requested          string
+		explicit, terminal bool
+		want               Format
+	}{
+		{"", false, false, FormatText},
+		{"", false, true, FormatText},
+		{"json", true, false, FormatJSON},
+		{"yaml", false, false, FormatText},
+	}
+	for _, tc := range cases {
+		got, err := ResolveFormat(tc.requested, tc.explicit, tc.terminal, FormatText)
+		if err != nil || got != tc.want {
+			t.Errorf("ResolveFormat(%q, %v, %v, text) = %q, %v; want %q", tc.requested, tc.explicit, tc.terminal, got, err, tc.want)
+		}
+	}
+	if got, err := ResolveFormat("", false, false, FormatYAML); err != nil || got != FormatYAML {
+		t.Errorf("off-terminal yaml: got %q, %v", got, err)
+	}
+	if _, err := ResolveFormat("", false, false, Format("xml")); !errors.Is(err, ErrUnsupportedFormat) {
+		t.Errorf("an off-terminal default naming no format: err = %v, want ErrUnsupportedFormat", err)
+	}
+	if got, err := ResolveFormat("", false, true, Format("xml")); err != nil || got != FormatText {
+		t.Errorf("a terminal never consults the off-terminal default: got %q, %v", got, err)
 	}
 }
 

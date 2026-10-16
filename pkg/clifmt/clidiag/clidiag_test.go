@@ -392,3 +392,28 @@ func currentSink() io.Writer {
 	defer sinkMu.Unlock()
 	return activeSink()
 }
+
+// SetStructuredSource is asked at EACH warning, not once when installed: a
+// root's pre-run installs it before the command has learned the format it
+// will derive, so an answer frozen at install time would be the wrong one.
+func TestSetStructuredSource_IsAskedAtEachWarning(t *testing.T) {
+	resetStructured(t)
+	on := false
+	SetStructuredSource(func() bool { return on })
+
+	var b strings.Builder
+	Fwarn(&b, "ctxloom", "first")
+	on = true
+	Fwarn(&b, "ctxloom", "second")
+
+	lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines, want 2: %q", len(lines), b.String())
+	}
+	if lines[0] != "ctxloom: warning: first" {
+		t.Errorf("before the source turned on: got %q, want the human line", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], "{") {
+		t.Errorf("after the source turned on: got %q, want a JSON envelope", lines[1])
+	}
+}

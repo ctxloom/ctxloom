@@ -33,25 +33,41 @@ func Line(prog, format string, args ...any) string {
 	return fmt.Sprintf("%s: warning: %s\n", prog, fmt.Sprintf(format, args...))
 }
 
-// structured gates whether Fwarn/FwarnOnce write the human "<prog>: warning:
-// <msg>" line or a clifmt.WarningEnvelope JSON-Lines object. Off by default,
-// so every existing caller — including taskloom and ltk, which don't parse a
-// --format flag yet — keeps today's plain-text stderr behavior; only the CLI
-// root command flips it on, once, after resolving --format to json/yaml/toml
-// (see cli's PersistentPreRun and clifmt.Format.Structured). A process-wide
-// flag rather than a parameter threaded through clidiag's 100+ call sites —
-// many several layers below any single command's cobra.Command, in
-// coordinator daemons, isolation runners, and background gRPC servers that
-// have no cobra.Command to read a per-invocation format from — because the
-// choice is which wire shape THIS process's stderr speaks for the lifetime
-// of one CLI invocation, not something each individual warn site decides.
-var structured atomic.Bool
+// structuredSource answers, at each warning, whether Fwarn/FwarnOnce write
+// the human "<prog>: warning: <msg>" line or a clifmt.WarningEnvelope
+// JSON-Lines object. Off by default, so every existing caller keeps the
+// plain-text stderr; a CLI root turns it on to match its resolved --format
+// (cobrafmt.ApplyDiagnostics). A process-wide setting rather than a
+// parameter threaded through clidiag's call sites — many several layers below
+// any single command's cobra.Command, in coordinator daemons, isolation
+// runners, and background gRPC servers that have no cobra.Command to read a
+// per-invocation format from — because the choice is which wire shape THIS
+// process's stderr speaks for one CLI invocation, not something each warn
+// site decides.
+//
+// A function, not a stored bool, because the answer can depend on a fact the
+// program only learns after the root's pre-run: a format derived off a
+// terminal may come from configuration the command has not opened yet
+// (cobrafmt.SetOffTerminalDefault). It is asked before any of this package's
+// locks are taken, so it may itself take locks of its own; it must not warn.
+var structuredSource atomic.Pointer[func() bool]
 
-// SetStructured turns the process-wide structured-diagnostics channel on or
-// off. Call once, before command work starts.
+func init() { SetStructured(false) }
+
+// SetStructured fixes the process-wide structured-diagnostics answer to on,
+// until the next SetStructured or SetStructuredSource.
 func SetStructured(on bool) {
-	structured.Store(on)
+	SetStructuredSource(func() bool { return on })
 }
+
+// SetStructuredSource makes every later warning ask f which wire shape to
+// write (see structuredSource for the contract f must keep).
+func SetStructuredSource(f func() bool) {
+	structuredSource.Store(&f)
+}
+
+// isStructured is the current answer, asked fresh.
+func isStructured() bool { return (*structuredSource.Load())() }
 
 // Fwarn writes a "<prog>: warning: <msg>" line to w — or, when structured
 // mode is on, a clifmt.WarningEnvelope as one compact JSON object (see
@@ -61,15 +77,16 @@ func SetStructured(on bool) {
 // that records its own errors (e.g. errwriter.Writer) still observes the
 // failure.
 func Fwarn(w io.Writer, prog, format string, args ...any) {
-	fwarn(w, prog, fmt.Sprintf(format, args...), "")
+	fwarn(w, isStructured(), prog, fmt.Sprintf(format, args...), "")
 }
 
 // fwarn writes msg (already formatted) and its remedy ("" for an advisory)
-// to w in whichever wire shape structured mode currently selects: the text
-// line followed by clifmt.FixLine, or a WarningEnvelope carrying Remedy.
-// Every warn helper funnels here so the branch lives in exactly one place.
-func fwarn(w io.Writer, prog, msg, remedy string) {
-	if structured.Load() {
+// to w in the wire shape structured selects: the text line followed by
+// clifmt.FixLine, or a WarningEnvelope carrying Remedy. Every warn helper
+// funnels here so the branch lives in exactly one place; each asks
+// isStructured before taking a lock, never under one.
+func fwarn(w io.Writer, structured bool, prog, msg, remedy string) {
+	if structured {
 		_ = clifmt.EncodeWarning(w, clifmt.WarningEnvelope{Prog: prog, Warning: msg, Remedy: remedy})
 		return
 	}
@@ -186,22 +203,22 @@ func activeSink() io.Writer {
 
 // warnToSink writes msg to the active sink, holding sinkMu across both the
 // resolution and the write (see sinkStack for why).
-func warnToSink(prog, msg, remedy string) {
+func warnToSink(structured bool, prog, msg, remedy string) {
 	sinkMu.Lock()
 	defer sinkMu.Unlock()
-	fwarn(activeSink(), prog, msg, remedy)
+	fwarn(activeSink(), structured, prog, msg, remedy)
 }
 
 // Warn prints a "<prog>: warning: <msg>" line to the current sink (stderr by
 // default — see SetSink).
 func Warn(prog, format string, args ...any) {
-	warnToSink(prog, fmt.Sprintf(format, args...), "")
+	warnToSink(isStructured(), prog, fmt.Sprintf(format, args...), "")
 }
 
 // WarnRemedy is Warn for a warning that names its fix: the text line is
 // followed by clifmt.FixLine, and the structured envelope carries Remedy.
 func WarnRemedy(prog, remedy, format string, args ...any) {
-	warnToSink(prog, fmt.Sprintf(format, args...), remedy)
+	warnToSink(isStructured(), prog, fmt.Sprintf(format, args...), remedy)
 }
 
 // WarnErrors is the shared seam for turning a partial-failure result (a
@@ -250,22 +267,23 @@ var (
 // re-hitting the same unresolvable parent — collapse to a single line
 // instead of spamming startup. Best-effort like Fwarn.
 func FwarnOnce(w io.Writer, prog, format string, args ...any) {
-	warnOnce(func(prog, msg, remedy string) { fwarn(w, prog, msg, remedy) }, prog, "", format, args...)
+	warnOnce(func(structured bool, prog, msg, remedy string) { fwarn(w, structured, prog, msg, remedy) }, prog, "", format, args...)
 }
 
 // warnOnce hands the message to emit unless an identical line was already
 // emitted. The dedup key is the message line alone: one fault is one warning,
 // whichever fix it names. emit runs under onceMu, so lock order is onceMu then
 // sinkMu (when emit is warnToSink); nothing takes them in the other order.
-func warnOnce(emit func(prog, msg, remedy string), prog, remedy, format string, args ...any) {
+func warnOnce(emit func(structured bool, prog, msg, remedy string), prog, remedy, format string, args ...any) {
 	key := Line(prog, format, args...)
+	structured := isStructured()
 	onceMu.Lock()
 	defer onceMu.Unlock()
 	if _, seen := onceSeen[key]; seen {
 		return
 	}
 	onceSeen[key] = struct{}{}
-	emit(prog, fmt.Sprintf(format, args...), remedy)
+	emit(structured, prog, fmt.Sprintf(format, args...), remedy)
 }
 
 // WarnOnce prints a "<prog>: warning: <msg>" line to the current sink (stderr

@@ -30,8 +30,8 @@ flowchart TD
     end
     binaries --> CF["cobrafmt<br/>AddFlag · Resolve · Emit · EmitError<br/>EmitVersion · ApplyDiagnostics · Execute · Report"]
     CF --> P["clifmt.Printer.Render(w, v, Format, opts…)"]
-    CF --> RF["clifmt.ResolveFormat(requested, explicit, terminal)"]
-    CF --> D["clidiag.SetStructured"]
+    CF --> RF["clifmt.ResolveFormat(requested, explicit, terminal, offTerminal)"]
+    CF --> D["clidiag.SetStructuredSource"]
     P -->|json · yaml · toml| M["json contract<br/>(json tags, json.Marshaler)"]
     P -->|text · markdown| V["view layers<br/>WithWriter → At → ViewFor → derive"]
     V --> DOC["Doc → writeDoc<br/>(one traversal, text and markdown)"]
@@ -163,7 +163,8 @@ human-view override cannot drift the json contract.
 |---|---|
 | `ParseFormat(s)` | case- and space-insensitive, with `yml`/`txt`/`md` aliases; wraps `ErrUnsupportedFormat` |
 | `SupportedFormats()` | the five formats, in help order |
-| `ResolveFormat(requested, explicit, terminal)` | not explicit: text on a terminal, json otherwise. Explicit `""`: text. Else `ParseFormat` |
+| `FormatNames()` | `SupportedFormats` as strings: completion, usage, a config schema's enum |
+| `ResolveFormat(requested, explicit, terminal, offTerminal)` | not explicit: text on a terminal, otherwise `offTerminal` (the zero Format is json; one naming no format is `ErrUnsupportedFormat`). Explicit `""`: text. Else `ParseFormat` |
 | `FormatUsage()` | the one `--format` help string, derived from `SupportedFormats` |
 | `ExitCoder`, `ExitCodeOf(err)` | nil → 0; the first `ExitCode()` in the `%w` chain (joined errors included); else 1 |
 | `ExitStatus{Code}` | an error meaning "exit with Code and report nothing" — a wrapped process's own status |
@@ -182,20 +183,23 @@ gate (`TestArch_ClifmtCoreDoesNotLinkCobra`) runs `go list -deps` on `pkg/clifmt
 
 | Function | Contract |
 |---|---|
-| `AddFlag(root)` | the persistent `--format`: empty default, usage `FormatUsage()`, completion from `SupportedFormats` |
-| `Resolve(cmd)` | flag lookup (a set `--json` counts as `--format json`) → `ResolveFormat` against whether stdout is a terminal. A command with no `--format` reads as text; a `--format` of the wrong flag type is an error |
+| `AddFlag(root)` | the persistent `--format`: empty default, usage `FormatUsage()`, completion from `FormatNames` |
+| `Resolve(cmd)` | flag lookup (a set `--json` counts as `--format json`) → `ResolveFormat` against whether stdout is a terminal and the off-terminal default. A command with no `--format` reads as text; a `--format` of the wrong flag type is an error |
 | `Explicit(cmd)` | whether the user actually asked for a format, as opposed to one derived from a pipe |
 | `Emit(cmd, data, opts…)` | render `data` to `cmd.OutOrStdout()` in the resolved format, through the tree's `Printer` |
 | `EmitError(w, cmd, err)` | `RenderError` in the resolved format, but **only when the format is explicit**; a derived format never restructures stderr |
 | `EmitVersion(cmd, name, version)` | the `{name, version}` payload (`VersionInfo`); text prints the bare version |
-| `ApplyDiagnostics(cmd)` | `clidiag.SetStructured` on for json/yaml/toml, off otherwise. Call from the root's `PersistentPreRun` |
+| `ApplyDiagnostics(cmd)` | installs a `clidiag.SetStructuredSource` that resolves the format at each warning: on for json/yaml/toml, off otherwise. Call from the root's `PersistentPreRun` |
+| `SetOffTerminalDefault(f)` | the format an unrequested invocation gets off a terminal, asked at each `Resolve` (zero Format: json). Process-wide; returns its restore. ctxloom feeds it the `non_tty_format` config key |
 | `Execute(root, prog, stderr) int` | run the tree and **return** the exit status (never `os.Exit`, so the caller can flush first). Reports nothing for nil or an `ExitStatus`; an envelope under an explicit structured format; otherwise `<prog>: <msg>` plus the fix line |
 | `Report(root, prog, stderr, err) int` | `Execute`'s reporting half, for a caller that executes the tree itself because it has a step of its own after execution: reports `err` exactly as `Execute` would, against the `--format` the root parsed, and returns the status. The caller sets `root.SilenceErrors` |
 | `WithPrinter(root, p)` | the `Printer` `Emit` uses for this tree, carried on the root's context (install it after anything that replaces that context) |
 | `OverrideTerminal(bool)` | test seam for the terminal check |
 
-`clidiag`'s structured switch is process-wide state. `ApplyDiagnostics` is the one call that sets
-it, so making it a per-tree value later changes only the adapter.
+`clidiag`'s structured switch and the off-terminal default are process-wide state.
+`ApplyDiagnostics` is the one call that sets the former, so making either a per-tree value later
+changes only the adapter. The switch is a source rather than a stored bool because the derived
+format can depend on configuration a command opens after the pre-run.
 
 ### Who uses what
 

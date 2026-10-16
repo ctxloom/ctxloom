@@ -84,6 +84,18 @@ func SupportedFormats() []Format {
 	return out
 }
 
+// FormatNames is SupportedFormats as plain strings, in the same order: the
+// shape a flag's completion, a usage line, or a config schema's enum is
+// written in, so none of them keeps its own copy of the list.
+func FormatNames() []string {
+	formats := SupportedFormats()
+	names := make([]string, len(formats))
+	for i, f := range formats {
+		names[i] = string(f)
+	}
+	return names
+}
+
 // UnsupportedFormatError builds the canonical error for input that names no
 // known format: the ErrUnsupportedFormat sentinel, the offending input, and
 // the supported list derived from SupportedFormats. Every producer of that
@@ -91,12 +103,7 @@ func SupportedFormats() []Format {
 // validating a Format they were handed - so the message cannot drift between
 // them and adding a format cannot leave one of them naming the old set.
 func UnsupportedFormatError(s string) error {
-	formats := SupportedFormats()
-	names := make([]string, len(formats))
-	for i, f := range formats {
-		names[i] = string(f)
-	}
-	return fmt.Errorf("%w: %q (supported: %s)", ErrUnsupportedFormat, s, strings.Join(names, ", "))
+	return fmt.Errorf("%w: %q (supported: %s)", ErrUnsupportedFormat, s, strings.Join(FormatNames(), ", "))
 }
 
 // Valid reports whether f is one of the formats clifmt renders.

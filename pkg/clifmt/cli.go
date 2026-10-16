@@ -8,23 +8,32 @@ import (
 
 // ResolveFormat picks the effective format for one invocation. requested is
 // the raw --format value; explicit says whether the user actually gave it;
-// terminal says whether the output stream is a terminal.
+// terminal says whether the output stream is a terminal; offTerminal is the
+// format an unrequested invocation gets off a terminal, with the zero Format
+// meaning json.
 //
 // A format the user did not ask for follows the terminal: text for a human
-// watching it, json for a pipe, a redirect or another process, so a script
-// parsing the output fails loudly on a format change instead of misparsing a
-// human rendering that was never a stable contract. An explicit request
-// always wins, in both directions; an explicit "" is text. Anything else is
-// ParseFormat's answer.
+// watching it, offTerminal (json unless the program configured otherwise)
+// for a pipe, a redirect or another process, so a script parsing the output
+// fails loudly on a format change instead of misparsing a human rendering
+// that was never a stable contract. An explicit request always wins, in both
+// directions; an explicit "" is text. Anything else is ParseFormat's answer.
+// An offTerminal that names no format is refused rather than replaced by
+// json: a program that configured one meant it.
 //
 // It takes the terminal answer as a bool, so a caller decides how to ask
 // (golang.org/x/term, a test override) and this package needs neither.
-func ResolveFormat(requested string, explicit, terminal bool) (Format, error) {
+func ResolveFormat(requested string, explicit, terminal bool, offTerminal Format) (Format, error) {
 	switch {
 	case !explicit && terminal:
 		return FormatText, nil
-	case !explicit:
+	case !explicit && offTerminal == "":
 		return FormatJSON, nil
+	case !explicit:
+		if !offTerminal.Valid() {
+			return "", UnsupportedFormatError(string(offTerminal))
+		}
+		return offTerminal, nil
 	case requested == "":
 		return FormatText, nil
 	default:
@@ -35,11 +44,7 @@ func ResolveFormat(requested string, explicit, terminal bool) (Format, error) {
 // FormatUsage is the one help string for a --format flag: the supported
 // formats, in order, and what an unset flag does (see ResolveFormat).
 func FormatUsage() string {
-	formats := SupportedFormats()
-	names := make([]string, len(formats))
-	for i, f := range formats {
-		names[i] = string(f)
-	}
+	names := FormatNames()
 	list := strings.Join(names[:len(names)-1], ", ") + ", or " + names[len(names)-1]
 	return "Output format: " + list + " (default: text on a terminal, json when output is piped or redirected)"
 }

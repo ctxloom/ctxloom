@@ -385,3 +385,36 @@ func TestResolve_ExplicitFormatBeatsTTYDefaultBothWays(t *testing.T) {
 		}
 	})
 }
+
+// TestResolve_OffTerminalDefault: SetOffTerminalDefault replaces json only
+// where json was derived — an unset --format off a terminal. A terminal keeps
+// text and an explicit request still wins; the source is asked at Resolve
+// time, so a value it learns after installation is the one used.
+func TestResolve_OffTerminalDefault(t *testing.T) {
+	configured := clifmt.Format("")
+	t.Cleanup(SetOffTerminalDefault(func() clifmt.Format { return configured }))
+
+	withTTY(t, false)
+	c, _ := newCmd(false)
+	if got, err := Resolve(c); err != nil || got != clifmt.FormatJSON {
+		t.Fatalf("a source answering the zero Format keeps json, got %q, %v", got, err)
+	}
+	configured = clifmt.FormatText
+	if got, err := Resolve(c); err != nil || got != clifmt.FormatText {
+		t.Fatalf("off a terminal, unset --format follows the source, got %q, %v", got, err)
+	}
+
+	explicit, _ := newCmd(false)
+	if err := explicit.Flags().Set("format", "json"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := Resolve(explicit); err != nil || got != clifmt.FormatJSON {
+		t.Fatalf("an explicit --format json beats the source, got %q, %v", got, err)
+	}
+
+	withTTY(t, true)
+	configured = clifmt.FormatYAML
+	if got, err := Resolve(c); err != nil || got != clifmt.FormatText {
+		t.Fatalf("a terminal never consults the source, got %q, %v", got, err)
+	}
+}

@@ -33,12 +33,7 @@ const formatFlag = "format"
 func AddFlag(root *cobra.Command) {
 	root.PersistentFlags().String(formatFlag, "", clifmt.FormatUsage())
 	_ = root.RegisterFlagCompletionFunc(formatFlag, func(*cobra.Command, []string, string) ([]cobra.Completion, cobra.ShellCompDirective) {
-		formats := clifmt.SupportedFormats()
-		out := make([]cobra.Completion, len(formats))
-		for i, f := range formats {
-			out[i] = string(f)
-		}
-		return out, cobra.ShellCompDirectiveNoFileComp
+		return clifmt.FormatNames(), cobra.ShellCompDirectiveNoFileComp
 	})
 }
 
@@ -102,9 +97,16 @@ func EmitVersion(cmd *cobra.Command, name, version string) error {
 // format is json/yaml/toml, the human "<prog>: warning:" line otherwise
 // (including when --format will not parse; that error is the command's to
 // report). Call it from the root's PersistentPreRun(E), once per process.
+//
+// The format is resolved at each warning, not here: an off-terminal default
+// (SetOffTerminalDefault) may come from configuration the command opens
+// after this pre-run, and a decision frozen now would disagree with the
+// format the command's own Emit then uses.
 func ApplyDiagnostics(cmd *cobra.Command) {
-	format, err := Resolve(cmd)
-	clidiag.SetStructured(err == nil && format.Structured())
+	clidiag.SetStructuredSource(func() bool {
+		format, err := Resolve(cmd)
+		return err == nil && format.Structured()
+	})
 }
 
 // Execute runs root and returns the process exit status; see Report for what
@@ -205,8 +207,27 @@ func OverrideTerminal(interactive bool) (restore func()) {
 	return func() { isInteractiveTerminal = orig }
 }
 
+// offTerminalDefault is the format an unrequested invocation resolves to off
+// a terminal; the zero Format is clifmt's json. See SetOffTerminalDefault.
+var offTerminalDefault = func() clifmt.Format { return "" }
+
+// SetOffTerminalDefault makes Resolve ask f for the format an invocation that
+// did not ask for one gets when stdout is not a terminal, in place of json —
+// a program's configured preference, for instance. f is asked at each
+// Resolve rather than once, so it may read a fact the program has not loaded
+// when it is installed; it returns the zero Format to keep json, and a value
+// naming no format makes Resolve fail (see clifmt.ResolveFormat). A terminal
+// and an explicit request never consult it. Process-wide, like
+// OverrideTerminal; install it once, from the root's pre-run or main.
+func SetOffTerminalDefault(f func() clifmt.Format) (restore func()) {
+	orig := offTerminalDefault
+	offTerminalDefault = f
+	return func() { offTerminalDefault = orig }
+}
+
 // Resolve reads the inherited global --format value and resolves it with
-// clifmt.ResolveFormat against whether stdout is a terminal. A set --json
+// clifmt.ResolveFormat against whether stdout is a terminal and the
+// off-terminal default (SetOffTerminalDefault). A set --json
 // flag (the backward-compatible shorthand a few commands still carry) is
 // honored as --format json so existing scripts keep working.
 //
@@ -238,7 +259,12 @@ func Resolve(cmd *cobra.Command) (clifmt.Format, error) {
 	if err != nil {
 		return "", fmt.Errorf("cobrafmt: --format on %q is not a string flag: %w", cmd.CommandPath(), err)
 	}
-	return clifmt.ResolveFormat(raw, flag.Changed, isInteractiveTerminal())
+	terminal := isInteractiveTerminal()
+	offTerminal := clifmt.Format("")
+	if !flag.Changed && !terminal {
+		offTerminal = offTerminalDefault()
+	}
+	return clifmt.ResolveFormat(raw, flag.Changed, terminal, offTerminal)
 }
 
 // Explicit reports whether the caller actually ASKED for a format — `--json`,

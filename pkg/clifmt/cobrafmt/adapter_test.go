@@ -157,6 +157,31 @@ func TestApplyDiagnostics(t *testing.T) {
 	}
 }
 
+// ApplyDiagnostics resolves the format at each warning: an off-terminal
+// default the command learns only after the pre-run (its configuration,
+// opened in RunE) still decides the warning's shape.
+func TestApplyDiagnostics_FollowsAnOffTerminalDefaultLearnedLater(t *testing.T) {
+	t.Cleanup(func() { clidiag.SetStructured(false) })
+	t.Cleanup(OverrideTerminal(false))
+	learned := clifmt.Format("")
+	t.Cleanup(SetOffTerminalDefault(func() clifmt.Format { return learned }))
+
+	var buf bytes.Buffer
+	root := &cobra.Command{Use: "prog", PersistentPreRun: func(cmd *cobra.Command, _ []string) { ApplyDiagnostics(cmd) }}
+	AddFlag(root)
+	root.AddCommand(&cobra.Command{Use: "run", Run: func(*cobra.Command, []string) {
+		learned = clifmt.FormatText
+		clidiag.Fwarn(&buf, "prog", "w")
+	}})
+	root.SetArgs([]string{"run"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != "prog: warning: w\n" {
+		t.Errorf("warning = %q, want the human line once the derived format is text", buf.String())
+	}
+}
+
 func TestEmitVersion(t *testing.T) {
 	for f, want := range map[string]string{"text": "1.2.3\n", "json": "{\n  \"name\": \"prog\",\n  \"version\": \"1.2.3\"\n}\n"} {
 		c, buf := newCmd(false)

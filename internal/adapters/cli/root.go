@@ -31,6 +31,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
@@ -385,9 +386,36 @@ func rootPersistentPreRun(cmd *cobra.Command, args []string) {
 	// per process, here, as inputs to the one config.Owner.
 	sw := switches(cmd)
 	installApp(cmd.Flags(), os.Environ(), sw, strictnessMode(cmd))
+	// An unrequested format off a terminal is non_tty_format's (json when
+	// unset). Installed as a source: the config is not open yet, and must not
+	// be opened here — `init` pins its directory before anything opens it.
+	cobrafmt.SetOffTerminalDefault(configuredNonTTYFormat)
 	// Warnings follow --format: JSON Lines under json/yaml/toml, the plain
 	// "<prog>: warning: <msg>" line otherwise.
 	cobrafmt.ApplyDiagnostics(cmd)
+}
+
+// configuredNonTTYFormat is non_tty_format once the configuration has
+// finished opening, and the zero Format (json) before that. It never opens
+// the configuration itself: a warning written WHILE the configuration loads
+// asks this too, and opening from inside that load deadlocks on App's
+// sync.Once (App.Ready). A command's own rendering opens it first
+// (openForDerivedFormat). A value the schema refuses reaches here only under
+// --degraded, and is passed on unparsed so cobrafmt refuses it by name
+// rather than quietly rendering json.
+func configuredNonTTYFormat() clifmt.Format {
+	if theApp == nil || !theApp.Ready() {
+		return ""
+	}
+	cfg, err := theApp.Config(context.Background())
+	if err != nil {
+		return ""
+	}
+	raw := cfg.NonTTYFormat()
+	if f, perr := clifmt.ParseFormat(raw); perr == nil {
+		return f
+	}
+	return clifmt.Format(raw)
 }
 
 // GetRootCmd returns the root command assembled over comp, for a path that

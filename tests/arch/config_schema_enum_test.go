@@ -47,6 +47,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -119,6 +120,7 @@ var schemaEnumBindings = []schemaEnumBinding{
 	{path: "properties/workspace", goNames: isolation.WorkspaceNames},
 	{path: "properties/runtime", goNames: launch.RuntimeNames},
 	{path: "properties/auth", goNames: engine.AuthModeNames},
+	{path: "properties/non_tty_format", goNames: clifmt.FormatNames},
 
 	// Per-agent binding overrides of the same axes.
 	{path: "properties/agents/additionalProperties/properties/runtime", goNames: launch.RuntimeNames},

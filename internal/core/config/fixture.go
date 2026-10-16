@@ -48,6 +48,7 @@ type Fixture struct {
 	UI                           UIConfig
 	SessionReapAge               string
 	SessionPurgeAge              string
+	NonTTYFormat                 string
 	Auth                         engine.AuthMode
 
 	// Runtime-only fields, mirroring Config's own (see Config's doc).
@@ -102,6 +103,7 @@ func (c *Config) ToFixture() Fixture {
 		UI:                           d.UI,
 		SessionReapAge:               d.SessionReapAge,
 		SessionPurgeAge:              d.SessionPurgeAge,
+		NonTTYFormat:                 d.NonTTYFormat,
 		Auth:                         d.Auth,
 		AppPaths:                     slices.Clone(c.appPaths),
 		AppRoot:                      c.appRoot,
@@ -154,6 +156,7 @@ func NewFixture(f Fixture) *Config {
 		ui:                           cloneUIConfig(f.UI),
 		sessionReapAge:               f.SessionReapAge,
 		sessionPurgeAge:              f.SessionPurgeAge,
+		nonTTYFormat:                 f.NonTTYFormat,
 		auth:                         f.Auth,
 		appPaths:                     slices.Clone(f.AppPaths),
 		appRoot:                      f.AppRoot,

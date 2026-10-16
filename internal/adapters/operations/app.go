@@ -53,6 +53,7 @@ type App struct {
 	once       sync.Once
 	mu         sync.Mutex
 	opened     bool
+	ready      bool
 	owner      *config.Owner
 	err        error
 }
@@ -132,7 +133,7 @@ func NewApp(src config.Sources, sw Switches, selfLoadout func() string, mode str
 // OpenedApp wraps an owner a test already opened, with what a composition
 // root would have handed it.
 func OpenedApp(owner *config.Owner, h Handed) *App {
-	a := &App{owner: owner, opened: true, Reporter: h.Reporter, Root: h.Root, open: h.Open, engines: h.Engines, claims: h.SessionClaims, runtimes: h.ContainerRuntimes}
+	a := &App{owner: owner, opened: true, ready: true, Reporter: h.Reporter, Root: h.Root, open: h.Open, engines: h.Engines, claims: h.SessionClaims, runtimes: h.ContainerRuntimes}
 	a.once.Do(func() {})
 	return a
 }
@@ -147,12 +148,25 @@ func (a *App) Prober() companions.Prober {
 // one every by-name engine resolution in operations reads.
 func (a *App) Engines() engine.Registry { return a.engines }
 
-// Opened reports whether the owner has been opened: a composition may be
+// Opened reports whether opening the owner has STARTED: a composition may be
 // replaced (init pinning its target directory) only before that.
 func (a *App) Opened() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.opened
+}
+
+// Ready reports whether opening the owner has FINISHED, successfully or not.
+// It is Opened's stronger sibling for a reader that may run DURING the open:
+// loading the config can itself warn, a warning asks what format it is
+// written in, and that format can come from config (non_tty_format). Such a
+// reader gates on Ready and keeps its default meanwhile; gating on Opened
+// would let it call Owner from inside the open that is still on the stack,
+// which deadlocks on the sync.Once.
+func (a *App) Ready() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.ready
 }
 
 // Owner returns the process's one config.Owner, opening it on first call. A
@@ -164,6 +178,9 @@ func (a *App) Owner(ctx context.Context) (*config.Owner, error) {
 		a.opened = true
 		a.mu.Unlock()
 		a.owner, a.err = a.open(ctx, a.src, config.WithEngines(a.engines), config.WithReporter(a.Reporter))
+		a.mu.Lock()
+		a.ready = true
+		a.mu.Unlock()
 	})
 	return a.owner, a.err
 }

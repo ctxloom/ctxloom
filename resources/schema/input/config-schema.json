@@ -345,6 +345,17 @@
       "description": "How old an ended session must be before `ctxloom session sweep --yes` purges it - its transcripts and native history, never its output dir or the files you wrote: an offset in the same grammar as session_reap_age - 30d, 12w, 720h. NO default: unset, the sweep reports what it would purge and purges nothing. `session sweep --purge-older-than` overrides it for one invocation. A session never compacted is never purged by a sweep. A value the grammar cannot parse is REFUSED.",
       "pattern": "^[0-9]+(d|w|h|m|s)$"
     },
+    "non_tty_format": {
+      "type": "string",
+      "description": "The format ctxloom commands write to stdout when it is NOT a terminal and no --format/--json was given. Unset is json, what a script or agent parsing the output gets; 'yaml', 'toml', 'text' and 'markdown' are the rendering an explicit --format of that name produces. A terminal still gets text, and an explicit --format always wins. Warnings on stderr follow the same choice: JSON Lines under json/yaml/toml, the plain warning line otherwise. A presentation preference, honoured from every layer (CTXLOOM_CONFIG_NON_TTY_FORMAT included). A value outside this set is REFUSED, never replaced by json.",
+      "enum": [
+        "json",
+        "yaml",
+        "toml",
+        "text",
+        "markdown"
+      ]
+    },
     "auth": {
       "type": "string",
       "description": "How YOUR OWN `ctxloom run` session authenticates its engine. Every agent ctxloom spawns \u2014 a delegated child, a one-shot \u2014 authenticates with the long-lived token whatever this says, so no agent ever reaches your login. \"token\" (the default, also when omitted) is a token you mint with the engine's own flow and export where ctxloom is launched (claude: `claude setup-token`, exported as CLAUDE_CODE_OAUTH_TOKEN, or from your secret manager); a run with none exported is refused, naming that remedy. \"login\" (opt-in) shares your own login in place, on the host only: a container session is refused, naming the token. A login is not pre-checked beyond its store being on this host: whether the engine accepts it is the engine's to report when the session starts (claude: \"Not logged in\"). ctxloom never collects, stores or mints a credential: it reads the mode's from the launching environment, and every other credential the engine reads is removed from the run's environment. An unknown mode is refused at load.",

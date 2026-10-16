@@ -209,6 +209,12 @@ type Config struct {
 	// session sweep` purges it, in the same age grammar. It has NO default:
 	// empty means the sweep reports its purge rows and acts on none.
 	sessionPurgeAge string
+	// nonTTYFormat is the format a command emits when stdout is not a
+	// terminal and no --format/--json was given, as written ("" unset: the
+	// CLI's built-in json). A presentation preference; the schema's enum
+	// refuses a value outside clifmt's format set, and the CLI root hands it
+	// to cobrafmt.SetOffTerminalDefault.
+	nonTTYFormat string
 	// auth is the top-level `auth:` as written ("" undeclared): how the
 	// HUMAN's own session authenticates (SessionAuth). Validated at decode.
 	auth engine.AuthMode
@@ -294,6 +300,7 @@ type configDoc struct {
 	UI                           UIConfig                  `yaml:"ui,omitempty"`
 	SessionReapAge               string                    `yaml:"session_reap_age,omitempty"`
 	SessionPurgeAge              string                    `yaml:"session_purge_age,omitempty"`
+	NonTTYFormat                 string                    `yaml:"non_tty_format,omitempty"`
 	Auth                         engine.AuthMode           `yaml:"auth,omitempty"`
 }
 
@@ -356,6 +363,7 @@ func (c *Config) toDoc() configDoc {
 		UI:                           cloneUIConfig(c.ui),
 		SessionReapAge:               c.sessionReapAge,
 		SessionPurgeAge:              c.sessionPurgeAge,
+		NonTTYFormat:                 c.nonTTYFormat,
 		Auth:                         c.auth,
 	}
 }
@@ -389,6 +397,7 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.ui = doc.UI
 	c.sessionReapAge = doc.SessionReapAge
 	c.sessionPurgeAge = doc.SessionPurgeAge
+	c.nonTTYFormat = doc.NonTTYFormat
 	c.auth = doc.Auth
 
 	// lm.Configs is pre-populated before every decode precisely so downstream
@@ -683,6 +692,10 @@ func (c *Config) SessionAuth() engine.AuthMode {
 // SessionPurgeAge returns the configured session_purge_age, or "" when
 // unset — there is no default, and a caller must not supply one.
 func (c *Config) SessionPurgeAge() string { return c.sessionPurgeAge }
+
+// NonTTYFormat returns the configured non_tty_format as written, or "" when
+// unset; the CLI resolves "" to json.
+func (c *Config) NonTTYFormat() string { return c.nonTTYFormat }
 
 // DefaultUIPrefixKey is the default viewer prefix key (decision O2 of the
 // agent-io-observation plan: Ctrl-], explicitly not ESC).

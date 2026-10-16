@@ -175,6 +175,7 @@ llm:
   defaults:
     fast: fast
     primary: fast
+non_tty_format: text
 output_dir: /data/ctxloom-outputs
 permissions:
   approver: none
@@ -229,6 +230,7 @@ llm:
   defaults:
     fast: fast
     primary: fast
+non_tty_format: text
 output_dir: /data/ctxloom-outputs
 permissions:
   approver: none
@@ -283,6 +285,7 @@ llm:
   defaults:
     fast: fast
     primary: fast
+non_tty_format: text
 output_dir: /data/ctxloom-outputs
 permissions:
   approver: none

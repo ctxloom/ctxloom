@@ -54,6 +54,7 @@ func fullyPopulatedFixture() Fixture {
 		UI:                           UIConfig{PrefixKey: "ctrl-]", Surround: &surround},
 		SessionReapAge:               "45d",
 		SessionPurgeAge:              "180d",
+		NonTTYFormat:                 "text",
 		OutputDir:                    "/data/ctxloom-outputs",
 		Auth:                         engine.AuthLogin,
 	}

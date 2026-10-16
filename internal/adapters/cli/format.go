@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -48,6 +49,7 @@ func unknownFormatError(format string) error {
 // value, regardless of which branch it took.
 func emit(cmd *cobra.Command, data any, text func() error) error {
 	formatWasHonored = true
+	openForDerivedFormat(cmd)
 	var opts []clifmt.Option
 	if text != nil {
 		opts = append(opts, clifmt.WithWriter(clifmt.FormatText, func(io.Writer) error { return text() }))
@@ -65,7 +67,23 @@ func emit(cmd *cobra.Command, data any, text func() error) error {
 // the streaming command's proof that it read --format.
 func streamFormat(cmd *cobra.Command) (clifmt.Format, error) {
 	formatWasHonored = true
+	openForDerivedFormat(cmd)
 	return cobrafmt.Resolve(cmd)
+}
+
+// openForDerivedFormat opens the configuration before a format is derived
+// for cmd, because the derived format off a terminal is non_tty_format and
+// configuredNonTTYFormat reads it only from an already-open configuration. A
+// command that renders without ever reading config (`version`) would
+// otherwise derive json whatever non_tty_format says. An explicit --format
+// needs no config, so nothing is opened for it. The error is dropped: a
+// configuration that cannot be read leaves the built-in json, and the
+// command that needs config reports the failure itself.
+func openForDerivedFormat(cmd *cobra.Command) {
+	if cobrafmt.Explicit(cmd) {
+		return
+	}
+	_, _ = App().Config(context.Background())
 }
 
 // wantsNonTextOutput reports whether this invocation's --format is anything

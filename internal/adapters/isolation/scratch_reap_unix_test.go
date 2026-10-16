@@ -267,3 +267,24 @@ func TestReapDeadScratch_NeverFollowsASymlink(t *testing.T) {
 	_, err := os.Lstat(link)
 	assert.NoError(t, err, "the link itself is left")
 }
+
+// TestReapDeadScratch_NeverTouchesAnotherAccountsScratch: in a shared parent
+// (the OS temp dir) a dead-looking scratch dir that another account owns —
+// prefix, real dir, owner lock file and all — is not a candidate, and the
+// reaper leaves it. The uid seam makes this test's own dir read as foreign.
+func TestReapDeadScratch_NeverTouchesAnotherAccountsScratch(t *testing.T) {
+	parent := t.TempDir()
+	const prefix = secretScratchPrefix
+	dir := filepath.Join(parent, prefix+"dead")
+	require.NoError(t, os.Mkdir(dir, 0o700))
+	writeScratchLock(t, dir)
+	require.Equal(t, []string{dir}, scratchCandidates(parent, prefix), "precondition: ours, it is a candidate")
+
+	orig := scratchOwnerUID
+	t.Cleanup(func() { scratchOwnerUID = orig })
+	scratchOwnerUID = func() int { return os.Getuid() + 1 }
+
+	assert.Empty(t, scratchCandidates(parent, prefix), "another account's dir is never a candidate")
+	reapDeadScratch(safefs.New().Locks, parent, prefix)
+	assert.DirExists(t, dir, "another account's scratch is not ours to delete")
+}

@@ -62,6 +62,8 @@ func TestFormatParity(t *testing.T) {
 		// argument validation, before any store is opened.
 		FailingArgs: []string{"bundle", "show"},
 		Refusal:     refusedConfig(t),
+		// Off a terminal, ctxloom's default is the non_tty_format key's.
+		OffTerminalSource: "the non_tty_format config key",
 	})
 }
 

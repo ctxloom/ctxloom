@@ -165,7 +165,7 @@ human-view override cannot drift the json contract.
 | `SupportedFormats()` | the five formats, in help order |
 | `FormatNames()` | `SupportedFormats` as strings: completion, usage, a config schema's enum |
 | `ResolveFormat(requested, explicit, terminal, offTerminal)` | not explicit: text on a terminal, otherwise `offTerminal` (the zero Format is json; one naming no format is `ErrUnsupportedFormat`). Explicit `""`: text. Else `ParseFormat` |
-| `FormatUsage()` | the one `--format` help string, derived from `SupportedFormats` |
+| `FormatUsage()`, `FormatUsageWith(source)` | the one `--format` help string, derived from `SupportedFormats`; `FormatUsageWith` names a configurable off-terminal default's source |
 | `ExitCoder`, `ExitCodeOf(err)` | nil → 0; the first `ExitCode()` in the `%w` chain (joined errors included); else 1 |
 | `ExitStatus{Code}` | an error meaning "exit with Code and report nothing" — a wrapped process's own status |
 | `RenderError(w, err, f)` | `ErrorEnvelope` (`{"error": …, "remedy": …}`) in a structured format; `Error: <msg>` plus a `fix:` line in text |
@@ -183,7 +183,7 @@ gate (`TestArch_ClifmtCoreDoesNotLinkCobra`) runs `go list -deps` on `pkg/clifmt
 
 | Function | Contract |
 |---|---|
-| `AddFlag(root)` | the persistent `--format`: empty default, usage `FormatUsage()`, completion from `FormatNames` |
+| `AddFlag(root, opts…)` | the persistent `--format`: empty default, usage `FormatUsageWith` (`OffTerminalFrom(source)` names the off-terminal default's source; ctxloom names `non_tty_format`), completion from `FormatNames` |
 | `Resolve(cmd)` | flag lookup (a set `--json` counts as `--format json`) → `ResolveFormat` against whether stdout is a terminal and the off-terminal default. A command with no `--format` reads as text; a `--format` of the wrong flag type is an error |
 | `Explicit(cmd)` | whether the user actually asked for a format, as opposed to one derived from a pipe |
 | `Emit(cmd, data, opts…)` | render `data` to `cmd.OutOrStdout()` in the resolved format, through the tree's `Printer` |

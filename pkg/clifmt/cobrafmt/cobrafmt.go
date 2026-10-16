@@ -26,12 +26,28 @@ import (
 // formatFlag is the persistent flag AddFlag registers and Resolve reads.
 const formatFlag = "format"
 
+// FlagOption adjusts the --format flag AddFlag registers.
+type FlagOption func(*flagConfig)
+
+type flagConfig struct{ offTerminalSource string }
+
+// OffTerminalFrom names, in the flag's help, where the program's off-terminal
+// default comes from (the source it hands SetOffTerminalDefault), so the help
+// does not promise json to a user who configured otherwise.
+func OffTerminalFrom(source string) FlagOption {
+	return func(c *flagConfig) { c.offTerminalSource = source }
+}
+
 // AddFlag registers the persistent --format flag on root: its usage is
-// clifmt.FormatUsage, its default is empty (an unset flag follows the
-// terminal; see Resolve), and shell completion offers
-// clifmt.SupportedFormats.
-func AddFlag(root *cobra.Command) {
-	root.PersistentFlags().String(formatFlag, "", clifmt.FormatUsage())
+// clifmt.FormatUsageWith (FormatUsage unless OffTerminalFrom names a source),
+// its default is empty (an unset flag follows the terminal; see Resolve), and
+// shell completion offers clifmt.SupportedFormats.
+func AddFlag(root *cobra.Command, opts ...FlagOption) {
+	var cfg flagConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
+	root.PersistentFlags().String(formatFlag, "", clifmt.FormatUsageWith(cfg.offTerminalSource))
 	_ = root.RegisterFlagCompletionFunc(formatFlag, func(*cobra.Command, []string, string) ([]cobra.Completion, cobra.ShellCompDirective) {
 		return clifmt.FormatNames(), cobra.ShellCompDirectiveNoFileComp
 	})

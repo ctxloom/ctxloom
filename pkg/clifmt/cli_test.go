@@ -93,6 +93,19 @@ func TestFormatUsage(t *testing.T) {
 	}
 }
 
+// A configurable off-terminal default is named in the help, with json as
+// what applies when it is unset; no source is FormatUsage's text.
+func TestFormatUsageWith(t *testing.T) {
+	if FormatUsageWith("") != FormatUsage() {
+		t.Errorf("an empty source must be FormatUsage's text")
+	}
+	got := FormatUsageWith("the non_tty_format config key")
+	want := "Output format: json, yaml, toml, text, or markdown (default: text on a terminal; when output is piped or redirected, the non_tty_format config key, or json when that is unset)"
+	if got != want {
+		t.Errorf("FormatUsageWith = %q, want %q", got, want)
+	}
+}
+
 type codeErr struct{ code int }
 
 func (e codeErr) Error() string { return fmt.Sprintf("code %d", e.code) }

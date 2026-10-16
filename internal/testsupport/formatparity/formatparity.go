@@ -41,6 +41,10 @@ type Binary struct {
 	Refusal func(t *testing.T, extra ...string) (code int, stderr string)
 	// NoRefusal is why Refusal is nil.
 	NoRefusal string
+	// OffTerminalSource is what the binary's --format help names as its
+	// configurable off-terminal default (cobrafmt.OffTerminalFrom); empty for
+	// a binary whose default off a terminal is always json.
+	OffTerminalSource string
 }
 
 // Check runs the family table against b.
@@ -51,8 +55,8 @@ func Check(t *testing.T, b Binary) {
 		if f == nil {
 			t.Fatal("the root registers no persistent --format")
 		}
-		if f.Usage != clifmt.FormatUsage() {
-			t.Errorf("--format usage = %q, want clifmt.FormatUsage() = %q", f.Usage, clifmt.FormatUsage())
+		if want := clifmt.FormatUsageWith(b.OffTerminalSource); f.Usage != want {
+			t.Errorf("--format usage = %q, want clifmt.FormatUsageWith(%q) = %q", f.Usage, b.OffTerminalSource, want)
 		}
 		if f.DefValue != "" {
 			t.Errorf("--format defaults to %q; an unset flag must follow the terminal, so the default is empty", f.DefValue)

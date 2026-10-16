@@ -210,8 +210,13 @@ const yesFlagName = "yes"
 // outputFlagName names the path a command writes its result to.
 const outputFlagName = "output"
 
+// nonTTYFormatSource is how --format's help names the off-terminal default
+// configuredNonTTYFormat supplies.
+const nonTTYFormatSource = "the non_tty_format config key"
+
 // The --format flag is the family's (cobrafmt.AddFlag): its usage says what an
-// unset flag does, and the shell completes its values.
+// unset flag does — including that off a terminal it follows non_tty_format —
+// and the shell completes its values.
 func init() {
-	cobrafmt.AddFlag(rootCmd)
+	cobrafmt.AddFlag(rootCmd, cobrafmt.OffTerminalFrom(nonTTYFormatSource))
 }

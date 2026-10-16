@@ -43,10 +43,19 @@ func ResolveFormat(requested string, explicit, terminal bool, offTerminal Format
 
 // FormatUsage is the one help string for a --format flag: the supported
 // formats, in order, and what an unset flag does (see ResolveFormat).
-func FormatUsage() string {
+func FormatUsage() string { return FormatUsageWith("") }
+
+// FormatUsageWith is FormatUsage for a program whose off-terminal default is
+// configurable: offTerminalSource names where it comes from (a config key,
+// say), and the help says json applies only when that is unset. An empty
+// source is FormatUsage's text.
+func FormatUsageWith(offTerminalSource string) string {
 	names := FormatNames()
 	list := strings.Join(names[:len(names)-1], ", ") + ", or " + names[len(names)-1]
-	return "Output format: " + list + " (default: text on a terminal, json when output is piped or redirected)"
+	if offTerminalSource == "" {
+		return "Output format: " + list + " (default: text on a terminal, json when output is piped or redirected)"
+	}
+	return "Output format: " + list + " (default: text on a terminal; when output is piped or redirected, " + offTerminalSource + ", or json when that is unset)"
 }
 
 // ExitCoder is an error that names the process exit status it should end

@@ -510,6 +510,15 @@ Grouped by what you would have to change.
   when output is piped or redirected) instead of a fixed `text`. A pipe already
   got json; only the help was wrong. `harp`, `ltk` and `taskloom` complete
   `--format` values in the shell.
+- New config key `non_tty_format` (`json` | `yaml` | `toml` | `text` |
+  `markdown`): the format a ctxloom command writes when stdout is not a
+  terminal and no `--format`/`--json` was given. Unset, it is `json` — so
+  nothing changes until you set it. A terminal still gets text, and an
+  explicit `--format` always wins. Warnings on stderr follow the same choice:
+  JSON Lines under json/yaml/toml, the plain `ctxloom: warning:` line
+  otherwise. Honoured from every layer, `CTXLOOM_CONFIG_NON_TTY_FORMAT`
+  included; any other value is refused at startup, never silently read as
+  json. `ctxloom --help` names it in `--format`'s default.
 
 **Isolation**
 - The container runtime axis splits into two ownership modes,

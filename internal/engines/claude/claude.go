@@ -12,8 +12,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/exectoken"
-
 	hew "github.com/benjaminabbitt/hew/go"
 	_ "github.com/benjaminabbitt/hew/go/ext/json"
 	"github.com/spf13/afero"
@@ -123,11 +121,10 @@ type claudeCodeHookMatcher struct {
 //
 // It carries no provenance marker: Claude Code uses Zod schema validation
 // with .strict() mode when validating edits to settings.json, which rejects
-// unknown fields. A ctxloom-managed hook read back is identified by its
-// executable token (the command's first word resolves to `ctxloom`) via
-// exectoken.IsManaged.
-// This is path-agnostic: any `ctxloom <subcommand>` hook is recognized, so the
-// callback subcommand can move without breaking detection or cleanup.
+// unknown fields. A ctxloom callback read back is identified by its shape
+// (agent.IsCallback): its executable resolves to `ctxloom` and it runs
+// `hook <verb>`, so a callback's verb can move without breaking detection or
+// cleanup, and a user's own `ctxloom <other subcommand>` hook is theirs.
 // See: claude-code-src/src/utils/settings/validation.ts:193
 type claudeCodeHook struct {
 	Type    string `json:"type,omitempty"`
@@ -138,13 +135,6 @@ type claudeCodeHook struct {
 	Prompt  string   `json:"prompt,omitempty"`
 	Timeout int      `json:"timeout,omitempty"`
 	Async   bool     `json:"async,omitempty"`
-}
-
-// line is the hook's command identity — the whole argv as one shell line
-// (wire.Hook.Line). In exec form every hook ctxloom writes for itself names
-// the same executable, so Command alone would make them all one hook.
-func (h claudeCodeHook) line() string {
-	return wire.Hook{Command: h.Command, Args: h.Args}.Line()
 }
 
 // loadSettings loads existing settings.json or returns empty settings for a
@@ -432,7 +422,7 @@ func (w *ClaudeCodeHookWriter) Status(projectDir string) (agent.SettingsStatus, 
 			return status, fmt.Errorf("failed to load existing settings: %w", err)
 		}
 		status.HooksPresent = claudeHasManagedHook(settings)
-		status.StatusLine = settings.StatusLine != nil && exectoken.IsManaged(settings.StatusLine.Command, "ctxloom")
+		status.StatusLine = settings.StatusLine != nil && isCallback(settings.StatusLine.Command, nil)
 	}
 
 	mcpPath := w.MCPConfigPath(projectDir)
@@ -464,16 +454,34 @@ func (w *ClaudeCodeHookWriter) mcpPresent(mcpPath string) (bool, error) {
 	return slices.ContainsFunc(live, func(p string) bool { return strings.HasPrefix(p, present.PointerKey(mcpServersKey)+"/") }), nil
 }
 
-// claudeHasManagedHook reports whether any configured hook is ctxloom-managed.
+// claudeHasManagedHook reports whether any configured hook is one of
+// ctxloom's callbacks (isCallback): what a release takes out of the file is
+// what a status reports as wired, so a user's own hook that runs ctxloom for
+// its own purposes is neither.
 func claudeHasManagedHook(settings *claudeCodeSettings) bool {
 	for _, matchers := range settings.Hooks {
 		for _, matcher := range matchers {
 			for _, hook := range matcher.Hooks {
-				if exectoken.IsManaged(hook.line(), "ctxloom") {
+				if isCallback(hook.Command, hook.Args) {
 					return true
 				}
 			}
 		}
 	}
 	return false
+}
+
+// isCallback reports whether an entry with this command, and these exec-form
+// arguments (nil for a shell line), is one of ctxloom's callbacks
+// (agent.IsCallback), the entry spelled as settings.json decodes it.
+func isCallback(command string, args []string) bool {
+	entry := map[string]any{"command": command}
+	if args != nil {
+		words := make([]any, len(args))
+		for i, a := range args {
+			words[i] = a
+		}
+		entry["args"] = words
+	}
+	return agent.IsCallback(entry)
 }

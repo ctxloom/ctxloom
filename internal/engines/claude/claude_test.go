@@ -1294,3 +1294,31 @@ func TestStatus_ReadBackManagedHookIsRecognised(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, status.HooksPresent, "a user's own hook is not ctxloom-managed")
 }
+
+// TestStatus_AUsersOwnCtxloomHookIsNotWired pins that Status reads the one
+// rule a release sweeps by (agent.IsCallback): a user's own hook or
+// statusline running ctxloom with a subcommand other than `hook <verb>` is
+// the user's, and neither is reported as ctxloom's wiring. The callbacks and
+// the HUD statusline beside them are.
+func TestStatus_AUsersOwnCtxloomHookIsNotWired(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	w := &ClaudeCodeHookWriter{FS: fs}
+
+	usersOnly := "/users-only"
+	testsupport.WriteFileString(t, fs, w.SettingsPath(usersOnly),
+		`{"statusLine":{"type":"command","command":"ctxloom profile list"},`+
+			`"hooks":{"SessionEnd":[{"hooks":[{"type":"command","command":"ctxloom profile list"},{"type":"command","command":"ctxloom","args":["session","list"]}]}]}}`, 0o644)
+	status, err := w.Status(usersOnly)
+	require.NoError(t, err)
+	assert.False(t, status.HooksPresent, "a user's own `ctxloom <non-hook>` hook is not ctxloom's callback")
+	assert.False(t, status.StatusLine, "a user's own `ctxloom <non-hook>` statusline is not ctxloom's HUD")
+
+	wired := "/wired"
+	testsupport.WriteFileString(t, fs, w.SettingsPath(wired),
+		`{"statusLine":{"type":"command","command":"ctxloom hook hud"},`+
+			`"hooks":{"Stop":[{"hooks":[{"type":"command","command":"ctxloom","args":["hook","next-step","--engine","claude-code"]}]}]}}`, 0o644)
+	status, err = w.Status(wired)
+	require.NoError(t, err)
+	assert.True(t, status.HooksPresent, "control: a `hook <verb>` callback is ctxloom's")
+	assert.True(t, status.StatusLine, "control: the `hook hud` statusline is ctxloom's")
+}

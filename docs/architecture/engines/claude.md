@@ -78,7 +78,7 @@ against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
 1. **The argv's surface flags come from what the runner delivered.** `Execute` hands `inst.Exec` the delivery's presentations (`req.Presented`); each flag's NAME and path come from the typed approach's own `Presented`, never from a constant beside it, so a moved file or a changed flag changes the argv with it.
 2. **What is presented is where the bytes are.** A delivery's `Presented` path is a file it declares, a file it claims into, or the directory its files land in (`TestDelivered_PresentsWhereTheApproachWrites`).
 3. **`Path() == ""` means "emit no flag"** — the seam between delivery and argv. An approach reports `""` when it delivered nothing (empty content), and claude must never be handed a flag naming a file that was never written.
-4. **Ownership is marked by the `"ctxloom"` executable token** via `agent.IsManaged(cmd, "ctxloom")`, repeated at six call sites and deliberately verb-agnostic.
+4. **What claude's status reports as wired is a ctxloom callback by shape**: `claudeHasManagedHook` and the statusline check read `agent.IsCallback` — ctxloom's executable running `hook <verb>` — the same rule a release with no record sweeps by, so a user's own `ctxloom <other subcommand>` hook is neither reported nor removed.
 5. **`claudeCodeHook.SCM` is `json:"-"`** because claude validates settings against a strict Zod schema (`claude.go:149`).
 6. **Writes are marker-merged or manifest-scoped, never whole-file overwrites.**
 7. **claude never passes `safefs.AllowEmpty()`**, so a zero-byte write over an existing file it writes is refused by safefs's empty-write guard (and `agent.CanonicalJSON` always emits at least `{}\n` anyway).

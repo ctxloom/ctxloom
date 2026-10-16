@@ -186,3 +186,33 @@ func TestMergeHooksConfig_UnifiedHalfMatchesWireAppend(t *testing.T) {
 	assert.Equal(t, viaAppend, viaMerge.Unified,
 		"the hand-written unified merge and wire's own Append disagree")
 }
+
+// IsCallback is the shape ctxloomCallback builds, in either spelling, and
+// nothing else that runs ctxloom: every constructor's hook is one, the HUD
+// statusline is one, and a user's own ctxloom invocation is not.
+func TestIsCallback(t *testing.T) {
+	for _, h := range []wire.Hook{NewSessionStartHook(), NewSkillMatesHook(), NewMailPeekHook(), NewNextStepHook(), NewMailDrainHook()} {
+		args := make([]any, len(h.Args))
+		for i, a := range h.Args {
+			args[i] = a
+		}
+		assert.True(t, IsCallback(map[string]any{"command": h.Command, "args": args}), "constructed callback %v", h.Args)
+	}
+	cases := []struct {
+		entry map[string]any
+		want  bool
+	}{
+		{map[string]any{"command": "ctxloom hook hud"}, true},
+		{map[string]any{"command": "/usr/local/bin/ctxloom hook session-start --engine claude-code"}, true},
+		{map[string]any{"command": "ctxloom", "args": []any{"hook", "next-step", "--engine", "claude-code"}}, true},
+		{map[string]any{"command": "ctxloom profile list"}, false},
+		{map[string]any{"command": "ctxloom", "args": []any{"session", "list"}}, false},
+		{map[string]any{"command": "ctxloom hook"}, false},
+		{map[string]any{"command": "ctxloom --verbose hook hud"}, false},
+		{map[string]any{"command": "ltk hook evaluate"}, false},
+		{map[string]any{"command": "echo ctxloom hook hud"}, false},
+	}
+	for _, c := range cases {
+		assert.Equal(t, c.want, IsCallback(c.entry), "%v", c.entry)
+	}
+}

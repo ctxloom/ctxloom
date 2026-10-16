@@ -256,6 +256,11 @@ func (s *Static) deliver(sc *lockScope, lo delivery.Loadout, root engine.Base, t
 	if err := releaseWriters(st, target.Ownership, released, carried(lo.Package.CarryForward), target.Writers()...); err != nil {
 		return delivery.Delivered{}, err
 	}
+	if len(runs) == 0 {
+		if err := s.sweepUnrecorded(sc, root, target, within, st); err != nil {
+			return delivery.Delivered{}, err
+		}
+	}
 	modes := map[string]os.FileMode{}
 	for _, r := range runs {
 		if err := r.stage(st, target, modes); err != nil {
@@ -518,6 +523,47 @@ func readWritten(layer afero.Fs, path string) ([]byte, os.FileInfo, error) {
 // keeps its entries as the record says it left them.
 func carried(sources []string) func(pointer, via string) bool {
 	return func(_, via string) bool { return slices.Contains(sources, via) }
+}
+
+// sweptKinds are the kinds a release with no record sweeps (sweepUnrecorded):
+// the hooks and the settings, whose file a repository may track with
+// ctxloom's callbacks in it.
+var sweptKinds = []present.Kind{present.Hooks, present.Settings}
+
+// sweepUnrecorded stages, on a release (the empty plan), a sweep
+// (delivery.Staging.Sweep) of each file the hooks and settings approaches name
+// under the target; the sweep acts only on a file the record names nothing
+// in. A fresh clone of a repository that tracks its settings file carries
+// ctxloom's callbacks onto a machine whose record (home-rooted) has never seen
+// them, and the release would otherwise open nothing. The files are what the
+// kind's approach names when it delivers nothing, at the root Route would
+// give it.
+func (s *Static) sweepUnrecorded(sc *lockScope, root engine.Base, target delivery.Target, within func(string) bool, st delivery.Staging) error {
+	surfaces, paths := root.Surfaces(), target.Root.Paths()
+	for _, k := range sweptKinds {
+		approach := surfaces[k]
+		if approach == nil || !target.Speaks(k) {
+			continue
+		}
+		w := target.WriterOf(k)
+		at, ok := delivery.DefaultRoot(approach.Traits(), paths)
+		if !ok {
+			continue
+		}
+		named, err := s.run(sc, delivery.StaticItem{Kind: k, Approach: approach.Name(), Root: at}, approach, target, delivery.Inputs{})
+		if err != nil {
+			return err
+		}
+		for _, path := range slices.Sorted(maps.Keys(named.d.Claims)) {
+			if !within(path) {
+				continue
+			}
+			if err := st.Sweep(path, w); err != nil {
+				return fmt.Errorf("fsstatic: sweep %s for %s: %w", path, w, err)
+			}
+		}
+	}
+	return nil
 }
 
 // releaseWriters stages the release of each writer's claims in every file the

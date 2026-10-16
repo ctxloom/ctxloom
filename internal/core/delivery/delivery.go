@@ -143,19 +143,27 @@ func Route(items engine.Items, root engine.Base, pref Preference, roots present.
 			plan.Static = append(plan.Static, item)
 			continue
 		}
-		for _, r := range traits.Roots {
-			if HasRoot(roots, r) {
-				item.Root = r
-				break
-			}
-		}
-		if item.Root == 0 {
+		r, ok := DefaultRoot(traits, roots)
+		if !ok {
 			return Plan{}, Unrootable{Kind: kind, Approach: a.Name(), Needs: traits.Roots[0],
 				Fix: fmt.Sprintf("approach %s offers roots %v and this cell has none of them; give the cell a session home or select a root on the binding", a.Name(), traits.Roots)}
 		}
+		item.Root = r
 		plan.Static = append(plan.Static, item)
 	}
 	return plan, nil
+}
+
+// DefaultRoot is the first root traits offers that roots resolved: the root
+// Route gives an item the binding selects none for. ok is false when roots
+// resolved none of them.
+func DefaultRoot(traits present.Traits, roots present.Paths) (present.RootKind, bool) {
+	for _, r := range traits.Roots {
+		if HasRoot(roots, r) {
+			return r, true
+		}
+	}
+	return 0, false
 }
 
 // HasRoot reports whether the cell resolved the root a RootKind names: the
@@ -499,6 +507,12 @@ type Staging interface {
 	// Release drops writer's claims in target, except those keep names
 	// (keep may be nil): what no writer still claims leaves the file.
 	Release(target string, writer Writer, keep func(pointer, via string) bool) error
+	// Sweep takes out of target, on writer's release and only when the record
+	// names nothing in it, every ctxloom callback (agent.IsCallback) no claim
+	// holds, and each container that leaves empty: what a release does to a
+	// file it has no record of, such as a tracked settings file in a fresh
+	// clone.
+	Sweep(target string, writer Writer) error
 }
 
 // PathState is one claimed place in a file: its writers, the one whose value

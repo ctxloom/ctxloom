@@ -235,3 +235,37 @@ func TestHarnessStatus_FreshClone_AgreesWithUninstall(t *testing.T) {
 	assert.False(t, after.HooksPresent, "check reports hooks that uninstall left as the user's")
 	assert.False(t, after.StatusLine)
 }
+
+// A user's own hook that runs ctxloom with a subcommand other than
+// `hook <verb>` is theirs: uninstall in a fresh clone leaves it, in the group
+// it shares with a callback, and check does not report it as ctxloom's
+// wiring. The groups and events the callbacks alone filled leave with them.
+func TestRelease_FreshClone_KeepsAUsersOwnCtxloomHook(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	isolateRecords(t)
+	callback := func(verb string) map[string]any {
+		return map[string]any{"type": "command", "command": agent.CtxloomCommand(), "args": []any{"hook", verb, "--engine", "claude-code"}}
+	}
+	users := map[string]any{"type": "command", "command": freshUserCtxloom}
+	seed, err := json.MarshalIndent(map[string]any{
+		"statusLine": map[string]any{"type": "command", "command": "ctxloom hook hud"},
+		"hooks": map[string]any{
+			"SessionStart": []any{map[string]any{"hooks": []any{callback("session-start"), users}}},
+			"Stop":         []any{map[string]any{"hooks": []any{callback("next-step")}}},
+		},
+	}, "", "  ")
+	require.NoError(t, err)
+	testsupport.WriteFile(t, fs, claude.ProjectSettingsPath(freshCloneDir), seed, 0o644)
+
+	releaseFresh(t, fs)
+
+	doc, _ := freshHooks(t, fs)
+	assert.Equal(t, map[string]any{"hooks": map[string]any{
+		"SessionStart": []any{map[string]any{"hooks": []any{users}}},
+	}}, doc, "only the user's own ctxloom hook is left, with no group or event emptied around it")
+	res, err := HarnessStatus(context.Background(), engines.Registry(), &config.Config{}, HarnessStatusRequest{FS: fs, WorkDir: freshCloneDir})
+	require.NoError(t, err)
+	wiring := backendWiring(t, res, "claude-code")
+	assert.False(t, wiring.HooksPresent, "check reports the user's own ctxloom hook as ctxloom's wiring")
+	assert.False(t, wiring.StatusLine)
+}

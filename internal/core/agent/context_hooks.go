@@ -1,8 +1,14 @@
 package agent
 
 import (
+	"slices"
+	"strings"
+
+	"mvdan.cc/sh/v3/shell"
+
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 
+	"github.com/ctxloom/ctxloom/internal/shared/exectoken"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -33,10 +39,73 @@ func NewSessionStartHook() wire.Hook {
 func ctxloomCallback(timeout int, verb string, args ...string) wire.Hook {
 	return wire.Hook{
 		Command: CtxloomCommand(),
-		Args:    append([]string{"hook", verb}, args...),
+		Args:    append([]string{callbackSubcommand, verb}, args...),
 		Type:    "command",
 		Timeout: timeout,
 	}
+}
+
+// callbackSubcommand is the ctxloom subcommand every callback runs under
+// (ctxloomCallback); the HUD statusline runs under it too (`hook hud`).
+const callbackSubcommand = "hook"
+
+// IsCallback reports whether a hook entry, as a settings file decodes it, is
+// one of ctxloom's callbacks by construction: it runs ctxloom's executable,
+// and its subcommand (CtxloomSubcommand) is `hook <verb>` — the shape
+// ctxloomCallback builds and the HUD statusline shares. It is what a release
+// with no record takes out of a tracked settings file, and what a status
+// reports as wired: a user's own entry running ctxloom with any other
+// subcommand (`ctxloom profile list`) is theirs, and neither.
+func IsCallback(v any) bool {
+	sub, ok := CtxloomSubcommand(v)
+	words := strings.Fields(sub)
+	return ok && len(words) >= 2 && words[0] == callbackSubcommand
+}
+
+// CtxloomSubcommand is the ctxloom subcommand a hook entry invokes — its
+// leading argument words up to the first flag, joined by a space. ok is false
+// for an entry that does not run ctxloom or names no subcommand.
+func CtxloomSubcommand(v any) (string, bool) {
+	args, ok := ctxloomArgs(v)
+	if !ok {
+		return "", false
+	}
+	end := slices.IndexFunc(args, func(w string) bool { return strings.HasPrefix(w, "-") })
+	if end < 0 {
+		end = len(args)
+	}
+	return strings.Join(args[:end], " "), end > 0
+}
+
+// ctxloomArgs is the argument words of a hook entry that runs ctxloom,
+// whichever form it is spelled in: the exec form (the executable in
+// "command", its arguments in "args") or a shell line in "command" alone.
+func ctxloomArgs(v any) ([]string, bool) {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	command, ok := m["command"].(string)
+	if !ok || !exectoken.IsManaged(command, CtxloomBinary) {
+		return nil, false
+	}
+	raw, exec := m["args"].([]any)
+	if !exec {
+		fields, err := shell.Fields(command, func(string) string { return "" })
+		if err != nil || len(fields) == 0 {
+			return nil, false
+		}
+		return fields[1:], true
+	}
+	args := make([]string, 0, len(raw))
+	for _, a := range raw {
+		w, ok := a.(string)
+		if !ok {
+			return nil, false
+		}
+		args = append(args, w)
+	}
+	return args, true
 }
 
 // DefaultEssenceChars is the target size, in characters, of a finished

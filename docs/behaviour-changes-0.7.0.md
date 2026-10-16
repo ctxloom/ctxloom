@@ -374,6 +374,18 @@ default agent's; with no `--backend`, the project's configured engines.
 - **Do not commit a materialized file.** The record of what ctxloom wrote
   lives in your home directory; on another machine a committed copy reads
   as your own text, and the next materialize appends a second copy.
+- **In a clone with no record, `manage uninstall` still takes out
+  ctxloom's hooks and HUD statusline.** When the record in your home
+  directory names nothing in a settings file — a fresh clone of a repository
+  that tracks `.claude/settings.json` — the release removes every hook entry
+  that runs `ctxloom hook <verb>` and a statusline that runs `ctxloom hook
+  hud`, and drops each hook group and event left empty. Your own hooks, a
+  hook that runs ctxloom with any other subcommand (`ctxloom profile list`),
+  and every other key stay. Before, it reported `released` and removed
+  nothing. `manage check` now reports `hooks_present` and `status_line` by
+  the same rule, so a hook of yours that runs `ctxloom <something else>` no
+  longer counts as ctxloom's. ctxloom's `env` values, CLAUDE.md and command
+  files committed to a clone are still not removed without a record.
 - **`ctxloom profile materialize`, `ctxloom manage hooks install` and
   `ctxloom manage hooks uninstall` are removed.** A script that calls one now
   fails with `unknown command`. Use `ctxloom materialize` (it takes the

@@ -19,7 +19,6 @@ import (
 	hew "github.com/benjaminabbitt/hew/go"
 	"github.com/spf13/afero"
 	yaml "gopkg.in/yaml.v3"
-	"mvdan.cc/sh/v3/shell"
 
 	// The formats a claim's place is found in: registered HERE, by the
 	// record that needs them, so a file's claims never depend on which
@@ -29,9 +28,9 @@ import (
 	_ "github.com/benjaminabbitt/hew/go/ext/yaml"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/shared/exectoken"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
@@ -317,6 +316,7 @@ type claimOp struct {
 	claims []stagedClaim // nil for a release
 	keep   func(pointer, via string) bool
 	stage  bool
+	sweep  bool
 }
 
 type targetOps struct {
@@ -330,9 +330,13 @@ type targetOps struct {
 	// transition and never for a crash's redo, confine the transition.
 	scope  delivery.Writer
 	scoped bool
-	disk   []byte
-	prior  fileState
-	had    []string // the writers the record named before the ops
+	// sweeping, set by the fold when a Sweep was staged and the record named
+	// nothing in the file, has the transition take out the callbacks no claim
+	// holds (editor.sweep).
+	sweeping bool
+	disk     []byte
+	prior    fileState
+	had      []string // the writers the record named before the ops
 	// set by the seal when it notes a write pending, for the confirm
 	noted *claimsRecord
 }
@@ -445,6 +449,23 @@ func claimPointer(key string) string {
 	return key
 }
 
+// Sweep stages, on w's release, the sweep of target when the record names
+// nothing in it: every ctxloom callback in it (agent.IsCallback) that no claim
+// holds after the batch's ops, and each container that leaves empty
+// (editor.sweep). A file the record names anything in is the record's to
+// release; a file hew reads no format of holds nothing to sweep.
+func (s *Staging) Sweep(target string, w delivery.Writer) error {
+	if w == "" || strings.TrimSpace(target) == "" {
+		return errors.New("fsstatic: a sweep needs a target and a writer")
+	}
+	if _, _, ok := bindingFor(target); !ok {
+		return nil
+	}
+	t := s.touch(target)
+	t.ops = append(t.ops, claimOp{writer: w, sweep: true})
+	return nil
+}
+
 // Release drops w's claims in target, except those keep names (keep may be
 // nil). What no writer still claims leaves the file; a place another writer
 // claims takes that writer's value.
@@ -504,9 +525,12 @@ func (t *targetOps) fold(cur []byte, exists bool) ([]byte, bool, error) {
 	}
 	from, was := rec.state(), rec.clone()
 	for _, op := range t.ops {
-		if op.stage {
+		switch {
+		case op.sweep:
+			t.sweeping = len(was.Paths) == 0
+		case op.stage:
 			rec.stage(op.writer, op.claims)
-		} else {
+		default:
 			rec.release(op.writer, op.keep)
 		}
 	}
@@ -685,7 +709,7 @@ func (t *targetOps) transition(cur []byte, exists bool, from fileState, rec *cla
 		return t.wholeFile(cur, exists, from, to, rec)
 	case kind == present.AppendedSection:
 		return t.section(cur, exists, from, to, rec)
-	case len(from.Values) == 0 && len(to.Values) == 0 && len(to.Containers) == 0:
+	case len(from.Values) == 0 && len(to.Values) == 0 && len(to.Containers) == 0 && !t.sweeping:
 		return cur, exists, nil
 	}
 	return t.structured(cur, exists, from, to, rec)
@@ -854,6 +878,11 @@ func (t *targetOps) structured(cur []byte, exists bool, from, to fileState, rec 
 	}
 	if err := e.removeSuperseded(from, to); err != nil {
 		return nil, false, err
+	}
+	if t.sweeping && !t.scoped {
+		if err := e.sweep(to); err != nil {
+			return nil, false, err
+		}
 	}
 	rec.Containers = e.prune(rec.Containers)
 	if err := e.err(); err != nil {
@@ -1160,7 +1189,7 @@ func (e *editor) removeSuperseded(from, to fileState) error {
 		if !ok {
 			continue
 		}
-		if sub, ok := ctxloomSubcommand(entry.Value); ok {
+		if sub, ok := agent.CtxloomSubcommand(entry.Value); ok {
 			claimed[container] = appendNew(claimed[container], sub)
 		}
 	}
@@ -1201,54 +1230,108 @@ func superseded(el hew.Node, known []any, claimed []string) bool {
 	if el.Value().Decode(&v) != nil {
 		return false
 	}
-	sub, ok := ctxloomSubcommand(v)
+	sub, ok := agent.CtxloomSubcommand(v)
 	return ok && slices.Contains(claimed, sub)
 }
 
-// ctxloomSubcommand is the ctxloom subcommand a hook entry invokes — its
-// leading argument words up to the first flag, joined by a space. ok is false
-// for an entry that does not run ctxloom or names no subcommand.
-func ctxloomSubcommand(v any) (string, bool) {
-	args, ok := ctxloomArgs(v)
-	if !ok {
-		return "", false
+// sweep takes out of the document every ctxloom callback (agent.IsCallback)
+// that is not, and is not inside, a value a claim in to holds — a member (the
+// HUD statusline) or an array element (a hook entry) — and each container the
+// sweep leaves empty:
+// an array with no element left, or a map left with nothing but scalars (a
+// hook group's matcher). It is removeSuperseded for a file no record names:
+// with nothing claimed to compare against, the callback's shape is the
+// identity, and a user's own entry running ctxloom any other way stays. The
+// document's root is never removed.
+func (e *editor) sweep(to fileState) error {
+	d, err := e.binding.Document(e.target, e.doc)
+	if err != nil {
+		return fmt.Errorf("fsstatic: %s does not parse: %w", e.target, err)
 	}
-	end := slices.IndexFunc(args, func(w string) bool { return strings.HasPrefix(w, "-") })
-	if end < 0 {
-		end = len(args)
+	var root any
+	if err := d.Root().Value().Decode(&root); err != nil {
+		return fmt.Errorf("fsstatic: %s: %w", e.target, err)
 	}
-	return strings.Join(args[:end], " "), end > 0
+	var known []any
+	for _, entry := range to.Values {
+		if v, err := canon(entry.Value); err == nil {
+			known = append(known, v)
+		}
+	}
+	held := func(v any) bool {
+		return slices.ContainsFunc(known, func(k any) bool { return reflect.DeepEqual(k, v) })
+	}
+	removals, _ := swept(root, nil, sweepRule{take: agent.IsCallback, keep: held})
+	for _, at := range removals {
+		if err := e.applyAt(hew.NewPath(at...), func(s *hew.Sel) { s.Remove() }); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-// ctxloomArgs is the argument words of a hook entry that runs ctxloom,
-// whichever form it is spelled in: claude's exec form (the executable in
-// "command", its arguments in "args") or a shell line in "command" alone.
-func ctxloomArgs(v any) ([]string, bool) {
-	m, ok := v.(map[string]any)
-	if !ok {
-		return nil, false
-	}
-	command, ok := m["command"].(string)
-	if !ok || !exectoken.IsManaged(command, ctxloomOwner) {
-		return nil, false
-	}
-	raw, exec := m["args"].([]any)
-	if !exec {
-		fields, err := shell.Fields(command, func(string) string { return "" })
-		if err != nil || len(fields) == 0 {
-			return nil, false
+// sweepRule is what a sweep takes (a value take holds) and what it leaves
+// whole, without looking inside (a value keep holds).
+type sweepRule struct{ take, keep func(any) bool }
+
+// swept is the places under v, at path at, that a sweep removes — each place
+// the rule takes and each container the sweep leaves empty, in an order that
+// keeps every later place valid (an array's elements last first) — and
+// whether it leaves v itself empty.
+func swept(v any, at []hew.SegmentArg, rule sweepRule) (removals [][]hew.SegmentArg, emptied bool) {
+	child := func(seg hew.SegmentArg) []hew.SegmentArg { return append(slices.Clip(at), seg) }
+	touched := false
+	switch n := v.(type) {
+	case map[string]any:
+		left := 0
+		for _, k := range slices.Sorted(maps.Keys(n)) {
+			sub, gone := sweptMember(n[k], child(hew.Key(k)), rule)
+			removals = append(removals, sub...)
+			touched = touched || len(sub) > 0
+			if !gone && isContainer(n[k]) {
+				left++
+			}
 		}
-		return fields[1:], true
-	}
-	args := make([]string, 0, len(raw))
-	for _, a := range raw {
-		w, ok := a.(string)
-		if !ok {
-			return nil, false
+		return removals, touched && left == 0
+	case []any:
+		left := 0
+		for i := len(n) - 1; i >= 0; i-- {
+			sub, gone := sweptMember(n[i], child(hew.Index(i)), rule)
+			removals = append(removals, sub...)
+			touched = touched || len(sub) > 0
+			if !gone {
+				left++
+			}
 		}
-		args = append(args, w)
+		return removals, touched && left == 0
 	}
-	return args, true
+	return nil, false
+}
+
+// sweptMember is swept for one member or element at path at: nothing when
+// the rule keeps it, the place whole when the rule takes it or the sweep
+// empties it, else what is swept inside it.
+func sweptMember(v any, at []hew.SegmentArg, rule sweepRule) (removals [][]hew.SegmentArg, gone bool) {
+	switch {
+	case rule.keep(v):
+		return nil, false
+	case rule.take(v):
+		return [][]hew.SegmentArg{at}, true
+	}
+	sub, emptied := swept(v, at, rule)
+	if emptied {
+		return [][]hew.SegmentArg{at}, true
+	}
+	return sub, false
+}
+
+// isContainer reports whether v is a map or an array.
+func isContainer(v any) bool {
+	switch v.(type) {
+	case map[string]any, []any:
+		return true
+	}
+	return false
 }
 
 // ownedElement reports whether an array element is ctxloom's own: an entry

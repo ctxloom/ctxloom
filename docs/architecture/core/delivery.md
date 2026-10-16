@@ -24,7 +24,7 @@ flowchart TB
     PREVIEW["fsstatic.Static.Preview(lo, surfaces, target) — Deliver with NOTHING written: the approaches run over their overlays (no own state written), then per kind ONE batch of that kind's writer alone, scoped to its places, folded by safefs.Batch.Fold and never committed (no record, no seal, no file) → delivery.Previewed: per kind Changed / Released / Refused"]:::consume
     REC[("fsstatic.Records — ONE claims record per target file, home-rooted: per place, the writers that put a value there (a session's value over the project's; the latest among sessions); a place leaves the file with its last writer; a user's value is never claimed, and ctxloom's own drifted value is refused")]:::store
     DYN["Dynamic.Serve(lo, ServePolicy) — the runner's MCP package BINDS Launch.MCP"]:::consume
-    EMPTY["the EMPTY plan = uninstall for that writer: only what the record names under the target's roots is removed (ctxloom materialize --release, manage uninstall → operations.Release)"]:::consume
+    EMPTY["the EMPTY plan = uninstall for that writer: only what the record names under the target's roots is removed, except a hooks/settings file the record names nothing in, which is SWEPT of ctxloom's callbacks (ctxloom materialize --release, manage uninstall → operations.Release)"]:::consume
 
     PKG --> ROUTE
     PREF --> ROUTE
@@ -101,6 +101,22 @@ nil (a session) is one writer for every kind, as before. A record under an
 earlier build's bare `project` tag is not a project writer's: nothing
 releases it, and neither a settings status nor `ctxloom run`'s
 materialized-context warning counts it (no legacy handling).
+
+**A release with no record sweeps.** The record is home-rooted, so a fresh
+clone of a repository that tracks `.claude/settings.json` carries ctxloom's
+hooks onto a machine whose record names nothing in that file. On the empty
+plan, `Static.deliver` stages a `Staging.Sweep` of each file the hooks and
+settings approaches name when they deliver nothing (`sweepUnrecorded`, at the
+root `delivery.DefaultRoot` gives them). The sweep acts only on a file the
+record names nothing in: it removes every entry `agent.IsCallback` accepts —
+one running ctxloom's executable with the subcommand `hook <verb>`, the shape
+`agent.ctxloomCallback` builds and the HUD statusline shares — that no claim
+holds, and each container it leaves empty (`editor.sweep`). A user's own
+entry running ctxloom with any other subcommand stays, and the claude status
+(`claudeHasManagedHook`) reads the same rule, so `manage check` reports as
+wired exactly what `manage uninstall` takes out
+(`TestRelease_FreshClone_ReclaimsCtxloomHooks`,
+`TestHarnessStatus_FreshClone_AgreesWithUninstall`).
 
 The record store is owner-only before any delivery writes through it, and
 that is a security invariant: a claims record keeps every value ctxloom put

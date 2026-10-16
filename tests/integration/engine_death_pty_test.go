@@ -64,6 +64,11 @@ while IFS= read -r line; do echo "FAKE-ENGINE-GOT:$line"; done
 const grandchildHoldingTheTerminal = `(trap '' HUP; exec sleep 600) &
 echo "FAKE-GRANDCHILD-PID:$!"`
 
+// runnerLossEnd is how `ctxloom run` reports a run whose runner died without
+// reporting: the coordinator's runner-loss end, carrying the runner process's
+// exit status (2, a Go runtime ending on SIGQUIT).
+var runnerLossEnd = regexp.MustCompile(`run ended \(` + regexp.QuoteMeta(coord.CauseRunnerLoss) + `\): .*runner exited with status 2\b`)
+
 var (
 	enginePIDLine     = regexp.MustCompile(`FAKE-ENGINE-PID:(\d+)`)
 	grandchildPIDLine = regexp.MustCompile(`FAKE-GRANDCHILD-PID:(\d+)`)
@@ -168,8 +173,12 @@ func dumpGoroutines(t *testing.T, sess *testenv.PTYSession, runner procpin.Handl
 // TestRunPTY_RunnerDeadWithoutAnOutcomeEndsTheRun is the incident's second
 // half: the runner dies without ever reporting the run's outcome — SIGQUIT,
 // as the operator sent it, which ends a Go process with no teardown at all.
-// `ctxloom run` must still finish: exit non-zero and release its root's owner
-// lock. The second case is the incident's whole state at that moment: the
+// `ctxloom run` must still finish: exit non-zero, say why, and release its
+// root's owner lock. The coordinator decides that end (runner-loss) and
+// broadcasts it as the run's terminal, so the run reports the cause and the
+// runner's exit status (2: a Go process ending on SIGQUIT), never "the runner
+// exited but the run never reported its outcome" — that was the incident's
+// symptom, printed when only an engine could end the owner's watch. The second case is the incident's whole state at that moment: the
 // engine already dead, a process it left holding its terminal still alive,
 // and the runner ended inside its drain, before it could report.
 func TestRunPTY_RunnerDeadWithoutAnOutcomeEndsTheRun(t *testing.T) {
@@ -207,7 +216,9 @@ func TestRunPTY_RunnerDeadWithoutAnOutcomeEndsTheRun(t *testing.T) {
 			require.True(t, exited, "ctxloom run (pid %d) outlived its runner; captured: %q", sess.PID(), sess.Output())
 			assert.NotEqual(t, 0, sess.ExitCode(), "a run whose runner died unreported is not a success; captured: %q", sess.Output())
 			if tc.saysOutcome {
-				assert.Contains(t, sess.Output(), "never reported its outcome", "the run says why it ended; captured: %q", sess.Output())
+				assert.Regexp(t, runnerLossEnd, sess.Output(), "the run says why it ended; captured: %q", sess.Output())
+				assert.NotContains(t, sess.Output(), "never reported its outcome",
+					"the coordinator's runner-loss end reaches the owner's watch; captured: %q", sess.Output())
 			}
 			released, err := coord.ProbeOwner(safefs.New(), filepath.Dir(locks[0]))
 			require.NoError(t, err)

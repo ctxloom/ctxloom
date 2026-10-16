@@ -25,6 +25,24 @@ func runLint(t *testing.T, checkout, cache string) string {
 	if err != nil {
 		t.Fatalf("just is not on PATH (%v); this test drives the real lint recipe", err)
 	}
+	cmd := exec.Command(just, "--justfile", filepath.Join(root, "justfile.container"),
+		"--working-directory", checkout, "lint")
+	cmd.Env = lintEnv(fakeLintTools(t), checkout, cache)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("just lint: %v\n%s", err, out)
+	}
+	v, ok := reportedCache(string(out))
+	if !ok {
+		t.Fatalf("golangci-lint was never run:\n%s", out)
+	}
+	return v
+}
+
+// fakeLintTools writes the fake `go` and golangci-lint into a fresh dir and
+// returns it.
+func fakeLintTools(t *testing.T) string {
+	t.Helper()
 	bin := t.TempDir()
 	for name, body := range map[string]string{
 		"go":            "#!/bin/sh\nexit 0\n",
@@ -34,8 +52,14 @@ func runLint(t *testing.T, checkout, cache string) string {
 			t.Fatal(err)
 		}
 	}
-	cmd := exec.Command(just, "--justfile", filepath.Join(root, "justfile.container"),
-		"--working-directory", checkout, "lint")
+	return bin
+}
+
+// lintEnv is the scrubbed environment with bin first on PATH, PWD set to
+// checkout as the developer's shell names it (for a symlinked checkout, the
+// link: the recipe's shell trusts an inherited PWD that resolves to its
+// working directory), and GOLANGCI_LINT_CACHE only when cache is non-empty.
+func lintEnv(bin, checkout, cache string) []string {
 	var env []string
 	for _, kv := range scrubbedEnv() {
 		if strings.HasPrefix(kv, "GOLANGCI_LINT_CACHE=") || strings.HasPrefix(kv, "PATH=") || strings.HasPrefix(kv, "PWD=") {
@@ -43,25 +67,21 @@ func runLint(t *testing.T, checkout, cache string) string {
 		}
 		env = append(env, kv)
 	}
-	// PWD is the checkout as the developer's shell names it, which for a
-	// symlinked checkout is the link: the recipe's shell trusts an inherited
-	// PWD that resolves to its working directory.
 	env = append(env, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "PWD="+checkout)
 	if cache != "" {
 		env = append(env, "GOLANGCI_LINT_CACHE="+cache)
 	}
-	cmd.Env = env
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("just lint: %v\n%s", err, out)
-	}
-	for _, line := range strings.Split(string(out), "\n") {
+	return env
+}
+
+// reportedCache is the GOLANGCI_LINT_CACHE the fake golangci-lint printed.
+func reportedCache(out string) (string, bool) {
+	for _, line := range strings.Split(out, "\n") {
 		if v, ok := strings.CutPrefix(line, "CACHE=["); ok {
-			return strings.TrimSuffix(v, "]")
+			return strings.TrimSuffix(v, "]"), true
 		}
 	}
-	t.Fatalf("golangci-lint was never run:\n%s", out)
-	return ""
+	return "", false
 }
 
 // wantCheckoutCache is the cache `lint` must pick for a checkout whose

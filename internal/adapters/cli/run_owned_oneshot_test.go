@@ -268,3 +268,63 @@ func TestRenderOwnedRunEvents_SeqGapIsSurfaced(t *testing.T) {
 	assert.Contains(t, buf.String(), ownedTestRunID, "the gap warning must name the affected run")
 	assert.Contains(t, buf.String(), "lost", "a Seq gap must be surfaced as a warning naming what was lost, not silently swallowed")
 }
+
+// errOwnedWrite is the failure ownedFailingWriter reports.
+var errOwnedWrite = errors.New("stdout closed")
+
+// ownedFailingWriter is an out whose every write fails.
+type ownedFailingWriter struct{}
+
+func (ownedFailingWriter) Write([]byte) (int, error) { return 0, errOwnedWrite }
+
+// A failed write of the answer ends the render with that error, in either
+// format, returning the answer accumulated so far: the stream is not drained
+// past an output that can no longer take it.
+func TestRenderOwnedRunEvents_WriteErrorEndsTheRun(t *testing.T) {
+	for _, format := range []string{formatText, formatJSON} {
+		t.Run(format, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			ch := make(chan *agentcoordpb.AgentEvent, 4)
+			ch <- ownedFinalStart("m1")
+			ch <- ownedDelta("m1", "partial")
+			text, err := renderOwnedRunEvents(ctx, ownedFailingWriter{}, format, ownedTestRunID, ch, nil, true)
+			require.ErrorIs(t, err, errOwnedWrite)
+			assert.Equal(t, "partial", text)
+		})
+	}
+}
+
+// Cancellation returns the answer accumulated so far beside ctx's error, and
+// an empty delta writes nothing — not even an empty NDJSON entry.
+func TestRenderOwnedRunEvents_CancelReturnsTheAnswerSoFar(t *testing.T) {
+	ch := make(chan *agentcoordpb.AgentEvent, 8)
+	ch <- ownedFinalStart("m1")
+	ch <- ownedDelta("m1", "")
+	ch <- ownedDelta("m1", "so far")
+	ch <- ownedTurnIdle()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var out bytes.Buffer
+	idle := make(chan string, 4)
+	type result struct {
+		text string
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		text, err := renderOwnedRunEvents(ctx, &out, formatJSON, ownedTestRunID, ch, idle, true)
+		done <- result{text, err}
+	}()
+	select {
+	case <-idle:
+	case <-time.After(10 * time.Second):
+		t.Fatal("no turn boundary observed")
+	}
+	cancel()
+	got := <-done
+	require.ErrorIs(t, got.err, context.Canceled)
+	assert.Equal(t, "so far", got.text)
+	assert.Equal(t, 1, strings.Count(out.String(), "\n"), "only the non-empty delta is an entry:\n%s", out.String())
+}

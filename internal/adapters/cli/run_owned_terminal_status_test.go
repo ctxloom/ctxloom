@@ -190,6 +190,12 @@ func TestRenderOwnedRunEvents_EachEndSaysItsOwnWords(t *testing.T) {
 		{"failed with a message", &agentcoordpb.Result{Status: agentcoordpb.Result_RUN_STATUS_FAILED, Error: &rpcstatus.Status{Message: "engine crashed"}},
 			"run failed: engine crashed", "cancelled"},
 		{"no result", nil, "run ended with no terminal result", "run failed"},
+		// With no message, a status other than FAILED is named; FAILED's own
+		// exit status already says it, so it adds no words.
+		{"timed out, no message", &agentcoordpb.Result{Status: agentcoordpb.Result_RUN_STATUS_TIMED_OUT},
+			"run did not succeed: RUN_STATUS_TIMED_OUT", "run failed"},
+		{"failed, no message", &agentcoordpb.Result{Status: agentcoordpb.Result_RUN_STATUS_FAILED},
+			"", "did not succeed"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

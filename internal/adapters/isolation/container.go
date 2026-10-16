@@ -187,6 +187,7 @@ func containerFor(rt Runtime, backend string, img ImageConfig) Container {
 		c.engineSpec.engineInstall = nil
 		return c
 	}
+	c.engineSpec = withHostCLIPin(c.engineSpec, c.engine)
 	base, _ := resolveBase(c.baseChoice, c.appRoot, c.devcontainerService)
 	if id, ok := composedIdentity(c.engineSpec, base, c.engine); ok {
 		c.image = id.ref

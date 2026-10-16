@@ -52,11 +52,12 @@ func (c Claude) Home() engine.HomeSpec {
 }
 
 // Container: no official image (ghcr.io/anthropics/claude-code appears in
-// docs but does not resolve publicly), so the composed install fragment,
-// which fetches the most recent claude, is the build source.
+// docs but does not resolve publicly), so the composed install fragment is
+// the build source, pinned to the host's claude version (PinnedInstall).
 func (c Claude) Container() (engine.ContainerSpec, error) {
 	return engine.ContainerSpec{
 		Install:         installFragment,
+		PinnedInstall:   pinnedInstallFragment,
 		ValidateCommand: "claude --version",
 		OverlayDirs:     []string{ConfigDirName},
 		InPlaceFiles:    []string{MCPFileName},

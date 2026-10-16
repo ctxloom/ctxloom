@@ -139,6 +139,16 @@ func TestContainerSpec_Validate_RefusesInstallWithoutValidate(t *testing.T) {
 	assert.ErrorContains(t, c.Validate(), "ValidateCommand")
 }
 
+// A pinned install is the version-taking form of Install, so it cannot stand
+// alone: composability (and every roster that reads it) is keyed on Install.
+func TestContainerSpec_Validate_RefusesAPinnedInstallWithoutInstall(t *testing.T) {
+	c := validContainer()
+	c.PinnedInstall = func(string) []byte { return []byte("RUN true\n") }
+	require.NoError(t, c.Validate())
+	c.Install = nil
+	assert.ErrorContains(t, c.Validate(), "PinnedInstall")
+}
+
 // TranscriptStoreRel is followed inside a Linux container as well as on the
 // host, so it is a clean relative slash path below the session home whatever
 // the host separator: a filepath-built value carries `\` on a Windows host.

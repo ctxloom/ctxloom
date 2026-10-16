@@ -40,6 +40,11 @@ import (
 //     (see containerConfigOverlay; directories only — single-file overlays would
 //     break the writers' atomic write+rename). The engine declares its own;
 //     ctxloom's framed-context cache dir rides along for every engine.
+//   - pinnedInstall: engineInstall pinned to one engine-CLI version, for an
+//     engine whose in-image CLI tracks the HOST's (engine.ContainerSpec's
+//     PinnedInstall); nil = not pinned.
+//   - cliPin: the host CLI version this spec's image pins (withHostCLIPin),
+//     "" when unpinned. It is part of the image's tag and provenance.
 //   - inPlaceFiles: the engine's project-relative files written in place
 //     through the project bind; their host lock files are the only host locks
 //     a container reaches (Container.lockMounts).
@@ -54,6 +59,8 @@ import (
 type engineContainerSpec struct {
 	image         string
 	engineInstall []byte
+	pinnedInstall func(version string) []byte
+	cliPin        string
 	validate      string
 	declared      bool
 	overlayDirs   []string
@@ -130,6 +137,7 @@ func specFromDeclaration(c engine.ContainerSpec) engineContainerSpec {
 	spec := engineContainerSpec{
 		image:         defaultContainerImage,
 		engineInstall: c.Install,
+		pinnedInstall: c.PinnedInstall,
 		validate:      c.ValidateCommand,
 		overlayDirs:   append(append([]string{}, c.OverlayDirs...), ctxloomCacheOverlayDir),
 		inPlaceFiles:  c.InPlaceFiles,

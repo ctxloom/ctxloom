@@ -44,6 +44,9 @@ func TestContainer_Declaration(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, c.Validate())
 	assert.NotEmpty(t, c.Install, "claude has an official npm installer")
+	require.NotNil(t, c.PinnedInstall, "the image's claude tracks the host's")
+	assert.Contains(t, string(c.PinnedInstall("2.1.280")), "npm install -g @anthropic-ai/claude-code@2.1.280 ",
+		"the pinned install names the exact version, never latest")
 	assert.Equal(t, "claude --version", c.ValidateCommand)
 	assert.Equal(t, []string{ConfigDirName}, c.OverlayDirs)
 

@@ -67,8 +67,8 @@ func TestComposedImageTagFor_VersionsCoexist(t *testing.T) {
 	base := []byte("FROM debian:13\n")
 	const engine = "claude-code"
 
-	v1 := composedImageTagFor(base, engine, "v0.7.0-abc1234")
-	v2 := composedImageTagFor(base, engine, "v0.7.1-def5678")
+	v1 := composedImageTagFor(base, engine, "v0.7.0-abc1234", "")
+	v2 := composedImageTagFor(base, engine, "v0.7.1-def5678", "")
 
 	assert.NotEqual(t, v1, v2, "two ctxloom versions must be able to hold images at the same time")
 	assert.Equal(t, "ctxloom-agent-claude-code:v0.7.0-abc1234-"+composedContentHash(base, engine), v1,
@@ -76,19 +76,19 @@ func TestComposedImageTagFor_VersionsCoexist(t *testing.T) {
 
 	// Same version, twice: one tag, so the second build is a cache hit rather
 	// than a rebuild. This is the assertion the whole task exists for.
-	assert.Equal(t, v1, composedImageTagFor(base, engine, "v0.7.0-abc1234"),
+	assert.Equal(t, v1, composedImageTagFor(base, engine, "v0.7.0-abc1234", ""),
 		"one version must resolve to one tag, or nothing is ever reused")
 
 	// The pre-existing invalidators must survive the change.
-	assert.NotEqual(t, v1, composedImageTagFor([]byte("FROM debian:12\n"), engine, "v0.7.0-abc1234"),
+	assert.NotEqual(t, v1, composedImageTagFor([]byte("FROM debian:12\n"), engine, "v0.7.0-abc1234", ""),
 		"changed base content must still invalidate")
-	assert.NotEqual(t, v1, composedImageTagFor(base, "codex", "v0.7.0-abc1234"),
+	assert.NotEqual(t, v1, composedImageTagFor(base, "codex", "v0.7.0-abc1234", ""),
 		"a different engine must still invalidate")
 
 	// An unstamped binary must not mint an illegal tag: ":-<hash>" is not a
 	// valid reference, so the empty key is OMITTED rather than interpolated.
 	assert.Equal(t, "ctxloom-agent-claude-code:"+composedContentHash(base, engine),
-		composedImageTagFor(base, engine, ""))
+		composedImageTagFor(base, engine, "", ""))
 }
 
 // TestComposedIdentity_ReusesWithinAVersionAndSeparatesAcross drives the two

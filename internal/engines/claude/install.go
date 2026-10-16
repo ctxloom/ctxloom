@@ -41,7 +41,25 @@ const nodeFloorFragment = `RUN set -e \
 // installFragment installs claude via its OFFICIAL npm package on an
 // ARBITRARY base: the asserted node floor (nodeFloorFragment) first, then the
 // real install, then a validate gate that RUNS the client (`claude --version`)
-// rather than merely locating it.
-var installFragment = []byte(nodeFloorFragment + `RUN npm install -g @anthropic-ai/claude-code \
+// rather than merely locating it. It installs whatever npm resolves as latest
+// on the day of the build; isolation composes it only when the host's claude
+// version cannot be read (see pinnedInstallFragment).
+var installFragment = installAt("")
+
+// pinnedInstallFragment is installFragment pinned to version, the host's
+// claude: the image's claude is then the one the human runs, and the image's
+// tag and staleness are keyed on it, so a host upgrade rebuilds the image
+// rather than leaving an older claude behind in it.
+func pinnedInstallFragment(version string) []byte { return installAt(version) }
+
+// installAt renders the install of @anthropic-ai/claude-code at version, or
+// unversioned (latest) for "".
+func installAt(version string) []byte {
+	pkg := "@anthropic-ai/claude-code"
+	if version != "" {
+		pkg += "@" + version
+	}
+	return []byte(nodeFloorFragment + `RUN npm install -g ` + pkg + ` \
     && claude --version
 `)
+}

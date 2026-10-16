@@ -393,6 +393,14 @@ type ContainerSpec struct {
 	// into an agent image; only an overlay onto a base that already ships it
 	// works).
 	Install []byte
+	// PinnedInstall, when set, renders Install pinned to one version of the
+	// engine's CLI: the image's engine then tracks the HOST's CLI version —
+	// isolation probes the host's CLI, composes PinnedInstall(thatVersion)
+	// instead of Install, and keys the image's tag and staleness on the
+	// version, so a host upgrade rebuilds the image. nil = the engine's
+	// install is not pinned to the host (it installs what Install says).
+	// Requires Install.
+	PinnedInstall func(version string) []byte
 	// ValidateCommand is the in-image command that proves the client runs
 	// (`<client> --version`). Required whenever Install is set.
 	ValidateCommand string
@@ -412,6 +420,9 @@ type ContainerSpec struct {
 func (c ContainerSpec) Validate() error {
 	if len(c.Install) > 0 && c.ValidateCommand == "" {
 		return errors.New("ContainerSpec: Install is set but ValidateCommand is empty; an install fragment must be gated by a command that proves the client runs")
+	}
+	if c.PinnedInstall != nil && len(c.Install) == 0 {
+		return errors.New("ContainerSpec: PinnedInstall is set but Install is empty; a pinned install is a form of the engine's install, not a substitute for declaring one")
 	}
 	return nil
 }

@@ -560,7 +560,8 @@ func init() {
 }
 
 // composeEngines composes the shipped engines once per process and installs
-// the same registry as the cells adapter's facts accessor: isolation
+// the same registry as the cells adapter's facts accessor, plus the host
+// engine-CLI probe a pinned agent image follows: isolation
 // resolves engines by NAME (PrepareInstanceHome is handed an engine name) and
 // cannot import the engine packages, so the root that built the registry
 // hands it over here. The sessions store, below the engine port, is handed
@@ -574,6 +575,11 @@ func composeEngines() error {
 	engineFactsOnce.Do(func() {
 		reg := engines.Registry()
 		isolation.UseFacts(isolation.RegistryFacts{Registry: reg})
+		// An agent image whose engine pins the host's CLI asks the one
+		// engine-version probe there is: the App's cached prober.
+		isolation.UseHostCLIVersionProbe(func(ctx context.Context, name string) (string, error) {
+			return App().ProbeEngineVersion(ctx, name)
+		})
 		sessions.UseTranscriptSessions(transcriptSessions(reg))
 		sessions.UseHistoryStores(launch.HistoryStores(reg))
 	})

@@ -217,7 +217,7 @@ func TestComposeAgentContainerfile_ExactlyOneEngineStage(t *testing.T) {
 	}
 	for _, engine := range composableEngines() {
 		t.Run(engine, func(t *testing.T) {
-			cf := string(composeAgentContainerfile(engine))
+			cf := string(composeAgentContainerfile(engine, ""))
 
 			stages := strings.Count(cf, "# engine: ")
 			require.Equal(t, 2, stages,
@@ -255,7 +255,7 @@ func TestComposeAgentContainerfile_ExactlyOneEngineStage(t *testing.T) {
 // the vendor installer on every ctxloom change, where a vendor installer that
 // hits a rate-limited network API can kill the build.
 func TestComposeAgentContainerfile_EngineInstallPrecedesTheVolatileLayers(t *testing.T) {
-	cf := string(composeAgentContainerfile("claude-code"))
+	cf := string(composeAgentContainerfile("claude-code", ""))
 	engineAt := strings.Index(cf, "claude --version")
 	require.Positive(t, engineAt, "the engine fragment must be present for this ordering test to mean anything")
 
@@ -1156,7 +1156,7 @@ func TestComposeAgentContainerfile_TestOnlyEngineBakesOnlyItself(t *testing.T) {
 	registerVendorlessFixture(t, engine, coreengine.DistributionTestOnly)
 	require.NotContains(t, composableEngines(), engine, "precondition: a double is never on the default-composed roster")
 
-	cf := string(composeAgentContainerfile(engine))
+	cf := string(composeAgentContainerfile(engine, ""))
 
 	assert.Equal(t, 2, strings.Count(cf, "# engine: "),
 		"the header line and EXACTLY ONE engine stage — a second stage would be another vendor's installer riding into a double's image")

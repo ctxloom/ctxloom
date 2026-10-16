@@ -156,7 +156,8 @@ type ImagePruneResult struct {
 
 // LiveImageRef is the image ref a containerized run of backend resolves to
 // with this image configuration — containerFor's own resolution, computed
-// without building or probing anything.
+// without building anything or asking the runtime; the one thing it asks is
+// the host engine-CLI version a pinned image is keyed on (cached per process).
 func LiveImageRef(rt Runtime, backend string, img ImageConfig) (string, bool) {
 	ref := containerFor(rt, backend, img).image
 	return ref, ref != ""

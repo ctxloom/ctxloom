@@ -137,7 +137,7 @@ engine per image — in order:
 
 Identity is keyed on the ctxloom VERSION together with the content:
 `composedContentHash` is `sha256(base identity ‖ NUL ‖ engine)`, tagged
-`ctxloom-agent-<engine>:<version key>-<hash>` by `composedImageTagFor`. Both the
+`ctxloom-agent-<engine>:<version key>[-cli<engine CLI version>]-<hash>` by `composedImageTagFor`. Both the
 engine and the version are in the TAG, not only the hash, so a wrong image is
 visible in `docker images` rather than only by recomputing a digest — and images
 built by different ctxloom versions COEXIST instead of overwriting one shared
@@ -163,6 +163,23 @@ by `imageStale`. It keys on the VERSION rather than a digest of the running
 binary's bytes: that digest changed on every build, so every agent image read as
 stale and was rebuilt for nothing. A tracked-dirty build still rebuilds, because
 `versionProvenanceKey` keeps the build timestamp for a dirty stamp.
+
+**The engine CLI tracks the host's.** An engine that declares
+`ContainerSpec.PinnedInstall` (claude) installs exactly the version of its CLI
+installed on the HOST, read once per process through the App's cached
+engine-version prober (`UseHostCLIVersionProbe`, installed by the CLI's
+composition root; `withHostCLIPin`). The version is in the tag (`-cli<version>`),
+in the provenance before the content hash, and in the
+`ctxloom.engine-cli-version` label (below the install, so it never invalidates
+the engine layer) — so a host upgrade lands on a new tag and rebuilds. It is not
+in the prune slot: an image for a superseded CLI is pruned like any other
+superseded build. Nothing is pinned for an engine without a `PinnedInstall`
+(opencode pins its own release in its install fragment; mock installs nothing),
+for a user-owned `isolation_images` image, or for an `--overlay-image` overlay,
+whose base ships the client at its owner's version. When the host's CLI is
+absent or its version unreadable, the image installs the latest release with an
+unpinned tag, as before pinning existed, and a warning says so (whether such a
+host should be refused instead is an open ruling).
 
 The companion half exists because the image bakes the companions too, and
 keying on ctxloom's version alone let an image holding an OLD companion read as

@@ -113,7 +113,7 @@ func TestCompanionVersionKey_CoversOnlyRegistered(t *testing.T) {
 // a user Containerfile) can put anything ahead of it.
 func TestAgentImage_StagedCompanionsLeadPath(t *testing.T) {
 	for label, cf := range map[string]string{
-		"agent":   string(composeAgentContainerfile("claude-code")),
+		"agent":   string(composeAgentContainerfile("claude-code", "")),
 		"overlay": string(overlayContainerfile("example/base:latest", "")),
 	} {
 		copyAt := strings.Index(cf, "COPY companions/ /usr/local/bin/")

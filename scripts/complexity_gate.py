@@ -57,7 +57,10 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
-LIZARD_EXCLUDES = ["-x", "*.pb.go", "-x", "*/website/*"]
+# "*/.*/*" makes lizard skip the dot-directories `go ./...` never builds:
+# agent worktrees nested under .claude/worktrees and tool caches are copies
+# of the tree, not its source, and would each count as wholly NEW.
+LIZARD_EXCLUDES = ["-x", "*.pb.go", "-x", "*/website/*", "-x", "*/.*/*"]
 CCN_THRESHOLD = "10"
 BASELINE_PATH = ".complexity-baseline.txt"
 

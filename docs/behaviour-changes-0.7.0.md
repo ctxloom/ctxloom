@@ -528,6 +528,15 @@ Grouped by what you would have to change.
 - A requested container that cannot start is fatal unless `--degraded`, which
   falls back to the HOST and never to the other ownership mode.
 - Container identity contracts are enforced and ownership residue is surfaced.
+- The claude agent image installs the claude CLI version installed on the
+  host (`npm install -g @anthropic-ai/claude-code@<host version>`), never the
+  latest release. The version is in the image tag (`…-cli<version>-…`) and the
+  `ctxloom.engine-cli-version` label, so upgrading claude on the host rebuilds
+  the image on the next containerized run. When the host has no claude, or its
+  version cannot be read, the image pins ctxloom's tested claude version
+  (`CLAUDE_CODE_CLI_VERSION` in `.github/engine-versions.env`) and a warning
+  names it. Images you supply through `isolation_images` or `--overlay-image`
+  are not changed.
 
 **Backends**
 - The `gemini` and `codex` backends are removed, with no replacement.

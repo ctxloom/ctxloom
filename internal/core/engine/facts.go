@@ -399,8 +399,12 @@ type ContainerSpec struct {
 	// instead of Install, and keys the image's tag and staleness on the
 	// version, so a host upgrade rebuilds the image. nil = the engine's
 	// install is not pinned to the host (it installs what Install says).
-	// Requires Install.
+	// Requires Install and TestedVersion.
 	PinnedInstall func(version string) []byte
+	// TestedVersion is the engine CLI version ctxloom is tested against (the
+	// tested-version lock, .github/engine-versions.env). A pinned image pins
+	// it instead when the host's version cannot be read.
+	TestedVersion string
 	// ValidateCommand is the in-image command that proves the client runs
 	// (`<client> --version`). Required whenever Install is set.
 	ValidateCommand string
@@ -423,6 +427,9 @@ func (c ContainerSpec) Validate() error {
 	}
 	if c.PinnedInstall != nil && len(c.Install) == 0 {
 		return errors.New("ContainerSpec: PinnedInstall is set but Install is empty; a pinned install is a form of the engine's install, not a substitute for declaring one")
+	}
+	if c.PinnedInstall != nil && c.TestedVersion == "" {
+		return errors.New("ContainerSpec: PinnedInstall is set but TestedVersion is empty; the tested version is what the image pins when the host's version cannot be read")
 	}
 	return nil
 }

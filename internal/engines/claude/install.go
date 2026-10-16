@@ -38,28 +38,26 @@ const nodeFloorFragment = `RUN set -e \
     && { [ "$NODE_MAJOR" -ge 20 ] || { echo "ctxloom: this base resolves node $(node --version), below the engine clients' floor (>= 20); provide a newer node in the base image" >&2; exit 1; }; }
 `
 
+// testedVersion is the claude release ctxloom is tested against: the
+// tested-version lock (.github/engine-versions.env CLAUDE_CODE_CLI_VERSION),
+// which the drift workflow moves. An agent image pins it when the host's
+// claude version cannot be read.
+const testedVersion = "2.1.286"
+
 // installFragment installs claude via its OFFICIAL npm package on an
 // ARBITRARY base: the asserted node floor (nodeFloorFragment) first, then the
-// real install, then a validate gate that RUNS the client (`claude --version`)
-// rather than merely locating it. It installs whatever npm resolves as latest
-// on the day of the build; isolation composes it only when the host's claude
-// version cannot be read (see pinnedInstallFragment).
-var installFragment = installAt("")
+// real install at the tested version, then a validate gate that RUNS the
+// client (`claude --version`) rather than merely locating it. Isolation
+// normally composes pinnedInstallFragment instead, at the host's version.
+var installFragment = pinnedInstallFragment(testedVersion)
 
-// pinnedInstallFragment is installFragment pinned to version, the host's
-// claude: the image's claude is then the one the human runs, and the image's
-// tag and staleness are keyed on it, so a host upgrade rebuilds the image
-// rather than leaving an older claude behind in it.
-func pinnedInstallFragment(version string) []byte { return installAt(version) }
-
-// installAt renders the install of @anthropic-ai/claude-code at version, or
-// unversioned (latest) for "".
-func installAt(version string) []byte {
-	pkg := "@anthropic-ai/claude-code"
-	if version != "" {
-		pkg += "@" + version
-	}
-	return []byte(nodeFloorFragment + `RUN npm install -g ` + pkg + ` \
+// pinnedInstallFragment is the install pinned to version — the host's claude,
+// or testedVersion when the host's cannot be read: the image's claude is then
+// the one the human runs, and the image's tag and staleness are keyed on it,
+// so a host upgrade rebuilds the image rather than leaving an older claude
+// behind in it.
+func pinnedInstallFragment(version string) []byte {
+	return []byte(nodeFloorFragment + `RUN npm install -g @anthropic-ai/claude-code@` + version + ` \
     && claude --version
 `)
 }

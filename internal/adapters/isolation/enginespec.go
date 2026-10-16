@@ -42,7 +42,8 @@ import (
 //     ctxloom's framed-context cache dir rides along for every engine.
 //   - pinnedInstall: engineInstall pinned to one engine-CLI version, for an
 //     engine whose in-image CLI tracks the HOST's (engine.ContainerSpec's
-//     PinnedInstall); nil = not pinned.
+//     PinnedInstall); nil = not pinned. testedVersion is what it pins when
+//     the host's version cannot be read.
 //   - cliPin: the host CLI version this spec's image pins (withHostCLIPin),
 //     "" when unpinned. It is part of the image's tag and provenance.
 //   - inPlaceFiles: the engine's project-relative files written in place
@@ -60,6 +61,7 @@ type engineContainerSpec struct {
 	image         string
 	engineInstall []byte
 	pinnedInstall func(version string) []byte
+	testedVersion string
 	cliPin        string
 	validate      string
 	declared      bool
@@ -138,6 +140,7 @@ func specFromDeclaration(c engine.ContainerSpec) engineContainerSpec {
 		image:         defaultContainerImage,
 		engineInstall: c.Install,
 		pinnedInstall: c.PinnedInstall,
+		testedVersion: c.TestedVersion,
 		validate:      c.ValidateCommand,
 		overlayDirs:   append(append([]string{}, c.OverlayDirs...), ctxloomCacheOverlayDir),
 		inPlaceFiles:  c.InPlaceFiles,

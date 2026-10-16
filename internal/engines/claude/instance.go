@@ -58,6 +58,7 @@ func (c Claude) Container() (engine.ContainerSpec, error) {
 	return engine.ContainerSpec{
 		Install:         installFragment,
 		PinnedInstall:   pinnedInstallFragment,
+		TestedVersion:   testedVersion,
 		ValidateCommand: "claude --version",
 		OverlayDirs:     []string{ConfigDirName},
 		InPlaceFiles:    []string{MCPFileName},

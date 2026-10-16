@@ -85,8 +85,11 @@ func TestComposeAgentContainerfile_PinsTheHostCLIVersion(t *testing.T) {
 	require.Positive(t, label, "the image must say which CLI version it carries")
 	assert.Greater(t, label, install)
 
+	// No pin resolved (no composition root): the engine's plain install,
+	// which for claude is the tested version, never latest — but the image
+	// claims no version it was not keyed on.
 	unpinned := string(composeAgentContainerfile("claude-code", ""))
-	assert.NotContains(t, unpinned, "@anthropic-ai/claude-code@")
+	assert.Contains(t, unpinned, "@anthropic-ai/claude-code@"+engineContainerSpecFor("claude-code").testedVersion+" ")
 	assert.NotContains(t, unpinned, engineCLIVersionLabel, "an unpinned image claims no version")
 }
 
@@ -174,12 +177,15 @@ func TestHostCLIPin_OnlyWhereCtxloomInstallsAPinningEngine(t *testing.T) {
 	})
 }
 
-// TestHostCLIPin_UnreadableHostCLIKeepsTheUnpinnedImage is TODAY'S behaviour
-// for a host whose claude CLI is absent or unreadable: the image is built
-// exactly as before pinning existed (unpinned install, pre-pin tag), and the
-// gap is announced. Whether that host should instead be refused is an open
-// ruling; this pins the status quo until it is made.
-func TestHostCLIPin_UnreadableHostCLIKeepsTheUnpinnedImage(t *testing.T) {
+// TestHostCLIPin_UnreadableHostCLIPinsTheTestedVersion (ruled 2026-10-16):
+// a host whose claude is absent or unreadable — or reports a version no tag
+// can carry — gets ctxloom's TESTED claude (the engine's declared
+// TestedVersion, the tested-version lock), never latest and never a refusal.
+// The image is keyed and labelled on that version like any pin, and the
+// warning names it.
+func TestHostCLIPin_UnreadableHostCLIPinsTheTestedVersion(t *testing.T) {
+	tested := engineContainerSpecFor("claude-code").testedVersion
+	require.NotEmpty(t, tested, "claude must declare its tested version")
 	rt := fakeRuntime{name: "docker", available: true}
 	for _, tc := range []struct {
 		name    string
@@ -196,12 +202,14 @@ func TestHostCLIPin_UnreadableHostCLIKeepsTheUnpinnedImage(t *testing.T) {
 			warn := captureWarnings(t)
 			withHostCLI(t, tc.version, tc.err)
 			c := containerFor(rt, "claude-code", ImageConfig{Base: "ctxloom"})
-			assert.NotContains(t, c.image, "-cli")
+			assert.Contains(t, c.image, "-cli"+tested+"-")
 			sources, _, err := c.containerBuildSources("")
 			require.NoError(t, err)
 			require.Len(t, sources, 1)
-			assert.NotContains(t, string(sources[0].containerfile), "@anthropic-ai/claude-code@")
-			assert.Contains(t, warn.String(), "not pinned")
+			cf := string(sources[0].containerfile)
+			assert.Contains(t, cf, "@anthropic-ai/claude-code@"+tested+" ")
+			assert.Contains(t, cf, `LABEL `+engineCLIVersionLabel+`="`+tested+`"`)
+			assert.Contains(t, warn.String(), "tested claude-code "+tested)
 			assert.Contains(t, warn.String(), tc.cause)
 		})
 	}

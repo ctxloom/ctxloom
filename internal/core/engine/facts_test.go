@@ -144,9 +144,18 @@ func TestContainerSpec_Validate_RefusesInstallWithoutValidate(t *testing.T) {
 func TestContainerSpec_Validate_RefusesAPinnedInstallWithoutInstall(t *testing.T) {
 	c := validContainer()
 	c.PinnedInstall = func(string) []byte { return []byte("RUN true\n") }
+	c.TestedVersion = "1.2.3"
 	require.NoError(t, c.Validate())
 	c.Install = nil
 	assert.ErrorContains(t, c.Validate(), "PinnedInstall")
+}
+
+// A pinned install always has a version to pin: the tested one stands in
+// when the host's cannot be read, so declaring a pin without it is refused.
+func TestContainerSpec_Validate_RefusesAPinnedInstallWithoutATestedVersion(t *testing.T) {
+	c := validContainer()
+	c.PinnedInstall = func(string) []byte { return []byte("RUN true\n") }
+	assert.ErrorContains(t, c.Validate(), "TestedVersion")
 }
 
 // TranscriptStoreRel is followed inside a Linux container as well as on the

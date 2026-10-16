@@ -177,9 +177,12 @@ superseded build. Nothing is pinned for an engine without a `PinnedInstall`
 (opencode pins its own release in its install fragment; mock installs nothing),
 for a user-owned `isolation_images` image, or for an `--overlay-image` overlay,
 whose base ships the client at its owner's version. When the host's CLI is
-absent or its version unreadable, the image installs the latest release with an
-unpinned tag, as before pinning existed, and a warning says so (whether such a
-host should be refused instead is an open ruling).
+absent, its version unreadable, or not writable into a tag, the image pins the
+engine's `ContainerSpec.TestedVersion` instead — the tested-version lock
+(`.github/engine-versions.env`), embedded as a constant the way opencode's
+release is — keyed and labelled like any pin, and a warning names that version
+(`pinTestedVersion`; ruled 2026-10-16: never latest, never a refusal). The image
+never installs an unversioned claude.
 
 The companion half exists because the image bakes the companions too, and
 keying on ctxloom's version alone let an image holding an OLD companion read as
@@ -813,7 +816,7 @@ loops over them.
 
 | Backend | Image | Install fragment | Build validate gate | `overlayDirs` | `transcriptStoreRel` |
 |---|---|---|---|---|---|
-| `claude-code` | `ctxloom-agent:latest` | npm — no official image resolves | `claude --version` + `adapterRunGate` | `.claude`, `.ctxloom/cache` | `.claude/projects` |
+| `claude-code` | `ctxloom-agent:latest` | npm, pinned to the host's claude (else the tested version) — no official image resolves | `claude --version` + `adapterRunGate` | `.claude`, `.ctxloom/cache` | `.claude/projects` |
 | `mock` | `ctxloom-agent:latest` | asserts `cat` only — installs no vendor CLI at all | `cat --version` | `.mock`, `.ctxloom/cache` | `""` (mock keeps no transcripts) |
 | **fail-closed default** (an engine with no container declaration) | `ctxloom-agent:latest` | none | none | `.ctxloom/cache` only | `""` (no store is guessed) |
 

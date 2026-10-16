@@ -46,11 +46,12 @@ func UseHostCLIVersionProbe(p HostCLIVersionProbe) (restore func()) {
 // "+build" metadata), and nothing a shell would interpret.
 var pinnableVersion = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$`)
 
-// withHostCLIPin resolves the version p's engine CLI is pinned to — the
-// host's — into p.cliPin. Only an engine that declares a pinned install is
-// asked about. "" leaves the image unpinned: the engine pins nothing, no
-// composition root installed a probe, or the host's version cannot be read
-// (announced — see unpinnedHostCLI).
+// withHostCLIPin resolves the version p's engine CLI is pinned to into
+// p.cliPin: the host's, or — when the host's is absent, unreadable or not
+// taggable — the engine's tested version (announced; see pinTestedVersion).
+// Only an engine that declares a pinned install is asked about. "" (unpinned)
+// is left only for an engine that pins nothing, or a process with no
+// composition root to install a probe (a unit test).
 func withHostCLIPin(p engineContainerSpec, engine string) engineContainerSpec {
 	if p.pinnedInstall == nil {
 		return p
@@ -68,24 +69,22 @@ func withHostCLIPin(p engineContainerSpec, engine string) engineContainerSpec {
 		err = fmt.Errorf("its version %q cannot be written into an image tag", v)
 	}
 	if err != nil {
-		unpinnedHostCLI(engine, err)
+		p.cliPin = pinTestedVersion(engine, p.testedVersion, err)
 		return p
 	}
 	p.cliPin = v
 	return p
 }
 
-// unpinnedHostCLI announces an image whose engine CLI is NOT pinned to the
-// host's, because the host's version could not be read: the image installs
-// the latest release, as it did before pinning, and a later host upgrade will
-// not rebuild it.
-//
-// OPEN RULING: whether such a host should instead be REFUSED a container run
-// of this engine is the human's to decide; this keeps the pre-pin behaviour
-// until they do.
-func unpinnedHostCLI(engine string, err error) {
-	clidiag.WarnOnce("ctxloom", "the %s agent image is not pinned to this host's %s CLI, because its version could not be read (%v); it installs the latest release, and will not be rebuilt when the host's CLI changes",
-		engine, engine, err)
+// pinTestedVersion is the pin for a host whose engine CLI version could not
+// be read: the version ctxloom is tested against, never latest and never a
+// refusal (ruled 2026-10-16). It is announced, because the image's CLI then
+// differs from whatever the host runs, and a host install or upgrade moves
+// the image to that version instead.
+func pinTestedVersion(engine, tested string, err error) string {
+	clidiag.WarnOnce("ctxloom", "the %s agent image pins ctxloom's tested %s %s, not this host's %s CLI, because the host's version could not be read (%v)",
+		engine, engine, tested, engine, err)
+	return tested
 }
 
 // pinTagSegment is the cliPin's segment of an image tag ("" when unpinned).

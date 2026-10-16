@@ -572,7 +572,12 @@ in a tagged release, so this only matters if you ran a build from `main`.
   old posture spelling; the new branch takes a permissions block). See
   Configuration → LLMs.
 - The `thinking` key under a backend config is removed. It was accepted and
-  had no effect; a config still setting it now draws an unknown-key warning.
+  had no effect; a config still setting it is now refused as an unknown key
+  (see section 2). Remove it, or run with `--degraded` to ignore it.
+- The `ctxloom hook tool-reflect` PostToolUse hook and the
+  `tool_reflect_bytes` config setting are removed. A config still setting
+  `tool_reflect_bytes` is refused as an unknown key (see section 2). Remove
+  it, or run with `--degraded` to ignore it.
 - A second `ctxloom run` in a project that already had one open was refused.
   It now starts its own coordinator beside the first. Coordinator state moved
   from `~/.ctxloom/coord/<project>/` to one directory per session tree,

@@ -41,7 +41,6 @@ flowchart TD
         MS["manage check"] --> PHS["printHarnessStatus"] --> PCS["printCompanionStatus"] --> HFC["hintForCompanion → companionHint"]
         MH["manage hooks check/list"]
         MSL["manage statusline install/uninstall"] --> SSL["setStatusline"]
-        MC["manage config * (deprecated alias)"] --> config
         MG["manage gitignore install"] --> EHG
     end
 
@@ -103,12 +102,9 @@ section is refused with that list.
 it must not depend on a config load, since it is how you fix a broken config.
 `projectConfigPath` names the appdir-or-default fallback.
 
-The same verbs exist as `manage config *` deprecated aliases.
-
 ## `ctxloom manage`
 
-`install`/`uninstall`/`check`, `hooks *`, `statusline *`, `gitignore install`,
-and the deprecated `mcp *` and `config *` alias trees.
+`install`/`uninstall`/`check`, `hooks *`, `statusline *`, `gitignore install`.
 
 `companionHint` is the "what breaks / how to install" text for a missing
 companion binary; `hintForCompanion` keys on companion binary names, and a

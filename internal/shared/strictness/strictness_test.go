@@ -119,7 +119,7 @@ func TestFail_EmptyMessageStillSaysWhatBroke(t *testing.T) {
 	resetForTest(t)
 
 	mark := Checkpoint()
-	Fail(report.KindConfig, "ctxloom manage config edit", "")
+	Fail(report.KindConfig, "ctxloom config edit", "")
 
 	got := Since(mark)
 	require.Len(t, got, 1)

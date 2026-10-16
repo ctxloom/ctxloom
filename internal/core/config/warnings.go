@@ -73,18 +73,18 @@ func (k WarningKind) Remedy() string {
 	case WarnKindRead:
 		return "make the config file readable, or remove it"
 	case WarnKindMigrationLossy:
-		return "re-add the dropped setting in its new home (ctxloom manage config edit)"
+		return "re-add the dropped setting in its new home (ctxloom config edit)"
 	case WarnKindUnknownKey:
 		// The message already names the key and (when known) its replacement, so
 		// the remedy only has to say where to make the edit.
-		return "remove or rename the key in config.yaml (ctxloom manage config edit)"
+		return "remove or rename the key in config.yaml (ctxloom config edit)"
 	case WarnKindSchemaViolation:
 		// The message names the file, the key and what the schema expected.
-		return "give the key a value the schema accepts, or remove it (ctxloom manage config edit)"
+		return "give the key a value the schema accepts, or remove it (ctxloom config edit)"
 	case WarnKindEnginelessAgent:
 		return "bind the agent to an llm or to profiles (ctxloom agent edit <name> --llm <label> | --profiles <p,...>), or remove it (ctxloom agent remove <name>)"
 	default: // parse / validate
-		return "fix the config file (ctxloom manage config edit)"
+		return "fix the config file (ctxloom config edit)"
 	}
 }
 

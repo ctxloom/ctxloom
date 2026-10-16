@@ -30,8 +30,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
-	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 

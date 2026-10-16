@@ -173,23 +173,45 @@ func (ic *interceptor) scan(chunk []byte) (out, ui []byte, act ixActions) {
 	if ic.state == ixOff {
 		return ic.offScan(chunk), nil, act
 	}
-	if ic.state == ixPass && !ic.draining && len(ic.tok.pend) == 0 &&
-		bytes.IndexByte(chunk, ic.prefix.b) < 0 && bytes.IndexByte(chunk, ansi.ESC) < 0 {
+	if ic.hotPath(chunk) {
 		ic.tok.track(chunk) // can carry only a rune's leading bytes, delivered here
 		ic.fwd = len(ic.tok.pend)
 		return chunk, nil, act
 	}
 	ic.engBuf, ic.uiBuf = ic.engBuf[:0], ic.uiBuf[:0]
 	ic.tok.feed(chunk, true, func(k tokKind, b []byte) { ic.token(k, b, &act) })
+	ic.forwardUnheldTail()
+	if ic.engageOnce() {
+		act.engage = true
+	}
+	return ic.engBuf, ic.uiBuf, act
+}
+
+// hotPath reports whether chunk can pass straight through: passthrough with
+// nothing carried, not draining, and neither the prefix byte nor an ESC in
+// the chunk.
+func (ic *interceptor) hotPath(chunk []byte) bool {
+	return ic.state == ixPass && !ic.draining && len(ic.tok.pend) == 0 &&
+		bytes.IndexByte(chunk, ic.prefix.b) < 0 && bytes.IndexByte(chunk, ansi.ESC) < 0
+}
+
+// forwardUnheldTail sends the engine, in passthrough, the part of the carried
+// tail it does not have yet unless that tail may still complete as a prefix.
+func (ic *interceptor) forwardUnheldTail() {
 	if ic.state == ixPass && !ic.draining && len(ic.tok.pend) > ic.fwd && !ic.holdable() {
 		ic.engBuf = append(ic.engBuf, ic.tok.pend[ic.fwd:]...)
 		ic.fwd = len(ic.tok.pend)
 	}
-	if (ic.state == ixFresh || ic.state == ixUI) && !ic.engaged {
-		act.engage = true
-		ic.engaged = true
+}
+
+// engageOnce reports whether this scan is the one that first took the
+// machine into the prefix UI (fresh or UI state), marking it engaged.
+func (ic *interceptor) engageOnce() bool {
+	if (ic.state != ixFresh && ic.state != ixUI) || ic.engaged {
+		return false
 	}
-	return ic.engBuf, ic.uiBuf, act
+	ic.engaged = true
+	return true
 }
 
 // offScan is degraded passthrough: a tail held for the prefix when the
@@ -214,17 +236,28 @@ const maxHeldTail = 32
 // in one burst, so the wait is a read boundary's, never a human's.
 func (ic *interceptor) holdable() bool {
 	t := ic.tok.pend
-	if ic.tok.inPaste || ic.fwd > 0 || len(t) < 3 || len(t) > maxHeldTail ||
-		t[0] != ansi.ESC || t[1] != '[' || t[2] < '0' || t[2] > '9' {
+	if ic.tok.inPaste || ic.fwd > 0 || len(t) > maxHeldTail {
+		return false
+	}
+	return openNumericCSI(t)
+}
+
+// openNumericCSI reports whether t is ESC [ and a digit followed only by
+// parameter bytes (digits, ';', ':'): a CSI with no final byte yet.
+func openNumericCSI(t []byte) bool {
+	if len(t) < 3 || t[0] != ansi.ESC || t[1] != '[' || !isDigit(t[2]) {
 		return false
 	}
 	for _, c := range t[3:] {
-		if (c < '0' || c > '9') && c != ';' && c != ':' {
+		if !isDigit(c) && c != ';' && c != ':' {
 			return false
 		}
 	}
 	return true
 }
+
+// isDigit reports whether c is an ASCII decimal digit.
+func isDigit(c byte) bool { return c >= '0' && c <= '9' }
 
 func (ic *interceptor) dropTail() {
 	ic.tok.reset()

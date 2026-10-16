@@ -261,21 +261,33 @@ func keyboardModeLen(b []byte) int {
 	if len(b) < 4 {
 		return 0
 	}
-	marker := b[2]
-	j := 3
-	for j < len(b) && (b[j] >= '0' && b[j] <= '9' || b[j] == ';') {
-		j++
-	}
-	if j == len(b) {
-		return 0
-	}
-	params, final := string(b[3:j]), b[j]
-	switch {
-	case marker == '>' && final == 'm' && (params == "4" || strings.HasPrefix(params, "4;")):
-	case (marker == '>' || marker == '<' || marker == '=') && final == 'u':
-	case marker == '?' && final == 'u' && params == "":
-	default:
+	j := csiParamsEnd(b, 3)
+	if j == len(b) || !isKeyboardMode(b[2], string(b[3:j]), b[j]) {
 		return 0
 	}
 	return j + 1
+}
+
+// csiParamsEnd is the index of the first byte at or after from in b that is
+// not a CSI parameter byte (a digit or ';'), or len(b).
+func csiParamsEnd(b []byte, from int) int {
+	j := from
+	for j < len(b) && (b[j] >= '0' && b[j] <= '9' || b[j] == ';') {
+		j++
+	}
+	return j
+}
+
+// isKeyboardMode reports whether a CSI sequence with the given private marker,
+// parameters and final byte sets or queries a keyboard mode: modifyOtherKeys
+// (CSI > 4 ; … m) or any kitty keyboard-protocol push/pop/set/query (CSI > u,
+// CSI < u, CSI = u, CSI ? u).
+func isKeyboardMode(marker byte, params string, final byte) bool {
+	switch final {
+	case 'm':
+		return marker == '>' && (params == "4" || strings.HasPrefix(params, "4;"))
+	case 'u':
+		return marker == '>' || marker == '<' || marker == '=' || marker == '?' && params == ""
+	}
+	return false
 }

@@ -198,9 +198,11 @@ func resolveAppBinary() (string, error) {
 // retest and the runner scores those mutants KILLED, fabricating kills out of
 // a staleness it created itself.
 //
-// No runner in this repo sets it today: the acceptance mutation harness
-// (tests/mutation) rebuilds ctxloom from each mutant, so its binary is fresh
-// by construction and it must NOT waive the check.
+// No runner in this repo sets it today. gomutants, the one mutation backend,
+// is coverage-gated: a mutant reachable only through the pre-built binary
+// these tests exec is reported NOT COVERED and never run against them. Such
+// a mutant is hand-mutated and the binary REBUILT before the gate runs, so
+// it is fresh by construction and must NOT waive the check.
 //
 // Nothing else should set it. It is not a way to make a red gate green.
 const allowStaleBinaryEnv = "CTXLOOM_TEST_ALLOW_STALE_BINARY"

@@ -4,7 +4,13 @@
 `llm*.go`): `llm list`, `llm default`, `llm create`, `llm edit`, `llm remove`.
 A label names an engine type and its options in `.ctxloom/config.yaml`
 (`llm.configs.<label>`); `llm_resolve.go` decodes a label's backend config
-for the launch. There is no runner transport under this noun any more.
+for the launch. `create`/`edit` take `--set <dotted.key>=<value>`
+(repeatable, any field but `type` and `role`; the value is read as YAML, an
+empty value removes the key) through `operations`' `llm_fields.go`, and
+every write checks the WHOLE entry against the config schema
+(`configload.CheckDocument`) and its permission keys against the label's
+engine before anything is persisted. `--home` (create, edit, remove) targets
+the user-global `~/.ctxloom/config.yaml` instead of the project's. There is no runner transport under this noun any more.
 
 The runner is ONE process, `ctxloom runner <engine>` (`runner.go`, hidden;
 `runner_deps.go` composes its dependencies; the body is

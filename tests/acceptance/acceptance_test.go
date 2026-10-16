@@ -120,10 +120,11 @@ func TestAcceptance(t *testing.T) {
 		//   gate, `just test-acceptance-container`, which really performs the
 		//   launch. ACCEPTANCE_INCLUDE_CONTAINER=1 keeps them IN this lane: a
 		//   caller that must judge the hermetic AND container scenarios of the
-		//   same features in one run (the mutation harness's acceptanceJudge)
-		//   adds them here rather than hand-copying the exclusions above into an
-		//   ACCEPTANCE_TAGS of its own, which would drift from this one — and
-		//   staying hermetic keeps a declined container step fatal.
+		//   same features in one run adds them here rather than hand-copying the
+		//   exclusions above into an ACCEPTANCE_TAGS of its own, which would
+		//   drift from this one — and staying hermetic keeps a declined
+		//   container step fatal. No recipe sets it today: its one caller, the
+		//   acceptance mutation lane, was removed with gremlins and ooze.
 		tags = "~@live && ~@network && ~@future && ~@wip"
 		if os.Getenv("ACCEPTANCE_INCLUDE_CONTAINER") != "1" {
 			tags += " && ~@container"

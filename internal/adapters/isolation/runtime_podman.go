@@ -215,22 +215,29 @@ func podmanLimitSupport(answer string, rootless bool) limitSupport {
 	case f[4] != "systemd":
 		sup.unenforced = podmanRootlessNoSystemd
 	default:
-		var controllers []string
-		if len(f) == 6 {
-			controllers = strings.Fields(strings.Trim(f[5], "[]"))
-		}
-		for _, c := range controllers {
-			switch c {
-			case "memory":
-				sup.memory = true
-			case "pids":
-				sup.pids = true
-			}
-		}
+		sup.memory, sup.pids = delegatedControllers(f)
 		if !sup.memory && !sup.pids {
 			sup.unenforced = "rootless podman has neither the memory nor the pids cgroup controller delegated"
 		}
 	}
 	sup.swap = sup.memory
 	return sup
+}
+
+// delegatedControllers reports whether the memory and pids controllers are
+// among the CgroupControllers podmanLimitSupport's split answer ends with
+// (f[5], rendered as "[a b c]"; absent when none are delegated).
+func delegatedControllers(f []string) (memory, pids bool) {
+	if len(f) < 6 {
+		return false, false
+	}
+	for _, c := range strings.Fields(strings.Trim(f[5], "[]")) {
+		switch c {
+		case "memory":
+			memory = true
+		case "pids":
+			pids = true
+		}
+	}
+	return memory, pids
 }

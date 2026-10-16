@@ -88,12 +88,39 @@ func midTurnOrder(homeDir, harp, code string) (ack, firstComplete int, err error
 		switch {
 		case r.Kind == "complete" && firstComplete < 0:
 			firstComplete = i
-		case r.Kind == "entry" && r.Entry != nil && r.Entry.Type == "tool_use" && ack < 0 &&
-			strings.Contains(string(r.Entry.ToolInput), code):
+		case ack < 0 && r.isToolCallCarrying(code):
 			ack = i
 		}
 	}
 	return ack, firstComplete, sc.Err()
+}
+
+// isToolCallCarrying reports whether r is a tool call whose input carries code.
+func (r midTurnTranscriptRecord) isToolCallCarrying(code string) bool {
+	return r.Kind == "entry" && r.Entry != nil && r.Entry.Type == "tool_use" &&
+		strings.Contains(string(r.Entry.ToolInput), code)
+}
+
+// writeMidTurnFixture lays the cell's repo down: the child agent spec, the
+// per-engine project config, the owner-spool home config, and (for a
+// worktree workspace, which branches from HEAD) a commit holding them.
+func writeMidTurnFixture(w *World, a liveAgent, key string, spec *j002300AgentSpec, runtime, workspace string) error {
+	if err := w.env.InitGitRepo(); err != nil {
+		return err
+	}
+	if err := j002300WriteAgent(w, spec); err != nil {
+		return err
+	}
+	if err := w.env.WriteFile(".ctxloom/config.yaml", j002300PerEngineConfigYAML(a, key, spec, runtime, workspace)); err != nil {
+		return err
+	}
+	if err := w.env.WriteHomeFile(".ctxloom/config.yaml", p6SpoolHomeConfigYAML()); err != nil {
+		return err
+	}
+	if workspace != "worktree" {
+		return nil
+	}
+	return w.env.GitCommit("mid-turn mail fixture")
 }
 
 func registerMidTurnMailSteps(ctx *godog.ScenarioContext) {
@@ -129,22 +156,8 @@ func registerMidTurnMailSteps(ctx *godog.ScenarioContext) {
 				Guidance: "You are a careful worker in a mid-turn mail test. Follow the task you are given exactly.",
 			}
 			j002300.specs[spec.Name] = spec
-			if err := w.env.InitGitRepo(); err != nil {
+			if err := writeMidTurnFixture(w, a, key, spec, runtime, workspace); err != nil {
 				return err
-			}
-			if err := j002300WriteAgent(w, spec); err != nil {
-				return err
-			}
-			if err := w.env.WriteFile(".ctxloom/config.yaml", j002300PerEngineConfigYAML(a, key, spec, runtime, workspace)); err != nil {
-				return err
-			}
-			if err := w.env.WriteHomeFile(".ctxloom/config.yaml", p6SpoolHomeConfigYAML()); err != nil {
-				return err
-			}
-			if workspace == "worktree" {
-				if err := w.env.GitCommit("mid-turn mail fixture"); err != nil {
-					return err
-				}
 			}
 			return seedLiveCredentials(a, w.env.SetChildEnv)
 		})

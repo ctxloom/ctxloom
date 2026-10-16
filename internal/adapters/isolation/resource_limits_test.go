@@ -208,6 +208,10 @@ func TestPodmanLimitSupport(t *testing.T) {
 			"false pasta 3000 v2 systemd", false,
 			limitSupport{hostMemory: 3000, memory: true, swap: true, pids: true},
 		},
+		"rootless, no controllers field": {
+			"true pasta 3000 v2 systemd", true,
+			limitSupport{hostMemory: 3000, unenforced: "rootless podman has neither the memory nor the pids cgroup controller delegated"},
+		},
 		"four fields are unreadable": {"false pasta 3000 v2", false, limitSupport{}},
 	}
 	for name, c := range cases {
@@ -346,6 +350,7 @@ func TestResolveLimits_WarnsOnlyForALostCap(t *testing.T) {
 	)
 	off := config.ContainerLimit{Kind: config.LimitUnlimited}
 	fixed := config.ContainerLimit{Kind: config.LimitFixed, Value: 5 * gib}
+	one := config.ContainerLimit{Kind: config.LimitFixed, Value: 1}
 	noMemory := enforcing(32 * gib)
 	noMemory.memory, noMemory.swap = false, false
 	noPids := enforcing(32 * gib)
@@ -367,6 +372,9 @@ func TestResolveLimits_WarnsOnlyForALostCap(t *testing.T) {
 		"pids wanted but unenforced":                 {config.ContainerLimits{}, noPids, []string{unenforced, "the runtime reports no cgroup control for it"}},
 		"pids off where unenforced":                  {config.ContainerLimits{PIDs: off}, noPids, nil},
 		"memory off where unenforced, pids enforced": {config.ContainerLimits{Memory: off}, noMemory, nil},
+		// The smallest cap is still a cap: one byte, or one process, unenforced warns.
+		"a one-byte memory cap unenforced":  {config.ContainerLimits{Memory: one, PIDs: off}, noMemory, []string{unenforced}},
+		"a one-process pids cap unenforced": {config.ContainerLimits{Memory: off, PIDs: one}, noPids, []string{unenforced}},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

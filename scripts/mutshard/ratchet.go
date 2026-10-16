@@ -62,21 +62,9 @@ func readBaseline(file string) (map[string]baselineRow, error) {
 		if len(f) == 0 || strings.HasPrefix(f[0], "#") {
 			continue
 		}
-		if len(f) != 4 || !provenances[f[3]] {
-			return nil, fmt.Errorf("%w: %s:%d: want TARGET TOTAL SURVIVED %s, got %q", errBaselineFormat, file, i+1, "measured|stale|unknown", line)
-		}
-		row := baselineRow{provenance: f[3]}
-		if f[3] == provenanceUnknown {
-			if f[1] != "-" || f[2] != "-" {
-				return nil, fmt.Errorf("%w: %s:%d: an unknown row records no counts (\"-\"), got %q", errBaselineFormat, file, i+1, line)
-			}
-		} else {
-			if row.total, err = strconv.Atoi(f[1]); err == nil {
-				row.survived, err = strconv.Atoi(f[2])
-			}
-			if err != nil || row.total < 0 || row.survived < 0 || row.survived > row.total {
-				return nil, fmt.Errorf("%w: %s:%d: counts must be whole numbers with SURVIVED <= TOTAL, got %q", errBaselineFormat, file, i+1, line)
-			}
+		row, complaint := parseBaselineRow(f)
+		if complaint != "" {
+			return nil, fmt.Errorf("%w: %s:%d: %s, got %q", errBaselineFormat, file, i+1, complaint, line)
 		}
 		if _, dup := rows[f[0]]; dup {
 			return nil, fmt.Errorf("%w: %s:%d: %s has more than one row", errBaselineFormat, file, i+1, f[0])
@@ -84,6 +72,40 @@ func readBaseline(file string) (map[string]baselineRow, error) {
 		rows[f[0]] = row
 	}
 	return rows, nil
+}
+
+// parseBaselineRow parses one row's fields (TARGET TOTAL SURVIVED
+// PROVENANCE), or says what is wrong with them.
+func parseBaselineRow(f []string) (row baselineRow, complaint string) {
+	if len(f) != 4 || !provenances[f[3]] {
+		return baselineRow{}, "want TARGET TOTAL SURVIVED measured|stale|unknown"
+	}
+	row.provenance = f[3]
+	if f[3] == provenanceUnknown {
+		if f[1] != "-" || f[2] != "-" {
+			return baselineRow{}, `an unknown row records no counts ("-")`
+		}
+		return row, ""
+	}
+	var ok bool
+	if row.total, row.survived, ok = parseCounts(f[1], f[2]); !ok {
+		return baselineRow{}, "counts must be whole numbers with SURVIVED <= TOTAL"
+	}
+	return row, ""
+}
+
+// parseCounts parses a row's TOTAL and SURVIVED: whole numbers, SURVIVED no
+// more than TOTAL.
+func parseCounts(totalField, survivedField string) (total, survived int, ok bool) {
+	total, err := strconv.Atoi(totalField)
+	if err == nil {
+		survived, err = strconv.Atoi(survivedField)
+	}
+	// SURVIVED >= 0 and SURVIVED <= TOTAL leave TOTAL no room to be negative.
+	if err != nil || survived < 0 || survived > total {
+		return total, survived, false
+	}
+	return total, survived, true
 }
 
 // ratchet judges target's tally against its row in file, or, with update,

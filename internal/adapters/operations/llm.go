@@ -175,6 +175,47 @@ func validateLabelEngineKeys(reg engine.Registry, typ, label string, keys map[st
 	return nil
 }
 
+// mergeLLMRequest applies the fields req names to entry, leaving every field
+// it does not name as it stands.
+func mergeLLMRequest(reg engine.Registry, cur *config.Config, req SetLLMRequest, entry config.LLMConfig) (config.LLMConfig, error) {
+	if req.Type != nil {
+		entry.Type = *req.Type
+	}
+	if req.Permissions != nil {
+		if err := setLabelMode(reg, cur.EffectiveType(entry), req.Label, &entry.Permissions, *req.Permissions); err != nil {
+			return config.LLMConfig{}, err
+		}
+	}
+	if req.Model != nil {
+		entry.Body = withBodyModel(entry.Body, *req.Model)
+	}
+	if len(req.Set) > 0 {
+		updated, err := applyLLMFields(entry, req.Set)
+		if err != nil {
+			return config.LLMConfig{}, fmt.Errorf("llm %q: %w", req.Label, err)
+		}
+		entry = updated
+	}
+	return entry, nil
+}
+
+// withBodyModel is body with its "model" key set to model, or removed when
+// model is empty; an emptied body is nil.
+func withBodyModel(body map[string]any, model string) map[string]any {
+	if body == nil {
+		body = map[string]any{}
+	}
+	if model == "" {
+		delete(body, "model")
+	} else {
+		body["model"] = model
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	return body
+}
+
 // SetLLM adds or updates a LOCAL LLM registry entry under the `llm.configs`
 // config key, inside one Owner.Update transaction — the same locked,
 // freshly-reloaded read-modify-write SetAgent uses, so a concurrent writer
@@ -212,34 +253,9 @@ func SetLLM(ctx context.Context, app *App, req SetLLMRequest) (*LLMEntry, error)
 		// Start from the record as it stands RIGHT NOW inside the
 		// transaction, so a field this request does not name survives
 		// untouched — same reasoning as SetAgent's identical comment.
-		entry := d.LM.Configs[req.Label]
-		if req.Type != nil {
-			entry.Type = *req.Type
-		}
-		if req.Permissions != nil {
-			if err := setLabelMode(reg, cur.EffectiveType(entry), req.Label, &entry.Permissions, *req.Permissions); err != nil {
-				return err
-			}
-		}
-		if req.Model != nil {
-			if entry.Body == nil {
-				entry.Body = map[string]any{}
-			}
-			if *req.Model == "" {
-				delete(entry.Body, "model")
-			} else {
-				entry.Body["model"] = *req.Model
-			}
-			if len(entry.Body) == 0 {
-				entry.Body = nil
-			}
-		}
-		if len(req.Set) > 0 {
-			updated, err := applyLLMFields(entry, req.Set)
-			if err != nil {
-				return fmt.Errorf("llm %q: %w", req.Label, err)
-			}
-			entry = updated
+		entry, err := mergeLLMRequest(reg, cur, req, d.LM.Configs[req.Label])
+		if err != nil {
+			return err
 		}
 		if err := checkLLMEntry(reg, cur.EffectiveType(entry), configPath, req.Label, entry); err != nil {
 			return err

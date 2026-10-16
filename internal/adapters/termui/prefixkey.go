@@ -141,32 +141,12 @@ func (k prefixKey) kitty(fields [][]byte) keyHit {
 	if len(fields) < 2 || len(fields) > 3 {
 		return keyMiss
 	}
-	keys := bytes.Split(fields[0], []byte{':'})
-	code, ok := csiNum(keys[0], -1)
-	if !ok || len(keys) > 3 {
-		return keyMiss
-	}
-	shifted := -1
-	if len(keys) > 1 {
-		if shifted, ok = csiNum(keys[1], -1); !ok && len(keys[1]) > 0 {
-			return keyMiss
-		}
-	}
-	modEv := bytes.Split(fields[1], []byte{':'})
-	if len(modEv) > 2 {
-		return keyMiss
-	}
-	mods, ok := csiNum(modEv[0], 1)
+	code, shifted, ok := kittyKeyCodes(fields[0])
 	if !ok {
 		return keyMiss
 	}
-	event := 1
-	if len(modEv) == 2 {
-		if event, ok = csiNum(modEv[1], 1); !ok {
-			return keyMiss
-		}
-	}
-	if !k.chord(code, shifted, mods) {
+	mods, event, ok := kittyModsEvent(fields[1])
+	if !ok || !k.chord(code, shifted, mods) {
 		return keyMiss
 	}
 	switch event {
@@ -176,6 +156,39 @@ func (k prefixKey) kitty(fields [][]byte) keyHit {
 		return keyRelease
 	}
 	return keyMiss
+}
+
+// kittyKeyCodes parses kitty's code[:shifted[:base]] field: the key's code
+// and its shifted alternate (-1 when absent). ok is false for a malformed
+// field, and the values are then meaningless.
+func kittyKeyCodes(field []byte) (code, shifted int, ok bool) {
+	keys := bytes.Split(field, []byte{':'})
+	code, ok = csiNum(keys[0], -1)
+	if !ok || len(keys) > 3 {
+		return code, shifted, false
+	}
+	shifted = -1
+	if len(keys) > 1 {
+		if shifted, ok = csiNum(keys[1], -1); !ok && len(keys[1]) > 0 {
+			return code, shifted, false
+		}
+	}
+	return code, shifted, true
+}
+
+// kittyModsEvent parses kitty's mods[:event] field; each defaults to 1 when
+// empty or absent. ok is false for a malformed field, and the values are
+// then meaningless.
+func kittyModsEvent(field []byte) (mods, event int, ok bool) {
+	modEv := bytes.Split(field, []byte{':'})
+	event = 1
+	if mods, ok = csiNum(modEv[0], 1); !ok || len(modEv) > 2 {
+		return mods, event, false
+	}
+	if len(modEv) == 2 {
+		event, ok = csiNum(modEv[1], 1)
+	}
+	return mods, event, ok
 }
 
 // modifyOtherKeys matches xterm's CSI 27 ; mods ; code ~, where code is the

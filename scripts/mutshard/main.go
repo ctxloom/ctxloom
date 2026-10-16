@@ -315,6 +315,13 @@ func cmdAggregate(args []string, stdout io.Writer) error {
 	}
 	t, verdict := judge(p.shards, st, reports, af.th)
 	reportVerdict(stdout, len(p.shards), af.scope, t, verdict)
+	return ratchetVerdict(stdout, af, t, verdict)
+}
+
+// ratchetVerdict is aggregate's exit: the threshold verdict, unless a
+// survivor ratchet was asked for and the verdict judged the union — then the
+// ratchet decides, and the verdict is only reported.
+func ratchetVerdict(stdout io.Writer, af aggregateFlags, t tally, verdict error) error {
 	if af.ratchet == "" || !judged(verdict) {
 		return verdict
 	}

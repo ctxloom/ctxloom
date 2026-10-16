@@ -141,49 +141,29 @@ func TestRatchet_UpdateRecordsTheRow(t *testing.T) {
 // A malformed row is refused, not skipped: a skipped row would turn its
 // package into "unbaselined" and its regression into a message.
 func TestReadBaseline_RefusesMalformedRows(t *testing.T) {
-	for _, line := range []string{
-		"internal/a 10 2",
-		"internal/a 10 2 guessed",
-		"internal/a ten 2 measured",
-		"internal/a 2 10 measured",
-		"internal/a 10 2 unknown",
-		"internal/a - 2 unknown",
-		"internal/a 2 - unknown",
-		"internal/a - - measured",
-		"internal/a -1 0 measured",
-		"internal/a 1 -1 measured",
+	for _, c := range []struct {
+		body string
+		line int // the refusal names it, so the row can be found and fixed
+	}{
+		{"internal/a 10 2\n", 1},
+		{"internal/a 10 2 guessed\n", 1},
+		{"internal/a ten 2 measured\n", 1},
+		{"internal/a 2 10 measured\n", 1},
+		{"internal/a 10 2 unknown\n", 1},
+		{"internal/a - 2 unknown\n", 1},
+		{"internal/a 2 - unknown\n", 1},
+		{"internal/a - - measured\n", 1},
+		{"internal/a -1 0 measured\n", 1},
+		{"internal/a 1 -1 measured\n", 1},
+		{"internal/a 1 0 measured\ninternal/a 2 0 measured\n", 2}, // a duplicated row
+		{"# c\ninternal/a - 2 unknown\n", 2},
+		{"#\n\ninternal/a 2 3 measured\n", 3},
 	} {
-		f := filepath.Join(t.TempDir(), "b.txt")
-		if err := os.WriteFile(f, []byte(line+"\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := readBaseline(f); !errors.Is(err, errBaselineFormat) {
-			t.Errorf("%q: err = %v, want errBaselineFormat", line, err)
-		}
-	}
-	f := filepath.Join(t.TempDir(), "b.txt")
-	if err := os.WriteFile(f, []byte("internal/a 1 0 measured\ninternal/a 2 0 measured\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	_, err := readBaseline(f)
-	if !errors.Is(err, errBaselineFormat) {
-		t.Errorf("a duplicated row: err = %v, want errBaselineFormat", err)
-	}
-	// The refusal names the line, so the row can be found and fixed.
-	if err == nil || !strings.Contains(err.Error(), "b.txt:2:") {
-		t.Errorf("a duplicate on line 2: err = %v, want it to name b.txt:2", err)
-	}
-	for line, body := range map[int]string{
-		1: "internal/a 1 0 guessed\n",
-		2: "# c\ninternal/a - 2 unknown\n",
-		3: "#\n\ninternal/a 2 3 measured\n",
-	} {
-		f := filepath.Join(t.TempDir(), "b.txt")
-		if err := os.WriteFile(f, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := readBaseline(f); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("b.txt:%d:", line)) {
-			t.Errorf("%q: err = %v, want it to name b.txt:%d", body, err, line)
+		dir := t.TempDir()
+		writeFile(t, dir, "b.txt", c.body)
+		_, err := readBaseline(filepath.Join(dir, "b.txt"))
+		if want := fmt.Sprintf("b.txt:%d:", c.line); !errors.Is(err, errBaselineFormat) || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: err = %v, want errBaselineFormat naming %s", c.body, err, want)
 		}
 	}
 }

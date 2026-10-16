@@ -225,6 +225,16 @@ func sorted(cands []candidate) []candidate {
 	return out
 }
 
+// plannedPackages is every package p's shards hold, sorted.
+func plannedPackages(p plan) []string {
+	var planned []string
+	for _, s := range p.shards {
+		planned = append(planned, s...)
+	}
+	sort.Strings(planned)
+	return planned
+}
+
 // A whole-scope plan holds every package with mutable Go, and nothing else.
 func TestMakePlan_TheWholeTreeIsEveryMutablePackage(t *testing.T) {
 	root, cfg := testModule(t)
@@ -232,11 +242,7 @@ func TestMakePlan_TheWholeTreeIsEveryMutablePackage(t *testing.T) {
 	if err != nil || p.skip != "" {
 		t.Fatalf("plan = %+v, err %v", p, err)
 	}
-	var planned []string
-	for _, s := range p.shards {
-		planned = append(planned, s...)
-	}
-	sort.Strings(planned)
+	planned := plannedPackages(p)
 	if want := []string{".", "a", "b"}; !reflect.DeepEqual(planned, want) {
 		t.Errorf("planned = %q, want %q", planned, want)
 	}
@@ -338,13 +344,13 @@ func TestScopeWithPkg(t *testing.T) {
 	}
 }
 
-// A package scope plans the packages under it, the package itself included,
-// and nothing else — a sibling sharing its name as a prefix is outside it.
-func TestMakePlan_PkgNarrowsToThePackagesUnderIt(t *testing.T) {
+// touchedModule is a module committed on main holding one package per dir,
+// each then edited in the working tree.
+func touchedModule(t *testing.T, dirs ...string) (string, *gomutantsConfig) {
+	t.Helper()
 	root := t.TempDir()
 	writeFile(t, root, "go.mod", "module lab\n\ngo 1.24\n")
 	writeFile(t, root, gomutantsConfigFile, testGomutantsYAML)
-	dirs := []string{"sub", "sub/deep", "subway", "other"}
 	for _, d := range dirs {
 		writeFile(t, root, d+"/p.go", "package p\n")
 	}
@@ -358,6 +364,13 @@ func TestMakePlan_PkgNarrowsToThePackagesUnderIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return root, cfg
+}
+
+// A package scope plans the packages under it, the package itself included,
+// and nothing else — a sibling sharing its name as a prefix is outside it.
+func TestMakePlan_PkgNarrowsToThePackagesUnderIt(t *testing.T) {
+	root, cfg := touchedModule(t, "sub", "sub/deep", "subway", "other")
 	for _, base := range []scope{{base: "main"}, {tree: true}} {
 		sc, err := base.withPkg(root, "sub")
 		if err != nil {
@@ -367,12 +380,7 @@ func TestMakePlan_PkgNarrowsToThePackagesUnderIt(t *testing.T) {
 		if err != nil || p.skip != "" {
 			t.Fatalf("%s: plan = %+v, err %v", sc, p, err)
 		}
-		var planned []string
-		for _, s := range p.shards {
-			planned = append(planned, s...)
-		}
-		sort.Strings(planned)
-		if want := []string{"sub", "sub/deep"}; !reflect.DeepEqual(planned, want) {
+		if planned, want := plannedPackages(p), []string{"sub", "sub/deep"}; !reflect.DeepEqual(planned, want) {
 			t.Errorf("%s: planned = %q, want %q", sc, planned, want)
 		}
 	}
@@ -447,7 +455,8 @@ func TestAggregateFlags_RatchetNeedsAWholePackage(t *testing.T) {
 	writeFile(t, root, "p/p.go", "package p\n")
 	t.Chdir(root)
 	af, err := parseAggregateFlags([]string{"-scope", "tree", "-pkg", "p", "-reports", "r", "-ratchet", "b.txt", "-update", "-efficacy", "80", "-mcover", "5"})
-	if err != nil || af.reports != "r" || af.ratchet != "b.txt" || !af.update || af.th != (thresholds{80, 5}) {
+	want := aggregateFlags{scope: scope{tree: true, pkg: "p"}, reports: "r", th: thresholds{80, 5}, ratchet: "b.txt", update: true}
+	if err != nil || af != want {
 		t.Fatalf("aggregate flags = %+v, %v", af, err)
 	}
 	// No threshold flag judges no threshold: a zero threshold is never judged.

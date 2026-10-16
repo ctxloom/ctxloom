@@ -80,26 +80,13 @@ func TestCommands_PlanRunAggregate(t *testing.T) {
 	} {
 		t.Setenv("STATUS", c.status)
 		reports := t.TempDir()
-		for _, k := range []string{"0", "1"} {
-			if code, out := mutshard("run", "-scope", "tree", "-shard", k, "-shards", "2", "-out", reports, "--", launcher); code != 0 {
-				t.Fatalf("run shard %s: exit %d\n%s", k, code, out)
-			}
-		}
-		handed, _ := os.ReadFile(argv)
-		var got []string
-		for _, a := range strings.Fields(string(handed)) {
-			if a == "." || strings.HasPrefix(a, "./") {
-				got = append(got, strings.TrimPrefix(a, "./"))
-			}
-		}
-		sort.Strings(got)
-		if strings.Join(got, " ") != strings.Join(plan1, " ") {
+		runShards(t, launcher, reports, "0", "1")
+		if got := handedPackages(t, argv); strings.Join(got, " ") != strings.Join(plan1, " ") {
 			t.Errorf("shard 1 handed gomutants %q, its plan is %q", got, plan1)
 		}
-		var rep report
-		b, err := os.ReadFile(filepath.Join(reports, "shard-1.json"))
-		if err != nil || json.Unmarshal(b, &rep) != nil || rep.Shard != 1 || rep.Shards != 2 || len(rep.Gomutants) == 0 {
-			t.Fatalf("shard-1.json = %s, %v", b, err)
+		rep := readShardReport(t, filepath.Join(reports, "shard-1.json"))
+		if rep.Shard != 1 || rep.Shards != 2 || len(rep.Gomutants) == 0 {
+			t.Fatalf("shard-1.json = %+v", rep)
 		}
 		code, out := mutshard("aggregate", "-scope", "tree", "-reports", reports, "-efficacy", "80")
 		if code != c.code || !strings.Contains(out, c.says) {
@@ -108,38 +95,94 @@ func TestCommands_PlanRunAggregate(t *testing.T) {
 	}
 }
 
-// A diff run hands gomutants the base; a ratcheted aggregate judges the
-// survivors against the package's row, and the threshold miss is not the
-// verdict.
-func TestCommands_DiffRunAndRatchet(t *testing.T) {
+// runShards runs each of the tree's two shards into reports, failing the test
+// on a non-zero exit.
+func runShards(t *testing.T, launcher, reports string, shards ...string) {
+	t.Helper()
+	for _, k := range shards {
+		if code, out := mutshard("run", "-scope", "tree", "-shard", k, "-shards", "2", "-out", reports, "--", launcher); code != 0 {
+			t.Fatalf("run shard %s: exit %d\n%s", k, code, out)
+		}
+	}
+}
+
+// handedPackages is the package patterns the fake launcher last recorded in
+// argv, as module-relative directories, sorted.
+func handedPackages(t *testing.T, argv string) []string {
+	t.Helper()
+	handed, err := os.ReadFile(argv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, a := range strings.Fields(string(handed)) {
+		if a == "." || strings.HasPrefix(a, "./") {
+			got = append(got, strings.TrimPrefix(a, "./"))
+		}
+	}
+	sort.Strings(got)
+	return got
+}
+
+// readShardReport parses one shard's report file.
+func readShardReport(t *testing.T, file string) report {
+	t.Helper()
+	b, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rep report
+	if err := json.Unmarshal(b, &rep); err != nil {
+		t.Fatalf("%s = %s: %v", file, b, err)
+	}
+	return rep
+}
+
+// A diff run hands gomutants the base.
+func TestCommands_DiffRunHandsGomutantsTheBase(t *testing.T) {
 	root, launcher, argv := cmdModule(t)
 	writeFile(t, root, "a/a.go", "package a\n\nvar x = 2\n")
 	t.Setenv("STATUS", "LIVED")
-	reports := t.TempDir()
-	if code, out := mutshard("run", "-scope", "diff:main", "-out", reports, "--", launcher); code != 0 {
+	if code, out := mutshard("run", "-scope", "diff:main", "-out", t.TempDir(), "--", launcher); code != 0 {
 		t.Fatalf("run: exit %d\n%s", code, out)
 	}
 	if handed, _ := os.ReadFile(argv); !strings.Contains(string(handed), "--changed-since\nmain\n") || !strings.Contains(string(handed), "./a\n") {
 		t.Errorf("gomutants argv = %q, want --changed-since main and ./a", handed)
 	}
+}
 
-	reports = t.TempDir()
+// A ratcheted aggregate judges the survivors against the package's row, and
+// the threshold miss is not the verdict.
+func TestCommands_AggregateRatchetsThePackage(t *testing.T) {
+	_, launcher, _ := cmdModule(t)
+	t.Setenv("STATUS", "LIVED")
+	reports := t.TempDir()
 	if code, out := mutshard("run", "-scope", "tree", "-pkg", "a", "-out", reports, "--", launcher); code != 0 {
 		t.Fatalf("run -pkg a: exit %d\n%s", code, out)
 	}
 	baseline := filepath.Join(t.TempDir(), "b.txt")
-	if err := os.WriteFile(baseline, []byte("a 1 1 measured\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	code, out := mutshard("aggregate", "-scope", "tree", "-pkg", "a", "-reports", reports, "-efficacy", "80", "-ratchet", baseline)
-	if code != 0 || !strings.Contains(out, "not the verdict") || !strings.Contains(out, "HELD") {
-		t.Errorf("ratchet over a held row: exit %d\n%s", code, out)
-	}
-	if err := os.WriteFile(baseline, []byte("a 1 0 measured\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if code, out := mutshard("aggregate", "-scope", "tree", "-pkg", "a", "-reports", reports, "-ratchet", baseline); code != 1 || !strings.Contains(out, "REGRESS") && !strings.Contains(out, "more mutants unverified") {
-		t.Errorf("ratchet over a lower row: exit %d, want 1\n%s", code, out)
+	for _, c := range []struct {
+		name, row string
+		extra     []string
+		code      int
+		says      []string
+	}{
+		{"a held row", "a 1 1 measured\n", []string{"-efficacy", "80"}, 0, []string{"not the verdict", "HELD"}},
+		{"a lower row", "a 1 0 measured\n", nil, 1, []string{"more mutants unverified"}},
+	} {
+		if err := os.WriteFile(baseline, []byte(c.row), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		args := append([]string{"aggregate", "-scope", "tree", "-pkg", "a", "-reports", reports, "-ratchet", baseline}, c.extra...)
+		code, out := mutshard(args...)
+		if code != c.code {
+			t.Errorf("ratchet over %s: exit %d, want %d\n%s", c.name, code, c.code, out)
+		}
+		for _, want := range c.says {
+			if !strings.Contains(out, want) {
+				t.Errorf("ratchet over %s: output must say %q:\n%s", c.name, want, out)
+			}
+		}
 	}
 }
 

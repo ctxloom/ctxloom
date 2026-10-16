@@ -148,3 +148,37 @@ func TestWriteKeyField_TheTagIsKeyed(t *testing.T) {
 	writeKeyField(path, "path", []byte("x"))
 	assert.NotEqual(t, arg.Sum(nil), path.Sum(nil))
 }
+
+// TestContextHasher_PrunesAnExcludedDirectoryNoExceptionReaches: the walk
+// does not descend into a directory both runtimes exclude — unless a
+// "!pattern" exception may still send something under it — and an excluded
+// directory writes nothing into the hash.
+func TestContextHasher_PrunesAnExcludedDirectoryNoExceptionReaches(t *testing.T) {
+	for _, c := range []struct {
+		ignore string
+		want   error
+	}{
+		{"scratch\n", filepath.SkipDir},
+		{"scratch\n!scratch/keep\n", nil},
+	} {
+		df, ctxDir := buildCtxFixture(t)
+		require.NoError(t, os.WriteFile(filepath.Join(ctxDir, ".dockerignore"), []byte(c.ignore), 0o644))
+		require.NoError(t, os.MkdirAll(filepath.Join(ctxDir, "scratch"), 0o755))
+		ign, err := loadContextIgnore(ctxDir, df)
+		require.NoError(t, err)
+		entries, err := os.ReadDir(ctxDir)
+		require.NoError(t, err)
+		var scratch os.DirEntry
+		for _, e := range entries {
+			if e.Name() == "scratch" {
+				scratch = e
+			}
+		}
+		require.NotNil(t, scratch)
+
+		h := sha256.New()
+		w := &contextHasher{h: h, ctxDir: ctxDir, ign: ign, budget: contextHashBudget}
+		assert.Equal(t, c.want, w.visit(filepath.Join(ctxDir, "scratch"), scratch, nil), "%q", c.ignore)
+		assert.Equal(t, sha256.New().Sum(nil), h.Sum(nil), "%q: an excluded directory is not keyed", c.ignore)
+	}
+}

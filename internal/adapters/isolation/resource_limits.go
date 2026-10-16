@@ -108,21 +108,34 @@ func defaultMemoryLimit(hostMemory int64) int64 {
 // hostRequirements): it arrives as a config.ContainerLimits like config's,
 // so nothing here changes with where the request came from.
 func resolveLimits(want config.ContainerLimits, sup limitSupport) resourceLimits {
-	var out resourceLimits
 	memory := capValue(want.Memory, defaultMemoryLimit(sup.hostMemory))
 	if want.Memory.Kind == config.LimitDefault && memory == 0 {
 		clidiag.WarnRemedyOnce("ctxloom", "set isolation_memory_limit to a size (e.g. 8g) to cap agent containers",
 			"the container runtime did not report its host's memory, so agent containers run without the default memory cap")
 	}
 	pids := capValue(want.PIDs, defaultPidsLimit)
-	if (memory > 0 && !sup.memory) || (pids > 0 && !sup.pids) {
-		why := sup.unenforced
-		if why == "" {
-			why = "the runtime reports no cgroup control for it"
-		}
-		clidiag.WarnRemedyOnce("ctxloom", "run a rootful runtime, or a rootless one on cgroup v2 with the memory and pids controllers delegated, to enforce the caps",
-			"agent containers run without some resource caps (isolation_memory_limit / isolation_pids_limit): %s", why)
+	sup.warnDropped(memory, pids)
+	return sup.enforced(memory, pids)
+}
+
+// warnDropped warns, once, when a requested cap (memory or pids above 0) is
+// one the runtime cannot enforce and so will be dropped.
+func (sup limitSupport) warnDropped(memory, pids int64) {
+	if (memory <= 0 || sup.memory) && (pids <= 0 || sup.pids) {
+		return
 	}
+	why := sup.unenforced
+	if why == "" {
+		why = "the runtime reports no cgroup control for it"
+	}
+	clidiag.WarnRemedyOnce("ctxloom", "run a rootful runtime, or a rootless one on cgroup v2 with the memory and pids controllers delegated, to enforce the caps",
+		"agent containers run without some resource caps (isolation_memory_limit / isolation_pids_limit): %s", why)
+}
+
+// enforced is the caps the runtime can enforce out of the requested memory
+// and pids (0 is no cap); swap is pinned to memory wherever it is accounted.
+func (sup limitSupport) enforced(memory, pids int64) resourceLimits {
+	var out resourceLimits
 	if memory > 0 && sup.memory {
 		out.memory = memory
 		if sup.swap {

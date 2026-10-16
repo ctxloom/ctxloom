@@ -167,55 +167,80 @@ func hashBuildContext(h hash.Hash, ctxDir, dockerfile string) error {
 	if err != nil {
 		return err
 	}
-	budget := contextHashBudget
-	degraded := false
-	err = filepath.WalkDir(ctxDir, func(p string, d fs.DirEntry, werr error) error {
-		if werr != nil {
-			return werr
-		}
-		rel, err := filepath.Rel(ctxDir, p)
-		if err != nil || rel == "." {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
-		skip, err := ign.excluded(rel)
-		if err != nil {
-			return err
-		}
-		if skip {
-			if d.IsDir() && !ign.mayReinclude() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		writeKeyField(h, "path", []byte(rel))
-		writeKeyField(h, "mode", []byte(info.Mode().String()))
-		switch {
-		case info.Mode()&fs.ModeSymlink != 0:
-			target, err := os.Readlink(p)
-			if err != nil {
-				return err
-			}
-			writeKeyField(h, "link", []byte(target))
-		case info.Mode().IsRegular():
-			if info.Size() > budget {
-				degraded = true
-				writeKeyField(h, "stat", []byte(fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())))
-				return nil
-			}
-			budget -= info.Size()
-			return hashFileContent(h, p)
-		}
-		return nil
-	})
-	if degraded {
+	w := &contextHasher{h: h, ctxDir: ctxDir, ign: ign, budget: contextHashBudget}
+	err = filepath.WalkDir(ctxDir, w.visit)
+	if w.degraded {
 		clidiag.WarnOnce("ctxloom", "the devcontainer build context %s holds more than %d MiB the build sends; files past that are keyed by size and modification time only, so an edit that keeps both will not rebuild the agent image (add a .dockerignore, or narrow build.context)", ctxDir, contextHashBudget>>20)
 	}
 	return err
+}
+
+// contextHasher is one hashBuildContext walk: the hash it writes into, the
+// ignore rules it applies, and the content budget it has left.
+type contextHasher struct {
+	h        hash.Hash
+	ctxDir   string
+	ign      contextIgnore
+	budget   int64
+	degraded bool // some file past the budget was keyed by size and mtime
+}
+
+// visit is the filepath.WalkDir callback: it hashes each entry the build
+// sends and prunes excluded directories no exception can reach into.
+func (w *contextHasher) visit(p string, d fs.DirEntry, werr error) error {
+	if werr != nil {
+		return werr
+	}
+	rel, err := filepath.Rel(w.ctxDir, p)
+	if err != nil || rel == "." {
+		return err
+	}
+	rel = filepath.ToSlash(rel)
+	skip, err := w.ign.excluded(rel)
+	if err != nil {
+		return err
+	}
+	if skip {
+		return w.skipped(d)
+	}
+	info, err := d.Info()
+	if err != nil {
+		return err
+	}
+	return w.hashEntry(p, rel, info)
+}
+
+// skipped is the walk's answer for an excluded entry: prune a directory
+// unless a "!pattern" exception may still send something under it.
+func (w *contextHasher) skipped(d fs.DirEntry) error {
+	if d.IsDir() && !w.ign.mayReinclude() {
+		return filepath.SkipDir
+	}
+	return nil
+}
+
+// hashEntry writes one sent entry: its path and mode, then a symlink's target
+// or a regular file's content (or, past the budget, its size and mtime).
+func (w *contextHasher) hashEntry(p, rel string, info fs.FileInfo) error {
+	writeKeyField(w.h, "path", []byte(rel))
+	writeKeyField(w.h, "mode", []byte(info.Mode().String()))
+	switch {
+	case info.Mode()&fs.ModeSymlink != 0:
+		target, err := os.Readlink(p)
+		if err != nil {
+			return err
+		}
+		writeKeyField(w.h, "link", []byte(target))
+	case info.Mode().IsRegular():
+		if info.Size() > w.budget {
+			w.degraded = true
+			writeKeyField(w.h, "stat", []byte(fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())))
+			return nil
+		}
+		w.budget -= info.Size()
+		return hashFileContent(w.h, p)
+	}
+	return nil
 }
 
 // hashFileContent streams one file's content into h, length-prefixed by the

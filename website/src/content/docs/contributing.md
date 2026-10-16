@@ -10,6 +10,8 @@ Guide for contributing to ctxloom development.
 - [just](https://github.com/casey/just) command runner
 - Docker or Podman — the standard recipes build and run inside a devcontainer image, which carries the pinned tooling (golangci-lint, [buf](https://buf.build) for protobuf codegen, Node.js for the opencode plugin tests) so you don't install it on the host
 
+Every recipe that starts a container or builds an image (`dev-image`, and through it most of the table below) first runs a preflight that fails fast, rather than hanging, when the container engine cannot run containers: a timeout-bounded `docker info` (`version` for other engines), and for rootless docker, the runtime sockets a wedged daemon loses while still answering its API. The fix it names, `systemctl --user restart docker`, also restarts every other container on that daemon. It is skipped inside the devcontainer and under CI; `CTXLOOM_SKIP_CONTAINER_PREFLIGHT=1` bypasses it, and `CTXLOOM_CONTAINER_PREFLIGHT_TIMEOUT` (seconds, default 10) bounds the probe.
+
 ## Building
 
 | Command | Description |
@@ -31,6 +33,17 @@ Guide for contributing to ctxloom development.
 | `just test-pkg <pkg> [go test args]` | Run one package's tests (with `-race`). The `tests/acceptance` and `tests/integration` trees get a 30m timeout unless you pass `-timeout` yourself |
 | `just test-acceptance` | Run acceptance tests (requires built binary) |
 | `just dev test` | Run all tests in the devcontainer (matches CI) |
+
+### Mutation testing
+
+[gomutants](https://github.com/gomutants/gomutants) is the one mutation backend; its settings live in `.gomutants.yml`, and `scripts/mutshard` plans, shards and judges its runs. Install it with `just test-mutation-install` (the version pinned in `.devcontainer/tool-versions.env`). The acceptance suite is not mutation-tested: gomutants mutates source and runs `go test`, so code reachable only through the built binary reports NOT COVERED.
+
+| Command | Description |
+|---------|-------------|
+| `just test-mutation-diff BASE` | Mutate the lines changed since `BASE`, judged against the project thresholds (efficacy 80%) — the per-push gate CI runs, sharded |
+| `just test-mutation-pkg PKG [--diff BASE]` | The same, narrowed to one package directory and everything under it |
+| `just test-mutation-ratchet PKG` | Mutate `PKG` whole and judge its survivor count (LIVED + NOT COVERED) against its row in `tests/mutation/survivor_baseline.txt`; `CTXLOOM_MUTATION_BASELINE=update` records the measured count as the row |
+| `just test-mutation` | The whole module, on this machine (slow) |
 
 ### Live engine tests
 
@@ -58,7 +71,7 @@ cell whose engine is missing or cannot authenticate skips loudly, saying why.
 | Command | Description |
 |---------|-------------|
 | `just fmt` | Format code |
-| `just lint` | Lint code |
+| `just lint` | Lint code. golangci-lint's cache is per checkout, under the gitignored `.cache/golangci-lint/<hash>`, so a worktree never reads another's cached findings; an exported `GOLANGCI_LINT_CACHE` overrides it |
 
 ## Git hooks
 

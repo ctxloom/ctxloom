@@ -293,7 +293,9 @@ share its usage limits with your own interactive use. See
 Only needed if you opt into `runtime: container-rootless` or `runtime: container-rootful` (or run `ctxloom container build`) — the
 default `runtime: host` needs no container runtime at all. Container-isolated agents need
 **docker or podman** installed, on `PATH`, with the daemon reachable (`docker info` / `podman
-info` succeeding). Run `ctxloom container check` to diagnose whether the current host can launch
+info` succeeding). A reachable daemon is not enough on its own: a wedged rootless docker
+(its runtime sockets under `$XDG_RUNTIME_DIR` gone) still answers `docker info`, and a launch on
+it is refused with the restart remedy. Run `ctxloom container check` to diagnose whether the current host can launch
 one — see [`ctxloom container`](/reference/cli/ctxloom_container/) and [Containers close the loop, by not
 asking](/security/environment-isolation/#containers-close-the-loop-by-not-asking).
 

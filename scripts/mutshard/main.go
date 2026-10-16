@@ -24,6 +24,10 @@
 //
 // <launcher...> is the command that runs gomutants (the recipe prefixes the
 // per-run temp dir wrapper); its flags and the package patterns are appended.
+// When the stdout it passes through is not a terminal, `run` also hands
+// gomutants --verbose (unless the launcher already names a verbosity), since
+// off a terminal gomutants otherwise prints nothing until its summary and a
+// logged or CI run reads as a hang.
 // The project's settings are gomutants' own .gomutants.yml, which it reads
 // from the module root; this tool reads only its exclude-files and tags, to
 // plan the same files gomutants mutates.

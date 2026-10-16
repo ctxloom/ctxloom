@@ -128,6 +128,7 @@ Feature: container — the images isolated agents run in, and the questions you 
       And the output reports "shared_fs" matching "<reports the shared fs>"
       And the project tree is unchanged
 
+    @json-default
     Examples: no --format at all takes the derived default off a terminal, and an explicit json agrees
       | flags         | names the backend it checked          | says whether it is in a container | names the runtime | reports the shared fs |
       |               | mock                                  | ^(true\|false)$                   | \S               | ok                    |
@@ -153,6 +154,7 @@ Feature: container — the images isolated agents run in, and the questions you 
       And the output reports "shared_fs" matching "<reports the shared fs>"
       And the output does not contain "MOCK-REPLY-NEVER-SENT-CONTAINER-CHECK-ONLY-PROBES"
 
+    @json-default
     Examples: no --format at all takes the derived default off a terminal, and an explicit json agrees
       | flags         | names the backend it resolved  | reports the shared fs |
       |               | ctxloom-agent-\S               | ok                    |
@@ -338,6 +340,7 @@ Feature: container — the images isolated agents run in, and the questions you 
       And the output contains "TOOLING-DECL-TOOLED"
       And the output does not contain "TOOLING-DECL-SHADY"
 
+    @json-default
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         |
       |               |

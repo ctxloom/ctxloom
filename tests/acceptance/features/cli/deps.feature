@@ -45,6 +45,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Then the command succeeds
       And the output reports "deps" as empty, saying "No dependencies installed"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         |
         |               |
@@ -89,6 +90,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the output reports "deps" as empty, saying "No dependencies installed"
       And the output does not contain "Available Commands:"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         |
         |               |

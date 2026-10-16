@@ -47,6 +47,7 @@ Feature: llm — the named engine configurations
       And the output reports "[label=claude-code].default" as "<claude-code is the default>"
       And the output reports "[label=claude-fast].label" as "<names another built-in too>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | claude-code is the default | names another built-in too |
         |               | true                        | claude-fast                 |
@@ -98,6 +99,7 @@ Feature: llm — the named engine configurations
       Then the command fails
       And the output contains "not defined in config.yaml"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | big is configured | claude-code is built-in | mock is the default | and still built-in |
         |               | true               | false                    | true                  | false                |
@@ -133,6 +135,7 @@ Feature: llm — the named engine configurations
       When I run "ctxloom llm list <flags>"
       Then the output reports "[label=claude-fast].default" as "<claude-fast is now marked default>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | confirms the change             | reads back claude-fast | claude-fast is now marked default |
         |               | set                              | claude-fast             | true                                |
@@ -177,6 +180,7 @@ Feature: llm — the named engine configurations
       When I run "ctxloom llm list <flags>"
       Then the output reports "[label=big].label" as "<the label round-trips>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | names the backend | names the model | the label round-trips |
         |               | mock               | o1               | big                    |
@@ -227,6 +231,7 @@ Feature: llm — the named engine configurations
       And the file ".ctxloom/config.yaml" contains "o1-pro"
       And the file ".ctxloom/config.yaml" contains "mock"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the new model | the backend survives unmerged |
         |               | o1-pro         | mock                           |
@@ -247,6 +252,7 @@ Feature: llm — the named engine configurations
       And the output reports "permissions.mode" as "<the posture>"
       And the file ".ctxloom/config.yaml" contains "mode: bypass"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the posture |
         |               | bypass       |
@@ -270,6 +276,7 @@ Feature: llm — the named engine configurations
       Then the output reports "[label=big].label" as "<the entry survives>"
       And the file ".ctxloom/config.yaml" contains "big"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | nothing was applied  | the command to actually do it | the entry survives |
         |               | false                 | ctxloom llm remove big --yes  | big                  |
@@ -290,6 +297,7 @@ Feature: llm — the named engine configurations
       When I run "ctxloom llm list <flags>"
       Then the output does not contain "big"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | confirms the removal |
         |               | removed                |

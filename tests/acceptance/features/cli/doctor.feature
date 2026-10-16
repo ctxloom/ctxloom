@@ -30,6 +30,7 @@ Feature: doctor — the deterministic diagnosis, and why its exit code is not th
 
   Rule: The report names every check, in one shared marker vocabulary
 
+    @json-default
     Scenario: Doctor reports every check with the shared DOCTOR-CHECK-* marker vocabulary
       Given an initialized ctxloom project
       When Alice asks ctxloom to check its own setup:
@@ -89,6 +90,7 @@ Feature: doctor — the deterministic diagnosis, and why its exit code is not th
     # and the positive control runs first, in the same fixture, so the missing
     # agents line means "scoped out" rather than "this project has no agents
     # check at all".
+    @json-default
     Scenario: The scoped report keeps the capability probes and drops the setup checks
       Given an initialized ctxloom project
       When I run "ctxloom doctor"
@@ -272,6 +274,7 @@ Feature: doctor — the deterministic diagnosis, and why its exit code is not th
     # report that simply went quiet here could be mistaken for "checked and
     # confirmed read", which is the misreading this line exists to prevent —
     # so the STATUS is asserted, not just the marker's presence.
+    @json-default
     Scenario: The delivered-versus-ingested boundary is stated, not claimed as checked
       Given an initialized ctxloom project
       When I run "ctxloom --format json doctor"

@@ -26,6 +26,11 @@ type DocCapture struct {
 	Feature  string           `json:"feature"`           // source .feature file URI
 	Tags     []string         `json:"tags"`
 	Steps    []DocCaptureStep `json:"steps"`
+	// Cast names the asciicast v2 recording of this run, a file beside the
+	// capture in the same directory. Every capture the acceptance harness
+	// writes carries one; the generator refuses a passing capture without it,
+	// since an older capture cannot pass for one that recorded its run.
+	Cast string `json:"cast,omitempty"`
 }
 
 // DocCaptureStep is one step's text, pass/fail outcome, and whatever real

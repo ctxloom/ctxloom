@@ -51,6 +51,7 @@ Feature: config — the project's one configuration document, read and scaffolde
       And the output reports "llm.configs.claude-fast.type" as "<names the configs block>"
       And the output reports "llm.defaults.primary" as "<names the defaults block>"
 
+    @json-default
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | names the llm section | names the configs block | names the defaults block |
       |               | claude-code           | claude-code             | claude-code              |
@@ -68,6 +69,7 @@ Feature: config — the project's one configuration document, read and scaffolde
       And the output reports "llm.defaults.primary" as "<names the defaults block>"
       And the output does not contain "Available Commands:"
 
+    @json-default
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | names the llm section | names the defaults block |
       |               | claude-code           | claude-code              |
@@ -110,6 +112,7 @@ Feature: config — the project's one configuration document, read and scaffolde
       And the output does not contain "editor:"
       And the output does not contain "llm:"
 
+    @json-default
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | names the configs block | names the defaults block |
       |               | claude-code             | claude-code              |

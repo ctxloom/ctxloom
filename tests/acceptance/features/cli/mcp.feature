@@ -73,6 +73,7 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
       And the output reports "entries.0.served_by" as "<names the endpoint>"
       And the output does not contain "mcp serve"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | names the bundle            | names the endpoint                        |
         |               | ctxloom+companion:ctxloom   | session-endpoint                          |
@@ -198,6 +199,7 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
                 notes: KEEP-THESE-NOTES
         """
 
+    @json-default
     Scenario: A name the bundle lacks is created as a remote server
       When I run "ctxloom mcp server set demo#mcp/search --url https://mcp.example.com/v1 --header X-Team=core --tag search-index --notes 'Team search index' --installation 'Ask core for a seat'"
       Then the command succeeds
@@ -211,6 +213,7 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
 
     # A repeatable flag REPLACES the stored list or map: the fixture's
     # argument is gone, the notes nobody passed are not.
+    @json-default
     Scenario: Updating an existing server replaces its arguments and keeps what was not passed
       When I run "ctxloom mcp server set demo#mcp/tools --command search-mcp --arg=--stdio --env LOG_LEVEL=debug"
       Then the command succeeds

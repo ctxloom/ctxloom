@@ -92,6 +92,7 @@ Feature: The day the assistant goes blind
     Then the installed-bundle listing names the runbook as held
     And her assistant still receives the older deploy guidance and not the newer
 
+    @json-default
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         |
       |               |
@@ -133,6 +134,7 @@ Feature: The day the assistant goes blind
     Then the agent listing names the profile it composes
     And her assistant does not receive the deploy guidance
 
+    @json-default
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         |
       |               |
@@ -241,6 +243,7 @@ Feature: The day the assistant goes blind
   # rewrite. Reverted after confirming red.
   #
   # UNTAGGED 2026-08-05, once doctor stated the limit for real.
+  @json-default
   Scenario: Nothing claims the engine read the file, and something says so
     Given every earlier inspector is green and the deploy guidance is materialized into the engine's own surface
     When Alice asks ctxloom what her engine actually ingested

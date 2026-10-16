@@ -378,7 +378,10 @@ func assertOutputReports(w *World, path, expected string, check func(any) error)
 // captures stdout through a pipe and is never a terminal, so a row that passes
 // no --format at all is exercising the derived default; resolving it to the
 // structured payload here is what makes such a row a test of that rule instead
-// of a test of whatever the command happened to emit.
+// of a test of whatever the command happened to emit. The derived default is
+// read from the environment the child was given (TestEnvironment.NonTTYFormat:
+// json unless the scenario set non_tty_format), so the harness and the binary
+// derive it from one value.
 //
 // STDOUT ONLY. An assertion about the ERROR stream must ask formatExplicit
 // instead — see its doc for why the two streams diverge.
@@ -386,7 +389,7 @@ func formatAskedFor(w *World) clifmt.Format {
 	if f, ok := formatOnCommandLine(w); ok {
 		return f
 	}
-	return derivedNonTerminalFormat
+	return w.env.NonTTYFormat()
 }
 
 // formatOnCommandLine scans the last command's own argv for a format request.
@@ -412,11 +415,6 @@ func formatOnCommandLine(w *World) (clifmt.Format, bool) {
 	}
 	return clifmt.Format(""), false
 }
-
-// derivedNonTerminalFormat is what cobrafmt.Resolve settles on when stdout is
-// not a terminal and no format was asked for. Naming it once keeps every
-// no-flag Examples row asserting the same rule.
-const derivedNonTerminalFormat = clifmt.FormatJSON
 
 // lastOutputStructured decodes the last command's STDOUT in the structured
 // encoding it was asked for.

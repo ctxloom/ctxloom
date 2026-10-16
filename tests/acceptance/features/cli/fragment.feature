@@ -86,6 +86,7 @@ Feature: fragment — reusable context units, and the engine surface each one re
       And the output reports "apply" as "<names the apply command>"
       And the file ".ctxloom/content/bundles/v2/demo/fragments/testing.md" contains "FRAGMENT-BODY-testing"
 
+    @json-default
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | reports nothing removed | names the apply command |
       |               | false                   | ctxloom fragment remove demo#fragments/testing --yes |

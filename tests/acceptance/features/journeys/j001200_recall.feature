@@ -111,6 +111,7 @@ Feature: The archaeologist — what did we decide in March?
     Then the command <outcome>
     And the output <detail>
 
+    @json-default
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | outcome  | detail                                            |
       |               | succeeds | reports "compacted" as "false"                    |

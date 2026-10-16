@@ -109,6 +109,7 @@ Feature: remote — registering the sources content comes from, and browsing the
       When I run "ctxloom remote list"
       Then the output contains "origin"
 
+    @json-default
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | reports nothing removed | names the apply command |
       |               | false                   | ctxloom remote remove origin --yes |

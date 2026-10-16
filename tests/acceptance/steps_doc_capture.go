@@ -22,6 +22,14 @@
 // "cucumber:<file>.json" formatter into the suite's Options.Format just to
 // exercise the same evidence.
 //
+// Each @doc scenario's run is also RECORDED: every command it runs (its
+// command line, then its output as it arrives) and a marker per step go into
+// one asciicast v2 recording, written beside the capture as <capture>.cast
+// and named on it. The generator publishes a paced copy of each. Recorded
+// runs derive text for an unflagged command (non_tty_format=text), so a
+// recording reads as prose — except a scenario tagged @json-default, whose
+// unflagged rows prove the built-in json default and keep it.
+//
 // A red (failing) scenario never reaches ctx.After un-erred in a state worth
 // publishing; flushDocCapture still writes the file so a broken scenario's
 // capture is visibly marked failed rather than silently absent, but the
@@ -31,6 +39,7 @@
 package acceptance
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -42,6 +51,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/ctxloom/ctxloom/internal/shared/doccapture"
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // docCapture and docCaptureStep are this package's names for the shared
@@ -71,13 +81,13 @@ func gherkinKeyword(stepType, prevType string) string {
 	return kw
 }
 
-// isOutcomeStep reports whether a step is Then-governed: a Then, or an And/But
-// continuing a run of Thens. Gherkin gives a continuation the previous step's
-// type, so the pickle type alone is the signal; the rendered keyword is used
-// only to keep this readable at the call site.
-func isOutcomeStep(stepType, keyword string) bool {
-	return stepType == "Outcome" && (keyword == "Then" || keyword == "And" || keyword == "But")
-}
+// jsonDefaultTag marks a scenario (or one Examples block) that reads an
+// UNFLAGGED command's output as the built-in off-terminal json: a row proving
+// that default, or a step that decodes or greps the json payload without
+// asking for it. Doc capture records every other @doc scenario with
+// non_tty_format set to text, so a published recording reads as prose; a
+// scenario carrying this tag keeps json, which is what it asserts on.
+const jsonDefaultTag = "@json-default"
 
 // scenarioIDRe turns a scenario name (+ Examples row, for Outlines) into a
 // filesystem-safe capture filename.
@@ -177,11 +187,43 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 		// state never bleeds into the next.
 		w.docPrevStepType = ""
 		w.docLastBobRunCount = 0
-		w.docLastCommandOutput = ""
 		w.docStepMaterialized = ""
 		w.docLastToolCalls = w.toolCalls
 		if w.env != nil {
+			// A recording reads as prose, not JSON: the child derives text
+			// for an unflagged command, through the same child env the
+			// harness's own formatAskedFor reads back, so the two agree.
+			if !scenarioHasTag(sc, jsonDefaultTag) {
+				w.env.SetChildEnv("CTXLOOM_CONFIG_NON_TTY_FORMAT", "text")
+			}
 			w.docLastRunCount = w.env.RunCount()
+			// In memory, not a file: temp paths are scrubbed before anything
+			// reaches disk, as the step evidence is.
+			w.docCastBuf = &bytes.Buffer{}
+			w.docCast = testenv.NewCast(w.docCastBuf, testenv.CastCols, testenv.CastRows, sc.Name)
+			w.env.RecordInto(w.docCast)
+		}
+		return c, nil
+	})
+
+	// Before the step runs, so its marker — and the narration a published
+	// copy draws from it — precedes the commands the step is about to run.
+	// The keyword is derived here, once: deriving it again in After would
+	// compare the step's type against itself.
+	ctx.StepContext().Before(func(c context.Context, st *godog.Step) (context.Context, error) {
+		w := worldFrom(c)
+		if w == nil || w.docCapture == nil {
+			return c, nil
+		}
+		w.docStepKeyword = gherkinKeyword(string(st.Type), w.docPrevStepType)
+		w.docPrevStepType = string(st.Type)
+		if w.docCast != nil {
+			// Bob's history exists only once J000700 has set up his checkout;
+			// recording into the same Cast keeps both actors in one stream.
+			if w.j000700s != nil {
+				w.j000700s.bobRuns.RecordInto(w.docCast)
+			}
+			_ = w.docCast.Marker(strings.TrimSpace(w.docStepKeyword + " " + st.Text))
 		}
 		return c, nil
 	})
@@ -191,12 +233,15 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 		if w == nil || w.docCapture == nil {
 			return c, nil
 		}
-		step := docCaptureStep{Text: st.Text, Status: status.String()}
-		step.Keyword = gherkinKeyword(string(st.Type), w.docPrevStepType)
-		w.docPrevStepType = string(st.Type)
+		step := docCaptureStep{Text: st.Text, Status: status.String(), Keyword: w.docStepKeyword}
 
 		if w.env != nil {
-			// A step that RAN a command owns that command's output.
+			// A step that RAN a command owns that command's output, and only
+			// that step: a later Then that runs nothing carries none, rather
+			// than repeating the same block under every assertion after it
+			// (taskloom sterile-banner). Evidence is judged per scenario
+			// (livingdocs assertAllHaveEvidence), and the producing step
+			// always keeps its payload, so this cannot open an evidence gap.
 			// env.RunCount() advances per invocation, so this credits "a
 			// command ran, even one whose output is identical to the previous
 			// step's (two materialize calls)" while a step that ran nothing
@@ -205,7 +250,6 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 			if rc := w.env.RunCount(); rc != w.docLastRunCount {
 				if out := w.env.LastOutput(); out != "" {
 					step.CLIOutput = out
-					w.docLastCommandOutput = out
 				}
 				w.docLastRunCount = rc
 			} else if tc := w.toolCalls; tc != w.docLastToolCalls {
@@ -215,25 +259,8 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 				// for the same reason a CLI one would be.
 				if out := w.lastTool.JSON(); out != "" {
 					step.CLIOutput = out
-					w.docLastCommandOutput = out
 				}
 				w.docLastToolCalls = tc
-			} else if isOutcomeStep(string(st.Type), step.Keyword) {
-				// A Then INHERITS the output of the command it is asserting
-				// about. `Then the command succeeds` runs nothing itself, and
-				// an assertion that reads a file rather than stdout runs
-				// nothing either — but both are claims ABOUT the invocation
-				// that just happened, and its output is the evidence a reader
-				// needs beside them. Without this, any assertion phrased on
-				// state rather than output is undocumentable, which excludes
-				// every scenario whose proof is a file on disk.
-				//
-				// Bounded on both sides so this cannot become the stale-output
-				// hole the counters exist to prevent: docLastCommandOutput is
-				// cleared per scenario, and replaced the moment the next
-				// invocation happens. A Then can only ever inherit from an
-				// invocation in its own scenario, and only the most recent one.
-				step.CLIOutput = w.docLastCommandOutput
 			}
 		}
 		// J000700 runs the teammate's (Bob's) commands in a separate checkout
@@ -317,11 +344,39 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 		if err != nil {
 			w.docCapture.Steps = append(w.docCapture.Steps, docCaptureStep{Text: "(scenario error)", Status: err.Error()})
 		}
+		if w.docCast != nil {
+			if werr := flushDocCast(w, dir); werr != nil {
+				return c, fmt.Errorf("doc capture recording for scenario %q: %w", sc.Name, werr)
+			}
+		}
 		if werr := flushDocCapture(dir, w.docFileName, w.docCapture); werr != nil {
 			return c, werr
 		}
 		return c, nil
 	})
+}
+
+// flushDocCast stops the scenario's recording, writes it scrubbed beside the
+// capture as <capture>.cast, and names it on the capture.
+func flushDocCast(w *World, dir string) error {
+	w.env.RecordInto(nil)
+	if w.j000700s != nil {
+		w.j000700s.bobRuns.RecordInto(nil)
+	}
+	cast, buf := w.docCast, w.docCastBuf
+	w.docCast, w.docCastBuf = nil, nil
+	if err := cast.Err(); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	file := strings.TrimSuffix(w.docFileName, ".json") + ".cast"
+	if err := os.WriteFile(filepath.Join(dir, file), []byte(scrubTempPaths(w, buf.String())), 0o644); err != nil {
+		return err
+	}
+	w.docCapture.Cast = file
+	return nil
 }
 
 // flushDocCapture writes one scenario's accumulated capture to

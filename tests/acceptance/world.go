@@ -6,6 +6,7 @@
 package acceptance
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"time"
@@ -109,16 +110,18 @@ type World struct {
 	contract     *contractState     // coordination_contract.feature: the advertised runner-terminated tool surface (steps_coordination_contract.go)
 
 	// --- @doc capture sidecar (prototype; see steps_doc_capture.go) ---------
-	docCapture           *docCapture // accumulated evidence for the current @doc scenario, nil otherwise
-	docFileName          string      // filename this scenario's capture flushes to
-	docLastMockRecorded  string      // last mock-recorded payload already attached, to avoid repeat-attaching it every step
-	docLastRunCount      int         // env.RunCount() at the previous step, so a step that ran a command is attributed its output even when identical to the prior step's (a no-op step, which runs nothing, is not)
-	docLastBobRunCount   int         // J000700: bobRuns.RunCount() at the previous step (the teammate-checkout analogue of docLastRunCount)
-	toolCalls            int         // MCP tool invocations so far, so doc capture can tell "this step called a tool" from "a tool was called earlier"
-	docLastToolCalls     int         // toolCalls at the previous step, mirroring docLastRunCount for the MCP channel
-	docLastCommandOutput string      // most recent command's output within the current scenario, inherited by the Thens that assert about it; cleared per scenario
-	docPrevStepType      string      // previous step's PickleStepType, to reconstruct And/But from a run of same-type steps for Gherkin keyword rendering
-	docStepMaterialized  string      // set-and-consume: evidence a step observed that never flows through w.env (a file it read, a captured PTY session, a pre-materialize sync notice); the hook attaches it to that step and clears it
+	docCapture          *docCapture   // accumulated evidence for the current @doc scenario, nil otherwise
+	docFileName         string        // filename this scenario's capture flushes to
+	docLastMockRecorded string        // last mock-recorded payload already attached, to avoid repeat-attaching it every step
+	docLastRunCount     int           // env.RunCount() at the previous step, so a step that ran a command is attributed its output even when identical to the prior step's (a no-op step, which runs nothing, is not)
+	docLastBobRunCount  int           // J000700: bobRuns.RunCount() at the previous step (the teammate-checkout analogue of docLastRunCount)
+	toolCalls           int           // MCP tool invocations so far, so doc capture can tell "this step called a tool" from "a tool was called earlier"
+	docLastToolCalls    int           // toolCalls at the previous step, mirroring docLastRunCount for the MCP channel
+	docPrevStepType     string        // previous step's PickleStepType, to reconstruct And/But from a run of same-type steps for Gherkin keyword rendering
+	docStepMaterialized string        // set-and-consume: evidence a step observed that never flows through w.env (a file it read, a captured PTY session, a pre-materialize sync notice); the hook attaches it to that step and clears it
+	docStepKeyword      string        // the current step's reconstructed keyword, computed once in the step Before hook (which marks the recording with it) and consumed by the step After hook
+	docCastBuf          *bytes.Buffer // the current @doc scenario's asciicast recording, held in memory so temp paths are scrubbed before it reaches disk
+	docCast             *testenv.Cast // the recorder w.env (and Bob's history) tee into, marked once per step
 }
 
 type worldKey struct{}

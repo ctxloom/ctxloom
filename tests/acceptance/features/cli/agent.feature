@@ -49,6 +49,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output reports "$" as empty, saying "No agents defined"
       And the output reports "$" as empty, saying "'agents:' in .ctxloom/config.yaml"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         |
         |               |
@@ -77,6 +78,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output reports "[name=developer].profiles" containing "<the profile>"
       And the output reports "[name=developer].runtime" as "<the runtime>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the binding written | the engine       | the profile   | the runtime                   |
         |               | developer           | claude-code      | dev           | container-rootless            |
@@ -96,6 +98,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output reports "[name=developer].name" as "<the binding listed>"
       And the output does not contain "Available Commands:"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the binding listed |
         |               | developer          |
@@ -127,6 +130,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output reports "resolved.label" as "<what the engine resolves to>"
       And the output reports "resolved.fragments" containing "<what the profiles compose>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the binding named | the engine declared         | the runtime declared        | the profile declared | what the engine resolves to | what the profiles compose               |
         |               | developer         | claude-code                 | container-rootless          | dev                  | claude-code                 | ctxloom+local:dev-base#fragments/example |
@@ -189,6 +193,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output reports "definition.profiles" containing "<the profile that survived>"
       And the output reports "resolved.profiles" not containing "<the profile that did not survive>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the profile that survived | the profile that did not survive |
         |               | dev                        | ops                               |
@@ -212,6 +217,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       Then the command succeeds
       And the output reports "$" as empty, saying "No agents defined"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         |
         |               |
@@ -244,6 +250,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output reports "[name=developer].profiles" containing "<the second profile>"
       And the output reports "[name=developer].permissions.claude-code.mode" as "<the posture that survived>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the binding written | the axis that changed       | the engine that survived | the first profile | the second profile | the posture that survived |
         |               | developer           | container-rootless          | claude-code              | dev               | ops                | plan                      |
@@ -267,6 +274,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output reports "name" as "<the binding written>"
       And the file ".ctxloom/config.yaml" contains "context: system-prompt"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the binding written |
         |               | developer           |
@@ -456,6 +464,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       When I run "ctxloom agent list <flags>"
       Then the output reports "[name=developer].name" as "<the binding that survived>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | nothing was applied | the invocation that would          | the binding that survived |
         |               | false               | ctxloom agent remove developer --yes | developer               |
@@ -480,6 +489,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       When I run "ctxloom agent list <flags>"
       Then the output reports "$" as empty, saying "No agents defined"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the binding is gone |
         |               | removed             |

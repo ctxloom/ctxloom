@@ -93,6 +93,7 @@ Feature: bundle — the container authored content lives in, and everything that
       Then the output reports "[name=demo].version" as "<the version after edit>"
       And the output reports "[name=demo].fragment_count" as "<the fragment count after edit>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | bundle count            | the version   | the fragment count    | the command count | the version after edit | the fragment count after edit |
         |               | 1                        | 1.0.0         | 1                      | 1                  | 2.0.0                   | 2                              |
@@ -110,6 +111,7 @@ Feature: bundle — the container authored content lives in, and everything that
       And the output reports "[name=demo].version" as "<the version>"
       And the output does not contain "Available Commands:"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | bundle count           | the version   |
         |               | 1                       | 1.0.0         |
@@ -151,6 +153,7 @@ Feature: bundle — the container authored content lives in, and everything that
       # printed from it — not a word the command line ever passed in.
       And the output reports "commands.example.description" as "<the command's description>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | names the bundle | the description                   | fragment count   | the seeded fragment's distill marker | the added fragment's distill marker | command count  | the command's description |
         |               | demo              | acceptance fixture bundle          | 2                 | true                                  | false                                | 1               | Example prompt             |
@@ -183,6 +186,7 @@ Feature: bundle — the container authored content lives in, and everything that
       Then the command succeeds
       And the output contains "FRAGMENT-BODY-testing"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | fragment count |
         |               | 2              |
@@ -359,6 +363,7 @@ Feature: bundle — the container authored content lives in, and everything that
       And the output reports "status" as "<no changes signal>"
       And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" contains "acceptance fixture bundle"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | no changes signal |
         |               | no_changes         |
@@ -474,6 +479,7 @@ Feature: bundle — the container authored content lives in, and everything that
     from DISK: "Moved …" is printed by a move that copied nothing, and a copy
     that left the source behind is an export, not a move.
 
+    @json-default
     Scenario: Moving a bundle into another project lands it in that project's content tree
       Given an initialized ctxloom project
       And a bundle "demo" exists
@@ -557,6 +563,7 @@ Feature: bundle — the container authored content lives in, and everything that
       When I run "ctxloom bundle list <flags>"
       Then the output reports "[name=demo].name" as "<the bundle that survived>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | nothing was applied  | the cost named               | the invocation that would          | the bundle that survived |
         |               | false                 | 2 fragment(s), 1 command(s)  | ctxloom bundle remove demo --yes   | demo                      |
@@ -575,6 +582,7 @@ Feature: bundle — the container authored content lives in, and everything that
       When I run "ctxloom bundle list --no-companions <flags>"
       Then the output reports "$" as empty, saying "No bundles installed."
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         |
         |               |
@@ -596,6 +604,7 @@ Feature: bundle — the container authored content lives in, and everything that
       Then the command succeeds
       And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" does not exist
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | nothing was applied |
         |               | false                |

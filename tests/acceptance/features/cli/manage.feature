@@ -242,6 +242,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       And the output reports "backends[backend=claude-code].hooks_present" as "<hooks are wired>"
       And the output reports "backends[backend=claude-code].mcp_present" as "<mcp is wired>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | hooks are wired | mcp is wired |
         |               | true              | false         |
@@ -350,6 +351,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       And the output reports "events[event=pre_tool].hooks[command=echo HOOKLIST-FIRST].source_kind" as "<names the origin kind>"
       And the output reports "events[event=pre_tool].hooks[command=echo HOOKLIST-FIRST].source" as "<names the origin>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | names the origin kind        | names the origin              |
         |               | bundle                         | ctxloom+local:hooked            |
@@ -400,6 +402,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       And the output contains "profile-directory"
       And the output contains "declared"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | names the hook                    | names the profile | a companion-sourced hook is present too |
         |               | echo PROV-FROM-DIRECTORY-PROFILE  | dir-prov            | companion                                 |

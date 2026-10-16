@@ -57,6 +57,7 @@ Feature: Adopting ctxloom without regret — the first hour, and the exit verifi
   # doctor is deterministic — no network, no engine, no credentials — which is
   # what makes it the check Alice can run before she trusts anything else the
   # tool says.
+  @json-default
   Scenario: Alice can check the harness deterministically, with no network and no engine
     Given ctxloom is already wired into her project
     When Alice runs the deterministic health check:

@@ -61,6 +61,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Then the command succeeds
       And the output reports "$" as empty, saying "no sessions"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         |
         |               |
@@ -129,6 +130,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
     moves with it, to the new name beside the old, and the record names
     where it went; a rename whose folder cannot move is refused whole.
 
+    @json-default
     Scenario: --name renames the harp and moves its output folder
       Given an initialized ctxloom project
       And a finished session "amber-swift-owl" with a transcript and an essence
@@ -194,6 +196,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
       And the output reports "candidates[session_id=orphan-one].session_id" as "<names the orphan>"
       And the output reports "candidates[session_id=orphan-one].verdict" as "<names the verdict>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | names the orphan | names the verdict |
         |               | orphan-one        | adopt              |

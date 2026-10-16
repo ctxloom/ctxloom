@@ -70,6 +70,7 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
       When I run "ctxloom skill list"
       Then the output does not contain "reviewer"
 
+    @json-default
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | reports nothing removed | names the apply command                          |
       |               | false                   | ctxloom skill remove vault#skills/reviewer --yes |

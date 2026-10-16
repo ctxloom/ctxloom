@@ -33,6 +33,7 @@ Feature: version — the one question a build must always be able to answer
       Given an initialized ctxloom project
       Then the version reported for "<flags>" agrees with "ctxloom --version"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         |
         |               |

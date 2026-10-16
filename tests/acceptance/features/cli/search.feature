@@ -55,6 +55,7 @@ Feature: search — finding content by name, tag and type, here and upstream
       And the output contains "please provide a search query or tags"
       And the output does not contain "Results ("
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | result count |
         |               | 1            |
@@ -73,6 +74,7 @@ Feature: search — finding content by name, tag and type, here and upstream
       And the output contains "unknown type"
       And the output contains "valid: fragment, command, skill, profile, bundle, mcp_server"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | result count |
         |               | 1            |
@@ -101,6 +103,7 @@ Feature: search — finding content by name, tag and type, here and upstream
       And the output reports "local[name=testing].type" as "<names the fragment>"
       And the output reports "local[name=testing-review].type" as "<names the command>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | result count | names the fragment | names the command |
         |               | 2            | fragment            | command            |
@@ -132,6 +135,7 @@ Feature: search — finding content by name, tag and type, here and upstream
       And the output reports "count" as "<result count>"
       And the output reports "local[name=testing].type" as "<the kind that survived>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | result count | the kind that survived |
         |               | 1            | fragment                |
@@ -154,6 +158,7 @@ Feature: search — finding content by name, tag and type, here and upstream
       And the output reports "count" as "<result count>"
       And the output reports "local[name=testing-review].type" as "<the kind that survived>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | result count | the kind that survived |
         |               | 1            | command                 |
@@ -178,6 +183,7 @@ Feature: search — finding content by name, tag and type, here and upstream
       And the output reports "count" as "<result count>"
       And the output reports "local[name=dev].type" as "<the kind that survived>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | result count | the kind that survived |
         |               | 1            | profile                 |
@@ -208,6 +214,7 @@ Feature: search — finding content by name, tag and type, here and upstream
       And the output reports "count" as "<result count>"
       And the output reports "local[name=example].tags" containing "<the tag that matched>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | result count | the tag that matched  |
         |               | 1            | example                |
@@ -251,6 +258,7 @@ Feature: search — finding content by name, tag and type, here and upstream
       And the output reports "count" as "<remote-only count>"
       And the output reports "remote[name=demo].type" as "<the remote proof>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | both count   | local-only count | remote-only count | the local proof   | the remote proof |
         |               | 2            | 1                 | 1                  | fragment          | bundle           |
@@ -278,6 +286,7 @@ Feature: search — finding content by name, tag and type, here and upstream
       And the output reports "count" as "<result count>"
       And the output reports "remote[name=demo].type" as "<the kind that survived>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | result count | the kind that survived |
         |               | 1            | bundle                  |

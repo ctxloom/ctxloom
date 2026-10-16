@@ -120,6 +120,7 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
       And the output reports "apply" as "<names the apply command>"
       And the file ".ctxloom/content/bundles/v2/demo/prompts/review.md" contains "COMMAND-BODY-review"
 
+    @json-default
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | reports nothing removed | names the apply command |
       |               | false                   | ctxloom command remove demo#commands/review --yes |
@@ -167,6 +168,7 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
       And the output reports "distilled" as "<says the distillation was not refreshed>"
       And the file ".ctxloom/content/bundles/v2/demo/prompts/review.md" contains "EDITED-BY-TEST"
 
+    @json-default
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | says the distillation was not refreshed  |
       |               | false                                    |
@@ -214,6 +216,7 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
       Then the command succeeds
       And the output reports "reason" as "<names no_distill as the reason>"
 
+    @json-default
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | names no_distill as the reason |
       |               | no_distill                     |

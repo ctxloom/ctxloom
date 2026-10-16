@@ -70,6 +70,7 @@ Feature: profile — the composition that decides what an agent actually receive
       And the output reports "$.0.name" as "<the sole entry>"
       And the output reports "$.0.description" as "<names the description>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the sole entry | names the description |
         |               | dev            | day-to-day-work        |
@@ -105,6 +106,7 @@ Feature: profile — the composition that decides what an agent actually receive
       And the output reports "name" as "<names the profile>"
       And the output reports "bundles" containing "<the composed bundle>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | names the profile | the composed bundle |
         |               | dev                | demo                 |
@@ -127,6 +129,7 @@ Feature: profile — the composition that decides what an agent actually receive
       Then the command succeeds
       And the output reports "$.0.name" as "<the sole entry>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the sole entry |
         |               | dev            |
@@ -204,6 +207,7 @@ Feature: profile — the composition that decides what an agent actually receive
       And the file "standalone/CLAUDE.md" does not contain "FRAGMENT-BODY-house-rules"
       And the file "standalone/CLAUDE.md" contains "FRAGMENT-BODY-testing"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | inherits the parent |
         |               | base                 |
@@ -360,6 +364,7 @@ Feature: profile — the composition that decides what an agent actually receive
       When I run "ctxloom profile show dev <flags>"
       Then the output reports "description" as "<the new description>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the new description |
         |               | updated-desc         |
@@ -416,6 +421,7 @@ Feature: profile — the composition that decides what an agent actually receive
       Then the command succeeds
       And the output reports "bundles" containing "<the composed bundle>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the reimported profile | the composed bundle |
         |               | dev                     | demo                 |
@@ -514,6 +520,7 @@ Feature: profile — the composition that decides what an agent actually receive
       When I run "ctxloom profile list <flags>"
       Then the output reports "$.0.name" as "<the profile survives>"
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | nothing was applied                              | the cost    | the command to actually do it    | the profile survives |
         |               | false                                             | 1 bundle(s) | ctxloom profile remove dev --yes | dev                   |
@@ -554,6 +561,7 @@ Feature: profile — the composition that decides what an agent actually receive
       Then the command succeeds
       And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" does not exist
 
+      @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | nothing was applied                              |
         |               | false                                             |

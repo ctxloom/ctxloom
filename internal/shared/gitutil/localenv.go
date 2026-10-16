@@ -19,30 +19,22 @@ const configCountEnv = "GIT_CONFIG_COUNT"
 
 var configPairPrefixes = []string{"GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"}
 
-// fallbackLocalEnvVars stands in for git's answer only when git cannot be
-// asked. Every git ctxloom spawns needs the same binary, so in that state those
-// spawns fail on their own; this list exists so the sanitiser still errs
-// towards stripping rather than towards passing everything through. It is git
-// 2.47's answer.
-var fallbackLocalEnvVars = []string{
-	"GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
-	"GIT_OBJECT_DIRECTORY", "GIT_DIR", "GIT_WORK_TREE", "GIT_IMPLICIT_WORK_TREE", "GIT_GRAFT_FILE",
-	"GIT_INDEX_FILE", "GIT_NO_REPLACE_OBJECTS", "GIT_REPLACE_REF_BASE", "GIT_PREFIX", "GIT_SHALLOW_FILE",
-	"GIT_COMMON_DIR",
-}
+// gitEnvPrefix is what every variable git reads from the environment starts
+// with. It is the whole rule when git cannot be asked which of them are local.
+const gitEnvPrefix = "GIT_"
 
 // repoLocationEnvVars is git's own list of the variables that are local to the
-// repository git is operating on, asked once per process.
+// repository git is operating on, asked once per process. Nil means git could
+// not be asked.
 var repoLocationEnvVars = sync.OnceValue(func() []string {
 	return resolveLocalEnvVars(probeLocalEnvVars)
 })
 
-// resolveLocalEnvVars returns what probe reports, or fallbackLocalEnvVars when
-// it cannot answer.
+// resolveLocalEnvVars returns what probe reports, or nil when it cannot answer.
 func resolveLocalEnvVars(probe func() ([]string, error)) []string {
 	vars, err := probe()
 	if err != nil || len(vars) == 0 {
-		return fallbackLocalEnvVars
+		return nil
 	}
 	return vars
 }
@@ -73,7 +65,18 @@ func probeLocalEnvVars() ([]string, error) {
 // installed git rather than a list kept by hand. Any of these inherited by a git
 // child process overrides the exec.Cmd's Dir or the repository's own config.
 func IsRepoLocationEnvVar(key string) bool {
-	vars := repoLocationEnvVars()
+	return isLocalEnvVar(repoLocationEnvVars(), key)
+}
+
+// isLocalEnvVar is IsRepoLocationEnvVar against a given answer from git. With
+// no answer — git could not be asked — every GIT_ variable counts: every git
+// ctxloom spawns needs that same binary and fails on its own in that state, so
+// the sanitiser errs towards stripping rather than towards passing through, and
+// keeps no list of its own to drift from git's.
+func isLocalEnvVar(vars []string, key string) bool {
+	if vars == nil {
+		return strings.HasPrefix(key, gitEnvPrefix)
+	}
 	if slices.Contains(vars, key) {
 		return true
 	}

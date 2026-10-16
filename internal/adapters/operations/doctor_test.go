@@ -189,11 +189,14 @@ func TestGitConfigGet_RealGit(t *testing.T) {
 	testsupport.Isolate(t)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "absent-gitconfig"))
-	// GitConfigGet runs git in the process environment, so a GIT_DIR a hook
-	// exported would point it at the real repository whatever dir says.
-	for _, k := range gitutil.RepoLocationEnvVars {
-		t.Setenv(k, "")
-		require.NoError(t, os.Unsetenv(k))
+	// GitConfigGet runs git in the process environment, so a GIT_DIR or -c override a
+	// hook exported would point it at the real repository whatever dir says.
+	for _, kv := range os.Environ() {
+		k, _, _ := strings.Cut(kv, "=")
+		if gitutil.IsRepoLocationEnvVar(k) {
+			t.Setenv(k, "")
+			require.NoError(t, os.Unsetenv(k))
+		}
 	}
 	repo := t.TempDir()
 	taskstest.Git(t, repo, nil, "init", "-q")

@@ -63,18 +63,33 @@ func TestRepoLocationEnvVars_ComeFromGit(t *testing.T) {
 	assert.Equal(t, probed, repoLocationEnvVars(), "the sanitiser does not use git's answer")
 }
 
-// CLAIM: when git cannot be asked, the sanitiser still strips — it falls back to
-// a known set rather than passing every variable through.
-func TestResolveLocalEnvVars_FallsBackWhenGitCannotAnswer(t *testing.T) {
+// CLAIM: when git cannot be asked, the sanitiser still strips — every GIT_
+// variable, rather than passing them all through or consulting a list kept here.
+func TestResolveLocalEnvVars_StripsEveryGitVarWhenGitCannotAnswer(t *testing.T) {
 	errNoGit := errors.New("no git")
 	for name, probe := range map[string]func() ([]string, error){
 		"error": func() ([]string, error) { return nil, errNoGit },
 		"empty": func() ([]string, error) { return nil, nil },
 	} {
-		assert.Equal(t, fallbackLocalEnvVars, resolveLocalEnvVars(probe), name)
+		vars := resolveLocalEnvVars(probe)
+		for _, key := range []string{"GIT_DIR", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_KEY_3", "GIT_SOMETHING_NEW"} {
+			assert.True(t, isLocalEnvVar(vars, key), "%s: %s passed through", name, key)
+		}
+		assert.False(t, isLocalEnvVar(vars, "HOME"), "%s: a non-git variable was stripped", name)
 	}
-	assert.Contains(t, fallbackLocalEnvVars, configCountEnv,
-		"without the counter in the fallback, the numbered override pairs pass through")
+}
+
+// CLAIM: the numbered config pairs are stripped exactly when git lists their
+// counter, and only git's variables are stripped otherwise.
+func TestIsLocalEnvVar_PairsFollowTheCounter(t *testing.T) {
+	withCount := []string{"GIT_DIR", configCountEnv}
+	assert.True(t, isLocalEnvVar(withCount, "GIT_DIR"))
+	assert.True(t, isLocalEnvVar(withCount, "GIT_CONFIG_KEY_12"))
+	assert.True(t, isLocalEnvVar(withCount, "GIT_CONFIG_VALUE_0"))
+	assert.False(t, isLocalEnvVar(withCount, "GIT_SSH_COMMAND"), "a variable git does not list survives")
+
+	withoutCount := []string{"GIT_DIR"}
+	assert.False(t, isLocalEnvVar(withoutCount, "GIT_CONFIG_KEY_0"))
 }
 
 // CLAIM: this layer reads repositories in process. Its one subprocess is the

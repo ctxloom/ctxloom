@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -288,7 +289,9 @@ func TestDiagnose_ReportsAWedgedRootlessDocker(t *testing.T) {
 				return "daemon-host\n", nil
 			})
 
-			d := Diagnose(context.Background(), "claude-code", ImageConfig{})
+			// A user-owned image override, so the staleness step's verdict is
+			// fixed: it names the override as never inspected.
+			d := Diagnose(context.Background(), "claude-code", ImageConfig{Image: "my-registry/wedge-agent:v1"})
 
 			require.Equal(t, "docker", d.Runtime)
 			assert.True(t, d.Reachable, "the API does answer")
@@ -302,9 +305,67 @@ func TestDiagnose_ReportsAWedgedRootlessDocker(t *testing.T) {
 			assert.Contains(t, d.DaemonFault, errRootlessStateGone.Error())
 			assert.Contains(t, strings.Join(d.Guidance, "\n"), rootlessRestartRemedy)
 			assert.Zero(t, runs, "no container may be started on a wedged daemon")
+			guidance := strings.Join(d.Guidance, "\n")
 			if tc.imagePresent {
-				assert.True(t, strings.HasPrefix(d.SharedFS, "unprobed:"), "%q", d.SharedFS)
+				assert.Equal(t, "unprobed: the daemon cannot run the probe container (see daemon_fault)", d.SharedFS)
+				assert.Contains(t, guidance, "isolation_images", "a present image is still reported on: its staleness step runs")
+			} else {
+				assert.NotContains(t, d.SharedFS, "daemon_fault", "an absent image takes the no-image advisory")
+				assert.Contains(t, guidance, "agent image my-registry/wedge-agent:v1 is not present")
+				assert.NotContains(t, guidance, "isolation_images", "there is no image to judge stale")
 			}
 		})
 	}
+}
+
+// TestDockerContextHost_AsksTheCLIUnderItsOwnBound: the endpoint lookup asks
+// the binary it is given for its current context's endpoint, trims the
+// answer, passes a failure through, and runs under dockerContextTimeout of
+// its own, even on a caller ctx with no deadline.
+func TestDockerContextHost_AsksTheCLIUnderItsOwnBound(t *testing.T) {
+	orig := probeExec
+	t.Cleanup(func() { probeExec = orig })
+
+	var gotBin string
+	var gotArgs []string
+	var remaining time.Duration
+	var hasDeadline bool
+	answer, answerErr := "  unix:///run/user/1/docker.sock\n", error(nil)
+	probeExec = func(ctx context.Context, bin string, args []string) (string, error) {
+		gotBin, gotArgs = bin, args
+		var dl time.Time
+		dl, hasDeadline = ctx.Deadline()
+		remaining = time.Until(dl)
+		return answer, answerErr
+	}
+
+	host, err := dockerContextHost(context.Background(), "/opt/docker-bin")
+	require.NoError(t, err)
+	assert.Equal(t, "unix:///run/user/1/docker.sock", host)
+	assert.Equal(t, "/opt/docker-bin", gotBin)
+	assert.Equal(t, []string{"context", "inspect", "--format", "{{.Endpoints.docker.Host}}"}, gotArgs)
+	require.True(t, hasDeadline, "the lookup must carry its own deadline")
+	assert.LessOrEqual(t, remaining, dockerContextTimeout)
+	assert.Greater(t, remaining, dockerContextTimeout-500*time.Millisecond)
+	assert.Equal(t, 10*time.Second, dockerContextTimeout)
+
+	answerErr = errNoContext
+	_, err = dockerContextHost(context.Background(), "docker")
+	assert.ErrorIs(t, err, errNoContext)
+}
+
+// TestRootlessDaemonState_AFailedContextLookupMakesNoClaim: a context lookup
+// that fails makes no claim even if it printed the standard endpoint before
+// failing — a half-answer is not an endpoint.
+func TestRootlessDaemonState_AFailedContextLookupMakesNoClaim(t *testing.T) {
+	r := newWedgeRuntimeDir(t)
+	prev := rootlessState
+	t.Cleanup(func() { rootlessState = prev })
+	rootlessState = rootlessStateProbe{
+		getenv: func(k string) string { return map[string]string{"XDG_RUNTIME_DIR": r.dir}[k] },
+		contextHost: func(context.Context, string) (string, error) {
+			return r.endpoint(), errNoContext
+		},
+	}
+	assert.NoError(t, rootlessDocker().daemonState(context.Background()))
 }

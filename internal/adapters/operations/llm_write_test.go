@@ -153,3 +153,27 @@ func TestRemoveLLM_UserDeclaredOverrideOfADefaultName_Succeeds(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, reloaded.IsLLMUserAuthored("claude-code"))
 }
+
+// withBodyModel sets or clears only the "model" key, keeps every other key,
+// and leaves no empty body behind: a body it empties is nil, so the entry
+// writes no `body: {}`.
+func TestWithBodyModel_TouchesOnlyTheModelKey(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		body  map[string]any
+		model string
+		want  map[string]any
+	}{
+		{"set on no body", nil, "m", map[string]any{"model": "m"}},
+		{"replace, other keys kept", map[string]any{"model": "a", "temperature": 1}, "b", map[string]any{"model": "b", "temperature": 1}},
+		{"clear, other keys kept", map[string]any{"model": "a", "temperature": 1}, "", map[string]any{"temperature": 1}},
+		{"clear the only key", map[string]any{"model": "a"}, "", nil},
+		{"clear on no body", nil, "", nil},
+	} {
+		got := withBodyModel(c.body, c.model)
+		assert.Equal(t, c.want, got, c.name)
+		if c.want == nil {
+			assert.Nil(t, got, "%s: an emptied body is nil, not an empty map", c.name)
+		}
+	}
+}

@@ -183,7 +183,7 @@ func mergeLLMRequest(reg engine.Registry, cur *config.Config, req SetLLMRequest,
 	}
 	if req.Permissions != nil {
 		if err := setLabelMode(reg, cur.EffectiveType(entry), req.Label, &entry.Permissions, *req.Permissions); err != nil {
-			return entry, err
+			return config.LLMConfig{}, err
 		}
 	}
 	if req.Model != nil {
@@ -192,7 +192,7 @@ func mergeLLMRequest(reg engine.Registry, cur *config.Config, req SetLLMRequest,
 	if len(req.Set) > 0 {
 		updated, err := applyLLMFields(entry, req.Set)
 		if err != nil {
-			return entry, fmt.Errorf("llm %q: %w", req.Label, err)
+			return config.LLMConfig{}, fmt.Errorf("llm %q: %w", req.Label, err)
 		}
 		entry = updated
 	}

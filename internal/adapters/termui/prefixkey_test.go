@@ -102,6 +102,9 @@ func TestPrefixKey_RecognisesEveryEncodingOfTheKey(t *testing.T) {
 		{"modifyOtherKeys short form", "\x1b[27;5~", keyMiss},
 		{"kitty flags reply", "\x1b[?5u", keyMiss},
 		{"kitty CSI-u, unknown event", "\x1b[93;5:4u", keyMiss},
+		{"kitty CSI-u, three mods sub-fields", "\x1b[93;5:1:1u", keyMiss},
+		{"kitty CSI-u, non-numeric event", "\x1b[93;5:xu", keyMiss},
+		{"kitty CSI-u, non-numeric mods", "\x1b[93;x:1u", keyMiss},
 		{"SCORC (CSI u, no params)", "\x1b[u", keyMiss},
 		{"signed parameter", "\x1b[+93;5u", keyMiss},
 		{"F5 (CSI 15~)", "\x1b[15~", keyMiss},
@@ -166,6 +169,7 @@ func TestPrefixKey_MalformedKittyKeyFieldIsNoKey(t *testing.T) {
 		{"non-numeric code, shifted key ]", "\x1b[x:93;6u"},
 		{"four key sub-fields", "\x1b[93:93:93:93;6u"},
 		{"four key sub-fields, plain ctrl", "\x1b[93:125:93:1;5u"},
+		{"non-numeric shifted key, plain ctrl", "\x1b[93:x;5u"},
 	} {
 		assert.Equal(t, keyMiss, ctrlBracket.hit([]byte(c.tok)), "%s: %q", c.name, c.tok)
 	}

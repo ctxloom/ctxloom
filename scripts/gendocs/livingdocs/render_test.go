@@ -25,7 +25,7 @@ func TestGeneratePage_AllPassedRendersGrid(t *testing.T) {
 	narr := Narration{Scenarios: map[string]string{}}
 	captures := map[string][]DocCapture{
 		"First scenario": {
-			{Scenario: "First scenario", Steps: []DocCaptureStep{
+			{Scenario: "First scenario", Cast: "run.cast", Steps: []DocCaptureStep{
 				{Text: "a precondition", Keyword: "Given", Status: "passed", CLIOutput: "ok output"},
 			}},
 		},
@@ -39,7 +39,29 @@ func TestGeneratePage_AllPassedRendersGrid(t *testing.T) {
 	assert.Contains(t, page, "Given a precondition")
 	assert.Contains(t, page, "ok output")
 	assert.Contains(t, page, "✓ a precondition")
+	assert.Contains(t, page, "[`run.cast`](/journeys/run.cast)", "each captured run links its terminal recording")
 	assert.NotContains(t, page, "Not captured in this build")
+}
+
+// A passing capture that names no recording is refused, naming the Examples
+// row: the page would otherwise publish a run without the recording that
+// shows it, and a capture without one is from a run that did not record.
+func TestGeneratePage_RefusesACaptureWithNoRecording(t *testing.T) {
+	feat := passingFeature()
+	narr := Narration{Scenarios: map[string]string{}}
+	captures := map[string][]DocCapture{
+		"First scenario": {
+			{Scenario: "First scenario", Cast: "row-one.cast", Steps: []DocCaptureStep{{Text: "row one", Keyword: "Given", Status: "passed", CLIOutput: "ok"}}},
+			{Scenario: "First scenario", Steps: []DocCaptureStep{{Text: "row two", Keyword: "Given", Status: "passed", CLIOutput: "ok"}}},
+		},
+	}
+
+	page, err := GeneratePage(feat, narr, captures, "")
+	require.Error(t, err)
+	assert.Empty(t, page)
+	var missing *MissingRecordingError
+	require.ErrorAs(t, err, &missing)
+	assert.Equal(t, 2, missing.Example)
 }
 
 func TestGeneratePage_RefusesOnNonPassedStep(t *testing.T) {
@@ -47,7 +69,7 @@ func TestGeneratePage_RefusesOnNonPassedStep(t *testing.T) {
 	narr := Narration{Scenarios: map[string]string{}}
 	captures := map[string][]DocCapture{
 		"First scenario": {
-			{Scenario: "First scenario", Steps: []DocCaptureStep{
+			{Scenario: "First scenario", Cast: "run.cast", Steps: []DocCaptureStep{
 				{Text: "a precondition", Status: "failed"},
 			}},
 		},
@@ -81,7 +103,7 @@ func TestGeneratePage_NarrationOptional(t *testing.T) {
 	narr := Narration{Scenarios: map[string]string{}} // no .doc.md loaded
 	captures := map[string][]DocCapture{
 		"First scenario": {
-			{Scenario: "First scenario", Steps: []DocCaptureStep{{Text: "a precondition", Keyword: "Given", Status: "passed", CLIOutput: "ok"}}},
+			{Scenario: "First scenario", Cast: "run.cast", Steps: []DocCaptureStep{{Text: "a precondition", Keyword: "Given", Status: "passed", CLIOutput: "ok"}}},
 		},
 	}
 
@@ -99,7 +121,7 @@ func TestGeneratePage_IncludesNarrationProseWhenPresent(t *testing.T) {
 	}
 	captures := map[string][]DocCapture{
 		"First scenario": {
-			{Scenario: "First scenario", Steps: []DocCaptureStep{{Text: "a precondition", Keyword: "Given", Status: "passed", CLIOutput: "ok"}}},
+			{Scenario: "First scenario", Cast: "run.cast", Steps: []DocCaptureStep{{Text: "a precondition", Keyword: "Given", Status: "passed", CLIOutput: "ok"}}},
 		},
 	}
 
@@ -115,8 +137,8 @@ func TestGeneratePage_MultipleExamplesLabeled(t *testing.T) {
 	narr := Narration{Scenarios: map[string]string{}}
 	captures := map[string][]DocCapture{
 		"First scenario": {
-			{Scenario: "First scenario", Steps: []DocCaptureStep{{Text: "row one", Keyword: "Given", Status: "passed", CLIOutput: "ok"}}},
-			{Scenario: "First scenario", Steps: []DocCaptureStep{{Text: "row two", Keyword: "Given", Status: "passed", CLIOutput: "ok"}}},
+			{Scenario: "First scenario", Cast: "run.cast", Steps: []DocCaptureStep{{Text: "row one", Keyword: "Given", Status: "passed", CLIOutput: "ok"}}},
+			{Scenario: "First scenario", Cast: "run.cast", Steps: []DocCaptureStep{{Text: "row two", Keyword: "Given", Status: "passed", CLIOutput: "ok"}}},
 		},
 	}
 
@@ -143,7 +165,7 @@ func TestGeneratePage_CommandRunEarlierProvesTheScenario_AssertionStepsRunNoComm
 	narr := Narration{Scenarios: map[string]string{}}
 	captures := map[string][]DocCapture{
 		"First scenario": {
-			{Scenario: "First scenario", Steps: []DocCaptureStep{
+			{Scenario: "First scenario", Cast: "run.cast", Steps: []DocCaptureStep{
 				{Text: "I run \"ctxloom session backfill amber-claude-harp\"", Keyword: "When", Status: "passed", CLIOutput: "backfilled 4 turns"},
 				{Text: "the canonical transcript replays the fixture's real turns", Keyword: "Then", Status: "passed"},
 				{Text: "every line is stamped engine \"claude-code\"", Keyword: "And", Status: "passed"},
@@ -167,7 +189,7 @@ func TestGeneratePage_RefusesWhenScenarioCapturedNoEvidenceAnywhere(t *testing.T
 	narr := Narration{Scenarios: map[string]string{}}
 	captures := map[string][]DocCapture{
 		"First scenario": {
-			{Scenario: "First scenario", Steps: []DocCaptureStep{
+			{Scenario: "First scenario", Cast: "run.cast", Steps: []DocCaptureStep{
 				{Text: "a precondition", Keyword: "Given", Status: "passed"},
 				{Text: "an action that captured nothing", Keyword: "When", Status: "passed"},
 				{Text: "an assertion with nothing to show", Keyword: "Then", Status: "passed"},
@@ -192,7 +214,7 @@ func TestGeneratePage_GivenAndWhenStepsAloneCanCarryTheEvidence(t *testing.T) {
 	narr := Narration{Scenarios: map[string]string{}}
 	captures := map[string][]DocCapture{
 		"First scenario": {
-			{Scenario: "First scenario", Steps: []DocCaptureStep{
+			{Scenario: "First scenario", Cast: "run.cast", Steps: []DocCaptureStep{
 				{Text: "a precondition", Keyword: "Given", Status: "passed"},
 				{Text: "an And continuing the Given", Keyword: "And", Status: "passed"},
 				{Text: "an action", Keyword: "When", Status: "passed", Materialized: "the real payload"},
@@ -211,10 +233,10 @@ func TestGeneratePage_EvidenceGapNamesTheExampleRowForOutlines(t *testing.T) {
 	narr := Narration{Scenarios: map[string]string{}}
 	captures := map[string][]DocCapture{
 		"First scenario": {
-			{Scenario: "First scenario", Steps: []DocCaptureStep{
+			{Scenario: "First scenario", Cast: "run.cast", Steps: []DocCaptureStep{
 				{Text: "row one assertion", Keyword: "Then", Status: "passed", CLIOutput: "ok"},
 			}},
-			{Scenario: "First scenario", Steps: []DocCaptureStep{
+			{Scenario: "First scenario", Cast: "run.cast", Steps: []DocCaptureStep{
 				{Text: "row two assertion", Keyword: "Then", Status: "passed"}, // no evidence
 			}},
 		},
@@ -234,7 +256,7 @@ func TestGeneratePage_MockRecordedOrMaterializedAloneSatisfyEvidence(t *testing.
 	narr := Narration{Scenarios: map[string]string{}}
 	captures := map[string][]DocCapture{
 		"First scenario": {
-			{Scenario: "First scenario", Steps: []DocCaptureStep{
+			{Scenario: "First scenario", Cast: "run.cast", Steps: []DocCaptureStep{
 				{Text: "an assertion evidenced only by the mock", Keyword: "Then", Status: "passed", MockRecorded: "recorded prompt"},
 			}},
 		},
@@ -336,7 +358,7 @@ func TestGeneratePage_ProvenanceNamesResolvablePaths(t *testing.T) {
 
 	captures := map[string][]DocCapture{
 		"First scenario": {
-			{Scenario: "First scenario", Steps: []DocCaptureStep{
+			{Scenario: "First scenario", Cast: "run.cast", Steps: []DocCaptureStep{
 				{Text: "a precondition", Keyword: "Given", Status: "passed", CLIOutput: "ok output"},
 			}},
 		},

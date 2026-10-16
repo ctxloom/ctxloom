@@ -1722,8 +1722,32 @@ gen-living-docs: build _ensure-gotmpdir
     # separately via `go run` from the repo root, would never find it.
     capture_dir="{{TOP}}/.cache/doc-capture"
     rm -rf "$capture_dir"
-    CTXLOOM_DOC_CAPTURE_DIR="$capture_dir" go test -trimpath -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    # The same 30m ceiling test-acceptance carries: go test's default 10m is
+    # less than the suite takes under load.
+    CTXLOOM_DOC_CAPTURE_DIR="$capture_dir" go test -trimpath -tags "acceptance integration" -count=1 -timeout 30m ./tests/acceptance/...
     go run ./scripts/gendocs/livingdocs --capture-dir "$capture_dir"
+
+# Regenerate ONE feature's living-docs page and recordings from a fresh capture
+# of that feature alone, to spot-check a page or a recording without the full
+# suite. FEATURE is relative to tests/acceptance/features, e.g.
+# journeys/j000200_setup.feature. The generator replaces both output
+# directories, so afterwards the site carries only this feature's page: run
+# `gen-living-docs` before publishing.
+gen-living-docs-focus FEATURE: build _ensure-gotmpdir
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export GOTMPDIR="{{go_tmp}}"
+    capture_dir="{{TOP}}/.cache/doc-capture-focus"
+    rm -rf "$capture_dir"
+    features_dir="$(mktemp -d)"
+    trap 'rm -rf "$features_dir"' EXIT
+    src="tests/acceptance/features/{{FEATURE}}"
+    mkdir -p "$features_dir/$(dirname "{{FEATURE}}")"
+    cp "$src" "$features_dir/{{FEATURE}}"
+    doc="${src%.feature}.doc.md"
+    if [ -f "$doc" ]; then cp "$doc" "$features_dir/$(dirname "{{FEATURE}}")/"; fi
+    CTXLOOM_DOC_CAPTURE_DIR="$capture_dir" just test-acceptance-focus "features/{{FEATURE}}"
+    go run ./scripts/gendocs/livingdocs --features-dir "$features_dir" --capture-dir "$capture_dir"
 
 # Initialize .ctxloom directory
 init:

@@ -96,6 +96,9 @@ resources/schema/gen/
 # so they cannot be stale by construction. The docs CI workflow generates
 # them fresh before `npm run build`; see the `docs` job in .github/workflows/ci.yml.
 website/src/content/docs/journeys/
+# The paced terminal recordings those pages link, published by the same
+# command from the same run's capture: same reason, same lifecycle.
+website/public/journeys/
 
 # Serena's machine-local state: the parts serena's own .serena/.gitignore marks
 # as never to be committed. Whether serena is linked at all is ruled in task

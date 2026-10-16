@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,7 +31,9 @@ func TestSlug(t *testing.T) {
 // than tripping EvidenceGapError as a side effect.
 func writeCapture(t *testing.T, dir, name, scenario, status string) {
 	t.Helper()
-	writeFile(t, filepath.Join(dir, name), `{"scenario":"`+scenario+`","steps":[{"text":"a step","keyword":"Given","status":"`+status+`","cli_output":"ok"}]}`)
+	cast := strings.TrimSuffix(name, ".json") + ".cast"
+	writeFile(t, filepath.Join(dir, cast), `{"version":2,"width":80,"height":24,"timestamp":0,"title":"t"}`+"\n"+`[0.01,"m","Given a step"]`+"\n"+`[0.02,"o","$ ctxloom version\r\n"]`+"\n"+`[0.03,"o","v1\r\n"]`+"\n")
+	writeFile(t, filepath.Join(dir, name), `{"scenario":"`+scenario+`","steps":[{"text":"a step","keyword":"Given","status":"`+status+`","cli_output":"ok"}],"cast":"`+cast+`"}`)
 }
 
 func TestRun_GeneratesPageForEachDocFeature(t *testing.T) {
@@ -46,7 +49,7 @@ func TestRun_GeneratesPageForEachDocFeature(t *testing.T) {
 	writeCapture(t, captureDir, "s1.json", "S1", "passed")
 	writeCapture(t, captureDir, "s2.json", "S2", "passed")
 
-	require.NoError(t, run(featuresDir, captureDir, outDir))
+	require.NoError(t, run(featuresDir, captureDir, outDir, filepath.Join(root, "public-journeys")))
 
 	assert.FileExists(t, filepath.Join(outDir, "j000200-setup.md"))
 	assert.FileExists(t, filepath.Join(outDir, "j000800-onboarding.md"))
@@ -63,7 +66,7 @@ func TestRun_NarrationOptionalStillGeneratesPage(t *testing.T) {
 	writeFile(t, filepath.Join(featuresDir, "j000800_onboarding.feature"), "@doc\nFeature: J000800\n\n  Scenario: S1\n    Given a step\n")
 	writeCapture(t, captureDir, "s1.json", "S1", "passed")
 
-	require.NoError(t, run(featuresDir, captureDir, outDir))
+	require.NoError(t, run(featuresDir, captureDir, outDir, filepath.Join(root, "public-journeys")))
 
 	content, err := os.ReadFile(filepath.Join(outDir, "j000800-onboarding.md"))
 	require.NoError(t, err)
@@ -82,7 +85,7 @@ func TestRun_RefusesWholeBatchOnAnyFailure(t *testing.T) {
 	writeCapture(t, captureDir, "s1.json", "S1", "passed")
 	writeCapture(t, captureDir, "s2.json", "S2", "failed") // the poison pill
 
-	err := run(featuresDir, captureDir, outDir)
+	err := run(featuresDir, captureDir, outDir, filepath.Join(root, "public-journeys"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "S2")
 
@@ -98,7 +101,7 @@ func TestRun_NoDocFeaturesErrors(t *testing.T) {
 
 	writeFile(t, filepath.Join(featuresDir, "not_doc.feature"), "Feature: NotDoc\n\n  Scenario: S1\n    Given a step\n")
 
-	err := run(featuresDir, captureDir, outDir)
+	err := run(featuresDir, captureDir, outDir, filepath.Join(root, "public-journeys"))
 	assert.Error(t, err)
 }
 
@@ -115,7 +118,7 @@ func TestRun_RefusesFeatureWithZeroCapturedScenarios(t *testing.T) {
 		"@doc\nFeature: J000200\n\n  Scenario: S1\n    Given a step\n\n  Scenario: S2\n    Given another step\n")
 	require.NoError(t, os.MkdirAll(captureDir, 0o755)) // exists, but empty
 
-	err := run(featuresDir, captureDir, outDir)
+	err := run(featuresDir, captureDir, outDir, filepath.Join(root, "public-journeys"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "J000200")
 	assert.Contains(t, err.Error(), "ZERO captured scenarios")
@@ -135,7 +138,7 @@ func TestRun_TolerantOfSomeScenariosLegitimatelyUncaptured(t *testing.T) {
 		"@doc\nFeature: J000400\n\n  Scenario: Captured\n    Given a step\n\n  @live\n  Scenario: Uncaptured live scenario\n    Given a live step\n")
 	writeCapture(t, captureDir, "s1.json", "Captured", "passed")
 
-	require.NoError(t, run(featuresDir, captureDir, outDir))
+	require.NoError(t, run(featuresDir, captureDir, outDir, filepath.Join(root, "public-journeys")))
 
 	content, err := os.ReadFile(filepath.Join(outDir, "j000400-multi-engine.md"))
 	require.NoError(t, err)
@@ -152,7 +155,7 @@ func TestRun_ClearsStalePagesFromPreviousRun(t *testing.T) {
 	writeFile(t, filepath.Join(featuresDir, "j000200_setup.feature"), "@doc\nFeature: J000200\n\n  Scenario: S1\n    Given a step\n")
 	writeCapture(t, captureDir, "s1.json", "S1", "passed")
 
-	require.NoError(t, run(featuresDir, captureDir, outDir))
+	require.NoError(t, run(featuresDir, captureDir, outDir, filepath.Join(root, "public-journeys")))
 
 	assert.NoFileExists(t, filepath.Join(outDir, "stale-journey.md"))
 	assert.FileExists(t, filepath.Join(outDir, "j000200-setup.md"))
@@ -180,7 +183,7 @@ func TestRun_WarnsAboutOrphanedNarration(t *testing.T) {
 	warnf = func(format string, a ...any) { warnings = append(warnings, fmt.Sprintf(format, a...)) }
 	t.Cleanup(func() { warnf = original })
 
-	require.NoError(t, run(featuresDir, captureDir, outDir))
+	require.NoError(t, run(featuresDir, captureDir, outDir, filepath.Join(root, "public-journeys")))
 
 	require.Len(t, warnings, 1, "expected exactly one orphan warning, got %v", warnings)
 	assert.Contains(t, warnings[0], "Renamed Away")
@@ -206,7 +209,7 @@ func TestRun_PropagatesAParseFailure(t *testing.T) {
 	// malformed sibling fails the discovery pass before any page is built.
 	writeFile(t, filepath.Join(featuresDir, "broken.feature"), "@doc\n  Scenario: no feature line\n    Given a step\n")
 
-	err := run(featuresDir, filepath.Join(root, "capture"), outDir)
+	err := run(featuresDir, filepath.Join(root, "capture"), outDir, filepath.Join(root, "public-journeys"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no 'Feature:' line found")
 	assert.NoDirExists(t, outDir, "a parse failure must not touch the output directory")
@@ -228,7 +231,56 @@ func TestRun_ReportsAnUnusableOutputDirectory(t *testing.T) {
 	writeFile(t, blocker, "not a directory")
 	outDir := filepath.Join(blocker, "out")
 
-	err := run(featuresDir, captureDir, outDir)
+	err := run(featuresDir, captureDir, outDir, filepath.Join(root, "public-journeys"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "clear ")
+}
+
+// A page's link and the published file agree: the link names a recording,
+// that recording exists in castOutDir under the same name, and it is
+// PublishCast's paced copy rather than the raw evidence, which stays as it
+// was in the capture directory.
+func TestRun_PublishesThePacedRecordingEachPageLinks(t *testing.T) {
+	root := t.TempDir()
+	featuresDir := filepath.Join(root, "features")
+	captureDir := filepath.Join(root, "capture")
+	outDir := filepath.Join(root, "out")
+	castOutDir := filepath.Join(root, "public-journeys")
+
+	writeFile(t, filepath.Join(featuresDir, "j000200_setup.feature"), "@doc\nFeature: J000200\n\n  Scenario: S1\n    Given a step\n")
+	writeCapture(t, captureDir, "s1.json", "S1", "passed")
+
+	require.NoError(t, run(featuresDir, captureDir, outDir, castOutDir))
+
+	page, err := os.ReadFile(filepath.Join(outDir, "j000200-setup.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(page), "(/journeys/s1.cast)")
+
+	raw, err := os.ReadFile(filepath.Join(captureDir, "s1.cast"))
+	require.NoError(t, err)
+	published, err := os.ReadFile(filepath.Join(castOutDir, "s1.cast"))
+	require.NoError(t, err, "the recording the page links must be published")
+	want, err := PublishCast(raw, ReadablePacing)
+	require.NoError(t, err)
+	assert.Equal(t, string(want), string(published))
+	assert.NotEqual(t, string(raw), string(published), "the published copy is paced, not the evidence")
+}
+
+// castOutDir is replaced whole on every run, as outDir is: a scenario that
+// was removed or renamed leaves no recording behind.
+func TestRun_ClearsStaleRecordings(t *testing.T) {
+	root := t.TempDir()
+	featuresDir := filepath.Join(root, "features")
+	captureDir := filepath.Join(root, "capture")
+	outDir := filepath.Join(root, "out")
+	castOutDir := filepath.Join(root, "public-journeys")
+
+	writeFile(t, filepath.Join(castOutDir, "stale.cast"), "from a removed scenario")
+	writeFile(t, filepath.Join(featuresDir, "j000200_setup.feature"), "@doc\nFeature: J000200\n\n  Scenario: S1\n    Given a step\n")
+	writeCapture(t, captureDir, "s1.json", "S1", "passed")
+
+	require.NoError(t, run(featuresDir, captureDir, outDir, castOutDir))
+
+	assert.NoFileExists(t, filepath.Join(castOutDir, "stale.cast"))
+	assert.FileExists(t, filepath.Join(castOutDir, "s1.cast"))
 }

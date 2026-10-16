@@ -4,7 +4,9 @@
 // every @doc-tagged feature file under --features-dir, using whatever
 // evidence tests/acceptance/steps_doc_capture.go wrote to --capture-dir
 // during an actual passing `go test -tags acceptance` run, plus an optional
-// <feature>.doc.md narration companion.
+// <feature>.doc.md narration companion. Each run's asciicast v2 terminal
+// recording is published into --cast-out-dir as a copy paced for a reader
+// (PublishCast), and the page links it.
 //
 // The product claim this enforces: a feature that does not work cannot be
 // documented — AND a feature that proves nothing cannot be documented either.
@@ -52,12 +54,16 @@ var warnf = func(format string, a ...any) {
 type generatedPage struct {
 	name    string
 	content string
+	// casts are the recordings this page links, one per rendered capture,
+	// so run publishes exactly those and nothing stale.
+	casts []string
 }
 
 // run discovers every @doc feature, validates ALL of them before writing
 // anything (a refusal anywhere aborts the whole batch — no partial output),
-// then replaces the contents of outDir with the freshly generated pages.
-func run(featuresDir, captureDir, outDir string) error {
+// then replaces the contents of outDir with the freshly generated pages and
+// castOutDir with the recordings they link.
+func run(featuresDir, captureDir, outDir, castOutDir string) error {
 	featureFiles, err := DiscoverDocFeatures(featuresDir)
 	if err != nil {
 		return fmt.Errorf("discover @doc features in %s: %w", featuresDir, err)
@@ -80,7 +86,10 @@ func run(featuresDir, captureDir, outDir string) error {
 		pages = append(pages, page)
 	}
 
-	return writePages(outDir, pages)
+	if err := writePages(outDir, pages); err != nil {
+		return err
+	}
+	return publishCasts(captureDir, castOutDir, pages)
 }
 
 // buildPage validates one @doc feature and renders its page. It writes
@@ -120,7 +129,49 @@ func buildPage(featurePath, captureDir string, captures map[string][]DocCapture)
 	if err != nil {
 		return generatedPage{}, err
 	}
-	return generatedPage{name: slug(featurePath), content: content}, nil
+	return generatedPage{name: slug(featurePath), content: content, casts: castsOf(feat, captures)}, nil
+}
+
+// castsOf lists the recordings feat's page links: one per capture of each of
+// its scenarios, the same captures GeneratePage renders.
+func castsOf(feat Feature, captures map[string][]DocCapture) []string {
+	var casts []string
+	for _, sc := range feat.Scenarios {
+		for _, cap := range captures[sc.Name] {
+			casts = append(casts, cap.Cast)
+		}
+	}
+	return casts
+}
+
+// publishCasts replaces castOutDir's contents with a paced copy (PublishCast)
+// of every recording the pages link, read from captureDir. The capture
+// directory's evidence copy keeps its real timing. Called only after
+// writePages succeeded; a linked recording that cannot be read or paced fails
+// the run rather than publish a page whose link points at nothing.
+func publishCasts(captureDir, castOutDir string, pages []generatedPage) error {
+	if err := os.RemoveAll(castOutDir); err != nil {
+		return fmt.Errorf("clear %s: %w", castOutDir, err)
+	}
+	if err := os.MkdirAll(castOutDir, 0o755); err != nil {
+		return fmt.Errorf("create %s: %w", castOutDir, err)
+	}
+	for _, p := range pages {
+		for _, cast := range p.casts {
+			raw, err := os.ReadFile(filepath.Join(captureDir, cast))
+			if err != nil {
+				return fmt.Errorf("read recording %s (linked by %s): %w", cast, p.name, err)
+			}
+			paced, err := PublishCast(raw, ReadablePacing)
+			if err != nil {
+				return fmt.Errorf("pace recording %s (linked by %s): %w", cast, p.name, err)
+			}
+			if err := os.WriteFile(filepath.Join(castOutDir, cast), paced, 0o644); err != nil {
+				return fmt.Errorf("write recording %s: %w", cast, err)
+			}
+		}
+	}
+	return nil
 }
 
 // assertSomethingCaptured fails CLOSED, not open: a @doc feature with at least
@@ -183,11 +234,13 @@ func main() {
 		"directory of per-scenario JSON captures written by steps_doc_capture.go")
 	outDir := fs.String("out-dir", "website/src/content/docs/journeys",
 		"directory to write generated Starlight journey pages into")
+	castOutDir := fs.String("cast-out-dir", "website/public/journeys",
+		"directory to publish the pages' paced terminal recordings into")
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		os.Exit(2)
 	}
 
-	if err := run(*featuresDir, *captureDir, *outDir); err != nil {
+	if err := run(*featuresDir, *captureDir, *outDir, *castOutDir); err != nil {
 		fmt.Fprintf(os.Stderr, "gen-living-docs: %v\n", err)
 		os.Exit(1)
 	}

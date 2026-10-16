@@ -219,14 +219,20 @@ type EvidenceGapError struct {
 }
 
 func (e *EvidenceGapError) Error() string {
-	suffix := ""
-	if e.Example > 0 {
-		suffix = fmt.Sprintf(" (Example %d)", e.Example)
-	}
+	suffix := exampleSuffix(e.Example)
 	return fmt.Sprintf(
 		"REFUSING TO GENERATE: scenario %q (%s)%s captured no evidence anywhere in its run — a scenario that proves nothing cannot be documented",
 		e.Scenario, e.Feature, suffix,
 	)
+}
+
+// exampleSuffix names a 1-based Examples row in a refusal, or nothing for a
+// plain scenario (0).
+func exampleSuffix(example int) string {
+	if example == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (Example %d)", example)
 }
 
 // hasEvidence reports whether a step captured ANY of the three evidence
@@ -269,6 +275,51 @@ func assertAllHaveEvidence(featurePath, scenarioName string, captures []DocCaptu
 	return nil
 }
 
+// castURLPrefix is where the site serves the recordings run copies into
+// --cast-out-dir (website/public/journeys/ is served at /journeys/).
+const castURLPrefix = "/journeys/"
+
+// renderRecordingLink names the run's terminal recording beneath its
+// checklist: the asciicast v2 file, paced for a reader, that copyCasts
+// publishes under the same name.
+func renderRecordingLink(cap DocCapture) string {
+	return fmt.Sprintf("Terminal recording of this run: [`%s`](%s%s) (asciicast v2).", cap.Cast, castURLPrefix, cap.Cast)
+}
+
+// MissingRecordingError is returned when a passing capture names no terminal
+// recording. Every capture the acceptance harness writes records its run, so
+// one without is from an older run or a broken capture side — and a page
+// built from it would publish the run without the recording that shows it.
+type MissingRecordingError struct {
+	Feature  string
+	Scenario string
+	Example  int // 1-based Examples row, as on EvidenceGapError; 0 for a plain scenario
+}
+
+func (e *MissingRecordingError) Error() string {
+	suffix := exampleSuffix(e.Example)
+	return fmt.Sprintf(
+		"REFUSING TO GENERATE: scenario %q (%s)%s has no terminal recording — re-run the capture (`just gen-living-docs`); a capture without one predates recording or lost it",
+		e.Scenario, e.Feature, suffix,
+	)
+}
+
+// assertAllRecorded refuses a capture that names no recording (see
+// MissingRecordingError).
+func assertAllRecorded(featurePath, scenarioName string, captures []DocCapture) error {
+	for idx, cap := range captures {
+		if cap.Cast != "" {
+			continue
+		}
+		example := 0
+		if len(captures) > 1 {
+			example = idx + 1
+		}
+		return &MissingRecordingError{Feature: featurePath, Scenario: scenarioName, Example: example}
+	}
+	return nil
+}
+
 // renderScenario renders one scenario section: header, then either the
 // checklist+grid for each capture (an Outline's Examples rows each get their
 // own "Example N" block) or, with no capture at all, the raw Gherkin plus a
@@ -286,6 +337,7 @@ func renderScenario(sc Scenario, narr Narration, captures []DocCapture) string {
 				out = append(out, fmt.Sprintf("**Example %d**", idx+1), "")
 			}
 			out = append(out, renderChecklist(cap), "")
+			out = append(out, renderRecordingLink(cap), "")
 			out = append(out, renderStepGrid(cap), "")
 		}
 	} else {
@@ -305,9 +357,10 @@ func renderScenario(sc Scenario, narr Narration, captures []DocCapture) string {
 // banner comment; pass "" when no .doc.md companion exists for this feature.
 //
 // Returns a *RefusalError (see assertAllPassed) if any scenario's capture has
-// a non-passed step, or an *EvidenceGapError (see assertAllHaveEvidence) if a
-// passing scenario captured no evidence anywhere in its run — the caller must
-// not write the returned page in either case (there isn't one; the string is
+// a non-passed step, an *EvidenceGapError (see assertAllHaveEvidence) if a
+// passing scenario captured no evidence anywhere in its run, or a
+// *MissingRecordingError if a capture names no recording — the caller must
+// not write the returned page in any case (there isn't one; the string is
 // empty).
 func GeneratePage(feat Feature, narr Narration, capturesByName map[string][]DocCapture, narrationPath string) (string, error) {
 	var lines []string
@@ -361,6 +414,9 @@ func GeneratePage(feat Feature, narr Narration, capturesByName map[string][]DocC
 			return "", err
 		}
 		if err := assertAllHaveEvidence(feat.Path, sc.Name, caps); err != nil {
+			return "", err
+		}
+		if err := assertAllRecorded(feat.Path, sc.Name, caps); err != nil {
 			return "", err
 		}
 		lines = append(lines, renderScenario(sc, narr, caps))

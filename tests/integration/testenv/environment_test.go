@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // ── binary freshness ──────────────────────────────────────────────────────
@@ -263,5 +265,19 @@ func TestIsolatedEnv_DropsTheHostClaudeConfigDir(t *testing.T) {
 	chosen.SetEnv(claudeConfigDirEnv, scenarioDir)
 	if v, ok := childEnvValue(chosen.isolatedEnv(), claudeConfigDirEnv); !ok || v != scenarioDir {
 		t.Errorf("the scenario's %s reached the child as %q (present=%v), want %q", claudeConfigDirEnv, v, ok, scenarioDir)
+	}
+}
+
+// NonTTYFormat reads back the non_tty_format this environment hands its
+// children, json when it hands none: the harness's notion of the derived
+// default and the child's are the same value.
+func TestTestEnvironment_NonTTYFormat_ReadsTheChildEnv(t *testing.T) {
+	var e TestEnvironment
+	if got := e.NonTTYFormat(); got != clifmt.FormatJSON {
+		t.Fatalf("unset: %q, want json", got)
+	}
+	e.SetChildEnv("CTXLOOM_CONFIG_NON_TTY_FORMAT", "text")
+	if got := e.NonTTYFormat(); got != clifmt.FormatText {
+		t.Fatalf("set to text: %q", got)
 	}
 }

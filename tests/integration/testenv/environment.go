@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // mcpStdinGrace is the CEILING RunWithStdin will keep stdin open after
@@ -533,6 +534,18 @@ func (e *TestEnvironment) ChildEnv(key string) string {
 	return e.childEnv[key]
 }
 
+// NonTTYFormat is the format a spawned ctxloom derives for a command that
+// asks for none — every process here writes stdout to a pipe — read back from
+// the CTXLOOM_CONFIG_NON_TTY_FORMAT this environment hands its children (json
+// when none was set). The harness reads the value it set rather than guessing
+// at the binary's default, so the two cannot disagree.
+func (e *TestEnvironment) NonTTYFormat() clifmt.Format {
+	if f, err := clifmt.ParseFormat(e.ChildEnv("CTXLOOM_CONFIG_NON_TTY_FORMAT")); err == nil {
+		return f
+	}
+	return clifmt.FormatJSON
+}
+
 // Cleanup removes the test environment and restores original env vars.
 func (e *TestEnvironment) Cleanup() error {
 	// Restore original environment
@@ -863,6 +876,7 @@ func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 	var stdout, stderr syncBuffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	e.teeIntoCast(cmd)
 
 	run, err := startBounded(cmd)
 	if err != nil {

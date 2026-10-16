@@ -189,7 +189,13 @@ func (e *TestEnvironment) RunPTY(cols, rows int, extraEnv []string, args ...stri
 // AppBinary — shared by every scenario in the run — can never be.
 func (e *TestEnvironment) RunPTYFrom(bin string, cols, rows int, extraEnv []string, args ...string) (*PTYSession, error) {
 	env := append(append(e.isolatedEnv(), "TERM=dumb"), extraEnv...)
-	return startPTY(ptyHooks{}, e.ProjectDir, env, bin, cols, rows, args...)
+	var hooks ptyHooks
+	if c := e.cast; c != nil {
+		// A pty's bytes already carry its own "\r\n": Write, never WritePipe.
+		_ = c.Prompt(append([]string{bin}, args...))
+		hooks.drainTo = func(w io.Writer) io.Writer { return io.MultiWriter(w, c) }
+	}
+	return startPTY(hooks, e.ProjectDir, env, bin, cols, rows, args...)
 }
 
 // startPTY starts bin in dir with env on a fresh pty, draining the master

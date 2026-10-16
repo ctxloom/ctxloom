@@ -2,6 +2,7 @@ package testenv
 
 import (
 	"errors"
+	"io"
 	"os/exec"
 	"time"
 )
@@ -29,7 +30,17 @@ type RunHistory struct {
 	// expired is the first command since the last TakeExpired that was
 	// killed for outliving its bound.
 	expired *DeadlineError
+	// cast, when set (RecordInto), receives every later run as a terminal
+	// recording: its command line, then its output as it arrives. Nothing
+	// the history records reads it; it is an extra destination only.
+	cast *Cast
 }
+
+// RecordInto tees every later run into c — the command line, then the
+// child's stdout and stderr — until it is called again (nil stops). Several
+// histories may record into one Cast, so a scenario that runs commands as
+// two actors yields one recording.
+func (h *RunHistory) RecordInto(c *Cast) { h.cast = c }
 
 // SetCommandBound replaces CommandBound for this history's later commands.
 // A caller whose command is not an ordinary one — an image build, run under
@@ -88,9 +99,23 @@ func (h *RunHistory) Exec(cmd *exec.Cmd) error {
 	var stdout, stderr syncBuffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	h.teeIntoCast(cmd)
 	err := runBounded(cmd, h.commandBound())
 	h.RecordSplit(cmd.Args[1:], stdout.String(), stderr.String(), err)
 	return err
+}
+
+// teeIntoCast, when a cast is recording, writes cmd's command line into it
+// and adds the cast as a second destination for the stdout and stderr cmd
+// already writes. A no-op otherwise.
+func (h *RunHistory) teeIntoCast(cmd *exec.Cmd) {
+	if h.cast == nil {
+		return
+	}
+	_ = h.cast.Prompt(cmd.Args)
+	tee := pipeWriter{cast: h.cast}
+	cmd.Stdout = io.MultiWriter(cmd.Stdout, tee)
+	cmd.Stderr = io.MultiWriter(cmd.Stderr, tee)
 }
 
 // Record derives a RunRecord's ExitCode from err (0 on success, -1 for a

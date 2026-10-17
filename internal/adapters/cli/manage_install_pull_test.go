@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
@@ -38,10 +39,24 @@ func installParentProject(t *testing.T) (project, appDir, bundleRef, bare string
 func TestManageInstall_PullsTheParentItScaffolds(t *testing.T) {
 	project, appDir, bundleRef, _ := installParentProject(t)
 
+	var out string
 	captureStdout(t, func() {
-		_, err := runCLIErr(t, "manage", "install", "--print=false")
+		var err error
+		out, err = runCLIErr(t, "manage", "install", "--print=false", "--no-pull=false", "--format", "text")
 		require.NoError(t, err)
 	})
+	assert.Contains(t, out, "Pulled 1 dependencies", "the text report says what the pull fetched")
+	assert.Contains(t, out, operations.MsgNewPinsHeader, "and discloses the pin it created")
+
+	// A rerun fetches nothing new and says nothing about a pull.
+	resetApp()
+	captureStdout(t, func() {
+		var err error
+		out, err = runCLIErr(t, "manage", "install", "--print=false", "--no-pull=false", "--format", "text")
+		require.NoError(t, err)
+	})
+	assert.NotContains(t, out, "Pulled ", "nothing was newly fetched")
+	assert.NotContains(t, out, operations.MsgNewPinsHeader, "nothing was newly pinned")
 	assert.Contains(t, lockedRefs(t, appDir), string(lockKeyOf(t, bundleRef)), "install pins the parent's bundle")
 	assert.True(t, cachedBundleBytes(t, appDir), "install fetches the parent's bytes")
 
@@ -88,4 +103,18 @@ func TestManageInstall_NoPullSkipsThePullAndSaysSo(t *testing.T) {
 	installPullState{Status: "skipped"}.render(&text)
 	assert.Contains(t, text.String(), "--no-pull")
 	assert.Contains(t, text.String(), "ctxloom deps pull")
+}
+
+// TestManageInstall_AFailedPullIsInThePayload: a failed pull's JSON says so —
+// status failed, with the error — rather than reading as a pull that ran.
+func TestManageInstall_AFailedPullIsInThePayload(t *testing.T) {
+	_, _, _, bare := installParentProject(t)
+	require.NoError(t, os.Rename(bare, bare+".unreachable"))
+
+	var payload map[string]any
+	captureStderr(t, func() { payload = runCLIJSON(t, "manage", "install", "--print=false", "--no-pull=false") })
+	pull, ok := payload["pull"].(map[string]any)
+	require.True(t, ok, "payload: %v", payload)
+	assert.Equal(t, "failed", pull["status"])
+	assert.NotEmpty(t, pull["error"])
 }

@@ -216,3 +216,29 @@ func TestIsCallback(t *testing.T) {
 		assert.Equal(t, c.want, IsCallback(c.entry), "%v", c.entry)
 	}
 }
+
+// CtxloomSubcommand is the leading words up to the first flag, and ok only
+// when a ctxloom entry names at least one: the release sweep and the status
+// both read entries through it, so a flag, a stray non-string argument or a
+// line the shell cannot split must never pass for a subcommand.
+func TestCtxloomSubcommand(t *testing.T) {
+	cases := []struct {
+		entry  map[string]any
+		want   string
+		wantOK bool
+	}{
+		{map[string]any{"command": "ctxloom status"}, "status", true},
+		{map[string]any{"command": "ctxloom profile list --json"}, "profile list", true},
+		{map[string]any{"command": "ctxloom", "args": []any{"hook", "hud", "--engine", "claude-code"}}, "hook hud", true},
+		{map[string]any{"command": "ctxloom --verbose hook hud"}, "", false},
+		{map[string]any{"command": "ctxloom"}, "", false},
+		{map[string]any{"command": "ltk hook evaluate"}, "", false},
+		{map[string]any{"command": "ctxloom", "args": []any{"hook", "hud", 5}}, "", false},
+		{map[string]any{"command": "ctxloom hook 'hud"}, "", false},
+	}
+	for _, c := range cases {
+		got, ok := CtxloomSubcommand(c.entry)
+		assert.Equal(t, c.wantOK, ok, "%v", c.entry)
+		assert.Equal(t, c.want, got, "%v", c.entry)
+	}
+}

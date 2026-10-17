@@ -107,9 +107,59 @@ func TestClaimsASweepLeavesAFileTheRecordNames(t *testing.T) {
 	fs := trackedSettings(t)
 	c := newRecords(t, fs)
 	mustCommit(t, c, fs, stage(settingsTarget, session, element("/permissions/deny", "Task")))
+	assert.Contains(t, settingsDoc(t, fs), "statusLine", "a claim staged with no sweep sweeps nothing")
 	before := read(t, fs, settingsTarget)
 
 	mustCommit(t, c, fs, sweep(settingsTarget, project))
 
 	assert.Equal(t, before, read(t, fs, settingsTarget))
+}
+
+// A sweep names the file and the writer releasing it; either missing is
+// refused, never read as "sweep everything" or "sweep for nobody".
+func TestClaimsASweepNeedsATargetAndAWriter(t *testing.T) {
+	fs := trackedSettings(t)
+	c := newRecords(t, fs)
+	for _, op := range []func(delivery.Staging) error{sweep("", project), sweep("  ", project), sweep(settingsTarget, "")} {
+		_, err := commitOps(t, c, fs, op)
+		assert.ErrorContains(t, err, "a sweep needs a target and a writer")
+	}
+}
+
+// A claim held in the same batch protects only what it holds: a callback
+// beside it that no claim holds is still swept.
+func TestClaimsASweepTakesWhatTheClaimDoesNotHold(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	g, err := json.Marshal(map[string]any{"hooks": map[string]any{
+		"PreToolUse": []any{hookGroup},
+		"Stop":       []any{map[string]any{"hooks": []any{callbackEntry("next-step")}}},
+	}})
+	require.NoError(t, err)
+	testsupport.WriteFile(t, fs, settingsTarget, g, 0o644)
+	c := newRecords(t, fs)
+
+	mustCommit(t, c, fs, stage(settingsTarget, session, element("/hooks/PreToolUse", hookGroup)), sweep(settingsTarget, project))
+
+	assert.Equal(t, map[string]any{"PreToolUse": []any{hookGroup}}, settingsDoc(t, fs)["hooks"])
+}
+
+// A sweep removes only what it empties: a container of the user's that was
+// already empty stays, and one the sweep empties (every hook ctxloom's) goes.
+func TestClaimsASweepRemovesOnlyWhatItEmpties(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	g, err := json.Marshal(map[string]any{
+		"permissions": map[string]any{"allow": []any{}},
+		"env":         map[string]any{},
+		"hooks":       map[string]any{"Stop": []any{map[string]any{"hooks": []any{callbackEntry("next-step")}}}},
+	})
+	require.NoError(t, err)
+	testsupport.WriteFile(t, fs, settingsTarget, g, 0o644)
+	c := newRecords(t, fs)
+
+	mustCommit(t, c, fs, sweep(settingsTarget, project))
+
+	assert.Equal(t, map[string]any{
+		"permissions": map[string]any{"allow": []any{}},
+		"env":         map[string]any{},
+	}, settingsDoc(t, fs))
 }

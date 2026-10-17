@@ -64,3 +64,13 @@ func TestNonTTYFormat_InitStillPinsItsDirectory(t *testing.T) {
 	_, err := execRootCmd(t, "init")
 	require.NoError(t, err, "init through the real command tree must not find the configuration already open")
 }
+
+// A value the schema refuses reaches the format resolution only under
+// --degraded, and is refused there by name rather than quietly read as json.
+func TestNonTTYFormat_AnUnknownValueIsRefusedByName(t *testing.T) {
+	withNonTTYFormat(t, "bogus")
+
+	out, err := execRootCmd(t, "version", "--degraded")
+	require.Error(t, err, "got %q", out)
+	assert.Contains(t, err.Error(), "bogus")
+}

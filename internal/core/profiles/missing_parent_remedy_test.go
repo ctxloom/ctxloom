@@ -2,6 +2,7 @@ package profiles
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,4 +73,14 @@ func TestLoader_Load_LocalMissIsTyped(t *testing.T) {
 	require.Error(t, err)
 	assert.False(t, errors.Is(err, errs.ErrLocalProfileNotFound), "a remote miss is not a local one")
 	assert.True(t, errors.Is(err, errs.ErrProfileNotFound))
+}
+
+// The fix for a missing local parent leads with the loader's own suggestion
+// when the error carries one, and is the edits alone when it carries none.
+func TestMissingLocalParentFix(t *testing.T) {
+	const edits = "create the profile ghost, or correct or remove that parent in profile child"
+	assert.Equal(t, edits, missingLocalParentFix("child", "ghost", errors.New("plain")))
+	assert.Equal(t, edits, missingLocalParentFix("child", "ghost", report.Error{Msg: "no fix"}))
+	assert.Equal(t, "did you mean ghosts?; otherwise "+edits,
+		missingLocalParentFix("child", "ghost", fmt.Errorf("wrapped: %w", report.Error{Msg: "miss", Fix: "did you mean ghosts?"})))
 }

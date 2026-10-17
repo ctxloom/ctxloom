@@ -16,6 +16,20 @@ import (
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
+// OffTerminalFrom reaches the help: the usage names the source a program's
+// off-terminal default comes from, rather than promising json.
+func TestAddFlag_OffTerminalFromNamesTheSource(t *testing.T) {
+	root := &cobra.Command{Use: "prog"}
+	AddFlag(root, OffTerminalFrom("non_tty_format"))
+	f := root.PersistentFlags().Lookup("format")
+	if f == nil {
+		t.Fatal("no persistent --format")
+	}
+	if want := clifmt.FormatUsageWith("non_tty_format"); f.Usage != want {
+		t.Errorf("usage = %q, want %q", f.Usage, want)
+	}
+}
+
 // AddFlag registers ONE persistent --format: usage clifmt.FormatUsage, an
 // empty default (an unset flag follows the terminal), and completion that
 // offers exactly clifmt.SupportedFormats.

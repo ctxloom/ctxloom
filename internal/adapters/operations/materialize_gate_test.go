@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/shared/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -68,6 +70,7 @@ func TestMaterialize_AFatalAssemblyFindingWritesNothing(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, res)
 	assert.True(t, errors.Is(err, ErrMaterializeRefused), "got %v", err)
+	assert.False(t, errors.Is(err, ErrMaterializeRequest), "a refusal is a refusal, not every sentinel")
 	var refusal MaterializeRefusal
 	require.True(t, errors.As(err, &refusal))
 	require.NotEmpty(t, refusal.Findings)
@@ -136,6 +139,9 @@ func TestRunSyncPostSteps_AFatalFindingRefusesTheConsentedRefresh(t *testing.T) 
 	assert.Empty(t, recordFiles(t), "nothing is claimed")
 	require.NotEmpty(t, result.RefreshFindings, "the refusal reaches the command")
 	assert.Contains(t, result.RefreshFindings[0].Text, "absent-parent")
+	for _, f := range result.RefreshFindings {
+		assert.NotEqual(t, report.KindApply, f.Kind, "a refusal is not also a failed apply: %s", f.Text)
+	}
 
 	// --degraded: the refresh writes as before, and nothing is left to exit on.
 	degraded := &SyncDependenciesResult{Total: 1}
@@ -162,3 +168,14 @@ func TestRunSyncPostSteps_AnUnconsentedRefreshIsNotGated(t *testing.T) {
 
 // the seam is still the real Materialize's shape.
 var _ func(context.Context, engine.Registry, *config.Config, MaterializeRequest) (*MaterializeResult, error) = Materialize
+
+// A default profile that does not resolve is sent where it can be fixed: a
+// local one to be created or corrected (a pull cannot create it), a remote
+// one to the pull that installs it.
+func TestMissingDefaultProfileFix(t *testing.T) {
+	local := missingDefaultProfileFix(fmt.Errorf("wrapped: %w", errs.ErrLocalProfileNotFound))
+	assert.Contains(t, local, "create the profile")
+	assert.NotContains(t, local, "deps pull")
+	remote := missingDefaultProfileFix(errors.New("not installed"))
+	assert.Contains(t, remote, "ctxloom deps pull")
+}

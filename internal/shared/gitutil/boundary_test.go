@@ -68,8 +68,10 @@ func TestRepoLocationEnvVars_ComeFromGit(t *testing.T) {
 func TestResolveLocalEnvVars_StripsEveryGitVarWhenGitCannotAnswer(t *testing.T) {
 	errNoGit := errors.New("no git")
 	for name, probe := range map[string]func() ([]string, error){
-		"error": func() ([]string, error) { return nil, errNoGit },
-		"empty": func() ([]string, error) { return nil, nil },
+		"error":             func() ([]string, error) { return nil, errNoGit },
+		"error, an answer":  func() ([]string, error) { return []string{"GIT_DIR"}, errNoGit },
+		"empty":             func() ([]string, error) { return nil, nil },
+		"empty, not absent": func() ([]string, error) { return []string{}, nil },
 	} {
 		vars := resolveLocalEnvVars(probe)
 		for _, key := range []string{"GIT_DIR", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_KEY_3", "GIT_SOMETHING_NEW"} {
@@ -77,6 +79,14 @@ func TestResolveLocalEnvVars_StripsEveryGitVarWhenGitCannotAnswer(t *testing.T) 
 		}
 		assert.False(t, isLocalEnvVar(vars, "HOME"), "%s: a non-git variable was stripped", name)
 	}
+}
+
+// CLAIM: an answer from git is taken as it stands, a one-variable answer
+// included — never widened to every GIT_ variable.
+func TestResolveLocalEnvVars_TakesGitsAnswer(t *testing.T) {
+	vars := resolveLocalEnvVars(func() ([]string, error) { return []string{"GIT_DIR"}, nil })
+	assert.Equal(t, []string{"GIT_DIR"}, vars)
+	assert.False(t, isLocalEnvVar(vars, "GIT_SOMETHING_NEW"))
 }
 
 // CLAIM: the numbered config pairs are stripped exactly when git lists their

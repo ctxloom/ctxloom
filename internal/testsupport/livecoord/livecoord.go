@@ -52,6 +52,8 @@ type Session struct {
 	mu    sync.Mutex
 	chats map[string]*scriptedchat.Chat // harp → its engine
 	homes map[string]*runner.Home       // run id → its runner's home
+	idles map[string]int                // run id → turn ends the coordinator has broadcast
+	harps map[string]string             // run id → its harp
 }
 
 // New starts a served coordinator over projectDir. The caller isolates HOME
@@ -60,7 +62,7 @@ type Session struct {
 // cleanup.
 func New(t *testing.T, projectDir string, contextWindow int) *Session {
 	t.Helper()
-	s := &Session{ContextWindow: contextWindow, chats: map[string]*scriptedchat.Chat{}, homes: map[string]*runner.Home{}}
+	s := &Session{ContextWindow: contextWindow, chats: map[string]*scriptedchat.Chat{}, homes: map[string]*runner.Home{}, idles: map[string]int{}, harps: map[string]string{}}
 	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectID: "livecoord-proj", Spawner: &spawner{s: s}, OwnerHarp: OwnerHarp})
 	if err != nil {
 		t.Fatalf("livecoord: new coordinator: %v", err)
@@ -71,7 +73,69 @@ func New(t *testing.T, projectDir string, contextWindow int) *Session {
 	}
 	t.Cleanup(c.Close)
 	s.Coord = c
+	_, events, cancel, _ := c.WatchRuns(nil)
+	done := make(chan struct{})
+	t.Cleanup(func() { close(done); cancel() })
+	go s.countTurnEnds(events, done)
 	return s
+}
+
+// countTurnEnds counts each run's turn ends as the coordinator broadcasts
+// them, until done.
+func (s *Session) countTurnEnds(events <-chan coord.Event, done <-chan struct{}) {
+	for {
+		select {
+		case ev := <-events:
+			if ce, ok := ev.Payload.(coord.CustomEvent); ok && ce.Name == coord.CustomTurnIdle {
+				s.mu.Lock()
+				s.idles[ev.RunID]++
+				s.mu.Unlock()
+			}
+		case <-done:
+			return
+		}
+	}
+}
+
+// Settle returns once harp has ended turns turns and the coordinator has
+// taken the last one's end — the moment a request it asks is one of no
+// turn that is still ending. The roster's idle state alone does not say
+// that: until the coordinator takes a new turn's start it still shows the
+// last turn's idle.
+func (s *Session) Settle(t *testing.T, harp string, turns int) {
+	t.Helper()
+	deadline := time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) {
+		if s.turnEnds(harp) >= turns && s.state(harp) == coord.StateIdle {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("livecoord: %s never settled after %d turn(s) (%d ended, state %q)", harp, turns, s.turnEnds(harp), s.state(harp))
+}
+
+// turnEnds is how many turn ends the coordinator has broadcast for harp's
+// runs.
+func (s *Session) turnEnds(harp string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for runID, h := range s.harps {
+		if h == harp {
+			n += s.idles[runID]
+		}
+	}
+	return n
+}
+
+// runID is harp's current run ("" when the coordinator holds none).
+func (s *Session) runID(harp string) string {
+	for _, r := range s.Coord.ListRuns(true, "").Runs {
+		if r.Agent != nil && r.Agent.AgentID == harp {
+			return r.RunID
+		}
+	}
+	return ""
 }
 
 // Delegate starts a child of the owner on prompt and returns its harp once
@@ -82,15 +146,8 @@ func (s *Session) Delegate(t *testing.T, prompt string) string {
 	if err != nil {
 		t.Fatalf("livecoord: delegate: %v", err)
 	}
-	deadline := time.Now().Add(60 * time.Second)
-	for time.Now().Before(deadline) {
-		if len(s.Prompts(out.Harp)) > 0 && s.state(out.Harp) == coord.StateIdle {
-			return out.Harp
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatalf("livecoord: %s never finished its first turn (state %q)", out.Harp, s.state(out.Harp))
-	return ""
+	s.Settle(t, out.Harp, 1)
+	return out.Harp
 }
 
 // state is harp's roster state ("" when the roster does not hold it).
@@ -148,12 +205,7 @@ func (s *Session) Stop(t *testing.T, harp string) {
 // prompt. The decision the run receives arrives on the channel.
 func (s *Session) Ask(t *testing.T, harp, tool string) <-chan coord.ApprovalDecision {
 	t.Helper()
-	var runID string
-	for _, r := range s.Coord.ListRuns(false, "").Runs {
-		if r.Agent != nil && r.Agent.AgentID == harp {
-			runID = r.RunID
-		}
-	}
+	runID := s.runID(harp)
 	s.mu.Lock()
 	home := s.homes[runID]
 	s.mu.Unlock()
@@ -291,6 +343,7 @@ func (sp *spawner) Start(_ context.Context, l launch.Launch, reach sessions.Endp
 	host.BindHome(home)
 	sp.s.mu.Lock()
 	sp.s.homes[l.Identity.RunID] = home
+	sp.s.harps[l.Identity.RunID] = l.Identity.Harp
 	sp.s.mu.Unlock()
 	// Kill is the runner process's death: its Home crashes with it.
 	return &coord.EngineSpawn{Kill: func() { cancel(); home.Crash() }}, nil

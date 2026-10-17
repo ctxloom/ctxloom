@@ -64,6 +64,14 @@ var (
 	checksumValueRE = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
+// A revision pin is `<TOOL>_REVISION`: the full git commit SHA a tool with no
+// published release is built from (REPRISE_REVISION). An abbreviated SHA is
+// refused — it names whichever commit matches today, not a fixed one.
+var (
+	revisionKeyRE   = regexp.MustCompile(`^.+_REVISION$`)
+	revisionValueRE = regexp.MustCompile(`^[0-9a-f]{40}$`)
+)
+
 // imageArches are the TARGETARCH values the devcontainer image is built for —
 // the arms of the Dockerfile's per-arch `case` statements.
 var imageArches = []string{"AMD64", "ARM64"}
@@ -99,7 +107,7 @@ func imageKeys(versions map[string]string) []string {
 
 // isPinArg reports whether a Dockerfile ARG carries a tool-versions.env pin.
 func isPinArg(name string) bool {
-	return strings.HasSuffix(name, "_VERSION") || checksumKeyRE.MatchString(name)
+	return strings.HasSuffix(name, "_VERSION") || checksumKeyRE.MatchString(name) || revisionKeyRE.MatchString(name)
 }
 
 // parseToolVersionsEnv loads .devcontainer/tool-versions.env's KEY=value
@@ -213,6 +221,12 @@ func TestToolVersionsEnvIsWellFormed(t *testing.T) {
 		if checksumKeyRE.MatchString(k) {
 			if !checksumValueRE.MatchString(v) {
 				t.Errorf("%s: %s=%q is not a sha256 (want 64 lowercase hex characters)", toolVersionsPath, k, v)
+			}
+			continue
+		}
+		if revisionKeyRE.MatchString(k) {
+			if !revisionValueRE.MatchString(v) {
+				t.Errorf("%s: %s=%q is not a full git commit SHA (want 40 lowercase hex characters)", toolVersionsPath, k, v)
 			}
 			continue
 		}
@@ -583,6 +597,27 @@ func TestDevcontainerInstallsTheCommitHookRunner(t *testing.T) {
 	}
 	if !strings.Contains(readFile(t, dockerfilePath), "github.com/evilmartians/lefthook@v${LEFTHOOK_VERSION}") {
 		t.Errorf("%s does not install lefthook at ${LEFTHOOK_VERSION}", dockerfilePath)
+	}
+}
+
+// TestDevcontainerInstallsTheReprisePreCommitGate: lefthook's pre-commit hook
+// runs `reprise check`, and a container agent's commit runs that hook inside
+// this image — without reprise every commit there fails with exit 127. reprise
+// has no release yet, so the image builds it from the commit tool-versions.env
+// pins and must copy the binary into the FINAL stage: a build stage that makes
+// it and a final image that lacks it would pass every other check here.
+func TestDevcontainerInstallsTheReprisePreCommitGate(t *testing.T) {
+	versions := parseToolVersionsEnv(t, toolVersionsPath)
+	if _, ok := versions["REPRISE_REVISION"]; !ok {
+		t.Fatalf("%s pins no REPRISE_REVISION", toolVersionsPath)
+	}
+	dockerfile := readFile(t, dockerfilePath)
+	if !strings.Contains(dockerfile, `git fetch -q --depth 1 https://github.com/ctxloom/reprise "${REPRISE_REVISION}"`) {
+		t.Errorf("%s does not build reprise from ${REPRISE_REVISION}", dockerfilePath)
+	}
+	lastFrom := strings.LastIndex(dockerfile, "\nFROM ")
+	if !strings.Contains(dockerfile[lastFrom:], "COPY --from=reprise /usr/local/bin/reprise /usr/local/bin/reprise") {
+		t.Errorf("%s's final stage does not copy reprise in from its build stage", dockerfilePath)
 	}
 }
 

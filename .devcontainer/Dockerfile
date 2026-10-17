@@ -14,6 +14,33 @@
 # is the index the build was already using when this was pinned.
 FROM crazymax/osxcross:latest-ubuntu@sha256:832e027d26eefd7189b9f742d363f629716bc5592e5b1427b11953f903422a64 AS osxcross
 
+# reprise, the duplicate-detection gate lefthook's pre-commit hook runs
+# (`reprise check`, lefthook.yml). INVARIANT: this repo's container agents are
+# built on this image, and their commits run that hook INSIDE the container — a
+# missing reprise fails every commit with exit 127. So the image must carry it.
+#
+# reprise has published no release, so it is BUILT here, in its own stage, from
+# the full commit SHA tool-versions.env pins as REPRISE_REVISION (a commit on a
+# pushed ref of github.com/ctxloom/reprise); only the binary reaches the final
+# image. Fetched by SHA, the source cannot move under the pin, and --locked
+# builds Cargo.lock's dependency versions, which crates.io's checksums verify.
+# The checkout is by hand, not `cargo install --git`, so reprise's benchmark
+# corpus submodules are never fetched. Once reprise publishes v0.1.0 this stage
+# goes: the release asset is downloaded and checksum-verified like `just` below.
+# Built on bookworm (glibc 2.36), so the binary runs on ubuntu:24.04's newer
+# glibc.
+FROM rust:1.96.1-bookworm@sha256:a339861ae23e9abb272cea45dfafde21760d2ce6577a70f8a926153677902663 AS reprise
+ARG REPRISE_REVISION
+RUN : "${REPRISE_REVISION:?missing --build-arg REPRISE_REVISION — see .devcontainer/tool-versions.env}" \
+    && git init -q /src/reprise && cd /src/reprise \
+    && git fetch -q --depth 1 https://github.com/ctxloom/reprise "${REPRISE_REVISION}" \
+    && git checkout -q FETCH_HEAD \
+    && test "$(git rev-parse HEAD)" = "${REPRISE_REVISION}" \
+    && cargo build --release --locked --bin reprise \
+    && install -m 0755 target/release/reprise /usr/local/bin/reprise \
+    && cd / && rm -rf /src/reprise "${CARGO_HOME:-/usr/local/cargo}/registry" \
+    && reprise --version
+
 # Stage 2: Main build image
 # Use Ubuntu 24.04 for glibc compatibility with osxcross
 FROM ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
@@ -424,6 +451,12 @@ RUN case "${TARGETARCH}" in \
     && cd / && rm -rf "${tmp}" \
     && test "$(/opt/node/bin/node --version)" = "v${NODE_VERSION}"
 ENV PATH="/opt/node/bin:${PATH}"
+
+# reprise from its build stage above, which says why the image needs it. The
+# check runs it HERE, in the final image, so a binary that cannot load on this
+# base fails the build rather than the first commit an agent makes.
+COPY --from=reprise /usr/local/bin/reprise /usr/local/bin/reprise
+RUN reprise --version
 
 # Set working directory
 WORKDIR /workspace

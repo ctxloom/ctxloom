@@ -133,6 +133,14 @@ func TestContainerSpec_Validate_AcceptsACompleteDeclaration(t *testing.T) {
 	require.NoError(t, validContainer().Validate())
 }
 
+// An engine that installs nothing pins nothing: a declaration with no
+// Install (an overlay onto a base that already ships the client) is valid.
+func TestContainerSpec_Validate_AcceptsNoInstallAndNoPin(t *testing.T) {
+	c := validContainer()
+	c.Install = nil
+	require.NoError(t, c.Validate())
+}
+
 func TestContainerSpec_Validate_RefusesInstallWithoutValidate(t *testing.T) {
 	c := validContainer()
 	c.ValidateCommand = ""

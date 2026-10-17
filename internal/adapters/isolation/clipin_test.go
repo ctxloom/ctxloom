@@ -103,6 +103,11 @@ func TestContainerFor_HostCLIUpgradeStalesTheImage(t *testing.T) {
 	probe := withHostCLI(t, "2.1.280", nil)
 	before := containerFor(rt, "claude-code", img)
 	beforeID := before.identityFor(defaultBaseStage())
+	// The pin is added to the provenance, never in place of the build's own.
+	keys := hostImageKeys()
+	require.NotEmpty(t, keys.provenance)
+	assert.True(t, strings.HasPrefix(beforeID.provenance, keys.provenance+"-cli2.1.280-"),
+		"provenance %q must carry the build's provenance, then the pin", beforeID.provenance)
 	sources, _, err := before.containerBuildSources("")
 	require.NoError(t, err)
 	require.Len(t, sources, 1)
@@ -155,6 +160,12 @@ func TestHostCLIPin_OnlyWhereCtxloomInstallsAPinningEngine(t *testing.T) {
 		c := containerFor(rt, "unpinned-engine", ImageConfig{Base: "ctxloom"})
 		assert.Empty(t, probe.engines())
 		assert.NotContains(t, c.image, "-cli")
+
+		// Handed a pin anyway, its Containerfile is its own install,
+		// unlabelled: a pin is honoured only by an engine that declares how.
+		cf := string(composeAgentContainerfile("unpinned-engine", "9.9.9"))
+		assert.Contains(t, cf, "RUN true\n")
+		assert.NotContains(t, cf, engineCLIVersionLabel)
 	})
 
 	t.Run("a user-owned image is never probed", func(t *testing.T) {

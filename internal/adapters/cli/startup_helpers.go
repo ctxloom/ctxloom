@@ -123,7 +123,31 @@ const (
 	// its fatal findings refuse the refresh before it writes
 	// (operations.SyncDependenciesResult.RefreshFindings).
 	PhaseRefresh Phase = "project refresh"
+	// PhaseMaterialize is `ctxloom materialize`: its fatal findings refuse the
+	// delivery before it writes (operations.ErrMaterializeRefused).
+	PhaseMaterialize Phase = "materialize"
 )
+
+// What --degraded lets a refused phase do, as the abort header offers it.
+const (
+	// degradedLaunches: the launch phases, which --degraded starts anyway.
+	degradedLaunches = "to launch anyway"
+	// degradedWrites: the phases that write engine files instead of
+	// launching, which --degraded writes past the finding.
+	degradedWrites = "to write anyway"
+)
+
+// degradedOutcome is what rerunning the phase under --degraded does. A phase
+// that launches nothing must not promise a launch: `deps pull --yes` and
+// `materialize --yes` write files, so they offer the write.
+func (p Phase) degradedOutcome() string {
+	switch p {
+	case PhaseRefresh, PhaseMaterialize:
+		return degradedWrites
+	default:
+		return degradedLaunches
+	}
+}
 
 // phaseGates tiles a process's fatality windows. close() reports the phase's
 // findings, returns the abort error if any survived, and OPENS THE NEXT WINDOW
@@ -199,7 +223,7 @@ func formatFindings(mode strictness.Mode, p Phase, findings report.Findings) str
 			break
 		}
 	}
-	header := fmt.Sprintf("ctxloom: aborting %s: %d fatal finding(s); fix them, or rerun with --degraded (env CTXLOOM_DEGRADED=1) to launch anyway:", p, len(findings))
+	header := fmt.Sprintf("ctxloom: aborting %s: %d fatal finding(s); fix them, or rerun with --degraded (env CTXLOOM_DEGRADED=1) %s:", p, len(findings), p.degradedOutcome())
 	if allNonDegradable {
 		header = fmt.Sprintf("ctxloom: aborting %s: %d fatal finding(s); --degraded does NOT bypass these — fix them as described:", p, len(findings))
 	}

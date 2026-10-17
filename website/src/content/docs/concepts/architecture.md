@@ -388,6 +388,12 @@ ctxloom: aborting startup: 2 fatal finding(s); fix them, or rerun with
 --degraded (env CTXLOOM_DEGRADED=1) to launch anyway
 ```
 
+A command that writes engine files rather than launching refuses the same way,
+before it writes anything, and names itself in the header: `ctxloom: aborting
+materialize: …` or, for the refresh `ctxloom deps pull --yes` runs, `ctxloom:
+aborting project refresh: …`, each ending `--degraded (env CTXLOOM_DEGRADED=1)
+to write anyway`.
+
 Fatal findings are: a broken config, unresolvable profiles or bundles, and failed
 hook applies. The reasoning is that a silently-degraded session is worse than no
 session — you would be working with an engine that is missing the very standards

@@ -110,19 +110,17 @@ func runMaterialize(cmd *cobra.Command, args []string) error {
 	}
 	gates := newPhaseGates(os.Stderr, App().Strictness)
 	res, err := operations.Materialize(cmd.Context(), App().Engines(), cfg, req)
-	if errors.Is(err, operations.ErrMaterializeRefused) {
-		// Refused before anything was written. The findings are on this
-		// window's ledger: the gate renders the same abort a dry run (or a
-		// write failure) gets, with every finding and its fix.
-		if ferr := gates.close(PhaseStartup); ferr != nil {
-			return ferr
-		}
+	if err != nil && !errors.Is(err, operations.ErrMaterializeRefused) {
+		return err
+	}
+	// One gate for both outcomes. A refusal (nothing was written) has its
+	// findings on this window's ledger, so it renders the same abort a dry
+	// run or a write failure gets, with every finding and its fix.
+	if ferr := gates.close(PhaseMaterialize); ferr != nil {
+		return ferr
 	}
 	if err != nil {
 		return err
-	}
-	if ferr := gates.close(PhaseStartup); ferr != nil {
-		return ferr
 	}
 	if err := emit(cmd, res, func() error { return renderMaterialize(cmd.OutOrStdout(), res) }); err != nil {
 		return err

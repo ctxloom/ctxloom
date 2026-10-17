@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -279,4 +280,30 @@ func degradedForTest(t *testing.T) {
 	prev := app.Strictness
 	app.Strictness.Degraded = true
 	t.Cleanup(func() { app.Strictness = prev })
+}
+
+// The abort header's --degraded offer follows the phase: a launch phase
+// offers the launch, a phase that writes engine files (the `deps pull --yes`
+// refresh, materialize) offers the write. A refresh told it could "launch
+// anyway" is sent looking for a launch the command never makes.
+func TestFormatFindings_DegradedOfferFollowsThePhase(t *testing.T) {
+	findings := report.Findings{{Kind: report.KindSync, Text: "boom", Remedy: "fix it"}}
+	for _, tc := range []struct {
+		phase     Phase
+		want, not string
+	}{
+		{PhaseStartup, degradedLaunches, degradedWrites},
+		{PhaseWorkspace, degradedLaunches, degradedWrites},
+		{PhaseTransportStart, degradedLaunches, degradedWrites},
+		{PhaseRefresh, degradedWrites, degradedLaunches},
+		{PhaseMaterialize, degradedWrites, degradedLaunches},
+	} {
+		t.Run(string(tc.phase), func(t *testing.T) {
+			out := formatFindings(strictness.Mode{}, tc.phase, findings)
+			header, _, _ := strings.Cut(out, "\n")
+			assert.True(t, strings.HasPrefix(header, "ctxloom: aborting "+string(tc.phase)+": "), "header: %q", header)
+			assert.True(t, strings.HasSuffix(header, "--degraded (env CTXLOOM_DEGRADED=1) "+tc.want+":"), "header: %q", header)
+			assert.NotContains(t, header, tc.not)
+		})
+	}
 }

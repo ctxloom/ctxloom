@@ -26,7 +26,7 @@ flowchart TD
         MAT["materialize [&lt;profile&gt;...]"] --> PSS[["operations.ParseSurfaceSpecs(--surface)"]] --> CMF["checkMaterializeFlags"]
         CMF -->|"--diff"| RMD["runMaterializeDiff"]
         CMF -->|"no --target"| GPT["guardProjectTarget → operations.ErrProjectTargetUnconfirmed without --yes"]
-        CMF --> MG["newPhaseGates"] --> OM[["operations.Materialize → MaterializeResult"]] --> MCL["gates.close(PhaseStartup)"] --> RM["renderMaterialize"]
+        CMF --> MG["newPhaseGates"] --> OM[["operations.Materialize → MaterializeResult"]] --> MCL["gates.close(PhaseMaterialize) — also on ErrMaterializeRefused, before anything is written"] --> RM["renderMaterialize"]
     end
 
     subgraph agent["agent.go"]

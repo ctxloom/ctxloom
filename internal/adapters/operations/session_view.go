@@ -24,9 +24,11 @@ type SessionView struct {
 	State  string `json:"state,omitempty"`
 	Engine string `json:"engine"`
 	// NativeSession is the engine's own session key, "" while unbound.
-	NativeSession string    `json:"native_session,omitempty"`
-	Summary       string    `json:"summary,omitempty"`
-	StartedAt     time.Time `json:"started_at"`
+	NativeSession string `json:"native_session,omitempty"`
+	// Title is the session's first user prompt (SessionTitle), "" when its
+	// canonical transcript holds none.
+	Title     string    `json:"title,omitempty"`
+	StartedAt time.Time `json:"started_at"`
 	// EndedAt is when the session's LAST RUN ended. A resumed session keeps
 	// it while it runs again, so it says nothing about now: State does.
 	EndedAt *time.Time `json:"ended_at,omitempty"`
@@ -51,7 +53,7 @@ func ViewSession(e sessions.Entry) SessionView {
 		Project:       e.ProjectDir,
 		Engine:        e.Backend,
 		NativeSession: e.SessionID,
-		Summary:       e.Summary,
+		Title:         SessionTitle(e),
 		StartedAt:     e.StartedAt,
 		EndedAt:       e.EndedAt,
 		LastActivity:  e.LastActivity,

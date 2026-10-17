@@ -34,7 +34,6 @@ func TestViewSession_CarriesTheRecordAndTheDerivedFacts(t *testing.T) {
 		OutputDir:    out,
 		Backend:      "claude-code",
 		SessionID:    "native-1",
-		Summary:      "Fixed the bug",
 		StartedAt:    started,
 		EndedAt:      &ended,
 		PurgedAt:     &purged,
@@ -45,7 +44,7 @@ func TestViewSession_CarriesTheRecordAndTheDerivedFacts(t *testing.T) {
 	assert.Equal(t, "/proj", v.Project)
 	assert.Equal(t, "claude-code", v.Engine)
 	assert.Equal(t, "native-1", v.NativeSession)
-	assert.Equal(t, "Fixed the bug", v.Summary)
+	assert.Empty(t, v.Title, "no canonical transcript, no title")
 	assert.True(t, v.StartedAt.Equal(started))
 	require.NotNil(t, v.EndedAt)
 	assert.True(t, v.EndedAt.Equal(ended))

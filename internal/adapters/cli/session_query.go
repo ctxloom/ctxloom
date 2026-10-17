@@ -121,7 +121,7 @@ func sessionMetadataHaystack(v operations.SessionView) string {
 	var b strings.Builder
 	b.WriteString(v.Harp)
 	b.WriteByte(' ')
-	b.WriteString(v.Summary)
+	b.WriteString(v.Title)
 	b.WriteByte(' ')
 	b.WriteString(sessionTime(v.StartedAt).String())
 	if v.EndedAt != nil && v.State != operations.SessionLive {

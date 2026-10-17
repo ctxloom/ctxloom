@@ -318,7 +318,7 @@ func (s *ctxServer) handleListSessions(ctx context.Context, _ *mcp.CallToolReque
 		rows = append(rows, sessionSummary{
 			Harp:         v.Harp,
 			Backend:      v.Engine,
-			Title:        v.Summary,
+			Title:        v.Title,
 			LastActivity: v.LastActivity.Local().Format("2006-01-02 15:04:05"),
 			Compacted:    v.Compacted,
 		})

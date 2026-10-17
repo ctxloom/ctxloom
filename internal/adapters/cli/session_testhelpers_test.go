@@ -2,15 +2,17 @@ package cli
 
 import (
 	"bytes"
-	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
+
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	mockreader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/mock"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -228,4 +230,13 @@ func onDisk(t *testing.T, path string) bool {
 	}
 	require.True(t, os.IsNotExist(err), "stat %s: %v", path, err)
 	return false
+}
+
+// viewTitled is the read model of e as if its canonical transcript opened
+// with a user prompt reading title: ViewSession derives the title from the
+// transcript, and a projection test needs only the value.
+func viewTitled(e sessions.Entry, title string) operations.SessionView {
+	v := operations.ViewSession(e)
+	v.Title = title
+	return v
 }

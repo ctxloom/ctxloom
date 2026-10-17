@@ -203,39 +203,6 @@ func TestListAll_StaleIndexYAMLLeftBehindIsIgnored(t *testing.T) {
 	}
 }
 
-func TestListAll_SummaryAndDetailDerivedFromEssence(t *testing.T) {
-	m, root := openSidecarRoot(t)
-	out := t.TempDir()
-	writeSidecar(t, root, "compacted", "project_dir: /proj/a\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\nsource_entries: 3\noutput_dir: "+out+"\n")
-	require.NoError(t, os.WriteFile(filepath.Join(out, paths.EssenceFileName), []byte(`---
-session_id: sess-1
-distilled_at: 2026-09-01T12:00:00Z
-entry_count: 3
-plan_blocks: 0
-summary: Rewired the session index into per-harp sidecars
----
-## Context
-
-Some prose.
-
-### Open Items
-
-- migrate the readers
-- delete Reconcile
-`), 0o644))
-
-	got, err := m.ListAll()
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	assert.Equal(t, "Rewired the session index into per-harp sidecars", got[0].Summary, "summary comes from essence.md, not from any stored copy")
-	assert.Equal(t, []string{"- migrate the readers", "- delete Reconcile"}, got[0].Detail)
-
-	one, err := m.Find("compacted")
-	require.NoError(t, err)
-	require.NotNil(t, one)
-	assert.Equal(t, "Rewired the session index into per-harp sidecars", one.Summary)
-}
-
 func TestFind_OneHarpLookupIsUnaffectedByASiblingsCorruptSidecar(t *testing.T) {
 	m, root := openSidecarRoot(t)
 	writeSidecar(t, root, "good", "project_dir: /proj/a\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\n")
@@ -351,4 +318,12 @@ mcp:
 	assert.NotContains(t, string(raw), "mcp:")
 	assert.NotContains(t, string(raw), "bearer-old")
 	assert.Contains(t, string(raw), "session_id: sess-1", "the rest of the record survives the rewrite")
+}
+
+// FirstLineSummary is the one-line form of a title: the first non-empty
+// line, trimmed, capped at 80 bytes.
+func TestFirstLineSummary(t *testing.T) {
+	assert.Equal(t, "first", FirstLineSummary("\n  first  \nsecond"))
+	assert.Equal(t, "", FirstLineSummary("   "))
+	assert.Len(t, FirstLineSummary(strings.Repeat("x", 200)), 80)
 }

@@ -65,8 +65,7 @@ func TestHandleListSessions_AllProjectsSortedByActivity(t *testing.T) {
 	assert.Equal(t, harpA, out.Sessions[0].Harp, "most-recent activity must sort first")
 	assert.Equal(t, harpB, out.Sessions[1].Harp)
 	assert.Equal(t, "claude-code", out.Sessions[0].Backend)
-	assert.Equal(t, "worked on A", out.Sessions[0].Title)
-	assert.Empty(t, out.Sessions[1].Title, "B was never compacted → no title")
+	assert.Empty(t, out.Sessions[1].Title, "B has no canonical transcript → no title")
 
 	fmtRe := regexp.MustCompile(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$`)
 	for _, row := range out.Sessions {

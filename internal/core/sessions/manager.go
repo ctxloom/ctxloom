@@ -90,17 +90,6 @@ type Entry struct {
 	// a host-home binding lives wherever the engine put it.
 	TranscriptPath string `yaml:"transcript_path,omitempty" json:"transcript_path,omitempty"`
 
-	// Summary is essence.md's frontmatter `summary:` line, read on demand
-	// (fillFromEssence) for a fast one-line render. Never persisted here —
-	// the essence is the record, and a second copy is a second thing to
-	// disagree.
-	Summary string `yaml:"-" json:"summary,omitempty"`
-	// Detail holds the compacted Open Items, derived from essence.md's body
-	// the same way. Kept separate from Summary so the single-line consumers
-	// (session list table, MCP resource) stay one line while a multi-line
-	// renderer can show more.
-	Detail []string `yaml:"-" json:"detail,omitempty"`
-
 	// SourceEntries is the transcript's ENTRY COUNT at the moment this session
 	// was last compacted — the staleness fingerprint. `session list` counts the
 	// live transcript's entries and flags the row "out of date" once more have
@@ -632,7 +621,7 @@ func (m *Manager) AppendRotations(harpName string, rotations []Rotation) error {
 }
 
 // enrich fills an entry's derived fields: the transcript located by
-// position and the session it records, the canonical transcript, and essence.md's summary/detail. Every
+// position and the session it records, and the canonical transcript. Every
 // read path — one-harp lookups and listings alike — goes through it, so an
 // entry whose CanonicalTranscriptPath is empty means no capture exists, not
 // that this path skipped the stat; SourceStale reads that field to decide
@@ -640,7 +629,6 @@ func (m *Manager) AppendRotations(harpName string, rotations []Rotation) error {
 func enrich(e *Entry) {
 	fillBindingByLocation(e)
 	fillCanonicalTranscript(e)
-	fillFromEssence(e)
 }
 
 // Find returns the entry with the given harp name, enriched, or nil if no

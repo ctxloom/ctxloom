@@ -42,7 +42,7 @@ func TestNewSessionFullRow_CarriesEssenceBody(t *testing.T) {
 		body := "## Summary\n\nRoot-caused the flaky retry-backoff-overflow test.\n"
 		essencePath := seedCompactedEssence(t, "plump-loose-sash", body)
 
-		row := newSessionFullRow(afero.NewOsFs(), operations.ViewSession(sessions.Entry{HarpName: "plump-loose-sash", Summary: "wrap-up"}))
+		row := newSessionFullRow(afero.NewOsFs(), viewTitled(sessions.Entry{HarpName: "plump-loose-sash"}, "wrap-up"))
 
 		assert.Equal(t, body, row.Essence, "the FULL row must carry the essence file's actual content, not a summary or excerpt")
 		assert.Equal(t, essencePath, row.EssencePath)

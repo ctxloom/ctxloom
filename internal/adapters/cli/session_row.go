@@ -69,7 +69,7 @@ type SessionRow struct {
 // (SessionView.Stale) — so the badge rides in the row itself and shows up in
 // every format, not just text.
 func newSessionRow(v operations.SessionView) SessionRow {
-	summary := v.Summary
+	summary := v.Title
 	if summary == "" {
 		summary = "(no summary)"
 	}

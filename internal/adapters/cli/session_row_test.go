@@ -43,7 +43,7 @@ func TestNewSessionRow_SummaryFallbackAndStaleBadge(t *testing.T) {
 	})
 
 	t.Run("summary carried through untouched when fresh", func(t *testing.T) {
-		row := newSessionRow(operations.ViewSession(sessions.Entry{HarpName: "h", Summary: "Fixed the bug"}))
+		row := newSessionRow(viewTitled(sessions.Entry{HarpName: "h"}, "Fixed the bug"))
 		assert.Equal(t, "Fixed the bug", row.Summary)
 	})
 
@@ -53,12 +53,11 @@ func TestNewSessionRow_SummaryFallbackAndStaleBadge(t *testing.T) {
 		require.NoError(t, os.WriteFile(transcript, []byte(
 			`{"v":1,"harp":"h","engine":"mock","seq":0,"ts":"2026-01-01T00:00:00Z","kind":"entry","entry":{"type":"user","content":"a"}}`+"\n"+
 				`{"v":1,"harp":"h","engine":"mock","seq":1,"ts":"2026-01-01T00:00:01Z","kind":"entry","entry":{"type":"assistant","content":"b"}}`+"\n"), 0o644))
-		row := newSessionRow(operations.ViewSession(sessions.Entry{
+		row := newSessionRow(viewTitled(sessions.Entry{
 			HarpName:       "h",
-			Summary:        "Fixed the bug",
 			TranscriptPath: transcript,
 			SourceEntries:  1, // essence was stamped at one entry; a second has arrived since
-		}))
+		}, "Fixed the bug"))
 		assert.Contains(t, row.Summary, "out of date")
 	})
 }
@@ -87,11 +86,10 @@ func TestNewSessionRow_EndedAt(t *testing.T) {
 // part of this shape — a present/absent essence_path already carries that.
 func TestSessionRow_JSONShape(t *testing.T) {
 	t.Run("uncompacted session omits essence_path", func(t *testing.T) {
-		row := newSessionRow(operations.ViewSession(sessions.Entry{
+		row := newSessionRow(viewTitled(sessions.Entry{
 			HarpName:  "swift-amber-falcon",
-			Summary:   "Designed the picker",
 			StartedAt: time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC),
-		}))
+		}, "Designed the picker"))
 
 		b, err := json.Marshal(row)
 		require.NoError(t, err)
@@ -115,7 +113,7 @@ func TestSessionRow_JSONShape(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(essencePath, []byte("## Summary\n\ndone\n"), 0o644))
 
-		row := newSessionRow(operations.ViewSession(sessions.Entry{HarpName: harp, Summary: "Session wrap-up"}))
+		row := newSessionRow(viewTitled(sessions.Entry{HarpName: harp}, "Session wrap-up"))
 
 		assert.Equal(t, essencePath, row.EssencePath)
 

@@ -164,8 +164,6 @@ func TestHandleListSessions_CompactMissingReportsThePostCompactState(t *testing.
 
 	assert.True(t, out.Sessions[0].Compacted,
 		"a session compacted by this very call must be reported compacted; a cached pre-compaction probe would say false")
-	assert.Equal(t, "compacted just now", out.Sessions[0].Title,
-		"the re-read exists so freshly-written summaries reach the returned rows")
 }
 
 // THE HOST-RELAY WARNINGS ARE REDIRECTABLE, NOT RAW STDERR.

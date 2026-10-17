@@ -44,6 +44,8 @@ type fakeEngineHome struct {
 	sink          func(*agentcoordpb.PeerMessage) bool
 	approvalRoute ApprovalRoute
 	spoolSweeps   int
+	// contextUsage is every context gauge reported, as {used, window}.
+	contextUsage [][2]uint64
 	// owner, wakes and released record the interactive drive's owner
 	// marking and wake registrations (markOwner, SetWake and its release).
 	owner    bool
@@ -167,6 +169,12 @@ func (f *fakeEngineHome) ReportTurnResult(text, inReplyTo string, blocked []agen
 	defer f.mu.Unlock()
 	f.turnReports = append(f.turnReports, turnReport{Text: text, InReplyTo: inReplyTo, Blocked: blocked, Plan: plan, Failure: failure})
 	return nil
+}
+
+func (f *fakeEngineHome) reportContextUsage(used, window uint64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.contextUsage = append(f.contextUsage, [2]uint64{used, window})
 }
 
 func (f *fakeEngineHome) stampPlan(context.Context) string {
@@ -913,4 +921,26 @@ func TestEngineHost_EachTurnRereadsItsSecretsFile(t *testing.T) {
 	turn("fourth turn")
 	require.Len(t, execs(), 3, "the run lived through the failed turn")
 	assert.Equal(t, "sk-third-value", execs()[2].Env["TOKEN"])
+}
+
+// TestEngineHost_ACompletedTurnReportsItsContextGauge: as each turn
+// completes, the host hands the coordinator the turn's context gauge — the
+// tokens in context and the window they are out of, as the engine's
+// TurnMeta reports them — which is what the roster's context usage reads.
+func TestEngineHost_ACompletedTurnReportsItsContextGauge(t *testing.T) {
+	home := &fakeEngineHome{}
+	sc := &scriptedChat{ContextWindow: 1000}
+	eh := newTestEngineHost(context.Background(), sc, "claude-code", "run-1")
+	t.Cleanup(eh.Close)
+	eh.BindHome(home)
+	resp := handleBounded(t, eh, &agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
+	require.Equal(t, int32(0), resp.GetStatus().GetCode())
+	require.Eventually(t, func() bool {
+		home.mu.Lock()
+		defer home.mu.Unlock()
+		return len(home.contextUsage) == 1
+	}, 5*time.Second, 10*time.Millisecond, "the completed turn reports its gauge")
+	home.mu.Lock()
+	defer home.mu.Unlock()
+	assert.Equal(t, [2]uint64{10, 1000}, home.contextUsage[0])
 }

@@ -863,20 +863,43 @@ func RunsSnapshotToWire(s coord.RunsSnapshot) *agentcoordpb.ListRunsResult {
 	out := &agentcoordpb.ListRunsResult{}
 	for _, r := range s.Runs {
 		out.Runs = append(out.Runs, &agentcoordpb.ListRunsResult_RunInfo{
-			TaskId:         r.TaskID,
-			RunId:          r.RunID,
-			Agent:          agentIdentityToWire(r.Agent),
-			Phase:          r.Phase,
-			LatestSummary:  r.LatestSummary,
-			LastEventAt:    timeToWire(r.LastEventAt),
-			ParentRunId:    r.ParentRunID,
-			PermissionMode: r.PermissionMode,
-			McpServers:     r.MCPServers,
-			Cause:          r.Cause,
-			Detail:         r.Detail,
-			Hold:           runHoldToWire(r.Hold),
-			Unread:         uint32(max(r.Unread, 0)),
+			TaskId:            r.TaskID,
+			RunId:             r.RunID,
+			Agent:             agentIdentityToWire(r.Agent),
+			Phase:             r.Phase,
+			LatestSummary:     r.LatestSummary,
+			LastEventAt:       timeToWire(r.LastEventAt),
+			ParentRunId:       r.ParentRunID,
+			PermissionMode:    r.PermissionMode,
+			McpServers:        r.MCPServers,
+			Cause:             r.Cause,
+			Detail:            r.Detail,
+			Hold:              runHoldToWire(r.Hold),
+			Unread:            uint32(max(r.Unread, 0)),
+			ParentHarp:        r.ParentHarp,
+			ContextTokensUsed: r.ContextTokens,
+			ContextWindow:     r.ContextWindow,
 		})
+	}
+	return out
+}
+
+// CredentialHoldsToWire encodes the holds in force, oldest first: names
+// only, never a credential's value (CredentialSource carries none).
+func CredentialHoldsToWire(holds []coord.CredentialHold) *agentcoordpb.CredentialHoldsResult {
+	out := &agentcoordpb.CredentialHoldsResult{}
+	for _, h := range holds {
+		w := &agentcoordpb.CredentialHoldsResult_Hold{
+			Engine:        string(h.Engine),
+			Kind:          string(h.Kind),
+			SourceKey:     h.Source.Key,
+			SourceEnvVars: h.Source.EnvVars,
+			SourceStores:  h.Source.Stores,
+			Since:         timeToWire(h.Since),
+			Until:         timeToWire(h.Until),
+			Harps:         h.Harps,
+		}
+		out.Holds = append(out.Holds, w)
 	}
 	return out
 }

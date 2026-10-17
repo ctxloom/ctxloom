@@ -1001,6 +1001,9 @@ message Heartbeat {
   google.protobuf.Timestamp sent_at = 2;
   optional double progress = 3;              // 0.0..1.0 instantaneous
   optional uint64 context_tokens_used = 4;
+  // The model's context window context_tokens_used is out of, when the
+  // engine reports one. A runner sends both as each turn completes.
+  optional uint64 context_window = 5;
 }
 
 // =============================================================================
@@ -1420,6 +1423,15 @@ message ListRunsResult {
     // sent to it that its engine has not been handed yet. Nonzero while a
     // child is mid-turn means it has not seen what was sent to it.
     uint32 unread = 13;
+    // parent_harp is the harp that delegated the run: a top-level child's is
+    // the coordinating session's own. Beside parent_run_id (empty for a
+    // top-level child) it is what a roster consumer hangs the tree from.
+    string parent_harp = 14;
+    // context_tokens_used of context_window is how full the run's
+    // conversation is, as its engine reported at the end of its latest turn
+    // (the RunChannel Heartbeat's fields); 0 when nothing has reported.
+    uint64 context_tokens_used = 15;
+    uint64 context_window = 16;
   }
   repeated RunInfo runs = 1;
 }
@@ -1623,6 +1635,35 @@ service ConsumerService {
   // id), so a reader holds nothing an answer could address — answering
   // stays in the originator's modal.
   rpc PendingApprovals(PendingApprovalsRequest) returns (PendingApprovalsResult);
+
+  // CredentialHolds is every hold a turn failure opened that is still in
+  // force — a rate limit or a refused credential parking the runs that share
+  // it, an overload or an unreachable endpoint backing one run off — oldest
+  // first. Read-only, names only: a credential's carrier is its variables'
+  // and stores' names, never a value. A pause is not a credential hold; it
+  // rides its run's RunInfo.hold.
+  rpc CredentialHolds(CredentialHoldsRequest) returns (CredentialHoldsResult);
+}
+
+message CredentialHoldsRequest {}
+
+message CredentialHoldsResult {
+  message Hold {
+    string engine = 1;
+    // The turn failure it is for, as its stop_reason spells it
+    // ("rate_limited", "credential_rejected", "overloaded",
+    // "endpoint_unreachable").
+    string kind = 2;
+    // The credential's comparable identity; empty for a run's own hold.
+    string source_key = 3;
+    repeated string source_env_vars = 4;  // carrier variable NAMES
+    repeated string source_stores = 5;    // carrier store locations
+    google.protobuf.Timestamp since = 6;
+    // When it releases itself; absent for a hold only the human releases.
+    google.protobuf.Timestamp until = 7;
+    repeated string harps = 8;            // the runs it parks, sorted
+  }
+  repeated Hold holds = 1;                // oldest first
 }
 
 message PendingApprovalsRequest {}

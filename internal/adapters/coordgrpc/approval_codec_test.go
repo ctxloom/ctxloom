@@ -203,7 +203,7 @@ func walkApprovalWire() approvalWireRules {
 func TestNoWirePathAnswersAnApproval(t *testing.T) {
 	w := walkApprovalWire()
 	assert.Equal(t, []string{"CoordinatorResponse"}, w.decisionCarriers, "(i)")
-	assert.ElementsMatch(t, []string{"WatchRuns", "ListRuns", "SpoolStats", "PendingApprovals"}, w.methods["ConsumerService"], "(ii)")
+	assert.ElementsMatch(t, []string{"WatchRuns", "ListRuns", "SpoolStats", "PendingApprovals", "CredentialHolds"}, w.methods["ConsumerService"], "(ii)")
 	for _, m := range w.methods["CoordinatorService"] {
 		assert.NotContains(t, strings.ToLower(m), "approv", "(iii) CoordinatorService.%s", m)
 	}

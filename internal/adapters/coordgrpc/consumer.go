@@ -39,6 +39,12 @@ func (s *consumerService) PendingApprovals(ctx context.Context, _ *agentcoordpb.
 	return PendingApprovalsToWire(s.c.Approvals().Pending(), id.ProjectDir), nil
 }
 
+// CredentialHolds projects the holds in force for a viewer in another
+// terminal.
+func (s *consumerService) CredentialHolds(context.Context, *agentcoordpb.CredentialHoldsRequest) (*agentcoordpb.CredentialHoldsResult, error) {
+	return CredentialHoldsToWire(s.c.CredentialHolds()), nil
+}
+
 // WatchRuns serves the stream: snapshot first, then live AgentEvents
 // (subscribe BEFORE building the snapshot so nothing published in the gap
 // between subscribing and sending is missed — it simply arrives, correctly

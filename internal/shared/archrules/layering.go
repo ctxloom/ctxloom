@@ -373,6 +373,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/runner -> internal/adapters/coordgrpc/pb":              "slice 10: the runner's RunnerChannel client is coordgrpc's; until then runner.Host sees the frame's Launch",
 			"internal/adapters/cli -> internal/adapters/coordgrpc/pb":                 "slice 13: allowlisted until then",
 			"internal/adapters/operations -> internal/adapters/coordgrpc/pb":          "slice 13: allowlisted until then",
+			"internal/testsupport/livecoord -> internal/adapters/coordgrpc/pb":        "sanctioned: the test harness stands in for a run's approval route, which speaks the wire (runner.askTheRoot), to ask the root over the run's real RunChannel",
 		},
 	},
 	{

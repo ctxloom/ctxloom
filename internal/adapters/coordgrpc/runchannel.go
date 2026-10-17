@@ -127,9 +127,12 @@ func handleAgentFrame(c *coord.Coordinator, ch *coord.RunChannel, frame *agentco
 		}
 		c.HandleRequest(ch, req)
 	case *agentcoordpb.AgentFrame_Heartbeat:
-		// Nothing beyond ConfirmAttach, which every frame reaches first: the
-		// runner sends one on adopting the stream; RunnerChannel owns loss
-		// detection.
+		// Beyond ConfirmAttach, which every frame reaches first (the runner
+		// sends one on adopting the stream; RunnerChannel owns loss
+		// detection), a heartbeat may carry the run's context usage as its
+		// latest turn completed.
+		hb := kind.Heartbeat
+		c.RecordContextUsage(ch, coord.ContextUsage{Used: hb.GetContextTokensUsed(), Window: hb.GetContextWindow()})
 	case *agentcoordpb.AgentFrame_Hello:
 		// Duplicate hello on a live stream: tolerated.
 	case *agentcoordpb.AgentFrame_SpoolChanged:

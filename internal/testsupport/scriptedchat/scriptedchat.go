@@ -66,6 +66,9 @@ type Chat struct {
 	// Failed event and a completion, and nothing else — a turn on a spent
 	// limit, or a refused credential.
 	Failed func(ex engine.Exec, prompt string) *agent.TurnFailure
+	// ContextWindow is the context window each completed turn reports
+	// beside its context usage (TurnMeta.InputTokens); zero reports none.
+	ContextWindow int
 	// GotEnv / GotRunnerEnv are what the fake spawner's Start was handed for
 	// this engine: the ENGINE's ambient env and the RUNNER's per-spawn env
 	// (the coordinator reach-back trio rides the latter only).
@@ -176,6 +179,7 @@ type turnPlan struct {
 	end     bool
 	denials []agent.PermissionDenial
 	failure *agent.TurnFailure
+	window  int
 }
 
 // take records the turn and decides, under the lock, how it goes.
@@ -186,7 +190,7 @@ func (s *Chat) take(ex engine.Exec, in engine.Turn) turnPlan {
 	s.Execs = append(s.Execs, ex)
 	s.Texts = append(s.Texts, in.Prompt)
 	s.Keys = append(s.Keys, in.Resume)
-	plan := turnPlan{gate: s.Gate, session: s.SessionGate, entered: s.Entered, answer: s.Answer, first: s.turns == 0, denials: s.Denials}
+	plan := turnPlan{gate: s.Gate, session: s.SessionGate, entered: s.Entered, answer: s.Answer, first: s.turns == 0, denials: s.Denials, window: s.ContextWindow}
 	if s.Failed != nil {
 		plan.failure = s.Failed(ex, in.Prompt)
 	}
@@ -255,7 +259,7 @@ func turnEvents(text string, plan turnPlan) []agent.ChatEvent {
 	for i := range denials {
 		evs = append(evs, agent.ChatEvent{Denied: &denials[i]})
 	}
-	return append(evs, agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn", InputTokens: 10, CostUSD: 0.0000015, Denials: denials}})
+	return append(evs, agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn", InputTokens: 10, ContextWindow: plan.window, CostUSD: 0.0000015, Denials: denials}})
 }
 
 var _ engine.Instance = (*Chat)(nil)

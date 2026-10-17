@@ -295,13 +295,18 @@ type Notice struct {
 
 // RunInfo is one roster row as the consumer plane sees it.
 type RunInfo struct {
-	TaskID         string
-	RunID          string
-	Agent          *AgentIdentity
-	Phase          string
-	LatestSummary  string
-	LastEventAt    time.Time
-	ParentRunID    string
+	TaskID        string
+	RunID         string
+	Agent         *AgentIdentity
+	Phase         string
+	LatestSummary string
+	// LastEventAt is when the run last changed state (RosterEntry's
+	// LastActivityUnix).
+	LastEventAt time.Time
+	ParentRunID string
+	// ParentHarp is the harp that delegated the run (RosterEntry.Parent): a
+	// top-level child's is the coordinating session's own.
+	ParentHarp     string
 	PermissionMode string
 	MCPServers     []string
 	// Cause and Detail are the run's terminal cause and detail
@@ -313,6 +318,11 @@ type RunInfo struct {
 	// Unread is how many messages wait undelivered in the run's inbox
 	// (RosterEntry.Unread).
 	Unread int
+	// ContextTokens of ContextWindow is how full the harp's context is, as
+	// its engine reported at the end of its latest turn (RecordContextUsage);
+	// zero when nothing has reported.
+	ContextTokens uint64
+	ContextWindow uint64
 }
 
 // RunHold is why a run is parked and when it is released: the turn failure

@@ -62,6 +62,9 @@ type engineHome interface {
 	// stampPlan publishes the plan the turn left as an artifact and names
 	// it (Home.stampPlan); "" when there is none.
 	stampPlan(ctx context.Context) string
+	// reportContextUsage tells the coordinator how full the run's context
+	// is as a turn completes (Home.reportContextUsage).
+	reportContextUsage(used, window uint64)
 	// Request runs one plane-2 request to completion (Home.Request) — the
 	// engine host's seam for issuing an agent-initiated request to the
 	// coordinator and awaiting its answer.
@@ -919,6 +922,7 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 			case ev.Complete != nil:
 				items.closeOpen()
 				lastMeta = ev.Complete
+				reportContextUsage(home, ev.Complete)
 			case ev.Failed != nil && coord.HoldsFailure(ev.Failed.Kind):
 				failure = ev.Failed
 			}
@@ -1354,6 +1358,17 @@ func (eh *EngineHost) takeTurnFinal() string {
 	text := strings.Join(eh.turnFinal, "")
 	eh.turnFinal = nil
 	return text
+}
+
+// reportContextUsage hands the coordinator a completed turn's context gauge
+// — tokens in context out of the model's window, as TurnMeta reports them
+// (running totals, so the latest turn's is the conversation's) — when the
+// engine reported either.
+func reportContextUsage(home engineHome, m *agent.TurnMeta) {
+	if m.InputTokens <= 0 && m.ContextWindow <= 0 {
+		return
+	}
+	home.reportContextUsage(nonNegU64(m.InputTokens), nonNegU64(m.ContextWindow))
 }
 
 // usageFromMeta projects the engine's cumulative turn accounting onto the

@@ -381,7 +381,9 @@ func (c *Coordinator) listRunsSnapshot(includeTerminal bool, role, parent string
 				},
 				Phase:         e.State,
 				LatestSummary: c.reportsF.latestSummary(e.Harp),
+				LastEventAt:   unixTime(e.LastActivityUnix),
 				ParentRunID:   rec.ParentRunID,
+				ParentHarp:    e.Parent,
 				// F1: the run's resolved permission mode and MCP server
 				// NAMES ONLY (rec.Permission/MCPServers, fixed at enqueue) —
 				// the roster consumer's only black-box view onto the
@@ -395,7 +397,10 @@ func (c *Coordinator) listRunsSnapshot(includeTerminal bool, role, parent string
 		}
 	})
 	for i := range result.Runs {
-		result.Runs[i].Unread = c.unreadMail(result.Runs[i].Agent.AgentID)
+		harp := result.Runs[i].Agent.AgentID
+		result.Runs[i].Unread = c.unreadMail(harp)
+		use := c.contextUsage(harp)
+		result.Runs[i].ContextTokens, result.Runs[i].ContextWindow = use.Used, use.Window
 	}
 	return result
 }
@@ -423,16 +428,8 @@ func (c *Coordinator) WatchRuns(runIDs []string) (snapshot RunsSnapshot, events 
 	return snapshot, events, cancel, narrow
 }
 
-// ListRuns is the in-process form of ConsumerService.ListRuns.
-//
-// test-only: no production caller — production reaches
-// listRunsSnapshot directly (the roster verb; the wire's ConsumerService). This
-// was deleted once in this wave and reverted: repointing its in-package test
-// call sites at listRunsSnapshot compiled fine, but
-// internal/adapters/mcp/mcp_tools_agents_test.go (a different package) also calls it
-// via require.Eventually to poll for a roster change — `go vet ./...`, not a
-// package-scoped vet, is what caught that. Kept for that cross-package test
-// caller, the same reason as LoopbackURL.
+// ListRuns is the in-process form of ConsumerService.ListRuns: what the
+// in-process frontend port (operations.NewFrontendPort) lists.
 func (c *Coordinator) ListRuns(includeTerminal bool, role string) RunsSnapshot {
 	return c.listRunsSnapshot(includeTerminal, role, "")
 }
@@ -448,4 +445,12 @@ func (c *Coordinator) SpoolStats() SpoolStats {
 		DoorbellDropped:  doorbell.Dropped,
 		DoorbellRejected: doorbell.Rejected,
 	}
+}
+
+// unixTime is sec as a time, zero for zero (no activity recorded).
+func unixTime(sec int64) time.Time {
+	if sec == 0 {
+		return time.Time{}
+	}
+	return time.Unix(sec, 0)
 }

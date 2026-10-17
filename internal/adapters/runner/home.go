@@ -1361,6 +1361,18 @@ func (h *Home) emitCustomEvent(name string, value map[string]any) {
 	}}})
 }
 
+// reportContextUsage sends the run's context gauge as a Heartbeat: tokens in
+// context out of the model's window as the latest turn completed. A gauge,
+// not an event: with no stream to carry it the frame is dropped, and the next
+// turn's report supersedes it.
+func (h *Home) reportContextUsage(used, window uint64) {
+	hb := &agentcoordpb.Heartbeat{RunId: h.cfg.RunID, SentAt: timestamppb.Now(), ContextTokensUsed: &used}
+	if window > 0 {
+		hb.ContextWindow = &window
+	}
+	h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Heartbeat{Heartbeat: hb}})
+}
+
 // emitEvent assigns the next seq, buffers the event as unacked, and sends it
 // when the stream is live. Returns the assigned seq.
 //

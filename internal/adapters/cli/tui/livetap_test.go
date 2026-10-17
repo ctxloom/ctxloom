@@ -3,8 +3,6 @@ package tui_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -16,23 +14,32 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
-	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	"github.com/ctxloom/ctxloom/internal/core/delivery"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/core/launch"
-	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
-	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
-	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/livecoord"
 )
+
+// This file is the hermetic live-tap end-to-end harness: a REAL in-process
+// coordinator whose child is a REAL in-process runner (livecoord) -> the
+// coordinator's watchHub -> ConsumerService.WatchRuns -> the live path of
+// operations.WatchSessionFeed, discovery and all -> the real tui.Overlay ->
+// the child's assistant entry rendered as an overlay item.
+//
+// Placement: package tui_test (external), beside the overlay it asserts on: a
+// test that needs a UI to assert is that UI adapter's test, and the frontend
+// layering rule (core-and-shared-import-no-frontend) keeps UI imports out of
+// core.
+//
+// The live tap is forward-only fan-out: a broadcast with no subscriber yet is
+// gone. So the feed is opened first and the turn it must show — a steer —
+// comes after.
+//
+// Gap markers (feed.go — itemsFromFeedEvent's Gap>0 branch) are not
+// provoked here; livetap_gap_test.go proves a real seq gap on the wire
+// reaching a real notice in the real overlay.
 
 // tuiGeo is a plain small overlay geometry, sized like model_test.go's
 // testGeo() (unreachable from this external package).
@@ -40,227 +47,8 @@ func tuiGeo() termui.OverlayGeometry {
 	return termui.OverlayGeometry{Cols: 100, Rows: 30, PanelRows: 10}
 }
 
-// This file is the F1 hermetic live-tap end-to-end harness (Wave F playbook,
-// item 4): a REAL in-process coord.Coordinator + a minimal Spawner double
-// driving the MIGRATED (StartRun) engine path -> the coordinator's own
-// watchHub (runchannel.go:277, fed by handleAgentEvent on a live RunChannel
-// — recon note: the LEGACY spawner.Launch path children.go's driveChild
-// documents is NOT live-observable; only StartRun-migrated children reach
-// watchHub) -> ConsumerService.WatchRuns -> operations.WatchSessionFeed's
-// live path (sessionfeed.go:95/:169) -> the real tui.Overlay (the same
-// Run entry point overlay_test.go drives, and run_terminal_ui.go:77 wires
-// in production) -> the child's assistant entry rendered as a real overlay
-// item.
-//
-// Placement: package tui_test (external), beside the overlay it asserts on: a
-// test that needs a UI to assert is that UI adapter's test, and the frontend
-// layering rule (core-and-shared-import-no-frontend) keeps UI imports out of
-// core. coord's own fakeSpawner/scriptedChat prove the same StartEngine
-// bridging (NewEngineHost/NewHome/HomeConfig) but are package-private to
-// coord's tests, so this file re-derives the idiom from coord's EXPORTED
-// Spawner surface (Resolve/AssignSession/Start/...).
-//
-// Gap markers (feed.go:27 — itemsFromFeedEvent's Gap>0 branch): NOT
-// exercised end-to-end in THIS test (it drives one clean turn end-to-end;
-// no drop is ever provoked here) — but the note this comment used to carry
-// ("Gap is never set anywhere on the live path any more... the field is a
-// vestige of the retired agentbus tap") is now obsolete: watchHub's
-// broadcast (consumer.go) is a real, live producer of drops again (a full
-// subscriber ring), operations.adaptConsumerFeed (sessionfeed.go) now
-// detects the resulting seq discontinuity and emits Gap for it, and
-// livetap_gap_test.go in this same package proves the rendering side
-// end-to-end: a real seq gap on the wire reaching a real notice in the real
-// tui.Overlay. model_test.go's TestModel_GapRendersNotice remains the
-// synthetic unit-level check one level further down (Gap>0 -> notice item).
-
-// liveTapChat is a minimal engine.Instance whose driver relays one assistant
-// entry plus a turn boundary per turn. It stands in for coord's unexported
-// scriptedChat (package-private, unreachable from here) using only the
-// exported engine.Instance contract that type also implements.
-//
-// turnGate (non-nil) holds the turn's content until released: a fast
-// in-process StartRun round trip can otherwise complete and broadcast to
-// watchHub BEFORE the test's own ConsumerService.WatchRuns subscription
-// attaches (watchHub is forward-only fan-out — a broadcast with no
-// subscriber yet is simply gone, and this test's synthetic child writes no
-// transcript for the store-fallback scrollback to replay) — the same
-// ordering hazard TestConsumerService_WatchRuns_SnapshotThenLiveDeltaText's
-// own doc comment names ("Spawn the migrated child AFTER the watcher
-// attached — proving genuinely LIVE delivery, not a replay"); that test can
-// subscribe before spawning because it dials the bare ConsumerService
-// directly, but operations.WatchSessionFeed's higher-level discovery can
-// only resolve a harp that ListRuns already reports live, so the ordering
-// has to be enforced by gating the content instead.
-type liveTapChat struct {
-	turnGate chan struct{}
-}
-
-func (c *liveTapChat) Exec([]present.Presentation) (engine.Exec, error) {
-	return engine.Exec{Binary: "live-tap"}, nil
-}
-func (c *liveTapChat) Drivers() []engine.StructuredDriver { return []engine.StructuredDriver{c} }
-func (c *liveTapChat) Resume(string) error                { return nil }
-
-func (c *liveTapChat) Turn(ctx context.Context, _ engine.Exec, in engine.Turn, out chan<- engine.Event) (engine.TurnResult, error) {
-	send := func(ev agent.ChatEvent) error {
-		payload, err := json.Marshal(ev)
-		if err != nil {
-			return err
-		}
-		select {
-		case out <- engine.Event{Kind: "event", Payload: payload}:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-	if err := send(agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: "live-tap-sess"}}); err != nil {
-		return engine.TurnResult{}, err
-	}
-	if c.turnGate != nil {
-		select {
-		case <-c.turnGate:
-		case <-ctx.Done():
-			return engine.TurnResult{}, ctx.Err()
-		}
-	}
-	text := "live words for " + in.Prompt
-	if err := send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: text}}); err != nil {
-		return engine.TurnResult{}, err
-	}
-	if err := send(agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}}); err != nil {
-		return engine.TurnResult{}, err
-	}
-	return engine.TurnResult{NativeKey: "live-tap-sess", Answer: text}, nil
-}
-
-// liveTapKind is the mock kind with liveTapChat as every session's instance.
-type liveTapKind struct {
-	engine.Engine
-	inst *liveTapChat
-}
-
-func (k liveTapKind) Instance(engine.Session) (engine.Instance, error) { return k.inst, nil }
-
-// liveTapSpawner is a minimal coord.Spawner routing its one "worker" agent
-// over the MIGRATED StartRun path (ViaStartRun) — the ONLY path that feeds
-// the D1 watchHub (see this file's header comment). AssignSession mints a
-// REAL session-index harp (sessions.AssignHarp, the same call
-// operations_test.go's seedFeedHarp uses) so operations.GetSession /
-// WatchSessionFeed can resolve it: this test is about the DISCOVERY +
-// ADAPTATION chain, not the spawn mechanics coord's own suite already
-// proves (consumer_test.go's TestConsumerService_WatchRuns_...).
-type liveTapSpawner struct {
-	projectDir string
-	chat       *liveTapChat // the SAME instance every StartEngine call binds, so the test's gate reaches it
-}
-
-func (s *liveTapSpawner) Resolve(context.Context, string) (*coord.SpawnPlan, error) {
-	return &coord.SpawnPlan{
-		AgentName:  "worker",
-		Backend:    "claude-code",
-		Label:      "fast",
-		Permission: "bypass",
-	}, nil
-}
-
-func (s *liveTapSpawner) AssignSession(projectDir, backend string) (string, error) {
-	mgr, err := sessions.Open(nil)
-	if err != nil {
-		return "", err
-	}
-	entry, err := mgr.AssignHarp(projectDir, backend)
-	if err != nil {
-		return "", err
-	}
-	return entry.HarpName, nil
-}
-
-// noDelivery is the live-tap runner's static writer: nothing lands; the
-// test observes the drive.
-type noDelivery struct{}
-
-func (noDelivery) Deliver(context.Context, delivery.Loadout, engine.Base, delivery.Target) (delivery.Delivered, error) {
-	return delivery.Delivered{}, nil
-}
-
-func (noDelivery) Reverse(context.Context, delivery.Ownership, ...delivery.Writer) error {
-	return nil
-}
-
-func (noDelivery) Preview(context.Context, delivery.Loadout, engine.Base, delivery.Target) (delivery.Previewed, error) {
-	return delivery.Previewed{}, nil
-}
-
-// ResolveLaunch resolves the worker's launch: it composes no context (the
-// tap renders the turn's own words).
-func (s *liveTapSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart) (coord.Resolved, error) {
-	enc, err := composite.Encode(composite.Package{})
-	if err != nil {
-		return coord.Resolved{}, err
-	}
-	carrier, err := composite.Inline{}.Carry(ctx, enc)
-	if err != nil {
-		return coord.Resolved{}, err
-	}
-	l := launch.Launch{
-		Identity:   start.Identity,
-		Engine:     engine.Name(plan.Backend),
-		Label:      engine.LabelConfig{Label: plan.Label, Model: "test-model"},
-		Mode:       engine.Structured,
-		Permission: engine.PermissionPolicy{Posture: engine.Posture{Engine: engine.Name(plan.Backend), Document: map[string]any{"mode": "bypass"}}, Sandbox: engine.SandboxFull},
-		Cell:       launch.Cell{Placement: launch.Placement{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: "/work"}})}, Cleanup: func() error { return nil }},
-		Package:    carrier,
-		Prompt:     start.Prompt,
-	}
-	plan.Launch = l
-	return coord.Resolved{Launch: l}, nil
-}
-
-// Start bridges the coordinator's own RunChannel to liveTapChat, mirroring
-// fake_test.go's fakeSpawner.Start via the SAME exported constructors it
-// uses internally.
-func (s *liveTapSpawner) Start(_ context.Context, l launch.Launch, reach sessions.Endpoint) (*coord.EngineSpawn, error) {
-	runnerEnv := sessions.EncodeReach(reach, l.Identity.RunID)
-	sctx, cancel := context.WithCancel(context.Background())
-	backend := string(l.Engine)
-	host := runner.NewEngineHost(sctx, nil, backend, runnerEnv[coord.EnvRunID])
-	host.BindRunner(&runner.Host{Deps: runner.Deps{
-		Locks:      &launchtest.Locks{},
-		Kind:       liveTapKind{Engine: mock.NewNamed(l.Engine), inst: s.chat},
-		Inline:     composite.Inline{Max: composite.DefaultInlineMax},
-		ClaimCheck: composite.ClaimCheck{Store: launchtest.MemStore{}},
-		Static:     noDelivery{},
-		Driver:     host,
-	}})
-	home, err := runner.NewHome(sctx, runner.HomeConfig{
-		URL:     runnerEnv[coord.EnvCoordURL],
-		Token:   runnerEnv[coord.EnvCoordCred],
-		RunID:   runnerEnv[coord.EnvRunID],
-		Harness: backend,
-		Version: "test",
-		Engine:  host.Handle,
-	})
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	host.BindHome(home)
-	// Kill is the runner-process death: the Home crashes with it, or its
-	// channels and connections outlive the test.
-	return &coord.EngineSpawn{Kill: func() { cancel(); home.Crash() }}, nil
-}
-
-func (s *liveTapSpawner) ResumeHistory(context.Context, string) string                { return "" }
-func (s *liveTapSpawner) RecordEngineVersion(context.Context, string, string, string) {}
-
-func (s *liveTapSpawner) MarkSessionEnded(string, string, *sessions.RunEnd) {}
-func (s *liveTapSpawner) BindNativeSession(string, string)                  {}
-func (s *liveTapSpawner) NativeSession(string) string                       { return "" }
-
-// syncBuf is a goroutine-safe io.Writer (the overlay's tty writer runs on
-// its own goroutine, same as overlay_test.go's syncBuffer — re-derived here
-// since that type is unexported to package tui).
+// syncBuf is a goroutine-safe io.Writer: the overlay's tty writer runs on its
+// own goroutine.
 type syncBuf struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
@@ -280,13 +68,8 @@ func (b *syncBuf) String() string {
 
 func waitForLiveTap(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	// 60s, not conformanceWait's 5s: this path is a REAL dial-home + StartRun
-	// round trip over a real loopback listener — this test's own bound, not
-	// children.go's defaultRunnerAwaitTimeout (which this coordinator gets
-	// unmodified and is now wider still) — and it ran visibly slower under a
-	// full `-race ./...` package run than in isolation — a scheduling-load
-	// sensitivity, not a logic race (repeated isolated -count=1 -race runs of
-	// this test were instant and stable).
+	// 60s: a REAL dial-home and StartRun round trip over a real loopback
+	// listener, visibly slower under a full `-race ./...` run than alone.
 	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
 		if cond() {
@@ -298,78 +81,43 @@ func waitForLiveTap(t *testing.T, what string, cond func() bool) {
 }
 
 // TestLiveTap_ChildItemsReachTheOverlay is the hermetic end-to-end proof:
-// real Coordinator + a StartRun-migrated child's real event stream -> real
-// watchHub -> real ConsumerService.WatchRuns -> operations.WatchSessionFeed
-// resolving the live tap via ~/.ctxloom/coord/*/*/endpoint.json discovery
-// (the coordinator's OWN Serve() writes this; no fakeConsumerServer
-// stand-in anywhere in this test) -> the real tui.Overlay rendering the
-// child's assistant entry as a feed item.
+// a live child's real event stream reaches the real overlay as a feed item,
+// through the coordinator's own Serve() endpoint and no stand-in.
 func TestLiveTap_ChildItemsReachTheOverlay(t *testing.T) {
 	home := testsupport.Isolate(t)
 	projectDir := home + "/proj"
 	require.NoError(t, os.MkdirAll(projectDir, 0o755))
-
-	gate := make(chan struct{})
-	chat := &liveTapChat{turnGate: gate}
-	sp := &liveTapSpawner{projectDir: projectDir, chat: chat}
-	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectID: "livetap-proj", Spawner: sp, OwnerHarp: "coordinator-harp"})
-	require.NoError(t, err)
-	require.NoError(t, coordgrpc.Serve(c), "Serve must write endpoint.json where discover.List() looks")
-	t.Cleanup(c.Close)
+	s := livecoord.New(t, projectDir, 0)
+	child := s.Delegate(t, "hello from the coordinator")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
-	owner := coord.Identity{Harp: "coordinator-harp", Depth: 0}
-	out, err := c.AgentRun(ctx, owner, "worker", "hello from the coordinator", "")
-	require.NoError(t, err)
-	require.NotEmpty(t, out.Harp)
-
-	// The child must show up live (non-terminal) in ListRuns for
-	// operations.WatchSessionFeed's discovery to resolve it — wait for the
-	// StartRun handshake to complete rather than racing it.
-	waitForLiveTap(t, "the child to appear live on the coordinator's own roster", func() bool {
-		for _, e := range c.Roster(c.Owner()) {
-			if e.Harp == out.Harp {
-				return true
-			}
-		}
-		return false
-	})
-
-	// Resolve the live feed BEFORE the gated turn ever runs: this is the
-	// exact seam operations-backed frontends use (terminalUISources /
-	// `ctxloom session transcript watch`, run_terminal_ui.go:105-113) — discovery and
-	// all — called directly (not lazily from the overlay's Watch closure) so
-	// the test can confirm the ConsumerService.WatchRuns subscription is
-	// live BEFORE releasing the gate below.
-	feed, err := operations.WatchSessionFeed(ctx, engines.Registry(), operations.SessionFeedRequest{Harp: out.Harp})
+	feed, err := operations.WatchSessionFeed(ctx, engines.Registry(), operations.SessionFeedRequest{Harp: child})
 	require.NoError(t, err)
 	require.Equal(t, "live", feed.Source, "the coordinator holds this child; the tap must be live, not the store fallback")
 
-	close(gate) // now safe: the subscription is attached, so the broadcast can't be lost
-
 	src := tui.Sources{
 		Roster: func(context.Context) ([]tui.RosterRow, error) {
-			return []tui.RosterRow{{Harp: out.Harp, State: "live"}}, nil
+			return []tui.RosterRow{{Harp: child, State: "live"}}, nil
 		},
 		Watch: func(context.Context, string) (*tui.Feed, error) {
 			return &tui.Feed{Source: feed.Source, Events: feed.Events, Errs: feed.Errs, Cancel: func() {}}, nil
 		},
 	}
-
 	ov := tui.NewOverlay(ctx, src, 0x1d, termui.OverlayStart{})
 	pr, pw := io.Pipe()
 	defer pw.Close()
 	var tty syncBuf
 	done := make(chan error, 1)
 	go func() { done <- ov.Run(pr, &tty, tuiGeo()) }()
-
 	waitForLiveTap(t, "the feed to resolve live (not the store fallback)", func() bool {
 		return strings.Contains(tty.String(), "· live")
 	})
-	waitForLiveTap(t, fmt.Sprintf("the child's real assistant entry to render as an overlay item (roster: %v)", c.Roster(c.Owner())), func() bool {
-		return strings.Contains(tty.String(), "asst  < live words for hello from the coordinator")
+
+	_, err = s.Coord.Control(ctx, coord.ControlInitiator{Kind: coord.InitiatorHuman}, coord.ControlRequest{Verb: coord.ControlVerbSteer, Harp: child, Body: "live words"})
+	require.NoError(t, err)
+	waitForLiveTap(t, "the child's real assistant entry to render as an overlay item", func() bool {
+		return strings.Contains(tty.String(), "asst  < echo: ") && strings.Contains(tty.String(), "live words")
 	})
 
 	_, err = pw.Write([]byte("q"))

@@ -3,6 +3,7 @@ package operations
 import (
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
@@ -65,10 +66,13 @@ func ViewSession(e sessions.Entry) SessionView {
 // (sessionlock): held is live, free is ended, and anything the lock cannot
 // prove — no lock file, an untrusted filesystem, a failed probe — is unknown,
 // never rounded to a guess.
+//
+// The vocabulary is the frontend port's (frontend.Session.State), which owns
+// the words.
 const (
-	SessionLive    = "live"
-	SessionEnded   = "ended"
-	SessionUnknown = "unknown"
+	SessionLive    = frontend.SessionLive
+	SessionEnded   = frontend.SessionEnded
+	SessionUnknown = frontend.SessionUnknown
 )
 
 // SessionStates is every state, in the order a flag lists them.

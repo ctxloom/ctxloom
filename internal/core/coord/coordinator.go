@@ -414,6 +414,9 @@ type Coordinator struct {
 	// carries as origin_id, which is what a reply quotes in in_reply_to.
 	// Guarded by mu; lazily initialized.
 	openAsks map[string]openAsk
+	// contextUse is each harp's context usage as its runner last reported
+	// it (RecordContextUsage). Guarded by mu; lazily initialized.
+	contextUse map[string]ContextUsage
 	// pendingStops holds, per run id, the terminal detail of an agent_stop
 	// whose runner is closing the run: the runner's own RunExited can reach
 	// RunnerExited before the stop's terminal, and must be recorded as the

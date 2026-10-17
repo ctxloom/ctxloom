@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
@@ -145,8 +146,9 @@ func teardownOnExit(teardown func(context.Context) error, runExited <-chan struc
 }
 
 // driveOwnedInteractive drives an interactive owner run over the pty: the
-// terminal seams (raw mode, the terminal layer) are pumped onto the master
-// — keystrokes in, the engine's bytes out, each resize onto the pty — until
+// terminal seams (raw mode, the terminal layer) are pumped onto the
+// session's terminal, attached through the frontend port — keystrokes in,
+// the engine's bytes out, each resize onto the pty — until
 // the runner exits, and the run's outcome is read from the coordinator's
 // own event stream (RunCompleted), which the runner emitted for the
 // engine's exit before it exited itself. A shutdown signal (the run's ctx)
@@ -155,21 +157,29 @@ func teardownOnExit(teardown func(context.Context) error, runExited <-chan struc
 // signals' default action, so this drive observing them is the only way the
 // process ends on one.
 func (st *runState) driveOwnedInteractive() error {
-	sio := st.prepareSessionIO()
+	port := st.frontendPort()
+	term, err := port.Terminal(st.activeHarp)
+	if err != nil {
+		// Unreachable while the port is this session's over its own pty; a
+		// runner nothing can drive is ended rather than left on the pty.
+		st.endRunnerAfter(0)
+		_, _ = st.pty.Wait()
+		return fmt.Errorf("the session's terminal: %w", err)
+	}
+	sio := st.prepareSessionIO(port)
 	defer sio.restore()
-	master := st.pty.Master()
 
 	pumpCtx, stopPumps := context.WithCancel(st.ctx)
 	defer stopPumps()
-	st.pumpSessionInput(pumpCtx, sio, master)
+	st.pumpSessionInput(pumpCtx, sio, term)
 	drained := make(chan struct{})
 	var drainErr error
 	go func() {
 		defer close(drained)
 		// Ends with EIO once the slave's last holder exits: the kernel
 		// delivers the runner's last bytes ahead of it, which is why the
-		// master is drained BEFORE Wait closes it.
-		_, drainErr = io.Copy(sio.stdout, master)
+		// terminal is drained BEFORE Wait closes the master.
+		_, drainErr = io.Copy(sio.stdout, term)
 	}()
 	// Whichever ends this wait, the runner is ended before Wait: Wait blocks
 	// until the runner is reaped, so reaching it with a live runner parks the
@@ -205,11 +215,11 @@ func (st *runState) driveOwnedInteractive() error {
 	return st.ownedRunOutcome(runnerStatus)
 }
 
-// pumpSessionInput feeds the runner's pty from the session: keystrokes onto
-// the master, each resize onto the pty until ctx ends.
-func (st *runState) pumpSessionInput(ctx context.Context, sio sessionIO, master io.Writer) {
+// pumpSessionInput feeds the session's terminal from the user's: keystrokes
+// into it, each resize onto it until ctx ends.
+func (st *runState) pumpSessionInput(ctx context.Context, sio sessionIO, term frontend.Terminal) {
 	if sio.stdin != nil {
-		go func() { _, _ = io.Copy(master, sio.stdin) }()
+		go func() { _, _ = io.Copy(term, sio.stdin) }()
 	}
 	if sio.resize == nil {
 		return
@@ -221,7 +231,7 @@ func (st *runState) pumpSessionInput(ctx context.Context, sio sessionIO, master 
 				if !ok {
 					return
 				}
-				_ = st.pty.Resize(ws.Rows, ws.Cols)
+				_ = term.Resize(ws.Rows, ws.Cols)
 			case <-ctx.Done():
 				return
 			}

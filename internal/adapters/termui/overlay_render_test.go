@@ -18,10 +18,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/frontendfake"
 	"github.com/ctxloom/ctxloom/internal/testsupport/vtemu"
 )
 
@@ -52,17 +53,17 @@ type renderHarness struct {
 // it opens on the returned channel.
 func renderSources() (tui.Sources, <-chan string) {
 	watches := make(chan string, 16)
-	rows := make([]tui.RosterRow, len(renderHarps))
+	sessions := make([]frontend.Session, len(renderHarps))
 	for i, h := range renderHarps {
-		rows[i] = tui.RosterRow{Harp: h, State: "live"}
+		sessions[i] = frontend.Session{Harp: h, State: "live"}
 	}
-	return tui.Sources{
-		Roster: func(context.Context) ([]tui.RosterRow, error) { return rows, nil },
-		Watch: func(_ context.Context, h string) (*tui.Feed, error) {
+	return tui.Sources{Port: &frontendfake.Port{
+		ListSessionsFn: func(context.Context) ([]frontend.Session, error) { return sessions, nil },
+		WatchFeedFn: func(_ context.Context, h string) (frontend.Feed, error) {
 			watches <- h
-			return &tui.Feed{Source: "live", Events: make(chan operations.SessionFeedEvent), Errs: make(chan error, 1), Cancel: func() {}}, nil
+			return frontend.Feed{Source: "live", Events: make(chan frontend.FeedEvent), Errs: make(chan error, 1)}, nil
 		},
-	}, watches
+	}}, watches
 }
 
 func newRenderHarness(t *testing.T, opts ...func(*termui.Options)) *renderHarness {

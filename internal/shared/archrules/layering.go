@@ -267,8 +267,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/cli -> internal/adapters/confpatch":  "slice 12: delivery.Ownership (adapters/confpatch) is reached through delivery, not from the CLI",
 
 			// cli/tui and termui
-			"internal/adapters/cli/tui -> internal/adapters/operations": "slice 13: the watch UI reads the coordination proto and the transcript file, not the application services",
-			"internal/adapters/cli/tui -> internal/adapters/termui":     "slice 13: termui sits over the pty master; the TUI no longer composes it",
+			"internal/adapters/cli/tui -> internal/adapters/termui": "slice 13: termui sits over the pty master; the TUI no longer composes it",
 
 			// operations reaching sibling adapters (it is the application-services
 			// layer; it holds ports, not adapters)

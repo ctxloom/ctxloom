@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -49,40 +50,42 @@ func TestValidateTerminalUIConfig_DefaultAndValidKeysPass(t *testing.T) {
 	assert.Empty(t, strictness.Since(mark))
 }
 
-// F1 deliverable 5 (opportunistic unit gaps): terminalUISources'
-// nil-coordinator degradations (run_terminal_ui.go:90-144) were untested —
-// a run with no hosted coordinator (coordinator startup failed, or was
-// skipped) must still hand the overlay a working Sources value: an empty
-// bar roster (never an error), and a typed ErrNotInjectable rather than a
-// nil-pointer panic on Control.
+// A run with no hosted coordinator (coordinator startup failed, or was
+// skipped) still hands the bar and the overlay a working port: an empty
+// roster (never an error), the typed ErrNotInjectable rather than a
+// nil-pointer panic on Control, and no approval queue.
 
-func TestTerminalUISources_NilCoordinatorRosterDegradesToEmptyNotError(t *testing.T) {
+// degradedSessionPort is the frontend port of a session that hosts no
+// coordinator, composed as `ctxloom run` composes it.
+func degradedSessionPort(t *testing.T, workDir string) frontend.Port {
+	t.Helper()
+	return (&runState{workDir: workDir, activeHarp: "self-harp"}).frontendPort()
+}
+
+func TestTerminalUIPort_NoCoordinatorRosterDegradesToEmptyNotError(t *testing.T) {
 	home := testsupport.Isolate(t)
 	workDir := home + "/proj"
 	require.NoError(t, os.MkdirAll(workDir, 0o755))
 
-	src := terminalUISources(nil, workDir, "self-harp")
-	rows, err := src.Roster(context.Background())
+	rows, err := tui.LoadRoster(context.Background(), degradedSessionPort(t, workDir), "self-harp")
 	require.NoError(t, err)
-	assert.Empty(t, rows, "no coordinator hosted and no indexed sessions: an empty bar roster, not an error")
+	assert.Empty(t, rows, "no coordinator hosted and no indexed sessions: an empty roster, not an error")
 }
 
-func TestTerminalUISources_NilCoordinatorControlIsNotInjectable(t *testing.T) {
-	src := terminalUISources(nil, "/irrelevant", "self-harp")
-	_, err := src.Control(context.Background(), coord.ControlRequest{Verb: coord.ControlVerbSteer, Harp: "some-harp", Body: "hello"})
+func TestTerminalUIPort_NoCoordinatorControlIsNotInjectable(t *testing.T) {
+	_, err := degradedSessionPort(t, "/irrelevant").Control(context.Background(), coord.ControlRequest{Verb: coord.ControlVerbSteer, Harp: "some-harp", Body: "hello"})
 	require.ErrorIs(t, err, coord.ErrNotInjectable,
 		"no coordinator hosted: Control degrades to the typed refusal, not a nil-pointer panic")
 }
 
-func TestTerminalUISources_NilCoordinatorHasNoApprovalSource(t *testing.T) {
-	src := terminalUISources(nil, "/irrelevant", "self-harp")
-	assert.Nil(t, src.Approvals, "no coordinator hosted: no approval source — never a typed nil the view would call")
+func TestTerminalUIPort_NoCoordinatorHasNoApprovalSource(t *testing.T) {
+	assert.Nil(t, degradedSessionPort(t, "/irrelevant").Approvals(), "no coordinator hosted: no approval source — never a typed nil the view would call")
 }
 
-func TestSurroundRoster_NilCoordinatorIsEmptyNotError(t *testing.T) {
-	rows, err := surroundRoster(nil)
+func TestSurroundRoster_NoCoordinatorIsEmptyNotError(t *testing.T) {
+	rows, err := surroundRoster(context.Background(), degradedSessionPort(t, "/irrelevant"))
 	require.NoError(t, err)
-	assert.Nil(t, rows, "the bar shows just this session, not an error, when no coordinator is hosted")
+	assert.Empty(t, rows, "the bar shows just this session, not an error, when no coordinator is hosted")
 }
 
 // TestSurroundRows_CarryTheHoldInTheOverlaysWords: the bar's rows take a held
@@ -90,12 +93,14 @@ func TestSurroundRoster_NilCoordinatorIsEmptyNotError(t *testing.T) {
 // carries none.
 func TestSurroundRows_CarryTheHoldInTheOverlaysWords(t *testing.T) {
 	hold := &coord.RunHold{Kind: "rate_limited", Until: time.Date(2026, 10, 1, 17, 30, 0, 0, time.UTC)}
-	rows := surroundRows([]coord.RosterEntry{
-		{Harp: "held-kid", State: coord.StateIdle, LastActivityUnix: 7, Hold: hold},
-		{Harp: "free-kid", State: coord.StateExecuting},
+	rows := surroundRows([]coord.RunInfo{
+		{Agent: &coord.AgentIdentity{AgentID: "held-kid"}, Phase: coord.StateIdle, LastEventAt: time.Unix(7, 0), Hold: hold},
+		{Agent: &coord.AgentIdentity{AgentID: "free-kid"}, Phase: coord.StateExecuting},
+		{RunID: "no-identity", Phase: coord.StateExecuting},
 	})
-	require.Len(t, rows, 2)
+	require.Len(t, rows, 2, "a run with no identity names no harp, so makes no row")
 	assert.Equal(t, termui.RosterEntry{Harp: "held-kid", State: coord.StateIdle, LastActivityUnix: 7, Hold: "held: rate limited until 17:30 UTC"}, rows[0])
+	assert.Zero(t, rows[1].LastActivityUnix, "no recorded activity is 0, never the zero time's seconds")
 	assert.Equal(t, tui.HoldLabel(hold), rows[0].Hold, "one wording, overlay and bar")
 	assert.Empty(t, rows[1].Hold)
 }
@@ -103,7 +108,7 @@ func TestSurroundRows_CarryTheHoldInTheOverlaysWords(t *testing.T) {
 // TestSurroundRows_CarryTheUnreadCount: the bar's rows take a child's unread
 // mail count from the coordinator's roster unchanged.
 func TestSurroundRows_CarryTheUnreadCount(t *testing.T) {
-	rows := surroundRows([]coord.RosterEntry{{Harp: "kid", State: coord.StateExecuting, Unread: 2}})
+	rows := surroundRows([]coord.RunInfo{{Agent: &coord.AgentIdentity{AgentID: "kid"}, Phase: coord.StateExecuting, Unread: 2}})
 	require.Len(t, rows, 1)
 	assert.Equal(t, 2, rows[0].Unread)
 }

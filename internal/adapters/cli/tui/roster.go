@@ -1,64 +1,77 @@
 package tui
 
 import (
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 )
 
 // The three labels an index session can carry when the coordinator has no
 // state for it. They are the session lock's three verdicts, one each: there
 // is no fourth, and none is a guess. The same words `ctxloom session list`
-// prints in its STATE column (operations.SessionLive and siblings), and the
-// ended word is the coordinator's own.
+// prints in its STATE column (the frontend port's session vocabulary), and
+// the ended word is the coordinator's own.
 const (
-	StateLive    = operations.SessionLive
+	StateLive    = frontend.SessionLive
 	StateEnded   = coord.StateEnded
-	StateUnknown = operations.SessionUnknown
+	StateUnknown = frontend.SessionUnknown
 )
 
-// BuildRoster merges the session index (every session of this project) with
-// the coordinator's live roster (children with lineage + delivery state,
-// D2: coord.RosterEntry — was agentbus.RosterEntry before the bus package
-// retired) into the overlay's display rows: index order preserved (most
-// recent first, the running session pinned on top), children
+// BuildRoster merges the session index (every session of this project, each
+// with its lock's verdict) with the coordinator's runs (children with
+// lineage and delivery state) into the overlay's display rows: index order
+// preserved (most recent first, the running session pinned on top), children
 // lineage-indented directly under their parent. A harp present in both keeps
-// the index row's engine and takes the held row's richer agent/state; a
-// held child with no index entry (e.g. a containerized child whose
-// transcript hasn't landed) still shows.
-func BuildRoster(index []sessions.Entry, bus []coord.RosterEntry, selfHarp string) []RosterRow {
-	return placeLineage(rosterRows(index, bus, selfHarp))
+// the index row's engine and takes the held row's richer agent/state; a held
+// child with no index entry (e.g. a containerized child whose transcript
+// hasn't landed) still shows.
+func BuildRoster(index []frontend.Session, held []coord.RunInfo, selfHarp string) []RosterRow {
+	return placeLineage(rosterRows(index, held, selfHarp))
+}
+
+// heldRow is the roster row the coordinator's run r says.
+func heldRow(r coord.RunInfo) RosterRow {
+	row := RosterRow{State: r.Phase, Parent: r.ParentHarp, Hold: r.Hold, Cause: r.Cause, Detail: r.Detail, Unread: r.Unread}
+	if r.Agent != nil {
+		row.Harp, row.Agent = r.Agent.AgentID, r.Agent.Role
+	}
+	return row
 }
 
 // rosterRows is the merge, in display order and before lineage indenting.
-func rosterRows(index []sessions.Entry, bus []coord.RosterEntry, selfHarp string) []RosterRow {
-	busByHarp := make(map[string]coord.RosterEntry, len(bus))
-	for _, b := range bus {
-		busByHarp[b.Harp] = b
+func rosterRows(index []frontend.Session, held []coord.RunInfo, selfHarp string) []RosterRow {
+	heldByHarp := make(map[string]RosterRow, len(held))
+	var heldOrder []RosterRow
+	for _, r := range held {
+		row := heldRow(r)
+		if row.Harp == "" {
+			continue
+		}
+		heldByHarp[row.Harp] = row
+		heldOrder = append(heldOrder, row)
 	}
 
 	var rows []RosterRow
 	seen := make(map[string]bool)
-	addIndexRow := func(e sessions.Entry) {
-		held, ok := busByHarp[e.HarpName]
-		rows = append(rows, indexRow(e, held, ok))
-		seen[e.HarpName] = true
+	addIndexRow := func(e frontend.Session) {
+		h, ok := heldByHarp[e.Harp]
+		rows = append(rows, indexRow(e, h, ok))
+		seen[e.Harp] = true
 	}
 	// The running session first, then the rest in index order.
 	for _, e := range index {
-		if e.HarpName == selfHarp {
+		if e.Harp == selfHarp {
 			addIndexRow(e)
 		}
 	}
 	for _, e := range index {
-		if e.HarpName != selfHarp {
+		if e.Harp != selfHarp {
 			addIndexRow(e)
 		}
 	}
-	for _, b := range bus {
-		if !seen[b.Harp] {
-			rows = append(rows, RosterRow{Harp: b.Harp, Agent: b.Agent, State: b.State, Parent: b.Parent, Hold: b.Hold, Cause: b.Cause, Detail: b.Detail, Unread: b.Unread})
-			seen[b.Harp] = true
+	for _, h := range heldOrder {
+		if !seen[h.Harp] {
+			rows = append(rows, h)
+			seen[h.Harp] = true
 		}
 	}
 	return rows
@@ -66,10 +79,10 @@ func rosterRows(index []sessions.Entry, bus []coord.RosterEntry, selfHarp string
 
 // indexRow renders one index entry, enriched by the coordinator's held row for
 // the same harp when there is one.
-func indexRow(e sessions.Entry, held coord.RosterEntry, isHeld bool) RosterRow {
-	row := RosterRow{Harp: e.HarpName, Engine: e.Backend}
+func indexRow(e frontend.Session, held RosterRow, isHeld bool) RosterRow {
+	row := RosterRow{Harp: e.Harp, Engine: e.Engine}
 	if !isHeld {
-		row.State = lockState(e.HarpName)
+		row.State = e.State
 		return row
 	}
 	// The held row is richer, not authoritative: an absent field is something
@@ -82,22 +95,16 @@ func indexRow(e sessions.Entry, held coord.RosterEntry, isHeld bool) RosterRow {
 		row.Parent = held.Parent
 	}
 	// The coordinator's state wins when it has one: it runs that child and
-	// knows. Without one it has nothing to say, and the lock is asked instead.
+	// knows. Without one it has nothing to say, and the lock's verdict stands.
 	row.State = held.State
 	row.Hold = held.Hold
 	row.Cause, row.Detail = held.Cause, held.Detail
 	row.Unread = held.Unread
 	if row.State == "" {
-		row.State = lockState(e.HarpName)
+		row.State = e.State
 	}
 	return row
 }
-
-// lockState is the state label for a session the coordinator has no state
-// for: the shared session-state probe (operations.LockSessionState), the one
-// mapping from the session lock's verdict to a state word. Never the index's
-// ended_at, which a resumed session still carries while it runs.
-var lockState operations.SessionStateProbe = operations.LockSessionState
 
 // placeLineage moves children under their parent, depth-indented, preserving
 // the order rows arrived in among siblings. The child index is built in one

@@ -8,38 +8,24 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 )
 
-// holdLock mints harp's session lock under the test's isolated HOME and
-// keeps it held until cleanup: the shape of a running session. freeLock
-// mints it and lets go at once, leaving the file unlocked: the shape of a
-// session that ended — or crashed, since the kernel drops the lock either
-// way. A harp with neither has no lock file at all.
-func holdLock(t *testing.T, harp string) {
-	t.Helper()
-	require.NoError(t, sessionlock.Hold(harp))
-	t.Cleanup(func() { sessionlock.Release(harp) })
-}
+// The session states BuildRoster is handed are the port's (the lock's
+// verdict per session, probed by the port: operations'
+// TestFrontendPort_ListSessions_StateIsTheLocksVerdict); these tests state
+// them directly.
 
-func freeLock(t *testing.T, harp string) {
-	t.Helper()
-	require.NoError(t, sessionlock.Hold(harp))
-	sessionlock.Release(harp)
+// held is the coordinator's run for harp as the port lists it.
+func held(harp, agent, state, parent string) coord.RunInfo {
+	return coord.RunInfo{Agent: &coord.AgentIdentity{AgentID: harp, Role: agent}, Phase: state, ParentHarp: parent}
 }
 
 func TestBuildRoster_SelfFirstAndIndexOrder(t *testing.T) {
-	testsupport.Isolate(t)
-	holdLock(t, "perky-same-chevy")
-	freeLock(t, "older-oak-hen")
-	ended := time.Now()
-	rows := BuildRoster([]sessions.Entry{
-		{HarpName: "older-oak-hen", Backend: "claude-code", EndedAt: &ended},
-		{HarpName: "perky-same-chevy", Backend: "claude-code"},
+	rows := BuildRoster([]frontend.Session{
+		{Harp: "older-oak-hen", Engine: "claude-code", State: frontend.SessionEnded},
+		{Harp: "perky-same-chevy", Engine: "claude-code", State: frontend.SessionLive},
 	}, nil, "perky-same-chevy")
 
 	require.Len(t, rows, 2)
@@ -50,17 +36,15 @@ func TestBuildRoster_SelfFirstAndIndexOrder(t *testing.T) {
 }
 
 func TestBuildRoster_ChildrenNestUnderParent(t *testing.T) {
-	testsupport.Isolate(t)
-	holdLock(t, "perky-same-chevy")
 	rows := BuildRoster(
-		[]sessions.Entry{
-			{HarpName: "perky-same-chevy", Backend: "claude-code"},
-			{HarpName: "unrelated-flat-owl", Backend: "claude-code"},
-			{HarpName: "swift-elm-fox", Backend: "claude-code"},
+		[]frontend.Session{
+			{Harp: "perky-same-chevy", Engine: "claude-code", State: frontend.SessionLive},
+			{Harp: "unrelated-flat-owl", Engine: "claude-code", State: frontend.SessionUnknown},
+			{Harp: "swift-elm-fox", Engine: "claude-code", State: frontend.SessionUnknown},
 		},
-		[]coord.RosterEntry{
-			{Harp: "swift-elm-fox", Agent: "developer", State: "executing", Parent: "perky-same-chevy"},
-			{Harp: "deep-oak-hen", Agent: "finder", State: "ended", Parent: "perky-same-chevy"},
+		[]coord.RunInfo{
+			held("swift-elm-fox", "developer", "executing", "perky-same-chevy"),
+			held("deep-oak-hen", "finder", "ended", "perky-same-chevy"),
 		},
 		"perky-same-chevy")
 
@@ -69,33 +53,29 @@ func TestBuildRoster_ChildrenNestUnderParent(t *testing.T) {
 	assert.Equal(t, 0, rows[0].Depth)
 	assert.Equal(t, "swift-elm-fox", rows[1].Harp, "children directly under their parent")
 	assert.Equal(t, 1, rows[1].Depth)
-	assert.Equal(t, "developer", rows[1].Agent, "bus roster enriches the index row")
-	assert.Equal(t, "executing", rows[1].State, "the coordinator's state wins; its lock is never probed (there is none to find)")
+	assert.Equal(t, "developer", rows[1].Agent, "the coordinator's run enriches the index row")
+	assert.Equal(t, "executing", rows[1].State, "the coordinator's state wins over the lock's verdict")
 	assert.Equal(t, "claude-code", rows[1].Engine, "index engine survives the merge")
-	assert.Equal(t, "deep-oak-hen", rows[2].Harp, "bus-only child (no index entry) still shows")
+	assert.Equal(t, "deep-oak-hen", rows[2].Harp, "a run with no index entry still shows")
 	assert.Equal(t, 1, rows[2].Depth)
 	assert.Equal(t, "unrelated-flat-owl", rows[3].Harp)
 	assert.Equal(t, 0, rows[3].Depth)
 }
 
 // The merge is "the held row is RICHER", not "the held row replaces". A
-// coordinator entry whose state is empty — a journal whose runState fact
-// decoded without one — has nothing to say about liveness, so the lock is
-// asked as if the row were not held; blanking the state would repaint a
-// running session as the waiting glyph.
+// coordinator run whose state is empty — a journal whose runState fact
+// decoded without one — has nothing to say about liveness, so the lock's
+// verdict stands as if the row were not held; blanking the state would
+// repaint a running session as the waiting glyph.
 func TestBuildRoster_EmptyHeldFieldsDoNotBlankTheIndexRow(t *testing.T) {
-	testsupport.Isolate(t)
-	holdLock(t, "perky-same-chevy")
-	freeLock(t, "older-oak-hen")
-	ended := time.Now()
 	rows := BuildRoster(
-		[]sessions.Entry{
-			{HarpName: "perky-same-chevy", Backend: "claude-code"},
-			{HarpName: "older-oak-hen", Backend: "claude-code", EndedAt: &ended},
+		[]frontend.Session{
+			{Harp: "perky-same-chevy", Engine: "claude-code", State: frontend.SessionLive},
+			{Harp: "older-oak-hen", Engine: "claude-code", State: frontend.SessionEnded},
 		},
-		[]coord.RosterEntry{
-			{Harp: "perky-same-chevy", Agent: "", State: "", Parent: ""},
-			{Harp: "older-oak-hen", State: ""},
+		[]coord.RunInfo{
+			held("perky-same-chevy", "", "", ""),
+			held("older-oak-hen", "", "", ""),
 		},
 		"perky-same-chevy")
 
@@ -105,9 +85,17 @@ func TestBuildRoster_EmptyHeldFieldsDoNotBlankTheIndexRow(t *testing.T) {
 	assert.Equal(t, "●", stateGlyph(rows[0].State))
 }
 
+// A run the port lists without an agent identity names no harp, so it makes
+// no row.
+func TestBuildRoster_RunWithoutAnIdentityIsSkipped(t *testing.T) {
+	rows := BuildRoster(nil, []coord.RunInfo{{RunID: "r1", Phase: "queued"}, held("kid", "finder", "queued", "")}, "")
+	require.Len(t, rows, 1)
+	assert.Equal(t, "kid", rows[0].Harp)
+}
+
 func TestBuildRoster_OrphanChildPlacesFlat(t *testing.T) {
-	rows := BuildRoster(nil, []coord.RosterEntry{
-		{Harp: "lost-kid", Agent: "finder", State: "queued", Parent: "gone-parent"},
+	rows := BuildRoster(nil, []coord.RunInfo{
+		held("lost-kid", "finder", "queued", "gone-parent"),
 	}, "")
 	require.Len(t, rows, 1)
 	assert.Equal(t, 0, rows[0].Depth, "an orphan (parent unknown) shows at the root")
@@ -119,12 +107,12 @@ func TestBuildRoster_OrphanChildPlacesFlat(t *testing.T) {
 // subtree is emitted immediately after its parent rather than after its
 // parent's siblings.
 func TestBuildRoster_GrandchildrenNestAndSiblingsKeepRosterOrder(t *testing.T) {
-	rows := BuildRoster(nil, []coord.RosterEntry{
-		{Harp: "root", State: "live"},
-		{Harp: "kid-b", State: "executing", Parent: "root"},
-		{Harp: "kid-a", State: "queued", Parent: "root"},
-		{Harp: "grandkid", State: "queued", Parent: "kid-b"},
-		{Harp: "other-root", State: "live"},
+	rows := BuildRoster(nil, []coord.RunInfo{
+		held("root", "", "live", ""),
+		held("kid-b", "", "executing", "root"),
+		held("kid-a", "", "queued", "root"),
+		held("grandkid", "", "queued", "kid-b"),
+		held("other-root", "", "live", ""),
 	}, "")
 
 	var got []string
@@ -137,10 +125,10 @@ func TestBuildRoster_GrandchildrenNestAndSiblingsKeepRosterOrder(t *testing.T) {
 // A parent cycle cannot arise from the coordinator, but the walk must still
 // emit every row exactly once rather than dropping the cycle's members.
 func TestBuildRoster_ParentCycleIsPlacedFlatNotLost(t *testing.T) {
-	rows := BuildRoster(nil, []coord.RosterEntry{
-		{Harp: "a", State: "live", Parent: "b"},
-		{Harp: "b", State: "live", Parent: "a"},
-		{Harp: "c", State: "live"},
+	rows := BuildRoster(nil, []coord.RunInfo{
+		held("a", "", "live", "b"),
+		held("b", "", "live", "a"),
+		held("c", "", "live", ""),
 	}, "")
 
 	require.Len(t, rows, 3, "no row is lost to the cycle")
@@ -148,76 +136,6 @@ func TestBuildRoster_ParentCycleIsPlacedFlatNotLost(t *testing.T) {
 	assert.Equal(t, []string{"a", "b"}, []string{rows[1].Harp, rows[2].Harp})
 	assert.Equal(t, 0, rows[1].Depth)
 	assert.Equal(t, 1, rows[2].Depth, "the cycle's second member still nests under the first")
-}
-
-// The state label is a CLAIM about now, and ended_at is a FACT about the
-// past; the two disagree in both directions, so the label must come from the
-// session lock alone. A crashed session never wrote ended_at, yet its lock
-// is free.
-func TestBuildRoster_CrashedSession_FreeLockAndNoEndedAt_ShowsEnded(t *testing.T) {
-	testsupport.Isolate(t)
-	freeLock(t, "crashed-oak-hen")
-
-	rows := BuildRoster([]sessions.Entry{{HarpName: "crashed-oak-hen", Backend: "claude-code"}}, nil, "")
-
-	require.Len(t, rows, 1)
-	assert.Equal(t, "ended", rows[0].State, "a free lock is the end of the session, whether or not ended_at was written")
-}
-
-// A session resumed under its harp carries the earlier run's ended_at, but
-// its lock is held again: it is running.
-func TestBuildRoster_ResumedSession_HeldLockAndEndedAtSet_ShowsLive(t *testing.T) {
-	testsupport.Isolate(t)
-	holdLock(t, "resumed-oak-hen")
-	ended := time.Now().Add(-time.Hour)
-
-	rows := BuildRoster([]sessions.Entry{{HarpName: "resumed-oak-hen", Backend: "claude-code", EndedAt: &ended}}, nil, "")
-
-	require.Len(t, rows, 1)
-	assert.Equal(t, "live", rows[0].State, "a held lock is a running session, whatever ended_at says")
-}
-
-// No lock file (a session from before the lock existed, or whose Hold
-// failed) is the third honest answer: the lock cannot say, so neither does
-// the label — and ended_at does not get to fill the gap in either direction.
-func TestBuildRoster_NoLockFile_ShowsUnknownWhateverEndedAtSays(t *testing.T) {
-	testsupport.Isolate(t)
-	ended := time.Now()
-
-	rows := BuildRoster([]sessions.Entry{
-		{HarpName: "unlocked-oak-hen", Backend: "claude-code"},
-		{HarpName: "unlocked-elm-fox", Backend: "claude-code", EndedAt: &ended},
-	}, nil, "")
-
-	require.Len(t, rows, 2)
-	assert.Equal(t, "unknown", rows[0].State, "no ended_at is not evidence of life")
-	assert.Equal(t, "unknown", rows[1].State, "an ended_at is not evidence of death")
-}
-
-// BenchmarkBuildRoster_ProbesEveryIndexRow is the cost of the ruling that a
-// roster render asks the lock once per index row, at the size of a real
-// project index. The rows are a third each of held, free and never-locked,
-// so all three probe paths are paid.
-func BenchmarkBuildRoster_ProbesEveryIndexRow(b *testing.B) {
-	b.Setenv("HOME", b.TempDir())
-	const n = 650
-	index := make([]sessions.Entry, 0, n)
-	for i := range n {
-		harp := fmt.Sprintf("bench-harp-%d", i)
-		switch i % 3 {
-		case 0:
-			require.NoError(b, sessionlock.Hold(harp))
-			b.Cleanup(func() { sessionlock.Release(harp) })
-		case 1:
-			require.NoError(b, sessionlock.Hold(harp))
-			sessionlock.Release(harp)
-		}
-		index = append(index, sessions.Entry{HarpName: harp, Backend: "claude-code"})
-	}
-	b.ResetTimer()
-	for range b.N {
-		BuildRoster(index, nil, "")
-	}
 }
 
 func TestStateGlyphs(t *testing.T) {
@@ -233,14 +151,14 @@ func TestStateGlyphs(t *testing.T) {
 // TestBuildRoster_CarriesTheHold: a held child's hold reaches its row whether
 // the row came from the index or from the coordinator alone.
 func TestBuildRoster_CarriesTheHold(t *testing.T) {
-	testsupport.Isolate(t)
 	hold := &coord.RunHold{Kind: "rate_limited", Source: "env:X", Until: time.Date(2026, 10, 1, 17, 30, 0, 0, time.UTC)}
+	withHold := func(r coord.RunInfo, h *coord.RunHold) coord.RunInfo { r.Hold = h; return r }
 	rows := BuildRoster(
-		[]sessions.Entry{{HarpName: "indexed-kid", Backend: "claude-code"}},
-		[]coord.RosterEntry{
-			{Harp: "indexed-kid", State: coord.StateIdle, Hold: hold},
-			{Harp: "bus-only-kid", State: coord.StateIdle, Hold: hold},
-			{Harp: "free-kid", State: coord.StateIdle},
+		[]frontend.Session{{Harp: "indexed-kid", Engine: "claude-code", State: frontend.SessionUnknown}},
+		[]coord.RunInfo{
+			withHold(held("indexed-kid", "", coord.StateIdle, ""), hold),
+			withHold(held("bus-only-kid", "", coord.StateIdle, ""), hold),
+			held("free-kid", "", coord.StateIdle, ""),
 		}, "")
 	byHarp := map[string]RosterRow{}
 	for _, r := range rows {
@@ -255,14 +173,15 @@ func TestBuildRoster_CarriesTheHold(t *testing.T) {
 // reach its row whether the row came from the index or from the coordinator
 // alone.
 func TestBuildRoster_CarriesTheTerminalCause(t *testing.T) {
-	testsupport.Isolate(t)
 	const detail = "the engine binary is not on PATH"
+	ended := func(harp, cause string) coord.RunInfo {
+		r := held(harp, "", coord.StateEnded, "")
+		r.Cause, r.Detail = cause, detail
+		return r
+	}
 	rows := BuildRoster(
-		[]sessions.Entry{{HarpName: "indexed-kid", Backend: "claude-code"}},
-		[]coord.RosterEntry{
-			{Harp: "indexed-kid", State: coord.StateEnded, Cause: coord.CauseLaunchFailed, Detail: detail},
-			{Harp: "bus-only-kid", State: coord.StateEnded, Cause: coord.CauseRunnerLoss, Detail: detail},
-		}, "")
+		[]frontend.Session{{Harp: "indexed-kid", Engine: "claude-code", State: frontend.SessionEnded}},
+		[]coord.RunInfo{ended("indexed-kid", coord.CauseLaunchFailed), ended("bus-only-kid", coord.CauseRunnerLoss)}, "")
 	byHarp := map[string]RosterRow{}
 	for _, r := range rows {
 		byHarp[r.Harp] = r
@@ -276,13 +195,14 @@ func TestBuildRoster_CarriesTheTerminalCause(t *testing.T) {
 // TestBuildRoster_CarriesTheUnreadCount: a child's unread mail count reaches
 // its row whether the row came from the index or from the coordinator alone.
 func TestBuildRoster_CarriesTheUnreadCount(t *testing.T) {
-	testsupport.Isolate(t)
+	unread := func(harp string, n int) coord.RunInfo {
+		r := held(harp, "", coord.StateExecuting, "")
+		r.Unread = n
+		return r
+	}
 	rows := BuildRoster(
-		[]sessions.Entry{{HarpName: "indexed-kid", Backend: "claude-code"}},
-		[]coord.RosterEntry{
-			{Harp: "indexed-kid", State: coord.StateExecuting, Unread: 2},
-			{Harp: "bus-only-kid", State: coord.StateExecuting, Unread: 5},
-		}, "")
+		[]frontend.Session{{Harp: "indexed-kid", Engine: "claude-code", State: frontend.SessionLive}},
+		[]coord.RunInfo{unread("indexed-kid", 2), unread("bus-only-kid", 5)}, "")
 	byHarp := map[string]RosterRow{}
 	for _, r := range rows {
 		byHarp[r.Harp] = r
@@ -292,10 +212,10 @@ func TestBuildRoster_CarriesTheUnreadCount(t *testing.T) {
 }
 
 // TestRosterStates_AreTheListingsWords: the roster and `ctxloom session list`
-// say a session's state in one vocabulary — the overlay's ended word is the
-// coordinator's, and that must be the listing's too.
+// say a session's state in one vocabulary, the port's — and the overlay's
+// ended word is the coordinator's, so that must be the port's too.
 func TestRosterStates_AreTheListingsWords(t *testing.T) {
-	assert.Equal(t, operations.SessionLive, StateLive)
-	assert.Equal(t, operations.SessionEnded, StateEnded)
-	assert.Equal(t, operations.SessionUnknown, StateUnknown)
+	assert.Equal(t, frontend.SessionLive, StateLive)
+	assert.Equal(t, frontend.SessionEnded, StateEnded)
+	assert.Equal(t, frontend.SessionUnknown, StateUnknown)
 }

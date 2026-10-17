@@ -17,10 +17,11 @@ import (
 	"golang.org/x/term"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/frontendfake"
 )
 
 // This file is the F1 termui<->tui COMPOSITION harness (Wave F playbook,
@@ -163,26 +164,21 @@ func newComposedPTY(t *testing.T) (master pty.Pty, slave *os.File, tty *syncBuf)
 }
 
 // realOverlaySources is a minimal tui.Sources good enough to drive the real
-// Model through one auto-opened roster row (tui's own fakeSources is
-// unexported and package-local — this re-derives the same idiom externally).
-// Every Watch call is sent on the returned channel: that call is the only
-// frame-diff-proof evidence that a feed was opened (see the engage assertion).
+// Model through one auto-opened roster row: a frontend port double whose
+// index lists harp. Every feed opened is sent on the returned channel: that
+// call is the only frame-diff-proof evidence that a feed was opened (see the
+// engage assertion).
 func realOverlaySources(harp string) (tui.Sources, <-chan string) {
 	watches := make(chan string, 16)
-	return tui.Sources{
-		Roster: func(context.Context) ([]tui.RosterRow, error) {
-			return []tui.RosterRow{{Harp: harp, State: "live"}}, nil
+	return tui.Sources{Port: &frontendfake.Port{
+		ListSessionsFn: func(context.Context) ([]frontend.Session, error) {
+			return []frontend.Session{{Harp: harp, State: "live"}}, nil
 		},
-		Watch: func(_ context.Context, h string) (*tui.Feed, error) {
+		WatchFeedFn: func(_ context.Context, h string) (frontend.Feed, error) {
 			watches <- h
-			return &tui.Feed{
-				Source: "live",
-				Events: make(chan operations.SessionFeedEvent),
-				Errs:   make(chan error, 1),
-				Cancel: func() {},
-			}, nil
+			return frontend.Feed{Source: "live", Events: make(chan frontend.FeedEvent), Errs: make(chan error, 1)}, nil
 		},
-	}, watches
+	}}, watches
 }
 
 // pumpEngineInput drains c.Stdin() (the interceptor's engine-bound side) —
@@ -318,7 +314,7 @@ func TestOverlayComposition_EngageHoldReplayNudge(t *testing.T) {
 // existing fake-overlay panic tests (controller_test.go's
 // TestController_FactoryPanicDegrades /
 // TestController_OverlayErrorDegradesToPlainTerminal) to the REAL overlay
-// composition: a Sources.Roster call that panics inside the real
+// composition: a roster fetch that panics inside the real
 // tea.Program's Cmd goroutine is caught by bubbletea's OWN panic recovery
 // (tea.go's handleCommands -> recoverFromGoPanic, surfaced as
 // ErrProgramPanic through Program.Run()) — proving that recovery composes
@@ -329,11 +325,11 @@ func TestOverlayComposition_RealOverlayPanicDegradesPermanently(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	panicSrc := tui.Sources{
-		Roster: func(context.Context) ([]tui.RosterRow, error) {
+	panicSrc := tui.Sources{Port: &frontendfake.Port{
+		ListSessionsFn: func(context.Context) ([]frontend.Session, error) {
 			panic("composition test: induced overlay panic")
 		},
-	}
+	}}
 	resize := make(chan *agent.WindowSize, 4)
 	warns := make(chan string, 4)
 	c := termui.New(termui.Options{

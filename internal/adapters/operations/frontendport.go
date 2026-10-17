@@ -101,12 +101,9 @@ func (p *frontendPort) WatchFeed(ctx context.Context, harp string) (frontend.Fee
 	go func() {
 		defer close(out)
 		for ev := range feed.Events {
-			fe := frontend.FeedEvent{Gap: ev.Gap}
-			if ev.Event != nil {
-				fe.Entry = ev.Event.Entry
-			}
-			if fe.Entry == nil && fe.Gap == 0 {
-				continue // a response boundary or a heartbeat: nothing to show
+			fe, shown := frontendFeedEvent(ev)
+			if !shown {
+				continue
 			}
 			select {
 			case out <- fe:
@@ -116,6 +113,17 @@ func (p *frontendPort) WatchFeed(ctx context.Context, harp string) (frontend.Fee
 		}
 	}()
 	return frontend.Feed{Source: feed.Source, Events: out, Errs: feed.Errs}, nil
+}
+
+// frontendFeedEvent is ev as the port's feed carries it, and whether it
+// carries anything: a response boundary or a heartbeat marks the stream, it
+// is not an item a frontend shows.
+func frontendFeedEvent(ev SessionFeedEvent) (frontend.FeedEvent, bool) {
+	fe := frontend.FeedEvent{Gap: ev.Gap}
+	if ev.Event != nil {
+		fe.Entry = ev.Event.Entry
+	}
+	return fe, fe.Entry != nil || fe.Gap > 0
 }
 
 func (p *frontendPort) CredentialHolds(context.Context) ([]coord.CredentialHold, error) {
@@ -142,7 +150,7 @@ func (p *frontendPort) Control(ctx context.Context, req coord.ControlRequest) (c
 }
 
 func (p *frontendPort) Terminal(harp string) (frontend.Terminal, error) {
-	if p.d.Terminal == nil || harp == "" || harp != p.d.Self {
+	if p.d.Terminal == nil || harp != p.d.Self {
 		return nil, frontend.ErrNoTerminal
 	}
 	return hostTerminal{p.d.Terminal}, nil

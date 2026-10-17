@@ -9,11 +9,11 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -50,12 +50,11 @@ func validateTerminalUIConfig(cfg *config.Config) {
 // setupTerminalUI builds the observation layer for an interactive tty run:
 // prefix interceptor, surround bar, and the bubbletea overlay factory. It
 // returns nil when the layer can't be built (e.g. a bad prefix key under
-// --degraded) — the caller then runs on the unwrapped seams. sessionCoord is
-// THIS run's own hosted coordinator (nil when coordinator startup failed or
-// was skipped, e.g. no activeHarp) — D2: the terminal viewer reaches
-// roster/inject IN-PROCESS now (this run process IS the coordinator), never
-// over a socket.
-func setupTerminalUI(ctx context.Context, cfg *config.Config, sessionCoord *coord.Coordinator, id terminalUIIdentity, stdin io.Reader, resize <-chan *agent.WindowSize) *termui.Controller {
+// --degraded) — the caller then runs on the unwrapped seams. port is THIS
+// session's frontend port (operations.NewFrontendPort): everything the bar,
+// the overlay and the presenters show or do rides it, and none of them holds
+// the coordinator.
+func setupTerminalUI(ctx context.Context, cfg *config.Config, port frontend.Port, id terminalUIIdentity, stdin io.Reader, resize <-chan *agent.WindowSize) *termui.Controller {
 	prefix, err := termui.ParsePrefixKey(cfg.UIPrefixKey())
 	if err != nil {
 		// Only reachable in degraded mode (the gate aborts otherwise): run
@@ -63,7 +62,7 @@ func setupTerminalUI(ctx context.Context, cfg *config.Config, sessionCoord *coor
 		clidiag.Warn("ctxloom", "terminal viewer disabled: %v", err)
 		return nil
 	}
-	src := terminalUISources(sessionCoord, id.WorkDir, id.Harp)
+	src := tui.Sources{Port: port, Self: id.Harp}
 	ui := termui.New(termui.Options{
 		Stdin:    stdin,
 		TTY:      os.Stdout,
@@ -77,27 +76,30 @@ func setupTerminalUI(ctx context.Context, cfg *config.Config, sessionCoord *coor
 			Model:      id.Model,
 			PrefixHint: termui.CaretHint(prefix),
 		},
-		FetchRoster: func() ([]termui.RosterEntry, error) { return surroundRoster(sessionCoord) },
+		FetchRoster: func() ([]termui.RosterEntry, error) { return surroundRoster(ctx, port) },
 		NewOverlay:  func(start termui.OverlayStart) termui.Overlay { return tui.NewOverlay(ctx, src, prefix, start) },
 		Warn:        func(format string, args ...any) { clidiag.Warn("ctxloom", format, args...) },
 	})
 	// The modal is how a pending approval reaches the human: the root's queue
 	// is presented here, on the originator's terminal, and nowhere else.
-	if src.Approvals != nil {
-		go func() { _ = modalPresenter{ui: ui, clock: systemClock{}}.Present(ctx, src.Approvals) }()
+	if approvals := port.Approvals(); approvals != nil {
+		go func() { _ = modalPresenter{ui: ui, clock: systemClock{}}.Present(ctx, approvals) }()
 	}
 	// A rate limit or a refused credential parks the runs that share it; the
 	// bar keeps the root human told until the hold releases them — or, with
-	// no bar, a line on the terminal as each hold opens and releases.
-	if sessionCoord != nil {
-		p := &credentialPresenter{
-			holds: sessionCoord.CredentialHolds, noteBar: ui.NoteBar, ring: ui.Ring, session: id.Harp, clock: systemClock{},
-		}
-		if !cfg.UISurroundEnabled() {
-			p.announce = ui.Announce
-		}
-		go presentCredentialHolds(ctx, p)
+	// no bar, a line on the terminal as each hold opens and releases. A
+	// session with no coordinator lists no holds, so says nothing.
+	p := &credentialPresenter{
+		holds: func() []coord.CredentialHold {
+			holds, _ := port.CredentialHolds(ctx)
+			return holds
+		},
+		noteBar: ui.NoteBar, ring: ui.Ring, session: id.Harp, clock: systemClock{},
 	}
+	if !cfg.UISurroundEnabled() {
+		p.announce = ui.Announce
+	}
+	go presentCredentialHolds(ctx, p)
 	return ui
 }
 
@@ -108,72 +110,31 @@ func (systemClock) Now() time.Time { return time.Now() }
 
 func (systemClock) AfterFunc(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }
 
-// terminalUISources wires the overlay's data seams to the session index, the
-// per-harp feed resolver, and the harp session dir. The contexts the closures
-// receive are the overlay's watch contexts (run-scoped via the factory).
-// sessionCoord's roster/Control calls are IN-PROCESS Go method calls (D2) —
-// this run process hosts the coordinator itself, so there is no transport to
-// dial for its OWN terminal viewer (unlike `ctxloom session transcript watch`, a
-// separate process, which reaches a coordinator over ConsumerService —
-// operations.WatchSessionFeed).
-func terminalUISources(sessionCoord *coord.Coordinator, workDir, selfHarp string) tui.Sources {
-	src := tui.Sources{
-		Roster: func(ctx context.Context) ([]tui.RosterRow, error) {
-			index, err := operations.ListSessionsForProject(workDir)
-			if err != nil {
-				return nil, err
-			}
-			// The coordinator roster is enrichment (children lineage/state)
-			// — its absence (no coordinator hosted) never blanks the pane.
-			var held []coord.RosterEntry
-			if sessionCoord != nil {
-				held = sessionCoord.Roster(sessionCoord.Owner())
-			}
-			return tui.BuildRoster(index, held, selfHarp), nil
-		},
-		Watch: func(ctx context.Context, harp string) (*tui.Feed, error) {
-			wctx, cancel := context.WithCancel(ctx)
-			feed, err := operations.WatchSessionFeed(wctx, App().Engines(), operations.SessionFeedRequest{Harp: harp})
-			if err != nil {
-				cancel()
-				return nil, err
-			}
-			return &tui.Feed{Source: feed.Source, Events: feed.Events, Errs: feed.Errs, Cancel: cancel}, nil
-		},
-		Control: func(ctx context.Context, req coord.ControlRequest) (coord.ControlResult, error) {
-			if sessionCoord == nil {
-				return coord.ControlResult{}, coord.ErrNotInjectable
-			}
-			return sessionCoord.Control(ctx, coord.ControlInitiator{Kind: coord.InitiatorHuman}, req)
-		},
+// surroundRoster is the surround bar's roster over the port: the
+// coordinator's runs, ended ones included, on the bar's local mirror type
+// (termui stays dependency-light — its own documented convention). A session
+// with no coordinator lists none, and the bar shows just this session.
+func surroundRoster(ctx context.Context, port frontend.Port) ([]termui.RosterEntry, error) {
+	runs, err := port.ListRuns(ctx)
+	if err != nil {
+		return nil, err
 	}
-	// Set only when a queue exists: a nil *ApprovalQueue in the interface
-	// would read as a source to everything that checks it.
-	if sessionCoord != nil && sessionCoord.Approvals() != nil {
-		src.Approvals = sessionCoord.Approvals()
-	}
-	return src
+	return surroundRows(runs.Runs), nil
 }
 
-// surroundRoster adapts the coordinator's native roster onto the surround
-// bar's local mirror type (termui stays dependency-light — its own
-// documented convention). nil sessionCoord (no coordinator hosted) is an
-// empty roster, not an error: the bar degrades to showing just this session.
-// The error return is structurally always nil — it exists only to satisfy
-// termui.Options.FetchRoster; there is no failure case to hunt for.
-func surroundRoster(sessionCoord *coord.Coordinator) ([]termui.RosterEntry, error) {
-	if sessionCoord == nil {
-		return nil, nil
-	}
-	return surroundRows(sessionCoord.Roster(sessionCoord.Owner())), nil
-}
-
-// surroundRows maps the coordinator's roster onto the bar's mirror rows, a
+// surroundRows maps the coordinator's runs onto the bar's mirror rows, a
 // hold worded as the overlay words it (tui.HoldLabel).
-func surroundRows(held []coord.RosterEntry) []termui.RosterEntry {
-	rows := make([]termui.RosterEntry, len(held))
-	for i, b := range held {
-		rows[i] = termui.RosterEntry{Harp: b.Harp, State: b.State, LastActivityUnix: b.LastActivityUnix, Hold: tui.HoldLabel(b.Hold), Unread: b.Unread}
+func surroundRows(runs []coord.RunInfo) []termui.RosterEntry {
+	rows := make([]termui.RosterEntry, 0, len(runs))
+	for _, r := range runs {
+		if r.Agent == nil {
+			continue
+		}
+		row := termui.RosterEntry{Harp: r.Agent.AgentID, State: r.Phase, Hold: tui.HoldLabel(r.Hold), Unread: r.Unread}
+		if !r.LastEventAt.IsZero() {
+			row.LastActivityUnix = r.LastEventAt.Unix()
+		}
+		rows = append(rows, row)
 	}
 	return rows
 }

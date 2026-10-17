@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 	"github.com/ctxloom/ctxloom/internal/testsupport/livecoord"
 )
 
@@ -18,10 +19,16 @@ const (
 	pollEvery = 10 * time.Millisecond
 )
 
+// livePort is the live session's frontend port, composed as `ctxloom run`
+// composes it.
+func livePort(s *livecoord.Session, projectDir string) frontend.Port {
+	return (&runState{sessionCoord: s.Coord, workDir: projectDir, activeHarp: livecoord.OwnerHarp}).frontendPort()
+}
+
 // overlayRoster is the overlay's roster as the CLI wires it.
 func overlayRoster(t *testing.T, s *livecoord.Session, projectDir string) []tui.RosterRow {
 	t.Helper()
-	rows, err := terminalUISources(s.Coord, projectDir, livecoord.OwnerHarp).Roster(context.Background())
+	rows, err := tui.LoadRoster(context.Background(), livePort(s, projectDir), livecoord.OwnerHarp)
 	require.NoError(t, err)
 	return rows
 }
@@ -29,7 +36,7 @@ func overlayRoster(t *testing.T, s *livecoord.Session, projectDir string) []tui.
 // barRoster is the surround bar's roster as the CLI wires it.
 func barRoster(t *testing.T, s *livecoord.Session) []termui.RosterEntry {
 	t.Helper()
-	rows, err := surroundRoster(s.Coord)
+	rows, err := surroundRoster(context.Background(), livePort(s, ""))
 	require.NoError(t, err)
 	return rows
 }
@@ -38,6 +45,6 @@ func barRoster(t *testing.T, s *livecoord.Session) []termui.RosterEntry {
 // CLI wires them.
 func terminalUIActions(t *testing.T, s *livecoord.Session, projectDir string) (func(context.Context, coord.ControlRequest) (coord.ControlResult, error), coord.ApprovalSource) {
 	t.Helper()
-	src := terminalUISources(s.Coord, projectDir, livecoord.OwnerHarp)
-	return src.Control, src.Approvals
+	port := livePort(s, projectDir)
+	return port.Control, port.Approvals()
 }

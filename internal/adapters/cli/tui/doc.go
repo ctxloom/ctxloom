@@ -6,17 +6,18 @@
 //
 // The package implements termui.Overlay and is the ONLY place the TUI
 // framework is linked — the interceptor and surround bar (internal/adapters/termui)
-// stay framework-free on the hot path. All data arrives through the Sources
-// seams (the operations feed resolver, the session index, the agent-bus
-// roster), injected by the CLI wiring and faked in tests, so the model is
-// hermetically testable through Update without a terminal.
+// stay framework-free on the hot path. All data arrives through the frontend
+// port (Sources.Port, internal/core/frontend) — the session index, the
+// coordinator's runs, one harp's feed — injected by the CLI wiring and faked
+// in tests (frontendfake), so the model is hermetically testable through
+// Update without a terminal; it never holds a coordinator.
 //
-// Control of a viewed agent rides one seam, Sources.Control: openControl
+// Control of a viewed agent rides one seam, the port's Control: openControl
 // starts a verb (controlKeys), a verb that carries text opens an input line
 // that owns the keymap while open (updateComposeKey), and sendControl makes
 // the round trip.
 //
-// Approvals ride Sources.Approvals, the root's coord.ApprovalSource: the
+// Approvals ride the port's Approvals, the root's coord.ApprovalSource: the
 // approvals view lists the parked requests and is the only place one is
 // answered. termui summons it as the full-screen modal (OverlayStart.Summoned)
 // or the human opens it from the roster view; either way its keymap is the

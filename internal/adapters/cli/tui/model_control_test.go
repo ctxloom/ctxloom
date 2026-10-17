@@ -10,7 +10,7 @@ import (
 )
 
 // The viewer drives all five control verbs through ONE seam
-// (Sources.Control): steer, question and summarize carry a body typed into
+// (the port's Control): steer, question and summarize carry a body typed into
 // the input line; pause and resume act on the viewed harp at the keypress.
 
 // sendVia opens the input line with key, types body, and sends it.
@@ -113,7 +113,7 @@ func TestModel_ControlKeysNeedATargetAndTheSeam(t *testing.T) {
 
 		f2 := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
 		m2 := openSelected(t, newTestModel(f2), f2)
-		m2.src.Control = nil
+		m2.src.Port = nil
 		m2, cmd = step(t, m2, keyMsg(key))
 		assert.Nil(t, cmd, key)
 		assert.Empty(t, m2.composeVerb, key)

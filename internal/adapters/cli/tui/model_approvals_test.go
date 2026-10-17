@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/testsupport/frontendfake"
 )
 
 // fakeQueue is a coord.ApprovalSource the test drives: it parks what the
@@ -173,7 +174,7 @@ func newApprHarness(t *testing.T, q *fakeQueue) *apprHarness {
 	t.Helper()
 	clk := &testClock{t: apprBase}
 	geo := termui.OverlayGeometry{Cols: 110, Rows: 40, PanelRows: 12}
-	m := NewModel(context.Background(), Sources{Approvals: q, Now: clk.now}, geo, 0x1d)
+	m := NewModel(context.Background(), Sources{Port: &frontendfake.Port{ApprovalSource: q}, Now: clk.now}, geo, 0x1d)
 	m, _ = m.openApprovals(true)
 	// The tests deliver ticks themselves; the model's own tick then fires at
 	// once and is dropped, instead of holding the harness for a second.
@@ -475,7 +476,7 @@ func TestApprovals_ArmingIsShownUntilArmed(t *testing.T) {
 // opens the approvals view. The notice is sanitized like everything else.
 func TestApprovals_NoticeBannerThenAOpensTheView(t *testing.T) {
 	q := newFakeQueue(bashReq("a", "wiry-otter", "ls", 5*time.Minute))
-	m := NewModel(context.Background(), Sources{Approvals: q}, termui.OverlayGeometry{Cols: 100, Rows: 30, PanelRows: 10}, 0x1d)
+	m := NewModel(context.Background(), Sources{Port: &frontendfake.Port{ApprovalSource: q}}, termui.OverlayGeometry{Cols: 100, Rows: 30, PanelRows: 10}, 0x1d)
 	next, _ := m.Update(noticeMsg("approval from wiry-otter\x1b[2J"))
 	m = next.(Model)
 	view := ansi.Strip(m.render())

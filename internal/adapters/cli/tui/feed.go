@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 )
 
 // feedItem is one rendered unit of the feed pane, converted from the
@@ -20,20 +20,17 @@ type feedItem struct {
 	sidechain  bool
 }
 
-// itemsFromFeedEvent converts one feed event into zero or more items.
-// Boundaries and heartbeats render nothing; a live-tap gap surfaces as a
-// visible notice so the reader knows the view is incomplete.
-func itemsFromFeedEvent(ev operations.SessionFeedEvent) []feedItem {
+// itemsFromFeedEvent converts one feed event into zero or more items. A
+// live-tap gap surfaces as a visible notice so the reader knows the view is
+// incomplete.
+func itemsFromFeedEvent(ev frontend.FeedEvent) []feedItem {
 	if ev.Gap > 0 {
 		return []feedItem{{
 			role: "notice",
 			text: fmt.Sprintf("… %d live events dropped (observer buffer overflow)", ev.Gap),
 		}}
 	}
-	if ev.Event == nil {
-		return nil
-	}
-	e := ev.Event.Entry
+	e := ev.Entry
 	if e == nil {
 		return nil
 	}

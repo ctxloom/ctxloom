@@ -4,29 +4,21 @@ import (
 	"context"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 )
 
-// Sources are the overlay's data seams. The CLI wires them to the operations
-// feed resolver, the session index, and the coordinator's roster; tests
-// inject fakes.
+// Sources are the overlay's seams: the frontend port it observes and acts
+// through, the session it runs in, and its clock. The CLI wires the session's
+// in-process port (operations.NewFrontendPort); tests inject a double.
 type Sources struct {
-	// Roster lists the observable sessions (index sessions merged with
-	// coordinator-held children — see BuildRoster).
-	Roster func(ctx context.Context) ([]RosterRow, error)
-	// Watch opens a harp's observation feed (operations.WatchSessionFeed
-	// behind a cancel).
-	Watch func(ctx context.Context, harp string) (*Feed, error)
-	// Control runs one control verb (steer, question, summarize, pause,
-	// resume) against a harp as the HUMAN initiator, through the serving
-	// coordinator (coord.Coordinator.Control). Nil when no coordinator is
-	// hosted; every control key then says so rather than opening.
-	Control func(ctx context.Context, req coord.ControlRequest) (coord.ControlResult, error)
-	// Approvals is the root's approval queue: what the approvals view lists
-	// and the only place it answers. Nil when no coordinator is hosted; the
-	// view then says so rather than opening.
-	Approvals coord.ApprovalSource
+	// Port is everything the overlay reads and does: the session index and
+	// the coordinator's runs for the roster, one harp's feed, the control
+	// verbs, and the approval queue. Nil leaves the overlay nothing to show,
+	// and every action says it is unavailable.
+	Port frontend.Port
+	// Self is the session's own harp, pinned on top of the roster.
+	Self string
 	// Now is the view's clock for countdowns and tombstones; nil is real time.
 	Now func() time.Time
 }
@@ -46,11 +38,11 @@ type RosterRow struct {
 	// run's State stays idle, so the hold is what tells it apart.
 	Hold *coord.RunHold
 	// Cause and Detail are why an ended child's run ended, and the detail
-	// that came with it: coord.RosterEntry's, empty until the run ends.
+	// that came with it: the run's, empty until the run ends.
 	Cause  string
 	Detail string
 	// Unread is how many messages wait undelivered in the child's inbox
-	// (coord.RosterEntry.Unread).
+	// (coord.RunInfo.Unread).
 	Unread int
 }
 
@@ -59,7 +51,41 @@ type RosterRow struct {
 type Feed struct {
 	// Source is what actually fed the stream: "live" or "store".
 	Source string
-	Events <-chan operations.SessionFeedEvent
+	Events <-chan frontend.FeedEvent
 	Errs   <-chan error
 	Cancel context.CancelFunc
+}
+
+// LoadRoster is the overlay's roster over port: the session index merged
+// with the coordinator's runs (BuildRoster), self pinned on top. The runs are
+// enrichment — children's lineage and state — and their absence never blanks
+// the pane: a port that cannot list them leaves the index rows as they are.
+func LoadRoster(ctx context.Context, port frontend.Port, self string) ([]RosterRow, error) {
+	if port == nil {
+		return nil, nil
+	}
+	index, err := port.ListSessions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var held []coord.RunInfo
+	if runs, err := port.ListRuns(ctx); err == nil {
+		held = runs.Runs
+	}
+	return BuildRoster(index, held, self), nil
+}
+
+// openFeed opens harp's feed over port, scoped to a context the returned
+// Feed's Cancel ends.
+func openFeed(ctx context.Context, port frontend.Port, harp string) (*Feed, error) {
+	if port == nil {
+		return nil, frontend.ErrNoCoordinator
+	}
+	wctx, cancel := context.WithCancel(ctx)
+	f, err := port.WatchFeed(wctx, harp)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	return &Feed{Source: f.Source, Events: f.Events, Errs: f.Errs, Cancel: cancel}, nil
 }

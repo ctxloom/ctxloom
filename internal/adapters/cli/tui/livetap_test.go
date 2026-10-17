@@ -25,8 +25,9 @@ import (
 // This file is the hermetic live-tap end-to-end harness: a REAL in-process
 // coordinator whose child is a REAL in-process runner (livecoord) -> the
 // coordinator's watchHub -> ConsumerService.WatchRuns -> the live path of
-// operations.WatchSessionFeed, discovery and all -> the real tui.Overlay ->
-// the child's assistant entry rendered as an overlay item.
+// operations.WatchSessionFeed, discovery and all -> the in-process frontend
+// port -> the real tui.Overlay -> the child's assistant entry rendered as an
+// overlay item.
 //
 // Placement: package tui_test (external), beside the overlay it asserts on: a
 // test that needs a UI to assert is that UI adapter's test, and the frontend
@@ -92,18 +93,11 @@ func TestLiveTap_ChildItemsReachTheOverlay(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	feed, err := operations.WatchSessionFeed(ctx, engines.Registry(), operations.SessionFeedRequest{Harp: child})
-	require.NoError(t, err)
-	require.Equal(t, "live", feed.Source, "the coordinator holds this child; the tap must be live, not the store fallback")
-
-	src := tui.Sources{
-		Roster: func(context.Context) ([]tui.RosterRow, error) {
-			return []tui.RosterRow{{Harp: child, State: "live"}}, nil
-		},
-		Watch: func(context.Context, string) (*tui.Feed, error) {
-			return &tui.Feed{Source: feed.Source, Events: feed.Events, Errs: feed.Errs, Cancel: func() {}}, nil
-		},
-	}
+	// The overlay's own port over the live session: its roster lists the
+	// child, and opening it resolves the live tap.
+	src := tui.Sources{Port: operations.NewFrontendPort(operations.FrontendDeps{
+		Coord: s.Coord, Engines: engines.Registry(), WorkDir: projectDir, Self: livecoord.OwnerHarp,
+	})}
 	ov := tui.NewOverlay(ctx, src, 0x1d, termui.OverlayStart{})
 	pr, pw := io.Pipe()
 	defer pw.Close()
@@ -114,7 +108,7 @@ func TestLiveTap_ChildItemsReachTheOverlay(t *testing.T) {
 		return strings.Contains(tty.String(), "· live")
 	})
 
-	_, err = s.Coord.Control(ctx, coord.ControlInitiator{Kind: coord.InitiatorHuman}, coord.ControlRequest{Verb: coord.ControlVerbSteer, Harp: child, Body: "live words"})
+	_, err := src.Port.Control(ctx, coord.ControlRequest{Verb: coord.ControlVerbSteer, Harp: child, Body: "live words"})
 	require.NoError(t, err)
 	waitForLiveTap(t, "the child's real assistant entry to render as an overlay item", func() bool {
 		return strings.Contains(tty.String(), "asst  < echo: ") && strings.Contains(tty.String(), "live words")

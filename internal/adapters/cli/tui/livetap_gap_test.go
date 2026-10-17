@@ -183,18 +183,9 @@ func TestLiveTap_GapNoticeReachesTheOverlay(t *testing.T) {
 	f := newGapFakeConsumer(harp, "run-1")
 	startGapFakeCoordinator(t, home, "proj", f)
 
-	feed, err := operations.WatchSessionFeed(context.Background(), engines.Registry(), operations.SessionFeedRequest{Harp: harp, Source: operations.FeedSourceAuto})
-	require.NoError(t, err)
-	require.Equal(t, "live", feed.Source)
-
-	src := tui.Sources{
-		Roster: func(context.Context) ([]tui.RosterRow, error) {
-			return []tui.RosterRow{{Harp: harp, State: "live"}}, nil
-		},
-		Watch: func(context.Context, string) (*tui.Feed, error) {
-			return &tui.Feed{Source: feed.Source, Events: feed.Events, Errs: feed.Errs, Cancel: func() {}}, nil
-		},
-	}
+	// The overlay's own port: its roster lists the seeded harp from the
+	// index, and opening it resolves the live tap the fake serves.
+	src := tui.Sources{Port: operations.NewFrontendPort(operations.FrontendDeps{Engines: engines.Registry(), WorkDir: projectDir})}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ov := tui.NewOverlay(ctx, src, 0x1d, termui.OverlayStart{})
@@ -224,7 +215,7 @@ func TestLiveTap_GapNoticeReachesTheOverlay(t *testing.T) {
 
 	f.push(t, &agentcoordpb.AgentEvent{Seq: 5, Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{}}})
 
-	_, err = pw.Write([]byte("q"))
+	_, err := pw.Write([]byte("q"))
 	require.NoError(t, err)
 	select {
 	case runErr := <-done:

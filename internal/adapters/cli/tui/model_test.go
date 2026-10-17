@@ -13,25 +13,26 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
-	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
+	"github.com/ctxloom/ctxloom/internal/testsupport/frontendfake"
 )
 
-// fakeSources records watches/cancels/control requests and lets tests push
-// feed events and script the control outcome.
+// fakeSources is a frontend port over a fixed roster that records
+// watches/cancels/control requests and lets tests push feed events and
+// script the control outcome.
 type fakeSources struct {
 	// mu guards watched, which the overlay tests read from the test goroutine
 	// while a real tea.Program appends to it from its own.
 	mu        sync.Mutex
 	rows      []RosterRow
 	watched   []string
-	events    map[string]chan operations.SessionFeedEvent
+	events    map[string]chan frontend.FeedEvent
 	cancelled map[string]int
 	exportDir string
-	// rosterGate, when set, holds every Roster fetch until it is closed, so a
+	// rosterGate, when set, holds every roster fetch until it is closed, so a
 	// test can order the roster's arrival after the Program's first frame.
 	rosterGate chan struct{}
 
@@ -43,15 +44,15 @@ type fakeSources struct {
 func newFakeSources(dir string, rows ...RosterRow) *fakeSources {
 	return &fakeSources{
 		rows:      rows,
-		events:    map[string]chan operations.SessionFeedEvent{},
+		events:    map[string]chan frontend.FeedEvent{},
 		cancelled: map[string]int{},
 		exportDir: dir,
 	}
 }
 
 func (f *fakeSources) sources() Sources {
-	return Sources{
-		Roster: func(ctx context.Context) ([]RosterRow, error) {
+	return Sources{Port: &frontendfake.Port{
+		ListSessionsFn: func(ctx context.Context) ([]frontend.Session, error) {
 			if f.rosterGate != nil {
 				select {
 				case <-f.rosterGate:
@@ -59,29 +60,27 @@ func (f *fakeSources) sources() Sources {
 					return nil, ctx.Err()
 				}
 			}
-			return f.rows, nil
+			return sessionsOf(f.rows), nil
 		},
-		Watch: func(_ context.Context, harp string) (*Feed, error) {
-			// Watch and Cancel run on bubbletea's command goroutines, so every
-			// write to the fake's maps is under its lock, like watched.
-			ch := make(chan operations.SessionFeedEvent, 16)
+		ListRunsFn: func(context.Context) (coord.RunsSnapshot, error) { return runsOf(f.rows), nil },
+		WatchFeedFn: func(ctx context.Context, harp string) (frontend.Feed, error) {
+			// The watch and its release run on bubbletea's command goroutines,
+			// so every write to the fake's maps is under its lock, like
+			// watched.
+			ch := make(chan frontend.FeedEvent, 16)
 			f.mu.Lock()
 			f.watched = append(f.watched, harp)
 			f.events[harp] = ch
 			f.mu.Unlock()
-			errs := make(chan error, 1)
-			return &Feed{
-				Source: "live",
-				Events: ch,
-				Errs:   errs,
-				Cancel: func() {
-					f.mu.Lock()
-					f.cancelled[harp]++
-					f.mu.Unlock()
-				},
-			}, nil
+			go func() {
+				<-ctx.Done()
+				f.mu.Lock()
+				f.cancelled[harp]++
+				f.mu.Unlock()
+			}()
+			return frontend.Feed{Source: "live", Events: ch, Errs: make(chan error, 1)}, nil
 		},
-		Control: func(_ context.Context, req coord.ControlRequest) (coord.ControlResult, error) {
+		ControlFn: func(_ context.Context, req coord.ControlRequest) (coord.ControlResult, error) {
 			f.mu.Lock()
 			f.controlled = append(f.controlled, req)
 			out, err := f.controlOut, f.controlErr
@@ -95,7 +94,41 @@ func (f *fakeSources) sources() Sources {
 			}
 			return out, nil
 		},
+	}}
+}
+
+// sessionsOf states rows as the port's session index: each its harp, engine
+// and state.
+func sessionsOf(rows []RosterRow) []frontend.Session {
+	out := make([]frontend.Session, len(rows))
+	for i, r := range rows {
+		out[i] = frontend.Session{Harp: r.Harp, Engine: r.Engine, State: r.State}
 	}
+	return out
+}
+
+// runsOf states the rows the coordinator would hold — those carrying what
+// only it knows (agent, parent, hold, cause, unread) — as its runs, so
+// BuildRoster gives back the rows.
+func runsOf(rows []RosterRow) coord.RunsSnapshot {
+	var out coord.RunsSnapshot
+	for _, r := range rows {
+		if r.Agent == "" && r.Parent == "" && r.Hold == nil && r.Cause == "" && r.Detail == "" && r.Unread == 0 {
+			continue
+		}
+		out.Runs = append(out.Runs, coord.RunInfo{
+			Agent: &coord.AgentIdentity{AgentID: r.Harp, Role: r.Agent}, Phase: r.State, ParentHarp: r.Parent,
+			Hold: r.Hold, Cause: r.Cause, Detail: r.Detail, Unread: r.Unread,
+		})
+	}
+	return out
+}
+
+// cancelledFor is how many times harp's watch has been released.
+func (f *fakeSources) cancelledFor(harp string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.cancelled[harp]
 }
 
 // keyMsg builds the bubbletea v2 key press a terminal would deliver for s.
@@ -129,10 +162,10 @@ func (f *fakeSources) watchedHarps() []string {
 	return append([]string(nil), f.watched...)
 }
 
-func entryEv(role, content string) operations.SessionFeedEvent {
-	return operations.SessionFeedEvent{Event: &transcript.WatchEvent{Entry: &agent.SessionEntry{
+func entryEv(role, content string) frontend.FeedEvent {
+	return frontend.FeedEvent{Entry: &agent.SessionEntry{
 		Type: agent.SessionEntryType(role), Content: content, Timestamp: time.Unix(1700000000, 0),
-	}}}
+	}}
 }
 
 // step applies msg and returns the updated model + cmd.
@@ -153,7 +186,7 @@ func openSelected(t *testing.T, m Model, f *fakeSources) Model {
 }
 
 // pushEntry delivers one event through the armed wait cycle.
-func pushEntry(t *testing.T, m Model, f *fakeSources, ev operations.SessionFeedEvent) Model {
+func pushEntry(t *testing.T, m Model, f *fakeSources, ev frontend.FeedEvent) Model {
 	t.Helper()
 	f.events[m.feedHarp] <- ev
 	msg := waitEventCmd(m.feedHarp, m.feed)()
@@ -207,7 +240,7 @@ func TestModel_RosterNavigationSwitchesFeed(t *testing.T) {
 
 	m, cmd := step(t, m, keyMsg("j"))
 	require.NotNil(t, cmd, "selecting another harp opens its feed")
-	assert.Equal(t, 1, f.cancelled["h1"], "the previous watch is released")
+	assert.Eventually(t, func() bool { return f.cancelledFor("h1") == 1 }, time.Second, time.Millisecond, "the previous watch is released")
 	m, _ = step(t, m, cmd())
 	assert.Equal(t, []string{"h1", "h2"}, f.watched)
 	assert.Equal(t, "h2", m.feedHarp)
@@ -254,7 +287,7 @@ func TestModel_StaleFeedOpenIsReleased(t *testing.T) {
 	m, cmd = step(t, m, keyMsg("j")) // selection moves to h2 first
 	m, _ = step(t, m, cmd())
 	m, _ = step(t, m, openH1) // the stale h1 open arrives late
-	assert.Equal(t, 1, f.cancelled["h1"], "a stale open is cancelled, not adopted")
+	assert.Eventually(t, func() bool { return f.cancelledFor("h1") == 1 }, time.Second, time.Millisecond, "a stale open is cancelled, not adopted")
 	assert.Equal(t, "h2", m.feedHarp)
 }
 
@@ -309,9 +342,9 @@ func TestModel_LaterFTogglesFollow(t *testing.T) {
 func TestModel_ExpandCollapse(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
 	m := openSelected(t, newTestModel(f), f)
-	m = pushEntry(t, m, f, operations.SessionFeedEvent{Event: &transcript.WatchEvent{Entry: &agent.SessionEntry{
+	m = pushEntry(t, m, f, frontend.FeedEvent{Entry: &agent.SessionEntry{
 		Type: "tool_result", ToolName: "Bash", ToolOutput: "line1\nline2\nline3",
-	}}})
+	}})
 
 	assert.Contains(t, m.render(), "ok (3 lines)")
 	assert.NotContains(t, m.render(), "line2")
@@ -393,14 +426,14 @@ func TestModel_QuitKeysCancelFeed(t *testing.T) {
 		_, cmd := step(t, m, keyMsg(key))
 		require.NotNil(t, cmd, key)
 		assert.IsType(t, tea.QuitMsg{}, cmd(), "%s backs out to the engine", key)
-		assert.Equal(t, 1, f.cancelled["h1"], "%s releases the watch", key)
+		assert.Eventually(t, func() bool { return f.cancelledFor("h1") == 1 }, time.Second, time.Millisecond, "%s releases the watch", key)
 	}
 }
 
 func TestModel_GapRendersNotice(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
 	m := openSelected(t, newTestModel(f), f)
-	m = pushEntry(t, m, f, operations.SessionFeedEvent{Gap: 7})
+	m = pushEntry(t, m, f, frontend.FeedEvent{Gap: 7})
 	assert.Contains(t, m.render(), "7 live events dropped")
 }
 
@@ -594,11 +627,9 @@ func TestModel_InjectRequiresTargetAndSeam(t *testing.T) {
 	// No Inject seam wired (no bus can ever be reached): typed unavailability.
 	f2 := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
 	src := f2.sources()
-	src.Control = nil
+	src.Port = nil
 	m2 := NewModel(context.Background(), src, testGeo(), 0x1d)
-	m2, cmd := step(t, m2, rosterMsg{rows: f2.rows})
-	require.NotNil(t, cmd)
-	m2, _ = step(t, m2, cmd())
+	m2, _ = step(t, m2, rosterMsg{rows: f2.rows})
 	m2, _ = step(t, m2, keyMsg("i"))
 	assert.Empty(t, m2.composeVerb)
 	assert.Contains(t, m2.errMsg, "inject unavailable")

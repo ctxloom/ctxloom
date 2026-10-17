@@ -28,6 +28,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -1415,11 +1416,22 @@ type sessionIO struct {
 	restore func()
 }
 
+// frontendPort is this session's frontend port: its hosted coordinator (nil
+// when none is hosted), its session index and feeds, and the pty its
+// interactive run's engine is on (nil for a run launched without one).
+func (st *runState) frontendPort() frontend.Port {
+	deps := operations.FrontendDeps{Coord: st.sessionCoord, Engines: App().Engines(), WorkDir: st.workDir, Self: st.activeHarp}
+	if st.pty != nil {
+		deps.Terminal = st.pty
+	}
+	return operations.NewFrontendPort(deps)
+}
+
 // prepareSessionIO decides an interactive run's terminal seams: the
 // frontend owns the terminal — raw mode + stdin + resize — and the terminal
 // layer (adapters/termui) wraps the seams before they are pumped onto the
-// runner's pty master.
-func (st *runState) prepareSessionIO() sessionIO {
+// session's terminal on port.
+func (st *runState) prepareSessionIO(port frontend.Port) sessionIO {
 	sio := sessionIO{stdout: os.Stdout, restore: func() {}}
 	sio.stdin, sio.resize, sio.restore = interactiveTerminal(st.ctx)
 	// Wrap the terminal seams with the observation layer (prefix-key
@@ -1433,7 +1445,7 @@ func (st *runState) prepareSessionIO() sessionIO {
 		// stop writing to it. Diverted to the session's diagnostics log,
 		// announced before the handover.
 		restoreDiag := redirectDiagnosticsForTUI(st.activeHarp, os.Stderr)
-		if ui := setupTerminalUI(st.ctx, st.cfg, st.sessionCoord, terminalUIIdentity{
+		if ui := setupTerminalUI(st.ctx, st.cfg, port, terminalUIIdentity{
 			WorkDir: st.workDir,
 			Harp:    st.activeHarp,
 			Agent:   st.boundAgent(),

@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/testsupport/frontendfake"
 	"github.com/ctxloom/ctxloom/internal/testsupport/vtemu"
 )
 
@@ -59,7 +60,7 @@ const hostileCommand = "rm -rf build\x1b[2J\x1b[H[ Allow ]\x1b]0;pwned\x07 \u202
 // closes itself.
 func TestOverlay_SummonedModalFillsTheScreenInertlyAndAnswers(t *testing.T) {
 	q := newFakeQueue(bashReq("a", "wiry-otter", hostileCommand, 10*time.Minute))
-	o := NewOverlay(context.Background(), Sources{Approvals: q}, 0x1d, termui.OverlayStart{Summoned: true, View: "approvals"})
+	o := NewOverlay(context.Background(), Sources{Port: &frontendfake.Port{ApprovalSource: q}}, 0x1d, termui.OverlayStart{Summoned: true, View: "approvals"})
 	scr := &lockedScreen{s: vtemu.New(30, 100)}
 	pr, pw := io.Pipe()
 	defer func() { _ = pw.Close() }()
@@ -100,7 +101,7 @@ func TestOverlay_NotifyBeforeRunStillShowsTheBanner(t *testing.T) {
 	q := newFakeQueue(bashReq("a", "wiry-otter", "ls", 10*time.Minute))
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "self"})
 	src := f.sources()
-	src.Approvals = q
+	src.Port.(*frontendfake.Port).ApprovalSource = q
 	o := NewOverlay(context.Background(), src, 0x1d, termui.OverlayStart{})
 	o.Notify(termui.Notice{Text: "approval from wiry-otter"})
 	scr := &lockedScreen{s: vtemu.New(30, 100)}

@@ -13,9 +13,9 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 )
 
 // rosterRefreshEvery is the roster pane's refresh cadence while the overlay
@@ -125,7 +125,7 @@ type feedErrMsg struct {
 }
 type feedEventMsg struct {
 	harp string
-	ev   operations.SessionFeedEvent
+	ev   frontend.FeedEvent
 }
 type feedClosedMsg struct {
 	harp string
@@ -196,7 +196,7 @@ func (m Model) Init() tea.Cmd {
 func (m Model) fetchRosterCmd() tea.Cmd {
 	src, ctx := m.src, m.ctx
 	return m.track(func() tea.Msg {
-		rows, err := src.Roster(ctx)
+		rows, err := LoadRoster(ctx, src.Port, src.Self)
 		if err != nil {
 			return rosterErrMsg{err}
 		}
@@ -249,7 +249,7 @@ func (m *Model) openFeed(harp string) tea.Cmd {
 	m.refreshFeed()
 	src, ctx := m.src, m.ctx
 	return m.track(func() tea.Msg {
-		f, err := src.Watch(ctx, harp)
+		f, err := openFeed(ctx, src.Port, harp)
 		if err != nil {
 			return feedErrMsg{harp: harp, err: err}
 		}
@@ -546,7 +546,7 @@ func (m Model) openControl(verb string) (tea.Model, tea.Cmd) {
 		m.reportOK("no agent selected to " + controlLabel(verb))
 		return m, nil
 	}
-	if m.src.Control == nil {
+	if m.src.Port == nil {
 		m.reportErr(controlLabel(verb) + " unavailable (no agent bus for this session)")
 		return m, nil
 	}
@@ -602,7 +602,7 @@ func (m Model) updateComposeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // and a late answer is dropped), rather than leaving a waiter nobody reads.
 func (m Model) sendControl(req coord.ControlRequest) (tea.Model, tea.Cmd) {
 	m.status = controlPending(req)
-	control, ctx := m.src.Control, m.ctx
+	control, ctx := m.src.Port.Control, m.ctx
 	return m, m.track(func() tea.Msg {
 		res, err := control(ctx, req)
 		return controlResultMsg{req: req, res: res, err: err}

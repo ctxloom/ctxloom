@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/displaysafe"
 )
 
@@ -26,19 +27,29 @@ func (m Model) now() func() time.Time {
 	return time.Now
 }
 
+// approvalSource is the root's approval queue over the port; nil when there
+// is none.
+func (m Model) approvalSource() coord.ApprovalSource {
+	if m.src.Port == nil {
+		return nil
+	}
+	return m.src.Port.Approvals()
+}
+
 // openApprovals opens the approvals view over the queue. Summoned, it is the
 // modal: full screen on the screen termui took, inert until armed. From the
 // roster view (the a key), it takes the full screen as prefix-then-f does —
 // in the panel instead when the engine is on the alternate screen.
 func (m Model) openApprovals(summoned bool) (Model, tea.Cmd) {
-	if m.src.Approvals == nil {
+	src := m.approvalSource()
+	if src == nil {
 		m.reportErr(approvalsUnavailable)
 		return m, nil
 	}
 	m.approvals, m.banner = true, ""
 	m.summoned, m.arming = summoned, summoned
-	m.appr = newApprovalsModel(m.src.Approvals, m.now(), m.prefixKey)
-	m.appr.events = m.src.Approvals.Subscribe(m.ctx)
+	m.appr = newApprovalsModel(src, m.now(), m.prefixKey)
+	m.appr.events = src.Subscribe(m.ctx)
 	m.appr.resync()
 	cmds := []tea.Cmd{m.appr.initCmds()}
 	if summoned || !m.geo.EngineOnAltScreen {

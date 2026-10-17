@@ -1,4 +1,4 @@
-package coord_test
+package tui_test
 
 import (
 	"bytes"
@@ -52,17 +52,13 @@ func tuiGeo() termui.OverlayGeometry {
 // in production) -> the child's assistant entry rendered as a real overlay
 // item.
 //
-// Placement: package coord_test (external). coord/fake_test.go's
-// fakeSpawner/fakeEngine/scriptedChat already prove this exact StartEngine
-// bridging (NewEngineHost/NewHome/HomeConfig), but they are unexported and
-// package-private to coord's own tests, so this file re-derives the same
-// idiom using only coord's EXPORTED Spawner surface (Resolve/AssignSession/
-// StartEngine/...) — the same seam fakeSpawner.StartEngine itself is built
-// from. Because internal/adapters/cli/tui already imports internal/core/coord
-// in production (roster.go), an INTERNAL coord test importing tui would
-// cycle; an EXTERNAL coord_test package importing tui does not (tui is a
-// consumer of coord, not the reverse), so package coord_test is required
-// here, not merely a style choice.
+// Placement: package tui_test (external), beside the overlay it asserts on: a
+// test that needs a UI to assert is that UI adapter's test, and the frontend
+// layering rule (core-and-shared-import-no-frontend) keeps UI imports out of
+// core. coord's own fakeSpawner/scriptedChat prove the same StartEngine
+// bridging (NewEngineHost/NewHome/HomeConfig) but are package-private to
+// coord's tests, so this file re-derives the idiom from coord's EXPORTED
+// Spawner surface (Resolve/AssignSession/Start/...).
 //
 // Gap markers (feed.go:27 — itemsFromFeedEvent's Gap>0 branch): NOT
 // exercised end-to-end in THIS test (it drives one clean turn end-to-end;

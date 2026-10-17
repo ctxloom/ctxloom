@@ -1,4 +1,4 @@
-package coord_test
+package tui_test
 
 import (
 	"context"

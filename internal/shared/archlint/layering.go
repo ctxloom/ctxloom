@@ -3,6 +3,7 @@ package archlint
 import (
 	"fmt"
 	"go/ast"
+	"slices"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
@@ -50,25 +51,58 @@ func runLayering(pass *analysis.Pass, rules []archrules.LayeringRule) (any, erro
 	return nil, nil
 }
 
-// importedDirs is the set of module-local directories the package imports.
+// importedDirs is the set of dependencies the package imports, each keyed as
+// an Allowed edge names it: a module-local import by its directory, any other
+// by its full import path.
 func importedDirs(imports map[string]*ast.ImportSpec) map[string]bool {
 	out := map[string]bool{}
 	for ip := range imports {
-		if dep := LocalDir(ip); dep != "" {
-			out[dep] = true
-		}
+		out[edgeDep(ip)] = true
 	}
 	return out
+}
+
+// edgeDep is how an edge names the dependency importPath: its module-relative
+// directory when it is this module's, else the import path itself.
+func edgeDep(importPath string) string {
+	if dep := LocalDir(importPath); dep != "" {
+		return dep
+	}
+	return importPath
+}
+
+// forbids reports whether rule forbids its From packages the dependency dep,
+// named as an Allowed edge names it (edgeDep): a module-local directory under
+// Forbid (less Except), or a third-party import path under ForbidModules. The
+// two are told apart by the first path element: a third-party module path's
+// is a domain, with a dot; a directory of this module's never has one.
+func forbids(rule archrules.LayeringRule, dep string) bool {
+	first, _, _ := strings.Cut(dep, "/")
+	if strings.Contains(first, ".") && dep != "." {
+		return rule.ViolatesModule(dep)
+	}
+	return rule.Violates(dep)
+}
+
+// importForbidden reports whether rule forbids the import importPath: by
+// directory when it is this module's, by import path otherwise. Unlike
+// forbids it resolves locality from the import path itself, so a standard
+// library path ("container/list") is never mistaken for a module directory.
+func importForbidden(rule archrules.LayeringRule, importPath string) bool {
+	if dep := LocalDir(importPath); dep != "" {
+		return rule.Violates(dep)
+	}
+	return rule.ViolatesModule(importPath)
 }
 
 // reportForbiddenImports reports each import the rule forbids from dir whose
 // edge is not in the rule's Allowed map.
 func reportForbiddenImports(pass *analysis.Pass, rule archrules.LayeringRule, dir string, imports map[string]*ast.ImportSpec) {
 	for ip, spec := range imports {
-		dep := LocalDir(ip)
-		if dep == "" || !rule.Violates(dep) {
+		if !importForbidden(rule, ip) {
 			continue
 		}
+		dep := edgeDep(ip)
 		if _, ok := rule.Allowed[archrules.EdgeKey(dir, dep)]; ok {
 			continue
 		}
@@ -76,7 +110,7 @@ func reportForbiddenImports(pass *analysis.Pass, rule archrules.LayeringRule, di
 			"package %s imports %s, which layering rule %q forbids (packages under %v must not import "+
 				"packages under %v). If this is a deliberate, reviewed exception, add %q to that rule's "+
 				"Allowed map in archrules.LayeringRules naming the fix required to remove it.",
-			dir, ip, rule.Name, rule.From, rule.Forbid, archrules.EdgeKey(dir, dep))
+			dir, ip, rule.Name, rule.From, append(slices.Clone(rule.Forbid), rule.ForbidModules...), archrules.EdgeKey(dir, dep))
 	}
 }
 
@@ -101,7 +135,7 @@ func staleEdgeReason(rule archrules.LayeringRule, dir, dep string, imported map[
 	switch {
 	case !rule.MatchesFrom(dir):
 		return fmt.Sprintf("%q is not under the rule's From prefixes %v — delete the entry", dir, rule.From)
-	case !rule.Violates(dep):
+	case !forbids(rule, dep):
 		return fmt.Sprintf("%q is not something the rule forbids — delete the entry", dep)
 	case !imported[dep]:
 		return fmt.Sprintf("%s no longer imports %s — delete the entry, or it will "+

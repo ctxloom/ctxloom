@@ -18,12 +18,21 @@ package archrules
 // fails: archlint's LayeringAnalyzer when the import is gone, tests/arch's
 // TestArch_LayeringAllowlist_IsLive when the from-package is. A nil map means
 // the rule holds with zero exceptions.
+//
+// ForbidModules extends Forbid past this module's own tree: import-path
+// prefixes of THIRD-PARTY modules ("charm.land", "github.com/charmbracelet")
+// that a From package may not import either. Forbid cannot say this — its
+// entries are module-relative directories, and an import outside the module
+// resolves to none. Matching is by path subtree, as for Forbid; Except does not
+// apply. An Allowed edge naming such a dependency keys it by its full import
+// path.
 type LayeringRule struct {
-	Name    string
-	From    []string
-	Forbid  []string
-	Except  []string
-	Allowed map[string]string
+	Name          string
+	From          []string
+	Forbid        []string
+	ForbidModules []string
+	Except        []string
+	Allowed       map[string]string
 }
 
 // EdgeKey is the Allowed-map key for one import edge.
@@ -36,6 +45,13 @@ func (r LayeringRule) MatchesFrom(dir string) bool { return UnderAny(dir, r.From
 // dep resolves under a Forbid prefix and under no Except prefix.
 func (r LayeringRule) Violates(dep string) bool {
 	return UnderAny(dep, r.Forbid) && !UnderAny(dep, r.Except)
+}
+
+// ViolatesModule reports whether importing importPath, a path OUTSIDE this
+// module, from a From package breaks the rule: it lies under a ForbidModules
+// prefix.
+func (r LayeringRule) ViolatesModule(importPath string) bool {
+	return UnderAny(importPath, r.ForbidModules)
 }
 
 // LayeringRules is the table every layering rule lives in. Adding a rule is an
@@ -53,9 +69,20 @@ func (r LayeringRule) Violates(dep string) bool {
 // leaves — a ratchet, not a claim.
 var LayeringRules = []LayeringRule{
 	{
-		Name:   "coord-must-not-import-cli/tui",
-		From:   []string{"internal/core/coord"},
-		Forbid: []string{"internal/adapters/cli/tui"},
+		// THE FRONTEND LAYERING RULE (split-agent-view, ruled 2026-10-13):
+		// the UI is abstracted from core behind ONE UI-neutral frontend port
+		// (internal/core/frontend), because frontends other than the terminal
+		// are expected (a VS Code bridge, an ACP server). Core and the shared
+		// toolbox therefore never link a frontend: not the terminal layer, not
+		// the overlay, and not the Charm toolkit those are built on. Test files
+		// are exempt by the analyzer's own scope (production files only); a
+		// core test that needs a UI to assert is an adapter's test and lives
+		// beside that adapter (cli/tui's livetap tests). It subsumes the old
+		// coord-must-not-import-cli/tui cycle row.
+		Name:          "core-and-shared-import-no-frontend",
+		From:          []string{"internal/core", "internal/shared"},
+		Forbid:        []string{"internal/adapters/termui", "internal/adapters/cli/tui"},
+		ForbidModules: []string{"charm.land", "github.com/charmbracelet"},
 	},
 	{
 		Name:   "termui-must-not-import-cli/tui",

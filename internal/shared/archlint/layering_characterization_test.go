@@ -35,6 +35,19 @@ var layeringTable = []archrules.LayeringRule{
 		},
 	},
 	{
+		// "t-modules" forbids a third-party module by import path
+		// (ForbidModules) and a module directory named like a standard
+		// library tree ("container"), which the stdlib import must not trip.
+		Name:          "t-modules",
+		From:          []string{"internal/layermod"},
+		Forbid:        []string{"container"},
+		ForbidModules: []string{"example.com/uikit"},
+		Allowed: map[string]string{
+			"internal/layermod -> example.com/uikit/allowed": "mod-why",
+			"internal/layermod -> example.com/uikit/gone":    "modgone-why",
+		},
+	},
+	{
 		Name:   "t-other",
 		From:   []string{"internal/elsewhere"},
 		Forbid: []string{"internal/layerlow"},
@@ -59,6 +72,15 @@ var layeringTestAnalyzer = &analysis.Analyzer{
 func TestLayering_ViolationsAndAllowlistLiveness(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), layeringTestAnalyzer,
 		ModulePath+"/internal/layerfrom", ModulePath+"/internal/layershared")
+}
+
+// TestLayering_ForbiddenModules pins ForbidModules: a third-party import under
+// the prefix is reported unless an Allowed edge keyed by its import path
+// exempts it, an Allowed module edge whose import is gone is stale, an
+// unforbidden module passes, and a standard-library import is never judged
+// as a module directory of the same name.
+func TestLayering_ForbiddenModules(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), layeringTestAnalyzer, ModulePath+"/internal/layermod")
 }
 
 // TestLayering_LivenessOffReportsOnlyViolations pins the supplementary-pass

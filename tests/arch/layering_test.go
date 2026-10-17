@@ -13,6 +13,8 @@
 package arch
 
 import (
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -41,6 +43,55 @@ func TestArch_LayeringRules(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestArch_LayeringForbidModules_NameRealModules fails when a rule's
+// ForbidModules prefix matches no module this one requires. A prefix that
+// names nothing guards nothing: a typo'd or renamed toolkit path would leave
+// the rule green while the toolkit it meant to keep out is imported freely.
+func TestArch_LayeringForbidModules_NameRealModules(t *testing.T) {
+	required := requiredModules(t)
+	for _, rule := range archrules.LayeringRules {
+		for _, prefix := range rule.ForbidModules {
+			found := false
+			for _, mod := range required {
+				if archrules.UnderAny(mod, []string{prefix}) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("rule %q forbids module prefix %q, which matches no module go.mod requires — delete or re-point it", rule.Name, prefix)
+			}
+		}
+	}
+}
+
+// requiredModules is every module path go.mod requires, direct or indirect:
+// the first field of each line of a require block, and of each single-line
+// require.
+func requiredModules(t *testing.T) []string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(moduleRoot(t), "go.mod"))
+	require.NoError(t, err)
+	var out []string
+	inBlock := false
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		switch {
+		case len(fields) == 0:
+		case inBlock && fields[0] == ")":
+			inBlock = false
+		case inBlock:
+			out = append(out, fields[0])
+		case fields[0] == "require" && len(fields) >= 2 && fields[1] == "(":
+			inBlock = true
+		case fields[0] == "require" && len(fields) >= 3:
+			out = append(out, fields[1])
+		}
+	}
+	require.NotEmpty(t, out, "go.mod requires nothing — the gate is reading the wrong file")
+	return out
 }
 
 // anyPackageUnder reports whether the scan found a package at prefix or in

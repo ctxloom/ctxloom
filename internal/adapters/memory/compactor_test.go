@@ -5,13 +5,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/spf13/afero"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/llmturn"
+
+	"github.com/spf13/afero"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1469,7 +1472,7 @@ func (m *scriptedRunner) Run(ctx context.Context, prompt string, stdout, stderr 
 // runnerOver drives client as the distiller session's turn: the whole prompt
 // in, stdout out, a non-zero exit as an error — what the one-shot turn does
 // over a real runner.
-func runnerOver(client *scriptedRunner) Runner {
+func runnerOver(client *scriptedRunner) llmturn.Runner {
 	return func(ctx context.Context, prompt string) (string, error) {
 		var stdout, stderr bytes.Buffer
 		code, err := client.Run(ctx, prompt, &stdout, &stderr)

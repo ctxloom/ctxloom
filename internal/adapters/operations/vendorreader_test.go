@@ -4,12 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"

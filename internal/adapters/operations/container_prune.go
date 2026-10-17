@@ -3,9 +3,10 @@ package operations
 import (
 	"context"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"strings"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/config"

@@ -2,9 +2,10 @@ package operations
 
 import (
 	"encoding/json"
-	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

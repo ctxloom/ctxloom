@@ -1,8 +1,10 @@
 // Package plans lists and reads session plan documents: the <name>.plan.md
 // files in each session's recorded output dir (sessions.Entry.OutputDir). It is shared by taskloom (which
 // surfaces plans via `taskloom plan list/show`) and ctxloom, so the plan
-// location and frontmatter parsing live in one place. Pure value DTOs cross the
-// wire; no agent or vscode coupling.
+// location and frontmatter parsing live in one place. It also holds the write
+// half the stamp-plan hook drives (IsPlanFile, StampPlanFile), so the reader
+// and the writer of the `sessions:` stamp share one package. Pure value DTOs
+// cross the wire; no agent or vscode coupling.
 package plans
 
 import (
@@ -234,7 +236,7 @@ type frontmatter struct {
 // with no frontmatter yields ("", nil).
 //
 // The block is handed to yaml.v3 — the same parser the paired WRITER
-// (memory.StampPlanFile, which round-trips the document through yaml.Node)
+// (StampPlanFile, which round-trips the document through yaml.Node)
 // already uses. That is the whole point: one file format needs one definition
 // of what it says. A hand-rolled line scanner stood here and quietly disagreed
 // with the writer about three ordinary shapes the writer preserves character
@@ -318,7 +320,7 @@ func parseFrontmatterLabeled(content, path string) (title string, sessions []str
 // equally costly. yaml.v3's own answer — reject the mapping — throws away the
 // keys that were NOT in dispute along with the one that was, so a plan that
 // repeats `title:` reads back as having no sessions at all while
-// memory.StampPlanFile goes on appending to the very list the reader now
+// StampPlanFile goes on appending to the very list the reader now
 // denies exists. Last-wins keeps the document's other keys and picks the
 // author's most recent word on the disputed one; the warning is what stops
 // that from being a silent guess.

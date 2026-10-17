@@ -11,12 +11,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/llmturn"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
-	"github.com/ctxloom/ctxloom/internal/adapters/memory"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	tasksops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
@@ -105,7 +106,7 @@ func (c *fullFakeClient) requestAt(i int) string {
 // (exactly one call vs. exactly two) without depending on internal call
 // ordering. The turn hands the client the whole prompt, as the session's
 // launch would.
-func countingRunner(client *fullFakeClient) (memory.Runner, *atomic.Int32) {
+func countingRunner(client *fullFakeClient) (llmturn.Runner, *atomic.Int32) {
 	var n atomic.Int32
 	return func(ctx context.Context, prompt string) (string, error) {
 		n.Add(1)

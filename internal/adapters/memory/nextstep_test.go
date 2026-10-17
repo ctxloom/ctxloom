@@ -1,11 +1,12 @@
 package memory
 
 import (
-	"github.com/spf13/afero"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/spf13/afero"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

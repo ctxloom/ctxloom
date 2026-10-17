@@ -2,12 +2,13 @@ package operations
 
 import (
 	"encoding/json"
-	"github.com/ctxloom/ctxloom/internal/engines"
-	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"

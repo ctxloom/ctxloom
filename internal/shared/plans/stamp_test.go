@@ -1,4 +1,4 @@
-package memory
+package plans
 
 import (
 	"os"
@@ -6,12 +6,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/spf13/afero"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/shared/plans"
 )
 
 func writePlanFile(t *testing.T, name, content string) string {
@@ -237,14 +236,14 @@ func TestStampPlanFile_PreservesFileMode(t *testing.T) {
 }
 
 // StampPlanFile is one half of a contract whose other half lives outside this
-// file: it WRITES the `sessions:` block-list that plans.ParseFrontmatter READS
+// file: it WRITES the `sessions:` block-list that ParseFrontmatter READS
 // back out of the same document. Neither side can be changed alone — the key,
 // the block-list style, the append-rather-than-replace semantics, and the
 // survival of fields the stamper does not own are one agreement, and nothing
 // else in the tree states it end to end.
 //
 // The fixture uses the <name>.plan.md convention because that is the population
-// plans.ParseFrontmatter reads. IsPlanFile deliberately does NOT match that
+// ParseFrontmatter reads. IsPlanFile deliberately does NOT match that
 // convention; see its doc comment, which records the mismatch as an open
 // question rather than an oversight, so this pin does not assert either way.
 func TestStampPlanFile_WritesTheSessionsListPlansReadsBack(t *testing.T) {
@@ -252,9 +251,9 @@ func TestStampPlanFile_WritesTheSessionsListPlansReadsBack(t *testing.T) {
 
 	// Assert the fixture is hostile: the reader must find nothing before the
 	// writer runs, or a green here would prove nothing about the writer.
-	before, _ := plans.ParseFrontmatter(readFile(t, path))
+	before, _ := ParseFrontmatter(readFile(t, path))
 	require.Equal(t, "Roadmap", before)
-	_, noSessions := plans.ParseFrontmatter(readFile(t, path))
+	_, noSessions := ParseFrontmatter(readFile(t, path))
 	require.Empty(t, noSessions, "the fixture must start with no sessions list")
 
 	require.NoError(t, StampPlanFile(afero.NewOsFs(), path, "vital-deaf-stunt"))
@@ -263,7 +262,7 @@ func TestStampPlanFile_WritesTheSessionsListPlansReadsBack(t *testing.T) {
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 
-	title, sessions := plans.ParseFrontmatter(string(data))
+	title, sessions := ParseFrontmatter(string(data))
 	assert.Equal(t, "Roadmap", title, "stamping must preserve frontmatter fields it does not own")
 	assert.Equal(t, []string{"vital-deaf-stunt", "lively-harp-two"}, sessions,
 		"the reader must see every stamped harp, in stamp order")
@@ -300,4 +299,20 @@ func TestStampPlanFile_TrailingLiteralBlockScalar_SurvivesByteForByte(t *testing
 			assert.Equal(t, tc.want, readFile(t, path))
 		})
 	}
+}
+
+// StampPlanFile's file I/O goes through the fs it is handed: the plan lives
+// ONLY in a MemMapFs, so a read through the OS filesystem would find nothing.
+func TestStampPlanFile_ReadsAndWritesThroughTheGivenFs(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	path := filepath.Join(t.TempDir(), "absent-from-disk", "x.plan.md")
+	require.NoError(t, fsys.MkdirAll(filepath.Dir(path), 0o755))
+	testsupport.WriteFile(t, fsys, path, []byte("body\n"), 0o600)
+
+	require.NoError(t, StampPlanFile(fsys, path, "vital-deaf-stunt"))
+	got, err := afero.ReadFile(fsys, path)
+	require.NoError(t, err)
+	require.Contains(t, string(got), "vital-deaf-stunt")
+	_, err = os.Stat(path)
+	require.ErrorIs(t, err, os.ErrNotExist)
 }

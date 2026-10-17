@@ -7,8 +7,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/llmturn"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
-	"github.com/ctxloom/ctxloom/internal/adapters/memory"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	tasksops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
@@ -97,7 +98,7 @@ type EvaluateTriggersRequest struct {
 	// Run/Git are test seams: Run replaces the triage session's turn (nil
 	// resolves a real internal one-shot on the label); Git nil selects the
 	// real git binary (git.NewExec).
-	Run memory.Runner
+	Run llmturn.Runner
 	Git git.Git
 }
 
@@ -523,7 +524,7 @@ func summarizeCommits(entries []git.LogEntry, maxFiles int) ([]triggers.CommitSu
 // (LLM error or unparseable output) degrade gracefully: the caller falls
 // back to cannot-determine verdicts rather than surfacing a hard error, since
 // a check-triggers run finding nothing conclusive is still a valid outcome.
-func runTriageWithRetry(ctx context.Context, run memory.Runner, prompt string) (verdicts []triggers.Verdict, degraded bool, warning string) {
+func runTriageWithRetry(ctx context.Context, run llmturn.Runner, prompt string) (verdicts []triggers.Verdict, degraded bool, warning string) {
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
 		out, err := run(ctx, prompt)
@@ -596,7 +597,7 @@ type chunkResult struct {
 // goroutine finishes first. Chunks are independent (each is a disjoint task
 // subset with no cross-chunk data dependency), so one chunk's failure never
 // blocks or corrupts another's result.
-func runTriageChunks(ctx context.Context, chunks []taskChunk, batch triggers.Batch, run memory.Runner) []chunkResult {
+func runTriageChunks(ctx context.Context, chunks []taskChunk, batch triggers.Batch, run llmturn.Runner) []chunkResult {
 	results := make([]chunkResult, len(chunks))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, triageConcurrency)
@@ -620,7 +621,7 @@ func runTriageChunks(ctx context.Context, chunks []taskChunk, batch triggers.Bat
 // cannot-determine with the failure as its reason (same as the pre-chunking
 // behavior, just scoped to this chunk); a successful call falls back only
 // the tasks the response omitted, and counts them.
-func runTriageChunk(ctx context.Context, c taskChunk, batch triggers.Batch, run memory.Runner) chunkResult {
+func runTriageChunk(ctx context.Context, c taskChunk, batch triggers.Batch, run llmturn.Runner) chunkResult {
 	chunkBatch := batch
 	chunkBatch.Tasks = c.inputs
 	prompt := triggers.BuildPrompt(chunkBatch)
@@ -672,7 +673,7 @@ func runTriageChunk(ctx context.Context, c taskChunk, batch triggers.Batch, run 
 type escalationParams struct {
 	// run is the triage session's turn: round 2 is more turns on the same
 	// session round 1 ran on.
-	run memory.Runner
+	run llmturn.Runner
 
 	gitClient git.Git
 	repoDir   string

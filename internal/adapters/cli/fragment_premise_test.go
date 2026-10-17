@@ -8,11 +8,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/llmturn"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/memory"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -48,7 +49,7 @@ func stubPremiseRunners(t *testing.T) *premiseSessions {
 	s := &premiseSessions{}
 	orig := newPremiseRunner
 	t.Cleanup(func() { newPremiseRunner = orig })
-	newPremiseRunner = func(_ context.Context, _ *config.Config, label string) (memory.Runner, func(), error) {
+	newPremiseRunner = func(_ context.Context, _ *config.Config, label string) (llmturn.Runner, func(), error) {
 		i := len(s.labels)
 		s.labels = append(s.labels, label)
 		s.prompts = append(s.prompts, nil)

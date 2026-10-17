@@ -2,13 +2,14 @@ package memory
 
 import (
 	"context"
-	"github.com/spf13/afero"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/spf13/afero"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

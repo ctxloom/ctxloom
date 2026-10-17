@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/llmturn"
+
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/memory"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -37,7 +38,7 @@ type PremiseAuthorConfig struct {
 	// Run drives one turn of the author's session; the caller resolved the
 	// launch. It is the stochastic boundary: a test supplies a canned runner
 	// and both sides of the call stay deterministic.
-	Run memory.Runner
+	Run llmturn.Runner
 	// PromptDir loads each pass's prompt from a directory on disk
 	// (<dir>/premise-author.md, <dir>/premise-critique.md) instead of the
 	// binary's embedded copy, so a
@@ -76,7 +77,7 @@ type PremiseDraft struct {
 }
 
 // DraftPremise proposes a premise for one fragment body, plus a split verdict,
-// by one LLM call through the shared distillation path (memory.RunPrompt). The
+// by one LLM call through the shared one-shot prompt path (llmturn.RunPrompt). The
 // result is a PROPOSAL for the author to judge; callers must not write it back
 // to a fragment unreviewed.
 func DraftPremise(ctx context.Context, cfg PremiseAuthorConfig, name, body string) (*PremiseDraft, error) {
@@ -93,7 +94,7 @@ func DraftPremise(ctx context.Context, cfg PremiseAuthorConfig, name, body strin
 		return nil, err
 	}
 	payload := fmt.Sprintf("<fragment name=%q>\n%s\n</fragment>", name, body)
-	out, err := memory.RunPrompt(ctx, cfg.Run, prompt, payload)
+	out, err := llmturn.RunPrompt(ctx, cfg.Run, prompt, payload)
 	if err != nil {
 		return nil, fmt.Errorf("draft premise for %q: %w", name, err)
 	}

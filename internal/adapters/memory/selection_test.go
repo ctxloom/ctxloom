@@ -1,10 +1,11 @@
 package memory
 
 import (
-	"github.com/spf13/afero"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"

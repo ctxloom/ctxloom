@@ -3,9 +3,10 @@ package operations
 import (
 	"context"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"maps"
 	"slices"
+
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
 	"github.com/ctxloom/ctxloom/internal/core/engine"

@@ -1,4 +1,4 @@
-package memory
+package plans
 
 import (
 	"github.com/spf13/afero"
@@ -9,13 +9,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
-
-	"github.com/ctxloom/ctxloom/internal/shared/plans"
 )
 
 // TestStampPlanFile_IsReadableByPlansParser is the reader/writer parity test
 // this pair never had. StampPlanFile is the ONLY writer of the `sessions:` key
-// and plans.ParseFrontmatter is the only reader of it, in different packages
+// and ParseFrontmatter is the only reader of it, in different packages
 // with no shared code, so nothing has ever checked that what one writes the
 // other can read.
 //
@@ -125,7 +123,7 @@ func TestStampPlanFile_IsReadableByPlansParser(t *testing.T) {
 					"the writer did not round-trip the title verbatim, so a reader mismatch would be unattributable\n--- file ---\n%s", data)
 			}
 
-			gotTitle, got := plans.ParseFrontmatter(string(data))
+			gotTitle, got := ParseFrontmatter(string(data))
 			assert.Equal(t, tc.wantSessions, got,
 				"the reader must recover exactly what the writer recorded\n--- file ---\n%s", data)
 			assert.Equal(t, tc.wantTitle, gotTitle,
@@ -188,7 +186,7 @@ func TestStampPlanFile_UnterminatedFrontmatterAgreesWithReader(t *testing.T) {
 			require.Contains(t, whole, "title",
 				"fixture must offer the reader a title to wrongly pick up")
 
-			title, sessions := plans.ParseFrontmatter(tc.doc)
+			title, sessions := ParseFrontmatter(tc.doc)
 			assert.Empty(t, title, "an unterminated block is not frontmatter to the writer; it must not be to the reader")
 			assert.Empty(t, sessions, "an unterminated block is not frontmatter to the writer; it must not be to the reader")
 		})

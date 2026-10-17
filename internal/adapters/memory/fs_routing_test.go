@@ -42,18 +42,6 @@ func TestMemory_ReadsAndWritesThroughTheGivenFs(t *testing.T) {
 		require.ErrorIs(t, err, os.ErrNotExist)
 	})
 
-	t.Run("plan stamp", func(t *testing.T) {
-		fsys := afero.NewMemMapFs()
-		path := filepath.Join(t.TempDir(), "absent-from-disk", "x.plan.md")
-		require.NoError(t, fsys.MkdirAll(filepath.Dir(path), 0o755))
-		testsupport.WriteFile(t, fsys, path, []byte("body\n"), 0o600)
-
-		require.NoError(t, StampPlanFile(fsys, path, testHarp))
-		got, err := afero.ReadFile(fsys, path)
-		require.NoError(t, err)
-		require.Contains(t, string(got), testHarp)
-	})
-
 	t.Run("compacted sessions", func(t *testing.T) {
 		fsys := afero.NewMemMapFs()
 		dir := filepath.Join(t.TempDir(), "absent-from-disk")

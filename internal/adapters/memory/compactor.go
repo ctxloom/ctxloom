@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/llmturn"
+
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 	"github.com/spf13/afero"
@@ -71,7 +73,7 @@ type CompactionConfig struct {
 	// Run drives one turn of the distiller session the caller resolved; every
 	// compaction call this compactor makes goes through it. Required for
 	// any compaction that distils.
-	Run       Runner
+	Run       llmturn.Runner
 	Backend   string // Backend name to read session from (e.g., "claude-code")
 	SessionID string // Session to compact (empty = most recent)
 	WorkDir   string // Working directory for the session
@@ -970,11 +972,11 @@ func appendEntryText(builder *strings.Builder, entry agent.SessionEntry, include
 }
 
 // runCompactTurn executes one compaction turn over transcript-shaped content:
-// RunPrompt on this compactor's runner, the content enveloped as a
-// <session_log>. The prompt itself is built by RunPrompt so the shape stays
+// llmturn.RunPrompt on this compactor's runner, the content enveloped as a
+// <session_log>. The prompt itself is built by llmturn.RunPrompt so the shape stays
 // in one place.
 func (c *Compactor) runCompactTurn(ctx context.Context, systemPrompt, content string) (string, error) {
-	return RunPrompt(ctx, c.config.Run, systemPrompt, fmt.Sprintf("<session_log>\n%s\n</session_log>", content))
+	return llmturn.RunPrompt(ctx, c.config.Run, systemPrompt, fmt.Sprintf("<session_log>\n%s\n</session_log>", content))
 }
 
 // compactedMeta is the YAML front-matter stored at the top of every

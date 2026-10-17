@@ -49,7 +49,7 @@ Claude Code has `CLAUDE.md` - but it is **project-level only** and encourage int
 |------------|-------------|
 | **Context Assembly** | Combine fragments into profiles, deliver to Claude Code through the engine's own context channel |
 | **Slash Commands** | Commands become `/commands` in Claude Code automatically |
-| **Session Memory** | Recover context after `/clear`, or pick up an earlier session |
+| **Session History** | Find an earlier session by what you asked it, and pick it up again |
 | **Remote Pull** | Pull bundles from GitHub/GitLab, lockfile for reproducibility |
 | **Token Optimization** | Distill fragments and commands with a cheap, fast LLM |
 
@@ -94,19 +94,9 @@ Then in your AI CLI:
 /code-review src/auth.go
 ```
 
-## Session Memory
+## Session History
 
-Claude Code's `/compact` has a fundamental flaw: it needs context space to run, but you only think to use it when context is almost full. You try `/compact`, it fails, and you're stuck.
-
-**ctxloom works after exhaustion:**
-
-1. **Clear** - Run `/clear` when you hit context limits
-2. **Recover** - Ask the agent to resume; it calls ctxloom's `recover_session` MCP tool, which distills this session's transcript from disk
-3. **Continue** - The summary is loaded back in, you keep working
-
-ctxloom reads the raw JSONL transcript from disk and uses a separate LLM (the `fast` default, Haiku as `ctxloom init` scaffolds it) to distill it, outside your exhausted context window.
-
-`/clear` keeps the same session alive, so `recover_session` is the post-`/clear` path. To pull in an **earlier** session instead, the agent uses `get_previous_session` or `load_session`, or you start a new run from one with `ctxloom run --session <harp>`.
+Every `ctxloom run` is recorded as a harp-named session with a transcript you own, whatever engine ran it. `ctxloom session list` finds a session by the first thing you asked it, and `ctxloom run --session <harp>` folds its whole conversation into a new run. Your engine compacts its own context and resumes its own sessions; ctxloom keeps the record.
 
 ## How It Works
 
@@ -194,8 +184,8 @@ agents:
   <Card title="Bundles" icon="puzzle">
     [Fragment and command structure](/concepts/bundles/)
   </Card>
-  <Card title="Session Memory" icon="open-book">
-    [Preserve context across sessions](/getting-started/memory/)
+  <Card title="Session History" icon="open-book">
+    [Find and resume earlier sessions](/getting-started/memory/)
   </Card>
   <Card title="taskloom" icon="list-format">
     Companion tool — [per-project tasks](/taskloom/) your agents and you share one store for.

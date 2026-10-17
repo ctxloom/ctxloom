@@ -108,7 +108,7 @@ The **emitter half** of the companion-loadout wire protocol: the shared `loadout
 
 ## `internal/shared/plans` — the `*.plan.md` reader
 
-Locates, enumerates, and reads `*.plan.md` session-plan documents in each session's recorded output dir (`sessions.Entry.OutputDir`, from the session index), extracting a display title and the `sessions:` stamp list from each file's YAML frontmatter. It is the **read half** of a read/write pair whose write half is `memory.StampPlanFile`, driven by the `stamp-plan` hook. `cmd/taskloom`'s `plan list`/`plan show` use the listing and `Show`; the session-artifact readers (memory, runner interaction, transcript) use `SessionPlanPaths`.
+Locates, enumerates, and reads `*.plan.md` session-plan documents in each session's recorded output dir (`sessions.Entry.OutputDir`, from the session index), extracting a display title and the `sessions:` stamp list from each file's YAML frontmatter. It is also the **write half** of that pair: `IsPlanFile` and `StampPlanFile`, driven by the `stamp-plan` hook, write the `sessions:` stamp the reader reads. `cmd/taskloom`'s `plan list`/`plan show` use the listing and `Show`; the session-artifact readers (runner interaction, transcript) use `SessionPlanPaths`.
 
 | Symbol | Purpose |
 |---|---|
@@ -195,10 +195,10 @@ The load-site recipe is: `Kind.Upgrade` → decode `Result.Data` → if `len(Res
 
 ### plans
 
-- Read/write pairing: this package **reads** the frontmatter that `memory.StampPlanFile` **writes**, and both parse it with yaml.v3, so comments, quoting and block scalars mean the same thing to both halves.
+- Read/write pairing: this package **reads** the frontmatter its own `StampPlanFile` **writes**, and both parse it with yaml.v3, so comments, quoting and block scalars mean the same thing to both halves.
 - `ParseFrontmatter` requires both fences. An unterminated block is not frontmatter, matching the writer, which refuses to touch one.
 - A repeated frontmatter key is resolved last-wins and warned about, rather than letting yaml.v3 reject the whole mapping and drop the keys that were not in dispute. The warning names the plan's path when `ListSessions` knows it, and goes to stderr because `taskloom plan list` prints a machine-readable listing on stdout.
-- The listing and the per-session reader disagree on depth: `ListSessions` walks an output dir recursively, while `SessionPlanPaths` reads only its top level on the grounds that subdirectories hold segment essences rather than plans.
+- The listing and the per-session reader disagree on depth: `ListSessions` walks an output dir recursively, while `SessionPlanPaths` reads only its top level on the grounds that subdirectories hold reports rather than plans.
 - `Show` is the only user-input path. Containment is checked on the **resolved** path, and the target must be a regular file, so a symlink or FIFO named `*.plan.md` cannot be used to read elsewhere or hang the reader.
 - Sort order is `(Session, Name)`, stable across calls.
 

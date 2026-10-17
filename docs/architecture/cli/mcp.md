@@ -54,13 +54,12 @@ The coordinator's side of the session host: `HostCoordinatorForSession`
 (`coord_host.go`) stands the coordinator up for `ctxloom run` — the one
 hosting path, its constructor private — and hands back the owner's
 credential; `HostApp` is the host relay the coordinator answers `HostRequest`
-frames through (the session tools: `compact_session`, `load_session`,
-`recover_session`, `get_previous_session`, `list_sessions`,
-`evaluate_triggers`, `context_status`), one `ctxServer` per relayed call
+frames through (`evaluate_triggers`, `context_status`), one `ctxServer` per
+relayed call
 under the CALLER's identity (`ctxServer.projectDir` is the caller's project;
 there is no cwd to fall back on in the coordinator's process). The runner's
 endpoint advertises those relays with the contract `operations` declares
-(`operations.CompactSessionDesc` and its siblings), so the two sides cannot
+(`operations.EvaluateTriggersDesc`, `operations.ContextStatusDesc`), so the two sides cannot
 describe a tool two ways.
 
 See `docs/architecture/agentcoord/overview.md` for the process topology and

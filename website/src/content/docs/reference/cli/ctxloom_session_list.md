@@ -27,8 +27,6 @@ ctxloom session list [flags]
 
 ```
       --all            Include sessions from every project (default: filter to cwd)
-      --compact        Compact sessions whose summary is missing or stale before listing, so every row shows a title
-      --full           Include each session's complete compacted summary body (text output pages through $PAGER on a terminal)
       --state string   Only sessions in this state, from the session's liveness lock: live, ended, unknown
 ```
 

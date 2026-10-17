@@ -217,9 +217,8 @@ flowchart TD
 ```
 
 No hook carries the project's context. ctxloom's SessionStart hook, `ctxloom
-hook session-start`, delivers only a resumed session's essence and ctxloom's
-session-start notices, so a Claude Code started directly gets no ctxloom
-context.
+hook session-start`, delivers only ctxloom's session-start notices, so a
+Claude Code started directly gets no ctxloom context.
 
 ### Remote Pull Flow
 

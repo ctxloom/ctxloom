@@ -1,8 +1,8 @@
 # Architecture — companion and session subsystems
 
 These pages describe the parts of ctxloom that either **ship as their own binaries** (`ltk`,
-`taskloom`) or that own the **session lifecycle around a run** (transcript capture, the session
-index, memory compaction), plus the small leaf packages the CLIs are built on.
+`taskloom`) or that own the **session lifecycle around a run** (transcript capture and the
+session index), plus the small leaf packages the CLIs are built on.
 
 Each page opens with what the subsystem **is** and the **contract it owns**, then gives a
 structure diagram, an inventory of the exported types and functions that matter with `file:line`
@@ -16,8 +16,7 @@ its own documentation.
 | [ltk.md](ltk.md) | `cmd/ltk` + `internal/ltk/{app,engine,frontend,frontend/shell,frontend/pwsh,frontend/cmd,ir,rules,state,scm,shellenv,tools/extract-defaults}` | The command guard: a PreToolUse hook that parses a tool call into a shell-agnostic IR, matches it against a YAML rule file, and emits an allow-or-deny decision in the harness's own wire format |
 | [taskloom.md](taskloom.md) | `cmd/taskloom` + `internal/taskloom/{config,engine,workdir}` | Per-project task tracking over an append-only harp-keyed log, exposed as both a CLI and an MCP server, with its own config surface and project-root resolution that do not depend on ctxloom |
 | [transcript.md](transcript.md) | `internal/adapters/transcript` + `internal/adapters/transcript/vendorreader` and its per-engine readers | ctxloom's own canonical conversation record: the versioned append-only JSONL schema, the writer every capture path shares, the reader, and the vendor-format readers |
-| [sessions.md](sessions.md) | `internal/core/sessions` | The harp-keyed session index (`~/.ctxloom/sessions/index.yaml`) binding harp → backend session ID → project dir → transcript path → summary, behind a two-adapter storage port |
-| [memory.md](memory.md) | `internal/adapters/memory` | Map/reduce compaction of a session transcript into a persisted essence document, plus the index projection `session list` renders, plus plan-file harp stamping |
+| [sessions.md](sessions.md) | `internal/core/sessions` | The harp-keyed session store (one `session.yaml` sidecar per session directory) binding harp → backend session ID → project dir → transcript path, and the transcript-retention rule every destroyer of transcripts asks, behind a two-adapter storage port |
 | [termui.md](termui.md) | `internal/adapters/termui` | The raw-ANSI terminal frontend for an interactive run: prefix-key interceptor, reserved status row, output hold gate, and a VT-sequence guard |
 | [hostpty.md](hostpty.md) | `internal/adapters/hostpty` + `internal/adapters/attach` | The pty the originator holds around `ctxloom runner`: a host process (hostpty) or `docker run -i -t … ctxloom runner` as a container's foreground (attach) |
 | [docsgen.md](docsgen.md) | `internal/shared/docsgen` | Deterministic generation of man pages, per-command markdown, an MCP tool page, and a config page from a product's live cobra tree, live MCP registrations, and tracked JSON Schema |
@@ -38,7 +37,6 @@ flowchart TD
       TERM["internal/adapters/termui<br/>terminal frontend"]
       VP["internal/adapters/hostpty · attach<br/>the runner on a pty"]
       TR["internal/adapters/transcript<br/>capture"]
-      MEM["internal/adapters/memory<br/>compaction"]
     end
 
     subgraph leaves["Shared leaves"]
@@ -49,8 +47,7 @@ flowchart TD
 
     SESS -->|"harp"| TR
     SESS -->|"harp"| TERM
-    TR -->|"transcript.jsonl"| MEM
-    MEM -->|"Summary · Detail · SourceSize"| SESS
+    TR -->|"transcript.jsonl: the session's title and record"| SESS
     VP --> TERM
     TERM -->|"Stdin/Stdout/Resize"| VP
 
@@ -77,9 +74,9 @@ shorter to read:
 2. **A guard whose precondition is checked at the call site, not in the writer.**
    `sessions.BindSession` accepts an empty session ID and the guard lives in
    `internal/adapters/operations`, reachable through a second caller that does not replicate it.
-   The sibling instance — `sessions.SetSummary` erasing `Summary`/`Detail`/`SourceSize`
-   unconditionally while `internal/adapters/memory` held the non-empty guard — is **RESOLVED
-   `07abd892`**: the refusal moved into the writer. The pattern is left described here
+   A sibling instance (a summary writer erasing fields unconditionally while its caller held
+   the non-empty guard) was **RESOLVED `07abd892`** by moving the refusal into the writer, and
+   later deleted with session compaction. The pattern is left described here
    because `BindSession` still has it, and because the fix is the pattern's answer:
    move the guard to the writer rather than replicating it at each call site.
 

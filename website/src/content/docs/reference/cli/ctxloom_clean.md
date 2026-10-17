@@ -48,7 +48,7 @@ ctxloom clean [flags]
 ### Options
 
 ```
-      --include-persist     also reap the persistent machine members — transcripts, native history, spool, package store, logs — from the aged, compacted sessions; never taken without this
+      --include-persist     also reap the persistent machine members — transcripts, native history, spool, package store, logs — from the aged sessions whose transcripts session_transcript_retention releases (ended long enough ago, not marked keep); never taken without this
       --older-than string   reap the disposable members of sessions last active before this age (30d, 12w, 720h) or date (2026-01-01), overriding the configured session_reap_age for this invocation
       --yes                 apply exactly the plan this reports
 ```

@@ -52,7 +52,7 @@ flowchart TD
     PUMP --> AT
   end
 
-  stores["mutable stores:<br/>sessions/index.go · config · tasks log ·<br/>projectid registry · remote lockfile · memory essence"]
+  stores["mutable stores:<br/>sessions/index.go · config · tasks log ·<br/>projectid registry · remote lockfile"]
   fl --> stores
   WFA --> stores
   stores -.->|"change signal, no payload"| W

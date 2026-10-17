@@ -25,8 +25,8 @@ A session has two homes, and the split is the point of the layout.
   there, and each member's lifetime, is the `paths.HarpMembers` table; `Layout.Member` is the
   one join that places a row under a harp. Do not restate the members elsewhere — read the
   table.
-- **The output dir** — the session's human root, where its readable outputs go (essence, next
-  step, plans, segment essences). Recorded ABSOLUTE in the sidecar at mint (`Entry.OutputDir`,
+- **The output dir** — the session's human root, where its readable outputs go (plans,
+  published reports). Recorded ABSOLUTE in the sidecar at mint (`Entry.OutputDir`,
   written by `RecordOutputDir`), because its default derives from per-platform, per-user state
   and a configurable base: re-deriving it later could name a different folder than the one the
   session's files are in.
@@ -40,8 +40,15 @@ The project tree holds no session state.
 - `OutputDirIn(harp, getenv)` prefers `EnvOutputDir` — a containerized run serves exactly one
   session and mounts its output dir there — and otherwise falls back to `OutputDir`.
 - `OutputDirOf(dir)` reads the same field from a session dir already in hand.
-- `Compacted(dir)` asks the DISK whether that output dir holds an essence. It is what every
-  destroyer of transcripts consults first: an uncompacted session's transcript is its only record.
+
+### Transcript retention
+
+A session's transcript is its record. `Retention.Retains(entry, lastActive)` is the one rule
+every destroyer of transcripts asks: nil once the session ENDED (`Ended` — the later of its
+recorded end and its last activity) at or before the retention cutoff, else a typed refusal —
+`ErrTranscriptKept` (the sidecar's `keep`, set by `SetKeep` / `ctxloom session keep`),
+`ErrTranscriptRecent`, or `ErrNoRetentionBound` for a zero cutoff. An internal one-shot
+(`OriginOneShot`) is reclaimable at any age unless kept.
 
 ### Transcripts
 
@@ -56,8 +63,7 @@ The project tree holds no session state.
 ## 2. The store
 
 `Store` is the port; the operations layer depends on it and nothing narrower. Its surface is
-exactly what operations invokes; store-only helpers (`SetSourceEntries`) stay on the concrete
-type.
+exactly what operations invokes; store-only helpers stay on the concrete type.
 
 - **`*Manager`** — the filesystem adapter over the sessions root. `readSidecar` / `writeSidecar`
   are its only persistence; every mutator goes through `update`, which takes the in-process
@@ -79,12 +85,8 @@ The sidecar's schema. Persisted fields are those with a yaml tag; the rest are d
 by `enrich` and must never be written back:
 
 - `HarpName` is the directory's name — never persisted, so a rename cannot desynchronise it.
-- `Summary` / `Detail` come from the essence in the output dir (`fillFromEssence`); the essence
-  is the record and a second copy would be a second thing to disagree.
 - Transcript locations, and the session a located transcript records, are filled by `fillBindingByLocation`; the canonical transcript by `fillCanonicalTranscript`.
-- `SourceEntries` is the staleness fingerprint: the transcript's ENTRY COUNT at last
-  distillation, not its byte size — see the field's doc comment for why that distinction is
-  load-bearing.
+- `Keep` (persisted, `keep`) marks the transcript kept at any age (Retention).
 - `Rotations` preserves every binding a `/clear` displaced (`Rotation`), which is what lets the
   canonical transcript be rebuilt across clears and `FindBySessionID` resolve a pre-clear ID.
 
@@ -110,8 +112,10 @@ hook subprocesses.
 - **Liveness comes from the lock (`Locks`), never the sidecar.** Only a provably dead owner
   passes, and the lock is held across the removal so a resume waits instead of racing it.
 - **The keep marker exempts a session entirely**, checked before the lock is probed.
-- **The persistent scope takes persistent members from a COMPACTED session only.** An
-  uncompacted one keeps them and is reaped as under the default scope.
+- **The persistent scope takes persistent members only from a session whose transcript
+  `ReapPolicy.Retention` releases** (`narrowRetained`). A retained one keeps them and is reaped
+  as under the default scope; the persistent scope with no retention cutoff is refused
+  (`ErrNoRetentionBound`).
 - **No symlink is ever followed.**
 - A zero `Cutoff` is refused (`ErrNoAgeBound`): the one function that deletes must not be
   callable with no age bound stated.

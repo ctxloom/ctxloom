@@ -64,7 +64,7 @@ flowchart TD
     CH["CanonicalHistory<br/>history.go:51<br/>{workDir, sessions.Store}"] --> PTF
     CH -.structurally satisfies.-> PBS["pb.SessionSource"]
     IDX[("sessions/index.yaml<br/>Entry.CanonicalTranscriptPath")] --> CH
-    SESS --> CONS["transcript/canonical_source.go · transcript/source.go<br/>(the transcript readers are this package's own)<br/>operations/sessionfeed.go<br/>internal/adapters/memory compaction"]
+    SESS --> CONS["transcript/source.go (this package's own reader port)<br/>operations/sessionfeed.go · operations.SessionTitle · resume"]
 ```
 
 **The two things to hold in mind:**
@@ -133,7 +133,7 @@ reports the lost-event total once.
 | Symbol | file:line | Notes |
 |---|---|---|
 | `CanonicalHistory` | `history.go:51` | `{workDir string, store sessions.Store}`; harp-keyed, project-scoped read view. **Structurally satisfies `pb.SessionSource`** (asserted in `history_interface_test.go:18`) |
-| `NewCanonicalHistory` | `history.go` | Called from this package's own `canonical_source.go` |
+| `NewCanonicalHistory` | `history.go` | Has no production caller since session compaction was removed |
 | `GetSession` | `history.go:71` | Validates harp, resolves + stats the path, delegates to `ParseTranscriptFile`. Touches **neither** of the type's fields — it is a free function wearing a method's clothes, which exists to satisfy `pb.SessionSource` |
 | `ListSessions` | `history.go:103` | Enumerates project harps from the index, parses each, builds `SessionMeta`; a per-harp parse failure warns via `clidiag` and continues |
 | `CurrentSession` | `history.go:134` | Returns the newest canonical-backed session. Returns the **first** candidate's `GetSession` error rather than skipping to the next — unlike `ListSessions` |
@@ -145,15 +145,12 @@ reports the lost-event total once.
 because `sessions.fillCanonicalTranscript` happens to stat the same path.
 
 **The version-mismatch contract has no teeth end to end.** The consumers swallow the hard
-error: `canonical_source.go` falls through to legacy on *any* canonical error;
-`operations/sessionfeed.go` warns and returns nil; the transcript watch (`source.go`) warns on
+error: `operations/sessionfeed.go` warns and returns nil; the transcript watch (`source.go`) warns on
 **every poll tick, forever**, since a version error is permanent, and re-parses the whole file
 on each tick — `ParseTranscriptFile` offers no incremental/tail API.
 
 **Empty-file behaviour.** A zero-byte file, or one whose every line fails to parse, yields
-`(Session{Entries: []}, nil)`. `canonical_source.go:135` then takes the `err == nil` branch and
-returns the empty session, suppressing the legacy fallback that would have recovered it.
-`GetSession`'s own doc (`history.go:66-70`) states it never returns an empty Session in that
+`(Session{Entries: []}, nil)`. `GetSession`'s own doc (`history.go:66-70`) states it never returns an empty Session in that
 situation; that holds only for an **absent** file.
 
 ---
@@ -291,8 +288,7 @@ window by recording the `Session` event at `driver.go:31` *before* the first `ct
 - **`internal/adapters/operations/vendorreader*.go`** owns adapter registration, locator discovery, the
   `hasCanonicalTranscript` idempotency guard, and the `BackfillResult` bucketing — every
   consequence of "the vendor reader cannot report a count" surfaces there, not here.
-- **`internal/adapters/memory`** reads through `pb.SessionSource`, which `CanonicalHistory` satisfies via
-  `pb.NewCanonicalFallbackSource`, which resolves a harp or a backend-native session id to it.
+- **`internal/adapters/operations`** reads the canonical transcript directly through
+  `ParseTranscriptFile`: a session's title (`SessionTitle`), resume (`RecordedSessionEntries`).
 - **`internal/adapters/runner`** owns the live producer (the engine host's `CoordinatedRecorder`
-  wiring); the reader adapters (`canonical_source.go`, `source.go`, `filtered_source.go`) are this
-  package's own.
+  wiring); the reader port (`source.go`) is this package's own.

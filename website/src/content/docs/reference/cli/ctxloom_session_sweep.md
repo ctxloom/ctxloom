@@ -18,17 +18,22 @@ machine) and decides each one by a fixed table, in order:
 
   running                      skipped whole
   liveness unprovable          skipped whole; the manual route is named
-  carries a 'keep' marker      kept
+  carries a 'keep' marker      kept whole
+  file
   a scratch worktree holds     its clean worktrees are removed; the session is
   uncommitted work             spared, and the work stays where it is
   clean scratch worktrees      removed
   older than --older-than      its disposable members reclaimed (what
                                'ctxloom clean' reclaims)
-  compacted, older than        purged: its transcripts go; its output dir
-  --purge-older-than           (summary, plans) and the files you wrote stay
-  never compacted              never purged; 'ctxloom session compact <session-name>'
-                               is named
-  an internal one-shot, older  purged without a compact
+  older than                   purged: its transcripts go; its output dir
+  --purge-older-than, its      (plans, notes) and the files you wrote stay
+  transcript released
+  ended within                 never purged: its transcript is its record
+  session_transcript_retention
+  (default 30d)
+  marked 'ctxloom session      never purged; 'ctxloom session keep
+  keep'                        <session-name> --undo' is named
+  an internal one-shot, older  purged at any transcript age
   than --purge-older-than
   undelivered mail             spared from purge, and counted
 

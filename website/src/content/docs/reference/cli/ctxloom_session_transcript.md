@@ -39,6 +39,6 @@ ctxloom session transcript [flags]
 
 * [ctxloom session](/reference/cli/ctxloom_session/)	 - Browse and manage your recorded sessions
 * [ctxloom session transcript list](/reference/cli/ctxloom_session_transcript_list/)	 - List which sessions have a captured transcript, and how large each one is
-* [ctxloom session transcript purge](/reference/cli/ctxloom_session_transcript_purge/)	 - Destroy a finished session's recorded conversation, keeping its summary
+* [ctxloom session transcript purge](/reference/cli/ctxloom_session_transcript_purge/)	 - Destroy a finished session's recorded conversation, keeping its record entry
 * [ctxloom session transcript watch](/reference/cli/ctxloom_session_transcript_watch/)	 - Stream a session's transcript as structured turns (messages, not raw bytes)
 

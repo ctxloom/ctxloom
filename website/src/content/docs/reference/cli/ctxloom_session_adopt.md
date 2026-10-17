@@ -30,8 +30,8 @@ adopted.
 Without --yes this only reports; nothing on disk or in the session index
 changes. --yes appends every adopted candidate to the session's Rotations
 through the session store, oldest first — never a hand edit of the record —
-and prints the next step (compact or recover) to actually materialize the
-recovered history; it does not run that step itself.
+and then rebuilds the session's canonical transcript from the full lineage,
+so the recovered history is what every reader of the session sees.
 
 The session's engine decides what is a transcript of it, and when each one's
 records were written. An engine whose transcript readers cannot say that is

@@ -69,6 +69,24 @@ var EnvKeys = []string{
 	// constant and forwarded by spawn.StartRunner — an ambient value would
 	// change how long every test's runner outlives its coordinator.
 	"CTXLOOM_RUNNER_OWNER_LOSS_WINDOW",
+	// Read through an INJECTED lookup (getenv(sessions.EnvX), the caller
+	// passing os.Getenv), which TestEnvKeysCoversProductionReads only learned
+	// to see once CTXLOOM_OUTPUT_DIR leaked: every containerized session
+	// exports it, and a compaction test that inherited it wrote its fixture
+	// essence.md and next-step.md into that session's real output dir.
+	"CTXLOOM_OUTPUT_DIR",
+	"CTXLOOM_DIAGNOSTICS_LOG",
+	"CTXLOOM_HOOK_URL",
+	"CTXLOOM_HOOK_TOKEN",
+	"CTXLOOM_COORD_CRED_FILE",
+	// The mock engine's knobs (internal/engines/mock/runtime), read through
+	// its injected lookup for the same reason. A test that drives the mock
+	// sets them on the child it spawns; an ambient value would script every
+	// mock run in the binary.
+	"CTXLOOM_MOCK_RESPONSE",
+	"CTXLOOM_MOCK_EXIT_CODE",
+	"CTXLOOM_MOCK_REPORT_FILE",
+	"CTXLOOM_MOCK_WAKE_SOCKET",
 	// Not production state: a CI-only knob read by
 	// internal/testsupport/dockergate to turn "docker unreachable" from a
 	// skip into a failure. Listed because TestEnvKeysCoversProductionReads

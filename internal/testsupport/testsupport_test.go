@@ -158,6 +158,68 @@ func read() string {
 	}
 }
 
+// TestFindUncoveredEnvReads_CatchesInjectedLookupReads pins the shape the
+// os.*-only sweep missed: a CTXLOOM_* constant read through a lookup the
+// caller injects (sessions.OutputDirIn's getenv(EnvOutputDir), a struct's
+// r.getenv, a bare lookup). CTXLOOM_OUTPUT_DIR was read only that way, so it
+// never reached EnvKeys and the sandbox never scrubbed it.
+func TestFindUncoveredEnvReads_CatchesInjectedLookupReads(t *testing.T) {
+	dir := t.TempDir()
+	src := `package fixture
+
+const (
+	EnvInjected = "CTXLOOM_FIXTURE_INJECTED"
+	EnvMethod   = "CTXLOOM_FIXTURE_METHOD"
+	EnvLookup   = "CTXLOOM_FIXTURE_LOOKUP"
+)
+
+type r struct{ getenv func(string) string }
+
+func read(getenv func(string) string, lookup func(string) (string, bool), x r) {
+	_ = getenv(EnvInjected)
+	_ = x.getenv(EnvMethod)
+	_, _ = lookup(EnvLookup)
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "fixture.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	uncovered := findUncoveredEnvReads(t, []string{dir}, map[string]bool{})
+
+	for _, k := range []string{"CTXLOOM_FIXTURE_INJECTED", "CTXLOOM_FIXTURE_METHOD", "CTXLOOM_FIXTURE_LOOKUP"} {
+		if _, ok := uncovered[k]; !ok {
+			t.Errorf("expected %s (read only through an injected lookup) to be reported uncovered; got %v", k, uncovered)
+		}
+	}
+}
+
+// TestScrubInheritedEnv_ClearsAContainerOutputDir is the sandbox half of the
+// CTXLOOM_OUTPUT_DIR leak: a containerized session exports it, and a test
+// binary that kept it resolved every harp's output dir to that session's real
+// one (sessions.OutputDirIn), so the memory package's compaction and
+// next-step tests wrote their fixtures there. SandboxedMain must drop it
+// before any test runs, along with every other EnvKeys variable.
+func TestScrubInheritedEnv_ClearsAContainerOutputDir(t *testing.T) {
+	for _, k := range EnvKeys {
+		t.Setenv(k, "ambient-"+k)
+	}
+	t.Setenv("CTXLOOM_OUTPUT_DIR", t.TempDir())
+
+	if err := scrubInheritedEnv(); err != nil {
+		t.Fatalf("scrubInheritedEnv: %v", err)
+	}
+
+	if got, ok := os.LookupEnv("CTXLOOM_OUTPUT_DIR"); ok {
+		t.Errorf("after the sandbox scrub, CTXLOOM_OUTPUT_DIR = %q, want unset", got)
+	}
+	for _, k := range EnvKeys {
+		if got, ok := os.LookupEnv(k); ok {
+			t.Errorf("after the sandbox scrub, %s = %q, want unset", k, got)
+		}
+	}
+}
+
 // TestFindUncoveredEnvReads_StillCatchesLiterals is the literal-string
 // regression the pre-widening sweep already covered; the widened version
 // must not lose it.
@@ -189,7 +251,13 @@ func read() string {
 func findUncoveredEnvReads(t *testing.T, dirs []string, known map[string]bool) map[string][]string {
 	t.Helper()
 	literalRe := regexp.MustCompile(`os\.(?:Getenv|LookupEnv)\("(CTXLOOM_[A-Z0-9_]+)"\)`)
-	identRe := regexp.MustCompile(`os\.(?:Getenv|LookupEnv)\(([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\)`)
+	// Any getenv-shaped callee, not only os.Getenv/os.LookupEnv: production
+	// injects its lookup (sessions.OutputDirIn(harp, os.Getenv) reads
+	// getenv(EnvOutputDir)), and a read through the injected func is as live
+	// as a direct one. Matching os.* alone is how CTXLOOM_OUTPUT_DIR went
+	// unlisted, unscrubbed, and every compaction test in a containerized
+	// session wrote into that session's real output dir.
+	identRe := regexp.MustCompile(`[A-Za-z0-9_]*(?i:getenv|lookupenv|lookup)\(([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\)`)
 	constRe := regexp.MustCompile(`(?m)^\s*(?:const\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:string\s*)?=\s*"(CTXLOOM_[A-Z0-9_]+)"`)
 
 	// constValues maps a bare identifier (the last component of a possibly

@@ -2,15 +2,12 @@ package operations
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -18,15 +15,13 @@ import (
 
 // TestViewSession_CarriesTheRecordAndTheDerivedFacts: the view is the
 // record's facts plus everything a renderer used to compute for itself —
-// the essence, its staleness, the purge mark, the one clock.
+// the title, the purge and keep marks, the one clock.
 func TestViewSession_CarriesTheRecordAndTheDerivedFacts(t *testing.T) {
 	testsupport.Isolate(t)
 	started := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
 	ended := started.Add(time.Hour)
 	purged := ended.Add(time.Hour)
 	out := t.TempDir()
-	essence := filepath.Join(out, paths.EssenceFileName)
-	require.NoError(t, os.WriteFile(essence, []byte("# essence\n"), 0o644))
 
 	v := ViewSession(sessions.Entry{
 		HarpName:     "swift-amber-falcon",
@@ -37,6 +32,7 @@ func TestViewSession_CarriesTheRecordAndTheDerivedFacts(t *testing.T) {
 		StartedAt:    started,
 		EndedAt:      &ended,
 		PurgedAt:     &purged,
+		Keep:         true,
 		LastActivity: ended,
 	})
 
@@ -50,21 +46,18 @@ func TestViewSession_CarriesTheRecordAndTheDerivedFacts(t *testing.T) {
 	assert.True(t, v.EndedAt.Equal(ended))
 	assert.True(t, v.LastActivity.Equal(ended))
 	assert.True(t, v.Purged)
-	assert.True(t, v.Compacted)
-	assert.Equal(t, essence, v.EssencePath)
-	assert.False(t, v.StaleKnown, "no transcript to compare the essence against")
+	assert.True(t, v.Kept)
 }
 
-// TestViewSession_UncompactedHasNoEssence: a session never compacted has no
-// essence path and is not purged; the view says so rather than guessing.
-func TestViewSession_UncompactedHasNoEssence(t *testing.T) {
+// TestViewSession_UnmarkedSessionIsNeitherPurgedNorKept: the view says what
+// the record says rather than guessing.
+func TestViewSession_UnmarkedSessionIsNeitherPurgedNorKept(t *testing.T) {
 	testsupport.Isolate(t)
 
-	v := ViewSession(sessions.Entry{HarpName: "never-compacted-harp"})
+	v := ViewSession(sessions.Entry{HarpName: "plain-quiet-harp"})
 
-	assert.False(t, v.Compacted)
-	assert.Empty(t, v.EssencePath)
 	assert.False(t, v.Purged)
+	assert.False(t, v.Kept)
 	assert.Nil(t, v.EndedAt)
 }
 
@@ -80,29 +73,6 @@ func TestViewSessions_KeepsTheListingsOrder(t *testing.T) {
 	assert.Equal(t, "b-harp", views[0].Harp)
 	assert.Equal(t, "a-harp", views[1].Harp)
 	assert.NotNil(t, ViewSessions(nil, nil), "an empty listing is an empty slice, not nil")
-}
-
-// TestSessionJSON_SaysCompacted pins the "an essence exists" key on the
-// operations session projections the CLI and MCP serialise.
-func TestSessionJSON_SaysCompacted(t *testing.T) {
-	const key = "compacted"
-	for name, v := range map[string]any{
-		"SessionView": SessionView{Compacted: true},
-	} {
-		raw, err := json.Marshal(v)
-		require.NoError(t, err, name)
-		var doc map[string]any
-		require.NoError(t, json.Unmarshal(raw, &doc), name)
-		assert.Equal(t, true, doc[key], "%s must report %q", name, key)
-		assert.NotContains(t, doc, "distilled", name)
-	}
-}
-
-// TestListSessionsInput_TakesCompactMissing pins list_sessions' input key.
-func TestListSessionsInput_TakesCompactMissing(t *testing.T) {
-	var in ListSessionsInput
-	require.NoError(t, json.Unmarshal([]byte(`{"compact_missing": true}`), &in))
-	assert.True(t, in.CompactMissing, "compact_missing must set the flag")
 }
 
 // TestViewSessions_StateComesFromTheProbe: a session's state is what the
@@ -139,9 +109,8 @@ func TestViewSessions_StateComesFromTheProbe(t *testing.T) {
 	assert.Contains(t, string(b), `"state":"live"`)
 }
 
-// TestViewSessions_NoProbeNoState: a caller that passes no probe (MCP
-// list_sessions, which runs inside a session's own process) gets no state and
-// probes nothing — the field is absent from JSON rather than a guess.
+// TestViewSessions_NoProbeNoState: a caller that passes no probe (one that
+// runs inside a session's own process) gets no state and probes nothing — the field is absent from JSON rather than a guess.
 func TestViewSessions_NoProbeNoState(t *testing.T) {
 	testsupport.Isolate(t)
 	views := ViewSessions([]sessions.Entry{{HarpName: "swift-amber-falcon"}}, nil)

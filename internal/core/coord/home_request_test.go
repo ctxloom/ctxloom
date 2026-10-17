@@ -44,8 +44,8 @@ func (c *expiredOnCue) Err() error {
 // single runnerHooks.ErrCoordinatorUnreachable collapsed: a request the coordinator
 // ACCEPTED and is still working on, whose caller budget then expires, is a
 // blown budget — not a down coordinator. Reporting it as "unreachable (the
-// runner keeps reconnecting)" sent recover_session's caller chasing a phantom
-// outage while the distillation ran happily to completion behind it.
+// runner keeps reconnecting)" sent a long host-relayed call's caller chasing a
+// phantom outage while the work ran happily to completion behind it.
 //
 // The request rides the child's OWN runner (childHome): a run has exactly one
 // runner, and a second Home dialed on the child's credential contends with it

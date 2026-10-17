@@ -7,11 +7,6 @@ import "github.com/ctxloom/ctxloom/internal/adapters/operations"
 // names, so the relay's handlers decode the shape the runner's relays
 // advertise.
 type (
-	compactSessionInput     = operations.CompactSessionInput
-	loadSessionInput        = operations.LoadSessionInput
-	recoverSessionInput     = operations.RecoverSessionInput
-	getPreviousSessionInput = operations.GetPreviousSessionInput
-	listSessionsInput       = operations.ListSessionsInput
-	contextStatusInput      = operations.ContextStatusInput
-	evaluateTriggersInput   = operations.EvaluateTriggersInput
+	contextStatusInput    = operations.ContextStatusInput
+	evaluateTriggersInput = operations.EvaluateTriggersInput
 )

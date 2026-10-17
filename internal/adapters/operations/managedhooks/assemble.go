@@ -146,11 +146,10 @@ func appendManagedDynamicHooks(m *Hooks, cfg *config.Config, set []profiles.Reso
 	shipped, withheld := cfg.ResolveBundleHooksFor(set)
 	m.mergeUnified(shipped, bundleSource)
 	m.withheld = append(m.withheld, withheld...)
-	// The SessionStart session-start hook delivers a compacted resume's
-	// essence and the session-start notices. It belongs to ctxloom rather
-	// than to any bundle, and it never carries the project's context: that is
-	// the session's system prompt. Ungated — a start with no resume and no
-	// notice is handed nothing.
+	// The SessionStart session-start hook delivers the session-start
+	// notices. It belongs to ctxloom rather than to any bundle, and it never
+	// carries the project's context: that is the session's system prompt.
+	// Ungated — a start with no notice is handed nothing.
 	m.mergeUnified(
 		wire.UnifiedHooks{SessionStart: []wire.Hook{agent.NewSessionStartHook()}},
 		fixedSource(Source{Origin: OriginContext}))
@@ -161,15 +160,6 @@ func appendManagedDynamicHooks(m *Hooks, cfg *config.Config, set []profiles.Reso
 	// the only thing to configure would be whether a group may be followed.
 	m.mergeUnified(
 		wire.UnifiedHooks{PostTool: []wire.Hook{agent.NewSkillMatesHook()}},
-		fixedSource(Source{Origin: OriginContext}))
-	// The TurnEnd next-step hook rides the same managed set, for the same
-	// reason as the session-start hook above: it exists to make the distilled
-	// essence task-aware, so it belongs to ctxloom rather than to any bundle.
-	// Ungated — it takes no configuration, because the only thing there would
-	// be to configure is whether distillation is allowed to know what the
-	// session was doing.
-	m.mergeUnified(
-		wire.UnifiedHooks{TurnEnd: []wire.Hook{agent.NewNextStepHook()}},
 		fixedSource(Source{Origin: OriginContext}))
 	// The turn_start mail-drain hook rides the same managed set: it is the
 	// session owner's only spool reader, so it belongs to ctxloom rather than

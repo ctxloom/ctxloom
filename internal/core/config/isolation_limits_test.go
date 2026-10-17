@@ -9,7 +9,7 @@ import (
 
 func parseLimits(t *testing.T, body string) (ContainerLimits, error) {
 	t.Helper()
-	cfg, err := ParseConfig([]byte("schema_version: 7\n" + body))
+	cfg, err := ParseConfig([]byte("schema_version: 8\n" + body))
 	if err != nil {
 		return ContainerLimits{}, err
 	}

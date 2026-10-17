@@ -188,7 +188,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// Bare, read-only listings over a fresh sessions dir: an empty report is
 	// exactly what proves the "(no sessions)" path renders in all five formats.
 	"session transcript list": {extraArgs: noExtraArgs},
-	"session artifacts list":  {extraArgs: noExtraArgs},
 	"session search": {extraArgs: func(string) []string {
 		// A word that won't match anything in this test's empty/fresh session
 		// index; the point here is proving `session query` renders cleanly in
@@ -340,17 +339,15 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// both branches; it is fixture-gated and destructive, like the purges
 	// below. The entry that stood here claimed an inline closure that never
 	// calls emit() and carried formatDebt:true on that basis.
-	"session keep":    {skip: "wired to emit(), but needs a seeded harp in the index and MUTATES its sidecar; covered directly by session_keep_test.go"},
-	"session remove":  {skip: "wired to emit(), but needs a seeded harp fixture and is destructive under --yes; covered directly by session_remove_test.go"},
-	"session compact": {skip: "not confirmed wired; needs an existing session fixture; not exercised here; T19 audit confirmed NOT wired: runSessionCompact never calls emit()", formatDebt: true},
-	"session adopt":   {skip: "wired to emit(), but needs a seeded harp bound to a real vendor transcript directory (and mutates the index under --yes); covered directly by session_adopt_test.go"},
+	"session keep":   {skip: "wired to emit(), but needs a seeded harp in the index and MUTATES its sidecar; covered directly by session_keep_test.go"},
+	"session remove": {skip: "wired to emit(), but needs a seeded harp fixture and is destructive under --yes; covered directly by session_remove_test.go"},
+	"session adopt":  {skip: "wired to emit(), but needs a seeded harp bound to a real vendor transcript directory (and mutates the index under --yes); covered directly by session_adopt_test.go"},
 	// Every destroyer under `session` is wired to emit(), but each needs a
 	// seeded harp directory and is destructive under --yes. They are covered
 	// directly, on BOTH sides (report leaves it, --yes removes it), by
 	// session_purge_fanout_test.go and session_worktrees_test.go.
 	"session purge":            {skip: "wired to emit(), but needs a seeded harp fixture and is destructive under --yes; covered on both sides by session_purge_fanout_test.go"},
 	"session transcript purge": {skip: "wired to emit(), but needs a seeded harp fixture and is destructive under --yes; covered on both sides by session_purge_fanout_test.go"},
-	"session artifacts purge":  {skip: "wired to emit(), but needs a seeded harp fixture and is destructive under --yes; covered on both sides by session_purge_fanout_test.go"},
 	"session worktrees purge":  {skip: "wired to emit(), but needs a real git repo with seeded scratch worktrees and is destructive under --yes; covered on both sides by session_worktrees_test.go"},
 	"config":                   {skip: "not wired to emit() yet; NOTE: bare `config` has no RunE and is not cobra-Runnable, so formatCoverageWalk never actually visits it — this entry is inert/dead and not counted toward the T19 total"},
 	"init":                     {skip: "interactive bootstrap interview; not exercised here; T19 audit confirmed NOT wired: runInit never calls emit()", formatDebt: true},

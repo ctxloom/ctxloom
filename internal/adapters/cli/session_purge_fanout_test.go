@@ -42,14 +42,14 @@ func TestTranscriptPurge_ReportLeavesEverythingOnDisk(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
-	essence := seedEssence(t, harp)
+	leftover := seedLeftoverSummary(t, harp)
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	stdout, stderr, err := execRootCmdBoth(t, "session", "transcript", "purge", harp)
 	require.NoError(t, err)
 
 	assert.True(t, onDisk(t, transcript), "a report must not destroy the transcript")
-	assert.True(t, onDisk(t, essence), "a report must not destroy the essence")
+	assert.True(t, onDisk(t, leftover), "a report must not touch the output dir")
 	assert.Contains(t, stdout+stderr, "removed nothing",
 		"the report must say outright that it removed nothing")
 	assert.Contains(t, stdout+stderr, "session transcript purge "+harp+" --yes",
@@ -62,14 +62,14 @@ func TestTranscriptPurge_YesDestroysTheTranscriptOnly(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
-	essence := seedEssence(t, harp)
+	leftover := seedLeftoverSummary(t, harp)
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	out, err := execRootCmd(t, "session", "transcript", "purge", harp, "--yes", "--format", "json")
 	require.NoError(t, err)
 
 	assert.False(t, onDisk(t, transcript), "--yes must destroy the transcript")
-	assert.True(t, onDisk(t, essence), "the transcript's destroyer must not reach the essence")
+	assert.True(t, onDisk(t, leftover), "the transcript's destroyer never reaches the output dir: a summary an older ctxloom left there stays")
 
 	var got purgePayload
 	require.NoError(t, json.Unmarshal([]byte(out), &got), "output must be clean JSON: %s", out)
@@ -77,72 +77,38 @@ func TestTranscriptPurge_YesDestroysTheTranscriptOnly(t *testing.T) {
 	assert.Positive(t, got.BytesFreed, "a purge that freed zero bytes destroyed nothing")
 }
 
-// --- session artifacts purge -----------------------------------------------
-
-func TestArtifactsPurge_ReportLeavesTheEssenceOnDisk(t *testing.T) {
-	releaseTranscriptRetention(t)
-	dir := testsupport.ProjectDir(t)
-	_, harp := seedEndedSession(t, dir, "claude-code")
-	transcript := seedTranscript(t, harp)
-	essence := seedEssence(t, harp)
-	t.Cleanup(func() { resetFlags(t, rootCmd) })
-
-	stdout, stderr, err := execRootCmdBoth(t, "session", "artifacts", "purge", harp)
-	require.NoError(t, err)
-
-	assert.True(t, onDisk(t, essence), "a report must not destroy the essence")
-	assert.True(t, onDisk(t, transcript))
-	assert.Contains(t, stdout+stderr, "removed nothing")
-	assert.Contains(t, stdout+stderr, "session artifacts purge "+harp+" --yes")
-}
-
-func TestArtifactsPurge_YesDestroysTheEssenceOnly(t *testing.T) {
-	releaseTranscriptRetention(t)
-	dir := testsupport.ProjectDir(t)
-	_, harp := seedEndedSession(t, dir, "claude-code")
-	transcript := seedTranscript(t, harp)
-	essence := seedEssence(t, harp)
-	t.Cleanup(func() { resetFlags(t, rootCmd) })
-
-	_, err := execRootCmd(t, "session", "artifacts", "purge", harp, "--yes")
-	require.NoError(t, err)
-
-	assert.False(t, onDisk(t, essence), "--yes must destroy the essence")
-	assert.True(t, onDisk(t, transcript), "the essence's destroyer must not reach the transcript")
-}
-
 // --- session purge (the sweep) ---------------------------------------------
 
-func TestSessionPurge_ReportLeavesAllThreePopulationsOnDisk(t *testing.T) {
+func TestSessionPurge_ReportLeavesEverythingOnDisk(t *testing.T) {
 	releaseTranscriptRetention(t)
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
-	essence := seedEssence(t, harp)
+	leftover := seedLeftoverSummary(t, harp)
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	stdout, stderr, err := execRootCmdBoth(t, "session", "purge", harp)
 	require.NoError(t, err)
 
 	assert.True(t, onDisk(t, transcript))
-	assert.True(t, onDisk(t, essence))
+	assert.True(t, onDisk(t, leftover))
 	assert.Contains(t, stdout+stderr, "removed nothing")
 	assert.Contains(t, stdout+stderr, "session purge "+harp+" --yes")
 }
 
-func TestSessionPurge_YesSweepsTranscriptAndArtifacts(t *testing.T) {
+func TestSessionPurge_YesSweepsTheTranscriptAndLeavesTheOutputDir(t *testing.T) {
 	releaseTranscriptRetention(t)
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
-	essence := seedEssence(t, harp)
+	leftover := seedLeftoverSummary(t, harp)
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, err := execRootCmd(t, "session", "purge", harp, "--yes")
 	require.NoError(t, err)
 
 	assert.False(t, onDisk(t, transcript), "the sweep destroys the transcript")
-	assert.False(t, onDisk(t, essence), "the sweep destroys the artifacts too")
+	assert.True(t, onDisk(t, leftover), "the sweep never reaches the output dir")
 }
 
 // TestSessionPurge_KeepsTheIndexEntry pins the boundary between the two
@@ -153,7 +119,7 @@ func TestSessionPurge_KeepsTheIndexEntry(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	mgr, harp := seedEndedSession(t, dir, "claude-code")
 	seedTranscript(t, harp)
-	seedEssence(t, harp)
+	seedLeftoverSummary(t, harp)
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, err := execRootCmd(t, "session", "purge", harp, "--yes")
@@ -176,6 +142,9 @@ func TestSessionPurge_NoRetentionOverride(t *testing.T) {
 		"--everything is replaced by the fan-out; the sweep needs no scope flag")
 }
 
+// TestSessionPurge_LiveSessionRefuses: a session with no ended_at and its
+// lock held is writing its own transcript right now. It is the LOCK that
+// refuses — the index's missing ended_at is not consulted — and the refusal
 // names the one deliberate way past it.
 func TestSessionPurge_LiveSessionRefuses(t *testing.T) {
 	releaseTranscriptRetention(t)
@@ -189,7 +158,7 @@ func TestSessionPurge_LiveSessionRefuses(t *testing.T) {
 	require.NoError(t, sessionlock.Hold(entry.HarpName))
 	t.Cleanup(func() { sessionlock.Release(entry.HarpName) })
 	transcript := seedTranscript(t, entry.HarpName)
-	seedEssence(t, entry.HarpName)
+	seedLeftoverSummary(t, entry.HarpName)
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, stderr, err := execRootCmdBoth(t, "session", "purge", entry.HarpName, "--yes")

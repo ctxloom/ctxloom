@@ -194,13 +194,19 @@ func seedTranscript(t *testing.T, harp string) string {
 	return path
 }
 
-// seedEssence writes a compacted essence for harp and returns its path.
-func seedEssence(t *testing.T, harp string) string {
+// seedLeftoverSummary writes the summary file an older ctxloom's session
+// compaction left in harp's output dir, and returns its path. Nothing reads
+// or destroys it now: it stays as a note for the human.
+func seedLeftoverSummary(t *testing.T, harp string) string {
 	t.Helper()
-	path, err := harpEssencePath(t, harp)
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
-	require.NoError(t, os.WriteFile(path, []byte("# Seeded essence\n"), 0o644))
+	return seedLeftoverSummaryWith(t, harp, "# Seeded summary\n")
+}
+
+// seedLeftoverSummaryWith is seedLeftoverSummary with body as its contents.
+func seedLeftoverSummaryWith(t *testing.T, harp, body string) string {
+	t.Helper()
+	path := filepath.Join(testOutputDir(t, harp), "essence.md")
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
 	return path
 }
 

@@ -7,36 +7,43 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"time"
 
 	"github.com/cucumber/godog"
 )
 
 // Fixtures for the per-noun `session` CLI spec (features/cli/session.feature).
 //
-// The shared "a recorded session" step seeds an index entry and an essence,
-// which is all a READING scenario needs. Every destroyer needs two things it
-// does not provide: an ended_at (each one refuses a session that may still be
-// writing) and a real transcript on disk (a destroyer with nothing to destroy
-// proves nothing about destroying).
+// The shared "a recorded session" step seeds an index entry and a transcript,
+// which is all a READING scenario needs. Every destroyer needs two more
+// things: an ended_at (each one refuses a session that may still be writing)
+// and an end far enough back that transcript retention releases it — the
+// default session_transcript_retention is 30 days, so a "finished" session
+// here ended in January and has not been touched since.
 func registerCLISessionSteps(ctx *godog.ScenarioContext) {
-	ctx.Step(`^a finished session "([^"]*)" with a transcript and an essence$`, func(c context.Context, harp string) error {
-		return seedFinishedSession(c, harp, true)
+	ctx.Step(`^a finished session "([^"]*)" with a transcript$`, func(c context.Context, harp string) error {
+		return seedFinishedSession(c, harp, finishedLongAgo, false)
 	})
 
-	ctx.Step(`^a finished session "([^"]*)" with a transcript and no essence$`, func(c context.Context, harp string) error {
-		return seedFinishedSession(c, harp, false)
+	// The file an older ctxloom's compaction left in the output dir: every
+	// destroyer must leave it where it is.
+	ctx.Step(`^a finished session "([^"]*)" with a transcript and a summary an older ctxloom left$`, func(c context.Context, harp string) error {
+		return seedFinishedSession(c, harp, finishedLongAgo, true)
+	})
+
+	// Within transcript retention: the transcript is the session's record.
+	ctx.Step(`^a session "([^"]*)" with a transcript that finished an hour ago$`, func(c context.Context, harp string) error {
+		return seedFinishedSession(c, harp, time.Now().Add(-time.Hour).UTC(), false)
 	})
 
 	// The two states the session lock cannot turn into permission. A session
 	// from before the lock existed has no lock file at all; a session resumed
 	// under its harp holds the lock again while ended_at still reads as set.
-	ctx.Step(`^a finished session "([^"]*)" with a transcript and an essence but no session lock$`, func(c context.Context, harp string) error {
-		return seedFinishedSessionFiles(c, harp, true)
+	ctx.Step(`^a finished session "([^"]*)" with a transcript but no session lock$`, func(c context.Context, harp string) error {
+		return seedFinishedSessionFiles(c, harp, finishedLongAgo, false)
 	})
-	ctx.Step(`^a session "([^"]*)" with a transcript and an essence that is running again$`, func(c context.Context, harp string) error {
-		if err := seedFinishedSessionFiles(c, harp, true); err != nil {
+	ctx.Step(`^a session "([^"]*)" with a transcript that is running again$`, func(c context.Context, harp string) error {
+		if err := seedFinishedSessionFiles(c, harp, finishedLongAgo, false); err != nil {
 			return err
 		}
 		return seedLiveSession(worldFrom(c), harp)
@@ -137,44 +144,43 @@ func seedAdoptHarp(c context.Context, harp, backend, sessionID, start, end strin
 	return writeAdoptVendorHomeFile(c, sessionID, start, end)
 }
 
-// seedFinishedSession records an ENDED session for harp plus a real
-// canonical transcript, and (when compacted) an essence. The transcript
-// carries real bytes rather than an empty file: a purge reports the bytes it
-// freed, and a zero-byte fixture cannot tell "freed the file" from "freed
-// nothing".
-func seedFinishedSession(c context.Context, harp string, compacted bool) error {
-	if err := seedFinishedSessionFiles(c, harp, compacted); err != nil {
+// finishedLongAgo is when a "finished" fixture session ended: far enough
+// back that the default session_transcript_retention (30d) releases it.
+var finishedLongAgo = time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+
+// seedFinishedSession records a session that ENDED at ended, with a real
+// canonical transcript, and (leftover) the summary an older ctxloom left in
+// its output dir, then proves it finished with a FREE lock file — the one
+// state that lets a destroyer act.
+func seedFinishedSession(c context.Context, harp string, ended time.Time, leftover bool) error {
+	if err := seedFinishedSessionFiles(c, harp, ended, leftover); err != nil {
 		return err
 	}
-	// Proven finished by a FREE lock file — the one state that lets a
-	// destroyer act. Without it the session is merely unprovable.
 	return seedDeadSession(worldFrom(c), harp)
 }
 
 // seedFinishedSessionFiles is seedFinishedSession's record-and-files half,
 // with no word about liveness: the caller decides whether the harp gets a
-// free lock, a held one, or none.
-func seedFinishedSessionFiles(c context.Context, harp string, compacted bool) error {
+// free lock, a held one, or none. The session directory is backdated to the
+// end, so retention reads the session as untouched since it ended.
+func seedFinishedSessionFiles(c context.Context, harp string, ended time.Time, leftover bool) error {
 	w := worldFrom(c)
-	sessionsRel := filepath.Join(".ctxloom", "sessions")
-	harpRel := filepath.Join(sessionsRel, harp)
-	transcriptRel := filepath.Join(harpRel, "transcripts", "transcript.jsonl")
-
 	if err := seedSessionSidecar(w, harp, sessionSeed{
 		SessionID:      "seeded-" + harp,
 		Backend:        "claude-code",
-		StartedAt:      "2026-01-01T00:00:00Z",
-		EndedAt:        "2026-01-02T00:00:00Z",
-		TranscriptPath: filepath.Join(w.env.HomeDir, transcriptRel),
+		StartedAt:      ended.Add(-24 * time.Hour).Format(time.RFC3339),
+		EndedAt:        ended.Format(time.RFC3339),
+		TranscriptPath: filepath.Join(w.env.HomeDir, seededTranscriptRel(harp)),
 	}); err != nil {
 		return err
 	}
-	if err := w.env.WriteHomeFile(transcriptRel, `{"type":"user","content":"hello"}`+"\n"); err != nil {
+	if err := writeSeededTranscript(w, harp); err != nil {
 		return err
 	}
-	if !compacted {
-		return nil
+	if leftover {
+		if err := writeOutputFile(w, harp, leftoverSummaryName, "# Session summary\n\nWritten by an older ctxloom.\n"); err != nil {
+			return err
+		}
 	}
-	essence := fmt.Sprintf("---\nharp_name: %s\ndistilled_at: 2026-01-02T00:00:00Z\n---\n\nSeeded essence for %s.\n", harp, harp)
-	return writeOutputFile(w, harp, paths.EssenceFileName, essence)
+	return backdateSessionDir(w, harp, ended)
 }

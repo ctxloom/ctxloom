@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -54,6 +55,30 @@ func TestPurgeSession_RetentionReleasedTranscriptIsDestroyed(t *testing.T) {
 	require.NoError(t, SetSessionKeep(harp, false))
 
 	res, err := purgeTranscript(harp, false)
+	require.NoError(t, err)
+	assert.True(t, res.Applied)
+	assert.NoFileExists(t, transcript)
+}
+
+// Marking a session keep and releasing it again writes its record, not its
+// conversation: the release must leave the transcript as reclaimable as it
+// was before the mark, not restart its retention.
+func TestPurgeSession_KeepThenUndoDoesNotRestartRetention(t *testing.T) {
+	harp, transcript := seedPurgeableSession(t)
+	long := time.Now().Add(-90 * 24 * time.Hour)
+	mgr, err := sessions.Open(nil)
+	require.NoError(t, err)
+	require.NoError(t, mgr.MarkEnded(harp, long))
+	require.NoError(t, os.Chtimes(transcript, long, long))
+	require.NoError(t, SetSessionKeep(harp, true))
+	require.NoError(t, SetSessionKeep(harp, false))
+
+	res, err := PurgeSession(harp, PurgeSessionRequest{
+		Harp:        harp,
+		Populations: []PurgePopulation{PurgePopulationTranscript},
+		Retention:   sessions.Retention{Cutoff: time.Now().Add(-30 * 24 * time.Hour)},
+		Apply:       true,
+	})
 	require.NoError(t, err)
 	assert.True(t, res.Applied)
 	assert.NoFileExists(t, transcript)

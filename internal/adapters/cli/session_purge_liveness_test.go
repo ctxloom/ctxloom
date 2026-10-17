@@ -23,8 +23,8 @@ import (
 // that refused after unlinking.
 
 // fileDestroyer is one `session` leaf that reaches operations.PurgeSession,
-// with the file it would destroy for harp. All three share the gate, so all
-// three are driven — a leaf left out is the side door to the same data.
+// with the file it would destroy for harp. They share the gate, so all are
+// driven — a leaf left out is the side door to the same data.
 type fileDestroyer struct {
 	cmd    *cobra.Command
 	argv   []string
@@ -34,11 +34,9 @@ type fileDestroyer struct {
 func fileDestroyers(t *testing.T, harp string) []fileDestroyer {
 	t.Helper()
 	transcript := seedTranscript(t, harp)
-	essence := seedEssence(t, harp)
 	return []fileDestroyer{
 		{sessionPurgeCmd, []string{"session", "purge", harp}, transcript},
 		{sessionTranscriptPurgeCmd, []string{"session", "transcript", "purge", harp}, transcript},
-		{sessionArtifactsPurgeCmd, []string{"session", "artifacts", "purge", harp}, essence},
 	}
 }
 
@@ -52,8 +50,7 @@ func removeSessionLock(t *testing.T, harp string) {
 }
 
 // TestSessionPurge_EvenIfLiveIsOptInOnEveryFileDestroyer pins the flag's
-// name and its default on every leaf that can reach the transcript or the
-// essence. The default is the load-bearing half: an escape that is on unless
+// name and its default on every leaf that can reach the transcript. The default is the load-bearing half: an escape that is on unless
 // switched off is not an escape.
 func TestSessionPurge_EvenIfLiveIsOptInOnEveryFileDestroyer(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
@@ -108,7 +105,6 @@ func TestSessionPurge_NoLockRefusesAndNamesTheEscape(t *testing.T) {
 	releaseTranscriptRetention(t)
 	harp := seedHarpFor(t)
 	transcript := seedTranscript(t, harp)
-	seedEssence(t, harp)
 	removeSessionLock(t, harp)
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
@@ -133,26 +129,24 @@ func TestSessionPurge_EvenIfLiveDestroysAnyway(t *testing.T) {
 	t.Run("no lock", func(t *testing.T) {
 		harp := seedHarpFor(t)
 		transcript := seedTranscript(t, harp)
-		essence := seedEssence(t, harp)
 		removeSessionLock(t, harp)
 		t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 		_, err := execRootCmd(t, "session", "purge", harp, "--yes", "--even-if-live")
 		require.NoError(t, err)
 		assert.False(t, onDisk(t, transcript))
-		assert.False(t, onDisk(t, essence))
 	})
 	t.Run("held lock, transcript leaf", func(t *testing.T) {
 		harp := seedHarpFor(t)
 		transcript := seedTranscript(t, harp)
-		essence := seedEssence(t, harp)
+		leftover := seedLeftoverSummary(t, harp)
 		swtSeedLiveSession(t, harp)
 		t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 		_, err := execRootCmd(t, "session", "transcript", "purge", harp, "--yes", "--even-if-live")
 		require.NoError(t, err)
 		assert.False(t, onDisk(t, transcript))
-		assert.True(t, onDisk(t, essence), "the leaf still reaches only its own population")
+		assert.True(t, onDisk(t, leftover), "the leaf still reaches only its own population")
 	})
 }
 
@@ -168,7 +162,6 @@ func TestSessionPurge_DeadOwnerSweepReapsItsCleanScratchWorktree(t *testing.T) {
 	home := testsupport.Isolate(t)
 	_, harp := seedEndedSession(t, t.TempDir(), "claude-code")
 	transcript := seedTranscript(t, harp)
-	seedEssence(t, harp)
 	repo := swtInitRepo(t)
 	wt := swtAddScratchWorktree(t, home, repo, harp, "clean", false)
 	t.Cleanup(func() { resetFlags(t, rootCmd) })

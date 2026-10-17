@@ -12,7 +12,7 @@ import (
 )
 
 // ResolveTurnTranscript resolves WHICH reader and WHICH source a turn-boundary
-// hook (TurnEnd next-step capture, skill-mates) must use to read the
+// hook (skill-mates) must use to read the
 // transcript of the turn now ending on harp.
 //
 // It exists so those hooks route by the session's ACTUAL engine instead of

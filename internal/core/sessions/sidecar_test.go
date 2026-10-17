@@ -67,7 +67,6 @@ func TestListAll_SessionPresentAsDirectoryListsWithNoIndexYAML(t *testing.T) {
 backend: claude-code
 session_id: sess-1
 started_at: 2026-09-01T10:00:00Z
-source_entries: 12
 engine_version: "2.1.0"
 `)
 	_, statErr := os.Stat(filepath.Join(root, paths.IndexFileName))
@@ -80,7 +79,6 @@ engine_version: "2.1.0"
 	assert.Equal(t, "/proj/a", e.ProjectDir)
 	assert.Equal(t, "claude-code", e.Backend)
 	assert.Equal(t, "sess-1", e.SessionID)
-	assert.Equal(t, 12, e.SourceEntries)
 	assert.Equal(t, "2.1.0", e.EngineVersion)
 	assert.Equal(t, time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC), e.StartedAt)
 	// The harp name is the directory's, never a field the sidecar has to

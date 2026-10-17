@@ -55,8 +55,7 @@ const (
 	// triageConcurrency bounds how many chunk calls run in parallel. Each chunk
 	// spawns its own LLM plugin subprocess, so this caps concurrent subprocesses
 	// (and provider rate pressure) instead of firing every chunk at once.
-	// Task triage genuinely IS a batch of independent items; a session
-	// compaction is one call over one transcript and does not chunk.
+	// Task triage genuinely IS a batch of independent items.
 	triageConcurrency = 4
 )
 

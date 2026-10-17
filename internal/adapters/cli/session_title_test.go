@@ -21,13 +21,23 @@ func recordPrompts(t *testing.T, projectDir string, prompts ...string) string {
 	require.NoError(t, err)
 	e, err := mgr.AssignHarp(projectDir, "claude-code")
 	require.NoError(t, err)
-	rec, err := transcript.NewRecorder(safefs.New(), e.HarpName, "claude-code")
+	recordPromptsFor(t, e.HarpName, prompts...)
+	return e.HarpName
+}
+
+// recordPromptsFor records prompts to harp's canonical transcript as the
+// user's, through the real recorder.
+func recordPromptsFor(t *testing.T, harp string, prompts ...string) {
+	t.Helper()
+	if len(prompts) == 0 {
+		return
+	}
+	rec, err := transcript.NewRecorder(safefs.New(), harp, "claude-code")
 	require.NoError(t, err)
 	for _, p := range prompts {
 		require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeUser, Content: p}}))
 	}
 	require.NoError(t, rec.Close())
-	return e.HarpName
 }
 
 // The `summary` a listing carries — in JSON (what an editor's session picker

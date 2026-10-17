@@ -20,7 +20,7 @@ import (
 // declares the key is read back through the accessor the resolution chain
 // consults.
 func TestProjectPermissions_HonoredFromProjectLayer(t *testing.T) {
-	cfg := writeLayers(t, "", "schema_version: 7\npermissions:\n  sandbox: full\n")
+	cfg := writeLayers(t, "", "schema_version: 8\npermissions:\n  sandbox: full\n")
 
 	assert.Equal(t, "full", cfg.GetPermissions().Sandbox,
 		"a project config's declared permission default must be honored")
@@ -30,8 +30,8 @@ func TestProjectPermissions_HonoredFromProjectLayer(t *testing.T) {
 // declares a posture, the project declares nothing, and home's value applies.
 func TestProjectPermissions_HomeLayerFillsAnUndeclaredProject(t *testing.T) {
 	cfg := writeLayers(t,
-		"schema_version: 7\npermissions:\n  sandbox: full\n",
-		"schema_version: 7\n",
+		"schema_version: 8\npermissions:\n  sandbox: full\n",
+		"schema_version: 8\n",
 	)
 
 	assert.Equal(t, "full", cfg.GetPermissions().Sandbox)
@@ -44,7 +44,7 @@ func TestProjectPermissions_EnvOverridesTheProject(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("schema_version: 7\npermissions:\n  sandbox: workspace\n"), 0644)
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("schema_version: 8\npermissions:\n  sandbox: workspace\n"), 0644)
 
 	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir),
 		WithOverrides(confload.Overrides{Env: map[string]any{"PERMISSIONS_SANDBOX": "full"}}))

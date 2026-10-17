@@ -75,7 +75,7 @@ func StartRun(ctx context.Context, deps launch.Deps, seed sessions.Seed, src lau
 //
 // WHY EVERY TOP-LEVEL RUN NEEDS IT: a session with no recorded version is
 // refused by every transcript reader (vendorreader.NoRecordedVersionError),
-// the turn-end hooks (next-step, skill-mates) included. A delegated child is
+// the transcript-reading hooks (skill-mates) included. A delegated child is
 // recorded by the coordinator (coord's recordEngineVersion); this is the same
 // record for the originator's own session.
 //

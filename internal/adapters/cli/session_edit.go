@@ -17,9 +17,8 @@ import (
 // The spine's contract is that a bare `edit <ref>` opens $EDITOR on the
 // referenced document, and a session has none to open. Its index entry is
 // machine-written — session id, timestamps, transcript path, engine version —
-// and its essence is DERIVED: `session compact` regenerates that file
-// wholesale, so an editor round-trip there would offer edits the next
-// compaction silently discards. That is this project's characteristic
+// and its title is DERIVED from its transcript, so an editor round-trip there
+// would offer edits nothing keeps. That is this project's characteristic
 // failure shape (an exit-0 success message over work that did not survive),
 // so the bare form says outright that there is no document and names the
 // assignment it does take.
@@ -45,15 +44,14 @@ var sessionEditCmd = &cobra.Command{
 applied; everything else keeps its current value.
 
   --name <new-name>   rename the session. The backend transcript is unaffected —
-                      the entry keeps its bound session id, its transcript
-                      path and its summary; only the name it answers to moves.
+                      the entry keeps its bound session id and its transcript
+                      path; only the name it answers to moves.
 
 Unlike every other 'edit' in ctxloom, the bare form does NOT open an editor.
 A session is a record of something that happened: its index entry is written
-by ctxloom itself, and its summary is derived — 'ctxloom session compact'
-rewrites that file whole. There is no authored document here for an editor to
-round-trip, so the bare form refuses rather than accept edits a later
-compaction would discard.`,
+by ctxloom itself, and its title is derived from its recorded transcript.
+There is no authored document here for an editor to round-trip, so the bare
+form refuses rather than accept edits nothing would keep.`,
 	Example: `  ctxloom session edit amber-swift-owl --name release-notes`,
 	Args:    cobra.ExactArgs(1),
 	RunE:    runSessionEdit,
@@ -68,7 +66,7 @@ func runSessionEdit(cmd *cobra.Command, args []string) error {
 	harp := args[0]
 	if !cmd.Flags().Changed("name") {
 		return fmt.Errorf("ctxloom session edit %s: nothing to assign, and a session has no editable document to open — "+
-			"its index entry is machine-written and its summary is derived (`ctxloom session compact` rewrites it whole). "+
+			"its index entry is machine-written and its title is derived from its transcript. "+
 			"Name a field: --name <new-name>", harp)
 	}
 

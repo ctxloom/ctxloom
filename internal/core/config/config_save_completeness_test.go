@@ -35,7 +35,7 @@ func fullyPopulatedFixture() Fixture {
 		SchemaVersion:                CurrentConfigVersion,
 		LM:                           LMConfig{Configs: map[string]LLMConfig{"fast": {Type: "claude-code"}}},
 		Editor:                       EditorConfig{Command: "vi"},
-		Settings:                     SettingsConfig{EssenceMaxChars: 4096},
+		Settings:                     SettingsConfig{SilenceUnsupported: true},
 		Sync:                         SyncConfig{AutoSync: &autoSync},
 		Agents:                       map[string]agents.Agent{"worker": {LLM: "fast"}},
 		DefaultAgent:                 "worker",

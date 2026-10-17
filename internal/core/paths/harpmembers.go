@@ -71,8 +71,8 @@ func (m HarpMember) Rel() string { return path.Join(m.Location.Dir(), m.Name) }
 // leaf (a worktree checkout, a run's scratch root) has no row and classifies
 // to the directory it lives in.
 //
-// The session dir holds MACHINE state only. What a human reads — the essence,
-// the next step, plans, segment essences, published reports — lives in the
+// The session dir holds MACHINE state only. What a human reads — plans,
+// published reports — lives in the
 // session's output dir (sessions.Entry.OutputDir), which no reaper touches.
 var HarpMembers = []HarpMember{
 	{Name: SessionSidecarFileName, Tier: MemberIdentity, Location: AtTop, Lifetime: Persist, File: true},

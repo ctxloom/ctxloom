@@ -220,13 +220,11 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/transcript/vendorreader/claude -> internal/adapters/transcript":              "sanctioned: a package's own parent tree (transcript/*)",
 			"internal/adapters/transcript/vendorreader/mock -> internal/adapters/transcript":                "sanctioned: a package's own parent tree (transcript/*)",
 			"internal/adapters/transcript/vendorreader -> internal/adapters/transcript":                     "sanctioned: a package's own parent tree (transcript/*)",
-			"internal/adapters/transcript -> internal/adapters/transcript/policy":                           "sanctioned: a package's own subpackage (the read-side content policy FilteredSource applies)",
 			"internal/adapters/content/remotetree -> internal/adapters/content":                             "sanctioned: a package's own parent tree (content/*)",
 			"internal/adapters/coordgrpc/mcpschema/gen -> internal/adapters/coordgrpc/mcpschema":            "sanctioned: a package's own parent tree (coordgrpc/*)",
 			"internal/adapters/coordgrpc/mcpschema -> internal/adapters/coordgrpc/pb":                       "sanctioned: the proto is coordgrpc's own subpackage (slice 10 folds mcpschema into coordgrpc)",
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/discover":                           "sanctioned: a package's own subpackage — the servers record the endpoint they bound in the file discover reads",
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/pb":                                 "sanctioned: a package's own subpackage — the codec speaks its own proto",
-			"internal/adapters/mcp -> internal/adapters/coordgrpc/mcpschema":                                "the host relay's distill handlers bound their work to mcpschema.CompactBudget, the one number both sides of the relay share",
 			"internal/adapters/runner/interaction -> internal/adapters/coordgrpc/pb":                        "sanctioned: runner/interaction is the session endpoint and speaks the wire (the proto lives only in adapters)",
 			"internal/adapters/runner/interaction -> internal/adapters/coordgrpc/mcpschema":                 "slice 10: mcpschema is generated from coord.Verbs inside coordgrpc; runner/interaction speaks the wire through it (measured)",
 
@@ -260,7 +258,6 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/cli -> internal/engines":             "slice 11b: engines.Build() is called by the composition root, cmd/*",
 			"internal/adapters/cli -> internal/adapters/isolation":  "slice 7: the CLI hands launch.Resolve the axes; it stops reaching isolation",
 			"internal/adapters/cli -> internal/adapters/mcp":        "the session host composes the coordinator's hosting helper and the host relay (mcp.HostCoordinatorForSession); the session endpoint lives in runner/interaction",
-			"internal/adapters/cli -> internal/adapters/memory":     "slice 14a: the compactor (memory.NewCompactor) is called by operations.Compact",
 			"internal/adapters/cli -> internal/adapters/remote":     "measured: `bundle push` drives remote.PublishManager, `deps list` reads the lockfile, the item listing parses references and `remote discover` normalises URLs directly; they belong behind operations and no slice names them",
 			"internal/adapters/cli -> internal/adapters/termui":     "slice 13: termui sits over the pty master the runner owns",
 			"internal/adapters/cli -> internal/adapters/transcript": "slice 13: cli/tui reads the transcript file; the CLI does not open transcripts itself",
@@ -272,12 +269,10 @@ var LayeringRules = []LayeringRule{
 			// operations reaching sibling adapters (it is the application-services
 			// layer; it holds ports, not adapters)
 			"internal/adapters/operations -> internal/adapters/isolation":               "slice 7: launch.Cells is the port; isolation is injected at cmd/*",
-			"internal/adapters/operations -> internal/adapters/memory":                  "slice 14a: memory.NewCompactor; the compactor is injected",
 			"internal/adapters/operations -> internal/adapters/remote":                  "slice 5: the pull-walk is behind composite.Transport / bundles.Reader",
 			"internal/adapters/operations -> internal/adapters/operations/managedhooks": "sanctioned: a package's own subpackage — the managed hook set operations assembles and reports",
 			"internal/adapters/operations/managedhooks -> internal/adapters/remote":     "slice 5: the profile gate's bundle refs are parsed through the pull-walk's ref grammar (remote.ParseReference); behind composite.Transport / bundles.Reader with the operations edge above",
 			"internal/adapters/operations -> internal/adapters/transcript":              "slice 14a: sessions.Entry.NativeSession is the one record; transcript is an injected reader",
-			"internal/adapters/operations -> internal/adapters/transcript/policy":       "slice 14a: transcript policy rides with the reader adapter",
 			"internal/adapters/operations -> internal/adapters/transcript/vendorreader": "slice 11b: the readers become engine.TranscriptReader values (Engine.Transcripts)",
 
 			// adapters/spawn — the production coord.Spawner, composed at cmd/*. It
@@ -301,9 +296,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/cli -> internal/adapters/runner/interaction":    "slice 14a: runner.Main composes its Dynamic port under cmd/*; until then the runner command stands for the composition root",
 
 			// the runner's two halves today
-			"internal/adapters/mcp -> internal/adapters/memory":     "slice 14a: memory off the plugin; the compactor is an operation",
 			"internal/adapters/mcp -> internal/adapters/operations": "carried from slice 8, deferred by slice 9: the seven relayed handler bodies behind mcp.HostApp move under operations (which then implements coord.HostApp itself); the relay CONTRACT already lives there",
-			"internal/adapters/mcp -> internal/adapters/transcript": "slice 14a: the engine-host half of the runner records the transcript",
 			// the engine host records the canonical transcript through
 			// adapters/transcript's recorder; the composition hands the runner a
 			// recorder port instead when runner.Main is composed under cmd/*
@@ -315,7 +308,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/runner/coordtest -> internal/adapters/runner":    "sanctioned: a package's own parent tree (runner/*)",
 			"internal/adapters/runner/coordtest -> internal/adapters/isolation": "the double stands in for a runner in the host relay's tests (measured)",
 
-			// isolation, memory, and the leaf adapters
+			// isolation and the leaf adapters
 			"internal/adapters/transcript/vendorreader/claude -> internal/engines/claude": "slice 11b: the claude reader becomes an engine.TranscriptReader the engine package supplies (Engine.Transcripts)",
 		},
 	},

@@ -91,11 +91,11 @@ func TestRefreshVendorTranscript_ReplacesRatherThanAppends(t *testing.T) {
 	assert.Equal(t, withoutRecordTimes(first), withoutRecordTimes(second), "re-converting an unchanged vendor transcript must reproduce the same conversation")
 }
 
-// TestRefreshVendorTranscript_PicksUpVendorGrowth is the property the live
-// /recover path depends on: a session converted once and then written to some
-// more must read back with the new turns in it.
+// TestRefreshVendorTranscript_PicksUpVendorGrowth is the property every
+// re-read of a live session depends on: a session converted once and then
+// written to some more must read back with the new turns in it.
 //
-// Without the refresh, the second recovery in a session returns a transcript
+// Without the refresh, the second read of a session returns a transcript
 // frozen at the first — complete-looking and confidently missing everything
 // that happened since, which is strictly worse than the "nothing captured"
 // failure it replaced.

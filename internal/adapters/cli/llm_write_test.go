@@ -20,7 +20,7 @@ import (
 )
 
 func TestCheckLLMExistence_EachVerbRefusesTheOthersCase(t *testing.T) {
-	agentProject(t, "schema_version: 7\nllm:\n  configs:\n    big: { type: claude-code, model: opus }\n")
+	agentProject(t, "schema_version: 8\nllm:\n  configs:\n    big: { type: claude-code, model: opus }\n")
 	cfg, err := GetConfig()
 	require.NoError(t, err)
 
@@ -46,7 +46,7 @@ func TestCheckLLMExistence_EachVerbRefusesTheOthersCase(t *testing.T) {
 // `llm edit claude-code` is the sanctioned way to turn a built-in into an
 // explicit config entry.
 func TestCheckLLMExistence_BareBackendNameCountsAsExisting(t *testing.T) {
-	agentProject(t, "schema_version: 7\n")
+	agentProject(t, "schema_version: 8\n")
 	cfg, err := GetConfig()
 	require.NoError(t, err)
 
@@ -145,7 +145,7 @@ func llmConfigsIn(t *testing.T, doc map[string]any) map[string]any {
 func TestLLMCreate_HomeWritesTheWholeOpencodeLabelToTheUserConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	const projectYAML = "schema_version: 7\n"
+	const projectYAML = "schema_version: 8\n"
 	root := agentProject(t, projectYAML)
 
 	require.NoError(t, runLLMWrite(t, false, append([]string{"--home"}, referenceLabelArgs...)...))
@@ -169,7 +169,7 @@ func TestLLMCreate_HomeWritesTheWholeOpencodeLabelToTheUserConfig(t *testing.T) 
 func TestLLMCreate_DefaultScopeIsTheProject(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	root := agentProject(t, "schema_version: 7\n")
+	root := agentProject(t, "schema_version: 8\n")
 
 	require.NoError(t, runLLMWrite(t, false, referenceLabelArgs...))
 
@@ -199,7 +199,7 @@ func TestLLMWrite_SchemaRefusesAndNothingIsWritten(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
-			const projectYAML = "schema_version: 7\n"
+			const projectYAML = "schema_version: 8\n"
 			root := agentProject(t, projectYAML)
 
 			args := append([]string{"qwen", "--type", "opencode", "--model", "m"}, tc.set...)
@@ -219,7 +219,7 @@ func TestLLMWrite_SchemaRefusesAndNothingIsWritten(t *testing.T) {
 // key.
 func TestLLMEdit_SetChangesAndEmptyRemovesAField(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	root := agentProject(t, "schema_version: 7\n")
+	root := agentProject(t, "schema_version: 8\n")
 	require.NoError(t, runLLMWrite(t, false, referenceLabelArgs...))
 
 	require.NoError(t, runLLMWrite(t, true, "qwen",
@@ -241,7 +241,7 @@ func TestLLMEdit_SetChangesAndEmptyRemovesAField(t *testing.T) {
 func TestLLMRemove_HomeRemovesFromTheUserConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	agentProject(t, "schema_version: 7\n")
+	agentProject(t, "schema_version: 8\n")
 	require.NoError(t, runLLMWrite(t, false, append([]string{"--home"}, referenceLabelArgs...)...))
 
 	llmHome, llmRemoveYes = true, true

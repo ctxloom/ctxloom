@@ -29,7 +29,6 @@
 ./internal/adapters/cli/manage.go|runManageInstall cmd * cobra . Command , _ [ ] string|1|12|runManageInstall|100-189
 ./internal/adapters/cli/mcp_doccomment_test.go|TestDocComments_NameOnlyConstructorsThatExist t * testing . T|1|11|TestDocComments_NameOnlyConstructorsThatExist|34-76
 ./internal/adapters/cli/run_owned.go|renderOwnedRunEvents ctx context . Context , out io . Writer , format , runID string , events < - chan * agentcoordpb . AgentEvent , turnIdle chan < - string , capture bool|1|26|renderOwnedRunEvents|199-301
-./internal/adapters/cli/session_compact.go|compactMissingOrStale cmd * cobra . Command , entries [ ] sessions . Entry , appDir string|1|11|compactMissingOrStale|27-81
 ./internal/adapters/cli/tui/model.go| m Model|1|25||421-502
 ./internal/adapters/cli/tui/render_test.go|assertTerminatedEscapes t * testing . T , s string , msg string , args ... any|1|11|assertTerminatedEscapes|202-232
 ./internal/adapters/cli/util_config_write.go||1|11||196-269
@@ -55,8 +54,6 @@
 ./internal/adapters/coordgrpc/mcpschema/arch_test.go|snake s string|1|13|snake|263-282
 ./internal/adapters/isolation/isolation.go|AwaitContainerRunning rt Runtime , h * RunnerHandle|1|11|AwaitContainerRunning|288-314
 ./internal/adapters/mcp/mcp_doccomment_test.go|TestDocComments_NameOnlyConstructorsThatExist t * testing . T|1|11|TestDocComments_NameOnlyConstructorsThatExist|38-80
-./internal/adapters/mcp/mcp_tools_memory.go|(s*ctxServer)handleGetPreviousSession ctx context . Context , _ * mcp . CallToolRequest , in getPreviousSessionInput|1|14|handleGetPreviousSession|567-636
-./internal/adapters/mcp/mcp_tools_memory.go|(s*ctxServer)loadOrCompactSession ctx context . Context , sessionID , backendName , model string , policy sessionLoadPolicy|1|28|loadOrCompactSession|819-963
 ./internal/shared/plans/stamp_test.go|TestStampPlanFile_PreservesFileMode t * testing . T|1|12|TestStampPlanFile_PreservesFileMode|193-237
 ./internal/adapters/operations/bundle_distill.go|DistillBundleFile ctx context . Context , req DistillBundleFileRequest|1|14|DistillBundleFile|63-124
 ./internal/adapters/operations/constraint_resolve.go| ref * remote . Reference|1|11||98-147

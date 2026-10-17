@@ -18,7 +18,7 @@ import (
 func TestLoad_ProjectAgentBindingReplacesHomesWholesale(t *testing.T) {
 	home := testsupport.Isolate(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".ctxloom"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(home, ".ctxloom", "config.yaml"), []byte(`schema_version: 7
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".ctxloom", "config.yaml"), []byte(`schema_version: 8
 agents:
   reviewer:
     permissions:
@@ -30,7 +30,7 @@ agents:
 	fs := afero.NewOsFs()
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(`schema_version: 7
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(`schema_version: 8
 agents:
   reviewer:
     profiles: [default]
@@ -120,7 +120,7 @@ func TestLoad_ConfigSetPatchesOneAgentFieldWithoutWipingSiblings(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(`schema_version: 7
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(`schema_version: 8
 agents:
   reviewer:
     profiles: [default]
@@ -162,14 +162,14 @@ func TestLayerMergeFunc_ProjectCannotRemoveAHomeCompanion(t *testing.T) {
 func TestLoad_ProjectCompanionsAddToHomes(t *testing.T) {
 	home := testsupport.Isolate(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".ctxloom"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(home, ".ctxloom", "config.yaml"), []byte(`schema_version: 7
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".ctxloom", "config.yaml"), []byte(`schema_version: 8
 companions: [ltk, acme]
 `), 0o644))
 
 	fs := afero.NewOsFs()
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(`schema_version: 7
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(`schema_version: 8
 companions: [beta]
 `), 0644)
 

@@ -133,11 +133,11 @@ func TestConfigSerializers_FirstSaveMatchesRender(t *testing.T) {
 }
 
 var characterizationGolden = map[string]string{
-	"empty/MarshalYAML": `schema_version: 7
+	"empty/MarshalYAML": `schema_version: 8
 `,
-	"empty/authored": `schema_version: 7
+	"empty/authored": `schema_version: 8
 `,
-	"empty/saveLocked": `schema_version: 7
+	"empty/saveLocked": `schema_version: 8
 `,
 	"full/MarshalYAML": `agents:
   worker:
@@ -146,7 +146,7 @@ auth: login
 companions:
   - acme
 config:
-  essence_max_chars: 4096
+  silence_unsupported: true
 default_agent: worker
 delegation:
   concurrency: 7
@@ -181,7 +181,7 @@ permissions:
   approver: none
   network: false
 runtime: container
-schema_version: 7
+schema_version: 8
 session_purge_age: 180d
 session_reap_age: 45d
 session_transcript_retention: 60d
@@ -202,7 +202,7 @@ auth: login
 companions:
   - acme
 config:
-  essence_max_chars: 4096
+  silence_unsupported: true
 default_agent: worker
 delegation:
   concurrency: 7
@@ -237,7 +237,7 @@ permissions:
   approver: none
   network: false
 runtime: container
-schema_version: 7
+schema_version: 8
 session_purge_age: 180d
 session_reap_age: 45d
 session_transcript_retention: 60d
@@ -258,7 +258,7 @@ auth: login
 companions:
   - acme
 config:
-  essence_max_chars: 4096
+  silence_unsupported: true
 default_agent: worker
 delegation:
   concurrency: 7
@@ -293,7 +293,7 @@ permissions:
   approver: none
   network: false
 runtime: container
-schema_version: 7
+schema_version: 8
 session_purge_age: 180d
 session_reap_age: 45d
 session_transcript_retention: 60d
@@ -307,19 +307,19 @@ ui:
   surround: true
 workspace: worktree
 `,
-	"explicit_false_and_stale_version/MarshalYAML": `schema_version: 7
+	"explicit_false_and_stale_version/MarshalYAML": `schema_version: 8
 sync:
   auto_sync: false
 ui:
   surround: false
 `,
-	"explicit_false_and_stale_version/authored": `schema_version: 7
+	"explicit_false_and_stale_version/authored": `schema_version: 8
 sync:
   auto_sync: false
 ui:
   surround: false
 `,
-	"explicit_false_and_stale_version/saveLocked": `schema_version: 7
+	"explicit_false_and_stale_version/saveLocked": `schema_version: 8
 sync:
   auto_sync: false
 ui:
@@ -334,18 +334,18 @@ ui:
       type: claude-code
   defaults:
     primary: shipped
-schema_version: 7
+schema_version: 8
 `,
 	"default_overlay/authored": `llm:
   configs:
     mine:
       type: codex
-schema_version: 7
+schema_version: 8
 `,
 	"default_overlay/saveLocked": `llm:
   configs:
     mine:
       type: codex
-schema_version: 7
+schema_version: 8
 `,
 }

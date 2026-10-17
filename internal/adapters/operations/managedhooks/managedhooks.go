@@ -328,7 +328,7 @@ func (m *Hooks) Wire() *wire.HooksConfig {
 // WireDeclared is Wire restricted to hooks somebody DECLARED — bundles,
 // profiles, companions — excluding the ones ctxloom assembles for
 // its own machinery (OriginContext: context injection, the session-start,
-// skill-mates and next-step hooks).
+// skill-mates and mail hooks).
 //
 // It exists for CAPABILITY-LOSS reporting, which asks a different question
 // than delivery does. "This backend cannot carry your hooks" is worth saying;

@@ -16,20 +16,20 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 )
 
-// Session purge. A harp directory's files fall into three purge classes,
-// each decided by the paths.HarpMembers row the file lives under
+// Session purge. A harp directory's files fall into two purge classes, each
+// decided by the paths.HarpMembers row the file lives under
 // (classifyPurgeFile), and purge treats each one differently:
 //
 //	machine  — everything under the transcripts and native-history rows, and
 //	           whatever file the entry's TranscriptPath names (fenced to
 //	           inside this harp's own directory). Destroyed by the transcript
 //	           population.
-//	derived  — the essence and the segment essences in the session's output
-//	           dir. Destroyed by the artifacts population, the one explicit
-//	           destroyer that reaches into the output dir.
 //	authored — every other file under a Persist member, and every top-level
 //	           file no row names. NEVER destroyed. Named in the report so a
 //	           kept-but-unmentioned file never goes unfiled.
+//
+// The session's output dir (plans, notes, any summaries an older ctxloom
+// wrote there) is the human's and is never walked.
 //
 // This is an ALLOWLIST, not a denylist: a file is destroyed only if it is in
 // the population asked for. The Ephemeral members (the reaper's, by
@@ -44,7 +44,6 @@ type PurgeClass string
 
 const (
 	PurgeClassMachine  PurgeClass = "machine"
-	PurgeClassDerived  PurgeClass = "derived"
 	PurgeClassAuthored PurgeClass = "authored"
 )
 
@@ -60,21 +59,17 @@ type PurgeItem struct {
 	Reason string     `json:"reason,omitempty"`
 }
 
-// PurgePopulation names one destroyable population inside a harp directory.
-// Each one has its own CLI destroyer (`session transcript purge`, `session
-// artifacts purge`), and the sweep (`session purge`) asks for both. Authored
-// content is deliberately NOT a population: nothing may ask for it, which is
-// a stronger guarantee than refusing the request after the fact.
+// PurgePopulation names one destroyable population inside a harp directory,
+// each with its own CLI destroyer (`session transcript purge`); the sweep
+// (`session purge`) asks for it too. Authored content is deliberately NOT a
+// population: nothing may ask for it, which is a stronger guarantee than
+// refusing the request after the fact.
 type PurgePopulation string
 
 const (
 	// PurgePopulationTranscript is the machine-written bulk: everything under
 	// transcripts/ and native/ (classifyPurgeFile).
 	PurgePopulationTranscript PurgePopulation = "transcript"
-	// PurgePopulationArtifacts is the derived essence — what compaction
-	// produced, and what can be produced again only while the transcript
-	// still exists.
-	PurgePopulationArtifacts PurgePopulation = "artifacts"
 )
 
 // PurgeSessionRequest is one purge invocation, over one or both populations.
@@ -206,13 +201,11 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 	}
 
 	wantTranscript := req.wants(PurgePopulationTranscript)
-	wantArtifacts := req.wants(PurgePopulationArtifacts)
 
 	items, err := classifyHarpDir(harpDir, entry)
 	if err != nil {
 		return nil, err
 	}
-	items = append(items, outputEssenceItems(entry)...)
 
 	// The retention guard protects a real file, so it asks whether there IS
 	// one. Firing on the request alone would refuse forever for a session
@@ -234,15 +227,6 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 				it.Reason = "transcript: not this destroyer's population (see `ctxloom session transcript purge`)"
 				res.Keep = append(res.Keep, it)
 			}
-		case PurgeClassDerived:
-			if wantArtifacts {
-				it.Action = "destroy"
-				res.Destroy = append(res.Destroy, it)
-			} else {
-				it.Action = "keep"
-				it.Reason = "derived summary: not this destroyer's population (see `ctxloom session artifacts purge`)"
-				res.Keep = append(res.Keep, it)
-			}
 		case PurgeClassAuthored:
 			it.Action = "keep"
 			it.Reason = "authored: never destroyed by purge"
@@ -258,10 +242,8 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 		return res, ErrPurgeNothingToDo
 	}
 
-	// MARK BEFORE DESTROY. See the func doc and sessions.Manager.MarkPurged.
-	// Only a TRANSCRIPT purge marks: PurgedAt is what keeps a row alive past
-	// its own missing transcript, so it protects exactly that case. An
-	// artifacts-only purge leaves the transcript in place and needs nothing.
+	// MARK BEFORE DESTROY. See the func doc and sessions.Manager.MarkPurged:
+	// PurgedAt is what keeps a row alive past its own missing transcript.
 	if wantTranscript {
 		now := time.Now().UTC()
 		if err := mgr.MarkPurged(harp, now); err != nil {
@@ -289,13 +271,13 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 }
 
 // retainsTranscript asks r about entry's session, its end reckoned from the
-// sidecar's record and the session directory's last activity
-// (sessions.Ended). An unreadable activity counts as no activity: the
-// recorded end alone decides, and with none the session is retained.
+// sidecar's record and when its conversation was last written
+// (sessions.Ended, sessions.TranscriptActivity). Activity that cannot be read
+// counts as now: nothing then proves the conversation ended.
 func retainsTranscript(r sessions.Retention, entry *sessions.Entry) error {
-	var last time.Time
+	last := time.Now()
 	if l, err := sessions.HomeLayout(); err == nil {
-		if at, aErr := sessions.ActivityTime(l, entry.HarpName); aErr == nil {
+		if at, aErr := sessions.TranscriptActivity(l, entry.HarpName); aErr == nil {
 			last = at
 		}
 	}

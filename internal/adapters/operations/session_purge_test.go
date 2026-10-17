@@ -55,9 +55,9 @@ func seedRunningSession(t *testing.T) (harp, transcript string) {
 	return entry.HarpName, seedPurgeBulk(t, entry.HarpName)
 }
 
-// seedPurgeBulk writes harp a transcript and an essence and returns the
-// transcript path — the machine bulk and the derived artifact a destroyer
-// may act on.
+// seedPurgeBulk writes harp a transcript, and the summary an older ctxloom
+// left in its output dir, and returns the transcript path — the machine bulk
+// a destroyer may act on, beside a human's file it never reaches.
 func seedPurgeBulk(t *testing.T, harp string) (transcript string) {
 	t.Helper()
 	transcript, err := paths.HarpCanonicalTranscriptPath(harp)
@@ -67,7 +67,7 @@ func seedPurgeBulk(t *testing.T, harp string) (transcript string) {
 	out, err := sessions.OutputDir(harp)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(out, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(out, paths.EssenceFileName), []byte("# essence\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(out, "essence.md"), []byte("# essence\n"), 0o644))
 	return transcript
 }
 

@@ -9,7 +9,7 @@
       "type": "integer",
       "description": "Config format generation (integer; distinct from the application version). A file older than this ctxloom reads, or newer than it knows, is refused.",
       "examples": [
-        7
+        8
       ]
     },
     "llm": {
@@ -33,7 +33,7 @@
             },
             "fast": {
               "type": "string",
-              "description": "Label of the config for the compression role (distill, compaction)"
+              "description": "Label of the config for the compression role (distill, triage) when no distiller/triage agent is configured"
             }
           },
           "additionalProperties": false
@@ -71,10 +71,6 @@
         "use_distilled": {
           "type": "boolean",
           "description": "Whether to prefer distilled versions of fragments/prompts (default: true)"
-        },
-        "essence_max_chars": {
-          "type": "integer",
-          "description": "Character budget for a compacted session essence (default: 12000)"
         },
         "silence_unsupported": {
           "type": "boolean",
@@ -205,7 +201,7 @@
     "output_dir": {
       "type": "string",
       "minLength": 1,
-      "description": "Absolute directory under which each session's output dir (<output_dir>/<project>/<harp>/: essence, next step, plans, segment essences) is made, replacing the default <Documents>/ctxloom. A session records its output dir when it is minted, so changing this affects new sessions only."
+      "description": "Absolute directory under which each session's output dir (<output_dir>/<project>/<harp>/: plans, reports) is made, replacing the default <Documents>/ctxloom. A session records its output dir when it is minted, so changing this affects new sessions only."
     },
     "isolation_engines": {
       "type": "array",
@@ -510,7 +506,7 @@
             "context_window": {
               "type": "integer",
               "minimum": 1,
-              "description": "The model's context window, in tokens: what this label's model can hold in one call. Neutral: every engine's label may carry it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Absent, the engine's declared default applies (claude-code: 200000); set it for a model with a different window, e.g. 1000000 for a 1M-context model.",
+              "description": "The model's context window, in tokens: what this label's model can hold in one call. Accepted on every engine's label so a label can be moved between engines, but only opencode reads it (it cannot discover an endpoint's window and never compacts without it); this engine ignores it.",
               "examples": [
                 200000,
                 131072
@@ -553,7 +549,7 @@
             "context_window": {
               "type": "integer",
               "minimum": 1,
-              "description": "The model's context window, in tokens: what this label's model can hold in one call. Neutral: every engine's label may carry it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Absent, the engine's declared default applies (claude-code: 200000); set it for a model with a different window, e.g. 1000000 for a 1M-context model.",
+              "description": "The model's context window, in tokens: what this label's model can hold in one call. Accepted on every engine's label so a label can be moved between engines, but only opencode reads it (it cannot discover an endpoint's window and never compacts without it); this engine ignores it.",
               "examples": [
                 200000,
                 131072
@@ -593,7 +589,7 @@
             "context_window": {
               "type": "integer",
               "minimum": 1,
-              "description": "The model's context window, in tokens: what this label's model can hold in one call. Neutral: every engine's label may carry it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Absent, the engine's declared default applies (claude-code: 200000); set it for a model with a different window, e.g. 1000000 for a 1M-context model.",
+              "description": "The model's context window, in tokens: what this label's model can hold in one call. Accepted on every engine's label so a label can be moved between engines, but only opencode reads it (it cannot discover an endpoint's window and never compacts without it); this engine ignores it.",
               "examples": [
                 200000,
                 131072
@@ -633,7 +629,7 @@
             "context_window": {
               "type": "integer",
               "minimum": 1,
-              "description": "The model's context window, in tokens: what this label's model can hold in one call. Neutral: every engine's label may carry it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Absent, the engine's declared default applies (claude-code: 200000); set it for a model with a different window, e.g. 1000000 for a 1M-context model.",
+              "description": "The model's context window, in tokens: what this label's model can hold in one call. Accepted on every engine's label so a label can be moved between engines, but only opencode reads it (it cannot discover an endpoint's window and never compacts without it); this engine ignores it.",
               "examples": [
                 200000,
                 131072
@@ -673,7 +669,7 @@
             "context_window": {
               "type": "integer",
               "minimum": 1,
-              "description": "The model's context window, in tokens: what this label's model can hold in one call. Neutral: every engine's label may carry it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Absent, the engine's declared default applies (claude-code: 200000); set it for a model with a different window, e.g. 1000000 for a 1M-context model.",
+              "description": "The model's context window, in tokens: what this label's model can hold in one call. Accepted on every engine's label so a label can be moved between engines, but only opencode reads it (it cannot discover an endpoint's window and never compacts without it); this engine ignores it.",
               "examples": [
                 200000,
                 131072
@@ -719,7 +715,7 @@
             "context_window": {
               "type": "integer",
               "minimum": 1,
-              "description": "The model's context window, in tokens: what this label's model can hold in one call (llama-server: --ctx-size divided by --parallel). Neutral: every engine's label may carry it; REQUIRED with a provider block, because opencode cannot discover an endpoint's window and never compacts without it (a built-in provider's window is in opencode's own catalog). Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve).",
+              "description": "The model's context window, in tokens: what this label's model can hold in one call (llama-server: --ctx-size divided by --parallel). Only opencode reads it; REQUIRED with a provider block, because opencode cannot discover an endpoint's window and never compacts without it (a built-in provider's window is in opencode's own catalog).",
               "examples": [
                 131072,
                 65536

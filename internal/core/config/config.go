@@ -19,7 +19,6 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -190,7 +189,7 @@ type Config struct {
 	// binary lives — a container's PATH included.
 	companions []string
 	// outputDir overrides the base of every session's output dir (the
-	// human root: essence, next step, plans, reports), which is otherwise
+	// human root: plans, reports), which is otherwise
 	// <Documents>/ctxloom (paths.DefaultOutputBase). Absolute. A session
 	// records its own output dir at mint, so changing this moves where NEW
 	// sessions write, never an existing session's files.
@@ -890,36 +889,9 @@ func (c *Config) ResolveLLM(label string) (backend, model string) {
 	return backend, model
 }
 
-// ContextWindowKey is the label-body key every llm.configs entry may carry,
-// whatever its type: the model's context window in tokens. It is neutral —
-// read here, never by an engine-type branch — so every engine's label has it.
-const ContextWindowKey = "context_window"
-
-// LabelContextWindow is the context window a label body declares, in tokens,
-// or 0 when it declares none (absent, non-numeric, or not positive). It reads
-// the body untyped, as ResolveLLM reads the model: a YAML load yields an int,
-// a JSON-shaped body a float64.
-func LabelContextWindow(body map[string]any) int {
-	var n int
-	switch v := body[ContextWindowKey].(type) {
-	case int:
-		n = v
-	case int64:
-		n = int(v)
-	case uint64:
-		n = int(v)
-	case float64:
-		n = int(v)
-	}
-	if n < 0 {
-		return 0
-	}
-	return n
-}
-
 // BinaryPathKey is the label-body key naming the binary a label runs (a
 // path, or a name resolved on PATH) in place of its engine's own. It is
-// neutral like ContextWindowKey — read here, never by an engine-type branch —
+// neutral — read here, never by an engine-type branch —
 // so the launch carries it as the label's binary (engine.LabelConfig.Binary)
 // for whichever engine the label configures, and the version probe asks the
 // same binary the engine's Exec spawns.
@@ -987,22 +959,6 @@ func LabelArgs(body map[string]any) ([]string, error) {
 func (c *Config) GetDefaultLLM() string {
 	backend, _ := c.ResolveLLM(c.PrimaryLabel())
 	return backend
-}
-
-// GetEssenceMaxChars returns the target size of a finished session essence,
-// defaulting to agent.DefaultEssenceChars.
-//
-// This is a TARGET handed to the distilling model, not the hard ceiling. The
-// ceiling is memory.MaxEssenceChars, which is derived from the tool-result cap
-// MCP clients enforce and refuses anything larger. A target above the ceiling
-// would instruct the model to produce output the code must then reject, which
-// is the exact contradiction the absolute budget replaced; the compactor
-// clamps rather than honouring one.
-func (c *Config) GetEssenceMaxChars() int {
-	if c.settings.EssenceMaxChars > 0 {
-		return c.settings.EssenceMaxChars
-	}
-	return agent.DefaultEssenceChars
 }
 
 // ShouldSilenceUnsupported reports whether capability-loss lines are

@@ -281,3 +281,12 @@ func TestDeliveredEnabledSkills_ReadsTheFiringEnginesExports(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, none, "an engine with no skills surface was delivered no skill to name")
 }
+
+// jsonString is s as a JSON string literal, for splicing into a payload.
+func jsonString(s string) string {
+	b, err := json.Marshal(s)
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}

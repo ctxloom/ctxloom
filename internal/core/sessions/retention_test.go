@@ -1,9 +1,12 @@
 package sessions
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -80,4 +83,35 @@ func TestManager_SetKeepPersistsAndClears(t *testing.T) {
 	assert.NotContains(t, string(readSidecarFile(t, root, "swift-amber-falcon")), "keep:")
 
 	require.ErrorIs(t, m.SetKeep("no-such-harp", true), ErrNotFound)
+}
+
+// A session's transcript activity is when its CONVERSATION was last written
+// — the transcripts and the engine's native history — never its record: a
+// sidecar write (`session keep`, its --undo, a purge mark) is not the session
+// being worked on, and must not restart its retention.
+func TestTranscriptActivity_IsTheConversationNotTheRecord(t *testing.T) {
+	l := reapLayout(t)
+	dir := reapSeed(t, l, "aged-quiet-heron") // every mtime backdated to reapOldEnough
+	reapWriteSidecar(t, dir, "keep: true\n")  // the record, written now
+
+	got, err := TranscriptActivity(l, "aged-quiet-heron")
+	require.NoError(t, err)
+	assert.WithinDuration(t, reapOldEnough, got, time.Second, "the record's write is not transcript activity")
+
+	ok, err := ActivityTime(l, "aged-quiet-heron")
+	require.NoError(t, err)
+	assert.True(t, ok.After(got), "the session dir as a whole did move: ActivityTime sees the record")
+}
+
+// A session with no transcript and no native history has no transcript
+// activity: zero, not an error.
+func TestTranscriptActivity_NoConversationIsZero(t *testing.T) {
+	l := reapLayout(t)
+	dir := reapSeed(t, l, "aged-quiet-heron")
+	require.NoError(t, os.RemoveAll(filepath.Join(dir, paths.TranscriptsDirName)))
+	require.NoError(t, os.RemoveAll(filepath.Join(dir, paths.NativeDirName)))
+
+	got, err := TranscriptActivity(l, "aged-quiet-heron")
+	require.NoError(t, err)
+	assert.True(t, got.IsZero())
 }

@@ -187,7 +187,7 @@ anyone sets them up:
 - **triage** — for judging deferred tasks' revive conditions. Wants domain
   context above all: whether "the v2 API ships" has fired is answerable only by
   someone who knows what this project's terms mean.
-- **distiller** — for compressing sessions and content. Same instinct as
+- **distiller** — for compressing bundle content. Same instinct as
   triage: domain vocabulary so a summary reads in the project's own terms, and
   NOT behavioural guidance, which distorts a summariser rather than helping it.
 
@@ -365,8 +365,8 @@ with `ctxloom agent list`, then tell the user how to use what they built
 
 ### 4d. ctxloom's own agents — distiller and triage
 
-ctxloom itself calls an LLM: to distil sessions and bundle content, and to
-judge whether a deferred task's revive condition has fired. Those calls are
+ctxloom itself calls an LLM: to distil bundle content, and to judge whether a
+deferred task's revive condition has fired. Those calls are
 ordinary runs, so they need ordinary agents — set them up here, with the user,
 the same as any other.
 

@@ -32,8 +32,8 @@ run:
 
       1. SessionStart → ctxloom hook session-bind
          Records the backend session_id ↔ harp mapping in
-         ~/.ctxloom/sessions/index.yaml so resume and `session compact`
-         can find the session.
+         the session's record so resume and the transcript capture can
+         find the session.
 
       2. PostFileEdit matcher=plan files → ctxloom hook stamp-plan
          Records the active session's harp name in the file's YAML
@@ -61,10 +61,8 @@ run:
       # Fires once per backend session with the session id and transcript
       # path in the JSON payload. ctxloom hook session-bind reads those,
       # looks up CTXLOOM_SESSION_HARP from env, and records the mapping in
-      # ~/.ctxloom/sessions/index.yaml. This is the primary bind path —
-      # `ctxloom session compact` and the resume picker rely on the
-      # resulting index entry. The compactor's forward-bind at compact
-      # time remains as defense in depth.
+      # the session's record. This is the bind path — resume and the
+      # transcript capture rely on the resulting record.
       #
       # pre_tool_fallback: the bind is first-bind-wins idempotent, so on
       # agents without a session-start event it may fire on

@@ -145,11 +145,6 @@ func routeName(r mcpschema.Route) string {
 // and the stdio server cannot describe one tool two ways.
 func registerHostRelays(server *mcp.Server, home *runner.Home) []string {
 	return []string{
-		addHostRelay[operations.CompactSessionInput](server, home, "compact_session", operations.CompactSessionDesc),
-		addHostRelay[operations.LoadSessionInput](server, home, "load_session", operations.LoadSessionDesc),
-		addHostRelay[operations.RecoverSessionInput](server, home, "recover_session", operations.RecoverSessionDesc),
-		addHostRelay[operations.GetPreviousSessionInput](server, home, "get_previous_session", operations.GetPreviousSessionDesc),
-		addHostRelay[operations.ListSessionsInput](server, home, "list_sessions", operations.ListSessionsDesc),
 		addHostRelay[operations.EvaluateTriggersInput](server, home, "evaluate_triggers", operations.EvaluateTriggersDesc),
 		addHostRelay[operations.ContextStatusInput](server, home, "context_status", operations.ContextStatusDesc),
 	}
@@ -237,17 +232,6 @@ func relayTyped[In any](home *runner.Home, name string) mcp.ToolHandlerFor[In, m
 		args := &structpb.Struct{}
 		if err := protojson.Unmarshal(raw, args); err != nil {
 			return nil, nil, fmt.Errorf("%s: encode arguments: %w", name, err)
-		}
-		// A distillation is minutes of honest work; the harness hands us a
-		// deadline-free ctx, so without this the request would inherit the
-		// coordination-frame default and fail mid-flight on every long
-		// session while the host carried on distilling behind it.
-		if budget := mcpschema.RelayBudget(name); budget > 0 {
-			if _, has := ctx.Deadline(); !has {
-				var cancel context.CancelFunc
-				ctx, cancel = context.WithTimeout(ctx, budget)
-				defer cancel()
-			}
 		}
 		resp, err := home.Request(ctx, &agentcoordpb.AgentRequest{
 			Kind: &agentcoordpb.AgentRequest_Host{Host: &agentcoordpb.HostRequest{Tool: name, Args: args}},

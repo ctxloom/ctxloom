@@ -17,13 +17,12 @@ import (
 
 // The destroyers under `session`, and the one rule they all obey.
 //
-// EACH POPULATION OWNS ITS DESTROYER. A harp directory holds three separable
+// EACH POPULATION OWNS ITS DESTROYER. A harp directory holds two separable
 // populations, and each is destroyed by the sub-noun that understands it:
 //
 //	session transcript purge <harp>   the machine-written conversation
-//	session artifacts purge <harp>    the derived essence
 //	session worktrees purge <harp>    the scratch git checkouts
-//	session purge <harp>              sweeps all three
+//	session purge <harp>              sweeps both
 //
 // Every destroyer of a transcript asks the same retention rule
 // (transcriptRetention): a session's transcript is its record, kept until the
@@ -47,8 +46,6 @@ var (
 	sessionPurgeEvenIfLive           bool
 	sessionTranscriptPurgeYes        bool
 	sessionTranscriptPurgeEvenIfLive bool
-	sessionArtifactsPurgeYes         bool
-	sessionArtifactsPurgeEvenIfLive  bool
 )
 
 // evenIfLiveFlagName is the deliberate second keystroke past the session
@@ -57,8 +54,8 @@ var (
 const evenIfLiveFlagName = "even-if-live"
 
 // addEvenIfLiveFlag registers --even-if-live on one file destroyer. One
-// registration for three leaves, so the help text is one sentence and not
-// three that drift.
+// registration for every file destroyer, so the help text is one sentence
+// and not several that drift.
 func addEvenIfLiveFlag(cmd *cobra.Command, target *bool) {
 	cmd.Flags().BoolVar(target, evenIfLiveFlagName, false,
 		"permit destroying a session whose owner may still be running: its session lock is held, "+
@@ -69,7 +66,7 @@ func addEvenIfLiveFlag(cmd *cobra.Command, target *bool) {
 
 var sessionTranscriptPurgeCmd = &cobra.Command{
 	Use:   "purge <session-name>",
-	Short: "Destroy a finished session's recorded conversation, keeping its summary",
+	Short: "Destroy a finished session's recorded conversation, keeping its record entry",
 	Long: `Destroys the machine-written bulk under a session's directory —
 everything under transcripts/ (the canonical transcript.jsonl and its
 rotation segments) and native/ (the engine's own history) — and nothing
@@ -100,42 +97,14 @@ func runSessionTranscriptPurge(cmd *cobra.Command, args []string) error {
 	})
 }
 
-// --- session artifacts purge ------------------------------------------------
-
-var sessionArtifactsPurgeCmd = &cobra.Command{
-	Use:   "purge <session-name>",
-	Short: "Destroy a finished session's derived summary, keeping its transcript",
-	Long: `Destroys what compaction produced — essence.md — and nothing else. The
-transcript stays, which is what makes this reversible: while the transcript
-is on disk the summary can be produced again with 'ctxloom session compact'.
-
-Without --yes this only reports; nothing on disk or in the session index
-changes, on a TTY or not.
-
-A session whose lock does not prove its owner dead is REFUSED — a held
-lock, or no lock at all. Pass --even-if-live to destroy it anyway.`,
-	Example: `  ctxloom session artifacts purge amber-swift-owl --yes`,
-	Args:    cobra.ExactArgs(1),
-	RunE:    runSessionArtifactsPurge,
-}
-
-func runSessionArtifactsPurge(cmd *cobra.Command, args []string) error {
-	return runHarpFilePurge(cmd, args[0], harpFilePurge{
-		populations: []operations.PurgePopulation{operations.PurgePopulationArtifacts},
-		apply:       sessionArtifactsPurgeYes,
-		evenIfLive:  sessionArtifactsPurgeEvenIfLive,
-		commandPath: "ctxloom session artifacts purge",
-	})
-}
-
 // --- session purge (the sweep) ----------------------------------------------
 
 var sessionPurgeCmd = &cobra.Command{
 	Use:   "purge <session-name>",
-	Short: "Empty a finished session: its transcript, its artifacts and its scratch worktrees",
-	Long: `Sweeps all three of a session's destroyable populations at once —
-the recorded conversation, the derived summary, and the scratch git
-worktrees the session left in its work/ directory. Authored files are
+	Short: "Empty a finished session: its transcript and its scratch worktrees",
+	Long: `Sweeps both of a session's destroyable populations at once — the
+recorded conversation and the scratch git worktrees the session left in its
+work/ directory. Authored files are
 never destroyed; they are named in the report instead.
 
 Without --yes this only reports; nothing on disk, in git, or in the session
@@ -163,11 +132,6 @@ func init() {
 		"apply the plan this invocation printed (default: report only)")
 	addEvenIfLiveFlag(sessionTranscriptPurgeCmd, &sessionTranscriptPurgeEvenIfLive)
 	sessionTranscriptCmd.AddCommand(sessionTranscriptPurgeCmd)
-
-	sessionArtifactsPurgeCmd.Flags().BoolVarP(&sessionArtifactsPurgeYes, "yes", "y", false,
-		"apply the plan this invocation printed (default: report only)")
-	addEvenIfLiveFlag(sessionArtifactsPurgeCmd, &sessionArtifactsPurgeEvenIfLive)
-	sessionArtifactsCmd.AddCommand(sessionArtifactsPurgeCmd)
 
 	sessionPurgeCmd.Flags().BoolVarP(&sessionPurgeYes, "yes", "y", false,
 		"apply the plan this invocation printed (default: report only)")
@@ -198,7 +162,6 @@ func runSessionPurge(cmd *cobra.Command, args []string) error {
 		Harp: harp,
 		Populations: []operations.PurgePopulation{
 			operations.PurgePopulationTranscript,
-			operations.PurgePopulationArtifacts,
 		},
 		Retention:  retention,
 		EvenIfLive: sessionPurgeEvenIfLive,

@@ -61,7 +61,7 @@ func TestSources_Read_PresentUnparsableLayer_RefusesNamingTheFile(t *testing.T) 
 // overlaid with the shipped default entries.
 func TestSources_Read_LayersFilesIntoTheValue(t *testing.T) {
 	fs := hermetic(t)
-	testsupport.WriteFile(t, fs, appDir+"/config.yaml", []byte(`schema_version: 7
+	testsupport.WriteFile(t, fs, appDir+"/config.yaml", []byte(`schema_version: 8
 default_agent: coder
 agents:
   coder:
@@ -96,7 +96,7 @@ workspace: worktree
 // flag set and one environment, captured at New, reach every Read's value.
 func TestSources_Read_OverridesFromFlagsAndEnv_ReachTheValue(t *testing.T) {
 	fs := hermetic(t)
-	testsupport.WriteFile(t, fs, appDir+"/config.yaml", []byte("schema_version: 7\ndefault_agent: fromfile\n"), 0o644)
+	testsupport.WriteFile(t, fs, appDir+"/config.yaml", []byte("schema_version: 8\ndefault_agent: fromfile\n"), 0o644)
 
 	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	flags.StringArray(confload.ConfigSetFlagName, nil, "")

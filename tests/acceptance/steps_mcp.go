@@ -147,9 +147,8 @@ func registerMCPSteps(ctx *godog.ScenarioContext) {
 	// engine's reply rides that config's llm.configs.mock.mock_control — so a
 	// "the mock LLM responds" step taken AFTER the first tool call changes
 	// nothing the standing session can see. Restarting is what makes a
-	// re-pointed mock reach it, and it is also the production shape: the
-	// session that loads an essence is rarely the one that compacted it. The
-	// next tool call stands a fresh owner under the same isolated env.
+	// re-pointed mock reach it. The next tool call stands a fresh owner under
+	// the same isolated env.
 	ctx.Step(`^the MCP server is restarted$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if w.mcp == nil {

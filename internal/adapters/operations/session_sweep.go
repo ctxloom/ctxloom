@@ -92,7 +92,7 @@ type SessionFacts struct {
 	ReclaimBytes   int64  `json:"reclaim_bytes,omitempty"`
 	ReclaimSymlink string `json:"reclaim_symlink,omitempty"`
 	// Purgeable reports whether a purge would destroy anything (a
-	// machine-written or derived file), and PurgeBytes its size.
+	// machine-written file), and PurgeBytes its size.
 	Purgeable  bool  `json:"purgeable,omitempty"`
 	PurgeBytes int64 `json:"purge_bytes,omitempty"`
 	// Mail counts the messages waiting in the spool's in/ and in/claimed/.
@@ -361,7 +361,11 @@ func classifySession(ctx context.Context, g git.Git, l sessions.Layout, store se
 	if _, err := os.Lstat(l.KeepMarker(name)); err == nil {
 		f.Kept = true
 	}
-	f.Retained = req.Retention.Retains(entry, f.LastActive)
+	active, aErr := sessions.TranscriptActivity(l, name)
+	if aErr != nil {
+		active = time.Now() // unreadable: nothing proves the conversation ended
+	}
+	f.Retained = req.Retention.Retains(entry, active)
 	if entry == nil && f.Retained == nil {
 		f.Retained = fmt.Errorf("%w: its record cannot be read", sessions.ErrTranscriptRecent)
 	}
@@ -405,7 +409,7 @@ func reclaimMembers(req SweepRequest, releasable bool) []paths.HarpMember {
 }
 
 // addPurgeFacts marks the session purgeable, and sums its bytes, when its
-// directory holds machine-written or derived files. An unclassifiable
+// directory holds machine-written files. An unclassifiable
 // directory is left not purgeable.
 func addPurgeFacts(f *SessionFacts, entry *sessions.Entry) {
 	items, err := classifyHarpDir(f.Dir, entry)
@@ -413,7 +417,7 @@ func addPurgeFacts(f *SessionFacts, entry *sessions.Entry) {
 		return
 	}
 	for _, it := range items {
-		if it.Class == PurgeClassMachine || it.Class == PurgeClassDerived {
+		if it.Class == PurgeClassMachine {
 			f.Purgeable = true
 			f.PurgeBytes += it.Bytes
 		}

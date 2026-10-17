@@ -11,19 +11,19 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// `session remove` destroys three artifacts: the index entry, the transcript
-// and the essence. Every test below asserts ALL THREE, because a version that
-// drops the index entry and leaves the bytes on disk satisfies any assertion
-// that checks only the entry — and that is the shape a reader would call
-// correct at a glance.
+// `session remove` destroys two artifacts: the index entry and the
+// transcript. Every test below asserts BOTH, because a version that drops the
+// index entry and leaves the bytes on disk satisfies any assertion that checks
+// only the entry — and that is the shape a reader would call correct at a
+// glance. It never reaches the output dir, which is the human's.
 
-// TestSessionRemove_ReportLeavesAllThreeArtifacts is the report side.
-func TestSessionRemove_ReportLeavesAllThreeArtifacts(t *testing.T) {
+// TestSessionRemove_ReportLeavesEverything is the report side.
+func TestSessionRemove_ReportLeavesEverything(t *testing.T) {
 	releaseTranscriptRetention(t)
 	dir := testsupport.ProjectDir(t)
 	mgr, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
-	essence := seedEssence(t, harp)
+	leftover := seedLeftoverSummary(t, harp)
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	stdout, stderr, err := execRootCmdBoth(t, "session", "remove", harp)
@@ -33,20 +33,20 @@ func TestSessionRemove_ReportLeavesAllThreeArtifacts(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, entry, "a report must not drop the index entry")
 	assert.True(t, onDisk(t, transcript), "a report must not destroy the transcript")
-	assert.True(t, onDisk(t, essence), "a report must not destroy the essence")
+	assert.True(t, onDisk(t, leftover), "a report must not touch the output dir")
 	assert.Contains(t, stdout+stderr, "removed nothing")
 	assert.Contains(t, stdout+stderr, "session remove "+harp+" --yes")
 }
 
-// TestSessionRemove_YesDestroysAllThreeArtifacts is the apply side, and the
+// TestSessionRemove_YesDestroysTheEntryAndTheTranscript is the apply side, and the
 // whole point of this change. Asserting only the index entry is what made the
 // old behaviour look correct.
-func TestSessionRemove_YesDestroysAllThreeArtifacts(t *testing.T) {
+func TestSessionRemove_YesDestroysTheEntryAndTheTranscript(t *testing.T) {
 	releaseTranscriptRetention(t)
 	dir := testsupport.ProjectDir(t)
 	mgr, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
-	essence := seedEssence(t, harp)
+	leftover := seedLeftoverSummary(t, harp)
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	out, err := execRootCmd(t, "session", "remove", harp, "--yes", "--format", "json")
@@ -56,7 +56,7 @@ func TestSessionRemove_YesDestroysAllThreeArtifacts(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, entry, "the index entry must be gone")
 	assert.False(t, onDisk(t, transcript), "the transcript must be gone")
-	assert.False(t, onDisk(t, essence), "the essence must be gone")
+	assert.True(t, onDisk(t, leftover), "the output dir is the human's: a summary an older ctxloom left there stays")
 
 	var got struct {
 		Harp              string `json:"harp"`
@@ -80,7 +80,7 @@ func TestSessionRemove_LeavesAuthoredWorkAlone(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	seedTranscript(t, harp)
-	seedEssence(t, harp)
+	seedLeftoverSummary(t, harp)
 	notes := seedAuthoredNote(t, harp, "design-notes.md")
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 

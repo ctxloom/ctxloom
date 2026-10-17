@@ -321,7 +321,11 @@ func narrowRetained(l Layout, name string, p ReapPolicy, c *ReapCandidate, membe
 		return members, m, true
 	}
 	e, _ := sidecarOf(c.Dir)
-	retained := p.Retention.Retains(e, c.LastActive)
+	active, err := TranscriptActivity(l, name)
+	if err != nil {
+		active = time.Now() // unreadable: nothing proves the conversation ended
+	}
+	retained := p.Retention.Retains(e, active)
 	if e == nil && retained == nil {
 		retained = fmt.Errorf("%w: its sidecar cannot be read", ErrTranscriptRecent)
 	}

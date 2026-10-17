@@ -10,48 +10,35 @@
 // that history, can anyone actually find a decision in it and put it back in
 // front of a model?
 //
-// The recall surface exists — `session search`, `session show`,
-// `run --session [--compact]` are all real commands. Their behaviour is what
-// nobody has asserted, and two of the scenarios below are red against real
-// filed defects rather than missing features.
-//
-// WHY THE MARKERS ARE SPLIT THREE WAYS. A session's searchable text lives in
-// three different places (harp name, index summary, compacted essence) and a
-// search that only ever matched one of them would look identical to a working
-// one against a fixture where all three say the same thing. So each carries
-// its OWN distinct marker, and each search scenario proves a specific field
-// participates. The same split does the load-bearing work in the resume
-// scenarios: the transcript and the essence carry different markers, so
-// "resumed via the full transcript" and "resumed via the essence" are
-// distinguishable outcomes rather than one assertion satisfied by either.
+// The recall surface: `session search`, `session show` and `run --session`.
+// A session is titled by its first user prompt (read from its transcript),
+// so the title and the rest of the conversation carry different markers —
+// "found by its title" and "resumed with its conversation" are
+// distinguishable outcomes rather than one assertion either would satisfy.
 package acceptance
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/engines/mock"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 
 	"github.com/cucumber/godog"
 )
 
 const (
-	// Three fields, three markers — see the file doc.
-	j001200EssenceMarker    = "J001200-ESSENCE-WORKTREE-NAMING-DECISION"
-	j001200SummaryMarker    = "J001200-SUMMARY-ONLY-MARKER"
+	// Two markers — see the file doc.
+	j001200TitleMarker      = "J001200-TITLE-WORKTREE-QUESTION"
 	j001200TranscriptMarker = "J001200-TRANSCRIPT-ONLY-MARKER"
 
 	// j001200Harp is the March session everybody half-remembers.
 	j001200Harp = "amber-quiet-heron"
-	// j001200BareHarp is a session that was captured and NEVER compacted — the
-	// B9 case, which is the default rather than the exception, since nothing
-	// compacts a session automatically when it ends.
+	// j001200BareHarp is an unrelated session beside it, so every search has
+	// a wrong answer available to give.
 	j001200BareHarp = "brisk-copper-moth"
 )
 
@@ -71,9 +58,9 @@ func j001200Of(w *World) *j001200State {
 // transcriptPath. A recall journey is inherently multi-session — a search
 // that returns one hit proves nothing unless there was something else it
 // could have returned — and each call plants its own session directory, so
-// earlier sessions survive later additions. The summary a listing shows
-// comes from the harp's essence, never from this record.
-func j001200AddIndexEntry(w *World, harp, _, transcriptPath string) error {
+// earlier sessions survive later additions. The title a listing shows comes
+// from the harp's transcript, never from this record.
+func j001200AddIndexEntry(w *World, harp, transcriptPath string) error {
 	return seedSessionSidecar(w, harp, sessionSeed{
 		SessionID:      "seeded-" + harp,
 		Backend:        string(mock.Name),
@@ -86,16 +73,6 @@ func j001200AddIndexEntry(w *World, harp, _, transcriptPath string) error {
 
 // j001200HarpHome returns a harp's directory relative to the isolated HOME.
 func j001200HarpHome(harp string) string { return ".ctxloom/sessions/" + harp }
-
-// j001200WriteEssence writes a harp's compacted essence — the DERIVED artifact
-// `session show` prints and `--compact` resumes through. The frontmatter
-// summary is where a session's one-line summary actually lives now (the
-// session store derives Entry.Summary from it), so a summary-only marker
-// belongs HERE, not in the pre-migration index row.
-func j001200WriteEssence(w *World, harp, summary, body string) error {
-	return writeOutputFile(w, harp, paths.EssenceFileName,
-		fmt.Sprintf("---\nharp_name: %s\ndistilled_at: 2026-03-15T00:00:00Z\nsummary: %s\n---\n\n%s\n", harp, summary, body))
-}
 
 // j001200WriteCanonicalTranscript writes a harp's canonical transcript in the real
 // on-disk schema (internal/adapters/transcript.Record), at the path
@@ -131,64 +108,9 @@ func j001200WriteCanonicalTranscript(w *World, harp string, turns []string) erro
 	return w.env.WriteHomeFile(j001200HarpHome(harp)+"/transcripts/transcript.jsonl", b.String())
 }
 
-// j001200VendorTranscriptPath is where a seeded mock session's VENDOR-native
-// transcript lives — the file the index binds, and the one ctxloom converts
-// into the canonical transcript beside it.
-//
-// It exists because mock is a REAL engine here, not a hole in the registry.
-// These fixtures used to bind the CANONICAL transcript as the entry's
-// transcript_path, which only worked while mock had no vendor reader: nothing
-// ever tried to convert it. Once mock gained one, RefreshVendorTranscript read
-// that canonical file as though it were vendor-native, recognized none of its
-// lines, and replaced it with the conversion's (empty) output. Binding a real
-// vendor file makes the fixture match how every engine actually works, and
-// makes acceptance exercise the conversion instead of stepping around it.
-func j001200VendorTranscriptPath(w *World, harp string) string {
-	return w.env.HomeDir + "/" + j001200HarpHome(harp) + "/vendor/mock-session.jsonl"
-}
-
-// j001200WriteMockVendorTranscript writes turns as MOCK-format vendor JSONL
-// ({"role":..,"text":..,"ts":..}), the format
-// internal/adapters/transcript/vendorreader/mock parses. Same turns as
-// j001200WriteCanonicalTranscript, one format earlier in the pipeline.
-func j001200WriteMockVendorTranscript(w *World, harp string, turns []string) error {
-	var b strings.Builder
-	ts := time.Date(2026, 3, 14, 0, 0, 0, 0, time.UTC)
-	for i, text := range turns {
-		role := "user"
-		if i%2 == 1 {
-			role = "assistant"
-		}
-		line, err := json.Marshal(map[string]any{
-			"role": role,
-			"text": text,
-			"ts":   ts.Add(time.Duration(i) * time.Minute).Format(time.RFC3339),
-		})
-		if err != nil {
-			return fmt.Errorf("render mock vendor line %d: %w", i, err)
-		}
-		b.Write(line)
-		b.WriteByte('\n')
-	}
-	return w.env.WriteHomeFile(j001200HarpHome(harp)+"/vendor/mock-session.jsonl", b.String())
-}
-
-// j001200SeedTranscripts writes BOTH representations of the same turns: the
-// vendor-native file the index binds, and the canonical file conversion would
-// produce. Both, deliberately — a scenario that reads the canonical transcript
-// without ever triggering a conversion still finds one, and a scenario that
-// does convert gets equivalent content rather than a contradiction.
-func j001200SeedTranscripts(w *World, harp string, turns []string) error {
-	if err := j001200WriteMockVendorTranscript(w, harp, turns); err != nil {
-		return err
-	}
-	return j001200WriteCanonicalTranscript(w, harp, turns)
-}
-
-// j001200Setup is the Background: a project, plus the March session as a fully
-// recalled artifact — index entry, canonical transcript, compacted essence —
-// and a second, uncompacted session beside it so every search assertion has a
-// wrong answer available to give.
+// j001200Setup is the Background: a project, plus the March session — index
+// entry and canonical transcript — and a second, unrelated session beside it
+// so every search assertion has a wrong answer available to give.
 func j001200Setup(w *World) error {
 	st := j001200Of(w)
 	if st.ready {
@@ -199,25 +121,19 @@ func j001200Setup(w *World) error {
 	}
 
 	transcriptPath := filepath.Join(w.env.HomeDir, filepath.FromSlash(j001200HarpHome(j001200Harp)+"/transcripts/transcript.jsonl"))
-	if err := j001200AddIndexEntry(w, j001200Harp, "March design session, "+j001200SummaryMarker, transcriptPath); err != nil {
+	if err := j001200AddIndexEntry(w, j001200Harp, transcriptPath); err != nil {
 		return err
 	}
 	if err := j001200WriteCanonicalTranscript(w, j001200Harp, []string{
-		"Why did we settle on that worktree layout? " + j001200TranscriptMarker,
+		"Why did we settle on that worktree layout? " + j001200TitleMarker,
 		"Because leaf names have to name the project, not the branch. " + j001200TranscriptMarker,
 	}); err != nil {
 		return err
 	}
-	if err := j001200WriteEssence(w, j001200Harp,
-		"March design session, "+j001200SummaryMarker,
-		"Decision: worktrees are flat, named <project>--<branch>. "+j001200EssenceMarker); err != nil {
-		return err
-	}
 
-	// The uncompacted neighbour: captured, never summarized. This is the
-	// DEFAULT state of a session, not an edge case.
+	// The unrelated neighbour.
 	barePath := filepath.Join(w.env.HomeDir, filepath.FromSlash(j001200HarpHome(j001200BareHarp)+"/transcripts/transcript.jsonl"))
-	if err := j001200AddIndexEntry(w, j001200BareHarp, "unrelated afternoon session", barePath); err != nil {
+	if err := j001200AddIndexEntry(w, j001200BareHarp, barePath); err != nil {
 		return err
 	}
 	if err := j001200WriteCanonicalTranscript(w, j001200BareHarp, []string{"unrelated chatter", "unrelated reply"}); err != nil {
@@ -258,21 +174,16 @@ func registerJ001200Steps(ctx *godog.ScenarioContext) {
 
 	// --- Search -------------------------------------------------------------
 
-	ctx.Step(`^the search names the March session by a phrase that appears only in its compacted essence$`, func(c context.Context) error {
+	ctx.Step(`^the search names the March session by a phrase from its first prompt$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if err := j001200AssertNames(w, w.env.LastStdout(), "`session search`", j001200Harp); err != nil {
 			return err
 		}
 		if strings.Contains(w.env.LastStdout(), j001200BareHarp) {
-			return fmt.Errorf("the search also returned %q, whose essence does not exist and whose text does not match — "+
+			return fmt.Errorf("the search also returned %q, whose title does not match — "+
 				"a search that returns everything is not a search. Stdout:\n%s", j001200BareHarp, w.env.LastStdout())
 		}
 		return nil
-	})
-
-	ctx.Step(`^the search names the March session by a phrase that appears only in its index summary$`, func(c context.Context) error {
-		w := worldFrom(c)
-		return j001200AssertNames(w, w.env.LastStdout(), "`session search` over summaries", j001200Harp)
 	})
 
 	ctx.Step(`^ctxloom says plainly that nothing matched$`, func(c context.Context) error {
@@ -291,22 +202,9 @@ func registerJ001200Steps(ctx *godog.ScenarioContext) {
 
 	// --- Show ---------------------------------------------------------------
 
-	ctx.Step(`^ctxloom prints the decision the session reached$`, func(c context.Context) error {
+	ctx.Step(`^ctxloom prints the question the session was opened with$`, func(c context.Context) error {
 		w := worldFrom(c)
-		return j001200AssertNames(w, w.env.LastStdout(), "`session show`", j001200EssenceMarker)
-	})
-
-	ctx.Step(`^ctxloom says the session was never compacted and names how to compact it$`, func(c context.Context) error {
-		w := worldFrom(c)
-		if w.env.LastExitCode() == 0 && strings.Contains(w.env.LastOutput(), j001200EssenceMarker) {
-			return fmt.Errorf("`session show` printed a compacted essence for a session that has none — the fixture is wrong")
-		}
-		// The product states this gap in its own help text ("Compaction is
-		// on-demand: nothing compacts a session automatically when it ends"),
-		// so the error a user hits should point at the same fact and at the
-		// command that fixes it. Anything less leaves them believing the
-		// session was not recorded at all.
-		return j001200AssertNames(w, w.env.LastOutput(), "the not-compacted error", "session compact")
+		return j001200AssertNames(w, w.env.LastStdout(), "`session show`", j001200TitleMarker)
 	})
 
 	// --- Resume: the payoff -------------------------------------------------
@@ -319,27 +217,6 @@ func registerJ001200Steps(ctx *godog.ScenarioContext) {
 				"(exit %d). The recall payoff is the whole point of capturing transcripts: history that can be found but not "+
 				"put back in front of a model is an archive, not a memory. What it assembled was:\n%s",
 				j001200Harp, w.env.LastExitCode(), out)
-		}
-		return nil
-	})
-
-	ctx.Step(`^the assembled context carries the compacted essence and not the raw conversation$`, func(c context.Context) error {
-		w := worldFrom(c)
-		out := w.env.LastOutput()
-		hasEssence := strings.Contains(out, j001200EssenceMarker)
-		hasRaw := strings.Contains(out, j001200TranscriptMarker)
-		switch {
-		case !hasEssence && hasRaw:
-			return fmt.Errorf("--compact resumed via the RAW transcript rather than the essence: the two modes are not "+
-				"distinguishable in what reaches the model, so --compact buys nothing. Output:\n%s", out)
-		case !hasEssence:
-			return fmt.Errorf("--compact assembled a context carrying neither the essence nor the transcript (exit %d). "+
-				"Note the compacted path rides CTXLOOM_RESUMED_FROM/PARTS and a SessionStart hook rather than the assembled "+
-				"context itself — if that is the intended design, this scenario is the record that a user cannot SEE what "+
-				"was resumed. Output:\n%s", w.env.LastExitCode(), out)
-		case hasRaw:
-			return fmt.Errorf("--compact carried the essence AND the whole raw transcript — the compression it exists to "+
-				"provide did not happen. Output:\n%s", out)
 		}
 		return nil
 	})
@@ -377,9 +254,6 @@ func registerJ001200Steps(ctx *godog.ScenarioContext) {
 		}
 		if !strings.Contains(body, j001200TranscriptMarker) {
 			return fmt.Errorf("the canonical transcript no longer carries its own recorded turns; it holds:\n%s", body)
-		}
-		if _, err := os.Stat(filepath.Join(outputDirFor(w, j001200Harp), paths.EssenceFileName)); err != nil {
-			return fmt.Errorf("the compacted essence is gone after a recall: %w", err)
 		}
 		return nil
 	})

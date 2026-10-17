@@ -53,4 +53,4 @@ llm:
     defaults:
         fast: claude-fast
         primary: claude-code
-schema_version: 7
+schema_version: 8

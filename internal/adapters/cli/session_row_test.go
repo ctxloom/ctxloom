@@ -2,7 +2,6 @@ package cli
 
 import (
 	"encoding/json"
-	"os"
 	"testing"
 	"time"
 
@@ -10,9 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestSessionTime_TextVsJSON pins sessionTime's two-format posture: a compact
@@ -30,35 +27,26 @@ func TestSessionTime_TextVsJSON(t *testing.T) {
 	assert.Equal(t, `"2026-07-17T17:27:32Z"`, string(b))
 }
 
-// TestNewSessionRow_SummaryFallbackAndStaleBadge pins the projection's
-// business rules carried over from the old renderSessionTable: an empty
-// summary becomes "(no summary)", and a stale essence (SourceStale) gets the
-// "out of date" badge appended — both now live on the row itself, not just
-// the text renderer, so they show up in every --format.
-func TestNewSessionRow_SummaryFallbackAndStaleBadge(t *testing.T) {
-	t.Run("no summary falls back to placeholder", func(t *testing.T) {
+// TestNewSessionRow_SummaryFallbackAndBadges pins the projection's business
+// rules: an empty title becomes "(no summary)", and the purged and kept marks
+// ride the summary as badges — on the row itself, so they show up in every
+// --format.
+func TestNewSessionRow_SummaryFallbackAndBadges(t *testing.T) {
+	t.Run("no title falls back to placeholder", func(t *testing.T) {
 		row := newSessionRow(operations.ViewSession(sessions.Entry{HarpName: "swift-amber-falcon"}))
 		assert.Equal(t, "(no summary)", row.Summary)
 		assert.Equal(t, "swift-amber-falcon", row.Harp)
 	})
 
-	t.Run("summary carried through untouched when fresh", func(t *testing.T) {
+	t.Run("title carried through untouched", func(t *testing.T) {
 		row := newSessionRow(viewTitled(sessions.Entry{HarpName: "h"}, "Fixed the bug"))
 		assert.Equal(t, "Fixed the bug", row.Summary)
 	})
 
-	t.Run("stale essence gets the out-of-date badge", func(t *testing.T) {
-		dir := t.TempDir()
-		transcript := dir + "/transcript.jsonl"
-		require.NoError(t, os.WriteFile(transcript, []byte(
-			`{"v":1,"harp":"h","engine":"mock","seq":0,"ts":"2026-01-01T00:00:00Z","kind":"entry","entry":{"type":"user","content":"a"}}`+"\n"+
-				`{"v":1,"harp":"h","engine":"mock","seq":1,"ts":"2026-01-01T00:00:01Z","kind":"entry","entry":{"type":"assistant","content":"b"}}`+"\n"), 0o644))
-		row := newSessionRow(viewTitled(sessions.Entry{
-			HarpName:       "h",
-			TranscriptPath: transcript,
-			SourceEntries:  1, // essence was stamped at one entry; a second has arrived since
-		}, "Fixed the bug"))
-		assert.Contains(t, row.Summary, "out of date")
+	t.Run("a kept session carries the kept badge and flag", func(t *testing.T) {
+		row := newSessionRow(viewTitled(sessions.Entry{HarpName: "h", Keep: true}, "Fixed the bug"))
+		assert.Contains(t, row.Summary, "kept")
+		assert.True(t, row.Kept)
 	})
 }
 
@@ -78,52 +66,26 @@ func TestNewSessionRow_EndedAt(t *testing.T) {
 	})
 }
 
-// TestSessionRow_JSONShape pins the wire shape of the default projection:
-// harp/summary/start, plus end and essence_path once populated (both tagged
-// omitempty) — nothing from the fuller sessions.Entry (session_id,
-// transcript_path, a bare "compacted" bool, etc.) leaks through. essence_path
-// restores backend-contract V4; a bare "compacted" flag is deliberately NOT
-// part of this shape — a present/absent essence_path already carries that.
+// TestSessionRow_JSONShape pins the wire shape of the projection:
+// harp/summary/state/start, plus end, purged and kept once set (omitempty) —
+// nothing from the fuller sessions.Entry (session_id, transcript_path, ...)
+// leaks through, and nothing about a summary file: `summary` is the title.
 func TestSessionRow_JSONShape(t *testing.T) {
-	t.Run("uncompacted session omits essence_path", func(t *testing.T) {
-		row := newSessionRow(viewTitled(sessions.Entry{
-			HarpName:  "swift-amber-falcon",
-			StartedAt: time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC),
-		}, "Designed the picker"))
+	row := newSessionRow(viewTitled(sessions.Entry{
+		HarpName:  "swift-amber-falcon",
+		StartedAt: time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC),
+	}, "Designed the picker"))
 
-		b, err := json.Marshal(row)
-		require.NoError(t, err)
+	b, err := json.Marshal(row)
+	require.NoError(t, err)
 
-		var got map[string]any
-		require.NoError(t, json.Unmarshal(b, &got))
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(b, &got))
 
-		assert.ElementsMatch(t, []string{"harp", "summary", "state", "start"}, keysOf(got),
-			"end and essence_path must be omitted (omitempty) when unset, and no other Entry field should leak through (state is always present: the CLI row always asks the lock)")
-		assert.Equal(t, "swift-amber-falcon", got["harp"])
-		assert.Equal(t, "Designed the picker", got["summary"])
-	})
-
-	t.Run("compacted session carries essence_path", func(t *testing.T) {
-		testsupport.Isolate(t)
-		harp := "plump-loose-sash"
-		dir, err := paths.HarpDir(harp)
-		require.NoError(t, err)
-		require.NoError(t, os.MkdirAll(dir, 0o755))
-		essencePath, err := harpEssencePath(t, harp)
-		require.NoError(t, err)
-		require.NoError(t, os.WriteFile(essencePath, []byte("## Summary\n\ndone\n"), 0o644))
-
-		row := newSessionRow(viewTitled(sessions.Entry{HarpName: harp}, "Session wrap-up"))
-
-		assert.Equal(t, essencePath, row.EssencePath)
-
-		b, err := json.Marshal(row)
-		require.NoError(t, err)
-		var got map[string]any
-		require.NoError(t, json.Unmarshal(b, &got))
-		assert.ElementsMatch(t, []string{"harp", "summary", "state", "start", "essence_path"}, keysOf(got))
-		assert.Equal(t, essencePath, got["essence_path"])
-	})
+	assert.ElementsMatch(t, []string{"harp", "summary", "state", "start"}, keysOf(got),
+		"end, purged and kept are omitted when unset, and no other Entry field leaks through (state is always present: the CLI row always asks the lock)")
+	assert.Equal(t, "swift-amber-falcon", got["harp"])
+	assert.Equal(t, "Designed the picker", got["summary"])
 }
 
 func keysOf(m map[string]any) []string {

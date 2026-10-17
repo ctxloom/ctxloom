@@ -6,10 +6,6 @@
 // and its `purge` leaf, `session purge`, and `session sweep` — the
 // deterministic sweep that ties the leaves together.
 //
-// `session compact` takes NO --skill and NO --to-bundle. That leg was
-// specified here and rejected: extraction-into-a-bundle is not a close-out
-// concern, so do not re-add steps for it.
-//
 // WHY THE FIXTURES ARE THIS DETAILED. A close-out flow is defined almost
 // entirely by what it REFUSES to do, and a refusal cannot be tested against a
 // fixture that has nothing to refuse. So these steps build the real debris:
@@ -58,8 +54,8 @@ import (
 const (
 	// Markers. Each names a CONTENT CLASS from FLOWS-UNIFIED §5.4, so a purge
 	// assertion says which class survived rather than which file did.
-	j001300BulkMarker    = "J001300-MACHINE-WRITTEN-BULK"
-	j001300EssenceMarker = "J001300-DERIVED-ESSENCE"
+	j001300BulkMarker     = "J001300-MACHINE-WRITTEN-BULK"
+	j001300LeftoverMarker = "J001300-LEFTOVER-SUMMARY"
 	// j001300TranscriptRel and j001300NativeRel are the session-dir paths of
 	// the machine-written bulk a seeded session carries: the canonical
 	// transcript and one native-history log.
@@ -75,8 +71,9 @@ var j001300BulkRels = []string{j001300TranscriptRel, j001300NativeRel}
 // j001300Harp records one seeded harp directory and what was planted in it.
 type j001300Harp struct {
 	name      string
-	dir       string // absolute
-	essence   bool
+	dir       string    // absolute
+	ended     time.Time // when the session ended; its directory is backdated to it
+	keep      bool      // marked keep (`ctxloom session keep`)
 	authored  bool
 	origin    string   // the sidecar's origin; "" is a human's session
 	worktrees []string // absolute scratch-worktree dirs under this harp
@@ -120,18 +117,23 @@ func j001300Setup(w *World) error {
 	return nil
 }
 
-// j001300SeedHarp plants one session carrying every content class §5.4
-// inventories, so a purge scenario can assert per-class outcomes:
+// j001300LongAgo is when a session whose transcript retention has passed
+// ended: far past the default session_transcript_retention (30d).
+var j001300LongAgo = time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+
+// j001300SeedHarp plants one session that ended at ended, carrying every
+// content class §5.4 inventories, so a purge scenario can assert per-class
+// outcomes:
 //
-//	transcripts/transcript.jsonl   machine-written bulk  — purgeable
-//	native/<leaf>/…                machine-written bulk  — purgeable
-//	<output dir>/essence.md        derived               — only an explicit purge takes it
+//	transcripts/transcript.jsonl   machine-written bulk  — purgeable once retention passes
+//	native/<leaf>/…                machine-written bulk  — purgeable once retention passes
+//	<output dir>/essence.md        a summary an older ctxloom left — the human's, never taken
 //	<harp>.plan.md (session dir)   HUMAN-AUTHORED        — never silently destroyed
 //
 // The authored file is written at the session dir's TOP LEVEL on purpose: no
 // table row classifies it, the session dir holds machine state only, and a
 // plan belongs in the output dir — the boundary B13 names.
-func j001300SeedHarp(w *World, harp string, essence, authored bool) error {
+func j001300SeedHarp(w *World, harp string, ended time.Time, authored bool) error {
 	st := j001300Of(w)
 	dir := harpDirIn(w, harp)
 	for _, sub := range j001300BulkRels {
@@ -147,11 +149,9 @@ func j001300SeedHarp(w *World, harp string, essence, authored bool) error {
 			return fmt.Errorf("write %s %s: %w", harp, rel, err)
 		}
 	}
-	if essence {
-		body := fmt.Sprintf("---\nharp_name: %s\ndistilled_at: 2026-01-01T00:00:00Z\n---\n\n%s for %s.\n", harp, j001300EssenceMarker, harp)
-		if err := writeOutputFile(w, harp, paths.EssenceFileName, body); err != nil {
-			return fmt.Errorf("write %s essence: %w", harp, err)
-		}
+	body := fmt.Sprintf("# %s\n\n%s, written by an older ctxloom.\n", harp, j001300LeftoverMarker)
+	if err := writeOutputFile(w, harp, leftoverSummaryName, body); err != nil {
+		return fmt.Errorf("write %s leftover summary: %w", harp, err)
 	}
 	if authored {
 		body := fmt.Sprintf("# %s design notes\n\n%s\n\nDecisions this session reached that exist nowhere else.\n", harp, j001300AuthoredMarker)
@@ -163,29 +163,69 @@ func j001300SeedHarp(w *World, harp string, essence, authored bool) error {
 	if _, seen := st.harps[harp]; !seen {
 		st.order = append(st.order, harp)
 	}
-	st.harps[harp] = &j001300Harp{name: harp, dir: dir, essence: essence, authored: authored}
+	st.harps[harp] = &j001300Harp{name: harp, dir: dir, ended: ended, authored: authored}
 	return j001300WriteIndex(w)
 }
 
 // j001300WriteIndex (re)records EVERY seeded harp's session: each harp's
 // directory carries its own sidecar, so an addition never disturbs an
 // earlier harp, and re-recording all of them keeps a close-out journey's
-// inherently multi-harp world whole after a step rewrites one.
+// inherently multi-harp world whole after a step rewrites one. Each harp's
+// directory is then backdated to its end (j001300Backdate).
 func j001300WriteIndex(w *World) error {
 	st := j001300Of(w)
 	for _, name := range st.order {
+		h := st.harps[name]
 		if err := seedSessionSidecar(w, name, sessionSeed{
 			SessionID:      "seeded-" + name,
 			Backend:        "claude-code",
-			StartedAt:      "2026-01-01T00:00:00Z",
-			EndedAt:        "2026-01-02T00:00:00Z",
+			StartedAt:      h.ended.Add(-24 * time.Hour).Format(time.RFC3339),
+			EndedAt:        h.ended.Format(time.RFC3339),
 			TranscriptPath: filepath.Join(harpDirIn(w, name), filepath.FromSlash(j001300TranscriptRel)),
-			Origin:         st.harps[name].origin,
+			Origin:         h.origin,
 		}); err != nil {
 			return err
 		}
+		if h.keep {
+			if err := j001300MarkKeep(w, name); err != nil {
+				return err
+			}
+		}
+	}
+	return j001300Backdate(w)
+}
+
+// j001300MarkKeep sets the keep mark in harp's record, as `ctxloom session
+// keep` writes it.
+func j001300MarkKeep(w *World, harp string) error {
+	rel := ".ctxloom/sessions/" + harp + "/session.yaml"
+	body, err := w.env.ReadHomeFile(rel)
+	if err != nil {
+		return err
+	}
+	return w.env.WriteHomeFile(rel, body+"keep: true\n")
+}
+
+// j001300Backdate sets every mtime under each seeded harp directory to the
+// session's end: a session's activity is its directory's newest mtime, so a
+// session that ended long ago must also look untouched since, or transcript
+// retention reads it as just used. Symlinks are skipped — Chtimes follows.
+func j001300Backdate(w *World) error {
+	for _, h := range j001300Of(w).harps {
+		if err := j001300BackdateTo(h.dir, h.ended); err != nil {
+			return fmt.Errorf("backdate %s: %w", h.name, err)
+		}
 	}
 	return nil
+}
+
+func j001300BackdateTo(dir string, at time.Time) error {
+	return filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.Type()&fs.ModeSymlink != 0 {
+			return err
+		}
+		return os.Chtimes(p, at, at)
+	})
 }
 
 // j001300AddScratchWorktree seeds one scratch worktree (seedScratchWorktree,
@@ -209,7 +249,7 @@ func j001300AddScratchWorktree(w *World, harp, name string, dirty bool) (string,
 		}
 	}
 	h.worktrees = append(h.worktrees, wtDir)
-	return wtDir, nil
+	return wtDir, j001300BackdateTo(h.dir, h.ended)
 }
 
 // j001300AddForeignWorktree creates a long-lived worktree OUTSIDE the sessions
@@ -299,17 +339,30 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 
 	// A FINISHED session: seeded, then proven ended by a FREE lock file. That
 	// is the only state that permits reclaiming anything of it.
-	ctx.Step(`^a finished session "([^"]*)" whose work is already compacted$`, func(c context.Context, harp string) error {
+	ctx.Step(`^a finished session "([^"]*)" whose transcript retention has passed$`, func(c context.Context, harp string) error {
 		w := worldFrom(c)
-		if err := j001300SeedHarp(w, harp, true, false); err != nil {
+		if err := j001300SeedHarp(w, harp, j001300LongAgo, false); err != nil {
 			return err
 		}
 		return seedDeadSession(w, harp)
 	})
 
-	ctx.Step(`^a finished session "([^"]*)" that was never compacted$`, func(c context.Context, harp string) error {
+	// Within session_transcript_retention: its transcript is its record.
+	ctx.Step(`^a session "([^"]*)" that finished an hour ago$`, func(c context.Context, harp string) error {
 		w := worldFrom(c)
-		if err := j001300SeedHarp(w, harp, false, false); err != nil {
+		if err := j001300SeedHarp(w, harp, time.Now().Add(-time.Hour).UTC(), false); err != nil {
+			return err
+		}
+		return seedDeadSession(w, harp)
+	})
+
+	ctx.Step(`^a finished session "([^"]*)" marked keep$`, func(c context.Context, harp string) error {
+		w := worldFrom(c)
+		if err := j001300SeedHarp(w, harp, j001300LongAgo, false); err != nil {
+			return err
+		}
+		j001300Of(w).harps[harp].keep = true
+		if err := j001300WriteIndex(w); err != nil {
 			return err
 		}
 		return seedDeadSession(w, harp)
@@ -317,7 +370,7 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^a finished session "([^"]*)" carrying design notes nobody filed$`, func(c context.Context, harp string) error {
 		w := worldFrom(c)
-		if err := j001300SeedHarp(w, harp, true, true); err != nil {
+		if err := j001300SeedHarp(w, harp, j001300LongAgo, true); err != nil {
 			return err
 		}
 		return seedDeadSession(w, harp)
@@ -327,7 +380,7 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 	// every worktree under it must be left strictly alone.
 	ctx.Step(`^a session "([^"]*)" that is still running$`, func(c context.Context, harp string) error {
 		w := worldFrom(c)
-		if err := j001300SeedHarp(w, harp, false, false); err != nil {
+		if err := j001300SeedHarp(w, harp, j001300LongAgo, false); err != nil {
 			return err
 		}
 		return seedLiveSession(w, harp)
@@ -337,7 +390,7 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 	// one whose Hold never succeeded. "Cannot prove dead" must be treated
 	// identically to "alive", never as permission.
 	ctx.Step(`^a session "([^"]*)" nothing can prove the liveness of$`, func(c context.Context, harp string) error {
-		return j001300SeedHarp(worldFrom(c), harp, false, false)
+		return j001300SeedHarp(worldFrom(c), harp, j001300LongAgo, false)
 	})
 
 	ctx.Step(`^session "([^"]*)" left a clean scratch worktree$`, func(c context.Context, harp string) error {
@@ -512,7 +565,7 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the report lists what would be destroyed and what would be kept$`, func(c context.Context) error {
 		w := worldFrom(c)
-		return j001300Answered(w, w.env.LastStdout(), "`ctxloom session purge`", "transcript", "essence")
+		return j001300Answered(w, w.env.LastStdout(), "`ctxloom session purge`", "transcript")
 	})
 
 	ctx.Step(`^every byte of every session is still on disk$`, func(c context.Context) error {
@@ -551,25 +604,22 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	// Emptying a session (`session purge`) covers BOTH file populations, so
-	// the essence in its output dir goes with the bulk. The index entry is what does not: a purged session stays listed,
-	// marked purged, because a session that vanishes from the index is
-	// indistinguishable from one that never existed. Asserting the two halves
-	// in one step keeps them from being read as alternatives — a run that
-	// destroyed the essence AND unlisted the session must not pass.
-	ctx.Step(`^its compacted essence goes with the bulk, and its index entry survives$`, func(c context.Context) error {
+	// Emptying a session (`session purge`) takes the machine-written bulk and
+	// never reaches the output dir: a summary an older ctxloom left there is
+	// the human's note, and stays. The index entry does not go either: a
+	// purged session stays listed, marked purged, because a session that
+	// vanishes from the index is indistinguishable from one that never
+	// existed. Asserted in one step so the two cannot be read as alternatives.
+	ctx.Step(`^its output dir is untouched, and its index entry survives$`, func(c context.Context) error {
 		w := worldFrom(c)
 		st := j001300Of(w)
 		for _, h := range st.harps {
-			if !h.essence {
-				continue
-			}
-			p := filepath.Join(outputDirFor(w, h.name), paths.EssenceFileName)
-			if _, err := os.Stat(p); err == nil {
-				return fmt.Errorf("the compacted essence of %s survived a sweep that reported success (exit %d). "+
-					"Emptying a session covers every population ctxloom wrote into it, and an essence left standing means the "+
-					"caller believes the session is empty while its derived half is still on disk. Output:\n%s",
-					h.name, w.env.LastExitCode(), w.env.LastOutput())
+			p := filepath.Join(outputDirFor(w, h.name), leftoverSummaryName)
+			body, err := os.ReadFile(p)
+			if err != nil || !strings.Contains(string(body), j001300LeftoverMarker) {
+				return fmt.Errorf("the summary an older ctxloom left for %s is gone or changed after a purge (exit %d): %v. "+
+					"The output dir is the human's; no destroyer reaches it. Output:\n%s",
+					h.name, w.env.LastExitCode(), err, w.env.LastOutput())
 			}
 		}
 		// The record is now the session's OWN sidecar, not a shared index:
@@ -615,22 +665,19 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 		return fmt.Errorf("no harp carrying authored notes was seeded, so this assertion measured nothing")
 	})
 
-	// A refusal that does not name the route is only half a refusal: the caller
-	// is told no and left with nowhere to go, which is how someone ends up
-	// deleting a harp directory by hand. So this asserts the REMEDY as well as
-	// the refusal.
-	ctx.Step(`^ctxloom refuses, naming the session that was never compacted and the leaf that can destroy it$`, func(c context.Context) error {
+	// A refusal has to say WHY, or the caller is told no and left with
+	// nowhere to go — which is how someone ends up deleting a harp directory
+	// by hand. So this asserts the reason as well as the refusal.
+	ctx.Step(`^ctxloom refuses, naming the session and that its transcript is within its retention$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if err := j001300RanRealSurface(w); err != nil {
 			return err
 		}
 		if w.env.LastExitCode() == 0 {
-			return fmt.Errorf("the sweep proceeded against an uncompacted session (exit 0). With no essence the transcript is the only "+
-				"record of what happened, and destroying it must take a deliberate act on the leaf that owns it. Output:\n%s",
-				w.env.LastOutput())
+			return fmt.Errorf("the purge proceeded against a session that ended an hour ago (exit 0). Its transcript is its "+
+				"record, kept until session_transcript_retention has passed. Output:\n%s", w.env.LastOutput())
 		}
-		return j001300Answered(w, w.env.LastOutput(), "the refusal",
-			"brisk-copper-moth", "never compacted", "session transcript purge", "--uncompacted")
+		return j001300Answered(w, w.env.LastOutput(), "the refusal", "brisk-copper-moth", "retention")
 	})
 
 	// The sweep covers the scratch worktrees, under the worktree population's
@@ -665,10 +712,10 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 	// --- The sweep ----------------------------------------------------------
 
 	// An INTERNAL one-shot: the mint stamps origin "oneshot" on it, the one
-	// fact that lets a sweep empty it without an essence.
-	ctx.Step(`^an internal one-shot session "([^"]*)" that was never compacted$`, func(c context.Context, harp string) error {
+	// fact that lets a sweep empty it at any transcript age.
+	ctx.Step(`^an internal one-shot session "([^"]*)" that finished an hour ago$`, func(c context.Context, harp string) error {
 		w := worldFrom(c)
-		if err := j001300SeedHarp(w, harp, false, false); err != nil {
+		if err := j001300SeedHarp(w, harp, time.Now().Add(-time.Hour).UTC(), false); err != nil {
 			return err
 		}
 		j001300Of(w).harps[harp].origin = "oneshot"

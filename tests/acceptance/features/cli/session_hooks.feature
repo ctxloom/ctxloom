@@ -1,9 +1,9 @@
 Feature: The machine callbacks every session fires — do they deliver, and do they stay on their channel?
 
   Four hidden commands run on every ctxloom session, invoked by the host
-  engine rather than by a person: `hook session-start` hands the engine a
-  resumed session's essence and the session-start notices (never the
-  project's context, which the session already has as its system prompt),
+  engine rather than by a person: `hook session-start` hands the engine the
+  session-start notices (never the project's context, which the session
+  already has as its system prompt),
   `hook session-bind` records
   which backend session belongs to which harp, `hook stamp-plan` marks a plan
   file with the session that edited it, and `hook hud` renders the statusline.
@@ -38,8 +38,6 @@ Feature: The machine callbacks every session fires — do they deliver, and do t
   # context is on disk, in the cache an older hook read, and the marker text
   # exists nowhere else. The envelope must still parse (stdout is the
   # engine's input), and nothing in it — context or notice — may carry the
-  # project's context. The compacted-resume essence this hook DOES deliver is
-  # j001200_recall.feature's row.
   Scenario: The SessionStart hook never hands the engine the project's context
     Given the project already has the file ".ctxloom/cache/context/abc123.md":
       """

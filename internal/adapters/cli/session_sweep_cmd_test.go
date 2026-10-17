@@ -21,7 +21,7 @@ func ssSeedRecorded(t *testing.T, harp string, age time.Duration) string {
 	t.Helper()
 	dir := crSeedSession(t, harp, age)
 	out, ok := sessions.OutputDirOf(dir)
-	require.True(t, ok, "the seed records an output dir: it is what makes the session compacted")
+	require.True(t, ok, "the seed records an output dir")
 	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.SessionSidecarFileName), []byte("schema_version: 1\nproject_dir: /elsewhere\noutput_dir: "+out+"\n"), 0o644))
 	cotBackdate(t, dir, age)
 	return dir
@@ -63,7 +63,7 @@ func TestSessionSweep_PurgeHasNoDefault(t *testing.T) {
 // session_purge_age supplies the purge bound, and the flag beats it.
 func TestSessionSweep_PurgeAgeFromConfigAndFlag(t *testing.T) {
 	cotProject(t)
-	cotHomeConfig(t, "schema_version: 7\nsession_purge_age: 60d\n")
+	cotHomeConfig(t, "schema_version: 8\nsession_purge_age: 60d\n")
 	ssSeedRecorded(t, "aged-quiet-heron", 90*24*time.Hour)
 
 	rep := ssRun(t, "--all-projects", "--format", "json")
@@ -76,7 +76,7 @@ func TestSessionSweep_PurgeAgeFromConfigAndFlag(t *testing.T) {
 // A purge age the grammar cannot parse is refused, naming the key.
 func TestSessionSweep_RefusesAMalformedPurgeAge(t *testing.T) {
 	cotProject(t)
-	cotHomeConfig(t, "schema_version: 7\nsession_purge_age: later\n")
+	cotHomeConfig(t, "schema_version: 8\nsession_purge_age: later\n")
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 	_, err := execRootCmd(t, "session", "sweep", "--format", "json")
 	require.Error(t, err)

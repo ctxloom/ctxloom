@@ -32,7 +32,7 @@ import (
 // and admitted by the ambient consent the harness used to grant. The tests
 // passed by measuring the machine. On a box without those companions they had
 // nothing to find.
-const lossFixtureConfig = `schema_version: 7
+const lossFixtureConfig = `schema_version: 8
 config:
   use_distilled: true
 `

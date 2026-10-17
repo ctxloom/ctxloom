@@ -191,7 +191,7 @@ func TestMergeHooksConfig_UnifiedHalfMatchesWireAppend(t *testing.T) {
 // nothing else that runs ctxloom: every constructor's hook is one, the HUD
 // statusline is one, and a user's own ctxloom invocation is not.
 func TestIsCallback(t *testing.T) {
-	for _, h := range []wire.Hook{NewSessionStartHook(), NewSkillMatesHook(), NewMailPeekHook(), NewNextStepHook(), NewMailDrainHook()} {
+	for _, h := range []wire.Hook{NewSessionStartHook(), NewSkillMatesHook(), NewMailPeekHook(), NewMailDrainHook()} {
 		args := make([]any, len(h.Args))
 		for i, a := range h.Args {
 			args[i] = a

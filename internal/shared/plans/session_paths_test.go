@@ -58,7 +58,7 @@ func TestSessionPlanPaths_ReadsTheRecordedOutputDir(t *testing.T) {
 	harp, out := mintWithOutputDir(t)
 	zeta := writePlan(t, out, "zeta", "# zeta")
 	alpha := writePlan(t, out, "alpha", "# alpha")
-	require.NoError(t, os.WriteFile(filepath.Join(out, paths.EssenceFileName), []byte("not a plan"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(out, "essence.md"), []byte("not a plan"), 0o644))
 
 	got, problems := SessionPlanPaths(harp)
 	assert.Empty(t, problems)

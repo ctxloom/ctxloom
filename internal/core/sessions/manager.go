@@ -4,9 +4,8 @@
 // facts the directory cannot recover from its own contents — which project
 // launched it, which engine owns it, the session ids it has been bound to and
 // rotated past, when it was purged. Everything else a reader wants is derived
-// on read: the harp name is the directory's, summary and detail come from
-// essence.md, the canonical transcript path and last-activity time from the
-// files themselves.
+// on read: the harp name is the directory's, the canonical transcript path
+// and last-activity time from the files themselves.
 //
 // There is no global index. One record per session, living in the session,
 // means there is nothing to reconcile: a directory that exists is a session,
@@ -46,8 +45,7 @@ import (
 const lockDirMode = 0o755
 
 // sidecarFileMode and sessionDirMode keep a session private to its owner: the
-// directory holds the session's transcript, essence and delivered engine
-// config, and the sidecar names the native session key that resumes it. The
+// directory holds the session's transcript and delivered engine config, and the sidecar names the native session key that resumes it. The
 // engine endpoint's bearer is deliberately NOT here: it is minted per launch
 // and lives only in that launch's memory and delivered config. A container
 // run reaches these files as the launching uid (the isolation identity
@@ -64,10 +62,9 @@ const (
 //
 // No frontend reads this type as JSON today, and none should be assumed to:
 // `ctxloom session list --format json` renders a separate rendering-time
-// projection (internal/adapters/cli.SessionRow — harp/summary/start/end/essence_path),
-// the list_sessions MCP tool renders its own sessionSummary, and the
-// ctxloom://sessions/recent resource builds its own YAML row type. The json
-// tags are therefore a shape guarantee, not a wire in use.
+// projection (internal/adapters/cli.SessionRow — harp/summary/state/start/end)
+// and `session show` the operations.SessionView read model. The json tags are
+// therefore a shape guarantee, not a wire in use.
 type Entry struct {
 	// HarpName is the session directory's name. Derived, never persisted: a
 	// stored copy would have to be kept in step with a rename, and the
@@ -78,7 +75,7 @@ type Entry struct {
 	Backend    string `yaml:"backend,omitempty" json:"backend,omitempty"`
 	ProjectDir string `yaml:"project_dir" json:"project_dir"`
 	// OutputDir is the session's human root: where its readable outputs
-	// (essence, next step, plans, segment essences, published reports) go.
+	// (plans, published reports) go.
 	// Recorded ABSOLUTE at mint (RecordOutputDir) because its default
 	// derives from per-platform and per-user state and its base is
 	// configurable: re-deriving it later could name a different folder than
@@ -91,30 +88,6 @@ type Entry struct {
 	// native file is found under native/ by location (LocateTranscript), but
 	// a host-home binding lives wherever the engine put it.
 	TranscriptPath string `yaml:"transcript_path,omitempty" json:"transcript_path,omitempty"`
-
-	// SourceEntries is the transcript's ENTRY COUNT at the moment this session
-	// was last compacted — the staleness fingerprint. `session list` counts the
-	// live transcript's entries and flags the row "out of date" once more have
-	// arrived.
-	//
-	// It counts PROGRESS, not bytes, and that distinction is load-bearing. The
-	// previous fingerprint was byte size, justified by "append-only transcripts
-	// only grow" — true of a CAPTURED transcript and false of a CONVERTED one,
-	// because operations.RefreshVendorTranscript replaces the canonical file
-	// wholesale. Under byte size, changing a vendor adapter's field set or
-	// timestamp format re-sized every canonical transcript and falsely staled
-	// every essence, each costing a real LLM re-compaction; and two different
-	// contents of equal length compared as current. An entry count moves only
-	// when the conversation actually advances and is invariant to
-	// re-serialisation.
-	//
-	// The trade accepted: an edit WITHIN an existing entry is invisible here,
-	// where a byte size would have caught it. For a derived artifact that is
-	// the right way round — re-serialisation is common, in-place entry edits
-	// are not.
-	//
-	// Zero when never compacted; omitempty keeps those sidecars clean.
-	SourceEntries int `yaml:"source_entries,omitempty" json:"source_entries,omitempty"`
 
 	// LastActivity is the last-worked time used to order `session list`:
 	// most-recent-first by actual activity, not by session creation. Computed
@@ -171,7 +144,8 @@ type Entry struct {
 
 	// Origin is who the session was minted for (Seed.Origin), stamped by the
 	// mint. EMPTY READS AS A HUMAN'S SESSION: a session that predates the
-	// field, or whose stamp failed, is never purged uncompacted.
+	// field, or whose stamp failed, keeps its transcript until its retention
+	// passes.
 	Origin Origin `yaml:"origin,omitempty" json:"origin,omitempty"`
 
 	// Rotations records every binding this harp has DISPLACED, oldest first.
@@ -321,7 +295,7 @@ func (m *Manager) readSidecar(harpName string) (*Entry, error) {
 }
 
 // sidecarKind versions the session sidecar.
-var sidecarKind = schemaver.Define("session sidecar", 2, sessionsidecarmig.Steps()...)
+var sidecarKind = schemaver.Define("session sidecar", 3, sessionsidecarmig.Steps()...)
 
 // sidecarDoc is the sidecar on disk: an Entry plus the format generation,
 // which is a fact about the file rather than about the session, so Entry does
@@ -505,7 +479,7 @@ func (m *Manager) BindEngine(harpName, engine string) error {
 // exactly this, firing SessionStart again with the new UUID), and a binding
 // pinned to the first transcript a harp ever had goes on naming a file the
 // session stopped growing hours or days ago. Every reader that trusts the
-// binding — recover, resume, transcript watch, essence staleness — then reads
+// binding — resume, transcript watch, the exit-time capture — then reads
 // that dead file and reports success, which is the worst available outcome.
 //
 // A different ID with NO transcript path still loses to an existing binding:
@@ -632,8 +606,7 @@ func (m *Manager) AppendRotations(harpName string, rotations []Rotation) error {
 // position and the session it records, and the canonical transcript. Every
 // read path — one-harp lookups and listings alike — goes through it, so an
 // entry whose CanonicalTranscriptPath is empty means no capture exists, not
-// that this path skipped the stat; SourceStale reads that field to decide
-// which file the staleness fingerprint is even about.
+// that this path skipped the stat.
 func enrich(e *Entry) {
 	fillBindingByLocation(e)
 	fillCanonicalTranscript(e)
@@ -746,8 +719,8 @@ func (m *Manager) ListForProject(projectDir string) ([]Entry, error) {
 
 // ListAll returns every session — no project filter — enriched and ordered
 // identically to ListForProject (most-recent-first by ActivityTime). Backs
-// the all-projects listings (`session list --all`, the list_sessions MCP
-// tool) so project-scoped and cross-project views sort the same way.
+// the all-projects listing (`session list --all`) so project-scoped and
+// cross-project views sort the same way.
 func (m *Manager) ListAll() ([]Entry, error) {
 	all, err := m.enumerate()
 	if err != nil {
@@ -876,17 +849,6 @@ func (m *Manager) StampMint(harpName string, s MintStamp) error {
 	})
 }
 
-// SetSourceEntries stamps the staleness fingerprint: the transcript ENTRY
-// COUNT the essence was just compacted from (see Entry.SourceEntries and
-// TranscriptStale). The summary and detail the essence carries are read from
-// essence.md itself; nothing about them is stored here.
-func (m *Manager) SetSourceEntries(harpName string, sourceEntries int) error {
-	return m.update(harpName, func(e *Entry) (bool, error) {
-		e.SourceEntries = sourceEntries
-		return true, nil
-	})
-}
-
 // ErrOutputDirExists refuses a rename whose session's output folder cannot
 // move to the new name because something is already there.
 var ErrOutputDirExists = errors.New("the output folder for the new name already exists")
@@ -896,7 +858,7 @@ var ErrOutputDirExists = errors.New("the output folder for the new name already 
 var ErrOutputDirMove = errors.New("the session's output folder could not be moved")
 
 // Rename moves the session directory from oldName to newName — the directory
-// IS the record, so its essence, persisted files and sidecar all travel
+// IS the record, so its transcript, persisted files and sidecar all travel
 // together — and moves the session's output folder beside itself to the new
 // name, recording where it went. Errors if oldName is not a session, if
 // anything already sits at newName, or if newName is not a usable harp
@@ -1015,8 +977,8 @@ func renamedOutputDir(recorded, newName string) (oldOut, newOut string, moving b
 }
 
 // Forget removes the harp's sidecar, and with it the session from every
-// listing. The directory and everything else in it — transcript, essence,
-// authored files — are left untouched: only the record goes away.
+// listing. The directory and everything else in it — transcript, authored
+// files — are left untouched: only the record goes away.
 func (m *Manager) Forget(harpName string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

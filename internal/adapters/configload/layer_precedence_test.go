@@ -22,7 +22,7 @@ import (
 func TestLoad_HomeLayerSetsAgentPermissionsAndEnvHost(t *testing.T) {
 	home := testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
-	testsupport.WriteFile(t, fs, paths.ConfigPath(filepath.Join(home, ".ctxloom")), []byte(`schema_version: 7
+	testsupport.WriteFile(t, fs, paths.ConfigPath(filepath.Join(home, ".ctxloom")), []byte(`schema_version: 8
 agents:
   personal:
     llm: claude-code
@@ -32,7 +32,7 @@ agents:
     env_host: false
 `), 0644)
 	appDir := "/proj/.ctxloom"
-	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("schema_version: 7\n"), 0644)
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("schema_version: 8\n"), 0644)
 
 	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 	require.NoError(t, err)
@@ -48,7 +48,7 @@ func TestLoad_EnvLayerSetsAgentPermissionsAndDefaultAgent(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(`schema_version: 7
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(`schema_version: 8
 agents:
   reviewer:
     llm: claude-code
@@ -74,7 +74,7 @@ func TestLoad_ProjectLayerSetsMachineFacts(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("schema_version: 7\neditor:\n  command: vim\n"), 0644)
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("schema_version: 8\neditor:\n  command: vim\n"), 0644)
 
 	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 	require.NoError(t, err)
@@ -88,7 +88,7 @@ func TestLoad_ProjectLayerSetsMachineFacts(t *testing.T) {
 func TestOwnerUpdate_PersistsOnlyTheTargetFilesOwnLayer(t *testing.T) {
 	home := testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
-	testsupport.WriteFile(t, fs, paths.ConfigPath(filepath.Join(home, ".ctxloom")), []byte(`schema_version: 7
+	testsupport.WriteFile(t, fs, paths.ConfigPath(filepath.Join(home, ".ctxloom")), []byte(`schema_version: 8
 editor:
   command: vim
 agents:
@@ -97,7 +97,7 @@ agents:
     env: [HOME_SECRET_NAME]
 `), 0644)
 	appDir := "/proj/.ctxloom"
-	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("schema_version: 7\nworkspace: none\n"), 0644)
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("schema_version: 8\nworkspace: none\n"), 0644)
 
 	mgr := newUpdater(t, WithRoot(safefs.NewMem(fs)), WithAppDir(appDir),
 		WithOverrides(confload.Overrides{Env: map[string]any{"OUTPUT_DIR": "/env/out"}}))

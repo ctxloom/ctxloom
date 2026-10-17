@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -109,7 +111,7 @@ func TestSessionAdopt_ApplyAppendsThroughStore_SurvivesReload(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "adopted")
 	assert.Contains(t, stderr, "adopted 1 rotation")
-	assert.Contains(t, stderr, "session compact "+harp)
+	assert.NotContains(t, stderr, "session compact")
 
 	fresh, err := sessions.Open(nil)
 	require.NoError(t, err)
@@ -200,4 +202,34 @@ func TestSessionAdopt_JSONShapesCandidatesWithVerdictAndReason(t *testing.T) {
 	}
 	assert.True(t, sawConcurrent, "the overlapping candidate must be reported")
 	assert.True(t, sawLive, "the live binding's own vendor file must be reported as already-known")
+}
+
+// After adopting, --yes rebuilds the session's canonical transcript from the
+// full lineage itself (the heal), and says which way it went: rebuilt, or
+// NOT rebuilt with the reason. No step is left for the caller to run.
+func TestSessionAdopt_ApplyHealsTheTranscript(t *testing.T) {
+	for name, tc := range map[string]struct {
+		healErr error
+		want    string
+	}{
+		"healed":      {nil, "rebuilt its canonical transcript"},
+		"heal failed": {errors.New("vendor log unreadable"), "was NOT rebuilt from it: vendor log unreadable"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := testsupport.ProjectDir(t)
+			_, harp, vendorDir := seedClaudeHarpWithVendorDir(t, dir)
+			writeAdoptVendorFile(t, vendorDir, "id-orphan",
+				time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC), time.Date(2026, 4, 5, 1, 0, 0, 0, time.UTC))
+			t.Cleanup(func() { resetFlags(t, rootCmd) })
+			var healed []string
+			prev := healAdopted
+			healAdopted = func(_ context.Context, h string) error { healed = append(healed, h); return tc.healErr }
+			t.Cleanup(func() { healAdopted = prev })
+
+			_, stderr, err := execRootCmdBoth(t, "session", "adopt", harp, "--yes", "--format", "text")
+			require.NoError(t, err)
+			assert.Equal(t, []string{harp}, healed, "the heal runs once, for the adopting session")
+			assert.Contains(t, stderr, tc.want)
+		})
+	}
 }

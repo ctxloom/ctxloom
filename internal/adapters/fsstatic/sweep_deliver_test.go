@@ -34,7 +34,6 @@ func trackedClaudeSettings(t *testing.T, fs afero.Fs, eng engine.Engine) string 
 	project := t.TempDir()
 	pkg := compositetest.Fixture(t)
 	pkg.Hooks.Unified.SessionStart = []wire.Hook{agent.NewSessionStartHook()}
-	pkg.Hooks.Unified.TurnEnd = []wire.Hook{agent.NewNextStepHook()}
 	pkg.Statusline = true
 	items := pkg.EngineItems(eng.Root().Name)
 	exports, err := eng.Exports(items)

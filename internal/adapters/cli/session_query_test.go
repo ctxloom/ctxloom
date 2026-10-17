@@ -2,8 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -11,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -48,102 +45,44 @@ func TestSessionMetadataHaystack(t *testing.T) {
 	assert.Contains(t, got, strings.ToLower(sessionTime(ended).String()), "end renders too, once the session has one")
 }
 
-// TestSessionMatchesQuery_MetadataHit covers the fast path: a match found in
-// harp/summary never needs to touch the essence file at all (no EssencePath
-// resolution is even attempted for an entry with no HarpName-backed dir).
+// TestSessionMatchesQuery_MetadataHit: a match found in harp/title.
 func TestSessionMatchesQuery_MetadataHit(t *testing.T) {
 	e := viewTitled(sessions.Entry{HarpName: "swift-amber-falcon"}, "Fixed the harp bind race")
 	assert.True(t, sessionMatchesQuery(e, []string{"bind"}))
 	assert.False(t, sessionMatchesQuery(e, []string{"nonexistent-word"}))
 }
 
-// TestSessionMatchesQuery_EssenceFallback covers the content-search leg: a
-// word absent from harp/summary but present in the compacted essence body
-// still matches, and a genuinely absent word (checked against both metadata
-// and essence) does not.
-func TestSessionMatchesQuery_EssenceFallback(t *testing.T) {
+// TestSessionMatchesQuery_MetadataOnly: a search reads the row's metadata —
+// harp, title, times — and nothing else. A summary file an older ctxloom left
+// in the output dir is never read, so a word only there does not match.
+func TestSessionMatchesQuery_MetadataOnly(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "plump-loose-sash"
-	dir, err := paths.HarpDir(harp)
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	essencePath, err := harpEssencePath(t, harp)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(essencePath, []byte("## Open Items\n\nInvestigate the retry backoff overflow.\n"), 0o644))
+	seedLeftoverSummaryWith(t, harp, "## Open Items\n\nInvestigate the retry backoff overflow.\n")
 
-	e := viewTitled(sessions.Entry{HarpName: harp}, "Session wrap-up") // summary carries no hint of "backoff"
+	e := viewTitled(sessions.Entry{HarpName: harp}, "Session wrap-up")
 
-	assert.True(t, sessionMatchesQuery(e, []string{"backoff"}), "a word only in the essence body still matches")
-	assert.False(t, sessionMatchesQuery(e, []string{"nonexistent-word"}), "a word in neither metadata nor essence doesn't match")
+	assert.True(t, sessionMatchesQuery(e, []string{"wrap-up"}), "a word in the title matches")
+	assert.False(t, sessionMatchesQuery(e, []string{"backoff"}), "a word only in a leftover summary file does not")
 }
 
-// TestSessionMatchesQuery_NotCompacted_NoFallback covers a pending session
-// (no essence written yet): the content-search leg must degrade to "no
-// match" rather than erroring on a missing file.
-func TestSessionMatchesQuery_NotCompacted_NoFallback(t *testing.T) {
-	testsupport.Isolate(t)
-	e := viewTitled(sessions.Entry{HarpName: "never-compacted-harp"}, "still running")
-	assert.False(t, sessionMatchesQuery(e, []string{"backoff"}))
-}
-
-// TestRunSessionQuery_Integration drives the real cobra command tree
-// (rootCmd, exactly like a shell invocation) end to end: two sessions in the
-// project, one matched by essence content and one that matches neither
-// metadata nor essence. Pins that (a) the query filters correctly through
-// the full list->match->emit path, (b) the JSON rows carry harp/summary/
-// start and NOT the essence body, and (c) `session show` is where the body
-// actually lives.
+// TestRunSessionQuery_Integration drives the real cobra command tree end to
+// end: two sessions in the project, one whose title (its first user prompt)
+// matches and one that does not. The JSON rows carry the lean listing shape.
 func TestRunSessionQuery_Integration(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
+	hit := recordPrompts(t, dir, "Root-cause the flaky retry-backoff-overflow test")
+	recordPrompts(t, dir, "Unrelated housekeeping")
 
-	mgr, err := sessions.Open(nil)
-	require.NoError(t, err)
-
-	hit, err := mgr.AssignHarp(dir, "claude-code")
-	require.NoError(t, err)
-	_, err = mgr.RecordOutputDir(hit.HarpName, t.TempDir())
-	require.NoError(t, err)
-	miss, err := mgr.AssignHarp(dir, "claude-code")
-	require.NoError(t, err)
-	_, err = mgr.RecordOutputDir(miss.HarpName, t.TempDir())
+	out, err := runSessionCmd(t, "session", "search", "retry-backoff-overflow", "--format", "json")
 	require.NoError(t, err)
 
-	hitEssenceDir, err := paths.HarpDir(hit.HarpName)
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(hitEssenceDir, 0o755))
-	hitEssencePath, err := harpEssencePath(t, hit.HarpName)
-	require.NoError(t, err)
-	essenceBody := "## Summary\n\nRoot-caused the flaky retry-backoff-overflow test.\n"
-	require.NoError(t, os.WriteFile(hitEssencePath, []byte(essenceBody), 0o644))
-
-	missEssenceDir, err := paths.HarpDir(miss.HarpName)
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(missEssenceDir, 0o755))
-	missEssencePath, err := harpEssencePath(t, miss.HarpName)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(missEssencePath, []byte("## Summary\n\nUnrelated housekeeping.\n"), 0o644))
-
-	var out, errOut bytes.Buffer
-	rootCmd.SetOut(&out)
-	rootCmd.SetErr(&errOut)
-	rootCmd.SetArgs([]string{"session", "search", "retry-backoff-overflow", "--format", "json"})
-	t.Cleanup(func() {
-		rootCmd.SetOut(nil)
-		rootCmd.SetErr(nil)
-		rootCmd.SetArgs(nil)
-	})
-
-	require.NoError(t, rootCmd.Execute(), "stderr: %s", errOut.String())
-
-	var rows []map[string]any
-	require.NoError(t, json.Unmarshal(out.Bytes(), &rows), "output: %s", out.String())
-	require.Len(t, rows, 1, "only the essence-matching session should be returned")
-	assert.Equal(t, hit.HarpName, rows[0]["harp"])
-	assert.Contains(t, rows[0], "summary")
-	assert.Contains(t, rows[0], "start")
-	assert.Equal(t, hitEssencePath, rows[0]["essence_path"], "the row DOES carry the essence file's path (backend-contract V4)")
-
-	assert.NotContains(t, out.String(), "Root-caused", "the essence body itself must never ride in a lightweight (non-full) query row")
+	rows := jsonRowsByHarp(t, out)
+	require.Len(t, rows, 1, "only the title-matching session is returned")
+	require.Contains(t, rows, hit)
+	assert.Contains(t, rows[hit], "summary")
+	assert.Contains(t, rows[hit], "start")
+	assert.NotContains(t, rows[hit], "essence_path")
 }
 
 // TestRunSessionQuery_NoMatches pins the empty-result path in both formats:

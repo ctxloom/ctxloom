@@ -10,8 +10,7 @@ import (
 )
 
 // Claude-shaped transcript fixtures shared by the hook verbs that read a
-// turn's transcript (next-step and skill-mates). The text-message sibling,
-// assistantText, lives beside next-step capture, which is what reads it.
+// turn's transcript (skill-mates).
 
 func writeClaudeTranscript(t *testing.T, lines ...string) string {
 	t.Helper()

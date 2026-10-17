@@ -4,14 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -29,7 +25,7 @@ import (
 // renders (as "(no summary)"), and the caller's pre-sorted row order is
 // preserved.
 func TestRenderSessionRows_ProjectionShape(t *testing.T) {
-	testsupport.Isolate(t) // newSessionRow resolves an essence path off HOME; keep it off the real one
+	testsupport.Isolate(t) // keep the listing off the real HOME
 	started := time.Date(2026, 7, 17, 17, 27, 32, 0, time.Local)
 	rows := []SessionRow{
 		newSessionRow(viewTitled(sessions.Entry{HarpName: "swift-amber-falcon", StartedAt: started}, "Designed the picker")),
@@ -210,7 +206,7 @@ func TestBindSessionFromPayload(t *testing.T) {
 	// The /clear rotation, end to end through the hook target. claude-code
 	// starts a NEW transcript UUID under the same live process and fires
 	// SessionStart again; the harp's binding must follow, or every reader that
-	// trusts it (recover, resume, transcript watch, essence staleness) goes on
+	// trusts it (resume, transcript watch, the exit-time capture) goes on
 	// reading a transcript the session abandoned.
 	t.Run("rotated_transcript_repoints_the_binding", func(t *testing.T) {
 		mgr, entry := seedHomeSession(t)
@@ -260,150 +256,10 @@ func (errReader) Read([]byte) (int, error) {
 	return 0, assert.AnError
 }
 
-// compactMissingOrStale's per-entry chdir used to only ever go
-// FORWARD (into e.ProjectDir when non-empty) and never restore origWd for an
-// entry with no ProjectDir of its own — so an entry with an empty ProjectDir
-// silently ran configload.Load() from whatever directory the PREVIOUS entry in
-// the loop happened to chdir into. situateForEntry is the extracted,
-// independently-testable cwd-management step that fixes this: it restores
-// origWd when the entry has no ProjectDir, rather than leaving the process
-// wherever the last chdir left it.
-func TestSituateForEntry(t *testing.T) {
-	origWd := testsupport.ProjectDir(t) // isolates + chdirs here, restored on cleanup
-	dirA := t.TempDir()
-	dirB := t.TempDir()
-
-	t.Run("chdirs into a non-empty ProjectDir", func(t *testing.T) {
-		testsupport.ChangeDir(t, origWd)
-		require.NoError(t, situateForEntry(&sessions.Entry{ProjectDir: dirA}, origWd))
-		cwd, err := os.Getwd()
-		require.NoError(t, err)
-		assert.Equal(t, realpath(t, dirA), realpath(t, cwd))
-	})
-
-	t.Run("an empty ProjectDir restores origWd, not wherever a prior entry left the process", func(t *testing.T) {
-		// Simulate the sequence a real loop produces: a previous entry with
-		// ProjectDir=dirB left the process there.
-		testsupport.ChangeDir(t, dirB)
-		require.NoError(t, situateForEntry(&sessions.Entry{ProjectDir: ""}, origWd))
-		cwd, err := os.Getwd()
-		require.NoError(t, err)
-		assert.Equal(t, realpath(t, origWd), realpath(t, cwd),
-			"an entry with no ProjectDir of its own must run from origWd, not a sibling entry's leftover cwd")
-	})
-}
-
-// realpath resolves symlinks (macOS/some CI temp dirs are themselves
-// symlinks, e.g. /tmp -> /private/tmp) so a cwd comparison isn't defeated by
-// two spellings of the same directory.
-func realpath(t *testing.T, p string) string {
-	t.Helper()
-	resolved, err := filepath.EvalSymlinks(p)
-	require.NoError(t, err)
-	return resolved
-}
-
-// seedRotationEssence writes one rotation's essence at
-// <output dir>/segments/<sessionID>.md and returns its path.
-func seedRotationEssence(t *testing.T, harp, sessionID, body string) string {
-	t.Helper()
-	p, err := harpSegmentEssencePath(t, harp, sessionID)
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
-	require.NoError(t, os.WriteFile(p, []byte(body), 0o644))
-	return p
-}
-
-// TestSessionEssenceResolution_SharedLookupOrder pins the ONE two-step
-// resolution order every essence entry point owes the user — the harp's current
-// <output dir>/essence.md first, that session's own per-rotation
-// segments/<sessionID>.md second — across BOTH of the functions that
-// implement it: sessionEssenceInfo (path/exists, used by `session list`,
-// `session query` and the memory MCP tools) and readSessionEssence (bytes,
-// used by `session show` and `--full`). They must agree on whether a session
-// is compacted AND on which of the two candidate files wins, or the same
-// session reads as compacted in one command and pending in another.
-func TestSessionEssenceResolution_SharedLookupOrder(t *testing.T) {
-	t.Run("current_essence_wins_over_the_rotation_copy", func(t *testing.T) {
-		harp := "plump-loose-sash"
-		harpPath := seedCompactedEssence(t, harp, "harp-dir body\n")
-		seedRotationEssence(t, harp, "sess-1", "rotation body\n")
-		e := sessions.Entry{HarpName: harp, SessionID: "sess-1"}
-
-		gotPath, compacted := operations.SessionEssenceInfo(harp, &e)
-		body, found := readSessionEssence(afero.NewOsFs(), operations.ViewSession(e))
-
-		assert.True(t, compacted)
-		assert.True(t, found, "both entry points must agree the session is compacted")
-		assert.Equal(t, harpPath, gotPath, "the harp's CURRENT essence wins")
-		assert.Equal(t, "harp-dir body\n", body, "the bytes must come from the SAME file the path resolver picked")
-	})
-
-	t.Run("rotation_essence_when_no_current_essence", func(t *testing.T) {
-		harp := "swift-amber-falcon"
-		rotationPath := seedRotationEssence(t, harp, "sess-2", "rotation body\n")
-		e := sessions.Entry{HarpName: harp, SessionID: "sess-2"}
-
-		gotPath, compacted := operations.SessionEssenceInfo(harp, &e)
-		body, found := readSessionEssence(afero.NewOsFs(), operations.ViewSession(e))
-
-		assert.True(t, compacted)
-		assert.True(t, found, "both entry points must fall back to this rotation's own essence")
-		assert.Equal(t, rotationPath, gotPath)
-		assert.Equal(t, "rotation body\n", body)
-	})
-
-	t.Run("neither_present_is_not_compacted", func(t *testing.T) {
-		e := sessions.Entry{HarpName: "never-compacted-harp", SessionID: "sess-3"}
-
-		gotPath, compacted := operations.SessionEssenceInfo("never-compacted-harp", &e)
-		body, found := readSessionEssence(afero.NewOsFs(), operations.ViewSession(e))
-
-		assert.False(t, compacted)
-		assert.False(t, found)
-		assert.Empty(t, gotPath)
-		assert.Empty(t, body)
-	})
-}
-
-// TestReadSessionEssence_UnreadableEssenceIsReported is where the two
-// resolutions actually diverged: sessionEssenceInfo only STATS the candidate,
-// so `session list` prints an essence_path, while readSessionEssence's
-// os.ReadFile fails and `session show` answers "no essence for X (run
-// `ctxloom session compact X`)". Compacting again cannot fix a permission
-// problem, so the user is sent to do the one thing that will not help — and
-// nothing anywhere says the file was found but could not be read. The two
-// entry points may disagree about the BYTES (one of them never opens the
-// file); they must not disagree in silence.
-func TestReadSessionEssence_UnreadableEssenceIsReported(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("running as root: mode 0o000 does not deny a read, so the unreadable fixture cannot be built")
-	}
-	harp := "plump-loose-sash"
-	essencePath := seedCompactedEssence(t, harp, "## Summary\n\nunreadable\n")
-	require.NoError(t, os.Chmod(essencePath, 0o000))
-	t.Cleanup(func() { _ = os.Chmod(essencePath, 0o644) })
-	e := sessions.Entry{HarpName: harp}
-
-	var diag bytes.Buffer
-	restore := clidiag.SetSink(&diag)
-	t.Cleanup(restore)
-
-	gotPath, compacted := operations.SessionEssenceInfo(harp, &e)
-	body, found := readSessionEssence(afero.NewOsFs(), operations.ViewSession(e))
-
-	assert.True(t, compacted, "the listing side sees the file and reports its path")
-	assert.Equal(t, essencePath, gotPath)
-	assert.False(t, found, "the reading side genuinely has no bytes to show")
-	assert.Empty(t, body)
-	assert.Contains(t, diag.String(), essencePath,
-		"an essence that EXISTS but cannot be read must be reported, not silently reported as never-compacted")
-}
-
 // --- Phase 2: direct tests for the extracted `session` RunE bodies ----------
 
 // An empty session index renders `[]` under `session list --format json`, on
-// BOTH the per-project and the --all path and in both row shapes: `null` is
+// BOTH the per-project and the --all path: `null` is
 // the difference between "no sessions" and "the field is missing" for a
 // consumer iterating it with jq.
 func TestSessionList_EmptyIndexRendersEmptyJSONList(t *testing.T) {
@@ -412,65 +268,37 @@ func TestSessionList_EmptyIndexRendersEmptyJSONList(t *testing.T) {
 	t.Setenv("HOME", dir)
 
 	for _, all := range []bool{false, true} {
-		for _, full := range []bool{false, true} {
-			entries, err := loadSessionEntries(all)
-			require.NoError(t, err, "all=%v", all)
-			cmd, out := formatCmd("json")
-			require.NoError(t, emitSessionRows(cmd, operations.ViewSessions(entries, nil), full))
-			assert.Equal(t, "[]\n", out.String(), "all=%v full=%v", all, full)
-		}
+		entries, err := loadSessionEntries(all)
+		require.NoError(t, err, "all=%v", all)
+		cmd, out := formatCmd("json")
+		require.NoError(t, emitSessionRows(cmd, operations.ViewSessions(entries, nil)))
+		assert.Equal(t, "[]\n", out.String(), "all=%v", all)
 	}
 }
 
-// uncompactedSessionHint tells the two "nothing to print" cases apart. They
-// are NOT interchangeable: a pending session has nothing to compact, so telling
-// the user to run `session compact` on it is advice that cannot work.
-func TestUncompactedSessionHint_DistinguishesPendingFromUncompacted(t *testing.T) {
-	assert.Equal(t, fmt.Sprintf(sessionPendingHint, "amber-swift-owl"), uncompactedSessionHint("amber-swift-owl", ""))
-	assert.NotContains(t, uncompactedSessionHint("amber-swift-owl", ""), "session compact",
-		"a session with no backend session bound has nothing to compact; naming the command would be unusable advice")
-	assert.Equal(t, fmt.Sprintf(sessionUncompactedHint, "amber-swift-owl", "amber-swift-owl"),
-		uncompactedSessionHint("amber-swift-owl", "sess-123"))
-	assert.Contains(t, uncompactedSessionHint("amber-swift-owl", "sess-123"), "ctxloom session compact amber-swift-owl",
-		"a bound-but-uncompacted session must name the command that fixes it")
-}
-
-// A session with no summary yet is not an error to show: both renderings exit
-// 0, the structured one reports compacted:false and the text one prints the
-// hint where the summary would be.
-func TestSessionShow_UncompactedExitsZeroInEveryFormat(t *testing.T) {
+// `session show` is the session's record, in every format: its title (the
+// first user prompt), state, engine and times; a session whose transcript
+// holds no prompt yet shows the placeholder and exits 0.
+func TestSessionShow_ShowsTheRecordInEveryFormat(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
-	_, harp := seedEndedSession(t, dir, "claude-code")
+	titled := recordPrompts(t, dir, "Wire the keep mark into the sweep\nmore")
+	_, untitled := seedEndedSession(t, dir, "claude-code")
 
-	out, err := execRootCmd(t, "session", "show", harp, "--format", "text")
+	out, err := execRootCmd(t, "session", "show", titled, "--format", "text")
 	require.NoError(t, err)
-	assert.Contains(t, out, uncompactedSessionHint(harp, ""))
+	assert.Contains(t, out, "Wire the keep mark into the sweep")
+	assert.Contains(t, out, "engine:")
 
-	out, err = execRootCmd(t, "session", "show", harp, "--format", "json")
+	out, err = execRootCmd(t, "session", "show", titled, "--format", "json")
 	require.NoError(t, err)
-	var got sessionEssence
+	var got operations.SessionView
 	require.NoError(t, json.Unmarshal([]byte(out), &got), out)
-	assert.False(t, got.Compacted)
-}
+	assert.Equal(t, titled, got.Harp)
+	assert.Equal(t, "Wire the keep mark into the sweep", got.Title)
+	assert.NotContains(t, out, "essence")
+	assert.NotContains(t, out, "compacted")
 
-// sessionCompactedKey is the JSON key session output uses for "an essence
-// exists". It is the session feature's word: content distillation keeps
-// "distilled" for its own items, so a session key spelled that way would read
-// as the other feature.
-const sessionCompactedKey = "compacted"
-
-// TestSessionJSON_SaysCompacted pins the key on both session surfaces that
-// report whether an essence exists: `session show` and `session artifacts list`.
-func TestSessionJSON_SaysCompacted(t *testing.T) {
-	for name, v := range map[string]any{
-		"session show":           sessionEssence{Harp: "h", Compacted: true},
-		"session artifacts list": sessionArtifactRow{Harp: "h", Compacted: true},
-	} {
-		raw, err := json.Marshal(v)
-		require.NoError(t, err, name)
-		var doc map[string]any
-		require.NoError(t, json.Unmarshal(raw, &doc), name)
-		assert.Equal(t, true, doc[sessionCompactedKey], "%s must report %q", name, sessionCompactedKey)
-		assert.NotContains(t, doc, "distilled", "%s must not use the content feature's key", name)
-	}
+	out, err = execRootCmd(t, "session", "show", untitled, "--format", "text")
+	require.NoError(t, err)
+	assert.Contains(t, out, "(no summary)")
 }

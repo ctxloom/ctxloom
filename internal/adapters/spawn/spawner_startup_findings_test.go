@@ -31,7 +31,7 @@ func TestProdSpawner_ResolveLaunch_TheChildIsToldWhatWasWithheld(t *testing.T) {
 	resetStrictness(t)
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	writeSpawnerConfig(t, appDir, "schema_version: 7\nruntime: host\nworkspace: none\nagents:\n  dev:\n    llm: mock\n    profiles: [vetoed]\n    permissions:\n      mock:\n        mode: bypass\n")
+	writeSpawnerConfig(t, appDir, "schema_version: 8\nruntime: host\nworkspace: none\nagents:\n  dev:\n    llm: mock\n    profiles: [vetoed]\n    permissions:\n      mock:\n        mode: bypass\n")
 	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "vetoed.yaml"),

@@ -3,7 +3,11 @@ package sessions
 import (
 	"errors"
 	"fmt"
+	"io/fs"
+	"path/filepath"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // A session's transcript is its record: once engines own compaction there is
@@ -36,9 +40,9 @@ type Retention struct {
 }
 
 // Ended is when e ended, for retention: the LATER of its recorded end and
-// lastActive (ActivityTime). A session resumed after its recorded end, or one
-// that died before recording an end, did not end before it was last worked
-// on. Zero when neither is known.
+// lastActive (TranscriptActivity). A session resumed after its recorded end,
+// or one that died before recording an end, did not end before its
+// conversation was last written. Zero when neither is known.
 func Ended(e *Entry, lastActive time.Time) time.Time {
 	end := lastActive
 	if e != nil && e.EndedAt != nil && e.EndedAt.After(end) {
@@ -49,7 +53,8 @@ func Ended(e *Entry, lastActive time.Time) time.Time {
 
 // Retains reports why e's transcript must be kept — ErrTranscriptKept,
 // ErrTranscriptRecent, ErrNoRetentionBound, each matched with errors.Is — or
-// nil when it is reclaimable. lastActive is the session's ActivityTime.
+// nil when it is reclaimable. lastActive is the session's
+// TranscriptActivity.
 //
 // An internal one-shot (OriginOneShot) is a machine's single turn that
 // nobody resumes, never a human's record: reclaimable at any age, unless
@@ -73,4 +78,36 @@ func (r Retention) Retains(e *Entry, lastActive time.Time) error {
 			end.UTC().Format(time.RFC3339), r.Cutoff.UTC().Format(time.RFC3339))
 	}
 	return nil
+}
+
+// TranscriptActivity is when harp's CONVERSATION was last written: the
+// newest mtime under its transcripts and its engine's native history. It is
+// deliberately not ActivityTime: a write to the session's record (`session
+// keep` and its --undo, a purge mark) is not the session being worked on,
+// and must not restart its retention. Zero, with no error, when neither
+// member holds anything. Symlinks are not followed.
+func TranscriptActivity(l Layout, harp string) (time.Time, error) {
+	var newest time.Time
+	for _, member := range []string{paths.TranscriptsDirName, paths.NativeDirName} {
+		root := l.member(harp, member)
+		err := filepath.WalkDir(root, func(p string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				if p == root && errors.Is(walkErr, fs.ErrNotExist) {
+					return filepath.SkipAll
+				}
+				return nil // an unreadable corner is not activity
+			}
+			if d.Type()&fs.ModeSymlink != 0 || d.IsDir() {
+				return nil
+			}
+			if fi, err := d.Info(); err == nil && fi.ModTime().After(newest) {
+				newest = fi.ModTime()
+			}
+			return nil
+		})
+		if err != nil {
+			return time.Time{}, err
+		}
+	}
+	return newest, nil
 }

@@ -35,10 +35,9 @@ func (t sessionTime) MarshalJSON() ([]byte, error) {
 }
 
 // SessionRow is the lightweight per-session projection `session list` and
-// `session query` render by default: a single-line summary, the harp name,
-// the session's state now (from its liveness lock), start/end timestamps, and — when the session has been compacted — the
-// essence file's path, but never the essence BODY itself (that stays
-// `session show`'s job, or `--full`'s — see session_full.go). Projected from
+// `session search` render: a single-line summary (the session's title, its
+// first user prompt), the harp name, the session's state now (from its
+// liveness lock), and start/end timestamps. Projected from
 // operations.SessionView, the one read model, never from the store's entry.
 // The clifmt label/col hints drive clifmt's text/markdown table headers (see
 // renderSessionRows).
@@ -52,8 +51,7 @@ type SessionRow struct {
 	// End is when the session's last run ended, blank while it is live: a
 	// resumed session keeps its previous run's stamp, which is not an end
 	// of the run in progress.
-	End         *sessionTime `json:"end,omitempty" clifmt:"label=End,col=END"`
-	EssencePath string       `json:"essence_path,omitempty" clifmt:"label=Essence Path,col=ESSENCE PATH"`
+	End *sessionTime `json:"end,omitempty" clifmt:"label=End,col=END"`
 	// Purged mirrors SessionView.Purged: `ctxloom session purge` destroyed
 	// this row's machine-written bulk. Structured consumers (a script
 	// filtering `--format json`) get a plain boolean; the same fact also
@@ -66,18 +64,15 @@ type SessionRow struct {
 	Kept bool `json:"kept,omitempty" clifmt:"label=Kept,col=KEPT"`
 }
 
-// newSessionRow projects the read model down to a SessionRow. Summary falls
-// back to a placeholder for a session that was never compacted, and carries
-// the "out of date" badge when the essence predates the live transcript
-// (SessionView.Stale) — so the badge rides in the row itself and shows up in
-// every format, not just text.
+// newSessionRow projects the read model down to a SessionRow. Summary is the
+// session's title, falling back to a placeholder for a session whose
+// transcript holds no user prompt, and carries the purged and kept badges —
+// so a badge rides in the row itself and shows up in every format, not just
+// text.
 func newSessionRow(v operations.SessionView) SessionRow {
 	summary := v.Title
 	if summary == "" {
 		summary = "(no summary)"
-	}
-	if v.StaleKnown && v.Stale {
-		summary += "  ⚠ out of date"
 	}
 	if v.Purged {
 		summary += "  🗑 purged (transcript destroyed)"
@@ -86,19 +81,30 @@ func newSessionRow(v operations.SessionView) SessionRow {
 		summary += "  📌 kept (transcript kept at any age)"
 	}
 	row := SessionRow{
-		Harp:        v.Harp,
-		Summary:     summary,
-		State:       v.State,
-		Start:       sessionTime(v.StartedAt),
-		Purged:      v.Purged,
-		Kept:        v.Kept,
-		EssencePath: v.EssencePath,
+		Harp:    v.Harp,
+		Summary: summary,
+		State:   v.State,
+		Start:   sessionTime(v.StartedAt),
+		Purged:  v.Purged,
+		Kept:    v.Kept,
 	}
 	if v.EndedAt != nil && v.State != operations.SessionLive {
 		end := sessionTime(*v.EndedAt)
 		row.End = &end
 	}
 	return row
+}
+
+// emitSessionRows is the shared render tail for `session list` and `session
+// search`: the SessionRow projection, through emit() in every format.
+func emitSessionRows(cmd *cobra.Command, views []operations.SessionView) error {
+	rows := make([]SessionRow, len(views))
+	for i, v := range views {
+		rows[i] = newSessionRow(v)
+	}
+	return emit(cmd, rows, func() error {
+		return renderSessionRows(cmd.OutOrStdout(), rows)
+	})
 }
 
 // renderSessionRows is the shared text-format body for `session list` and

@@ -34,7 +34,7 @@ func TestLoad_FormerlyMeaningfulKeysAreUnknownKeys(t *testing.T) {
 	} {
 		t.Run(path, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
-			testsupport.WriteFileString(t, fs, "/proj/.ctxloom/config.yaml", "schema_version: 7\n"+body, 0o644)
+			testsupport.WriteFileString(t, fs, "/proj/.ctxloom/config.yaml", "schema_version: 8\n"+body, 0o644)
 
 			cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir("/proj/.ctxloom"))
 			require.NoError(t, err)
@@ -52,7 +52,7 @@ func TestLoad_FormerlyMeaningfulKeysAreUnknownKeys(t *testing.T) {
 // The mock's test-control knobs live under their own key, which the schema
 // describes.
 func TestParseConfig_MockControlIsItsOwnKey(t *testing.T) {
-	const mockDoc = "schema_version: 7\nllm:\n  configs:\n    m:\n      type: mock\n      mock_control:\n        CTXLOOM_MOCK_RESPONSE: canned\n"
+	const mockDoc = "schema_version: 8\nllm:\n  configs:\n    m:\n      type: mock\n      mock_control:\n        CTXLOOM_MOCK_RESPONSE: canned\n"
 	cfg, err := config.ParseConfig([]byte(mockDoc))
 	require.NoError(t, err)
 	entry, ok := cfg.GetLLMEntry("m")
@@ -69,7 +69,7 @@ func TestLoad_WithOptions(t *testing.T) {
 
 	// A valid config file already in the new (default-agent) shape.
 	configContent := `
-schema_version: 7
+schema_version: 8
 llm:
   configs:
     claude-code: { type: claude-code }
@@ -102,7 +102,7 @@ func TestLoad_PreservesBodyMapKeyCase(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/project/" + paths.AppDirName
 	configContent := `
-schema_version: 7
+schema_version: 8
 llm:
   configs:
     m:
@@ -130,7 +130,7 @@ func TestLoad_CurrentConfigReadsItsVersion(t *testing.T) {
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
-	current := "schema_version: 7\nllm:\n  configs:\n    claude-code: { type: claude-code }\n  defaults:\n    primary: claude-code\n"
+	current := "schema_version: 8\nllm:\n  configs:\n    claude-code: { type: claude-code }\n  defaults:\n    primary: claude-code\n"
 	cfgPath := paths.ConfigPath(appDir)
 	testsupport.WriteFile(t, fs, cfgPath, []byte(current), 0644)
 
@@ -181,7 +181,7 @@ func TestLoad_SchemaValidationProducesWarning(t *testing.T) {
 
 	// Create config that fails schema validation (using wrong type)
 	configContent := `
-schema_version: 7
+schema_version: 8
 llm:
   configs: "should be a map not string"
 `
@@ -212,7 +212,7 @@ func TestLoad_SchemaCompileFailureProducesWarning(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
-	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("schema_version: 7\nllm:\n  default_agent: claude\n"), 0644)
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("schema_version: 8\nllm:\n  default_agent: claude\n"), 0644)
 
 	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 	assert.NoError(t, err, "a compile failure must degrade to a warning, not abort Load")
@@ -355,7 +355,7 @@ func TestResilientStartup_WarningsAreCollected(t *testing.T) {
 
 	// Create config with type mismatch that schema validation should catch
 	configYAML := `
-schema_version: 7
+schema_version: 8
 llm:
   configs: invalid-should-be-map
 `

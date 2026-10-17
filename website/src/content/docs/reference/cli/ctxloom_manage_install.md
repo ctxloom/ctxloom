@@ -13,13 +13,20 @@ Scaffold .ctxloom and git-ignore its private state
 
 ### Synopsis
 
-One-shot, non-interactive setup: scaffold the .ctxloom skeleton (if absent)
-and exclude ctxloom's private state from git. Nothing else is written into
-the project: a 'ctxloom run' session delivers hooks, the MCP entry and the
-statusline into its own session home, so an engine launched directly in the
-project tree gets no ctxloom hooks and no ctxloom MCP server. Unlike root
-'ctxloom init', it never prompts and never launches an AI, so it is the form
-to use from a script or CI.
+One-shot, non-interactive setup: scaffold the .ctxloom skeleton (if absent),
+exclude ctxloom's private state from git, and pull the remote dependencies
+the project's profiles reference — the scaffolded default profile's parent
+among them — exactly as 'ctxloom deps pull' installs them, so the next
+'ctxloom run' or 'ctxloom materialize' finds them installed. A pull that
+cannot complete (offline, an unreachable remote) is a warning naming what
+failed: the install stands, and 'ctxloom deps pull' retries. --no-pull skips
+the pull.
+
+No engine file is written into the project: a 'ctxloom run' session
+delivers hooks, the MCP entry and the statusline into its own session home,
+so an engine launched directly in the project tree gets no ctxloom hooks and
+no ctxloom MCP server. Unlike root 'ctxloom init', it never prompts and never
+launches an AI, so it is the form to use from a script or CI.
 
 ```
 ctxloom manage install [flags]
@@ -35,6 +42,7 @@ ctxloom manage install [flags]
 
 ```
       --engine string   AI engine to record when scaffolding (default "claude-code")
+      --no-pull         Skip the dependency pull install ends with; declared dependencies stay uninstalled until 'ctxloom deps pull' runs
       --print           Print the steps that would run, without executing
 ```
 

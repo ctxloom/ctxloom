@@ -164,6 +164,8 @@ ctxloom container scaffold       # write a project devcontainer seeded from the 
 
 Images build in two stages: a shared **base** and a **composed agent stage** — one independently-cacheable install layer per engine (each via its own official installer), layered onto the base and content-keyed so identical (base, engine set) builds share one tag. ctxloom builds the image automatically when it's absent, whether launched via `run` or a delegated `agent_run` spawn.
 
+The claude agent image installs the **same claude version as your host** (`npm install -g @anthropic-ai/claude-code@<host version>`), never whatever is latest. The version is part of the image tag (`…-cli<version>-…`) and is recorded in the `ctxloom.engine-cli-version` label, so upgrading claude on the host builds a new image on the next containerized run. When the host has no claude, or its version cannot be read, the image pins the claude version ctxloom is tested against instead and a warning says so. An image you supply through `isolation_images` or `--overlay-image` is used as it is, with whatever claude it ships.
+
 `isolation_base` (or `--base` on `container build`) picks the base, one of three:
 
 - `ctxloom` — the embedded default base (distro plus the coding-agent tool layer — git, ripgrep, curl, certs, jq).

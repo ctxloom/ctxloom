@@ -168,12 +168,26 @@ how to apply it. It names only what `--yes` would actually change, compared
 with the files as they stand, so a project that is already current gets no
 note; a kind the refresh would be refused is named with its fix. Even under `--yes` it leaves out the context of an engine
 whose context rides the launch, so it writes no `CLAUDE.md`.
+
+A finding that would refuse a launch — a parent profile not yet pulled, or one
+that does not exist — refuses `ctxloom materialize --yes` before it writes
+anything (exit 3): no engine file, no ownership record, not even a missing
+`--target` directory. `ctxloom deps pull --yes` refreshes through the same
+check: the pull itself lands, the refresh writes nothing, and the command
+exits 3 naming the finding. `--degraded` writes past the finding and warns.
 :::
 
 :::note[Don't commit a materialized file]
 The record of what ctxloom wrote lives in your home directory, not in the
 project. On another machine a committed copy looks like your own text, and the
 next materialize there appends a second copy beside it.
+
+If a settings file was committed anyway, `ctxloom manage uninstall` in a clone
+with no record still takes out ctxloom's hook entries (those running
+`ctxloom hook <verb>`) and its HUD statusline, and drops each hook group left
+empty; your own hooks, including one that runs some other `ctxloom` command,
+and every other key stay. ctxloom's `env` values, `CLAUDE.md` and command
+files are not removed without a record.
 :::
 
 A `ctxloom run` in a project that still holds context `ctxloom materialize`

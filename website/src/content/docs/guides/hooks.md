@@ -55,7 +55,7 @@ opencode runs no hook commands, only in-process plugins, so a `ctxloom run` sess
 
 ### Apply Hooks
 
-A `ctxloom run` session carries its own hooks; you never apply them for it. `ctxloom init` and `ctxloom manage install` scaffold ctxloom's configuration and write nothing into your engine's files.
+A `ctxloom run` session carries its own hooks; you never apply them for it. `ctxloom init` and `ctxloom manage install` scaffold ctxloom's configuration, pull the dependencies its profiles reference (`--no-pull` skips the pull), and write nothing into your engine's files.
 
 To write ctxloom's hooks into the project tree explicitly — for an engine you launch directly rather than through `ctxloom run` — apply them yourself:
 
@@ -73,7 +73,9 @@ ctxloom materialize --yes --release --surface hooks --surface settings
 `ctxloom materialize` writes per kind, and `--release` takes out only what it
 wrote. With no `--surface` it writes every kind, including claude's context
 into `CLAUDE.md`. `ctxloom manage uninstall` takes out everything any engine's
-at-rest delivery wrote into the project. The only other writer is the refresh
+at-rest delivery wrote into the project, as recorded in your home directory; in
+a clone with no record it still removes ctxloom's `ctxloom hook <verb>` entries
+and HUD statusline from the settings file. The only other writer is the refresh
 `ctxloom deps pull --yes` and `ctxloom run --yes` run after a sync, which
 writes the same kinds except a context the engine already takes at launch.
 

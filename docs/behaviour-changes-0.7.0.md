@@ -340,9 +340,11 @@ default agent's; with no `--backend`, the project's configured engines.
   one kind or one engine no longer takes another's files out of the same
   directory. Claims an earlier 0.7 pre-release build recorded under the
   single `project` writer are not recognised at all: a re-install does not
-  take them out, `manage uninstall` does not release them, and `ctxloom run`
-  does not warn about context written under them, so a section it appended
-  may appear twice until you remove the old one by hand.
+  take them out, `manage uninstall` does not release them (beyond the
+  `ctxloom hook <verb>` entries and HUD statusline it sweeps from a settings
+  file no record names; see below), and `ctxloom run` does not warn about
+  context written under them, so a section it appended may appear twice
+  until you remove the old one by hand.
 - **The post-sync refresh** (after `deps pull`, or a `ctxloom run` startup
   sync that installs a remote bundle) writes the project root only when you
   pass `--yes`: `ctxloom deps pull --yes`, `ctxloom run --yes`. That is the
@@ -408,7 +410,10 @@ default agent's; with no `--backend`, the project's configured engines.
   warns. `ctxloom deps pull --yes` refreshes the project through the same
   check: the pull itself lands, the refresh writes nothing, and the command
   exits 3 naming the finding. Before, it wrote the refresh and exited 0. A
-  write that fails during that refresh now exits 3 the same way.
+  write that fails during that refresh now exits 3 the same way. The abort
+  names what refused — `ctxloom: aborting materialize:` or `ctxloom: aborting
+  project refresh:` (materialize's said `aborting startup`) — and offers
+  `--degraded` "to write anyway", not "to launch anyway".
 - **A parent profile that does not exist is no longer sent to `deps pull`.**
   A missing local parent — a bare name, or a `ctxloom+local:` reference —
   is reported as not existing, with a fix that says to create it, correct
@@ -609,6 +614,14 @@ Grouped by what you would have to change.
   error, so your `on_parse_error` setting decided the outcome instead.
   Upgrading the shell parser (mvdan.cc/sh v3.14.1) fixed the crash behind that
   error.
+- ctxloom's own git no longer inherits a variable that points git at another
+  repository or overrides its config. Every variable `git rev-parse
+  --local-env-vars` names is removed before ctxloom runs git — now including
+  `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT` with its
+  `GIT_CONFIG_KEY_<n>`/`GIT_CONFIG_VALUE_<n>` pairs, `GIT_SHALLOW_FILE` and
+  `GIT_ALTERNATE_OBJECT_DIRECTORIES` — so ctxloom run from a git hook or an
+  alias that passes `-c` no longer picks up those overrides. When git cannot
+  answer, every `GIT_` variable is removed.
 
 ## If you ran a 0.7 development build
 

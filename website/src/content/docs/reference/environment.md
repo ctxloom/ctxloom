@@ -28,6 +28,16 @@ CTXLOOM_DEGRADED=1 ctxloom run -p developer "help"
 
 A custom forge configured in `remotes.yaml` (e.g. a GitHub Enterprise instance) can name its own token variable via `token_env`; that variable takes precedence over `GITHUB_TOKEN` for remotes bound to it. The generic `git` forge uses ambient git auth (credential helper, ssh-agent, `~/.ssh/config`) and needs no token.
 
+ctxloom's own git child processes never inherit a variable that points git at
+another repository or overrides its configuration: every variable `git
+rev-parse --local-env-vars` names (`GIT_DIR`, `GIT_WORK_TREE`,
+`GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT` and its
+`GIT_CONFIG_KEY_<n>`/`GIT_CONFIG_VALUE_<n>` pairs, and the rest) is removed
+before ctxloom runs git. Running ctxloom from a git hook, or from an alias
+that passes `-c` overrides, therefore cannot redirect its git or change its
+git config. When git cannot answer that question, every `GIT_` variable is
+removed.
+
 ## Editor
 
 | Variable | Description |

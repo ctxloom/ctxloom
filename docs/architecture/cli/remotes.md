@@ -37,6 +37,7 @@ flowchart TD
         DH["deps hold / unhold &lt;name&gt;"]
         RP["deps pull"] --> RPS["renderPullSummary"]
         RP --> SD[["operations.SyncDependencies"]]
+        SD -->|"--yes: SyncDependenciesResult.RefreshFindings"| RFG["formatFindings(PhaseRefresh) — refresh refused before it wrote; exit 3 after the payload"]
         RU["deps check [ref]"] --> RDC["runDepsCheck"] --> OCD[["operations.CheckDependencies(ctx, app, CheckDependenciesRequest{Ref}) → CheckDependenciesResult"]]
         OCD --> RDCK["renderDependencyCheck / renderDependencyStatus"]
         RDCK --> RUD["renderUncheckedDependency (typed UncheckedReason)"]

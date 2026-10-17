@@ -22,6 +22,12 @@ it is piped or redirected, so `taskloom list | jq …` works without the flag.
 Pass `--format text` to keep the readable form in a pipe. `--json` is
 shorthand for `--format json` on commands that carry it.
 
+For `ctxloom`, the [`non_tty_format`](/reference/config/) config key changes
+what a pipe gets: `json` (the default when unset), `yaml`, `toml`, `text` or
+`markdown`. A terminal still gets `text`, and an explicit `--format` always
+wins. Any other value is refused at startup rather than read as `json`.
+`ctxloom --help` names the key in `--format`'s description.
+
 ## One document, three encodings
 
 `json`, `yaml` and `toml` carry the same fields under the same names, so a
@@ -46,6 +52,7 @@ Results go to stdout; failures and warnings go to stderr.
   `fix: …` line when there is a suggested fix.
 - A format chosen only because output was piped does not change stderr: you
   still get the readable line, so a redirected run's errors stay readable.
-- Under an explicit or piped `json`, `yaml` or `toml`, warnings are JSON Lines,
+- Under an explicit or piped `json`, `yaml` or `toml` (for `ctxloom`, a piped
+  format is the one `non_tty_format` names), warnings are JSON Lines,
   one `{"prog": "…", "warning": "…"}` object per line (with `remedy` when there
   is one). Otherwise they read `<program>: warning: <message>`.

@@ -47,12 +47,14 @@ flowchart TD
   end
   GNWO --> FMT
 
-  subgraph gu["internal/shared/gitutil (go-git, in-process)"]
+  subgraph gu["internal/shared/gitutil (go-git in-process; one git exec, the env probe)"]
     RSD["resolveStartDir — stat error is an error"]
     FR["FindRoot(startPath)"]
     GRU["GetRemoteURL(startPath, remoteName)"]
+    LEV["repoLocationEnvVars (sync.OnceValue)<br/>probeLocalEnvVars: git rev-parse --local-env-vars<br/>from / with an empty env; nil ⇒ every GIT_ var"]
     ENV["IsRepoLocationEnvVar / SanitizedEnviron"]
     RSD --> FR & GRU
+    LEV --> ENV
   end
   ENV -->|"child-process env for"| OTHER["internal/adapters/git · internal/adapters/remote<br/>(exec the git binary)"]
 

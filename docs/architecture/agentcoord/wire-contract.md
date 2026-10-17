@@ -45,6 +45,7 @@ flowchart TD
 | `CoordinatorService.RunChannel` | bidi; ONE run's three planes | server `coordgrpc/runchannel.go` over `coord/runchannel.go`, client `runner/home.go` |
 | `ConsumerService.WatchRuns` | snapshot frame, then live events | `coordgrpc/consumer.go` over `coord/consumer.go`; client `operations/sessionfeed.go` |
 | `ConsumerService.ListRuns` | roster poll | `coordgrpc/consumer.go` over `coord.Coordinator.ListRuns` |
+| `ConsumerService.CredentialHolds` | the turn-failure holds in force, carrier names only | `coordgrpc/consumer.go` over `coord.Coordinator.CredentialHolds` |
 | `ArtifactTransferService.UploadArtifact` | chunked upload, server-hashed | `coordgrpc/artifacts.go` over `coord.ReceiveArtifact`; client `runner/homeartifacts.go` |
 | `ArtifactTransferService.DownloadArtifact` | header-first stream | `coordgrpc/artifacts.go` over `coord.OpenArtifact`; client `runner/homeartifacts.go` |
 
@@ -53,7 +54,9 @@ flowchart TD
 unary fallback to serve.
 
 `ConsumerService` is deliberately read-only — steer/inject is excluded and the proto
-says why. Consumer credentials are refused on `CoordinatorService` by the auth
+says why. It is the wire half of the frontend port
+([core/frontend-port.md](../core/frontend-port.md)); the port's action half stays
+in-process. Consumer credentials are refused on `CoordinatorService` by the auth
 interceptors (`grpcserver.go`).
 
 ## Message families that matter

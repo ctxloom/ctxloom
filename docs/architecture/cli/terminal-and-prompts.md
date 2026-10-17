@@ -25,8 +25,12 @@ flowchart TD
     STU --> PK["prefix-key interceptor (ui.prefix_key)"]
     STU --> BAR["surround bar — termui.BarInfo over terminalUIIdentity"]
     STU --> OV["overlay factory"]
-    STU --> SRC["terminalUISources<br/>session index · feed resolver · harp dir · inject"]
-    SRC --> ROSTER["surroundRoster<br/>coord.RosterEntry → termui.RosterEntry"]
+    RUNE --> FP["runState.frontendPort<br/>operations.NewFrontendPort — the session's frontend port"]
+    FP --> STU
+    STU --> SRC["tui.Sources{Port, Self}<br/>roster · feed · control · approvals over the port"]
+    STU --> ROSTER["surroundRoster<br/>Port.ListRuns → termui.RosterEntry"]
+    STU --> PRES["modalPresenter · credentialPresenter<br/>Port.Approvals · Port.CredentialHolds"]
+    FP --> TERM["Port.Terminal(self)<br/>driveOwnedInteractive pumps keys · output · resize"]
 
     RUNE --> LAUNCH["launcher Start / Wait"]
     WR --> LAUNCH
@@ -58,10 +62,16 @@ flowchart TD
   builds the interceptor / surround bar / overlay factory; a bad key there
   only warns and returns nil, reachable only under `--degraded` because the
   gate already aborted otherwise.
-- `terminalUIIdentity` is what the surround bar displays; `terminalUISources`
-  wires the overlay's data seams to the session index, the feed resolver, the
-  harp dir and injection; `surroundRoster` adapts `coord.RosterEntry` to
-  `termui.RosterEntry`.
+- `terminalUIIdentity` is what the surround bar displays. Everything the bar,
+  the overlay and the presenters show or do rides the session's frontend port
+  (`runState.frontendPort`, [core/frontend-port.md](../core/frontend-port.md)):
+  the overlay gets `tui.Sources{Port, Self}`, `surroundRoster` adapts the port's
+  `ListRuns` to `termui.RosterEntry`, the approval modal presents
+  `Port.Approvals()` and the credential notice polls `Port.CredentialHolds`.
+  None of them holds the coordinator (`TestArch_FrontendsHoldNoCoordinator`).
+- `driveOwnedInteractive` (`run_pty.go`) attaches the session's terminal through
+  `Port.Terminal(activeHarp)` — the run's pty — and pumps the wrapped stdin into
+  it, its output to stdout, and each resize onto it.
 - `redirectDiagnosticsForTUI` diverts `clidiag` warnings to
   `<harpdir>/diagnostics.log` and returns a restore func. It is installed
   only for interactive runs that own a terminal and did not pass

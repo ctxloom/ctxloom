@@ -75,7 +75,7 @@ include the bar row.
 | `ResizeTranslator` | `resize.go` | Subtracts the reserved rows from every size event, mirrors the real size to the surround, and forces post-overlay repaints |
 | `Surround` | `surround.go` | Owns the reserved bottom row: scroll region, bar paint, restore |
 | `BarInfo` | `surround.go` | `{Harp, Agent, Engine, Model, PrefixHint}` — the static identity segment |
-| `RosterEntry` | `surround.go` | `{Harp, Agent, State, LastActivityUnix}` — a deliberate local mirror of `coord.RosterEntry` (`agentcoord/coord/folds.go`) so this package stays dependency-light. `Agent` is copied by the adapter and never read here |
+| `RosterEntry` | `surround.go` | `{Harp, Agent, State, LastActivityUnix}` — a deliberate local mirror of the frontend port's roster row (`coord.RunInfo`, which the CLI's `surroundRows` maps from `Port.ListRuns`) so this package stays dependency-light. `Agent` is never set by the adapter nor read here |
 | `vtGuard` / `vtState` | `vtguard.go` | In-stream VT parser: clamps DECSTBM, re-asserts the region after unrewritable resets, marks the bar damaged after full-screen erases, and holds back partial sequences and partial UTF-8 runes so bar paints land on safe boundaries |
 
 ---

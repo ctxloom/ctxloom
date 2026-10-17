@@ -55,6 +55,10 @@ current `RunRecord`, and applies two filters.
 | `mcp_servers` | `rec.MCPServers` | **names only** — the roster consumer's black-box view onto privilege scoping |
 | `hold` | `runHolds()[rec.RunID]` | absent when nothing parks the run |
 | `cause`, `detail` | `e.Cause`, `e.Detail` | the current run's terminal cause and detail, so an `ended` child says why; empty while live |
+| `last_event_at` | `e.LastActivityUnix` | when the harp's run last changed state; absent when none is recorded |
+| `parent_harp` | `e.Parent` | the delegating harp — what a roster consumer hangs the tree from (a top-level child's is the coordinating session's own) |
+| `unread` | `unreadMail(harp)` | read off the spool after the view |
+| `context_tokens_used`, `context_window` | `contextUsage(harp)` | the latest turn's context gauge a runner sent on its RunChannel `Heartbeat` (`RecordContextUsage`); unjournaled, 0 until a turn reports |
 
 Filters honoured: `include_terminal` (ended entries are skipped unless set) and `role`.
 Harps with no current run are skipped silently, which is correct because the reap never
@@ -71,7 +75,7 @@ removes a harp's current run.
 | `sendTerminal` | bounded evict-then-retry placement of a terminal event, because a consumer that waits on `RunCompleted` hangs forever if it is dropped |
 | `Coordinator.WatchRuns` | in-process subscribe-**then**-snapshot (that order is the no-gap guarantee) |
 | `consumerService.WatchRuns` | streams a snapshot frame then live events |
-| `Coordinator.ListRuns` | one-line pass-through; test-only — production uses `consumerService.ListRuns` or `listRunsSnapshot` directly |
+| `Coordinator.ListRuns` | one-line pass-through: what the in-process frontend port lists (`operations.NewFrontendPort`) |
 
 Both production subscribers call `WatchRuns(nil)` — no run filter — so one ring carries
 every run's events (`cli/run_owned.go`).
@@ -104,11 +108,7 @@ The watchdog is read-only: it never terminates, relaunches or reaps.
 
 ## Divergences and real behaviour
 
-- **`RunInfo.task_id` and `RunInfo.last_event_at` are set nowhere.** `listRunsSnapshot`
-  (`consumer.go`) populates seven fields and neither of those; the `roster` tool
-  description shipped to the model says each entry carries "the agent's harp (agent_id),
-  current run_id, state, latest report summary, and **last activity**"
-  (`mcpschema/schemas/roster.json`). `task_id` rides six proto messages and has zero
+- **`RunInfo.task_id` is set nowhere.** `task_id` rides six proto messages and has zero
   references repo-wide.
 - **`roster`'s `include_descendants` and `task_id` filters are accepted and discarded.**
   `serveListRuns` passes only `include_terminal` and `role`, so

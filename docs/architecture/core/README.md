@@ -19,6 +19,7 @@ here.
 | [bundles.md](./bundles.md) | `internal/core/bundles` | The bundle document, the loader, item kinds, content hashing, and skill packages. |
 | [config.md](./config.md) | `internal/core/config` | `config.yaml` discovery, layering, migration and persistence; inline profiles; bundle seeding. |
 | [profiles.md](./profiles.md) | `internal/core/profiles` | Directory profiles, the schema-upgrade pipeline, and parent-graph resolution into a `ResolvedProfile`. |
+| [frontend-port.md](./frontend-port.md) | `internal/core/frontend`, `internal/adapters/operations` | The ONE UI-neutral frontend port every frontend consumes (ConsumerService's Go face), its contract tests, its in-process implementation, the frontend layering rule, and the ACP mapping. |
 | [operations.md](./operations.md) | `internal/adapters/operations` | The frontend-neutral orchestration layer: bootstrap, sync, lock, upgrade, assemble, apply, launch. |
 | [launch.md](./launch.md) | `internal/core/launch` | The resolved launch: one Source, one Resolve, one Launch; the floor, the cell, the plan, the endpoint; the internal one-shots. |
 | [composite.md](./composite.md) | `internal/core/composite` | The one composer: `Select`, `Assemble` (the one `Package`), the opaque per-engine export blocks, `EngineItems`, `IndexOf`. |

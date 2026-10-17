@@ -21,6 +21,8 @@
       "postcss-selector-parser": "^7.1.6"
     },
     "@babel/runtime": "7.29.7",
-    "solid-js": "1.9.15"
+    "solid-js": "1.9.16",
+    "seroval": "1.6.8",
+    "seroval-plugins": "1.6.8"
   }
 }

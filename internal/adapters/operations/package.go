@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
@@ -168,8 +169,7 @@ func resolveProfiles(cfg *config.Config, names []string, fromDefaults bool, load
 		resolved, err := pLoader.ResolveProfile(name, nil)
 		if err != nil {
 			if fromDefaults {
-				strictness.Fail(report.KindRef, "fix the default agent's profiles in .ctxloom/config.yaml (agents.<name>.profiles), or install the missing content (ctxloom deps pull)",
-					"skipping default profile %s: %v", name, err)
+				strictness.Fail(report.KindRef, missingDefaultProfileFix(err), "skipping default profile %s: %v", name, err)
 				continue
 			}
 			return nil, fmt.Errorf("profile %s: %w", name, err)
@@ -187,6 +187,17 @@ func resolveProfiles(cfg *config.Config, names []string, fromDefaults bool, load
 		out = append(out, p)
 	}
 	return out, nil
+}
+
+// missingDefaultProfileFix is the remedy for a default profile that did not
+// resolve. A local one (errs.ErrLocalProfileNotFound) is the project's to
+// create or correct — a pull fetches remote bundles and cannot create it —
+// so only a remote miss is sent to `ctxloom deps pull`.
+func missingDefaultProfileFix(err error) string {
+	if errors.Is(err, errs.ErrLocalProfileNotFound) {
+		return "create the profile, or correct the default agent's profiles in .ctxloom/config.yaml (agents.<name>.profiles)"
+	}
+	return "fix the default agent's profiles in .ctxloom/config.yaml (agents.<name>.profiles), or install the missing content (ctxloom deps pull)"
 }
 
 // builtinCommands are ctxloom's own slash commands, embedded in the binary

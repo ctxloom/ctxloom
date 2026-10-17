@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/stretchr/testify/assert"
@@ -74,7 +75,12 @@ func setupProject(t *testing.T, engine string) (root string, cfg *config.Config)
 func applyHooksHermetically(t *testing.T, cfg *config.Config, root, backend string) {
 	t.Helper()
 	t.Cleanup(selfexec.SetPathForTesting("ctxloom"))
-	_, err := Materialize(context.Background(), engines.Registry(), cfg, MaterializeRequest{Engines: []string{backend}, Surfaces: surfacesBut(present.Context), Target: root})
+	_, err := Materialize(context.Background(), engines.Registry(), cfg, MaterializeRequest{
+		Engines: []string{backend}, Surfaces: surfacesBut(present.Context), Target: root,
+		// The scaffold's seed profile inherits a remote parent this
+		// hermetic project never pulls: deliver past it, as --degraded does.
+		Strictness: strictness.Mode{Prog: "ctxloom", Degraded: true},
+	})
 	require.NoError(t, err)
 }
 

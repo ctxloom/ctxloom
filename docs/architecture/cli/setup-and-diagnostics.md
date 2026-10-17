@@ -37,6 +37,8 @@ flowchart TD
     subgraph manage["manage.go · manage_companions.go"]
         MI["manage install"] --> EHG["ensureHarnessGitignore"]
         MI --> PIP["printInstallPlan (--print)"]
+        MI --> IPL["installPull → pullProjectDependencies (unless --no-pull; a failure warns, install stands)"]
+        POST -.->|shares| IPL
         MU["manage uninstall"] --> MREL[["operations.Materialize (Release, every engine)"]]
         MS["manage check"] --> PHS["printHarnessStatus"] --> PCS["printCompanionStatus"] --> HFC["hintForCompanion → companionHint"]
         MH["manage hooks check/list"]
@@ -105,6 +107,15 @@ it must not depend on a config load, since it is how you fix a broken config.
 ## `ctxloom manage`
 
 `install`/`uninstall`/`check`, `hooks *`, `statusline *`, `gitignore install`.
+
+`install` ends with root init's dependency pull (`pullProjectDependencies`:
+`deps pull`'s install half, no engine-file refresh), so the scaffolded default
+profile's remote parent is installed before the next strict `run` or
+`materialize` resolves it. A pull that cannot complete warns
+(`warnDependencyPullFailed`, naming what failed and that `ctxloom deps pull`
+retries) and the install stands — the same fault-tolerance init has; the
+strict refusal lands on the next command that resolves the missing parent.
+`--no-pull` skips it.
 
 `companionHint` is the "what breaks / how to install" text for a missing
 companion binary; `hintForCompanion` keys on companion binary names, and a

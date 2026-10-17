@@ -81,7 +81,7 @@ func directCmd(t *testing.T, cmd *cobra.Command) *cobra.Command {
 func TestMaterialize_LoadsTheDefaultProfileOnce(t *testing.T) {
 	testsupport.ProjectDir(t)
 
-	_, err := runCLIErr(t, "manage", "install", "--print=false", "--engine", "claude-code")
+	_, err := runCLIErr(t, "manage", "install", "--print=false", "--no-pull", "--engine", "claude-code")
 	require.NoError(t, err, "scaffold the project the materialize delivers into")
 
 	counter := newProfileReadCounter(operations.SeedProfileName)
@@ -105,9 +105,12 @@ func TestManageInstall_LoadsTheDefaultProfileAtMostOnce(t *testing.T) {
 	counter := newProfileReadCounter(operations.SeedProfileName)
 	testApp(t, configload.WithRoot(safefs.NewMem(counter)))
 
-	prevPrint := manageInstallPrint
-	manageInstallPrint = false
-	t.Cleanup(func() { manageInstallPrint = prevPrint })
+	prevPrint, prevNoPull := manageInstallPrint, manageInstallNoPull
+	// --no-pull: the dependency pull install ends with is `deps pull`'s, whose
+	// own loads are not this command's scaffolding (and would reach the
+	// network for the seed profile's parent).
+	manageInstallPrint, manageInstallNoPull = false, true
+	t.Cleanup(func() { manageInstallPrint, manageInstallNoPull = prevPrint, prevNoPull })
 	require.NoError(t, runManageInstall(directCmd(t, manageInstallCmd), nil))
 	assert.LessOrEqual(t, counter.opens.Load(), int64(1), "one command, at most one load of the default profile")
 }

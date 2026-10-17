@@ -51,18 +51,26 @@ MCP server. Configuration lives at the top-level 'ctxloom config'; root
 var (
 	manageInstallEngine string
 	manageInstallPrint  bool
+	manageInstallNoPull bool
 )
 
 var manageInstallCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Scaffold .ctxloom and git-ignore its private state",
-	Long: `One-shot, non-interactive setup: scaffold the .ctxloom skeleton (if absent)
-and exclude ctxloom's private state from git. Nothing else is written into
-the project: a 'ctxloom run' session delivers hooks, the MCP entry and the
-statusline into its own session home, so an engine launched directly in the
-project tree gets no ctxloom hooks and no ctxloom MCP server. Unlike root
-'ctxloom init', it never prompts and never launches an AI, so it is the form
-to use from a script or CI.`,
+	Long: `One-shot, non-interactive setup: scaffold the .ctxloom skeleton (if absent),
+exclude ctxloom's private state from git, and pull the remote dependencies
+the project's profiles reference — the scaffolded default profile's parent
+among them — exactly as 'ctxloom deps pull' installs them, so the next
+'ctxloom run' or 'ctxloom materialize' finds them installed. A pull that
+cannot complete (offline, an unreachable remote) is a warning naming what
+failed: the install stands, and 'ctxloom deps pull' retries. --no-pull skips
+the pull.
+
+No engine file is written into the project: a 'ctxloom run' session
+delivers hooks, the MCP entry and the statusline into its own session home,
+so an engine launched directly in the project tree gets no ctxloom hooks and
+no ctxloom MCP server. Unlike root 'ctxloom init', it never prompts and never
+launches an AI, so it is the form to use from a script or CI.`,
 	Example: `  ctxloom manage install --engine claude-code`,
 	Args:    cobra.NoArgs,
 	RunE:    runManageInstall,
@@ -92,8 +100,10 @@ var manageCheckCmd = &cobra.Command{
 }
 
 // runManageInstall scaffolds ctxloom into the current project: the .ctxloom
-// skeleton and the git-ignore of its private state, and nothing else
-// project-side. The runtime surfaces — hooks, the MCP entry, the statusline,
+// skeleton, the git-ignore of its private state, and the pull of the
+// dependencies its profiles reference (pullProjectDependencies, unless
+// --no-pull), and nothing else project-side. A failed pull warns and keeps
+// the install, as root init's does (warnDependencyPullFailed). The runtime surfaces — hooks, the MCP entry, the statusline,
 // the context — are delivered by a `ctxloom run` session into its own
 // session home; a copy in the project is what let a directly-launched
 // engine reach ctxloom's MCP server with no session behind it. The
@@ -168,26 +178,73 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	pull := installPull(cmd)
+
 	type manageInstallResult struct {
-		AppDir          string `json:"app_dir"`
-		Initialized     bool   `json:"initialized"`
-		Gitignore       string `json:"gitignore"`
-		GitignoreStatus string `json:"gitignore_status"`
+		AppDir          string           `json:"app_dir"`
+		Initialized     bool             `json:"initialized"`
+		Gitignore       string           `json:"gitignore"`
+		GitignoreStatus string           `json:"gitignore_status"`
+		Pull            installPullState `json:"pull"`
 	}
 	out := manageInstallResult{
 		AppDir:          appDir,
 		Initialized:     initialized,
 		Gitignore:       filepath.Join(projectDir, ".gitignore"),
 		GitignoreStatus: ignored.status(),
+		Pull:            pull,
 	}
 	return emit(cmd, out, func() error {
 		if initialized {
 			fmt.Fprintf(cmd.OutOrStdout(), "Initialized ctxloom directory: %s\n", appDir)
 		}
 		fmt.Fprintln(cmd.OutOrStdout(), ignored.summary(out.Gitignore, gitignore.NestedGitignorePath(projectDir)))
+		pull.render(cmd.OutOrStdout())
 		fmt.Fprintln(cmd.OutOrStdout(), "No engine file was written: a `ctxloom run` session delivers ctxloom's hooks and MCP server into its own session home. An engine launched directly here gets neither.")
 		return nil
 	})
+}
+
+// installPullState is what install's dependency pull did: Status is pulled
+// (it completed, Installed the references it newly fetched), failed (Error
+// says why; the warning named the retry) or skipped (--no-pull).
+type installPullState struct {
+	Status    string `json:"status"`
+	Installed int    `json:"installed"`
+	Error     string `json:"error,omitempty"`
+	result    *operations.SyncDependenciesResult
+}
+
+// installPull runs install's dependency pull — root init's
+// (pullProjectDependencies) — unless --no-pull. A failure warns and is
+// recorded on the state, never returned: the scaffold stands, exactly as an
+// init whose pull failed stands, and a strict run or materialize then
+// refuses over the uninstalled parent with the remedy that installs it.
+func installPull(cmd *cobra.Command) installPullState {
+	if manageInstallNoPull {
+		return installPullState{Status: "skipped"}
+	}
+	result, err := pullProjectDependencies(cmd)
+	if err != nil {
+		warnDependencyPullFailed("install", err)
+		return installPullState{Status: "failed", Error: err.Error()}
+	}
+	return installPullState{Status: "pulled", Installed: result.Installed, result: result}
+}
+
+// render is the pull's text report: the --no-pull notice, or what the pull
+// newly fetched and pinned. A failure was already warned on stderr.
+func (p installPullState) render(w io.Writer) {
+	switch {
+	case p.Status == "skipped":
+		fmt.Fprint(w, noPullNotice)
+	case p.result != nil:
+		if p.Installed > 0 {
+			fmt.Fprintf(w, "Pulled %d dependencies\n", p.Installed)
+		}
+		operations.WriteConstraintChanges(w, p.result.ConstraintChanges)
+		operations.WriteNewPins(w, p.result.Changes)
+	}
 }
 
 // checkEngineKnown rejects an explicitly-passed `--engine` that names no
@@ -246,6 +303,9 @@ func printInstallPlan(appDir, projectDir string) {
 		fmt.Printf("  - scaffold .ctxloom: %s (engine: %s)\n", appDir, manageInstallEngine)
 	}
 	fmt.Printf("  - update .gitignore: %s\n", filepath.Join(projectDir, ".gitignore"))
+	if !manageInstallNoPull {
+		fmt.Println("  - pull the remote dependencies the project's profiles reference (as `ctxloom deps pull`; --no-pull skips it)")
+	}
 	fmt.Println("  - write no engine file: hooks, MCP and statusline reach an engine through a `ctxloom run` session's own home")
 }
 
@@ -794,6 +854,7 @@ func init() {
 	// any engine is registered, and the help names the default once it is.
 	manageInstallCmd.Flags().StringVar(&manageInstallEngine, "engine", "", "AI engine to record when scaffolding")
 	manageInstallCmd.Flags().BoolVar(&manageInstallPrint, "print", false, "Print the steps that would run, without executing")
+	manageInstallCmd.Flags().BoolVar(&manageInstallNoPull, "no-pull", false, "Skip the dependency pull install ends with; declared dependencies stay uninstalled until 'ctxloom deps pull' runs")
 
 	// hooks.
 	manageCmd.AddCommand(manageHooksCmd)

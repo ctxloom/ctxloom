@@ -2,7 +2,10 @@
 // These errors enable programmatic error handling with errors.Is().
 package errs
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // NotFound errors indicate that a requested resource doesn't exist.
 var (
@@ -33,6 +36,14 @@ var (
 
 	// ErrProfileNotFound indicates a profile could not be located.
 	ErrProfileNotFound = errors.New("profile not found")
+
+	// ErrLocalProfileNotFound is the ErrProfileNotFound of a profile only
+	// this project (or a local bundle) can hold — a bare name or a
+	// ctxloom+local: ref. `ctxloom deps pull` fetches remote bundles and
+	// cannot create one, so its remedy must not point there. It wraps
+	// ErrProfileNotFound, and renders the same text, so a caller that only
+	// asks "not found?" is unchanged.
+	ErrLocalProfileNotFound = fmt.Errorf("%w", ErrProfileNotFound)
 
 	// ErrFragmentWithheld indicates a fragment resolved but the delivery
 	// pipeline withheld it: its ref could not be addressed, or it is linked to

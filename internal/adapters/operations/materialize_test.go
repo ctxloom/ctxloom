@@ -254,13 +254,13 @@ func TestRunSyncPostSteps_MaterializesAtTheProjectRootItNames(t *testing.T) {
 	want := MaterializeRequest{Target: projectroot.WorkDir(), LeaveLaunchContext: true}
 
 	consented := &SyncDependenciesResult{Total: 1}
-	runSyncPostSteps(context.Background(), engines.Registry(), &config.Config{}, SyncDependenciesRequest{ApplyHooks: true, WriteProject: true}, consented, afero.NewMemMapFs())
+	runSyncPostSteps(context.Background(), engines.Registry(), &config.Config{}, strictness.Mode{}, SyncDependenciesRequest{ApplyHooks: true, WriteProject: true}, consented, afero.NewMemMapFs())
 	require.Len(t, got, 1)
 	assert.Equal(t, want, got[0])
 	assert.Nil(t, consented.RefreshSkipped, "a refresh that ran skipped nothing")
 
 	unconsented := &SyncDependenciesResult{Total: 1}
-	runSyncPostSteps(context.Background(), engines.Registry(), &config.Config{}, SyncDependenciesRequest{ApplyHooks: true}, unconsented, afero.NewMemMapFs())
+	runSyncPostSteps(context.Background(), engines.Registry(), &config.Config{}, strictness.Mode{}, SyncDependenciesRequest{ApplyHooks: true}, unconsented, afero.NewMemMapFs())
 	require.Len(t, got, 2)
 	want.DryRun = true
 	assert.Equal(t, want, got[1], "without consent the refresh only plans")
@@ -282,7 +282,7 @@ func TestRunSyncPostSteps_WithoutConsentWritesNothingAndSaysWhat(t *testing.T) {
 
 	result := &SyncDependenciesResult{Total: 1}
 	mark := strictness.Checkpoint()
-	runSyncPostSteps(context.Background(), engines.Registry(), cfg, SyncDependenciesRequest{ApplyHooks: true}, result, afero.NewOsFs())
+	runSyncPostSteps(context.Background(), engines.Registry(), cfg, strictness.Mode{}, SyncDependenciesRequest{ApplyHooks: true}, result, afero.NewOsFs())
 	require.Empty(t, strictness.Since(mark), "planning the refresh is no failure")
 
 	entries, err := os.ReadDir(root)
@@ -315,7 +315,7 @@ func TestSyncMaterializeStep_AWholesaleFailureIsAnApplyFinding(t *testing.T) {
 			return res, err
 		}
 		mark := strictness.Checkpoint()
-		syncMaterializeStep(context.Background(), engines.Registry(), &config.Config{}, true)
+		syncMaterializeStep(context.Background(), engines.Registry(), &config.Config{}, strictness.Mode{}, true)
 		return strictness.Since(mark)
 	}
 
@@ -378,7 +378,7 @@ func TestRunSyncPostSteps_LeavesLaunchContextOut(t *testing.T) {
 		got = append(got, res)
 		return res, err
 	}
-	runSyncPostSteps(context.Background(), reg, cfg, SyncDependenciesRequest{ApplyHooks: true, WriteProject: true}, &SyncDependenciesResult{Total: 1}, afero.NewOsFs())
+	runSyncPostSteps(context.Background(), reg, cfg, strictness.Mode{}, SyncDependenciesRequest{ApplyHooks: true, WriteProject: true}, &SyncDependenciesResult{Total: 1}, afero.NewOsFs())
 	require.Len(t, got, 1)
 	require.NotNil(t, got[0])
 	require.Equal(t, MaterializeApplied, got[0].Status, "%v", got[0].Errors)
@@ -408,7 +408,7 @@ func TestRunSyncPostSteps_APlainSyncLeavesNoContextAtRestToWarnOf(t *testing.T) 
 	t.Cleanup(func() { syncHooksStep = orig })
 	syncHooksStep = Materialize
 	mark := strictness.Checkpoint()
-	runSyncPostSteps(context.Background(), reg, cfg, SyncDependenciesRequest{ApplyHooks: true, WriteProject: true}, &SyncDependenciesResult{Total: 1}, afero.NewOsFs())
+	runSyncPostSteps(context.Background(), reg, cfg, strictness.Mode{}, SyncDependenciesRequest{ApplyHooks: true, WriteProject: true}, &SyncDependenciesResult{Total: 1}, afero.NewOsFs())
 	require.Empty(t, strictness.Since(mark), "the refresh succeeded")
 	assert.Contains(t, fileIn(t, root, ".claude/settings.json"), "team-guardrail", "the refresh ran")
 	records, err := OwnershipRecords()

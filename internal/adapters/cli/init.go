@@ -450,10 +450,12 @@ func cloneConfiguredRemotes(cmd *cobra.Command, appDir string) {
 // pullSeededDependencies pulls and locks the remote dependencies the config at
 // appDir references (see addPersonalRemotes on why the dir is passed, not
 // discovered) — most importantly the seeded default profile, which resolves
-// only through a lockfile entry. Without it a fresh project is degraded rather
-// than merely unfinished: assembly SKIPS the uninstalled reference, so the very
-// first `ctxloom run` after init composes less context than the configuration
-// says it should, and `ctxloom doctor` reports the skip.
+// only through a lockfile entry. Without it a fresh project is broken rather
+// than merely unfinished: the very first strict `ctxloom run` or `ctxloom
+// materialize` after init refuses over the uninstalled parent (under
+// --degraded it composes less context than the configuration says it
+// should), and `ctxloom doctor` reports the skip. `manage install` ends with
+// the same pull (pullProjectDependencies).
 //
 // It runs before launchDiscovery because the interview session composes
 // from the installed bundles: a launch over a closure that is not there yet
@@ -469,29 +471,12 @@ func cloneConfiguredRemotes(cmd *cobra.Command, appDir string) {
 // command.
 func pullSeededDependencies(cmd *cobra.Command, appDir string) {
 	if initNoPull {
-		fmt.Println("Skipped the dependency pull (--no-pull). Any remote dependencies this project")
-		fmt.Println("references are NOT installed, so context assembly will skip them until you run:")
-		fmt.Println("  ctxloom deps pull")
+		fmt.Print(noPullNotice)
 		return
 	}
-	result, syncErr := syncDependencies(cmd.Context(), App(), operations.SyncDependenciesRequest{
-		Lock:       true,
-		ApplyHooks: false, // init writes no engine file: a `ctxloom run` session delivers its own
-	})
-	if syncErr != nil {
-		warnDependencyPullFailed(syncErr)
-		return
-	}
-	// A sync returns a NIL ERROR for a run in which individual references
-	// failed to fetch — the per-item outcomes live in the result, and an
-	// offline init produces exactly that shape: nil error, zero installed,
-	// every reference failed. Reporting only on Installed printed nothing at
-	// all in that case, which is this project's characteristic defect (exit 0,
-	// no complaint, zero bytes fetched). pullResultErr is the same verdict
-	// `ctxloom deps pull` exits on, so init and the command it stands in for
-	// can never disagree about what counts as a failed pull.
-	if resultErr := pullResultErr(result); resultErr != nil {
-		warnDependencyPullFailed(resultErr)
+	result, err := pullProjectDependencies(cmd)
+	if err != nil {
+		warnDependencyPullFailed("init", err)
 		return
 	}
 	if result.Installed > 0 {
@@ -501,26 +486,66 @@ func pullSeededDependencies(cmd *cobra.Command, appDir string) {
 	operations.WriteNewPins(os.Stdout, result.Changes)
 }
 
-// warnDependencyPullFailed reports a dependency pull that did not complete
-// during init. It names three things a bare error cannot: that the init itself
-// stands (nothing is rolled back), that the consequence is uninstalled
-// dependencies which assembly will silently skip, and the fix — the one err
+// noPullNotice is what a scaffolding command says when --no-pull suppressed
+// its dependency pull: what is left uninstalled, and the command that
+// installs it.
+const noPullNotice = "Skipped the dependency pull (--no-pull). Any remote dependencies this project\n" +
+	"references are NOT installed, so a strict `ctxloom run` or `ctxloom materialize`\n" +
+	"refuses over them until you run:\n" +
+	"  ctxloom deps pull\n"
+
+// pullProjectDependencies is the dependency pull the scaffolding commands
+// (root init, manage install) end with: `ctxloom deps pull`'s install half —
+// fetch and lock the closure the project's profiles reference, most
+// importantly the seeded default profile's remote parent, which resolves only
+// through a lockfile entry — and no engine-file refresh (neither command
+// writes an engine file: a `ctxloom run` session delivers its own).
+//
+// A sync returns a NIL ERROR for a run in which individual references failed
+// to fetch — the per-item outcomes live in the result, and an offline pull
+// produces exactly that shape: nil error, zero installed, every reference
+// failed. Reporting only on Installed printed nothing at all in that case,
+// which is this project's characteristic defect (exit 0, no complaint, zero
+// bytes fetched). pullResultErr is the same verdict `ctxloom deps pull` exits
+// on, so the scaffolding commands and the command they stand in for can never
+// disagree about what counts as a failed pull.
+func pullProjectDependencies(cmd *cobra.Command) (*operations.SyncDependenciesResult, error) {
+	result, err := syncDependencies(cmd.Context(), App(), operations.SyncDependenciesRequest{
+		Lock:       true,
+		ApplyHooks: false,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := pullResultErr(result); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+// warnDependencyPullFailed reports a dependency pull that did not complete at
+// the end of a scaffolding command (by: "init", "install"). It names four
+// things a bare error cannot: what failed, that the command's own work stands
+// (nothing is rolled back), that the consequence is uninstalled dependencies
+// a strict launch or materialize refuses over, and the fix — the one err
 // names (a misspelt reference, a retired-format pin), else the pull that
 // finishes the job once the remote is reachable.
-func warnDependencyPullFailed(err error) {
+func warnDependencyPullFailed(by string, err error) {
 	remedy, ok := clifmt.RemedyOf(err)
 	if !ok {
 		remedy = remedyRetryPull
 	}
 	clidiag.WarnRemedy("ctxloom", remedy,
 		"the dependency pull did not complete: %v\n"+
-			"  Everything init wrote is kept — the project is initialized and usable.\n"+
-			"  Its remote dependencies are NOT installed, so context assembly will skip\n"+
-			"  them (`ctxloom doctor` reports this).",
-		err)
+			"  Everything %s wrote is kept — the project is initialized and usable.\n"+
+			"  Its remote dependencies are NOT installed: until they are, a strict\n"+
+			"  `ctxloom run` or `ctxloom materialize` refuses over them (`ctxloom doctor`\n"+
+			"  reports this; `ctxloom deps pull` retries).",
+		err, by)
 }
 
-// remedyRetryPull is init's fix for a pull whose failure names none of its own.
+// remedyRetryPull is the scaffolding commands' fix for a pull whose failure
+// names none of its own.
 const remedyRetryPull = "ctxloom deps pull, once the remote is reachable"
 
 // The setup launch: the auth probe and the discovery session are TWO

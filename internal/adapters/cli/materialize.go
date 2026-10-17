@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -99,6 +100,7 @@ func runMaterialize(cmd *cobra.Command, args []string) error {
 	req := operations.MaterializeRequest{
 		Profiles: profilesOrNil(args), Target: matFlags.target, Explicit: matFlags.target != "",
 		Engines: matFlags.backends, Surfaces: specs, Release: matFlags.release, DryRun: matFlags.dryRun, Force: matFlags.force,
+		Strictness: App().Strictness,
 	}
 	if !req.Explicit {
 		req.Target = projectroot.WorkDir()
@@ -108,6 +110,14 @@ func runMaterialize(cmd *cobra.Command, args []string) error {
 	}
 	gates := newPhaseGates(os.Stderr, App().Strictness)
 	res, err := operations.Materialize(cmd.Context(), App().Engines(), cfg, req)
+	if errors.Is(err, operations.ErrMaterializeRefused) {
+		// Refused before anything was written. The findings are on this
+		// window's ledger: the gate renders the same abort a dry run (or a
+		// write failure) gets, with every finding and its fix.
+		if ferr := gates.close(PhaseStartup); ferr != nil {
+			return ferr
+		}
+	}
 	if err != nil {
 		return err
 	}

@@ -58,12 +58,12 @@ func TestWarnDependencyPullFailed_NamesTheErrorsFix(t *testing.T) {
 	t.Cleanup(restore)
 
 	const fix = "fix the reference's spelling"
-	warnDependencyPullFailed(report.Error{Msg: "deps pull: 1 failed (x)", Fix: fix})
+	warnDependencyPullFailed("init", report.Error{Msg: "deps pull: 1 failed (x)", Fix: fix})
 	assert.Contains(t, buf.String(), clifmt.FixLine("  ", fix))
 	assert.NotContains(t, buf.String(), remedyRetryPull)
 
 	buf.Reset()
-	warnDependencyPullFailed(errors.New("offline"))
+	warnDependencyPullFailed("init", errors.New("offline"))
 	assert.Contains(t, buf.String(), clifmt.FixLine("  ", remedyRetryPull))
 	assert.Contains(t, buf.String(), "Everything init wrote is kept", "the preamble stands")
 }

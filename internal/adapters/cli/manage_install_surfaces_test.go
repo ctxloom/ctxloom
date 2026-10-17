@@ -89,7 +89,7 @@ func TestManageInstall_WritesNoRuntimeSurfaceIntoTheProject(t *testing.T) {
 			dir := testsupport.ProjectDir(t)
 			before := topLevelEntries(t, dir)
 
-			_, err := runCLIErr(t, "manage", "install", "--print=false", "--engine", engine)
+			_, err := runCLIErr(t, "manage", "install", "--print=false", "--no-pull", "--engine", engine)
 			require.NoError(t, err)
 
 			assert.FileExists(t, filepath.Join(dir, ".ctxloom", "config.yaml"), "the scaffold is install's job")
@@ -130,7 +130,7 @@ func TestManageUninstall_RemovesWhatAnEarlierInstallWrote(t *testing.T) {
 	// assembled context; this sandboxed HOME registers none, so the round trip
 	// is measured, not the developer's PATH.
 
-	_, err := runCLIErr(t, "manage", "install", "--print=false", "--engine", "claude-code")
+	_, err := runCLIErr(t, "manage", "install", "--print=false", "--no-pull", "--engine", "claude-code")
 	require.NoError(t, err)
 	scaffolded := treeSnapshot(t, dir)
 
@@ -168,7 +168,7 @@ func TestManageUninstall_RemovesWhatAnEarlierInstallWrote(t *testing.T) {
 func TestManageUninstall_OnAFreshInstallIsANoOp(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 
-	_, err := runCLIErr(t, "manage", "install", "--print=false", "--engine", "claude-code")
+	_, err := runCLIErr(t, "manage", "install", "--print=false", "--no-pull", "--engine", "claude-code")
 	require.NoError(t, err)
 	before := treeSnapshot(t, dir)
 

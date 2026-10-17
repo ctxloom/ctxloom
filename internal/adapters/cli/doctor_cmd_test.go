@@ -25,6 +25,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
@@ -74,6 +75,11 @@ func setupProject(t *testing.T, engine string) (root string, cfg *config.Config)
 	return root, cfg
 }
 
+// seedDegraded is the posture these hermetic deliveries run under: the
+// scaffold's seed profile inherits a remote parent that is never pulled
+// here, and a strict delivery refuses over it before writing.
+var seedDegraded = strictness.Mode{Prog: "ctxloom", Degraded: true}
+
 // applyHooksHermetically materializes the project's surfaces at rest for
 // backend, so the doctor has a fully wired project to inspect. It pins the
 // exec token of every ctxloom-owned command to "ctxloom" via
@@ -84,7 +90,7 @@ func setupProject(t *testing.T, engine string) (root string, cfg *config.Config)
 func applyHooksHermetically(t *testing.T, cfg *config.Config, root, backend string) {
 	t.Helper()
 	t.Cleanup(selfexec.SetPathForTesting("ctxloom"))
-	_, err := operations.Materialize(context.Background(), engines.Registry(), cfg, operations.MaterializeRequest{Engines: []string{backend}, Target: root, Surfaces: surfacesButContext()})
+	_, err := operations.Materialize(context.Background(), engines.Registry(), cfg, operations.MaterializeRequest{Engines: []string{backend}, Target: root, Surfaces: surfacesButContext(), Strictness: seedDegraded})
 	require.NoError(t, err)
 }
 
@@ -440,7 +446,7 @@ func TestDoctorCmd_DepsFlag_JSONShapeIsDepsAndGitIdentity(t *testing.T) {
 
 func TestDoctorCmd_JSONShape(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
-	_, err := operations.Materialize(context.Background(), engines.Registry(), cfg, operations.MaterializeRequest{Engines: []string{"claude-code"}, Target: root, Surfaces: surfacesButContext()})
+	_, err := operations.Materialize(context.Background(), engines.Registry(), cfg, operations.MaterializeRequest{Engines: []string{"claude-code"}, Target: root, Surfaces: surfacesButContext(), Strictness: seedDegraded})
 	require.NoError(t, err)
 
 	out, err := runDoctor(t, root, "--format", "json")
@@ -477,7 +483,7 @@ func TestDoctorCmd_JSONShape(t *testing.T) {
 // write hidden behind either branch would still be caught).
 func TestDoctorCmd_ReadOnly(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
-	_, err := operations.Materialize(context.Background(), engines.Registry(), cfg, operations.MaterializeRequest{Engines: []string{"claude-code"}, Target: root, Surfaces: surfacesButContext()})
+	_, err := operations.Materialize(context.Background(), engines.Registry(), cfg, operations.MaterializeRequest{Engines: []string{"claude-code"}, Target: root, Surfaces: surfacesButContext(), Strictness: seedDegraded})
 	require.NoError(t, err)
 
 	before := hashTree(t, root)

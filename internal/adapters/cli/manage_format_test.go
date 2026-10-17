@@ -100,7 +100,7 @@ func TestManageInstallUninstall_FormatJSON(t *testing.T) {
 	// manageInstallPrint var (cobra doesn't reset an unpassed bool flag to
 	// its default across repeated Execute() calls on the same command tree)
 	// — pass it explicitly so this call takes the real install branch.
-	installed := runCLIJSON(t, "manage", "install", "--print=false")
+	installed := runCLIJSON(t, "manage", "install", "--print=false", "--no-pull")
 	require.Equal(t, true, installed["initialized"])
 	require.NotEmpty(t, installed["gitignore"])
 	require.NotEmpty(t, installed["gitignore_status"])

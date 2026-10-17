@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -137,6 +138,14 @@ type SyncDependenciesResult struct {
 	// it stands (delivery.Static.Preview), so a project already current gets
 	// no note. WriteRefreshSkipped renders it.
 	RefreshSkipped *MaterializeResult `json:"refresh_skipped,omitempty"`
+	// RefreshFindings are the findings the consented (WriteProject) project
+	// refresh raised that the run's strictness acts on: an assembly finding
+	// that refused the refresh before anything was written
+	// (MaterializeRefusal), or a write that failed. Each was streamed with
+	// its fix when raised; the command exits on them as `ctxloom
+	// materialize` does. Empty under --degraded (the ordinary findings are
+	// waived) and when the refresh only planned.
+	RefreshFindings report.Findings `json:"refresh_findings,omitempty"`
 }
 
 // ConstraintChange is a pin kept at its commit although the manifest now asks
@@ -250,7 +259,7 @@ func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest
 				"run 'ctxloom deps pull' again to continue converging", maxSyncPasses)
 	}
 
-	runSyncPostSteps(ctx, reg, cfg, req, result, fs)
+	runSyncPostSteps(ctx, reg, cfg, app.Strictness, req, result, fs)
 	if pullSucceededInFull(ctx, req, converged, result) {
 		result.PrunedCheckouts = pruneAfterPull(baseDir, lockManager)
 	}
@@ -464,8 +473,11 @@ func init() {
 
 // runSyncPostSteps runs the optional lockfile + hooks regeneration after a sync.
 // Each step warns and continues on failure — partial success is success and a
-// post-step failure must not fail the sync the user just completed (CLAUDE.md).
-func runSyncPostSteps(ctx context.Context, reg engine.Registry, cfg *config.Config, req SyncDependenciesRequest, result *SyncDependenciesResult, fs afero.Fs) {
+// post-step failure must not fail the sync the user just completed (CLAUDE.md)
+// — except that the consented refresh is gated by mode exactly as `ctxloom
+// materialize` is: a fatal finding refuses it before it writes, and lands on
+// result.RefreshFindings for the command to exit on.
+func runSyncPostSteps(ctx context.Context, reg engine.Registry, cfg *config.Config, mode strictness.Mode, req SyncDependenciesRequest, result *SyncDependenciesResult, fs afero.Fs) {
 	if req.Lock && result.Installed+result.Reinstalled > 0 {
 		// The puller already wrote the lockfile inline during this sync, so the
 		// lock step only needs to surface it — SkipSync avoids a redundant
@@ -483,7 +495,7 @@ func runSyncPostSteps(ctx context.Context, reg engine.Registry, cfg *config.Conf
 	// Materialize whenever there were remote references, so MCP servers from
 	// bundles get registered even if every dependency was already installed.
 	if req.ApplyHooks && result.Total > 0 {
-		result.RefreshSkipped = syncMaterializeStep(ctx, reg, cfg, req.WriteProject)
+		result.RefreshSkipped, result.RefreshFindings = syncMaterializeStep(ctx, reg, cfg, mode, req.WriteProject)
 	}
 }
 
@@ -498,24 +510,39 @@ func runSyncPostSteps(ctx context.Context, reg engine.Registry, cfg *config.Conf
 // project as it stands — and returns it as the refresh it skipped (nil when
 // it would change nothing and meet no refusal).
 //
-// A wholesale failure is fatal-class in strict mode (per-engine partial
-// failures are already instrumented inside Materialize); degraded mode warns
-// and continues.
-func syncMaterializeStep(ctx context.Context, reg engine.Registry, cfg *config.Config, write bool) *MaterializeResult {
-	res, err := syncHooksStep(ctx, reg, cfg, MaterializeRequest{Target: projectroot.WorkDir(), LeaveLaunchContext: true, DryRun: !write})
+// The refresh runs under mode, so Materialize's assembly gate refuses a
+// consented refresh over a fatal finding before it writes anything. A
+// wholesale failure is fatal-class in strict mode (per-engine partial
+// failures are already instrumented inside Materialize, and the gate's
+// refusal carries findings already recorded); degraded mode warns and
+// continues. With write set, every finding the refresh raised that mode acts
+// on is returned as refused, for the command to exit on.
+func syncMaterializeStep(ctx context.Context, reg engine.Registry, cfg *config.Config, mode strictness.Mode, write bool) (skipped *MaterializeResult, refused report.Findings) {
+	mark := strictness.Checkpoint()
+	defer strictness.Close(mark)
+	defer func() {
+		if write {
+			refused = mode.Actionable(strictness.Since(mark))
+		}
+	}()
+	res, err := syncHooksStep(ctx, reg, cfg, MaterializeRequest{Target: projectroot.WorkDir(), LeaveLaunchContext: true, DryRun: !write, Strictness: mode})
 	if err == nil && res != nil && res.Status == MaterializeFailed {
 		err = fmt.Errorf("no engine could be materialized: %s", strings.Join(res.Errors, "; "))
+	}
+	if errors.Is(err, ErrMaterializeRefused) {
+		zap.L().Warn("project refresh refused over fatal findings", zap.Error(err))
+		return nil, nil
 	}
 	if err != nil {
 		strictness.Fail(report.KindApply, "fix the failure, then re-apply (ctxloom materialize --yes)",
 			"failed to apply hooks after sync: %v", err)
 		zap.L().Warn("failed to apply hooks", zap.Error(err))
-		return nil
+		return nil, nil
 	}
 	if write || !refreshPlansAnything(res) {
-		return nil
+		return nil, nil
 	}
-	return res
+	return res, nil
 }
 
 // refreshPlansAnything reports whether a previewed refresh would change any

@@ -22,8 +22,10 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
 
   Rule: Installing scaffolds the project for one engine, and validates which
 
-    `manage install` scaffolds `.ctxloom`, records the chosen engine, and
-    git-ignores ctxloom's private state. It writes NO engine file: the
+    `manage install` scaffolds `.ctxloom`, records the chosen engine,
+    git-ignores ctxloom's private state, and pulls the remote dependencies
+    the profiles reference (`--no-pull` skips that, and keeps every cell
+    here off the network). It writes NO engine file: the
     engine's own native configuration is delivered into a `ctxloom run`
     session's home, and reaches the project tree only through an explicit
     `ctxloom materialize`. Which files THAT writes differs per engine and is
@@ -40,7 +42,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Given an empty project directory
       When Alice installs ctxloom for <engine>:
         """
-        ctxloom manage install --engine <engine>
+        ctxloom manage install --engine <engine> --no-pull
         """
       Then the command succeeds
       And the file ".ctxloom/config.yaml" is valid YAML
@@ -77,14 +79,16 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # scaffold)
     #
     # --degraded: the scaffold's seed profile inherits ctxloom's published
-    # default profile, a remote parent `ctxloom deps pull` would install and
-    # this hermetic cell never pulls; a strict materialize refuses to deliver
-    # past it (`manage install` alone writes no engine file to refuse).
+    # default profile, a remote parent `manage install` pulls — but
+    # --no-pull keeps this hermetic cell off the network, so it is never
+    # installed; a strict materialize refuses to deliver past it, before
+    # writing anything (`manage install` alone writes no engine file to
+    # refuse).
     Scenario Outline: Alice wires an empty project for her engine
       Given an empty project directory
       When Alice installs ctxloom for <engine> and wires its files in:
         """
-        ctxloom manage install --engine <engine>
+        ctxloom manage install --engine <engine> --no-pull
         ctxloom materialize --yes --degraded
         """
       Then the command succeeds
@@ -121,7 +125,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Given an empty project directory
       When Alice installs ctxloom for <engine> and wires its files in:
         """
-        ctxloom manage install --engine <engine>
+        ctxloom manage install --engine <engine> --no-pull
         ctxloom materialize --yes --degraded
         """
       Then the command succeeds
@@ -155,7 +159,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Given an empty project directory
       When Alice installs ctxloom for <engine> and wires its files in:
         """
-        ctxloom manage install --engine <engine>
+        ctxloom manage install --engine <engine> --no-pull
         ctxloom materialize --yes --degraded
         """
       Then the command succeeds
@@ -571,7 +575,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Given an empty project directory
       When Alice wires ctxloom in:
         """
-        ctxloom manage install --engine claude-code
+        ctxloom manage install --engine claude-code --no-pull
         ctxloom materialize --yes --degraded
         """
       Then the command succeeds

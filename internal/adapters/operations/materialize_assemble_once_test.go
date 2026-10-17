@@ -35,13 +35,18 @@ func TestMaterialize_ResolvesTheDefaultProfilesOnce(t *testing.T) {
 
 	mark := strictness.Checkpoint()
 	t.Cleanup(func() { strictness.Close(mark) })
-	_, err := Materialize(context.Background(), engines.Registry(), cfg, MaterializeRequest{Engines: []string{"claude-code"}, Target: tmpDir})
+	_, err := Materialize(context.Background(), engines.Registry(), cfg, MaterializeRequest{
+		Engines: []string{"claude-code"}, Target: tmpDir,
+		// Degraded, so the delivery writes past the finding the count reads.
+		Strictness: strictness.Mode{Prog: "ctxloom", Degraded: true},
+	})
 	require.NoError(t, err)
 
 	var resolutions int
 	for _, f := range strictness.Since(mark) {
 		if f.Kind == report.KindRef {
 			resolutions++
+			assert.NotContains(t, f.Remedy, "deps pull", "a pull cannot create a missing LOCAL profile")
 		}
 	}
 	assert.Equal(t, 1, resolutions, "one engine's materialize, one resolution of the default profile set")

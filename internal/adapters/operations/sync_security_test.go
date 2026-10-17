@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
@@ -260,7 +261,7 @@ func TestRunSyncPostSteps_FailuresWarnOnStderr(t *testing.T) {
 	stderr := captureStderr(t, func() {
 		result := &SyncDependenciesResult{Installed: 1, Total: 1}
 		req := SyncDependenciesRequest{Lock: true, ApplyHooks: true}
-		runSyncPostSteps(context.Background(), engines.Registry(), &config.Config{}, req, result, afero.NewMemMapFs())
+		runSyncPostSteps(context.Background(), engines.Registry(), &config.Config{}, strictness.Mode{}, req, result, afero.NewMemMapFs())
 	})
 
 	assert.Contains(t, stderr, "ctxloom: warning: failed to generate lockfile after sync: lock boom")

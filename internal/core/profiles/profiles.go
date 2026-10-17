@@ -547,6 +547,19 @@ const (
 	listProfilesFix      = "`ctxloom profile list` names every profile you can use"
 )
 
+// missingLocalParentFix is the remedy for a parent of profile name that
+// names a local profile which does not exist: the loader's own suggestion
+// (localMissFix's "did you mean" or the listing, carried on err), then the
+// edits that resolve it. Never a pull, which cannot create a local profile.
+func missingLocalParentFix(name, parent string, err error) string {
+	fix := fmt.Sprintf("create the profile %s, or correct or remove that parent in profile %s", parent, name)
+	var r report.Remediable
+	if errors.As(err, &r) && r.Remedy() != "" {
+		return r.Remedy() + "; otherwise " + fix
+	}
+	return fix
+}
+
 // localMissFix names the one installed profile whose name matches the missed
 // project-profile ref, or the listing when there is no single such profile.
 func (l *Loader) localMissFix(ref string) string {
@@ -593,7 +606,7 @@ func (l *Loader) Load(name string) (*Profile, error) {
 		// spelling may name an installed bundle not yet pulled, so its miss
 		// says how to install it.
 		if ref != name || explicitlyLocal(ref) {
-			return nil, report.Errorf(l.localMissFix(ref), "%w: %s", errs.ErrProfileNotFound, name)
+			return nil, report.Errorf(l.localMissFix(ref), "%w: %s", errs.ErrLocalProfileNotFound, name)
 		}
 		return nil, fmt.Errorf("%w: %s (bundle profile has no lockfile entry — run 'ctxloom deps pull')", errs.ErrProfileNotFound, name)
 	}
@@ -936,6 +949,12 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 				// Structural misconfiguration stays fatal: continuing would mask
 				// a real cycle or risk runaway recursion.
 				return nil, fmt.Errorf("failed to resolve parent %s: %w", parent, err)
+			case errors.Is(err, errs.ErrLocalProfileNotFound):
+				// A parent only this project (or a local bundle) can hold:
+				// pulling fetches remote bundles and cannot create it, so the
+				// remedy is the edit that can.
+				l.rep.FailOncef(report.KindRef, missingLocalParentFix(name, parent, err),
+					"profile %q: parent %s does not exist; skipping", name, parent)
 			case errors.Is(err, errs.ErrProfileNotFound):
 				// FailOnce: resolution re-runs in every subsystem that builds a
 				// loader (assembly, hooks, MCP, ...), so an unresolvable parent

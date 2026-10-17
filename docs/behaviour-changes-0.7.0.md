@@ -398,6 +398,36 @@ default agent's; with no `--backend`, the project's configured engines.
   out with `--surface`, and it refuses (exit 3) a profile that does not
   resolve, such as a remote parent not yet pulled, unless you pass
   `--degraded`.
+- **A refusal writes nothing.** `ctxloom materialize` assembles every
+  engine's files before it writes any, and a finding it would refuse over
+  (exit 3 — a parent profile not yet pulled, or one that does not exist)
+  now stops it first: no engine file, no record of ownership, not even a
+  missing `--target` directory. Before, it wrote CLAUDE.md without the
+  missing parent's content, the settings, the commands and their records,
+  and only then exited 3. `--degraded` still writes past the finding and
+  warns. `ctxloom deps pull --yes` refreshes the project through the same
+  check: the pull itself lands, the refresh writes nothing, and the command
+  exits 3 naming the finding. Before, it wrote the refresh and exited 0. A
+  write that fails during that refresh now exits 3 the same way.
+- **A parent profile that does not exist is no longer sent to `deps pull`.**
+  A missing local parent — a bare name, or a `ctxloom+local:` reference —
+  is reported as not existing, with a fix that says to create it, correct
+  it or remove it from the profile's `parents` (and a "did you mean" when
+  one installed profile has that name). Pulling fetches remote bundles and
+  cannot create a local profile. A missing default-agent profile that is
+  local gets the same fix. A remote parent not yet pulled still names
+  `ctxloom deps pull`.
+- **`ctxloom manage install` now pulls the project's dependencies**, as
+  `ctxloom init` does, so the default profile's parent
+  (`ai-developer#profiles/developer` from ctxloom-default) is installed and
+  the next `ctxloom run` or `ctxloom materialize --yes` works. Before, both
+  refused (exit 3) until you ran `ctxloom deps pull`. If the pull cannot
+  complete — offline, or the remote unreachable — install still succeeds
+  and keeps what it wrote, and warns naming what failed and that `ctxloom
+  deps pull` retries; the next strict command refuses until then. Install
+  now reaches the network unless you pass the new `--no-pull`. Its `--format
+  json` output gains a `pull` object (`status`: `pulled`, `failed` or
+  `skipped`; `installed`; `error`).
 - The native-file delivery approach is renamed **`file`** (it was spelled
   with an `unsafe-` prefix): in `agent set --surface`, an agent binding's
   `surfaces:`, and the config schema. The old spelling is refused as an

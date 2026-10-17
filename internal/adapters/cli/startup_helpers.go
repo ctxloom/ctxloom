@@ -119,6 +119,10 @@ const (
 	PhaseStartup        Phase = "startup"
 	PhaseWorkspace      Phase = "workspace"
 	PhaseTransportStart Phase = "transport start"
+	// PhaseRefresh is the post-sync project refresh `deps pull --yes` runs:
+	// its fatal findings refuse the refresh before it writes
+	// (operations.SyncDependenciesResult.RefreshFindings).
+	PhaseRefresh Phase = "project refresh"
 )
 
 // phaseGates tiles a process's fatality windows. close() reports the phase's

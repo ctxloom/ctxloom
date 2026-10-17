@@ -57,6 +57,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
@@ -1106,7 +1107,7 @@ func TestRunSyncPostSteps_Guards(t *testing.T) {
 			result := &SyncDependenciesResult{Installed: tt.installed, Reinstalled: tt.reinstalled, Total: tt.total}
 			req := SyncDependenciesRequest{Lock: tt.lock, ApplyHooks: tt.applyHooks}
 
-			runSyncPostSteps(context.Background(), engines.Registry(), &config.Config{}, req, result, afero.NewMemMapFs())
+			runSyncPostSteps(context.Background(), engines.Registry(), &config.Config{}, strictness.Mode{}, req, result, afero.NewMemMapFs())
 
 			assert.Equal(t, tt.wantLock, lockCalls == 1, "lockfile step fired=%v, want %v", lockCalls == 1, tt.wantLock)
 			assert.Equal(t, tt.wantHooks, hookCalls == 1, "hooks step fired=%v, want %v", hookCalls == 1, tt.wantHooks)
@@ -1299,7 +1300,7 @@ func TestRunSyncPostSteps_CarriesAnIncompleteLock(t *testing.T) {
 			return lock, nil
 		}
 		result := &SyncDependenciesResult{Installed: 1, Total: 1}
-		runSyncPostSteps(context.Background(), engines.Registry(), &config.Config{}, SyncDependenciesRequest{Lock: true}, result, afero.NewMemMapFs())
+		runSyncPostSteps(context.Background(), engines.Registry(), &config.Config{}, strictness.Mode{}, SyncDependenciesRequest{Lock: true}, result, afero.NewMemMapFs())
 		return result
 	}
 

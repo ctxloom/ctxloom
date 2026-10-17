@@ -46,7 +46,7 @@ func newRefreshProject(t *testing.T) refreshProject {
 func (p refreshProject) pull(t *testing.T, write bool) *SyncDependenciesResult {
 	t.Helper()
 	res := &SyncDependenciesResult{Total: 1}
-	runSyncPostSteps(context.Background(), engines.Registry(), p.cfg, SyncDependenciesRequest{ApplyHooks: true, WriteProject: write}, res, afero.NewOsFs())
+	runSyncPostSteps(context.Background(), engines.Registry(), p.cfg, strictness.Mode{}, SyncDependenciesRequest{ApplyHooks: true, WriteProject: write}, res, afero.NewOsFs())
 	return res
 }
 

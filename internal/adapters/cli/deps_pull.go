@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -100,6 +101,17 @@ func runDepsPull(cmd *cobra.Command, _ []string) error {
 		return nil
 	}); err != nil {
 		return err
+	}
+	// The consented project refresh is gated exactly as `ctxloom materialize`
+	// is: a fatal finding refused it before it wrote anything, and the pull
+	// exits on it — after the payload, and behind a failed pull's own error,
+	// which names the more specific fix.
+	if msg := formatFindings(App().Strictness, PhaseRefresh, result.RefreshFindings); msg != "" {
+		fmt.Fprintln(os.Stderr, msg)
+		if err := pullResultErr(result); err != nil {
+			return err
+		}
+		return clifmt.ExitStatus{Code: exitCodeFatalFindings}
 	}
 	return pullResultErr(result)
 }

@@ -61,9 +61,10 @@ func registerJ000100Steps(ctx *godog.ScenarioContext) {
 	// `ctxloom run` session carries its own surfaces).
 	ctx.Step(`^ctxloom is already wired into her project$`, func(c context.Context) error {
 		for _, cmdline := range []string{
-			"ctxloom manage install --engine claude-code",
-			// --degraded: the scaffold's profile inherits a remote parent
-			// only `ctxloom deps pull` installs; this cell is offline.
+			"ctxloom manage install --engine claude-code --no-pull",
+			// --no-pull above and --degraded here: the scaffold's profile
+			// inherits a remote parent install would pull; this cell is
+			// offline.
 			"ctxloom materialize --yes --degraded",
 		} {
 			if err := runCLI(c, cmdline, ""); err != nil {

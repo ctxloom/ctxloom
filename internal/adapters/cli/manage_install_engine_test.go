@@ -43,14 +43,14 @@ func runCLIErr(t *testing.T, args ...string) (string, error) {
 func TestManageInstall_EngineOnExistingDirIsNotSilentlyDropped(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 
-	_, err := runCLIErr(t, "manage", "install", "--print=false", "--engine", "claude-code")
+	_, err := runCLIErr(t, "manage", "install", "--print=false", "--no-pull", "--engine", "claude-code")
 	require.NoError(t, err, "first install scaffolds")
 
 	cfgPath := filepath.Join(dir, ".ctxloom", "config.yaml")
 	before, rerr := os.ReadFile(cfgPath)
 	require.NoError(t, rerr)
 
-	_, err = runCLIErr(t, "manage", "install", "--print=false", "--engine", "mock")
+	_, err = runCLIErr(t, "manage", "install", "--print=false", "--no-pull", "--engine", "mock")
 	require.Error(t, err, "a --engine that cannot be applied must not report success")
 	assert.Contains(t, err.Error(), "mock", "the refusal must name the engine that was asked for")
 
@@ -66,7 +66,7 @@ func TestManageInstall_EngineOnExistingDirIsNotSilentlyDropped(t *testing.T) {
 func TestManageInstall_RerunWithoutEngineStillWorks(t *testing.T) {
 	testsupport.ProjectDir(t)
 
-	_, err := runCLIErr(t, "manage", "install", "--print=false", "--engine", "claude-code")
+	_, err := runCLIErr(t, "manage", "install", "--print=false", "--no-pull", "--engine", "claude-code")
 	require.NoError(t, err)
 
 	// pflag records Changed on the shared FlagSet and cobra never resets it
@@ -76,7 +76,7 @@ func TestManageInstall_RerunWithoutEngineStillWorks(t *testing.T) {
 	require.NoError(t, manageInstallCmd.Flags().Set("engine", "claude-code"))
 	manageInstallCmd.Flags().Lookup("engine").Changed = false
 
-	_, err = runCLIErr(t, "manage", "install", "--print=false")
+	_, err = runCLIErr(t, "manage", "install", "--print=false", "--no-pull")
 	require.NoError(t, err, "re-running install to re-apply hooks must stay a supported repair")
 }
 
@@ -89,7 +89,7 @@ func TestManageInstall_RerunWithoutEngineStillWorks(t *testing.T) {
 func TestManageInstall_UnknownEngineRefusesLoud(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 
-	out, err := runCLIErr(t, "manage", "install", "--print=false", "--engine", "bogus")
+	out, err := runCLIErr(t, "manage", "install", "--print=false", "--no-pull", "--engine", "bogus")
 	require.Error(t, err, "an unknown engine must not report success")
 	assert.Contains(t, err.Error(), `"bogus"`, "the refusal must name the offending value")
 	assert.Contains(t, err.Error(), "claude-code", "the refusal must list the valid engine set")

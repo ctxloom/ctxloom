@@ -29,13 +29,13 @@ Feature: Adopting ctxloom without regret — the first hour, and the exit verifi
   # own; ruled 2026-09-21: sessions carry their surfaces). Alice's question
   # ten minutes in is not "did it report success" — that is the thing she is
   # suspicious of — but whether a fresh assistant session actually starts
-  # through ctxloom. (--degraded: the scaffold's profile inherits ctxloom's
-  # published default, which only `ctxloom deps pull` installs, and this
+  # through ctxloom. (--no-pull and --degraded: the scaffold's profile
+  # inherits ctxloom's published default, which install would pull, and this
   # cell never touches the network.)
   Scenario: Alice wires ctxloom in and her assistant's sessions start through it
     When Alice wires ctxloom into her project:
       """
-      ctxloom manage install --engine claude-code
+      ctxloom manage install --engine claude-code --no-pull
       ctxloom materialize --yes --degraded
       """
     Then the command succeeds

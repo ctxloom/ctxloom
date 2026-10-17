@@ -66,7 +66,9 @@ flowchart TD
 
     ASM --> RUN["launch.Resolve via operations.StartRun<br/>launch.go"]
     ASM --> MAT["Materialize<br/>materialize.go<br/>context / MCP / settings / hooks / commands / skills"]
-    MAT --> SURF["delivery.Static over the plan<br/>-> native engine files"]
+    MAT --> GATE{"assembleEngines: every engine assembled,<br/>then the strictness gate"}
+    GATE -->|"actionable finding"| REF["MaterializeRefusal<br/>nothing written"]
+    GATE -->|"clean, or --degraded"| SURF["delivery.Static over the plan<br/>-> native engine files"]
 ```
 
 ## Bootstrap — `init.go`, `legacy_cleanup.go`
@@ -224,7 +226,7 @@ managed harness; `manage uninstall` is its release for every registered engine.
 | `requireProfilesExist` | `profiles.go:455` | First unresolvable **local** parent is an error; remote refs are skipped (they may not be pulled yet). |
 | `profileLoader` | `profiles.go:508` | Builds the operations-side profile loader with remote resolvers and bundle seeds. Eight production call sites. |
 | `ExportProfile` / `ImportProfile` / `GetProfileContent` / `SetProfileContent` | `profile_transfer.go:63,104,151,182` | Local-only profile file flow; all four route through `loadLocalProfile` (`:33`), which distinguishes "remote, pull it first" from "absent". |
-| `Materialize` / `MaterializeEngines` / `ParseSurfaceSpecs` | `materialize.go`, `surface_specs.go` | `ctxloom materialize`'s service: the selected profiles (the default agent's when none) delivered, previewed (`DryRun`: `operations.Preview` → `delivery.Static.Preview`, reporting only the kinds that would change, and each kind it would be refused as a `KindRefusal` with its fix) or released (`Release`) at a target for each selected engine and kind, one `project:<engine>:<kind>` writer per kind. `MaterializeEngines` resolves the engine list (`--backend`, else the project's configured engines); `ParseSurfaceSpecs` parses `--surface KIND[=file][:DEST]`. Also the post-sync refresh (`syncMaterializeStep`, with `LeaveLaunchContext`: the context of an engine whose context rides the launch is left alone). The refresh writes only with `SyncDependenciesRequest.WriteProject` (the CLI's `--yes`); otherwise it runs as a dry run and, when a kind would change or be refused, the preview comes back as `SyncDependenciesResult.RefreshSkipped` (nil when the project is current), which `WriteRefreshSkipped` renders with each refusal's fix and both ways to apply it. |
+| `Materialize` / `MaterializeEngines` / `ParseSurfaceSpecs` | `materialize.go`, `surface_specs.go` | `ctxloom materialize`'s service: the selected profiles (the default agent's when none) delivered, previewed (`DryRun`: `operations.Preview` → `delivery.Static.Preview`, reporting only the kinds that would change, and each kind it would be refused as a `KindRefusal` with its fix) or released (`Release`) at a target for each selected engine and kind, one `project:<engine>:<kind>` writer per kind. `MaterializeEngines` resolves the engine list (`--backend`, else the project's configured engines); `ParseSurfaceSpecs` parses `--surface KIND[=file][:DEST]`. Every engine is assembled before any is delivered, and a fatal assembly finding (under `MaterializeRequest.Strictness`) refuses the delivery before it writes (`MaterializeRefusal`; invariant 12). Also the post-sync refresh (`syncMaterializeStep`, with `LeaveLaunchContext`: the context of an engine whose context rides the launch is left alone; gated the same way, its actionable findings returned as `SyncDependenciesResult.RefreshFindings`). The refresh writes only with `SyncDependenciesRequest.WriteProject` (the CLI's `--yes`); otherwise it runs as a dry run and, when a kind would change or be refused, the preview comes back as `SyncDependenciesResult.RefreshSkipped` (nil when the project is current), which `WriteRefreshSkipped` renders with each refusal's fix and both ways to apply it. |
 | `ListAgents` / `GetAgent` / `SetAgent` / `RemoveAgent` | `agents.go:48,68,133,226` | Agent-binding CRUD under the `agents:` config key, inside one `Manager.Update`. `SetAgent` is a whole-record replace. |
 | `ResolveAgent` / `resolveAgentBinding` | `agents.go:357,383` | The single place engine-override precedence lives: compose profiles into context, resolve label/backend/model, resolve runtime and effective permissions. Callers: `cli/run.go`, `cli/doctor_cmd.go`, `coord/spawner.go`, `engine_session.go`. |
 | `resolveMember` | `agents.go:458` | Agent-name-or-bare-profile sugar for ensembles. |
@@ -309,6 +311,18 @@ Every host-side launch enters through `launch.Resolve`
 11. **`AssembleContext` (`context.go:112`) is the single composition entry point.**
     `Materialize` composes nothing of its own: it delivers the package `AssemblePackage`
     assembled for each engine, so one engine's materialize resolves the profiles once.
+12. **`Materialize` assembles every engine, then gates, then writes.** `assembleEngines`
+    assembles each engine's package inside its own strictness checkpoint; a finding raised
+    there that `MaterializeRequest.Strictness` acts on (`strictness.Mode.Actionable`) refuses
+    the whole delivery with a `MaterializeRefusal` (`ErrMaterializeRefused`) before anything is
+    written — not an engine file, not an ownership record or lock, not even a missing target
+    directory (created by `materializeRun.createTarget` only after the gate). Under `--degraded`
+    the ordinary findings are waived and the delivery writes and warns as before. A dry run
+    and a release are not gated there (they write nothing assembled). The guarantee lives
+    here, not in the CLI, so the post-sync refresh (`syncMaterializeStep`, run under
+    `App.Strictness`) inherits it: `deps pull --yes` refuses the refresh and exits on
+    `SyncDependenciesResult.RefreshFindings`. Pinned by `materialize_gate_test.go` and the
+    CLI's `materialize_gate_cmd_test.go`.
 
 ## Boundaries
 

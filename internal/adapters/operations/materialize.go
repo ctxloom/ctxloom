@@ -63,8 +63,18 @@ type MaterializeRequest struct {
 	// neither written nor released. The post-sync refresh sets it — a
 	// launched session carries that context itself, so a copy at rest would
 	// double it — while hooks, MCP, settings and commands still refresh.
-	LeaveLaunchContext bool        `json:"leave_launch_context,omitempty"`
-	Root               safefs.Root `json:"-"`
+	LeaveLaunchContext bool `json:"leave_launch_context,omitempty"`
+	// Strictness is the posture the assembly gate judges by (the caller's
+	// App.Strictness; the zero value is strict). Every engine's package is
+	// assembled before anything is written, and a finding raised during that
+	// assembly which this mode acts on (strictness.Mode.Actionable) refuses
+	// the whole delivery — MaterializeRefusal — with nothing written, not even
+	// the target directory. Under Degraded the ordinary findings are waived
+	// and the delivery writes as it always did, the findings still streamed
+	// and recorded. A dry run and a release write nothing assembled, and are
+	// not gated here: the caller's own gate lists the findings.
+	Strictness strictness.Mode `json:"-"`
+	Root       safefs.Root     `json:"-"`
 }
 
 // MaterializeResult is what one materialize did, per engine.
@@ -126,6 +136,27 @@ const (
 // error, since the CLI and every internal caller resolve their own.
 var ErrMaterializeNoTarget = errors.New("materialize: a target directory is required")
 
+// ErrMaterializeRefused is the assembly gate's refusal (MaterializeRefusal):
+// a finding the request's strictness acts on was raised while assembling,
+// and nothing was written.
+var ErrMaterializeRefused = errors.New("materialize: refused over fatal findings raised while assembling; nothing was written")
+
+// MaterializeRefusal is the assembly gate's refusal: the actionable findings
+// raised while every engine's package was assembled. Each was already
+// streamed (warning and fix line) when it was raised, and stays on the
+// strictness ledger, so a caller with a phase gate of its own closes it to
+// render the abort; Error lists them for any other caller.
+type MaterializeRefusal struct {
+	Findings report.Findings
+}
+
+func (r MaterializeRefusal) Error() string {
+	return strictness.Mode{}.Listing(ErrMaterializeRefused.Error()+":", r.Findings)
+}
+
+// Is makes a MaterializeRefusal an ErrMaterializeRefused.
+func (r MaterializeRefusal) Is(target error) bool { return target == ErrMaterializeRefused }
+
 // ErrMaterializeRequest refuses an incoherent request (a release with
 // profiles or a destination, a destination on a kind other than context, an
 // unknown mechanism, one kind given two specs).
@@ -133,15 +164,20 @@ var ErrMaterializeRequest = errors.New("materialize: invalid request")
 
 // Materialize delivers the assembled profile set AT REST into req.Target as
 // each engine's native files: the at-rest delivery the CLI's
-// `ctxloom materialize` and the post-sync apply share. Per engine it
-// assembles out of the loop (premised fragments become skills where skills
-// are delivered and the engine exports them, and are inlined otherwise) and
-// hands the package to the placement core at the target, under the
-// engine's per-kind project writers, for exactly the selected kinds.
+// `ctxloom materialize` and the post-sync apply share. It runs in three
+// phases. ASSEMBLE: every engine's package is assembled out of the loop
+// (premised fragments become skills where skills are delivered and the
+// engine exports them, and are inlined otherwise), once each, before
+// anything is written. GATE: a finding raised by that assembly which
+// req.Strictness acts on refuses the whole delivery (MaterializeRefusal),
+// so a strict run never leaves a degraded delivery behind it. DELIVER: each
+// package goes to the placement core at the target, under the engine's
+// per-kind project writers, for exactly the selected kinds.
 //
 // A per-engine write failure is a fatal-class strictness finding and an
 // error on the result (partial success is success); bad arguments, an
-// unresolvable target and a failed assembly are hard errors.
+// unresolvable target, a failed assembly and the gate's refusal are hard
+// errors.
 func Materialize(ctx context.Context, reg engine.Registry, cfg *config.Config, req MaterializeRequest) (*MaterializeResult, error) {
 	m, err := newMaterializeRun(reg, cfg, req)
 	if err != nil {
@@ -150,8 +186,15 @@ func Materialize(ctx context.Context, reg engine.Registry, cfg *config.Config, r
 	if req.Release {
 		return materializeRelease(ctx, reg, m.root, m.names, m.kinds, m.res)
 	}
-	for _, name := range m.names {
-		out, err := materializeEngine(ctx, reg, cfg, m, name)
+	staged, err := assembleEngines(ctx, reg, cfg, m)
+	if err != nil {
+		return nil, err
+	}
+	if err := m.createTarget(reg); err != nil {
+		return nil, err
+	}
+	for _, s := range staged {
+		out, err := materializeEngine(ctx, cfg, m, s)
 		if err != nil {
 			return nil, err
 		}
@@ -162,12 +205,56 @@ func Materialize(ctx context.Context, reg engine.Registry, cfg *config.Config, r
 	return m.res, nil
 }
 
+// stagedEngine is one engine's assembled package, held between the
+// assembly and the delivery.
+type stagedEngine struct {
+	name     string
+	kind     engine.Engine
+	kinds    []present.Kind
+	pkg      composite.Package
+	withheld []PremiseWithhold
+}
+
+// assembleEngines assembles every engine's package, then gates: a finding
+// raised during the assembly that m.req.Strictness acts on refuses with a
+// MaterializeRefusal (a dry run is not gated: it writes nothing). The window
+// is this call's own checkpoint, so a finding raised before it — or by a
+// concurrent caller on another goroutine — never refuses this delivery, and
+// a FailOnce finding an earlier window already recorded is recorded again in
+// this one rather than slipping past it.
+func assembleEngines(ctx context.Context, reg engine.Registry, cfg *config.Config, m *materializeRun) ([]stagedEngine, error) {
+	mark := strictness.Checkpoint()
+	defer strictness.Close(mark)
+	staged := make([]stagedEngine, 0, len(m.names))
+	for _, name := range m.names {
+		kind, ok := reg.Lookup(engine.Name(name))
+		if !ok {
+			return nil, fmt.Errorf("materialize: no engine kind is composed for %s", name)
+		}
+		kinds := engineKinds(m.req, kind.Root(), m.kinds)
+		pkg, withheld, err := materializePackage(ctx, reg, cfg, m.req, name, kinds)
+		if err != nil {
+			return nil, err
+		}
+		staged = append(staged, stagedEngine{name: name, kind: kind, kinds: kinds, pkg: pkg, withheld: withheld})
+	}
+	if m.req.DryRun {
+		return staged, nil
+	}
+	if found := m.req.Strictness.Actionable(strictness.Since(mark)); len(found) > 0 {
+		return nil, MaterializeRefusal{Findings: found}
+	}
+	return staged, nil
+}
+
 // materializeRun is one Materialize's resolved inputs.
 type materializeRun struct {
 	req         MaterializeRequest
 	root        safefs.Root
 	kinds       []present.Kind
 	target      string
+	created     bool
+	contextDest string
 	contextFile string
 	names       []string
 	res         *MaterializeResult
@@ -187,25 +274,61 @@ func newMaterializeRun(reg engine.Registry, cfg *config.Config, req MaterializeR
 	if err != nil {
 		return nil, err
 	}
-	m := &materializeRun{req: req, root: rootOf(req.Root), kinds: kinds}
-	var created bool
-	m.target, created, err = ResolveTarget(m.root.Fs, req.Target, !req.DryRun && !req.Release, symlinkResolver(m.root.Fs))
-	if err != nil {
+	m := &materializeRun{req: req, root: rootOf(req.Root), kinds: kinds, contextDest: contextDest}
+	// Resolved, never created, here: the target is created only once the
+	// assembly gate has passed (createTarget), so a refused delivery leaves
+	// no directory behind.
+	if err := m.resolveTarget(false); err != nil {
 		return nil, err
 	}
-	if m.contextFile, err = ResolveContextFile(m.target, contextDest); err != nil {
-		return nil, err
-	}
-	m.res = &MaterializeResult{Target: m.target, Created: created, Engines: []EngineOutcome{}, Profiles: materializeProfiles(cfg, req)}
+	m.res = &MaterializeResult{Target: m.target, Engines: []EngineOutcome{}, Profiles: materializeProfiles(cfg, req)}
 	if m.names, err = materializeEngines(reg, cfg, req); err != nil {
 		return nil, err
 	}
-	for _, name := range m.names {
-		if err := checkHookTargetScopeOf(reg, name, m.target, req.Force); err != nil {
-			return nil, err
-		}
+	if err := m.checkScope(reg); err != nil {
+		return nil, err
 	}
 	return m, nil
+}
+
+// resolveTarget resolves the target (ResolveTarget, creating it when create
+// is set and it is missing) and the context file inside it, noting whether
+// it created the directory.
+func (m *materializeRun) resolveTarget(create bool) error {
+	target, created, err := ResolveTarget(m.root.Fs, m.req.Target, create, symlinkResolver(m.root.Fs))
+	if err != nil {
+		return err
+	}
+	m.target, m.created = target, created
+	m.contextFile, err = ResolveContextFile(m.target, m.contextDest)
+	return err
+}
+
+// checkScope refuses an engine whose user-global scope the target is
+// (unless req.Force).
+func (m *materializeRun) checkScope(reg engine.Registry) error {
+	for _, name := range m.names {
+		if err := checkHookTargetScopeOf(reg, name, m.target, m.req.Force); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// createTarget creates a missing target for a delivery that will write,
+// once the assembly gate has passed. A directory that did not exist was
+// resolved unresolved (ResolveTarget resolves links only through an existing
+// path), so the created one is resolved again and the user-global scope
+// re-checked against what it resolved to.
+func (m *materializeRun) createTarget(reg engine.Registry) error {
+	if m.req.DryRun {
+		return nil
+	}
+	if err := m.resolveTarget(true); err != nil {
+		return err
+	}
+	m.res.Target, m.res.Created = m.target, m.created
+	return m.checkScope(reg)
 }
 
 // materializeProfiles is the profile set a result reports: none for a
@@ -299,23 +422,15 @@ func materializeEngines(reg engine.Registry, cfg *config.Config, req Materialize
 	return []string{string(def.Root().Name)}, nil
 }
 
-// materializeEngine assembles for one engine and delivers (or, in a dry
-// run, plans) its package at the target.
-func materializeEngine(ctx context.Context, reg engine.Registry, cfg *config.Config, m *materializeRun, name string) (EngineOutcome, error) {
-	out := EngineOutcome{Engine: name}
-	kind, ok := reg.Lookup(engine.Name(name))
-	if !ok {
-		return out, fmt.Errorf("materialize: no engine kind is composed for %s", name)
-	}
-	kinds := engineKinds(m.req, kind.Root(), m.kinds)
-	pkg, withheld, err := materializePackage(ctx, reg, cfg, m.req, name, kinds)
-	if err != nil {
-		return out, err
-	}
-	out.WithheldByPremise = withheld
+// materializeEngine delivers (or, in a dry run, plans) one engine's
+// assembled package at the target.
+func materializeEngine(ctx context.Context, cfg *config.Config, m *materializeRun, s stagedEngine) (EngineOutcome, error) {
+	name, kind, kinds, pkg := s.name, s.kind, s.kinds, s.pkg
+	out := EngineOutcome{Engine: name, WithheldByPremise: s.withheld}
 	p := atRestPlacement(m.target, engine.Name(name), kinds)
 	p.ContextFile = m.contextFile
 	var plan delivery.Plan
+	var err error
 	if m.req.DryRun {
 		plan, err = previewMaterializedAt(ctx, m.root, kind, pkg, p, &out)
 		if err != nil {

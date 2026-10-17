@@ -70,6 +70,11 @@ func seedBundleRemote(t *testing.T) string {
 		"---\n\n" +
 		pullFixtureMarker + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "fragments", "demo-frag.md"), []byte(fragment), 0o644))
+	// A profile item, the shape init's seed profile inherits as a parent
+	// (resources/profiles/default.yaml): it selects the bundle's fragment.
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "profiles"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "profiles", "developer.yaml"),
+		[]byte("description: the fixture's developer profile\nselect_tags:\n  - demo\n"), 0o644))
 
 	initPullGit(t, work, "add", "-A")
 	initPullGit(t, work, "commit", "-m", "seed")

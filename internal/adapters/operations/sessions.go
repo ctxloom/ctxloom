@@ -327,6 +327,16 @@ func EndSession(harp string, at time.Time) error {
 	return EndSessionIn(mgr, harp, at)
 }
 
+// SetSessionKeep marks (keep true) or unmarks harp's transcript as kept at
+// any age (sessions.Entry.Keep): `ctxloom session keep` and its --undo.
+func SetSessionKeep(harp string, keep bool) error {
+	mgr, err := openSessions()
+	if err != nil {
+		return err
+	}
+	return mgr.SetKeep(harp, keep)
+}
+
 // RecordRunEnd records how one of harp's runs ended on its session entry
 // (sessions.Entry.RunEnds).
 func RecordRunEnd(harp string, end sessions.RunEnd) error {

@@ -31,6 +31,7 @@ type Store interface {
 	MarkEnded(harpName string, at time.Time) error
 	RecordRunEnd(harpName string, end RunEnd) error
 	MarkPurged(harpName string, at time.Time) error
+	SetKeep(harpName string, keep bool) error
 	Rename(oldName, newName string) error
 	Forget(harpName string) error
 }

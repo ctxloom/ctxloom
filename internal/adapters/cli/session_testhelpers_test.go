@@ -240,3 +240,16 @@ func viewTitled(e sessions.Entry, title string) operations.SessionView {
 	v.Title = title
 	return v
 }
+
+// releaseTranscriptRetention makes every destroyer's retention release every
+// fixture for the rest of the test: its cutoff lies past them all. For tests
+// about something other than retention — the lock, the populations — whose
+// fixtures end "now"; retention itself is tested on the real resolution.
+func releaseTranscriptRetention(t *testing.T) {
+	t.Helper()
+	prev := resolveTranscriptRetention
+	resolveTranscriptRetention = func(now time.Time) (sessions.Retention, error) {
+		return sessions.Retention{Cutoff: now.Add(time.Hour)}, nil
+	}
+	t.Cleanup(func() { resolveTranscriptRetention = prev })
+}

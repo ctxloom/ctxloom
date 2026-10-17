@@ -184,6 +184,7 @@ runtime: container
 schema_version: 7
 session_purge_age: 180d
 session_reap_age: 45d
+session_transcript_retention: 60d
 shell_timeout:
   default: 3m
   max: 90m
@@ -239,6 +240,7 @@ runtime: container
 schema_version: 7
 session_purge_age: 180d
 session_reap_age: 45d
+session_transcript_retention: 60d
 shell_timeout:
   default: 3m
   max: 90m
@@ -294,6 +296,7 @@ runtime: container
 schema_version: 7
 session_purge_age: 180d
 session_reap_age: 45d
+session_transcript_retention: 60d
 shell_timeout:
   default: 3m
   max: 90m

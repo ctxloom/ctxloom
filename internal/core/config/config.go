@@ -209,6 +209,13 @@ type Config struct {
 	// session sweep` purges it, in the same age grammar. It has NO default:
 	// empty means the sweep reports its purge rows and acts on none.
 	sessionPurgeAge string
+	// sessionTranscriptRetention is how long after a session ENDED its
+	// transcript — its record — is kept from every destroyer of transcripts
+	// (purge, remove, the sweep, `clean --include-persist`), in the same age
+	// grammar. Empty means the built-in default
+	// (DefaultSessionTranscriptRetention). A session marked keep
+	// (`ctxloom session keep`) is retained at any age.
+	sessionTranscriptRetention string
 	// nonTTYFormat is the format a command emits when stdout is not a
 	// terminal and no --format/--json was given, as written ("" unset: the
 	// CLI's built-in json). A presentation preference; the schema's enum
@@ -300,6 +307,7 @@ type configDoc struct {
 	UI                           UIConfig                  `yaml:"ui,omitempty"`
 	SessionReapAge               string                    `yaml:"session_reap_age,omitempty"`
 	SessionPurgeAge              string                    `yaml:"session_purge_age,omitempty"`
+	SessionTranscriptRetention   string                    `yaml:"session_transcript_retention,omitempty"`
 	NonTTYFormat                 string                    `yaml:"non_tty_format,omitempty"`
 	Auth                         engine.AuthMode           `yaml:"auth,omitempty"`
 }
@@ -363,6 +371,7 @@ func (c *Config) toDoc() configDoc {
 		UI:                           cloneUIConfig(c.ui),
 		SessionReapAge:               c.sessionReapAge,
 		SessionPurgeAge:              c.sessionPurgeAge,
+		SessionTranscriptRetention:   c.sessionTranscriptRetention,
 		NonTTYFormat:                 c.nonTTYFormat,
 		Auth:                         c.auth,
 	}
@@ -397,6 +406,7 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.ui = doc.UI
 	c.sessionReapAge = doc.SessionReapAge
 	c.sessionPurgeAge = doc.SessionPurgeAge
+	c.sessionTranscriptRetention = doc.SessionTranscriptRetention
 	c.nonTTYFormat = doc.NonTTYFormat
 	c.auth = doc.Auth
 
@@ -675,6 +685,24 @@ func (c *Config) SessionReapAge() string {
 		return DefaultSessionReapAge
 	}
 	return c.sessionReapAge
+}
+
+// DefaultSessionTranscriptRetention is the built-in default for
+// session_transcript_retention: how long after a session ended its
+// transcript is kept from every destroyer of transcripts. Engines own
+// compaction, so the transcript is a session's only record; thirty days
+// keeps it through the work it belongs to.
+const DefaultSessionTranscriptRetention = "30d"
+
+// SessionTranscriptRetention returns the configured
+// session_transcript_retention, defaulting to
+// DefaultSessionTranscriptRetention. Parsed by the CLI in the age grammar,
+// not here: one grammar, one parser.
+func (c *Config) SessionTranscriptRetention() string {
+	if c.sessionTranscriptRetention == "" {
+		return DefaultSessionTranscriptRetention
+	}
+	return c.sessionTranscriptRetention
 }
 
 // SessionAuth is how the HUMAN's own session authenticates: the top-level

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
@@ -194,10 +195,8 @@ nobody filed with it.
 Without --yes this only reports; nothing on disk or in the session index
 changes, on a TTY or not.
 
-A session that was never compacted is refused, because removing it would
-destroy the only record of what happened. To do it deliberately, destroy the
-transcript first with 'ctxloom session transcript purge <session-name> --uncompacted
---yes', then remove.
+The transcript is the session's record, so a session that ended within
+session_transcript_retention (default 30d), or one marked keep, is refused.
 
 To empty a session but keep it listed, use 'ctxloom session purge'.`,
 	Example: `  ctxloom session remove amber-swift-owl --yes`,
@@ -218,6 +217,10 @@ type sessionRemoveResult struct {
 func runSessionRemove(cmd *cobra.Command, args []string) error {
 	harp := args[0]
 	apply := sessionRemoveYes
+	retention, err := resolveTranscriptRetention(time.Now())
+	if err != nil {
+		return err
+	}
 
 	// Files first, index entry second. PurgeSession stamps purged_at BEFORE
 	// it unlinks anything, so a process that dies partway leaves a row that
@@ -230,7 +233,8 @@ func runSessionRemove(cmd *cobra.Command, args []string) error {
 			operations.PurgePopulationTranscript,
 			operations.PurgePopulationArtifacts,
 		},
-		Apply: apply,
+		Retention: retention,
+		Apply:     apply,
 	})
 	// "No file matched" is a refusal for a purge and NOT for a removal: a
 	// session whose files are already gone still has an index entry, and that

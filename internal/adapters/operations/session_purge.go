@@ -84,10 +84,11 @@ type PurgeSessionRequest struct {
 	// nothing and is an error: a destroyer with no population is a command
 	// that reports success having done nothing at all.
 	Populations []PurgePopulation
-	// Uncompacted permits destroying the TRANSCRIPT of a session that has no
-	// essence. Without an essence the transcript is the only record of what
-	// happened, so this is the deliberate second flag that allows it.
-	Uncompacted bool
+	// Retention decides whether the session's TRANSCRIPT may go: it is the
+	// session's record, kept until the session ended at or before the
+	// retention cutoff, and kept at any age when the session is marked keep
+	// (sessions.Retention). Required for the transcript population.
+	Retention sessions.Retention
 	// EvenIfLive permits destroying a session whose liveness lock does not
 	// prove its owner dead: held (the owner is running right now), or absent
 	// (a session from before the lock existed, or one whose Hold failed), or
@@ -136,11 +137,12 @@ var (
 	// before EndSession has none while its free lock proves it gone. It is a
 	// timestamp, not a liveness signal.
 	ErrPurgeOwnerNotProvenDead = errors.New("the session lock does not prove its owner dead")
-	// ErrPurgeUncompacted is returned when the TRANSCRIPT population is asked
-	// for against a session with no essence.md and Uncompacted was not also
-	// set. Without an essence the transcript is the session's ONLY record;
-	// this is the extra deliberate flag that permits destroying it.
-	ErrPurgeUncompacted = errors.New("session was never compacted")
+	// ErrPurgeRetained is returned when the TRANSCRIPT population is asked
+	// for against a session whose transcript Retention keeps. It always
+	// wraps the reason too — sessions.ErrTranscriptRecent,
+	// sessions.ErrTranscriptKept or sessions.ErrNoRetentionBound — so a
+	// caller tells them apart with errors.Is, never by reading the text.
+	ErrPurgeRetained = errors.New("the session's transcript is retained")
 	// ErrPurgeNoPopulation is returned when a request names no population. A
 	// destroyer that was handed nothing to destroy must say so rather than
 	// walk the directory, keep every file, and report success.
@@ -162,8 +164,8 @@ var (
 // keeps the row instead of silently reconciling it away over its now-missing
 // transcript.
 //
-// "Is this session compacted?" is sessions.Compacted — the disk, never
-// entry.Summary.
+// Whether the transcript may go at all is sessions.Retention, asked of the
+// sidecar's record and the session directory's last activity.
 func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, error) {
 	if len(req.Populations) == 0 {
 		return nil, fmt.Errorf("%w: %q", ErrPurgeNoPopulation, harp)
@@ -203,7 +205,6 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 		return res, fmt.Errorf("%w: %s", ErrPurgeOwnerNotProvenDead, probe.Reason)
 	}
 
-	hasEssence := sessions.Compacted(harpDir)
 	wantTranscript := req.wants(PurgePopulationTranscript)
 	wantArtifacts := req.wants(PurgePopulationArtifacts)
 
@@ -213,12 +214,13 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 	}
 	items = append(items, outputEssenceItems(entry)...)
 
-	// The uncompacted guard protects a real file, so it asks whether there IS
+	// The retention guard protects a real file, so it asks whether there IS
 	// one. Firing on the request alone would refuse forever for a session
-	// whose transcript is already deliberately gone — the caller would have
-	// done exactly what the refusal asked and still be told no.
-	if wantTranscript && !hasEssence && !req.Uncompacted && hasClass(items, PurgeClassMachine) {
-		return res, fmt.Errorf("%w: %q — its transcript is the only record of this session; pass --uncompacted to destroy it anyway", ErrPurgeUncompacted, harp)
+	// whose transcript is already gone.
+	if wantTranscript && hasClass(items, PurgeClassMachine) {
+		if err := retainsTranscript(req.Retention, entry); err != nil {
+			return res, fmt.Errorf("%w: %w", ErrPurgeRetained, err)
+		}
 	}
 
 	for _, it := range items {
@@ -284,6 +286,20 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 	res.BytesFreed = freed
 	res.Applied = true
 	return res, nil
+}
+
+// retainsTranscript asks r about entry's session, its end reckoned from the
+// sidecar's record and the session directory's last activity
+// (sessions.Ended). An unreadable activity counts as no activity: the
+// recorded end alone decides, and with none the session is retained.
+func retainsTranscript(r sessions.Retention, entry *sessions.Entry) error {
+	var last time.Time
+	if l, err := sessions.HomeLayout(); err == nil {
+		if at, aErr := sessions.ActivityTime(l, entry.HarpName); aErr == nil {
+			last = at
+		}
+	}
+	return r.Retains(entry, last)
 }
 
 // hasClass reports whether any classified item belongs to class c.

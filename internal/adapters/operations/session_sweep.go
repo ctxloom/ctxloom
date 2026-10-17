@@ -46,6 +46,10 @@ type SweepRequest struct {
 	// ReclaimScope is the reclaim's widest Lifetime (sessions.ReapPolicy.Scope):
 	// `clean --include-persist`.
 	ReclaimScope paths.Lifetime
+	// Retention decides whose transcripts the sweep may destroy — its purge
+	// rows, and a persist-scope reclaim (sessions.Retention). A zero cutoff
+	// retains every transcript.
+	Retention sessions.Retention
 	// ReclaimOnly enables only the reclaim rows — `clean`'s view: aged
 	// sessions holding something the reclaim takes, no purge, and no
 	// worktree reaping below the reclaim age.
@@ -53,7 +57,7 @@ type SweepRequest struct {
 }
 
 func (r SweepRequest) reapPolicy(apply bool) sessions.ReapPolicy {
-	return sessions.ReapPolicy{Cutoff: r.ReclaimCutoff, Scope: r.ReclaimScope, Apply: apply}
+	return sessions.ReapPolicy{Cutoff: r.ReclaimCutoff, Scope: r.ReclaimScope, Retention: r.Retention, Apply: apply}
 }
 
 // SessionFacts is everything the table decides one session by, gathered
@@ -72,7 +76,11 @@ type SessionFacts struct {
 	LockReason string              `json:"lock_reason,omitempty"`
 	OwnerPID   int                 `json:"owner_pid,omitempty"`
 	Kept       bool                `json:"kept,omitempty"`
-	Compacted  bool                `json:"compacted"`
+	// Retained is why sessions.Retention keeps the session's transcript
+	// (errors.Is against sessions.ErrTranscriptRecent, ErrTranscriptKept,
+	// ErrNoRetentionBound), nil when it may go; RetainedReason is its text.
+	Retained       error  `json:"-"`
+	RetainedReason string `json:"retained,omitempty"`
 	// Worktrees is the scratch worktrees' classification, taken only for a
 	// provably-dead session; WorktreeErr is set when it could not be taken.
 	Worktrees   []isolation.WorktreeCandidate `json:"-"`
@@ -256,15 +264,17 @@ func purgeInScope(f SessionFacts, req SweepRequest) bool {
 	return req.PurgeCutoff.IsZero() || !f.LastActive.After(req.PurgeCutoff)
 }
 
-// purgeRow decides the purge: spared for waiting mail or an uncompacted
-// transcript, held when no purge age is stated, else planned.
+// purgeRow decides the purge: spared for waiting mail or a transcript
+// Retention keeps, held when no purge age is stated, else planned.
 func purgeRow(f SessionFacts, req SweepRequest) SweepRow {
 	switch {
 	case f.Mail > 0:
 		return newSweepRow(f, SweepSpare, SweepLeft, fmt.Sprintf("%d undelivered message(s) wait in its spool, so it is spared from purge", f.Mail))
-	case !f.Compacted && f.Origin != sessions.OriginOneShot:
-		r := newSweepRow(f, SweepSpare, SweepLeft, "it was never compacted, so its transcript is its only record and it is never purged")
-		r.Command = fmt.Sprintf("ctxloom session compact %s", f.Harp)
+	case f.Retained != nil:
+		r := newSweepRow(f, SweepSpare, SweepLeft, fmt.Sprintf("its transcript is its record and is retained: %v", f.Retained))
+		if errors.Is(f.Retained, sessions.ErrTranscriptKept) {
+			r.Command = fmt.Sprintf("ctxloom session keep %s --undo", f.Harp)
+		}
 		return r
 	case req.PurgeCutoff.IsZero():
 		r := newSweepRow(f, SweepPurge, SweepHeld, "no purge age is stated: pass --purge-older-than or set session_purge_age")
@@ -351,8 +361,14 @@ func classifySession(ctx context.Context, g git.Git, l sessions.Layout, store se
 	if _, err := os.Lstat(l.KeepMarker(name)); err == nil {
 		f.Kept = true
 	}
-	f.Compacted = sessions.Compacted(f.Dir)
-	f.Reclaimable, f.ReclaimBytes, f.ReclaimSymlink = measureReclaim(l, name, reclaimMembers(req, f.Compacted))
+	f.Retained = req.Retention.Retains(entry, f.LastActive)
+	if entry == nil && f.Retained == nil {
+		f.Retained = fmt.Errorf("%w: its record cannot be read", sessions.ErrTranscriptRecent)
+	}
+	if f.Retained != nil {
+		f.RetainedReason = f.Retained.Error()
+	}
+	f.Reclaimable, f.ReclaimBytes, f.ReclaimSymlink = measureReclaim(l, name, reclaimMembers(req, f.Retained == nil))
 
 	if probe.Verdict == sessionlock.Dead {
 		wts, err := isolation.ClassifyHarpWorktrees(ctx, g, name, probe)
@@ -379,10 +395,10 @@ func sweepScopeIncludes(entry *sessions.Entry, req SweepRequest) bool {
 }
 
 // reclaimMembers is the member set a reclaim measures: the request's, narrowed
-// the way ReapSession narrows it for an uncompacted session under a persist
-// reclaim scope.
-func reclaimMembers(req SweepRequest, compacted bool) []paths.HarpMember {
-	if req.ReclaimScope == paths.Persist && !compacted {
+// the way ReapSession narrows it for a session whose transcript is retained
+// under a persist reclaim scope.
+func reclaimMembers(req SweepRequest, releasable bool) []paths.HarpMember {
+	if req.ReclaimScope == paths.Persist && !releasable {
 		return sessions.ReapPolicy{}.Members() // ReapSession's own narrowing
 	}
 	return req.reapPolicy(false).Members()
@@ -543,7 +559,7 @@ func applySweep(ctx context.Context, g git.Git, l sessions.Layout, req SweepRequ
 	// would touch work/, and the age check would then read the session
 	// as active and reclaim nothing.
 	reaped, reclaimed := applyPlannedReclaim(ctx, g, l, req, fresh.ProjectDir, rows)
-	applyPlannedRest(ctx, g, fresh, rows, reclaimed)
+	applyPlannedRest(ctx, g, req, fresh, rows, reclaimed)
 	return rows, reaped
 }
 
@@ -576,7 +592,7 @@ func applyPlannedReclaim(ctx context.Context, g git.Git, l sessions.Layout, req 
 // applyPlannedRest runs the planned worktree-reap and purge rows. A
 // worktree reap is already done when the reclaim ran, which tears the clean
 // worktrees down itself.
-func applyPlannedRest(ctx context.Context, g git.Git, fresh SessionFacts, rows []SweepRow, reclaimed bool) {
+func applyPlannedRest(ctx context.Context, g git.Git, req SweepRequest, fresh SessionFacts, rows []SweepRow, reclaimed bool) {
 	for i := range rows {
 		r := &rows[i]
 		if r.Verdict != SweepPlanned {
@@ -590,7 +606,7 @@ func applyPlannedRest(ctx context.Context, g git.Git, fresh SessionFacts, rows [
 			}
 			applyReapWorktrees(ctx, g, fresh, r)
 		case SweepPurge:
-			applyPurge(fresh, r)
+			applyPurge(req, r)
 		}
 	}
 }
@@ -655,14 +671,13 @@ func applyReclaim(ctx context.Context, g git.Git, l sessions.Layout, req SweepRe
 	return &c
 }
 
-// applyPurge is PurgeSession over the transcript population. The artifacts
-// population is the session's output dir — the human's, which a sweep never
-// deletes; `ctxloom session artifacts purge` is the explicit way to. Only an
-// internal one-shot is purged uncompacted; PurgeSession refuses any other.
-func applyPurge(f SessionFacts, r *SweepRow) {
+// applyPurge is PurgeSession over the transcript population, under the
+// sweep's retention: PurgeSession re-asks it under the session's lock, so a
+// session marked keep since the plan is left.
+func applyPurge(req SweepRequest, r *SweepRow) {
 	res, err := PurgeSession(r.Harp, PurgeSessionRequest{
 		Populations: []PurgePopulation{PurgePopulationTranscript},
-		Uncompacted: f.Origin == sessions.OriginOneShot,
+		Retention:   req.Retention,
 		Apply:       true,
 	})
 	switch {
@@ -673,7 +688,7 @@ func applyPurge(f SessionFacts, r *SweepRow) {
 				r.Reason = appendReason(r.Reason, "kept "+k.Rel)
 			}
 		}
-	case errors.Is(err, ErrPurgeNothingToDo), errors.Is(err, ErrPurgeOwnerNotProvenDead), errors.Is(err, ErrPurgeUncompacted):
+	case errors.Is(err, ErrPurgeNothingToDo), errors.Is(err, ErrPurgeOwnerNotProvenDead), errors.Is(err, ErrPurgeRetained):
 		r.Verdict, r.Reason = SweepLeft, err.Error()
 	default:
 		r.Verdict, r.Reason = SweepFailed, err.Error()

@@ -71,10 +71,18 @@ func seedPurgeBulk(t *testing.T, harp string) (transcript string) {
 	return transcript
 }
 
+// releasedRetention is a retention whose cutoff lies past every fixture's
+// end: the lock-gate tests here are about liveness, so retention must not
+// be the thing that refuses.
+func releasedRetention() sessions.Retention {
+	return sessions.Retention{Cutoff: time.Now().Add(time.Hour)}
+}
+
 func purgeTranscript(harp string, evenIfLive bool) (*PurgeSessionResult, error) {
 	return PurgeSession(harp, PurgeSessionRequest{
 		Harp:        harp,
 		Populations: []PurgePopulation{PurgePopulationTranscript},
+		Retention:   releasedRetention(),
 		EvenIfLive:  evenIfLive,
 		Apply:       true,
 	})
@@ -216,6 +224,7 @@ func TestPurgeSession_PlanAlsoRefuses(t *testing.T) {
 	_, err := PurgeSession(harp, PurgeSessionRequest{
 		Harp:        harp,
 		Populations: []PurgePopulation{PurgePopulationTranscript},
+		Retention:   releasedRetention(),
 	})
 	require.ErrorIs(t, err, ErrPurgeOwnerNotProvenDead)
 	assert.FileExists(t, transcript)

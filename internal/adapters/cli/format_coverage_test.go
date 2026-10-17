@@ -340,6 +340,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// both branches; it is fixture-gated and destructive, like the purges
 	// below. The entry that stood here claimed an inline closure that never
 	// calls emit() and carried formatDebt:true on that basis.
+	"session keep":    {skip: "wired to emit(), but needs a seeded harp in the index and MUTATES its sidecar; covered directly by session_keep_test.go"},
 	"session remove":  {skip: "wired to emit(), but needs a seeded harp fixture and is destructive under --yes; covered directly by session_remove_test.go"},
 	"session compact": {skip: "not confirmed wired; needs an existing session fixture; not exercised here; T19 audit confirmed NOT wired: runSessionCompact never calls emit()", formatDebt: true},
 	"session adopt":   {skip: "wired to emit(), but needs a seeded harp bound to a real vendor transcript directory (and mutates the index under --yes); covered directly by session_adopt_test.go"},

@@ -48,6 +48,7 @@ type Fixture struct {
 	UI                           UIConfig
 	SessionReapAge               string
 	SessionPurgeAge              string
+	SessionTranscriptRetention   string
 	NonTTYFormat                 string
 	Auth                         engine.AuthMode
 
@@ -103,6 +104,7 @@ func (c *Config) ToFixture() Fixture {
 		UI:                           d.UI,
 		SessionReapAge:               d.SessionReapAge,
 		SessionPurgeAge:              d.SessionPurgeAge,
+		SessionTranscriptRetention:   d.SessionTranscriptRetention,
 		NonTTYFormat:                 d.NonTTYFormat,
 		Auth:                         d.Auth,
 		AppPaths:                     slices.Clone(c.appPaths),
@@ -156,6 +158,7 @@ func NewFixture(f Fixture) *Config {
 		ui:                           cloneUIConfig(f.UI),
 		sessionReapAge:               f.SessionReapAge,
 		sessionPurgeAge:              f.SessionPurgeAge,
+		sessionTranscriptRetention:   f.SessionTranscriptRetention,
 		nonTTYFormat:                 f.NonTTYFormat,
 		auth:                         f.Auth,
 		appPaths:                     slices.Clone(f.AppPaths),

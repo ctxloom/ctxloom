@@ -28,6 +28,8 @@ import (
 	"syscall"
 	"time"
 
+	sessionsidecarmig "github.com/ctxloom/ctxloom/internal/migrations/sessionsidecar"
+
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
@@ -142,6 +144,12 @@ type Entry struct {
 	// `session list`, marked, rather than being read as a live session that
 	// lost its transcript.
 	PurgedAt *time.Time `yaml:"purged_at,omitempty" json:"purged_at,omitempty"`
+
+	// Keep marks the session's transcript as never reclaimable, at any age
+	// (Retention): set by `ctxloom session keep`, cleared by its --undo.
+	// The transcript is the session's record, and this is how a human says
+	// one is worth keeping past session_transcript_retention.
+	Keep bool `yaml:"keep,omitempty" json:"keep,omitempty"`
 
 	// EngineVersion is what the engine's own CLI said it was — verbatim, as
 	// `claude --version` printed it — at the moment this session STARTED. It
@@ -313,7 +321,7 @@ func (m *Manager) readSidecar(harpName string) (*Entry, error) {
 }
 
 // sidecarKind versions the session sidecar.
-var sidecarKind = schemaver.Define("session sidecar", 1)
+var sidecarKind = schemaver.Define("session sidecar", 2, sessionsidecarmig.Steps()...)
 
 // sidecarDoc is the sidecar on disk: an Entry plus the format generation,
 // which is a fact about the file rather than about the session, so Entry does
@@ -821,6 +829,18 @@ func (m *Manager) MarkPurged(harpName string, at time.Time) error {
 	return m.update(harpName, func(e *Entry) (bool, error) {
 		t := at.UTC()
 		e.PurgedAt = &t
+		return true, nil
+	})
+}
+
+// SetKeep marks (keep true) or unmarks the named session's transcript as
+// kept (Entry.Keep). Idempotent: an unchanged mark is not rewritten.
+func (m *Manager) SetKeep(harpName string, keep bool) error {
+	return m.update(harpName, func(e *Entry) (bool, error) {
+		if e.Keep == keep {
+			return false, nil
+		}
+		e.Keep = keep
 		return true, nil
 	})
 }

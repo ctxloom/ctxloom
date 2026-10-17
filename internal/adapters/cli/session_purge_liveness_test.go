@@ -72,6 +72,7 @@ func TestSessionPurge_EvenIfLiveIsOptInOnEveryFileDestroyer(t *testing.T) {
 // MUTATION: invert the lock sense (a held lock permits) → red on every leaf.
 // MUTATION: make --even-if-live the default → red on every leaf.
 func TestSessionPurge_HeldLockRefusesEveryFileDestroyer(t *testing.T) {
+	releaseTranscriptRetention(t)
 	for _, d := range fileDestroyers(t, seedHarpFor(t)) {
 		t.Run(d.cmd.CommandPath(), func(t *testing.T) {
 			t.Cleanup(func() { resetFlags(t, rootCmd) })
@@ -104,6 +105,7 @@ func seedHarpFor(t *testing.T) string {
 //
 // MUTATION: treat Indeterminate as permission → red.
 func TestSessionPurge_NoLockRefusesAndNamesTheEscape(t *testing.T) {
+	releaseTranscriptRetention(t)
 	harp := seedHarpFor(t)
 	transcript := seedTranscript(t, harp)
 	seedEssence(t, harp)
@@ -127,6 +129,7 @@ func TestSessionPurge_NoLockRefusesAndNamesTheEscape(t *testing.T) {
 // TestSessionPurge_EvenIfLiveDestroysAnyway is the escape's apply side, for
 // both verdicts the lock cannot turn into permission.
 func TestSessionPurge_EvenIfLiveDestroysAnyway(t *testing.T) {
+	releaseTranscriptRetention(t)
 	t.Run("no lock", func(t *testing.T) {
 		harp := seedHarpFor(t)
 		transcript := seedTranscript(t, harp)
@@ -161,6 +164,7 @@ func TestSessionPurge_EvenIfLiveDestroysAnyway(t *testing.T) {
 // that looks exactly like correct conservatism. So: a dead owner, one clean
 // scratch worktree, one sweep, and the worktree must actually go.
 func TestSessionPurge_DeadOwnerSweepReapsItsCleanScratchWorktree(t *testing.T) {
+	releaseTranscriptRetention(t)
 	home := testsupport.Isolate(t)
 	_, harp := seedEndedSession(t, t.TempDir(), "claude-code")
 	transcript := seedTranscript(t, harp)

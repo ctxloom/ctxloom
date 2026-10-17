@@ -342,7 +342,12 @@
     },
     "session_purge_age": {
       "type": "string",
-      "description": "How old an ended session must be before `ctxloom session sweep --yes` purges it - its transcripts and native history, never its output dir or the files you wrote: an offset in the same grammar as session_reap_age - 30d, 12w, 720h. NO default: unset, the sweep reports what it would purge and purges nothing. `session sweep --purge-older-than` overrides it for one invocation. A session never compacted is never purged by a sweep. A value the grammar cannot parse is REFUSED.",
+      "description": "How old an ended session must be before `ctxloom session sweep --yes` purges it - its transcripts and native history, never its output dir or the files you wrote: an offset in the same grammar as session_reap_age - 30d, 12w, 720h. NO default: unset, the sweep reports what it would purge and purges nothing. `session sweep --purge-older-than` overrides it for one invocation. A session whose transcript session_transcript_retention keeps is never purged by a sweep. A value the grammar cannot parse is REFUSED.",
+      "pattern": "^[0-9]+(d|w|h|m|s)$"
+    },
+    "session_transcript_retention": {
+      "type": "string",
+      "description": "How long after a session ENDED its transcript - its record, now that engines own compaction - is kept from every destroyer of transcripts: `session transcript purge`, `session purge`, `session remove`, `session sweep` and `clean --include-persist`. An offset in the same grammar as session_reap_age - 30d, 12w, 720h. Default 30d when unset. A session marked keep (`ctxloom session keep <name>`) is kept at any age; an internal one-shot's transcript is reclaimable at any age. A value the grammar cannot parse is REFUSED, never resolved to the default.",
       "pattern": "^[0-9]+(d|w|h|m|s)$"
     },
     "non_tty_format": {

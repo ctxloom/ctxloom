@@ -87,8 +87,7 @@ func TestViewSessions_KeepsTheListingsOrder(t *testing.T) {
 func TestSessionJSON_SaysCompacted(t *testing.T) {
 	const key = "compacted"
 	for name, v := range map[string]any{
-		"SessionView":  SessionView{Compacted: true},
-		"SessionFacts": SessionFacts{Compacted: true},
+		"SessionView": SessionView{Compacted: true},
 	} {
 		raw, err := json.Marshal(v)
 		require.NoError(t, err, name)

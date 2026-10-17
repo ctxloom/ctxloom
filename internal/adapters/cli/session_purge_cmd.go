@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
@@ -23,9 +25,10 @@ import (
 //	session worktrees purge <harp>    the scratch git checkouts
 //	session purge <harp>              sweeps all three
 //
-// Selection flags live on the leaf that understands them — --uncompacted on
-// transcript — and never on the sweep. A flag on the parent would have to
-// mean something for populations it was never about. --even-if-live is not a
+// Every destroyer of a transcript asks the same retention rule
+// (transcriptRetention): a session's transcript is its record, kept until the
+// session ended more than session_transcript_retention ago, and kept at any
+// age while it is marked keep. No flag overrides it. --even-if-live is not a
 // selection flag: liveness is a property of the SESSION, the same for every
 // population, so every file destroyer carries it.
 //
@@ -40,13 +43,12 @@ import (
 // would remove it.
 
 var (
-	sessionPurgeYes                   bool
-	sessionPurgeEvenIfLive            bool
-	sessionTranscriptPurgeYes         bool
-	sessionTranscriptPurgeUncompacted bool
-	sessionTranscriptPurgeEvenIfLive  bool
-	sessionArtifactsPurgeYes          bool
-	sessionArtifactsPurgeEvenIfLive   bool
+	sessionPurgeYes                  bool
+	sessionPurgeEvenIfLive           bool
+	sessionTranscriptPurgeYes        bool
+	sessionTranscriptPurgeEvenIfLive bool
+	sessionArtifactsPurgeYes         bool
+	sessionArtifactsPurgeEvenIfLive  bool
 )
 
 // evenIfLiveFlagName is the deliberate second keystroke past the session
@@ -71,14 +73,15 @@ var sessionTranscriptPurgeCmd = &cobra.Command{
 	Long: `Destroys the machine-written bulk under a session's directory —
 everything under transcripts/ (the canonical transcript.jsonl and its
 rotation segments) and native/ (the engine's own history) — and nothing
-else. The compacted summary, the index entry and every authored file stay.
+else. The index entry, the session's output dir and every authored file stay.
 
 Without --yes this only reports; nothing on disk or in the session index
 changes, on a TTY or not.
 
-A session that was never compacted is REFUSED: with no summary, the
-transcript is the only record of what happened. Pass --uncompacted to
-destroy it anyway.
+The transcript is the session's record, so it is REFUSED until the session
+ended more than session_transcript_retention ago (default 30d), and refused
+at any age while the session is marked keep ('ctxloom session keep
+<session-name> --undo' releases it).
 
 A session whose lock does not prove its owner dead is REFUSED: a running
 agent may still be appending to this transcript. A held lock, or no lock at
@@ -92,7 +95,6 @@ func runSessionTranscriptPurge(cmd *cobra.Command, args []string) error {
 	return runHarpFilePurge(cmd, args[0], harpFilePurge{
 		populations: []operations.PurgePopulation{operations.PurgePopulationTranscript},
 		apply:       sessionTranscriptPurgeYes,
-		uncompacted: sessionTranscriptPurgeUncompacted,
 		evenIfLive:  sessionTranscriptPurgeEvenIfLive,
 		commandPath: "ctxloom session transcript purge",
 	})
@@ -142,10 +144,8 @@ index changes, on a TTY or not.
 The index entry SURVIVES. Purge empties a session, it does not unlist it —
 'ctxloom session remove' is what removes a session entirely.
 
-A session that was never compacted is refused, because sweeping it would
-destroy the only record of what happened. The refusal names the leaf that
-can do it deliberately: 'ctxloom session transcript purge <session-name>
---uncompacted'.
+The transcript is the session's record: a session that ended within
+session_transcript_retention (default 30d), or one marked keep, is refused.
 
 A session whose lock does not prove its owner dead is refused: a running
 agent may still be writing the transcript this would destroy. A held lock,
@@ -161,8 +161,6 @@ and reported, never reaped.`,
 func init() {
 	sessionTranscriptPurgeCmd.Flags().BoolVarP(&sessionTranscriptPurgeYes, "yes", "y", false,
 		"apply the plan this invocation printed (default: report only)")
-	sessionTranscriptPurgeCmd.Flags().BoolVar(&sessionTranscriptPurgeUncompacted, "uncompacted", false,
-		"permit destroying the transcript of a session that has no summary")
 	addEvenIfLiveFlag(sessionTranscriptPurgeCmd, &sessionTranscriptPurgeEvenIfLive)
 	sessionTranscriptCmd.AddCommand(sessionTranscriptPurgeCmd)
 
@@ -191,6 +189,10 @@ type sessionSweepReport struct {
 func runSessionPurge(cmd *cobra.Command, args []string) error {
 	harp := args[0]
 	apply := sessionPurgeYes
+	retention, err := resolveTranscriptRetention(time.Now())
+	if err != nil {
+		return err
+	}
 
 	res, purgeErr := operations.PurgeSession(harp, operations.PurgeSessionRequest{
 		Harp: harp,
@@ -198,6 +200,7 @@ func runSessionPurge(cmd *cobra.Command, args []string) error {
 			operations.PurgePopulationTranscript,
 			operations.PurgePopulationArtifacts,
 		},
+		Retention:  retention,
 		EvenIfLive: sessionPurgeEvenIfLive,
 		Apply:      apply,
 	})
@@ -249,16 +252,19 @@ func runSessionPurge(cmd *cobra.Command, args []string) error {
 type harpFilePurge struct {
 	populations []operations.PurgePopulation
 	apply       bool
-	uncompacted bool
 	evenIfLive  bool
 	commandPath string
 }
 
 func runHarpFilePurge(cmd *cobra.Command, harp string, p harpFilePurge) error {
+	retention, err := resolveTranscriptRetention(time.Now())
+	if err != nil {
+		return err
+	}
 	res, purgeErr := operations.PurgeSession(harp, operations.PurgeSessionRequest{
 		Harp:        harp,
 		Populations: p.populations,
-		Uncompacted: p.uncompacted,
+		Retention:   retention,
 		EvenIfLive:  p.evenIfLive,
 		Apply:       p.apply,
 	})
@@ -295,9 +301,12 @@ func harpPurgeRefusal(harp string, err error, commandPath string) string {
 		return fmt.Sprintf("ctxloom refuses to purge %s: %v. Nothing was removed. "+
 			"To destroy it anyway, deliberately: `%s %s --yes --%s`",
 			harp, err, commandPath, harp, evenIfLiveFlagName)
-	case errors.Is(err, operations.ErrPurgeUncompacted):
-		return fmt.Sprintf("ctxloom refuses: %s was never compacted — its transcript is the only record of what happened. "+
-			"Nothing was removed. To destroy it anyway, deliberately: `ctxloom session transcript purge %s --uncompacted --yes`", harp, harp)
+	case errors.Is(err, sessions.ErrTranscriptKept):
+		return fmt.Sprintf("ctxloom refuses: %s is marked keep, so its transcript is kept at any age. "+
+			"Nothing was removed. To release it: `ctxloom session keep %s --undo`", harp, harp)
+	case errors.Is(err, operations.ErrPurgeRetained):
+		return fmt.Sprintf("ctxloom refuses to destroy %s's transcript, its record — %v. "+
+			"Nothing was removed. It becomes reclaimable once the session ended more than session_transcript_retention ago.", harp, err)
 	case errors.Is(err, operations.ErrPurgeNothingToDo):
 		return fmt.Sprintf("ctxloom removed nothing for %s: no file in this population matched (`%s %s`)", harp, commandPath, harp)
 	}

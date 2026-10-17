@@ -61,6 +61,9 @@ type SessionRow struct {
 	// purged session must never read, in a table a human is actually looking
 	// at, as indistinguishable from one that was never purged.
 	Purged bool `json:"purged,omitempty" clifmt:"label=Purged,col=PURGED"`
+	// Kept mirrors SessionView.Kept (`ctxloom session keep`): a plain
+	// boolean for a script, and a badge on Summary for a human, as Purged.
+	Kept bool `json:"kept,omitempty" clifmt:"label=Kept,col=KEPT"`
 }
 
 // newSessionRow projects the read model down to a SessionRow. Summary falls
@@ -79,12 +82,16 @@ func newSessionRow(v operations.SessionView) SessionRow {
 	if v.Purged {
 		summary += "  🗑 purged (transcript destroyed)"
 	}
+	if v.Kept {
+		summary += "  📌 kept (transcript kept at any age)"
+	}
 	row := SessionRow{
 		Harp:        v.Harp,
 		Summary:     summary,
 		State:       v.State,
 		Start:       sessionTime(v.StartedAt),
 		Purged:      v.Purged,
+		Kept:        v.Kept,
 		EssencePath: v.EssencePath,
 	}
 	if v.EndedAt != nil && v.State != operations.SessionLive {

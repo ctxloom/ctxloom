@@ -87,36 +87,28 @@ func (l Layout) KeepMarker(harp string) string {
 	return l.member(harp, paths.SessionKeepMarkerFileName)
 }
 
-// Compacted reports whether the session in dir has an essence: its recorded
-// output dir holds one. Without one the transcript is the session's ONLY
-// record, which is what every destroyer of transcripts asks before taking
-// one. A session with no recorded output dir has nowhere an essence could be,
-// so it is uncompacted.
-//
-// It asks the disk, never a recorded flag: a flag set before the essence
-// was written, or left behind after it was removed, would pass the one
-// session this exists to protect.
-func Compacted(dir string) bool {
-	out, ok := OutputDirOf(dir)
-	if !ok {
-		return false
-	}
-	_, err := os.Stat(filepath.Join(out, paths.EssenceFileName))
-	return err == nil
-}
-
 // OutputDirOf reads the output dir recorded in the sidecar of the session in
 // dir. ok is false when there is no readable sidecar or it records none.
 func OutputDirOf(dir string) (string, bool) {
-	data, err := os.ReadFile(filepath.Join(dir, paths.SessionSidecarFileName))
-	if err != nil {
-		return "", false
-	}
-	e, err := decodeSidecar(data)
-	if err != nil || e.OutputDir == "" {
+	e, ok := sidecarOf(dir)
+	if !ok || e.OutputDir == "" {
 		return "", false
 	}
 	return e.OutputDir, true
+}
+
+// sidecarOf reads the sidecar of the session in dir. ok is false (and the
+// entry nil) when there is no sidecar this build can read.
+func sidecarOf(dir string) (*Entry, bool) {
+	data, err := os.ReadFile(filepath.Join(dir, paths.SessionSidecarFileName))
+	if err != nil {
+		return nil, false
+	}
+	e, err := decodeSidecar(data)
+	if err != nil {
+		return nil, false
+	}
+	return e, true
 }
 
 // OutputDirIn is harp's output dir as the calling process reaches it:

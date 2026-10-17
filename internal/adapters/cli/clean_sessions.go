@@ -43,8 +43,44 @@ func sessionReapPolicy(now time.Time) (sessions.ReapPolicy, error) {
 		p.Scope = paths.Persist
 	}
 	cutoff, err := reclaimCutoff(cleanOlderThan, now)
+	if err != nil {
+		return p, err
+	}
 	p.Cutoff = cutoff
+	if p.Scope == paths.Persist {
+		p.Retention, err = resolveTranscriptRetention(now)
+	}
 	return p, err
+}
+
+// resolveTranscriptRetention is transcriptRetention, as every destroyer of
+// transcripts calls it: a var so a test about something else (the lock, the
+// populations) can release retention rather than age every fixture.
+var resolveTranscriptRetention = transcriptRetention
+
+// transcriptRetention resolves the rule every destroyer of transcripts asks
+// (sessions.Retention): a session's transcript is kept until the session
+// ended more than session_transcript_retention ago, else
+// config.DefaultSessionTranscriptRetention. A value that does not parse is
+// REFUSED, and a refused config refuses; a config that cannot be loaded at
+// all proceeds on the built-in default and says so — the default keeps
+// transcripts, so it is never the unsafe direction.
+func transcriptRetention(now time.Time) (sessions.Retention, error) {
+	age := config.DefaultSessionTranscriptRetention
+	cfg, err := GetConfig()
+	switch {
+	case errors.As(err, new(configRefusedError)):
+		return sessions.Retention{}, err
+	case err != nil:
+		clidiag.Warn("ctxloom", "config could not be loaded (%v); transcripts are retained for the built-in session_transcript_retention %s", err, age)
+	default:
+		age = cfg.SessionTranscriptRetention()
+	}
+	cutoff, err := parseAgeBound("session_transcript_retention", age, now)
+	if err != nil {
+		return sessions.Retention{}, err
+	}
+	return sessions.Retention{Cutoff: cutoff}, nil
 }
 
 // reclaimCutoff resolves the reclaim bound: --older-than when given, else
@@ -171,5 +207,5 @@ func init() {
 	cleanCmd.Flags().StringVar(&cleanOlderThan, "older-than", "",
 		"reap the disposable members of sessions last active before this age (30d, 12w, 720h) or date (2026-01-01), overriding the configured session_reap_age for this invocation")
 	cleanCmd.Flags().BoolVar(&cleanIncludePersist, "include-persist", false,
-		"also reap the persistent machine members — transcripts, native history, spool, package store, logs — from the aged, compacted sessions; never taken without this")
+		"also reap the persistent machine members — transcripts, native history, spool, package store, logs — from the aged sessions whose transcripts session_transcript_retention releases (ended long enough ago, not marked keep); never taken without this")
 }

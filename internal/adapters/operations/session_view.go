@@ -37,6 +37,9 @@ type SessionView struct {
 	LastActivity time.Time `json:"last_activity"`
 	// Purged says `session purge` destroyed this session's transcript.
 	Purged bool `json:"purged,omitempty"`
+	// Kept says the session is marked keep (`ctxloom session keep`): its
+	// transcript is kept at any age.
+	Kept bool `json:"kept,omitempty"`
 	// Compacted says an essence exists; EssencePath is where.
 	Compacted   bool   `json:"compacted"`
 	EssencePath string `json:"essence_path,omitempty"`
@@ -58,6 +61,7 @@ func ViewSession(e sessions.Entry) SessionView {
 		EndedAt:       e.EndedAt,
 		LastActivity:  e.LastActivity,
 		Purged:        e.PurgedAt != nil,
+		Kept:          e.Keep,
 	}
 	v.EssencePath, v.Compacted = SessionEssenceInfo(e.HarpName, &e)
 	v.Stale, v.StaleKnown = e.SourceStale()

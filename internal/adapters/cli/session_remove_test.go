@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -18,6 +19,7 @@ import (
 
 // TestSessionRemove_ReportLeavesAllThreeArtifacts is the report side.
 func TestSessionRemove_ReportLeavesAllThreeArtifacts(t *testing.T) {
+	releaseTranscriptRetention(t)
 	dir := testsupport.ProjectDir(t)
 	mgr, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
@@ -40,6 +42,7 @@ func TestSessionRemove_ReportLeavesAllThreeArtifacts(t *testing.T) {
 // whole point of this change. Asserting only the index entry is what made the
 // old behaviour look correct.
 func TestSessionRemove_YesDestroysAllThreeArtifacts(t *testing.T) {
+	releaseTranscriptRetention(t)
 	dir := testsupport.ProjectDir(t)
 	mgr, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
@@ -73,6 +76,7 @@ func TestSessionRemove_YesDestroysAllThreeArtifacts(t *testing.T) {
 // directory is never destroyed by anything, remove included. It is named in
 // the report instead, so a kept file is never silently kept.
 func TestSessionRemove_LeavesAuthoredWorkAlone(t *testing.T) {
+	releaseTranscriptRetention(t)
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	seedTranscript(t, harp)
@@ -87,43 +91,20 @@ func TestSessionRemove_LeavesAuthoredWorkAlone(t *testing.T) {
 	assert.Contains(t, out, "design-notes.md", "and it must be named in the report")
 }
 
-// TestSessionRemove_UncompactedRefuses: removing a session that was never
-// compacted would destroy the only record of what happened. It refuses, and
-// names the leaf that can do it deliberately.
-func TestSessionRemove_UncompactedRefuses(t *testing.T) {
+// TestSessionRemove_AfterTheTranscriptIsGone_Succeeds pins that retention
+// guards a real file. Once the transcript is gone there is nothing left to
+// protect, so remove proceeds even for a session that ended within the
+// retention period — rather than refusing forever over a file that no longer
+// exists.
+func TestSessionRemove_AfterTheTranscriptIsGone_Succeeds(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	mgr, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
+	require.NoError(t, os.Remove(transcript))
 
-	_, stderr, err := execRootCmdBoth(t, "session", "remove", harp, "--yes")
-	require.Error(t, err)
-
-	entry, err := mgr.Find(harp)
-	require.NoError(t, err)
-	assert.NotNil(t, entry, "a refusal must leave the index entry")
-	assert.True(t, onDisk(t, transcript), "a refusal must leave the transcript")
-	assert.Contains(t, stderr, "--uncompacted")
-}
-
-// TestSessionRemove_AfterAnUncompactedTranscriptPurge_Succeeds pins that the
-// refusal above is an obstacle a caller can actually get past. The guard asks
-// "is there a transcript here that is the only record", so once the
-// transcript is deliberately gone there is nothing left to protect and remove
-// proceeds — rather than refusing forever over a file that no longer exists.
-func TestSessionRemove_AfterAnUncompactedTranscriptPurge_Succeeds(t *testing.T) {
-	dir := testsupport.ProjectDir(t)
-	mgr, harp := seedEndedSession(t, dir, "claude-code")
-	transcript := seedTranscript(t, harp)
-	t.Cleanup(func() { resetFlags(t, rootCmd) })
-
-	_, err := execRootCmd(t, "session", "transcript", "purge", harp, "--uncompacted", "--yes")
-	require.NoError(t, err)
-	require.False(t, onDisk(t, transcript))
-	resetFlags(t, rootCmd)
-
-	_, err = execRootCmd(t, "session", "remove", harp, "--yes")
-	require.NoError(t, err, "with the only record already deliberately destroyed, nothing is left to protect")
+	_, err := execRootCmd(t, "session", "remove", harp, "--yes")
+	require.NoError(t, err, "with the transcript already gone, retention has nothing to protect")
 
 	entry, err := mgr.Find(harp)
 	require.NoError(t, err)

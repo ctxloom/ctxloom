@@ -32,10 +32,14 @@ type ReapPolicy struct {
 	// paths.Ephemeral, the default; paths.Persist is a human's
 	// --include-persist and TAKES the persistent machine members — the
 	// transcripts and native history with the spool, the package store and
-	// the logs — from a COMPACTED session only. An uncompacted one
-	// (Compacted) keeps them, because its transcript is its only record; it
-	// is reaped as under the default scope and the report says why.
+	// the logs — only from a session whose transcript Retention releases.
+	// One it retains (ended too recently, or marked keep) keeps them,
+	// because its transcript is its record; it is reaped as under the
+	// default scope and the report says why.
 	Scope paths.Lifetime
+	// Retention decides, under Scope Persist, whose transcripts may go.
+	// Required for that scope: a zero cutoff refuses (ErrNoRetentionBound).
+	Retention Retention
 	// Apply is the plan/act switch. False reports the same verdicts and
 	// bytes and moves nothing.
 	Apply bool
@@ -183,6 +187,9 @@ func Reap(ctx context.Context, l Layout, locks Locks, p ReapPolicy, triage Triag
 	if p.Cutoff.IsZero() {
 		return Report{}, ErrNoAgeBound
 	}
+	if p.scope() == paths.Persist && p.Retention.Cutoff.IsZero() {
+		return Report{}, ErrNoRetentionBound
+	}
 	rep := Report{Applied: p.Apply, Cutoff: p.Cutoff, Members: p.MemberRels()}
 
 	root := l.SessionsRoot()
@@ -268,7 +275,7 @@ func ReapSession(ctx context.Context, l Layout, locks Locks, name string, p Reap
 	if !screenAgedUnkept(l, name, p, &c) {
 		return c, true
 	}
-	members, m, proceed := narrowUncompacted(l, name, p, &c, members, m)
+	members, m, proceed := narrowRetained(l, name, p, &c, members, m)
 	if !proceed {
 		return c, true
 	}
@@ -303,16 +310,25 @@ func screenAgedUnkept(l Layout, name string, p ReapPolicy, c *ReapCandidate) boo
 	return true
 }
 
-// narrowUncompacted narrows a persist-scope reap of an uncompacted session
-// to the default scope's members. An uncompacted session's transcript is its
-// only record, so a wider scope never frees less, and the spare is reported
+// narrowRetained narrows a persist-scope reap of a session whose transcript
+// Retention keeps to the default scope's members. Its transcript is its
+// record, so a wider scope never frees less, and the spare is reported
 // whatever the verdict. proceed is false (spared) when nothing is left to
-// take.
-func narrowUncompacted(l Layout, name string, p ReapPolicy, c *ReapCandidate, members []paths.HarpMember, m memberMeasure) ([]paths.HarpMember, memberMeasure, bool) {
-	if p.scope() != paths.Persist || Compacted(c.Dir) {
+// take. A session whose sidecar cannot be read is retained: nothing proves
+// it ended.
+func narrowRetained(l Layout, name string, p ReapPolicy, c *ReapCandidate, members []paths.HarpMember, m memberMeasure) ([]paths.HarpMember, memberMeasure, bool) {
+	if p.scope() != paths.Persist {
 		return members, m, true
 	}
-	c.Reason = fmt.Sprintf("its persistent members are spared: it was never compacted, so its transcript is its only record — run `ctxloom session compact %s` first", name)
+	e, _ := sidecarOf(c.Dir)
+	retained := p.Retention.Retains(e, c.LastActive)
+	if e == nil && retained == nil {
+		retained = fmt.Errorf("%w: its sidecar cannot be read", ErrTranscriptRecent)
+	}
+	if retained == nil {
+		return members, m, true
+	}
+	c.Reason = fmt.Sprintf("its persistent members are spared: %v — its transcript is its record", retained)
 	members = ReapPolicy{}.Members()
 	m = measureMembers(l, name, members)
 	c.Bytes = m.bytes

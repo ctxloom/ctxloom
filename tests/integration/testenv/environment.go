@@ -3,6 +3,7 @@ package testenv
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -167,26 +168,57 @@ func (e *TestEnvironment) findAppBinary() (string, error) {
 	return bin, nil
 }
 
-// resolveAppBinary picks WHICH ctxloom to test, without judging it: an explicit
-// CTXLOOM_BINARY first, then the conventional build locations, then PATH.
+// appBinaryEnv names an explicit ctxloom binary to test instead of this
+// checkout's own build: a coverage-instrumented twin (test-acceptance-cover)
+// or a binary built inside a container (test-acceptance-live-container).
+const appBinaryEnv = "CTXLOOM_BINARY"
+
+// errAppBinaryNotFound is the sentinel every resolveAppBinaryIn refusal wraps.
+var errAppBinaryNotFound = errors.New("ctxloom binary under test not found")
+
+// resolveAppBinary picks WHICH ctxloom to test, without judging it, for the
+// checkout this process runs in. See resolveAppBinaryIn.
 func resolveAppBinary() (string, error) {
-	// First, check if CTXLOOM_BINARY is set (for CI or custom builds)
-	if bin := os.Getenv("CTXLOOM_BINARY"); bin != "" {
-		if _, err := os.Stat(bin); err == nil {
-			return bin, nil
+	return resolveAppBinaryIn(findProjectRoot())
+}
+
+// resolveAppBinaryIn returns the binary named by appBinaryEnv when set, else
+// the build of the checkout at root (treeBinaryPath), and otherwise FAILS.
+//
+// There is deliberately no other fallback: not $GOPATH/bin, ~/go/bin,
+// ~/.local/bin, nor PATH. An installed ctxloom is built from some OTHER source
+// — a release, another checkout, a copy another tool's tests leaked — so
+// testing it measures a program nobody edited, and the freshness guard cannot
+// see that (an installed binary is usually NEWER than the tree's source). An
+// explicit appBinaryEnv that does not exist fails the same way rather than
+// quietly falling through to the tree build.
+func resolveAppBinaryIn(root string) (string, error) {
+	if bin := os.Getenv(appBinaryEnv); bin != "" {
+		if _, err := os.Stat(bin); err != nil {
+			return "", fmt.Errorf("%w: %s=%q: %v", errAppBinaryNotFound, appBinaryEnv, bin, err)
 		}
+		return filepath.Abs(bin)
 	}
-
-	if abs, ok := firstExistingBinary(candidateBinaryPaths()); ok {
-		return abs, nil
+	tree := treeBinaryPath(root)
+	if _, err := os.Stat(tree); err != nil {
+		return "", fmt.Errorf(
+			"%w: looked for this checkout's build at %s and %s is unset.\n"+
+				"Build it with `just build` (the integration and acceptance recipes do so first),\n"+
+				"or set %s to an explicit binary. Installed copies ($GOPATH/bin, ~/go/bin,\n"+
+				"~/.local/bin, PATH) are never used",
+			errAppBinaryNotFound, tree, appBinaryEnv, appBinaryEnv)
 	}
+	return tree, nil
+}
 
-	// Try PATH lookup
-	if path, err := exec.LookPath("ctxloom"); err == nil {
-		return path, nil
+// treeBinaryPath is where `just build` writes the checkout's ctxloom: the
+// project root, with a .exe suffix on Windows.
+func treeBinaryPath(root string) string {
+	bin := filepath.Join(root, "ctxloom")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
 	}
-
-	return "", fmt.Errorf("ctxloom binary not found; set CTXLOOM_BINARY or ensure ctxloom is in PATH")
+	return bin
 }
 
 // allowStaleBinaryEnv waives the staleness refusal in checkBinaryFreshness.
@@ -341,31 +373,6 @@ func checkBinaryFreshness(bin, root string) error {
 	)
 }
 
-// candidateBinaryPaths lists the common locations the built ctxloom binary may
-// live in, with a .exe suffix applied on Windows.
-func candidateBinaryPaths() []string {
-	locations := []string{
-		// Built binary in project root (found by walking up)
-		filepath.Join(findProjectRoot(), "ctxloom"),
-		// Built binary in current dir
-		"./ctxloom",
-		// Go install location
-		filepath.Join(os.Getenv("GOPATH"), "bin", "ctxloom"),
-		filepath.Join(os.Getenv("HOME"), "go", "bin", "ctxloom"),
-		// Local bin
-		filepath.Join(os.Getenv("HOME"), ".local", "bin", "ctxloom"),
-	}
-
-	if runtime.GOOS == "windows" {
-		for i, loc := range locations {
-			if !strings.HasSuffix(loc, ".exe") {
-				locations[i] = loc + ".exe"
-			}
-		}
-	}
-	return locations
-}
-
 // findProjectRoot walks up from the current directory looking for go.mod,
 // falling back to the current directory if none is found.
 func findProjectRoot() string {
@@ -394,20 +401,6 @@ func findProjectRoot() string {
 		}
 		root = parent
 	}
-}
-
-// firstExistingBinary returns the absolute path of the first location that
-// exists on disk.
-func firstExistingBinary(locations []string) (string, bool) {
-	for _, loc := range locations {
-		if _, err := os.Stat(loc); err != nil {
-			continue
-		}
-		if abs, err := filepath.Abs(loc); err == nil {
-			return abs, true
-		}
-	}
-	return "", false
 }
 
 // Setup configures the environment variables for isolated testing.

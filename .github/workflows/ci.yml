@@ -429,9 +429,10 @@ jobs:
       - name: Mark workspace as safe
         run: just ci-git-safe-directory
 
-      # The godog suite execs the real ctxloom binary as a subprocess; it
-      # resolves it from PATH (or CTXLOOM_BINARY). `test-acceptance` depends on
-      # `build`, which writes ./ctxloom into the workspace.
+      # The godog suite execs the real ctxloom binary as a subprocess. It takes
+      # CTXLOOM_BINARY, or else the workspace's ./ctxloom, and never PATH.
+      # `test-acceptance-cover` builds .coverbin/ctxloom and passes it
+      # explicitly. PATH still matters to what the product itself execs.
       - name: Add binaries to PATH
         run: just ci-path
 

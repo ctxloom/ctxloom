@@ -52,8 +52,9 @@ ci-git-safe-directory:
 # Put the repo root and bin/ on PATH for subsequent steps.
 #
 # The godog acceptance suite and tests/integration exec the REAL ctxloom binary
-# as a subprocess and resolve it from PATH (or CTXLOOM_BINARY), and `build`
-# writes ./ctxloom into the repo root. Under Actions this appends to
+# as a subprocess. The harness takes CTXLOOM_BINARY or the repo root's
+# ./ctxloom, which `build` writes, and never PATH. PATH still matters to what
+# the product itself execs. Under Actions this appends to
 # $GITHUB_PATH, which is the only way one step can change a later step's PATH;
 # run locally it just prints what it would add, since a recipe cannot mutate
 # its caller's environment.

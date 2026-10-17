@@ -105,8 +105,7 @@ These are read only by test and mock code paths, not by normal operation.
 
 | Variable | Purpose |
 |----------|---------|
-| `CTXLOOM_BINARY` | Explicit path to the ctxloom binary under test. When unset, the harness probes the repo root, `$GOPATH/bin`, `$HOME/go/bin`, `$HOME/.local/bin`, then `PATH`. |
-| `GOPATH` | Read only by the integration test harness as one candidate location (`$GOPATH/bin/ctxloom`) for the binary under test. The shipped CLI never reads it. |
+| `CTXLOOM_BINARY` | Explicit path to the ctxloom binary under test. When unset, the integration and acceptance harness uses only this checkout's own build at the repo root (`./ctxloom`, written by `just build`) and fails if it is missing. It never falls back to an installed copy (`$GOPATH/bin`, `~/go/bin`, `~/.local/bin`, `PATH`). If set to a path that does not exist, the harness fails. |
 | `CTXLOOM_MOCK_RESPONSE` | Canned response for the mock LLM backend. |
 | `CTXLOOM_MOCK_RECORD_FILE` | File the mock backend records its input to. |
 | `CTXLOOM_MOCK_EXIT_CODE` | Exit code the mock backend returns. |

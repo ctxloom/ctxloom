@@ -1,6 +1,7 @@
 package testenv
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -165,6 +166,118 @@ func TestFindAppBinary_AppliesTheFreshnessVerdictToWhateverItResolved(t *testing
 			t.Fatalf("findAppBinary returned %q, want %q", got, bin)
 		}
 	})
+}
+
+// ── binary resolution ─────────────────────────────────────────────────────
+//
+// The binary under test is the one built from THIS checkout, or one named
+// explicitly through appBinaryEnv — never an installed copy. The defect these
+// pin: the harness used to fall back to $GOPATH/bin, $HOME/go/bin,
+// $HOME/.local/bin and PATH, so a tree with no build silently tested whatever
+// ctxloom happened to be installed (a stale 0.6.4 leaked into ~/.local/bin by
+// another tool's tests would have become the binary under test).
+
+// plantInstalledDecoys puts an executable ctxloom in every place an installed
+// copy could live — a fake HOME's ~/.local/bin and ~/go/bin, a fake GOPATH's
+// bin, and a PATH entry — and points the process at them.
+func plantInstalledDecoys(t *testing.T) []string {
+	t.Helper()
+	home, gopath, pathDir := t.TempDir(), t.TempDir(), t.TempDir()
+	var decoys []string
+	for _, dir := range []string{
+		filepath.Join(home, ".local", "bin"),
+		filepath.Join(home, "go", "bin"),
+		filepath.Join(gopath, "bin"),
+		pathDir,
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+		bin := filepath.Join(dir, "ctxloom")
+		if err := os.WriteFile(bin, []byte("#!/bin/false\n"), 0o755); err != nil {
+			t.Fatalf("write decoy: %v", err)
+		}
+		decoys = append(decoys, bin)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("GOPATH", gopath)
+	t.Setenv("PATH", pathDir)
+	t.Setenv(appBinaryEnv, "")
+	return decoys
+}
+
+func TestResolveAppBinaryIn_NeverFallsBackToAnInstalledCopy(t *testing.T) {
+	decoys := plantInstalledDecoys(t)
+	root := t.TempDir() // a checkout with no build in it
+
+	got, err := resolveAppBinaryIn(root)
+	if err == nil {
+		t.Fatalf("resolved %q for a checkout with no build; installed copies must never stand in for the tree's own", got)
+	}
+	if !errors.Is(err, errAppBinaryNotFound) {
+		t.Fatalf("error is not errAppBinaryNotFound: %v", err)
+	}
+	msg := err.Error()
+	for _, want := range []string{treeBinaryPath(root), appBinaryEnv, "just build"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("refusal does not name %q; got:\n%s", want, msg)
+		}
+	}
+	for _, d := range decoys {
+		if got == d {
+			t.Errorf("resolved the installed decoy %s", d)
+		}
+	}
+}
+
+func TestResolveAppBinaryIn_UsesTheTreeBuildOverInstalledCopies(t *testing.T) {
+	plantInstalledDecoys(t)
+	root := t.TempDir()
+	want := treeBinaryPath(root)
+	if err := os.WriteFile(want, []byte("#!/bin/false\n"), 0o755); err != nil {
+		t.Fatalf("write tree build: %v", err)
+	}
+
+	got, err := resolveAppBinaryIn(root)
+	if err != nil {
+		t.Fatalf("refused the tree's own build: %v", err)
+	}
+	if got != want {
+		t.Fatalf("resolved %q, want the tree build %q", got, want)
+	}
+}
+
+func TestResolveAppBinaryIn_AnExplicitBinaryThatIsMissingFailsRatherThanFallingBack(t *testing.T) {
+	plantInstalledDecoys(t)
+	root := t.TempDir()
+	if err := os.WriteFile(treeBinaryPath(root), []byte("#!/bin/false\n"), 0o755); err != nil {
+		t.Fatalf("write tree build: %v", err)
+	}
+	missing := filepath.Join(t.TempDir(), "ctxloom")
+	t.Setenv(appBinaryEnv, missing)
+
+	got, err := resolveAppBinaryIn(root)
+	if err == nil {
+		t.Fatalf("resolved %q though %s named a binary that does not exist; an explicit choice must not be silently swapped", got, appBinaryEnv)
+	}
+	if !errors.Is(err, errAppBinaryNotFound) || !strings.Contains(err.Error(), missing) {
+		t.Fatalf("want errAppBinaryNotFound naming %s, got: %v", missing, err)
+	}
+}
+
+func TestResolveAppBinaryIn_AnExplicitBinaryWins(t *testing.T) {
+	plantInstalledDecoys(t)
+	root := t.TempDir()
+	if err := os.WriteFile(treeBinaryPath(root), []byte("#!/bin/false\n"), 0o755); err != nil {
+		t.Fatalf("write tree build: %v", err)
+	}
+	explicit := fakeBinary(t, time.Now())
+	t.Setenv(appBinaryEnv, explicit)
+
+	got, err := resolveAppBinaryIn(root)
+	if err != nil || got != explicit {
+		t.Fatalf("resolved (%q, %v), want the explicit %q", got, err, explicit)
+	}
 }
 
 // ── ambient-session scrub ─────────────────────────────────────────────────

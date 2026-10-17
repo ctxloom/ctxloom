@@ -59,10 +59,14 @@ type Home struct {
 	// while" — a distinction the caller's error must preserve, and which a
 	// momentarily-nil stream mid-reconnect must not erase.
 	everAttached bool
-	seq          uint64
-	unacked      []*agentcoordpb.AgentEvent
-	acked        uint64
-	ackCh        chan struct{} // closed + replaced on every ack advance
+	// gauge is the latest context gauge reported (reportContextUsage), nil
+	// before the first: re-sent on every attach, so a report made while no
+	// stream carried it is not lost.
+	gauge   *agentcoordpb.Heartbeat
+	seq     uint64
+	unacked []*agentcoordpb.AgentEvent
+	acked   uint64
+	ackCh   chan struct{} // closed + replaced on every ack advance
 	// redial is closed and replaced by Redial: the kick a loop in its backoff
 	// wakes on (redialWake). Guarded by mu.
 	redial chan struct{}
@@ -790,8 +794,10 @@ func (h *Home) attachAndReissue(stream runChannelStream) {
 	// coordinator cannot see adoption until a frame arrives, and an idle
 	// runner would otherwise send none — so this one is always sent, and the
 	// coordinator re-sweeps out/ on it (Coordinator.ConfirmAttach).
+	// It carries the latest context gauge, which a frame sent while no
+	// stream was adopted would otherwise have lost.
 	h.sendLocked(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Heartbeat{
-		Heartbeat: &agentcoordpb.Heartbeat{RunId: h.cfg.RunID},
+		Heartbeat: h.attachHeartbeat(),
 	}})
 	// The reissue batch holds sendMu so no fresh emit can interleave a
 	// higher seq into it (see emitEvent).
@@ -1363,14 +1369,32 @@ func (h *Home) emitCustomEvent(name string, value map[string]any) {
 
 // reportContextUsage sends the run's context gauge as a Heartbeat: tokens in
 // context out of the model's window as the latest turn completed. A gauge,
-// not an event: with no stream to carry it the frame is dropped, and the next
-// turn's report supersedes it.
+// not an event: it is not reissued like one. The latest is kept and rides
+// the next attach's Heartbeat instead, so a report made while no stream
+// carried it reaches the coordinator then, and a later turn's supersedes it.
 func (h *Home) reportContextUsage(used, window uint64) {
 	hb := &agentcoordpb.Heartbeat{RunId: h.cfg.RunID, SentAt: timestamppb.Now(), ContextTokensUsed: &used}
 	if window > 0 {
 		hb.ContextWindow = &window
 	}
-	h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Heartbeat{Heartbeat: hb}})
+	h.sendMu.Lock()
+	defer h.sendMu.Unlock()
+	h.mu.Lock()
+	h.gauge = hb
+	h.mu.Unlock()
+	h.sendLocked(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Heartbeat{Heartbeat: hb}})
+}
+
+// attachHeartbeat is the Heartbeat an attach sends: the run's id and the
+// latest context gauge, when one was reported.
+func (h *Home) attachHeartbeat() *agentcoordpb.Heartbeat {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	hb := &agentcoordpb.Heartbeat{RunId: h.cfg.RunID}
+	if h.gauge != nil {
+		hb.ContextTokensUsed, hb.ContextWindow = h.gauge.ContextTokensUsed, h.gauge.ContextWindow
+	}
+	return hb
 }
 
 // emitEvent assigns the next seq, buffers the event as unacked, and sends it

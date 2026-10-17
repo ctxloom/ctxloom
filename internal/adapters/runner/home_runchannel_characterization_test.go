@@ -203,3 +203,24 @@ func TestRunChannelOnce_TheCoordinatorsCommittedSeqIsAnAck(t *testing.T) {
 	require.Equal(t, uint64(2), h.acked)
 	require.Len(t, h.unacked, 1)
 }
+
+// TestRunChannelOnce_TheAttachHeartbeatCarriesTheLatestGauge: a context gauge
+// reported while no stream was adopted is not lost — it is not reissued
+// like an event, so the attach Heartbeat carries the latest one.
+func TestRunChannelOnce_TheAttachHeartbeatCarriesTheLatestGauge(t *testing.T) {
+	h := channelHome(t)
+	h.reportContextUsage(10, 1000)
+	h.reportContextUsage(25, 1000) // the later turn's supersedes it
+
+	srv := &runChannelServer{first: helloAck(true, nil), collect: 1}
+	watchdog := time.AfterFunc(conformanceWait, h.cancel)
+	defer watchdog.Stop()
+	err := runChannelOnceBounded(t, h, runChannelClient(t, srv))
+	require.ErrorIs(t, err, io.EOF)
+
+	require.Len(t, srv.got, 1)
+	hb := srv.got[0].GetHeartbeat()
+	require.NotNil(t, hb)
+	require.Equal(t, uint64(25), hb.GetContextTokensUsed())
+	require.Equal(t, uint64(1000), hb.GetContextWindow())
+}

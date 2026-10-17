@@ -1,20 +1,24 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/attach"
 	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -248,4 +252,43 @@ func TestDriveOwnedInteractive_EndThatDoesNotEndEscalatesToKill(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	require.True(t, tty.ended.Load())
 	require.True(t, tty.killed.Load(), "a runner End did not end must be Killed")
+}
+
+// recordingTerminal is a frontend.Terminal that records what is typed into
+// it and every resize.
+type recordingTerminal struct {
+	mu      sync.Mutex
+	typed   bytes.Buffer
+	resizes [][2]uint16
+}
+
+func (r *recordingTerminal) Read([]byte) (int, error) { return 0, io.EOF }
+func (r *recordingTerminal) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.typed.Write(p)
+}
+func (r *recordingTerminal) Resize(rows, cols uint16) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.resizes = append(r.resizes, [2]uint16{rows, cols})
+	return nil
+}
+
+// The interactive drive types the user's keystrokes into the session's
+// terminal and applies each resize to it — the terminal it attached through
+// the frontend port.
+func TestPumpSessionInput_KeystrokesAndResizesReachThePortsTerminal(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	resize := make(chan *agent.WindowSize, 1)
+	resize <- &agent.WindowSize{Rows: 30, Cols: 100}
+	term := &recordingTerminal{}
+	(&runState{}).pumpSessionInput(ctx, sessionIO{stdin: strings.NewReader("hi\r"), resize: resize}, term)
+	require.Eventually(t, func() bool {
+		term.mu.Lock()
+		defer term.mu.Unlock()
+		return term.typed.String() == "hi\r" && len(term.resizes) == 1
+	}, 5*time.Second, time.Millisecond)
+	assert.Equal(t, [2]uint16{30, 100}, term.resizes[0])
 }

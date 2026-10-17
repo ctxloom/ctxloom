@@ -155,7 +155,8 @@
         "GORELEASER",
         "GOPLS",
         "GITLEAKS",
-        "LEFTHOOK"
+        "LEFTHOOK",
+        "GOVULNCHECK"
       ],
       "overrideDatasource": "go",
       "extractVersion": "^v(?<version>.+)$"
@@ -242,6 +243,15 @@
       "overridePackageName": "github.com/evilmartians/lefthook"
     },
     {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "GOVULNCHECK"
+      ],
+      "overridePackageName": "golang.org/x/vuln"
+    },
+    {
       "description": "A Go module's major version past v1 lives at a new module path (/vN): MEASURED, `go install github.com/evilmartians/lefthook@v2.2.2` is rejected because v2 is github.com/evilmartians/lefthook/v2. Such a PR needs that tool's overridePackageName here and its `go install` lines (.devcontainer/Dockerfile, justfile, build/ci.justfile) changed by hand.",
       "matchManagers": [
         "custom.regex"
@@ -255,7 +265,8 @@
         "GORELEASER",
         "GOPLS",
         "GITLEAKS",
-        "LEFTHOOK"
+        "LEFTHOOK",
+        "GOVULNCHECK"
       ],
       "matchUpdateTypes": [
         "major"

@@ -1518,6 +1518,19 @@ build-archlint: dev-image
 lint-arch: dev-image _require-generated
     "{{just_executable()}}" --justfile "{{justfile()}}" _run lint-arch
 
+# Scan the module for known Go vulnerabilities its code can reach (delegates
+# to devcontainer for the pinned govulncheck).
+#
+# govulncheck reports a vulnerability only when a call path from this module's
+# packages reaches the affected symbol, so a finding is one the binaries can
+# hit, not merely a vulnerable version sitting in go.sum. It exits non-zero on
+# any such finding, which is what makes CI's vulncheck job a gate. It reads the
+# live database at vuln.go.dev, so the same tree can turn red the day an
+# advisory is published against one of its dependencies. Extra flags pass
+# through, e.g. `just govulncheck -show traces` for the full call paths.
+govulncheck *ARGS: dev-image _require-generated
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run govulncheck {{ARGS}}
+
 # Whole-program dead-code sweep.
 #
 # golangci-lint's `unused` is PACKAGE-scoped: it cannot see that an exported

@@ -8,7 +8,7 @@ Guide for contributing to ctxloom development.
 
 - Go 1.26+
 - [just](https://github.com/casey/just) command runner
-- Docker or Podman — the standard recipes build and run inside a devcontainer image, which carries the pinned tooling (golangci-lint, [buf](https://buf.build) for protobuf codegen, Node.js for the opencode plugin tests) so you don't install it on the host
+- Docker or Podman — the standard recipes build and run inside a devcontainer image, which carries the pinned tooling (golangci-lint, [govulncheck](https://go.dev/doc/security/vuln/), [buf](https://buf.build) for protobuf codegen, Node.js for the opencode plugin tests) so you don't install it on the host
 
 Every recipe that starts a container or builds an image (`dev-image`, and through it most of the table below) first runs a preflight that fails fast, rather than hanging, when the container engine cannot run containers: a timeout-bounded `docker info` (`version` for other engines), and for rootless docker, the runtime sockets a wedged daemon loses while still answering its API. The fix it names, `systemctl --user restart docker`, also restarts every other container on that daemon. It is skipped inside the devcontainer and under CI; `CTXLOOM_SKIP_CONTAINER_PREFLIGHT=1` bypasses it, and `CTXLOOM_CONTAINER_PREFLIGHT_TIMEOUT` (seconds, default 10) bounds the probe.
 
@@ -72,6 +72,7 @@ cell whose engine is missing or cannot authenticate skips loudly, saying why.
 |---------|-------------|
 | `just fmt` | Format code |
 | `just lint` | Lint code. golangci-lint's cache is per checkout, under the gitignored `.cache/golangci-lint/<hash>`, so a worktree never reads another's cached findings; an exported `GOLANGCI_LINT_CACHE` overrides it |
+| `just govulncheck` | Scan every package for known Go vulnerabilities its code can actually reach (govulncheck, pinned in `.devcontainer/tool-versions.env`), and fail on any. It queries the live database at vuln.go.dev, so it can turn red without a change to the tree. CI runs it as the Vulnerability scan job. Extra flags pass through, e.g. `just govulncheck -show traces` for full call paths |
 
 ## Git hooks
 

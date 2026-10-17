@@ -108,6 +108,7 @@ ARG GOPLS_VERSION
 ARG SERENA_AGENT_VERSION
 ARG GITLEAKS_VERSION
 ARG LEFTHOOK_VERSION
+ARG GOVULNCHECK_VERSION
 ARG NODE_VERSION
 ARG GIT_MIN_VERSION
 
@@ -131,6 +132,7 @@ RUN : "${GO_VERSION:?missing --build-arg GO_VERSION — build via 'just dev-imag
     && : "${SERENA_AGENT_VERSION:?missing --build-arg SERENA_AGENT_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${GITLEAKS_VERSION:?missing --build-arg GITLEAKS_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${LEFTHOOK_VERSION:?missing --build-arg LEFTHOOK_VERSION — see .devcontainer/tool-versions.env}" \
+    && : "${GOVULNCHECK_VERSION:?missing --build-arg GOVULNCHECK_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${NODE_VERSION:?missing --build-arg NODE_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${GIT_MIN_VERSION:?missing --build-arg GIT_MIN_VERSION — see .devcontainer/tool-versions.env}"
 
@@ -307,6 +309,12 @@ RUN go install github.com/zricethezav/gitleaks/v8@v${GITLEAKS_VERSION}
 # falls back to an `echo` that exits 0 when lefthook is absent — so without it
 # every commit made in a cell skips the hooks silently.
 RUN go install github.com/evilmartians/lefthook@v${LEFTHOOK_VERSION}
+
+# govulncheck, the Go vulnerability scanner `just govulncheck` runs (and CI's
+# vulncheck job). It reports a known vulnerability only when the module's code
+# can reach the affected symbol, not merely when a vulnerable version is in
+# go.sum, so a finding is one the binaries can actually hit.
+RUN go install golang.org/x/vuln/cmd/govulncheck@v${GOVULNCHECK_VERSION}
 
 # GoReleaser: `just release-check` / `just release-snapshot` run here, never on
 # the host. The host has no upx and no cross toolchain, so a host snapshot

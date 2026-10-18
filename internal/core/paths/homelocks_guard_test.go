@@ -78,3 +78,18 @@ func TestHomeLocksDir_HonoursTheTestingOverride(t *testing.T) {
 	require.NoError(t, err, "a redirected lock directory must resolve, not refuse")
 	assert.Equal(t, want, got)
 }
+
+// TestHomePathFor_RefusesASessionLockInTheAccountsRealHome: a session file's
+// lock lives in its session dir, not the home locks dir, so it takes
+// HomeLocksDir's guard itself. Otherwise an unsandboxed test locking a file
+// in a session dir would leave a lock file in the developer's real sessions
+// store. Nothing is written by computing the path.
+func TestHomePathFor_RefusesASessionLockInTheAccountsRealHome(t *testing.T) {
+	u, err := user.Current()
+	require.NoError(t, err, "the account's home is what this guard protects; without it there is nothing to test")
+	t.Setenv("HOME", u.HomeDir)
+
+	_, err = HomePathFor(filepath.Join(u.HomeDir, AppDirName, SessionsDir, "swift-amber-falcon", "home", "claude", ".claude.json"))
+	require.Error(t, err, "a session lock in the account's real home must be refused from a test binary")
+	assert.Contains(t, err.Error(), "REFUSING")
+}

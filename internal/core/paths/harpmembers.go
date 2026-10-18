@@ -101,6 +101,12 @@ var HarpMembers = []HarpMember{
 	// host material, so it is rebuilt rather than kept. Its native history is
 	// NOT in it (NativeDirName).
 	{Name: SessionEngineHomesDirName, Tier: MemberMachine, Location: AtTop, Lifetime: Ephemeral},
+	// The lock files of the files inside this session dir (HomePathFor). A
+	// lock file carries no data and each guards a file of this session, so
+	// the reaper takes them whole with the session's other Ephemeral members,
+	// under the dead session's own lock. Not Mounted: a container gets its
+	// own locks dir (isolation's Container.lockMounts).
+	{Name: HarpLocksDirName, Tier: MemberMachine, Location: AtTop, Lifetime: Ephemeral},
 	// Worktree checkouts can hold the only copy of an agent's work: an
 	// Ephemeral row the reaper TRIAGES (sessions.Triage) rather than takes.
 	{Name: WorkDirName, Tier: MemberAuthored, Location: AtTop, Lifetime: Ephemeral},

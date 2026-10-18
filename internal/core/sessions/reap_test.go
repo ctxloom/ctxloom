@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -42,6 +43,7 @@ var reapFixture = map[string]string{
 	paths.ContextMetricsFileName:                                          "{\"pct\":12}\n",
 	paths.SessionEngineHomesDirName + "/settings.json":                    "{}\n",
 	paths.SessionEngineHomesDirName + "/.credentials.json":                "{\"token\":\"copied\"}\n",
+	paths.HarpLocksDirName + "/home__settings.json__a1b2.lock":            "",
 	paths.ScratchDirName + "/scratch.txt":                                 "disposable scratch\n",
 	paths.ScratchDirName + "/overlay/settings.json":                       "{}\n",
 	paths.WorkDirName + "/ctxloom-wt-agent/main.go":                       "package main\n",
@@ -211,6 +213,35 @@ func TestReap_RemovesExactlyTheEphemeralMembers(t *testing.T) {
 		}
 	}
 	assert.Equal(t, ephemeralRels, rep.Members, "the report names the rows the policy takes, in table order")
+}
+
+// TestReap_TakesTheSessionsLockFiles: a file inside a session dir locks in
+// the session's own locks dir (paths.HomePathFor), and a reap of the aged,
+// provably-dead session removes that dir with the session's other Ephemeral
+// members. The lock file here is minted by a real locked write to a file in
+// the session home, so the test binds the lock mapping to the reaper rather
+// than to a hand-placed file at a guessed path.
+func TestReap_TakesTheSessionsLockFiles(t *testing.T) {
+	l := reapLayout(t)
+	const harp = "aged-quiet-heron"
+	dir := reapSeed(t, l, harp)
+	target := filepath.Join(l.SessionEngineHomes(harp), "settings.json")
+	require.NoError(t, WithFileLock(safefs.New().Locks, target, func() error { return nil }))
+	locksDir, err := paths.HarpLocksDir(harp)
+	require.NoError(t, err)
+	lockPath, err := paths.HomePathFor(target)
+	require.NoError(t, err)
+	require.FileExists(t, lockPath, "the locked write must leave its lock file")
+	require.Equal(t, locksDir, filepath.Dir(lockPath), "a session file must lock in its own session's locks dir")
+	reapBackdate(t, dir)
+
+	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
+	require.NoError(t, err)
+
+	require.Len(t, rep.Candidates, 1)
+	assert.Equal(t, ReapReclaimed, rep.Candidates[0].Verdict)
+	assert.NoDirExists(t, locksDir, "the dead session's lock files must be gone from disk with it")
+	assert.FileExists(t, filepath.Join(dir, paths.SessionSidecarFileName), "the session must still resolve after a reap")
 }
 
 // TestReap_PersistScope_TakesTheMachineMembersWithTheTranscript: Scope

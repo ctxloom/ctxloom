@@ -51,9 +51,12 @@ var homeRecordsOverride, homeLocksOverride homeOverride
 func SetHomeRecordsDirForTesting(dir string) func() { return homeRecordsOverride.set(dir) }
 
 // SetHomeLocksDirForTesting points the home lock directory (HomeLocksDir, and
-// so every HomePathFor lock) at dir until the returned func is called. It is
-// SetHomeRecordsDirForTesting's sibling, for an in-process test that keeps the
-// real $HOME on purpose and must still keep its lock files out of it.
+// so every HomePathFor lock outside a session dir) at dir until the returned
+// func is called. It is SetHomeRecordsDirForTesting's sibling, for an
+// in-process test that keeps the real $HOME on purpose and must still keep
+// its lock files out of it. A file inside a session dir locks in that
+// session's own locks dir, which a test keeps out of the real home by
+// isolating HOME itself; HomePathFor refuses it otherwise.
 func SetHomeLocksDirForTesting(dir string) func() { return homeLocksOverride.set(dir) }
 
 // The home-rooted-store guard lives HERE, in the package that resolves every

@@ -72,3 +72,73 @@ func TestLockMounts_ContainerResolverFindsTheHostLock(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, mounts, mount{Host: hostLock, Container: filepath.ToSlash(containerLock)})
 }
+
+// A worktree checkout under the session's work/ dir locks its in-place file
+// in the SESSION's own locks dir on the host, while the container, whose home
+// is not the host's, looks in its per-run locks dir. The two paths look
+// nothing alike, and the bind must still join them: the host's session lock
+// file is bound exactly where the container's own paths.HomePathFor looks,
+// with the target prepared in the per-run dir.
+func TestLockMounts_SessionWorktreeLockReachesTheContainersResolver(t *testing.T) {
+	realHome := testsupport.Isolate(t)
+	const harp = "brisk-teal-otter"
+	work, err := paths.HarpWorkDir(harp)
+	require.NoError(t, err)
+	projectDir := filepath.Join(work, "ctxloom-wt-agent")
+	require.NoError(t, os.MkdirAll(projectDir, 0o755))
+	scratch := t.TempDir()
+	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
+	protected := filepath.Join(projectDir, c.engineSpec.inPlaceFiles[0])
+
+	hostLock, err := paths.HomePathFor(protected)
+	require.NoError(t, err)
+	sessionLocks, err := paths.HarpLocksDir(harp)
+	require.NoError(t, err)
+	require.Equal(t, sessionLocks, filepath.Dir(hostLock), "on the host a session worktree's file locks in the session's own locks dir")
+	inContainer := mapped(t, c.runtime, protected)
+	testsupport.PointHomeAt(t, defaultContainerHome)
+	containerLock, err := paths.HomePathFor(inContainer)
+	require.NoError(t, err)
+	testsupport.PointHomeAt(t, realHome)
+
+	mounts, err := c.lockMounts(projectDir, scratch)
+	require.NoError(t, err)
+	assert.Contains(t, mounts, mount{Host: hostLock, Container: filepath.ToSlash(containerLock)})
+	assert.FileExists(t, hostLock, "the bind source must exist as a file before `run`")
+	target, err := os.Lstat(filepath.Join(scratch, paths.HomeLocksDirName, filepath.Base(containerLock)))
+	require.NoError(t, err, "the bind target in the per-run dir must be created by us, not by a rootful runtime as root")
+	assert.True(t, target.Mode().IsRegular())
+}
+
+// A container whose home the project path falls under — a controller
+// sharing the container's home layout, its worktree inside one of that
+// home's session dirs — resolves the in-place file's lock in THAT session's
+// locks dir, not its per-run dir. The host lock is bound there, because that
+// is where the container's own paths.HomePathFor looks; binding it at a
+// per-run name the container never computes would exclude nobody.
+func TestLockMounts_ContainerSessionPathLocksInTheContainersSessionDir(t *testing.T) {
+	realHome := testsupport.Isolate(t)
+	const harp = "brisk-teal-otter"
+	work, err := paths.HarpWorkDir(harp)
+	require.NoError(t, err)
+	projectDir := filepath.Join(work, "ctxloom-wt-agent")
+	require.NoError(t, os.MkdirAll(projectDir, 0o755))
+	scratch := t.TempDir()
+	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
+	c.home = mapped(t, c.runtime, realHome)
+	protected := filepath.Join(projectDir, c.engineSpec.inPlaceFiles[0])
+
+	hostLock, err := paths.HomePathFor(protected)
+	require.NoError(t, err)
+	inContainer := mapped(t, c.runtime, protected)
+	testsupport.PointHomeAt(t, c.home)
+	containerLock, err := paths.HomePathFor(inContainer)
+	require.NoError(t, err)
+	testsupport.PointHomeAt(t, realHome)
+	require.Equal(t, path.Join(c.home, paths.AppDirName, paths.SessionsDir, harp, paths.HarpLocksDirName), path.Dir(filepath.ToSlash(containerLock)),
+		"the fixture must place the project in a session dir of the container's own home, or it tests nothing")
+
+	mounts, err := c.lockMounts(projectDir, scratch)
+	require.NoError(t, err)
+	assert.Contains(t, mounts, mount{Host: hostLock, Container: filepath.ToSlash(containerLock)})
+}

@@ -114,7 +114,7 @@ func TestContainerLockMounts_InPlaceFileLockExcludesAcrossBoundary(t *testing.T)
 	protected := filepath.Join(projectDir, ".mcp.json")
 	hostLock, err := paths.HomePathFor(protected)
 	require.NoError(t, err)
-	containerLock := path.Join(defaultContainerHome, paths.AppDirName, paths.HomeLocksDirName, paths.HomeLockName(protected))
+	containerLock := paths.HomeLockPathIn(defaultContainerHome, protected)
 	try := func() string {
 		out, err := dockerRun(ctx, primary, "alpine:latest", projectDir, mounts, "sh", "-c", "flock -n "+containerLock+" true; echo rc=$?")
 		require.NoError(t, err, out)

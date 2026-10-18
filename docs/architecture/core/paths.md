@@ -113,7 +113,7 @@ this package.
 | `HomeLogFilePath` | `~/.ctxloom/logs/<prog>.log` | 1 |
 | `HarpDir` | `+ <harp>` — **validates the harp** | 9 |
 | `HarpSessionEngineHomes` | `<harp>/home` — the per-session container each engine's own config-home instance lands under; **validates the harp**, returns an error | 2 |
-| `HarpScratchDir`, `HarpWorkDir`, `HarpNativeDir`, `HarpTranscriptsDir`, … | `<harp>/<member>` — one accessor per `paths.HarpMembers` row a caller resolves, all through `HarpDir`'s validation | — |
+| `HarpScratchDir`, `HarpWorkDir`, `HarpLocksDir`, `HarpNativeDir`, `HarpTranscriptsDir`, … | `<harp>/<member>` — one accessor per `paths.HarpMembers` row a caller resolves, all through `HarpDir`'s validation | — |
 | `HarpCanonicalTranscriptPath` | `<harp>/transcripts/transcript.jsonl` — the canonical write target | — |
 | `DefaultOutputBase`, `OutputDir` | `<Documents>/ctxloom/<project>/<harp>` — a session's output dir; resolved once at mint and recorded in `session.yaml` (`sessions.Entry.OutputDir`) | — |
 | `TriggerCacheDir` | `~/.ctxloom/cache/triggers` | 1 |
@@ -163,8 +163,15 @@ are documented in full in [layout.md](../../layout.md)'s "The home tree"
 table — this page states the mechanism, that page states the list. The
 `locks` row (`HomeLocksDirName`) has its own dedicated resolvers: `HomeLocksDir`
 (the directory) and `HomePathFor` (`lockpath.go`, the per-protected-file lock
-path within it) both live in this package, so no other package names the
-`"locks"` leaf.
+path) both live in this package, so no other package names the `"locks"` leaf.
+`HomePathFor` puts the lock of a file inside a session dir in that session's own
+`locks/` member instead (`HarpLocksDirName`, `HarpLocksDir`), named for the
+file's path relative to the session dir: a session's lock files are reused by
+nothing outside it, so they are an Ephemeral `paths.HarpMembers` row and
+`sessions.Reap` takes them with the session. `HomeLocksDirIn` and
+`HomeLockPathIn` are the same derivation for a filesystem the process is not
+running in, which the container mount builder (`isolation.Container.lockMounts`)
+uses to bind a host lock where the container's own `HomePathFor` will look.
 
 ## Invariants
 

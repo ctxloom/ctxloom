@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -192,6 +193,11 @@ type ProbeScope string
 const (
 	// ScopeCwd probes exactly one path: <cwd>/<Rel>.
 	ScopeCwd ProbeScope = "cwd"
+	// ScopeCwdAncestors probes <dir>/<Rel> for the working folder and every
+	// parent folder up to the filesystem root, nearest first — an engine that
+	// merges the file from each level (claude's .mcp.json), where an entry in
+	// a parent breaks a session started below it.
+	ScopeCwdAncestors ProbeScope = "cwd-ancestors"
 	// ScopeHome probes $HOME/<Rel> — the user-global surface, lowest
 	// precedence.
 	ScopeHome ProbeScope = "home"
@@ -329,7 +335,7 @@ func (c EngineCLI) Validate() error {
 			if p.EnvVar == "" {
 				return fmt.Errorf("%s/%s: probe %s uses env-dir scope with no EnvVar", c.Engine, c.Surface, p.Kind)
 			}
-		case ScopeCwd, ScopeHome:
+		case ScopeCwd, ScopeCwdAncestors, ScopeHome:
 			if p.Rel == "" {
 				return fmt.Errorf("%s/%s: probe %s uses %s scope with no Rel", c.Engine, c.Surface, p.Kind, p.Scope)
 			}
@@ -338,6 +344,32 @@ func (c EngineCLI) Validate() error {
 		}
 	}
 	return nil
+}
+
+// Paths is the concrete files a probe reads for a working folder and home, in
+// the order the engine consults them: one path for ScopeCwd and ScopeHome,
+// nearest-first up to the filesystem root for ScopeCwdAncestors. The other
+// scopes name no path from cwd and home alone (an env var, an argv value), so
+// they yield none.
+func (p CLIProbe) Paths(cwd, home string) []string {
+	switch p.Scope {
+	case ScopeCwd:
+		return []string{filepath.Join(cwd, p.Rel)}
+	case ScopeHome:
+		return []string{filepath.Join(home, p.Rel)}
+	case ScopeCwdAncestors:
+		var out []string
+		for dir := filepath.Clean(cwd); ; {
+			out = append(out, filepath.Join(dir, p.Rel))
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				return out
+			}
+			dir = parent
+		}
+	default:
+		return nil
+	}
 }
 
 // ParsedFlag is one flag occurrence recovered from an argv line.

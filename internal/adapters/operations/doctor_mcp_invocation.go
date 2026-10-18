@@ -16,18 +16,22 @@ import (
 )
 
 // doctorMCPInvocationSurfaces are the engine-native MCP registries a ctxloom
-// install materializes under a project, relative to its root: every
-// cwd-scoped ProbeKindMCP probe a registered engine declares
-// (agent.EngineCLI.ProbesFor), read from the declaration the engine's own
-// writer and the mock's impersonation of it both read, so this check cannot
-// name a path an engine has stopped reading.
+// install can leave under a project, as the probes a registered engine
+// declares (agent.EngineCLI.ProbesFor): every cwd-scoped or
+// cwd-ancestors-scoped ProbeKindMCP probe, read from the declaration the
+// engine's own writer and the mock's impersonation of it both read, so this
+// check cannot name a path an engine has stopped reading.
 //
 // A user-global surface (ScopeHome — ~/.claude.json) is deliberately absent:
 // this check reports what THIS project materialized, and a fix it names
 // ('ctxloom init' in this project) would not reach a home-scoped entry anyway.
-func doctorMCPInvocationSurfaces(reg engine.Registry) []string {
-	seen := map[string]bool{}
-	var out []string
+func doctorMCPInvocationSurfaces(reg engine.Registry) []agent.CLIProbe {
+	type key struct {
+		scope agent.ProbeScope
+		rel   string
+	}
+	seen := map[key]bool{}
+	var out []agent.CLIProbe
 	for _, name := range EngineNames(reg) {
 		clis, ok := agent.EngineCLIsIn(reg, name)
 		if !ok {
@@ -35,16 +39,28 @@ func doctorMCPInvocationSurfaces(reg engine.Registry) []string {
 		}
 		for _, c := range clis {
 			for _, p := range c.ProbesFor(agent.ProbeKindMCP) {
-				if p.Scope != agent.ScopeCwd || seen[p.Rel] {
+				k := key{p.Scope, p.Rel}
+				if (p.Scope != agent.ScopeCwd && p.Scope != agent.ScopeCwdAncestors) || seen[k] {
 					continue
 				}
-				seen[p.Rel] = true
-				out = append(out, p.Rel)
+				seen[k] = true
+				out = append(out, p)
 			}
 		}
 	}
-	sort.Strings(out)
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Rel != out[j].Rel {
+			return out[i].Rel < out[j].Rel
+		}
+		return out[i].Scope < out[j].Scope
+	})
 	return out
+}
+
+// probePaths is the single place a probe's scope becomes concrete paths for
+// this check: absolute, in the order the engine consults them.
+func probePaths(p agent.CLIProbe, cwd, home string) []string {
+	return p.Paths(cwd, home)
 }
 
 // doctorCheckMCPInvocation reports any materialized ctxloom MCP entry that
@@ -78,12 +94,27 @@ func doctorCheckMCPInvocation(reg engine.Registry, projectDir string) DoctorChec
 	switch {
 	case len(stale) > 0:
 		detail := fmt.Sprintf(
-			"%d materialized MCP entr(y/ies) launch ctxloom as a stdio server, which ctxloom no longer ships — the engine will start and its ctxloom tools will never appear: %s. ctxloom's tools are served by the running session's endpoint; the fix takes the entry out of the project's registry (a release removes an entry this machine's ctxloom recorded writing; delete any other by hand)",
+			"%d MCP entr(y/ies) launch ctxloom as a stdio server, which ctxloom no longer ships — the engine will start and its ctxloom tools will never appear: %s. ctxloom's tools are served by the running session's endpoint; the fix takes the entry out of the registry (a release removes an entry this machine's ctxloom recorded writing; delete any other by hand)",
 			len(stale), strings.Join(stale, ", "))
+		var outside []string
+		for _, path := range stale {
+			if rel, err := filepath.Rel(projectDir, path); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				outside = append(outside, path)
+			}
+		}
+		remedy := doctorMCPReleaseRemedy
+		if len(outside) > 0 {
+			// The engine reads these from a parent folder, and the project-side
+			// release only takes out entries it recorded writing inside the project.
+			detail += "; outside this project, delete the ctxloom entry from each by hand: " + strings.Join(outside, ", ")
+			if len(outside) == len(stale) {
+				remedy = ""
+			}
+		}
 		if len(unreadable) > 0 {
 			detail += "; could not read: " + strings.Join(unreadable, ", ")
 		}
-		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: detail, Remedy: doctorMCPReleaseRemedy}
+		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: detail, Remedy: remedy}
 	case len(unreadable) > 0:
 		// "I could not read it" is not "it is fine". A surface that failed to
 		// parse may hold the very entry this check is looking for, and
@@ -96,30 +127,81 @@ func doctorCheckMCPInvocation(reg engine.Registry, projectDir string) DoctorChec
 	}
 }
 
-// scanMCPInvocations reads each project-relative MCP surface under
-// projectDir, returning the ones that still launch ctxloom as a stdio server
-// and the ones that could not be read or parsed.
+// scanMCPInvocations reads every file each project MCP surface resolves to
+// from projectDir (probePaths), returning the absolute paths that still launch
+// ctxloom as a stdio server and the ones that could not be read or parsed.
 func scanMCPInvocations(reg engine.Registry, projectDir string) (stale, unreadable []string) {
-	for _, rel := range doctorMCPInvocationSurfaces(reg) {
-		data, err := os.ReadFile(filepath.Join(projectDir, rel))
-		if err != nil {
-			// An absent surface is the common case (nobody configures five
-			// engines), not a finding.
-			if !os.IsNotExist(err) {
-				unreadable = append(unreadable, fmt.Sprintf("%s (%v)", rel, err))
+	if abs, err := filepath.Abs(projectDir); err == nil {
+		projectDir = abs
+	}
+	seen := map[string]bool{}
+	for _, p := range doctorMCPInvocationSurfaces(reg) {
+		for _, path := range probePaths(p, projectDir, "") {
+			if seen[path] {
+				continue
 			}
-			continue
-		}
-		launches, err := mcpSurfaceLaunchesCtxloom(rel, data)
-		if err != nil {
-			unreadable = append(unreadable, fmt.Sprintf("%s (%v)", rel, err))
-			continue
-		}
-		if launches {
-			stale = append(stale, rel)
+			seen[path] = true
+			data, err := os.ReadFile(path)
+			if err != nil {
+				// An absent surface is the common case (nobody configures five
+				// engines), not a finding.
+				if !os.IsNotExist(err) {
+					unreadable = append(unreadable, fmt.Sprintf("%s (%v)", path, err))
+				}
+				continue
+			}
+			launches, err := mcpSurfaceLaunchesCtxloom(path, data)
+			if err != nil {
+				unreadable = append(unreadable, fmt.Sprintf("%s (%v)", path, err))
+				continue
+			}
+			if launches {
+				stale = append(stale, path)
+			}
 		}
 	}
 	return stale, unreadable
+}
+
+// BareMCPEntryFiles names each MCP registry file, from dir up through its
+// parents, holding a ctxloom entry that launches bare `ctxloom mcp` — the
+// files whose entry makes an engine start a server that refuses to speak.
+func BareMCPEntryFiles(reg engine.Registry, dir string) []string {
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	var out []string
+	for _, p := range doctorMCPInvocationSurfaces(reg) {
+		if p.Scope != agent.ScopeCwdAncestors {
+			continue
+		}
+		for _, path := range probePaths(p, dir, "") {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			if root, err := decodeSurface(path, data); err == nil && walkForBareCtxloomMCP(root) {
+				out = append(out, path)
+			}
+		}
+	}
+	return out
+}
+
+// walkForBareCtxloomMCP is walkForCtxloomMCPLaunch narrowed to an entry whose
+// whole invocation is the bare `mcp` noun.
+func walkForBareCtxloomMCP(node map[string]any) bool {
+	if entry, ok := node[agent.MCPServerName].(map[string]any); ok {
+		if tokens, isServer := mcpEntryInvocation(entry); isServer && len(tokens) == 1 && tokens[0] == "mcp" {
+			return true
+		}
+	}
+	for _, v := range node {
+		if child, ok := v.(map[string]any); ok && walkForBareCtxloomMCP(child) {
+			return true
+		}
+	}
+	return false
 }
 
 // mcpSurfaceLaunchesCtxloom reports whether rel's bytes carry a ctxloom MCP

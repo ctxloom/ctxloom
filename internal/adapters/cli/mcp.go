@@ -3,12 +3,14 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // The MCP noun has NO machine surface: ctxloom's own server is served by
@@ -68,11 +70,29 @@ func mcpBareMachineRefusal(cmd *cobra.Command) *cobra.Command {
 	delegate := cmd.RunE
 	cmd.RunE = func(c *cobra.Command, args []string) error {
 		if len(args) == 0 && !isInteractiveTerminal() {
-			return errMCPBareIsNotTheServer
+			return refuseBareMCP()
 		}
 		return delegate(c, args)
 	}
 	return cmd
+}
+
+// refuseBareMCP is the refusal with the files that caused it named. The
+// engine's stderr log is the only place the user will ever see it, and the
+// entry that launched this process may sit in a parent folder of the working
+// folder (claude reads .mcp.json from every level), where no release can
+// remove it — so the walk the doctor check does runs here too.
+func refuseBareMCP() error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return errMCPBareIsNotTheServer
+	}
+	files := operations.BareMCPEntryFiles(engines.Registry(), cwd)
+	if len(files) == 0 {
+		return errMCPBareIsNotTheServer
+	}
+	return fmt.Errorf("%w; the entry that launched it is in: %s (delete the ctxloom entry from each)",
+		errMCPBareIsNotTheServer, strings.Join(files, ", "))
 }
 
 // errMCPBareIsNotTheServer is the refusal a non-terminal caller of the bare

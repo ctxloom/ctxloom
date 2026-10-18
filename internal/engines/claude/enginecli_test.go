@@ -317,7 +317,7 @@ func TestEngineCLI_ProbesMatchTheWriters(t *testing.T) {
 
 	byKind := func(kind agent.ProbeKind) agent.CLIProbe {
 		for _, p := range cli.ProbesFor(kind) {
-			if p.Scope == agent.ScopeCwd {
+			if p.Scope == agent.ScopeCwd || p.Scope == agent.ScopeCwdAncestors {
 				return p
 			}
 		}

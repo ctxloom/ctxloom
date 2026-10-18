@@ -45,7 +45,8 @@ const (
 	// which the originator composites onto a terminal it has handed to its
 	// terminal UI, so a warning printed there lands in the middle of the
 	// engine's screen. The originator sets it to the session's diagnostics
-	// log, where its own warnings go for the same reason.
+	// log, where its own warnings go for the same reason. The runner consumes
+	// it at startup, so the engine and everything it starts never inherit it.
 	EnvDiagnosticsLog = "CTXLOOM_DIAGNOSTICS_LOG"
 	// EnvOutputDir names the session's output dir to every process of a
 	// containerized run (the container's own path to it): the sidecar that

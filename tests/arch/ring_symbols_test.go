@@ -39,6 +39,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/archlint"
 	"github.com/ctxloom/ctxloom/internal/shared/archrules"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
 // outsideRings are the module-relative prefixes the ring rules do not apply
@@ -393,6 +394,38 @@ func declaredEnvKeys(t *testing.T, files []ringFile) map[string]bool {
 		t.Fatalf("no CTXLOOM_* const is declared under %s — envKeysDeclaringDir is stale, not the module clean", envKeysDeclaringDir)
 	}
 	return keys
+}
+
+// envKeysNotScrubbed are declared CTXLOOM_* keys a test run may deliberately
+// inherit: none today. An entry names the key and why a test process holding
+// it is correct.
+var envKeysNotScrubbed = map[string]string{}
+
+// TestEnvKeys_ScrubEveryDeclaredSessionsKey ties the test scrub list to where
+// the variables are DECLARED rather than how they are read: a key read through
+// a loop, a map index or an injected getenv never matches a call-site sweep,
+// and a key missing from taskstest.EnvKeys is inherited by every test and the
+// binaries it spawns from whatever session the suite runs in.
+func TestEnvKeys_ScrubEveryDeclaredSessionsKey(t *testing.T) {
+	var declaring []ringFile
+	walkRingFiles(t, func(rf ringFile) {
+		if rf.dir == envKeysDeclaringDir {
+			declaring = append(declaring, rf)
+		}
+	})
+	scrubbed := make(map[string]bool, len(taskstest.EnvKeys))
+	for _, k := range taskstest.EnvKeys {
+		scrubbed[k] = true
+	}
+	for key := range declaredEnvKeys(t, declaring) {
+		if scrubbed[key] {
+			continue
+		}
+		if _, exempt := envKeysNotScrubbed[key]; exempt {
+			continue
+		}
+		t.Errorf("%s is declared in %s but missing from taskstest.EnvKeys, so tests inherit it from the ambient session", key, envKeysDeclaringDir)
+	}
 }
 
 // ctxloomConsts is the CTXLOOM_* string values of a const declaration.

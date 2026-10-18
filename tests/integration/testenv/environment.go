@@ -114,6 +114,10 @@ func forceRemoveAll(dir string) error {
 
 // NewTestEnvironment creates a new isolated test environment.
 func NewTestEnvironment() (*TestEnvironment, error) {
+	if err := refuseAmbientSessionEnv(os.LookupEnv); err != nil {
+		return nil, err
+	}
+
 	// Create root temp directory
 	root, err := os.MkdirTemp("", "ctxloom-integration-*")
 	if err != nil {
@@ -630,6 +634,34 @@ var scrubbedEnvKeys = func() map[string]bool {
 	m[zdotdirEnv] = true
 	return m
 }()
+
+// refuseAmbientSessionEnv fails when the test process itself holds a
+// scrubbedEnvKeys session variable. Children are scrubbed regardless, but
+// in-process code and any child started with a nil Env would still inherit it
+// from the host session; the owning TestMain must call ScrubProcessEnv so
+// that never happens, and this makes a TestMain that forgot fail loudly
+// instead of leaking.
+func refuseAmbientSessionEnv(lookup func(string) (string, bool)) error {
+	var held []string
+	for _, k := range testsupport.EnvKeys {
+		if _, ok := lookup(k); ok {
+			held = append(held, k)
+		}
+	}
+	if len(held) == 0 {
+		return nil
+	}
+	return fmt.Errorf("the test process holds session variables %s: its TestMain must call testenv.ScrubProcessEnv before any test runs, or the host session's state leaks into in-process code and unscrubbed children", strings.Join(held, ", "))
+}
+
+// ScrubProcessEnv removes every testsupport.EnvKeys variable from this
+// process's environment. A TestMain that builds TestEnvironments calls it
+// before m.Run.
+func ScrubProcessEnv() {
+	for _, k := range testsupport.EnvKeys {
+		_ = os.Unsetenv(k)
+	}
+}
 
 // scrubAmbientEnv returns env with the scrubbedEnvKeys variables removed,
 // without mutating the input slice.

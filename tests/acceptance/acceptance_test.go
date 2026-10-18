@@ -13,7 +13,6 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/cucumber/godog/colors"
 
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
@@ -25,9 +24,7 @@ import (
 // which home-rooted store to use. Scrubbing once here keeps both axes isolated.
 func TestMain(m *testing.M) {
 	launchCredentials = captureLaunchCredentials()
-	for _, k := range testsupport.EnvKeys {
-		_ = os.Unsetenv(k)
-	}
+	testenv.ScrubProcessEnv()
 	enginefixture.MustComposeShipped()
 	code := m.Run()
 	// The taskloom binary testenv builds for the j002500/j002600/trigger steps lives

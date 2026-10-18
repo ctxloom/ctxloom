@@ -394,3 +394,29 @@ func TestTestEnvironment_NonTTYFormat_ReadsTheChildEnv(t *testing.T) {
 		t.Fatalf("set to text: %q", got)
 	}
 }
+
+// TestNewTestEnvironment_RefusesAProcessHoldingSessionVariables: a TestMain
+// that never scrubbed hands the host session's variables to in-process code
+// and to any child started with a nil Env; the environment refuses to start
+// and names the variable rather than letting that go unnoticed.
+func TestNewTestEnvironment_RefusesAProcessHoldingSessionVariables(t *testing.T) {
+	t.Setenv("CTXLOOM_DIAGNOSTICS_LOG", "/host/session/diagnostics.log")
+	env, err := NewTestEnvironment()
+	if err == nil {
+		_ = env.Cleanup()
+		t.Fatal("NewTestEnvironment started with a session variable in the process environment")
+	}
+	if !strings.Contains(err.Error(), "CTXLOOM_DIAGNOSTICS_LOG") {
+		t.Errorf("the refusal must name the variable, got: %v", err)
+	}
+}
+
+// TestScrubProcessEnv_ClearsEverySessionVariable is the other half: after the
+// TestMain scrub the refusal has nothing to fire on.
+func TestScrubProcessEnv_ClearsEverySessionVariable(t *testing.T) {
+	t.Setenv("CTXLOOM_DIAGNOSTICS_LOG", "/host/session/diagnostics.log")
+	ScrubProcessEnv()
+	if err := refuseAmbientSessionEnv(os.LookupEnv); err != nil {
+		t.Errorf("after ScrubProcessEnv: %v", err)
+	}
+}

@@ -47,3 +47,25 @@ func TestHome_SendFailureWarnsOnlyWhileTheHomeIsLive(t *testing.T) {
 		assert.Len(t, found.All(), 1)
 	})
 }
+
+// TestHome_EachOutageWarnsOnce: a coordinator outage is one warning however
+// many sends fail inside it, and the next outage after a re-attach warns
+// again — a long-lived runner must not go silent after its first drop.
+func TestHome_EachOutageWarnsOnce(t *testing.T) {
+	frame := &agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Heartbeat{Heartbeat: &agentcoordpb.Heartbeat{}}}
+	var found report.Collector
+	h := testHome(t)
+	h.rep = report.To(&found)
+
+	h.stream = eofStream{}
+	for range 3 {
+		assert.False(t, h.trySend(frame))
+	}
+	assert.Len(t, found.All(), 1, "several failed sends in one outage are one finding")
+
+	h.attachAndReissue(&recordingStream{})
+	h.stream = eofStream{}
+	assert.False(t, h.trySend(frame))
+	assert.False(t, h.trySend(frame))
+	assert.Len(t, found.All(), 2, "the outage after a re-attach is reported again")
+}

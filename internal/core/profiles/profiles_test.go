@@ -638,6 +638,26 @@ func TestAppendUnique(t *testing.T) {
 	}
 }
 
+// TestAppendUniqueRefs_CollapsesSpellingsKeepsPinsAndItems: one bundle in two
+// spellings is one entry (the first spelling kept), while a different pin or a
+// different item selector of that bundle stays distinct.
+func TestAppendUniqueRefs_CollapsesSpellingsKeepsPinsAndItems(t *testing.T) {
+	const (
+		canonical = "ctxloom+git://example.test/repo//bundles/x"
+		legacy    = "https://example.test/repo@bundles/x"
+	)
+	assert.Equal(t, []string{canonical}, appendUniqueRefs([]string{canonical}, legacy))
+	assert.Equal(t, []string{legacy}, appendUniqueRefs(nil, legacy, canonical))
+
+	pinned := appendUniqueRefs([]string{canonical}, legacy+"@v2")
+	assert.Len(t, pinned, 2, "a different version pin is not the same ref")
+
+	items := appendUniqueRefs([]string{canonical + "#fragments/a"}, legacy+"#fragments/b", legacy+"#fragments/a")
+	assert.Equal(t, []string{canonical + "#fragments/a", legacy + "#fragments/b"}, items)
+
+	assert.Equal(t, []string{"a", "b"}, appendUniqueRefs([]string{"a"}, "b", "a"), "local names dedupe as written")
+}
+
 // =============================================================================
 // WithFS Tests
 // =============================================================================

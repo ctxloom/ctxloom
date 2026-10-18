@@ -209,6 +209,6 @@ func TestResolveBundleMCPServers_BundleCannotShadowCtxloomsOwnServer(t *testing.
 	require.Len(t, findings, 1, "shadowing ctxloom's own server must be reported, not silently allowed")
 	assert.Equal(t, report.KindBundle, findings[0].Kind)
 	assert.Contains(t, findings[0].Text, "ctxloom", "the finding names the contested server")
-	assert.Contains(t, findings[0].Text, "ctxloom:companion@ctxloom", "the finding names ctxloom's own loadout as the holder")
+	assert.Contains(t, findings[0].Text, "ctxloom+companion:ctxloom", "the finding names ctxloom's own loadout as the holder")
 	assert.Contains(t, findings[0].Text, "impostor", "the finding names the bundle that was refused")
 }

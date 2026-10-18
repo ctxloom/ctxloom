@@ -77,7 +77,16 @@ type mcpNameClaims struct {
 
 // claim reports whether sourceRef may write name into the resolved server set,
 // recording the first claimant and reporting a contest between two different
-// refs. It is the ONLY place the contest is decided.
+// sources. It is the ONLY place the contest is decided.
+//
+// sourceRef is the claimant's CANONICAL identity (BundleRead.Key), never the
+// spelling a profile happened to write: one bundle listed as
+// "ctxloom+git://…//bundles/x" by one profile and as "https://…@bundles/x" by
+// another is one source, and must not contest itself.
+//
+// The contest is reported with FailOncef because the resolve runs once per
+// consumer (assembly, hooks, doctor), and a single genuine contest is one
+// finding, not one per pass.
 func (c *mcpNameClaims) claim(name, sourceRef string) bool {
 	if c.claimedBy == nil {
 		c.claimedBy = make(map[string]string)
@@ -91,7 +100,7 @@ func (c *mcpNameClaims) claim(name, sourceRef string) bool {
 		// Same bundle reached twice — dedupe, silently and by ruling.
 		return true
 	}
-	c.rep.Failf(report.KindBundle,
+	c.rep.FailOncef(report.KindBundle,
 		"rename the server in one of the two bundles, or exclude it with `exclude_mcp:` in your profile",
 		"MCP server name %q is claimed by two different sources: %q claimed it first and %q also declares it; %q's server is withheld so one bundle's server cannot silently answer for another's declared name",
 		name, holder, sourceRef, sourceRef)
@@ -207,7 +216,8 @@ func (c *Config) ResolveBundleMCPServersFor(set []profiles.ResolvedProfile) map[
 	// than allowed to override (see mcpNameClaims).
 	cat := bundleLoader.Catalog()
 	for _, ref := range cat.CompanionRefs() {
-		addServers(ref, loadMCPFromBundleRef(c.rep, ref, cat))
+		servers, source := mcpFromBundleRef(c.rep, ref, cat)
+		addServers(source, servers)
 	}
 
 	// Finally the profile-referenced bundles. A bundle listed by two profiles
@@ -216,7 +226,8 @@ func (c *Config) ResolveBundleMCPServersFor(set []profiles.ResolvedProfile) map[
 	// claimed is a contest between two different refs, and mcpNameClaims
 	// withholds it loudly.
 	eachBundleRef(set, func(bundleRef string) {
-		addServers(bundleRef, loadMCPFromBundleRef(c.rep, bundleRef, cat))
+		servers, source := mcpFromBundleRef(c.rep, bundleRef, cat)
+		addServers(source, servers)
 	})
 
 	return result
@@ -280,12 +291,31 @@ func resolveProfileOrReport(rep report.Reporter, profileLoader *profiles.Loader,
 // (they live only in the SeededBundleLoader seed), so resolving a remote ref by
 // a computed filesystem path would silently find nothing and drop its servers.
 func loadMCPFromBundleRef(rep report.Reporter, bundleRef string, cat bundles.Catalog) map[string]wire.MCPServer {
+	servers, _ := mcpFromBundleRef(rep, bundleRef, cat)
+	return servers
+}
+
+// mcpFromBundleRef is loadMCPFromBundleRef also returning the bundle's
+// canonical identity, the claimant the name arbiter compares. A ref that did
+// not load has no servers to claim with, so its own text stands in.
+func mcpFromBundleRef(rep report.Reporter, bundleRef string, cat bundles.Catalog) (map[string]wire.MCPServer, string) {
+	read, ok := readBundleRef(rep, bundleRef, cat)
+	if !ok {
+		return nil, bundleRef
+	}
+	return extractMCPFromBundle(rep, read, read.SourceRef()), string(read.Key())
+}
+
+// readBundleRef reads bundleRef from cat, reporting (reportBundleRefLoadFailure)
+// and returning ok=false when it does not load: the one read both the MCP and
+// hook resolvers make.
+func readBundleRef(rep report.Reporter, bundleRef string, cat bundles.Catalog) (bundles.BundleRead, bool) {
 	read, err := cat.Read(bundleRef)
 	if err != nil {
 		reportBundleRefLoadFailure(rep, bundleRef, err)
-		return nil
+		return bundles.BundleRead{}, false
 	}
-	return extractMCPFromBundle(rep, read, read.SourceRef())
+	return read, true
 }
 
 // reportBundleRefLoadFailure reports a bundle ref that could not be loaded on
@@ -402,9 +432,8 @@ func (c *Config) resolveProfileScope(profileNames []string) []string {
 // loadMCPFromBundleRef it resolves via loader.Load (seed-aware) rather than a
 // computed fs path, so remote bundles' hooks aren't silently dropped.
 func loadHooksFromBundleRef(rep report.Reporter, bundleRef string, cat bundles.Catalog, links bundles.LinkGrant) (wire.UnifiedHooks, []bundles.Withhold) {
-	read, err := cat.Read(bundleRef)
-	if err != nil {
-		reportBundleRefLoadFailure(rep, bundleRef, err)
+	read, ok := readBundleRef(rep, bundleRef, cat)
+	if !ok {
 		return wire.UnifiedHooks{}, nil
 	}
 	return extractHooksFromBundle(rep, read, read.SourceRef(), links)

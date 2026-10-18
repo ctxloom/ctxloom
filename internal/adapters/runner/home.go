@@ -857,8 +857,12 @@ func (h *Home) sendLocked(frame *agentcoordpb.AgentFrame) bool {
 		return false
 	}
 	if err := stream.Send(frame); err != nil {
-		// The receive loop observes the same failure and re-dials.
-		h.rep.WarnOncef("run channel send failed (reconnecting): %v", err)
+		// The receive loop observes the same failure and re-dials — unless the
+		// home is ending, when the stream died with its context and nothing
+		// reconnects, so there is nothing to warn about.
+		if h.ctx.Err() == nil {
+			h.rep.WarnOncef("run channel send failed (reconnecting): %v", err)
+		}
 		return false
 	}
 	return true

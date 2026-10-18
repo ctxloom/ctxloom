@@ -119,8 +119,10 @@ func Main(ctx context.Context, d MainDeps) error {
 }
 
 // shutDown ends the runner. The engine host joins first so an in-flight
-// adapt can finish its terminal RunCompleted while the home is still live.
-// The run's delivery is reversed once nothing runs against it any more; ctx
+// adapt can finish its terminal RunCompleted before the home closes. When ctx
+// is already cancelled the home's streams are cancelled with it, so those
+// final frames are sent on a dead stream and stay buffered for the next
+// connection rather than reaching the coordinator. The run's delivery is reversed once nothing runs against it any more; ctx
 // may already be cancelled (that is how a Kill arrives), and the reversal
 // must still run.
 func shutDown(ctx context.Context, reporter report.Sink, host *EngineHost, tail *Host, home *Home) {

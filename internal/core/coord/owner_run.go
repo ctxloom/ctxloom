@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 
@@ -141,7 +142,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// delegated child differently from the root must not route the root's
 	// own calls as a child's — its journaled parent is itself, so an upward
 	// send would loop back into its own inbox.
-	rt, token, err := c.enqueueRun(owner, plan, l.Identity.Harp, prompt, false, make(chan struct{}), owner.Depth)
+	rt, token, err := c.enqueueRun(owner, plan, l.Identity.Harp, prompt, false, make(chan struct{}), owner.Depth, l.Mode == engine.Interactive)
 	if err != nil {
 		return nil, err
 	}

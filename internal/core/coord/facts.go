@@ -256,9 +256,15 @@ type runEnqueued struct {
 	// ResumeModeOneShot — journaled so this run's OWN future credential
 	// (folds.go's applyEnqueued) reports it via Identity.OneShot without a
 	// second resolve. See Identity.OneShot's doc for what it gates.
-	OneShot bool   `json:"one_shot,omitempty"`
-	Prompt  string `json:"prompt,omitempty"` // briefing (the journal is 0600: it carries message bodies)
-	Resume  bool   `json:"resume,omitempty"` // a re-attempt for an ended harp
+	OneShot bool `json:"one_shot,omitempty"`
+	// Interactive marks a run a human drives through the engine's own
+	// terminal: it has no live canonical transcript (that is converted from
+	// the engine's log when the runner exits), so the liveness monitor judges
+	// it on runner death alone. A property of the run, so a container
+	// interactive root carries it exactly as a host one does.
+	Interactive bool   `json:"interactive,omitempty"`
+	Prompt      string `json:"prompt,omitempty"` // briefing (the journal is 0600: it carries message bodies)
+	Resume      bool   `json:"resume,omitempty"` // a re-attempt for an ended harp
 	// Permission is the posture the run was ENQUEUED with, by its engine's
 	// display name: the binding's resolved posture for a delegated child,
 	// the launch's posture for an owner run. The effective posture a

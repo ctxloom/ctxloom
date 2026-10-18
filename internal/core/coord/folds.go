@@ -38,10 +38,12 @@ type RunRecord struct {
 	Depth       int
 	// OneShot mirrors Identity.OneShot — see its doc.
 	OneShot bool
-	Prompt  string
-	State   string
-	Ended   bool
-	Cause   string
+	// Interactive mirrors runEnqueued.Interactive.
+	Interactive bool
+	Prompt      string
+	State       string
+	Ended       bool
+	Cause       string
 	// Detail is the terminal fact's human-readable detail (runEnded.Detail):
 	// for an agent_stop, the stopping session plus the caller's `reason`
 	// (`reason` used to be advertised to the model and discarded).
@@ -159,6 +161,7 @@ func (f *runsFold) applyEnqueued(p runEnqueued, at time.Time) {
 		CredHash:     p.CredHash,
 		Depth:        p.Depth,
 		OneShot:      p.OneShot,
+		Interactive:  p.Interactive,
 		Prompt:       p.Prompt,
 		State:        StateQueued,
 		EnqueuedAt:   at,

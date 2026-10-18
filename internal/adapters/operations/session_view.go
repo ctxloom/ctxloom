@@ -30,6 +30,9 @@ type SessionView struct {
 	// EndedAt is when the session's LAST RUN ended. A resumed session keeps
 	// it while it runs again, so it says nothing about now: State does.
 	EndedAt *time.Time `json:"ended_at,omitempty"`
+	// EndReason is why the session ended before its engine launched; nil for
+	// every other session (sessions.Entry.EndReason).
+	EndReason *sessions.EndReason `json:"end_reason,omitempty"`
 	// LastActivity is the one clock (sessions.ActivityTime) the listing
 	// ordered this session by.
 	LastActivity time.Time `json:"last_activity"`
@@ -54,6 +57,7 @@ func ViewSession(e sessions.Entry) SessionView {
 		Summary:       e.Summary,
 		StartedAt:     e.StartedAt,
 		EndedAt:       e.EndedAt,
+		EndReason:     e.EndReason,
 		LastActivity:  e.LastActivity,
 		Purged:        e.PurgedAt != nil,
 	}

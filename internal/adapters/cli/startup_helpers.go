@@ -194,7 +194,36 @@ func (g *phaseGates) close(p Phase) error {
 		return nil
 	}
 	fmt.Fprintln(g.w, msg)
-	return clifmt.ExitStatus{Code: exitCodeFatalFindings}
+	return findingsAbort{
+		ExitStatus: clifmt.ExitStatus{Code: exitCodeFatalFindings},
+		Header:     findingsHeader(g.mode, p, found),
+		Items:      findingItems(g.mode, found),
+	}
+}
+
+// findingsAbort is the silent exit-3 error a closed gate returns: a
+// clifmt.ExitStatus (the listing is already printed) that also carries what
+// was printed, for the record of why the run ended (sessions.EndReason).
+type findingsAbort struct {
+	clifmt.ExitStatus
+	// Header is the listing's header line; Items are its findings, each as the
+	// listing printed it.
+	Header string
+	Items  []string
+}
+
+// Unwrap lets errors.As find the embedded ExitStatus, which cobrafmt.Report
+// reads to stay silent.
+func (e findingsAbort) Unwrap() error { return e.ExitStatus }
+
+// findingItems renders each of the mode's actionable findings the way the
+// listing does (strictness.Mode.Item).
+func findingItems(mode strictness.Mode, findings report.Findings) []string {
+	var items []string
+	for _, f := range mode.Actionable(findings) {
+		items = append(items, mode.Item(f))
+	}
+	return items
 }
 
 // formatFindings renders the collected findings block: a header naming the
@@ -211,21 +240,19 @@ func formatFindings(mode strictness.Mode, p Phase, findings report.Findings) str
 	if len(findings) == 0 {
 		return ""
 	}
-	// The header must not offer an escape hatch that will not work. When every
-	// listed finding is NonDegradable, --degraded changes nothing about this
-	// abort, and naming it would send the user round a loop that ends back
-	// here — the "refusal that relocates the dead end" the audit was fixing.
-	// Each finding's own fix: line carries the real remedy.
-	allNonDegradable := true
+	return mode.Listing(findingsHeader(mode, p, findings), findings)
+}
+
+// findingsHeader is the listing's header for the findings a gate acts on.
+// The header must not offer an escape hatch that will not work: when every
+// listed finding is NonDegradable, --degraded changes nothing about the abort
+// and naming it would send the user round a loop that ends back here.
+func findingsHeader(mode strictness.Mode, p Phase, findings report.Findings) string {
+	findings = mode.Actionable(findings)
 	for _, f := range findings {
 		if !f.NonDegradable {
-			allNonDegradable = false
-			break
+			return fmt.Sprintf("ctxloom: aborting %s: %d fatal finding(s); fix them, or rerun with --degraded (env CTXLOOM_DEGRADED=1) %s:", p, len(findings), p.degradedOutcome())
 		}
 	}
-	header := fmt.Sprintf("ctxloom: aborting %s: %d fatal finding(s); fix them, or rerun with --degraded (env CTXLOOM_DEGRADED=1) %s:", p, len(findings), p.degradedOutcome())
-	if allNonDegradable {
-		header = fmt.Sprintf("ctxloom: aborting %s: %d fatal finding(s); --degraded does NOT bypass these — fix them as described:", p, len(findings))
-	}
-	return mode.Listing(header, findings)
+	return fmt.Sprintf("ctxloom: aborting %s: %d fatal finding(s); --degraded does NOT bypass these — fix them as described:", p, len(findings))
 }

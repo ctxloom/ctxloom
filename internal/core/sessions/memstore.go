@@ -281,6 +281,20 @@ func (m *MemStore) RecordRunEnd(harpName string, end RunEnd) error {
 	return fmt.Errorf("session not found: %q", harpName)
 }
 
+// RecordEndReason matches *Manager.RecordEndReason.
+func (m *MemStore) RecordEndReason(harpName string, reason EndReason) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.sessions {
+		if m.sessions[i].HarpName != harpName {
+			continue
+		}
+		m.sessions[i].EndReason = &reason
+		return nil
+	}
+	return fmt.Errorf("session not found: %q", harpName)
+}
+
 // MarkPurged stamps PurgedAt on the named entry. Idempotent. Mirrors
 // Manager.MarkPurged's ordering contract (mark before the caller destroys any
 // file) — this fake exists so operations-level tests can exercise that

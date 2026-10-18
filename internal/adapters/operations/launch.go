@@ -43,7 +43,10 @@ import (
 // spawns against the minted harp (deps.ProbeVersion; recordLaunchedVersion).
 // The caller starts the transport it owns from the Launch and
 // ends the session (EndSession) when the run is over; a launch that does not
-// resolve ends its own session here so no harp is left half-minted.
+// resolve ends its own session here so no harp is left half-minted. That
+// failed launch's Launch still carries the minted Identity, so the caller can
+// record why the session ended (sessions.Entry.EndReason); it is the zero
+// Launch when nothing was minted.
 func StartRun(ctx context.Context, deps launch.Deps, seed sessions.Seed, src launch.Source) (launch.Launch, error) {
 	base, err := OutputBase(deps.Snapshot.Config)
 	if err != nil {
@@ -62,7 +65,7 @@ func StartRun(ctx context.Context, deps launch.Deps, seed sessions.Seed, src lau
 		if eerr := EndSessionIn(deps.Sessions, id.Harp, time.Now()); eerr != nil {
 			clidiag.Warn("ctxloom", "session %s: end after a refused launch: %v", id.Harp, eerr)
 		}
-		return launch.Launch{}, err
+		return launch.Launch{Identity: id}, err
 	}
 	recordLaunchedVersion(ctx, deps, l)
 	return l, nil

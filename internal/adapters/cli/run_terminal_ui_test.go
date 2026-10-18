@@ -170,15 +170,15 @@ func TestRedirectDiagnosticsForTUI_AnnouncesTheOutcome(t *testing.T) {
 // runner writes its warnings there instead.
 func TestDivertRunnerDiagnostics_WarningsLandInTheNamedLog(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "diagnostics.log")
-	restore := divertRunnerDiagnostics(func(k string) string {
-		if k == sessions.EnvDiagnosticsLog {
-			return log
-		}
-		return ""
-	})
+	env := map[string]string{sessions.EnvDiagnosticsLog: log}
+	restore := divertRunnerDiagnostics(
+		func(k string) string { return env[k] },
+		func(k string) error { delete(env, k); return nil })
 	clidiag.Warn("ctxloom", "runner-side warning")
 	restore()
 
+	assert.NotContains(t, env, sessions.EnvDiagnosticsLog,
+		"the path is consumed: an engine built from this environment must not inherit it")
 	got, err := os.ReadFile(log)
 	require.NoError(t, err)
 	assert.Contains(t, string(got), "runner-side warning")

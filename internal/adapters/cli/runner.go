@@ -48,7 +48,7 @@ func runRunner(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer stop()
-	defer divertRunnerDiagnostics(os.Getenv)()
+	defer divertRunnerDiagnostics(os.Getenv, os.Unsetenv)()
 	return runner.Main(ctx, runner.MainDeps{
 		Reporter: App().Reporter,
 		Harness:  engineName,
@@ -72,8 +72,16 @@ func runRunner(cmd *cobra.Command, args []string) error {
 // the engine's pty. A file that cannot be written — a container runner handed
 // a host path — leaves them on stderr: disturbing the display beats losing
 // them. Returns the restore.
-func divertRunnerDiagnostics(getenv func(string) string) func() {
+//
+// The path is consumed: removed from the environment before runner.Main builds
+// the engine, so neither the engine nor anything it starts inherits it. A
+// ctxloom runner started from there would otherwise append its own warnings to
+// this session's log.
+func divertRunnerDiagnostics(getenv func(string) string, unsetenv func(string) error) func() {
 	path := getenv(sessions.EnvDiagnosticsLog)
+	if err := unsetenv(sessions.EnvDiagnosticsLog); err != nil {
+		clidiag.Warn("ctxloom", "cannot remove %s from the environment, so the engine may inherit it: %v", sessions.EnvDiagnosticsLog, err)
+	}
 	if path == "" {
 		return func() {}
 	}

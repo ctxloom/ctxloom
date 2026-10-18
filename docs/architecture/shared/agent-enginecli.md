@@ -70,7 +70,7 @@ classDiagram
 | `CLIFlag` | `internal/core/agent/enginecli.go:91` | One declared argv flag: `{Name, Value}` drive parsing; `{Ignored, Note}` are documentation carried at runtime. |
 | `PromptDelivery` | `internal/core/agent/enginecli.go:119` | How the user prompt reaches the CLI (positional / flag / stdin / none). |
 | `ProbeKind` | `internal/core/agent/enginecli.go:136` | Which surface category a probe describes; string-identical to `SurfaceKind`. |
-| `ProbeScope` | `internal/core/agent/enginecli.go:165` | Where the CLI looks: cwd / home / env-dir / flag-value. |
+| `ProbeScope` | `internal/core/agent/enginecli.go:165` | Where the CLI looks: cwd / cwd-ancestors (the folder and every parent, nearest first; `CLIProbe.Paths`) / home / env-dir / flag-value. |
 | `CLIProbe` | `internal/core/agent/enginecli.go:189` | One context surface the vendor CLI reads at startup — a tagged union keyed on `Scope`. |
 | `ParsedFlag` | `internal/core/agent/enginecli.go:315` | One flag occurrence found in argv. |
 | `ParsedArgv` | `internal/core/agent/enginecli.go:321` | Result of reading argv against a grammar: `{Subcommand, Flags, Positionals}`. |
@@ -99,7 +99,7 @@ classDiagram
 
 - **The declaration is the contract.** `EngineCLI` is read from both sides: the driver builds argv from it and `internal/engines/mock` parses argv against it. Any drift between the two shows up as a typed error, not a silent divergence.
 - **`ParseArgv` treats any token starting with `-` as a flag.** A positional beginning with `-` (e.g. a user prompt `--fix this`) fails an otherwise-valid `PromptPositional` surface with `UndeclaredFlagError`, unless a `--` separator precedes it (`ParseArgv` honours `--` at `:435`). Claude's interactive surface is `PromptPositional`.
-- **`CLIProbe` is a tagged union keyed on `Scope`**, and the type cannot express it: `ScopeCwd`/`ScopeHome` use `Rel`; `ScopeEnvDir` uses `EnvVar` + `EnvHomeDefault` + `Rel`; `ScopeFlagValue` uses `Flag` and must leave `Rel` empty. `Validate` exists solely to check what the type cannot.
+- **`CLIProbe` is a tagged union keyed on `Scope`**, and the type cannot express it: `ScopeCwd`/`ScopeCwdAncestors`/`ScopeHome` use `Rel`; `ScopeEnvDir` uses `EnvVar` + `EnvHomeDefault` + `Rel`; `ScopeFlagValue` uses `Flag` and must leave `Rel` empty. `Validate` exists solely to check what the type cannot.
 - **`Validate` is never called in production.** It has eight call sites, all in tests — it is a declaration guard, not a runtime gate.
 - **`ProbeKind` and `SurfaceKind` are coupled by meaning, not by type.** `ProbeKindOf` is a raw string conversion and only `enginecli_test.go:26` keeps the two vocabularies in step.
 - **Fields read only outside this package:** `Binary`, `Prompt`, `SetEnv`, `StripEnv` on `EngineCLI` and everything but `Kind` on `CLIProbe` are inert here and consumed by `internal/engines/mock/discovery.go`.

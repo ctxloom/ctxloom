@@ -203,8 +203,9 @@ deliberately:
   in your real home and rides the next copy-in.
 
 **Instances are removed, and that is a security requirement, not hygiene** —
-your own login session's can hold a copied credential (`primaryApiKey`, above). `EndSession` removes a session's instance at
-graceful shutdown (`operations.removeSessionInstance`); an instance a crashed
+your own login session's can hold a copied credential (`primaryApiKey`, above). A closing
+coordinator removes the instance of its own session and of every agent whose run
+has ended (`Coordinator.removeDisposableMembers`); an instance a crashed
 session leaves behind is an ephemeral member of its session directory
 (`paths.HarpMembers`) and goes with the session's own reaping.
 

@@ -18,8 +18,10 @@ import (
 // writer refuses, loudly and naming the constraint, what it cannot deliver.
 // Only the reserved words differ per engine.
 const (
-	// SkillNameMaxLen is the maximum length of a skill's frontmatter `name`.
-	SkillNameMaxLen = 64
+	// SkillNameMaxLen is the maximum length of a skill's frontmatter `name`;
+	// agent.SkillNameMaxLen is the one declaration, shared with the code that
+	// mints names.
+	SkillNameMaxLen = agent.SkillNameMaxLen
 	// SkillDescriptionMaxLen is the maximum length of a skill's frontmatter
 	// `description`.
 	SkillDescriptionMaxLen = 1024

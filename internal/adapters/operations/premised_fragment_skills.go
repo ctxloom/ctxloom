@@ -1,6 +1,8 @@
 package operations
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"strings"
@@ -91,6 +93,9 @@ func skillDescription(premise string) string {
 
 var skillNameUnsafe = regexp.MustCompile(`[^A-Za-z0-9]+`)
 
+// skillNameHashLen is how many hex characters of the ref's hash end a name.
+const skillNameHashLen = 8
+
 // skillNameForRef derives a package directory name from a QUALIFIED fragment
 // ref (bundle#fragments/name), per the 2026-09-08 ruling to qualify from the
 // ref rather than flatten to the bare name.
@@ -99,10 +104,49 @@ var skillNameUnsafe = regexp.MustCompile(`[^A-Za-z0-9]+`)
 // in seventeen code-review bundles in the default corpus — and a package
 // directory is flat, so flattening to the short name would reintroduce exactly
 // the collision the qualified ref exists to prevent, silently, at the emit
-// boundary. A bundle ref may be a whole URL, so every character a directory
-// name cannot safely carry collapses to a single dash; PremisedFragmentSkills
-// still checks the RESULT for uniqueness, because sanitising can map two
-// distinct refs onto one name.
+// boundary.
+//
+// The name is `<bundle-basename>-<fragment-name>-<hash>`: the readable part is
+// for humans, the hash of the FULL ref is what keeps two bundles of the same
+// basename (different host or owner) apart. A bundle ref may be a whole URL,
+// and sanitising the whole thing overran the engine's name limit
+// (agent.SkillNameMaxLen), which made the engine refuse every fragment of a
+// git-hosted bundle. The readable part is therefore cut from the END to fit,
+// and the hash is ALWAYS appended, even when nothing was cut: a name that
+// gained a hash only once it got long would change as a bundle's path did.
+// It depends on the ref alone, never on the rest of the batch, so adding one
+// fragment never renames another's skill. PremisedFragmentSkills still checks
+// the RESULT for uniqueness, because a hash can in principle collide.
 func skillNameForRef(ref string) string {
-	return strings.Trim(skillNameUnsafe.ReplaceAllString(ref, "-"), "-")
+	sum := sha256.Sum256([]byte(ref))
+	hash := hex.EncodeToString(sum[:])[:skillNameHashLen]
+	readable := sanitizeSkillSegment(skillReadablePart(ref))
+	if room := agent.SkillNameMaxLen - len(hash) - 1; len(readable) > room {
+		readable = strings.Trim(readable[:room], "-")
+	}
+	if readable == "" {
+		return hash
+	}
+	return readable + "-" + hash
+}
+
+// skillReadablePart is `<bundle-basename>-<fragment-name>` of a qualified ref:
+// the last path segment of the bundle plus the fragment's own name.
+func skillReadablePart(ref string) string {
+	bundle, item, _ := strings.Cut(ref, "#")
+	if i := strings.LastIndexAny(bundle, "/:"); i >= 0 {
+		bundle = bundle[i+1:]
+	}
+	bundle, _, _ = strings.Cut(bundle, "@")
+	if i := strings.LastIndex(item, "/"); i >= 0 {
+		item = item[i+1:]
+	}
+	return sanitizeSkillSegment(bundle) + "-" + sanitizeSkillSegment(item)
+}
+
+// sanitizeSkillSegment lowercases s and collapses every character a directory
+// name cannot safely carry (and the standard's name pattern forbids) to a
+// single dash.
+func sanitizeSkillSegment(s string) string {
+	return strings.Trim(skillNameUnsafe.ReplaceAllString(strings.ToLower(s), "-"), "-")
 }

@@ -1503,9 +1503,10 @@ tidy:
     go mod tidy
 
 # Format the repository: gofmt over the Go, buf format over the protos (in the
-# devcontainer), shfmt over the shell scripts. scripts/fmt holds which files
-# each formatter owns and how it runs; lefthook's pre-commit runs the same
-# formatters over the staged files.
+# devcontainer), shfmt over the shell scripts, `just --fmt` over the justfiles
+# (in the devcontainer). scripts/fmt holds which files each formatter owns and
+# how it runs; lefthook's pre-commit runs the same formatters over the staged
+# files.
 fmt:
     bash scripts/fmt fix
 
@@ -1519,6 +1520,12 @@ fmt-check:
 # narrows); scripts/fmt is the caller.
 fmt-proto *ARGS: dev-image
     "{{just_executable()}}" --justfile "{{justfile()}}" _run fmt-proto {{ARGS}}
+
+# `just --fmt`, in the devcontainer, so the just .devcontainer/tool-versions.env
+# pins is the one that formats: the host's own just is whatever version the
+# machine has. ARGS pass straight through; scripts/fmt is the caller.
+fmt-just *ARGS: dev-image
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run fmt-just {{ARGS}}
 
 # Lint code (delegates to devcontainer for the pinned golangci-lint)
 lint: dev-image _require-generated && _trim-go-cache

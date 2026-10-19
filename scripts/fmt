@@ -16,6 +16,12 @@
 #          the pinned ones.
 #   shell  shfmt, 4-space indent with indented case arms: the style most of the
 #          repo's shell already had, and the one every justfile recipe body uses.
+#   just   `just --fmt` from the just .devcontainer/tool-versions.env pins,
+#          through `just fmt-just`, which runs it in the devcontainer: the
+#          host's own just is whatever version the machine has. It formats
+#          COPIES under the gitignored .cache/ and a changed copy is written
+#          back here, because inside the devcontainer the root justfile is
+#          justfile.container's overlay, never itself.
 # No KIND means all of them, in that order.
 #
 # A file under a testdata/ directory is never formatted: fixtures are bytes the
@@ -27,13 +33,13 @@
 # bash everywhere a commit is made.
 set -euo pipefail
 
-kinds_all=(go proto shell)
+kinds_all=(go proto shell just)
 shfmt_flags=(-i 4 -ci)
 vendored_protos=internal/adapters/coordgrpc/pb/google/
 
 usage() {
-    echo "usage: bash scripts/fmt fix|check [go|proto|shell ...]" >&2
-    echo "       bash scripts/fmt staged go|proto|shell" >&2
+    echo "usage: bash scripts/fmt fix|check [go|proto|shell|just ...]" >&2
+    echo "       bash scripts/fmt staged go|proto|shell|just" >&2
     exit 2
 }
 
@@ -55,6 +61,12 @@ select_kind() {
         case "$kind" in
             go) [[ $p == *.go ]] && printf '%s\0' "$p" ;;
             proto) [[ $p == *.proto && $p != "$vendored_protos"* ]] && printf '%s\0' "$p" ;;
+            just)
+                base=${p##*/}
+                if [[ $base == justfile || $base == justfile.* || $p == *.justfile || $p == *.just ]]; then
+                    printf '%s\0' "$p"
+                fi
+                ;;
             shell)
                 base=${p##*/}
                 if [[ $p == *.sh || $p == *.bash ]]; then
@@ -71,6 +83,55 @@ select_kind() {
         shfmt -f "${bare[@]}" | tr '\n' '\0'
     fi
     return 0
+}
+
+# cache_copies FILE...: copy each file, at its own path, under a new dir in
+# the gitignored .cache/ — inside the checkout, so the devcontainer sees it —
+# and print that dir.
+cache_copies() {
+    local tmp f
+    mkdir -p .cache
+    tmp=$(mktemp -d .cache/fmt-copies.XXXXXX)
+    for f in "$@"; do
+        mkdir -p "$tmp/$(dirname "$f")"
+        cp -- "$f" "$tmp/$f"
+    done
+    printf '%s\n' "$tmp"
+}
+
+# just_files_reachable FILE...: refuse when the root justfile is among the
+# files and is only justfile.container's overlay here (a `just _run` shell):
+# formatting it would format the wrong file.
+just_files_reachable() {
+    local f
+    for f in "$@"; do
+        if [ "$f" = justfile ] && [ -f justfile.container ] && cmp -s justfile justfile.container; then
+            echo "fmt: the root justfile is justfile.container's overlay here, so it cannot be formatted from inside this container — run 'just fmt' on the host." >&2
+            return 1
+        fi
+    done
+}
+
+# just_fmt [--check] FILE...: `just fmt-just` over copies of the files; without
+# --check, a copy it changed is written back over its file.
+just_fmt() {
+    local check=() tmp f rc=0
+    if [ "$1" = --check ]; then
+        check=(--check)
+        shift
+    fi
+    just_files_reachable "$@" || return 1
+    tmp=$(cache_copies "$@")
+    local -a copies=()
+    for f in "$@"; do copies+=("$tmp/$f"); done
+    just fmt-just "${check[@]}" "${copies[@]}" || rc=$?
+    if [ "$rc" -eq 0 ] && [ "${#check[@]}" -eq 0 ]; then
+        for f in "$@"; do
+            cmp -s "$tmp/$f" "$f" || cat "$tmp/$f" >"$f"
+        done
+    fi
+    rm -rf -- "$tmp"
+    return "$rc"
 }
 
 # fix_files KIND FILE...: rewrite the files in place.
@@ -92,6 +153,7 @@ fix_files() {
             need shfmt "just shfmt-install"
             shfmt "${shfmt_flags[@]}" -w -- "$@"
             ;;
+        just) just_fmt "$@" ;;
     esac
 }
 
@@ -122,6 +184,7 @@ check_files() {
             need shfmt "just shfmt-install"
             shfmt "${shfmt_flags[@]}" -d -- "$@"
             ;;
+        just) just_fmt --check "$@" ;;
     esac
 }
 
@@ -142,7 +205,7 @@ run_checkout() {
     local -a kinds=("$@") files
     [ "${#kinds[@]}" -gt 0 ] || kinds=("${kinds_all[@]}")
     for kind in "${kinds[@]}"; do
-        case "$kind" in go | proto | shell) ;; *) usage ;; esac
+        case "$kind" in go | proto | shell | just) ;; *) usage ;; esac
         mapfile -d '' files < <(checkout_files "$kind")
         [ "${#files[@]}" -gt 0 ] || continue
         if [ "$mode" = fix ]; then
@@ -208,7 +271,7 @@ staged_blob_check() {
 
 run_staged() {
     local kind=$1 p
-    case "$kind" in go | proto | shell) ;; *) usage ;; esac
+    case "$kind" in go | proto | shell | just) ;; *) usage ;; esac
     cd "$(git rev-parse --show-toplevel)"
 
     local -a staged partial fully=() refused fixed=()

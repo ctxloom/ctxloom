@@ -677,7 +677,7 @@ complexity-baseline-update:
     python3 scripts/complexity_gate.py generate > .complexity-baseline.txt
 
 # Format the repository: scripts/fmt runs every formatter (gofmt, buf format,
-# shfmt) over the files each one owns.
+# shfmt, just --fmt) over the files each one owns.
 fmt:
     bash scripts/fmt fix
 
@@ -690,6 +690,24 @@ fmt-check:
 # fmt-proto delegates here, and scripts/fmt calls that.
 fmt-proto *ARGS:
     buf format "$@"
+
+# `just --fmt` from this image's pinned just over the justfiles in ARGS,
+# rewriting each in place; with `--check` first, reporting each one's drift
+# and failing on any instead. The root justfile's fmt-just delegates here, and
+# scripts/fmt calls that with copies (see there why).
+fmt-just *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    check=()
+    if [ "${1:-}" = --check ]; then
+        check=(--check)
+        shift
+    fi
+    rc=0
+    for f in "$@"; do
+        "{{just_executable()}}" --fmt "${check[@]}" --justfile "$f" || rc=1
+    done
+    exit "$rc"
 
 # Tidy dependencies
 tidy:

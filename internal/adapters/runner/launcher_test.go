@@ -30,7 +30,7 @@ func TestRunLaunchSpec_NonInteractiveWiresStdin(t *testing.T) {
 		context.Background(),
 		agent.LaunchSpec{BinaryPath: catPath, Interactive: false},
 		strings.NewReader(body),
-		&out, io.Discard, nil,
+		&out, io.Discard,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, int32(0), code)
@@ -50,7 +50,7 @@ func TestRunLaunchSpec_NonInteractiveNilStdin(t *testing.T) {
 		context.Background(),
 		agent.LaunchSpec{BinaryPath: catPath, Interactive: false},
 		nil,
-		&out, io.Discard, nil,
+		&out, io.Discard,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, int32(0), code)
@@ -88,7 +88,7 @@ func TestRunLaunchSpec_NonInteractiveSignalKilledChildYields128PlusSignum(t *tes
 					Interactive: false,
 				},
 				nil,
-				io.Discard, io.Discard, nil,
+				io.Discard, io.Discard,
 			)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedCode, code,

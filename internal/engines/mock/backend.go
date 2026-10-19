@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	xterm "golang.org/x/term"
+
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
@@ -90,11 +92,10 @@ func (b *Backend) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout
 
 	// CTXLOOM_MOCK_ECHO_STDIN drives the INTERACTIVE echo path used by the
 	// docker-exec turn's integration proof (Phase 2a): a real interactive
-	// engine reads keystrokes and reflects them, and reacts to terminal
-	// resizes — the default echo (prompt/context only) reads neither, so it
-	// cannot prove the host-pty → exec → turn → engine → back chain. This mode
-	// reflects one typed line and the resize it saw, then exits.
-	if Env(req.Env, "CTXLOOM_MOCK_ECHO_STDIN") == "1" && req.Stdin != nil {
+	// engine reads keystrokes off its terminal and reflects them, and reads
+	// the terminal's size — the default echo (prompt/context only) reads
+	// neither, so it cannot prove the pty → runner → engine → back chain.
+	if Env(req.Env, "CTXLOOM_MOCK_ECHO_STDIN") == "1" && req.Terminal != nil {
 		return b.executeInteractiveEcho(ctx, req, stdout, stderr, modelInfo)
 	}
 
@@ -168,14 +169,15 @@ func buildMockResponse(customResponse string, hasCustomResponse bool, contextStr
 	return Response(customResponse, hasCustomResponse, contextStr, promptContent, int32(mode), fragmentCount, failPrefix)
 }
 
-// executeInteractiveEcho reflects each typed line and the latest terminal
-// resize it has observed — the interactive engine behavior the docker-exec
-// turn's integration test round-trips through the full pty chain, and the
-// session owner acceptance drives. It loops (echoing `mock echo: <line>`
-// plus, once a resize has been seen, `mock winsize: RxC`) until a "quit" line
-// or EOF: a tty rarely EOFs, so the sentinel is what lets a test drive a
-// resize BETWEEN two lines (giving the daemon's SIGWINCH time to propagate)
-// and then end the turn deterministically.
+// executeInteractiveEcho reflects each line typed on its terminal and the
+// terminal's size at that moment — the interactive engine behavior the
+// docker-exec turn's integration test round-trips through the full pty chain,
+// and the session owner acceptance drives. It loops (echoing `mock echo:
+// <line>` plus, when the terminal reports a size, `mock winsize: RxC`) until
+// a "quit" line or EOF: a tty rarely EOFs, so the sentinel is what lets a test
+// resize BETWEEN two lines and then end the turn deterministically. The size
+// is read off the terminal, as a real engine reads it, so a resize between
+// two lines shows in the second's echo.
 //
 // Every non-blank line is a prompt submitted, so the session's delivered
 // turn_start hooks fire with it before the echo — the hook the session
@@ -217,7 +219,7 @@ func (b *Backend) executeInteractiveEcho(ctx context.Context, req *agent.Execute
 	}
 	defer stop()
 	go func() {
-		r := bufio.NewReader(req.Stdin)
+		r := bufio.NewReader(req.Terminal.Stdin)
 		for {
 			line, err := r.ReadString('\n')
 			lines <- echoLine{line: line, err: err}
@@ -267,8 +269,6 @@ type interactiveEcho struct {
 	stdout, stderr io.Writer
 	hooks          wire.UnifiedHooks
 	env            map[string]string
-	lastWS         agent.WindowSize
-	sawWS          bool
 }
 
 // take handles one line: quit ends the session; a non-blank line fires the
@@ -284,29 +284,10 @@ func (e *interactiveEcho) take(ctx context.Context, res echoLine) bool {
 		if err := FireHooks(ctx, e.hooks, "turn_start", "", line, e.req.WorkDir, e.env); err != nil {
 			_, _ = fmt.Fprintf(e.stderr, "mock: %v\n", err)
 		}
-		e.drainResize()
 		_, _ = fmt.Fprintf(e.stdout, "mock echo: %s\n", line)
-		if e.sawWS {
-			_, _ = fmt.Fprintf(e.stdout, "mock winsize: %dx%d\n", e.lastWS.Rows, e.lastWS.Cols)
+		if cols, rows, err := xterm.GetSize(int(e.req.Terminal.Stdout.Fd())); err == nil {
+			_, _ = fmt.Fprintf(e.stdout, "mock winsize: %dx%d\n", rows, cols)
 		}
 	}
 	return res.err != nil
-}
-
-// drainResize picks up every resize delivered so far without blocking — a
-// resize sent BETWEEN two lines (the integration test's pattern) is on the
-// channel by the time the next line's turn drains it.
-func (e *interactiveEcho) drainResize() {
-	for e.req.Resize != nil {
-		select {
-		case ws, ok := <-e.req.Resize:
-			if !ok {
-				e.req.Resize = nil
-				return
-			}
-			e.lastWS, e.sawWS = ws, true
-		default:
-			return
-		}
-	}
 }

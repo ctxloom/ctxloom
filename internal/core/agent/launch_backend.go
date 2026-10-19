@@ -73,8 +73,8 @@ func (b *LaunchBackend) SetEngineHomeVar(name string) { b.engineHomeVar = name }
 // engines.
 // oneshotStdin, when non-nil, is fed to the child's stdin for a non-interactive
 // run — the channel a backend uses to deliver a large oneshot prompt off the
-// argv (which the OS length-limits). It is ignored for an interactive run, whose
-// stdin is the frontend's (req.Stdin).
+// argv (which the OS length-limits). It is ignored for an interactive run,
+// whose stdio is the terminal it runs on (req.Terminal).
 func (b *LaunchBackend) ExecuteCLI(ctx context.Context, req *ExecuteRequest, binary string, args []string, oneshotStdin io.Reader, modelInfo *ModelInfo, stdout, stderr io.Writer) (*ExecuteResult, error) {
 	if req.DryRun {
 		return &ExecuteResult{ExitCode: 0, ModelInfo: modelInfo}, nil
@@ -93,7 +93,7 @@ func (b *LaunchBackend) ExecuteCLI(ctx context.Context, req *ExecuteRequest, bin
 	b.TraceArgs(req.Verbosity, binary, args, stderr)
 	env := b.ExecuteEnv(req)
 	if req.Mode == ModeInteractive {
-		exitCode, err := b.RunInteractive(ctx, binary, args, env, req.Stdin, req.StdinCleanup, stdout, stderr, req.Resize)
+		exitCode, err := b.RunInteractive(ctx, binary, args, env, req.Terminal)
 		return &ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, err
 	}
 	exitCode, err := b.RunNonInteractive(ctx, binary, args, env, oneshotStdin, stdout, stderr)

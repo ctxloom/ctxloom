@@ -174,7 +174,7 @@ func TestExecute_TheSocketRootLivesAsLongAsTheTUI(t *testing.T) {
 	var during bool
 	e, err := Build()
 	require.NoError(t, err)
-	b := e.(agent.Hosted).Backend(func(_ context.Context, _ agent.LaunchSpec, _ io.Reader, _, _ io.Writer, _ <-chan agent.WindowSize) (int32, error) {
+	b := e.(agent.Hosted).Backend(func(_ context.Context, _ agent.LaunchSpec, _ io.Reader, _, _ io.Writer) (int32, error) {
 		_, err := os.Stat(s.SocketRoot)
 		during = err == nil
 		return 0, nil

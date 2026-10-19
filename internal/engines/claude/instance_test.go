@@ -197,7 +197,7 @@ func TestBuildArgs_IsInstanceExec(t *testing.T) {
 func TestExecute_SpawnsTheComposedExecsBinary(t *testing.T) {
 	var spawned agent.LaunchSpec
 	b := NewClaudeCode()
-	b.SetLauncher(func(_ context.Context, spec agent.LaunchSpec, _ io.Reader, _, _ io.Writer, _ <-chan agent.WindowSize) (int32, error) {
+	b.SetLauncher(func(_ context.Context, spec agent.LaunchSpec, _ io.Reader, _, _ io.Writer) (int32, error) {
 		spawned = spec
 		return 0, nil
 	})

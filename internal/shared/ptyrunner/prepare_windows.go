@@ -3,9 +3,6 @@
 package ptyrunner
 
 import (
-	"errors"
-	"io"
-	"io/fs"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -14,14 +11,6 @@ import (
 	"github.com/aymanbagabas/go-pty"
 	"golang.org/x/sys/windows"
 )
-
-// isBenignPTYError reports whether err from c.Wait is the expected fallout of
-// closing the ConPTY after the command already exited. Windows has no EIO
-// equivalent for this path; a closed handle surfaces as fs.ErrClosed. Matched
-// by sentinel via errors.Is — never by substring of the error text.
-func isBenignPTYError(err error) bool {
-	return errors.Is(err, fs.ErrClosed)
-}
 
 // adjustPtyCommand handles Windows-specific .cmd/.bat file execution via ConPTY.
 //
@@ -52,24 +41,3 @@ func adjustPtyCommand(c *pty.Cmd, original *exec.Cmd) {
 	}
 	c.SysProcAttr.CmdLine = `/c "` + innerCmdLine + `"`
 }
-
-// pendingPTYBytes has no ConPTY equivalent of FIONREAD wired up here, so
-// RunInteractive's drainPTY always falls back to its bounded wait on
-// Windows (see prepare_ioctl_linux.go and prepare_ioctl_darwin.go for the
-// implementations whose signature this mirrors).
-func pendingPTYBytes(_ pty.Pty) (int, bool) {
-	return 0, false
-}
-
-// pollableMaster is the ConPTY itself on Windows: its reads end when the
-// pseudo console is closed, which closePTY does, so the view's own Close has
-// nothing to release.
-func pollableMaster(ptty pty.Pty) (io.ReadWriteCloser, error) {
-	return conPTYView{ptty}, nil
-}
-
-// conPTYView is a ConPTY seen through pollableMaster: reads and writes go to
-// the pseudo console; Close is closePTY's.
-type conPTYView struct{ pty.Pty }
-
-func (conPTYView) Close() error { return nil }

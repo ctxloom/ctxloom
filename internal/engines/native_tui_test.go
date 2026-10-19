@@ -25,7 +25,7 @@ type launcherInjector interface {
 // shippable engine the composition root builds, an INTERACTIVE Execute of
 // its Backend (agent.Hosted) must declare ModeInteractive, accept the
 // runner's injected launcher (SetLauncher), and reach it with a LaunchSpec
-// that requests a pty and names a binary. A fake launcher captures the spec,
+// that runs on the runner's terminal and names a binary. A fake launcher captures the spec,
 // so no engine's CLI has to be installed. A double declares that it is one
 // where it is built, so a new double is excluded automatically rather than
 // silently required to spawn a TUI.
@@ -43,14 +43,16 @@ func TestAllEngines_LaunchNativeTUI(t *testing.T) {
 			require.True(t, ok, "%s must embed agent.BaseBackend (SetLauncher) to accept the runner's launcher", name)
 
 			var captured *agent.LaunchSpec
-			injector.SetLauncher(func(_ context.Context, spec agent.LaunchSpec, _ io.Reader, _, _ io.Writer, _ <-chan agent.WindowSize) (int32, error) {
+			injector.SetLauncher(func(_ context.Context, spec agent.LaunchSpec, _ io.Reader, _, _ io.Writer) (int32, error) {
 				captured = &spec
 				return 0, nil
 			})
-			_, err := b.Execute(context.Background(), &agent.ExecuteRequest{Mode: agent.ModeInteractive, WorkDir: t.TempDir()}, io.Discard, io.Discard)
+			term := &agent.Terminal{}
+			_, err := b.Execute(context.Background(), &agent.ExecuteRequest{Mode: agent.ModeInteractive, WorkDir: t.TempDir(), Terminal: term}, io.Discard, io.Discard)
 			require.NoError(t, err, "%s: interactive Execute must not error before ever reaching the launcher", name)
 			require.NotNil(t, captured, "%s: interactive Execute never reached the injected launcher — its native TUI would never spawn", name)
-			assert.True(t, captured.Interactive, "%s: interactive run must request a pty (Interactive: true)", name)
+			assert.True(t, captured.Interactive, "%s: interactive run must launch interactively (Interactive: true)", name)
+			assert.Same(t, term, captured.Terminal, "%s: interactive run must launch on the runner's terminal", name)
 			assert.NotEmpty(t, captured.BinaryPath, "%s: interactive LaunchSpec named no binary to spawn", name)
 		})
 	}

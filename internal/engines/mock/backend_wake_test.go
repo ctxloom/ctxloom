@@ -3,7 +3,6 @@ package mock
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -148,7 +147,7 @@ func TestInteractiveEcho_ATypedLineFiresTurnStartWithItsPrompt(t *testing.T) {
 	s := ownerSession(t, "typed-harp")
 	req := &agent.ExecuteRequest{
 		Env:       map[string]string{"CTXLOOM_MOCK_ECHO_STDIN": "1"},
-		Stdin:     strings.NewReader("what did the child say?\nquit\n"),
+		Terminal:  pipeTerminal(t, "what did the child say?\nquit\n"),
 		Session:   &s,
 		Presented: presented,
 		WorkDir:   s.WorkDir,
@@ -171,11 +170,12 @@ func TestInteractiveEcho_ATypedLineFiresTurnStartWithItsPrompt(t *testing.T) {
 func TestInteractiveEcho_AWakeIsTakenAsATypedLine(t *testing.T) {
 	presented, payloads := hookRecorder(t)
 	s := ownerSession(t, "wake-harp")
-	pr, pw := io.Pipe()
-	t.Cleanup(func() { _ = pw.Close() })
+	pr, pw, err := os.Pipe()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = pw.Close(); _ = pr.Close() })
 	req := &agent.ExecuteRequest{
 		Env:       map[string]string{"CTXLOOM_MOCK_ECHO_STDIN": "1"},
-		Stdin:     pr,
+		Terminal:  &agent.Terminal{Stdin: pr, Stdout: pw, Stderr: pw},
 		Session:   &s,
 		Presented: presented,
 		WorkDir:   s.WorkDir,
@@ -188,7 +188,7 @@ func TestInteractiveEcho_AWakeIsTakenAsATypedLine(t *testing.T) {
 	}()
 	// The echo is standing once a typed line comes back: the socket is
 	// listened on before the first line is read.
-	_, err := pw.Write([]byte("ready\n"))
+	_, err = pw.Write([]byte("ready\n"))
 	require.NoError(t, err)
 	out.waitFor(t, 5*time.Second, "mock echo: ready")
 

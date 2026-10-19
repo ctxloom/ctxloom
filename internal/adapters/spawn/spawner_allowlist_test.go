@@ -86,7 +86,7 @@ func TestProdSpawner_Resolve_Allowlist(t *testing.T) {
 	})
 
 	t.Run("a reviewed backend resolves", func(t *testing.T) {
-		s := newSpawner(t, "schema_version: 7\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: bypass\n")
+		s := newSpawner(t, "schema_version: 7\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: bypassPermissions\n")
 		plan, err := s.Resolve(context.Background(), "dev")
 		require.NoError(t, err)
 		assert.Equal(t, "claude-code", plan.Backend)

@@ -464,7 +464,7 @@ func isoMatrixConfigYAML(engineType, engineHome, sessionAuth string) string {
     iso:
       type: %s
       permissions:
-        mode: bypass
+        mode: %s
   defaults:
     primary: iso
     fast: iso
@@ -472,7 +472,7 @@ agents:
   iso:
     llm: iso
     profiles: []
-%s`, engineType, engineHomeLine)
+%s`, engineType, bypassModeFor(engineType), engineHomeLine)
 }
 
 // writeIsoEngineHomeViaCLI makes the CLI FLAG the only writer of the "iso"

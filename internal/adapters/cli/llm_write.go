@@ -230,7 +230,7 @@ existing one with 'ctxloom llm edit'.
 
 ` + llmWriteLong(reg)
 	llmCreateCmd.Example = `  ctxloom llm create big --type claude-code --model opus
-  ctxloom llm create fast --type claude-code --permissions bypass
+  ctxloom llm create fast --type claude-code --permissions bypassPermissions
   ctxloom llm create qwen --home --type opencode --model qwen3.8-27b --set context_window=131072 --set provider.base_url=http://192.168.1.20:8081/v1 --set provider.output_limit=32768`
 
 	llmEditCmd.Long = `Change an EXISTING labeled LLM engine config. Refuses a label neither

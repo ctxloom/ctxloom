@@ -23,7 +23,7 @@ agents:
   reviewer:
     permissions:
       claude-code:
-        mode: bypass
+        mode: bypassPermissions
     runtime: container
 `), 0o644))
 
@@ -127,13 +127,13 @@ agents:
     llm: claude-code
 `), 0644)
 
-	overrides := confload.Overrides{Flags: map[string]any{"agents.reviewer.permissions.claude-code.mode": "bypass"}}
+	overrides := confload.Overrides{Flags: map[string]any{"agents.reviewer.permissions.claude-code.mode": "bypassPermissions"}}
 	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir), WithOverrides(overrides))
 	require.NoError(t, err)
 
 	reviewer, ok := cfg.GetConfiguredAgents()["reviewer"]
 	require.True(t, ok)
-	assert.Equal(t, "bypass", reviewer.Permissions.Engines["claude-code"]["mode"], "the override itself must still apply")
+	assert.Equal(t, "bypassPermissions", reviewer.Permissions.Engines["claude-code"]["mode"], "the override itself must still apply")
 	assert.Equal(t, []string{"default"}, reviewer.Profiles, "a sibling field the override never touched must survive")
 	assert.Equal(t, "claude-code", reviewer.LLM, "same for a second untouched sibling field")
 }

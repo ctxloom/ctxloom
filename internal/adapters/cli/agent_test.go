@@ -179,7 +179,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 		}
 		resolved := &operations.ResolvedAgent{
 			Label: "claude-code", Backend: "claude", Model: "opus",
-			EffectivePermissions: "bypass",
+			EffectivePermissions: "bypassPermissions",
 			Fragments:            []string{"a", "b", "c"},
 		}
 
@@ -194,7 +194,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 			"Permissions: claude-code={mode=acceptEdits}\n",
 			"Driving: oneshot\n",
 			"Resolved llm: claude-code (backend: claude, model: opus)\n",
-			"Resolved permissions: bypass\n",
+			"Resolved permissions: bypassPermissions\n",
 			"Composed fragments: 3\n",
 		} {
 			assert.Contains(t, out, want)

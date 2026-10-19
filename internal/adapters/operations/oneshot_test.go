@@ -30,7 +30,7 @@ func oneshotTestConfig(t *testing.T) *config.Config {
 				// bypass: these are the profile/context/output-flow tests,
 				// not permission-resolution tests (the launch package pins
 				// the floor).
-				"claude-fast": {Type: "claude-code", Permissions: agents.LabelPermissions{Engine: map[string]any{"mode": "bypass"}}},
+				"claude-fast": {Type: "claude-code", Permissions: agents.LabelPermissions{Engine: map[string]any{"mode": "bypassPermissions"}}},
 				"agy-code":    {Type: "mock", Permissions: agents.LabelPermissions{Engine: map[string]any{"mode": "bypass"}}},
 			},
 			Defaults: config.RoleDefaults{Primary: "claude-fast"},

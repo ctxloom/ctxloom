@@ -131,7 +131,7 @@ func TestPingEngineAuth_Succeeds(t *testing.T) {
 }
 
 // TestPingEngineAuth_RequestsBypassPermissionExplicitly pins that the ping
-// asks for permissions: bypass on its launch explicitly, rather than riding
+// asks for permissions: bypassPermissions on its launch explicitly, rather than riding
 // whatever the chosen engine's llm label declares (or doesn't).
 // authPingTestConfig declares no llm permissions at all, so without this
 // override its launch would ride the engine's host default. This is a PAYLOAD
@@ -148,7 +148,7 @@ func TestPingEngineAuth_RequestsBypassPermissionExplicitly(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NotNil(t, stub.gotLaunch)
-	assert.Equal(t, "bypass", stub.gotLaunch.Permission.Posture.Document["mode"],
+	assert.Equal(t, "bypassPermissions", stub.gotLaunch.Permission.Posture.Document["mode"],
 		"the ping must carry an explicit bypass posture on the launch, not rely on the label's configured (or unset) permissions")
 }
 

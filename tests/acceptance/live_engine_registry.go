@@ -192,7 +192,7 @@ type liveAgent struct {
 	// bypass is the engine's posture that approves everything without
 	// asking: what a live cell's agent binding runs at, because a headless
 	// cell has nobody to answer a prompt. Each engine names it in its own
-	// vocabulary (claude-code "bypass", opencode "auto").
+	// vocabulary (claude-code "bypassPermissions", opencode "auto").
 	bypass string
 	// free marks an engine whose pinned live model costs nothing per turn.
 	// Its cells are not counted against the ladder's subscription budget
@@ -212,6 +212,16 @@ type liveAgent struct {
 // for engine, indented under an agent entry.
 func permissionsBlock(engine, mode string) string {
 	return "    permissions:\n      " + engine + ":\n        mode: " + mode + "\n"
+}
+
+// bypassModeFor is the mode an agent or label for engineType declares to ask
+// nobody: claude's own name for it, and "bypass" for the mock and every other
+// engine the fixtures bind it on.
+func bypassModeFor(engineType string) string {
+	if engineType == claude.EngineName {
+		return liveAgents["claude"].bypass
+	}
+	return "bypass"
 }
 
 // bypassBlock is a's agent-binding permissions block at its bypass posture.
@@ -244,7 +254,7 @@ var liveAgents = map[string]liveAgent{
 		credDir:        ".claude",
 		censusExtra:    []string{".claude.json"},
 		engine:         "claude-code",
-		bypass:         "bypass",
+		bypass:         "bypassPermissions",
 		config: fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion) + `llm:
   configs:
     claude:

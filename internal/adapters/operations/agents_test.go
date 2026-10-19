@@ -156,7 +156,7 @@ func TestResolveAgent_EffectivePermissions(t *testing.T) {
 	cfg := agentTestConfig(root, map[string]agents.Agent{
 		"claude-blank": {LLM: "primary", Profiles: []string{"p1"}},
 		"mock-plan":    {LLM: "fast", Profiles: []string{"p1"}, Permissions: agents.Permissions{Engines: map[string]map[string]any{"mock": {"mode": "plan"}}}},
-		"other-block":  {LLM: "fast", Profiles: []string{"p1"}, Permissions: agents.Permissions{Engines: map[string]map[string]any{"claude-code": {"mode": "bypass"}}}},
+		"other-block":  {LLM: "fast", Profiles: []string{"p1"}, Permissions: agents.Permissions{Engines: map[string]map[string]any{"claude-code": {"mode": "bypassPermissions"}}}},
 		"mock-blank":   {LLM: "fast", Profiles: []string{"p1"}},
 	})
 	cases := map[string]string{

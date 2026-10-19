@@ -97,7 +97,7 @@ func TestProdSpawner_ResolveRereadsConfigFromDisk(t *testing.T) {
 
 	// The mid-session mutation: config.yaml gains a BRAND NEW agent that
 	// never existed in the snapshot captured at newProdSpawner time.
-	writeSpawnerConfig(t, appDir, "schema_version: 7\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: plan\n  fresh:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: bypass\n")
+	writeSpawnerConfig(t, appDir, "schema_version: 7\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: plan\n  fresh:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: bypassPermissions\n")
 
 	_, err = s.Resolve(context.Background(), "fresh")
 	require.NoError(t, err, "a hot-reloaded agent must resolve without a coordinator restart")
@@ -152,21 +152,21 @@ func TestProdSpawner_Resolve_Driving(t *testing.T) {
 	}
 
 	t.Run("absent driving resolves persistent, unchanged from today", func(t *testing.T) {
-		s := newSpawner(t, "schema_version: 7\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: bypass\n")
+		s := newSpawner(t, "schema_version: 7\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: bypassPermissions\n")
 		plan, err := s.Resolve(context.Background(), "dev")
 		require.NoError(t, err)
 		assert.Equal(t, coord.ResumeModePersistent, plan.ResumeMode)
 	})
 
 	t.Run("driving: conversational resolves persistent", func(t *testing.T) {
-		s := newSpawner(t, "schema_version: 7\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: bypass\n    driving: conversational\n")
+		s := newSpawner(t, "schema_version: 7\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: bypassPermissions\n    driving: conversational\n")
 		plan, err := s.Resolve(context.Background(), "dev")
 		require.NoError(t, err)
 		assert.Equal(t, coord.ResumeModePersistent, plan.ResumeMode)
 	})
 
 	t.Run("unknown driving value FAILS LOUD at resolve, not merely at the write edge", func(t *testing.T) {
-		s := newSpawner(t, "schema_version: 7\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: bypass\n    driving: bogus\n")
+		s := newSpawner(t, "schema_version: 7\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: bypassPermissions\n    driving: bogus\n")
 		_, err := s.Resolve(context.Background(), "dev")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "bogus")
@@ -181,7 +181,7 @@ func TestProdSpawner_Resolve_Driving(t *testing.T) {
 	})
 
 	t.Run("driving: oneshot on a SUPPORTED migrated engine (claude-code) now RESOLVES to coord.ResumeModeOneShot (Slice 4 landed)", func(t *testing.T) {
-		s := newSpawner(t, "schema_version: 7\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: bypass\n    driving: oneshot\n")
+		s := newSpawner(t, "schema_version: 7\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: bypassPermissions\n    driving: oneshot\n")
 		plan, err := s.Resolve(context.Background(), "dev")
 		require.NoError(t, err, "the one-shot turn loop is wired end to end for claude-code (Slice 4)")
 		assert.Equal(t, coord.ResumeModeOneShot, plan.ResumeMode)

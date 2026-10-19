@@ -74,7 +74,7 @@ func buildArgsMatrix(presented []present.Presentation) []argvCase {
 		p    engine.PermissionPolicy
 	}{
 		{"default", modePolicy(modeDefault)},
-		{"bypass", modePolicy(modeBypass)},
+		{"bypassPermissions", modePolicy(modeBypass)},
 		{"acceptEdits", modePolicy(modeAcceptEdits)},
 		{"plan", modePolicy(modePlan)},
 	}

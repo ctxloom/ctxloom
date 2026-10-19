@@ -760,9 +760,9 @@ func (st *runState) warnPosture() {
 	}
 }
 
-// permissionBypass is the posture that asks nobody, as the engines that
-// have one spell it.
-const permissionBypass = "bypass"
+// permissionBypass is the posture that asks nobody, as claude spells it
+// (the engine the init liveness probe and the one-shot warning are about).
+const permissionBypass = "bypassPermissions"
 
 // validateFlags is the friction-up-front window: a typed value that no
 // engine names is a hard error before any work, so a typo can't silently

@@ -39,7 +39,7 @@ maps it so (`internal/engines/claude`, `postureOf` and its callers):
 | mode `default` | no flag |
 | mode `acceptEdits` | `--permission-mode acceptEdits` |
 | mode `plan` | `--permission-mode plan` **+** `--disallowedTools "Bash,Edit,Write,NotebookEdit"` (plan-first, with `after_plan`, drops the belt) |
-| mode `bypass` | `--dangerously-skip-permissions` |
+| mode `bypassPermissions` | `--dangerously-skip-permissions` |
 | `approver: none` | mode `dontAsk` (with mode `default`) |
 | `approver: reviewer` | mode `auto` (with mode `default`) |
 | `sandbox: workspace-write` | a `sandbox` settings member: enabled, `failIfUnavailable`, no unsandboxed escape, unlisted hosts denied |

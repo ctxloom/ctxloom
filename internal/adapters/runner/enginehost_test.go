@@ -280,7 +280,7 @@ func (f *fakeEngineHome) payloadKinds() []string {
 }
 
 func testStartRun(runID string) *agentcoordpb.StartRun {
-	l := ownerLaunch("child-harp-1", "claude-code", "fast", "claude-sonnet-5", "/work", "bypass")
+	l := ownerLaunch("child-harp-1", "claude-code", "fast", "claude-sonnet-5", "/work", "bypassPermissions")
 	l.Identity.RunID = runID
 	l.Identity.Depth = 1
 	l.Prompt = "CTX\n\ndo the thing"
@@ -544,7 +544,7 @@ func TestEngineHost_StartRun_WithoutAHarpIsRefused(t *testing.T) {
 	t.Cleanup(eh.Close)
 	eh.BindHome(home)
 
-	l := ownerLaunch("", "claude-code", "fast", "claude-sonnet-5", "/work", "bypass")
+	l := ownerLaunch("", "claude-code", "fast", "claude-sonnet-5", "/work", "bypassPermissions")
 	l.Prompt = "no harp here"
 	resp := handleBounded(t, eh, &agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{
 		StartRun: &agentcoordpb.StartRun{RunId: "run-1", Launch: coordgrpc.EncodeLaunch(l)},
@@ -872,7 +872,7 @@ func writeSecrets(t *testing.T, file string, vals map[string]string) {
 func TestEngineHost_EachTurnRereadsItsSecretsFile(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "run.env")
 	writeSecrets(t, file, map[string]string{"TOKEN": "sk-first-value", "OTHER": "kept"})
-	l := ownerLaunch("child-harp-1", "claude-code", "fast", "claude-sonnet-5", "/work", "bypass")
+	l := ownerLaunch("child-harp-1", "claude-code", "fast", "claude-sonnet-5", "/work", "bypassPermissions")
 	l.Identity.RunID, l.Identity.Depth, l.Prompt = "run-1", 1, "CTX\n\ndo the thing"
 	l.Cell.SecretFiles = map[string]string{"TOKEN": file}
 

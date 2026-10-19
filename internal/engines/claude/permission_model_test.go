@@ -29,7 +29,7 @@ func declared(docs ...map[string]any) []engine.Declaration {
 func TestPermissionModel_Vocabulary(t *testing.T) {
 	m := model(t)
 	assert.Equal(t, []string{"mode", "after_plan", "allow", "deny", "ask"}, m.Keys())
-	assert.Equal(t, []string{"default", "acceptEdits", "plan", "bypass"}, m.Postures(),
+	assert.Equal(t, []string{"default", "acceptEdits", "plan", "bypassPermissions"}, m.Postures(),
 		"dontAsk and auto are not claude modes here: they are approver none and approver reviewer")
 	assert.True(t, m.Reviewer(), "claude's auto classifier serves approver: reviewer")
 	assert.Equal(t, engine.SandboxFull, m.DefaultSandbox(), "undeclared: today's behaviour")
@@ -42,7 +42,7 @@ func TestPermissionModel_Validate(t *testing.T) {
 		"unknown key":         {"mdoe": "plan"},
 		"dontAsk":             {"mode": "dontAsk"},
 		"auto":                {"mode": "auto"},
-		"after_plan bypass":   {"mode": "plan", "after_plan": "bypass"},
+		"after_plan bypass":   {"mode": "plan", "after_plan": "bypassPermissions"},
 		"after_plan off plan": {"mode": "default", "after_plan": "acceptEdits"},
 		"bad rule":            {"allow": []any{"Bash("}},
 		"rules not a list":    {"deny": "Bash"},
@@ -56,6 +56,25 @@ func TestPermissionModel_Validate(t *testing.T) {
 	err = m.Validate(map[string]any{"mode": "auto"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "approver: reviewer")
+}
+
+// Claude's own name for the mode that asks nobody is the one a document
+// declares; the name ctxloom once used for it is refused, naming the
+// replacement.
+func TestPermissionModel_BypassPermissionsIsClaudesName(t *testing.T) {
+	m := model(t)
+	assert.NoError(t, m.Validate(map[string]any{"mode": "bypassPermissions"}))
+	assert.NoError(t, m.Validate(map[string]any{"mode": "BypassPermissions"}), "the spelling is case-insensitive, like every claude mode")
+	for _, spelled := range []string{"bypass", "Bypass", " BYPASS "} {
+		err := m.Validate(map[string]any{"mode": spelled})
+		require.Errorf(t, err, "%q", spelled)
+		assert.Contains(t, err.Error(), "mode: bypassPermissions", "the refusal names the replacement")
+		assert.NotContains(t, err.Error(), "is not a claude mode", "it is a retired spelling, not an unknown mode")
+	}
+	_, err := m.Resolve(engine.PostureRequest{Mode: "bypass"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mode: bypassPermissions")
+	assert.Contains(t, err.Error(), "--permissions flag")
 }
 
 // Each key comes from the nearest rung that declares it; nothing declared
@@ -76,9 +95,9 @@ func TestPermissionModel_ResolveFieldByField(t *testing.T) {
 
 func TestPermissionModel_FlagOverridesTheMode(t *testing.T) {
 	m := model(t)
-	doc, err := m.Resolve(engine.PostureRequest{Mode: "bypass", Declared: declared(map[string]any{"mode": "plan", "after_plan": "default", "deny": []any{"Bash"}})})
+	doc, err := m.Resolve(engine.PostureRequest{Mode: "bypassPermissions", Declared: declared(map[string]any{"mode": "plan", "after_plan": "default", "deny": []any{"Bash"}})})
 	require.NoError(t, err)
-	assert.Equal(t, map[string]any{"mode": "bypass", "deny": []string{"Bash"}}, doc, "a flag off plan leaves nothing for after_plan to continue")
+	assert.Equal(t, map[string]any{"mode": "bypassPermissions", "deny": []string{"Bash"}}, doc, "a flag off plan leaves nothing for after_plan to continue")
 	_, err = m.Resolve(engine.PostureRequest{Mode: "yolo"})
 	assert.Error(t, err)
 }
@@ -113,7 +132,7 @@ func TestPermissionModel_DecodeAndTransitions(t *testing.T) {
 		{Posture: "default", Label: "default"},
 		{Posture: "acceptEdits", Label: "accept edits", Default: true},
 	}, m.Transitions(map[string]any{"mode": "plan", "after_plan": "acceptEdits"}), "the declared after_plan is the default, said explicitly")
-	assert.Empty(t, m.Transitions(map[string]any{"mode": "bypass"}), "nothing an approval changes on a bypass session")
+	assert.Empty(t, m.Transitions(map[string]any{"mode": "bypassPermissions"}), "nothing an approval changes on a bypass session")
 }
 
 // Every claude posture has its own display name: the roster and the
@@ -121,7 +140,7 @@ func TestPermissionModel_DecodeAndTransitions(t *testing.T) {
 func TestPermissionModel_Labels(t *testing.T) {
 	m := model(t)
 	assert.Equal(t, []string{"default", "accept edits", "plan mode", "bypass permissions"},
-		[]string{m.Label("default"), m.Label("acceptEdits"), m.Label("plan"), m.Label("bypass")})
+		[]string{m.Label("default"), m.Label("acceptEdits"), m.Label("plan"), m.Label("bypassPermissions")})
 	assert.Empty(t, m.Label("sideways"), "a token claude does not name has no display name")
 }
 
@@ -145,7 +164,7 @@ func TestPermissionModel_PlansFirst(t *testing.T) {
 	m := model(t)
 	assert.True(t, m.PlansFirst(map[string]any{"mode": "plan"}))
 	assert.True(t, m.PlansFirst(map[string]any{"mode": "plan", "after_plan": "acceptEdits"}))
-	for _, mode := range []string{"default", "acceptEdits", "bypass"} {
+	for _, mode := range []string{"default", "acceptEdits", "bypassPermissions"} {
 		assert.Falsef(t, m.PlansFirst(map[string]any{"mode": mode}), "%s does not plan first", mode)
 	}
 	assert.False(t, m.PlansFirst(nil), "a document naming no mode names no plan")

@@ -199,7 +199,7 @@ func TestMidTurnMail_TheMessageThatStartedATurnIsNotPeeked(t *testing.T) {
 // its engine's env from the launch, not from Exec — it must still carry the
 // hook address, or an interactive run's mail peek has nowhere to ask.
 func TestTurn_EngineEnvCarriesTheHookAddress(t *testing.T) {
-	l := ownerLaunch(midTurnHarp, "claude-code", "fast", "claude-sonnet-5", "/work", "bypass")
+	l := ownerLaunch(midTurnHarp, "claude-code", "fast", "claude-sonnet-5", "/work", "bypassPermissions")
 	hookEnv := sessions.EncodeHookReach(sessions.Endpoint{URL: "http://127.0.0.1:4100/hook", Credential: "bearer"})
 	env := Turn{Launch: l, hookEnv: hookEnv}.EngineEnv()
 	for k, v := range hookEnv {

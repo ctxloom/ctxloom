@@ -185,7 +185,7 @@ gets a reader written for a version that has none.
 **Interactive sessions** default to `acceptEdits`: file edits are approved
 automatically and claude asks before anything else. Set `permissions:` on an
 agent, or pass `--permissions <posture>` (`ctxloom run --help` lists them), to
-choose another. `bypass` is only ever used when you declare it.
+choose another. `bypassPermissions` is only ever used when you declare it.
 
 **Headless runs** (`ctxloom run --one-shot`, and delegated agent runs) have no
 one to answer a prompt, so claude denies every call its posture would have

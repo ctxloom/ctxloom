@@ -43,7 +43,7 @@ func TestWarnPosture_PlanOneshotCancels(t *testing.T) {
 		{"plan + oneshot warns", engine.Structured, "plan", true},
 		{"default + oneshot warns", engine.Structured, "default", true},
 		{"acceptEdits + oneshot warns", engine.Structured, "acceptEdits", true},
-		{"bypass + oneshot stays silent", engine.Structured, "bypass", false},
+		{"bypassPermissions + oneshot stays silent", engine.Structured, "bypassPermissions", false},
 		{"plan + interactive stays silent", engine.Interactive, "plan", false},
 	}
 	for _, tc := range cases {

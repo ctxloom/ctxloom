@@ -427,7 +427,7 @@ agents:
     runtime: container-rootless
     permissions:
       claude-code:
-        mode: bypass
+        mode: bypassPermissions
     driving: oneshot
     engine_home: session
 `)
@@ -443,7 +443,7 @@ agents:
 			assert.Equal(t, "claude-code", got.LLM)
 			assert.Equal(t, []string{"x", "y"}, got.Profiles)
 			assert.Equal(t, "container-rootless", got.Runtime)
-			assert.Equal(t, map[string]map[string]any{"claude-code": {"mode": "bypass"}}, got.Permissions.Engines)
+			assert.Equal(t, map[string]map[string]any{"claude-code": {"mode": "bypassPermissions"}}, got.Permissions.Engines)
 			assert.Equal(t, agents.DrivingOneshot, got.Driving)
 			assert.Equal(t, string(agents.HomeModeSession), got.HomeMode)
 		})

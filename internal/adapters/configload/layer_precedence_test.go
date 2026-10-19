@@ -28,7 +28,7 @@ agents:
     llm: claude-code
     permissions:
       claude-code:
-        mode: bypass
+        mode: bypassPermissions
     env_host: false
 `), 0644)
 	appDir := "/proj/.ctxloom"
@@ -39,7 +39,7 @@ agents:
 
 	personal, ok := cfg.GetConfiguredAgents()["personal"]
 	require.True(t, ok, "an agent declared in home config must take effect")
-	assert.Equal(t, "bypass", personal.Permissions.Engines["claude-code"]["mode"])
+	assert.Equal(t, "bypassPermissions", personal.Permissions.Engines["claude-code"]["mode"])
 	require.NotNil(t, personal.EnvHost)
 	assert.False(t, *personal.EnvHost)
 }
@@ -58,7 +58,7 @@ agents:
 `), 0644)
 
 	overrides := confload.Overrides{Env: map[string]any{
-		"AGENTS_REVIEWER_PERMISSIONS_CLAUDE-CODE_MODE": "bypass",
+		"AGENTS_REVIEWER_PERMISSIONS_CLAUDE-CODE_MODE": "bypassPermissions",
 		"DEFAULT_AGENT": "reviewer",
 	}}
 	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir), WithOverrides(overrides))
@@ -66,7 +66,7 @@ agents:
 
 	reviewer, ok := cfg.GetConfiguredAgents()["reviewer"]
 	require.True(t, ok)
-	assert.Equal(t, "bypass", reviewer.Permissions.Engines["claude-code"]["mode"], "the env layer outranks the project file")
+	assert.Equal(t, "bypassPermissions", reviewer.Permissions.Engines["claude-code"]["mode"], "the env layer outranks the project file")
 	assert.Equal(t, "reviewer", cfg.ToFixture().DefaultAgent)
 }
 

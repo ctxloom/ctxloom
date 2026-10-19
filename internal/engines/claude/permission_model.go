@@ -14,14 +14,15 @@ import (
 // resolved and read back. Core carries the resolved document without
 // reading it; only this engine interprets it.
 
-// Claude's modes. dontAsk and auto are claude modes too, but ctxloom names
+// Claude's modes, each spelled as claude spells it (--permission-mode).
+// dontAsk and auto are claude modes too, but ctxloom names
 // them by who answers — approver: none and approver: reviewer — so they
 // are not a mode a document may declare.
 const (
 	modeDefault     = "default"
 	modeAcceptEdits = "acceptEdits"
 	modePlan        = "plan"
-	modeBypass      = "bypass"
+	modeBypass      = "bypassPermissions"
 )
 
 // The document's keys.
@@ -68,6 +69,7 @@ func afterPlanModes() []string { return []string{modeDefault, modeAcceptEdits} }
 var replacedModes = map[string]string{
 	"dontask": "approver: none",
 	"auto":    "approver: reviewer",
+	"bypass":  "mode: bypassPermissions",
 }
 
 var errNotADocument = errors.New("claude permissions")

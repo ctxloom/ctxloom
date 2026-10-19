@@ -29,7 +29,7 @@ Feature: P4 — the plan sentinel: does permissions=plan actually stop a write
   enforcement or measuring nothing.
 
   So each engine runs the identical fixture twice, differing in exactly one line
-  of config.yaml. The @var-control cell binds `permissions: {<engine>: {mode: bypass}}` and MUST land
+  of config.yaml. The @var-control cell binds the engine's bypass posture (claude-code: `bypassPermissions`) and MUST land
   the write; the @var-plan cell binds `permissions: {<engine>: {mode: plan}}` and must not. The
   control is what converts the plan cell from an observation into a measurement,
   and its failure is fatal to the plan cell beside it: a probe whose control is

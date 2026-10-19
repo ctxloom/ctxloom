@@ -26,7 +26,7 @@ func TestEffectivePosture(t *testing.T) {
 	}
 	assert.Equal(t, "acceptEdits", name("claude-code", agents.Permissions{}, agents.LabelPermissions{}), "the engine's default")
 	assert.Equal(t, "plan", name("claude-code", agents.Permissions{}, label), "the label's keys")
-	assert.Equal(t, "bypass", name("claude-code", block("claude-code", "bypass"), label), "the binding beats the label")
+	assert.Equal(t, "bypassPermissions", name("claude-code", block("claude-code", "bypassPermissions"), label), "the binding beats the label")
 	assert.Empty(t, name("claude-code", block("mock", "bypass"), label), "no block for the engine")
 	assert.Empty(t, name("claude-code", block("claude-code", "dontAsk"), label), "a refused declaration names nothing")
 	assert.Empty(t, name("nope", agents.Permissions{}, label), "an unknown engine")

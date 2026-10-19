@@ -24,7 +24,7 @@ value.
 
 --type is the backend discriminator (claude-code, opencode);
 omit it to keep claude-code's default. --model sets the model string. --permissions
-sets the label's mode, in its engine's vocabulary (acceptEdits|auto|build|bypass|default|plan across the
+sets the label's mode, in its engine's vocabulary (acceptEdits|auto|build|bypass|bypassPermissions|default|plan across the
 engines ctxloom knows); the engine refuses one it does not take.
 
 --set <dotted.key>=<value> (repeatable, applied after the flags above) sets

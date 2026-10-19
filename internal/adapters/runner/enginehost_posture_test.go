@@ -16,7 +16,7 @@ import (
 
 // startRunAt is testStartRun with the launch's policy replaced.
 func startRunAt(runID string, p engine.PermissionPolicy) *agentcoordpb.StartRun {
-	l := ownerLaunch("child-harp-1", "claude-code", "fast", "claude-sonnet-5", "/work", "bypass")
+	l := ownerLaunch("child-harp-1", "claude-code", "fast", "claude-sonnet-5", "/work", "bypassPermissions")
 	l.Identity.RunID = runID
 	l.Identity.Depth = 1
 	l.Prompt = "do the thing"
@@ -46,7 +46,7 @@ func firstTurnPosture(t *testing.T, p engine.PermissionPolicy) engine.TurnPostur
 // whatever the launch's policy, and the engine runs it at the posture its
 // session carries.
 func TestEngineHost_FirstTurnAsksForNoModeOfItsOwn(t *testing.T) {
-	for _, mode := range []string{"acceptEdits", "plan", "bypass"} {
+	for _, mode := range []string{"acceptEdits", "plan", "bypassPermissions"} {
 		p := engine.PermissionPolicy{Posture: engine.Posture{Engine: "claude-code", Document: map[string]any{"mode": mode}}, Approver: engine.ApproverNone, Sandbox: engine.SandboxFull}
 		assert.Equalf(t, engine.TurnPosture{}, firstTurnPosture(t, p), "%s", mode)
 	}

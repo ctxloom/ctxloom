@@ -106,7 +106,7 @@ var p4Postures = []p4Posture{p4Control, p4Plan}
 // something else.
 //
 // The control is the engine's own bypass posture (liveAgent.bypass): claude's
-// "bypass", opencode's "auto". Plan is spelled "plan" by every engine.
+// "bypassPermissions", opencode's "auto". Plan is spelled "plan" by every engine.
 func p4PermissionValue(a liveAgent, p p4Posture) string {
 	switch p {
 	case p4Plan:

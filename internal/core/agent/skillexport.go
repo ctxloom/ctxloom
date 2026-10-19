@@ -1,5 +1,11 @@
 package agent
 
+// SkillNameMaxLen is the longest SKILL.md frontmatter `name` the Agent Skills
+// standard allows. It lives here, below both the engines that refuse a longer
+// name and the operations that mint names, so a name minted to fit and the
+// check that refuses an overlong one read one number.
+const SkillNameMaxLen = 64
+
 // SkillExport is the agent-agnostic Agent Skill package export spec for one
 // skill — the SurfaceSkills sibling of CommandExport. Unlike a command (a
 // single rendered file), a skill is a whole TREE: SKILL.md plus whatever

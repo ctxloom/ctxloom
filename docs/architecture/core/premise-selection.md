@@ -133,6 +133,16 @@ available there. `operations.Materialize` (`ctxloom materialize`) is the only ca
 deliberate: a live session must not receive the same fragment as both a skill and an index
 entry, which would be double delivery under two different selection stories.
 
+The package is named `<bundle-basename>-<fragment-name>-<hash>`
+(`operations.skillNameForRef`): the last path segment of the bundle, the fragment's own
+name, and eight hex characters of a hash of the FULL ref, for example
+`code-quality-serialization-contracts-1a2b3c4d`. The name stays qualified by bundle (a bare
+`general` exists in seventeen bundles) and depends on the ref alone, never on what else is in
+the batch. The hash is always present so two bundles with one basename, or a name that would
+otherwise change as a bundle's URL does, never collide or rename; the readable part is cut
+from the end to keep the whole under `agent.SkillNameMaxLen`, the limit an engine refuses
+beyond.
+
 Three reasons the in-loop default is MCP, none of them taste:
 
 - **The selection instruction we measured is ours.** The properties above were established

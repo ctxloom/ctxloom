@@ -120,6 +120,7 @@ func TestRunInit_ExistingDir_HonoursRemoteFlags(t *testing.T) {
 	}
 	t.Cleanup(func() { addPersonalRemotesFn = origAdd })
 
+	withAgentToken(t)
 	origRemotes, origForge := initRemotes, initForge
 	origHome, origNonInteractive, origSkipLaunch := initHome, initNonInteractive, initSkipLaunch
 	initRemotes = []string{"me/repo"}
@@ -152,6 +153,7 @@ func TestRunInit_ExistingDir_ProvisionsTheApprovalsStore(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte("schema_version: 7\n"), 0o644))
 	chdir(t, dir)
 
+	withAgentToken(t)
 	origAdd := addPersonalRemotesFn
 	addPersonalRemotesFn = func(*cobra.Command, string, []string, string) {}
 	t.Cleanup(func() { addPersonalRemotesFn = origAdd })

@@ -705,37 +705,37 @@ var initLaunchDeps = func(ctx context.Context) (launch.Deps, error) { return App
 // subprocess. Defaults to the real function.
 var launchEngineWithPromptFn = launchEngineWithPrompt
 
-// initLaunchSkippedNoTokenFormat is init's warning when setup succeeded but the
-// setup interview could not launch for want of an agent token; it takes the
-// token refusal.
-const initLaunchSkippedNoTokenFormat = "the project is set up, but the setup interview was not launched: %v — once the token is exported, re-run `ctxloom init` to launch it"
+// initCredentialMissingFormat is init's failure when setup succeeded but the
+// credential every agent authenticates with is not there: the config stays
+// written, and the refusal names the fix. It takes the engine's refusal.
+const initCredentialMissingFormat = "the project is set up and its config is written, but the agent credential is missing: %w"
 
-// launchDiscovery runs no engine at all under --skip-launch. Otherwise it
-// first makes sure the agent token is exported (ensureAgentToken: the
-// engine's own setup flow on a terminal, a typed refusal off one), and only
-// then, on a terminal, pings the selected engine's auth, resolves the discovery session and
-// launches it with the setup skill in context via the engine's own raw
-// CLI/TUI. The two are separate launches with separate identities: the
-// probe's session ends when it answers; the discovery session is the one
-// the human works in. A failed ping fails init loud rather than dropping the
-// user into a dead vendor-TUI session. A session that fails to resolve,
-// launch or ends in error is reported through strictness and refuses by
-// default too, so init's own working outcome not happening is never
-// mistaken for success.
+// launchDiscovery first asks the one credential question a run and doctor
+// ask (ensureAgentToken, in the mode the config declares), in every mode: a
+// missing credential fails init after its config is written, whether on a
+// terminal (the engine's own setup flow runs first, and init still fails
+// until the credential is exported), off one, or under --skip-launch (which
+// never runs the flow). Only then does it launch anything: under --skip-launch
+// or off a terminal nothing, otherwise it pings the selected engine's auth,
+// resolves the discovery session and launches it with the setup skill in
+// context via the engine's own raw CLI/TUI. The two are separate launches
+// with separate identities: the probe's session ends when it answers; the
+// discovery session is the one the human works in. A failed ping fails init
+// loud rather than dropping the user into a dead vendor-TUI session. A
+// session that fails to resolve, launch or ends in error is reported through
+// strictness and refuses by default too, so init's own working outcome not
+// happening is never mistaken for success.
 func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return err
+	}
+	if err := ensureAgentToken(cmd.Context(), App().Engines(), engine, cfg.SessionAuth(), interactive && !initSkipLaunch, os.LookupEnv, cmd.OutOrStdout()); err != nil {
+		fix, _ := clifmt.RemedyOf(err)
+		return report.Errorf(fix, initCredentialMissingFormat, err)
+	}
 	if initSkipLaunch {
 		return nil
-	}
-	if err := ensureAgentToken(cmd.Context(), App().Engines(), engine, interactive, os.LookupEnv, cmd.OutOrStdout()); err != nil {
-		// Off a terminal the project is already set up; only the interview's
-		// launch is skipped for want of a token. That is a success with a
-		// warning naming the token's fix, not a failure.
-		if errors.Is(err, ErrAgentTokenNotExported) {
-			fix, _ := clifmt.RemedyOf(err)
-			clidiag.WarnRemedy("ctxloom", fix, initLaunchSkippedNoTokenFormat, err)
-			return nil
-		}
-		return err
 	}
 	if !interactive {
 		return nil
@@ -746,7 +746,7 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 	if err != nil {
 		return fmt.Errorf("setup launch: %w", err)
 	}
-	cfg := deps.Snapshot.Config
+	cfg = deps.Snapshot.Config
 
 	if err := pingEngineAuth(cmd.Context(), deps, engine, workDir); err != nil {
 		return err

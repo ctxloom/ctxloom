@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
@@ -122,6 +123,9 @@ func withInitFlags(t *testing.T, noPull bool) {
 	origHome, origNon, origSkip, origNoPull := initHome, initNonInteractive, initSkipLaunch, initNoPull
 	origRemotes, origForge, origEngine := initRemotes, initForge, initEngine
 	initHome, initNonInteractive, initSkipLaunch, initNoPull = false, true, true, noPull
+	// init fails when the agent credential is not exported, whatever the
+	// mode; these tests are about what else init does.
+	t.Setenv(claude.OAuthTokenEnv, "withInitFlags-not-a-real-token")
 	initRemotes, initForge, initEngine = nil, "", "claude-code"
 	t.Cleanup(func() {
 		initHome, initNonInteractive, initSkipLaunch, initNoPull = origHome, origNon, origSkip, origNoPull

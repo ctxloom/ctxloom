@@ -442,7 +442,7 @@ func TestDoctorCheckHooksMCP_NoEnginesConfigured(t *testing.T) {
 	assert.Contains(t, check.Detail, "no engine is configured to check")
 }
 
-// --- DOCTOR-CHECK-SETUP-COMPANIONS-i9 / AUTHPING-j0: reporting-only ---
+// --- DOCTOR-CHECK-SETUP-COMPANIONS-i9: reporting-only ---
 
 func TestDoctorCheckSetupCompanions_NeverWarns(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
@@ -495,12 +495,6 @@ func TestReadCompanionDecisions_NoLoadoutIsNotWithheld(t *testing.T) {
 	d := readCompanionDecisions(cfg)
 	assert.False(t, d.withheld())
 	assert.True(t, d.discovered(), "it was still found")
-}
-
-func TestDoctorCheckSetupAuthPing_AlwaysInfoAndNamesTheGap(t *testing.T) {
-	check := doctorCheckSetupAuthPing()
-	assert.Equal(t, DoctorInfo, check.Status)
-	assert.Equal(t, doctorAuthPingDetail, check.Detail, "the gap is stated in the user's terms, with the command that answers part of it")
 }
 
 // --- DOCTOR-CHECK-LOCAL-STATE-p6 ---

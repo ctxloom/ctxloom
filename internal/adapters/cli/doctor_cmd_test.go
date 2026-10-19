@@ -285,6 +285,8 @@ func TestDoctorCmd_ReportsCleanOnRightState(t *testing.T) {
 	// whatever LookPath finds, so a no-op script satisfies it.
 	prependFakeBinToPath(t, "claude")
 	prependFakeBinToPath(t, "docker")
+	// The credentials row asks the process environment, as a run does.
+	withAgentToken(t)
 	scaffoldLocalTierState(t, root)
 	out, err := runDoctorClean(t, root)
 	require.NoError(t, err)
@@ -471,7 +473,7 @@ func TestDoctorCmd_JSONShape(t *testing.T) {
 		"DOCTOR-CHECK-HOOKS-TRUST-d4",
 		"DOCTOR-CHECK-SETUP-DEPS-h8",
 		"DOCTOR-CHECK-SETUP-COMPANIONS-i9",
-		"DOCTOR-CHECK-SETUP-AUTHPING-j0",
+		"DOCTOR-CHECK-CREDENTIALS-m5",
 	} {
 		assert.Contains(t, markers, want)
 	}

@@ -228,7 +228,7 @@ Feature: The day the assistant goes blind
   # silence a reader could misread as "nothing to report" instead of "this
   # cannot be known". `ctxloom doctor` now carries a new check,
   # DOCTOR-CHECK-INGESTION-q7 (cli.doctorCheckIngestionLimit,
-  # internal/adapters/cli/doctor_cmd.go), an "info" line — like SETUP-AUTHPING-j0
+  # internal/adapters/cli/doctor_cmd.go), an "info" line — like an info stated boundary
   # beside it, a stated boundary rather than a probe with a pass/fail outcome
   # — reading "ctxloom writes the assembled context onto <engine>'s own
   # on-disk agent surface; whether <engine> actually reads what was written

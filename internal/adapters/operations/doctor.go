@@ -30,6 +30,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // doctorDepBinariesRequired are the non-engine binaries ctxloom's own
@@ -144,7 +145,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckStaleHooks(reg, doctorProjectDir(cfg), configFS(cfg), req.HookVerbs),
 			doctorCheckSetupLockAndAssembly(ctx, cfg, cfgErr),
 			doctorCheckSetupCompanions(cfg, cfgErr, app.NoCompanions),
-			doctorCheckSetupAuthPing(),
+			doctorCheckCredentials(reg, cfg, os.LookupEnv),
 			doctorCheckIngestionLimit(reg, cfg),
 			doctorCheckLocalTierState(cfg, req.Home),
 			doctorCheckGitignorePosture(cfg, cfgErr),
@@ -924,22 +925,38 @@ func companionBinOf(key ident.BundleKey) string {
 	return ref.Bundle
 }
 
-// doctorCheckSetupAuthPing is a placeholder. init-as-skill's USER RULING (a)
-// wants a deterministic auth ping BEFORE the raw-CLI vendor TUI launches, but
-// no such surface exists anywhere in this codebase yet (grepped: no
-// AuthPing/auth-ping symbol) — that is a different slice's work (init-as-
-// skill.plan.md §10④, init bootstrap rework), not this one's. Reported as
-// "info" so the gap is VISIBLE in the postcondition report instead of
-// silently missing.
-func doctorCheckSetupAuthPing() DoctorCheck {
-	return DoctorCheck{Marker: "DOCTOR-CHECK-SETUP-AUTHPING-j0", Status: DoctorInfo,
-		Detail: doctorAuthPingDetail}
+// doctorCheckCredentials asks CredentialStatus, the resolver a run and init
+// ask too, once per distinct (backend, mode) the configuration authenticates
+// with. A credential that is not there is a warn — doctor's fail-loud signal,
+// since it never fails the process — carrying the engine's own refusal and
+// fix, the same a run is refused with. Present is not accepted: whether the
+// engine accepts it is known only by launching the engine's own CLI.
+func doctorCheckCredentials(reg engine.Registry, cfg *config.Config, lookup EnvLookup) DoctorCheck {
+	const marker = "DOCTOR-CHECK-CREDENTIALS-m5"
+	checks := ConfiguredCredentialChecks(reg, cfg, lookup)
+	var missing, present []string
+	var remedy string
+	for _, c := range checks {
+		if c.Err == nil {
+			present = append(present, fmt.Sprintf("%s (auth %s)", c.Backend, c.Mode))
+			continue
+		}
+		fix, _ := clifmt.RemedyOf(c.Err)
+		if remedy == "" {
+			remedy = fix
+		}
+		missing = append(missing, fmt.Sprintf("%v — fix: %s", c.Err, fix))
+	}
+	if len(missing) > 0 {
+		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: strings.Join(missing, "; "), Remedy: remedy}
+	}
+	if len(present) == 0 {
+		return DoctorCheck{Marker: marker, Status: DoctorInfo, Detail: "no configured engine needs a credential from you"}
+	}
+	return DoctorCheck{Marker: marker, Status: DoctorOK,
+		Detail: "every configured engine's credential is present: " + strings.Join(present, ", ") +
+			" (doctor does not test whether the engine accepts it; launching the engine's own CLI shows that)"}
 }
-
-// doctorAuthPingDetail states the gap the auth-ping placeholder keeps
-// visible, in the user's terms: doctor proves a credential is exported, not
-// that the engine accepts it.
-const doctorAuthPingDetail = "doctor does not test whether your engine accepts its credential; `ctxloom auth` shows whether one is exported, and launching the engine's own CLI shows whether it is accepted"
 
 // doctorCheckIngestionLimit states, rather than tests, the one boundary this
 // command cannot see past: delivered → ingested (FLOWS-UNIFIED Appendix A.2,
@@ -952,7 +969,7 @@ const doctorAuthPingDetail = "doctor does not test whether your engine accepts i
 //
 // This is not a probe with a pass/fail outcome — there is nothing left on
 // ctxloom's side of that boundary to check — so it always reports "info", the
-// same as DOCTOR-CHECK-SETUP-AUTHPING-j0 beside it. It exists so a diagnosis
+// same as a stated boundary. It exists so a diagnosis
 // session that has run every other check ends on a STATED limit instead of a
 // report that simply goes quiet, which a reader could otherwise mistake for
 // "checked and confirmed read".

@@ -5,7 +5,9 @@ import (
 	"os"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -30,6 +32,16 @@ type runAuth struct {
 // human supplies one: ctxloom never prompts for, mints or stores a
 // credential.
 func resolveRunAuth(reg engine.Registry, in runAuth) (engine.Credentials, error) {
+	return resolveCredentials(reg, in, os.LookupEnv)
+}
+
+// EnvLookup reads one variable of the environment a credential is resolved
+// against: os.LookupEnv for the process, a map in a test.
+type EnvLookup = func(string) (string, bool)
+
+// resolveCredentials is resolveRunAuth over lookup: the single resolution
+// every credential question (a run, doctor, init) is answered by.
+func resolveCredentials(reg engine.Registry, in runAuth, lookup EnvLookup) (engine.Credentials, error) {
 	kind, ok := reg.Lookup(engine.Name(in.Backend))
 	if !ok {
 		return engine.Credentials{}, nil
@@ -45,7 +57,7 @@ func resolveRunAuth(reg engine.Registry, in runAuth) (engine.Credentials, error)
 		return engine.Credentials{}, report.Errorf("set `auth: "+string(engine.AuthToken)+"` in your config",
 			"%s: auth %s: %w", in.Backend, in.Mode, engine.ErrAuthModeUnsupported)
 	}
-	creds, err := a.Credentials(in.Mode, os.LookupEnv)
+	creds, err := a.Credentials(in.Mode, lookup)
 	if err != nil {
 		return engine.Credentials{}, err
 	}
@@ -70,37 +82,74 @@ func previewRunAuth(reg engine.Registry, in runAuth) (engine.Credentials, error)
 // redactedCredential stands in for a credential value in a preview.
 const redactedCredential = "<redacted>"
 
-// AgentTokenMissing is the engine's own refusal when the token every agent
-// it runs authenticates with is not exported in lookup's environment, and nil
-// otherwise — including for an engine that declares no auth, or an unknown
-// one. It is init's question; its refusal is the engine's own (the one
-// `ctxloom auth` lists, and CheckRunCredential returns for a token run), so a
-// human reads the same fix wherever they meet it.
-func AgentTokenMissing(reg engine.Registry, backend string, lookup func(string) (string, bool)) error {
-	kind, ok := reg.Lookup(engine.Name(backend))
-	if !ok {
-		return nil
+// CredentialStatus is the one answer to "can backend authenticate in mode
+// from lookup's environment": nil when it can — including an engine that
+// declares no auth, or an unknown one — else the engine's own refusal and
+// fix: a credential not exported, a login store not on this host, a mode the
+// engine lacks. A run (CheckRunCredential), doctor (ConfiguredCredentialChecks)
+// and init (AgentCredentialMissing) all ask it, so they cannot disagree about
+// whether a credential is there or how to supply one.
+func CredentialStatus(reg engine.Registry, backend string, mode engine.AuthMode, lookup EnvLookup) error {
+	creds, err := resolveCredentials(reg, runAuth{Backend: backend, Mode: mode}, lookup)
+	if err != nil {
+		return err
 	}
-	a, ok := kind.Home().Auth.Get()
-	if !ok {
-		return nil
-	}
-	if _, err := a.Credentials(engine.AuthToken, lookup); errors.Is(err, engine.ErrNoCredential) {
+	return isolation.CheckStores(backend, creds.Stores)
+}
+
+// AgentCredentialMissing is CredentialStatus narrowed to init's question: the
+// engine's own refusal when the credential mode needs is not exported in
+// lookup's environment (engine.ErrNoCredential), nil otherwise. mode is the
+// one the config declares, never an assumed token: an engine asked for a
+// login must not be answered with the token's variable.
+func AgentCredentialMissing(reg engine.Registry, backend string, mode engine.AuthMode, lookup EnvLookup) error {
+	if err := CredentialStatus(reg, backend, mode, lookup); errors.Is(err, engine.ErrNoCredential) {
 		return err
 	}
 	return nil
 }
 
-// CheckRunCredential is resolveRunAuth's refusal for a run of backend in
-// mode, without building anything: nil when the credential that run will
-// authenticate with is there, else the engine's own refusal and fix — a token
-// not exported, a login store not on this host, a mode the engine lacks. It is what a real run hands
+// CheckRunCredential is CredentialStatus for a run, read from the process
+// environment, without building anything. It is what a real run hands
 // launch.Deps.CheckCredential, so a run that cannot authenticate is refused
 // before anything is established for it.
 func CheckRunCredential(reg engine.Registry, backend string, mode engine.AuthMode) error {
-	creds, err := resolveRunAuth(reg, runAuth{Backend: backend, Mode: mode})
-	if err != nil {
-		return err
+	return CredentialStatus(reg, backend, mode, os.LookupEnv)
+}
+
+// CredentialCheck is one distinct (backend, mode) the configuration
+// authenticates with, and CredentialStatus's answer for it.
+type CredentialCheck struct {
+	Backend string
+	Mode    engine.AuthMode
+	// Err is nil when the credential is there.
+	Err error
+}
+
+// ConfiguredCredentialChecks asks CredentialStatus once per distinct
+// (backend, mode) the configuration authenticates with: every backend a
+// configured label or agent resolves to, in the mode the human's session is
+// configured to use (config.SessionAuth). Sorted by backend. nil cfg yields
+// none.
+func ConfiguredCredentialChecks(reg engine.Registry, cfg *config.Config, lookup EnvLookup) []CredentialCheck {
+	if cfg == nil {
+		return nil
 	}
-	return isolation.CheckStores(backend, creds.Stores)
+	backends := map[string]bool{}
+	for _, label := range cfg.GetLLMLabels() {
+		if b, _ := cfg.ResolveLLM(label); b != "" {
+			backends[b] = true
+		}
+	}
+	for _, a := range cfg.GetConfiguredAgents() {
+		if b, _ := ResolveBackend(reg, cfg, a.LLM); b != "" {
+			backends[b] = true
+		}
+	}
+	mode := cfg.SessionAuth()
+	out := make([]CredentialCheck, 0, len(backends))
+	for _, b := range collections.SortedKeys(backends) {
+		out = append(out, CredentialCheck{Backend: b, Mode: mode, Err: CredentialStatus(reg, b, mode, lookup)})
+	}
+	return out
 }

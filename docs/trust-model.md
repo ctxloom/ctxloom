@@ -173,11 +173,15 @@ needs on first launch.
     nothing is in the way at all. That directory holds `hooks/` and
     the repo-local `config`, whose `core.hooksPath`, `core.fsmonitor`,
     `core.sshCommand`, `core.pager` and `[alias]` keys all name commands git
-    executes. An agent that replaces `hooks/pre-commit` has planted a program
-    that runs the next time a **human** commits in the primary checkout — on the
-    host, outside the container, as that user. This repository carries live
-    `pre-commit` and `prepare-commit-msg` hooks in that directory today, so the
-    file is real, not a `.sample`. The accurate statement of the residual is
+    executes. A container agent on its own worktree sees `hooks/` (and the
+    primary checkout's `index` and `HEAD`) read-only (`gitReadOnlyOverlays`),
+    but `config` stays read-write: an agent that points `core.hooksPath` at a
+    directory it controls has planted a program that runs the next time a
+    **human** commits in the primary checkout — on the host, outside the
+    container, as that user. On the host runtime, and in a container run on the
+    primary checkout itself, `hooks/` is writable too. This repository carries
+    live `pre-commit` and `prepare-commit-msg` hooks in that directory today, so
+    the file is real, not a `.sample`. The accurate statement of the residual is
     therefore not "code and git state are corruptable": under accident it is a
     spoiled branch, and under malice it is **host code execution**. Which control
     owns which question: **choosing which repositories to add** (registering

@@ -14,7 +14,7 @@ ctxloom doctor
 
 Every check emits a line prefixed with a stable `DOCTOR-CHECK-*` marker. That's deliberate: a human staring at terminal output and an LLM you've asked to triage the same report are reading the same language, not two different ones that have to be reconciled by hand. If you paste doctor's output to an assistant, it can reason about `DOCTOR-CHECK-HOOKS-TRUST-d4: warn` exactly the way you would.
 
-Doctor is diagnostic — it always exits `0`, and without `--fix` it never blocks or changes anything. The container-runtime probe runs podman or docker, which may create its own storage directories. A `warn` status *is* the fail-loud signal here; read the report, don't script against the exit code.
+Doctor is diagnostic: without `--fix` it never blocks or changes anything. The container-runtime probe runs podman or docker, which may create its own storage directories. Each row is `ok`, `info`, `warn` or `fail`. A `warn` is advisory and doctor still exits `0`. A `fail` is a finding that guarantees `ctxloom run` refuses (today: an agent credential no run can authenticate with), and doctor then exits `3`, the status `run` gives a fatal startup finding, after writing the whole report, so a script or CI job can gate on it. A usage error, such as an unknown `--format`, exits `1`.
 
 ## What it checks
 
@@ -32,7 +32,7 @@ Run with no flags on an already-set-up project and doctor runs every check it ha
 - **`DOCTOR-CHECK-PROJECT-OWNER-v4`**: every coordinator tree in this project and who owns it. Each `ctxloom run` starts a tree of its own, so a new run is never refused by one already open. A tree owned by a live session is named by its harp, pid, mode and start time. A tree whose session has exited is listed as unowned, kept for a `ctxloom run --session <harp>` resume until `ctxloom session sweep` removes it along with its session. The line warns about a tree no running process will end on its own, one whose owner is an orphan (a session whose terminal died), and names the `ctxloom run --session <harp>` that ends the orphan and takes the tree over. Doctor itself removes nothing. This is where a tree you cannot otherwise see becomes visible
 - **`DOCTOR-CHECK-SETUP-DEPS-h8`** — the seeded dependency lockfile parses, and a real context assembly succeeds for the configured default profile(s)
 - **`DOCTOR-CHECK-SETUP-COMPANIONS-i9`** — companion detection and loadout probing (taskloom, ltk, ...); absence is informational, not a warning, since companions are optional
-- **`DOCTOR-CHECK-CREDENTIALS-m5`** — for each engine your labels and agents resolve to, asks the same resolver `ctxloom run` and `ctxloom init` ask, in the mode your `auth:` declares, whether its credential is there (for claude under `auth: token`, `CLAUDE_CODE_OAUTH_TOKEN` exported). A missing one is a warning carrying the same fix a run is refused with. It proves the credential is present, not that the engine accepts it; launching the engine's own CLI shows that
+- **`DOCTOR-CHECK-CREDENTIALS-m5`** — for each engine your labels and agents resolve to, asks the same resolver `ctxloom run` and `ctxloom init` ask, in the mode your `auth:` declares, whether its credential is there (for claude under `auth: token`, `CLAUDE_CODE_OAUTH_TOKEN` exported). A missing one is a `fail` row carrying the same fix a run is refused with, and makes doctor exit `3`. It proves the credential is present, not that the engine accepts it; launching the engine's own CLI shows that
 
 ## `--deps`: before a project is even set up
 

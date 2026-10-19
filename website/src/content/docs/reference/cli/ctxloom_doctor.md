@@ -27,10 +27,15 @@ the first fix; --all lists every check. Each row starts with a DOCTOR-CHECK-*
 marker. --deps checks only what this machine needs (binaries and git
 identity), so it reads clean before a project is set up.
 
-A warning is the signal: doctor exits 0 whatever it finds, and without
---fix changes nothing (the container-runtime probe may create the runtime's
-own storage directories). A usage error, such as an unknown --format, still
-fails.
+A warning is advisory. A failure is a finding that guarantees `ctxloom run`
+refuses (today: a credential no run can authenticate with); it is counted
+first in the closing line and makes doctor exit non-zero, so a script or CI job can
+gate on it. Without --fix doctor changes nothing (the container-runtime probe may create the runtime's
+own storage directories).
+
+Exit status: 0 when no row failed, warnings included; 3 when any row failed,
+the status ctxloom run gives a fatal startup finding, after the whole report
+is written. A usage error, such as an unknown --format, exits 1.
 
 --fix changes one thing before reporting: it removes every hook entry in an
 engine's project or user settings file that runs a `ctxloom hook` subcommand

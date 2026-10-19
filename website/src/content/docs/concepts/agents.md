@@ -106,7 +106,7 @@ No agent ever reaches your own login. `ctxloom init` on a terminal runs
 terminal and read by nothing, then prints the export line and asks you to
 re-run it. `ctxloom init` exits non-zero until the credential your `auth:` mode
 needs is there, in every mode including `--skip-launch`, and keeps the config it
-wrote; `ctxloom doctor` warns about the same gap.
+wrote; `ctxloom doctor` fails (exit 3) on the same gap.
 
 Your OWN `ctxloom run` session authenticates as the top-level `auth:` in your
 config says: `token` (the default) or `login`, which shares your own login

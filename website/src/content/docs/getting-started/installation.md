@@ -282,7 +282,7 @@ ctxloom auth status                         # is the token exported?
 On a terminal, `ctxloom init` does the first step for you when no token is exported: it runs
 `claude setup-token` attached to your terminal (ctxloom reads nothing it prints), shows the
 `export` line to add to your shell profile, and stops, because it cannot set your shell's
-environment. Export the token and re-run `ctxloom init`. Off a terminal, or with `--skip-launch`, init only names the steps. Either way init exits non-zero while the credential is missing (your config stays written), and `ctxloom doctor` warns about it.
+environment. Export the token and re-run `ctxloom init`. Off a terminal, or with `--skip-launch`, init only names the steps. Either way init exits non-zero while the credential is missing (your config stays written), and `ctxloom doctor` fails (exit 3) on it.
 
 A run whose credential is not exported is refused and tells you what to export. Agents on your subscription
 share its usage limits with your own interactive use. See

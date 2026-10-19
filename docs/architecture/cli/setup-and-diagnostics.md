@@ -161,7 +161,7 @@ exec'ing docker or podman. Text output is
 `operations.DoctorCheck{Marker, Status, Detail, Remedy}`, `Remedy` being the one-line
 fix where one is known, and `Marker` carries the `DOCTOR-CHECK-*` vocabulary
 **shared with the external `ctxloom-doctor` Agent Skill** and `Status` is the
-`operations.DoctorStatus` enum (`ok` | `warn` | `info`). A launch's
+`operations.DoctorStatus` enum (`ok` | `warn` | `info` | `fail`; only `fail` — a finding `run` is guaranteed to refuse over, today the missing credential — makes `doctor` exit 3, through `DoctorReport.Failed`). A launch's
 startup findings are `operations.StartupFindings` rendered through
 `operations.WriteDoctorReport` and led into the agent's package by
 `operations.WithStartupFindings` — for `run` (`run_startup_findings.go`) and for
@@ -200,8 +200,8 @@ TOML integer round-trip does not fail verification.
   something is there.
 - **`config-write` verifies its own payload.** Nothing else in the package
   re-reads what it wrote to confirm the write landed.
-- **`doctor` is diagnostic-only.** It never mutates; a `warn` status is its
-  fail-loud signal (stated in its own `Long` text).
+- **`doctor` is diagnostic-only.** It never mutates; a `warn` is advisory
+  (exit 0) and a `fail` exits 3 (stated in its own `Long` text).
 - **`container tooling` explains an empty result.** Zero declarations produces a
   two-line explanation that only registered companions contribute (and how to
   register one), not silence.

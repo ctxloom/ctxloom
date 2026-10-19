@@ -346,7 +346,10 @@ func TestRunLaunchSpec_InteractiveNewlinesCrossOneLineDiscipline(t *testing.T) {
 // holding the terminal: nothing in the runner reads the terminal, so nothing
 // waits on its last holder. A process the engine spawned (an MCP server, a
 // tool) that outlives it is the frontend's to bound (driveOwnedInteractive's
-// ptyDrainGrace) and the kernel's to hang up.
+// ptyDrainGrace). It is hung up by the runner at the engine's exit where the
+// engine was its terminal's foreground job
+// (TestRunLaunchSpec_WhatTheEngineLeftInItsGroupIsHungUpAtItsExit), and by
+// the kernel with the runner's session elsewhere.
 func TestRunLaunchSpec_InteractiveReturnsAtTheEnginesExitWhateverHoldsTheTerminal(t *testing.T) {
 	tt := newTestTerminal(t)
 	tt.size(t, 24, 80)

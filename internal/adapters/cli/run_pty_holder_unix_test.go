@@ -23,8 +23,8 @@ import (
 )
 
 // A process left holding the session's pty after the runner has gone — an
-// MCP server or tool the engine spawned, which ignores the hangup the
-// runner's exit sends its session — cannot hold the drive open. The engine
+// MCP server or tool the engine spawned, which ignores the hangup it is sent
+// when the engine or the runner exits — cannot hold the drive open. The engine
 // runs on the very pty the frontend holds, so that holder sits on this pty;
 // the drive gives the pty's tail its bound (ptyDrainGrace), releases the
 // master, and reports the run's own outcome. The holder ignores SIGHUP, so

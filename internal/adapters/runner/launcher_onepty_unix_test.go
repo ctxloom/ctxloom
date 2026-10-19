@@ -8,13 +8,16 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -31,28 +34,82 @@ import (
 // launchHelperEnv marks this test binary's re-exec as the runner.
 const launchHelperEnv = "CTXLOOM_RUNNER_LAUNCH_HELPER"
 
+// holdRunnerEnv keeps the runner helper alive once its launch has returned,
+// until it is sent SIGUSR1, so a test can look at the terminal as the runner
+// left it: the helper then prints holdRunnerMarker with its exit code (97 for
+// a launch that failed) and its process group.
+const holdRunnerEnv = "CTXLOOM_RUNNER_LAUNCH_HOLD"
+
+// holdRunnerMarker opens the line a held runner helper prints once its launch
+// has returned: "RUNNER-RETURNED code=<n> pid=<pid> pgrp=<pgid>".
+const holdRunnerMarker = "RUNNER-RETURNED"
+
+// launchBinaryEnv names the binary the runner helper launches in place of
+// /bin/sh.
+const launchBinaryEnv = "CTXLOOM_RUNNER_LAUNCH_BINARY"
+
+// terminalOffStdinEnv hands the runner helper's launch its terminal on a
+// descriptor of its own, with the runner's stdin moved onto the null device:
+// the launch must act on the terminal it is handed, not on descriptor 0.
+const terminalOffStdinEnv = "CTXLOOM_RUNNER_LAUNCH_TERMINAL_OFF_STDIN"
+
 // TestHelperRunnerOnAPty is not a real test: it is the re-exec target
 // startRunnerOnAPty starts (the standard library's TestHelperProcess idiom).
 // It plays the runner: an interactive launch of `sh -c <script>` on its own
 // stdio, exiting with the engine's status. Guarded by launchHelperEnv, so
-// `go test` running it as an ordinary test is a no-op.
+// `go test` running it as an ordinary test is a no-op. SIGINT keeps its
+// default disposition, so a ^C that reached it would end it with 130.
 func TestHelperRunnerOnAPty(t *testing.T) {
 	if os.Getenv(launchHelperEnv) != "1" {
 		return
 	}
+	var held chan os.Signal
+	if os.Getenv(holdRunnerEnv) == "1" {
+		held = make(chan os.Signal, 1)
+		signal.Notify(held, syscall.SIGUSR1)
+	}
+	term := &agent.Terminal{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr}
+	if os.Getenv(terminalOffStdinEnv) == "1" {
+		term.Stdin = terminalOffStdin()
+	}
+	binary := "/bin/sh"
+	if b := os.Getenv(launchBinaryEnv); b != "" {
+		binary = b
+	}
 	script := os.Args[len(os.Args)-1]
 	code, err := RunLaunchSpec(context.Background(), agent.LaunchSpec{
-		BinaryPath:  "/bin/sh",
+		BinaryPath:  binary,
 		Args:        []string{"-c", script},
 		Env:         os.Environ(),
 		Interactive: true,
-		Terminal:    &agent.Terminal{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr},
+		Terminal:    term,
 	}, nil, io.Discard, io.Discard)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "runner helper: %v\n", err)
-		os.Exit(97)
+		code = 97
+	}
+	if held != nil {
+		fmt.Printf("%s code=%d pid=%d pgrp=%d\n", holdRunnerMarker, code, os.Getpid(), syscall.Getpgrp())
+		<-held
 	}
 	os.Exit(int(code))
+}
+
+// terminalOffStdin moves the runner helper's terminal off descriptor 0: it
+// returns the terminal on a new descriptor and leaves the null device on 0.
+func terminalOffStdin() *os.File {
+	fd, err := unix.Dup(0)
+	if err == nil {
+		var null *os.File
+		if null, err = os.Open(os.DevNull); err == nil {
+			err = unix.Dup2(int(null.Fd()), 0)
+		}
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "runner helper: move the terminal off stdin: %v\n", err)
+		os.Exit(98)
+	}
+	return os.NewFile(uintptr(fd), "terminal")
 }
 
 // frontendPty is the test's side of the runner's pty: the hostpty session

@@ -62,12 +62,14 @@ func RunLaunchSpec(ctx context.Context, spec agent.LaunchSpec, stdin io.Reader, 
 	cmd.Dir = spec.WorkDir
 	cmd.Env = spec.Env
 
+	run := cmd.Run
 	if spec.Interactive {
 		release, err := onTerminal(ctx, cmd, spec.Terminal)
 		if err != nil {
 			return 1, fmt.Errorf("failed to run %s: %w", spec.BinaryPath, err)
 		}
 		defer release()
+		run = func() error { return runOnTerminal(cmd, spec.Terminal.Stdin) }
 	} else {
 		// Non-interactive: stdin is the caller's reader when provided (a
 		// backend delivering a large oneshot prompt pipes it here so it can't
@@ -82,7 +84,7 @@ func RunLaunchSpec(ctx context.Context, spec agent.LaunchSpec, stdin io.Reader, 
 		cmd.WaitDelay = nonInteractiveWaitDelay
 	}
 
-	if err := cmd.Run(); err != nil {
+	if err := run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			// A child killed by a signal reports 128+signum, never os/exec's
 			// raw -1, which is not a valid exit status and reaches the user as
@@ -106,8 +108,10 @@ func RunLaunchSpec(ctx context.Context, spec agent.LaunchSpec, stdin io.Reader, 
 // keystroke, a resize and the engine's every byte cross the one pty the
 // frontend holds, and nothing in the runner reads the terminal — once the
 // terminal has its first size (terminalSizeWait). The engine stays in the
-// runner's process group on the runner's controlling terminal, so the kernel
-// delivers each resize to it as a SIGWINCH, and hangs it up with the runner.
+// runner's session on the runner's controlling terminal, so the kernel
+// delivers each resize to it as a SIGWINCH and hangs it up with the runner;
+// on Linux it runs as that terminal's foreground job (runOnTerminal), so the
+// signals a typed key raises reach it and not the runner.
 //
 // The engine finds the line discipline a new terminal has: the runner's was
 // made raw for carrying bytes (hostpty), and an engine that reads its

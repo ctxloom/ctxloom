@@ -27,8 +27,10 @@ re-enters that interview later.
 
 Agents authenticate with a token you mint once. If none is exported, init runs
 the engine's own flow (claude: 'claude setup-token') and shows the line to add
-to your shell profile; export it and re-run init. Off a terminal, or with
---non-interactive, it warns and exits 0 without launching the interview;
+to your shell profile; export it and re-run init. Init exits non-zero while the
+credential your 'auth:' mode needs is missing, in every mode (on a terminal,
+off one, with --non-interactive, and with --skip-launch), after writing your
+config. Off a terminal or with --skip-launch it only names the steps;
 --skip-launch launches nothing.
 
 init writes 'auth: token', so your own sessions use that same token; 'auth:

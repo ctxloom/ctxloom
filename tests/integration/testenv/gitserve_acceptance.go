@@ -174,13 +174,14 @@ var standaloneGitEnv = []string{
 	"GIT_CONFIG_SYSTEM=/dev/null",
 }
 
-// standaloneGitCmd builds git in dir on the sandbox base environment, made
-// hermetic for git, with standaloneGitEnv appended. These helpers serve
+// standaloneGitCmd builds git in dir on the sandbox base environment plus
+// standaloneGitEnv, the whole made hermetic for git; none of standaloneGitEnv
+// retargets the repository, so the scrub keeps it. These helpers serve
 // remotes and clones outside any one scenario's checkout, so they take no
 // TestEnvironment.
 func standaloneGitCmd(dir string, args ...string) *exec.Cmd {
 	cmd := taskstest.GitCmd(dir, nil, args...)
-	cmd.Env = append(taskstest.HermeticGitEnv(sandboxBaseEnv()), standaloneGitEnv...)
+	cmd.Env = taskstest.HermeticGitEnv(append(sandboxBaseEnv(), standaloneGitEnv...))
 	return cmd
 }
 

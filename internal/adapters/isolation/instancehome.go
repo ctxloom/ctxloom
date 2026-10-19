@@ -338,7 +338,8 @@ var errInstanceHomeUnlocked = errors.New("instance home: cannot take the instanc
 // The instance is a member of the home-rooted session dir (paths.HarpSessionEngineHomes),
 // so its sidecar goes to that session's own locks dir (paths.HomePathFor,
 // paths.HarpLocksDir), a session member the reaper takes with the rest of
-// the session's disposable state. A home that cannot be
+// the session's disposable state — never one the home lock directory's reap
+// (`ctxloom clean`) removes, so it takes no reap interlock. A home that cannot be
 // keyed to a lock location is refused (errInstanceHomeUnkeyed), and so is
 // one whose lock directory cannot be created or whose lock cannot be taken
 // (errInstanceHomeUnlocked): no path proceeds without holding the lock.

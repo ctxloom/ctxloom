@@ -91,6 +91,17 @@ func (sc *lockScope) TryLock(ctx context.Context, path string) (safefs.Lock, err
 	return sc.take(path, func() (safefs.Lock, error) { return sc.locks.TryLock(ctx, path) })
 }
 
+// TryRLock is the underlying shared take, NOT scoped to the run: the one
+// taker of it is the reap interlock (sessions.HoldReapInterlock), which a
+// section holds shared and releases itself. Scoping it would turn it
+// exclusive for the whole run, as RLock is, and so make every other taker of
+// a home sidecar wait out each delivery. It waits only on a reap, which takes
+// everything it takes without waiting, so it cannot break the lock order
+// above.
+func (sc *lockScope) TryRLock(ctx context.Context, path string) (safefs.Lock, error) {
+	return sc.locks.TryRLock(ctx, path)
+}
+
 // TryLockExisting is TryLock on a lock file that must already exist.
 func (sc *lockScope) TryLockExisting(ctx context.Context, path string) (safefs.Lock, error) {
 	return sc.take(path, func() (safefs.Lock, error) { return sc.locks.TryLockExisting(ctx, path) })

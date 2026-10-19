@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -210,8 +210,9 @@ func swapIntoPlace(fs afero.Fs, dir, tempDir string, written []string) error {
 //
 // dir itself is only created when at least one file is written.
 //
-// The cycle runs under a lock keyed on dir (paths.HomePathFor(dir)), taken
-// through files.Locks whatever files.Fs is: under the static writer files.Fs
+// The cycle runs under a lock keyed on dir (sessions.WithFileLock: the
+// sidecar paths.HomePathFor(dir), recording dir, under the reap interlock),
+// taken through files.Locks whatever files.Fs is: under the static writer files.Fs
 // is a copy-on-write overlay of the controller's filesystem, the cycle's
 // writes reach disk only at the static writer's batch commit, and files.Locks
 // are a scope over the controller's own that keeps this lock held until that
@@ -227,11 +228,7 @@ func WriteManagedPackageFiles[T any](
 	render func(T) ([]PackageFile, error),
 	opts ...ManagedWriteOption,
 ) (delivered []string, err error) {
-	lockPath, err := paths.HomePathFor(dir)
-	if err != nil {
-		return nil, fmt.Errorf("agent: deriving home lock path for %s: %w", dir, err)
-	}
-	err = safefs.WithLockGuarding(files.Locks, lockPath, dir, func() error {
+	err = sessions.WithFileLock(files.Locks, dir, func() error {
 		delivered, err = writeManagedPackageFilesLocked(files, dir, items, enabled, itemName, render, opts...)
 		return err
 	})

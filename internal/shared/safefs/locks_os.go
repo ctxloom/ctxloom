@@ -46,6 +46,8 @@ type kernelLock interface {
 	RLock() error
 	TryLock() (bool, error)
 	TryLockContext(ctx context.Context, retry time.Duration) (bool, error)
+	TryRLock() (bool, error)
+	TryRLockContext(ctx context.Context, retry time.Duration) (bool, error)
 	Stat() (fs.FileInfo, error)
 	Close() error
 }
@@ -102,32 +104,44 @@ func takeOSLockOnce(path string, take func(kernelLock) error, guarded string) (L
 }
 
 func (osLocks) TryLock(ctx context.Context, path string) (Lock, error) {
-	return tryOSLock(ctx, path, true)
+	return tryOSLock(ctx, path, true, false)
 }
 
 func (osLocks) TryLockExisting(ctx context.Context, path string) (Lock, error) {
-	return tryOSLock(ctx, path, false)
+	return tryOSLock(ctx, path, false, false)
 }
 
-// tryOSLock is TryLock and TryLockExisting; create says whether a missing
-// lock file is created. Only the wait running out is ErrLockHeld: a failure
-// to open or lock is returned as itself, however done ctx is. It is retried
-// while what it was granted is no longer the file at path (takeCurrent): a
-// retry with a done ctx still makes its one attempt.
-func tryOSLock(ctx context.Context, path string, create bool) (Lock, error) {
-	return takeCurrent(path, func() (Lock, error) { return tryOSLockOnce(ctx, path, create) })
+func (osLocks) TryRLock(ctx context.Context, path string) (Lock, error) {
+	if err := os.MkdirAll(filepath.Dir(path), lockDirMode); err != nil {
+		return nil, fmt.Errorf("safefs: preparing lock directory for %s: %w", path, err)
+	}
+	return tryOSLock(ctx, path, true, true)
+}
+
+// tryOSLock is TryLock, TryLockExisting and TryRLock; create says whether a
+// missing lock file is created, shared whether the lock is taken shared.
+// Only the wait running out is ErrLockHeld: a failure to open or lock is
+// returned as itself, however done ctx is. It is retried while what it was
+// granted is no longer the file at path (takeCurrent): a retry with a done
+// ctx still makes its one attempt.
+func tryOSLock(ctx context.Context, path string, create, shared bool) (Lock, error) {
+	return takeCurrent(path, func() (Lock, error) { return tryOSLockOnce(ctx, path, create, shared) })
 }
 
 // tryOSLockOnce is one attempt of tryOSLock. A wait re-opens the path on
 // each poll, so what it is granted is the file the last poll opened.
-func tryOSLockOnce(ctx context.Context, path string, create bool) (Lock, error) {
+func tryOSLockOnce(ctx context.Context, path string, create, shared bool) (Lock, error) {
 	if err := refuseNonRegular(path); err != nil {
 		return nil, err
 	}
 	fl := newKernelLock(path, create)
-	got, err := fl.TryLock()
+	try, wait := fl.TryLock, fl.TryLockContext
+	if shared {
+		try, wait = fl.TryRLock, fl.TryRLockContext
+	}
+	got, err := try()
 	if err == nil && !got && ctx.Err() == nil {
-		got, err = fl.TryLockContext(ctx, tryLockRetry)
+		got, err = wait(ctx, tryLockRetry)
 		if err != nil && errors.Is(err, ctx.Err()) {
 			err = nil
 		}

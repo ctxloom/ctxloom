@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
@@ -369,6 +370,18 @@ func (c Container) bind(ctx context.Context, ws workspace) (mountPlan, error) {
 	// Order is inert (SD4): every mount targets a distinct in-container path and
 	// renders as an independent --mount. Scoped state rides every axis; the
 	// base mounts (overlays/gitdir mirror, or the worktree .git mirror) layer on.
+	// The reap interlock is held shared from before the host sidecars are
+	// bound until Cleanup, after the container is gone: a single-file bind
+	// keeps the file it bound however the host's path changes, so a reap
+	// must not run while one is being made or while the container that holds
+	// it lives (sessions.HoldReapInterlock). Releasing it once the binds are
+	// made would hand that guarantee to the reap's container listing, which
+	// cannot see a container the runtime has not yet started.
+	release, err := sessions.HoldReapInterlock(safefs.New().Locks)
+	if err != nil {
+		return mountPlan{}, fmt.Errorf("container lock mounts: %w", err)
+	}
+	cw.reapInterlock = release
 	lockMounts, err := c.lockMounts(cw.dir, cw.scratchRoot)
 	if err != nil {
 		return mountPlan{}, err
@@ -990,13 +1003,18 @@ type containerWorkspace struct {
 	// have one producer.
 	workDir string
 	roots   []mount
+	// reapInterlock releases the shared reap interlock bind took before
+	// binding host lock sidecars; Cleanup releases it LAST, once the
+	// container and everything else of the run is gone. Nil until bind.
+	reapInterlock func()
 }
 
 // Dir returns the host cwd; the container relocator presents it where the
 // runtime maps it.
 func (w *containerWorkspace) Dir() string { return w.dir }
 
-// Cleanup removes the host scratch tree, then runs the base teardown. Idempotent —
+// Cleanup removes the host scratch tree, then runs the base teardown, then
+// releases the reap interlock bind took. Idempotent —
 // safe to call once after the run's client is killed (a second call skips the
 // already-removed scratch, and the worktree base teardown guards its own cleared
 // dir). A scratch-removal failure is surfaced by warnCleanupResidue AND returned
@@ -1024,6 +1042,11 @@ func (w *containerWorkspace) Cleanup() error {
 		if err := w.baseCleanup(); err != nil {
 			errs = errors.Join(errs, err)
 		}
+	}
+	if w.reapInterlock != nil {
+		release := w.reapInterlock
+		w.reapInterlock = nil
+		release()
 	}
 	return errs
 }

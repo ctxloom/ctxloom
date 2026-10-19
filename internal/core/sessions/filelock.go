@@ -25,10 +25,30 @@ import (
 // full reasoning. A sidecar it creates records target (safefs.LockGuarding),
 // since its flattened name cannot always be read back into the path: that
 // record is how a reaper tells a sidecar whose file is gone.
+//
+// The lock is taken as every sidecar is (WithSidecarLock): one in the home
+// lock directory under the reap interlock.
 func WithFileLock(locks safefs.Locks, target string, fn func() error) error {
 	lockPath, err := paths.HomePathFor(target)
 	if err != nil {
 		return fmt.Errorf("sessions: deriving home lock path for %s: %w", target, err)
 	}
-	return safefs.WithLockGuarding(locks, lockPath, target, fn)
+	return WithSidecarLock(locks, lockPath, target, fn)
+}
+
+// WithSidecarLock runs fn under lockPath, a sidecar lock guarding the file at
+// guarded, kept apart from it under a flattened name: taken with
+// safefs.WithLockGuarding, so a sidecar it creates records guarded, and —
+// when lockPath is a sidecar of the home lock directory, the one directory
+// `ctxloom clean` reaps — under the reap interlock, held shared from before
+// the take until after the release (holdReapInterlockFor). A reap in
+// progress is waited out, briefly, and then refused (ErrLockReapInProgress),
+// and fn does not run.
+func WithSidecarLock(locks safefs.Locks, lockPath, guarded string, fn func() error) error {
+	release, err := holdReapInterlockFor(locks, lockPath)
+	if err != nil {
+		return fmt.Errorf("sessions: locking %s: %w", guarded, err)
+	}
+	defer release()
+	return safefs.WithLockGuarding(locks, lockPath, guarded, fn)
 }

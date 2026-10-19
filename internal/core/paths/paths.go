@@ -305,6 +305,11 @@ const (
 	// sits in one session dir.
 	HomeLocksDirName = "locks"
 
+	// LockReapInterlockFileName is the reap interlock in the home lock
+	// directory (LockReapInterlockPath). It ends in no lock suffix, so the
+	// reap it guards never takes it for a sidecar.
+	LockReapInterlockFileName = "reap.interlock"
+
 	// HomeRecordsDirName is the home-rooted directory holding hew §9.7
 	// application records: one file per successful `util config-write`
 	// apply against a JSON target, naming what changed, to what bytes,

@@ -1,8 +1,10 @@
 package safefs
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -152,6 +154,32 @@ func TestGuardedPath_ReadsOnlyAWholeRecord(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, ok := GuardedPath([]byte(content))
 			assert.False(t, ok)
+		})
+	}
+}
+
+// TryRLock is RLock bounded by its context: granted beside other shared
+// holders, refused (ErrLockHeld) while an exclusive holder outlasts the
+// context, and — like RLock — it creates the lock file and its directory.
+func TestLocks_TryRLockSharesAndIsBoundedByItsContext(t *testing.T) {
+	for name, r := range guardedRoots(t) {
+		t.Run(name, func(t *testing.T) {
+			first, err := r.locks.TryRLock(expired(), r.path)
+			require.NoError(t, err, "a missing lock file and directory were not created")
+			second, err := r.locks.TryRLock(expired(), r.path)
+			require.NoError(t, err, "a shared take was refused beside another")
+			_, err = r.locks.TryLock(expired(), r.path)
+			require.ErrorIs(t, err, ErrLockHeld, "an exclusive take was granted beside shared holders")
+			require.NoError(t, first.Unlock())
+			require.NoError(t, second.Unlock())
+
+			writer, err := r.locks.Lock(r.path)
+			require.NoError(t, err)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+			defer cancel()
+			_, err = r.locks.TryRLock(ctx, r.path)
+			require.ErrorIs(t, err, ErrLockHeld, "a shared take was granted beside an exclusive holder")
+			require.NoError(t, writer.Unlock())
 		})
 	}
 }

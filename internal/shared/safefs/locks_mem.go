@@ -132,20 +132,28 @@ func (l memLocks) takeOnce(path string, shared bool, guarded string) (Lock, erro
 }
 
 func (l memLocks) TryLock(ctx context.Context, path string) (Lock, error) {
-	return l.try(ctx, path, true)
+	return l.try(ctx, path, true, false)
 }
 
 func (l memLocks) TryLockExisting(ctx context.Context, path string) (Lock, error) {
-	return l.try(ctx, path, false)
+	return l.try(ctx, path, false, false)
 }
 
-// try is TryLock and TryLockExisting; create says whether a missing lock
-// file is created. It is retried as osLocks retries (takeCurrent).
-func (l memLocks) try(ctx context.Context, path string, create bool) (Lock, error) {
-	return takeCurrent(path, func() (Lock, error) { return l.tryOnce(ctx, path, create) })
+func (l memLocks) TryRLock(ctx context.Context, path string) (Lock, error) {
+	if err := l.fs.MkdirAll(filepath.Dir(path), lockDirMode); err != nil {
+		return nil, fmt.Errorf("safefs: preparing lock directory for %s: %w", path, err)
+	}
+	return l.try(ctx, path, true, true)
 }
 
-func (l memLocks) tryOnce(ctx context.Context, path string, create bool) (Lock, error) {
+// try is TryLock, TryLockExisting and TryRLock; create says whether a
+// missing lock file is created, shared whether the lock is taken shared. It
+// is retried as osLocks retries (takeCurrent).
+func (l memLocks) try(ctx context.Context, path string, create, shared bool) (Lock, error) {
+	return takeCurrent(path, func() (Lock, error) { return l.tryOnce(ctx, path, create, shared) })
+}
+
+func (l memLocks) tryOnce(ctx context.Context, path string, create, shared bool) (Lock, error) {
 	if create {
 		if _, err := l.fs.Stat(filepath.Dir(path)); err != nil {
 			return nil, err
@@ -157,10 +165,10 @@ func (l memLocks) tryOnce(ctx context.Context, path string, create bool) (Lock, 
 		return nil, err
 	}
 	s := l.slot(path)
-	if !s.acquire(ctx, false) {
+	if !s.acquire(ctx, shared) {
 		return nil, fmt.Errorf("%w: %s", ErrLockHeld, path)
 	}
-	return l.held(path, s, false)
+	return l.held(path, s, shared)
 }
 
 // existing refuses a lock path that is missing (its stat error,

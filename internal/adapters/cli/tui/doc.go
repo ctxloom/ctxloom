@@ -23,4 +23,12 @@
 // or the human opens it from the roster view; either way its keymap is the
 // modal's fourth focus lock (see approvalsModel), and every child-supplied
 // string it shows passes displaysafe.Text.
+//
+// The package also holds the split view that replaces the overlay and the
+// terminal layer under it (Split, started by StartSplit): the agent tree
+// beside the engine's terminal, drawn by one owner through one emulator
+// (internal/adapters/termemu), with a child shown as its feed above an input
+// line. It reuses the roster, the feed renderer, the control verbs and the
+// approvals model, and keeps the modal's focus locks (PresentPolicy) for a
+// summoned approval. It is not yet what `ctxloom run` starts.
 package tui

@@ -41,7 +41,9 @@ const (
 	floorArmFor     = 300 * time.Millisecond
 )
 
-func (p PresentPolicy) normalized() PresentPolicy {
+// Normalized is p with its defaults and floors applied: the timings the
+// locks actually run with.
+func (p PresentPolicy) Normalized() PresentPolicy {
 	return PresentPolicy{
 		QuietFor: withFloor(p.QuietFor, defaultQuietFor, floorQuietFor),
 		ArmFor:   withFloor(p.ArmFor, defaultArmFor, floorArmFor),

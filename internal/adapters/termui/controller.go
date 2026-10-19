@@ -213,7 +213,7 @@ func New(opts Options) *Controller {
 		opts.Clock = realClock{}
 	}
 	c := &Controller{
-		opts: opts, clock: opts.Clock, present: opts.Present.normalized(),
+		opts: opts, clock: opts.Clock, present: opts.Present.Normalized(),
 		done: make(chan struct{}), rosterDone: make(chan struct{}),
 	}
 	c.sur = newSurround(c.clock, &c.ttyMu, opts.TTY, opts.Surround, opts.Bar)

@@ -44,6 +44,13 @@ type RosterRow struct {
 	// Unread is how many messages wait undelivered in the child's inbox
 	// (coord.RunInfo.Unread).
 	Unread int
+	// LastActivity is when the coordinator last saw the run change state
+	// (coord.RunInfo.LastEventAt); zero for a row it holds no run for.
+	LastActivity time.Time
+	// ContextTokens of ContextWindow is how full the agent's context is, as
+	// its engine last reported (coord.RunInfo); zero when nothing has.
+	ContextTokens uint64
+	ContextWindow uint64
 }
 
 // Feed is one open observation feed. Cancel releases the watch (switching

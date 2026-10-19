@@ -137,6 +137,24 @@ func FindOrphanedContainers(ctx context.Context, rt Runtime) ([]ContainerCandida
 	return out, nil
 }
 
+// RunningContainers names every RUNNING container rt can see whose name
+// carries the containerNamePrefix this package's containerName mints,
+// whoever owns it and whatever its labels say. The runtime's name filter is
+// a substring match and is taken as it answers: a stray match is one more
+// container reported, never one less. An Enumerate failure is returned: a
+// runtime that could not list its containers has not shown it runs none.
+func RunningContainers(ctx context.Context, rt Runtime) ([]string, error) {
+	infos, err := rt.Enumerate(ctx, containerNamePrefix)
+	if err != nil {
+		return nil, fmt.Errorf("list %s containers: %w", rt.Name(), err)
+	}
+	names := make([]string, 0, len(infos))
+	for _, info := range infos {
+		names = append(names, info.Name)
+	}
+	return names, nil
+}
+
 // ownerPIDOf reads the owner pid a container's labels carry. why is non-empty
 // when that pid cannot be judged from this process: absent, unparsable, or
 // read in another pid namespace (pid is still returned for that last one, for

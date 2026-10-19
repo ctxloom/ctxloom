@@ -15,7 +15,6 @@ func guardedRoots(t *testing.T) map[string]struct {
 	locks Locks
 	path  string
 	read  func() ([]byte, error)
-	write func([]byte) error
 } {
 	dir := t.TempDir()
 	mem := afero.NewMemMapFs()
@@ -25,14 +24,9 @@ func guardedRoots(t *testing.T) map[string]struct {
 		locks Locks
 		path  string
 		read  func() ([]byte, error)
-		write func([]byte) error
 	}{
-		"os": {New().Locks, osPath,
-			func() ([]byte, error) { return afero.ReadFile(osFs, osPath) },
-			func(b []byte) error { return afero.WriteFile(osFs, osPath, b, lockFileMode) }},
-		"mem": {NewMem(mem).Locks, "/l/x.lock",
-			func() ([]byte, error) { return afero.ReadFile(mem, "/l/x.lock") },
-			func(b []byte) error { return afero.WriteFile(mem, "/l/x.lock", b, lockFileMode) }},
+		"os":  {New().Locks, osPath, func() ([]byte, error) { return afero.ReadFile(osFs, osPath) }},
+		"mem": {NewMem(mem).Locks, "/l/x.lock", func() ([]byte, error) { return afero.ReadFile(mem, "/l/x.lock") }},
 	}
 }
 

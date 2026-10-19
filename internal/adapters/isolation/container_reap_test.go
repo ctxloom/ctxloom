@@ -216,6 +216,26 @@ func TestFindOrphanedContainers_NilRuntimeFindsNothing(t *testing.T) {
 	assert.Empty(t, found)
 }
 
+// TestRunningContainers_NamesEveryRunningContainerWhateverItsOwner: a live
+// owner, a dead one and no labels at all are all named — the question is
+// whether any ctxloom container runs, not whether one is an orphan — and a
+// listing failure is an error, never an empty answer.
+func TestRunningContainers_NamesEveryRunningContainerWhateverItsOwner(t *testing.T) {
+	rt := dockerWith(
+		labeledInfo(containerNamePrefix+"live", os.Getpid(), oldEnough()),
+		labeledInfo(containerNamePrefix+"dead", deadPid, oldEnough()),
+		ContainerInfo{Name: containerNamePrefix + "unlabeled"},
+	)
+	names, err := RunningContainers(context.Background(), rt)
+	require.NoError(t, err)
+	assert.Equal(t, []string{containerNamePrefix + "live", containerNamePrefix + "dead", containerNamePrefix + "unlabeled"}, names)
+
+	rt.err = errReapEnumerateFixture
+	names, err = RunningContainers(context.Background(), rt)
+	require.ErrorIs(t, err, errReapEnumerateFixture)
+	assert.Empty(t, names)
+}
+
 // TestOwnerLabelArgs_StampsThisProcessAndARecentTimestamp pins ownerLabelArgs'
 // contract directly: the pid label names THIS process (the one about to own
 // the container) and the timestamp label parses as RFC3339 and is fresh —

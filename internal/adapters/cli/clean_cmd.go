@@ -38,6 +38,10 @@ var cleanYes bool
 //     counterpart).
 //   - A session never compacted keeps its persistent members under
 //     --include-persist: its transcript is its only record.
+//   - A lock sidecar is taken only once its guarded file is shown gone, and
+//     only while nothing can be taking it under an older lock protocol
+//     (operations.ReapLockSidecars and its gate): one that records no path
+//     and whose name cannot be read back into one is never taken.
 //
 // clean is not uninstall: what it takes comes back on the next run. A run
 // never writes the project's integration surfaces (hooks, statusline, MCP
@@ -59,10 +63,21 @@ one run, as an age (30d, 12w, 720h) or a date (2026-01-01). --include-persist
 also takes transcripts, engine history, the spool, the package store and
 logs, except from a session that was never compacted.
 
+It also reaps the lock sidecars in ~/.ctxloom/locks whose guarded file no
+longer exists. A sidecar records the path it guards; an older empty one
+counts only when its name spells that path unambiguously, and the rest are
+reported as unreapable (no recorded path). It removes no sidecar, and says
+why, while a ctxloom, ltk or taskloom that predates the lock re-check may be
+running (each running one is asked for its lock_protocol, and one whose
+binary has been replaced counts as older), while a ctxloom agent container
+is running, or where the running processes cannot be listed (anywhere
+without /proc).
+
 Never taken: authored content and profiles, approvals, lock.yaml, a session's
 identity and its output dir, a session with an empty 'keep' file at the top
 of its directory, a session that is running or whose liveness cannot be
-proven, and a worktree with uncommitted work. The report says what it left.
+proven, a worktree with uncommitted work, and a lock sidecar a process holds.
+The report says what it left.
 
 Without --yes this only reports. 'ctxloom session sweep' applies the same
 rules to one project's ended sessions; 'ctxloom manage uninstall' removes
@@ -112,6 +127,11 @@ func runClean(cmd *cobra.Command, _ []string) error {
 	}
 	rep.Sessions = *sweep.Reclaim
 
+	rep.Locks, err = operations.ReapLockSidecars(cmd.Context(), operations.LockSidecarRequest{Apply: cleanYes, Gate: cleanLockGate()})
+	if err != nil {
+		return err
+	}
+
 	if err := emit(cmd, rep, func() error {
 		return renderCleanPlan(cmd.OutOrStdout(), rep)
 	}); err != nil {
@@ -123,17 +143,30 @@ func runClean(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// cleanReport is `clean`'s payload: the cache plan plus the aged-session
-// plan. The sweep always runs (the age is defaulted), so Sessions is always
-// present.
+// cleanReport is `clean`'s payload: the cache plan, the aged-session plan
+// and the lock-sidecar plan. The sweep always runs (the age is defaulted),
+// and so does the sidecar step, so both are always present.
 type cleanReport struct {
 	operations.CleanResult
-	Sessions sessions.Report `json:"sessions"`
+	Sessions sessions.Report              `json:"sessions"`
+	Locks    operations.LockSidecarReport `json:"locks"`
 }
+
+// cleanLockGate is the gate the lock-sidecar step consults; a test stands in
+// its process listing, version probe and container listing.
+var cleanLockGate = operations.HostLockReapGate
 
 func renderCleanPlan(w io.Writer, rep cleanReport) error {
 	out := errwriter.New(w)
-	res := rep.CleanResult
+	renderCachePlan(out, rep.CleanResult)
+	if err := renderSessionReclaim(out, rep.Sessions); err != nil {
+		return err
+	}
+	return renderLockSidecars(out, rep.Locks)
+}
+
+// renderCachePlan prints the cache plan.
+func renderCachePlan(out *errwriter.Writer, res operations.CleanResult) {
 	present := 0
 	for _, t := range res.Targets {
 		if t.Present {
@@ -142,7 +175,7 @@ func renderCleanPlan(w io.Writer, rep cleanReport) error {
 	}
 	if present == 0 {
 		out.Printf("Nothing to clean: this project's cache is already absent.\n")
-		return renderSessionReclaim(out, rep.Sessions)
+		return
 	}
 
 	verb := "would remove"
@@ -160,7 +193,31 @@ func renderCleanPlan(w io.Writer, rep cleanReport) error {
 		out.Printf("  %-42s %10s   rebuild: %s\n", t.Rel, humanBytes(t.Bytes), t.Rebuild)
 	}
 	out.Printf("\n")
-	return renderSessionReclaim(out, rep.Sessions)
+}
+
+// renderLockSidecars prints the lock-sidecar plan. A refusal is printed with
+// its remedy whether or not --yes was given: the plan without --yes is what
+// --yes would do, and that is nothing.
+func renderLockSidecars(out *errwriter.Writer, rep operations.LockSidecarReport) error {
+	switch {
+	case rep.Orphaned == 0:
+		out.Printf("No lock sidecar in %s outlived the file it guards.\n", rep.Dir)
+	case rep.Refused != "":
+		out.Printf("%d lock sidecars in %s outlived the file they guard; ctxloom reaps none of them: %s.\n  fix: %s\n",
+			rep.Orphaned, rep.Dir, rep.Refused, rep.Remedy)
+	case rep.Applied:
+		out.Printf("ctxloom reaped %d lock sidecars in %s that outlived the file they guard", rep.Reaped, rep.Dir)
+		if rep.Busy > 0 {
+			out.Printf(" (%d held by a process or changed meanwhile were left)", rep.Busy)
+		}
+		out.Printf(".\n")
+	default:
+		out.Printf("ctxloom would reap %d lock sidecars in %s that outlived the file they guard.\n", rep.Orphaned, rep.Dir)
+	}
+	if rep.InUse > 0 || rep.Unreapable > 0 {
+		out.Printf("  %d still guard a file that exists; %d unreapable (no recorded path).\n", rep.InUse, rep.Unreapable)
+	}
+	return out.Err()
 }
 
 func init() {

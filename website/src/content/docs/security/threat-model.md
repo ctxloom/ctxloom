@@ -152,10 +152,10 @@ promise:
   which writes the project `.mcp.json` directly; it runs only when selected by name.
 
 Two limits follow, and neither is hypothetical. **The approval gate belongs to the engine, not
-to us.** An agent running with `permissions: {claude-code: {mode: bypass}}` is launched with
+to us.** An agent running with `permissions: {claude-code: {mode: bypassPermissions}}` is launched with
 Claude Code's skip-permissions flag, which disables that gate, and a bundle-delivered server
 then starts without a prompt. So all this takes is a repository you added and an agent
-declared at `bypass`. `bypass` covers more than file edits; it also means "run what my trusted
+declared at `bypassPermissions`. `bypassPermissions` covers more than file edits; it also means "run what my trusted
 bundles declare." **And a server name you already use can be displaced.** When ctxloom writes the
 project `.mcp.json`, a bundle server whose name matches an entry you wrote replaces that entry
 for as long as ctxloom declares it. ctxloom records the bytes it replaced and restores them

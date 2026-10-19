@@ -36,7 +36,7 @@ touch a path outside its worktree and the answer is yes, nothing was bypassed. T
 opened from the inside, by the person who has standing to open it. That is the approval flow
 working as intended — and it is also, categorically, not something a workspace choice can stop,
 because stopping it would mean refusing your own "yes." [Agent
-permissions](/concepts/agents/#what-an-agent-is) cover the actual knobs. Read `bypass` for what
+permissions](/concepts/agents/#what-an-agent-is) cover the actual knobs. Read `bypassPermissions` for what
 it says: skip every prompt. An agent launched that way was never going to be stopped by which
 directory it started in. If you want to be asked, set `permissions:` on the agent.
 
@@ -199,7 +199,7 @@ changes the trade is what's actually true of the run in front of you:
   can't stop is a prompt *you* are answering, in real time. The gap in vector 1 above is
   smaller when a human is the one being asked, provided the agent's posture asks at all (see
   the host default under vector 1).
-- **The run is unattended, or the permission posture is `bypass` or a wide `auto_accept`
+- **The run is unattended, or the permission posture is `bypassPermissions` or a wide `auto_accept`
   ladder.** Now nobody is at the prompt to catch a request that shouldn't have been granted.
   That's exactly when a directory-only boundary is doing the least work relative to what people
   assume it's doing.

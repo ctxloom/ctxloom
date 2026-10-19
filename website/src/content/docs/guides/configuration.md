@@ -315,7 +315,7 @@ default is `workspace-write` — it is precedence, not "strictest wins", and a
 binding may equally declare something narrower.
 
 :::caution
-A posture that asks nothing (claude-code's `bypass`) and `sandbox: full`
+A posture that asks nothing (claude-code's `bypassPermissions`) and `sandbox: full`
 together bound nothing but whatever contains the process — a container, or
 nothing at all on the bare host. Pair a permissive agent with
 `runtime: container-rootless` on its binding (below) if the directory is not

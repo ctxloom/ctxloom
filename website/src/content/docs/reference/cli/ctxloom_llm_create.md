@@ -20,7 +20,7 @@ existing one with 'ctxloom llm edit'.
 
 --type is the backend discriminator (claude-code, opencode);
 omit it to keep claude-code's default. --model sets the model string. --permissions
-sets the label's mode, in its engine's vocabulary (acceptEdits|auto|build|bypass|default|plan across the
+sets the label's mode, in its engine's vocabulary (acceptEdits|auto|build|bypass|bypassPermissions|default|plan across the
 engines ctxloom knows); the engine refuses one it does not take.
 
 --set <dotted.key>=<value> (repeatable, applied after the flags above) sets
@@ -49,7 +49,7 @@ ctxloom llm create <label> [flags]
 
 ```
   ctxloom llm create big --type claude-code --model opus
-  ctxloom llm create fast --type claude-code --permissions bypass
+  ctxloom llm create fast --type claude-code --permissions bypassPermissions
   ctxloom llm create qwen --home --type opencode --model qwen3.8-27b --set context_window=131072 --set provider.base_url=http://192.168.1.20:8081/v1 --set provider.output_limit=32768
 ```
 

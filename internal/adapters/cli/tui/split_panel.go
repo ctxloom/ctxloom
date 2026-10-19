@@ -37,7 +37,7 @@ const (
 )
 
 // splitHints are the tree's keys, shown while it has focus.
-const splitHints = "j/k move · enter fold · a approvals · i send · ? ask · s summarize · p pause · r resume · esc back"
+const splitHints = "j/k move · enter fold · [ scroll · a approvals · i send · ? ask · s summarize · p pause · r resume · esc back"
 
 // activityGlyph is r's glyph in the split view's tree: launching, in a turn,
 // idle (dozing once idle a while), held, ended, failed — and for a session
@@ -225,9 +225,12 @@ func (s *Split) footerLines(w int) []string {
 	if note := s.noteLine(); note != "" {
 		add(note, lipgloss.NewStyle())
 	}
-	if s.focus == focusList {
+	switch {
+	case s.focus == focusList:
 		add(splitHints, styleDim)
-	} else {
+	case s.scroll.on:
+		add(splitScrollHints, styleDim)
+	default:
 		add(s.prefix.Caret()+" agents", styleDim)
 	}
 	return out
@@ -301,6 +304,8 @@ func (s *Split) listKey(msg tea.KeyPressMsg) tea.Cmd {
 		s.fold()
 	case "esc", "q":
 		s.focus = focusPane
+	case "[", "pgup":
+		s.enterScroll(k == "pgup")
 	case "a":
 		return s.openApprovals(false)
 	case "i", "?", "s", "p", "r":

@@ -89,8 +89,8 @@ type (
 )
 
 // engaged reports whether the human is using the split view's own surface:
-// the tree, or an approvals view already open.
-func (s *Split) engaged() bool { return s.focus == focusList || s.apprOpen }
+// the tree, an approvals view already open, or the engine's history.
+func (s *Split) engaged() bool { return s.focus == focusList || s.apprOpen || s.scroll.on }
 
 func (s *Split) applySummonMsg(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {

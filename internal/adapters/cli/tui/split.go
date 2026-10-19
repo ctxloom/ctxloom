@@ -140,6 +140,7 @@ type Split struct {
 	paneLines []string
 	title     string
 	mouseMode termemu.MouseTracking
+	scroll    paneScroll
 
 	child childView
 
@@ -222,14 +223,20 @@ func (s *Split) waitFrame() tea.Cmd {
 
 // Update dispatches one message.
 func (s *Split) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	cmd := s.update(msg)
+	s.keepScroll()
+	return s, cmd
+}
+
+func (s *Split) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
-		return s, s.key(msg)
+		return s.key(msg)
 	case tea.PasteMsg:
-		return s, s.paste(msg.Content)
+		return s.paste(msg.Content)
 	case tea.MouseMsg:
 		s.mouse(msg)
-		return s, nil
+		return nil
 	case tea.FocusMsg:
 		s.pane.Focus(true)
 	case tea.BlurMsg:
@@ -247,15 +254,15 @@ func (s *Split) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Mode == ansi.ModeUnicodeCore {
 			// The renderer switched width method after its first paint and
 			// skips identical views: repaint so the switch shows.
-			return s, tea.ClearScreen
+			return tea.ClearScreen
 		}
 	case frameMsg:
 		s.adoptFrame()
-		return s, s.waitFrame()
+		return s.waitFrame()
 	case paneEventsMsg:
-		return s, s.applyPaneEvents(msg)
+		return s.applyPaneEvents(msg)
 	}
-	return s, s.updateMore(msg)
+	return s.updateMore(msg)
 }
 
 // updateMore dispatches the roster's, the child's, the approvals' and the
@@ -347,6 +354,10 @@ func (s *Split) key(msg tea.KeyPressMsg) tea.Cmd {
 		s.toggleFocus()
 		return nil
 	}
+	if s.scroll.on {
+		s.scrollKey(msg)
+		return nil
+	}
 	if s.focus == focusList {
 		return s.listKey(msg)
 	}
@@ -372,7 +383,7 @@ func (s *Split) paste(text string) tea.Cmd {
 	switch {
 	case s.apprOpen:
 		s.approvalPaste(text)
-	case s.focus == focusList:
+	case s.focus == focusList, s.scroll.on:
 	case s.showingTerminal():
 		s.pane.Paste(text)
 	default:
@@ -383,8 +394,12 @@ func (s *Split) paste(text string) tea.Cmd {
 
 // mouse forwards a mouse event over the engine's pane, in pane coordinates,
 // when the engine asked for mouse reports; anything over the panel or the
-// divider goes nowhere.
+// divider goes nowhere. While scrolling it is the scroll's.
 func (s *Split) mouse(msg tea.MouseMsg) {
+	if s.scroll.on {
+		s.scrollMouse(msg)
+		return
+	}
 	if s.apprOpen || !s.showingTerminal() {
 		return
 	}
@@ -417,7 +432,10 @@ func (s *Split) View() tea.View {
 	v.AltScreen = true
 	v.ReportFocus = true
 	v.WindowTitle = s.title
-	if s.showingTerminal() && !s.apprOpen {
+	switch {
+	case s.scroll.on:
+		v.MouseMode = tea.MouseModeCellMotion
+	case s.showingTerminal() && !s.apprOpen:
 		v.MouseMode = teaMouseMode(s.mouseMode)
 	}
 	v.Cursor = s.cursor()
@@ -439,9 +457,9 @@ var teaMouseModes = map[termemu.MouseTracking]tea.MouseMode{
 
 // cursor is the human's cursor: the engine's, offset into the pane, or the
 // end of a child's input line; none while the tree or the approvals view has
-// focus.
+// focus, or the pane shows history.
 func (s *Split) cursor() *tea.Cursor {
-	if s.apprOpen || s.focus == focusList || s.h < 1 {
+	if s.apprOpen || s.focus == focusList || s.scroll.on || s.h < 1 {
 		return nil
 	}
 	panelW, _ := s.layout()
@@ -472,6 +490,8 @@ func (s *Split) rightLines(w, h int) []string {
 	switch {
 	case s.apprOpen:
 		return fitRows(s.appr.render(w, h, apprChrome{arming: s.arming, armDiscarded: s.armDiscarded}), w, h)
+	case s.scroll.on:
+		return s.scrollLines(w, h)
 	case s.showingTerminal():
 		return s.terminalLines(w, h)
 	}

@@ -140,6 +140,22 @@ pieces below are not on the run path yet.
   key goes to the pane.
 - **Approvals keep their focus locks**: a keystroke typed for the engine never
   answers an approval (`tui.SplitView` re-homes `PresentPolicy`).
+- **Scroll mode reads the engine's history.** claude's pinned classic renderer
+  scrolls what it has drawn off the top of the emulated screen into the
+  emulator's history (`termemu.Terminal.History`; `Frame.History` counts it at
+  each commit). The prefix then `[` (or PgUp, a page back) shows that history
+  in the pane, marked `[back/length]` at its top right; PgUp/PgDn, Up/Down, `g`
+  and `G` move, `q` or Esc return to live. The view is anchored as output
+  arrives, as tmux's copy mode is, until the history reaches x/vt's bound and
+  starts dropping its oldest lines. Keys, pastes and clicks never reach the
+  engine meanwhile; its output keeps landing. The human's terminal reports the
+  mouse (cell motion, for the wheel) only while scrolling: `Split.keepScroll`
+  ends scroll mode whenever the pane or the keyboard goes elsewhere, so every
+  exit restores the engine's own mouse mode, and closing the split view resets
+  the terminal's.
+- **One path to the child**: keys, mouse reports, pastes, focus reports and the
+  emulator's replies all cross x/vt's reply pipe to one drain, so they reach
+  the engine in the order they were sent.
 - **`internal/testsupport/termoracle`** is the root terminal surface's contract
   (prefix-key encodings, the input token corpus, the summon contract). Today's
   termui and `tui.Split` both pass it, so wiring the split view in cannot quietly
@@ -147,9 +163,7 @@ pieces below are not on the run path yet.
 
 Wiring it in means `setupTerminalUI` gives way to a split-view setup, the
 approval and credential presenters move onto `tui.SplitView`, and termui and the
-overlay are deleted. One question decides it first: inside an emulated pane,
-claude's pinned classic renderer scrolls its history into the emulator, where
-neither the pane nor the terminal's own scrollback shows it.
+overlay are deleted.
 
 ## Terminal predicates
 

@@ -1009,3 +1009,11 @@ func TestModel_ARowShowsItsUnreadMail(t *testing.T) {
 	assert.Contains(t, m.feedTitle(), "✉ 2 unread")
 	assert.True(t, strings.HasPrefix(m.feedTitle(), "feed: busy-kid"), "the mark is added to the title, not in place of it: %q", m.feedTitle())
 }
+
+// The overlay's feed title names the feed under view even when the roster
+// no longer holds its row.
+func TestModel_FeedTitleNamesTheFeedWithoutItsRow(t *testing.T) {
+	m := NewModel(context.Background(), Sources{}, termui.OverlayGeometry{Cols: 100, Rows: 30, PanelRows: 10}, 0x1d)
+	m.feedHarp = "gone-heron"
+	assert.Contains(t, m.feedTitle(), "feed: gone-heron")
+}

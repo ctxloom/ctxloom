@@ -211,6 +211,29 @@ func TestBuildRoster_CarriesTheUnreadCount(t *testing.T) {
 	assert.Equal(t, 5, byHarp["bus-only-kid"].Unread)
 }
 
+// TestBuildRoster_CarriesActivityAndTheContextGauge: when a run last
+// changed state and how full its context is reach its row, from the index or
+// from the coordinator alone.
+func TestBuildRoster_CarriesActivityAndTheContextGauge(t *testing.T) {
+	at := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+	gauge := func(harp string, used, window uint64, d time.Duration) coord.RunInfo {
+		r := held(harp, "", coord.StateIdle, "")
+		r.ContextTokens, r.ContextWindow, r.LastEventAt = used, window, at.Add(d)
+		return r
+	}
+	rows := BuildRoster(
+		[]frontend.Session{{Harp: "indexed-kid", Engine: "claude-code", State: frontend.SessionLive}},
+		[]coord.RunInfo{gauge("indexed-kid", 1000, 200_000, time.Second), gauge("bus-only-kid", 7, 9, time.Minute)}, "")
+	byHarp := map[string]RosterRow{}
+	for _, r := range rows {
+		byHarp[r.Harp] = r
+	}
+	assert.Equal(t, [3]any{uint64(1000), uint64(200_000), at.Add(time.Second)},
+		[3]any{byHarp["indexed-kid"].ContextTokens, byHarp["indexed-kid"].ContextWindow, byHarp["indexed-kid"].LastActivity})
+	assert.Equal(t, [3]any{uint64(7), uint64(9), at.Add(time.Minute)},
+		[3]any{byHarp["bus-only-kid"].ContextTokens, byHarp["bus-only-kid"].ContextWindow, byHarp["bus-only-kid"].LastActivity})
+}
+
 // TestRosterStates_AreTheListingsWords: the roster and `ctxloom session list`
 // say a session's state in one vocabulary, the port's — and the overlay's
 // ended word is the coordinator's, so that must be the port's too.

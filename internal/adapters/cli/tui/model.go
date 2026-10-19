@@ -327,10 +327,21 @@ func (m Model) applyFeedErr(msg feedErrMsg) (tea.Model, tea.Cmd) {
 // An ask answers with its id at once; the child's answer is mail quoting it,
 // and shows in the target's own feed as the agent_send that carried it.
 func (m Model) applyControlResult(msg controlResultMsg) (tea.Model, tea.Cmd) {
+	note, failed := controlOutcome(msg)
+	if failed {
+		m.reportErr(note)
+	} else {
+		m.reportOK(note)
+	}
+	return m, nil
+}
+
+// controlOutcome words one control round trip's outcome, and reports whether
+// it failed.
+func controlOutcome(msg controlResultMsg) (note string, failed bool) {
 	harp := msg.req.Harp
 	if msg.err != nil {
-		m.reportErr(fmt.Sprintf("%s %s: %v", controlLabel(msg.req.Verb), harp, msg.err))
-		return m, nil
+		return fmt.Sprintf("%s %s: %v", controlLabel(msg.req.Verb), harp, msg.err), true
 	}
 	switch msg.req.Verb {
 	case coord.ControlVerbSteer:
@@ -338,15 +349,15 @@ func (m Model) applyControlResult(msg controlResultMsg) (tea.Model, tea.Cmd) {
 		if outcome == "" {
 			outcome = msg.res.Delivery
 		}
-		m.reportOK(fmt.Sprintf("injected into %s: %s", harp, outcome))
+		return fmt.Sprintf("injected into %s: %s", harp, outcome), false
 	case coord.ControlVerbQuestion, coord.ControlVerbSummarize:
-		m.reportOK(fmt.Sprintf("asked %s (ask %s); its reply arrives as mail", harp, msg.res.AskID))
+		return fmt.Sprintf("asked %s (ask %s); its reply arrives as mail", harp, msg.res.AskID), false
 	case coord.ControlVerbPause:
-		m.reportOK(changedOr(msg.res.Changed, "paused "+harp, harp+" was already paused"))
+		return changedOr(msg.res.Changed, "paused "+harp, harp+" was already paused"), false
 	case coord.ControlVerbResume:
-		m.reportOK(changedOr(msg.res.Changed, "resumed "+harp, harp+" was not paused"))
+		return changedOr(msg.res.Changed, "resumed "+harp, harp+" was not paused"), false
 	}
-	return m, nil
+	return "", false
 }
 
 func changedOr(changed bool, did, didNot string) string {
@@ -776,6 +787,13 @@ func (m Model) feedTitle() string {
 		return "feed: —"
 	}
 	r := m.selectedRow()
+	r.Harp = m.feedHarp
+	return feedTitleOf(r, m.feedSource, m.follow)
+}
+
+// feedTitleOf names r's feed: its harp, agent and engine, hold, how it
+// ended, unread mail, what feeds it, and whether the view follows its tail.
+func feedTitleOf(r RosterRow, source string, follow bool) string {
 	meta := r.Agent
 	if r.Engine != "" {
 		if meta != "" {
@@ -783,7 +801,7 @@ func (m Model) feedTitle() string {
 		}
 		meta += r.Engine
 	}
-	title := "feed: " + m.feedHarp
+	title := "feed: " + r.Harp
 	if meta != "" {
 		title += " (" + meta + ")"
 	}
@@ -796,10 +814,10 @@ func (m Model) feedTitle() string {
 	if r.Unread > 0 {
 		title += " · ✉ " + strconv.Itoa(r.Unread) + " unread"
 	}
-	if m.feedSource != "" {
-		title += " · " + m.feedSource
+	if source != "" {
+		title += " · " + source
 	}
-	if m.follow {
+	if follow {
 		title += " · ▼ follow"
 	}
 	return title

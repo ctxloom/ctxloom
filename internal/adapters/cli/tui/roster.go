@@ -30,7 +30,10 @@ func BuildRoster(index []frontend.Session, held []coord.RunInfo, selfHarp string
 
 // heldRow is the roster row the coordinator's run r says.
 func heldRow(r coord.RunInfo) RosterRow {
-	row := RosterRow{State: r.Phase, Parent: r.ParentHarp, Hold: r.Hold, Cause: r.Cause, Detail: r.Detail, Unread: r.Unread}
+	row := RosterRow{
+		State: r.Phase, Parent: r.ParentHarp, Hold: r.Hold, Cause: r.Cause, Detail: r.Detail, Unread: r.Unread,
+		LastActivity: r.LastEventAt, ContextTokens: r.ContextTokens, ContextWindow: r.ContextWindow,
+	}
 	if r.Agent != nil {
 		row.Harp, row.Agent = r.Agent.AgentID, r.Agent.Role
 	}
@@ -100,6 +103,8 @@ func indexRow(e frontend.Session, held RosterRow, isHeld bool) RosterRow {
 	row.Hold = held.Hold
 	row.Cause, row.Detail = held.Cause, held.Detail
 	row.Unread = held.Unread
+	row.LastActivity = held.LastActivity
+	row.ContextTokens, row.ContextWindow = held.ContextTokens, held.ContextWindow
 	if row.State == "" {
 		row.State = e.State
 	}

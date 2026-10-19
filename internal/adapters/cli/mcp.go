@@ -3,12 +3,12 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
 )
@@ -79,15 +79,12 @@ func mcpBareMachineRefusal(cmd *cobra.Command) *cobra.Command {
 
 // refuseBareMCP is the refusal with the files that caused it named. The
 // engine's stderr log is the only place the user will ever see it, and the
-// entry that launched this process may sit in a parent folder of the working
-// folder (claude reads .mcp.json from every level), where no release can
-// remove it — so the walk the doctor check does runs here too.
+// entry that launched this process may sit in a parent folder of the project
+// (claude reads .mcp.json from every level), where no release can remove it —
+// so the walk the doctor check does runs here too, from the project's work
+// root (projectroot.WorkDir), where a materialize writes its entry.
 func refuseBareMCP() error {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return errMCPBareIsNotTheServer
-	}
-	files := operations.BareMCPEntryFiles(engines.Registry(), cwd)
+	files := operations.BareMCPEntryFiles(engines.Registry(), projectroot.WorkDir())
 	if len(files) == 0 {
 		return errMCPBareIsNotTheServer
 	}

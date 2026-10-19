@@ -156,7 +156,7 @@ func TestSplit_PasteDuringArmingIsDiscardedAndRestartsIt(t *testing.T) {
 	assert.False(t, h.s.arming)
 	h.send(tea.PasteMsg{Content: "z"})
 	assert.Equal(t, 1, h.s.armDiscarded, "armed, a paste is the view's")
-	assert.Empty(t, h.engine.String())
+	assert.Empty(t, h.settleEngine(t))
 }
 
 // The queue's one pump keeps running while the view is closed: each event

@@ -34,16 +34,43 @@ type engineSink struct {
 	wake chan struct{}
 	// sizes are the engine terminal's resizes, rows x cols.
 	sizes [][2]uint16
+	// gate, while set, holds every Write until release closes it.
+	gate chan struct{}
 }
 
 func newEngineSink() *engineSink { return &engineSink{wake: make(chan struct{})} }
 
 func (e *engineSink) Write(p []byte) (int, error) {
 	e.mu.Lock()
+	gate := e.gate
+	e.mu.Unlock()
+	if gate != nil {
+		<-gate
+	}
+	e.mu.Lock()
 	defer e.mu.Unlock()
 	close(e.wake)
 	e.wake = make(chan struct{})
 	return e.buf.Write(p)
+}
+
+// hold stops every write reaching the sink until release: what the pane
+// forwards through its reply pipe is then in flight, deterministically. The
+// test's end releases it before the pane's Close waits for its drain.
+func (e *engineSink) hold(t testing.TB) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.gate = make(chan struct{})
+	t.Cleanup(e.release)
+}
+
+func (e *engineSink) release() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.gate != nil {
+		close(e.gate)
+		e.gate = nil
+	}
 }
 
 // Read never yields: the drive copies the engine's output, not the tests.

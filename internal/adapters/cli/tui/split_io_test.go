@@ -144,18 +144,31 @@ func TestSplit_MouseOverThePaneReachesTheEngineOffset(t *testing.T) {
 	port.child("brave-heron", "coder", selfHarp, coord.StateExecuting)
 	h := newSplitHarness(t, port).sized(100, 12)
 	h.engineWrites("\x1b[?1000h\x1b[?1006h")
-	h.engine.take()
+	h.settleEngine(t)
 	// The human's column 40 (1-based) is pane column 40-27=13.
 	h.typeBytes("\x1b[<0;40;5M\x1b[<0;40;5m")
 	h.typeBytes("\x1b[<0;3;5M\x1b[<0;27;5M") // the panel and the divider
 	h.typeBytes("\x1b[<64;28;2M")            // the pane's first column
-	assert.Equal(t, "\x1b[<0;13;5M\x1b[<0;13;5m\x1b[<64;1;2M", h.engine.String())
+	assert.Equal(t, "\x1b[<0;13;5M\x1b[<0;13;5m\x1b[<64;1;2M", h.settleEngine(t))
 
-	h.engine.take()
 	h.typeBytes("\x1d")
 	h.keys("j") // a row that is not the engine's: nothing reaches it
 	h.typeBytes("\x1b[<0;40;5M")
-	assert.Empty(t, h.engine.String())
+	assert.Empty(t, h.settleEngine(t))
+}
+
+// A mouse event crosses the pane's reply pipe: SendMouse returns once the
+// drain has taken it, before it reaches the engine. Held there, a direct read
+// misses it; settleEngine, whose query queues behind it, never does.
+func TestSplit_MouseInFlightIsSettledBeforeTheEngineIsRead(t *testing.T) {
+	h := newSplitHarness(t, newSplitPort()).sized(100, 12)
+	h.engineWrites("\x1b[?1000h\x1b[?1006h")
+	h.settleEngine(t)
+	h.engine.hold(t)
+	h.typeBytes("\x1b[<64;28;2M")
+	assert.Empty(t, h.engine.String(), "in flight: a direct read misses it")
+	h.engine.release()
+	assert.Equal(t, "\x1b[<64;1;2M", h.settleEngine(t))
 }
 
 // What the engine asks of the terminal beyond its screen reaches the human's.

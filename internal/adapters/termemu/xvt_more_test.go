@@ -133,7 +133,7 @@ func TestKeys_ModifyOtherKeysLevel(t *testing.T) {
 	send := func(seq string, k KeyPress) string {
 		_, _ = p.Write([]byte(seq))
 		p.SendKey(k)
-		return sink.take()
+		return sink.settled(t, p)
 	}
 	assert.Equal(t, "\r", send("", ctrlEnter))
 	assert.Equal(t, "\x1b[27;5;13~", send("\x1b[>4;1m", ctrlEnter), "level 1")
@@ -190,5 +190,5 @@ func TestSendKey_UnencodableSendsNothing(t *testing.T) {
 	p.SendKey(KeyPress{Code: uv.KeyF13})
 	p.SendKey(KeyPress{Code: 'a', Text: "a"})
 	p.SendKey(KeyPress{Code: 'b', Text: "b"})
-	assert.Equal(t, "ab", sink.take(), "nothing for F13; keys after it still go")
+	assert.Equal(t, "ab", sink.settled(t, p), "nothing for F13; keys after it still go")
 }

@@ -2,6 +2,7 @@ package termemu
 
 import (
 	"bytes"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -56,6 +57,31 @@ func (c *childSink) waitFor(t *testing.T, want string) string {
 		case <-wake:
 		case <-expired:
 			t.Fatalf("child never received %q; got %q", want, got)
+		}
+	}
+}
+
+var daReply = regexp.MustCompile(`\x1b\[\?[0-9;]*c`)
+
+// settled takes everything sent to the child before now: input crosses the
+// reply pipe and the drain on its way out, in order, so a device-attributes
+// answer asked for now arrives behind all of it.
+func (c *childSink) settled(t *testing.T, p *XVT) string {
+	t.Helper()
+	_, _ = p.Write([]byte("\x1b[c"))
+	expired := testsupport.Expiry(t)
+	for {
+		c.mu.Lock()
+		got, wake := c.buf.String(), c.wake
+		c.mu.Unlock()
+		if loc := daReply.FindStringIndex(got); loc != nil {
+			c.take()
+			return got[:loc[0]] + got[loc[1]:]
+		}
+		select {
+		case <-wake:
+		case <-expired:
+			t.Fatalf("no device-attributes reply; got %q", got)
 		}
 	}
 }
@@ -182,9 +208,9 @@ func TestKeys_ReachTheChildInEachProtocol(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p, sink := newPane(t, 20, 3)
 			_, _ = p.Write([]byte(tc.setup))
-			sink.take()
+			sink.settled(t, p)
 			p.SendKey(tc.key)
-			assert.Equal(t, tc.want, sink.take())
+			assert.Equal(t, tc.want, sink.settled(t, p))
 		})
 	}
 }
@@ -201,7 +227,7 @@ func TestMouseAndPaste_ReachTheChild(t *testing.T) {
 	p, sink := newPane(t, 80, 24)
 	// Nothing until the child enables a mouse mode.
 	p.SendMouse(uv.MouseClickEvent{X: 4, Y: 2, Button: uv.MouseLeft})
-	assert.Empty(t, sink.take())
+	assert.Empty(t, sink.settled(t, p))
 
 	// claude enables 1000 (or 1002/1003) and SGR 1006.
 	_, _ = p.Write([]byte("\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?2004h"))

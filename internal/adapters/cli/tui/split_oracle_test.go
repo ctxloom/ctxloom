@@ -81,7 +81,7 @@ func TestSplitOracle_SummonContract(t *testing.T) {
 		port := newSplitPort()
 		port.queue = newFakeQueue(bashReq("a1", "brave-heron", "ls", time.Hour), bashReq("a2", "brave-heron", "pwd", 2*time.Hour))
 		h := newSplitHarness(t, port).sized(100, 30)
-		return &splitSummoner{h: h}
+		return &splitSummoner{t: t, h: h}
 	})
 }
 
@@ -89,7 +89,10 @@ func TestSplitOracle_SummonContract(t *testing.T) {
 // through the same messages SplitView.Summon sends, and a cancelled one is
 // withdrawn at the next step, as SplitView's waiter would.
 type splitSummoner struct {
-	h      *splitHarness
+	t *testing.T
+	h *splitHarness
+	// engine is everything the engine has received, settled.
+	engine string
 	ids    uint64
 	ctx    context.Context
 	id     uint64
@@ -109,7 +112,10 @@ func (s *splitSummoner) Type(t *testing.T, keys string) {
 	s.h.typeBytes(keys)
 }
 
-func (s *splitSummoner) Engine() string { return s.h.engine.String() }
+func (s *splitSummoner) Engine() string {
+	s.engine += s.h.settleEngine(s.t)
+	return s.engine
+}
 
 func (s *splitSummoner) Summon(ctx context.Context) <-chan error {
 	out := make(chan error, 1)
@@ -201,7 +207,7 @@ func TestSplit_KeysForThePaneNeverAnswerAnApproval(t *testing.T) {
 		h.advance(time.Second)
 		h.typeBytes("\r")
 	}
-	assert.Equal(t, strings.Repeat("\r", 6), h.engine.String(), "every Enter went to the engine")
+	assert.Equal(t, strings.Repeat("\r", 6), h.settleEngine(t), "every Enter went to the engine")
 	assert.Empty(t, reply)
 
 	h.advance(termoracle.QuietFor)
@@ -216,7 +222,7 @@ func TestSplit_KeysForThePaneNeverAnswerAnApproval(t *testing.T) {
 	assert.False(t, h.s.apprOpen, "Enter on the neutral action hides the view")
 	assert.Equal(t, focusPane, h.s.focus, "and focus is the pane's again")
 	assert.Empty(t, q.calls(), "nothing was decided")
-	assert.Equal(t, strings.Repeat("\r", 6), h.engine.String(), "nor did anything typed at the approval reach the engine")
+	assert.Empty(t, h.settleEngine(t), "nor did anything typed at the approval reach the engine")
 }
 
 // A summon replaced by a newer one says so; the newer is the one shown.

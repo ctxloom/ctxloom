@@ -90,7 +90,7 @@ func TestSplitChild_TypingSendsThroughControl(t *testing.T) {
 		{Verb: coord.ControlVerbSteer, Harp: "brave-heron", Body: "stop now", Interrupt: true},
 	}, port.controlled())
 	assert.True(t, h.panelHas("injected into brave-heron: queued"))
-	assert.Empty(t, h.engine.String(), "nothing typed for the child reached the engine")
+	assert.Empty(t, h.settleEngine(t), "nothing typed for the child reached the engine")
 
 	h.typeBytes("draft")
 	h.keys("esc")

@@ -9,24 +9,23 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
-	"github.com/ctxloom/ctxloom/internal/adapters/termui"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/frontend"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/shellenv"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
-// This file wires the agent-observation terminal layer (internal/adapters/termui +
-// internal/adapters/cli/tui — plan §4/§4a, slice S1b) around the interactive run's
-// existing seams: the raw stdin reader, the stdout writer, and the resize
-// channel handed to client.Run. It only ever wraps those seams; a failure
-// here degrades to a plain terminal and never blocks the launch.
+// This file wires the split view (internal/adapters/cli/tui) onto an
+// interactive tty run: it draws the human's terminal, takes the human's
+// input, and holds the engine's terminal in its emulated pane. A failure to
+// build it degrades to a plain terminal and never blocks the launch.
 
-// terminalUIIdentity is what the surround bar names: this session and its
+// terminalUIIdentity is what the panel's header names: this session and its
 // transport.
 type terminalUIIdentity struct {
 	WorkDir string
@@ -40,103 +39,91 @@ type terminalUIIdentity struct {
 // ui.prefix_key — a broken config fails loudly at the startup gate rather
 // than silently launching with a viewer on the wrong key (or none).
 func validateTerminalUIConfig(cfg *config.Config) {
-	if _, err := termui.ParsePrefixKey(cfg.UIPrefixKey()); err != nil {
+	if _, err := tui.ParsePrefixKey(cfg.UIPrefixKey()); err != nil {
 		strictness.Fail(report.KindConfig,
 			`set ui.prefix_key to a control key (e.g. "ctrl-]") in config.yaml, or pass --degraded to launch anyway`,
 			"invalid ui.prefix_key: %v", err)
 	}
 }
 
-// setupTerminalUI builds the observation layer for an interactive tty run:
-// prefix interceptor, surround bar, and the bubbletea overlay factory. It
-// returns nil when the layer can't be built (e.g. a bad prefix key under
-// --degraded) — the caller then runs on the unwrapped seams. port is THIS
-// session's frontend port (operations.NewFrontendPort): everything the bar,
-// the overlay and the presenters show or do rides it, and none of them holds
-// the coordinator.
-func setupTerminalUI(ctx context.Context, cfg *config.Config, port frontend.Port, id terminalUIIdentity, stdin io.Reader, resize <-chan *agent.WindowSize) *termui.Controller {
-	prefix, err := termui.ParsePrefixKey(cfg.UIPrefixKey())
+// approvalSurface is what the approval presenter drives (tui.SplitView).
+type approvalSurface interface {
+	Summon(ctx context.Context, view, notice string) error
+	SetApprovals(n int, oldest time.Time, arrived bool)
+	Note(text string, d time.Duration)
+}
+
+var _ approvalSurface = (*tui.SplitView)(nil)
+
+// splitIO is the human's terminal the split view runs on.
+type splitIO struct {
+	in  io.Reader
+	out io.Writer
+}
+
+// setupSplitView starts the split view for an interactive tty run over the
+// session's terminal term, and the session's presenters on it. It returns
+// nil when the view can't be built (a bad prefix key under --degraded) — the
+// caller then runs on the plain seams. port is THIS session's frontend port
+// (operations.NewFrontendPort): everything the view and the presenters show
+// or do rides it, and none of them holds the coordinator.
+func setupSplitView(ctx context.Context, cfg *config.Config, port frontend.Port, id terminalUIIdentity, term frontend.Terminal, human splitIO) *tui.SplitView {
+	prefix, err := tui.ParsePrefixKey(cfg.UIPrefixKey())
 	if err != nil {
 		// Only reachable in degraded mode (the gate aborts otherwise): run
 		// plain rather than guess a key the user didn't configure.
 		clidiag.Warn("ctxloom", "terminal viewer disabled: %v", err)
 		return nil
 	}
-	src := tui.Sources{Port: port, Self: id.Harp}
-	ui := termui.New(termui.Options{
-		Stdin:    stdin,
-		TTY:      os.Stdout,
-		Resize:   resize,
-		Prefix:   prefix,
-		Surround: cfg.UISurroundEnabled(),
-		Bar: termui.BarInfo{
-			Harp:       id.Harp,
-			Agent:      id.Agent,
-			Engine:     id.Backend,
-			Model:      id.Model,
-			PrefixHint: termui.CaretHint(prefix),
-		},
-		FetchRoster: func() ([]termui.RosterEntry, error) { return surroundRoster(ctx, port) },
-		NewOverlay:  func(start termui.OverlayStart) termui.Overlay { return tui.NewOverlay(ctx, src, prefix, start) },
-		Warn:        func(format string, args ...any) { clidiag.Warn("ctxloom", format, args...) },
+	view, err := tui.StartSplit(ctx, tui.SplitOptions{
+		Port:   port,
+		Self:   id.Harp,
+		Term:   term,
+		Prefix: prefix,
+		Header: tui.Header{Harp: id.Harp, Agent: id.Agent, Engine: id.Backend, Model: id.Model},
+		Notify: desktopAlert{host: platform.Current(), resolve: shellenv.Resolve},
+		In:     human.in,
+		Out:    human.out,
 	})
-	// The modal is how a pending approval reaches the human: the root's queue
-	// is presented here, on the originator's terminal, and nowhere else.
+	if err != nil {
+		clidiag.Warn("ctxloom", "terminal viewer disabled: %v", err)
+		return nil
+	}
+	// The split view is how a pending approval reaches the human: the root's
+	// queue is presented here, on the originator's terminal, and nowhere else.
 	if approvals := port.Approvals(); approvals != nil {
-		go func() { _ = modalPresenter{ui: ui, clock: systemClock{}}.Present(ctx, approvals) }()
+		go func() { _ = modalPresenter{ui: view, clock: tui.RealClock{}}.Present(ctx, approvals) }()
 	}
 	// A rate limit or a refused credential parks the runs that share it; the
-	// bar keeps the root human told until the hold releases them — or, with
-	// no bar, a line on the terminal as each hold opens and releases. A
+	// panel keeps the root human told until the hold releases them. A
 	// session with no coordinator lists no holds, so says nothing.
-	p := &credentialPresenter{
+	go presentCredentialHolds(ctx, &credentialPresenter{
 		holds: func() []coord.CredentialHold {
 			holds, _ := port.CredentialHolds(ctx)
 			return holds
 		},
-		noteBar: ui.NoteBar, ring: ui.Ring, session: id.Harp, clock: systemClock{},
-	}
-	if !cfg.UISurroundEnabled() {
-		p.announce = ui.Announce
-	}
-	go presentCredentialHolds(ctx, p)
-	return ui
+		noteBar: view.Note, ring: view.Ring, session: id.Harp, clock: tui.RealClock{},
+	})
+	return view
 }
 
-// systemClock is real time for the presenter (termui's own is unexported).
-type systemClock struct{}
+// desktopAlertWait bounds one desktop notification: a notifier that hangs
+// (no session bus to answer it) is abandoned, never waited on.
+const desktopAlertWait = 5 * time.Second
 
-func (systemClock) Now() time.Time { return time.Now() }
-
-func (systemClock) AfterFunc(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }
-
-// surroundRoster is the surround bar's roster over the port: the
-// coordinator's runs, ended ones included, on the bar's local mirror type
-// (termui stays dependency-light — its own documented convention). A session
-// with no coordinator lists none, and the bar shows just this session.
-func surroundRoster(ctx context.Context, port frontend.Port) ([]termui.RosterEntry, error) {
-	runs, err := port.ListRuns(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return surroundRows(runs.Runs), nil
+// desktopAlert raises the split view's desktop notifications through the
+// platform's notifier, its command found as the engines' are.
+type desktopAlert struct {
+	host    platform.DesktopNotifier
+	resolve func(string) (string, error)
 }
 
-// surroundRows maps the coordinator's runs onto the bar's mirror rows, a
-// hold worded as the overlay words it (tui.HoldLabel).
-func surroundRows(runs []coord.RunInfo) []termui.RosterEntry {
-	rows := make([]termui.RosterEntry, 0, len(runs))
-	for _, r := range runs {
-		if r.Agent == nil {
-			continue
-		}
-		row := termui.RosterEntry{Harp: r.Agent.AgentID, State: r.Phase, Hold: tui.HoldLabel(r.Hold), Unread: r.Unread}
-		if !r.LastEventAt.IsZero() {
-			row.LastActivityUnix = r.LastEventAt.Unix()
-		}
-		rows = append(rows, row)
-	}
-	return rows
+// Notify shows title and body, best effort: a notification that cannot be
+// shown leaves the bell the split view rang beside it.
+func (a desktopAlert) Notify(title, body string) {
+	ctx, cancel := context.WithTimeout(context.Background(), desktopAlertWait)
+	defer cancel()
+	_ = a.host.Notify(ctx, a.resolve, title, body)
 }
 
 // diagnosticsLogPath is harp's diagnostics log (the session's

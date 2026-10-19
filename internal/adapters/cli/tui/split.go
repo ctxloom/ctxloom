@@ -11,7 +11,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/termemu"
-	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/frontend"
 )
@@ -62,13 +61,6 @@ type Header struct {
 	Model  string
 }
 
-// PresentPolicy and Clock are the approval focus lock's timings and time
-// source, the same ones the terminal layer the split view replaces takes.
-type (
-	PresentPolicy = termui.PresentPolicy
-	Clock         = termui.Clock
-)
-
 // SplitOptions are a split view's seams.
 type SplitOptions struct {
 	// Port is everything the split view reads and does: the roster, a
@@ -89,16 +81,18 @@ type SplitOptions struct {
 	Present PresentPolicy
 	// Clock is the split view's time for its own decisions; nil is real time.
 	Clock Clock
+	// Notify raises a desktop notification as an approval parks, beside
+	// the bell and under its rate limit; nil raises none.
+	Notify Notifier
 	// In and Out are the human's terminal.
 	In  io.Reader
 	Out io.Writer
 	// NewPane builds the engine's emulated terminal; nil is termemu.NewXVT.
 	NewPane func(cols, rows int, toChild io.Writer, cb termemu.Callbacks) termemu.Terminal
-
-	// windowSize states the size of an Out bubbletea cannot measure (this
-	// package's tests drive the program over a pipe); zero lets bubbletea
-	// measure the terminal, as it does for a tty.
-	windowSize [2]int
+	// WindowSize states the columns and rows of an Out bubbletea cannot
+	// measure (one that is no tty); zero lets bubbletea measure the
+	// terminal, as it does for a tty.
+	WindowSize [2]int
 }
 
 // Split is the split view's bubbletea model. A pointer: the emulator, the
@@ -112,6 +106,7 @@ type Split struct {
 	header  Header
 	present PresentPolicy
 	clock   Clock
+	notify  Notifier
 	pane    termemu.Terminal
 	// post delivers a message to the running program from any goroutine: a
 	// timer's, the pane's callbacks'.
@@ -158,7 +153,7 @@ type Split struct {
 // newSplit builds the model over a pane that already exists.
 func newSplit(ctx context.Context, o SplitOptions, pane termemu.Terminal, post func(tea.Msg), mb *paneMailbox) *Split {
 	if o.Clock == nil {
-		o.Clock = realClock{}
+		o.Clock = RealClock{}
 	}
 	return &Split{
 		ctx:       ctx,
@@ -169,6 +164,7 @@ func newSplit(ctx context.Context, o SplitOptions, pane termemu.Terminal, post f
 		header:    o.Header,
 		present:   o.Present.Normalized(),
 		clock:     o.Clock,
+		notify:    o.Notify,
 		pane:      pane,
 		post:      post,
 		mailbox:   mb,
@@ -179,13 +175,6 @@ func newSplit(ctx context.Context, o SplitOptions, pane termemu.Terminal, post f
 		},
 	}
 }
-
-// realClock is real time.
-type realClock struct{}
-
-func (realClock) Now() time.Time { return time.Now() }
-
-func (realClock) AfterFunc(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }
 
 // Messages.
 type frameMsg struct{}

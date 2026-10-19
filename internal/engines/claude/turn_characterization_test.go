@@ -99,7 +99,7 @@ func TestInstance_ExecEnv_IsHomeVarsThenPresentationsThenTheModeSwitch(t *testin
 	require.NoError(t, err)
 	ex, err = inst.Exec(presented)
 	require.NoError(t, err)
-	assert.Equal(t, map[string]string{ConfigDirEnv: "/from-surface", "XDG_X": "/h/x", "A": "2", "B": "3", classicScreenEnv: "1"}, ex.Env)
+	assert.Equal(t, map[string]string{ConfigDirEnv: "/from-surface", "XDG_X": "/h/x", "A": "2", "B": "3", classicScreenEnv: "1", forceSyncOutputEnv: "1"}, ex.Env)
 }
 
 // TestInstance_ExecBinary_DefaultsToClaude: the label's binary when it names

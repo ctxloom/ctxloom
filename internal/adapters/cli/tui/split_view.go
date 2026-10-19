@@ -53,8 +53,8 @@ func StartSplit(ctx context.Context, o SplitOptions) (*SplitView, error) {
 	// The run's own context owns SIGINT and SIGTERM, and a cancelled run
 	// ends the program with it.
 	opts := []tea.ProgramOption{tea.WithContext(ctx), tea.WithoutSignalHandler(), tea.WithInput(o.In), tea.WithOutput(o.Out)}
-	if o.windowSize != [2]int{} {
-		opts = append(opts, tea.WithWindowSize(o.windowSize[0], o.windowSize[1]))
+	if o.WindowSize != [2]int{} {
+		opts = append(opts, tea.WithWindowSize(o.WindowSize[0], o.WindowSize[1]))
 	}
 	v.prog = tea.NewProgram(m, opts...)
 	go func() {
@@ -75,9 +75,11 @@ func (v *SplitView) Pane() io.Writer { return v.pane }
 func (v *SplitView) Done() <-chan error { return v.done }
 
 // Close stops the split view, restoring the human's terminal, and releases
-// the emulator.
+// the emulator. The pane's last committed frame is drawn first: what the
+// engine wrote before Close reaches the human's terminal.
 func (v *SplitView) Close() {
 	v.close.Do(func() {
+		v.prog.Send(frameMsg{})
 		v.prog.Quit()
 		<-v.exited
 		_ = v.pane.Close()

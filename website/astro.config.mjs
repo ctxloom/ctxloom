@@ -88,6 +88,7 @@ export default defineConfig({
 						{ label: 'Ad-hoc Context', link: '/guides/adhoc-context/' },
 						{ label: 'Workflows', link: '/guides/workflows/' },
 						{ label: 'Diagnosing a Setup (doctor)', link: '/guides/doctor/' },
+						{ label: 'The Split View', link: '/guides/split-view/' },
 					],
 				},
 				{

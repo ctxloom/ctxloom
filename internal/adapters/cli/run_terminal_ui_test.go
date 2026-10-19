@@ -6,13 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
-	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/frontend"
@@ -80,37 +78,6 @@ func TestTerminalUIPort_NoCoordinatorControlIsNotInjectable(t *testing.T) {
 
 func TestTerminalUIPort_NoCoordinatorHasNoApprovalSource(t *testing.T) {
 	assert.Nil(t, degradedSessionPort(t, "/irrelevant").Approvals(), "no coordinator hosted: no approval source — never a typed nil the view would call")
-}
-
-func TestSurroundRoster_NoCoordinatorIsEmptyNotError(t *testing.T) {
-	rows, err := surroundRoster(context.Background(), degradedSessionPort(t, "/irrelevant"))
-	require.NoError(t, err)
-	assert.Empty(t, rows, "the bar shows just this session, not an error, when no coordinator is hosted")
-}
-
-// TestSurroundRows_CarryTheHoldInTheOverlaysWords: the bar's rows take a held
-// child's hold as the overlay words it (tui.HoldLabel), and an unheld child
-// carries none.
-func TestSurroundRows_CarryTheHoldInTheOverlaysWords(t *testing.T) {
-	hold := &coord.RunHold{Kind: "rate_limited", Until: time.Date(2026, 10, 1, 17, 30, 0, 0, time.UTC)}
-	rows := surroundRows([]coord.RunInfo{
-		{Agent: &coord.AgentIdentity{AgentID: "held-kid"}, Phase: coord.StateIdle, LastEventAt: time.Unix(7, 0), Hold: hold},
-		{Agent: &coord.AgentIdentity{AgentID: "free-kid"}, Phase: coord.StateExecuting},
-		{RunID: "no-identity", Phase: coord.StateExecuting},
-	})
-	require.Len(t, rows, 2, "a run with no identity names no harp, so makes no row")
-	assert.Equal(t, termui.RosterEntry{Harp: "held-kid", State: coord.StateIdle, LastActivityUnix: 7, Hold: "held: rate limited until 17:30 UTC"}, rows[0])
-	assert.Zero(t, rows[1].LastActivityUnix, "no recorded activity is 0, never the zero time's seconds")
-	assert.Equal(t, tui.HoldLabel(hold), rows[0].Hold, "one wording, overlay and bar")
-	assert.Empty(t, rows[1].Hold)
-}
-
-// TestSurroundRows_CarryTheUnreadCount: the bar's rows take a child's unread
-// mail count from the coordinator's roster unchanged.
-func TestSurroundRows_CarryTheUnreadCount(t *testing.T) {
-	rows := surroundRows([]coord.RunInfo{{Agent: &coord.AgentIdentity{AgentID: "kid"}, Phase: coord.StateExecuting, Unread: 2}})
-	require.Len(t, rows, 1)
-	assert.Equal(t, 2, rows[0].Unread)
 }
 
 // TestRedirectDiagnosticsForTUI_AnnouncesTheOutcome pins both halves of the

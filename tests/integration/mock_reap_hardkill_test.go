@@ -107,10 +107,10 @@ func TestRunnerReapedOnHardKilledParent(t *testing.T) {
 	_, err = sess.Write([]byte(hardKillSentinel + "\n"))
 	require.NoError(t, err, "type sentinel into pty")
 	echoed := "mock echo: " + hardKillSentinel
-	out, ready := sess.AwaitOutput(t, func(out string) bool {
+	out, ready := sess.AwaitDisplay(t, func(out string) bool {
 		return strings.Contains(out, echoed)
 	})
-	require.True(t, ready, "mock never echoed %q back through the pty — the runner child is not parked in the echo loop, so nothing holds it alive for the kill; output:\n%s", hardKillSentinel, out)
+	require.True(t, ready, "mock never echoed %q back through the pty — the runner child is not parked in the echo loop, so nothing holds it alive for the kill; the display:\n%s", hardKillSentinel, out)
 
 	childPIDs := testenv.RunnerChildrenOf(parentPID)
 	require.NotEmpty(t, childPIDs, "mock echoed the sentinel but no runner subprocess is a child of pid %d", parentPID)

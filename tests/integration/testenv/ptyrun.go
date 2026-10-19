@@ -131,6 +131,8 @@ type PTYSession struct {
 	pty pty.Pty
 	cmd *pty.Cmd
 	out *ptyCapture
+	// cols and rows are the pty's size, the screen Display replays onto.
+	cols, rows int
 
 	drained chan struct{} // closed when the drain stops reading the master
 	exited  chan struct{} // closed once the process is reaped AND settled
@@ -221,7 +223,7 @@ func startPTY(hooks ptyHooks, dir string, env []string, bin string, cols, rows i
 	cmd.SysProcAttr = pdeathsigSysProcAttr()
 
 	s := &PTYSession{
-		pty: p, cmd: cmd, out: &ptyCapture{},
+		pty: p, cmd: cmd, out: &ptyCapture{}, cols: cols, rows: rows,
 		drained: make(chan struct{}), exited: make(chan struct{}), hooks: hooks,
 	}
 	var sink io.Writer = s.out

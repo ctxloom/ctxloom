@@ -262,7 +262,6 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/cli -> internal/adapters/mcp":        "the session host composes the coordinator's hosting helper and the host relay (mcp.HostCoordinatorForSession); the session endpoint lives in runner/interaction",
 			"internal/adapters/cli -> internal/adapters/memory":     "slice 14a: the compactor (memory.NewCompactor) is called by operations.Compact",
 			"internal/adapters/cli -> internal/adapters/remote":     "measured: `bundle push` drives remote.PublishManager, `deps list` reads the lockfile, the item listing parses references and `remote discover` normalises URLs directly; they belong behind operations and no slice names them",
-			"internal/adapters/cli -> internal/adapters/termui":     "slice 13: termui sits over the pty master the runner owns",
 			"internal/adapters/cli -> internal/adapters/transcript": "slice 13: cli/tui reads the transcript file; the CLI does not open transcripts itself",
 			"internal/adapters/cli -> internal/adapters/confpatch":  "slice 12: delivery.Ownership (adapters/confpatch) is reached through delivery, not from the CLI",
 

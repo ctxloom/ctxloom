@@ -78,7 +78,7 @@ var (
 func announcedPID(t *testing.T, sess *testenv.PTYSession, line *regexp.Regexp) int {
 	t.Helper()
 	var pid int
-	out, announced := sess.AwaitOutput(t, func(out string) bool {
+	out, announced := sess.AwaitDisplay(t, func(out string) bool {
 		m := line.FindStringSubmatch(out)
 		if m == nil {
 			return false
@@ -86,7 +86,7 @@ func announcedPID(t *testing.T, sess *testenv.PTYSession, line *regexp.Regexp) i
 		pid, _ = strconv.Atoi(m[1])
 		return true
 	})
-	require.True(t, announced, "no %s announced; captured: %q", line, out)
+	require.True(t, announced, "no %s announced; the display:\n%s", line, out)
 	return pid
 }
 
@@ -118,10 +118,10 @@ func TestRunPTY_EngineKilledMidSessionEndsTheRunnerAndTheRun(t *testing.T) {
 			// runner and the engine before anything is killed.
 			_, err := sess.Write([]byte("before-the-crash\r"))
 			require.NoError(t, err)
-			out, carried := sess.AwaitOutput(t, func(out string) bool {
+			out, carried := sess.AwaitDisplay(t, func(out string) bool {
 				return strings.Contains(out, "FAKE-ENGINE-GOT:before-the-crash")
 			})
-			require.True(t, carried, "the session never carried a line to the engine; captured: %q", out)
+			require.True(t, carried, "the session never carried a line to the engine; the display:\n%s", out)
 
 			runners := testenv.RunnerChildrenOf(sess.PID())
 			require.Len(t, runners, 1, "exactly one runner serves the session")

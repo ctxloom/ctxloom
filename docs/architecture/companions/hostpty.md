@@ -17,7 +17,7 @@ it; resize and signals cross the pty, never a proxied stream.
   `Kill` removes the container first.
 
 **The contract they own.** *One pty master per interactive run, wherever the runner runs.* The
-frontend (`internal/adapters/cli/run_pty.go`'s `driveOwnedInteractive`, over `termui`) is blind to
+frontend (`internal/adapters/cli/run_pty.go`'s `driveOwnedInteractive`, under the split view) is blind to
 the cell: it pumps onto a `hostpty.Session` and reads the run's outcome from the coordinator's event stream
 (`RunCompleted`), which the runner emitted before it exited. No keepalive, no exec-into, no
 handoff file: the runner is the container's foreground process, started by the coordinator-owned

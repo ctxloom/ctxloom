@@ -48,8 +48,8 @@ drives it.
    runner over `StartRun`; nothing about the run rides this process's
    environment.
 8. **The drive** — `drive`: an interactive run pumps the terminal seams onto
-   the runner's pty master (`driveOwnedInteractive`, with `adapters/termui`'s
-   observation layer); a one-shot collects the run's FINAL answer off the
+   the runner's pty master (`driveOwnedInteractive`, drawn by
+   `adapters/cli/tui`'s split view); a one-shot collects the run's FINAL answer off the
    coordinator's event stream and records the oneshot transcript
    (`runOneshotViaCoord`).
 9. **Teardown** — the runner is killed through its handle, the coordinator

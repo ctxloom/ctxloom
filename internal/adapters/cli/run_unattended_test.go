@@ -39,7 +39,7 @@ func TestPrepareSessionIO_NoTerminalLayerRefusesApprovals(t *testing.T) {
 	t.Cleanup(func() { termIsTerminal = prev })
 
 	st := &runState{ctx: context.Background(), sessionCoord: s.Coord, workDir: projectDir, activeHarp: livecoord.OwnerHarp}
-	st.prepareSessionIO(st.frontendPort()).restore()
+	st.prepareSessionIO(st.frontendPort(), nil).restore()
 
 	d := parkOn(s.Coord)
 	assert.False(t, d.Allow)

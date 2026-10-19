@@ -2,6 +2,7 @@
 package darwin
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 
@@ -23,3 +24,6 @@ func (OS) DocumentsDir() (string, error) {
 // PrivateTmpfs is absent: macOS offers no per-user memory-backed dir, and an
 // XDG_RUNTIME_DIR a user exported there promises nothing about its backing.
 func (OS) PrivateTmpfs(func(string) string) (string, bool) { return "", false }
+
+// Notify shows nothing: a macOS notifier is not built.
+func (OS) Notify(context.Context, func(string) (string, error), string, string) error { return nil }

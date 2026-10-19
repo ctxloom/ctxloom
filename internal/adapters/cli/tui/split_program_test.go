@@ -90,7 +90,7 @@ func startProgram(t *testing.T, port *splitPort, w, h int) *programSplit {
 	p := &programSplit{in: pw, out: newOutTerm(), engine: newEngineSink(), w: w, h: h}
 	prefix, err := ParsePrefixKey("ctrl-]")
 	require.NoError(t, err)
-	o := SplitOptions{Self: selfHarp, Term: p.engine, Prefix: prefix, In: pr, Out: p.out, Header: Header{Harp: selfHarp}, windowSize: [2]int{w, h}}
+	o := SplitOptions{Self: selfHarp, Term: p.engine, Prefix: prefix, In: pr, Out: p.out, Header: Header{Harp: selfHarp}, WindowSize: [2]int{w, h}}
 	if port != nil {
 		o.Port = port.port()
 	}
@@ -279,7 +279,7 @@ func TestStartSplit_FirstPaneSize(t *testing.T) {
 	pr, pw := io.Pipe()
 	defer func() { _ = pw.Close() }()
 	v, err := StartSplit(context.Background(), SplitOptions{
-		Self: selfHarp, Term: newEngineSink(), Prefix: prefix, In: pr, Out: newOutTerm(), windowSize: [2]int{100, 20},
+		Self: selfHarp, Term: newEngineSink(), Prefix: prefix, In: pr, Out: newOutTerm(), WindowSize: [2]int{100, 20},
 		NewPane: func(cols, rows int, toChild io.Writer, cb termemu.Callbacks) termemu.Terminal {
 			got = [2]int{cols, rows}
 			return termemu.NewXVT(cols, rows, toChild, cb)
@@ -307,4 +307,38 @@ func TestSplitView_ContextEndsIt(t *testing.T) {
 	cancel()
 	assert.Error(t, <-v.Done(), "a killed program says so")
 	v.Close()
+}
+
+// stalledPane is an emulator whose frame pump never fires: what the engine
+// wrote is committed, but the program is never told.
+type stalledPane struct{ termemu.Terminal }
+
+func (stalledPane) Ready() <-chan struct{} { return make(chan struct{}) }
+
+// TestSplitView_CloseDrawsTheEnginesLastFrame: the engine's last output is
+// on the human's terminal when the split view closes, though no frame was
+// adopted for it — the drive closes the split view only once the engine's
+// output is all in the pane.
+func TestSplitView_CloseDrawsTheEnginesLastFrame(t *testing.T) {
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { _ = pw.Close() })
+	out, engine := newOutTerm(), newEngineSink()
+	prefix, err := ParsePrefixKey("ctrl-]")
+	require.NoError(t, err)
+	v, err := StartSplit(context.Background(), SplitOptions{
+		Self: selfHarp, Term: engine, Prefix: prefix, In: pr, Out: out, WindowSize: [2]int{100, 10},
+		NewPane: func(cols, rows int, toChild io.Writer, cb termemu.Callbacks) termemu.Terminal {
+			return stalledPane{termemu.NewXVT(cols, rows, toChild, cb)}
+		},
+	})
+	require.NoError(t, err)
+	engine.waitSized(t, 1)
+	_, err = v.Pane().Write([]byte("the engine's last words"))
+	require.NoError(t, err)
+
+	v.Close()
+
+	got := out.bytes()
+	drawn := got[:max(bytes.LastIndex(got, []byte("\x1b[?1049l")), 0)]
+	assert.Contains(t, strings.Join(screenOf(drawn, 100, 10).Text(), "\n"), "the engine's last words")
 }

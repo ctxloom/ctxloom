@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/termui"
+	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -25,7 +25,7 @@ func presentsApprovals(mode engine.Mode, plainTerminal, stdinTerminal bool, pref
 // before the coordinator is hosted or the terminal layer built — so the
 // warnings can say what the queue will do with its requests.
 func (st *runState) approvalsPresented() bool {
-	_, prefixErr := termui.ParsePrefixKey(st.cfg.UIPrefixKey())
+	_, prefixErr := tui.ParsePrefixKey(st.cfg.UIPrefixKey())
 	return presentsApprovals(st.launch.Mode, runPlainTerminal, termIsTerminal(int(os.Stdin.Fd())), prefixErr)
 }
 

@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -15,12 +16,17 @@ import (
 // This file is the F2 binary-level pty acceptance harness (Wave F playbook):
 // it drives the actual COMPILED ctxloom binary's `run` command over a real
 // pty (testenv.RunPTY — aymanbagabas/go-pty, no tmux/expect/vt10x, matching
-// the playbook's binding tooling constraint), proving the terminal
-// observation layer (internal/adapters/termui's surround bar + prefix-key viewer)
-// engages through the REAL CLI dispatch and process lifecycle — the one seam
-// F1's in-process harnesses (internal/adapters/termui/overlay_composition_test.go,
-// internal/adapters/cli/tui/overlay_test.go) cannot reach, since those construct
-// termui.Controller/tui.Overlay directly rather than through `ctxloom run`.
+// the playbook's binding tooling constraint), proving the split view
+// (internal/adapters/cli/tui's tui.SplitView: the agent tree beside the
+// engine's emulated terminal) engages through the REAL CLI dispatch and
+// process lifecycle — the one seam the in-process harnesses
+// (internal/adapters/cli/tui/split_program_test.go) cannot reach, since those
+// start the split view directly rather than through `ctxloom run`.
+//
+// Every wait reads the display (testenv.PTYSession.AwaitDisplay), never the
+// bytes: the split view's renderer draws by cursor address and redraws only
+// the cells that changed, and the engine's output reaches the human through
+// the pane's emulator, re-drawn, never verbatim.
 //
 // Gotcha for anyone extending this file: SetupMockLM writes config.yaml at
 // ctxloomconfig.CurrentConfigVersion, so loading it applies no in-memory
@@ -29,14 +35,11 @@ import (
 // -y (runAssumeYes) applies it.
 //
 // Ordering: a mock turn ends the instant it has written its reply, and the
-// viewer cannot engage once the session has closed (Controller.Close makes
-// engage a no-op). A keystroke whose effect is asserted is therefore sent
-// only to a session the test has PROVED is live and reading: the mock runs
-// its interactive echo (CTXLOOM_MOCK_ECHO_STDIN=1), the test types a
-// sentinel line and waits for the engine to echo it, and the session ends
-// only when the test types "quit". Pre-queuing keys and hoping the stdin pump
-// reads them before the turn ends is the race this replaces: under load the
-// turn ended first and the overlay never drew.
+// split view closes with the session. A keystroke whose effect is asserted is
+// therefore sent only to a session the test has PROVED is live and reading:
+// the mock runs its interactive echo (CTXLOOM_MOCK_ECHO_STDIN=1), the test
+// types a sentinel line and waits for the engine to echo it, and the session
+// ends only when the test types "quit".
 
 //
 // Every wait is for an event (bytes the pty delivers, the process exiting)
@@ -60,35 +63,6 @@ func setupPTYTestEnv(t *testing.T) *testenv.TestEnvironment {
 	return env
 }
 
-// TestRunPTY_SurroundBarPaints proves the surround bar establishes its
-// protected bottom row and paints its status line on a real pty tall enough
-// to reserve one (surround.go's reserveActive: rows >= 6) — no viewer
-// interaction, just the plain interactive run.
-func TestRunPTY_SurroundBarPaints(t *testing.T) {
-	env := setupPTYTestEnv(t)
-
-	sess, err := env.RunPTY(ptyCols, ptyRows, nil, "run", "-f", "viewer-fragment", "hello from the bar test")
-	require.NoError(t, err)
-	defer sess.Close()
-
-	// Await the bar's establish signature rather than the whole run finishing
-	// first: DECSTBM 1;23 protects rows 1..23 (rows=24, SurroundReserve=1), and
-	// its bar body carries the rendered PrefixHint (CaretHint of the default
-	// ctrl-] prefix).
-	out, established := sess.AwaitOutput(t, func(out string) bool {
-		return strings.Contains(out, "\x1b[1;23r") && strings.Contains(out, "^] viewer")
-	})
-	require.True(t, established, "surround bar never established; captured: %q", out)
-
-	exited, waitErr := sess.AwaitExit(t)
-	require.True(t, exited, "ctxloom run never exited; captured: %q", sess.Output())
-	require.NoError(t, waitErr)
-	assert.Equal(t, 0, sess.ExitCode())
-
-	assert.Contains(t, sess.Output(), "\x1b[r\x1b[24;1H\x1b[2K",
-		"process exit restores the full scroll region and clears the bar row (Surround.Restore)")
-}
-
 // startLiveViewerSession starts `ctxloom run` over a pty with the mock
 // engine held open on its interactive echo, and returns once the engine has
 // echoed a typed sentinel: proof that the session is live and that keystrokes
@@ -103,14 +77,14 @@ func startLiveViewerSession(t *testing.T, args ...string) *testenv.PTYSession {
 	return sess
 }
 
-// typeLineAndAwaitEcho types line into the session and waits for the mock
-// engine's echo of it.
+// typeLineAndAwaitEcho types line into the session and waits for the
+// display to show the mock engine's echo of it.
 func typeLineAndAwaitEcho(t *testing.T, sess *testenv.PTYSession, line string) {
 	t.Helper()
 	_, err := sess.Write([]byte(line + "\n"))
 	require.NoError(t, err)
-	out, echoed := sess.AwaitOutput(t, func(out string) bool { return strings.Contains(out, "mock echo: "+line) })
-	require.True(t, echoed, "the engine never echoed %q; captured: %q", line, out)
+	display, echoed := sess.AwaitDisplay(t, func(display string) bool { return strings.Contains(display, "mock echo: "+line) })
+	require.True(t, echoed, "the engine never echoed %q; the display:\n%s", line, display)
 }
 
 // quitAndAwaitCleanExit ends the held mock session and requires a clean exit.
@@ -124,50 +98,94 @@ func quitAndAwaitCleanExit(t *testing.T, sess *testenv.PTYSession) {
 	assert.Equal(t, 0, sess.ExitCode())
 }
 
-// TestRunPTY_CtrlBracketEngagesOverlay drives the Ctrl-] viewer prefix
-// through the real binary against a live session: the engage signature
-// fires (the Controller's hold + alternate-screen + region handoff), the
-// REAL bubbletea overlay renders its roster panel (the genuine tui.NewOverlay
-// wiring from run_terminal_ui.go, not a stub), 'q' releases it back to the
-// engine's screen, keystrokes reach the engine again, and the process exit
-// leaves the scroll region restored.
-func TestRunPTY_CtrlBracketEngagesOverlay(t *testing.T) {
-	sess := startLiveViewerSession(t, "-f", "viewer-fragment", "hello from the engage test")
+// splitDivider is the split view's divider, at column rosterPaneWidth on
+// every row; splitPaneHint is the panel's last line while the pane holds the
+// keyboard, splitTreeHint its first words once the tree does.
+const (
+	splitDivider  = "│"
+	splitPaneHint = "^] agents"
+	splitTreeHint = "j/k move"
+)
+
+// leftAltScreen reports whether out ends off the alternate screen: the split
+// view took the human's terminal and gave it back.
+func leftAltScreen(out string) bool {
+	return strings.Contains(out, "\x1b[?1049h") && strings.LastIndex(out, "\x1b[?1049l") > strings.LastIndex(out, "\x1b[?1049h")
+}
+
+// TestRunPTY_SplitViewDrawsTheTreeBesideTheEngine: `ctxloom run` on a tty
+// draws the split view — the panel, its divider on every row, and the
+// engine's own output in the pane to the divider's right, typed input
+// reaching it there — and gives the terminal back on exit.
+func TestRunPTY_SplitViewDrawsTheTreeBesideTheEngine(t *testing.T) {
+	sess := startLiveViewerSession(t, "-f", "viewer-fragment", "hello from the split test")
+
+	// The engine is sized to the pane once the human's terminal reports its
+	// colours or the wait for them passes: from then on its rows fit beside
+	// the panel, none cut short.
+	display, fitted := sess.AwaitDisplay(t, func(display string) bool {
+		for _, row := range strings.Split(display, "\n") {
+			if _, pane, ok := strings.Cut(row, splitDivider); !ok || strings.Contains(pane, "…") {
+				return false
+			}
+		}
+		return true
+	})
+	require.True(t, fitted, "the engine's rows never fit the pane; the display:\n%s", display)
+	rows := strings.Split(display, "\n")
+	require.Len(t, rows, ptyRows, "the display is the pty's size")
+	echo := rows[slices.IndexFunc(rows, func(r string) bool { return strings.Contains(r, "mock echo: session-live") })]
+	assert.Less(t, strings.Index(echo, splitDivider), strings.Index(echo, "mock echo"), "the engine draws in the pane, right of the divider")
+	assert.Contains(t, display, splitPaneHint, "the panel names the prefix that reaches the tree")
+
+	quitAndAwaitCleanExit(t, sess)
+	assert.True(t, leftAltScreen(sess.Output()), "process exit leaves the split view's alternate screen")
+}
+
+// TestRunPTY_CtrlBracketMovesFocusToTheTree drives the Ctrl-] prefix
+// through the real binary against a live session: the tree takes the
+// keyboard (its key hints replace the pane's), 'q' hands it back, and
+// keystrokes reach the engine again.
+func TestRunPTY_CtrlBracketMovesFocusToTheTree(t *testing.T) {
+	sess := startLiveViewerSession(t, "-f", "viewer-fragment", "hello from the focus test")
 
 	_, err := sess.Write([]byte{0x1d})
 	require.NoError(t, err)
-	out, engaged := sess.AwaitOutput(t, func(out string) bool {
-		return strings.Contains(out, "\x1b[?1049h\x1b[r") && strings.Contains(out, "j/k move")
-	})
-	require.True(t, engaged, "overlay never engaged/rendered; captured: %q", out)
+	display, tree := sess.AwaitDisplay(t, func(display string) bool { return strings.Contains(display, splitTreeHint) })
+	require.True(t, tree, "the prefix never moved focus to the tree; the display:\n%s", display)
 
 	_, err = sess.Write([]byte{'q'})
 	require.NoError(t, err)
-	out, released := sess.AwaitOutput(t, func(out string) bool {
-		_, after, _ := strings.Cut(out, "j/k move")
-		return strings.Contains(after, "\x1b[?1049l\x1b7")
+	display, pane := sess.AwaitDisplay(t, func(display string) bool {
+		return !strings.Contains(display, splitTreeHint) && strings.Contains(display, splitPaneHint)
 	})
-	require.True(t, released, "'q' never returned the screen to the engine; captured: %q", out)
+	require.True(t, pane, "'q' never handed the keyboard back to the pane; the display:\n%s", display)
 	typeLineAndAwaitEcho(t, sess, "after-release")
 
 	quitAndAwaitCleanExit(t, sess)
-	assert.Contains(t, sess.Output(), "\x1b[r\x1b[24;1H\x1b[2K",
-		"process exit restores the full scroll region and clears the bar row")
+	assert.True(t, leftAltScreen(sess.Output()), "process exit leaves the split view's alternate screen")
 }
 
 // TestRunPTY_PlainTerminalNeverEngages proves --plain-terminal opts a pty
-// session out of the whole observation layer: a Ctrl-] typed into a live
-// session reaches the engine as a literal byte instead of engaging a viewer,
-// and no bar/region/engage signature ever appears (run.go only wraps the
-// seams with setupTerminalUI when !runPlainTerminal).
+// session out of the split view: the engine's bytes reach the terminal as
+// they are, a Ctrl-] typed into a live session reaches the engine as a
+// literal byte, and the split view never takes the screen (run.go starts it
+// only when !runPlainTerminal).
 func TestRunPTY_PlainTerminalNeverEngages(t *testing.T) {
-	sess := startLiveViewerSession(t, "--plain-terminal", "-f", "viewer-fragment", "hello from the plain-terminal test")
+	env := setupPTYTestEnv(t)
+	sess, err := env.RunPTY(ptyCols, ptyRows, []string{"CTXLOOM_MOCK_ECHO_STDIN=1"}, "run", "--plain-terminal", "-f", "viewer-fragment", "hello from the plain-terminal test")
+	require.NoError(t, err)
+	t.Cleanup(sess.Close)
 
-	typeLineAndAwaitEcho(t, sess, "\x1dliteral-prefix")
+	for _, line := range []string{"session-live", "\x1dliteral-prefix"} {
+		_, err := sess.Write([]byte(line + "\n"))
+		require.NoError(t, err)
+		out, echoed := sess.AwaitOutput(t, func(out string) bool { return strings.Contains(out, "mock echo: "+line) })
+		require.True(t, echoed, "the engine's echo of %q never reached the terminal verbatim; captured: %q", line, out)
+	}
 
 	quitAndAwaitCleanExit(t, sess)
 	out := sess.Output()
-	assert.NotContains(t, out, "\x1b[1;", "--plain-terminal never establishes the surround's protected region")
-	assert.NotContains(t, out, "^] viewer", "--plain-terminal never paints the bar")
-	assert.NotContains(t, out, "\x1b[?1049h\x1b[r", "--plain-terminal never wires the prefix interceptor, so Ctrl-] never engages")
+	assert.NotContains(t, out, "\x1b[?1049h", "--plain-terminal never takes the alternate screen")
+	assert.NotContains(t, sess.Display(), splitPaneHint, "--plain-terminal never draws the panel")
 }

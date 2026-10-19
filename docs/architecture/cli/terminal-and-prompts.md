@@ -2,8 +2,8 @@
 
 Two separate concerns share this page because they share one resource: the
 process's terminal. The first is `ctxloom run`'s terminal *ownership* — raw
-mode, resize relaying, the prefix-key interceptor and surround status bar, and
-diagnostics redirection so warnings do not scribble over an engine's TUI. The
+mode, the split view that draws the agent tree beside the engine's terminal,
+and diagnostics redirection so warnings do not scribble over it. The
 second is the package-wide *prompting* primitive: one buffered reader over
 stdin, shared by every y/N question in the CLI, plus the terminal predicates
 that decide whether prompting is legal at all.
@@ -21,16 +21,13 @@ flowchart TD
 
     RUNE --> RD["redirectDiagnosticsForTUI<br/>run_terminal_ui.go"]
     RD --> LOG["clidiag → &lt;harpdir&gt;/diagnostics.log"]
-    RUNE --> STU["setupTerminalUI"]
-    STU --> PK["prefix-key interceptor (ui.prefix_key)"]
-    STU --> BAR["surround bar — termui.BarInfo over terminalUIIdentity"]
-    STU --> OV["overlay factory"]
+    RUNE --> STU["setupSplitView"]
+    STU --> SV["tui.StartSplit — the split view<br/>prefix key (ui.prefix_key) · panel · emulated pane"]
     RUNE --> FP["runState.frontendPort<br/>operations.NewFrontendPort — the session's frontend port"]
     FP --> STU
-    STU --> SRC["tui.Sources{Port, Self}<br/>roster · feed · control · approvals over the port"]
-    STU --> ROSTER["surroundRoster<br/>Port.ListRuns → termui.RosterEntry"]
     STU --> PRES["modalPresenter · credentialPresenter<br/>Port.Approvals · Port.CredentialHolds"]
-    FP --> TERM["Port.Terminal(self)<br/>driveOwnedInteractive pumps keys · output · resize"]
+    STU --> ALERT["desktopAlert — platform.DesktopNotifier"]
+    FP --> TERM["Port.Terminal(self)<br/>driveOwnedInteractive copies its output into the pane"]
 
     RUNE --> LAUNCH["launcher Start / Wait"]
     WR --> LAUNCH
@@ -56,23 +53,28 @@ flowchart TD
 - `watchResize` emits the initial size, then one per SIGWINCH, latest-wins,
   and closes the channel on ctx cancel; the Windows build-tagged counterpart
   emits one size and closes.
-- `validateTerminalUIConfig` parses `ui.prefix_key`; a bad value records a
-  **fatal-class** strictness finding, consumed when `runState.gateStartup`
-  closes the startup phase — before anything is spawned. `setupTerminalUI`
-  builds the interceptor / surround bar / overlay factory; a bad key there
-  only warns and returns nil, reachable only under `--degraded` because the
-  gate already aborted otherwise.
-- `terminalUIIdentity` is what the surround bar displays. Everything the bar,
-  the overlay and the presenters show or do rides the session's frontend port
-  (`runState.frontendPort`, [core/frontend-port.md](../core/frontend-port.md)):
-  the overlay gets `tui.Sources{Port, Self}`, `surroundRoster` adapts the port's
-  `ListRuns` to `termui.RosterEntry`, the approval modal presents
-  `Port.Approvals()` and the credential notice polls `Port.CredentialHolds`.
-  None of them holds the coordinator (`TestArch_FrontendsHoldNoCoordinator`).
-- The modal is the approval queue's only presenter, so a run that does not
-  build this layer cannot present approvals, and marks its queue unattended
+- `validateTerminalUIConfig` parses `ui.prefix_key` (`tui.ParsePrefixKey`); a
+  bad value records a **fatal-class** strictness finding, consumed when
+  `runState.gateStartup` closes the startup phase — before anything is
+  spawned. `setupSplitView` starts the split view; a bad key there only warns
+  and returns nil, reachable only under `--degraded` because the gate already
+  aborted otherwise.
+- `prepareSessionIO` hands the split view the human's terminal (`os.Stdin`,
+  already raw, and `os.Stdout`) and the session's terminal from the port. The
+  split view then owns them: it reads the human's input itself and writes it
+  to the session's terminal, and sizes that terminal to its pane, so the
+  drive pumps no stdin and no resizes; the drive copies the engine's output
+  into `SplitView.Pane`. `terminalUIIdentity` is the panel's header.
+  Everything the split view and the presenters show or do rides the session's
+  frontend port (`runState.frontendPort`,
+  [core/frontend-port.md](../core/frontend-port.md)): the approval presenter
+  presents `Port.Approvals()` on `tui.SplitView`, and the credential notice
+  polls `Port.CredentialHolds` into the panel. None of them holds the
+  coordinator (`TestArch_FrontendsHoldNoCoordinator`).
+- The split view is the approval queue's only presenter, so a run that does
+  not start it cannot present approvals, and marks its queue unattended
   (`markUnattended`, over `coord.ApprovalQueue.Unattended`): `hostCoordinator`
-  for a one-shot owner, `prepareSessionIO` when no terminal layer engages
+  for a one-shot owner, `prepareSessionIO` when no split view starts
   (`--plain-terminal`, no tty, an unparseable prefix key). The queue then
   refuses every request no grant covers at once, at every depth, naming why
   and the remedy (`unattendedReason`): a permission rule, or the posture that
@@ -80,9 +82,16 @@ flowchart TD
   asker may be a child on an engine other than the root's. The startup
   warnings (`runState.warnPosture`) predict the same outcome from the same
   facts (`presentsApprovals`) before either has happened.
-- `driveOwnedInteractive` (`run_pty.go`) attaches the session's terminal through
-  `Port.Terminal(activeHarp)` — the run's pty — and pumps the wrapped stdin into
-  it, its output to stdout, and each resize onto it.
+- `driveOwnedInteractive` (`run_pty.go`) attaches the session's terminal
+  through `Port.Terminal(activeHarp)` — the run's pty — and `driveSession`
+  copies its output to the session's stdout (the pane, or the terminal
+  itself under `--plain-terminal`) until the runner exits. The split view
+  stopping on its own (`sessionIO.uiDone`) means the human's terminal failed
+  under it: like a drain that ended, that is output lost, and the runner is
+  ended; with the run's ctx it is the signal. Every exit path restores the
+  terminal: `SplitView.Close` draws the pane's last frame and gives the
+  terminal back (the alternate screen left, the mouse modes reset), then raw
+  mode is undone.
 - `redirectDiagnosticsForTUI` diverts `clidiag` warnings to
   `<harpdir>/diagnostics.log` and returns a restore func. It is installed
   only for interactive runs that own a terminal and did not pass
@@ -91,8 +100,8 @@ flowchart TD
   build-tagged signal set every long-lived command's `signal.NotifyContext`
   uses.
 
-`--plain-terminal` disables the whole ctxloom terminal layer — the prefix-key
-viewer and the surround bar — for one session.
+`--plain-terminal` disables the split view for one session: the engine draws
+on the terminal directly, and keystrokes and resizes are pumped onto its pty.
 
 ## The stdin invariant
 
@@ -116,12 +125,10 @@ additionally puts the **process-global** terminal into raw mode even when
 built over an arbitrary reader, so the "injectable reader" seam does not
 fully isolate from a real tty.
 
-## The split view (built, not yet wired)
+## The split view
 
-The split view replaces the surround bar and the summoned overlay with one
-compositor: the agent tree on the left, the selected agent's view on the right.
-It exists and is tested, but `ctxloom run` still drives `setupTerminalUI`; the
-pieces below are not on the run path yet.
+The split view is the interactive run's whole screen: the agent tree on the
+left, the selected agent's view on the right, drawn by one compositor.
 
 - **`internal/adapters/termemu`** is the one VT emulator seam. `termemu.Terminal`
   is the interface; `termemu.NewXVT` implements it over charmbracelet/x/vt. It
@@ -139,7 +146,17 @@ pieces below are not on the run path yet.
   interrupt). `ui.prefix_key` toggles focus between list and pane; every other
   key goes to the pane.
 - **Approvals keep their focus locks**: a keystroke typed for the engine never
-  answers an approval (`tui.SplitView` re-homes `PresentPolicy`).
+  answers an approval (`tui.PresentPolicy`). An approval arriving rings the
+  bell and raises a desktop notification beside it, both under one rate
+  limit (`approvalBellInterval`) and neither while the approvals view is
+  open. The notification is `platform.DesktopNotifier`: `notify-send` on
+  Linux, found as the engines' binaries are (`shellenv.Resolve`) and skipped
+  when absent; macOS and Windows show none yet. Approvals are answered only
+  in the terminal.
+- **claude draws whole frames**: its interactive launch keeps the classic
+  renderer (`CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN`) and forces synchronized
+  output (`CLAUDE_CODE_FORCE_SYNC_OUTPUT`), so the emulator commits each frame
+  at its end.
 - **Scroll mode reads the engine's history.** claude's pinned classic renderer
   scrolls what it has drawn off the top of the emulated screen into the
   emulator's history (`termemu.Terminal.History`; `Frame.History` counts it at
@@ -161,9 +178,8 @@ pieces below are not on the run path yet.
   termui and `tui.Split` both pass it, so wiring the split view in cannot quietly
   drop a behaviour the run depends on.
 
-Wiring it in means `setupTerminalUI` gives way to a split-view setup, the
-approval and credential presenters move onto `tui.SplitView`, and termui and the
-overlay are deleted.
+termui and the overlay it summoned are no longer on the run path; their
+deletion is pending.
 
 ## Terminal predicates
 
@@ -187,3 +203,6 @@ package variable so tests can substitute it.
 - **Diagnostics redirection is interactive-only.** `clidiag` warnings go to a
   per-harp log only when the run owns a terminal and `--plain-terminal` is
   not set.
+- **The terminal is given back on every exit.** `sessionIO.restore` closes
+  the split view before it undoes raw mode, on a clean exit, an error and a
+  signal alike.

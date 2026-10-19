@@ -144,8 +144,8 @@ func (w *World) resumeSessionOwner(harp string) error {
 	if _, err := sess.Write([]byte(sessionOwnerSentinel + "\n")); err != nil {
 		return fmt.Errorf("resumed session owner: type the readiness sentinel: %w", err)
 	}
-	if err := sess.WaitForScreen(eventBudget(), fmt.Sprintf("the resumed session owner's echo of %q", sessionOwnerSentinel), func(out string) bool {
-		return strings.Contains(out, "mock echo: "+sessionOwnerSentinel)
+	if err := sess.WaitForScreen(eventBudget(), fmt.Sprintf("the resumed session owner's echo of %q", sessionOwnerSentinel), func(string) bool {
+		return strings.Contains(sess.Display(), "mock echo: "+sessionOwnerSentinel)
 	}); err != nil {
 		return fmt.Errorf("resume the session owner: %w", err)
 	}
@@ -423,23 +423,23 @@ func tail(s string, n int) string {
 	return s[len(s)-n:]
 }
 
-// overlayPause opens the overlay in sess, selects harp's row and pauses it,
-// waiting on the overlay's own confirmation, then closes the overlay. Every
-// wait reads the screen (testenv.ScreenText) and never the bytes: the renderer
-// redraws only the cells that changed, so a confirmation drawn over the
-// pending hint ("pausing <harp>…") reuses the cells the two share and never
-// appears whole in the stream. The screen is replayed from Ctrl-], so every
-// cell the renderer skips was drawn inside the replay. The row is found by
-// its position in the first render (the selection starts on the first row).
+// overlayPause moves the split view's focus to its tree in sess, selects
+// harp's row and pauses it, waiting on the panel's own confirmation, then
+// hands focus back to the pane. Every wait reads the display
+// (testenv.PTYSession.Display) and never the bytes: the renderer redraws
+// only the cells that changed, so a confirmation drawn over the pending hint
+// ("pausing <harp>…") reuses the cells the two share and never appears whole
+// in the stream. The panel wraps its notes at its width, so a wait matches
+// either a whole display line or the panel's text with its wrapping undone.
+// The row is found by its position in the tree (the selection starts on the
+// session's own row, the first).
 func overlayPause(sess *testenv.PTYSession, harp string) error {
-	origin := len(sess.Output())
-	since := func(out string) string { return out[min(origin, len(out)):] }
 	waitFor := func(what string) error {
-		if err := sess.WaitForScreen(eventBudget(), fmt.Sprintf("the overlay's %q", what), func(out string) bool {
-			return strings.Contains(testenv.ScreenText(since(out)), what)
+		if err := sess.WaitForScreen(eventBudget(), fmt.Sprintf("the split view's %q", what), func(string) bool {
+			display := sess.Display()
+			return strings.Contains(display, what) || strings.Contains(squashed(panelText(display)), squashed(what))
 		}); err != nil {
-			out := since(sess.Output())
-			return fmt.Errorf("%w\nscreen since Ctrl-]:\n%s\noutput since Ctrl-]:\n%q", err, testenv.ScreenText(out), out)
+			return fmt.Errorf("%w\nthe display:\n%s", err, sess.Display())
 		}
 		return nil
 	}
@@ -452,7 +452,7 @@ func overlayPause(sess *testenv.PTYSession, harp string) error {
 	if err := waitFor(harp + "·"); err != nil {
 		return err
 	}
-	first := testenv.ScreenText(since(sess.Output()))
+	first := sess.Display()
 	row := overlayRow(first, harp)
 	if row < 0 {
 		return fmt.Errorf("could not find %s's row in the overlay's roster:\n%s", harp, first)
@@ -475,12 +475,12 @@ func overlayPause(sess *testenv.PTYSession, harp string) error {
 	return err
 }
 
-// overlayRow is harp's row index in the overlay's roster pane on screen
-// (testenv.ScreenText): its rows are the lines whose pane (left of "│") names a harp and
-// its role ("harp·role"); -1 when harp is not among them.
-func overlayRow(screen, harp string) int {
+// overlayRow is harp's row index in the split view's tree on the display:
+// its rows are the lines whose panel (left of "│") names a harp and its role
+// ("harp·role"); -1 when harp is not among them.
+func overlayRow(display, harp string) int {
 	n := 0
-	for _, line := range strings.Split(screen, "\n") {
+	for _, line := range strings.Split(display, "\n") {
 		pane, _, isRow := strings.Cut(line, "│")
 		if !isRow || !strings.Contains(pane, "·") {
 			continue
@@ -492,3 +492,17 @@ func overlayRow(screen, harp string) int {
 	}
 	return -1
 }
+
+// panelText is the split view's panel on the display: each line's text
+// left of the divider, in order.
+func panelText(display string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(display, "\n") {
+		panel, _, _ := strings.Cut(line, "│")
+		b.WriteString(panel)
+	}
+	return b.String()
+}
+
+// squashed is s with its whitespace removed.
+func squashed(s string) string { return strings.Join(strings.Fields(s), "") }

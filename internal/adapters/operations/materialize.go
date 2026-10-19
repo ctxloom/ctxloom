@@ -526,12 +526,16 @@ func refusalFix(k present.Kind, err error) string {
 	return "correct the file the reason names (it must parse, and ctxloom must be able to read it), then apply"
 }
 
+// writeFailureRemedy is the remedy for a delivery that failed for any cause
+// but a value that is not ctxloom's.
+const writeFailureRemedy = "fix the write failure, then re-run (ctxloom materialize)"
+
 // writeFailureFix is the remedy for a delivery that failed with err.
 func writeFailureFix(err error) string {
 	if errors.Is(err, fsstatic.ErrNotOurs) {
 		return notOursFix
 	}
-	return "fix the write failure, then re-run (ctxloom materialize)"
+	return writeFailureRemedy
 }
 
 // deliverMaterializedAt delivers pkg at p and records on out what landed,

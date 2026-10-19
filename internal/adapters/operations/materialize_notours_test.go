@@ -2,6 +2,8 @@ package operations
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -104,4 +106,11 @@ func TestDeliver_UnrecordedOutputFailsWithTheNotOursFix(t *testing.T) {
 			assert.Equal(t, notOursFix, found[0].Remedy)
 		})
 	}
+}
+
+// TestWriteFailureFix_OnlyNotOursGetsTheNotOursFix: any other write failure
+// keeps the generic remedy. MUTATION: the ErrNotOurs test always true → red.
+func TestWriteFailureFix_OnlyNotOursGetsTheNotOursFix(t *testing.T) {
+	assert.Equal(t, writeFailureRemedy, writeFailureFix(errors.New("disk full")))
+	assert.Equal(t, notOursFix, writeFailureFix(fmt.Errorf("deliver: %w", &fsstatic.NotOursError{Target: "/p/f"})))
 }

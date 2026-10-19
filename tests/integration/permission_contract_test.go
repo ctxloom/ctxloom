@@ -216,6 +216,29 @@ func TestPermissionContract_AnAskReachesTheQueueAndItsDecisionReturns(t *testing
 	}
 }
 
+// TestPermissionContract_AnUnattendedRootRefusesAtOnce: under a root no
+// presenter serves (a one-shot's), the child's ask travels the whole route —
+// the built hook, the runner's ledger, the run's link — and is refused the
+// moment it reaches the root's queue. Nothing is added for a presenter (the
+// asker's 5m timeout never starts), and the reason the engine applies, which
+// the parent reads in the child's report, names why.
+func TestPermissionContract_AnUnattendedRootRefusesAtOnce(t *testing.T) {
+	const why = "nobody can answer it: a --one-shot run has no terminal to approve in"
+	lane := newContractLane(t)
+	lane.c.Approvals().Unattended(why)
+	child := lane.delegate(t)
+
+	ev := lane.nextQueueEvent(t)
+	assert.Equal(t, coord.QueueResolved, ev.Kind, "refused on arrival, never added for a presenter: %+v", ev)
+	assert.Equal(t, agent.DeciderRefused, ev.Decider)
+	assert.Empty(t, lane.c.Approvals().Pending())
+
+	calls := blocked(t, lane.turnReport(t, child.Harp))
+	require.Len(t, calls, 1)
+	assert.Equal(t, contractTool, calls[0].Tool)
+	assert.Equal(t, why, calls[0].Reason)
+}
+
 // TestPermissionContract_AForgedAskNeverReachesTheQueue: a POST to the
 // child's /hook under its own bearer, naming a call the engine never
 // announced — a model's own curl, say — is refused by the ledger and never

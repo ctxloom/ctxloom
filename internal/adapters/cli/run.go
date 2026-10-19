@@ -733,14 +733,22 @@ func (st *runState) resumedTranscript() []composite.Fragment {
 }
 
 // warnPosture says out loud when the posture the run launches with is not
-// what the flag asked for, and when a one-shot has nobody to approve a gated
-// call.
+// what the flag asked for, which gated calls its resolved policy denies at
+// once (postureWarning), and — when nothing will present an approval — that
+// its children's would be too (unpresentedApprovalFinding).
 func (st *runState) warnPosture() {
 	if runPermissions != "" && runPermissions != st.permMode {
 		clidiag.Warn("ctxloom", "--permissions %q cannot be honoured as asked on %s; this run uses %q", runPermissions, st.backendName, st.permMode)
 	}
-	if st.launch.Mode == engine.Structured && st.permMode != permissionBypass {
-		clidiag.Warn("ctxloom", "--one-shot with %s permissions has no human to approve a gated call; every call the posture would ask about is denied at once, so those steps will not run", st.permMode)
+	presented := st.approvalsPresented()
+	if w := postureWarning(st.launch.Mode, st.launch.Permission, st.permMode, presented); w != "" {
+		clidiag.Warn("ctxloom", "%s", w)
+	}
+	if presented {
+		return // the root's terminal presents its children's asks
+	}
+	if f, ok := unpresentedApprovalFinding(presented, st.delegable()); ok {
+		clidiag.WarnRemedy("ctxloom", f.Remedy, "%s", f.Text)
 	}
 }
 

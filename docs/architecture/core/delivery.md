@@ -170,7 +170,10 @@ previewed. Pinned by `internal/adapters/fsstatic/preview_test.go` and
 Its consumer is `operations.Materialize`'s dry run (`operations.Preview`
 at a placement): a planned kind that differs is reported as written, a kind
 the plan no longer routes that differs as released, a refused kind as an
-`operations.KindRefusal` with its fix. The post-sync refresh without `--yes`
+`operations.KindRefusal` with its fix. An `ErrNotOurs` refusal's fix (the
+dry run's, and the apply's remedy) fits both values that can stand there:
+the user's own, and an earlier ctxloom's output whose record no longer
+counts. The post-sync refresh without `--yes`
 reports that as `RefreshSkipped` only when something differs or is
 refused, so a project already current gets no note.
 

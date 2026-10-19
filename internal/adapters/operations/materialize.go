@@ -505,6 +505,11 @@ func previewMaterializedAt(ctx context.Context, root safefs.Root, kind engine.En
 	return plan, nil
 }
 
+// notOursFix is the fix for a value ctxloom has no record of writing
+// (fsstatic.ErrNotOurs). It fits both values that can stand there: the
+// user's own, and an earlier ctxloom's output whose record no longer counts.
+const notOursFix = "ctxloom has no record of writing the value at the place named: if it is an earlier ctxloom's output it is safe to delete by hand, if it is yours move it aside; then apply"
+
 // refusalFix is what the human changes so a refused kind can land: the
 // refusal's own remedy when it carries one, else the change its cause asks
 // for.
@@ -514,11 +519,19 @@ func refusalFix(k present.Kind, err error) string {
 	case errors.As(err, &r) && r.Remedy() != "":
 		return r.Remedy()
 	case errors.Is(err, fsstatic.ErrNotOurs):
-		return "ctxloom will not overwrite a value it did not put there: move or remove yours at the place named, then apply"
+		return notOursFix
 	case errors.Is(err, fsstatic.ErrDeclaredMissing), errors.Is(err, fsstatic.ErrDeclaredUnclaimed):
 		return fmt.Sprintf("release the kind with 'ctxloom materialize --release --yes --surface %s', then apply it again", k)
 	}
 	return "correct the file the reason names (it must parse, and ctxloom must be able to read it), then apply"
+}
+
+// writeFailureFix is the remedy for a delivery that failed with err.
+func writeFailureFix(err error) string {
+	if errors.Is(err, fsstatic.ErrNotOurs) {
+		return notOursFix
+	}
+	return "fix the write failure, then re-run (ctxloom materialize)"
 }
 
 // deliverMaterializedAt delivers pkg at p and records on out what landed,
@@ -531,7 +544,7 @@ func deliverMaterializedAt(ctx context.Context, root safefs.Root, kind engine.En
 		out.Skipped = append(out.Skipped, f.Text)
 	}
 	if err != nil {
-		strictness.Fail(report.KindApply, "fix the write failure, then re-run (ctxloom materialize)", "materialize %s: %v", out.Engine, err)
+		strictness.Fail(report.KindApply, writeFailureFix(err), "materialize %s: %v", out.Engine, err)
 		out.Warnings = append(out.Warnings, err.Error())
 	}
 	for i, k := range delivered.Wrote {

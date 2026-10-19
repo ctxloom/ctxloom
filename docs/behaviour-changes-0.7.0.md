@@ -353,7 +353,10 @@ default agent's; with no `--backend`, the project's configured engines.
   `ctxloom hook <verb>` entries and HUD statusline it sweeps from a settings
   file no record names; see below), and `ctxloom run` does not warn about
   context written under them, so a section it appended may appear twice
-  until you remove the old one by hand.
+  until you remove the old one by hand. A command or skill file such a build
+  wrote that differs from this build's is refused as not ctxloom's, and the
+  refusal's fix says it may be an earlier ctxloom's output, safe to delete
+  by hand.
 - **The post-sync refresh** (after `deps pull`, or a `ctxloom run` startup
   sync that installs a remote bundle) writes the project root only when you
   pass `--yes`: `ctxloom deps pull --yes`, `ctxloom run --yes`. That is the

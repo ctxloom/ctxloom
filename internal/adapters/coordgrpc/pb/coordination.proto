@@ -247,10 +247,10 @@ service CoordinatorService {
 
 message RunnerFrame {
   oneof kind {
-    RunnerHello hello = 1;            // first frame on every (re)connect
+    RunnerHello hello = 1; // first frame on every (re)connect
     RunnerResponse response = 2;
-    RunnerHeartbeat heartbeat = 3;    // fire-and-forget
-    RunExited run_exited = 4;         // process-level fact, see below
+    RunnerHeartbeat heartbeat = 3; // fire-and-forget
+    RunExited run_exited = 4; // process-level fact, see below
   }
 }
 
@@ -275,7 +275,7 @@ message RunnerHello {
   // MUST NOT StartRun a harness the runner didn't advertise.
   repeated string harnesses = 2;
   uint32 max_concurrent_runs = 3;
-  map<string, string> labels = 4;  // placement hints: region, gpu, repo...
+  map<string, string> labels = 4; // placement hints: region, gpu, repo...
   // Runs still alive from before a reconnect, so the runtime reconciles
   // instead of double-spawning.
   repeated string active_run_ids = 5;
@@ -314,7 +314,7 @@ message RunnerRequest {
 
 message RunnerResponse {
   string request_id = 1;
-  google.rpc.Status status = 2;  // RESOURCE_EXHAUSTED when at capacity
+  google.rpc.Status status = 2; // RESOURCE_EXHAUSTED when at capacity
   oneof kind {
     StartRunResult start_run = 10;
     StopRunResult stop_run = 11;
@@ -369,25 +369,25 @@ message StartRun {
 message Launch {
   // 6 was the bare PermissionMode posture; the whole policy rides 19.
   reserved 6;
-  Identity identity = 1;             // harp, run_id, depth, one_shot, project
+  Identity identity = 1; // harp, run_id, depth, one_shot, project
   string engine = 2;
   LabelConfig label = 3;
   Mode mode = 5;
   Axes axes = 7;
   Cell cell = 8;
   repeated HomeBinding home = 9;
-  Carrier package = 10;              // oneof { bytes inline; Claim claim } + digest
+  Carrier package = 10; // oneof { bytes inline; Claim claim } + digest
   Exports exports = 11;
-  Plan plan = 12;                    // routes only, never bytes
+  Plan plan = 12; // routes only, never bytes
   Index index = 13;
-  Endpoint mcp = 14;                 // URL + bearer: the runner binds it; the engine's .mcp.json names it
+  Endpoint mcp = 14; // URL + bearer: the runner binds it; the engine's .mcp.json names it
   string prompt = 15;
   ResumeRef resume = 16;
-  map<string, string> env = 17;      // engine passthrough only
-  Axes declared = 18;                // the axes as ASKED (empty where nothing declared them); axes is what they settled to
-  PermissionPolicy permission = 19;  // resolved ONCE by the resolver; the runner honours exactly what it is told
-  WorkspaceTrust trust = 20;         // the engine's verdict on the repository, taken where the cell was prepared
-  bool tool_less = 21;               // launch.Launch.ToolLess: the runner binds the session through the engine's own tool-less launch (engine.ToolLess)
+  map<string, string> env = 17; // engine passthrough only
+  Axes declared = 18; // the axes as ASKED (empty where nothing declared them); axes is what they settled to
+  PermissionPolicy permission = 19; // resolved ONCE by the resolver; the runner honours exactly what it is told
+  WorkspaceTrust trust = 20; // the engine's verdict on the repository, taken where the cell was prepared
+  bool tool_less = 21; // launch.Launch.ToolLess: the runner binds the session through the engine's own tool-less launch (engine.ToolLess)
 }
 
 // WorkspaceTrust is engine.WorkspaceTrust. Only TRUSTED lets the
@@ -448,7 +448,7 @@ message PermissionPolicy {
   bool network = 10;
   string engine = 11;
   google.protobuf.Struct posture = 12;
-  string label = 13;  // the engine's display name for the posture; shown, never compared
+  string label = 13; // the engine's display name for the posture; shown, never compared
 }
 
 // Sandbox is engine.Sandbox. UNSPECIFIED never rides a resolved launch; the
@@ -674,9 +674,9 @@ message TurnResult {
 }
 
 message HarnessSpec {
-  string harness = 1;    // must be in RunnerHello.harnesses
+  string harness = 1; // must be in RunnerHello.harnesses
   string model = 2;
-  string workspace = 3;  // working directory / checkout the runner prepares
+  string workspace = 3; // working directory / checkout the runner prepares
   // 4 was extra_args (repeated string), REMOVED: it
   // documented an allowlist enforcement point that never existed and no
   // runner ever read the field. Reintroducing per-run CLI arguments means
@@ -727,7 +727,7 @@ message StartRunResult {
 message RunFinding {
   string text = 1;
   string remedy = 2;
-  bool once = 3;      // render at most once per text (report.Finding.Once)
+  bool once = 3; // render at most once per text (report.Finding.Once)
 }
 
 // Stop a run. To the RUNNER it is interrupt-then-close: the turn in flight is
@@ -735,21 +735,17 @@ message RunFinding {
 // reported); a parked run closes at once. The coordinator ends the run's
 // record and reclaims the runner after that answer, or when it does not come.
 message StopRun {
-  option (message_schema) = {
-    doc: "Stop delegated child sessions. This verb has TWO SHAPES, chosen by whether run_id is given. (1) run_id GIVEN: stop that ONE child run. (2) run_id OMITTED: stop EVERY live child of this session — the bulk sweep. Omitting run_id is NOT \"stop nothing\" and there is no default target: it addresses all of your live children at once (each running turn is interrupted, all together, and forced only if it is still running when the drain bound elapses), and the result names every child with its outcome. Because of that, the omitted-run_id shape REQUIRES reason — an accidental omission is refused rather than stopping everything silently. In both shapes a turn the child is running is INTERRUPTED and given grace to end — so it reports that it was cut short — before its engine (or container) is killed; its execution slot frees, its credential is revoked, and the stop is journaled. The session stays resumable — a later agent_send relaunches its harp as a fresh run primed with its recorded history. Use the sweep to reclaim slots and containers held by children that have finished (they stay open, resumable, until stopped); a run_id captured at spawn is STALE after any resume, so the sweep never asks you for one."
-  };
+  option (message_schema) = {doc: "Stop delegated child sessions. This verb has TWO SHAPES, chosen by whether run_id is given. (1) run_id GIVEN: stop that ONE child run. (2) run_id OMITTED: stop EVERY live child of this session — the bulk sweep. Omitting run_id is NOT \"stop nothing\" and there is no default target: it addresses all of your live children at once (each running turn is interrupted, all together, and forced only if it is still running when the drain bound elapses), and the result names every child with its outcome. Because of that, the omitted-run_id shape REQUIRES reason — an accidental omission is refused rather than stopping everything silently. In both shapes a turn the child is running is INTERRUPTED and given grace to end — so it reports that it was cut short — before its engine (or container) is killed; its execution slot frees, its credential is revoked, and the stop is journaled. The session stays resumable — a later agent_send relaunches its harp as a fresh run primed with its recorded history. Use the sweep to reclaim slots and containers held by children that have finished (they stay open, resumable, until stopped); a run_id captured at spawn is STALE after any resume, so the sweep never asks you for one."};
 
-  string run_id = 1 [(field_schema) = {
-    doc: "The ONE child run to stop (from spawn's child_run_id, or the roster's current run_id — a resumed child runs under a FRESH run_id, so a run_id captured at spawn is stale after any resume). OMIT this to stop EVERY live child of this session instead (the bulk sweep), which then requires reason."
-  }];
+  string run_id = 1 [(field_schema) = {doc: "The ONE child run to stop (from spawn's child_run_id, or the roster's current run_id — a resumed child runs under a FRESH run_id, so a run_id captured at spawn is stale after any resume). OMIT this to stop EVERY live child of this session instead (the bulk sweep), which then requires reason."}];
   string reason = 2 [(field_schema) = {
-    doc: "Why you are stopping. REQUIRED when run_id is omitted (the bulk sweep stops every live child of this session and is never done silently); optional when run_id is given. Recorded on each run's terminal record and in the coordinator audit log, and shown in the roster's cause — say something a later reader can act on (\"superseded by a narrower brief\", \"fan-out complete; reclaiming idle workers\")",
+    doc: "Why you are stopping. REQUIRED when run_id is omitted (the bulk sweep stops every live child of this session and is never done silently); optional when run_id is given. Recorded on each run's terminal record and in the coordinator audit log, and shown in the roster's cause — say something a later reader can act on (\"superseded by a narrower brief\", \"fan-out complete; reclaiming idle workers\")"
     example: "\"superseded by a narrower brief\""
   }];
   // 3 was an earlier grace no code path read; never reuse the number.
   reserved 3;
   google.protobuf.Duration grace = 4 [(field_schema) = {
-    doc: "How long the child's running turn gets to end after it is interrupted, before its engine is killed — each child's, when run_id is omitted. OMIT for the default, 10 s.",
+    doc: "How long the child's running turn gets to end after it is interrupted, before its engine is killed — each child's, when run_id is omitted. OMIT for the default, 10 s."
     example: "\"10s\""
   }];
 }
@@ -805,7 +801,7 @@ message KillRunResult {}
 // runner. A runner needs nothing beyond PauseRun's own contract to honour it.
 message PauseRun {
   string run_id = 1;
-  string reason = 2;  // recorded in the coordinator's audit journal
+  string reason = 2; // recorded in the coordinator's audit journal
 }
 
 message PauseRunResult {
@@ -873,9 +869,9 @@ message RunnerHeartbeat {
 message RunExited {
   string run_id = 1;
   int32 exit_code = 2;
-  string signal = 3;              // e.g. "SIGKILL", empty if clean exit
-  bool terminal_event_seen = 4;   // RunCompleted was emitted before exit
-  string harness_session_id = 5;  // resume handle, if the harness left one
+  string signal = 3; // e.g. "SIGKILL", empty if clean exit
+  bool terminal_event_seen = 4; // RunCompleted was emitted before exit
+  string harness_session_id = 5; // resume handle, if the harness left one
 }
 
 // =============================================================================
@@ -889,10 +885,10 @@ message AgentFrame {
   reserved 4;
 
   oneof kind {
-    Hello hello = 1;                    // first frame on every (re)connect
-    AgentEvent event = 2;               // plane 1: durable, sequenced
-    AgentRequest request = 3;           // plane 2: agent asks coordinator
-    Heartbeat heartbeat = 5;            // plane 3
+    Hello hello = 1; // first frame on every (re)connect
+    AgentEvent event = 2; // plane 1: durable, sequenced
+    AgentRequest request = 3; // plane 2: agent asks coordinator
+    Heartbeat heartbeat = 5; // plane 3
 
     // The spool doorbell, runner -> coordinator (an out/ create, or an in/
     // delivery ack). TOP-LEVEL, deliberately NOT an AgentEvent: events
@@ -914,14 +910,14 @@ message CoordinatorFrame {
 
   oneof kind {
     HelloAck hello_ack = 1;
-    Ack ack = 2;                        // plane 3: event-plane watermark
-    CoordinatorResponse response = 4;   // plane 2: coordinator answers agent
-    CoordinatorNotice notice = 5;       // plane 3: fire-and-forget
+    Ack ack = 2; // plane 3: event-plane watermark
+    CoordinatorResponse response = 4; // plane 2: coordinator answers agent
+    CoordinatorNotice notice = 5; // plane 3: fire-and-forget
   }
 }
 
 message Hello {
-  string task_id = 1;   // coordinator-assigned unit of work
+  string task_id = 1; // coordinator-assigned unit of work
   // UUID per attempt; retries get a fresh run_id. Ownership of the
   // run_id is validated against the connection credential it was issued
   // to — presenting someone else's run_id is a rejected Hello. MAY be
@@ -936,7 +932,7 @@ message Hello {
   // (HelloAck.committed_seq), which is never below this.
   uint64 resume_from_seq = 4;
 
-  uint32 protocol_version = 5;  // this file: 1
+  uint32 protocol_version = 5; // this file: 1
 
   // ACP-style capability strings ("approvals", "state_delta",
   // "on_demand_summary"). The coordinator MUST NOT send request kinds the
@@ -949,13 +945,13 @@ message Hello {
 // agent_id and runner_id are coordinator-assigned and validated against
 // the connection credential — never self-claimed by the agent process.
 message AgentIdentity {
-  string agent_id = 1;       // stable identity across runs
+  string agent_id = 1; // stable identity across runs
   string display_name = 2;
-  string harness = 3;        // e.g. "claude-code"
+  string harness = 3; // e.g. "claude-code"
   string harness_version = 4;
   string model = 5;
-  string role = 6;           // coordinator-assigned role, e.g. "reviewer"
-  string runner_id = 7;      // which runner hosts this agent's process
+  string role = 6; // coordinator-assigned role, e.g. "reviewer"
+  string runner_id = 7; // which runner hosts this agent's process
   // Resolved container name when this agent's engine runs under container
   // isolation; empty for host runtime. Randomly suffixed at spawn and
   // force-removed on teardown, so it cannot be derived from agent_id and is
@@ -967,7 +963,7 @@ message AgentIdentity {
 
 message HelloAck {
   bool accepted = 1;
-  google.rpc.Status reject_reason = 2;  // set iff !accepted
+  google.rpc.Status reject_reason = 2; // set iff !accepted
   // THE RESUME CURSOR, authoritative: every event of the run at or below it
   // is durably recorded by the coordinator. It is the higher of
   // Hello.resume_from_seq and the run's durable event watermark — the highest
@@ -999,7 +995,7 @@ message Ack {
 message Heartbeat {
   string run_id = 1;
   google.protobuf.Timestamp sent_at = 2;
-  optional double progress = 3;              // 0.0..1.0 instantaneous
+  optional double progress = 3; // 0.0..1.0 instantaneous
   optional uint64 context_tokens_used = 4;
   // The model's context window context_tokens_used is out of, when the
   // engine reports one. A runner sends both as each turn completes.
@@ -1090,9 +1086,9 @@ message CoordinatorResponse {
     SpawnAgentResult spawn_agent = 12;
     PeerSendResult peer_send = 13;
     ListRunsResult list_runs = 14;
-    StopRunResult stop_run = 16;  // answers AgentRequest.stop_run
-    ControlRunResult control_run = 17;  // answers AgentRequest.control_run
-    HostResult host = 18;  // answers AgentRequest.host
+    StopRunResult stop_run = 16; // answers AgentRequest.stop_run
+    ControlRunResult control_run = 17; // answers AgentRequest.control_run
+    HostResult host = 18; // answers AgentRequest.host
   }
   // 90 was custom (Struct): the answer to the untyped relay AgentRequest
   // reserves at 90. RESERVED, never renumbered.
@@ -1109,36 +1105,36 @@ message ApprovalRequest {
   reserved 1;
   reserved "kind";
   string tool = 2;
-  bytes input = 3;                    // the tool call's input, canonical JSON
+  bytes input = 3; // the tool call's input, canonical JSON
   string tool_use_id = 4;
-  repeated string suggestions = 5;    // engine-native session rules on offer
-  string suggests_set_mode = 6;       // a posture in the asker's engine's vocabulary, or empty
+  repeated string suggestions = 5; // engine-native session rules on offer
+  string suggests_set_mode = 6; // a posture in the asker's engine's vocabulary, or empty
   // 7 and 8 carried a plan and questions; neither is an approval. 9 was the
   // ceiling an allow could set; transitions replace it.
   reserved 7, 8, 9;
   reserved "plan", "questions";
-  google.protobuf.Duration timeout = 10;  // unset = the default; capped
-  repeated PostureTransition transitions = 11;  // the postures an allow may set, exactly one the default
+  google.protobuf.Duration timeout = 10; // unset = the default; capped
+  repeated PostureTransition transitions = 11; // the postures an allow may set, exactly one the default
 }
 
 // PostureTransition is engine.PostureTransition: a posture an approval may
 // move the asker to. default is explicit; an offer's order means nothing.
 message PostureTransition {
-  string posture = 1;  // the asker's engine's token, opaque to the coordinator
-  string label = 2;    // the engine's display name for it
-  bool default = 3;    // the one the engine continues at when nobody chooses
+  string posture = 1; // the asker's engine's token, opaque to the coordinator
+  string label = 2; // the engine's display name for it
+  bool default = 3; // the one the engine continues at when nobody chooses
 }
 
 // The decision on one ApprovalRequest. decider names who decided (human,
 // timeout, cancelled, refused, ...), in the agent.Decider vocabulary.
 message ApprovalDecision {
   bool allow = 1;
-  repeated string session_rules = 2;  // allow-for-session: session scope only
-  string set_mode = 3;                // one of the request's transitions, or empty
+  repeated string session_rules = 2; // allow-for-session: session scope only
+  string set_mode = 3; // one of the request's transitions, or empty
   // 4 answered questions, which are not approvals.
   reserved 4;
   reserved "answers";
-  string message = 5;                 // a deny's note
+  string message = 5; // a deny's note
   string decider = 6;
 }
 
@@ -1146,8 +1142,8 @@ message ApprovalDecision {
 // answer from policy/cache instead — the agent can't tell, by design).
 message UserInputRequest {
   string prompt = 1;
-  repeated string choices = 2;         // empty => free text
-  google.protobuf.Struct schema = 3;   // optional JSON Schema for the answer
+  repeated string choices = 2; // empty => free text
+  google.protobuf.Struct schema = 3; // optional JSON Schema for the answer
 }
 
 message UserInputResult {
@@ -1162,30 +1158,31 @@ message UserInputResult {
 // roster. There is no budget carve-out and no result push — see the fields
 // removed below.
 message SpawnAgentRequest {
-  option (message_schema) = {
-    doc: "Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's ids (child_agent_id is its harp — its address and continuation token); results, questions, and reports come back as mailbox messages; mail sent to you arrives as context, at your next tool call while you are mid-turn and otherwise as the turn its arrival starts, so there is nothing to poll or wait on. Follow-ups go down with agent_send. Children execute serially (a spawn past the cap queues) and run headless: any permission posture is accepted, and a tool call the posture would prompt for is denied instead — that turn comes back BLOCKED, naming the tool."
-  };
+  option (message_schema) = {doc: "Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's ids (child_agent_id is its harp — its address and continuation token); results, questions, and reports come back as mailbox messages; mail sent to you arrives as context, at your next tool call while you are mid-turn and otherwise as the turn its arrival starts, so there is nothing to poll or wait on. Follow-ups go down with agent_send. Children execute serially (a spawn past the cap queues) and run headless: any permission posture is accepted, and a tool call the posture would prompt for is denied instead — that turn comes back BLOCKED, naming the tool."};
 
   // e.g. "test-writer"
   string role = 1 [(field_schema) = {
-    required: true,
-    doc: "Configured ctxloom agent name to launch (its composed profiles, engine binding, runtime axis, and permissions are honored; see `ctxloom agent list`)",
+    required: true
+    doc: "Configured ctxloom agent name to launch (its composed profiles, engine binding, runtime axis, and permissions are honored; see `ctxloom agent list`)"
     example: "\"code-reviewer\""
   }];
   // child task input
   google.protobuf.Struct input = 2 [(field_schema) = {
-    required: true,
-    doc: "Child task input. `prompt` carries the child's briefing, delivered as its first turn. Optional `workspace` (\"none\"|\"worktree\"): \"none\" runs the child in the parent's live project checkout (it can stomp the parent's files, and sees the parent's uncommitted edits); \"worktree\" carves the child its own git worktree on its own branch. A worktree checkout only ever sees committed state, so before a new worktree is carved ctxloom commits the parent's uncommitted and untracked changes off-branch and carves the child from that commit, so the child sees them; the parent's branch advances to that commit only once the child has started (a launch that fails leaves it untouched); when the child's run ends, whatever its worktree holds uncommitted is committed on the child's own branch. Empty defers to the project config if it sets one explicitly, otherwise defaults to worktree. This isolates the child's WORKING FILES only — it does not isolate the engine's own global config/credentials/session store from the parent's.",
-    example: "{\"prompt\": \"Review the diff on branch X for correctness bugs\"}",
+    required: true
+    doc: "Child task input. `prompt` carries the child's briefing, delivered as its first turn. Optional `workspace` (\"none\"|\"worktree\"): \"none\" runs the child in the parent's live project checkout (it can stomp the parent's files, and sees the parent's uncommitted edits); \"worktree\" carves the child its own git worktree on its own branch. A worktree checkout only ever sees committed state, so before a new worktree is carved ctxloom commits the parent's uncommitted and untracked changes off-branch and carves the child from that commit, so the child sees them; the parent's branch advances to that commit only once the child has started (a launch that fails leaves it untouched); when the child's run ends, whatever its worktree holds uncommitted is committed on the child's own branch. Empty defers to the project config if it sets one explicitly, otherwise defaults to worktree. This isolates the child's WORKING FILES only — it does not isolate the engine's own global config/credentials/session store from the parent's."
+    example: "{\"prompt\": \"Review the diff on branch X for correctness bugs\"}"
     property: [
       {
-        name: "prompt",
+        name: "prompt"
         doc: "The child's briefing, delivered as its first turn"
       },
       {
-        name: "workspace",
-        doc: "Where the child's working files live. \"none\" runs it in the parent's live project checkout (it can stomp the parent's files, and sees the parent's uncommitted edits); \"worktree\" carves it its own git worktree on its own branch, committing the parent's uncommitted edits first so it sees them. OMIT to defer to the project config, which defaults a delegated child to worktree.",
-        enum_values: ["none", "worktree"]
+        name: "workspace"
+        doc: "Where the child's working files live. \"none\" runs it in the parent's live project checkout (it can stomp the parent's files, and sees the parent's uncommitted edits); \"worktree\" carves it its own git worktree on its own branch, committing the parent's uncommitted edits first so it sees them. OMIT to defer to the project config, which defaults a delegated child to worktree."
+        enum_values: [
+          "none",
+          "worktree"
+        ]
       }
     ]
   }];
@@ -1301,26 +1298,24 @@ enum MessageKind {
 // delivers to the target as a CoordinatorNotice.PeerMessage. No agent
 // mesh, one policy chokepoint, and offline targets get queued delivery.
 message PeerSendRequest {
-  option (message_schema) = {
-    doc: "Send a message to another agent session. Messaging follows the delegation tree: you reach only your own parent and your own children. Address a child of yours by harp (to_agent_id) — delivery starts a new turn on an idle child, reaches a busy one at its next tool call (or at its turn boundary if it makes none), or resumes an ended session. The answer says it is queued, not received: a child's unread mail shows in the roster's `unread`. Address your parent with to_role: \"parent\"; mail to a parent whose run has ended resumes it. The root session has no parent; reach a deeper agent through its own parent, never past it. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts. `kind` is REQUIRED and its vocabulary is CLOSED: you may send MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, or MESSAGE_KIND_QUESTION, and any other value — a coordinator-reserved one, or one this build does not know — is REFUSED rather than accepted-and-ignored. Lead with the most important point and the evidence for it. Write the rest in decreasing order of importance. Only the first 8 KiB is shown inline; anything longer is attached as an artifact the reader opens with \"keep reading for more detail\", so put nothing essential below the fold."
-  };
+  option (message_schema) = {doc: "Send a message to another agent session. Messaging follows the delegation tree: you reach only your own parent and your own children. Address a child of yours by harp (to_agent_id) — delivery starts a new turn on an idle child, reaches a busy one at its next tool call (or at its turn boundary if it makes none), or resumes an ended session. The answer says it is queued, not received: a child's unread mail shows in the roster's `unread`. Address your parent with to_role: \"parent\"; mail to a parent whose run has ended resumes it. The root session has no parent; reach a deeper agent through its own parent, never past it. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts. `kind` is REQUIRED and its vocabulary is CLOSED: you may send MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, or MESSAGE_KIND_QUESTION, and any other value — a coordinator-reserved one, or one this build does not know — is REFUSED rather than accepted-and-ignored. Lead with the most important point and the evidence for it. Write the rest in decreasing order of importance. Only the first 8 KiB is shown inline; anything longer is attached as an artifact the reader opens with \"keep reading for more detail\", so put nothing essential below the fold."};
 
   // or...
   string to_agent_id = 1 [(field_schema) = {
-    doc: "Recipient agent id — a child session harp (from spawn's child_agent_id or the roster). Exactly one of to_agent_id / to_role is set",
+    doc: "Recipient agent id — a child session harp (from spawn's child_agent_id or the roster). Exactly one of to_agent_id / to_role is set"
     example: "\"swift-amber-falcon\""
   }];
   // ...broadcast to all agents with role
   string to_role = 2 [(field_schema) = {
-    doc: "Role address. The only role is \"parent\": your own parent, for a delegated session. Address your own children by to_agent_id; there is no address for a sibling or a deeper descendant",
+    doc: "Role address. The only role is \"parent\": your own parent, for a delegated session. Address your own children by to_agent_id; there is no address for a sibling or a deeper descendant"
     example: "\"parent\""
   }];
   string text = 3 [(field_schema) = {
-    required: true,
+    required: true
     doc: "Message body (compact: findings, questions, verdicts — bulk detail stays in the session transcript)"
   }];
   google.protobuf.Struct structured = 4 [(field_schema) = {
-    doc: "Optional structured companion, carried opaque alongside the body. A `kind` key here is NOT the message kind: name the kind in the `kind` field.",
+    doc: "Optional structured companion, carried opaque alongside the body. A `kind` key here is NOT the message kind: name the kind in the `kind` field."
     example: "{\"decision\": \"DECISION_ACCEPT\"}"
   }];
   // The message's kind, from the closed MessageKind vocabulary. Only the
@@ -1330,7 +1325,7 @@ message PeerSendRequest {
   // This REPLACES the retired `structured["kind"]` convention. `kind` in
   // `structured` is now just an ordinary payload key with no special meaning.
   MessageKind kind = 7 [(field_schema) = {
-    doc: "REQUIRED. The message's kind, from a CLOSED vocabulary of exactly four values you may send: MESSAGE_KIND_MESSAGE (plain prose, claiming no special authority), MESSAGE_KIND_RESULT (your findings/verdict/deliverable), MESSAGE_KIND_ERROR (a failure the recipient must act on), MESSAGE_KIND_QUESTION (you expect an answer back). Every OTHER value is the coordinator's own and is REJECTED from a sender, not quietly downgraded — a reserved kind asks the recipient to trust the coordinator's authorship, so a sender able to set one could borrow that authority. An unrecognised value is likewise REJECTED rather than passed through, and so is leaving this unset: the send fails, naming the four legal values. Nothing you write here is ever interpolated into text the recipient reads — the kind renders only as a name from this closed set.",
+    doc: "REQUIRED. The message's kind, from a CLOSED vocabulary of exactly four values you may send: MESSAGE_KIND_MESSAGE (plain prose, claiming no special authority), MESSAGE_KIND_RESULT (your findings/verdict/deliverable), MESSAGE_KIND_ERROR (a failure the recipient must act on), MESSAGE_KIND_QUESTION (you expect an answer back). Every OTHER value is the coordinator's own and is REJECTED from a sender, not quietly downgraded — a reserved kind asks the recipient to trust the coordinator's authorship, so a sender able to set one could borrow that authority. An unrecognised value is likewise REJECTED rather than passed through, and so is leaving this unset: the send fails, naming the four legal values. Nothing you write here is ever interpolated into text the recipient reads — the kind renders only as a name from this closed set."
     example: "\"MESSAGE_KIND_RESULT\""
   }];
   // 5 was artifact_ids (repeated string), REMOVED:
@@ -1342,21 +1337,21 @@ message PeerSendRequest {
   // `text` or `structured` to point a peer at one.
   reserved 5;
   string in_reply_to = 6 [(field_schema) = {
-    doc: "Correlates this reply to an earlier inbound PeerMessage.message_id. It is the ONLY correlation key — set it to a coordinator question's message_id to answer that question.",
+    doc: "Correlates this reply to an earlier inbound PeerMessage.message_id. It is the ONLY correlation key — set it to a coordinator question's message_id to answer that question."
     example: "\"m-7f856e302456956b4f91ee01\""
   }];
 }
 
 message PeerSendResult {
-  string message_id = 1;  // coordinator-assigned
+  string message_id = 1; // coordinator-assigned
   enum Delivery {
     DELIVERY_UNSPECIFIED = 0;
-    DELIVERY_DELIVERED = 1;   // target connected, frame written
+    DELIVERY_DELIVERED = 1; // target connected, frame written
     // Target offline; queued delivery is durable, role-addressed
     // mailbox state at the coordinator — it survives coordinator
     // process restarts and is delivered when the target reattaches.
     DELIVERY_QUEUED = 2;
-    DELIVERY_DENIED = 3;      // policy refused (also reflected in status)
+    DELIVERY_DENIED = 3; // policy refused (also reflected in status)
   }
   Delivery delivery = 2;
 }
@@ -1364,9 +1359,7 @@ message PeerSendResult {
 // Sibling discovery/observability, so a parent can watch its children
 // (or peers watch each other) without private channels.
 message ListRunsRequest {
-  option (message_schema) = {
-    doc: "List this session's delegated children (the roster): each entry's harp (agent_id), current run_id, state, latest report summary, and last activity. Terminal (ended) children are included only with include_terminal."
-  };
+  option (message_schema) = {doc: "List this session's delegated children (the roster): each entry's harp (agent_id), current run_id, state, latest report summary, and last activity. Terminal (ended) children are included only with include_terminal."};
 
   // 1 was task_id (string), 4 was include_descendants (bool) — both
   // REMOVED. serveListRuns read neither. There is no
@@ -1375,7 +1368,7 @@ message ListRunsRequest {
   // carry parent_run_id, so `include_descendants: true` could only ever
   // return the identical list.
   reserved 1, 4;
-  string role = 2;             // filter
+  string role = 2; // filter
   bool include_terminal = 3;
 }
 
@@ -1390,7 +1383,7 @@ message ListRunsResult {
     // include_terminal is set. Produced from the roster fold's state
     // (coord/folds.go), which a test pins this list against.
     string phase = 4;
-    string latest_summary = 5;     // most recent Summary.text, truncated
+    string latest_summary = 5; // most recent Summary.text, truncated
     google.protobuf.Timestamp last_event_at = 6;
     // Empty for a depth-1 (top-level) child; set for a depth-2+ grandchild to
     // the SPAWNING run's run_id, so a roster consumer can render the
@@ -1491,21 +1484,17 @@ message ControlRunResult {
 }
 
 message ControlSteer {
-  option (message_schema) = {
-    doc: "Steer one of your delegated children: deliver an instruction it acts on as its next turn. The instruction is a DURABLE file in the child's own inbox spool — it survives the child's relaunch, is visible while unread, and the returned message_id is the handle to withdraw it before the child reads it. Delivery follows the child's state: an idle child is woken into a new turn, a busy one sees it at its next tool call (or its next turn boundary if it makes none), an ended one is resumed with it. Only your OWN children may be steered (the target's parent must be you; you cannot steer yourself). This is an instruction, not a conversation — the child does not answer it; use agent_ask when you expect an answer."
-  };
+  option (message_schema) = {doc: "Steer one of your delegated children: deliver an instruction it acts on as its next turn. The instruction is a DURABLE file in the child's own inbox spool — it survives the child's relaunch, is visible while unread, and the returned message_id is the handle to withdraw it before the child reads it. Delivery follows the child's state: an idle child is woken into a new turn, a busy one sees it at its next tool call (or its next turn boundary if it makes none), an ended one is resumed with it. Only your OWN children may be steered (the target's parent must be you; you cannot steer yourself). This is an instruction, not a conversation — the child does not answer it; use agent_ask when you expect an answer."};
   string harp = 1 [(field_schema) = {
-    required: true,
-    doc: "The child session harp to steer (from agent_run's harp, or the roster)",
+    required: true
+    doc: "The child session harp to steer (from agent_run's harp, or the roster)"
     example: "\"swift-amber-falcon\""
   }];
   string text = 2 [(field_schema) = {
-    required: true,
+    required: true
     doc: "The instruction. Delivered verbatim as the child's next turn under a provenance header naming it a steer from you."
   }];
-  bool interrupt = 3 [(field_schema) = {
-    doc: "Cut the child's running turn short first, so this instruction becomes its next turn now rather than at its next boundary. The interrupted turn's work so far stands; the child is not stopped. The answer says what happened: delivery \"interrupted\" when a running turn was cut, \"interrupt-unconfirmed\" when the child's runner did not confirm it, otherwise the plain delivery (an idle child is woken into a new turn). OMIT (false) to let the running turn finish."
-  }];
+  bool interrupt = 3 [(field_schema) = {doc: "Cut the child's running turn short first, so this instruction becomes its next turn now rather than at its next boundary. The interrupted turn's work so far stands; the child is not stopped. The answer says what happened: delivery \"interrupted\" when a running turn was cut, \"interrupt-unconfirmed\" when the child's runner did not confirm it, otherwise the plain delivery (an idle child is woken into a new turn). OMIT (false) to let the running turn finish."}];
 }
 
 message ControlSteerResult {
@@ -1523,31 +1512,27 @@ message ControlSteerResult {
 }
 
 message ControlQuestion {
-  option (message_schema) = {
-    doc: "Ask one of your delegated children a question. Returns an ask_id at once; it does not wait for the answer. The question becomes the child's next turn (an idle child is woken for it; a busy one sees it at its next tool call, or at its turn boundary if it makes none). The answer is whatever the child itself sends back quoting the ask_id in in_reply_to: it reaches you as mail, and its arrival triggers your next turn. The child's automatic turn report may quote the ask_id too; it is marked automatic and is not the answer. If the child ends without answering, an exited notice quoting the ask_id tells you so. Only your OWN children may be asked."
-  };
+  option (message_schema) = {doc: "Ask one of your delegated children a question. Returns an ask_id at once; it does not wait for the answer. The question becomes the child's next turn (an idle child is woken for it; a busy one sees it at its next tool call, or at its turn boundary if it makes none). The answer is whatever the child itself sends back quoting the ask_id in in_reply_to: it reaches you as mail, and its arrival triggers your next turn. The child's automatic turn report may quote the ask_id too; it is marked automatic and is not the answer. If the child ends without answering, an exited notice quoting the ask_id tells you so. Only your OWN children may be asked."};
   string harp = 1 [(field_schema) = {
-    required: true,
-    doc: "The child session harp to ask (from agent_run's harp, or the roster)",
+    required: true
+    doc: "The child session harp to ask (from agent_run's harp, or the roster)"
     example: "\"swift-amber-falcon\""
   }];
   string text = 2 [(field_schema) = {
-    required: true,
+    required: true
     doc: "The question, delivered verbatim as the child's next turn under a header naming it a question from you that expects an answer."
   }];
 }
 
 message ControlSummarize {
-  option (message_schema) = {
-    doc: "Ask one of your delegated children for an on-demand summary of where it stands. Same mechanism as agent_ask: it returns an ask_id at once, the request is the child's next turn, and the summary is what the child itself sends back quoting the ask_id, which reaches you as mail and triggers your next turn. The child sees it as a summary request, not a question. If the child ends without answering, an exited notice quoting the ask_id tells you so. Only your OWN children may be summarized."
-  };
+  option (message_schema) = {doc: "Ask one of your delegated children for an on-demand summary of where it stands. Same mechanism as agent_ask: it returns an ask_id at once, the request is the child's next turn, and the summary is what the child itself sends back quoting the ask_id, which reaches you as mail and triggers your next turn. The child sees it as a summary request, not a question. If the child ends without answering, an exited notice quoting the ask_id tells you so. Only your OWN children may be summarized."};
   string harp = 1 [(field_schema) = {
-    required: true,
-    doc: "The child session harp to summarize (from agent_run's harp, or the roster)",
+    required: true
+    doc: "The child session harp to summarize (from agent_run's harp, or the roster)"
     example: "\"swift-amber-falcon\""
   }];
   string focus = 2 [(field_schema) = {
-    required: true,
+    required: true
     doc: "What the summary should cover — the question the summary must answer for you (\"what is blocking you\", \"which files have you changed and why\")."
   }];
 }
@@ -1564,16 +1549,14 @@ message ControlAskResult {
 }
 
 message ControlPause {
-  option (message_schema) = {
-    doc: "Pause one of your delegated children: hold its turn hand-off so nothing NEW is handed to its engine until agent_resume. The turn it is in now finishes — cutting a turn short is agent_steer with interrupt — but anything queued for it, and any mail that arrives meanwhile, waits at the gate in arrival order (mail stays in its inbox, unread, where a relaunched child would find it). Pause is idempotent and the result says whether THIS call paused the child or found it already paused. It is done TO the run by its runner, not delivered as a message, so it takes effect without the child reading anything. Only your OWN children may be paused."
-  };
+  option (message_schema) = {doc: "Pause one of your delegated children: hold its turn hand-off so nothing NEW is handed to its engine until agent_resume. The turn it is in now finishes — cutting a turn short is agent_steer with interrupt — but anything queued for it, and any mail that arrives meanwhile, waits at the gate in arrival order (mail stays in its inbox, unread, where a relaunched child would find it). Pause is idempotent and the result says whether THIS call paused the child or found it already paused. It is done TO the run by its runner, not delivered as a message, so it takes effect without the child reading anything. Only your OWN children may be paused."};
   string harp = 1 [(field_schema) = {
-    required: true,
-    doc: "The child session harp to pause (from agent_run's harp, or the roster)",
+    required: true
+    doc: "The child session harp to pause (from agent_run's harp, or the roster)"
     example: "\"swift-amber-falcon\""
   }];
   string reason = 2 [(field_schema) = {
-    doc: "Why you are pausing — recorded with the pause in the coordinator's run journal so a later reader can tell a deliberate hold from a stall",
+    doc: "Why you are pausing — recorded with the pause in the coordinator's run journal so a later reader can tell a deliberate hold from a stall"
     example: "\"reviewing its first batch before it continues\""
   }];
 }
@@ -1585,12 +1568,10 @@ message ControlPauseResult {
 }
 
 message ControlResume {
-  option (message_schema) = {
-    doc: "Resume a paused child: turns held at its pause gate are handed to its engine in arrival order, starting with whatever arrived first while it was paused. Resume is idempotent and the result says whether THIS call released the child or found it already running. Only your OWN children may be resumed."
-  };
+  option (message_schema) = {doc: "Resume a paused child: turns held at its pause gate are handed to its engine in arrival order, starting with whatever arrived first while it was paused. Resume is idempotent and the result says whether THIS call released the child or found it already running. Only your OWN children may be resumed."};
   string harp = 1 [(field_schema) = {
-    required: true,
-    doc: "The child session harp to resume (from agent_run's harp, or the roster)",
+    required: true
+    doc: "The child session harp to resume (from agent_run's harp, or the roster)"
     example: "\"swift-amber-falcon\""
   }];
 }
@@ -1656,14 +1637,14 @@ message CredentialHoldsResult {
     string kind = 2;
     // The credential's comparable identity; empty for a run's own hold.
     string source_key = 3;
-    repeated string source_env_vars = 4;  // carrier variable NAMES
-    repeated string source_stores = 5;    // carrier store locations
+    repeated string source_env_vars = 4; // carrier variable NAMES
+    repeated string source_stores = 5; // carrier store locations
     google.protobuf.Timestamp since = 6;
     // When it releases itself; absent for a hold only the human releases.
     google.protobuf.Timestamp until = 7;
-    repeated string harps = 8;            // the runs it parks, sorted
+    repeated string harps = 8; // the runs it parks, sorted
   }
-  repeated Hold holds = 1;                // oldest first
+  repeated Hold holds = 1; // oldest first
 }
 
 message PendingApprovalsRequest {}
@@ -1673,15 +1654,15 @@ message PendingApprovalsResult {
     // 1 classified the request; a tool call is the only one there is.
     reserved 1;
     reserved "kind";
-    string harp = 2;                         // the asker
-    string agent = 3;                        // its agent name, when known
-    repeated string lineage = 4;             // root → … → asker
-    string summary = 5;                      // one line, bounded, RAW: a viewer sanitizes it for display
+    string harp = 2; // the asker
+    string agent = 3; // its agent name, when known
+    repeated string lineage = 4; // root → … → asker
+    string summary = 5; // one line, bounded, RAW: a viewer sanitizes it for display
     google.protobuf.Timestamp since = 6;
     google.protobuf.Timestamp deadline = 7;
   }
-  repeated Pending pending = 1;              // soonest deadline first
-  string project_dir = 2;                    // the project this coordinator serves
+  repeated Pending pending = 1; // soonest deadline first
+  string project_dir = 2; // the project this coordinator serves
 }
 
 message SpoolStatsRequest {}
@@ -1709,13 +1690,13 @@ message SpoolStatsResult {
 }
 
 message WatchRunsRequest {
-  repeated string run_ids = 1;  // empty = every run visible to this credential
+  repeated string run_ids = 1; // empty = every run visible to this credential
 }
 
 message WatchEvent {
   oneof kind {
-    RosterSnapshot snapshot = 1;  // exactly one, always first
-    AgentEvent event = 2;         // live, full payload (incl. delta text)
+    RosterSnapshot snapshot = 1; // exactly one, always first
+    AgentEvent event = 2; // live, full payload (incl. delta text)
   }
 }
 
@@ -1735,13 +1716,13 @@ message ArtifactRef {
   string media_type = 4;
   uint64 size_bytes = 5;
   bytes sha256 = 6;
-  string external_uri = 7;  // set when directly fetchable
+  string external_uri = 7; // set when directly fetchable
   ArtifactKind kind = 8;
-  uint32 revision = 9;      // latest, unless a specific one was requested
+  uint32 revision = 9; // latest, unless a specific one was requested
 }
 
 message CustomRequest {
-  string name = 1;  // namespaced "vendor/name"
+  string name = 1; // namespaced "vendor/name"
   google.protobuf.Struct value = 2;
 }
 
@@ -1809,7 +1790,7 @@ message CancelRun {
 }
 
 message BudgetUpdate {
-  BudgetSpec budget = 1;  // absolute new limits, not deltas
+  BudgetSpec budget = 1; // absolute new limits, not deltas
 }
 
 // A delivered message: the runner's projection of a file swept from the run's
@@ -1821,9 +1802,7 @@ message PeerMessage {
   string from_agent_id = 2;
   string from_run_id = 3;
   string text = 4;
-  google.protobuf.Struct structured = 5 [(field_schema) = {
-    doc: "Structured companion the sender attached, when there is one. This object no longer carries the message kind — read the `kind` field."
-  }];
+  google.protobuf.Struct structured = 5 [(field_schema) = {doc: "Structured companion the sender attached, when there is one. This object no longer carries the message kind — read the `kind` field."}];
   // 6 was artifacts (repeated ArtifactRef), REMOVED:
   // no producer ever set it, so an artifacts array was advertised that
   // could never appear. See PeerSendRequest's reserved 5.
@@ -1836,9 +1815,7 @@ message PeerMessage {
   // user-visible half of that break: `kind` moved out of `structured` and onto
   // the message. A recognised value here is guaranteed by decode; an
   // unrecognised one is refused rather than delivered unclassified.
-  MessageKind kind = 8 [(field_schema) = {
-    doc: "The message's kind, from a CLOSED vocabulary — guaranteed to be one of these names, because an unrecognised value is refused at ingress rather than delivered unclassified. A SENDER could only have set one of MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, MESSAGE_KIND_QUESTION; the rest are minted by the coordinator itself and are therefore trustworthy as to provenance. MESSAGE_KIND_USER_INJECTED means a human injected text into a session you supervise; MESSAGE_KIND_EXITED means a child of yours ended; MESSAGE_KIND_REPORT means a child of yours filed its FINAL report (read it from roster); MESSAGE_KIND_SUMMARIZE is the coordinator asking you for a summary, answered with in_reply_to; MESSAGE_KIND_USER_CONTROL and MESSAGE_KIND_STEER are control-plane notices."
-  }];
+  MessageKind kind = 8 [(field_schema) = {doc: "The message's kind, from a CLOSED vocabulary — guaranteed to be one of these names, because an unrecognised value is refused at ingress rather than delivered unclassified. A SENDER could only have set one of MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, MESSAGE_KIND_QUESTION; the rest are minted by the coordinator itself and are therefore trustworthy as to provenance. MESSAGE_KIND_USER_INJECTED means a human injected text into a session you supervise; MESSAGE_KIND_EXITED means a child of yours ended; MESSAGE_KIND_REPORT means a child of yours filed its FINAL report (read it from roster); MESSAGE_KIND_SUMMARIZE is the coordinator asking you for a summary, answered with in_reply_to; MESSAGE_KIND_USER_CONTROL and MESSAGE_KIND_STEER are control-plane notices."}];
 }
 
 // ----- the spool doorbell (both directions) ----------------------------------
@@ -1964,7 +1941,7 @@ message AgentEvent {
     RunStarted run_started = 10;
     StepStarted step_started = 11;
     StepCompleted step_completed = 12;
-    RunCompleted run_completed = 14;  // terminal; exactly one per run
+    RunCompleted run_completed = 14; // terminal; exactly one per run
 
     // --- messages (item lifecycle: started -> delta* -> completed) ---
     MessageStarted message_started = 20;
@@ -1993,7 +1970,7 @@ message AgentEvent {
     CustomEvent custom = 91;
   }
 
-  reserved 100 to 199;  // future first-party payloads
+  reserved 100 to 199; // future first-party payloads
 }
 
 // --- lifecycle ----------------------------------------------------------------
@@ -2004,11 +1981,11 @@ message AgentEvent {
 // without cross-referencing the StartRun request that is not itself durable
 // (requests/responses are control-plane, never part of the event log).
 message RunStarted {
-  google.protobuf.Struct input = 1;   // task input as given to the agent
-  AgentIdentity agent = 2;            // repeated here so the log is
-                                      // self-contained without Hello
-  google.protobuf.Struct config = 3;  // model, tool policy, sandbox, etc.
-  string parent_run_id = 4;           // set for spawned sub-agents
+  google.protobuf.Struct input = 1; // task input as given to the agent
+  AgentIdentity agent = 2; // repeated here so the log is
+  // self-contained without Hello
+  google.protobuf.Struct config = 3; // model, tool policy, sandbox, etc.
+  string parent_run_id = 4; // set for spawned sub-agents
 }
 
 // Steps are coarse plan units ("analyze repo", "write migration") —
@@ -2037,16 +2014,16 @@ message StepCompleted {
 // initiated requests it served).
 message InteractionRecorded {
   string request_id = 1;
-  string kind = 2;        // "approval", "user_input", "spawn_agent", ...
+  string kind = 2; // "approval", "user_input", "spawn_agent", ...
   enum Resolution {
     RESOLUTION_UNSPECIFIED = 0;
-    RESOLUTION_GRANTED = 1;    // accepted / answered / spawned / delivered
+    RESOLUTION_GRANTED = 1; // accepted / answered / spawned / delivered
     RESOLUTION_DENIED = 2;
-    RESOLUTION_TIMED_OUT = 3;  // fallback path taken
+    RESOLUTION_TIMED_OUT = 3; // fallback path taken
     RESOLUTION_CANCELLED = 4;
   }
   Resolution resolution = 3;
-  google.protobuf.Struct detail = 4;  // e.g. decision, child_run_id
+  google.protobuf.Struct detail = 4; // e.g. decision, child_run_id
 }
 
 // Terminal event. Nothing may follow it for this run_id.
@@ -2109,8 +2086,8 @@ message Usage {
   // sub-cent, and cents would round them to zero, breaking per-item
   // budget accounting; micros keep them nonzero.
   uint64 cost_usd_micros = 5;
-  map<string, Usage> per_model = 6;  // keyed by model id; leaves have
-                                     // empty per_model
+  map<string, Usage> per_model = 6; // keyed by model id; leaves have
+  // empty per_model
 }
 
 // --- messages -------------------------------------------------------------
@@ -2126,9 +2103,9 @@ enum MessageRole {
 // (Codex reasoning deltas / AG-UI REASONING events).
 enum MessageChannel {
   MESSAGE_CHANNEL_UNSPECIFIED = 0;
-  MESSAGE_CHANNEL_FINAL = 1;      // user/coordinator-facing narrative
-  MESSAGE_CHANNEL_REASONING = 2;  // chain-of-thought / working notes
-  MESSAGE_CHANNEL_LOG = 3;        // operational chatter, command output
+  MESSAGE_CHANNEL_FINAL = 1; // user/coordinator-facing narrative
+  MESSAGE_CHANNEL_REASONING = 2; // chain-of-thought / working notes
+  MESSAGE_CHANNEL_LOG = 3; // operational chatter, command output
 }
 
 message MessageStarted {
@@ -2139,7 +2116,7 @@ message MessageStarted {
 
 message MessageDelta {
   string message_id = 1;
-  string text = 2;  // UTF-8 append; concatenate in seq order
+  string text = 2; // UTF-8 append; concatenate in seq order
 }
 
 message MessageCompleted {
@@ -2164,7 +2141,7 @@ message ToolCallArgsDelta {
 
 message ToolCallCompleted {
   string tool_call_id = 1;
-  google.protobuf.Struct args = 2;  // final parsed arguments
+  google.protobuf.Struct args = 2; // final parsed arguments
   bool is_error = 3;
   // Truncated/inline result; large results become artifacts.
   string result_text = 4;
@@ -2187,21 +2164,21 @@ message ToolCallCompleted {
 // kind, size, sha256, location. The chunked transfer RPCs remain deferred
 // with the artifact family.
 message ArtifactProduced {
-  string artifact_id = 1;  // agent-chosen, unique within run; stable across revisions
-  uint32 revision = 2;     // starts at 1, monotonic per artifact_id (the
-                           // runtime MAY assign it at journal time when the
-                           // producer sends 0)
+  string artifact_id = 1; // agent-chosen, unique within run; stable across revisions
+  uint32 revision = 2; // starts at 1, monotonic per artifact_id (the
+  // runtime MAY assign it at journal time when the
+  // producer sends 0)
   ArtifactKind kind = 3;
-  string name = 4;         // e.g. "coverage/report.html"
-  string media_type = 5;   // RFC 6838
+  string name = 4; // e.g. "coverage/report.html"
+  string media_type = 5; // RFC 6838
   uint64 size_bytes = 6;
-  bytes sha256 = 7;        // content address; required for all dispositions
+  bytes sha256 = 7; // content address; required for all dispositions
 
   oneof content {
-    bytes inline = 8;        // <= 128 KiB by convention
+    bytes inline = 8; // <= 128 KiB by convention
     string external_uri = 9; // coordinator-fetchable (object store, file path...)
-    string upload_id = 10;   // receipt from UploadArtifact (deferred with the
-                             // transfer family)
+    string upload_id = 10; // receipt from UploadArtifact (deferred with the
+    // transfer family)
   }
 
   string produced_by_item_id = 11; // step/tool_call/message attribution
@@ -2214,44 +2191,42 @@ message ArtifactProduced {
 
 enum ArtifactKind {
   ARTIFACT_KIND_UNSPECIFIED = 0;
-  ARTIFACT_KIND_TASK_LIST = 1;            // structured plan; steps mirror
-                                          // StepStarted/StepCompleted events,
-                                          // checked off as they land
-  ARTIFACT_KIND_IMPLEMENTATION_PLAN = 2;  // the canonical review-gate artifact
+  ARTIFACT_KIND_TASK_LIST = 1; // structured plan; steps mirror
+  // StepStarted/StepCompleted events,
+  // checked off as they land
+  ARTIFACT_KIND_IMPLEMENTATION_PLAN = 2; // the canonical review-gate artifact
   ARTIFACT_KIND_CODE_DIFF = 3;
-  ARTIFACT_KIND_WALKTHROUGH = 4;          // post-completion "what I did & how
-                                          // to verify"
+  ARTIFACT_KIND_WALKTHROUGH = 4; // post-completion "what I did & how
+  // to verify"
   ARTIFACT_KIND_SCREENSHOT = 5;
-  ARTIFACT_KIND_RECORDING = 6;            // e.g. browser verification video
-  ARTIFACT_KIND_REPORT = 7;               // test/coverage/analysis output
+  ARTIFACT_KIND_RECORDING = 6; // e.g. browser verification video
+  ARTIFACT_KIND_REPORT = 7; // test/coverage/analysis output
   ARTIFACT_KIND_DATASET = 8;
-  ARTIFACT_KIND_DOCUMENT = 9;             // generic prose deliverable
+  ARTIFACT_KIND_DOCUMENT = 9; // generic prose deliverable
   ARTIFACT_KIND_OTHER = 10;
 }
 
 // --- summaries ---------------------------------------------------------------
 
 message Summary {
-  option (message_schema) = {
-    doc: "File a structured report as a durable, journaled fact: PROGRESS (rolling status), CHECKPOINT (resumable synthesis of everything so far — supersedes prior checkpoints), or FINAL (the deliverable summary; file one before finishing). Reports feed the coordinator's roster and seed projections. Session-dir plan files (*.plan.md) are stamped as artifact manifests automatically on every report. Lead with the most important point and the evidence for it. Write the rest in decreasing order of importance. Only the first 8 KiB is shown inline; anything longer is attached as an artifact the reader opens with \"keep reading for more detail\", so put nothing essential below the fold."
-  };
+  option (message_schema) = {doc: "File a structured report as a durable, journaled fact: PROGRESS (rolling status), CHECKPOINT (resumable synthesis of everything so far — supersedes prior checkpoints), or FINAL (the deliverable summary; file one before finishing). Reports feed the coordinator's roster and seed projections. Session-dir plan files (*.plan.md) are stamped as artifact manifests automatically on every report. Lead with the most important point and the evidence for it. Write the rest in decreasing order of importance. Only the first 8 KiB is shown inline; anything longer is attached as an artifact the reader opens with \"keep reading for more detail\", so put nothing essential below the fold."};
 
   enum Scope {
     SCOPE_UNSPECIFIED = 0;
-    SCOPE_PROGRESS = 1;    // rolling "what I'm doing / what's left"
-    SCOPE_STEP = 2;        // wrap-up of one step_id
-    SCOPE_CHECKPOINT = 3;  // resumable synthesis; supersedes prior checkpoints
-    SCOPE_FINAL = 4;       // the human-readable deliverable summary
+    SCOPE_PROGRESS = 1; // rolling "what I'm doing / what's left"
+    SCOPE_STEP = 2; // wrap-up of one step_id
+    SCOPE_CHECKPOINT = 3; // resumable synthesis; supersedes prior checkpoints
+    SCOPE_FINAL = 4; // the human-readable deliverable summary
   }
   Scope scope = 1 [(field_schema) = {
-    required: true,
-    doc: "Report scope: SCOPE_PROGRESS (rolling status), SCOPE_STEP (one step's wrap-up), SCOPE_CHECKPOINT (resumable synthesis; supersedes prior checkpoints), SCOPE_FINAL (the deliverable summary)",
+    required: true
+    doc: "Report scope: SCOPE_PROGRESS (rolling status), SCOPE_STEP (one step's wrap-up), SCOPE_CHECKPOINT (resumable synthesis; supersedes prior checkpoints), SCOPE_FINAL (the deliverable summary)"
     example: "\"SCOPE_FINAL\""
   }];
-  string step_id = 2;  // set when scope == SCOPE_STEP
+  string step_id = 2; // set when scope == SCOPE_STEP
   // markdown
   string text = 3 [(field_schema) = {
-    required: true,
+    required: true
     doc: "The report body, markdown"
   }];
 
@@ -2272,7 +2247,7 @@ message Summary {
   // regardless of this field; use it for other files you want retrievable
   // after this session ends (e.g. from a container that will not survive).
   repeated string publish_paths = 7 [(field_schema) = {
-    doc: "Cell-local file paths (relative to the working directory) to publish as artifacts alongside this report, in addition to the automatic *.plan.md manifest stamping. Runner-read and uploaded; size-capped",
+    doc: "Cell-local file paths (relative to the working directory) to publish as artifacts alongside this report, in addition to the automatic *.plan.md manifest stamping. Runner-read and uploaded; size-capped"
     example: "[\"findings/coverage.json\"]"
   }];
 }
@@ -2293,14 +2268,14 @@ message Summary {
 message EventsLost {
   message Range {
     string run_id = 1;
-    uint64 first_seq = 2;  // inclusive
-    uint64 last_seq = 3;   // inclusive
+    uint64 first_seq = 2; // inclusive
+    uint64 last_seq = 3; // inclusive
   }
   repeated Range lost = 1;
 }
 
 message RawEvent {
-  string source = 1;  // e.g. "claude-agent-sdk/stream_event"
+  string source = 1; // e.g. "claude-agent-sdk/stream_event"
   google.protobuf.Struct event = 2;
 }
 
@@ -2309,4 +2284,3 @@ message CustomEvent {
   string name = 1;
   google.protobuf.Struct value = 2;
 }
-

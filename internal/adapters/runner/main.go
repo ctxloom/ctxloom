@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -83,7 +84,11 @@ func Main(ctx context.Context, d MainDeps) error {
 	window := coord.EnvPositiveDuration(report.To(d.Reporter), sessions.EnvRunnerOwnerLossWindow, DefaultOwnerLossWindow,
 		"a zero or negative window would end this runner the instant its coordinator blinked")
 	host := NewEngineHost(ctx, d.Reporter, d.Harness, runID)
-	home, err := NewHome(ctx, HomeConfig{
+	// The home outlives ctx: a signal ends ctx, and the run's closing frames
+	// (RunCompleted, RunExited) still have to reach the coordinator, which
+	// otherwise records a clean exit as runner loss. Only home.Close, in
+	// shutDown, stops its loops.
+	home, err := NewHome(context.WithoutCancel(ctx), HomeConfig{
 		URL:      reach.URL,
 		Token:    reach.Credential,
 		RunID:    runID,
@@ -118,16 +123,31 @@ func Main(ctx context.Context, d MainDeps) error {
 	return ended
 }
 
-// shutDown ends the runner. The engine host joins first so an in-flight
-// adapt can finish its terminal RunCompleted while the home is still live.
-// The run's delivery is reversed once nothing runs against it any more; ctx
-// may already be cancelled (that is how a Kill arrives), and the reversal
-// must still run.
+// shutdownDrainBudget bounds how long shutDown waits for the home to say
+// goodbye: the Home's and the lifecycle link's own join budgets, back to back.
+// A coordinator that never answers must not keep the process from exiting.
+const shutdownDrainBudget = homeCloseJoinBudget + runnerLinkCloseJoinBudget
+
+// shutDown ends the runner. The engine host joins first, while the home is
+// still live, so an in-flight adapt can finish its terminal RunCompleted and
+// RunExited to the coordinator; ctx may already be cancelled (a signal, or a
+// Kill), and the home does not depend on it. The run's delivery is reversed
+// once nothing runs against it any more, and that reversal must still run.
+// The home then closes, within shutdownDrainBudget.
 func shutDown(ctx context.Context, reporter report.Sink, host *EngineHost, tail *Host, home *Home) {
 	host.Close()
 	if err := tail.Teardown(context.WithoutCancel(ctx)); err != nil {
 		report.To(reporter).Report(report.Finding{Kind: report.KindApply, Text: err.Error(),
 			Remedy: "the next run's sweep reverses it once this session is gone"})
 	}
-	home.Close(0, "")
+	closed := make(chan struct{})
+	go func() {
+		defer close(closed)
+		home.Close(0, "")
+	}()
+	select {
+	case <-closed:
+	case <-time.After(shutdownDrainBudget):
+		report.To(reporter).Warnf("runner: the coordinator did not finish the goodbye within %s; exiting without it", shutdownDrainBudget)
+	}
 }

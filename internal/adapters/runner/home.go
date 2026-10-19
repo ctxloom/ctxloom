@@ -117,6 +117,10 @@ type Home struct {
 	// written for the harp's NEXT run would land in a dead sink and be
 	// consumed out from under the run launched to answer it.
 	exited atomic.Bool
+	// downWarned is set by the first coordinator-channel failure of an outage
+	// and cleared when the channel re-attaches, so each outage is reported
+	// once however many sends and redials it spans (see warnDown).
+	downWarned atomic.Bool
 
 	// owner marks the run this Home hosts as the SESSION OWNER's (markOwner):
 	// the interactive run a human drives, which no turn sink feeds. Its in/
@@ -695,7 +699,7 @@ func (h *Home) runChannelLoop() {
 		}
 		wake := h.redialWake()
 		if err := h.runChannelAttempt(); err != nil && h.ctx.Err() == nil {
-			h.rep.WarnOncef("run channel down (reconnecting): %v", err)
+			h.warnDown("run channel down (reconnecting): %v", err)
 		}
 		select {
 		case <-time.After(h.cfg.RedialBackoff):
@@ -786,6 +790,7 @@ func (h *Home) attachAndReissue(stream runChannelStream) {
 	h.mu.Lock()
 	h.stream = stream
 	h.everAttached = true
+	h.downWarned.Store(false)
 	events := append([]*agentcoordpb.AgentEvent(nil), h.unacked...)
 	h.mu.Unlock()
 	// ATTACH CONFIRMATION, sent unconditionally: the coordinator swept this
@@ -857,11 +862,28 @@ func (h *Home) sendLocked(frame *agentcoordpb.AgentFrame) bool {
 		return false
 	}
 	if err := stream.Send(frame); err != nil {
-		// The receive loop observes the same failure and re-dials.
-		h.rep.WarnOncef("run channel send failed (reconnecting): %v", err)
+		// The receive loop observes the same failure and re-dials — unless the
+		// home is ending, when the stream died with its context and nothing
+		// reconnects, so there is nothing to warn about.
+		h.warnDown("run channel send failed (reconnecting): %v", err)
 		return false
 	}
 	return true
+}
+
+// warnDown reports a coordinator-channel failure, once per outage: the first
+// failure since the channel last attached warns and the rest of the outage is
+// silent, so a runner that lives for days reports every outage rather than
+// only its first (a once-per-process dedupe would hide all later ones). A home
+// that is ending warns of nothing: its streams died with it and nothing
+// reconnects.
+func (h *Home) warnDown(format string, args ...any) {
+	if h.ctx.Err() != nil {
+		return
+	}
+	if h.downWarned.CompareAndSwap(false, true) {
+		h.rep.Warnf(format, args...)
+	}
 }
 
 // handleCoordinatorFrame dispatches one inbound coordinator frame.

@@ -34,7 +34,10 @@
 //
 // Two further clauses are part of the same definition:
 //
-//   - A MISSING transcript file is a FAILURE SIGNAL, not an error. The
+//   - For a STRUCTURED run, a MISSING transcript file is a FAILURE SIGNAL, not
+//     an error. (A human-driven interactive run is the exception: it has no
+//     live canonical transcript by design, so absence there says nothing and
+//     only runner death is judged — see Target.HumanDriven.) The
 //     recorder opens its file lazily on the first successful Record
 //     (recorder.go's NewRecorder doc), so a zero-event chat leaves no file at
 //     all — "absent" means "this agent has emitted literally nothing", which
@@ -136,6 +139,11 @@ type Target struct {
 	// (deathRung), and then declines to judge it any further (endedRung): a
 	// run nothing is driving cannot be making progress OR failing to.
 	Ended bool
+	// HumanDriven marks a run a human drives through the engine's own
+	// terminal. Such a run records no canonical transcript while it lives (it
+	// is converted from the engine's own log when the runner exits), so the
+	// monitor judges it on runner death alone (humanDrivenRung).
+	HumanDriven bool
 	// TranscriptPath is paths.HarpCanonicalTranscriptPath(Harp). Empty skips
 	// transcript evidence entirely (and with it every sharp rule).
 	TranscriptPath string

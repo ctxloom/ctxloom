@@ -687,3 +687,45 @@ func TestMonitor_SeqPinnedRelaunchLoopFiresWithoutAnAgeOrAGrace(t *testing.T) {
 	assert.Equal(t, liveness.StateStalled, rep.State, "reason=%q", rep.Reason)
 	assert.True(t, rep.Firing(), "a relaunch loop is an observation, not an inference from silence")
 }
+
+// A run a human drives through the engine's own terminal records no canonical
+// transcript while it lives, so neither its absence nor its staleness may
+// fire — only the runner's death can. The HumanDriven=false control on the
+// SAME evidence proves the three assertions are not vacuous.
+func TestMonitor_HumanDrivenRunIsJudgedOnlyOnRunnerDeath(t *testing.T) {
+	testHome(t)
+	now := time.Now()
+	alive := liveness.ProbeFunc{Fn: func(context.Context, liveness.Target) liveness.ProcState {
+		return liveness.ProcState{Observed: true, Alive: true}
+	}}
+	dead := liveness.ProbeFunc{Fn: func(context.Context, liveness.Target) liveness.ProcState {
+		return liveness.ProcState{Observed: true, Alive: false, Detail: "runner link lost"}
+	}}
+	assess := func(probe liveness.Probe, humanDriven bool, txPath string) liveness.Report {
+		m := liveness.New(liveness.Options{Now: func() time.Time { return now }, Probes: []liveness.Probe{probe}})
+		return m.Assess(context.Background(), liveness.Target{
+			Harp: "root", Runtime: "host", HumanDriven: humanDriven,
+			StartedAt: now.Add(-6 * time.Hour), TranscriptPath: txPath,
+		})
+	}
+
+	missing := transcriptPath(t, "never-recorded")
+	const staleHarp = "stale-root"
+	approvalParkedSession(t, staleHarp)
+	backdateTranscript(t, transcriptPath(t, staleHarp), 6*time.Hour)
+	stale := transcriptPath(t, staleHarp)
+
+	for name, tx := range map[string]string{"missing transcript": missing, "stale transcript": stale} {
+		t.Run(name, func(t *testing.T) {
+			control := assess(alive, false, tx)
+			require.Equal(t, liveness.StateStalled, control.State, "control: a structured run on this evidence is stalled: %s", control.Reason)
+
+			rep := assess(alive, true, tx)
+			assert.False(t, rep.Firing(), "a human-driven run with a live runner must not fire: %s", rep.Reason)
+			assert.NotEmpty(t, rep.Reason)
+
+			died := assess(dead, true, tx)
+			assert.Equal(t, liveness.StateDied, died.State, "a dead runner is still a death: %s", died.Reason)
+		})
+	}
+}

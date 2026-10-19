@@ -300,7 +300,7 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 		return nil, err
 	}
 
-	rt, token, err := c.enqueueRun(caller, plan, harp, prompt, false, make(chan struct{}), caller.Depth+1)
+	rt, token, err := c.enqueueRun(caller, plan, harp, prompt, false, make(chan struct{}), caller.Depth+1, false)
 	if err != nil {
 		c.releaseAssignedHarp(harp, err)
 		return nil, err
@@ -499,7 +499,13 @@ func callerLabel(caller Identity) string {
 // the runner receives on its Launch and the server-side recursion guard
 // (AgentRun's caller.Depth, read back from this same fact via Identify) never
 // diverge.
-func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt string, resume bool, attached chan struct{}, depth int) (*childRt, string, error) {
+//
+// interactive is whether a HUMAN drives the run through the engine's own
+// terminal (an owned run launched in engine.Interactive mode). It is an
+// explicit parameter, never read off plan.Launch: a delegated child's plan
+// carries a Launch whose zero-value Mode is Interactive too, so only the one
+// caller that knows the run is the human's can say so.
+func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt string, resume bool, attached chan struct{}, depth int, interactive bool) (*childRt, string, error) {
 	runID := newRunID()
 	token, credHash := mintToken()
 	won := true
@@ -534,6 +540,7 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 			// plan, or an owned run's synthetic plan, which never sets it —
 			// zero value ResumeModePersistent, correctly never OneShot).
 			OneShot:     plan.ResumeMode == ResumeModeOneShot,
+			Interactive: interactive,
 			Prompt:      prompt,
 			Resume:      resume,
 			Permission:  plan.Permission,
@@ -2052,7 +2059,7 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 	// ended run's own recorded depth straight through rather than deriving
 	// it from caller.Depth+1 (which would need caller.Depth = rec.Depth-1,
 	// the exact reconstruction this explicit depth parameter replaces).
-	rt, token, err := c.enqueueRun(caller, plan, harp, "", true, attached, rec.Depth)
+	rt, token, err := c.enqueueRun(caller, plan, harp, "", true, attached, rec.Depth, false)
 	if errors.Is(err, errResumeLost) {
 		return // a concurrent resume claimed it; the winner delivers
 	}

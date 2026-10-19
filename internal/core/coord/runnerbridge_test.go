@@ -98,6 +98,10 @@ func (r testRunner) Execute(ctx context.Context, wire *agentcoordpb.Launch) (rep
 	if err != nil {
 		return nil, err
 	}
+	// The suite binds no terminal, so an interactive launch is driven as its
+	// scripted structured twin: the coordinator-side journal still carries the
+	// launch's real mode, which is all the interactive-run tests observe.
+	l.Mode = engine.Structured
 	if r.refuse != nil && r.refuse() {
 		return nil, delivery.ErrEndpointUnavailable
 	}

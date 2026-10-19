@@ -174,12 +174,14 @@ func New(opts Options) *Monitor {
 //     transcript's own trailing permission record.
 //  1. Death — the process is observably gone. Split by whether the in-flight
 //     turn ever closed, so a clean end is not reported as a death.
-//     2/3. POSITIVE evidence of a loop — a re-delivery cadence, or seq pinned at
+//  2. Human-driven — a run a person drives through the engine's own terminal
+//     records no transcript while it lives, so only death (above) can judge it.
+//     3/4. POSITIVE evidence of a loop — a re-delivery cadence, or seq pinned at
 //     0 across many records. These are observations of a loop HAPPENING, not
 //     inferences from silence, so they carry no grace period and fire in
 //     seconds rather than in the hour the incident actually took.
-//  4. Launch grace — below it, absence proves nothing.
-//     5..8. ABSENCE-based rules, every one of them age- and quiet-gated.
+//  5. Launch grace — below it, absence proves nothing.
+//     6..9. ABSENCE-based rules, every one of them age- and quiet-gated.
 //
 // Everything that can rescue a target to a non-firing verdict is checked
 // before everything that can condemn it, at each rung.
@@ -204,6 +206,7 @@ func (m *Monitor) verdict(t Target, ev Evidence, now time.Time) (State, string) 
 		m.approvalRung,
 		m.deathRung,
 		m.endedRung,
+		m.humanDrivenRung,
 		m.loopRung,
 		m.graceRung,
 		m.quietRung,
@@ -274,6 +277,19 @@ func (m *Monitor) endedRung(t Target, ev Evidence, _ time.Time) (State, string) 
 		return StateHealthy, fmt.Sprintf("the coordinator has ended this run and its last turn closed (%d complete record(s)) — a clean end", tx.Completes)
 	}
 	return StateUnknown, "the coordinator has ended this run; a terminated run makes no further progress, so there is nothing left to judge"
+}
+
+// humanDrivenRung: a run a person drives through the engine's own terminal
+// writes no canonical transcript while it lives — it is converted from the
+// engine's log when the runner exits. Every rung below reasons from that
+// transcript (its absence, its staleness), so for this target they would
+// condemn a healthy session; the only honest evidence is the runner itself,
+// which deathRung already judged above.
+func (m *Monitor) humanDrivenRung(t Target, _ Evidence, _ time.Time) (State, string) {
+	if !t.HumanDriven {
+		return "", ""
+	}
+	return StateUnknown, "a human drives this run through the engine's own terminal; its canonical transcript is captured at exit, so only runner death is judged"
 }
 
 // loopRung: POSITIVE evidence of a loop. Both rules here are observations of a

@@ -100,7 +100,7 @@ sorted most-recently-active first.
 | --- | --- |
 | `livenessWatchdog` | 1-minute poll; warns on state transitions |
 | `LivenessSnapshot` | assess-all, on demand |
-| `livenessTargets` | folds + approvals + the live attachment's `workDir` → `[]liveness.Target`; a path-resolution error warns and degrades to an unobserved transcript (`StateUnknown`, never a stall); a child with a request pending in the `ApprovalQueue` is exempt from the stall verdict |
+| `livenessTargets` | folds + approvals + the live attachment's `workDir` → `[]liveness.Target`; a path-resolution error warns and degrades to an unobserved transcript (`StateUnknown`, never a stall); a child with a request pending in the `ApprovalQueue` is exempt from the stall verdict; a run journaled `interactive` (`runEnqueued.Interactive`, set by `StartOwnedRun` from the launch mode) becomes `HumanDriven`: its canonical transcript is converted from the engine's own log only when the runner exits, so the monitor's `humanDrivenRung` judges it on runner death alone and never on a missing or stale transcript |
 | `livenessMonitor` | lazily builds and memoizes the monitor; the monitor itself is stateless since U056-F04 removed the CPU sampling |
 | `runnerHeartbeatProbe` | the universal probe; **absence is reported as `Observed:false`, never as dead** |
 

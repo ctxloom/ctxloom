@@ -3,14 +3,18 @@ package coord
 import (
 	"context"
 	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/liveness"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
@@ -232,4 +236,92 @@ func TestRunnerHeartbeatProbe_LiveRunnerIsAlive(t *testing.T) {
 	st = c.runnerHeartbeatProbe().Inspect(context.Background(), liveness.Target{Harp: harp})
 	assert.True(t, st.Observed)
 	assert.False(t, st.Alive)
+}
+
+// A run a human drives through the engine's own terminal has no canonical
+// transcript while it lives, so the watchdog must judge it on runner death
+// alone — while a delegated child beside it, with the same missing transcript
+// and the same elapsed time, is still stalled. This pins the plumbing from
+// StartOwnedRun's launch mode, through the journal, to liveness.Target.
+func TestLivenessSnapshot_HumanDrivenRootIsNotJudgedOnItsAbsentTranscript(t *testing.T) {
+	livenessTestHome(t)
+	var clockMu sync.Mutex
+	now := time.Now()
+	clock := func() time.Time { clockMu.Lock(); defer clockMu.Unlock(); return now }
+	childEntered := make(chan struct{}, 8)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}},
+		func() *scriptedChat { return &scriptedChat{Entered: childEntered} })
+	c := newTestCoordinator(t, sp, clock)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	const ownerHarp = "human-driven-root"
+	token, err := c.RegisterSessionOwner(ownerHarp)
+	require.NoError(t, err)
+	owner, ok := c.Identify(token)
+	require.True(t, ok)
+
+	l := ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", "bypass")
+	l.Mode = engine.Interactive
+	starter, _ := ownerRunStarter(ctx, &scriptedChat{}, "claude-code")
+	_, err = c.StartOwnedRun(ctx, owner, ownerRun(l, false), starter, "")
+	require.NoError(t, err)
+
+	childHarp := spawnOneChild(t, c)
+	onlyFixtureTranscript(t, childHarp, childEntered) // the child's transcript is absent
+
+	// Past the launch grace and well beyond, with every runner still beating:
+	// the only thing left to judge by is the missing transcript.
+	clockMu.Lock()
+	now = now.Add(6 * time.Minute)
+	clockMu.Unlock()
+	c.mu.Lock()
+	for _, rs := range c.runners {
+		rs.lastBeat = clock()
+	}
+	c.mu.Unlock()
+
+	var root *liveness.Target
+	for _, tg := range c.livenessTargets() {
+		if tg.Harp == ownerHarp {
+			root = &tg
+		}
+	}
+	require.NotNil(t, root, "the owner's run must be a liveness target")
+	assert.True(t, root.HumanDriven, "StartOwnedRun's interactive launch must reach the target")
+
+	reps := c.livenessSnapshot(ctx)
+	owned := reportFor(reps, ownerHarp)
+	require.NotNil(t, owned)
+	assert.False(t, owned.Firing(), "a human-driven root has no live transcript by design: %s", owned.Reason)
+	child := reportFor(reps, childHarp)
+	require.NotNil(t, child)
+	assert.Equal(t, liveness.StateStalled, child.State,
+		"a delegated child with no transcript past the grace is still stalled: %s", child.Reason)
+}
+
+// The interactive mark is part of the run's journal, so a coordinator rebuilt
+// from it still judges the root as human-driven.
+func TestRunEnqueued_InteractiveSurvivesReplay(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runs.jsonl")
+	open := func() (*runsFold, *Store) {
+		runsF := newRunsFold()
+		store, err := openStore(afero.NewOsFs(), path, runsF, newQueueFold(), newRosterFold(), newReportsFold(termRep()))
+		require.NoError(t, err)
+		return runsF, store
+	}
+	_, store := open()
+	at := time.Now()
+	require.NoError(t, store.Exec(func() ([]Fact, error) {
+		return []Fact{
+			factAt(factRunEnqueued, at, runEnqueued{RunID: "r1", Harp: "root", Agent: "root", CredHash: "c1", Interactive: true}),
+			factAt(factRunEnqueued, at, runEnqueued{RunID: "r2", Harp: "kid", Agent: "worker", CredHash: "c2", Depth: 1}),
+		}, nil
+	}))
+	require.NoError(t, store.Close())
+
+	replayed, store := open()
+	defer store.Close()
+	assert.True(t, replayed.currentRun("root").Interactive)
+	assert.False(t, replayed.currentRun("kid").Interactive)
 }

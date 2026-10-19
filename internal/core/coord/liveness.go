@@ -116,7 +116,7 @@ func (c *Coordinator) runnerHeartbeatProbe() liveness.Probe {
 func (c *Coordinator) livenessTargets() []liveness.Target {
 	type row struct {
 		harp, agent, runtime, state, runID string
-		ended                              bool
+		ended, interactive                 bool
 		enqueued, lastActivity             time.Time
 	}
 	var rows []row
@@ -128,7 +128,7 @@ func (c *Coordinator) livenessTargets() []liveness.Target {
 			}
 			rows = append(rows, row{
 				harp: e.Harp, agent: r.Agent, runtime: string(r.Runtime), state: r.State, runID: r.RunID,
-				ended: r.Ended, enqueued: r.EnqueuedAt, lastActivity: r.LastActivity,
+				ended: r.Ended, interactive: r.Interactive, enqueued: r.EnqueuedAt, lastActivity: r.LastActivity,
 			})
 		}
 	})
@@ -180,6 +180,7 @@ func (c *Coordinator) livenessTargets() []liveness.Target {
 			RosterState:      r.state,
 			AwaitingApproval: awaiting[r.runID],
 			Ended:            r.ended,
+			HumanDriven:      r.interactive,
 			TranscriptPath:   txPath,
 			WorkDir:          workDirs[r.harp],
 		})

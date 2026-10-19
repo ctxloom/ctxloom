@@ -116,6 +116,41 @@ additionally puts the **process-global** terminal into raw mode even when
 built over an arbitrary reader, so the "injectable reader" seam does not
 fully isolate from a real tty.
 
+## The split view (built, not yet wired)
+
+The split view replaces the surround bar and the summoned overlay with one
+compositor: the agent tree on the left, the selected agent's view on the right.
+It exists and is tested, but `ctxloom run` still drives `setupTerminalUI`; the
+pieces below are not on the run path yet.
+
+- **`internal/adapters/termemu`** is the one VT emulator seam. `termemu.Terminal`
+  is the interface; `termemu.NewXVT` implements it over charmbracelet/x/vt. It
+  commits a `termemu.Frame` at synchronized-output boundaries and reports the
+  child's title, bell, OSC 52 clipboard and mouse mode through
+  `termemu.Callbacks`. Only adapters import it: the layering rule keeps core and
+  shared free of it, as of termui and cli/tui.
+- **`tui.Split`** (the bubbletea model) and **`tui.SplitView`** (`tui.StartSplit`)
+  compose the screen. The left panel is the roster from the frontend port
+  (`WatchRuns`, re-read with `ListRuns` on each event), with a token gauge and an
+  activity glyph per row; it folds a subtree on Enter and collapses to a glyph
+  column on a narrow terminal. The right pane is the root's emulated terminal,
+  each row serialized once from the emulator, or, for a selected child, that
+  child's event feed plus a line that sends `agent_send` (or `agent_steer` to
+  interrupt). `ui.prefix_key` toggles focus between list and pane; every other
+  key goes to the pane.
+- **Approvals keep their focus locks**: a keystroke typed for the engine never
+  answers an approval (`tui.SplitView` re-homes `PresentPolicy`).
+- **`internal/testsupport/termoracle`** is the root terminal surface's contract
+  (prefix-key encodings, the input token corpus, the summon contract). Today's
+  termui and `tui.Split` both pass it, so wiring the split view in cannot quietly
+  drop a behaviour the run depends on.
+
+Wiring it in means `setupTerminalUI` gives way to a split-view setup, the
+approval and credential presenters move onto `tui.SplitView`, and termui and the
+overlay are deleted. One question decides it first: inside an emulated pane,
+claude's pinned classic renderer scrolls its history into the emulator, where
+neither the pane nor the terminal's own scrollback shows it.
+
 ## Terminal predicates
 
 `terminal.go` defines `isInteractiveTerminal` (stdin *and* stdout are

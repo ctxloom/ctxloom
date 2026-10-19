@@ -128,7 +128,7 @@ pieces below are not on the run path yet.
   commits a `termemu.Frame` at synchronized-output boundaries and reports the
   child's title, bell, OSC 52 clipboard and mouse mode through
   `termemu.Callbacks`. Only adapters import it: the layering rule keeps core and
-  shared free of it, as of termui and cli/tui.
+  shared free of it, as it does termui and cli/tui.
 - **`tui.Split`** (the bubbletea model) and **`tui.SplitView`** (`tui.StartSplit`)
   compose the screen. The left panel is the roster from the frontend port
   (`WatchRuns`, re-read with `ListRuns` on each event), with a token gauge and an

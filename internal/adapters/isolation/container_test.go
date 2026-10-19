@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -60,7 +61,7 @@ func TestContainerWorkspace_DirAndCleanup(t *testing.T) {
 // dir lives OUTSIDE the identical-path project mount, so the plain container must
 // mirror that common dir (same fix the worktree base uses) — but a normal .git
 // DIRECTORY (main-repo checkout) is already covered by the project mount and needs
-// no extra mount, and a non-repo project needs none either.
+// no mirror, only its hooks shadowed, and a non-repo project needs none either.
 func TestContainer_GitdirMirrorMount(t *testing.T) {
 	ctx := context.Background()
 	common := filepath.Join(t.TempDir(), "repo", ".git")
@@ -79,11 +80,14 @@ func TestContainer_GitdirMirrorMount(t *testing.T) {
 		"a .git POINTER FILE (linked worktree/submodule) gets the common dir mirrored through the runtime's mapper so gitdir resolves in-container")
 
 	// .git is a DIRECTORY → already inside the identical-path project mount.
+	// Only its hooks/ is shadowed (TestGitdirMirrorMounts_MainCheckoutHooksAreReadOnly).
 	dirProj := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(dirProj, ".git"), 0o755))
 	ms, err = gitdirMirrorMounts(ctx, rt, g, dirProj, t.TempDir())
 	require.NoError(t, err)
-	assert.Empty(t, ms, "a normal .git directory with no worktree registry is covered by the project mount; nothing to add")
+	hooks := filepath.Join(dirProj, ".git", "hooks")
+	assert.Equal(t, []mount{bind(hooks, mapped(t, rt, hooks), true)}, ms,
+		"a normal .git directory with no worktree registry is covered by the project mount; only its hooks are shadowed")
 
 	// No repo at all → nothing to mirror.
 	bareProj := t.TempDir()
@@ -108,12 +112,87 @@ func TestContainer_MainCheckoutMasksTheWorktreeRegistry(t *testing.T) {
 
 	ms, err := gitdirMirrorMounts(context.Background(), rt, &git.Fake{CommonDirValue: filepath.Join(proj, ".git")}, proj, scratch)
 	require.NoError(t, err)
-	require.Len(t, ms, 1, "the mask alone: the common dir is already the project's, and a main checkout has no admin dir of its own to restore")
-	assert.Equal(t, mapped(t, rt, registry), ms[0].Container, "the mask lands on the registry")
-	assert.True(t, ms[0].ReadOnly, "a registration git tries to create in here fails loudly instead of vanishing into scratch")
-	entries, err := os.ReadDir(ms[0].Host)
+	hooks := filepath.Join(proj, ".git", "hooks")
+	require.Len(t, ms, 2, "the hooks overlay and the mask: the common dir is already the project's, and a main checkout has no admin dir of its own to restore")
+	assert.Equal(t, bind(hooks, mapped(t, rt, hooks), true), ms[0], "the hooks are shadowed read-only")
+	assert.Equal(t, mapped(t, rt, registry), ms[1].Container, "the mask lands on the registry")
+	assert.True(t, ms[1].ReadOnly, "a registration git tries to create in here fails loudly instead of vanishing into scratch")
+	entries, err := os.ReadDir(ms[1].Host)
 	require.NoError(t, err)
 	assert.Empty(t, entries, "the mask hides every other checkout's registration")
+}
+
+// A main checkout's .git rides the read-write project mount, and its hooks/
+// run ON THE HOST at the next git operation there. So hooks/ is shadowed
+// read-only after the project mount, while the checkout's own index and HEAD,
+// and its config, objects and refs, stay writable: committing in here needs
+// them.
+func TestGitdirMirrorMounts_MainCheckoutHooksAreReadOnly(t *testing.T) {
+	runtimes := map[string]Runtime{
+		"renaming": fakeRuntime{name: "docker", binary: "docker", available: true},
+		"identity": mapperRuntime{fakeRuntime: fakeRuntime{name: "docker", binary: "docker", available: true}, m: identityMapper{}},
+	}
+	for rtName, rt := range runtimes {
+		t.Run(rtName, func(t *testing.T) {
+			proj := t.TempDir()
+			common := filepath.Join(proj, ".git")
+			gitCommonFixture(t, common, true)
+			require.NoError(t, os.MkdirAll(filepath.Join(common, "worktrees", "other"), 0o755))
+
+			ms, err := gitdirMirrorMounts(context.Background(), rt, &git.Fake{CommonDirValue: common}, proj, t.TempDir())
+			require.NoError(t, err)
+			// The project mount precedes every base mount in the runner's
+			// list (direct_runner: roots, then the plan's mounts).
+			mounts := append([]mount{exposedMapped(t, rt, proj, false)}, ms...)
+
+			for _, ro := range []string{filepath.Join(common, "hooks"), filepath.Join(common, "hooks", "pre-commit")} {
+				host, readOnly, ok := hostBehind(mounts, mapped(t, rt, ro))
+				require.True(t, ok, "%s must be mounted", ro)
+				assert.Equal(t, ro, host, "%s must resolve to the host's own copy", ro)
+				assert.True(t, readOnly, "%s must be read-only", ro)
+			}
+			for _, rw := range []string{filepath.Join(common, "index"), filepath.Join(common, "HEAD"),
+				filepath.Join(common, "config"), filepath.Join(common, "packed-refs"),
+				filepath.Join(common, "objects"), filepath.Join(common, "refs")} {
+				host, readOnly, ok := hostBehind(mounts, mapped(t, rt, rw))
+				require.True(t, ok, "%s must be mounted", rw)
+				assert.Equal(t, rw, host, "%s must resolve to the host's own copy", rw)
+				assert.False(t, readOnly, "%s must be writable: committing in this checkout updates it", rw)
+			}
+			for _, m := range ms {
+				assert.NotContains(t, []string{filepath.Join(common, "index"), filepath.Join(common, "HEAD")}, m.Host,
+					"this checkout's own index and HEAD are never shadowed")
+			}
+			at := slices.IndexFunc(mounts, func(m mount) bool { return m.Host == filepath.Join(common, "hooks") })
+			assert.Greater(t, at, 0, "the hooks overlay comes after the project mount it shadows")
+		})
+	}
+}
+
+// A main checkout without hooks/ gets one before it is shadowed, or the
+// container could create it through the read-write project mount.
+func TestGitdirMirrorMounts_MainCheckoutMissingHooksDirIsCreated(t *testing.T) {
+	rt := fakeRuntime{name: "docker", binary: "docker", available: true}
+	proj := t.TempDir()
+	common := filepath.Join(proj, ".git")
+	gitCommonFixture(t, common, false)
+
+	ms, err := gitdirMirrorMounts(context.Background(), rt, &git.Fake{CommonDirValue: common}, proj, t.TempDir())
+	require.NoError(t, err)
+	hooks := filepath.Join(common, "hooks")
+	assert.DirExists(t, hooks, "the hooks dir is created so it can be shadowed")
+	assert.Contains(t, ms, bind(hooks, mapped(t, rt, hooks), true))
+}
+
+// A main checkout's .git the runtime cannot route fails the workspace rather
+// than launching with its hooks unshadowed.
+func TestGitdirMirrorMounts_MainCheckoutUnroutableGitDirFails(t *testing.T) {
+	proj := t.TempDir()
+	common := filepath.Join(proj, ".git")
+	gitCommonFixture(t, common, true)
+	rt := mapperRuntime{fakeRuntime: fakeRuntime{name: "docker", available: true}, m: unroutableMapper{under: common}}
+	_, err := gitdirMirrorMounts(context.Background(), rt, &git.Fake{CommonDirValue: common}, proj, t.TempDir())
+	require.ErrorIs(t, err, errNoRoute)
 }
 
 // TestContainerName_SanitizesAndScopes: the name is a valid, unique,

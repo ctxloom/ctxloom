@@ -607,8 +607,10 @@ func (hostBase) mountBase(ctx context.Context, rt Runtime, _, projectDir, scratc
 // read-write project mount already, and so is its worktrees/ registry — every
 // OTHER checkout's registration, none of which is mounted, so git in here
 // (`git worktree prune`, gc's auto-prune) would delete them through the
-// mount. That registry is masked the same way (gitRegistryMask). None when
-// .git is absent: there is no repo.
+// mount. That registry is masked the same way (gitRegistryMask). Its hooks/
+// run ON THE HOST, so it is shadowed read-only over the project mount
+// (gitReadOnlyOverlays); its index and HEAD are this checkout's own and stay
+// writable. None when .git is absent: there is no repo.
 func gitdirMirrorMounts(ctx context.Context, rt Runtime, g git.Git, projectDir, scratchRoot string) ([]mount, error) {
 	gitPath := filepath.Join(projectDir, ".git")
 	info, err := os.Stat(gitPath)
@@ -623,7 +625,19 @@ func gitdirMirrorMounts(ctx context.Context, rt Runtime, g git.Git, projectDir, 
 		return nil, fmt.Errorf("stat %s to decide the container gitdir mirror: %w", gitPath, err)
 	}
 	if info.IsDir() {
-		return gitRegistryMask(rt, gitPath, projectDir, scratchRoot)
+		gitMount, err := anchor(rt, gitPath, false)
+		if err != nil {
+			return nil, fmt.Errorf("git dir %s has no route into the container: %w", gitPath, err)
+		}
+		hooks, err := gitReadOnlyOverlays(rt, gitPath, gitMount, gitOwnReadOnlyEntries)
+		if err != nil {
+			return nil, err
+		}
+		registry, err := gitRegistryMask(rt, gitPath, projectDir, scratchRoot)
+		if err != nil {
+			return nil, err
+		}
+		return append(hooks, registry...), nil
 	}
 	return gitDirMounts(ctx, rt, g, projectDir, scratchRoot)
 }

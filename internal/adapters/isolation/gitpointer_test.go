@@ -326,7 +326,7 @@ func TestGitDirMounts_MainHooksIndexAndHeadAreReadOnly(t *testing.T) {
 			// the common-dir mount it shadows.
 			commonAt := slices.IndexFunc(mounts, func(m mount) bool { return m.Host == common })
 			require.GreaterOrEqual(t, commonAt, 0, "the common dir is mounted")
-			for _, name := range gitReadOnlyEntries {
+			for _, name := range gitLinkedReadOnlyEntries {
 				at := slices.IndexFunc(mounts, func(m mount) bool { return m.Host == filepath.Join(common, name) })
 				require.GreaterOrEqual(t, at, 0, "%s is overlaid", name)
 				assert.Greater(t, at, commonAt, "%s's overlay comes after the common-dir mount it shadows", name)
@@ -381,7 +381,48 @@ func TestGitReadOnlyOverlays_UnroutableEntryFails(t *testing.T) {
 	_, _, common := linkedCheckoutIn(t, "")
 	gitCommonFixture(t, common, true)
 	elsewhere := t.TempDir()
-	mounts, err := gitReadOnlyOverlays(fakeRuntime{name: "docker"}, common, bind(elsewhere, elsewhere, false))
+	mounts, err := gitReadOnlyOverlays(fakeRuntime{name: "docker"}, common, bind(elsewhere, elsewhere, false), gitLinkedReadOnlyEntries)
 	require.Error(t, err)
 	assert.Nil(t, mounts, "no partial overlay set escapes")
+}
+
+// A submodule's (or a --separate-git-dir checkout's) .git pointer names the
+// common dir itself, so the index and HEAD there are THIS checkout's own:
+// only hooks/ is shadowed, and committing in here still updates the rest.
+func TestGitDirMounts_OwnGitDirKeepsIndexAndHeadWritable(t *testing.T) {
+	rt := fakeRuntime{name: "docker", binary: "docker", available: true}
+	root := t.TempDir()
+	dir := filepath.Join(root, "sub")
+	common := filepath.Join(root, "super", ".git", "modules", "sub")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	gitCommonFixture(t, common, true)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: "+common+"\n"), 0o644))
+
+	mounts, err := gitDirMounts(context.Background(), rt, &git.Fake{CommonDirValue: common}, dir, t.TempDir())
+	require.NoError(t, err)
+
+	hooks := filepath.Join(common, "hooks")
+	host, readOnly, ok := hostBehind(mounts, mapped(t, rt, hooks))
+	require.True(t, ok, "hooks must be mounted")
+	assert.Equal(t, hooks, host)
+	assert.True(t, readOnly, "hooks run on the host and must be read-only")
+	for _, rw := range []string{filepath.Join(common, "index"), filepath.Join(common, "HEAD")} {
+		host, readOnly, ok := hostBehind(mounts, mapped(t, rt, rw))
+		require.True(t, ok, "%s must be mounted", rw)
+		assert.Equal(t, rw, host, "%s must resolve to the host's own copy", rw)
+		assert.False(t, readOnly, "%s is this checkout's own and must be writable", rw)
+	}
+}
+
+// A .git that is not a gitdir pointer fails the workspace before anything is
+// written to the host: whose index and HEAD the common dir holds cannot be
+// told.
+func TestGitDirMounts_MalformedPointerFailsBeforeTouchingTheHost(t *testing.T) {
+	dir, _, common := linkedCheckoutIn(t, "")
+	gitCommonFixture(t, common, false)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".git"), []byte("not a pointer\n"), 0o644))
+
+	_, err := gitDirMounts(context.Background(), fakeRuntime{name: "docker"}, &git.Fake{CommonDirValue: common}, dir, t.TempDir())
+	require.Error(t, err)
+	assert.NoDirExists(t, filepath.Join(common, "hooks"), "nothing is created for a checkout that is refused")
 }

@@ -143,14 +143,19 @@ func TestDevcontainerGitMounts_LinkedWorktreeMasksOtherRegistrations(t *testing.
 	}
 }
 
-// The main checkout's git dir is inside the workspace mount, so its registry
-// reaches the container through that mount, at the workspace path — and a
-// main checkout has no admin dir of its own in the registry to mount back.
+// The main checkout's git dir is inside the workspace mount, so its hooks/
+// and registry reach the container through that mount, at the workspace path:
+// hooks/ is shadowed read-only (hooks run on the host) and the registry
+// masked — and a main checkout has no admin dir of its own in the registry to
+// mount back. Its index and HEAD are its own and stay writable.
 func TestDevcontainerGitMounts_MainCheckoutMasksTheRegistryInsideTheWorkspace(t *testing.T) {
 	r := newGitRepoWithWorktrees(t)
 	specs, mask := gitMounts(t, r.main)
 
-	want := []string{bindSpec(mask, workspaceDst+"/.git/worktrees", true)}
+	want := []string{
+		bindSpec(filepath.Join(r.common, "hooks"), workspaceDst+"/.git/hooks", true),
+		bindSpec(mask, workspaceDst+"/.git/worktrees", true),
+	}
 	if !slices.Equal(specs, want) {
 		t.Fatalf("mounts\n got %q\nwant %q", specs, want)
 	}
@@ -163,16 +168,56 @@ func TestDevcontainerGitMounts_MainCheckoutMasksTheRegistryInsideTheWorkspace(t 
 	}
 }
 
-// No registry, nothing to mask and nothing outside the workspace to mount.
-func TestDevcontainerGitMounts_MainCheckoutWithoutWorktreesMountsNothing(t *testing.T) {
+// No registry, nothing to mask and nothing outside the workspace to mount:
+// only hooks/ is shadowed, and a missing one is created first so the
+// container cannot create it through the workspace mount.
+func TestDevcontainerGitMounts_MainCheckoutWithoutWorktreesShadowsOnlyHooks(t *testing.T) {
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	runGit(t, dir, "init", "-q", "-b", "main")
+	hooks := filepath.Join(dir, ".git", "hooks")
+	if err := os.RemoveAll(hooks); err != nil {
+		t.Fatal(err)
+	}
 	specs, _ := gitMounts(t, dir)
-	if len(specs) != 0 {
-		t.Fatalf("want no mounts, got %q", specs)
+	if info, err := os.Stat(hooks); err != nil || !info.IsDir() {
+		t.Fatalf("the hooks dir must be created: %v", err)
+	}
+	want := []string{bindSpec(hooks, workspaceDst+"/.git/hooks", true)}
+	if !slices.Equal(specs, want) {
+		t.Fatalf("mounts\n got %q\nwant %q", specs, want)
+	}
+}
+
+// A submodule's git dir IS its common dir, outside the workspace: it is
+// mounted read-write with only hooks/ shadowed, because its index and HEAD
+// are its own and committing in it rewrites them.
+func TestDevcontainerGitMounts_SubmoduleKeepsItsIndexAndHeadWritable(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, super := filepath.Join(root, "sub"), filepath.Join(root, "super")
+	for _, d := range []string{sub, super} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		runGit(t, d, "init", "-q", "-b", "main")
+	}
+	runGit(t, sub, "commit", "-q", "--allow-empty", "-m", "root")
+	runGit(t, super, "-c", "protocol.file.allow=always", "submodule", "add", "-q", sub, "s")
+	checkout := filepath.Join(super, "s")
+	common := filepath.Join(super, ".git", "modules", "s")
+
+	specs, _ := gitMounts(t, checkout)
+	want := []string{
+		bindSpec(common, common, false),
+		bindSpec(filepath.Join(common, "hooks"), filepath.Join(common, "hooks"), true),
+	}
+	if !slices.Equal(specs, want) {
+		t.Fatalf("mounts\n got %q\nwant %q", specs, want)
 	}
 }
 

@@ -110,6 +110,11 @@ func forceRemoveAll(dir string) error {
 	return os.RemoveAll(dir)
 }
 
+// envRootPattern is the os.MkdirTemp pattern every TestEnvironment's Root is
+// made with, under os.TempDir(). The real-home tripwire (suiteTempRoots) reads
+// it too, so the two cannot name different places.
+const envRootPattern = "ctxloom-integration-*"
+
 // NewTestEnvironment creates a new isolated test environment.
 func NewTestEnvironment() (*TestEnvironment, error) {
 	if err := refuseAmbientSessionEnv(os.LookupEnv); err != nil {
@@ -117,7 +122,7 @@ func NewTestEnvironment() (*TestEnvironment, error) {
 	}
 
 	// Create root temp directory
-	root, err := os.MkdirTemp("", "ctxloom-integration-*")
+	root, err := os.MkdirTemp("", envRootPattern)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp root: %w", err)
 	}

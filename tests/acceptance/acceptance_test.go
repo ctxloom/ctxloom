@@ -22,11 +22,13 @@ import (
 // environment with only HOME overridden) would resolve the host session's
 // project id, while the spawned MCP server scrubs it — the two would disagree on
 // which home-rooted store to use. Scrubbing once here keeps both axes isolated.
+// The run sits inside testenv.GuardRealHome, which fails it if a scenario's
+// child left a trace in the developer's real home.
 func TestMain(m *testing.M) {
 	launchCredentials = captureLaunchCredentials()
 	testenv.ScrubProcessEnv()
 	enginefixture.MustComposeShipped()
-	code := m.Run()
+	code := testenv.GuardRealHome(m.Run)
 	// The taskloom binary testenv builds for the j002500/j002600/trigger steps lives
 	// behind a sync.Once and is shared by every scenario, so its ~30MB
 	// directory can only be dropped here, after the whole suite has finished —

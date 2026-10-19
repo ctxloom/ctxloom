@@ -116,14 +116,14 @@ func (s *Split) scrollLines(w, h int) []string {
 	if top < hist {
 		back = s.pane.History(top, min(h, hist-top))
 	}
-	live := s.terminalLines(w, h)
+	live := s.terminalLines(w, h) // h rows: v below is always inside them
 	blank := strings.Repeat(" ", w)
 	out := make([]string, h)
 	for y := range out {
 		switch v := top + y - hist; {
 		case y < len(back):
 			out[y] = padCell(back[y], w)
-		case v >= 0 && v < len(live):
+		case v >= 0:
 			out[y] = live[v]
 		default:
 			out[y] = blank

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -214,9 +215,13 @@ func TestSplitScroll_WheelScrollsThePane(t *testing.T) {
 	h.typeBytes("\x1b[<64;40;3M\x1b[<65;40;3M")
 	_, marker = first(h)
 	assert.Equal(t, "[3/14]", marker, "down undoes up")
-	h.typeBytes("\x1b[<64;3;3M") // over the panel
+	h.typeBytes("\x1b[<64;3;3M\x1b[<64;27;3M") // over the panel, and the divider
 	_, marker = first(h)
 	assert.Equal(t, "[3/14]", marker, "the wheel over the panel is not the pane's")
+	h.typeBytes("\x1b[<64;28;3M") // the pane's first column
+	_, marker = first(h)
+	assert.Equal(t, "[6/14]", marker)
+	h.typeBytes("\x1b[<65;28;3M")
 	h.typeBytes(strings.Repeat("\x1b[<65;40;3M", 3))
 	_, marker = first(h)
 	assert.Equal(t, "[0/14]", marker, "the bottom stops the wheel")
@@ -355,4 +360,55 @@ func TestSplitView_ScrollModeSwitchesTheHumansMouseReporting(t *testing.T) {
 	mouse("cell motion again", termemu.MouseDrags)
 	p.v.Close()
 	assert.Equal(t, termemu.MouseOff, mouseOf(p.out.bytes()), "closed mid-scroll: the human's terminal reports nothing")
+}
+
+// The marker overlays the first row's right end and keeps it exactly the
+// pane's width, a wide glyph cut at its edge included; a pane too narrow
+// for it goes unmarked.
+func TestSplitScroll_TheMarkerKeepsTheRowsWidth(t *testing.T) {
+	h := newSplitHarness(t, newSplitPort()).sized(101, 6) // a 74-column pane: 69 left of the marker
+	h.engineWrites(strings.Repeat("日", 36) + "\r\n" + numbered(1, 6))
+	h.typeBytes("\x1d[")
+	h.keys("g")
+	row := h.s.render()[0]
+	assert.Equal(t, 101, ansi.StringWidth(row))
+	_, marker := first(h)
+	assert.Equal(t, "[1/1]", marker)
+	assert.Equal(t, strings.Repeat("日", 34)+" [1/1]", strings.SplitN(h.screen()[0], "│", 2)[1])
+
+	h.send(tea.WindowSizeMsg{Width: 8, Height: 6})
+	h.frame()
+	_, pane := h.s.layout()
+	require.Equal(t, 5, pane)
+	for _, r := range h.s.render() {
+		assert.Equal(t, 8, ansi.StringWidth(r))
+	}
+	_, marker = first(h)
+	assert.Empty(t, marker, "no room for the marker")
+}
+
+// Entered before the split has a size, scroll mode renders nothing and
+// survives until it has one.
+func TestSplitScroll_BeforeTheFirstSize(t *testing.T) {
+	h := newSplitHarness(t, newSplitPort())
+	h.typeBytes("\x1d[")
+	require.True(t, h.s.scroll.on)
+	assert.Empty(t, h.s.render())
+	h.sized(100, 6)
+	_, marker := first(h)
+	assert.Equal(t, "[0/0]", marker)
+}
+
+// The history can lose lines the held frame still counts: cleared while a
+// synchronized frame is open. Rows for lines no longer there are blank
+// until the frame commits, never another line.
+func TestSplitScroll_LinesGoneUnderAHeldFrameAreBlank(t *testing.T) {
+	h := scrolled(t, newSplitPort())
+	h.typeBytes("\x1d[")
+	h.keys("up")
+	h.engineWrites("\x1b[?2026h\x1b[3J")
+	require.Equal(t, 14, h.s.frame.History, "the held frame")
+	rows, marker := shown(h)
+	assert.Equal(t, append([]string{""}, strings.Split(numbered(15, 19), "\r\n")...), rows)
+	assert.Equal(t, "[1/14]", marker)
 }

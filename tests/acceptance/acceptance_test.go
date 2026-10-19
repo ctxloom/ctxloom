@@ -54,6 +54,15 @@ func TestHermeticChildSeesNoCredential(t *testing.T) {
 		}
 	}
 
+	// Built BEFORE the credentials are re-exported: NewTestEnvironment refuses
+	// a process holding session variables, and what is pinned here is that the
+	// child environment Command builds from the live process drops them.
+	env, err := testenv.NewTestEnvironment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = env.Cleanup() })
+
 	saved := launchCredentials
 	t.Cleanup(func() { launchCredentials = saved })
 	launchCredentials = map[string]string{}
@@ -62,11 +71,6 @@ func TestHermeticChildSeesNoCredential(t *testing.T) {
 		t.Setenv(k, "fake-ambient")
 	}
 
-	env, err := testenv.NewTestEnvironment()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = env.Cleanup() })
 	for _, kv := range env.Command(nil, "version").Env {
 		for _, k := range keys {
 			if strings.HasPrefix(kv, k+"=") {

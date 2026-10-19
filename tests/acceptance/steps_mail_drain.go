@@ -230,8 +230,8 @@ func registerMailDrainSteps(ctx *godog.ScenarioContext) {
 			}
 			var wake string
 			budget := eventBudget()
-			if err := w.owner.sess.WaitForScreen(budget, "the session owner's woken turn", func(out string) bool {
-				wake = wakeLineIn(out)
+			if err := w.owner.sess.WaitForScreen(budget, "the session owner's woken turn", func(string) bool {
+				wake = wakeLineIn(w.owner.sess.Display())
 				return wake != ""
 			}); err != nil {
 				return fmt.Errorf("the session owner was never woken: %w", err)
@@ -287,11 +287,15 @@ func registerMailDrainSteps(ctx *godog.ScenarioContext) {
 		})
 }
 
-// wakeLineIn is the first echoed wake line in a session owner's terminal
-// output, "" when there is none.
-func wakeLineIn(out string) string {
-	for _, line := range strings.Split(out, "\n") {
-		echoed, ok := strings.CutPrefix(strings.TrimRight(line, "\r"), "mock echo: ")
+// wakeLineIn is the first echoed wake line on a session owner's display,
+// "" when there is none.
+func wakeLineIn(display string) string {
+	for _, line := range strings.Split(display, "\n") {
+		// The engine's pane is right of the split view's divider.
+		if _, pane, ok := strings.Cut(line, "│"); ok {
+			line = pane
+		}
+		echoed, ok := strings.CutPrefix(strings.TrimRight(line, " "), "mock echo: ")
 		if !ok {
 			continue
 		}

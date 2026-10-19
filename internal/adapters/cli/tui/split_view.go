@@ -75,9 +75,11 @@ func (v *SplitView) Pane() io.Writer { return v.pane }
 func (v *SplitView) Done() <-chan error { return v.done }
 
 // Close stops the split view, restoring the human's terminal, and releases
-// the emulator.
+// the emulator. The pane's last committed frame is drawn first: what the
+// engine wrote before Close reaches the human's terminal.
 func (v *SplitView) Close() {
 	v.close.Do(func() {
+		v.prog.Send(frameMsg{})
 		v.prog.Quit()
 		<-v.exited
 		_ = v.pane.Close()

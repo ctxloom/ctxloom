@@ -115,8 +115,8 @@ func (w *World) standSessionOwnerSelecting(bin string, selection []string, extra
 	if _, err := sess.Write([]byte(sessionOwnerSentinel + "\n")); err != nil {
 		return fmt.Errorf("session owner: type the readiness sentinel: %w", err)
 	}
-	if err := sess.WaitForScreen(eventBudget(), fmt.Sprintf("the session owner's echo of %q", sessionOwnerSentinel), func(out string) bool {
-		return strings.Contains(out, "mock echo: "+sessionOwnerSentinel)
+	if err := sess.WaitForScreen(eventBudget(), fmt.Sprintf("the session owner's echo of %q", sessionOwnerSentinel), func(string) bool {
+		return strings.Contains(sess.Display(), "mock echo: "+sessionOwnerSentinel)
 	}); err != nil {
 		return fmt.Errorf("session owner: the owner is not standing: %w", err)
 	}

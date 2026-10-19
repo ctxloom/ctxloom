@@ -28,14 +28,17 @@ import (
 
 // fakeInteractiveClaudeBody reports claude's version floor (checked before
 // launch), says whether it was handed a terminal, echoes one typed line, and
-// exits cleanly. A run reports any engine failure, and any launch failure, as
-// a non-zero exit, so only an engine that ran and ended cleanly exits 0.
+// exits cleanly on the next. A run reports any engine failure, and any launch
+// failure, as a non-zero exit, so only an engine that ran and ended cleanly
+// exits 0. It waits to be told to exit so the echo is on the screen first:
+// the split view closes with the engine, and output it never drew is gone.
 const fakeInteractiveClaudeBody = `#!/bin/sh
 case "$1" in --version) echo "%s (Claude Code)"; exit 0;; esac
 if [ -t 0 ] && [ -t 1 ]; then echo "FAKE-ENGINE-ON-A-TTY"; fi
 echo "FAKE-ENGINE-READY"
 IFS= read -r line
 echo "FAKE-ENGINE-GOT:$line"
+IFS= read -r line
 exit 0
 `
 
@@ -94,16 +97,18 @@ func startInteractiveFakeClaude(t *testing.T, body string) (*testenv.TestEnviron
 func TestRunPTY_InteractiveEngineRunsOnAPlainPtyWithoutTmux(t *testing.T) {
 	_, sess := startInteractiveFakeClaude(t, fakeInteractiveClaudeBody)
 
-	out, ready := sess.AwaitOutput(t, func(out string) bool { return strings.Contains(out, "FAKE-ENGINE-READY") })
-	require.True(t, ready, "the engine never started; captured: %q", out)
-	assert.Contains(t, sess.Output(), "FAKE-ENGINE-ON-A-TTY", "the engine's stdin and stdout are a terminal")
+	out, ready := sess.AwaitDisplay(t, func(out string) bool { return strings.Contains(out, "FAKE-ENGINE-READY") })
+	require.True(t, ready, "the engine never started; the display:\n%s", out)
+	assert.Contains(t, out, "FAKE-ENGINE-ON-A-TTY", "the engine's stdin and stdout are a terminal")
 
 	_, err := sess.Write([]byte("typed-through-the-pty\r"))
 	require.NoError(t, err)
-	out, echoed := sess.AwaitOutput(t, func(out string) bool {
+	out, echoed := sess.AwaitDisplay(t, func(out string) bool {
 		return strings.Contains(out, "FAKE-ENGINE-GOT:typed-through-the-pty")
 	})
-	require.True(t, echoed, "a typed line never reached the engine; captured: %q", out)
+	require.True(t, echoed, "a typed line never reached the engine; the display:\n%s", out)
+	_, err = sess.Write([]byte("\r"))
+	require.NoError(t, err)
 
 	exited, _ := sess.AwaitExit(t)
 	require.True(t, exited, "ctxloom run never exited; captured: %q", sess.Output())
@@ -127,7 +132,7 @@ func TestRunPTY_InteractiveRunPassesTheEngineExitStatusThrough(t *testing.T) {
 			_, sess := startInteractiveFakeClaude(t, body)
 			exited, _ := sess.AwaitExit(t)
 			require.True(t, exited, "ctxloom run never exited; captured: %q", sess.Output())
-			require.Contains(t, sess.Output(), "FAKE-ENGINE-READY", "the engine ran")
+			require.Contains(t, sess.LastFullScreen(), "FAKE-ENGINE-READY", "the engine ran")
 			assert.Equal(t, tc.want, sess.ExitCode(), "captured: %q", sess.Output())
 		})
 	}

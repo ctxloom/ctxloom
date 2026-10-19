@@ -68,10 +68,10 @@ func TestSecondRun_FoundsItsOwnTree_AndTheFirstKeepsItsState(t *testing.T) {
 
 	_, err = first.Write([]byte(treesSentinel + "\n"))
 	require.NoError(t, err)
-	echoed, standing := first.AwaitOutput(t, func(out string) bool {
+	echoed, standing := first.AwaitDisplay(t, func(out string) bool {
 		return strings.Contains(out, "mock echo: "+treesSentinel)
 	})
-	require.True(t, standing, "the first session never echoed %q — it is not standing; output:\n%s", treesSentinel, echoed)
+	require.True(t, standing, "the first session never echoed %q — it is not standing; the display:\n%s", treesSentinel, echoed)
 
 	locks := ownerLocks(t, env.HomeDir)
 	require.Len(t, locks, 1, "the first session must hold exactly one root; found %v", locks)

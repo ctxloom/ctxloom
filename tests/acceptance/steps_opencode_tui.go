@@ -115,7 +115,7 @@ llm:
 			return fmt.Errorf("`ctxloom run` did not exit after the scripted TUI did; output:\n%s", sess.Output())
 		case sess.ExitCode() != 0:
 			return fmt.Errorf("`ctxloom run` exited %d; output:\n%s", sess.ExitCode(), sess.Output())
-		case !strings.Contains(sess.Output(), "OPENCODE-TUI-SCRIPTED-UP"):
+		case !strings.Contains(sess.LastFullScreen(), "OPENCODE-TUI-SCRIPTED-UP"):
 			return fmt.Errorf("the scripted TUI's output never reached Alice's terminal; output:\n%s", sess.Output())
 		}
 		return nil

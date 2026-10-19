@@ -42,10 +42,10 @@ func startParkedSession(t *testing.T) (*testenv.PTYSession, *testenv.TestEnviron
 	})
 	_, err = s.Write([]byte(ownerDeathSentinel + "\n"))
 	require.NoError(t, err)
-	out, up := s.AwaitOutput(t, func(out string) bool {
+	out, up := s.AwaitDisplay(t, func(out string) bool {
 		return strings.Contains(out, "mock echo: "+ownerDeathSentinel)
 	})
-	require.True(t, up, "the session never came up; output:\n%s", out)
+	require.True(t, up, "the session never came up; the display:\n%s", out)
 	return s, env
 }
 

@@ -41,6 +41,7 @@ var taggedTypes = []any{
 	UnifiedHooks{},
 	HooksConfig{},
 	MCPServer{},
+	Requires{},
 }
 
 // tagName returns the name a struct tag assigns to a field, and whether the tag

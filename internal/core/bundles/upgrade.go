@@ -30,10 +30,10 @@ import (
 // exactly as it always has. ParseBundle runs the Upgrade on the raw bytes,
 // before the strict decode, and nothing is written back implicitly (see
 // persistEnvelopeUpgrade).
-var envelopeKind = schemaver.Define("bundle", execItemFieldsGeneration, envelopeSteps...)
+var envelopeKind = schemaver.Define("bundle", requiresToolchainsGeneration, envelopeSteps...)
 
 // envelopeSteps is envelopeKind's chain, oldest first.
-var envelopeSteps = []schemaver.Step{retiredKeysStep{}, profileRefsStep{}, execItemFieldsStep{}}
+var envelopeSteps = []schemaver.Step{retiredKeysStep{}, profileRefsStep{}, execItemFieldsStep{}, requiresToolchainsStep{}}
 
 // execItemFieldsGeneration is the generation execItemFieldsStep migrates an
 // envelope TO.
@@ -54,6 +54,25 @@ func (execItemFieldsStep) Name() string {
 func (execItemFieldsStep) To() int { return execItemFieldsGeneration }
 
 func (execItemFieldsStep) Apply(*yaml.Node) {}
+
+// requiresToolchainsGeneration is the generation requiresToolchainsStep
+// migrates an envelope TO.
+const requiresToolchainsGeneration = 4
+
+// requiresToolchainsStep is generation 3 -> 4: an envelope may declare
+// `requires:` (the commands its content assumes), and the same generation is
+// reserved for the toolchain recipes an envelope will declare beside it, so the
+// pair costs one bump rather than two. Nothing an older envelope holds changes
+// meaning, so the step edits nothing; the generation exists so a binary that
+// cannot read `requires` refuses the bundle (schemaver.ErrNewer) rather than
+// failing its strict decode with an unknown-key message.
+type requiresToolchainsStep struct{}
+
+func (requiresToolchainsStep) Name() string { return "envelopes gain requires" }
+
+func (requiresToolchainsStep) To() int { return requiresToolchainsGeneration }
+
+func (requiresToolchainsStep) Apply(*yaml.Node) {}
 
 // profileRefsGeneration is the generation profileRefsStep migrates an
 // envelope TO. A tree whose envelope declares an older one has its profile

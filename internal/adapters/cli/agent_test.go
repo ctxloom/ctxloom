@@ -109,7 +109,7 @@ func TestRenderAgentShow_ResolutionFailureStillPrintsDefinition(t *testing.T) {
 // DISCUSS → WRITE instructions the LLM follows — reaches stdout through
 // `ctxloom init prompt` (runSetupPromptCmd). The prompt is a markdown resource, so the
 // assertions pin only the load-bearing, name-agnostic mechanics (not any
-// role/lens names).
+// role names).
 func TestSetupPrompt_EmitsPrompt(t *testing.T) {
 	var buf bytes.Buffer
 	cmd := &cobra.Command{}
@@ -121,7 +121,7 @@ func TestSetupPrompt_EmitsPrompt(t *testing.T) {
 	assert.Contains(t, out, "ctxloom llm list", "prompt scans engines at runtime")
 	assert.Contains(t, out, "ctxloom profile list", "prompt scans profiles at runtime")
 	assert.Contains(t, out, "ctxloom agent create", "prompt writes bindings via agent create")
-	assert.Contains(t, out, "search_library", "prompt discovers the cr-* lenses from the library")
+	assert.Contains(t, out, "search_library", "prompt discovers reviewer profiles from the library")
 }
 
 // `agent show` resolves the engine fault-tolerantly: a failure (e.g. a missing

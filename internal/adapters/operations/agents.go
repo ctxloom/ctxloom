@@ -452,8 +452,8 @@ func validateContainerStory(reg engine.Registry, cfg *config.Config, name string
 // between the read of the existing record and the write of the merged one.
 //
 // Name-agnostic by construction: it stores whatever name/profiles the caller
-// passes — the role taxonomy (developer/finder/code-review, per-language ×
-// lens) is the user's choice from the live scan, never enumerated here. Engine
+// passes — the role taxonomy (developer/finder/per-language code reviewer)
+// is the user's choice from the live scan, never enumerated here. Engine
 // is the one exception: it is checked for MEMBERSHIP (see validateAgentAxes)
 // against the engines this config actually exposes, because an engine nothing
 // defines leaves the binding broken. Which backend it maps to, and the
@@ -605,7 +605,7 @@ func RemoveAgent(ctx context.Context, app *App, name string) error {
 // WITH the agent. The moment any agent exists, the nudge goes silent.
 //
 // Fault-tolerant and name-agnostic: it inspects only counts (profiles present?
-// agents present?), never any role/lens/engine names, and never blocks.
+// agents present?), never any role/engine names, and never blocks.
 func AgentSetupNudge(cfg *config.Config) string {
 	if cfg == nil {
 		return ""
@@ -619,7 +619,7 @@ func AgentSetupNudge(cfg *config.Config) string {
 	return "ctxloom: this project has profiles but no agents configured. " +
 		"Run `ctxloom init prompt` (or ask your agent to) to bind engines to profiles — " +
 		"the standard trio is an orchestrator you drive, a containerized developer, and a cheap finder, " +
-		"plus code-review lenses and any other roles you want to orchestrate."
+		"plus per-language code reviewers and any other roles you want to orchestrate."
 }
 
 // hasAnyProfiles reports whether the project has any profile to bind an agent

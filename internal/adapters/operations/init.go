@@ -44,8 +44,7 @@ type InitializeProjectResult struct {
 // `init` scaffolds; init also binds it as the profile of the always-bound
 // DEFAULT AGENT (config `agents.default` + `default_agent`), which a bare
 // `ctxloom run` resolves. Generic by design (not any role/archetype): the
-// archetype taxonomy — developer/finder/code-review, per-(language × lens)
-// members — is data, living in the agent-setup prompt and ctxloom-default's
+// archetype taxonomy — developer/finder/per-language code reviewer — is data, living in the agent-setup prompt and ctxloom-default's
 // profiles, never baked into this binary as names.
 const SeedProfileName = "default"
 

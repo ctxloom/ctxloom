@@ -72,7 +72,7 @@ ctxloom agent remove reviewer --yes
 
 `ctxloom agent edit <name>` changes an existing binding with the same flags.
 
-`ctxloom init prompt` prints an interview prompt for your AI: it scans the available engines (`ctxloom llm list`) and profiles, discusses which roles you want (a coordinator, a containerized developer, a cheap finder, review lenses), and writes the bindings with `ctxloom agent create`. `ctxloom init` runs this as part of its setup interview; `init prompt` re-enters it any time.
+`ctxloom init prompt` prints an interview prompt for your AI: it scans the available engines (`ctxloom llm list`) and profiles, discusses which roles you want (a coordinator, a containerized developer, a cheap finder, per-language code reviewers), and writes the bindings with `ctxloom agent create`. `ctxloom init` runs this as part of its setup interview; `init prompt` re-enters it any time.
 
 ## Using agents
 

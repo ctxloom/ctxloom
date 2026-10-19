@@ -274,26 +274,25 @@ Lead with the standard trio, bound to the phase-3 profiles:
   straight back, no elaboration. Cheap engine, the
   `agent-roles#fragments/finder` fragment (or an equivalent).
 
-Then the open palette. **Code-review agents** are the notable one: build the
-ensemble THIS project needs now and persist it, so the orchestrator can fan it
-out later via `agent_run`. The pattern is one tight, single-lens profile per
-lens × language present — composed from the code-review base fragment plus
-that lens's and that language's fragments (search_library surfaces the exact
-refs). Prefer many narrow lenses over one broad reviewer; the orchestrator
-reads each child's `agent_report` back and synthesizes the findings itself —
-no separate reduce agent needed. Beyond that: docs writer, migration runner,
+Then the open palette. **Code reviewers** are the notable one: create one
+reviewer per language THIS project uses now and persist them, so the
+orchestrator can fan them out later via `agent_run`. Each reviewer composes
+that language's code-reviewer profile (search_library surfaces the exact refs)
+with the language's practices; the orchestrator reads each child's
+`agent_report` back and synthesizes the findings itself — no separate reduce
+agent needed. Beyond that: docs writer, migration runner,
 test author, whatever the user wants — same pattern each time: tight scope, a
 composed profile, a fitting engine.
 
 Steer HARD toward tight, single-responsibility agents — many small focused
 children keep `agent_run` fan-out cheap and accurate; push back if the user
 proposes one big do-everything agent. As a rule of thumb: cheap engine →
-finders and breadth review; powerful → orchestrator/developers; per-lens →
-code review (often cheaper than the developer).
+finders; powerful → orchestrator/developers; per-language code reviewers →
+often a step cheaper than the developer.
 
 ### 4b-runtime. Ask each agent's runtime, one agent at a time
 
-For EVERY agent you are about to create — the trio, the review ensemble, the
+For EVERY agent you are about to create — the trio, the code reviewers, the
 open palette, and 4d's distiller and triage alike — ask where its engine
 process runs, and wait for an answer. Ask it as its own question, per agent,
 right where that agent is being decided: "same as the last one?" is fine as
@@ -366,7 +365,7 @@ engine that can authenticate inside one, else fall back to host and say why;
 change an existing one with `agent edit <name>`, drop one with
 `agent remove <name> --yes`. Confirm
 with `ctxloom agent list`, then tell the user how to use what they built
-(`ctxloom run --agent orchestrator`, which fans the review ensemble out via
+(`ctxloom run --agent orchestrator`, which fans the code reviewers out via
 `agent_run` when asked).
 
 ### 4d. ctxloom's own agents — distiller and triage

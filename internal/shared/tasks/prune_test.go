@@ -476,7 +476,7 @@ type contentionSignal struct {
 func (c contentionSignal) Lock(path string) (safefs.Lock, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	lk, err := c.Locks.TryLock(ctx, path)
+	lk, err := c.TryLock(ctx, path)
 	if err == nil {
 		return lk, nil
 	}

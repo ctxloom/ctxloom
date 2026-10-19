@@ -289,4 +289,11 @@ func TestShellWord(t *testing.T) {
 	assert.Equal(t, "'To Do'", shellWord("To Do"))
 	assert.Equal(t, "'triage:level<=2'", shellWord("triage:level<=2"))
 	assert.Equal(t, `'it'\''s'`, shellWord("it's"))
+	// Every range's own end points pass through bare; the byte just past
+	// each range is quoted, so an off-by-one in any bound is caught.
+	assert.Equal(t, "azAZ09", shellWord("azAZ09"))
+	for _, outside := range []string{"`", "{", "[", "^", ";", "!"} {
+		assert.Equal(t, "'"+outside+"'", shellWord(outside), "%q must be quoted", outside)
+	}
+	assert.Equal(t, "''", shellWord(""), "an empty word is quoted, never dropped")
 }

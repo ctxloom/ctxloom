@@ -437,32 +437,23 @@ func runAgentEdit(cmd *cobra.Command, args []string) error {
 // `edit` used to silently mint a brand-new agent, and a `create` over a live
 // name used to silently overwrite it.
 //
-// It resembles writeLLM but is not a copy to keep in step: only an agent
-// binds profiles and a runtime, so only its write reports the commands those
-// need (reportAgentCommandGaps); an llm label has no such requirements.
-// reprise:accept-drift
+// Only an agent binds profiles and a runtime, so only its write reports the
+// commands those need (reportAgentCommandGaps); an llm label has no such
+// requirements.
 func writeAgentBinding(cmd *cobra.Command, name string, mustExist bool) error {
 	// No help shortcut: the positional arg NAMES the agent to write, and the
 	// shortcut made an agent called "help" impossible to create.
-	cfg, err := GetConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-	if err := checkAgentExistence(cfg, name, mustExist); err != nil {
-		return err
-	}
-	req, err := buildSetAgentRequest(cmd, name)
-	if err != nil {
-		return err
-	}
-	entry, err := operations.SetAgent(cmd.Context(), App(), cfg, req)
-	if err != nil {
-		return err
-	}
-	reportAgentCommandGaps(cmd, name)
-	return emit(cmd, entry, func() error {
-		return renderAgentWritten(cmd.OutOrStdout(), entry, mustExist)
-	})
+	return writeConfigEntry(cmd, mustExist,
+		func(cfg *config.Config) error { return checkAgentExistence(cfg, name, mustExist) },
+		func(cfg *config.Config) (*operations.AgentEntry, error) {
+			req, err := buildSetAgentRequest(cmd, name)
+			if err != nil {
+				return nil, err
+			}
+			return operations.SetAgent(cmd.Context(), App(), cfg, req)
+		},
+		func() { reportAgentCommandGaps(cmd, name) },
+		renderAgentWritten)
 }
 
 // reportAgentCommandGaps says, right after the write, which commands the

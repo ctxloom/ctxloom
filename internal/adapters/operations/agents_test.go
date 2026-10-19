@@ -174,6 +174,27 @@ func TestResolveAgent_EffectivePermissions(t *testing.T) {
 	}
 }
 
+// TestResolveAgent_Approver pins the approver `agent show` reports for a
+// headless run: the binding's declaration, else the human; a spelling no
+// approver has reports none, for the launch to refuse.
+func TestResolveAgent_Approver(t *testing.T) {
+	root := t.TempDir()
+	writeAgentProfileFixture(t, root)
+	cfg := agentTestConfig(root, map[string]agents.Agent{
+		"blank":    {LLM: "primary", Profiles: []string{"p1"}},
+		"none":     {LLM: "primary", Profiles: []string{"p1"}, Permissions: agents.Permissions{NeutralPermissions: agents.NeutralPermissions{Approver: "none"}}},
+		"reviewer": {LLM: "primary", Profiles: []string{"p1"}, Permissions: agents.Permissions{NeutralPermissions: agents.NeutralPermissions{Approver: "Reviewer"}}},
+		"typo":     {LLM: "primary", Profiles: []string{"p1"}, Permissions: agents.Permissions{NeutralPermissions: agents.NeutralPermissions{Approver: "humans"}}},
+	})
+	for name, want := range map[string]string{"blank": "human", "none": "none", "reviewer": "reviewer", "typo": ""} {
+		t.Run(name, func(t *testing.T) {
+			res, err := ResolveAgent(context.Background(), engines.Registry(), cfg, name, "")
+			require.NoError(t, err)
+			assert.Equal(t, want, res.Approver)
+		})
+	}
+}
+
 // TestResolveAgent_HomeMode proves the resolve-time treatment of
 // ResolvedAgent.HomeMode: undeclared defaults to agents.HomeModeSession
 // (never the real home, which only an explicit "host" selects), a declared

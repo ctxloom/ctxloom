@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 	"github.com/ctxloom/ctxloom/resources"
@@ -240,6 +241,9 @@ func renderAgentResolution(w *errwriter.Writer, resolved *operations.ResolvedAge
 	if resolved.EffectivePermissions != "" {
 		w.Printf("Resolved permissions: %s\n", resolved.EffectivePermissions)
 	}
+	if resolved.Approver != "" {
+		w.Printf("Headless posture: %s\n", headlessPosture(resolved.EffectivePermissions, resolved.Approver))
+	}
 	if resolved.HomeMode != "" {
 		w.Printf("Resolved config home: %s\n", resolved.HomeMode)
 	}
@@ -247,6 +251,28 @@ func renderAgentResolution(w *errwriter.Writer, resolved *operations.ResolvedAge
 	for _, loss := range losses {
 		w.Printf("  NOT carried: %s (%s) — %s\n", loss.Surface, loss.Detail, loss.Reason)
 	}
+}
+
+// headlessPosture is how a headless run of the agent — a delegated child, a
+// one-shot — meets a call its posture leaves open: the posture, the approver,
+// and where the ask goes. Bypass asks nobody; approver none denies the call
+// and the reviewer decides it; the human is asked in the root's approvals
+// modal, and where the root presents none (a one-shot, --plain-terminal or
+// headless root) the call is denied at once.
+func headlessPosture(posture, approver string) string {
+	lead := "approver " + approver
+	if posture != "" {
+		lead = posture + ", " + lead
+	}
+	switch {
+	case posture == permissionBypass:
+		return lead + " — nothing is asked"
+	case approver == engine.ApproverNone.String():
+		return lead + " — asks are denied at once"
+	case approver == engine.ApproverReviewer.String():
+		return lead + " — the engine's reviewer decides asks"
+	}
+	return lead + " — asks go to the root's approvals modal; denied at once when the root is unattended (one-shot, --plain-terminal, headless)"
 }
 
 // runSetupPromptCmd prints the full five-phase ctxloom setup prompt for the

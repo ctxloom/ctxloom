@@ -178,22 +178,43 @@ func resolveDeclared(rep report.Reporter, src Source, decls []engine.Declaration
 // interactive run's human answers in the engine's own UI. The reviewer is
 // only an approver on an engine that has one.
 func resolveApprover(rungs []neutralRung, mode engine.Mode, eng engine.Engine, model engine.PermissionModel, hasModel bool) (engine.Approver, error) {
-	a := engine.ApproverHuman
-	if v, from, ok := first(rungs, func(n agents.NeutralPermissions) string { return n.Approver }); ok {
-		parsed, known := engine.ParseApprover(v)
-		if !known {
-			return 0, fmt.Errorf("%w: approver %q from %s (known: %s)", ErrPermissionUnhonoured, v, from, strings.Join(engine.ApproverNames(), "|"))
-		}
-		if parsed == engine.ApproverReviewer && (!hasModel || !model.Reviewer()) {
-			return 0, fmt.Errorf("%w: approver reviewer from %s, but engine %s has no reviewer", ErrPermissionUnhonoured, from, eng.Root().Name)
-		}
-		a = parsed
+	a, from, err := declaredApprover(rungs)
+	if err != nil {
+		return 0, err
+	}
+	if a == engine.ApproverReviewer && (!hasModel || !model.Reviewer()) {
+		return 0, fmt.Errorf("%w: approver reviewer from %s, but engine %s has no reviewer", ErrPermissionUnhonoured, from, eng.Root().Name)
 	}
 	approvals := eng.Approvals()
 	if _, ok := approvals.Get(); !ok && routesApprovals(mode, engine.PermissionPolicy{Approver: a}) {
 		return 0, fmt.Errorf("%w: the approver is the human, but engine %s cannot put a request to one (%s) — declare `permissions: {approver: none}` to deny what the rules leave open", ErrPermissionUnhonoured, eng.Root().Name, approvals.AbsentReason())
 	}
 	return a, nil
+}
+
+// declaredApprover is the first rung's approver and where it was declared,
+// else the human ("" from); a spelling no approver has is refused.
+func declaredApprover(rungs []neutralRung) (engine.Approver, string, error) {
+	v, from, ok := first(rungs, func(n agents.NeutralPermissions) string { return n.Approver })
+	if !ok {
+		return engine.ApproverHuman, "", nil
+	}
+	a, known := engine.ParseApprover(v)
+	if !known {
+		return 0, "", fmt.Errorf("%w: approver %q from %s (known: %s)", ErrPermissionUnhonoured, v, from, strings.Join(engine.ApproverNames(), "|"))
+	}
+	return a, from, nil
+}
+
+// DeclaredApprover is the approver agent's binding, its llm label's
+// permissions and the project's declare, by the precedence a launch resolves
+// it with (resolvePolicy): the first that declares one, else the human. A
+// spelling no approver has is refused, naming where it was declared; whether
+// the engine can honour the approver is the launch's to judge.
+func DeclaredApprover(agent string, binding agents.Permissions, label string, labelPerm agents.LabelPermissions, project agents.NeutralPermissions) (engine.Approver, error) {
+	d := permissionDecls{agent: agent, binding: binding, label: label, labels: labelPerm, project: project}
+	a, _, err := declaredApprover(d.neutral())
+	return a, err
 }
 
 // resolveTimeout is the first declared approval_timeout, else the default.

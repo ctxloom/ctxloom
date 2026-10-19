@@ -671,6 +671,12 @@ type ResolvedAgent struct {
 	// blank-declared agent's real posture is visible rather than "";
 	// --permissions overrides it.
 	EffectivePermissions string `json:"effectivePermissions,omitempty"`
+	// Approver is who answers what that posture leaves open in a headless
+	// run of the agent (a delegated child, a one-shot), by the precedence the
+	// launch resolves it with (launch.DeclaredApprover): human, none or
+	// reviewer. "" when the declared spelling names no approver, which the
+	// launch refuses.
+	Approver string `json:"approver,omitempty"`
 	// Driving mirrors agents.Agent.Driving: the agent's declared per-turn
 	// execution axis (conversational|oneshot; empty = conversational). The
 	// coordinator's per-engine resume-capability gate (spawn.resolveResumeMode)
@@ -804,6 +810,12 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 	// What an unflagged run resolves to, in the engine's own words; the
 	// launch, not this listing, refuses a declaration it cannot honour.
 	effectivePerm := PostureName(reg, EffectivePosture(reg, backend, sub.Permissions, labelEntry.Permissions))
+	var approver string
+	if a, aerr := launch.DeclaredApprover(name, sub.Permissions, label, labelEntry.Permissions, cfg.GetPermissions()); aerr != nil {
+		clidiag.Warn("ctxloom", "agent %q: %v", name, aerr)
+	} else {
+		approver = a.String()
+	}
 
 	return &ResolvedAgent{
 		Name:                 name,
@@ -818,6 +830,7 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 		Runtime:              runtime,
 		Permissions:          sub.Permissions,
 		EffectivePermissions: effectivePerm,
+		Approver:             approver,
 		Driving:              sub.Driving,
 		HomeMode:             configHome,
 	}, nil

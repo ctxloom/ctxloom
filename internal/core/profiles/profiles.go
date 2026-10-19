@@ -977,22 +977,22 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	}
 
 	// Then apply this profile's settings (overrides parents)
-	resolved.Bundles = appendUnique(resolved.Bundles, profile.Bundles...)
+	resolved.Bundles = appendUniqueRefs(resolved.Bundles, profile.Bundles...)
 	resolved.Tags = appendUnique(resolved.Tags, profile.Tags...)
 	resolved.SelectTags = appendUnique(resolved.SelectTags, profile.SelectTags...)
 	// Curated commands union with parents in declaration order, deduped by
 	// their version-agnostic stored ref — the directory-profile mirror of how
 	// inline profiles fold Commands in config_resolve.mergeProfileValues.
-	resolved.Commands = appendUnique(resolved.Commands, profile.Commands...)
+	resolved.Commands = appendUniqueRefs(resolved.Commands, profile.Commands...)
 	// Curated skills union with parents in declaration order, deduped by their
 	// stored ref — the skill mirror of the Commands fold immediately above.
-	resolved.Skills = appendUnique(resolved.Skills, profile.Skills...)
+	resolved.Skills = appendUniqueRefs(resolved.Skills, profile.Skills...)
 	// Direct fragments union (dedup by version-agnostic Name, child raises
 	// priority) and cherry-picked bundle_items union — the directory mirror of
 	// profileBuilder.addFragment / addBundleItem. Applied after parents so a
 	// child overrides, consistent with the inline fold.
 	resolved.Fragments = appendUniqueFragments(resolved.Fragments, profile.Fragments...)
-	resolved.BundleItems = appendUnique(resolved.BundleItems, profile.BundleItems...)
+	resolved.BundleItems = appendUniqueRefs(resolved.BundleItems, profile.BundleItems...)
 	// Inline hooks fold like the inline profileBuilder: they accumulate
 	// (event-keyed union). Self is applied after parents, so a child's hooks
 	// override the parents'.
@@ -1070,13 +1070,13 @@ type ResolvedProfile struct {
 
 // Merge adds items from another resolved profile.
 func (r *ResolvedProfile) Merge(other *ResolvedProfile) {
-	r.Bundles = appendUnique(r.Bundles, other.Bundles...)
+	r.Bundles = appendUniqueRefs(r.Bundles, other.Bundles...)
 	r.Tags = appendUnique(r.Tags, other.Tags...)
 	r.SelectTags = appendUnique(r.SelectTags, other.SelectTags...)
-	r.Commands = appendUnique(r.Commands, other.Commands...)
-	r.Skills = appendUnique(r.Skills, other.Skills...)
+	r.Commands = appendUniqueRefs(r.Commands, other.Commands...)
+	r.Skills = appendUniqueRefs(r.Skills, other.Skills...)
 	r.Fragments = appendUniqueFragments(r.Fragments, other.Fragments...)
-	r.BundleItems = appendUnique(r.BundleItems, other.BundleItems...)
+	r.BundleItems = appendUniqueRefs(r.BundleItems, other.BundleItems...)
 	wire.MergeHooksConfig(&r.Hooks, &other.Hooks)
 	for k, v := range other.Variables {
 		if _, exists := r.Variables[k]; !exists {
@@ -1102,6 +1102,28 @@ func appendUnique(slice []string, items ...string) []string {
 		if !seen[item] {
 			slice = append(slice, item)
 			seen[item] = true
+		}
+	}
+	return slice
+}
+
+// appendUniqueRefs is appendUnique for bundle references, deduped by their
+// CANONICAL spelling (remote.CanonicalSpelling): a bundle one profile writes as
+// "ctxloom+git://…//bundles/x" and an inherited one writes as
+// "https://…@bundles/x" is one bundle, and listing it twice would deliver its
+// content twice. The first spelling met is the one kept. Version pin and item
+// selector survive canonicalization, so two pins or two items of one bundle
+// stay distinct.
+func appendUniqueRefs(slice []string, items ...string) []string {
+	seen := make(map[string]bool, len(slice))
+	for _, s := range slice {
+		seen[remote.CanonicalSpelling(s)] = true
+	}
+	for _, item := range items {
+		key := remote.CanonicalSpelling(item)
+		if !seen[key] {
+			slice = append(slice, item)
+			seen[key] = true
 		}
 	}
 	return slice

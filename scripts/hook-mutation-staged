@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# lefthook's pre-commit `mutation` step: mutation-test exactly the STAGED
+# change, judged by the project threshold. lefthook.yml says why it runs and
+# why it runs last.
+#
+#   bash scripts/hook-mutation-staged [CMD...]
+#
+# CMD judges the materialised tree, run from inside it; it defaults to
+# `just test-mutation-diff HEAD`. A test passes its own CMD so it can inspect
+# the tree without running gomutants.
+#
+# The staged change is materialised in a throwaway detached worktree: HEAD
+# checked out, then `git diff --cached` applied on top. So the run sees what
+# the commit will contain and nothing else — no unstaged edit, no untracked
+# file — and nothing here writes the user's working tree, index or stash. The
+# throwaway worktree is removed on every exit path.
+#
+# Run with bash explicitly: lefthook hands a run block to /bin/sh, which is not
+# bash everywhere a commit is made.
+set -euo pipefail
+
+if [ "$#" -gt 0 ]; then
+    cmd=("$@")
+else
+    cmd=(just test-mutation-diff HEAD)
+fi
+
+top=$(git rev-parse --show-toplevel)
+cd "$top"
+
+if ! git rev-parse -q --verify HEAD >/dev/null; then
+    echo "mutation: no HEAD to diff against (first commit) — nothing to judge."
+    exit 0
+fi
+
+# Only production Go can be mutated. A change with none of it leaves before
+# any worktree is made; .gomutants.yml's own exclusions are applied later, by
+# the run itself.
+mapfile -d '' production < <(git diff --cached --name-only -z --diff-filter=ACMR -- \
+    '*.go' ':(exclude)*_test.go' ':(exclude)*/testdata/*' ':(exclude)testdata/*')
+if [ "${#production[@]}" -eq 0 ]; then
+    echo "mutation: no staged production Go — nothing to mutate."
+    exit 0
+fi
+
+# git exports GIT_INDEX_FILE (and, depending on how the commit was made,
+# GIT_DIR and friends) into every hook. Reading the staged change NEEDS that
+# index: under `git commit -a` or `git commit <path>` it is git's temporary
+# index, which holds exactly what will be committed. Every git that touches the
+# throwaway worktree, and the run inside it, must NOT inherit it, or its
+# checkout writes the user's real index — lefthook.yml's reprise entry tells
+# that story. git names its own repository-locating variables, so the scrub
+# follows the installed git rather than a list kept here.
+scrub=(env)
+while IFS= read -r var; do scrub+=(-u "$var"); done < <(git rev-parse --local-env-vars)
+
+base=${CTXLOOM_MUTATION_TMP:-/var/tmp/ctxloom-mutation}
+mkdir -p "$base"
+scratch=$(mktemp -d "$base/precommit-XXXXXX")
+tree=$scratch/tree
+admin=
+
+cleanup() {
+    if [ -d "$tree" ]; then
+        if ! "${scrub[@]}" git -C "$top" worktree remove --force "$tree" >/dev/null 2>&1; then
+            # A tree git will not remove is removed by hand, with its
+            # registration — the one entry `git worktree prune` would drop.
+            chmod -R u+rwX "$tree" 2>/dev/null || true
+            rm -rf "$tree"
+            [ -z "$admin" ] || rm -rf "$admin"
+        fi
+    fi
+    chmod -R u+rwX "$scratch" 2>/dev/null || true
+    rm -rf "$scratch"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
+
+# --src/--dst-prefix and --no-renames fix the patch's shape against whatever
+# diff.* settings the user's config carries; `git apply` needs a/ and b/.
+git diff --cached --binary --full-index --no-color --no-ext-diff --no-textconv \
+    --no-renames --src-prefix=a/ --dst-prefix=b/ HEAD >"$scratch/staged.patch"
+
+# --no-checkout, then read-tree: a checkout would run this repository's
+# post-checkout hook for a tree nobody is working in.
+"${scrub[@]}" git -C "$top" worktree add --quiet --detach --no-checkout "$tree" HEAD
+admin=$("${scrub[@]}" git -C "$tree" rev-parse --absolute-git-dir)
+"${scrub[@]}" git -C "$tree" read-tree -u --reset HEAD
+# --index, so a staged NEW file is tracked there too: the diff scope reads
+# `git diff --merge-base HEAD`, which sees tracked files only.
+"${scrub[@]}" git -C "$tree" apply --index --binary --whitespace=nowarn "$scratch/staged.patch"
+
+echo "mutation: judging the staged change in a throwaway worktree ($tree)"
+rc=0
+(cd "$tree" && "${scrub[@]}" "${cmd[@]}") || rc=$?
+case "$rc" in
+    0) exit 0 ;;
+    10)
+        echo "mutation: the staged change is below the project's mutation threshold." >&2
+        echo "Each mutant listed above as LIVED survived every test: add or sharpen the test that" >&2
+        echo "would catch it, stage it, and commit again." >&2
+        ;;
+    *)
+        echo "mutation: the run failed before it reached a verdict (exit $rc)." >&2
+        echo "It runs the covering tests over the staged tree first, so a test that fails on what" >&2
+        echo "you staged fails here first: read its output above. The tree is the STAGED one — an" >&2
+        echo "unstaged fix does not count until it is staged." >&2
+        ;;
+esac
+exit "$rc"

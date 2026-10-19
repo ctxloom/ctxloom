@@ -137,6 +137,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckGitIdentity(ctx, GitConfigGet),
 			doctorCheckAgents(ctx, reg, cfg, cfgErr),
 			doctorCheckCapabilityLoss(ctx, reg, cfg, cfgErr),
+			doctorCheckMCPCommands(ctx, reg, cfg, cfgErr, runtimes),
 			doctorCheckVersion(),
 			doctorCheckTranscriptReaders(ctx, reg, cfg, app.ProbeEngineVersion),
 			doctorCheckHooksMCP(ctx, reg, cfg, cfgErr),
@@ -573,6 +574,46 @@ func doctorCheckCapabilityLoss(ctx context.Context, reg engine.Registry, cfg *co
 	}
 	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: capabilityLossDetail(entries)}
 }
+
+// doctorCheckMCPCommands names, per configured agent, the stdio MCP servers
+// it attaches whose launcher does not resolve where the agent runs. An MCP
+// server whose binary is absent fails silently at session start: the engine
+// reports it `failed` and the agent simply lacks its tools. For a container
+// agent the usual cause is that the agent image carries only the base and
+// ctxloom's own tools, never what the host has installed.
+//
+// It reads CommandGapsByAgent, the same capability-loss class as
+// doctorCheckCapabilityLoss (the user asked for something their environment
+// cannot give), so a gap is a WARN. An image that is not built yet is info:
+// there is nothing to look inside, and the build happens at first launch.
+//
+// Only the launcher is checked (npx, uvx), not the package behind it.
+func doctorCheckMCPCommands(ctx context.Context, reg engine.Registry, cfg *config.Config, cfgErr error, runtimes []isolation.Runtime) DoctorCheck {
+	const marker = "DOCTOR-CHECK-MCP-COMMANDS-r3"
+	if cfgErr != nil {
+		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "config did not load: " + cfgErr.Error()}
+	}
+	if cfg == nil {
+		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "no config to read attached MCP servers from"}
+	}
+	gaps := CommandGapsByAgent(ctx, reg, cfg, runtimes)
+	const scope = "only each server's launcher command is checked, not the package behind npx/uvx"
+	if len(gaps.Missing) > 0 {
+		detail := "MCP server commands that do not resolve where the agent runs: " + commandGapsDetail(gaps.Missing) + " (" + scope + ")"
+		if len(gaps.ImageNotBuilt) > 0 {
+			detail += "; image not built yet, not checked: " + strings.Join(gaps.ImageNotBuilt, ", ")
+		}
+		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: detail, Remedy: doctorMCPCommandsRemedy}
+	}
+	if len(gaps.ImageNotBuilt) > 0 {
+		return DoctorCheck{Marker: marker, Status: DoctorInfo, Detail: "agent image not built yet, so its MCP server commands were not checked: " +
+			strings.Join(gaps.ImageNotBuilt, ", ") + " (" + scope + ")"}
+	}
+	return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: "every attached stdio MCP server's command resolves where its agent runs (" + scope + ")"}
+}
+
+// doctorMCPCommandsRemedy names the two ways out of a command gap.
+const doctorMCPCommandsRemedy = "set isolation_base to an image that carries the command (project-wide, one base for every container agent), or remove the MCP server from that agent's profiles"
 
 // doctorCheckVersion is deliberately best-effort/skill-guided: there is no
 // update-check infrastructure (internal/adapters/cli/version.go is a bare print), so

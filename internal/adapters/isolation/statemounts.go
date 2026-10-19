@@ -241,13 +241,17 @@ func (c Container) taskStoreMounts() ([]mount, error) {
 //
 // The one exception is a file both sides really do write: each of the
 // engine's inPlaceFiles under dir, reached through the project bind. Its host
-// lock file alone is bound, as a single file, at the name the container's own
-// paths.HomePathFor gives it — computed from the IN-CONTAINER path, so a
-// runtime that maps the project elsewhere still lands both sides on one
-// inode. A single-file bind cannot be unlinked or replaced from inside; the
-// child can still hold it, which stalls only writers of a file it may already
-// rewrite. Overlaid files need no such lock: the overlay puts the container's
-// copy on a different inode from the host's.
+// lock file (paths.HomePathFor) alone is bound, as a single file, at the path
+// the container's own paths.HomePathFor gives it: paths.HomeLockPathIn over
+// the IN-CONTAINER path and the container home, the same derivation run for
+// the other filesystem, so a runtime that maps the project elsewhere still
+// lands both sides on one inode. The two paths need not look alike: a
+// worktree checkout under the session's work/ locks in the session's own
+// locks dir on the host, and in the per-run dir in a container whose home is
+// not the host's. A single-file bind cannot be unlinked or replaced from
+// inside; the child can still hold it, which stalls only writers of a file it
+// may already rewrite. Overlaid files need no such lock: the overlay puts the
+// container's copy on a different inode from the host's.
 func (c Container) lockMounts(dir, scratchRoot string) ([]mount, error) {
 	locks := safefs.New().Locks
 	project, err := anchor(c.runtime, dir, false)
@@ -258,7 +262,7 @@ func (c Container) lockMounts(dir, scratchRoot string) ([]mount, error) {
 	if err := os.MkdirAll(runLocks, 0o755); err != nil {
 		return nil, fmt.Errorf("container lock mounts: %w", err)
 	}
-	containerLocks := path.Join(c.home, paths.AppDirName, paths.HomeLocksDirName)
+	containerLocks := paths.HomeLocksDirIn(c.home)
 	mounts := []mount{bind(runLocks, containerLocks, false)}
 	for _, rel := range c.engineSpec.inPlaceFiles {
 		protected := filepath.Join(dir, rel)
@@ -270,16 +274,23 @@ func (c Container) lockMounts(dir, scratchRoot string) ([]mount, error) {
 		if err != nil {
 			return nil, fmt.Errorf("container lock mounts: %s has no route into the container: %w", protected, err)
 		}
-		name := paths.HomeLockName(inContainer)
+		containerLock := paths.HomeLockPathIn(c.home, inContainer)
 		// Both must exist as FILES before `run`: the bind source, or the
 		// runtime creates a directory in its place; and the target inside the
-		// per-run dir, or a rootful runtime creates it there as root.
-		for _, f := range []string{hostLock, filepath.Join(runLocks, name)} {
+		// per-run dir, or a rootful runtime creates it there as root. A target
+		// outside the per-run dir — the project lies in a session dir of the
+		// container's own home, which only a controller sharing that home
+		// produces — has no host directory behind it to prepare.
+		prepare := []string{hostLock}
+		if path.Dir(containerLock) == containerLocks {
+			prepare = append(prepare, filepath.Join(runLocks, path.Base(containerLock)))
+		}
+		for _, f := range prepare {
 			if err := prepareLockFile(locks, f); err != nil {
 				return nil, fmt.Errorf("container lock mounts: %w", err)
 			}
 		}
-		mounts = append(mounts, bind(hostLock, path.Join(containerLocks, name), false))
+		mounts = append(mounts, bind(hostLock, containerLock, false))
 	}
 	return mounts, nil
 }

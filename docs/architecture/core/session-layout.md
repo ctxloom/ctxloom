@@ -21,7 +21,7 @@ The authorities are code, not this page:
 |---|---|---|---|
 | Identity | session dir, top | until the session is swept (a `keep` marker exempts it) | `session.yaml`, `keep` |
 | Machine, durable | session dir | while the session is resumable; the sweep takes it | `spool/`, `package/`, `native/`, `transcripts/`, `diagnostics.log`, `context-metrics.jsonl` |
-| Machine, disposable | session dir | rebuilt or recreated per launch | `home/` (engine config homes) |
+| Machine, disposable | session dir | rebuilt or recreated per launch | `home/` (engine config homes), `locks/` (the lock files of the session's own files) |
 | Work | session dir | kept while it holds work; triaged, never removed blind | `work/` (worktree checkouts) |
 | Scratch | session dir | one run | `scratch/` (`ctxloom-iso-*`, `ctxloom-tmp-*`, the secret dir's disk fallback) |
 | Readable output | output dir | the human's; ctxloom's sweeps never delete it | `essence.md`, `next-step.md`, `*.plan.md`, `segments/<id>.md`, `reports/` |
@@ -50,6 +50,7 @@ process, and `kit.ReleaseSocketRoot` removes it, when empty, after the engine en
   native/<leaf>/<history>/...               each engine's native history (claude: native/claude/projects/<slug>/<id>.jsonl)
   home/<leaf>/                              disposable engine config home (CLAUDE_CONFIG_DIR)
     <history> -> ../../native/<leaf>/<history>   RELATIVE link
+  locks/<flattened rel>.lock                lock file of each file in this dir that is locked (paths.HomePathFor)
   work/ctxloom-wt-*                         worktree checkouts
   scratch/ctxloom-iso-*, ctxloom-tmp-*, ctxloom-secret-*
 
@@ -105,7 +106,7 @@ it move.
 | each `paths.MountedMembers` row | `~/.ctxloom/sessions/<harp>/<rel>` in the container home | rw | `Container.harpStateMounts` |
 | the output dir | `/ctxloom/out` (`CTXLOOM_OUTPUT_DIR`) | rw | `Container.outputMounts` |
 | this project's task log and its `.lock` | same paths in the container home | rw | `Container.taskStoreMounts` |
-| `scratch/<run>/locks` and per-in-place-file host locks | `~/.ctxloom/locks` | rw | `Container.lockMounts` |
+| `scratch/<run>/locks` and per-in-place-file host locks | `~/.ctxloom/locks`; each in-place file's host lock at `paths.HomeLockPathIn` of its container path | rw | `Container.lockMounts` |
 | config overlays `scratch/<run>/cfg<N>` | project-relative config dirs | rw | `containerConfigOverlay` |
 | the run's secret dir | `/run/ctxloom/secrets` | ro | `Container.bind` |
 
@@ -122,6 +123,7 @@ directory in its place.
 |---|---|---|---|---|---|
 | `scratch/`, secret dirs | delete | delete (owner and every ended child) | delete | delete | — |
 | `home/<leaf>` | keep | delete (owner and every ended child) | delete | delete | — |
+| `locks/` | keep | keep | delete | delete | — |
 | `work/` checkouts | removed when clean, kept with work (existing triage) | — | triaged | triaged | triaged |
 | `spool/`, `package/`, `diagnostics.log`, `context-metrics.jsonl` | keep | keep | keep | delete (compacted only) | keep |
 | `native/`, `transcripts/` | keep | keep | keep | delete (compacted only) | delete (compacted, or an internal one-shot) |

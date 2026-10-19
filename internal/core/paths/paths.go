@@ -193,6 +193,21 @@ const (
 	// copy of an agent's work, so it is triaged, never removed blind.
 	WorkDirName = "work"
 
+	// HarpLocksDirName is the per-session subdirectory holding the lock file
+	// of every file inside the session dir that more than one process
+	// read-modify-writes — the engine homes' settings, .claude.json, the
+	// delivered commands and skills (HomePathFor routes them here). A session
+	// mints its own set of these and nothing outside it ever reuses one, so
+	// they belong to the session: the reaper takes them with its other
+	// Ephemeral members, under the dead session's own lock. In the shared home
+	// locks dir, a flattened name cannot say which session it served, so
+	// nothing could ever remove them there.
+	//
+	// It shares its STRING VALUE with HomeLocksDirName and LocksDir, and like
+	// them names a different directory at a different root; the three must
+	// not be collapsed into one constant.
+	HarpLocksDirName = "locks"
+
 	// NativeDirName is the per-session subdirectory holding each engine's
 	// NATIVE conversation history, <harp>/native/<engine leaf>/, reached from
 	// the disposable engine home through a relative symlink (the engine's
@@ -279,16 +294,15 @@ const (
 
 	// HomeLocksDirName is the home-rooted directory holding advisory-lock
 	// sidecars for FOREIGN files a ctxloom-family binary (ctxloom, ltk,
-	// taskloom) does not own — see HomePathFor (lockpath.go). It shares its
-	// STRING VALUE with LocksDir (both are "locks"), but the two constants
-	// name DIFFERENT directories at different roots and must not be
-	// collapsed into one: this one sits directly under ~/.ctxloom
-	// (RootHome, see Layout's HomeLocksDirName row below); LocksDir sits
-	// under a PROJECT .ctxloom's state/ (RootProject, via
-	// ProjectPathFor/LocksPath).
-	//
-	// PathFor, ProjectPathFor and HomePathFor (lockpath.go) all live in this
-	// package and reference this constant directly.
+	// taskloom) does not own — see HomePathFor (lockpath.go) — except a file
+	// inside a session dir, whose lock lives in that session's own
+	// HarpLocksDirName. It shares its STRING VALUE with LocksDir and
+	// HarpLocksDirName (all are "locks"), but the constants name DIFFERENT
+	// directories at different roots and must not be collapsed into one:
+	// this one sits directly under ~/.ctxloom (RootHome, see Layout's
+	// HomeLocksDirName row below); LocksDir sits under a PROJECT .ctxloom's
+	// state/ (RootProject, via ProjectPathFor/LocksPath); HarpLocksDirName
+	// sits in one session dir.
 	HomeLocksDirName = "locks"
 
 	// HomeRecordsDirName is the home-rooted directory holding hew §9.7
@@ -458,6 +472,10 @@ func HarpScratchDir(harp string) (string, error) { return harpMember(harp, Scrat
 // worktree checkouts live (see WorkDirName).
 func HarpWorkDir(harp string) (string, error) { return harpMember(harp, WorkDirName) }
 
+// HarpLocksDir returns ~/.ctxloom/sessions/<harp>/locks — where HomePathFor
+// puts the lock of every file inside that session dir (see HarpLocksDirName).
+func HarpLocksDir(harp string) (string, error) { return harpMember(harp, HarpLocksDirName) }
+
 // HarpNativeDir returns ~/.ctxloom/sessions/<harp>/native — the root of every
 // engine's native conversation history for the session (see NativeDirName).
 func HarpNativeDir(harp string) (string, error) { return harpMember(harp, NativeDirName) }
@@ -623,11 +641,13 @@ func CoordRootStateDir(projectKey, rootHarp string) (string, error) {
 
 // HomeLocksDir returns ~/.ctxloom/locks — the home-rooted directory holding
 // advisory-lock sidecars for FOREIGN files a ctxloom-family binary does not
-// own (see HomePathFor, lockpath.go, and HomeLocksDirName's doc).
+// own, outside every session dir (see HomePathFor, lockpath.go, and
+// HomeLocksDirName's doc).
 //
-// Guarded under a test binary: every foreign-file lock resolves through here,
-// and a lock file outlives the run that took it, so an unsandboxed test
-// package would leave one in the developer's real home per locked write. The
+// Guarded under a test binary: every foreign-file lock outside a session dir
+// resolves through here, and a lock file outlives the run that took it, so an
+// unsandboxed test package would leave one in the developer's real home per
+// locked write (a session file's lock takes the same guard in HomePathFor). The
 // guard is accountHomeError, not UnsandboxedHomeError, because a test may
 // derive a container's lock path by pointing HOME at a home that is not this
 // account's (see accountHomeError).
@@ -639,12 +659,16 @@ func HomeLocksDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := accountHomeError("home lock directory", dir,
-		"testsupport.SandboxedMain / testsupport.Isolate, so HOME points at a temp root"); err != nil {
+	if err := accountHomeError("home lock directory", dir, sandboxedHomeRemedy); err != nil {
 		return "", err
 	}
 	return dir, nil
 }
+
+// sandboxedHomeRemedy is the fix every home-rooted store's test-binary guard
+// names: the home locks dir's, a session lock dir's (HomePathFor) and the
+// record store's.
+const sandboxedHomeRemedy = "testsupport.SandboxedMain / testsupport.Isolate, so HOME points at a temp root"
 
 // HomeRecordsDir returns ~/.ctxloom/records — the home-rooted directory
 // holding hew §9.7 application records for FOREIGN files `util
@@ -661,8 +685,7 @@ func HomeRecordsDir() (string, error) {
 	// file by absolute path and outlives the run that wrote it, so a test
 	// applying to its own temp dir still deposits a durable record in the
 	// developer's real home. Found there: 1046 of them.
-	if err := UnsandboxedHomeError("application-record store", dir,
-		"testsupport.SandboxedMain / testsupport.Isolate, so HOME points at a temp root"); err != nil {
+	if err := UnsandboxedHomeError("application-record store", dir, sandboxedHomeRemedy); err != nil {
 		return "", err
 	}
 	return dir, nil
@@ -961,7 +984,7 @@ func Layout() []Entry {
 		// closeout), same C13 shape as the seven RootHome rows above it.
 		{
 			Rel: filepath.Join(AppDirName, HomeLocksDirName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
-			Lost: "cross-binary lock sidecars for foreign engine-settings files (HomePathFor, lockpath.go); harmless — a lock file carries no data and is recreated on next use, though a write in flight when it disappears loses its mutual exclusion for that one operation",
+			Lost: "cross-binary lock sidecars for foreign engine-settings files outside every session dir (HomePathFor, lockpath.go; a file inside a session dir locks in that session's own locks/ member, which is reaped with the session); harmless — a lock file carries no data and is recreated on next use, though a write in flight when it disappears loses its mutual exclusion for that one operation",
 		},
 		// Added alongside `util config-write`'s hew adoption (P5 slice 1):
 		// same RootHome/PresenceIfUsed shape as the locks row above it, for

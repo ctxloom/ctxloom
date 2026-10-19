@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -104,4 +105,58 @@ func TestWriteInstanceConfig_LockIsDistinctFromCallersProjectLock(t *testing.T) 
 
 	assert.NotEqual(t, callerLockPath, ownLockPath,
 		"the caller's project lock and WriteInstanceConfig's own home lock must never collapse onto the same path, or a caller holding one while this function waits on the other self-deadlocks")
+}
+
+// TestWriteInstanceConfig_SharesTheSessionLockOfAnotherEntryPoint: in a
+// session's engine home, the .claude.json lock WriteInstanceConfig takes and
+// the one any other writer of that file takes through sessions.WithFileLock
+// are ONE file, in the session's own locks dir. A writer holding it through
+// WithFileLock excludes WriteInstanceConfig, one lock file serves both, and
+// nothing lands in the shared home locks dir, where it would outlive the
+// session.
+func TestWriteInstanceConfig_SharesTheSessionLockOfAnotherEntryPoint(t *testing.T) {
+	testsupport.Isolate(t)
+	const harp = "swift-amber-falcon"
+	homes, err := paths.HarpSessionEngineHomes(harp)
+	require.NoError(t, err)
+	instance := filepath.Join(homes, "claude")
+	require.NoError(t, os.MkdirAll(instance, 0o700))
+	dest := filepath.Join(instance, InstanceConfigFileName)
+
+	// Writer A: another entry point, holding the file's lock mid-transaction.
+	held, release := make(chan struct{}), make(chan struct{})
+	aDone := make(chan error, 1)
+	go func() {
+		aDone <- sessions.WithFileLock(safefs.New().Locks, dest, func() error {
+			close(held)
+			<-release
+			return nil
+		})
+	}()
+	<-held
+
+	bDone := make(chan error, 1)
+	go func() {
+		_, werr := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
+			HostHome: t.TempDir(), InstanceHome: instance, WorkDir: t.TempDir(),
+		}, safefs.New())
+		bDone <- werr
+	}()
+	select {
+	case <-bDone:
+		t.Fatal("WriteInstanceConfig completed while sessions.WithFileLock held the same session file's lock — the two entry points resolved different lock files")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(release)
+	require.NoError(t, <-aDone)
+	require.NoError(t, <-bDone)
+
+	locksDir, err := paths.HarpLocksDir(harp)
+	require.NoError(t, err)
+	entries, err := os.ReadDir(locksDir)
+	require.NoError(t, err, "the lock of a session file must live in the session's own locks dir")
+	assert.Len(t, entries, 1, "both entry points must use ONE lock file for the one session file")
+	homeLocks, err := paths.HomeLocksDir()
+	require.NoError(t, err)
+	assert.NoDirExists(t, homeLocks, "a session file's lock must not land in the shared home locks dir")
 }

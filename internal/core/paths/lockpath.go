@@ -2,7 +2,11 @@ package paths
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
+	"strings"
+
+	harpid "github.com/ctxloom/ctxloom/internal/shared/harp"
 )
 
 // lockSuffix is appended to a protected path to name its lock file. It is
@@ -87,52 +91,169 @@ func splitAppDir(protected string) (appDir, rel string, err error) {
 
 // HomePathFor returns the lock file guarding protected, a FOREIGN file this
 // package does not own: one OUTSIDE any project .ctxloom tree entirely — an
-// engine's own settings.json/.mcp.json/config.toml, sitting either in a
-// project directory (.mcp.json, .claude/settings.json) or in the user's REAL
-// engine home (~/.claude/settings.json) — that more
-// than one ctxloom-FAMILY BINARY (ctxloom, ltk, taskloom) may read-modify-write.
+// engine's own settings.json/.mcp.json/config.toml, sitting in a project
+// directory (.mcp.json, .claude/settings.json), in the user's REAL engine
+// home (~/.claude/settings.json) or in a session's engine home — that more
+// than one ctxloom-FAMILY BINARY (ctxloom, ltk, taskloom) may
+// read-modify-write.
 //
-// It lives at ~/.ctxloom/locks/<flattened-absolute-protected-path>.lock:
-// home-rooted so every binary resolves the identical lock location
-// regardless of which one happens to run. Neither of this file's other two
-// derivations fits: PathFor sits BESIDE the protected file, which for a file
-// ctxloom does not own is exactly the litter this function exists to stop
-// creating (RULED 2026-08-13, human; closes undated-bronco / the
-// fs-consolidation plan's N1 finding — agent.WithFileLock's prior use of
-// PathFor for these targets had been leaving `.mcp.json.lock`,
-// `.claude/settings.json.lock`, and (worse) sidecars inside the user's REAL
-// `~/.claude` home, untracked by any .gitignore pattern and, for the
-// home-rooted one, a ctxloom-owned file inside a directory ctxloom
-// otherwise never writes to at all); ProjectPathFor only resolves paths
-// INSIDE a project .ctxloom tree, which a foreign file is by definition not.
+// Where the lock lives depends on where protected is:
+//
+//   - inside a session dir, ~/.ctxloom/sessions/<harp>/<rel>: at
+//     <harp>/locks/<flattened rel>.lock (HarpLocksDir). A session mints its
+//     own set of these and nothing outside it ever reuses one, so they are a
+//     member of the session (the HarpLocksDirName row of HarpMembers) and the
+//     reaper takes them with it. In the shared home locks dir a flattened
+//     name cannot say which session it served, so nothing could remove them.
+//   - anywhere else: at ~/.ctxloom/locks/<flattened absolute path>.lock
+//     (HomeLocksDir).
+//
+// Both are home-rooted, so every binary resolves the identical lock location
+// whichever one happens to run, and both are derived from protected alone,
+// so every caller that locks one file through this function reaches one
+// lock. Neither of this file's other two derivations fits: PathFor sits
+// BESIDE the protected file, which for a file ctxloom does not own is litter
+// — `.mcp.json.lock` and `.claude/settings.json.lock` untracked in every
+// project, and a ctxloom-owned file inside the user's real `~/.claude`, a
+// directory ctxloom otherwise never writes to; ProjectPathFor only resolves
+// paths INSIDE a project .ctxloom tree, which a foreign file is by
+// definition not.
+//
+// "Inside a session dir" means strictly below a harp dir — a name
+// harp.Validate accepts, directly under the sessions root. The sessions root
+// itself, a harp dir itself, and the files beside the harp dirs (<harp>.lock
+// and its siblings) are not: a lock guarding a whole session dir must not
+// live inside the dir it guards (the reason HarpLockPath sits beside it),
+// and the root and its loose files belong to no session.
 //
 // The protected path is flattened into a single bounded filename component
-// by FlatName, the same way ProjectPathFor flattens a project-relative one.
+// by FlatName — relative to its harp dir for a session file, absolute
+// otherwise — the same way ProjectPathFor flattens a project-relative one.
 // It is resolved to an absolute path FIRST so every spelling of one file
 // reaches FlatName as the same string: the failure this package cannot
-// tolerate is one resource with two lock names, excluding nobody.
+// tolerate is one resource with two lock names, excluding nobody. A session
+// file is recognized under the sessions root both as $HOME spells it and as
+// its symlinks resolve, so a caller holding the resolved spelling of a file
+// under a symlinked HOME (git reports worktree paths that way) still reaches
+// the session's one lock. protected itself is never resolved: whether a link
+// along its path exists yet would then decide which lock it names.
 //
 // Unlike ProjectPathFor, HomePathFor never errors on WHERE protected is —
 // there is no boundary to be outside of, since "foreign" means not required
 // to sit inside any particular tree in the first place. The only failures
-// are environmental: protected cannot be resolved to an absolute path, or
-// the user's home directory cannot be resolved.
+// are environmental: protected cannot be resolved to an absolute path, the
+// user's home directory cannot be resolved, or — under a test binary — the
+// lock would land in the account's real home (see HomeLocksDir).
+//
+// HomeLockPathIn is the same derivation for a filesystem this process is not
+// running in.
 func HomePathFor(protected string) (string, error) {
 	abs, err := filepath.Abs(protected)
 	if err != nil {
 		return "", fmt.Errorf("paths: resolve %s: %w", protected, err)
 	}
+	lock, inSession, err := harpLockFor(abs)
+	if err != nil {
+		return "", fmt.Errorf("paths: resolve the session lock directory for %s: %w", protected, err)
+	}
+	if inSession {
+		return lock, nil
+	}
 	dir, err := HomeLocksDir()
 	if err != nil {
 		return "", fmt.Errorf("paths: resolve the home lock directory for %s: %w", protected, err)
 	}
-	return filepath.Join(dir, HomeLockName(abs)), nil
+	return filepath.Join(dir, homeLockName(abs)), nil
 }
 
-// HomeLockName is the leaf HomePathFor gives the lock guarding abs, an
-// ALREADY-ABSOLUTE path in whichever filesystem names it. It is exported for
-// the one caller that must name a lock in a filesystem this process is not
-// running in — the container mount builder, which knows a file's
-// in-container path and must land the host's lock file exactly where the
-// container's own HomePathFor will look for it.
-func HomeLockName(abs string) string { return FlatName(abs) + lockSuffix }
+// harpLockFor is HomePathFor's session case on this process's own
+// filesystem: the lock guarding abs (absolute and clean) when it lies inside
+// a session dir, matched under the sessions root as $HOME spells it and,
+// failing that, as the root resolves. The lock is always built under the
+// root as $HOME spells it, so both spellings of one file name one lock: the
+// one HarpLocksDir and the reaper's layout name. A home that cannot be
+// resolved matches nothing; HomeLocksDir then fails on the same cause.
+func harpLockFor(abs string) (lock string, inSession bool, err error) {
+	root, err := HomeSessionsDir()
+	if err != nil {
+		return "", false, nil
+	}
+	if root, err = filepath.Abs(root); err != nil {
+		return "", false, nil
+	}
+	harp, rel, ok := splitHarpPath(filepath.ToSlash(root), filepath.ToSlash(abs))
+	if !ok {
+		resolved, rerr := filepath.EvalSymlinks(root)
+		if rerr != nil || resolved == root {
+			return "", false, nil
+		}
+		if harp, rel, ok = splitHarpPath(filepath.ToSlash(resolved), filepath.ToSlash(abs)); !ok {
+			return "", false, nil
+		}
+	}
+	lock = filepath.Join(root, filepath.FromSlash(harpLockRel(harp, rel)))
+	if err := accountHomeError("session lock directory", filepath.Dir(lock), sandboxedHomeRemedy); err != nil {
+		return "", false, err
+	}
+	return lock, true, nil
+}
+
+// splitHarpPath splits abs at the harp dir it lies strictly inside, directly
+// under sessionsDir, returning the harp and abs relative to that dir. Both
+// paths are absolute, clean and slash-separated. ok is false for sessionsDir
+// itself, a harp dir itself, a name beside the harp dirs, a first component
+// harp.Validate refuses, and every path outside sessionsDir.
+func splitHarpPath(sessionsDir, abs string) (harp, rel string, ok bool) {
+	under, found := strings.CutPrefix(abs, strings.TrimSuffix(sessionsDir, "/")+"/")
+	if !found {
+		return "", "", false
+	}
+	harp, rel, found = strings.Cut(under, "/")
+	if !found || rel == "" || harpid.Validate(harp) != nil {
+		return "", "", false
+	}
+	return harp, rel, true
+}
+
+// harpLockRel is the lock guarding rel, a path inside harp's dir, relative to
+// the sessions root and slash-separated: <harp>/locks/<FlatName(rel)>.lock.
+// Flattening the path relative to the harp dir, not the absolute one, keeps
+// the name independent of where the sessions root is and how it is spelled.
+func harpLockRel(harp, rel string) string {
+	return path.Join(harp, HarpLocksDirName, FlatName(rel)+lockSuffix)
+}
+
+// homeLockName is the leaf, in the home locks dir, of the lock guarding abs:
+// an ALREADY-ABSOLUTE path outside every session dir.
+func homeLockName(abs string) string { return FlatName(abs) + lockSuffix }
+
+// HomeLocksDirIn is HomeLocksDir in a filesystem this process is not running
+// in, whose home directory is home (slash-separated, as a container names
+// it): <home>/.ctxloom/locks.
+func HomeLocksDirIn(home string) string { return path.Join(home, AppDirName, HomeLocksDirName) }
+
+// HomeLockPathIn is HomePathFor in a filesystem this process is not running
+// in: the lock a process whose home directory is home gives abs. Both are
+// absolute and slash-separated, as a container names them, and abs is
+// cleaned as HomePathFor cleans it.
+//
+// It exists for the one caller that must place a lock where ANOTHER
+// filesystem's own HomePathFor will look — the container mount builder,
+// which knows a file's in-container path and binds the host's lock file
+// there. Composing that path at the call site would be a second copy of this
+// file's derivation, free to disagree with the first about the session split
+// or the flattening; a disagreement there is two lock files for one resource,
+// excluding nobody, and nothing reports it.
+//
+// It resolves no symlink, since it cannot see the filesystem it names, so it
+// agrees with that filesystem's HomePathFor wherever that filesystem's
+// sessions root is not reached through a link — true of a container home,
+// which the image bakes as a real directory.
+func HomeLockPathIn(home, abs string) string {
+	abs = path.Clean(abs)
+	sessions := path.Join(home, AppDirName, SessionsDir)
+	if harp, rel, ok := splitHarpPath(sessions, abs); ok {
+		return path.Join(sessions, harpLockRel(harp, rel))
+	}
+	return path.Join(HomeLocksDirIn(home), homeLockName(abs))
+}

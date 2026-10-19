@@ -132,10 +132,10 @@ what actually exists is worth telling you about.
 
 | Path | What it is | Losing it costs |
 |---|---|---|
-| `~/.ctxloom/sessions/` | every ctxloom session on this machine, across every project (`paths.HomeSessionsDir`): one directory per session holding its machine state, whose members are the rows of `paths.HarpMembers` | the session's raw history; nothing rebuilds it (its `home/`, `work/` and `scratch/` members are rebuilt, triaged or regenerated) |
+| `~/.ctxloom/sessions/` | every ctxloom session on this machine, across every project (`paths.HomeSessionsDir`): one directory per session holding its machine state, whose members are the rows of `paths.HarpMembers` — among them `locks/`, the lock files of the session's own files (`paths.HarpLocksDir`), which are reaped with the session | the session's raw history; nothing rebuilds it (its `home/`, `locks/`, `work/` and `scratch/` members are rebuilt, recreated, triaged or regenerated) |
 | `~/.ctxloom/cache/triggers/` | cached revive-trigger verdicts (`paths.TriggerCacheDir`) | nothing durable — the next trigger check recomputes them, just not for free |
 | `~/.ctxloom/coord/` | coordinator state, one subdirectory per project (`paths.HomeCoordDir`) | a LIVE coordinator loses its lock and journal outright; a recent-but-exited one's history becomes unrecoverable |
-| `~/.ctxloom/locks/` | cross-binary advisory lock sidecars for FOREIGN files (an engine's own settings.json/.mcp.json/config.toml) that more than one ctxloom-family binary — ctxloom, `ltk`, `taskloom` — may write (`paths.HomePathFor`) | harmless — a lock file carries no data and is recreated on next use; a write in flight when it disappears loses its mutual exclusion for that one operation |
+| `~/.ctxloom/locks/` | cross-binary advisory lock sidecars for FOREIGN files (an engine's own settings.json/.mcp.json/config.toml) that more than one ctxloom-family binary — ctxloom, `ltk`, `taskloom` — may write (`paths.HomePathFor`). A file inside a session dir is the exception: its lock lives in that session's own `~/.ctxloom/sessions/<harp>/locks/` and dies with the session (`ctxloom clean` reaps it with the session's other disposable members) | harmless — a lock file carries no data and is recreated on next use; a write in flight when it disappears loses its mutual exclusion for that one operation |
 
 Two more home-rooted paths exist and are deliberately **not** in the table
 above: `~/.ctxloom/tasks/` is taskloom's own per-project task-log store
@@ -203,8 +203,9 @@ deliberately:
   in your real home and rides the next copy-in.
 
 **Instances are removed, and that is a security requirement, not hygiene** —
-your own login session's can hold a copied credential (`primaryApiKey`, above). `EndSession` removes a session's instance at
-graceful shutdown (`operations.removeSessionInstance`); an instance a crashed
+your own login session's can hold a copied credential (`primaryApiKey`, above). A closing
+coordinator removes the instance of its own session and of every agent whose run
+has ended (`Coordinator.removeDisposableMembers`); an instance a crashed
 session leaves behind is an ephemeral member of its session directory
 (`paths.HarpMembers`) and goes with the session's own reaping.
 

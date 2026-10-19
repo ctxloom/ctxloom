@@ -17,6 +17,6 @@ just _require-generated
 # on disk. The staleness test is a file comparison, so the common path costs
 # nothing.
 if [ ! -x bin/archlint ] || [ -n "$(find internal/shared/archrules internal/shared/archlint cmd/archlint -name '*.go' -newer bin/archlint -print -quit)" ]; then
-  just build-archlint
+    just build-archlint
 fi
 scripts/lint-arch-passes.sh

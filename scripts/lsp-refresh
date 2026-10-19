@@ -50,7 +50,7 @@ head=$(git rev-parse HEAD 2>/dev/null) || exit 0
 prev=""
 [ -f "$stamp" ] && prev=$(cat "$stamp" 2>/dev/null)
 [ "$force" -eq 0 ] && [ "$head" = "$prev" ] && exit 0
-printf '%s\n' "$head" > "$stamp" 2>/dev/null || :
+printf '%s\n' "$head" >"$stamp" 2>/dev/null || :
 
 # Walk up to the owning claude process. `ps -o ppid=` rather than /proc so this
 # behaves the same on macOS, where /proc does not exist. The bound is a
@@ -59,13 +59,16 @@ pid=$$
 claude_pid=""
 i=0
 while [ "$i" -lt 40 ]; do
-	i=$((i + 1))
-	[ -z "$pid" ] && break
-	[ "$pid" -le 1 ] 2>/dev/null && break
-	case $(ps -o comm= -p "$pid" 2>/dev/null) in
-	*claude) claude_pid=$pid; break ;;
-	esac
-	pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+    i=$((i + 1))
+    [ -z "$pid" ] && break
+    [ "$pid" -le 1 ] 2>/dev/null && break
+    case $(ps -o comm= -p "$pid" 2>/dev/null) in
+        *claude)
+            claude_pid=$pid
+            break
+            ;;
+    esac
+    pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
 done
 
 [ -z "$claude_pid" ] && exit 0
@@ -73,8 +76,8 @@ done
 # Only this session's server. pgrep -P restricts to direct children of that
 # claude process, which is exactly the one server it owns.
 for g in $(pgrep -P "$claude_pid" gopls 2>/dev/null); do
-	kill -TERM "$g" 2>/dev/null && \
-		printf 'lsp-refresh: restarted gopls (pid %s) — HEAD moved to %s\n' "$g" "$(echo "$head" | cut -c1-9)" >&2
+    kill -TERM "$g" 2>/dev/null &&
+        printf 'lsp-refresh: restarted gopls (pid %s) — HEAD moved to %s\n' "$g" "$(echo "$head" | cut -c1-9)" >&2
 done
 
 exit 0

@@ -178,8 +178,8 @@ func TestWorkflowMatrixMatchesEngineVersionsEnv(t *testing.T) {
 
 // engineCaseRE matches one `case`-arm engine name in
 // detect-engine-version.sh's `case "$engine" in ... esac`, e.g.
-// `claude-code)` at the start of a line.
-var engineCaseRE = regexp.MustCompile(`(?m)^([a-z][a-z0-9-]*)\)\s*$`)
+// `claude-code)` alone on its line, at whatever indent shfmt gives case arms.
+var engineCaseRE = regexp.MustCompile(`(?m)^[ \t]*([a-z][a-z0-9-]*)\)\s*$`)
 
 // TestDetectScriptHandlesEveryMatrixEngine asserts every `engine:` name used
 // in the workflow's matrix has a matching case arm in

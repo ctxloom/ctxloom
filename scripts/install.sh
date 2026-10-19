@@ -97,7 +97,7 @@ log_error() {
 
 # Check if a command exists - like checking if your keys are in your pocket
 command_exists() {
-    command -v "$1" &> /dev/null
+    command -v "$1" &>/dev/null
 }
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -108,9 +108,9 @@ detect_os() {
     local os
     os="$(uname -s)"
     case "${os}" in
-        Linux*)  echo "linux";;
-        Darwin*) echo "darwin";;
-        CYGWIN*|MINGW*|MSYS*)
+        Linux*) echo "linux" ;;
+        Darwin*) echo "darwin" ;;
+        CYGWIN* | MINGW* | MSYS*)
             # Windows snuck in here like it owns the place
             log_error "Windows detected. Please use install.ps1 instead."
             exit 1
@@ -127,10 +127,10 @@ detect_arch() {
     local arch
     arch="$(uname -m)"
     case "${arch}" in
-        x86_64|amd64)  echo "amd64";;
-        aarch64|arm64) echo "arm64";;
-        armv7l)        echo "arm";;
-        i386|i686)
+        x86_64 | amd64) echo "amd64" ;;
+        aarch64 | arm64) echo "arm64" ;;
+        armv7l) echo "arm" ;;
+        i386 | i686)
             # 32-bit called, it wants its architecture back
             log_error "32-bit architecture is not supported."
             exit 1
@@ -331,21 +331,25 @@ install_companion() {
     if ! fetch_file "${download_url}" "${temp_dir}/${archive_name}"; then
         log_warn "${binary}: download failed; skipping (https://github.com/${REPO}/releases)"
         log_warn "  install later: go install github.com/${REPO}/cmd/${binary}@latest"
-        rm_temp; return 0
+        rm_temp
+        return 0
     fi
 
     if ! fetch_file "${DOWNLOAD_BASE}/v${version}/checksums.txt" "${temp_dir}/checksums.txt"; then
         log_warn "${binary}: could not fetch checksums.txt; NOT installing an unverified archive"
-        rm_temp; return 0
+        rm_temp
+        return 0
     fi
     if ! verify_checksum "${temp_dir}/${archive_name}" "${archive_name}" "${temp_dir}/checksums.txt"; then
         log_warn "${binary}: checksum verification failed; NOT installing"
-        rm_temp; return 0
+        rm_temp
+        return 0
     fi
 
     if ! tar -xzf "${temp_dir}/${archive_name}" -C "${temp_dir}"; then
         log_warn "${binary}: extraction failed; skipping"
-        rm_temp; return 0
+        rm_temp
+        return 0
     fi
 
     if [[ ! -w "${INSTALL_DIR}" ]]; then
@@ -353,7 +357,8 @@ install_companion() {
     fi
     if ! install_binary "${temp_dir}" "${binary}" "${use_sudo}"; then
         log_warn "${binary}: could not install to ${INSTALL_DIR}; skipping"
-        rm_temp; return 0
+        rm_temp
+        return 0
     fi
 
     clear_macos_quarantine "${os}" "${INSTALL_DIR}/${binary}" "${use_sudo}"
@@ -473,7 +478,7 @@ setup_bash_completion() {
     fi
 
     if [[ -n "${completion_dir}" ]] && [[ -d "${completion_dir}" || -n "${use_sudo}" ]]; then
-        if ${use_sudo} "${ctxloom_cmd}" completion bash > "/tmp/ctxloom.bash" 2>/dev/null; then
+        if ${use_sudo} "${ctxloom_cmd}" completion bash >"/tmp/ctxloom.bash" 2>/dev/null; then
             ${use_sudo} mv "/tmp/ctxloom.bash" "${completion_dir}/ctxloom"
             log_success "Bash completion installed"
         fi
@@ -501,7 +506,7 @@ setup_zsh_completion() {
     fi
 
     if [[ -n "${completion_dir}" ]] && [[ -d "${completion_dir}" ]]; then
-        if "${ctxloom_cmd}" completion zsh > "${completion_dir}/_ctxloom" 2>/dev/null; then
+        if "${ctxloom_cmd}" completion zsh >"${completion_dir}/_ctxloom" 2>/dev/null; then
             log_success "Zsh completion installed"
         fi
     fi
@@ -515,7 +520,7 @@ setup_fish_completion() {
     mkdir -p "${completion_dir}" 2>/dev/null || true
 
     if [[ -d "${completion_dir}" ]]; then
-        if "${ctxloom_cmd}" completion fish > "${completion_dir}/ctxloom.fish" 2>/dev/null; then
+        if "${ctxloom_cmd}" completion fish >"${completion_dir}/ctxloom.fish" 2>/dev/null; then
             log_success "Fish completion installed"
         fi
     fi
@@ -529,7 +534,7 @@ parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --brew) USE_BREW="yes" ;;
-            -h|--help)
+            -h | --help)
                 echo "Usage: install.sh [--brew]"
                 echo ""
                 echo "Installs ctxloom plus its bundled companion tools (taskloom: task"

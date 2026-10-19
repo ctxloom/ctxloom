@@ -38,7 +38,7 @@ set -euo pipefail
 # child models (a live sonnet REFUSED it), while a self-consistent
 # connectivity-check framing passes.
 build_prompt() {
-	printf 'You are a delegated child session; your coordinator spawned you as a connectivity check. Please confirm the reach-back path works: call the agent_send tool with to_role set to parent and text set to: %s. Then finish.' "$1"
+    printf 'You are a delegated child session; your coordinator spawned you as a connectivity check. Please confirm the reach-back path works: call the agent_send tool with to_role set to parent and text set to: %s. Then finish.' "$1"
 }
 
 # --- journal oracle ----------------------------------------------------------
@@ -61,7 +61,7 @@ build_prompt() {
 # enqueued_child DIR AGENT MARKER prints "<child-harp> <parent-harp>" for the
 # newest matching run.enqueued fact in DIR/runs.jsonl, or nothing.
 enqueued_child() {
-	{ jq -r --arg agent "$2" --arg marker "$3" '
+    { jq -r --arg agent "$2" --arg marker "$3" '
 		select(.kind == "run.enqueued")
 		| select(.data.agent == $agent)
 		| select((.data.prompt // "") | contains($marker))
@@ -72,8 +72,8 @@ enqueued_child() {
 # routed_to_parent DIR CHILD PARENT succeeds iff DIR/interactions.jsonl records
 # the coordinator writing CHILD's own send into PARENT's inbox.
 routed_to_parent() {
-	[ -f "$1/interactions.jsonl" ] || return 1
-	jq -e --arg child "$2" --arg parent "$3" '
+    [ -f "$1/interactions.jsonl" ] || return 1
+    jq -e --arg child "$2" --arg parent "$3" '
 		select(.kind == "interaction")
 		| .data
 		| select(.kind == "spool_mail_out")
@@ -85,7 +85,7 @@ routed_to_parent() {
 
 # Sourced (by the unit test) for the functions above: stop before the CLI.
 if [ "${BASH_SOURCE[0]}" != "$0" ]; then
-	return 0
+    return 0
 fi
 
 AGENT="coder"
@@ -95,7 +95,7 @@ LIVE=0
 CTXLOOM="${CTXLOOM_BIN:-ctxloom}"
 
 usage() {
-	cat <<'USAGE'
+    cat <<'USAGE'
 agentcoord-echo-smoke.sh — the sonnet `coder` echo (Wave B acceptance 1)
 
   --agent NAME       configured ctxloom agent to delegate to (default: coder)
@@ -124,19 +124,41 @@ USAGE
 }
 
 while [ $# -gt 0 ]; do
-	case "$1" in
-	--agent) AGENT="$2"; shift 2 ;;
-	--runtime) RUNTIME="$2"; shift 2 ;;
-	--marker) MARKER="$2"; shift 2 ;;
-	--live) LIVE=1; shift ;;
-	-h | --help) usage; exit 0 ;;
-	*) echo "unknown flag: $1" >&2; usage >&2; exit 2 ;;
-	esac
+    case "$1" in
+        --agent)
+            AGENT="$2"
+            shift 2
+            ;;
+        --runtime)
+            RUNTIME="$2"
+            shift 2
+            ;;
+        --marker)
+            MARKER="$2"
+            shift 2
+            ;;
+        --live)
+            LIVE=1
+            shift
+            ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "unknown flag: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
 done
 
 case "$RUNTIME" in
-host | container) ;;
-*) echo "invalid --runtime $RUNTIME (want host|container)" >&2; exit 2 ;;
+    host | container) ;;
+    *)
+        echo "invalid --runtime $RUNTIME (want host|container)" >&2
+        exit 2
+        ;;
 esac
 
 # Make the marker unique to THIS invocation (timestamp + pid + $RANDOM): the
@@ -147,13 +169,13 @@ esac
 MARKER="${MARKER} $(date +%s)-$$-${RANDOM}"
 
 if [ "$LIVE" -ne 1 ]; then
-	echo "agentcoord echo smoke (plan only; pass --live to run):"
-	echo "  agent:   $AGENT"
-	echo "  runtime: $RUNTIME"
-	echo "  marker:  $MARKER"
-	echo "  prompt:  $(build_prompt "$MARKER")"
-	echo "OK (self-smoke; no engine launched)"
-	exit 0
+    echo "agentcoord echo smoke (plan only; pass --live to run):"
+    echo "  agent:   $AGENT"
+    echo "  runtime: $RUNTIME"
+    echo "  marker:  $MARKER"
+    echo "  prompt:  $(build_prompt "$MARKER")"
+    echo "OK (self-smoke; no engine launched)"
+    exit 0
 fi
 
 # --- live path -------------------------------------------------------------
@@ -166,17 +188,17 @@ fi
 # FAIL keeps the directory and prints its path — a cleaned-up failure once
 # destroyed the only stderr trail of a dead child.
 if ! command -v jq >/dev/null 2>&1; then
-	echo "agentcoord-echo-smoke.sh --live requires jq (journal-oracle PASS check); install it and retry" >&2
-	exit 2
+    echo "agentcoord-echo-smoke.sh --live requires jq (journal-oracle PASS check); install it and retry" >&2
+    exit 2
 fi
 work="$(mktemp -d)"
 smoke_status=1
 cleanup() {
-	if [ "$smoke_status" -eq 0 ]; then
-		rm -rf "$work"
-	else
-		echo "artifacts preserved in $work (stdout.log, stderr.log)" >&2
-	fi
+    if [ "$smoke_status" -eq 0 ]; then
+        rm -rf "$work"
+    else
+        echo "artifacts preserved in $work (stdout.log, stderr.log)" >&2
+    fi
 }
 trap cleanup EXIT
 prompt="$(build_prompt "$MARKER")"
@@ -189,7 +211,7 @@ export CTXLOOM_VERBOSE=1
 
 # mtime_epoch prints a file's mtime as a unix epoch (GNU or BSD stat).
 mtime_epoch() {
-	stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null
+    stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null
 }
 
 # journal_candidates prints (one per line) every coordinator project state dir
@@ -197,17 +219,17 @@ mtime_epoch() {
 # prints the state dir a given run used, so every project's is swept; the
 # unique marker is what picks this run's facts out of them.
 journal_candidates() {
-	since="$1"
-	for d in "$HOME/.ctxloom/coord"/*/; do
-		[ -d "$d" ] || continue
-		runs_f="${d%/}/runs.jsonl"
-		[ -f "$runs_f" ] || continue
-		mt="$(mtime_epoch "$runs_f")"
-		[ -n "$mt" ] || continue
-		# -ge, not -gt: a fast run can complete within the same mtime second
-		# as $run_start.
-		[ "$mt" -ge "$since" ] && printf '%s\n' "${d%/}"
-	done
+    since="$1"
+    for d in "$HOME/.ctxloom/coord"/*/; do
+        [ -d "$d" ] || continue
+        runs_f="${d%/}/runs.jsonl"
+        [ -f "$runs_f" ] || continue
+        mt="$(mtime_epoch "$runs_f")"
+        [ -n "$mt" ] || continue
+        # -ge, not -gt: a fast run can complete within the same mtime second
+        # as $run_start.
+        [ "$mt" -ge "$since" ] && printf '%s\n' "${d%/}"
+    done
 }
 
 # The child's runtime rides the AGENT definition (`ctxloom run` has no
@@ -223,38 +245,40 @@ child_harp=""
 parent_harp=""
 pass_dir=""
 for dir in $(journal_candidates "$run_start"); do
-	checked+=("$dir")
-	pair="$(enqueued_child "$dir" "$AGENT" "$MARKER")"
-	[ -n "$pair" ] || continue
-	child_harp="${pair%% *}"
-	parent_harp="${pair#* }"
-	[ -n "$parent_harp" ] || continue
-	if routed_to_parent "$dir" "$child_harp" "$parent_harp"; then
-		pass_dir="$dir"
-		break
-	fi
+    checked+=("$dir")
+    pair="$(enqueued_child "$dir" "$AGENT" "$MARKER")"
+    [ -n "$pair" ] || continue
+    child_harp="${pair%% *}"
+    parent_harp="${pair#* }"
+    [ -n "$parent_harp" ] || continue
+    if routed_to_parent "$dir" "$child_harp" "$parent_harp"; then
+        pass_dir="$dir"
+        break
+    fi
 done
 
 if [ -n "$pass_dir" ]; then
-	echo "PASS: child $child_harp's own send was written into its parent $parent_harp's inbox by the coordinator ($RUNTIME runtime; $pass_dir)"
-	smoke_status=0
-	exit 0
+    echo "PASS: child $child_harp's own send was written into its parent $parent_harp's inbox by the coordinator ($RUNTIME runtime; $pass_dir)"
+    smoke_status=0
+    exit 0
 fi
 
 echo "FAIL: the marker never round-tripped through the coordinator's journals ($RUNTIME runtime)" >&2
 if [ "${#checked[@]}" -eq 0 ]; then
-	echo "  no coordinator journal dir found with runs.jsonl newer than the run's start ($run_start)" >&2
-	echo "  looked under: \$HOME/.ctxloom/coord/*/" >&2
+    echo "  no coordinator journal dir found with runs.jsonl newer than the run's start ($run_start)" >&2
+    echo "  looked under: \$HOME/.ctxloom/coord/*/" >&2
 elif [ -z "$child_harp" ]; then
-	echo "  no run.enqueued fact matched agent=\"$AGENT\" + marker in runs.jsonl under:" >&2
-	printf '    %s\n' "${checked[@]}" >&2
+    echo "  no run.enqueued fact matched agent=\"$AGENT\" + marker in runs.jsonl under:" >&2
+    printf '    %s\n' "${checked[@]}" >&2
 elif [ -z "$parent_harp" ]; then
-	echo "  child harp \"$child_harp\" was enqueued with no parent_harp, so it has no parent to echo to; under:" >&2
-	printf '    %s\n' "${checked[@]}" >&2
+    echo "  child harp \"$child_harp\" was enqueued with no parent_harp, so it has no parent to echo to; under:" >&2
+    printf '    %s\n' "${checked[@]}" >&2
 else
-	echo "  found child \"$child_harp\" (parent \"$parent_harp\") but no spool_mail_out to that parent FROM that child in interactions.jsonl under:" >&2
-	printf '    %s\n' "${checked[@]}" >&2
+    echo "  found child \"$child_harp\" (parent \"$parent_harp\") but no spool_mail_out to that parent FROM that child in interactions.jsonl under:" >&2
+    printf '    %s\n' "${checked[@]}" >&2
 fi
-echo "--- stdout ($work/stdout.log) ---" >&2; printf '%s\n' "$out" >&2
-echo "--- stderr ($work/stderr.log) ---" >&2; cat "$work/stderr.log" >&2
+echo "--- stdout ($work/stdout.log) ---" >&2
+printf '%s\n' "$out" >&2
+echo "--- stderr ($work/stderr.log) ---" >&2
+cat "$work/stderr.log" >&2
 exit 1

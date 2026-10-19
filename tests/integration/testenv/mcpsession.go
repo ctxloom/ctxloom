@@ -98,6 +98,11 @@ func connectMCP(bin string, args []string, dir string, baseEnv []string, extraEn
 	// See pdeathsig_linux.go: the same "die with the test binary"
 	// guarantee `ctxloom run` invocations get.
 	cmd.SysProcAttr = pdeathsigSysProcAttr()
+	// The SDK's transport starts cmd, so the spawn gate is asserted here,
+	// before the transport is handed it.
+	if err := AssertChildEnvSandboxed(cmd.Env); err != nil {
+		return nil, fmt.Errorf("connect mcp server %s: %w", bin, err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), MCPCallTimeout)
 	defer cancel()

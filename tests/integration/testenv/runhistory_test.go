@@ -2,7 +2,6 @@ package testenv
 
 import (
 	"errors"
-	"os/exec"
 	"testing"
 )
 
@@ -77,10 +76,10 @@ func TestRunHistory_Record_TracksExitCodeAndError(t *testing.T) {
 // guards against lived in the exec path, not the bookkeeping.
 func TestRunHistory_Exec_RecordsEveryRunSoTheFirstSurvivesTheSecond(t *testing.T) {
 	var h RunHistory
-	if err := h.Exec(exec.Command("sh", "-c", "echo first-out; echo first-err >&2")); err != nil {
+	if err := h.Exec(sandboxedCommand(t, "sh", "-c", "echo first-out; echo first-err >&2")); err != nil {
 		t.Fatalf("first Exec: %v", err)
 	}
-	if err := h.Exec(exec.Command("sh", "-c", "echo second-out; exit 3")); err == nil {
+	if err := h.Exec(sandboxedCommand(t, "sh", "-c", "echo second-out; exit 3")); err == nil {
 		t.Fatal("second Exec: want the non-zero exit surfaced as an error, got nil")
 	}
 

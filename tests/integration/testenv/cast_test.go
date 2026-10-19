@@ -3,7 +3,6 @@ package testenv
 import (
 	"bytes"
 	"encoding/json"
-	"os/exec"
 	"strings"
 	"sync"
 	"testing"
@@ -118,11 +117,11 @@ func TestRunHistory_RecordInto_TeesARunIntoTheCast(t *testing.T) {
 	var buf bytes.Buffer
 	h.RecordInto(NewCast(&buf, 80, 24, "t"))
 
-	if err := h.Exec(exec.Command("sh", "-c", "printf 'out\\n'; printf 'err\\n' >&2")); err != nil {
+	if err := h.Exec(sandboxedCommand(t, "sh", "-c", "printf 'out\\n'; printf 'err\\n' >&2")); err != nil {
 		t.Fatal(err)
 	}
 	h.RecordInto(nil)
-	if err := h.Exec(exec.Command("sh", "-c", "echo after")); err != nil {
+	if err := h.Exec(sandboxedCommand(t, "sh", "-c", "echo after")); err != nil {
 		t.Fatal(err)
 	}
 

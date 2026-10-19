@@ -5,7 +5,6 @@ package acceptance
 import (
 	"bytes"
 	"context"
-	"os/exec"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -39,11 +38,12 @@ func TestScenarioCommandPastItsBoundFailsOnlyThatScenario(t *testing.T) {
 			ctx.Step(`^a command outlives its bound$`, func(c context.Context) error {
 				w := worldFrom(c)
 				w.env.SetCommandBound(bound)
-				_ = w.env.Exec(exec.Command("sleep", "30"))
+				_ = w.env.Exec(w.env.HostCommand(context.Background(), "sleep", "30"))
 				return nil // discarded, exactly as runCLI discards it
 			})
 			ctx.Step(`^a command finishes inside its bound$`, func(c context.Context) error {
-				return worldFrom(c).env.Exec(exec.Command("true"))
+				w := worldFrom(c)
+				return w.env.Exec(w.env.HostCommand(context.Background(), "true"))
 			})
 		},
 		Options: &godog.Options{

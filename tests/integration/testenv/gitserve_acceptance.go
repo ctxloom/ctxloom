@@ -174,13 +174,23 @@ var standaloneGitEnv = []string{
 	"GIT_CONFIG_SYSTEM=/dev/null",
 }
 
+// standaloneGitCmd builds git in dir on the sandbox base environment, made
+// hermetic for git, with standaloneGitEnv appended. These helpers serve
+// remotes and clones outside any one scenario's checkout, so they take no
+// TestEnvironment.
+func standaloneGitCmd(dir string, args ...string) *exec.Cmd {
+	cmd := taskstest.GitCmd(dir, nil, args...)
+	cmd.Env = append(taskstest.HermeticGitEnv(sandboxBaseEnv()), standaloneGitEnv...)
+	return cmd
+}
+
 // gitOutput runs git in dir and returns its trimmed stdout, wrapping any
 // failure with stderr for diagnosis.
 func gitOutput(dir string, args ...string) (string, error) {
-	cmd := taskstest.GitCmd(dir, standaloneGitEnv, args...)
+	cmd := standaloneGitCmd(dir, args...)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	out, err := outputSandboxed(cmd)
 	if err != nil {
 		return "", fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, stderr.String())
 	}
@@ -238,8 +248,8 @@ func writeFilesUnder(dir string, files map[string]string) error {
 }
 
 func runGitE(dir string, args ...string) error {
-	cmd := taskstest.GitCmd(dir, standaloneGitEnv, args...)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	cmd := standaloneGitCmd(dir, args...)
+	if out, err := combinedOutputSandboxed(cmd); err != nil {
 		return fmt.Errorf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 	}
 	return nil
@@ -249,10 +259,10 @@ func runGitE(dir string, args ...string) error {
 // committed and nested .gitignore files as git itself reads them, not as
 // ctxloom believes it wrote them.
 func (e *TestEnvironment) GitIgnores(rel string) (bool, error) {
-	cmd := taskstest.GitCmd(e.ProjectDir, standaloneGitEnv, "check-ignore", "-q", "--", rel)
+	cmd := standaloneGitCmd(e.ProjectDir, "check-ignore", "-q", "--", rel)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
-	err := cmd.Run()
+	err := e.RunCmd(cmd)
 	if err == nil {
 		return true, nil
 	}

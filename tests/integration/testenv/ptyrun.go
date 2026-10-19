@@ -199,8 +199,13 @@ func (e *TestEnvironment) RunPTYFrom(bin string, cols, rows int, extraEnv []stri
 }
 
 // startPTY starts bin in dir with env on a fresh pty, draining the master
-// into the session's capture.
+// into the session's capture. The pty's own command type is not an
+// *exec.Cmd, so it passes the spawn gate by asserting env directly, before
+// the pty is even opened.
 func startPTY(hooks ptyHooks, dir string, env []string, bin string, cols, rows int, args ...string) (*PTYSession, error) {
+	if err := AssertChildEnvSandboxed(env); err != nil {
+		return nil, fmt.Errorf("start %s: %w", bin, err)
+	}
 	p, err := pty.New()
 	if err != nil {
 		return nil, fmt.Errorf("open pty: %w", err)

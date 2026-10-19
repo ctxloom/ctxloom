@@ -60,13 +60,13 @@ type boundedRun struct {
 	done chan error
 }
 
-// startBounded starts cmd as the leader of its own process group. The bound
-// is armed separately, by wait, so a caller that holds the command's stdin
-// open for a while first (RunWithStdin) does not spend the command's budget
-// on its own hold.
+// startBounded starts cmd, through the spawn gate (startSandboxed), as the
+// leader of its own process group. The bound is armed separately, by wait, so
+// a caller that holds the command's stdin open for a while first
+// (RunWithStdin) does not spend the command's budget on its own hold.
 func startBounded(cmd *exec.Cmd) (*boundedRun, error) {
 	ownProcessGroup(cmd)
-	if err := cmd.Start(); err != nil {
+	if err := startSandboxed(cmd); err != nil {
 		return nil, err
 	}
 	b := &boundedRun{cmd: cmd, done: make(chan error, 1)}
@@ -113,5 +113,8 @@ func runBounded(cmd *exec.Cmd, bound time.Duration) error {
 }
 
 func commandLine(cmd *exec.Cmd) string {
+	if len(cmd.Args) == 0 {
+		return filepath.Base(cmd.Path)
+	}
 	return strings.Join(append([]string{filepath.Base(cmd.Args[0])}, cmd.Args[1:]...), " ")
 }

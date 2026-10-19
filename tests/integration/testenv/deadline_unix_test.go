@@ -44,7 +44,7 @@ func callWithin(t *testing.T, what string, call func() error) (time.Duration, er
 func TestExec_ACommandPastItsBoundFailsNamingTheCommandAndTheBound(t *testing.T) {
 	var h RunHistory
 	h.SetCommandBound(testBound)
-	cmd := exec.Command("sleep", sleepSeconds)
+	cmd := sandboxedCommand(t, "sleep", sleepSeconds)
 
 	elapsed, err := callWithin(t, "Exec", func() error { return h.Exec(cmd) })
 
@@ -86,7 +86,7 @@ func TestExec_TheBoundKillsTheWholeProcessGroup(t *testing.T) {
 	var h RunHistory
 	h.SetCommandBound(testBound)
 	// The shell prints its background child's pid, then waits on it.
-	cmd := exec.Command("sh", "-c", "sleep "+sleepSeconds+" & echo $!; wait")
+	cmd := sandboxedCommand(t, "sh", "-c", "sleep "+sleepSeconds+" & echo $!; wait")
 
 	elapsed, err := callWithin(t, "Exec", func() error { return h.Exec(cmd) })
 
@@ -135,7 +135,7 @@ func TestRunWithStdin_ACommandPastItsBoundFails(t *testing.T) {
 func TestExec_ACommandInsideItsBoundKeepsItsOwnResult(t *testing.T) {
 	var h RunHistory
 	h.SetCommandBound(testGuard)
-	err := h.Exec(exec.Command("sh", "-c", "echo hi; exit 3"))
+	err := h.Exec(sandboxedCommand(t, "sh", "-c", "echo hi; exit 3"))
 
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) || ee.ExitCode() != 3 {

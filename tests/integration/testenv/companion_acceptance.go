@@ -92,7 +92,7 @@ esac
 // loadout probe. Exported so a scenario that wants an UNREGISTERED companion
 // on PATH simply does not call it.
 func (e *TestEnvironment) RegisterCompanion(name string) error {
-	out, err := e.Command(nil, "companion", "add", name).CombinedOutput()
+	out, err := e.CombinedOutput(e.Command(nil, "companion", "add", name))
 	if err != nil {
 		return fmt.Errorf("register companion %q: %w: %s", name, err, out)
 	}

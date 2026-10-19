@@ -68,7 +68,7 @@ type eventLog struct {
 type folded struct {
 	byID      map[string]*Task    // live tasks by harp
 	order     []string            // harp ids in replay order (ts-sorted; file order only breaks ties)
-	issued    map[string]struct{} // every harp ever used — never reused
+	issued    map[string]struct{} // every harp the log still records; a pruned harp is no longer reserved (Store.Prune)
 	repaired  map[string]struct{} // anomaly keys already resolved by a re-add
 	anomalies []Event             // displaced duplicate adds (same harp, different task)
 
@@ -236,8 +236,8 @@ func (f *folded) apply(ev Event) error {
 	case opText:
 		f.applyText(ev)
 	case opRemove:
-		// ev.Task stays in `issued`: a harp is never reused, so a stale
-		// reference can never resolve to a different task.
+		// ev.Task stays in `issued`: a removed harp stays reserved, so a
+		// stale reference can never resolve to a different task.
 		delete(f.byID, ev.Task)
 	case "":
 		return fmt.Errorf("record has no op field")

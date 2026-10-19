@@ -196,6 +196,12 @@ run:
         the task to record what is now done and what remains, instead of
         leaving it whole and letting the next person redo the finished half.
 
+        `taskloom prune` removes old finished tasks from the log for good (by
+        default Done tasks whose last status change is over 7 days old); without
+        `--yes` it only reports. It is the human's housekeeping call: never run
+        `taskloom prune --yes` unless asked, and never in place of closing or
+        archiving a task.
+
         ## Do NOT create a task on your own initiative
 
         A task is created with the user's agreement, never as a side effect of

@@ -61,6 +61,9 @@ func RunLaunchSpec(ctx context.Context, spec agent.LaunchSpec, stdin io.Reader, 
 	cmd := exec.CommandContext(ctx, resolveBinaryPath(spec.BinaryPath), spec.Args...)
 	cmd.Dir = spec.WorkDir
 	cmd.Env = spec.Env
+	if err := startBatchViaCmdExe(cmd); err != nil {
+		return 1, fmt.Errorf("failed to run %s: %w", spec.BinaryPath, err)
+	}
 
 	run := cmd.Run
 	if spec.Interactive {

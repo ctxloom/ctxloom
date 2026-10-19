@@ -7,6 +7,8 @@ The contract they jointly own: **an engine binary is found even under a GUI-laun
 ```mermaid
 flowchart TD
   LAUNCH["runner.RunLaunchSpec<br/>exec.CommandContext"]
+  BAT["startBatchViaCmdExe — windows: a .cmd/.bat engine through cmd.exe<br/>batchCommandLine"]
+  LAUNCH --> BAT
 
   subgraph se["internal/shared/shellenv"]
     R["Resolve(name) (string, error)"]
@@ -23,8 +25,6 @@ flowchart TD
 
   subgraph pr["internal/shared/ptyrunner"]
     CMD["Command(ctx, ptty, cmd) *pty.Cmd"]
-    APC["adjustPtyCommand — per-GOOS argv fixup"]
-    CMD --> APC
   end
   HP["hostpty.start — the runner on the originator's pty"] --> CMD
   TERM["the runner's own terminal (agent.Terminal)"]
@@ -61,12 +61,10 @@ The one translation from an os/exec command to a go-pty one, and the line discip
 
 | Symbol | File | Purpose |
 |---|---|---|
-| `Command(ctx, ptty pty.Pty, cmd *exec.Cmd) *pty.Cmd` | `internal/shared/ptyrunner/ptyrunner.go` | Re-derives go-pty's `Cmd` from `cmd` (Path, Args[1:], Dir, Env), then `adjustPtyCommand` |
+| `Command(ctx, ptty pty.Pty, cmd *exec.Cmd) *pty.Cmd` | `internal/shared/ptyrunner/ptyrunner.go` | Re-derives go-pty's `Cmd` from `cmd` (Path, Args[1:], Dir, Env), as they are |
 | `RawInput(tty *os.File) error` (!windows) | `internal/shared/ptyrunner/terminal_unix.go` | Input processing off (no echo, no canonical lines, no CR→LF, no signals from keys); output processing left on |
-| `FreshLineDiscipline(tty *os.File) (restore func() error, error)` | `internal/shared/ptyrunner/terminal_unix.go`, `prepare_windows.go` | Sets a new pty's input, output and local flags (canonical, echo, ICRNL, ISIG, OPOST/ONLCR); `restore` writes back the termios it found. No-op on Windows |
+| `FreshLineDiscipline(tty *os.File) (restore func() error, error)` | `internal/shared/ptyrunner/terminal_unix.go`, `terminal_windows.go` | Sets a new pty's input, output and local flags (canonical, echo, ICRNL, ISIG, OPOST/ONLCR); `restore` writes back the termios it found. No-op on Windows |
 | `ioctlGetTermios` / `ioctlSetTermios` | `internal/shared/ptyrunner/termios_linux.go`, `termios_other.go` | `TCGETS`/`TCSETS` on Linux, `TIOCGETA`/`TIOCSETA` elsewhere |
-| `adjustPtyCommand(c *pty.Cmd, cmd *exec.Cmd)` (!windows) | `internal/shared/ptyrunner/prepare_other.go` | No-op (build-tag seam) |
-| `adjustPtyCommand(c *pty.Cmd, cmd *exec.Cmd)` (windows) | `internal/shared/ptyrunner/prepare_windows.go` | For `.cmd`/`.bat`, rewrites to `cmd.exe` with a double-quoted `/c` line via `windows.ComposeCommandLine`; silently no-ops for other extensions |
 
 ## `internal/shared/pidalive`
 
@@ -136,7 +134,14 @@ Widens binary resolution from the process's inherited `PATH` to the user's login
 - **Refused, not degraded:** an interactive spec with no terminal, or whose stdin or stdout is not one, fails before anything starts.
 - **No pipes, no copier.** `Wait` returns at the engine's exit whatever it left holding the terminal; a holder that outlives the runner is bounded by the frontend's drive (`driveOwnedInteractive`'s `ptyDrainGrace`) and hung up — on Linux at the engine's exit, elsewhere with the runner's session.
 - Exit classification routes `*exec.ExitError` through `exitstatus.Of` in both branches: an ordinary exit propagates `exitErr.ExitCode()` verbatim, and a child killed by a signal reports the shell convention `128+signum` (130 SIGINT, 137 SIGKILL, 143 SIGTERM) rather than os/exec's raw `-1`, which is not a valid POSIX status and reached the user truncated to `255`. On Windows the mapping is a documented no-op: `syscall.WaitStatus` there hard-codes `Signaled() == false`, so the `ExitCode()` fallthrough runs.
-- Windows (unverified on any host this was built on): the engine inherits the runner's console handles, so it attaches to the ConPTY `hostpty` started the runner on. `adjustPtyCommand`'s `.cmd`/`.bat` rewrite applies to what `hostpty` starts, not to the engine, which os/exec starts as it starts a one-shot engine.
+- Windows (unverified on any host this was built on): the engine inherits the runner's console handles, so it attaches to the ConPTY `hostpty` started the runner on. A `.cmd`/`.bat` engine is started through `cmd.exe` as a one-shot one is (below).
+
+**Batch engines on Windows (`runner.RunLaunchSpec`, both launch modes)**
+
+- An engine whose resolved path is a `.cmd` or `.bat` (any case, after the trailing dots and spaces Windows drops; `batchScript`) is started as the system directory's `cmd.exe` on a command line of its own (`SysProcAttr.CmdLine`, `startBatchViaCmdExe` in `batch_windows.go`), never handed to CreateProcess as it stands: CreateProcess runs a batch script through `cmd.exe /c` on the caller's line, and /c strips that line's outer quotes whenever it holds more than one pair, so a quoted script path with spaces (an npm shim under `C:\Users\<first last>`) stops naming one file.
+- The line (`batchCommandLine`, plain string work tested on every OS) is `cmd.exe /e:ON /v:OFF /d /c ""<script>" <args>"`: the outer pair is the one /c strips. An argument holding anything but letters, digits and `#$*+-./:?@\_` (or empty, or ending in a backslash) is quoted, its embedded quotes doubled and a backslash run doubled only before a quote; each `%` is preceded by `%%cd:~,` so no `%NAME%` expands, and delayed expansion is off so `!` is literal.
+- **Refused, not degraded:** an argument holding a line break or NUL (cmd.exe would end the command there), and a script path holding a quote or NUL or ending in a backslash, fail the launch before anything starts.
+- Unverified on a Windows host: the line is pinned by unit tests and the wiring by the cross-build only.
 
 **Pty start (`ptyrunner`)**
 

@@ -179,13 +179,18 @@ func blockStaleWake(cmd *cobra.Command, codec engine.HookCodec) []string {
 	return nil
 }
 
+// problemNotAcknowledged names a written entry that ackDelivered could not
+// record as delivered.
+const problemNotAcknowledged = "was delivered but could not be acknowledged and will be delivered again"
+
 // ackDelivered acknowledges each delivered entry, reporting the ones that
-// could not be (and so will be delivered again); one already gone is fine.
+// could not be (and so will be delivered again); one already gone, or already
+// recorded by a concurrent reader, is fine.
 func ackDelivered(fs afero.Fs, mapper spool.PathMapper, harp string, entries []spool.Entry) []string {
 	var problems []string
 	for _, e := range entries {
 		if err := spool.Deliver(fs, mapper, e.Ref, e.Identity(), time.Now()); err != nil && !errors.Is(err, spool.ErrAlreadyGone) {
-			problems = append(problems, fmt.Sprintf("%s was delivered but could not be acknowledged and will be delivered again: %v", e.Ref, err))
+			problems = append(problems, fmt.Sprintf("%s %s: %v", e.Ref, problemNotAcknowledged, err))
 		}
 	}
 	return problems

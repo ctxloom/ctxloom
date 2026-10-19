@@ -249,3 +249,60 @@ func TestDrainMail_ReachesTheSpoolOnlyThroughItsFs(t *testing.T) {
 	assert.Contains(t, ids, stem(ref.Name), "the delivery is recorded in the hook's fs")
 	assert.Empty(t, deliveredIDs(t), "nothing is recorded on disk")
 }
+
+// concurrentReaderFs delivers name for a concurrent reader the moment this
+// reader creates the delivered record's directory: both readers wrote the
+// message, and the other's record and delete land between this one's write
+// and its acknowledgement.
+type concurrentReaderFs struct {
+	afero.Fs
+	t    *testing.T
+	name string
+}
+
+func (c concurrentReaderFs) MkdirAll(path string, perm os.FileMode) error {
+	if err := c.Fs.MkdirAll(path, perm); err != nil {
+		return err
+	}
+	m := spool.NewHomeMapper()
+	dir, err := spool.DirPath(m, mailDrainOwner, spool.ClaimedDirName)
+	require.NoError(c.t, err)
+	record, err := spool.Root(m, mailDrainOwner)
+	require.NoError(c.t, err)
+	if filepath.Clean(path) != filepath.Join(record, "in", "delivered") {
+		return nil
+	}
+	testsupport.WriteFile(c.t, c.Fs, filepath.Join(path, stem(c.name)), nil, 0o600)
+	return c.Fs.Remove(filepath.Join(dir, c.name))
+}
+
+// Two hook processes delivering one message concurrently both write it; the
+// one acknowledging second finds it recorded and gone, and that is no problem.
+func TestOwnerMail_AConcurrentReadersAcknowledgementIsNoProblem(t *testing.T) {
+	for _, c := range []struct {
+		verb string
+		run  func(fs afero.Fs, out *bytes.Buffer) error
+	}{
+		{"mail-drain", func(fs afero.Fs, out *bytes.Buffer) error {
+			return drainMail(fs, mailDrainCmd(out), claudeCodec(t), mailDrainOwner)
+		}},
+		{"mail-peek", func(fs afero.Fs, out *bytes.Buffer) error {
+			return peekMail(mailPeekCmd(out), claudeCodec(t), ownerPeekEnv(fs))
+		}},
+	} {
+		t.Run(c.verb, func(t *testing.T) {
+			testsupport.Isolate(t)
+			name := seedOwnerMail(t, "child-one", "result", "the answer\n")
+
+			var out bytes.Buffer
+			err := c.run(concurrentReaderFs{Fs: afero.NewOsFs(), t: t, name: name}, &out)
+			if err != nil {
+				assert.NotContains(t, err.Error(), problemNotAcknowledged, "the message is not delivered again")
+			}
+			require.NoError(t, err)
+			assert.Contains(t, out.String(), "the answer")
+			assert.Equal(t, []string{stem(name)}, deliveredIDs(t))
+			assert.Empty(t, spoolNames(t, spool.ClaimedDirName))
+		})
+	}
+}

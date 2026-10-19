@@ -194,7 +194,7 @@ func TestPeekMail_AnAcknowledgementThatFailsIsNamed(t *testing.T) {
 
 	var out bytes.Buffer
 	err := peekMail(mailPeekCmd(&out), claudeCodec(t), ownerPeekEnv(fs))
-	require.ErrorContains(t, err, "could not be acknowledged and will be delivered again")
+	require.ErrorContains(t, err, problemNotAcknowledged)
 	assert.Contains(t, peekedContext(t, &out), "the answer", "what was written stays written")
 }
 

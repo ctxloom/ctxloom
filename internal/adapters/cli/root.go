@@ -51,8 +51,10 @@ var noCompanionsFlag bool
 // sessionOwnerEnv is whether this process was started under the session-owner
 // marker (sessions.EnvSessionOwner) the launch puts on the owner's engine
 // alone — read ONCE and removed (switches), so no process ctxloom starts
-// inherits it. Only the turn-start mail-drain
-// hook (runHookMailDrain) honours it.
+// inherits it. The marker stays in the engine's own environment, so every
+// hook process the engine spawns, a subagent's included, inherits it. The
+// owner-mail hooks honour it: mail-drain (runHookMailDrain) and mail-peek
+// (peekMail → peekOwnerMail).
 var sessionOwnerEnv = sync.OnceValue(func() bool { return consumeEnvSwitch(sessions.EnvSessionOwner) })
 
 // consumeEnvSwitch reads a per-invocation environment switch and removes it

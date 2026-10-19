@@ -49,7 +49,7 @@ func newHookRepo(t *testing.T) *hookRepo {
 func (r *hookRepo) git(args ...string) string {
 	r.t.Helper()
 	cmd := taskstest.GitCmd(r.dir, nil, args...)
-	cmd.Env = append(taskstest.HermeticGitEnv(scrubbedEnv()), "GIT_PAGER=cat")
+	cmd.Env = taskstest.HermeticGitEnv(scrubbedEnv())
 	out, err := cmd.CombinedOutput()
 	require.NoError(r.t, err, "git %v: %s", args, out)
 	return string(out)

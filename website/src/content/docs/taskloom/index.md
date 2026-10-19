@@ -19,8 +19,10 @@ stable and unambiguous when a model echoes it back in a later call.
 The store is an append-only JSONL log. By default it is private to you, at
 `~/.ctxloom/tasks/<project-id>.jsonl`. Set `homing: repo` in `.taskloom/config.yaml` (or pass
 `--homing repo`) and the log lives in the project tree at `.taskloom/tasks.jsonl` instead, so it
-is committed and travels with clones. Current state is the fold of its events, so nothing is destructive: a task's history survives every status
-change, and `Archived` drops a task from view without erasing it.
+is committed and travels with clones. Current state is the fold of its events, so ordinary use is never destructive: a task's history survives every status
+change, and `Archived` drops a task from view without erasing it. The one deliberate exception is
+`taskloom prune`, which removes old finished tasks from the log for good. It only reports what it
+would remove until you pass `--yes`.
 
 ## The status model
 

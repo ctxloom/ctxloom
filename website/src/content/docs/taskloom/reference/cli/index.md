@@ -16,6 +16,7 @@ Every command takes `--project` to act on a store other than the one resolved fr
 - **Writing** — [`add`](/taskloom/reference/cli/taskloom_add/), [`status`](/taskloom/reference/cli/taskloom_status/), [`edit`](/taskloom/reference/cli/taskloom_edit/)
 - **Plans and sessions** — [`plan`](/taskloom/reference/cli/taskloom_plan/), [`run`](/taskloom/reference/cli/taskloom_run/), and `watch` (a JSONL change stream for GUIs, hidden from `--help`)
 - **Agents** — [`mcp`](/taskloom/reference/cli/taskloom_mcp/) serves the same store over MCP; see the [MCP tools reference](/taskloom/reference/mcp-tools/).
+- **Maintenance** — [`prune`](/taskloom/reference/cli/taskloom_prune/) drops old finished tasks from the log; [`repair`](/taskloom/reference/cli/taskloom_repair/) re-introduces a task displaced by a harp-id collision
 - **Utilities** — [`manage`](/taskloom/reference/cli/taskloom_manage/), [`version`](/taskloom/reference/cli/taskloom_version/)
 
 ## Closing a task, or deferring it
@@ -48,6 +49,28 @@ To see parked work, name the status or ask for everything:
 taskloom list --status Deferred   # just the parked tasks, with their triggers
 taskloom list --all               # every status, including Done and Archived
 ```
+
+## Pruning finished work
+
+The log only ever grows: every task you finish stays in it, and in every listing that includes
+finished work, until you prune it. `taskloom prune` takes out `Done` tasks whose status last
+changed more than seven days ago:
+
+```sh
+taskloom prune          # report what would go; nothing changes
+taskloom prune --yes    # remove it
+```
+
+Without `--yes` it only reports, and says so. `--older-than` moves the age (`30d`, `12w`, or a
+date), `--status` names other statuses (`--status @terminal` takes `Archived` too), and
+`--tag-query` narrows the selection. Age is measured from a task's last *status* change, so a
+task you reopened and closed again yesterday is young, and retagging an old one does not make it
+young.
+
+Pruning is not archiving. A pruned task is gone from the log, not moved anywhere. If you want
+the record, set the task `Archived` and leave `Archived` out of `--status`. When a surviving task
+still names a pruned one, through a `relates:<harp>` tag or the harp in its text, the report
+lists the reference and leaves it as written.
 
 ## Knowing which store you wrote to
 

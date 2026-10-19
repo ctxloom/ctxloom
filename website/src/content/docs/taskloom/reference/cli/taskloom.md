@@ -50,6 +50,7 @@ vocabulary in use with `taskloom tags`, and filter with `taskloom list --tag-que
 * [taskloom manage](/taskloom/reference/cli/taskloom_manage/)	 - Register the taskloom MCP server with agent backends
 * [taskloom mcp](/taskloom/reference/cli/taskloom_mcp/)	 - Serve the task tools over MCP on stdio
 * [taskloom plan](/taskloom/reference/cli/taskloom_plan/)	 - Browse session plans (*.plan.md in each session's output dir)
+* [taskloom prune](/taskloom/reference/cli/taskloom_prune/)	 - Drop old finished tasks from the task log (reports only, without --yes)
 * [taskloom repair](/taskloom/reference/cli/taskloom_repair/)	 - Re-introduce any task displaced by an unresolved harp-id collision
 * [taskloom run](/taskloom/reference/cli/taskloom_run/)	 - Browse a task and launch an agent on it (via ctxloom run)
 * [taskloom show](/taskloom/reference/cli/taskloom_show/)	 - Show one or more tasks' full detail

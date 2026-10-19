@@ -192,11 +192,12 @@ out the turn in flight, skips a message a peek has already delivered
 (`Home.claimTurnMail`). Mail that does not fit the engine's per-hook context cap
 waits for the next tool call, and the context says how much more waits.
 
-`mail-drain` claims a spool only for the session OWNER's engine: the launch
-marks that engine alone with `CTXLOOM_SESSION_OWNER` (`sessions.EnvSessionOwner`,
-set by `launch.markOwner` for a human's interactive session and removed for
-every other run), and every ctxloom process consumes the marker at start
-(`sessionOwnerEnv`), so nothing that engine starts inherits it. Any other
+`mail-drain` and `mail-peek` claim a spool only for the session OWNER's engine:
+the launch marks that engine alone with `CTXLOOM_SESSION_OWNER`
+(`sessions.EnvSessionOwner`, set by `launch.markOwner` for a human's interactive
+session and removed for every other run). Every hook process that engine spawns,
+a subagent's included, inherits the marker; every ctxloom process consumes it
+at start (`sessionOwnerEnv`), so nothing ctxloom starts inherits it. Any other
 engine that fires the hook — a delegated child loading a trusted repository's
 own settings file — carries its own harp but no marker, and claims nothing:
 its mail is its runner's to deliver.

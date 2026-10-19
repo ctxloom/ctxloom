@@ -52,12 +52,16 @@ delete every registration whose checkout is not visible, and no other checkout
 is mounted into either container.
 
 A second exception at both (ruled 2026-10-06): the common dir's `hooks/`
-directory and the main checkout's `index` and `HEAD` are bound **read-only**
-over themselves, shadowing the read-write mount. Hooks run on the host at the
-next git operation in any checkout; the index and HEAD belong to the main
-checkout, while a linked checkout keeps its own in its admin dir, which stays
-read-write. A missing `hooks/` is created first, so the container cannot create
-one; a missing index is not, because an empty one is corrupt. A write git makes
+directory is bound **read-only** over itself, shadowing the read-write mount
+that carries it — the common-dir mount from a linked checkout, the workspace
+mount for a main checkout's `.git`. Hooks run on the host at the next git
+operation in any checkout. From a linked checkout the main checkout's `index`
+and `HEAD` are shadowed too: they belong to the main checkout, while a linked
+checkout keeps its own in its admin dir, which stays read-write. A main
+checkout's (or a submodule's) `index` and `HEAD` are its own and stay
+writable, so it can commit. A missing `hooks/` is created first, so the
+container cannot create one; a missing index is not, because an empty one is
+corrupt. A write git makes
 to a shadowed file fails at the rename and git removes its lock. `config` stays
 read-write. Option 2 remains rejected for everything else: config, packed-refs
 and refs are updated by lock-and-rename inside the common dir, which a
@@ -76,8 +80,8 @@ The exposure is real and is accepted knowingly, not overlooked:
   cannot reach other worktrees' admin dirs, so its git also cannot see which
   branches they have checked out, and does not refuse to check out or delete
   one of those.
-- `.git/hooks` is **not** writable from a linked checkout's container, and so
-  neither are the hooks that execute on the host. In-container agents cannot
+- `.git/hooks` is **not** writable from a container run, from a linked or a
+  main checkout, and so neither are the hooks that execute on the host. In-container agents cannot
   install hooks; that cost is accepted.
 - `.git/config` is writable, and its `core.hooksPath`, `core.fsmonitor`,
   `core.sshCommand`, `core.pager` and `[alias]` keys name commands git runs on
@@ -96,9 +100,8 @@ Two fears that do **not** apply, recorded so they are not re-litigated:
 
 A main-checkout container run mounts `.git` read-write, because `.git` sits
 inside the directory that becomes the workspace mount. Its index and HEAD are
-that checkout's own and must stay writable for it to commit, so the read-only
-overlays apply only where the common dir is mounted on its own — a linked
-checkout; on a main-checkout run `hooks/` stays writable too.
+that checkout's own and must stay writable for it to commit, so only its
+`hooks/` is shadowed read-only.
 
 `TestMountBase_HidesOtherWorktreesRegistry` pins the agent call site's posture
 in both directions: the registry is unreachable and read-only, while the
@@ -107,7 +110,9 @@ resolve read-write through the runtime's path mapping.
 `TestGitDirMounts_MainHooksIndexAndHeadAreReadOnly` pins the read-only
 overlays and the writable admin-dir HEAD and index beside them, and
 `TestContainerPolicy_HostBaseOutOfRepoWorktree_GitResolves` proves them in a
-real container. Any further
+real container; `TestGitdirMirrorMounts_MainCheckoutHooksAreReadOnly` and
+`TestContainerPolicy_HostBaseMainCheckout_HooksReadOnlyCommitsWork` do the
+same for a main checkout's read-only hooks and writable index and HEAD. Any further
 narrowing must therefore be deliberate; it cannot happen accidentally in a
 sweep. The `_run` site's mounts come from `scripts/devcontainer-git-mounts.sh`,
 pinned the same way by the `TestDevcontainerGitMounts_` tests.

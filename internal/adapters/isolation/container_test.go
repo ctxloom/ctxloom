@@ -61,7 +61,7 @@ func TestContainerWorkspace_DirAndCleanup(t *testing.T) {
 // dir lives OUTSIDE the identical-path project mount, so the plain container must
 // mirror that common dir (same fix the worktree base uses) — but a normal .git
 // DIRECTORY (main-repo checkout) is already covered by the project mount and needs
-// no extra mount, and a non-repo project needs none either.
+// no mirror, only its hooks shadowed, and a non-repo project needs none either.
 func TestContainer_GitdirMirrorMount(t *testing.T) {
 	ctx := context.Background()
 	common := filepath.Join(t.TempDir(), "repo", ".git")

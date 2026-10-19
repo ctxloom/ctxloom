@@ -18,8 +18,8 @@ import (
 // checkout) needs for git to work in the container — THIS checkout's git data,
 // and not the other checkouts'. Shared by the worktree base (whose .git is
 // always a pointer file) and the host base (when the live project is itself a
-// linked worktree — see gitdirMirrorMounts, which masks a main checkout's
-// registry with gitRegistryMask alone).
+// linked worktree — see gitdirMirrorMounts, which gives a main checkout only
+// its hooks overlay and registry mask).
 //
 // The common dir is mounted whole and READ-WRITE, at the runtime's mapping of
 // it: commits, fetches and branch updates rewrite config, packed-refs and refs

@@ -20,7 +20,10 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/toolchain"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 func TestRenderAgentList_EngineAndDefault(t *testing.T) {
@@ -507,4 +510,53 @@ func TestRunAgentList_CannotRenderAnEnginelessAgent(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(raw), `"x"`)
 	assert.NotContains(t, string(raw), "null", "no row can carry a null llm AND null profiles once the loader refuses the shell")
+}
+
+const requiresKitYAML = `version: "1.0.0"
+requires:
+  commands: [cargo]
+mcp:
+  serena:
+    command: serena
+profiles:
+  dev:
+    llm: claude-code
+    bundles:
+      - ctxloom:local@bundles/kit
+`
+
+// `agent show` carries what the agent requires, with sources, in both formats,
+// read from the bundles and composed servers alone.
+func TestAgentShow_CarriesRequirementsWithTheirSources(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, ".ctxloom")
+	bundleDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
+	require.NoError(t, os.MkdirAll(bundleDir, 0o755))
+	bundletree.WriteOS(t, bundleDir, "kit", requiresKitYAML)
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"),
+		[]byte("schema_version: 7\nagents:\n  dev-rust:\n    llm: claude-code\n    profiles: [\"ctxloom:local@bundles/kit#profiles/dev\"]\n"), 0o644))
+	chdir(t, root)
+	resetApp()
+	t.Cleanup(resetApp)
+
+	cmd, out := formatCmd("json")
+	cmd.SetContext(context.Background())
+	require.NoError(t, agentShowCmd.RunE(cmd, []string{"dev-rust"}))
+	var payload agentShowJSON
+	require.NoError(t, json.Unmarshal(out.Bytes(), &payload), out.String())
+	assert.Equal(t, []toolchain.Requirement{
+		{Command: "cargo", Sources: []toolchain.RequirementSource{{Kind: toolchain.KindBundle, Ref: "ctxloom:local@bundles/kit"}}},
+		{Command: "serena", Sources: []toolchain.RequirementSource{{Kind: toolchain.KindMCP, Ref: "serena"}}},
+	}, payload.Requirements)
+
+	var text bytes.Buffer
+	require.NoError(t, renderAgentRequirements(&text, payload.Requirements, ""))
+	assert.Contains(t, text.String(), "  - cargo (bundle ctxloom:local@bundles/kit)")
+	assert.Contains(t, text.String(), "  - serena (mcp serena)")
+}
+
+func TestRenderAgentRequirements_SilentWhenNothingIsRequired(t *testing.T) {
+	var text bytes.Buffer
+	require.NoError(t, renderAgentRequirements(&text, nil, ""))
+	assert.Empty(t, text.String())
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/toolchain"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
@@ -91,7 +92,7 @@ func TestCommandGapsByAgent_ContainerAgentMissingCommand(t *testing.T) {
 
 	gaps := CommandGapsByAgent(context.Background(), engines.Registry(), cfg, []isolation.Runtime{isolation.Docker{}})
 
-	assert.Equal(t, map[string][]string{"boxed": {"serena"}}, gaps.Missing,
+	assert.Equal(t, map[string][]toolchain.Requirement{"boxed": {{Command: "serena", Sources: []toolchain.RequirementSource{{Kind: toolchain.KindMCP, Ref: "serena"}}}}}, gaps.Missing,
 		"the image lacks serena; the URL server has no command; the host agent's command resolves on PATH")
 	assert.Empty(t, gaps.ImageNotBuilt)
 }
@@ -102,7 +103,7 @@ func TestDoctorCheckMCPCommands_WarnsNamingAgentAndCommand(t *testing.T) {
 	check := doctorCheckMCPCommands(context.Background(), engines.Registry(), cfg, nil, []isolation.Runtime{isolation.Docker{}})
 
 	assert.Equal(t, DoctorWarn, check.Status, check.Detail)
-	assert.Contains(t, check.Detail, "boxed -> serena")
+	assert.Contains(t, check.Detail, "boxed: serena (mcp serena)")
 	assert.NotContains(t, check.Detail, "local")
 	assert.Contains(t, check.Detail, "npx/uvx", "the detail says only the launcher is checked")
 	assert.Contains(t, check.Remedy, "isolation_base")
@@ -138,5 +139,5 @@ func TestDoctorCheckMCPCommands_HostAgentMissingCommandWarns(t *testing.T) {
 	check := doctorCheckMCPCommands(context.Background(), engines.Registry(), cfg, nil, nil)
 
 	assert.Equal(t, DoctorWarn, check.Status, check.Detail)
-	assert.Contains(t, check.Detail, "local -> hostlocal-tool")
+	assert.Contains(t, check.Detail, "local: hostlocal-tool (mcp hostlocal)")
 }

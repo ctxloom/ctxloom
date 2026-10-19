@@ -37,6 +37,11 @@ type Bundle struct {
 	Notes        string   `yaml:"notes,omitempty"`        // Human-readable, not sent to AI
 	Installation string   `yaml:"installation,omitempty"` // Setup instructions, shown on install
 
+	// Requires is what this bundle's content assumes exists where an agent
+	// composing it runs. It feeds the same command-gap check an attached stdio
+	// MCP server's launcher does (operations.RequiredCommandsFor).
+	Requires wire.Requires `yaml:"requires,omitempty"`
+
 	// Content maps (keyed by name)
 	Fragments map[string]BundleFragment `yaml:"fragments,omitempty"`
 	Commands  map[string]BundleCommand  `yaml:"commands,omitempty"`
@@ -798,6 +803,13 @@ func ParseBundle(raw []byte) (*Bundle, error) {
 	// A tool class no engine maps would fail every engine's hook binding at
 	// delivery, far from the typo. Refused here for the same reason.
 	if err := bundle.Hooks.checkHookTools(); err != nil {
+		return nil, err
+	}
+
+	// A requirement that is not a bare command name cannot be checked in any
+	// runtime; refused at load rather than reported as a permanently missing
+	// command by a later doctor run. The caller's wrap names the bundle.
+	if err := bundle.Requires.Validate(); err != nil {
 		return nil, err
 	}
 

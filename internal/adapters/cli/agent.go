@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/toolchain"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 	"github.com/ctxloom/ctxloom/resources"
@@ -145,9 +146,20 @@ func runAgentShow(cmd *cobra.Command, args []string) error {
 		// profiles' hooks configuration actually uses, instead of `agent show`
 		// reporting only the swap succeeded (trusting-ambiguity).
 		payload.CapabilityLoss = operations.CapabilityLoss(App().Engines(), cfg, resolved.Backend, resolved.Profiles)
+		// What the agent needs on its PATH, read from the resolved agent
+		// already in hand: bundle files and the composed MCP servers only,
+		// nothing is probed and no daemon is asked.
+		reqs, qerr := operations.RequiredCommandsForResolved(cfg, resolved)
+		payload.Requirements = reqs
+		if qerr != nil {
+			payload.RequirementsError = qerr.Error()
+		}
 	}
 	return emit(cmd, payload, func() error {
-		return renderAgentShow(cmd.OutOrStdout(), def, resolved, rerr, payload.CapabilityLoss)
+		if err := renderAgentShow(cmd.OutOrStdout(), def, resolved, rerr, payload.CapabilityLoss); err != nil {
+			return err
+		}
+		return renderAgentRequirements(cmd.OutOrStdout(), payload.Requirements, payload.RequirementsError)
 	})
 }
 
@@ -169,6 +181,35 @@ type agentShowJSON struct {
 	// (omitted) when resolution failed or nothing configured is lost. Additive
 	// field, same shape EngineOutcome.NotCarried (ctxloom materialize) carries.
 	CapabilityLoss []agent.SurfaceLoss `json:"capability_loss,omitempty"`
+	// Requirements are the commands the agent needs on its PATH, each with
+	// every source that requires it (a composed bundle's `requires`, or an
+	// attached stdio MCP server's launcher). Omitted when there are none or
+	// resolution failed; RequirementsError says why they could not be read.
+	Requirements      []toolchain.Requirement `json:"requirements,omitempty"`
+	RequirementsError string                  `json:"requirements_error,omitempty"`
+}
+
+// renderAgentRequirements writes the agent's required commands, one per line
+// with the sources that require each. It prints nothing when the agent
+// requires nothing and reported no failure.
+func renderAgentRequirements(out io.Writer, reqs []toolchain.Requirement, failure string) error {
+	w := errwriter.New(out)
+	if failure != "" {
+		w.Printf("Requires: unavailable (%s)\n", failure)
+		return w.Err()
+	}
+	if len(reqs) == 0 {
+		return w.Err()
+	}
+	w.Println("Requires:")
+	for _, r := range reqs {
+		srcs := make([]string, len(r.Sources))
+		for i, s := range r.Sources {
+			srcs[i] = s.String()
+		}
+		w.Printf("  - %s (%s)\n", r.Command, strings.Join(srcs, ", "))
+	}
+	return w.Err()
 }
 
 // renderAgentShow writes the human view of one agent: what the definition

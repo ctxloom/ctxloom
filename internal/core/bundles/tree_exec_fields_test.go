@@ -109,9 +109,10 @@ func TestExecItemFieldsGeneration_IsWhereTheStepLands(t *testing.T) {
 	assert.True(t, ok)
 }
 
-func TestTreeEnvelope_StampsTheExecItemFieldsGeneration(t *testing.T) {
+func TestTreeEnvelope_StampsTheCurrentGenerationWhichCoversTheExecItemFields(t *testing.T) {
 	raw, err := TreeEnvelope(&Bundle{Version: "1.0.0"})
 	require.NoError(t, err)
-	assert.True(t, strings.HasPrefix(string(raw), fmt.Sprintf("%s: %d\n", schemaver.Key, execItemFieldsGeneration)),
-		"a tree written now declares the generation whose items may carry url, headers and tags:\n%s", raw)
+	assert.GreaterOrEqual(t, requiresToolchainsGeneration, execItemFieldsGeneration)
+	assert.True(t, strings.HasPrefix(string(raw), fmt.Sprintf("%s: %d\n", schemaver.Key, requiresToolchainsGeneration)),
+		"a tree written now declares the current generation, which includes the one whose items may carry url, headers and tags:\n%s", raw)
 }

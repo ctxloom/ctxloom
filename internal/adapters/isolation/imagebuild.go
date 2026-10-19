@@ -569,6 +569,13 @@ const overlayUserGate = `RUN id ctxloom >/dev/null 2>&1 \
 // skipped — the image still builds, just without it.
 var companionBinaries = []string{"taskloom", "ltk", "reprise"}
 
+// StagedCommands are the commands every locally-built agent image carries
+// because ctxloom stages them itself: ctxloom and the mirrored companions. A
+// requirement for one of them is never a gap an image's base must fill.
+func StagedCommands() []string {
+	return append([]string{"ctxloom"}, companionBinaries...)
+}
+
 // companionPathLeads puts the staged companions' directory first on the
 // image's PATH. The engine resolves a companion's bare name (its loadout's
 // hooks and MCP servers) through that PATH; the base image's default order is

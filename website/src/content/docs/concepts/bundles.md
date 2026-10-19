@@ -14,7 +14,7 @@ Local bundles are stored under `.ctxloom/content/bundles/v2/`. Each bundle is a
 gitignored and holds only regenerable, remote-pulled artifacts.
 
 ```yaml
-schema_version: 1                   # Format generation, written by ctxloom; absent = the oldest format, migrated on load
+schema_version: 4                   # Format generation, written by ctxloom; absent = the oldest format, migrated on load
 version: "1.0.0"                    # YOUR release version (`ctxloom bundle create` defaults it to 1.0.0); never touched by a format migration
 tags: [golang, development]         # Bundle-level tags
 author: "ctxloom"                       # Author name
@@ -27,6 +27,10 @@ notes: |
 # Setup instructions for a person (shown by `bundle show`; not sent to AI)
 installation: |
   Run: npm install ...
+
+# Commands this bundle's content assumes exist where an agent runs (see "Requires" below)
+requires:
+  commands: [cargo]
 
 fragments:
   fragment-name:
@@ -185,6 +189,21 @@ recognizes a whole-bundle ref or a `#fragments/name` cherry-pick there — see
 the profiles doc for why `#commands/name` and `#mcp/name` silently do the wrong
 thing in that position, and use a profile's `commands:` list to curate commands
 instead.
+
+## Requires
+
+A bundle whose content assumes a tool on the agent's `PATH` says so, so a missing tool is reported before the agent hits it:
+
+```yaml
+requires:
+  commands: [cargo, rustc]
+```
+
+Each entry is a bare command name (letters, digits, `.`, `_`, `+`, `-`; no `/`), never a path. A misspelled key (`comands:`) or a name with a slash is refused when the bundle loads, naming the bundle. Requirements are declared on bundles only, not on profiles or agents: an agent needs whatever the bundles its profiles compose need. A project-specific need goes in the project's own local bundle.
+
+ctxloom adds one requirement itself: the launcher (first word) of every stdio MCP server an agent attaches. It does not count `ctxloom` and the companions it stages into every agent image (`taskloom`, `ltk`, `reprise`), or servers a profile's `exclude_mcp` withholds. `ctxloom agent show <name>` lists an agent's requirements with the bundle or MCP server that asks for each, and `ctxloom doctor` (`DOCTOR-CHECK-MCP-COMMANDS-r3`) names every one that does not resolve where the agent runs. Declaring a requirement installs nothing.
+
+A bundle that declares `requires` carries format generation 4, so an older ctxloom refuses it with a "newer format" error rather than a confusing unknown-key one.
 
 ## Notes vs Installation
 

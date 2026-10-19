@@ -124,7 +124,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:98292062f31e8290e53228dcd3857269a022ca0b6a805c5405e844ae3c2bf998",
+      "Content": "blob:66354c83a2838673f482f06dcf314368cf826c32c468104ca7cd5d84f7c48f38",
       "Description": "Configure or reconfigure ctxloom for this project — companions, profiles, and agents",
       "Enabled": true,
       "Model": "",
@@ -399,7 +399,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:98292062f31e8290e53228dcd3857269a022ca0b6a805c5405e844ae3c2bf998",
+      "Content": "blob:66354c83a2838673f482f06dcf314368cf826c32c468104ca7cd5d84f7c48f38",
       "Description": "Configure or reconfigure ctxloom for this project — companions, profiles, and agents",
       "Enabled": true,
       "Model": "",
@@ -681,7 +681,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:98292062f31e8290e53228dcd3857269a022ca0b6a805c5405e844ae3c2bf998",
+      "Content": "blob:66354c83a2838673f482f06dcf314368cf826c32c468104ca7cd5d84f7c48f38",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -953,7 +953,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:98292062f31e8290e53228dcd3857269a022ca0b6a805c5405e844ae3c2bf998",
+      "Content": "blob:66354c83a2838673f482f06dcf314368cf826c32c468104ca7cd5d84f7c48f38",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -1232,7 +1232,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:98292062f31e8290e53228dcd3857269a022ca0b6a805c5405e844ae3c2bf998",
+      "Content": "blob:66354c83a2838673f482f06dcf314368cf826c32c468104ca7cd5d84f7c48f38",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -1504,7 +1504,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:98292062f31e8290e53228dcd3857269a022ca0b6a805c5405e844ae3c2bf998",
+      "Content": "blob:66354c83a2838673f482f06dcf314368cf826c32c468104ca7cd5d84f7c48f38",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -1783,7 +1783,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:98292062f31e8290e53228dcd3857269a022ca0b6a805c5405e844ae3c2bf998",
+      "Content": "blob:66354c83a2838673f482f06dcf314368cf826c32c468104ca7cd5d84f7c48f38",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -2055,7 +2055,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:98292062f31e8290e53228dcd3857269a022ca0b6a805c5405e844ae3c2bf998",
+      "Content": "blob:66354c83a2838673f482f06dcf314368cf826c32c468104ca7cd5d84f7c48f38",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -2311,7 +2311,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:98292062f31e8290e53228dcd3857269a022ca0b6a805c5405e844ae3c2bf998",
+      "Content": "blob:66354c83a2838673f482f06dcf314368cf826c32c468104ca7cd5d84f7c48f38",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -2537,7 +2537,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:98292062f31e8290e53228dcd3857269a022ca0b6a805c5405e844ae3c2bf998",
+      "Content": "blob:66354c83a2838673f482f06dcf314368cf826c32c468104ca7cd5d84f7c48f38",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -2793,7 +2793,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:98292062f31e8290e53228dcd3857269a022ca0b6a805c5405e844ae3c2bf998",
+      "Content": "blob:66354c83a2838673f482f06dcf314368cf826c32c468104ca7cd5d84f7c48f38",
       "Description": "Configure or reconfigure ctxloom for this project — companions, profiles, and agents",
       "Enabled": true,
       "Model": "",
@@ -3065,7 +3065,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:98292062f31e8290e53228dcd3857269a022ca0b6a805c5405e844ae3c2bf998",
+      "Content": "blob:66354c83a2838673f482f06dcf314368cf826c32c468104ca7cd5d84f7c48f38",
       "Description": "Configure or reconfigure ctxloom for this project — companions, profiles, and agents",
       "Enabled": true,
       "Model": "",
@@ -3475,123 +3475,7 @@ stderr warning, discarding the runtime and permissions you asked for: confirm
 the name resolves before trusting the isolation you requested.
 == blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9
 You have just written or changed a test; you are reading a gate result and deciding what it proves; or you are about to describe something as verified, working, or done. For anyone about to treat a green result as evidence, however that moment arises. More than one fragment may apply here; this one is about whether the evidence is real.
-== blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e
-You are adding or changing a flag, an environment variable, or a config key; working out which layer won when a setting resolved unexpectedly; or reading configuration to decide how something is declared. For anyone touching how this family of binaries is configured, however the moment is worded.
-== blob:97ff6be424dc18e90bd8df3628c1b4e6521d502eb0f337d8f87e1c43a41357cb
-Body with a horizontal rule below.
-
----
-
-And a literal mustache pair: {{not_a_template}} plus {{triple}}.
-
----
-
----
-
-Project golden: always on.
-
----
-
-# Not all of this project's guidance is in your context
-
-CONDITIONAL fragments each carry a PREMISE (the situation they apply to) and
-are not loaded at launch. You have only the unconditional ones; the rest exist,
-and nothing fires when one becomes relevant. This fragment has no premise: it
-is the pointer to the ones you cannot see.
-
-**Why pulled, not pushed.** Assembled context is delivered once, at launch,
-and an in-process subagent inherits it wholesale. With no per-agent scoping, a
-pushed index fits nobody and never reaches a child ctxloom did not mediate. A
-catalog you ASK for has neither problem, and is answered at the only moment
-the answer means anything: when you have something to match against. The cost:
-an agent that does not know to ask never learns those fragments exist.
-
-**Ask.** `ctxloom fragment premises` lists every premised fragment, its
-condition, and the instruction for deciding between them. Over MCP the same
-menu is the `ctxloom://fragments` resource (each entry: its premise and the
-qualified ref to quote back); bodies come from `ctxloom://fragments/{name}`.
-Judge the premise, not the name: read the guidance the listing ships rather
-than guessing from a title.
-
-**Load.** `ctxloom fragment show <qualified-ref>`, or over MCP call
-`assemble_context` with the chosen names in its `bundles` argument.
-
-**When.** When you are about to ACT and this corpus might hold a rule about
-that action — not once at session start, and not against the conversation
-behind you. Ask again later in a long session: what you are about to do has
-changed, so the answer has too.
-
----
-
-# Say what you are looking for, and what you found
-
-Two short statements per tool call — not narration, but the only part of a
-tool interaction that survives compaction:
-
-- BEFORE: what you are trying to learn or change.
-- AFTER: what you actually learned, including "nothing" and "not what I
-  expected", which are results.
-
-**Why it is a rule.** Compaction reduces tool RESULTS to their shape
-(`[2,431 bytes, 47 lines]`): a truncated grep is neither the information nor
-a summary of it, and the content can be re-derived by asking again. What
-cannot be re-derived is what you were trying to find out and what the answer
-changed; omit it and the essence records only that a command ran. Measured on
-this project's transcripts: tool traffic is 50-69% of a session; Bash's
-required `description` covers the BEFORE half (100% of 1,286 calls), but the
-AFTER half follows only 12% of results. That gap is the entire cost.
-
-Weak: "Let me check the config." Strong: "Checking whether the byte cap
-applies per-argument or to the whole object — it decides whether eliding one
-key buys anything."
-
-Weak: "Done." (the result's shape already said that). Strong: "It caps the
-whole object, so eliding the payload should free budget for the path — but
-210 of 210 paths were already visible, so it does not."
-
-A finding that overturns what you expected is the most valuable thing you can
-write. Say it plainly and carry on.
-
----
-
-SOLID: SRP, OCP, LSP, ISP, DIP.
-
----
-
-## Isolation: specify both axes
-
-Creating, configuring, or delegating to a ctxloom agent (`ctxloom agent
-create`, `ctxloom agent edit`, `run --agent`, `agent_run`)? Set both axes
-explicitly; never rely on the default.
-
-- **runtime** (`host` | `container-rootless` | `container-rootful`, the
-  binding's `runtime:`) isolates the PROCESS. There is no "any container"
-  value: rootless and rootful differ in UID mapping, so a workload can
-  genuinely require one.
-- **workspace** (`none` | `worktree`, per-invocation `--workspace` /
-  `agent_run`'s `workspace`) isolates the FILES.
-
-An ownership mismatch is FATAL, never a substitution: `container-rootful`
-where only rootless is reachable is a fatal KindIsolation finding (exit 3).
-`--degraded` falls back to the HOST, never to the other ownership mode.
-
-The axes are independent. `container-rootless` can mount the workspace at the
-live project's absolute path (process isolated, edits land where the editor
-looks); `worktree` still runs the engine on the host (the editor is blind to
-that tree by design; results return via the delegated-agent merge flow).
-
-Unspecified is `host`+`none`: isolated on NEITHER axis — a default, not a
-decision. Host runtime is no boundary between agents: the coordinator
-credential is readable in the environment of any same-uid process, and that
-token IS identity, so one host-runtime agent can speak as another. Containers
-are the boundary: isolation becomes a property of the runtime, not a request
-to the engine — some vendor CLIs ignore env-var isolation hints and write
-credentials/state to a global path regardless.
-
-A bad or missing agent name silently degrades to `host`+`none` with only a
-stderr warning, discarding the runtime and permissions you asked for: confirm
-the name resolves before trusting the isolation you requested.
-== blob:98292062f31e8290e53228dcd3857269a022ca0b6a805c5405e844ae3c2bf998
+== blob:66354c83a2838673f482f06dcf314368cf826c32c468104ca7cd5d84f7c48f38
 
 Welcome to ctxloom! You are running the ctxloom **setup interview** — the same
 guidance whether this is a brand-new project (launched by `ctxloom init`
@@ -3825,10 +3709,16 @@ question; ask it for every agent, including the ones in 4d.
 Don't guess — you have this already from phase 1 (engines via `ctxloom llm
 list`, existing agents via `ctxloom agent list`, container viability via
 `ctxloom container check`) and phase 3 (profiles). If containers would
-degrade here, plan on `--runtime host` and say why. If they're viable and a
-bundle declares tooling needs, `ctxloom container tooling` shows the proposed
-Containerfile diff — apply only what's approved, then `ctxloom container
-build`.
+degrade here, plan on `--runtime host` and say why. If they're viable, know
+what the agent image will hold: one project-wide base, set by `isolation_base`
+(`ctxloom`, `devcontainer`, or an image ref) — every container agent shares it,
+and the project's devcontainer is reused by default when one exists. The base
+plus ctxloom's own tools is ALL a container agent has: anything installed on
+the host (an MCP server's binary, a language server) is absent unless the base
+carries it. Bundles carry no tooling declaration; only registered companions
+declare tooling, and `ctxloom container tooling` reflects just those, emitting
+instructions for you to act on rather than a diff. `ctxloom doctor` warns when
+an MCP server attached to a container agent has a command the image lacks.
 
 Two DIFFERENT things gate a container runtime, and you need both before you
 can ask 4b-runtime honestly:
@@ -3990,7 +3880,7 @@ Don't write anything the user didn't agree to.
 
 Run `ctxloom doctor` and show the user its report. This is the full
 postcondition check — marker dir and config validity, the engine resolving
-and authenticating, seeded deps locked and context assembling, hooks/MCP
+and its credential present (not that the engine accepts it), seeded deps locked and context assembling, hooks/MCP
 registered, companions detected, and agents present with resolvable
 profiles. Now that phases 1–4 have built real configured state, `doctor`
 describes it end to end (unlike phase 1's scoped `--deps`, which only asked
@@ -4005,6 +3895,122 @@ Then tell the user, plainly:
   session — nothing here was a one-shot wizard; come back whenever something
   needs to change (a new profile, a new agent, a new companion).
 
+== blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e
+You are adding or changing a flag, an environment variable, or a config key; working out which layer won when a setting resolved unexpectedly; or reading configuration to decide how something is declared. For anyone touching how this family of binaries is configured, however the moment is worded.
+== blob:97ff6be424dc18e90bd8df3628c1b4e6521d502eb0f337d8f87e1c43a41357cb
+Body with a horizontal rule below.
+
+---
+
+And a literal mustache pair: {{not_a_template}} plus {{triple}}.
+
+---
+
+---
+
+Project golden: always on.
+
+---
+
+# Not all of this project's guidance is in your context
+
+CONDITIONAL fragments each carry a PREMISE (the situation they apply to) and
+are not loaded at launch. You have only the unconditional ones; the rest exist,
+and nothing fires when one becomes relevant. This fragment has no premise: it
+is the pointer to the ones you cannot see.
+
+**Why pulled, not pushed.** Assembled context is delivered once, at launch,
+and an in-process subagent inherits it wholesale. With no per-agent scoping, a
+pushed index fits nobody and never reaches a child ctxloom did not mediate. A
+catalog you ASK for has neither problem, and is answered at the only moment
+the answer means anything: when you have something to match against. The cost:
+an agent that does not know to ask never learns those fragments exist.
+
+**Ask.** `ctxloom fragment premises` lists every premised fragment, its
+condition, and the instruction for deciding between them. Over MCP the same
+menu is the `ctxloom://fragments` resource (each entry: its premise and the
+qualified ref to quote back); bodies come from `ctxloom://fragments/{name}`.
+Judge the premise, not the name: read the guidance the listing ships rather
+than guessing from a title.
+
+**Load.** `ctxloom fragment show <qualified-ref>`, or over MCP call
+`assemble_context` with the chosen names in its `bundles` argument.
+
+**When.** When you are about to ACT and this corpus might hold a rule about
+that action — not once at session start, and not against the conversation
+behind you. Ask again later in a long session: what you are about to do has
+changed, so the answer has too.
+
+---
+
+# Say what you are looking for, and what you found
+
+Two short statements per tool call — not narration, but the only part of a
+tool interaction that survives compaction:
+
+- BEFORE: what you are trying to learn or change.
+- AFTER: what you actually learned, including "nothing" and "not what I
+  expected", which are results.
+
+**Why it is a rule.** Compaction reduces tool RESULTS to their shape
+(`[2,431 bytes, 47 lines]`): a truncated grep is neither the information nor
+a summary of it, and the content can be re-derived by asking again. What
+cannot be re-derived is what you were trying to find out and what the answer
+changed; omit it and the essence records only that a command ran. Measured on
+this project's transcripts: tool traffic is 50-69% of a session; Bash's
+required `description` covers the BEFORE half (100% of 1,286 calls), but the
+AFTER half follows only 12% of results. That gap is the entire cost.
+
+Weak: "Let me check the config." Strong: "Checking whether the byte cap
+applies per-argument or to the whole object — it decides whether eliding one
+key buys anything."
+
+Weak: "Done." (the result's shape already said that). Strong: "It caps the
+whole object, so eliding the payload should free budget for the path — but
+210 of 210 paths were already visible, so it does not."
+
+A finding that overturns what you expected is the most valuable thing you can
+write. Say it plainly and carry on.
+
+---
+
+SOLID: SRP, OCP, LSP, ISP, DIP.
+
+---
+
+## Isolation: specify both axes
+
+Creating, configuring, or delegating to a ctxloom agent (`ctxloom agent
+create`, `ctxloom agent edit`, `run --agent`, `agent_run`)? Set both axes
+explicitly; never rely on the default.
+
+- **runtime** (`host` | `container-rootless` | `container-rootful`, the
+  binding's `runtime:`) isolates the PROCESS. There is no "any container"
+  value: rootless and rootful differ in UID mapping, so a workload can
+  genuinely require one.
+- **workspace** (`none` | `worktree`, per-invocation `--workspace` /
+  `agent_run`'s `workspace`) isolates the FILES.
+
+An ownership mismatch is FATAL, never a substitution: `container-rootful`
+where only rootless is reachable is a fatal KindIsolation finding (exit 3).
+`--degraded` falls back to the HOST, never to the other ownership mode.
+
+The axes are independent. `container-rootless` can mount the workspace at the
+live project's absolute path (process isolated, edits land where the editor
+looks); `worktree` still runs the engine on the host (the editor is blind to
+that tree by design; results return via the delegated-agent merge flow).
+
+Unspecified is `host`+`none`: isolated on NEITHER axis — a default, not a
+decision. Host runtime is no boundary between agents: the coordinator
+credential is readable in the environment of any same-uid process, and that
+token IS identity, so one host-runtime agent can speak as another. Containers
+are the boundary: isolation becomes a property of the runtime, not a request
+to the engine — some vendor CLIs ignore env-var isolation hints and write
+credentials/state to a global path regardless.
+
+A bad or missing agent name silently degrades to `host`+`none` with only a
+stderr warning, discarding the runtime and permissions you asked for: confirm
+the name resolves before trusting the isolation you requested.
 == blob:98b0ba7a271885e14e3cb4e649cb88126243b53d97d0f8df82d1452311b12224
 # Which gate is real in this repo, and how to read one
 

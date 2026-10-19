@@ -2,8 +2,6 @@ package coordgrpc
 
 import (
 	"encoding/json"
-	"net"
-	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -66,28 +64,18 @@ func TestServe_RecordedLoopbackPortIsReused(t *testing.T) {
 
 // TestListen_PersistsTheAddressBeforeReturning: the address a cell had the
 // coordinator listen on is on disk by the time Listen returns — the runner is
-// started right after — and the NEXT coordinator re-binds it on the recorded
-// port, so a container runner from before the restart redials something.
+// started right after, and a restart with that run live re-binds the recorded
+// address (TestListener_RestartReopensOnlyForALiveContainerRun).
 func TestListen_PersistsTheAddressBeforeReturning(t *testing.T) {
 	addr := privateStandIn(t)
 	stateDir := t.TempDir()
 	first := servedCoordinator(t, stateDir)
-	require.NoError(t, first.Transport().(*coordServing).Listen(present.Listen{Addr: addr}))
+	t.Cleanup(first.Close)
+	require.NoError(t, first.Transport().(*coordServing).Listen(present.Listen{Addr: addr}, "run-1"))
 
 	raw, err := os.ReadFile(filepath.Join(stateDir, discover.FileName))
 	require.NoError(t, err)
 	var ep discover.State
 	require.NoError(t, json.Unmarshal(raw, &ep))
 	assert.Equal(t, []string{addr}, ep.ListenAddrs)
-	firstURL := first.LoopbackURL()
-	first.Close()
-
-	second := servedCoordinator(t, stateDir)
-	t.Cleanup(second.Close)
-	require.Equal(t, firstURL, second.LoopbackURL())
-	loop, err := url.Parse(second.LoopbackURL())
-	require.NoError(t, err)
-	conn, err := net.Dial("tcp", net.JoinHostPort(addr, loop.Port()))
-	require.NoError(t, err, "the relaunched coordinator re-binds the recorded address")
-	_ = conn.Close()
 }

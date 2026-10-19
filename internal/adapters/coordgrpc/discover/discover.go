@@ -60,8 +60,12 @@ type State struct {
 	LoopbackPort int `json:"loopback_port,omitempty"`
 	// ListenAddrs are the addresses a container cell had it listen on beyond
 	// loopback, all on LoopbackPort.
-	ListenAddrs  []string `json:"listen_addrs,omitempty"`
-	ConsumerCred string   `json:"consumer_cred,omitempty"`
+	ListenAddrs []string `json:"listen_addrs,omitempty"`
+	// HostPeersOnlyAddrs are the ListenAddrs that refuse any peer which is not
+	// one of this host's own addresses, so a relaunch re-opens them with the
+	// same refusal.
+	HostPeersOnlyAddrs []string `json:"host_peers_only_addrs,omitempty"`
+	ConsumerCred       string   `json:"consumer_cred,omitempty"`
 	// ProjectDir is the project the coordinator serves. The state dir is
 	// keyed by the project's id, not its path, so this is how a viewer that
 	// has not asked the coordinator anything can still say which project it

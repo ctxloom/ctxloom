@@ -55,8 +55,8 @@ func TestListen_OpensTheCellsAddressOnTheLoopbackPort(t *testing.T) {
 	require.NoError(t, Serve(c))
 	srv := c.Transport().(*coordServing)
 
-	require.NoError(t, srv.Listen(present.Listen{Addr: addr}))
-	require.NoError(t, srv.Listen(present.Listen{Addr: addr}), "a second cell naming the same address reuses its listener")
+	require.NoError(t, srv.Listen(present.Listen{Addr: addr}, "run-1"))
+	require.NoError(t, srv.Listen(present.Listen{Addr: addr}, "run-2"), "a second cell naming the same address reuses its listener")
 
 	loop, err := url.Parse(c.LoopbackURL())
 	require.NoError(t, err)
@@ -79,12 +79,12 @@ func TestListen_PublicIsReportedOnceWithItsReason(t *testing.T) {
 	require.NoError(t, Serve(c))
 	srv := c.Transport().(*coordServing)
 
-	require.NoError(t, srv.Listen(present.Listen{Addr: addr}))
+	require.NoError(t, srv.Listen(present.Listen{Addr: addr}, "run-1"))
 	assert.NotContains(t, warnings.String(), addr, "a private listener is not reported")
 
 	pub := present.Listen{Addr: addr, Public: true, Why: "the runtime offers no private route"}
-	require.NoError(t, srv.Listen(pub))
-	require.NoError(t, srv.Listen(pub))
+	require.NoError(t, srv.Listen(pub, "run-1"))
+	require.NoError(t, srv.Listen(pub, "run-1"))
 	out := warnings.String()
 	assert.Equal(t, 1, strings.Count(out, "reachable beyond this host"), "reported once: %s", out)
 	assert.Contains(t, out, "the runtime offers no private route")

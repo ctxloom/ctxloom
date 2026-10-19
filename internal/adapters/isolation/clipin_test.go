@@ -8,6 +8,8 @@ package isolation
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -261,4 +263,108 @@ func TestHostCLIPin_EveryComposedBase(t *testing.T) {
 			assert.Contains(t, string(sources[0].containerfile), "@anthropic-ai/claude-code@2.1.280 ")
 		})
 	}
+}
+
+// racingHostCLI installs a host probe that reports first on its first call
+// and later on every call after, and returns a counter of its calls: the
+// interleaving of a claude release landing mid-build, forced through the
+// seam instead of waited for.
+func racingHostCLI(t *testing.T, first, later string) func() int {
+	t.Helper()
+	var mu sync.Mutex
+	calls := 0
+	t.Cleanup(UseHostCLIVersionProbe(func(context.Context, string) (string, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		calls++
+		if calls == 1 {
+			return first, nil
+		}
+		return later, nil
+	}))
+	return func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return calls
+	}
+}
+
+// writeContainerfileCapturingRuntime writes a runtime stand-in like
+// writeFakeRuntimeScript whose `build` also appends the Containerfile it was
+// handed (the arg after -f) to captureFile, so a test can read what a build
+// would have installed and labelled.
+func writeContainerfileCapturingRuntime(t *testing.T, path, captureFile, markerDir string) {
+	t.Helper()
+	script := fmt.Sprintf(`#!/bin/sh
+PATH=/usr/bin:/bin
+name=$(printf '%%s' "$3" | tr '/:' '__')
+case "$1" in
+build)
+    prev=
+    for a in "$@"; do
+        [ "$prev" = "-f" ] && cat "$a" >> %q
+        prev=$a
+    done
+    touch %q/"$name"
+    ;;
+image)
+    [ -f %q/"$name" ] || exit 1
+    if [ "$4" = "--format" ]; then printf '%%s' '{}'; fi
+    ;;
+esac
+exit 0
+`, captureFile, markerDir, markerDir)
+	require.NoError(t, os.WriteFile(path, []byte(script), 0o755))
+}
+
+// TestBuildAgentImage_ResolvesTheHostCLIOncePerBuild: a claude release lands
+// mid-build, so a second resolution would answer 2.1.303. The one build must
+// install, label and tag the 2.1.302 it resolved first, or the image it
+// stamps is one no later lookup of that tag can be reconciled with.
+func TestBuildAgentImage_ResolvesTheHostCLIOncePerBuild(t *testing.T) {
+	calls := racingHostCLI(t, "2.1.302", "2.1.303")
+	withFakeSelfExe(t)
+	dir := t.TempDir()
+	capture := filepath.Join(dir, "containerfiles")
+	script := filepath.Join(dir, "docker")
+	writeContainerfileCapturingRuntime(t, script, capture, dir)
+	rt := fakeRuntime{name: "docker", binary: script, available: true}
+	stubBuildRuntimeProbe(t, rt)
+
+	built, err := BuildAgentImage(context.Background(), "claude-code", ImageBuildOptions{Base: "ctxloom"})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, calls(), "the host CLI is resolved once for the whole build")
+	assert.Contains(t, built, "-cli2.1.302-")
+	cf, err := os.ReadFile(capture)
+	require.NoError(t, err)
+	assert.Contains(t, string(cf), "@anthropic-ai/claude-code@2.1.302 ")
+	assert.Contains(t, string(cf), `LABEL `+engineCLIVersionLabel+`="2.1.302"`)
+	assert.NotContains(t, string(cf), "2.1.303")
+	assert.True(t, Container{runtime: rt, image: built}.imagePresent(context.Background()),
+		"the build's own lookup of the tag it stamped finds the image")
+}
+
+// TestEnsureImage_ResolvesTheHostCLIOncePerRun: the run's build, like the
+// explicit one, keeps the version containerFor resolved for the tag; the
+// ensure that follows neither re-asks nor installs a later release.
+func TestEnsureImage_ResolvesTheHostCLIOncePerRun(t *testing.T) {
+	calls := racingHostCLI(t, "2.1.302", "2.1.303")
+	withFakeSelfExe(t)
+	dir := t.TempDir()
+	capture := filepath.Join(dir, "containerfiles")
+	script := filepath.Join(dir, "docker")
+	writeContainerfileCapturingRuntime(t, script, capture, dir)
+	rt := fakeRuntime{name: "docker", binary: script, available: true}
+
+	c := containerFor(rt, "claude-code", ImageConfig{Base: "ctxloom"})
+	require.Contains(t, c.image, "-cli2.1.302-")
+	require.NoError(t, c.ensureImage(context.Background()))
+
+	assert.Equal(t, 1, calls(), "the host CLI is resolved once for the whole run")
+	cf, err := os.ReadFile(capture)
+	require.NoError(t, err)
+	assert.Contains(t, string(cf), "@anthropic-ai/claude-code@2.1.302 ")
+	assert.NotContains(t, string(cf), "2.1.303")
+	assert.True(t, c.imagePresent(context.Background()), "the image the run built is the one it looks up")
 }

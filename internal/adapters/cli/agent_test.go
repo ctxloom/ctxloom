@@ -20,8 +20,10 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/toolchain"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
@@ -169,17 +171,50 @@ func TestAgentShow_JSONOmitsTheErrorKeyWhenResolutionSucceeded(t *testing.T) {
 // TestHeadlessPosture: `agent show` says how a headless run of the agent
 // meets a call its posture leaves open — the posture, the approver and where
 // the ask goes, including that the human's asks are denied at once when the
-// root presents none.
+// root presents none. Only the posture the agent's own engine says asks
+// nobody (engine.PermissionModel.Ungated) is shown asking nothing: another
+// engine's spelling of it is an ordinary posture, and an engine with none
+// never asks nobody, not even for an empty posture.
+//
+// MUTATION: claude's Ungated answers "bypass" → the bypassPermissions rows go
+// red, and the claude "bypass" row with them.
 func TestHeadlessPosture(t *testing.T) {
-	for _, tc := range []struct{ posture, approver, want string }{
-		{"acceptEdits", "human", "acceptEdits, approver human — asks go to the root's approvals modal; denied at once when the root is unattended (one-shot, --plain-terminal, headless)"},
-		{"default", "none", "default, approver none — asks are denied at once"},
-		{"default", "reviewer", "default, approver reviewer — the engine's reviewer decides asks"},
-		{"bypass", "none", "bypass, approver none — nothing is asked"},
-		{"", "none", "approver none — asks are denied at once"},
+	reg := engines.Registry()
+	claude, mock := permissionModelOf(reg, "claude-code"), permissionModelOf(reg, "mock")
+	unregistered := permissionModelOf(reg, "no-such-engine")
+	for _, tc := range []struct {
+		name              string
+		model             engine.Declared[engine.PermissionModel]
+		posture, approver string
+		want              string
+	}{
+		{"the human", claude, "acceptEdits", "human", "acceptEdits, approver human — asks go to the root's approvals modal; denied at once when the root is unattended (one-shot, --plain-terminal, headless)"},
+		{"approver none", claude, "default", "none", "default, approver none — asks are denied at once"},
+		{"a reviewer", claude, "default", "reviewer", "default, approver reviewer — the engine's reviewer decides asks"},
+		{"claude's bypassPermissions", claude, "bypassPermissions", "none", "bypassPermissions, approver none — nothing is asked"},
+		{"claude's bypassPermissions, the human", claude, "bypassPermissions", "human", "bypassPermissions, approver human — nothing is asked"},
+		{"the mock's bypass", mock, "bypass", "none", "bypass, approver none — nothing is asked"},
+		{"the mock's spelling on claude", claude, "bypass", "none", "bypass, approver none — asks are denied at once"},
+		{"claude's spelling on the mock", mock, "bypassPermissions", "none", "bypassPermissions, approver none — asks are denied at once"},
+		{"an engine with no ungated posture", noUngatedModel(claude), "", "none", "approver none — asks are denied at once"},
+		{"no permission model", unregistered, "bypassPermissions", "human", "bypassPermissions, approver human — asks go to the root's approvals modal; denied at once when the root is unattended (one-shot, --plain-terminal, headless)"},
+		{"no posture", claude, "", "none", "approver none — asks are denied at once"},
 	} {
-		assert.Equal(t, tc.want, headlessPosture(tc.posture, tc.approver), "%s/%s", tc.posture, tc.approver)
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, headlessPosture(tc.model, tc.posture, tc.approver))
+		})
 	}
+}
+
+// noUngated is a permission model that has no posture asking nobody.
+type noUngated struct{ engine.PermissionModel }
+
+func (noUngated) Ungated() (string, bool) { return "", false }
+
+// noUngatedModel is model with its Ungated answering none.
+func noUngatedModel(model engine.Declared[engine.PermissionModel]) engine.Declared[engine.PermissionModel] {
+	m, _ := model.Get()
+	return engine.Provide[engine.PermissionModel](noUngated{m})
 }
 
 // renderAgentShow is a run of sequential optional-field arms plus a resolution
@@ -197,7 +232,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 			Driving:     "oneshot",
 		}
 		resolved := &operations.ResolvedAgent{
-			Label: "claude-code", Backend: "claude", Model: "opus",
+			Label: "claude-code", Backend: "claude-code", Model: "opus",
 			EffectivePermissions: "bypassPermissions",
 			Approver:             "human",
 			Fragments:            []string{"a", "b", "c"},
@@ -213,7 +248,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 			"Runtime: container\n",
 			"Permissions: claude-code={mode=acceptEdits}\n",
 			"Driving: oneshot\n",
-			"Resolved llm: claude-code (backend: claude, model: opus)\n",
+			"Resolved llm: claude-code (backend: claude-code, model: opus)\n",
 			"Resolved permissions: bypassPermissions\n",
 			"Headless posture: bypassPermissions, approver human — nothing is asked\n",
 			"Composed fragments: 3\n",

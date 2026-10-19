@@ -283,7 +283,7 @@ func renderAgentResolution(w *errwriter.Writer, resolved *operations.ResolvedAge
 		w.Printf("Resolved permissions: %s\n", resolved.EffectivePermissions)
 	}
 	if resolved.Approver != "" {
-		w.Printf("Headless posture: %s\n", headlessPosture(resolved.EffectivePermissions, resolved.Approver))
+		w.Printf("Headless posture: %s\n", headlessPosture(permissionModelOf(App().Engines(), resolved.Backend), resolved.EffectivePermissions, resolved.Approver))
 	}
 	if resolved.HomeMode != "" {
 		w.Printf("Resolved config home: %s\n", resolved.HomeMode)
@@ -296,17 +296,18 @@ func renderAgentResolution(w *errwriter.Writer, resolved *operations.ResolvedAge
 
 // headlessPosture is how a headless run of the agent — a delegated child, a
 // one-shot — meets a call its posture leaves open: the posture, the approver,
-// and where the ask goes. Bypass asks nobody; approver none denies the call
-// and the reviewer decides it; the human is asked in the root's approvals
-// modal, and where the root presents none (a one-shot, --plain-terminal or
-// headless root) the call is denied at once.
-func headlessPosture(posture, approver string) string {
+// and where the ask goes. The posture its engine's model says asks nobody
+// (asksNobody) asks nothing; approver none denies the call and the reviewer
+// decides it; the human is asked in the root's approvals modal, and where the
+// root presents none (a one-shot, --plain-terminal or headless root) the call
+// is denied at once.
+func headlessPosture(model engine.Declared[engine.PermissionModel], posture, approver string) string {
 	lead := "approver " + approver
 	if posture != "" {
 		lead = posture + ", " + lead
 	}
 	switch {
-	case posture == permissionBypass:
+	case asksNobody(model, posture):
 		return lead + " — nothing is asked"
 	case approver == engine.ApproverNone.String():
 		return lead + " — asks are denied at once"

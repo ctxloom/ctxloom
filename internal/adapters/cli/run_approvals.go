@@ -34,13 +34,13 @@ func (st *runState) approvalsPresented() bool {
 // Only a one-shot root is warned: an interactive root's own asks are
 // answered in the engine's UI, and what a child of a root that presents
 // nothing would ask is the startup finding's (unpresentedApprovalFinding).
-// Bypass asks nobody and a reviewer decides on its own. Approver none denies
-// at once; so does the human where nothing presents approvals (the root's
-// queue is unattended, coord.ApprovalQueue.Unattended), and then not only
-// the run's own asks but every one its children put to the human, which
-// park in its queue.
-func postureWarning(mode engine.Mode, p engine.PermissionPolicy, posture string, presented bool) string {
-	if mode != engine.Structured || posture == permissionBypass {
+// The engine's posture that asks nobody (asksNobody) is silent, and a
+// reviewer decides on its own. Approver none denies at once; so does the
+// human where nothing presents approvals (the root's queue is unattended,
+// coord.ApprovalQueue.Unattended), and then not only the run's own asks but
+// every one its children put to the human, which park in its queue.
+func postureWarning(mode engine.Mode, p engine.PermissionPolicy, model engine.Declared[engine.PermissionModel], posture string, presented bool) string {
+	if mode != engine.Structured || asksNobody(model, posture) {
 		return ""
 	}
 	switch {
@@ -50,6 +50,29 @@ func postureWarning(mode engine.Mode, p engine.PermissionPolicy, posture string,
 		return fmt.Sprintf("--one-shot with %s permissions: no one can answer approvals in this run, so gated calls are denied at once — this run's, and those any delegated child puts to a human; set a permissions mode or a reviewer approver", posture)
 	}
 	return ""
+}
+
+// asksNobody reports whether posture, in its engine's words, is the one that
+// engine runs at asking nobody (engine.PermissionModel.Ungated). Each engine
+// spells it differently, so only its own model can say; an engine that has
+// no such posture, or no permission model, never asks nobody.
+func asksNobody(model engine.Declared[engine.PermissionModel], posture string) bool {
+	m, ok := model.Get()
+	if !ok {
+		return false
+	}
+	ungated, ok := m.Ungated()
+	return ok && posture == ungated
+}
+
+// permissionModelOf is the named engine's permission model; absent for an
+// engine reg does not hold.
+func permissionModelOf(reg engine.Registry, name string) engine.Declared[engine.PermissionModel] {
+	e, ok := reg.Lookup(engine.Name(name))
+	if !ok {
+		return engine.Absent[engine.PermissionModel]("engine " + name + " is not registered")
+	}
+	return e.Permissions()
 }
 
 // unpresentedApprovalFinding is the startup finding of a root that will not

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -36,34 +37,47 @@ func TestValidatePermissionFlag(t *testing.T) {
 // policy and from whether anything presents approvals, never from the mode
 // alone. A one-shot whose approver is none, or the human with nothing to
 // present to, has its gated calls denied at once and says so — the latter
-// naming its children, whose requests park in its queue. Bypass asks nobody,
-// a reviewer decides on its own, and an interactive root's own asks are
-// answered in the engine's UI: all three are silent.
+// naming its children, whose requests park in its queue. The posture the
+// engine's own model says asks nobody (engine.PermissionModel.Ungated) is
+// silent whatever the engine spells it — claude's bypassPermissions, the
+// mock's bypass — and another engine's spelling is not; a reviewer decides on
+// its own, and an interactive root's own asks are answered in the engine's
+// UI: those are silent too.
+//
+// MUTATION: claude's Ungated answers "bypass" → the bypassPermissions rows go
+// red.
 func TestPostureWarning(t *testing.T) {
 	human := engine.PermissionPolicy{Approver: engine.ApproverHuman}
 	none := engine.PermissionPolicy{Approver: engine.ApproverNone}
 	reviewer := engine.PermissionPolicy{Approver: engine.ApproverReviewer}
+	reg := engines.Registry()
+	claude, mock := permissionModelOf(reg, "claude-code"), permissionModelOf(reg, "mock")
+	const deniedNone = "--one-shot with %s permissions and approver none: gated calls are denied at once, so those steps will not run"
 	for _, tc := range []struct {
 		name      string
 		mode      engine.Mode
 		policy    engine.PermissionPolicy
+		model     engine.Declared[engine.PermissionModel]
 		posture   string
 		presented bool
 		want      string
 	}{
-		{"one-shot, approver none", engine.Structured, none, "acceptEdits", false,
-			"--one-shot with acceptEdits permissions and approver none: gated calls are denied at once, so those steps will not run"},
-		{"one-shot, the human with nothing to present to", engine.Structured, human, "plan", false,
+		{"one-shot, approver none", engine.Structured, none, claude, "acceptEdits", false, fmt.Sprintf(deniedNone, "acceptEdits")},
+		{"one-shot, the human with nothing to present to", engine.Structured, human, claude, "plan", false,
 			"--one-shot with plan permissions: no one can answer approvals in this run, so gated calls are denied at once — this run's, and those any delegated child puts to a human; set a permissions mode or a reviewer approver"},
-		{"one-shot, a reviewer decides on its own", engine.Structured, reviewer, "default", false, ""},
-		{"one-shot, bypassPermissions asks nobody", engine.Structured, human, "bypassPermissions", false, ""},
-		{"one-shot, bypassPermissions with approver none", engine.Structured, none, "bypassPermissions", false, ""},
-		{"structured, the human presented to", engine.Structured, human, "acceptEdits", true, ""},
-		{"interactive, presented", engine.Interactive, human, "acceptEdits", true, ""},
-		{"interactive, plain terminal: the engine's UI asks the root's own", engine.Interactive, human, "acceptEdits", false, ""},
+		{"one-shot, a reviewer decides on its own", engine.Structured, reviewer, claude, "default", false, ""},
+		{"one-shot, claude's bypassPermissions asks nobody", engine.Structured, human, claude, "bypassPermissions", false, ""},
+		{"one-shot, claude's bypassPermissions with approver none", engine.Structured, none, claude, "bypassPermissions", false, ""},
+		{"one-shot, the mock's bypass asks nobody", engine.Structured, none, mock, "bypass", false, ""},
+		{"one-shot, the mock's spelling on claude asks as declared", engine.Structured, none, claude, "bypass", false, fmt.Sprintf(deniedNone, "bypass")},
+		{"one-shot, an engine with no ungated posture", engine.Structured, none, noUngatedModel(claude), "bypassPermissions", false, fmt.Sprintf(deniedNone, "bypassPermissions")},
+		{"one-shot, no permission model", engine.Structured, none, permissionModelOf(reg, "no-such-engine"), "bypassPermissions", false, fmt.Sprintf(deniedNone, "bypassPermissions")},
+		{"structured, the human presented to", engine.Structured, human, claude, "acceptEdits", true, ""},
+		{"interactive, presented", engine.Interactive, human, claude, "acceptEdits", true, ""},
+		{"interactive, plain terminal: the engine's UI asks the root's own", engine.Interactive, human, claude, "acceptEdits", false, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, postureWarning(tc.mode, tc.policy, tc.posture, tc.presented))
+			assert.Equal(t, tc.want, postureWarning(tc.mode, tc.policy, tc.model, tc.posture, tc.presented))
 		})
 	}
 }

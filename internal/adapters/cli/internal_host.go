@@ -45,7 +45,7 @@ func internalCoordinator(projectDir, ownerHarp string) (*coord.Coordinator, erro
 		return nil, err
 	}
 	// Nothing presents an internal one-shot's approval queue.
-	markUnattended(c, unattendedOneShot)
+	markUnattended(c, App().Engines(), unattendedOneShot)
 	internalCoord.c = c
 	return c, nil
 }

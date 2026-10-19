@@ -761,7 +761,7 @@ func (st *runState) warnPosture() {
 		clidiag.Warn("ctxloom", "--permissions %q cannot be honoured as asked on %s; this run uses %q", runPermissions, st.backendName, st.permMode)
 	}
 	presented := st.approvalsPresented()
-	if w := postureWarning(st.launch.Mode, st.launch.Permission, st.permMode, presented); w != "" {
+	if w := postureWarning(st.launch.Mode, st.launch.Permission, permissionModelOf(App().Engines(), st.backendName), st.permMode, presented); w != "" {
 		clidiag.Warn("ctxloom", "%s", w)
 	}
 	if presented {
@@ -771,10 +771,6 @@ func (st *runState) warnPosture() {
 		clidiag.WarnRemedy("ctxloom", f.Remedy, "%s", f.Text)
 	}
 }
-
-// permissionBypass is the posture that asks nobody, as claude spells it
-// (the engine the init liveness probe and the one-shot warning are about).
-const permissionBypass = "bypassPermissions"
 
 // validateFlags is the friction-up-front window: a typed value that no
 // engine names is a hard error before any work, so a typo can't silently
@@ -1262,7 +1258,7 @@ func (st *runState) hostCoordinator() func() {
 	// presenter), so a request parked for this root's human could only wait
 	// out its timeout.
 	if mode != coord.OwnerInteractive {
-		markUnattended(sc, unattendedOneShot)
+		markUnattended(sc, App().Engines(), unattendedOneShot)
 	}
 	// The owner's credential identifies the owner-owned run's minter
 	// (startOwnedRun); the owner's RUNNER is stamped by StartOwnedRun with
@@ -1510,29 +1506,56 @@ func (st *runState) prepareSessionIO(port frontend.Port) sessionIO {
 			// No TUI engaged after all — stderr is still the user's,
 			// so put the warnings back on it.
 			restoreDiag()
-			markUnattended(st.sessionCoord, unattendedNoTerminalLayer)
+			markUnattended(st.sessionCoord, App().Engines(), unattendedNoTerminalLayer)
 		}
 	} else {
-		markUnattended(st.sessionCoord, unattendedNoTerminalLayer)
+		markUnattended(st.sessionCoord, App().Engines(), unattendedNoTerminalLayer)
 	}
 	return sio
 }
 
-// The reasons a root's approval requests are refused at once rather than
-// parked (coord.ApprovalQueue.Unattended): each names why nobody can answer
-// and what lets the call through instead.
+// Why a root's approval requests are refused at once rather than parked
+// (coord.ApprovalQueue.Unattended); unattendedReason adds what lets the call
+// through instead.
 const (
-	unattendedOneShot         = "nobody can answer it: a --one-shot run has no terminal to approve in — allow the call with a permission rule, or give the agent a posture that asks nobody (--permissions bypass, in a container)"
-	unattendedNoTerminalLayer = "nobody can answer it: this session has no terminal layer to show approvals in (--plain-terminal, or no tty) — allow the call with a permission rule, or give the agent a posture that asks nobody (--permissions bypass, in a container)"
+	unattendedOneShot         = "nobody can answer it: a --one-shot run has no terminal to approve in"
+	unattendedNoTerminalLayer = "nobody can answer it: this session has no terminal layer to show approvals in (--plain-terminal, or no tty)"
 )
 
-// markUnattended marks sc's approval queue unattended (why); a session that
-// hosts no coordinator has no queue to mark.
-func markUnattended(sc *coord.Coordinator, why string) {
+// unattendedReason is why nobody can answer and what lets the call through
+// instead. The call may be a delegated child's on any engine, not only the
+// root's own, so the posture that asks nobody is named for every engine reg
+// ships, each in its own words (engine.PermissionModel.Ungated), rather than
+// for the root's engine.
+func unattendedReason(reg engine.Registry, why string) string {
+	var ungated []string
+	for _, name := range operations.EngineNames(reg) {
+		if operations.IsTestOnlyEngine(reg, name) {
+			continue
+		}
+		m, ok := permissionModelOf(reg, name).Get()
+		if !ok {
+			continue
+		}
+		if posture, ok := m.Ungated(); ok {
+			ungated = append(ungated, posture+" on "+name)
+		}
+	}
+	reason := why + " — allow the call with a permission rule"
+	if len(ungated) > 0 {
+		reason += ", or give the agent its engine's posture that asks nobody, in a container (--permissions " + strings.Join(ungated, ", ") + ")"
+	}
+	return reason
+}
+
+// markUnattended marks sc's approval queue unattended, refusing each request
+// with unattendedReason(reg, why); a session that hosts no coordinator has no
+// queue to mark.
+func markUnattended(sc *coord.Coordinator, reg engine.Registry, why string) {
 	if sc == nil || sc.Approvals() == nil {
 		return
 	}
-	sc.Approvals().Unattended(why)
+	sc.Approvals().Unattended(unattendedReason(reg, why))
 }
 
 // finalizeRunPrompt applies the last two steps of prompt resolution, after the

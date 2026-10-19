@@ -74,7 +74,10 @@ flowchart TD
   (`markUnattended`, over `coord.ApprovalQueue.Unattended`): `hostCoordinator`
   for a one-shot owner, `prepareSessionIO` when no terminal layer engages
   (`--plain-terminal`, no tty, an unparseable prefix key). The queue then
-  refuses every request no grant covers at once, at every depth. The startup
+  refuses every request no grant covers at once, at every depth, naming why
+  and the remedy (`unattendedReason`): a permission rule, or the posture that
+  asks nobody, named for every shipped engine in its own words, since the
+  asker may be a child on an engine other than the root's. The startup
   warnings (`runState.warnPosture`) predict the same outcome from the same
   facts (`presentsApprovals`) before either has happened.
 - `driveOwnedInteractive` (`run_pty.go`) attaches the session's terminal through

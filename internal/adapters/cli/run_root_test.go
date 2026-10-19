@@ -116,7 +116,7 @@ func TestHostCoordinator_AOneShotRootRefusesAtOnce(t *testing.T) {
 	assert.Less(t, time.Since(start), time.Second, "refused at once, not held toward its 20m timeout")
 	assert.False(t, d.Allow)
 	assert.Equal(t, agent.DeciderRefused, d.Decider)
-	assert.Equal(t, unattendedOneShot, d.Message)
+	assert.Equal(t, unattendedReason(App().Engines(), unattendedOneShot), d.Message)
 }
 
 // An interactive root is not marked when its coordinator is hosted: its
@@ -173,5 +173,5 @@ func TestInternalCoordinator_RefusesApprovalsAtOnce(t *testing.T) {
 	defer cancel()
 	d := c.Approvals().Park(ctx, childAsker, bashAsk(), 20*time.Minute)
 	assert.Equal(t, agent.DeciderRefused, d.Decider)
-	assert.Equal(t, unattendedOneShot, d.Message)
+	assert.Equal(t, unattendedReason(App().Engines(), unattendedOneShot), d.Message)
 }

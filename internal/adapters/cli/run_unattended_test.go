@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/livecoord"
 )
@@ -42,11 +44,31 @@ func TestPrepareSessionIO_NoTerminalLayerRefusesApprovals(t *testing.T) {
 	d := parkOn(s.Coord)
 	assert.False(t, d.Allow)
 	assert.Equal(t, agent.DeciderRefused, d.Decider)
-	assert.Equal(t, unattendedNoTerminalLayer, d.Message)
+	assert.Equal(t, unattendedReason(App().Engines(), unattendedNoTerminalLayer), d.Message)
 }
 
 // TestMarkUnattended_NoCoordinatorIsANoop: a session that hosts no
 // coordinator has no queue, and marking it changes nothing.
 func TestMarkUnattended_NoCoordinatorIsANoop(t *testing.T) {
-	assert.NotPanics(t, func() { markUnattended(nil, unattendedOneShot) })
+	assert.NotPanics(t, func() { markUnattended(nil, engines.Registry(), unattendedOneShot) })
+}
+
+// TestUnattendedReason_NamesEachEnginesUngatedPosture: the call refused may
+// be a delegated child's on any engine, so the remedy names the posture that
+// asks nobody for every shipped engine, in that engine's own words, and the
+// test-only mock for none.
+//
+// MUTATION: claude's Ungated answers "bypass" → the claude row goes red.
+func TestUnattendedReason_NamesEachEnginesUngatedPosture(t *testing.T) {
+	got := unattendedReason(engines.Registry(), unattendedOneShot)
+	assert.True(t, strings.HasPrefix(got, unattendedOneShot+" — allow the call with a permission rule, or give the agent its engine's posture that asks nobody, in a container (--permissions "), got)
+	assert.Contains(t, got, "bypassPermissions on claude-code")
+	assert.Contains(t, got, "auto on opencode")
+	assert.NotContains(t, got, "on mock", "the test-only engine is no remedy")
+}
+
+// TestUnattendedReason_NoEngineAsksNobody: where no engine has a posture that
+// asks nobody, the permission rule is the one remedy offered.
+func TestUnattendedReason_NoEngineAsksNobody(t *testing.T) {
+	assert.Equal(t, unattendedOneShot+" — allow the call with a permission rule", unattendedReason(engine.Registry{}, unattendedOneShot))
 }

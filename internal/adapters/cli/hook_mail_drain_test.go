@@ -273,7 +273,7 @@ func (c concurrentReaderFs) MkdirAll(path string, perm os.FileMode) error {
 		return nil
 	}
 	testsupport.WriteFile(c.t, c.Fs, filepath.Join(path, stem(c.name)), nil, 0o600)
-	return c.Fs.Remove(filepath.Join(dir, c.name))
+	return c.Remove(filepath.Join(dir, c.name))
 }
 
 // Two hook processes delivering one message concurrently both write it; the

@@ -80,7 +80,14 @@ func TestRunnerDiagnostics_NeverReachTheEnginesTerminalUnderTheTerminalUI(t *tes
 				defer close(drained)
 				_, _ = io.Copy(out, up.Master())
 			}()
-			t.Cleanup(func() { _ = p.Close(); <-drained })
+			t.Cleanup(func() {
+				_ = p.Close()
+				select {
+				case <-drained:
+				case <-time.After(10 * time.Second):
+					t.Errorf("the terminal never reached its end after the launch: something still holds its slave")
+				}
+			})
 			require.NoError(t, p.Resize(80, 24))
 			slave := up.Slave()
 

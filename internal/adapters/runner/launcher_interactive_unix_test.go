@@ -65,10 +65,15 @@ func newTestTerminal(t *testing.T) *testTerminal {
 	}()
 	// Registered first, so it runs after every launch's own cleanup has ended
 	// its engine: the master read ends with EIO once the slave's last holder
-	// is gone.
+	// is gone. A holder the launch left behind fails the test by name rather
+	// than parking it.
 	t.Cleanup(func() {
 		_ = p.Close()
-		<-drained
+		select {
+		case <-drained:
+		case <-time.After(10 * time.Second):
+			t.Errorf("the terminal never reached its end after the launch: something still holds its slave")
+		}
 	})
 	return tt
 }
@@ -211,7 +216,8 @@ func TestRunLaunchSpec_InteractiveStartsTheEngineOnlyOnceTheTerminalHasASize(t *
 	select {
 	case <-parked:
 	case <-l.done:
-		t.Fatalf("the launch never waited for the terminal's size (code %d, err %v); the engine wrote:\n%q", l.code, l.err, tt.out.String())
+		tt.waitFor(t, l, "SIZE ")
+		t.Fatalf("the engine started without waiting for the terminal's size (code %d, err %v); it read:\n%q", l.code, l.err, tt.out.String())
 	case <-time.After(20 * time.Second):
 		t.Fatal("the launch neither waited for the terminal's size nor returned")
 	}

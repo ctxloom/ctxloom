@@ -12,7 +12,8 @@
 #
 # The layout is the agent call site's — isolation.gitDirMounts and
 # gitRegistryMask own the rationale (docs/adr/0034): the common dir read-write,
-# its worktrees/ registry masked, this checkout's own admin dir mounted back.
+# its hooks/, index and HEAD read-only over it, its worktrees/ registry masked,
+# this checkout's own admin dir mounted back.
 # The registry belongs to OTHER checkouts, none of which is mounted, so an
 # unmasked `git worktree prune` (or gc's auto-prune) in the container deletes
 # their registrations on the host.
@@ -52,7 +53,18 @@ bind() { # src dst [readonly]
 
 case "$common" in
     "$top" | "$top"/*) ;;
-    *) bind "$common" "$(target "$common")" ;;
+    *)
+        bind "$common" "$(target "$common")"
+        # Shadowed read-only after the mount above: hooks run on the host, and
+        # the index and HEAD are the main checkout's. A missing hooks/ is
+        # created so the container cannot create one; a missing index is not,
+        # because an empty one is corrupt.
+        mkdir -p "$common/hooks"
+        for entry in hooks index HEAD; do
+            [ -e "$common/$entry" ] || continue
+            bind "$common/$entry" "$(target "$common/$entry")" readonly
+        done
+        ;;
 esac
 
 [ -d "$registry" ] || exit 0

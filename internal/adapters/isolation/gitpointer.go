@@ -38,6 +38,11 @@ import (
 // Hiding the registry has a price: git in the container cannot see which
 // branches other checkouts have checked out, so its refusal to check out, or
 // delete, a branch that is in use elsewhere does not fire here.
+//
+// The common dir's hooks/, index and HEAD are then shadowed READ-ONLY
+// (gitReadOnlyOverlays): hooks run ON THE HOST at the next git operation in any
+// checkout, and the index and HEAD are the MAIN checkout's, not this one's —
+// this checkout keeps its own in its admin dir. config stays read-write.
 func gitDirMounts(ctx context.Context, rt Runtime, g git.Git, dir, scratchRoot string) ([]mount, error) {
 	common, err := g.CommonDir(ctx, dir)
 	if err != nil {
@@ -49,6 +54,10 @@ func gitDirMounts(ctx context.Context, rt Runtime, g git.Git, dir, scratchRoot s
 	if err != nil {
 		return nil, fmt.Errorf("git common dir %s has no route into the container: %w", common, err)
 	}
+	overlays, err := gitReadOnlyOverlays(rt, common, commonMount)
+	if err != nil {
+		return nil, err
+	}
 	registry, err := gitRegistryMask(rt, common, dir, scratchRoot)
 	if err != nil {
 		return nil, err
@@ -57,7 +66,46 @@ func gitDirMounts(ctx context.Context, rt Runtime, g git.Git, dir, scratchRoot s
 	if err != nil {
 		return nil, err
 	}
-	return append(append([]mount{commonMount}, registry...), pointers...), nil
+	mounts := append([]mount{commonMount}, overlays...)
+	return append(append(mounts, registry...), pointers...), nil
+}
+
+// gitReadOnlyEntries are the common-dir entries a linked checkout's container
+// may read but never write (gitDirMounts).
+var gitReadOnlyEntries = []string{"hooks", "index", "HEAD"}
+
+// gitReadOnlyOverlays binds each of gitReadOnlyEntries over itself read-only,
+// through commonMount, after it in the list so it shadows that mount. A write
+// git makes to one of them (index.lock or HEAD.lock renamed onto it) fails and
+// git removes its lock; a hook still runs.
+//
+// A missing hooks/ is created first, because the container could otherwise
+// create one through the read-write mount and fill it with hooks the host
+// runs. A missing index or HEAD is left alone: an empty file in its place is
+// a corrupt index or HEAD to the host's git.
+func gitReadOnlyOverlays(rt Runtime, common string, commonMount mount) ([]mount, error) {
+	// Mkdir, not MkdirAll: a common dir that is not there is never created
+	// (its own mount then fails loudly), and so has nothing to overlay.
+	if err := afero.NewOsFs().Mkdir(filepath.Join(common, "hooks"), 0o755); err != nil &&
+		!errors.Is(err, os.ErrExist) && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("git hooks dir for its read-only overlay: %w", err)
+	}
+	var mounts []mount
+	for _, name := range gitReadOnlyEntries {
+		host := filepath.Join(common, name)
+		switch _, err := os.Stat(host); {
+		case errors.Is(err, os.ErrNotExist):
+			continue
+		case err != nil:
+			return nil, fmt.Errorf("git %s for its read-only overlay: %w", name, err)
+		}
+		target, err := childPath(rt, host, commonMount)
+		if err != nil {
+			return nil, fmt.Errorf("git %s %s has no route into the container: %w", name, host, err)
+		}
+		mounts = append(mounts, bind(host, target, true))
+	}
+	return mounts, nil
 }
 
 // gitRegistryMask covers <common>/worktrees with an empty directory from the

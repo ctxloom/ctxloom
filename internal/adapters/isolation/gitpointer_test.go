@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -207,9 +208,10 @@ func hostBehind(mounts []mount, containerPath string) (host string, readOnly, ok
 // the runtime renames paths, is every other one. So the registry is not
 // reachable from the container at all, on any mapping, while everything git
 // needs to work in this checkout still resolves read-write to the host: its
-// own admin dir, and the common dir's config, packed-refs, hooks, objects
-// and refs (whose lock-and-rename updates need the common dir itself
-// mounted, not its files one by one).
+// own admin dir, and the common dir's config, packed-refs, objects and refs
+// (whose lock-and-rename updates need the common dir itself mounted, not its
+// files one by one). Hooks are readable but not writable
+// (TestGitDirMounts_MainHooksIndexAndHeadAreReadOnly).
 func TestMountBase_HidesOtherWorktreesRegistry(t *testing.T) {
 	ctx := context.Background()
 	runtimes := map[string]Runtime{
@@ -255,7 +257,7 @@ func TestMountBase_HidesOtherWorktreesRegistry(t *testing.T) {
 					}
 					for _, need := range []string{admin, filepath.Join(admin, "HEAD"),
 						filepath.Join(common, "config"), filepath.Join(common, "packed-refs"),
-						filepath.Join(common, "hooks"), filepath.Join(common, "objects"), filepath.Join(common, "refs")} {
+						filepath.Join(common, "objects"), filepath.Join(common, "refs")} {
 						host, ro, ok := hostBehind(mounts, mapped(t, rt, need))
 						require.True(t, ok, "%s must be mounted", need)
 						assert.Equal(t, need, host, "%s must resolve to the host's own copy", need)
@@ -265,4 +267,121 @@ func TestMountBase_HidesOtherWorktreesRegistry(t *testing.T) {
 			}
 		}
 	}
+}
+
+// gitCommonFixture fills a linked checkout's common dir with the files git
+// keeps there; hooks, when false, is left absent.
+func gitCommonFixture(t *testing.T, common string, hooks bool) {
+	t.Helper()
+	for _, d := range []string{"objects", "refs"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(common, d), 0o755))
+	}
+	if hooks {
+		require.NoError(t, os.MkdirAll(filepath.Join(common, "hooks"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(common, "hooks", "pre-commit"), []byte("#!/bin/sh\n"), 0o755))
+	}
+	for _, f := range []string{"config", "packed-refs", "HEAD", "index"} {
+		require.NoError(t, os.WriteFile(filepath.Join(common, f), nil, 0o644))
+	}
+}
+
+// Hooks in the common dir run ON THE HOST at the next git operation in any
+// checkout, and the main checkout's index and HEAD are its own, not this
+// checkout's. So a linked checkout's container sees all three read-only,
+// shadowing the read-write common-dir mount, while this checkout's own HEAD
+// and index (in its admin dir) and the common dir's config, packed-refs,
+// objects and refs stay writable: committing from here needs them.
+func TestGitDirMounts_MainHooksIndexAndHeadAreReadOnly(t *testing.T) {
+	runtimes := map[string]Runtime{
+		"renaming": fakeRuntime{name: "docker", binary: "docker", available: true},
+		"identity": mapperRuntime{fakeRuntime: fakeRuntime{name: "docker", binary: "docker", available: true}, m: identityMapper{}},
+	}
+	for rtName, rt := range runtimes {
+		t.Run(rtName, func(t *testing.T) {
+			dir, admin, common := linkedCheckoutIn(t, "")
+			gitCommonFixture(t, common, true)
+			for _, f := range []string{"HEAD", "index"} {
+				require.NoError(t, os.WriteFile(filepath.Join(admin, f), nil, 0o644))
+			}
+			mounts, err := gitDirMounts(context.Background(), rt, &git.Fake{CommonDirValue: common}, dir, t.TempDir())
+			require.NoError(t, err)
+
+			for _, ro := range []string{filepath.Join(common, "hooks"), filepath.Join(common, "hooks", "pre-commit"),
+				filepath.Join(common, "index"), filepath.Join(common, "HEAD")} {
+				host, readOnly, ok := hostBehind(mounts, mapped(t, rt, ro))
+				require.True(t, ok, "%s must be mounted", ro)
+				assert.Equal(t, ro, host, "%s must resolve to the host's own copy", ro)
+				assert.True(t, readOnly, "%s must be read-only", ro)
+			}
+			for _, rw := range []string{filepath.Join(admin, "HEAD"), filepath.Join(admin, "index"),
+				filepath.Join(common, "config"), filepath.Join(common, "packed-refs"),
+				filepath.Join(common, "objects"), filepath.Join(common, "refs")} {
+				host, readOnly, ok := hostBehind(mounts, mapped(t, rt, rw))
+				require.True(t, ok, "%s must be mounted", rw)
+				assert.Equal(t, rw, host, "%s must resolve to the host's own copy", rw)
+				assert.False(t, readOnly, "%s must be writable: committing from this checkout updates it", rw)
+			}
+
+			// A runtime mounts in list order, so each overlay must come after
+			// the common-dir mount it shadows.
+			commonAt := slices.IndexFunc(mounts, func(m mount) bool { return m.Host == common })
+			require.GreaterOrEqual(t, commonAt, 0, "the common dir is mounted")
+			for _, name := range gitReadOnlyEntries {
+				at := slices.IndexFunc(mounts, func(m mount) bool { return m.Host == filepath.Join(common, name) })
+				require.GreaterOrEqual(t, at, 0, "%s is overlaid", name)
+				assert.Greater(t, at, commonAt, "%s's overlay comes after the common-dir mount it shadows", name)
+			}
+		})
+	}
+}
+
+// A common dir without hooks/ would let the container create one through the
+// read-write mount, and git on the host would run what it put there. The
+// directory is created first so it can be mounted read-only. A missing index
+// is NOT created: an empty file is a corrupt index to the host's git, so it is
+// left unshadowed.
+func TestGitDirMounts_MissingHooksDirIsCreatedMissingIndexIsNot(t *testing.T) {
+	rt := fakeRuntime{name: "docker", binary: "docker", available: true}
+	dir, _, common := linkedCheckoutIn(t, "")
+	gitCommonFixture(t, common, false)
+	require.NoError(t, os.Remove(filepath.Join(common, "index")))
+
+	mounts, err := gitDirMounts(context.Background(), rt, &git.Fake{CommonDirValue: common}, dir, t.TempDir())
+	require.NoError(t, err)
+
+	hooks := filepath.Join(common, "hooks")
+	assert.DirExists(t, hooks, "the hooks dir is created so it can be shadowed")
+	assert.Contains(t, mounts, bind(hooks, mapped(t, rt, hooks), true))
+	assert.NoFileExists(t, filepath.Join(common, "index"), "a missing index is never created")
+	for _, m := range mounts {
+		assert.NotEqual(t, filepath.Join(common, "index"), m.Host, "a missing index has no bind source")
+	}
+}
+
+// The hooks dir is created as git creates its own directories, so the host's
+// git and the user can still manage it.
+func TestGitDirMounts_CreatedHooksDirHasGitsMode(t *testing.T) {
+	dir, _, common := linkedCheckoutIn(t, "")
+	gitCommonFixture(t, common, false)
+	_, err := gitDirMounts(context.Background(), fakeRuntime{name: "docker"}, &git.Fake{CommonDirValue: common}, dir, t.TempDir())
+	require.NoError(t, err)
+
+	reference := filepath.Join(t.TempDir(), "reference")
+	require.NoError(t, os.Mkdir(reference, 0o755)) // the same umask applies to both
+	want, err := os.Stat(reference)
+	require.NoError(t, err)
+	got, err := os.Stat(filepath.Join(common, "hooks"))
+	require.NoError(t, err)
+	assert.Equal(t, want.Mode().Perm(), got.Mode().Perm())
+}
+
+// An entry the child cannot name through the mount it is handed fails the
+// workspace rather than going unshadowed.
+func TestGitReadOnlyOverlays_UnroutableEntryFails(t *testing.T) {
+	_, _, common := linkedCheckoutIn(t, "")
+	gitCommonFixture(t, common, true)
+	elsewhere := t.TempDir()
+	mounts, err := gitReadOnlyOverlays(fakeRuntime{name: "docker"}, common, bind(elsewhere, elsewhere, false))
+	require.Error(t, err)
+	assert.Nil(t, mounts, "no partial overlay set escapes")
 }

@@ -48,7 +48,11 @@ func newGitRepoWithWorktrees(t *testing.T) gitRepoWithWorktrees {
 		t.Fatal(err)
 	}
 	runGit(t, r.main, "init", "-q", "-b", "main")
-	runGit(t, r.main, "commit", "-q", "--allow-empty", "-m", "root")
+	if err := os.WriteFile(filepath.Join(r.main, "f"), []byte("f\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, r.main, "add", "f")
+	runGit(t, r.main, "commit", "-q", "-m", "root")
 	runGit(t, r.main, "worktree", "add", "-q", r.linked, "-b", "linked")
 	runGit(t, r.main, "worktree", "add", "-q", r.other, "-b", "other")
 	r.common = filepath.Join(r.main, ".git")
@@ -100,7 +104,9 @@ func bindSpec(src, dst string, readonly bool) string {
 }
 
 // From a linked worktree, the container gets the common dir read-write (git
-// needs it: refs, packed-refs and config are lock-and-renamed inside it), the
+// needs it: refs, packed-refs and config are lock-and-renamed inside it), its
+// hooks/ and the main checkout's index and HEAD shadowed read-only after it
+// (hooks run on the host; the index and HEAD are not this checkout's), the
 // worktrees/ registry masked by an empty read-only dir, and only this
 // checkout's own admin dir mounted back. Without the mask, a `git worktree
 // prune` or gc auto-prune in the container deletes every OTHER worktree's
@@ -118,6 +124,9 @@ func TestDevcontainerGitMounts_LinkedWorktreeMasksOtherRegistrations(t *testing.
 	admin := filepath.Join(registry, "linked")
 	want := []string{
 		bindSpec(r.common, r.common, false),
+		bindSpec(filepath.Join(r.common, "hooks"), filepath.Join(r.common, "hooks"), true),
+		bindSpec(filepath.Join(r.common, "index"), filepath.Join(r.common, "index"), true),
+		bindSpec(filepath.Join(r.common, "HEAD"), filepath.Join(r.common, "HEAD"), true),
 		bindSpec(mask, registry, true),
 		bindSpec(admin, admin, false),
 		bindSpec(r.linked, r.linked, false),
@@ -164,5 +173,36 @@ func TestDevcontainerGitMounts_MainCheckoutWithoutWorktreesMountsNothing(t *test
 	specs, _ := gitMounts(t, dir)
 	if len(specs) != 0 {
 		t.Fatalf("want no mounts, got %q", specs)
+	}
+}
+
+// A common dir without hooks/ gets one before it is shadowed, or the
+// container could create it through the read-write mount and fill it with
+// hooks the host runs. A main checkout without an index gets none: an empty
+// file is a corrupt index to the host's git, so it is left unshadowed.
+func TestDevcontainerGitMounts_LinkedWorktreeCreatesMissingHooksNeverAnIndex(t *testing.T) {
+	r := newGitRepoWithWorktrees(t)
+	hooks := filepath.Join(r.common, "hooks")
+	index := filepath.Join(r.common, "index")
+	for _, p := range []string{hooks, index} {
+		if err := os.RemoveAll(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	specs, _ := gitMounts(t, r.linked)
+
+	if info, err := os.Stat(hooks); err != nil || !info.IsDir() {
+		t.Fatalf("the hooks dir must be created: %v", err)
+	}
+	if !slices.Contains(specs, bindSpec(hooks, hooks, true)) {
+		t.Fatalf("the created hooks dir must be bound read-only, got %q", specs)
+	}
+	if _, err := os.Stat(index); !os.IsNotExist(err) {
+		t.Fatalf("a missing index must not be created: %v", err)
+	}
+	for _, s := range specs {
+		if strings.Contains(s, "src="+index+",") {
+			t.Fatalf("a missing index has no bind source, got %q", s)
+		}
 	}
 }

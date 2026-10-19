@@ -132,6 +132,44 @@ git worktree list --porcelain`
 	assert.Contains(t, gitRun(t, repo, "worktree", "list", "--porcelain"), otherDir,
 		"an in-container prune must not delete another checkout's registration")
 
+	// The main checkout's index and HEAD, and the hooks every checkout runs on
+	// the host, are read-only in here: neither a plain write nor git's own
+	// lock-and-rename reaches them, and git leaves no lock behind. Reads that
+	// resolve through the common dir (HEAD, packed-refs, config) still work.
+	indexPath, headPath, hooksDir := filepath.Join(common, "index"), filepath.Join(common, "HEAD"), filepath.Join(common, "hooks")
+	require.FileExists(t, indexPath, "the main checkout has an index to protect")
+	indexBefore, err := os.ReadFile(indexPath)
+	require.NoError(t, err)
+	headBefore, err := os.ReadFile(headPath)
+	require.NoError(t, err)
+	for name, cmd := range map[string]string{
+		"hook":         "echo '#!/bin/sh' > " + filepath.Join(hooksDir, "pre-commit"),
+		"hook replace": "echo '#!/bin/sh' > " + filepath.Join(hooksDir, "post-commit"),
+		"index":        "echo x > " + indexPath,
+		"HEAD":         "echo 'ref: refs/heads/other' > " + headPath,
+		"git index":    "git -c safe.directory='*' --git-dir=" + common + " --work-tree=" + repo + " read-tree --empty",
+		"git HEAD":     "git -c safe.directory='*' --git-dir=" + common + " symbolic-ref HEAD refs/heads/other",
+	} {
+		out, err := dockerRun(ctx, primary, worktreeIntegrationImage, wtDir, policyMounts, "sh", "-c", cmd)
+		assert.Error(t, err, "%s: the write must fail in-container:\n%s", name, out)
+	}
+	assert.NoFileExists(t, filepath.Join(hooksDir, "pre-commit"), "no hook was installed on the host")
+	hookAfter, err := os.ReadFile(hook)
+	require.NoError(t, err)
+	assert.Equal(t, "#!/bin/sh\ntouch hook-ran\n", string(hookAfter), "the host's hook is unchanged")
+	indexAfter, err := os.ReadFile(indexPath)
+	require.NoError(t, err)
+	assert.Equal(t, indexBefore, indexAfter, "the main checkout's index is unchanged")
+	headAfter, err := os.ReadFile(headPath)
+	require.NoError(t, err)
+	assert.Equal(t, string(headBefore), string(headAfter), "the main checkout's HEAD is unchanged")
+	assert.NoFileExists(t, indexPath+".lock", "git removes its index lock when the rename is refused")
+	assert.NoFileExists(t, headPath+".lock", "git removes its HEAD lock when the rename is refused")
+	readOut, err := dockerRun(ctx, primary, worktreeIntegrationImage, wtDir, policyMounts, "sh", "-c",
+		"git -c safe.directory='*' rev-parse HEAD && git -c safe.directory='*' rev-parse refs/heads/feature && git -c safe.directory='*' config ctxloom.itest && git -c safe.directory='*' status --porcelain")
+	require.NoError(t, err, "reads through the common dir still work in-container:\n%s", readOut)
+	assert.Contains(t, readOut, gitRun(t, wtDir, "rev-parse", "HEAD"), "HEAD resolves in-container to the host's commit")
+
 	// Contrast: under the whole common dir, the same prune deletes the other
 	// checkout's registration on the host — the hazard the mask closes.
 	_, err = dockerRun(ctx, primary, worktreeIntegrationImage, wtDir,

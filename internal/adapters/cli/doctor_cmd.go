@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // doctorDepsOnlyFlag backs --deps (operations.DoctorRequest.DepsOnly).
@@ -57,10 +58,15 @@ the first fix; --all lists every check. Each row starts with a DOCTOR-CHECK-*
 marker. --deps checks only what this machine needs (binaries and git
 identity), so it reads clean before a project is set up.
 
-A warning is the signal: doctor exits 0 whatever it finds, and without
---fix changes nothing (the container-runtime probe may create the runtime's
-own storage directories). A usage error, such as an unknown --format, still
-fails.
+A warning is advisory. A failure is a finding that guarantees ` + "`ctxloom run`" + `
+refuses (today: a credential no run can authenticate with); it is counted
+first in the closing line and makes doctor exit non-zero, so a script or CI job can
+gate on it. Without --fix doctor changes nothing (the container-runtime probe may create the runtime's
+own storage directories).
+
+Exit status: 0 when no row failed, warnings included; 3 when any row failed,
+the status ctxloom run gives a fatal startup finding, after the whole report
+is written. A usage error, such as an unknown --format, exits 1.
 
 --fix changes one thing before reporting: it removes every hook entry in an
 engine's project or user settings file that runs a ` + "`ctxloom hook`" + ` subcommand
@@ -96,12 +102,20 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	return emit(cmd, report, func() error {
+	if err := emit(cmd, report, func() error {
 		if doctorAllFlag {
 			return operations.WriteDoctorReport(cmd.OutOrStdout(), report)
 		}
 		return renderDoctorSummary(cmd.OutOrStdout(), report)
-	})
+	}); err != nil {
+		return err
+	}
+	// The report is already written: the status alone tells a script that a
+	// run would be refused.
+	if report.Failed() {
+		return clifmt.ExitStatus{Code: exitCodeFatalFindings}
+	}
+	return nil
 }
 
 // runDoctorFix applies the fixes and lists each removal on stderr, so the
@@ -149,23 +163,44 @@ func doctorHome() string {
 func renderDoctorSummary(out io.Writer, report operations.DoctorReport) error {
 	w := errwriter.New(out)
 	w.Println("ctxloom doctor")
-	warnings, firstFix := 0, ""
+	warnings, failures, firstFix := 0, 0, ""
 	for _, c := range report.Checks {
-		if c.Status != operations.DoctorWarn {
+		switch c.Status {
+		case operations.DoctorFail:
+			failures++
+		case operations.DoctorWarn:
+			warnings++
+		default:
 			continue
 		}
-		warnings++
 		if firstFix == "" {
 			firstFix = inertBody(c.Remedy, 0, false).Text
 		}
 		operations.WriteDoctorRow(w, c)
 	}
-	if warnings == 0 {
+	switch {
+	case failures > 0:
+		w.Println(doctorFailuresSummary(failures, warnings, firstFix))
+	case warnings == 0:
 		w.Println(doctorAllClearLine)
-	} else {
+	default:
 		w.Println(doctorWarningsSummary(warnings, firstFix))
 	}
 	return w.Err()
+}
+
+// doctorFailuresSummary is the text report's closing line when any row
+// failed: the failures first, the warnings beside them, and the first fix.
+func doctorFailuresSummary(failures, warnings int, fix string) string {
+	noun := "failures"
+	if failures == 1 {
+		noun = "failure"
+	}
+	line := fmt.Sprintf("%d %s, %d warning(s)", failures, noun, warnings)
+	if fix == "" {
+		return line + "; " + doctorNoFixNamed
+	}
+	return line + "; first fix: " + fix
 }
 
 // doctorWarningsSummary is the text report's closing line for n warnings,

@@ -1,5 +1,5 @@
 @doc
-Feature: doctor — the deterministic diagnosis, and why its exit code is not the verdict
+Feature: doctor — the deterministic diagnosis, and the one finding that fails it
 
   Covers: `ctxloom doctor`, its `--deps` scoping, and its machine-readable
   form.
@@ -13,20 +13,39 @@ Feature: doctor — the deterministic diagnosis, and why its exit code is not th
   shared with the "ctxloom-doctor" Agent Skill, so a human and an LLM reading
   either surface see one language.
 
-  READ THE REPORT, DON'T GREP THE EXIT CODE. This is the design decision the
-  whole file exists to pin. No check outcome ever fails the command: a `warn`
-  IS doctor's fail-loud signal, and it arrives with exit 0. A caller that
-  branches on `$?` will call a project healthy while the report in front of it
-  says otherwise — so every scenario here asserts the REPORT, and the two that
-  drive a genuinely broken project assert `the command succeeds` deliberately,
-  as the specified behaviour rather than an oversight. A USAGE error (a
-  --format this build cannot render) is still an error.
+  READ THE REPORT; THE EXIT CODE ONLY SAYS WHETHER A RUN WOULD BE REFUSED.
+  A `warn` is advisory and arrives with exit 0: a caller that branches on `$?`
+  alone will call a project healthy while the report in front of it carries
+  warnings, so most scenarios here assert the REPORT, and the ones that drive
+  a genuinely broken project assert `the command succeeds` deliberately. A
+  `fail` row is different: it is a finding that guarantees `ctxloom run`
+  refuses (today, an agent credential no run can authenticate with), and it
+  makes doctor exit 3, run's status for a fatal startup finding, after the
+  whole report is written. A USAGE error (a --format this build cannot render)
+  exits 1.
 
   EVERY CHECK NEEDS BOTH HALVES. A check that fired on every project would be
   indistinguishable from one that works and would teach a reader to skip the
   line. So the two checks specified in detail below — the .gitignore posture
   and the MCP invocation — each get the state that makes them fire AND the
   state that keeps them quiet.
+
+  Background:
+    Given the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-acceptance-fixture-not-real"
+
+  Rule: A credential no run can authenticate with is a fail row, and fails doctor
+
+    Scenario: A missing agent credential is a fail row with run's fix, and exit 3
+      Given an initialized ctxloom project
+      And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to ""
+      When Alice asks for the diagnosis in a form a script can parse:
+        """
+        ctxloom --format json doctor
+        """
+      Then the command exits with code 3
+      And the output is valid JSON
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-CREDENTIALS-m5" and whose "status" is "fail"
+      And the output contains "claude setup-token"
 
   Rule: The report names every check, in one shared marker vocabulary
 

@@ -63,7 +63,7 @@ func TestCredentialStatus_RunDoctorAndInitAnswerAlike(t *testing.T) {
 			require.ErrorIs(t, init, engine.ErrNoCredential)
 			fix := remedyOf(t, run)
 			assert.Equal(t, fix, remedyOf(t, init), "init's fix is the run's")
-			assert.Equal(t, DoctorWarn, row.Status, "a missing credential is doctor's fail-loud row")
+			assert.Equal(t, DoctorFail, row.Status, "a missing credential guarantees run refuses")
 			assert.Equal(t, fix, row.Remedy, "doctor's fix is the run's")
 			assert.Contains(t, row.Detail, fix)
 			assert.Contains(t, row.Detail, claude.EngineName, "names the backend")
@@ -95,7 +95,7 @@ func TestCredentialStatus_ResolvesTheConfiguredMode(t *testing.T) {
 	t.Run("not signed in: refuses as a login", func(t *testing.T) {
 		cfg := claudeCredentialProject(t, engine.AuthLogin, false)
 		row := doctorCheckCredentials(reg, cfg, envWith(nil))
-		assert.Equal(t, DoctorWarn, row.Status)
+		assert.Equal(t, DoctorFail, row.Status)
 		assert.Contains(t, row.Detail, "credential store", "the login the human is missing, not a variable")
 		assert.NotContains(t, row.Detail, claude.OAuthTokenEnv+" is not exported")
 		err := AgentCredentialMissing(reg, claude.EngineName, cfg.SessionAuth(), envWith(nil))

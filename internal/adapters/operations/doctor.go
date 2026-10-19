@@ -64,9 +64,13 @@ type DoctorStatus string
 const (
 	// DoctorOK: the check's subject is in the state setup intends.
 	DoctorOK DoctorStatus = "ok"
-	// DoctorWarn: doctor's fail-loud signal. Doctor never fails the
-	// process, so a warn is how a real problem is reported.
+	// DoctorWarn: a real problem, advisory: it never changes doctor's exit
+	// status.
 	DoctorWarn DoctorStatus = "warn"
+	// DoctorFail: a finding that GUARANTEES `ctxloom run` refuses, such as a
+	// credential no run can authenticate with. It is the only status that
+	// makes `ctxloom doctor` exit non-zero.
+	DoctorFail DoctorStatus = "fail"
 	// DoctorInfo: reported for context, not a verdict — nothing to fix.
 	DoctorInfo DoctorStatus = "info"
 )
@@ -87,6 +91,17 @@ type DoctorCheck struct {
 // DoctorReport is `ctxloom doctor`'s structured result.
 type DoctorReport struct {
 	Checks []DoctorCheck `json:"checks"`
+}
+
+// Failed reports whether any row is a DoctorFail: a finding `ctxloom run`
+// is guaranteed to refuse over.
+func (r DoctorReport) Failed() bool {
+	for _, c := range r.Checks {
+		if c.Status == DoctorFail {
+			return true
+		}
+	}
+	return false
 }
 
 // DoctorRequest scopes one report.
@@ -114,9 +129,10 @@ type DoctorRequest struct {
 }
 
 // Doctor runs ctxloom's deterministic setup checks and returns their rows in
-// the fixed order every frontend renders. It prints nothing and fails on no
-// check outcome: DoctorWarn IS the fail-loud signal. The only errors are the
-// service's own preconditions; a configuration that fails to load is a
+// the fixed order every frontend renders. It prints nothing and returns no
+// error for a check outcome: DoctorWarn is advisory and DoctorFail (see
+// DoctorReport.Failed) is the verdict a frontend turns into a failing exit.
+// The only errors are the service's own preconditions; a configuration that fails to load is a
 // finding the checks report, not an error.
 func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, error) {
 	reg := app.Engines()
@@ -927,9 +943,9 @@ func companionBinOf(key ident.BundleKey) string {
 
 // doctorCheckCredentials asks CredentialStatus, the resolver a run and init
 // ask too, once per distinct (backend, mode) the configuration authenticates
-// with. A credential that is not there is a warn — doctor's fail-loud signal,
-// since it never fails the process — carrying the engine's own refusal and
-// fix, the same a run is refused with. Present is not accepted: whether the
+// with. A credential that is not there is a DoctorFail — every run is
+// refused for it — carrying the engine's own refusal and fix, the same a run
+// is refused with. Present is not accepted: whether the
 // engine accepts it is known only by launching the engine's own CLI.
 func doctorCheckCredentials(reg engine.Registry, cfg *config.Config, lookup EnvLookup) DoctorCheck {
 	const marker = "DOCTOR-CHECK-CREDENTIALS-m5"
@@ -948,7 +964,7 @@ func doctorCheckCredentials(reg engine.Registry, cfg *config.Config, lookup EnvL
 		missing = append(missing, fmt.Sprintf("%v — fix: %s", c.Err, fix))
 	}
 	if len(missing) > 0 {
-		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: strings.Join(missing, "; "), Remedy: remedy}
+		return DoctorCheck{Marker: marker, Status: DoctorFail, Detail: strings.Join(missing, "; "), Remedy: remedy}
 	}
 	if len(present) == 0 {
 		return DoctorCheck{Marker: marker, Status: DoctorInfo, Detail: "no configured engine needs a credential from you"}

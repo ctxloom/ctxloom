@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
@@ -89,4 +90,5 @@ func TestVersion_JSONCarriesTheCliversionContract(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(got), &info), "raw output: %q", got)
 	assert.Equal(t, "ctxloom", info.Name)
 	assert.NotEmpty(t, info.Version, "a zero-payload version field is the defect this pins")
+	assert.Equal(t, safefs.LockProtocol, info.LockProtocol, "a lock reaper asks every running ctxloom for this")
 }

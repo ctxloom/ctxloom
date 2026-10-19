@@ -14,7 +14,7 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print the harp version",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cobrafmt.EmitVersion(cmd, progName, Version)
+			return cobrafmt.EmitVersion(cmd, cobrafmt.VersionInfo{Name: progName, Version: Version})
 		},
 	}
 }

@@ -305,6 +305,11 @@ const (
 	// sits in one session dir.
 	HomeLocksDirName = "locks"
 
+	// LockReapInterlockFileName is the reap interlock in the home lock
+	// directory (LockReapInterlockPath). It ends in no lock suffix, so the
+	// reap it guards never takes it for a sidecar.
+	LockReapInterlockFileName = "reap.interlock"
+
 	// HomeRecordsDirName is the home-rooted directory holding hew §9.7
 	// application records: one file per successful `util config-write`
 	// apply against a JSON target, naming what changed, to what bytes,
@@ -984,7 +989,7 @@ func Layout() []Entry {
 		// closeout), same C13 shape as the seven RootHome rows above it.
 		{
 			Rel: filepath.Join(AppDirName, HomeLocksDirName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
-			Lost: "cross-binary lock sidecars for foreign engine-settings files outside every session dir (HomePathFor, lockpath.go; a file inside a session dir locks in that session's own locks/ member, which is reaped with the session); harmless — a lock file carries no data and is recreated on next use, though a write in flight when it disappears loses its mutual exclusion for that one operation",
+			Lost: "cross-binary lock sidecars for foreign engine-settings files outside every session dir (HomePathFor, lockpath.go; a file inside a session dir locks in that session's own locks/ member, which is reaped with the session); harmless — a lock file carries only the path it guards and is recreated on next use; a taker re-checks its lock file and retries on a removed one, though a binary older than that check (lock_protocol below 2) loses its mutual exclusion for the write in flight",
 		},
 		// Added alongside `util config-write`'s hew adoption (P5 slice 1):
 		// same RootHome/PresenceIfUsed shape as the locks row above it, for

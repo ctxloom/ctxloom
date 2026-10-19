@@ -227,6 +227,21 @@ func harpLockRel(harp, rel string) string {
 // an ALREADY-ABSOLUTE path outside every session dir.
 func homeLockName(abs string) string { return FlatName(abs) + lockSuffix }
 
+// LockReapInterlockPath returns the reap interlock: the one file every
+// activity that takes or binds a sidecar of the home lock directory holds
+// SHARED, and the reap of that directory (`ctxloom clean`) holds EXCLUSIVE,
+// so a reap never runs beside a container launch binding host sidecars or a
+// write taking one. It sits in the directory it guards, so it follows that
+// directory wherever it resolves (HomeLocksDir's override and guard
+// included), and a reap of that directory never removes it.
+func LockReapInterlockPath() (string, error) {
+	dir, err := HomeLocksDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, LockReapInterlockFileName), nil
+}
+
 // HomeLocksDirIn is HomeLocksDir in a filesystem this process is not running
 // in, whose home directory is home (slash-separated, as a container names
 // it): <home>/.ctxloom/locks.

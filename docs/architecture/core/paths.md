@@ -172,6 +172,10 @@ nothing outside it, so they are an Ephemeral `paths.HarpMembers` row and
 `HomeLockPathIn` are the same derivation for a filesystem the process is not
 running in, which the container mount builder (`isolation.Container.lockMounts`)
 uses to bind a host lock where the container's own `HomePathFor` will look.
+A flattened name cannot always be read back into the path it guards, so every
+taker of a `HomePathFor` sidecar records that path in a sidecar it creates
+(`safefs.LockGuarding`); that record is how `ctxloom clean` tells a home
+sidecar whose file is gone (`operations.ReapLockSidecars`).
 
 ## Invariants
 

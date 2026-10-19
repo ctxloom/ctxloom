@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -45,23 +46,45 @@ type kernelLock interface {
 	RLock() error
 	TryLock() (bool, error)
 	TryLockContext(ctx context.Context, retry time.Duration) (bool, error)
+	TryRLock() (bool, error)
+	TryRLockContext(ctx context.Context, retry time.Duration) (bool, error)
 	Stat() (fs.FileInfo, error)
 	Close() error
 }
 
 func (osLocks) Lock(path string) (Lock, error) {
-	return takeOSLock(path, kernelLock.Lock)
+	return takeOSLock(path, kernelLock.Lock, "")
 }
 
 func (osLocks) RLock(path string) (Lock, error) {
-	return takeOSLock(path, kernelLock.RLock)
+	return takeOSLock(path, kernelLock.RLock, "")
 }
 
-// takeOSLock is Lock and RLock: take blocks until the lock is held, in the
-// kind it names.
-func takeOSLock(path string, take func(kernelLock) error) (Lock, error) {
+// LockGuarding is Lock, recording guarded in a lock file it creates (see
+// GuardingLocks).
+func (osLocks) LockGuarding(path, guarded string) (Lock, error) {
+	return takeOSLock(path, kernelLock.Lock, guarded)
+}
+
+// takeOSLock is Lock, RLock and LockGuarding: take blocks until the lock is
+// held, in the kind it names, and is retried while what it was granted is no
+// longer the file at path (takeCurrent). A non-empty guarded is recorded in
+// a lock file an attempt creates — every attempt, since the file a retry
+// creates is a new one.
+func takeOSLock(path string, take func(kernelLock) error, guarded string) (Lock, error) {
+	return takeCurrent(path, func() (Lock, error) { return takeOSLockOnce(path, take, guarded) })
+}
+
+// takeOSLockOnce is one attempt of takeOSLock, granted on whichever file the
+// path named when it was opened.
+func takeOSLockOnce(path string, take func(kernelLock) error, guarded string) (Lock, error) {
 	if err := os.MkdirAll(filepath.Dir(path), lockDirMode); err != nil {
 		return nil, fmt.Errorf("safefs: preparing lock directory for %s: %w", path, err)
+	}
+	if guarded != "" {
+		if err := recordGuarded(path, guarded); err != nil {
+			return nil, err
+		}
 	}
 	// Checked before the acquire as well as after it: flock(2) on a
 	// non-regular file can fail on its own terms first (darwin answers
@@ -81,24 +104,44 @@ func takeOSLock(path string, take func(kernelLock) error) (Lock, error) {
 }
 
 func (osLocks) TryLock(ctx context.Context, path string) (Lock, error) {
-	return tryOSLock(ctx, path, true)
+	return tryOSLock(ctx, path, true, false)
 }
 
 func (osLocks) TryLockExisting(ctx context.Context, path string) (Lock, error) {
-	return tryOSLock(ctx, path, false)
+	return tryOSLock(ctx, path, false, false)
 }
 
-// tryOSLock is TryLock and TryLockExisting; create says whether a missing
-// lock file is created. Only the wait running out is ErrLockHeld: a failure
-// to open or lock is returned as itself, however done ctx is.
-func tryOSLock(ctx context.Context, path string, create bool) (Lock, error) {
+func (osLocks) TryRLock(ctx context.Context, path string) (Lock, error) {
+	if err := os.MkdirAll(filepath.Dir(path), lockDirMode); err != nil {
+		return nil, fmt.Errorf("safefs: preparing lock directory for %s: %w", path, err)
+	}
+	return tryOSLock(ctx, path, true, true)
+}
+
+// tryOSLock is TryLock, TryLockExisting and TryRLock; create says whether a
+// missing lock file is created, shared whether the lock is taken shared.
+// Only the wait running out is ErrLockHeld: a failure to open or lock is
+// returned as itself, however done ctx is. It is retried while what it was
+// granted is no longer the file at path (takeCurrent): a retry with a done
+// ctx still makes its one attempt.
+func tryOSLock(ctx context.Context, path string, create, shared bool) (Lock, error) {
+	return takeCurrent(path, func() (Lock, error) { return tryOSLockOnce(ctx, path, create, shared) })
+}
+
+// tryOSLockOnce is one attempt of tryOSLock. A wait re-opens the path on
+// each poll, so what it is granted is the file the last poll opened.
+func tryOSLockOnce(ctx context.Context, path string, create, shared bool) (Lock, error) {
 	if err := refuseNonRegular(path); err != nil {
 		return nil, err
 	}
 	fl := newKernelLock(path, create)
-	got, err := fl.TryLock()
+	try, wait := fl.TryLock, fl.TryLockContext
+	if shared {
+		try, wait = fl.TryRLock, fl.TryRLockContext
+	}
+	got, err := try()
 	if err == nil && !got && ctx.Err() == nil {
-		got, err = fl.TryLockContext(ctx, tryLockRetry)
+		got, err = wait(ctx, tryLockRetry)
 		if err != nil && errors.Is(err, ctx.Err()) {
 			err = nil
 		}
@@ -114,23 +157,41 @@ func tryOSLock(ctx context.Context, path string, create bool) (Lock, error) {
 	return heldOSLock(fl, path)
 }
 
+// Held probes as a taker takes: a probe granted the lock on a file no longer
+// at the path has answered about a file nobody else can open, while the one
+// at the path may be held, so it probes again.
 func (osLocks) Held(path string) (bool, error) {
+	for range lockAttempts {
+		held, current, err := probeOSLock(path)
+		if err != nil || current {
+			return held, err
+		}
+	}
+	return false, fmt.Errorf("%w: %s, %d times", ErrLockReplaced, path, lockAttempts)
+}
+
+// probeOSLock is one attempt of Held. current is false only for a probe
+// granted the lock on a file no longer at the path; a held lock is reported
+// as held whichever file it is on.
+func probeOSLock(path string) (held, current bool, err error) {
 	if err := refuseNonRegular(path); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return false, nil
+			return false, true, nil
 		}
-		return false, err
+		return false, true, err
 	}
 	fl := newKernelLock(path, false)
+	defer func() { _ = fl.Close() }()
 	got, err := fl.TryLock()
-	_ = fl.Close()
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return false, nil
+		return false, true, nil
 	case err != nil:
-		return false, fmt.Errorf("safefs: probing lock %s: %w", path, err)
+		return false, true, fmt.Errorf("safefs: probing lock %s: %w", path, err)
+	case !got:
+		return true, true, nil
 	}
-	return !got, nil
+	return false, sameFileAt(fl, path), nil
 }
 
 // heldOSLock checks the handle actually locked — the path can be swapped
@@ -148,13 +209,19 @@ type osLock struct {
 	path string
 }
 
-func (l osLock) Current() bool {
-	held, herr := l.fl.Stat()
-	onDisk, derr := os.Stat(l.path)
-	return herr == nil && derr == nil && os.SameFile(held, onDisk)
-}
+func (l osLock) Current() bool { return sameFileAt(l.fl, l.path) }
 
 func (l osLock) Unlock() error { return l.fl.Close() }
+
+// removeLockFile unlinks the lock file at the lock's path (ReapLockFile).
+func (l osLock) removeLockFile() error { return os.Remove(l.path) }
+
+// sameFileAt reports whether the file fl has open is the one at path now.
+func sameFileAt(fl kernelLock, path string) bool {
+	held, herr := fl.Stat()
+	onDisk, derr := os.Stat(path)
+	return herr == nil && derr == nil && os.SameFile(held, onDisk)
+}
 
 // refuseNonRegular vets a lock path before it is opened: a path that exists
 // as anything but a regular file is ErrNotRegularFile; a missing file is
@@ -175,6 +242,14 @@ func refuseNonRegular(path string) error {
 		return fmt.Errorf("%w: %s is %s", ErrNotRegularFile, path, info.Mode().Type())
 	}
 	return nil
+}
+
+// recordGuarded is createRecording on the real filesystem, hardened against
+// a planted FIFO as every lock-file open is (lockOpenGuard).
+func recordGuarded(path, guarded string) error {
+	return createRecording(path, guarded, func(flag int) (io.WriteCloser, error) {
+		return os.OpenFile(path, flag|lockOpenGuard, lockFileMode)
+	})
 }
 
 // prepareLockFile creates the lock file at path without taking the lock,

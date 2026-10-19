@@ -72,7 +72,17 @@ func (l *winLock) Lock() error  { return l.lock(windows.LOCKFILE_EXCLUSIVE_LOCK)
 func (l *winLock) RLock() error { return l.lock(0) }
 
 func (l *winLock) TryLock() (bool, error) {
-	err := l.lock(windows.LOCKFILE_EXCLUSIVE_LOCK | windows.LOCKFILE_FAIL_IMMEDIATELY)
+	return l.tryLock(windows.LOCKFILE_EXCLUSIVE_LOCK | windows.LOCKFILE_FAIL_IMMEDIATELY)
+}
+
+func (l *winLock) TryRLock() (bool, error) {
+	return l.tryLock(windows.LOCKFILE_FAIL_IMMEDIATELY)
+}
+
+// tryLock is TryLock and TryRLock: one attempt with flags, a conflict being
+// false rather than an error.
+func (l *winLock) tryLock(flags uint32) (bool, error) {
+	err := l.lock(flags)
 	switch {
 	case err == nil:
 		return true, nil
@@ -86,11 +96,21 @@ func (l *winLock) TryLock() (bool, error) {
 // TryLockContext retries TryLock every retry until it succeeds, errors, or
 // ctx ends — gofrs/flock's contract, which osLocks is written against.
 func (l *winLock) TryLockContext(ctx context.Context, retry time.Duration) (bool, error) {
+	return tryUntil(ctx, retry, l.TryLock)
+}
+
+// TryRLockContext is TryLockContext over TryRLock.
+func (l *winLock) TryRLockContext(ctx context.Context, retry time.Duration) (bool, error) {
+	return tryUntil(ctx, retry, l.TryRLock)
+}
+
+// tryUntil retries try every retry until it succeeds, errors, or ctx ends.
+func tryUntil(ctx context.Context, retry time.Duration, try func() (bool, error)) (bool, error) {
 	for {
 		if err := ctx.Err(); err != nil {
 			return false, err
 		}
-		if ok, err := l.TryLock(); ok || err != nil {
+		if ok, err := try(); ok || err != nil {
 			return ok, err
 		}
 		select {

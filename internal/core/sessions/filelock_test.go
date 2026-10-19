@@ -1,6 +1,7 @@
 package sessions_test
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -192,6 +193,27 @@ func TestWithFileLock_AnInMemoryRootLocksOnItsOwnFs(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr), "an in-memory Root must never create a REAL lock file")
 }
 
+// TestWithFileLock_TheSidecarItCreatesRecordsTheTarget: the home sidecar's
+// flattened name cannot always be read back into the file it guards, so a
+// sidecar WithFileLock creates records that file, absolute, as its content
+// — the record a reaper reads to tell whether the file is gone.
+func TestWithFileLock_TheSidecarItCreatesRecordsTheTarget(t *testing.T) {
+	testsupport.Isolate(t)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	target := filepath.Join(dir, ".mcp.json")
+	lockPath, err := paths.HomePathFor(target)
+	require.NoError(t, err)
+
+	require.NoError(t, sessions.WithFileLock(safefs.New().Locks, ".mcp.json", func() error { return nil }))
+
+	content, err := os.ReadFile(lockPath)
+	require.NoError(t, err)
+	got, ok := safefs.GuardedPath(content)
+	require.True(t, ok, "the sidecar records no path: %q", content)
+	assert.Equal(t, target, got)
+}
+
 // recordingLocks records each Lock and each Unlock it hands out.
 type recordingLocks struct {
 	safefs.Locks
@@ -216,4 +238,75 @@ type recordingLock struct {
 func (l recordingLock) Unlock() error {
 	l.r.events = append(l.r.events, "unlock "+l.path)
 	return l.Lock.Unlock()
+}
+
+// reapInProgress takes the reap interlock exclusive, as a reap does, for the
+// rest of the test, and shortens the wait a participant gives it to wait.
+func reapInProgress(t *testing.T, wait time.Duration) {
+	t.Helper()
+	prev := sessions.ReapInterlockWait
+	sessions.ReapInterlockWait = wait
+	t.Cleanup(func() { sessions.ReapInterlockWait = prev })
+	interlock, err := paths.LockReapInterlockPath()
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(interlock), 0o755))
+	once, cancel := context.WithCancel(context.Background())
+	cancel()
+	reap, err := safefs.New().Locks.TryLock(once, interlock)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = reap.Unlock() })
+}
+
+// A sidecar of the home lock directory is taken under the reap interlock: a
+// reap in progress is waited out for the bounded wait, then the write is
+// refused and fn never runs.
+func TestWithFileLock_AHomeSidecarWaitsOutThenRefusesAReap(t *testing.T) {
+	testsupport.Isolate(t)
+	const wait = 100 * time.Millisecond
+	reapInProgress(t, wait)
+	target := filepath.Join(t.TempDir(), ".mcp.json")
+
+	start := time.Now()
+	err := sessions.WithFileLock(safefs.New().Locks, target, func() error {
+		t.Fatal("fn ran during a reap")
+		return nil
+	})
+
+	require.ErrorIs(t, err, sessions.ErrLockReapInProgress)
+	assert.GreaterOrEqual(t, time.Since(start), wait)
+}
+
+// A session's own sidecars are never the home lock directory reap's to
+// remove, so a write under one does not wait for a reap.
+func TestWithFileLock_ASessionSidecarIgnoresTheReap(t *testing.T) {
+	testsupport.Isolate(t)
+	reapInProgress(t, time.Minute)
+	harpDir, err := paths.HarpDir("brisk-teal-otter")
+	require.NoError(t, err)
+
+	ran := false
+	require.NoError(t, sessions.WithFileLock(safefs.New().Locks, filepath.Join(harpDir, "home", ".claude.json"), func() error {
+		ran = true
+		return nil
+	}))
+	assert.True(t, ran)
+}
+
+// The interlock is shared among its participants: a write proceeds beside a
+// launch that holds it, and a reap is refused while either does.
+func TestWithFileLock_SharesTheInterlockWithOtherParticipants(t *testing.T) {
+	testsupport.Isolate(t)
+	release, err := sessions.HoldReapInterlock(safefs.New().Locks)
+	require.NoError(t, err)
+	defer release()
+	interlock, err := paths.LockReapInterlockPath()
+	require.NoError(t, err)
+
+	require.NoError(t, sessions.WithFileLock(safefs.New().Locks, filepath.Join(t.TempDir(), ".mcp.json"), func() error {
+		once, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := safefs.New().Locks.TryLock(once, interlock)
+		assert.ErrorIs(t, err, safefs.ErrLockHeld, "a reap got the interlock during a write")
+		return nil
+	}))
 }

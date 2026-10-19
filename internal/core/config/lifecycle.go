@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
 // Draft is the mutable view an Owner.Update transaction hands fn: every
@@ -215,11 +216,14 @@ func (o *Owner) Update(ctx context.Context, fn func(*Draft) error) (*Snapshot, e
 // withUpdateLock serializes a config update against every other process
 // rewriting the same file. The lock lives beside the project's own state
 // (paths.ProjectPathFor), never beside the file, and is taken through the
-// config's Root's locks.
+// config's Root's locks. Its name is flattened like a home sidecar's, so it
+// is taken as every sidecar is (sessions.WithSidecarLock): a lock file it
+// creates records configPath. Living in the project, it is never the reap
+// interlock's.
 func withUpdateLock(locks safefs.Locks, configPath string, fn func() error) error {
 	lockPath, err := paths.ProjectPathFor(configPath)
 	if err != nil {
 		return fmt.Errorf("config: locating update lock for %s: %w", configPath, err)
 	}
-	return safefs.WithLock(locks, lockPath, fn)
+	return sessions.WithSidecarLock(locks, lockPath, configPath, fn)
 }

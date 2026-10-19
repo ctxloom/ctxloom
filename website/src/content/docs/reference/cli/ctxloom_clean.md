@@ -25,10 +25,24 @@ one run, as an age (30d, 12w, 720h) or a date (2026-01-01). --include-persist
 also takes transcripts, engine history, the spool, the package store and
 logs, except from a session that was never compacted.
 
+It also reaps the lock sidecars in ~/.ctxloom/locks whose guarded file no
+longer exists. A sidecar records the path it guards; an older empty one
+counts only when its name spells that path unambiguously, and the rest are
+reported as unreapable (no recorded path). It removes no sidecar, and says
+why, while a ctxloom, ltk or taskloom that predates the lock re-check may be
+running (each running one is asked for its lock_protocol, and one whose
+binary has been replaced counts as older), while a ctxloom agent container
+is running, while a container launch or a write holds the reap interlock
+(~/.ctxloom/locks/reap.interlock), or where the running processes cannot be
+listed (anywhere without /proc). Under --yes it holds that interlock from
+before those checks until the reap ends, and a launch or a write that comes
+meanwhile waits for it, briefly, then is refused.
+
 Never taken: authored content and profiles, approvals, lock.yaml, a session's
 identity and its output dir, a session with an empty 'keep' file at the top
 of its directory, a session that is running or whose liveness cannot be
-proven, and a worktree with uncommitted work. The report says what it left.
+proven, a worktree with uncommitted work, and a lock sidecar a process holds.
+The report says what it left.
 
 Without --yes this only reports. 'ctxloom session sweep' applies the same
 rules to one project's ended sessions; 'ctxloom manage uninstall' removes

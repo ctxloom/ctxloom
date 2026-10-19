@@ -1,6 +1,8 @@
 // Package cliversion is the cross-binary version contract for the ctxloom
 // family. Every binary (ctxloom, ltk, taskloom, …) exposes
-// `<binary> version --format json` as {"name","version"}; ctxloom probes its
+// `<binary> version --format json` as {"name","version"} (plus
+// "lock_protocol" from each binary that takes ctxloom's shared lock files);
+// ctxloom probes its
 // companions by parsing exactly this shape, so both the struct AND the probe
 // that reads it live here as the single source of truth rather than being
 // re-declared per caller.
@@ -22,9 +24,13 @@ import (
 )
 
 // Info is the machine-readable shape of `<binary> version --format json`.
+// LockProtocol is the lock-taking protocol of a binary that takes ctxloom's
+// shared lock files (safefs.LockProtocol); a binary that predates the field
+// leaves it absent, which decodes as 0.
 type Info struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
+	Name         string `json:"name"`
+	Version      string `json:"version"`
+	LockProtocol int    `json:"lock_protocol,omitempty"`
 }
 
 // ProbeTimeout bounds the `<bin> version --format json` exec. A wedged
@@ -57,13 +63,24 @@ func SetOutputForTesting(fn func(string) ([]byte, error)) func() {
 	return func() { Output = prev }
 }
 
+// ParseInfo decodes a version probe's raw output whole. A field the binary
+// does not report is left zero: lock_protocol from a binary that predates it
+// reads as 0, which is what a caller comparing protocols must see.
+func ParseInfo(raw []byte) (Info, error) {
+	var info Info
+	if err := json.Unmarshal(raw, &info); err != nil {
+		return Info{}, fmt.Errorf("parse version --format json output: %w", err)
+	}
+	return info, nil
+}
+
 // Parse extracts the version from a version probe's raw output. A binary that
 // answers without a version field is an ERROR, not an empty version: the
 // callers key on this value, and "" is indistinguishable from "not probed".
 func Parse(raw []byte) (string, error) {
-	var info Info
-	if err := json.Unmarshal(raw, &info); err != nil {
-		return "", fmt.Errorf("parse version --format json output: %w", err)
+	info, err := ParseInfo(raw)
+	if err != nil {
+		return "", err
 	}
 	if info.Version == "" {
 		return "", errors.New("version --format json output has no version field")

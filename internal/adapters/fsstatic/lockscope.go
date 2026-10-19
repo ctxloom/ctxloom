@@ -50,7 +50,10 @@ type lockScope struct {
 	order []string
 }
 
-var _ safefs.Locks = (*lockScope)(nil)
+var (
+	_ safefs.Locks         = (*lockScope)(nil)
+	_ safefs.GuardingLocks = (*lockScope)(nil)
+)
 
 // begin takes the delivery lock and returns the scope holding it.
 func (s *Static) begin() (*lockScope, error) {
@@ -70,6 +73,13 @@ func (sc *lockScope) Lock(path string) (safefs.Lock, error) {
 	return sc.take(path, func() (safefs.Lock, error) { return sc.locks.Lock(path) })
 }
 
+// LockGuarding is Lock, recording guarded in a lock file it creates
+// (safefs.GuardingLocks): the managed dirs a run locks are sidecars of
+// paths.HomePathFor like any foreign file's.
+func (sc *lockScope) LockGuarding(path, guarded string) (safefs.Lock, error) {
+	return sc.take(path, func() (safefs.Lock, error) { return safefs.LockGuarding(sc.locks, path, guarded) })
+}
+
 // RLock takes path's lock EXCLUSIVELY for the rest of the run: a lock the
 // run holds may be asked for again in either kind, and a shared hold could
 // not be upgraded.
@@ -79,6 +89,17 @@ func (sc *lockScope) RLock(path string) (safefs.Lock, error) { return sc.Lock(pa
 // ctx is done.
 func (sc *lockScope) TryLock(ctx context.Context, path string) (safefs.Lock, error) {
 	return sc.take(path, func() (safefs.Lock, error) { return sc.locks.TryLock(ctx, path) })
+}
+
+// TryRLock is the underlying shared take, NOT scoped to the run: the one
+// taker of it is the reap interlock (sessions.HoldReapInterlock), which a
+// section holds shared and releases itself. Scoping it would turn it
+// exclusive for the whole run, as RLock is, and so make every other taker of
+// a home sidecar wait out each delivery. It waits only on a reap, which takes
+// everything it takes without waiting, so it cannot break the lock order
+// above.
+func (sc *lockScope) TryRLock(ctx context.Context, path string) (safefs.Lock, error) {
+	return sc.locks.TryRLock(ctx, path)
 }
 
 // TryLockExisting is TryLock on a lock file that must already exist.

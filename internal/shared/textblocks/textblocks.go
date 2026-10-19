@@ -7,12 +7,15 @@ import "strings"
 // reads as paragraphs and an empty block contributes nothing rather than a
 // stray gap. Filtering here once means no caller needs its own "skip if
 // empty" loop before joining.
-func Join(parts ...string) string {
+func Join(parts ...string) string { return JoinWith("\n\n", parts...) }
+
+// JoinWith joins the non-empty parts with sep: Join for any separator.
+func JoinWith(sep string, parts ...string) string {
 	var nonEmpty []string
 	for _, p := range parts {
 		if p != "" {
 			nonEmpty = append(nonEmpty, p)
 		}
 	}
-	return strings.Join(nonEmpty, "\n\n")
+	return strings.Join(nonEmpty, sep)
 }

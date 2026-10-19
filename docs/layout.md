@@ -59,6 +59,8 @@ and reports any local-tier path that is missing (`doctorCheckLocalTierState`).
 rebuild command as it goes. It reports without `--yes`, and it takes only the
 cache: `state/` is the tier nothing rebuilds, and `lock.yaml` is rebuildable
 but committed, so deleting it would dirty your tree rather than free anything.
+Beyond the project it also reclaims aged sessions and the home lock sidecars
+whose file is gone ([below](#reaping-lock-sidecars-ctxloom-clean)).
 
 ### `content/` — authored, committed
 
@@ -135,7 +137,7 @@ what actually exists is worth telling you about.
 | `~/.ctxloom/sessions/` | every ctxloom session on this machine, across every project (`paths.HomeSessionsDir`): one directory per session holding its machine state, whose members are the rows of `paths.HarpMembers` — among them `locks/`, the lock files of the session's own files (`paths.HarpLocksDir`), which are reaped with the session | the session's raw history; nothing rebuilds it (its `home/`, `locks/`, `work/` and `scratch/` members are rebuilt, recreated, triaged or regenerated) |
 | `~/.ctxloom/cache/triggers/` | cached revive-trigger verdicts (`paths.TriggerCacheDir`) | nothing durable — the next trigger check recomputes them, just not for free |
 | `~/.ctxloom/coord/` | coordinator state, one subdirectory per project (`paths.HomeCoordDir`) | a LIVE coordinator loses its lock and journal outright; a recent-but-exited one's history becomes unrecoverable |
-| `~/.ctxloom/locks/` | cross-binary advisory lock sidecars for FOREIGN files (an engine's own settings.json/.mcp.json/config.toml) that more than one ctxloom-family binary — ctxloom, `ltk`, `taskloom` — may write (`paths.HomePathFor`). A file inside a session dir is the exception: its lock lives in that session's own `~/.ctxloom/sessions/<harp>/locks/` and dies with the session (`ctxloom clean` reaps it with the session's other disposable members) | harmless — a lock file carries no data and is recreated on next use; a write in flight when it disappears loses its mutual exclusion for that one operation |
+| `~/.ctxloom/locks/` | cross-binary advisory lock sidecars for FOREIGN files (an engine's own settings.json/.mcp.json/config.toml) that more than one ctxloom-family binary — ctxloom, `ltk`, `taskloom` — may write (`paths.HomePathFor`). Each sidecar a current binary creates records, as its one line of content, the path it guards, and `ctxloom clean` reaps the sidecars whose guarded file is gone (see below). A file inside a session dir is the exception: its lock lives in that session's own `~/.ctxloom/sessions/<harp>/locks/` and dies with the session (`ctxloom clean` reaps it with the session's other disposable members) | harmless — a lock file carries only the path it guards and is recreated on next use; a taker re-checks its lock file and retries on a removed one, though a binary older than that check (`lock_protocol` below 2) loses its mutual exclusion for the write in flight |
 
 Two more home-rooted paths exist and are deliberately **not** in the table
 above: `~/.ctxloom/tasks/` is taskloom's own per-project task-log store
@@ -146,6 +148,67 @@ boundary [architecture/core/paths.md](architecture/core/paths.md) draws for
 (`ctxloom.log` for ctxloom, `<binary>.log` for each companion), created only
 once that binary has something to record: diagnostic output, not state whose
 absence is ever worth a doctor warning.
+
+### Reaping lock sidecars: `ctxloom clean`
+
+Nothing else ever deletes a sidecar in `~/.ctxloom/locks/`, so they pile up:
+one per foreign file a ctxloom-family binary ever locked. `ctxloom clean`
+reaps the ones whose file is gone and keeps everything else. Like the rest of
+`clean`, it only reports unless you pass `--yes`.
+
+- **Which ones.** A sidecar that records a path (every sidecar a current build
+  creates) is a candidate once that path no longer exists. An older, empty
+  sidecar counts only when its name is the old unhashed spelling of an
+  absolute path and no reading of that name exists on disk. One whose name
+  is hashed (`paths.FlatName` keeps only a tail of the path and a hash) and
+  that records nothing can never be traced to its file: the report counts it
+  as unreapable (no recorded path).
+- **How.** Each candidate is removed with `safefs.ReapLockFile`, which makes
+  one non-blocking attempt at the lock and unlinks the file while it holds
+  it, so a sidecar some process holds is left in place. That is safe because
+  every taker re-checks, once it has the lock, that its file is still the one
+  at the path, and takes the lock again on the fresh file when it is not.
+- **When it refuses.** A binary older than that re-check would keep the lock
+  on the removed file while a newer taker locked the fresh one. So before it
+  removes anything, `clean` lists the running processes (from `/proc`) and
+  asks every running `ctxloom`, `ltk` and `taskloom` for its `lock_protocol`
+  (`version --format json`, through the kernel's own link to the binary that
+  process runs). It refuses, and says why and what to do, if any of them
+  answers below 2 or not at all, if its binary cannot be read, or if its
+  binary has been replaced since it started (it may be an older build). It
+  also refuses while a ctxloom agent container is running, because a
+  container binds host lock files into itself, where a removal on the host
+  is never seen, and if a container runtime on `PATH` cannot list its
+  containers. It refuses where the processes cannot be listed (anywhere
+  without `/proc`), and if the listing does not even show `clean` itself.
+  Processes another account runs, which this account cannot even name (a
+  `/proc` mounted `hidepid`), are not seen.
+- **The interlock.** The check above looks once, so on its own it would miss
+  whatever starts during the reap. The reap interlock,
+  `~/.ctxloom/locks/reap.interlock` (`paths.LockReapInterlockPath`), closes
+  that for every current binary. `clean --yes` takes it exclusive, in one
+  attempt, *before* the check, and holds it until the last sidecar is
+  reaped; a plain `clean` only probes it. Every activity that takes or binds
+  a sidecar here holds it shared: a container launch from before it binds
+  host lock files until the run is cleaned up, after the container is gone;
+  a write under a sidecar of this directory for just that write. While
+  anything holds it shared, `clean` refuses and says something is active.
+  While `clean` holds it, a launch or a write waits up to 30 seconds and is
+  then refused; it never goes ahead without its hold. A long-running
+  ctxloom, `ltk` or `taskloom` holds it only around each such write, not
+  for its whole life: the MCP servers and coordinators of an open editor
+  session live for days, and holding it that long would mean `clean` could
+  never reap.
+- **What is still open.** A binary older than the interlock does not know
+  it. One running when `clean` looks is refused by the check; one *started*
+  during a `clean --yes` is seen by neither, and if it takes a sidecar the
+  reap then removes, it can hold that lock beside a current taker. The
+  window is the reap itself, after the check, and it closes for good once
+  every ctxloom, `ltk` and `taskloom` on the machine, and in its agent
+  images, is current.
+
+With nothing of the family running, deleting `~/.ctxloom/locks/` by hand is
+safe too: every lock file is recreated on its next use.
 
 ## Engine homes: your real home, and the per-session instance
 

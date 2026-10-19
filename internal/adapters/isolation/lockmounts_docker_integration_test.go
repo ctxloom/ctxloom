@@ -45,7 +45,7 @@ func TestContainerLockMounts_HostLocksUnreachableFromChild(t *testing.T) {
 	} {
 		lp, err := paths.HomePathFor(protected)
 		require.NoError(t, err)
-		require.NoError(t, prepareLockFile(safefs.New().Locks, lp))
+		require.NoError(t, prepareLockFile(safefs.New().Locks, lp, protected))
 		require.NoError(t, os.WriteFile(lp, []byte("host"), 0o644))
 		hostLocks = append(hostLocks, lp)
 	}

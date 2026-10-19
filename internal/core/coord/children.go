@@ -859,7 +859,7 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 	if !start.Resumed {
 		c.recordEngineVersion(rt.harp, resolved.Launch)
 	}
-	if err := c.honourListen(resolved.Launch.Cell.Listen); err != nil {
+	if err := c.honourListen(resolved.Launch.Cell.Listen, rt.runID); err != nil {
 		// The cell is already prepared (its worktree carved, a child branch
 		// cut) and no runner will ever own it: tear it down here, as a failed
 		// Start does (operations.StartEngine), so the abandoned launch leaves
@@ -882,6 +882,7 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 	if c.attach[rt.runID] != rt {
 		c.mu.Unlock()
 		engine.Kill()
+		c.releaseListen(rt.runID)
 		return
 	}
 	rt.close = engine.Kill
@@ -1597,6 +1598,7 @@ func (c *Coordinator) endRun(runID, cause, detail string, drainTail, fence bool)
 		hook(runID)
 	}
 	c.releaseRunSecrets(runID)
+	c.releaseListen(runID)
 	c.sampleExecGauge() // the terminal is also a (possible) StateExecuting exit — see setState's sibling call
 	c.audit("run_terminal", rec.Harp, map[string]string{"run_id": runID, "cause": cause})
 	// Plane-2 request idempotency records are reconnect-surviving

@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/shared/hostnet"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -48,9 +49,41 @@ type coordServing struct {
 	loopback net.Listener
 	loopURL  string
 	// extra holds the listeners Listen opened, by address; warned the public
-	// addresses already reported.
-	extra  map[string]net.Listener
-	warned map[string]bool
+	// addresses already reported. holders is, per address, the runs that need
+	// it: the last one to end closes the listener (Unlisten). hostOnly marks
+	// the addresses that refuse non-host peers, recorded so a relaunch re-opens
+	// them the same way.
+	extra    map[string]net.Listener
+	holders  map[string]map[string]struct{}
+	hostOnly map[string]bool
+	warned   map[string]bool
+}
+
+// The server's connection bounds. ReadHeaderTimeout closes a peer that opens a
+// connection and never finishes its request headers. IdleTimeout closes a
+// keep-alive connection that holds no request: an HTTP/2 connection with an
+// open stream is not idle, so the perpetual RunChannel/RunnerChannel streams
+// are unaffected, and a viewer's gRPC client redials an idle connection that
+// was closed.
+const (
+	readHeaderTimeout = 10 * time.Second
+	idleTimeout       = 5 * time.Minute
+)
+
+// newHTTPServer is the coordinator's http.Server around h: h2c alongside
+// HTTP/1 (which h answers 404), with the connection bounds above.
+func newHTTPServer(h http.Handler) *http.Server {
+	// Unencrypted HTTP/2 (h2c) via net/http's Protocols — the modern
+	// replacement for the deprecated x/net/http2/h2c wrapper.
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+	return &http.Server{
+		Handler:           h,
+		Protocols:         protocols,
+		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       idleTimeout,
+	}
 }
 
 // endpointState persists the bound ports so a relaunched coordinator
@@ -77,10 +110,17 @@ func Serve(c *coord.Coordinator) error {
 	if c.Draining() {
 		return fmt.Errorf("coord: %w", coord.ErrDraining)
 	}
-	s := &coordServing{c: c, extra: map[string]net.Listener{}, warned: map[string]bool{}}
+	s := &coordServing{
+		c:        c,
+		extra:    map[string]net.Listener{},
+		holders:  map[string]map[string]struct{}{},
+		hostOnly: map[string]bool{},
+		warned:   map[string]bool{},
+	}
 
 	grpcSrv := grpcServer(c)
 	s.grpcSrv = grpcSrv
+	gated := authGate(c, grpcSrv)
 	s.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// gRPC (RunnerChannel/RunChannel) is plaintext HTTP/2 with the grpc
 		// content-type. Nothing else is served here — the MCP tool path
@@ -88,19 +128,14 @@ func Serve(c *coord.Coordinator) error {
 		// socket; per-request credential auth lives in the gRPC
 		// interceptors.
 		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
-			grpcSrv.ServeHTTP(w, r)
+			gated.ServeHTTP(w, r)
 			return
 		}
 		http.NotFound(w, r)
 	})
-	// Unencrypted HTTP/2 (h2c) via net/http's Protocols — the modern
-	// replacement for the deprecated x/net/http2/h2c wrapper. No bind is ever
-	// 0.0.0.0; the credential authenticates
-	// every gRPC stream and request.
-	protocols := new(http.Protocols)
-	protocols.SetHTTP1(true)
-	protocols.SetUnencryptedHTTP2(true)
-	s.httpSrv = &http.Server{Handler: s.handler, Protocols: protocols}
+	// No bind is ever 0.0.0.0; the credential authenticates every gRPC stream
+	// and request.
+	s.httpSrv = newHTTPServer(s.handler)
 
 	ep := s.loadEndpoint()
 	// Mint the consumer-class watch credential fresh for this process
@@ -125,10 +160,22 @@ func Serve(c *coord.Coordinator) error {
 	// A previous incarnation listened beyond loopback for a container run; a
 	// container runner from before the restart redials that recorded address
 	// and port, so it is re-bound NOW — not on the next container spawn, which
-	// may never come — or the run it holds can only end as runner loss.
-	for _, addr := range ep.ListenAddrs {
-		if err := s.Listen(present.Listen{Addr: addr}); err != nil {
-			c.Reporter().Warnf("coord: re-open the container listener recorded on %s: %v (a container runner from before the restart cannot be re-adopted)", addr, err)
+	// may never come — or the run it holds can only end as runner loss. Only
+	// while such a run is live: with none, nothing would dial the address, and
+	// a listener held for nobody is exposure for nothing. The adopted runs hold
+	// it, so the last of them to end closes it.
+	if live := c.LiveContainerRunIDs(); len(live) > 0 {
+		hostOnly := map[string]bool{}
+		for _, addr := range ep.HostPeersOnlyAddrs {
+			hostOnly[addr] = true
+		}
+		for _, addr := range ep.ListenAddrs {
+			for _, runID := range live {
+				if err := s.Listen(present.Listen{Addr: addr, HostPeersOnly: hostOnly[addr]}, runID); err != nil {
+					c.Reporter().Warnf("coord: re-open the container listener recorded on %s: %v (a container runner from before the restart cannot be re-adopted)", addr, err)
+					break
+				}
+			}
 		}
 	}
 	return nil
@@ -187,6 +234,12 @@ func (s *coordServing) saveEndpointLocked() {
 		ep.ListenAddrs = append(ep.ListenAddrs, addr)
 	}
 	sort.Strings(ep.ListenAddrs)
+	for addr := range s.extra {
+		if s.hostOnly[addr] {
+			ep.HostPeersOnlyAddrs = append(ep.HostPeersOnlyAddrs, addr)
+		}
+	}
+	sort.Strings(ep.HostPeersOnlyAddrs)
 	if s.loopback != nil {
 		ep.LoopbackPort = s.loopback.Addr().(*net.TCPAddr).Port
 	}
@@ -216,12 +269,15 @@ func writeEndpoint(fs afero.Fs, path string, ep endpointState) error {
 // Transport.LoopbackURL.
 func (s *coordServing) LoopbackURL() string { return s.loopURL }
 
-// Listen opens the listener a container cell named, on the loopback
-// listener's port — the coordinator's Transport.Listen. The cell's runtime
-// chose the address (a private bridge gateway, or the public fallback); this
-// knows no runtime. A public address is reported once: reachable beyond this
-// host, its every stream still authenticates against a per-run credential.
-func (s *coordServing) Listen(l present.Listen) error {
+// Listen opens the listener a cell named, on the loopback listener's port —
+// the coordinator's Transport.Listen — and records holder (the run that needs
+// it) against the address; Unlisten closes it when the last holder is gone.
+// The cell's runtime chose the address (a private bridge gateway, or the
+// public fallback); this knows no runtime. A public address is reported once:
+// reachable beyond this host, its every stream still authenticates against a
+// per-run credential. A listener the cell marked HostPeersOnly refuses every
+// peer that is not one of this host's addresses.
+func (s *coordServing) Listen(l present.Listen, holder string) error {
 	if l.Addr == "" {
 		return nil
 	}
@@ -233,15 +289,52 @@ func (s *coordServing) Listen(l present.Listen) error {
 		if err != nil {
 			return fmt.Errorf("coord: listen on %s for a container runner: %w", l.Addr, err)
 		}
-		go func() { _ = s.httpSrv.Serve(ln) }()
+		served := ln
+		if l.HostPeersOnly {
+			addr := l.Addr
+			served = newHostPeerListener(ln, hostnet.IsLocalAddr, func(remote string) {
+				s.c.Reporter().Warnf("coordinator: refused a connection to %s from %s, which is not an address of this host", addr, remote)
+			})
+			s.hostOnly[l.Addr] = true
+		}
+		go func() { _ = s.httpSrv.Serve(served) }()
 		s.extra[l.Addr] = ln
+		s.holders[l.Addr] = map[string]struct{}{}
 		s.saveEndpointLocked()
 	}
+	s.holders[l.Addr][holder] = struct{}{}
 	if l.Public && !s.warned[l.Addr] {
 		s.warned[l.Addr] = true
 		s.c.Reporter().Warnf("coordinator: listening on %s, which is reachable beyond this host, because %s; the endpoint is token-protected (every stream authenticates with a per-run credential)", l.Addr, l.Why)
 	}
 	return nil
+}
+
+// Unlisten drops holder's claim on every address Listen opened for it, and
+// closes each one nobody else needs, removing it from endpoint.json so the
+// recorded set stays the one actually open.
+func (s *coordServing) Unlisten(holder string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	closed := false
+	for addr, held := range s.holders {
+		if _, ok := held[holder]; !ok {
+			continue
+		}
+		delete(held, holder)
+		if len(held) > 0 {
+			continue
+		}
+		_ = s.extra[addr].Close()
+		delete(s.extra, addr)
+		delete(s.holders, addr)
+		delete(s.hostOnly, addr)
+		delete(s.warned, addr)
+		closed = true
+	}
+	if closed {
+		s.saveEndpointLocked()
+	}
 }
 
 // close shuts every listener down. Order: Stop the gRPC server FIRST — it is

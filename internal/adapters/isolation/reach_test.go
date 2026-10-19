@@ -231,3 +231,36 @@ func TestReachRoute_BridgeGatewayLocalityUnknownIsRefused(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoHostReach)
 	assert.Contains(t, err.Error(), "netlink: permission denied")
 }
+
+// TestReachRoute_OnlyHostSourcedRoutesRefuseForeignPeers: the listener refuses
+// non-host peers only where the runtime's traffic is measured to arrive from
+// the host's own address — rootless docker's slirp4netns. Every other
+// non-loopback route stays open to all peers: a bridge's containers arrive from
+// the bridge subnet, and the remaining public routes have no measured source.
+func TestReachRoute_OnlyHostSourcedRoutesRefuseForeignPeers(t *testing.T) {
+	if platform.ContainersInVM {
+		t.Skip("in a VM every runtime answers its alias; this pins the shared-kernel routes")
+	}
+	stubPrimary(t, "192.0.2.10")
+	stubLocal(t, true, nil)
+	cases := []struct {
+		name    string
+		rt      Runtime
+		gateway string
+		want    bool
+	}{
+		{"docker rootless public route", Docker{rootless: true}, "", true},
+		{"docker rootful bridge gateway", Docker{}, "172.17.0.1\n", false},
+		{"docker rootful without a gateway", Docker{}, "<no value>\n", false},
+		{"podman rootful bridge gateway", Podman{}, "10.88.0.1\n", false},
+		{"podman rootless unknown network", Podman{rootless: true}, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stubGateway(t, tc.gateway, nil)
+			got, err := tc.rt.reachRoute(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got.listen.HostPeersOnly)
+		})
+	}
+}

@@ -100,6 +100,11 @@ func (p Podman) reachRoute(ctx context.Context) (hostRoute, error) {
 }
 
 // hostReach is Podman's route to a coordinator on the daemon's host.
+//
+// Both public routes here leave their listener open to every peer: under WSL
+// the connection arrives from the machine VM's NAT address, and for a rootless
+// network with no known translator there is no measured source to hold the
+// filter to.
 func (p Podman) hostReach(ctx context.Context) (hostRoute, error) {
 	switch {
 	case platform.ContainersInVM && machineVMIsWSL:
@@ -107,7 +112,7 @@ func (p Podman) hostReach(ctx context.Context) (hostRoute, error) {
 		// connection to a listener on this host times out (podman issues
 		// #14933, #25152). This host's own primary address is the route those
 		// reports show working, taken explicitly — public, and warned.
-		return publicRoute(podmanWSLReach)
+		return publicRoute(podmanWSLReach, false)
 	case platform.ContainersInVM:
 		return hostRoute{dial: "host.containers.internal"}, nil
 	case p.rootless && p.rootlessNet == "pasta":
@@ -115,7 +120,7 @@ func (p Podman) hostReach(ctx context.Context) (hostRoute, error) {
 	case p.rootless && p.rootlessNet == "slirp4netns":
 		return hostRoute{dial: slirpHostLoopback, network: "slirp4netns:allow_host_loopback=true"}, nil
 	case p.rootless:
-		return publicRoute(fmt.Sprintf("rootless podman's network %q has no known route to the host's loopback", p.rootlessNet))
+		return publicRoute(fmt.Sprintf("rootless podman's network %q has no known route to the host's loopback", p.rootlessNet), false)
 	default:
 		return bridgeRoute(ctx, p)
 	}

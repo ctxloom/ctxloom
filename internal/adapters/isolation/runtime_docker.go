@@ -86,12 +86,18 @@ func (d Docker) reachRoute(ctx context.Context) (hostRoute, error) {
 }
 
 // hostReach is Docker's route to a coordinator on the daemon's host.
+//
+// Rootless docker's public route is host-sourced: its containers leave through
+// slirp4netns, a process on the host that opens the connection from the host's
+// own address, so the listener refuses every other peer. The rootful route's
+// containers arrive from the bridge's subnet, which is not the host's address,
+// so it is not filtered.
 func (d Docker) hostReach(ctx context.Context) (hostRoute, error) {
 	switch {
 	case platform.ContainersInVM:
 		return hostRoute{dial: "host.docker.internal"}, nil
 	case d.rootless:
-		return publicRoute("rootless docker's RootlessKit disables the containers' route to the host's loopback, and its bridge is not on the host")
+		return publicRoute("rootless docker's RootlessKit disables the containers' route to the host's loopback, and its bridge is not on the host", true)
 	default:
 		return bridgeRoute(ctx, d)
 	}

@@ -2,6 +2,7 @@ package coord
 
 import (
 	"errors"
+	"sort"
 
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
@@ -18,10 +19,13 @@ type Transport interface {
 	// LoopbackURL is the host-side address ("" before any listener is up).
 	LoopbackURL() string
 	// Listen holds the listener a cell's re-minted reach needs beyond
-	// loopback, on the loopback listener's port (never 0.0.0.0). The address
-	// is the cell's to name; a Public one is reported once. The zero Listen
-	// needs nothing.
-	Listen(l present.Listen) error
+	// loopback, on the loopback listener's port (never 0.0.0.0), for holder
+	// (a run ID). The address is the cell's to name; a Public one is reported
+	// once. The zero Listen needs nothing.
+	Listen(l present.Listen, holder string) error
+	// Unlisten drops holder's claim on what Listen opened for it; a listener
+	// no run needs any longer is closed.
+	Unlisten(holder string)
 	// Close tears the listeners down.
 	Close()
 }
@@ -125,9 +129,10 @@ func (c *Coordinator) ReachURL(runtimeAxis launch.RuntimeAxis) (string, error) {
 	return t.LoopbackURL(), nil
 }
 
-// honourListen holds the listener a resolved cell named, before its runner
-// starts: without it the re-minted reach lands on nothing.
-func (c *Coordinator) honourListen(l present.Listen) error {
+// honourListen holds the listener a resolved cell named for runID, before its
+// runner starts: without it the re-minted reach lands on nothing. runID's end
+// releases it (releaseListen).
+func (c *Coordinator) honourListen(l present.Listen, runID string) error {
 	if l == (present.Listen{}) {
 		return nil
 	}
@@ -135,7 +140,32 @@ func (c *Coordinator) honourListen(l present.Listen) error {
 	if t == nil {
 		return ErrNotServing
 	}
-	return t.Listen(l)
+	return t.Listen(l, runID)
+}
+
+// releaseListen drops runID's claim on the listeners honourListen opened, so a
+// listener beyond loopback lives only while a container run needs it. A run
+// that held none costs a lookup.
+func (c *Coordinator) releaseListen(runID string) {
+	if t := c.Transport(); t != nil {
+		t.Unlisten(runID)
+	}
+}
+
+// LiveContainerRunIDs are the runs not yet ended that execute in a container:
+// the ones whose runner, from before a restart, can redial a listener beyond
+// loopback.
+func (c *Coordinator) LiveContainerRunIDs() []string {
+	var ids []string
+	c.runs.View(func() {
+		for id, r := range c.runsF.runs {
+			if !r.Ended && launch.IsContainerRuntimeAxis(r.Runtime) {
+				ids = append(ids, id)
+			}
+		}
+	})
+	sort.Strings(ids)
+	return ids
 }
 
 // StateDir is the coordinator's state directory — where the wire adapter

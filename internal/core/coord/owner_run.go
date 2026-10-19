@@ -106,10 +106,6 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	if err != nil {
 		return nil, reachRefusal("owner run", runtime, err, "")
 	}
-	if err := c.honourListen(spec.Launch.Cell.Listen); err != nil {
-		return nil, fmt.Errorf("owner run: the runner has no listener to dial home to: %w", err)
-	}
-
 	// A synthetic plan carrying exactly what enqueueRun journals and
 	// issueStartRun reads: the owner's harp AS the run role (AgentName), the
 	// resolved launch, and the composed MCP set. No binding is selected —
@@ -150,6 +146,13 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	rt.ownerRun = true
 	rt.oneshot = spec.OneShot
 	c.mu.Unlock()
+	// The run's own ID names the claim, so its end closes what it needed; the
+	// run exists first for that reason.
+	if err := c.honourListen(spec.Launch.Cell.Listen, rt.runID); err != nil {
+		err = fmt.Errorf("owner run: the runner has no listener to dial home to: %w", err)
+		c.failChild(rt, err)
+		return nil, err
+	}
 	c.setState(rt, StateExecuting)
 	c.audit("owner_run", owner.Harp, map[string]string{"harp": l.Identity.Harp, "run_id": rt.runID, "backend": string(l.Engine)})
 

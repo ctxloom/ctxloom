@@ -71,12 +71,12 @@ flowchart TD
 
 | Symbol | Contract |
 | --- | --- |
-| `coordServing` | the listener set: loopback always, plus any address a container cell names, on the loopback port |
+| `coordServing` | the listener set: loopback always, plus any address a container cell names, on the loopback port, each held by the container runs that need it and closed when the last ends |
 | `endpointState` | the on-disk `endpoint.json`: the loopback port, the addresses a cell had it listen on, and the consumer credential — a viewer's one discovery point |
 | `coordgrpc.Serve` | stands up the h2c listener, mints the consumer credential, saves `endpoint.json` (0600), and binds the result to the coordinator through `Coordinator.BindTransport` (atomic with `Close`; a second bind is refused) |
 | `bindPreferring` | binds the recorded port, falls back to ephemeral — the fallback *is* the error handling |
 | `Coordinator.ReachURL` | the loopback URL for every axis; `launch.ErrUnknownRuntimeAxis` or `coord.ErrNotServing` at the verb |
-| `present.Reach` / `present.Listen` | a container cell re-mints the reach for its runtime's route home (`isolation.Runtime.reachRoute`) and names what the coordinator must listen on; `Transport.Listen` opens it after the cell is prepared and before the runner starts, and reports a public one once |
+| `present.Reach` / `present.Listen` | a container cell re-mints the reach for its runtime's route home (`isolation.Runtime.reachRoute`) and names what the coordinator must listen on; `Transport.Listen` opens it for the run after the cell is prepared and before the runner starts, and reports a public one once; `Transport.Unlisten` releases it at the run's end |
 | `coordServing.Close` | `grpcSrv.Stop()` **before** shutting the listeners — `GracefulStop` caused a confirmed process-crashing panic |
 | `discover.List` | out-of-process discovery: glob `~/.ctxloom/coord/*/*/endpoint.json`, sort by mtime newest-first, drop a root whose owner lock nobody holds (its coordinator exited), return `(URL, Cred)` pairs |
 
@@ -97,8 +97,11 @@ with the run credential it was minted (`sessions.EncodeReach` on the runner
 env, `runnerlink.go`'s `bearerCreds` on the wire). The posture, stated once so
 it is not inferred from scattered call sites:
 
-- **Bearer-authenticated, on every stream.** `grpcServer`'s `auth` interceptor
-  calls `Coordinator.Identify(mdToken(ctx))` before any handler runs;
+- **Bearer-authenticated, on every stream.** `authGate` checks the credential
+  on the raw request before grpc-go decodes a message (grpc-go decodes a unary
+  request before its interceptor runs, so the interceptor alone would parse an
+  unauthenticated peer's bytes), and `grpcServer`'s `auth` interceptor
+  calls `Coordinator.Identify(mdToken(ctx))` again before any handler runs;
   `RunnerChannel` / `RunChannel` re-check per stream and refuse an unknown or
   revoked credential with `codes.Unauthenticated` before a Hello is read (T2's
   sibling — a frame that carries no issued credential never reaches a
@@ -107,30 +110,53 @@ it is not inferred from scattered call sites:
 - **Cleartext (h2c), by design in 0.7.** `coordgrpc.Serve` stands up an h2c
   listener and `runnerlink.go` dials with `RequireTransportSecurity` false: the
   bearer is the whole boundary, and it is carried unencrypted. The threat this
-  accepts is a same-host or same-LAN observer of the loopback/wide listener
-  reading a bearer in flight. On the loopback listener the reader must already
-  share the host (and a host-runtime credential is readable from any same-uid
-  process's environment regardless — the container runtime is the actual
-  isolation boundary, not this link). A container runtime with no private
-  route home (`present.Listen.Public`, e.g. rootless docker) has the
-  coordinator listen on the host's primary address, which is LAN-visible, so
-  a bearer crosses a LAN-visible socket in the clear whenever such a child
-  reaches back over it. The human's ENGINE credential does not: a container
-  cell's StartRun names it by file (`Cell.secret_files`), and the runner reads
-  the read-only secret mount (`runner.redeemSecrets`). Only a host cell's
-  launch carries it, and a host cell's runner dials loopback.
+  accepts is an observer on the link reading a bearer in flight. On the
+  loopback listener the reader must already share the host (and a host-runtime
+  credential is readable from any same-uid process's environment regardless —
+  the container runtime is the actual isolation boundary, not this link). The
+  rootless-docker route (`present.Listen.Public`) does not put the bearer on
+  the LAN: its containers connect through slirp4netns, on the host, to the
+  host's own address, so the traffic stays host-internal. Over a bridge the
+  link is the host's private bridge. The human's ENGINE credential does not
+  ride it either: a container cell's StartRun names it by file
+  (`Cell.secret_files`), and the runner reads the read-only secret mount
+  (`runner.redeemSecrets`). Only a host cell's launch carries it, and a host
+  cell's runner dials loopback.
 - **What is listened on, and what bounds it.** `coordServing` never binds
   `0.0.0.0`. A plain host session binds loopback and nothing else
-  (`TestServe_BindsLoopbackOnly`); a further listener exists only when a
-  container cell's reach names one (`coordServing.Listen`), on the loopback
-  listener's port. That listener is the runtime's private bridge gateway where
-  there is one, else the host's primary outbound address
-  (`present.Listen.Public`, from `publicRoute`), which is reachable from the
-  LAN and is reported once per address (`TestListen_PublicIsReportedOnceWithItsReason`).
-  The outbound address is kept because rootless slirp/pasta containers have no
-  other route home. Every stream and request on every listener needs a
-  per-run bearer. The accepted posture is recorded in `docs/trust-model.md`
-  (known gaps).
+  (`TestServe_BindsLoopbackOnly`). A further listener exists only while a
+  container run's cell names one (`coordServing.Listen`), on the loopback
+  listener's port: it is opened for that run and closed when the last run
+  holding it ends (`coordServing.Unlisten`), and `endpoint.json`'s
+  `listen_addrs` names only the addresses open now. A restarted coordinator
+  re-opens a recorded address only while a container run it adopted is live
+  (`Coordinator.LiveContainerRunIDs`). The address is the runtime's private
+  bridge gateway where there is one; rootless docker has none, so it is the
+  host's primary outbound address (`present.Listen.Public`, from `publicRoute`),
+  reported once per address (`TestListen_PublicIsReportedOnceWithItsReason`).
+  The primary address follows the default route, so on a roaming host it is
+  whatever network the host is on, a café Wi-Fi included, and the port is open
+  to that network's hosts.
+  - **Source filter.** The rootless-docker listener is wrapped by
+    `hostPeerListener` (`present.Listen.HostPeersOnly`, recorded in
+    `endpoint.json` as `host_peers_only_addrs`): a connection whose peer is not
+    one of this host's own addresses (`hostnet.IsLocalAddr`) is closed at
+    accept, before any HTTP/2 byte is read, and reported once per remote
+    address. The legitimate peer is slirp4netns on the host, so it passes; the
+    kernel drops LAN packets forging a local source.
+  - **Unfiltered routes.** A route is filtered only where its traffic provably
+    arrives from a host address. Not filtered: the rootful bridge gateway
+    (containers arrive from the bridge subnet), the rootful no-gateway fallback
+    to the primary address, rootless podman on a network with no known
+    translator, and podman machine on WSL (the connection arrives from the VM's
+    NAT address). On those a peer that reaches the port can connect and then
+    needs a bearer.
+  - **Connection bounds.** `newHTTPServer` sets `ReadHeaderTimeout` (10 s) and
+    `IdleTimeout` (5 min). An HTTP/2 connection with an open stream is not
+    idle, so the perpetual `RunnerChannel`/`RunChannel` streams are unaffected
+    (`TestNewHTTPServer_AStreamOutlivesTheIdleTimeout`).
+  Every stream and request on every listener needs a per-run bearer. The
+  accepted posture is recorded in `docs/trust-model.md` (known gaps).
 - **mTLS is slice 16's.** Encrypting the bridge and verifying a runner by client
   certificate — refusing a runner with no cert, and moving the boundary from
   "holds the bearer" to "presents a trusted cert" — is a later, separate change;

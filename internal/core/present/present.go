@@ -260,6 +260,13 @@ type Listen struct {
 	// runtime offers no private route); Why names that reason for the warning.
 	Public bool
 	Why    string
+	// HostPeersOnly marks a route whose container traffic is measured to reach
+	// this listener from one of the host's OWN addresses (the runtime's
+	// userspace network stack runs on the host and originates the connection
+	// there), so the listener may refuse every other peer. A route whose
+	// source address is not provably the host's leaves it false: refusing
+	// would break the runner.
+	HostPeersOnly bool
 }
 
 // ReachOnHost is the uncontainerized Reach: Engine is Host.

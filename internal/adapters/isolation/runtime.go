@@ -181,12 +181,17 @@ var errBridgeNotLocal = errors.New("isolation: the container runtime's bridge ga
 // publicRoute is the last preference: the host's primary outbound address,
 // listened on and reachable beyond this host. why names the runtime mode's
 // missing private route for the one-time warning.
-func publicRoute(why string) (hostRoute, error) {
+//
+// hostSourced says the runtime's container traffic is measured to arrive from
+// one of this host's own addresses, so the listener can refuse any other peer
+// (present.Listen.HostPeersOnly). A route that cannot show that leaves the
+// listener open to every peer rather than break the runner.
+func publicRoute(why string, hostSourced bool) (hostRoute, error) {
 	ip := primaryOutboundIP()
 	if ip == "" {
 		return hostRoute{}, fmt.Errorf("%w: %s, and the host has no default route to take its primary address from", ErrNoHostReach, why)
 	}
-	return hostRoute{dial: ip, listen: present.Listen{Addr: ip, Public: true, Why: why}}, nil
+	return hostRoute{dial: ip, listen: present.Listen{Addr: ip, Public: true, Why: why, HostPeersOnly: hostSourced}}, nil
 }
 
 // bridgeRoute is the rootful preference: the default bridge network's
@@ -208,7 +213,7 @@ func bridgeRoute(ctx context.Context, rt Runtime) (hostRoute, error) {
 		}
 		return hostRoute{dial: ip, listen: present.Listen{Addr: ip}}, nil
 	}
-	return publicRoute(fmt.Sprintf("%s reports no bridge gateway on the host to listen on (%v)", rt.Name(), err))
+	return publicRoute(fmt.Sprintf("%s reports no bridge gateway on the host to listen on (%v)", rt.Name(), err), false)
 }
 
 // removeOutcome is what a force-remove established about its container.

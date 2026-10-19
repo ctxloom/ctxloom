@@ -3,6 +3,8 @@ package coordgrpc
 import (
 	"context"
 	"errors"
+	"net/http"
+	"strconv"
 	"strings"
 
 	"google.golang.org/grpc"
@@ -21,7 +23,13 @@ func mdToken(ctx context.Context) string {
 	if !ok {
 		return ""
 	}
-	for _, v := range md.Get("authorization") {
+	return bearerToken(md.Get("authorization"))
+}
+
+// bearerToken is the first bearer credential among authorization header
+// values.
+func bearerToken(values []string) string {
+	for _, v := range values {
 		if tok, found := strings.CutPrefix(v, "Bearer "); found {
 			return tok
 		}
@@ -56,6 +64,40 @@ const coordinatorServiceMethodPrefix = "/agentcoord.v1.CoordinatorService/"
 // unconditionally).
 const artifactUploadFullMethod = "/agentcoord.v1.ArtifactTransferService/UploadArtifact"
 
+// authorize is the credential check every RPC passes: token must be a live
+// credential, and a read-only consumer one may not call a mutating method.
+// authGate runs it on the raw request before grpc-go decodes anything, and the
+// interceptors run it again per RPC.
+func authorize(c *coord.Coordinator, token, fullMethod string) error {
+	id, ok := c.Identify(token)
+	if !ok {
+		return status.Error(codes.Unauthenticated, "unknown or revoked credential")
+	}
+	if id.Consumer && (strings.HasPrefix(fullMethod, coordinatorServiceMethodPrefix) || fullMethod == artifactUploadFullMethod) {
+		return status.Error(codes.PermissionDenied, "a read-only consumer credential cannot call "+fullMethod)
+	}
+	return nil
+}
+
+// authGate refuses an unauthenticated gRPC request before next reads its body.
+// grpc-go decodes a unary request into its message BEFORE the unary
+// interceptor runs, so the interceptor alone leaves every unary RPC parsing an
+// unauthenticated peer's protobuf (up to the receive limit). The refusal is a
+// trailers-only gRPC response, which a gRPC client reads as the status it is.
+func authGate(c *coord.Coordinator, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := authorize(c, bearerToken(r.Header.Values("Authorization")), r.URL.Path); err != nil {
+			st, _ := status.FromError(err)
+			w.Header().Set("Content-Type", "application/grpc")
+			w.Header().Set("Grpc-Status", strconv.Itoa(int(st.Code())))
+			w.Header().Set("Grpc-Message", st.Message())
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // grpcServer builds the coordinator's gRPC server with per-stream credential
 // verification (identity is re-checked per request too — every handler calls
 // Identify again rather than trusting a cached principal). A consumer
@@ -67,14 +109,7 @@ const artifactUploadFullMethod = "/agentcoord.v1.ArtifactTransferService/UploadA
 // consumers (read-only).
 func grpcServer(c *coord.Coordinator) *grpc.Server {
 	auth := func(ctx context.Context, fullMethod string) error {
-		id, ok := c.Identify(mdToken(ctx))
-		if !ok {
-			return status.Error(codes.Unauthenticated, "unknown or revoked credential")
-		}
-		if id.Consumer && (strings.HasPrefix(fullMethod, coordinatorServiceMethodPrefix) || fullMethod == artifactUploadFullMethod) {
-			return status.Error(codes.PermissionDenied, "a read-only consumer credential cannot call "+fullMethod)
-		}
-		return nil
+		return authorize(c, mdToken(ctx), fullMethod)
 	}
 	srv := grpc.NewServer(
 		grpc.ChainStreamInterceptor(func(v any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {

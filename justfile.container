@@ -676,9 +676,20 @@ complexity-check:
 complexity-baseline-update:
     python3 scripts/complexity_gate.py generate > .complexity-baseline.txt
 
-# Format code
+# Format the repository: scripts/fmt runs every formatter (gofmt, buf format,
+# shfmt) over the files each one owns.
 fmt:
-    go fmt ./...
+    bash scripts/fmt fix
+
+# The gate form of `fmt`: prints every formatter's drift and fails on any,
+# writing nothing.
+fmt-check:
+    bash scripts/fmt check
+
+# buf format, with ARGS passed straight through. The root justfile's
+# fmt-proto delegates here, and scripts/fmt calls that.
+fmt-proto *ARGS:
+    buf format "$@"
 
 # Tidy dependencies
 tidy:

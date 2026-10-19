@@ -1,0 +1,264 @@
+#!/usr/bin/env bash
+# The repository's formatters in one place: which files each one owns and how
+# it runs. `just fmt` and `just fmt-check` run it over the checkout; lefthook's
+# pre-commit formatter steps run it over the staged files of one kind, and
+# lefthook.yml says why those steps are shaped the way they are.
+#
+#   bash scripts/fmt fix   [KIND...]   rewrite every file of KIND in the checkout
+#   bash scripts/fmt check [KIND...]   report drift without writing; exit 1 on any
+#   bash scripts/fmt staged KIND       pre-commit: format the staged files of KIND
+#
+# KIND is one of:
+#   go     gofmt. Plain gofmt, with no -s and no gofumpt/goimports:
+#          .golangci.yml's formatters section says why.
+#   proto  buf format, through `just fmt-proto`, which runs it in the
+#          devcontainer: buf never runs on the host, where its plugins are not
+#          the pinned ones.
+#   shell  shfmt, 4-space indent with indented case arms: the style most of the
+#          repo's shell already had, and the one every justfile recipe body uses.
+# No KIND means all of them, in that order.
+#
+# A file under a testdata/ directory is never formatted: fixtures are bytes the
+# tests expect, and `go fmt ./...` has always skipped them for the same reason.
+# The vendored google/ protos are kept identical to upstream; buf.yaml and
+# buf.gen.yaml exclude them from lint and codegen too.
+#
+# Run with bash explicitly: lefthook hands a run block to /bin/sh, which is not
+# bash everywhere a commit is made.
+set -euo pipefail
+
+kinds_all=(go proto shell)
+shfmt_flags=(-i 4 -ci)
+vendored_protos=internal/adapters/coordgrpc/pb/google/
+
+usage() {
+    echo "usage: bash scripts/fmt fix|check [go|proto|shell ...]" >&2
+    echo "       bash scripts/fmt staged go|proto|shell" >&2
+    exit 2
+}
+
+# A formatter that is not installed fails the run: a format check that passes
+# by not running reports "formatted" having looked at nothing.
+need() {
+    if ! command -v "$1" >/dev/null 2>&1; then
+        echo "fmt: $1 is not on PATH — run '$2'. The formatter cannot pass by not running." >&2
+        exit 1
+    fi
+}
+
+# select_kind KIND: NUL-separated paths on stdin, those KIND owns on stdout.
+select_kind() {
+    local kind=$1 p base
+    local -a bare=()
+    while IFS= read -r -d '' p; do
+        case "/$p" in */testdata/*) continue ;; esac
+        case "$kind" in
+            go) [[ $p == *.go ]] && printf '%s\0' "$p" ;;
+            proto) [[ $p == *.proto && $p != "$vendored_protos"* ]] && printf '%s\0' "$p" ;;
+            shell)
+                base=${p##*/}
+                if [[ $p == *.sh || $p == *.bash ]]; then
+                    printf '%s\0' "$p"
+                elif [[ ${base#.} != *.* && -f $p && ! -L $p ]]; then
+                    # No extension: shfmt decides by the shebang.
+                    bare+=("$p")
+                fi
+                ;;
+        esac
+    done
+    if [ "${#bare[@]}" -gt 0 ]; then
+        need shfmt "just shfmt-install"
+        shfmt -f "${bare[@]}" | tr '\n' '\0'
+    fi
+    return 0
+}
+
+# fix_files KIND FILE...: rewrite the files in place.
+fix_files() {
+    local kind=$1
+    shift
+    case "$kind" in
+        go)
+            need gofmt "install Go (.devcontainer/tool-versions.env pins the version)"
+            gofmt -w -- "$@"
+            ;;
+        proto)
+            local -a paths=()
+            local f
+            for f in "$@"; do paths+=(--path "$f"); done
+            just fmt-proto -w "${paths[@]}"
+            ;;
+        shell)
+            need shfmt "just shfmt-install"
+            shfmt "${shfmt_flags[@]}" -w -- "$@"
+            ;;
+    esac
+}
+
+# check_files KIND FILE...: print the drift; non-zero when there is any.
+check_files() {
+    local kind=$1
+    shift
+    case "$kind" in
+        go)
+            need gofmt "install Go (.devcontainer/tool-versions.env pins the version)"
+            local drift rc=0
+            # gofmt -l exits 0 on drift and non-zero only on a file it cannot
+            # parse, having printed why.
+            drift=$(gofmt -l -- "$@") || rc=$?
+            [ "$rc" -eq 0 ] || return "$rc"
+            if [ -n "$drift" ]; then
+                gofmt -d -- "$@"
+                return 1
+            fi
+            ;;
+        proto)
+            local -a paths=()
+            local f
+            for f in "$@"; do paths+=(--path "$f"); done
+            just fmt-proto -d --exit-code "${paths[@]}"
+            ;;
+        shell)
+            need shfmt "just shfmt-install"
+            shfmt "${shfmt_flags[@]}" -d -- "$@"
+            ;;
+    esac
+}
+
+# checkout_files KIND: every file of KIND in the checkout — tracked, and new
+# files not yet added, so `just fmt` reaches a file before its first commit.
+checkout_files() {
+    local p
+    git ls-files -z --cached --others --exclude-standard |
+        while IFS= read -r -d '' p; do
+            [ -f "$p" ] && [ ! -L "$p" ] && printf '%s\0' "$p"
+        done |
+        select_kind "$1"
+}
+
+run_checkout() {
+    local mode=$1 kind rc=0
+    shift
+    local -a kinds=("$@") files
+    [ "${#kinds[@]}" -gt 0 ] || kinds=("${kinds_all[@]}")
+    for kind in "${kinds[@]}"; do
+        case "$kind" in go | proto | shell) ;; *) usage ;; esac
+        mapfile -d '' files < <(checkout_files "$kind")
+        [ "${#files[@]}" -gt 0 ] || continue
+        if [ "$mode" = fix ]; then
+            fix_files "$kind" "${files[@]}"
+        elif ! check_files "$kind" "${files[@]}"; then
+            echo "fmt-check: $kind files are not formatted (diff above) — run 'just fmt'." >&2
+            rc=1
+        fi
+    done
+    return "$rc"
+}
+
+# partial_files: the staged paths that also carry UNSTAGED changes, NUL-separated.
+#
+# Two signals, because lefthook hides one of them. Outside lefthook, the
+# working tree simply differs from the index. Inside lefthook's pre-commit,
+# lefthook has already written each partially staged file's unstaged hunks to
+# <git-path info>/lefthook-unstaged.patch and checked the file out from the
+# index, so the working tree MATCHES the index and only that patch still names
+# the file. A patch this cannot read marks every staged file partial: guessing
+# "fully staged" is the direction that rewrites someone's unstaged work.
+partial_files() {
+    git diff --name-only -z
+    local patch
+    patch=$(git rev-parse --path-format=absolute --git-path info/lefthook-unstaged.patch)
+    if [ -s "$patch" ]; then
+        if ! git apply --numstat -z "$patch" | cut -z -f3; then
+            git diff --cached --name-only -z
+        fi
+    fi
+}
+
+# staged_blob_check KIND PATH...: check each path's STAGED content, never the
+# working tree's, printing the paths whose staged content is not formatted
+# (NUL-separated) and each one's diff on stderr. The copy keeps the file's
+# name, so a formatter that decides by extension or shebang decides the same
+# way. buf runs in the devcontainer, which sees only the checkout, so its
+# copies go under the gitignored .cache/ and are handed to buf as single
+# files, outside any buf module.
+staged_blob_check() {
+    local kind=$1 p tmp copy
+    shift
+    if [ "$kind" = proto ]; then
+        mkdir -p .cache
+        tmp=$(mktemp -d .cache/fmt-staged.XXXXXX)
+    else
+        tmp=$(mktemp -d)
+    fi
+    # shellcheck disable=SC2064 # expand now: this runs in its own subshell
+    trap "rm -rf -- '$tmp'" EXIT
+    for p in "$@"; do
+        copy="$tmp/$p"
+        mkdir -p "$(dirname "$copy")"
+        git show ":$p" >"$copy"
+        if [ "$kind" = proto ]; then
+            just fmt-proto -d --exit-code "$copy" >&2 && continue
+        else
+            check_files "$kind" "$copy" >&2 && continue
+        fi
+        printf '%s\0' "$p"
+    done
+}
+
+run_staged() {
+    local kind=$1 p
+    case "$kind" in go | proto | shell) ;; *) usage ;; esac
+    cd "$(git rev-parse --show-toplevel)"
+
+    local -a staged partial fully=() refused fixed=()
+    mapfile -d '' staged < <(git diff --cached --name-only -z --diff-filter=ACMR | select_kind "$kind")
+    [ "${#staged[@]}" -gt 0 ] || exit 0
+
+    local -A is_partial=()
+    while IFS= read -r -d '' p; do is_partial[$p]=1; done < <(partial_files)
+    partial=()
+    for p in "${staged[@]}"; do
+        if [ -n "${is_partial[$p]:-}" ]; then partial+=("$p"); else fully+=("$p"); fi
+    done
+
+    # A fully staged file's working copy IS its staged content, so it is
+    # formatted in place and re-staged: what is committed is what is on disk.
+    if [ "${#fully[@]}" -gt 0 ]; then
+        fix_files "$kind" "${fully[@]}"
+        for p in "${fully[@]}"; do
+            if ! git diff --quiet -- "$p"; then
+                git add -- "$p"
+                fixed+=("$p")
+            fi
+        done
+    fi
+    for p in "${fixed[@]}"; do echo "fmt: formatted and re-staged $p"; done
+
+    # A partially staged file is only CHECKED. Formatting it means rewriting
+    # the lines the unstaged hunks were taken against, and re-applying those
+    # hunks afterwards can put them somewhere else in the file.
+    [ "${#partial[@]}" -gt 0 ] || exit 0
+    mapfile -d '' refused < <(staged_blob_check "$kind" "${partial[@]}")
+    [ "${#refused[@]}" -gt 0 ] || exit 0
+    {
+        echo "fmt: these files are partially staged and their staged content is not formatted:"
+        printf '    %s\n' "${refused[@]}"
+        echo "The hook formats only fully staged files: rewriting a partially staged one would"
+        echo "move the lines your unstaged changes apply to. Run 'just fmt', review the result,"
+        echo "and stage what you mean to commit."
+    } >&2
+    exit 1
+}
+
+[ "$#" -gt 0 ] || usage
+mode=$1
+shift
+case "$mode" in
+    fix | check) run_checkout "$mode" "$@" ;;
+    staged)
+        [ "$#" -eq 1 ] || usage
+        run_staged "$1"
+        ;;
+    *) usage ;;
+esac

@@ -1502,9 +1502,23 @@ deps:
 tidy:
     go mod tidy
 
-# Format code
+# Format the repository: gofmt over the Go, buf format over the protos (in the
+# devcontainer), shfmt over the shell scripts. scripts/fmt holds which files
+# each formatter owns and how it runs; lefthook's pre-commit runs the same
+# formatters over the staged files.
 fmt:
-    go fmt ./...
+    bash scripts/fmt fix
+
+# The gate form of `fmt`: prints every formatter's drift and fails on any,
+# writing nothing.
+fmt-check:
+    bash scripts/fmt check
+
+# buf format, in the devcontainer: buf never runs on the host. ARGS pass
+# straight through (`-w` rewrites, `-d --exit-code` reports, `--path <file>`
+# narrows); scripts/fmt is the caller.
+fmt-proto *ARGS: dev-image
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run fmt-proto {{ARGS}}
 
 # Lint code (delegates to devcontainer for the pinned golangci-lint)
 lint: dev-image _require-generated && _trim-go-cache

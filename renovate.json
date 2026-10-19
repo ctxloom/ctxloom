@@ -155,6 +155,7 @@
         "GORELEASER",
         "GOPLS",
         "GITLEAKS",
+        "SHFMT",
         "LEFTHOOK",
         "GOVULNCHECK"
       ],
@@ -238,6 +239,15 @@
         "custom.regex"
       ],
       "matchDepNames": [
+        "SHFMT"
+      ],
+      "overridePackageName": "mvdan.cc/sh/v3"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
         "LEFTHOOK"
       ],
       "overridePackageName": "github.com/evilmartians/lefthook"
@@ -265,6 +275,7 @@
         "GORELEASER",
         "GOPLS",
         "GITLEAKS",
+        "SHFMT",
         "LEFTHOOK",
         "GOVULNCHECK"
       ],

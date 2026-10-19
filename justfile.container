@@ -5,7 +5,7 @@
 # them to its shebang script as real shell positional args ($1, "$@")
 # instead of splicing them into the recipe body as text — see the host
 # justfile's matching setting/comment for the failure mode this avoids.
-set positional-arguments := true
+set positional-arguments
 
 # Gates that MUST be identical here and in the host justfile:
 # test-docker-integration (and its package list), test-arch, plus the
@@ -94,18 +94,18 @@ default: build
 # `.github/workflows/ci.yml`'s "Check generated reference docs are current"
 # step regenerates and fails the build on any diff instead.
 build: validate proto gen-schemas
-    "{{just_executable()}}" --justfile "{{justfile()}}" ctxloom::build
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" ctxloom::build
 
 # Coverage-instrumented ctxloom, to ctxloom-cover. Same codegen prerequisites
 # as `build` — a binary built against stale generated code would report
 # coverage of code that is not what the suite compiled against.
 build-cover: validate proto gen-schemas
-    "{{just_executable()}}" --justfile "{{justfile()}}" ctxloom::build-cover
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" ctxloom::build-cover
 
 # Build without CGO - static
 build-static:
-    CGO_ENABLED=0 go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
+    CGO_ENABLED=0 go build {{ buildvcs }} {{ trimpath }} \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{ version }}" \
         -o ctxloom ./cmd/ctxloom
 
 # Build the architectural linter into bin/archlint.
@@ -117,7 +117,7 @@ build-static:
 # does — it type-checks the whole module, and generated code is not committed,
 # so a fresh checkout needs `proto` first (`build` runs both).
 build-archlint:
-    go build {{buildvcs}} {{trimpath}} -o bin/archlint ./cmd/archlint
+    go build {{ buildvcs }} {{ trimpath }} -o bin/archlint ./cmd/archlint
 
 # Run the architectural rules over the module.
 #
@@ -160,37 +160,37 @@ lint-arch: build-archlint
 # Build the ltk companion into bin/ltk — delegated to the ltk module
 # (cmd/ltk/justfile). No codegen prerequisites (pure-Go, no CGO).
 build-ltk:
-    "{{just_executable()}}" --justfile "{{justfile()}}" ltk::build
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" ltk::build
 
 # Build the taskloom companion into bin/taskloom — delegated to the taskloom
 # module (cmd/taskloom/justfile). No codegen prerequisites (pure-Go, no CGO).
 build-taskloom:
-    "{{just_executable()}}" --justfile "{{justfile()}}" taskloom::build
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" taskloom::build
 
 # Build the standalone harp ID-generator binary into bin/harp — delegated to
 # the harp module (cmd/harp/justfile). No codegen prerequisites (pure-Go, no
 # CGO). Independently distributable (plan WS-7); not one of the three
 # binaries `install` puts on the host PATH.
 build-harp:
-    "{{just_executable()}}" --justfile "{{justfile()}}" harp::build
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" harp::build
 
 # Build + compress all four binaries (UPX). Codegen prerequisites run here for
 # ctxloom, then each module's build-compressed builds and UPX-compresses its
 # binary. Used by the host `install`/`build-compressed`.
 build-compressed: validate proto gen-schemas
-    "{{just_executable()}}" --justfile "{{justfile()}}" ctxloom::build-compressed
-    "{{just_executable()}}" --justfile "{{justfile()}}" ltk::build-compressed
-    "{{just_executable()}}" --justfile "{{justfile()}}" taskloom::build-compressed
-    "{{just_executable()}}" --justfile "{{justfile()}}" harp::build-compressed
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" ctxloom::build-compressed
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" ltk::build-compressed
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" taskloom::build-compressed
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" harp::build-compressed
 
 # Build all four binaries UNCOMPRESSED (ctxloom + ltk + taskloom + harp).
 # Codegen prereqs run here for ctxloom. Used by the host `install`: UPX LZMA
 # decompression adds ~1.5s/exec, so local installs stay uncompressed.
 build-all-bins: validate proto gen-schemas
-    "{{just_executable()}}" --justfile "{{justfile()}}" ctxloom::build
-    "{{just_executable()}}" --justfile "{{justfile()}}" ltk::build
-    "{{just_executable()}}" --justfile "{{justfile()}}" taskloom::build
-    "{{just_executable()}}" --justfile "{{justfile()}}" harp::build
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" ctxloom::build
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" ltk::build
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" taskloom::build
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" harp::build
 
 # ===== Release validation (goreleaser, in-container only) =====
 
@@ -212,36 +212,36 @@ release-snapshot: validate proto gen-schemas
 # Build for Linux amd64
 build-linux-amd64:
     GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
-        go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
+        go build {{ buildvcs }} {{ trimpath }} \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{ version }}" \
         -o ctxloom-linux-amd64 ./cmd/ctxloom
 
 # Build for Linux arm64
 build-linux-arm64:
     GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
-        go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
+        go build {{ buildvcs }} {{ trimpath }} \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{ version }}" \
         -o ctxloom-linux-arm64 ./cmd/ctxloom
 
 # Build for Windows amd64
 build-windows-amd64:
     GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
-        go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
+        go build {{ buildvcs }} {{ trimpath }} \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{ version }}" \
         -o ctxloom-windows-amd64.exe ./cmd/ctxloom
 
 # Build for macOS amd64
 build-darwin-amd64:
     GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 \
-        go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
+        go build {{ buildvcs }} {{ trimpath }} \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{ version }}" \
         -o ctxloom-darwin-amd64 ./cmd/ctxloom
 
 # Build for macOS arm64
 build-darwin-arm64:
     GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
-        go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
+        go build {{ buildvcs }} {{ trimpath }} \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{ version }}" \
         -o ctxloom-darwin-arm64 ./cmd/ctxloom
 
 # Compile every non-test package for the non-Linux targets, discarding the
@@ -251,9 +251,9 @@ build-darwin-arm64:
 # are what catch a per-OS test that no longer compiles before that OS's CI job
 # (test-<goos>) has to.
 build-cross:
-    GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build {{buildvcs}} ./...
+    GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build {{ buildvcs }} ./...
     GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...
-    GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build {{buildvcs}} ./...
+    GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build {{ buildvcs }} ./...
     GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go vet ./...
 
 # Build all platforms
@@ -282,7 +282,7 @@ compress-all: compress-linux-amd64 compress-linux-arm64 compress-windows-amd64
 # Compress the main ctxloom binary (for local dev) — delegated to the ctxloom
 # module. For all three binaries use `build-compressed`.
 compress:
-    "{{just_executable()}}" --justfile "{{justfile()}}" ctxloom::compress
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" ctxloom::compress
 
 # Build and compress all platforms
 release: build-all compress-all
@@ -305,10 +305,10 @@ test:
     set -uo pipefail
     failed=()
     echo "===== [1/2] default suite (untagged) — just test-default"
-    if ! "{{just_executable()}}" --justfile "{{justfile()}}" test-default; then failed+=("test-default"); fi
+    if ! "{{ just_executable() }}" --justfile "{{ justfile() }}" test-default; then failed+=("test-default"); fi
     echo ""
     echo "===== [2/2] architectural invariants (-tags arch) — just test-arch"
-    if ! "{{just_executable()}}" --justfile "{{justfile()}}" test-arch; then failed+=("test-arch"); fi
+    if ! "{{ just_executable() }}" --justfile "{{ justfile() }}" test-arch; then failed+=("test-arch"); fi
     echo ""
     if [ "${#failed[@]}" -ne 0 ]; then
         echo "FAILED GROUP(S): ${failed[*]}" >&2
@@ -340,8 +340,8 @@ test-default:
     raw="$(mktemp coverage.raw.XXXXXX.out)"
     trap 'rm -f "$raw"' EXIT
     go test -trimpath -race -coverprofile="$raw" ./...
-    "{{just_executable()}}" --justfile "{{justfile()}}" _check-no-ctxloom-leak
-    "{{just_executable()}}" --justfile "{{justfile()}}" _filter_coverage "$raw" coverage.out
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _check-no-ctxloom-leak
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _filter_coverage "$raw" coverage.out
 
 # Run a single package's tests under -race (fast iteration inside the
 # container). Mirrors the host justfile's test-pkg, including both build-tag
@@ -486,7 +486,7 @@ gen-living-docs: build
 # build bakes it in. The stamp rides an env var rather than an argument so every
 # other caller of this gate is unchanged.
 validate:
-    CTXLOOM_VERSION_STAMP={{version}} go run ./cmd/validate
+    CTXLOOM_VERSION_STAMP={{ version }} go run ./cmd/validate
 
 # Generate protobuf code. Generated into a scratch dir and copied over only
 # where the bytes differ, so an unchanged stub keeps its mtime: the
@@ -558,7 +558,7 @@ lint: vet-integration tidy-check
 # finding exits non-zero; see the host justfile's govulncheck for why it is
 # reachability, not go.sum membership, and why it needs the network.
 govulncheck *ARGS:
-    govulncheck {{ARGS}} ./...
+    govulncheck {{ ARGS }} ./...
 
 # go.mod and go.sum must be exactly what `go mod tidy` produces: an untidy module
 # file carries stale sums and wrong direct/indirect markers that nothing else
@@ -676,9 +676,38 @@ complexity-check:
 complexity-baseline-update:
     python3 scripts/complexity_gate.py generate > .complexity-baseline.txt
 
-# Format code
+# Format the repository: scripts/fmt runs every formatter (gofmt, buf format,
+# shfmt, just --fmt) over the files each one owns.
 fmt:
-    go fmt ./...
+    bash scripts/fmt fix
+
+# The gate form of `fmt`: prints every formatter's drift and fails on any,
+# writing nothing.
+fmt-check:
+    bash scripts/fmt check
+
+# buf format, with ARGS passed straight through. The root justfile's
+# fmt-proto delegates here, and scripts/fmt calls that.
+fmt-proto *ARGS:
+    buf format "$@"
+
+# `just --fmt` from this image's pinned just over the justfiles in ARGS,
+# rewriting each in place; with `--check` first, reporting each one's drift
+# and failing on any instead. The root justfile's fmt-just delegates here, and
+# scripts/fmt calls that with copies (see there why).
+fmt-just *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    check=()
+    if [ "${1:-}" = --check ]; then
+        check=(--check)
+        shift
+    fi
+    rc=0
+    for f in "$@"; do
+        "{{ just_executable() }}" --fmt "${check[@]}" --justfile "$f" || rc=1
+    done
+    exit "$rc"
 
 # Tidy dependencies
 tidy:

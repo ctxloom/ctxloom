@@ -47,8 +47,14 @@
 
 set -euo pipefail
 
-RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'; RESET=$'\033[0m'
-fail() { echo "${RED}FAIL${RESET}: $*" >&2; exit 1; }
+RED=$'\033[31m'
+GREEN=$'\033[32m'
+YELLOW=$'\033[33m'
+RESET=$'\033[0m'
+fail() {
+    echo "${RED}FAIL${RESET}: $*" >&2
+    exit 1
+}
 pass() { echo "${GREEN}PASS${RESET}: $*"; }
 note() { echo "${YELLOW}note${RESET}: $*"; }
 
@@ -56,11 +62,11 @@ ROOT=$(mktemp -d /tmp/jaded-fade-repro.XXXXXX)
 trap 'rm -rf "$ROOT"' EXIT
 
 git_repo() {
-  # $1 = path
-  git init -q -b main "$1"
-  git -C "$1" config user.name "Repro Bot"
-  git -C "$1" config user.email "repro@example.com"
-  git -C "$1" config commit.gpgsign false
+    # $1 = path
+    git init -q -b main "$1"
+    git -C "$1" config user.name "Repro Bot"
+    git -C "$1" config user.email "repro@example.com"
+    git -C "$1" config commit.gpgsign false
 }
 
 # ---------------------------------------------------------------------------
@@ -74,59 +80,59 @@ echo "=== PART A: minimal repro (git worktree add/remove under inherited GIT_IND
 MAIN="$ROOT/a-main"
 WT="$ROOT/a-wt"
 git_repo "$MAIN"
-echo "package main" > "$MAIN/a.go"
+echo "package main" >"$MAIN/a.go"
 git -C "$MAIN" add a.go
 git -C "$MAIN" commit -q -m "initial"
 git -C "$MAIN" worktree add -q "$WT" -b a-wt-branch >/dev/null
 
 check_scenario() {
-  # $1 = human label, $2 = "clobber" | "fixed" | "fixed-gitdir-still-set"
-  local label="$1" mode="$2"
-  cd "$WT"
-  git reset -q --hard a-wt-branch >/dev/null 2>&1 || true
-  git checkout -q a-wt-branch
-  echo "package main // edit-$mode-$RANDOM" >> a.go
-  git add a.go
-  local staged
-  staged=$(git diff --cached --stat | wc -l)
-  [ "$staged" -gt 0 ] || fail "setup: nothing staged before $label"
+    # $1 = human label, $2 = "clobber" | "fixed" | "fixed-gitdir-still-set"
+    local label="$1" mode="$2"
+    cd "$WT"
+    git reset -q --hard a-wt-branch >/dev/null 2>&1 || true
+    git checkout -q a-wt-branch
+    echo "package main // edit-$mode-$RANDOM" >>a.go
+    git add a.go
+    local staged
+    staged=$(git diff --cached --stat | wc -l)
+    [ "$staged" -gt 0 ] || fail "setup: nothing staged before $label"
 
-  local idx
-  idx=$(git rev-parse --git-path index)
-  local tmp
-  tmp=$(mktemp -d)
+    local idx
+    idx=$(git rev-parse --git-path index)
+    local tmp
+    tmp=$(mktemp -d)
 
-  case "$mode" in
-    clobber)
-      # Simulates the UNFIXED hook: reprise's git-worktree-add subprocess
-      # inherits GIT_INDEX_FILE from the pre-commit hook's environment,
-      # exactly as `git commit` sets it (confirmed via GIT_TRACE=1).
-      GIT_INDEX_FILE="$idx" git -C "$WT" worktree add --detach -q "$tmp/base" HEAD
-      ;;
-    fixed)
-      # Simulates the FIXED hook: `env -u GIT_INDEX_FILE` before the
-      # git-worktree-add subprocess, matching lefthook.yml's
-      # `run: env -u GIT_INDEX_FILE reprise check --base HEAD .`.
-      env -u GIT_INDEX_FILE GIT_INDEX_FILE="$idx" bash -c '
+    case "$mode" in
+        clobber)
+            # Simulates the UNFIXED hook: reprise's git-worktree-add subprocess
+            # inherits GIT_INDEX_FILE from the pre-commit hook's environment,
+            # exactly as `git commit` sets it (confirmed via GIT_TRACE=1).
+            GIT_INDEX_FILE="$idx" git -C "$WT" worktree add --detach -q "$tmp/base" HEAD
+            ;;
+        fixed)
+            # Simulates the FIXED hook: `env -u GIT_INDEX_FILE` before the
+            # git-worktree-add subprocess, matching lefthook.yml's
+            # `run: env -u GIT_INDEX_FILE reprise check --base HEAD .`.
+            env -u GIT_INDEX_FILE GIT_INDEX_FILE="$idx" bash -c '
         unset GIT_INDEX_FILE
         exec git -C "$0" worktree add --detach -q "$1/base" HEAD
       ' "$WT" "$tmp"
-      ;;
-    fixed-gitdir-still-set)
-      # Confirms GIT_DIR (also present in the real hook env) does not need
-      # scrubbing once GIT_INDEX_FILE is gone — keeps the fix minimal.
-      local gitdir
-      gitdir=$(git rev-parse --git-dir)
-      env -u GIT_INDEX_FILE GIT_DIR="$gitdir" git -C "$WT" worktree add --detach -q "$tmp/base" HEAD
-      ;;
-  esac
-  git -C "$WT" worktree remove --force "$tmp/base" >/dev/null 2>&1 || true
-  rm -rf "$tmp"
+            ;;
+        fixed-gitdir-still-set)
+            # Confirms GIT_DIR (also present in the real hook env) does not need
+            # scrubbing once GIT_INDEX_FILE is gone — keeps the fix minimal.
+            local gitdir
+            gitdir=$(git rev-parse --git-dir)
+            env -u GIT_INDEX_FILE GIT_DIR="$gitdir" git -C "$WT" worktree add --detach -q "$tmp/base" HEAD
+            ;;
+    esac
+    git -C "$WT" worktree remove --force "$tmp/base" >/dev/null 2>&1 || true
+    rm -rf "$tmp"
 
-  local after
-  after=$(git diff --cached --stat | wc -l)
-  echo "  [$label] staged lines before=$staged after=$after" >&2
-  echo "$after"
+    local after
+    after=$(git diff --cached --stat | wc -l)
+    echo "  [$label] staged lines before=$staged after=$after" >&2
+    echo "$after"
 }
 
 a1=$(check_scenario "unfixed (GIT_INDEX_FILE inherited)" clobber)
@@ -152,12 +158,12 @@ echo
 echo "=== PART B: end-to-end through real lefthook + reprise (best-effort) ==="
 
 if ! command -v lefthook >/dev/null 2>&1; then
-  note "lefthook not on PATH — skipping end-to-end part (PART A already proves the mechanism and fix)"
-  exit 0
+    note "lefthook not on PATH — skipping end-to-end part (PART A already proves the mechanism and fix)"
+    exit 0
 fi
 if ! command -v reprise >/dev/null 2>&1; then
-  note "reprise not on PATH — skipping end-to-end part (PART A already proves the mechanism and fix)"
-  exit 0
+    note "reprise not on PATH — skipping end-to-end part (PART A already proves the mechanism and fix)"
+    exit 0
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -165,38 +171,38 @@ LEFTHOOK_YML="$SCRIPT_DIR/lefthook.yml"
 [ -f "$LEFTHOOK_YML" ] || fail "can't find lefthook.yml at $LEFTHOOK_YML"
 
 run_e2e() {
-  # $1 = label, $2 = path to lefthook.yml to install
-  local label="$1" cfg="$2"
-  local main="$ROOT/b-main-$label" wt="$ROOT/b-wt-$label"
-  git_repo "$main"
-  mkdir -p "$main/src"
-  echo "package main" > "$main/src/a.go"
-  cp "$cfg" "$main/lefthook.yml"
-  git -C "$main" add -A
-  git -C "$main" commit -q -m "initial"
-  (cd "$main" && lefthook install >/dev/null)
-  git -C "$main" worktree add -q "$wt" -b "wt-$label-branch" >/dev/null
+    # $1 = label, $2 = path to lefthook.yml to install
+    local label="$1" cfg="$2"
+    local main="$ROOT/b-main-$label" wt="$ROOT/b-wt-$label"
+    git_repo "$main"
+    mkdir -p "$main/src"
+    echo "package main" >"$main/src/a.go"
+    cp "$cfg" "$main/lefthook.yml"
+    git -C "$main" add -A
+    git -C "$main" commit -q -m "initial"
+    (cd "$main" && lefthook install >/dev/null)
+    git -C "$main" worktree add -q "$wt" -b "wt-$label-branch" >/dev/null
 
-  cd "$wt"
-  echo "package main // agent edit" >> src/a.go
-  git add src/a.go
-  # Chained add+commit in ONE invocation (discriminator 1 from the field
-  # reports) on a guaranteed-cold reprise base-state cache (discriminator 2:
-  # first commit attempt in a fresh worktree is always a cache miss).
-  git commit -q -m "agent edit" || true
+    cd "$wt"
+    echo "package main // agent edit" >>src/a.go
+    git add src/a.go
+    # Chained add+commit in ONE invocation (discriminator 1 from the field
+    # reports) on a guaranteed-cold reprise base-state cache (discriminator 2:
+    # first commit attempt in a fresh worktree is always a cache miss).
+    git commit -q -m "agent edit" || true
 
-  local before after
-  before=$(git rev-parse 'HEAD~1^{tree}')
-  after=$(git rev-parse 'HEAD^{tree}')
-  git -C "$main" worktree remove --force "$wt" >/dev/null 2>&1 || true
-  if [ "$before" = "$after" ]; then
-    echo "EMPTY"
-  else
-    echo "OK"
-  fi
+    local before after
+    before=$(git rev-parse 'HEAD~1^{tree}')
+    after=$(git rev-parse 'HEAD^{tree}')
+    git -C "$main" worktree remove --force "$wt" >/dev/null 2>&1 || true
+    if [ "$before" = "$after" ]; then
+        echo "EMPTY"
+    else
+        echo "OK"
+    fi
 }
 
-cat > "$ROOT/lefthook-unfixed.yml" <<'EOF'
+cat >"$ROOT/lefthook-unfixed.yml" <<'EOF'
 pre-commit:
   commands:
     reprise:
@@ -206,7 +212,7 @@ EOF
 unfixed_result=$(run_e2e unfixed "$ROOT/lefthook-unfixed.yml")
 echo "  unfixed lefthook.yml -> commit result: $unfixed_result"
 if [ "$unfixed_result" != "EMPTY" ]; then
-  note "unfixed config did not reproduce an empty commit this run (reprise base-state cache may be warm, or timing did not line up) — PART A already proves the mechanism deterministically, so this is not a hard failure"
+    note "unfixed config did not reproduce an empty commit this run (reprise base-state cache may be warm, or timing did not line up) — PART A already proves the mechanism deterministically, so this is not a hard failure"
 fi
 
 fixed_result=$(run_e2e fixed "$LEFTHOOK_YML")

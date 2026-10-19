@@ -8,7 +8,62 @@
 # `set -o pipefail`). A body needing shell syntax is a script under scripts/,
 # invoked with its interpreter. TestLefthookRunBlocksAreSimpleCommands enforces it.
 pre-commit:
+  # ONE AT A TIME, in `priority` order, and the first failure skips the rest
+  # (`piped`): the formatters, then the checks, then mutation. lefthook orders
+  # `commands` by priority (or else by NAME, never by their order in this
+  # file), so every step carries one, and TestLefthookPreCommitOrder holds the
+  # sequence.
+  #
+  # Formatters FIRST: every later step judges the bytes about to be committed,
+  # and a formatter that ran after them would commit bytes they never saw.
+  # Mutation LAST: it is by far the slowest step, so it runs only once
+  # everything cheaper has passed.
+  piped: true
   commands:
+    fmt-go:
+      # The formatters run over the STAGED files of their kind, through
+      # scripts/fmt — the same definitions `just fmt` and `just fmt-check` use.
+      # A fully staged file is formatted in place and re-staged, so the commit
+      # carries the formatted bytes. A PARTIALLY staged file is only checked:
+      # its staged content must already be formatted, or the commit is refused
+      # with "run just fmt". Fixing one would rewrite the lines its unstaged
+      # hunks were taken against, and lefthook re-applies those hunks by line
+      # number with no context: a formatter that shifts lines puts the user's
+      # unstaged work somewhere else in the file, and the hook still reports
+      # success. For the same reason no step here sets `stage_fixed`: it
+      # re-adds every matching staged file whole.
+      #
+      # The glob only skips the step when nothing of its kind is staged;
+      # scripts/fmt selects the files itself.
+      priority: 1
+      glob: "*.go"
+      run: bash scripts/fmt staged go
+
+    fmt-proto:
+      # buf format runs in the devcontainer (`just fmt-proto`), never on the
+      # host, so this step starts a container — only when a .proto is staged.
+      priority: 2
+      glob: "*.proto"
+      run: bash scripts/fmt staged proto
+
+    fmt-shell:
+      # shfmt, from `just shfmt-install` at the version
+      # .devcontainer/tool-versions.env pins; a missing binary fails the
+      # commit. No glob: shfmt recognises a script by its shebang as well as
+      # its extension, which a glob cannot see.
+      priority: 3
+      run: bash scripts/fmt staged shell
+
+    fmt-just:
+      # `just --fmt` from the just .devcontainer/tool-versions.env pins, in the
+      # devcontainer (`just fmt-just`): the host's own just may be any version,
+      # and another version's formatter writes different bytes. Like
+      # fmt-proto, this step starts a container — only when a justfile is
+      # staged.
+      priority: 4
+      glob: ["justfile", "*/justfile", "justfile.*", "*.justfile", "*.just"]
+      run: bash scripts/fmt staged just
+
     reprise:
       # Duplicate-detection gate: findings involving units changed since HEAD
       # fail unless baselined (the baseline is a git ref reprise maintains
@@ -36,6 +91,7 @@ pre-commit:
       # the host, which may predate that commit, and the failure mode is a
       # SILENT empty commit — no error anywhere. Cheap insurance against an
       # expensive, invisible loss (only-viper).
+      priority: 10
       run: env -u GIT_INDEX_FILE reprise check --base HEAD .
 
     archlint:
@@ -71,6 +127,7 @@ pre-commit:
       # binary reaches), and every allowlist-liveness check must inspect
       # exempted packages precisely when nobody touched them — that is what
       # makes an exemption go stale.
+      priority: 11
       run: bash scripts/hook-archlint
 
     lint-pins:
@@ -83,6 +140,7 @@ pre-commit:
       # override into this output for the reviewer. Pure shell over `git show`
       # — no go build, matching archlint's rule that a slow hook is one people
       # learn to bypass.
+      priority: 12
       run: just lint-pins
 
     gitleaks:
@@ -98,7 +156,35 @@ pre-commit:
       # leaves this machine. If it is a deliberate test fixture, end its line
       # with a `gitleaks:allow` comment; a whole class of false positive goes
       # in .gitleaks.toml with the reason it is not a secret.
+      priority: 13
       run: just secrets-scan-staged
+
+    mutation:
+      # Mutation testing of the STAGED change, judged by the project threshold
+      # (mutation_efficacy in build/ci.justfile): every mutant gomutants makes
+      # on the changed lines that no test kills counts against it, and below
+      # the threshold the commit is refused with the survivors listed. The
+      # per-push CI lane judges the same thing after the code has left the
+      # machine; here it is judged while the test that would kill a survivor is
+      # still cheap to write.
+      #
+      # THE DIFF ONLY, never a package or the whole tree: the run is scoped to
+      # the lines the commit changes (`just test-mutation-diff HEAD`), so its
+      # cost follows the size of the change — a big change takes longer, and
+      # that is the measurement, not a fault. The whole tree runs weekly in CI.
+      #
+      # The STAGED change only. scripts/hook-mutation-staged checks HEAD out
+      # into a throwaway worktree, applies the staged diff there and runs the
+      # mutation inside it, so unstaged edits and untracked files cannot make
+      # the tree under test differ from the commit, and nothing writes the
+      # working tree, the index or the stash. A change with no staged
+      # production Go leaves at once, before any worktree is made.
+      #
+      # gomutants runs the covering tests over that tree before it mutates
+      # anything, so a test that fails on the staged code fails the commit
+      # here, ahead of any verdict.
+      priority: 20
+      run: bash scripts/hook-mutation-staged
 
 pre-push:
   commands:

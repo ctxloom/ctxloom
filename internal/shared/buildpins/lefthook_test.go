@@ -70,3 +70,102 @@ func collectRunBlocks(n *yaml.Node, path string, out map[string]string) {
 		}
 	}
 }
+
+// preCommitHook is the part of lefthook.yml's pre-commit hook the ordering
+// depends on.
+type preCommitHook struct {
+	Piped    bool `yaml:"piped"`
+	Parallel bool `yaml:"parallel"`
+	Commands map[string]struct {
+		Priority   int    `yaml:"priority"`
+		Run        string `yaml:"run"`
+		StageFixed bool   `yaml:"stage_fixed"`
+	} `yaml:"commands"`
+}
+
+// TestLefthookPreCommitOrder: pre-commit runs its steps one at a time and
+// stops at the first failure, formatters first, then the checks, then
+// mutation last. Every later step judges the bytes about to be committed, so a
+// formatter that ran after one would commit bytes it never saw; mutation is the
+// slowest step by far, so it runs only once everything cheaper has passed.
+//
+// lefthook orders `commands` by priority, and by NAME when none is set — never
+// by their order in the file — with a zero priority sorting last and the order
+// of equal priorities unspecified. So every step must carry its own priority,
+// and the order is read from those alone.
+//
+// A step is a formatter when it runs scripts/fmt's staged mode and the
+// mutation step when it runs scripts/hook-mutation-staged; anything else is a
+// check, so a new check lands between them or fails here.
+func TestLefthookPreCommitOrder(t *testing.T) {
+	var doc struct {
+		PreCommit preCommitHook `yaml:"pre-commit"`
+	}
+	if err := yaml.Unmarshal([]byte(readFile(t, lefthookPath)), &doc); err != nil {
+		t.Fatalf("parse %s: %v", lefthookPath, err)
+	}
+	hook := doc.PreCommit
+	if !hook.Piped || hook.Parallel {
+		t.Errorf("%s: pre-commit must be `piped: true` (sequential, stopping at the first failure), not parallel", lefthookPath)
+	}
+
+	const fmtPrefix = "bash scripts/fmt staged "
+	const mutationRun = "bash scripts/hook-mutation-staged"
+	formatters := map[string]int{}
+	checks := map[string]int{}
+	mutation := map[string]int{}
+	seen := map[int]string{}
+	for name, cmd := range hook.Commands {
+		if cmd.Priority <= 0 {
+			t.Errorf("%s: pre-commit %s has no priority; lefthook would order it by name, or last", lefthookPath, name)
+		}
+		if other, dup := seen[cmd.Priority]; dup {
+			t.Errorf("%s: pre-commit %s and %s share priority %d, and lefthook leaves their order unspecified", lefthookPath, name, other, cmd.Priority)
+		}
+		seen[cmd.Priority] = name
+		// stage_fixed re-adds every matching staged file whole, staging a
+		// partially staged file's unstaged hunks with it; scripts/fmt
+		// re-stages only what it formatted.
+		if cmd.StageFixed {
+			t.Errorf("%s: pre-commit %s sets stage_fixed", lefthookPath, name)
+		}
+		run := strings.TrimSpace(cmd.Run)
+		switch {
+		case strings.HasPrefix(run, fmtPrefix):
+			formatters[strings.TrimPrefix(run, fmtPrefix)] = cmd.Priority
+		case run == mutationRun:
+			mutation[name] = cmd.Priority
+		default:
+			checks[name] = cmd.Priority
+		}
+	}
+
+	for _, kind := range []string{"go", "proto", "shell", "just"} {
+		if _, ok := formatters[kind]; !ok {
+			t.Errorf("%s: pre-commit runs no %q formatter (%s%s)", lefthookPath, kind, fmtPrefix, kind)
+		}
+	}
+	for _, name := range []string{"reprise", "archlint", "lint-pins", "gitleaks"} {
+		if _, ok := checks[name]; !ok {
+			t.Errorf("%s: pre-commit lost its %s check", lefthookPath, name)
+		}
+	}
+	if len(mutation) != 1 {
+		t.Fatalf("%s: pre-commit must run %q exactly once, found %d", lefthookPath, mutationRun, len(mutation))
+	}
+
+	for kind, fp := range formatters {
+		for check, cp := range checks {
+			if fp >= cp {
+				t.Errorf("%s: the %s formatter (priority %d) does not run before the %s check (priority %d)", lefthookPath, kind, fp, check, cp)
+			}
+		}
+	}
+	for name, mp := range mutation {
+		for p, other := range seen {
+			if p > mp {
+				t.Errorf("%s: %s (priority %d) runs after mutation step %s (priority %d); mutation runs last", lefthookPath, other, p, name, mp)
+			}
+		}
+	}
+}

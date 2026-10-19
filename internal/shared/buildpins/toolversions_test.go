@@ -562,13 +562,15 @@ func TestDevcontainerJSONBuildArgsMatchToolVersionsEnv(t *testing.T) {
 
 // TestHostInstallRecipesDeriveFromToolVersionsEnv: a host install recipe is
 // the only way its tool reaches a developer's machine — lefthook's pre-commit
-// secret scan runs whatever gitleaks-install installed, and a host mutation
+// secret scan runs whatever gitleaks-install installed, its shell formatter
+// whatever shfmt-install installed, and a host mutation
 // run uses whatever test-mutation-install built, which test-mutation-container's
 // image must match. A hand-copied version in any of them would let the tool and
 // the devcontainer's disagree silently.
 func TestHostInstallRecipesDeriveFromToolVersionsEnv(t *testing.T) {
 	for _, tc := range []struct{ recipe, versionVar string }{
 		{"gitleaks-install", "GITLEAKS_VERSION"},
+		{"shfmt-install", "SHFMT_VERSION"},
 		{"test-mutation-install", "GOMUTANTS_VERSION"},
 		{"test-mutation-container", "GOMUTANTS_VERSION"},
 	} {
@@ -597,6 +599,21 @@ func TestDevcontainerInstallsTheCommitHookRunner(t *testing.T) {
 	}
 	if !strings.Contains(readFile(t, dockerfilePath), "github.com/evilmartians/lefthook@v${LEFTHOOK_VERSION}") {
 		t.Errorf("%s does not install lefthook at ${LEFTHOOK_VERSION}", dockerfilePath)
+	}
+}
+
+// TestDevcontainerInstallsThePreCommitShellFormatter: lefthook's pre-commit
+// formatter step runs shfmt over staged shell scripts, and a container agent's
+// commit runs that hook inside this image — without shfmt there, every such
+// commit fails with exit 127. The ARG and guard tests above prove the pin
+// reaches the build; only the install line proves it is used.
+func TestDevcontainerInstallsThePreCommitShellFormatter(t *testing.T) {
+	versions := parseToolVersionsEnv(t, toolVersionsPath)
+	if _, ok := versions["SHFMT_VERSION"]; !ok {
+		t.Fatalf("%s pins no SHFMT_VERSION", toolVersionsPath)
+	}
+	if !strings.Contains(readFile(t, dockerfilePath), "go install mvdan.cc/sh/v3/cmd/shfmt@v${SHFMT_VERSION}") {
+		t.Errorf("%s does not install shfmt at ${SHFMT_VERSION}", dockerfilePath)
 	}
 }
 

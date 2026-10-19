@@ -20,9 +20,15 @@ TARGET="${2:-release/0.7}"
 FAIL=0
 
 note() { printf '  %s\n' "$*"; }
-bad()  { printf 'BLOCKED: %s\n' "$*"; FAIL=1; }
+bad() {
+    printf 'BLOCKED: %s\n' "$*"
+    FAIL=1
+}
 
-[ -d "$WT" ] || { echo "no such worktree: $WT"; exit 1; }
+[ -d "$WT" ] || {
+    echo "no such worktree: $WT"
+    exit 1
+}
 WT_ABS="$(cd "$WT" && pwd -P)"
 echo "reap-gate: $WT_ABS (integration: $TARGET)"
 
@@ -34,11 +40,11 @@ LIVE=""
 for p in /proc/[0-9]*; do
     pid="${p#/proc/}"
     cwd="$(readlink "$p/cwd" 2>/dev/null)" || continue
-    case "$cwd" in "$WT_ABS"|"$WT_ABS"/*) LIVE="$LIVE $pid";; esac
+    case "$cwd" in "$WT_ABS" | "$WT_ABS"/*) LIVE="$LIVE $pid" ;; esac
 done
 if [ -n "${LIVE// /}" ]; then
     bad "processes still live inside the worktree:$LIVE"
-    for pid in $LIVE; do note "pid $pid: $(tr '\0' ' ' < /proc/$pid/cmdline 2>/dev/null | cut -c1-100)"; done
+    for pid in $LIVE; do note "pid $pid: $(tr '\0' ' ' </proc/$pid/cmdline 2>/dev/null | cut -c1-100)"; done
 else
     note "clear"
 fi

@@ -18,14 +18,14 @@ set -euo pipefail
 engine="${1:?usage: detect-engine-version.sh <claude-code|opencode>}"
 
 case "$engine" in
-claude-code)
-  npm view @anthropic-ai/claude-code version
-  ;;
-opencode)
-  gh release view --repo anomalyco/opencode --json tagName --jq '.tagName | ltrimstr("v")'
-  ;;
-*)
-  echo "detect-engine-version.sh: unknown engine '$engine'" >&2
-  exit 1
-  ;;
+    claude-code)
+        npm view @anthropic-ai/claude-code version
+        ;;
+    opencode)
+        gh release view --repo anomalyco/opencode --json tagName --jq '.tagName | ltrimstr("v")'
+        ;;
+    *)
+        echo "detect-engine-version.sh: unknown engine '$engine'" >&2
+        exit 1
+        ;;
 esac

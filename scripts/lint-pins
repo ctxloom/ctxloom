@@ -46,58 +46,58 @@ override_var=CTXLOOM_ALLOW_PIN_DOWNGRADE
 # The pin sources, each as `<parser> <path>`. A parser turns a file's bytes
 # into `name value` lines.
 sources=(
-  "env .devcontainer/tool-versions.env"
-  "env .github/engine-versions.env"
-  "gomod go.mod"
-  "dockerfile .devcontainer/Dockerfile"
-  "pipreq .devcontainer/lizard-requirements.txt"
+    "env .devcontainer/tool-versions.env"
+    "env .github/engine-versions.env"
+    "gomod go.mod"
+    "dockerfile .devcontainer/Dockerfile"
+    "pipreq .devcontainer/lizard-requirements.txt"
 )
 
 # parse_env: KEY=value lines, `#` comments and blanks skipped — the same
 # filter every consumer of these files applies.
 parse_env() {
-  grep -v '^#' | grep -v '^[[:space:]]*$' | sed -n 's/^\([^=]*\)=\(.*\)$/\1 \2/p'
+    grep -v '^#' | grep -v '^[[:space:]]*$' | sed -n 's/^\([^=]*\)=\(.*\)$/\1 \2/p'
 }
 
 # parse_gomod: the `go` and `toolchain` directives, the toolchain's `go`
 # prefix stripped so both compare as dotted-numeric versions.
 parse_gomod() {
-  sed -n \
-    -e 's/^go[[:space:]]\+\([^[:space:]]*\).*$/go.mod:go \1/p' \
-    -e 's/^toolchain[[:space:]]\+go\([^[:space:]]*\).*$/go.mod:toolchain \1/p'
+    sed -n \
+        -e 's/^go[[:space:]]\+\([^[:space:]]*\).*$/go.mod:go \1/p' \
+        -e 's/^toolchain[[:space:]]\+go\([^[:space:]]*\).*$/go.mod:toolchain \1/p'
 }
 
 # parse_dockerfile: every image a FROM or `COPY --from=` names, as its tag and
 # digest pins. A reference with neither `:` nor `@` is a build stage, not an
 # image, and is skipped.
 parse_dockerfile() {
-  local ref digest name tag
-  awk '
+    local ref digest name tag
+    awk '
     toupper($1) == "FROM" { for (i = 2; i <= NF; i++) if ($i !~ /^--/) { print $i; break } }
     toupper($1) == "COPY" { for (i = 2; i <= NF; i++) if ($i ~ /^--from=/) print substr($i, 8) }
   ' | while read -r ref; do
-    [[ $ref == *[:@]* ]] || continue
-    digest=
-    if [[ $ref == *@* ]]; then
-      digest=${ref#*@}
-      digest=${digest#sha256:}
-      ref=${ref%%@*}
-    fi
-    if [[ $ref =~ ^(.+):([^:/]+)$ ]]; then
-      name=${BASH_REMATCH[1]} tag=${BASH_REMATCH[2]}
-    else
-      name=$ref tag=
-    fi
-    if [[ -n $tag ]]; then echo "image:${name}_VERSION $tag"; fi
-    if [[ -n $digest ]]; then echo "image:${name}_SHA256_INDEX $digest"; fi
-  done
+        [[ $ref == *[:@]* ]] || continue
+        digest=
+        if [[ $ref == *@* ]]; then
+            digest=${ref#*@}
+            digest=${digest#sha256:}
+            ref=${ref%%@*}
+        fi
+        if [[ $ref =~ ^(.+):([^:/]+)$ ]]; then
+            name=${BASH_REMATCH[1]} tag=${BASH_REMATCH[2]}
+        else
+            name=$ref tag=
+        fi
+        if [[ -n $tag ]]; then echo "image:${name}_VERSION $tag"; fi
+        if [[ -n $digest ]]; then echo "image:${name}_SHA256_INDEX $digest"; fi
+    done
 }
 
 # parse_pipreq: a hash-pinned requirements file, one requirement per line as
 # `name==version --hash=sha256:<h> ...`, read as `pip:<name>_VERSION` plus one
 # `pip:<name>_SHA256_<n>` per hash, numbered in file order.
 parse_pipreq() {
-  awk '
+    awk '
     /^[[:space:]]*(#|$)/ { next }
     {
       split($1, nv, "==")
@@ -109,143 +109,153 @@ parse_pipreq() {
 }
 
 parse_with() {
-  case "$1" in
-    env) parse_env ;;
-    gomod) parse_gomod ;;
-    dockerfile) parse_dockerfile ;;
-    pipreq) parse_pipreq ;;
-    *) echo "lint-pins: unknown parser $1" >&2; exit 2 ;;
-  esac
+    case "$1" in
+        env) parse_env ;;
+        gomod) parse_gomod ;;
+        dockerfile) parse_dockerfile ;;
+        pipreq) parse_pipreq ;;
+        *)
+            echo "lint-pins: unknown parser $1" >&2
+            exit 2
+            ;;
+    esac
 }
 
 # pins_at REV PARSER PATH: the file's pins at a git revision ("" for the
 # index). Prints nothing when the file is absent there — creation and
 # deletion are not downgrades.
 pins_at() {
-  local rev=$1 parser=$2 path=$3
-  if git cat-file -e "$rev:$path" 2>/dev/null; then
-    git show "$rev:$path" | parse_with "$parser"
-  fi
+    local rev=$1 parser=$2 path=$3
+    if git cat-file -e "$rev:$path" 2>/dev/null; then
+        git show "$rev:$path" | parse_with "$parser"
+    fi
 }
 
 is_sha256() {
-  [[ $1 =~ ^[0-9a-f]{64}$ ]]
+    [[ $1 =~ ^[0-9a-f]{64}$ ]]
 }
 
 # checksum_version_key NAME: for a checksum pin `<TOOL>_SHA256_<ARCH>`, print
 # the `<TOOL>_VERSION` it belongs to and succeed; fail for any other pin.
 checksum_version_key() {
-  [[ $1 =~ ^(.+)_SHA256_[A-Z0-9]+$ ]] || return 1
-  echo "${BASH_REMATCH[1]}_VERSION"
+    [[ $1 =~ ^(.+)_SHA256_[A-Z0-9]+$ ]] || return 1
+    echo "${BASH_REMATCH[1]}_VERSION"
 }
 
 is_dotted_numeric() {
-  [[ $1 =~ ^[0-9]+(\.[0-9]+)*$ ]]
+    [[ $1 =~ ^[0-9]+(\.[0-9]+)*$ ]]
 }
 
 # compare_versions A B over dotted-numeric versions: prints -1, 0 or 1 as A
 # is older than, equal to, or newer than B. Missing components count as 0,
 # so 1.26 and 1.26.0 are equal and 1.26.10 is newer than 1.26.9.
 compare_versions() {
-  local -a a b
-  IFS=. read -r -a a <<<"$1"
-  IFS=. read -r -a b <<<"$2"
-  local n=${#a[@]}
-  (( ${#b[@]} > n )) && n=${#b[@]}
-  local i x y
-  for ((i = 0; i < n; i++)); do
-    x=${a[i]:-0}; y=${b[i]:-0}
-    if ((10#$x < 10#$y)); then echo -1; return; fi
-    if ((10#$x > 10#$y)); then echo 1; return; fi
-  done
-  echo 0
+    local -a a b
+    IFS=. read -r -a a <<<"$1"
+    IFS=. read -r -a b <<<"$2"
+    local n=${#a[@]}
+    ((${#b[@]} > n)) && n=${#b[@]}
+    local i x y
+    for ((i = 0; i < n; i++)); do
+        x=${a[i]:-0}
+        y=${b[i]:-0}
+        if ((10#$x < 10#$y)); then
+            echo -1
+            return
+        fi
+        if ((10#$x > 10#$y)); then
+            echo 1
+            return
+        fi
+    done
+    echo 0
 }
 
 # is_old_checksum VERSION_KEY VALUE: VALUE is one of HEAD's checksums for the
 # tool VERSION_KEY versions — on any arch, so moving an old hash to another
 # arch's slot is still caught as stale.
 is_old_checksum() {
-  local key
-  for key in "${!head_pins[@]}"; do
-    [[ $(checksum_version_key "$key") == "$1" && ${head_pins[$key]} == "$2" ]] && return 0
-  done
-  return 1
+    local key
+    for key in "${!head_pins[@]}"; do
+        [[ $(checksum_version_key "$key") == "$1" && ${head_pins[$key]} == "$2" ]] && return 0
+    done
+    return 1
 }
 
 overridden() {
-  local name=$1 entry
-  IFS=, read -r -a entries <<<"${!override_var:-}"
-  for entry in "${entries[@]:-}"; do
-    [[ $entry == "$name" ]] && return 0
-  done
-  return 1
+    local name=$1 entry
+    IFS=, read -r -a entries <<<"${!override_var:-}"
+    for entry in "${entries[@]:-}"; do
+        [[ $entry == "$name" ]] && return 0
+    done
+    return 1
 }
 
 if [[ ${1:-} == --list ]]; then
-  for src in "${sources[@]}"; do
-    read -r parser path <<<"$src"
-    pins_at HEAD "$parser" "$path"
-  done
-  exit 0
+    for src in "${sources[@]}"; do
+        read -r parser path <<<"$src"
+        pins_at HEAD "$parser" "$path"
+    done
+    exit 0
 fi
 
 # refuse NAME OLD NEW PATH WHY: report a refused pin change unless its name
 # is in the override, and record the failure.
 refuse() {
-  local name=$1 old=$2 new=$3 path=$4 why=$5
-  if overridden "$name"; then
-    echo "lint-pins: ALLOWED $name $old -> $new in $path ($why) — $override_var=${!override_var}"
-    return
-  fi
-  echo "lint-pins: REFUSED $name $old -> $new in $path: $why." >&2
-  echo "  A deliberate change names its pin: $override_var=$name git commit ..." >&2
-  failed=1
+    local name=$1 old=$2 new=$3 path=$4 why=$5
+    if overridden "$name"; then
+        echo "lint-pins: ALLOWED $name $old -> $new in $path ($why) — $override_var=${!override_var}"
+        return
+    fi
+    echo "lint-pins: REFUSED $name $old -> $new in $path: $why." >&2
+    echo "  A deliberate change names its pin: $override_var=$name git commit ..." >&2
+    failed=1
 }
 
 failed=0
 for src in "${sources[@]}"; do
-  read -r parser path <<<"$src"
-  declare -A head_pins=() index_pins=()
-  while read -r name value; do
-    [[ -n $name ]] && head_pins[$name]=$value
-  done < <(pins_at HEAD "$parser" "$path")
-  while read -r name value; do
-    [[ -n $name ]] && index_pins[$name]=$value
-  done < <(pins_at "" "$parser" "$path")
+    read -r parser path <<<"$src"
+    declare -A head_pins=() index_pins=()
+    while read -r name value; do
+        [[ -n $name ]] && head_pins[$name]=$value
+    done < <(pins_at HEAD "$parser" "$path")
+    while read -r name value; do
+        [[ -n $name ]] && index_pins[$name]=$value
+    done < <(pins_at "" "$parser" "$path")
 
-  for name in "${!index_pins[@]}"; do
-    new=${index_pins[$name]}
-    old=${head_pins[$name]-}
+    for name in "${!index_pins[@]}"; do
+        new=${index_pins[$name]}
+        old=${head_pins[$name]-}
 
-    if version_key=$(checksum_version_key "$name"); then
-      if ! is_sha256 "$new"; then
-        refuse "$name" "${old:-(none)}" "$new" "$path" "a checksum pin must be 64 lowercase hex characters"
-        continue
-      fi
-      version_old=${head_pins[$version_key]-}
-      version_new=${index_pins[$version_key]-}
-      if [[ -n $version_old && $version_old != "$version_new" ]]; then
-        if is_old_checksum "$version_key" "$new"; then
-          refuse "$name" "${old:-(none)}" "$new" "$path" "stale checksum: $version_key moved $version_old -> $version_new but this is a checksum of $version_old"
+        if version_key=$(checksum_version_key "$name"); then
+            if ! is_sha256 "$new"; then
+                refuse "$name" "${old:-(none)}" "$new" "$path" "a checksum pin must be 64 lowercase hex characters"
+                continue
+            fi
+            version_old=${head_pins[$version_key]-}
+            version_new=${index_pins[$version_key]-}
+            if [[ -n $version_old && $version_old != "$version_new" ]]; then
+                if is_old_checksum "$version_key" "$new"; then
+                    refuse "$name" "${old:-(none)}" "$new" "$path" "stale checksum: $version_key moved $version_old -> $version_new but this is a checksum of $version_old"
+                fi
+            elif [[ -v head_pins[$name] && $old != "$new" && $name != image:* ]]; then
+                refuse "$name" "$old" "$new" "$path" "checksum changed while $version_key stayed $version_new — a different download under the same version"
+            fi
+            continue
         fi
-      elif [[ -v head_pins[$name] && $old != "$new" && $name != image:* ]]; then
-        refuse "$name" "$old" "$new" "$path" "checksum changed while $version_key stayed $version_new — a different download under the same version"
-      fi
-      continue
-    fi
 
-    [[ -v head_pins[$name] ]] || continue
-    [[ $old == "$new" ]] && continue
+        [[ -v head_pins[$name] ]] || continue
+        [[ $old == "$new" ]] && continue
 
-    if is_dotted_numeric "$old" && is_dotted_numeric "$new"; then
-      [[ $(compare_versions "$old" "$new") == 1 ]] || continue
-      why="downgrade"
-    else
-      why="not a dotted-numeric version, so its direction cannot be ranked (parser: $parser)"
-    fi
-    refuse "$name" "$old" "$new" "$path" "$why"
-  done
-  unset head_pins index_pins
+        if is_dotted_numeric "$old" && is_dotted_numeric "$new"; then
+            [[ $(compare_versions "$old" "$new") == 1 ]] || continue
+            why="downgrade"
+        else
+            why="not a dotted-numeric version, so its direction cannot be ranked (parser: $parser)"
+        fi
+        refuse "$name" "$old" "$new" "$path" "$why"
+    done
+    unset head_pins index_pins
 done
 
 exit $failed

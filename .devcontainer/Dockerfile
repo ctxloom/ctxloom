@@ -134,6 +134,7 @@ ARG JUST_SHA256_ARM64
 ARG GOPLS_VERSION
 ARG SERENA_AGENT_VERSION
 ARG GITLEAKS_VERSION
+ARG SHFMT_VERSION
 ARG LEFTHOOK_VERSION
 ARG GOVULNCHECK_VERSION
 ARG NODE_VERSION
@@ -158,6 +159,7 @@ RUN : "${GO_VERSION:?missing --build-arg GO_VERSION — build via 'just dev-imag
     && : "${GOPLS_VERSION:?missing --build-arg GOPLS_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${SERENA_AGENT_VERSION:?missing --build-arg SERENA_AGENT_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${GITLEAKS_VERSION:?missing --build-arg GITLEAKS_VERSION — see .devcontainer/tool-versions.env}" \
+    && : "${SHFMT_VERSION:?missing --build-arg SHFMT_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${LEFTHOOK_VERSION:?missing --build-arg LEFTHOOK_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${GOVULNCHECK_VERSION:?missing --build-arg GOVULNCHECK_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${NODE_VERSION:?missing --build-arg NODE_VERSION — see .devcontainer/tool-versions.env}" \
@@ -330,6 +332,10 @@ RUN go install github.com/benjaminabbitt/versionator@v${VERSIONATOR_VERSION}
 
 # Install gitleaks, the secret scanner lefthook's pre-commit hook runs
 RUN go install github.com/zricethezav/gitleaks/v8@v${GITLEAKS_VERSION}
+
+# Install shfmt, the shell formatter `just fmt` and lefthook's pre-commit hook
+# run over the shell scripts
+RUN go install mvdan.cc/sh/v3/cmd/shfmt@v${SHFMT_VERSION}
 
 # Install lefthook, the runner of the commit hooks (lefthook.yml). This
 # project's agent cells are built on this image, and the hook git generates

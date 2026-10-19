@@ -31,12 +31,12 @@ dockerfile=.devcontainer/Dockerfile
 pins=.devcontainer/tool-versions.env
 
 if command -v sha256sum >/dev/null 2>&1; then
-	sha() { sha256sum "$@"; }
+    sha() { sha256sum "$@"; }
 elif command -v shasum >/dev/null 2>&1; then
-	sha() { shasum -a 256 "$@"; }
+    sha() { shasum -a 256 "$@"; }
 else
-	echo "devcontainer-tag: need sha256sum or shasum to key the image" >&2
-	exit 1
+    echo "devcontainer-tag: need sha256sum or shasum to key the image" >&2
+    exit 1
 fi
 
 # One logical instruction per line: join backslash continuations, drop
@@ -53,54 +53,54 @@ instructions="$(awk '
 
 sources=()
 while IFS= read -r ins; do
-	[ -n "$ins" ] || continue
-	case "$ins" in
-	*"<<"*)
-		echo "devcontainer-tag: heredoc COPY/ADD is not understood, so its inputs cannot be keyed: $ins" >&2
-		exit 1
-		;;
-	esac
-	# JSON (exec) form: strip the brackets, quotes and commas into words.
-	if [[ "$ins" =~ \[ ]]; then
-		ins="$(printf '%s' "$ins" | tr -d '[]",')"
-	fi
-	read -r -a words <<<"$ins"
-	args=()
-	from_other=0
-	for w in "${words[@]:1}"; do
-		case "$w" in
-		--from=*) from_other=1 ;;
-		--*) ;;
-		*) args+=("$w") ;;
-		esac
-	done
-	[ "$from_other" -eq 0 ] || continue
-	[ "${#args[@]}" -ge 2 ] || {
-		echo "devcontainer-tag: cannot parse sources from: $ins" >&2
-		exit 1
-	}
-	# The last word is the destination; the rest are sources.
-	for src in "${args[@]:0:${#args[@]}-1}"; do
-		case "$src" in
-		http://* | https://* | git@*) continue ;;
-		esac
-		sources+=("$src")
-	done
+    [ -n "$ins" ] || continue
+    case "$ins" in
+        *"<<"*)
+            echo "devcontainer-tag: heredoc COPY/ADD is not understood, so its inputs cannot be keyed: $ins" >&2
+            exit 1
+            ;;
+    esac
+    # JSON (exec) form: strip the brackets, quotes and commas into words.
+    if [[ "$ins" =~ \[ ]]; then
+        ins="$(printf '%s' "$ins" | tr -d '[]",')"
+    fi
+    read -r -a words <<<"$ins"
+    args=()
+    from_other=0
+    for w in "${words[@]:1}"; do
+        case "$w" in
+            --from=*) from_other=1 ;;
+            --*) ;;
+            *) args+=("$w") ;;
+        esac
+    done
+    [ "$from_other" -eq 0 ] || continue
+    [ "${#args[@]}" -ge 2 ] || {
+        echo "devcontainer-tag: cannot parse sources from: $ins" >&2
+        exit 1
+    }
+    # The last word is the destination; the rest are sources.
+    for src in "${args[@]:0:${#args[@]}-1}"; do
+        case "$src" in
+            http://* | https://* | git@*) continue ;;
+        esac
+        sources+=("$src")
+    done
 done <<<"$instructions"
 
 files=()
 for src in "${sources[@]+"${sources[@]}"}"; do
-	matched=0
-	# Unquoted on purpose: a COPY source may be a glob.
-	for path in $src; do
-		[ -e "$path" ] || continue
-		matched=1
-		while IFS= read -r f; do files+=("$f"); done < <(find "$path" -type f | LC_ALL=C sort)
-	done
-	if [ "$matched" -eq 0 ]; then
-		echo "devcontainer-tag: $dockerfile copies '$src', which matches nothing in the build context" >&2
-		exit 1
-	fi
+    matched=0
+    # Unquoted on purpose: a COPY source may be a glob.
+    for path in $src; do
+        [ -e "$path" ] || continue
+        matched=1
+        while IFS= read -r f; do files+=("$f"); done < <(find "$path" -type f | LC_ALL=C sort)
+    done
+    if [ "$matched" -eq 0 ]; then
+        echo "devcontainer-tag: $dockerfile copies '$src', which matches nothing in the build context" >&2
+        exit 1
+    fi
 done
 
 sha "$pins" "$dockerfile" "${files[@]+"${files[@]}"}" | sha | cut -c1-12

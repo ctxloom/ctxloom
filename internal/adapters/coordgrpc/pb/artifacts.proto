@@ -102,7 +102,7 @@ service ArtifactTransferService {
 
 message ArtifactUploadRequest {
   oneof kind {
-    ArtifactUploadHeader header = 1;  // exactly once, first
+    ArtifactUploadHeader header = 1; // exactly once, first
     ArtifactChunk chunk = 2;
   }
 }
@@ -124,14 +124,14 @@ message ArtifactUploadHeader {
 }
 
 message ArtifactChunk {
-  uint64 offset = 1;  // must be contiguous
-  bytes data = 2;      // <= 1 MiB recommended
+  uint64 offset = 1; // must be contiguous
+  bytes data = 2; // <= 1 MiB recommended
 }
 
 message ArtifactReceipt {
-  string upload_id = 1;   // = hex(sha256); referenced from
-                          // ArtifactProduced.upload_id
-  bytes sha256 = 2;       // server-computed; mismatch => INVALID_ARGUMENT
+  string upload_id = 1; // = hex(sha256); referenced from
+  // ArtifactProduced.upload_id
+  bytes sha256 = 2; // server-computed; mismatch => INVALID_ARGUMENT
   uint64 size_bytes = 3;
   google.protobuf.Timestamp stored_at = 4;
 }
@@ -155,7 +155,7 @@ message ArtifactDownloadRequest {
 
 message ArtifactDownloadFrame {
   oneof kind {
-    ArtifactDownloadHeader header = 1;  // exactly once, first
+    ArtifactDownloadHeader header = 1; // exactly once, first
     ArtifactChunk chunk = 2;
   }
 }
@@ -167,9 +167,9 @@ message ArtifactDownloadHeader {
   string name = 4;
   string media_type = 5;
   uint64 size_bytes = 6;
-  bytes sha256 = 7;  // the manifest's content address — the receiver
-                      // verifies against THIS before placing the file
-                      // hard-fail on mismatch
+  bytes sha256 = 7; // the manifest's content address — the receiver
+  // verifies against THIS before placing the file
+  // hard-fail on mismatch
 }
 
 // =============================================================================
@@ -181,22 +181,20 @@ message ArtifactDownloadHeader {
 // =============================================================================
 
 message FetchArtifactRequest {
-  option (message_schema) = {
-    doc: "Retrieve a reported artifact's bytes (e.g. a child's plan manifest) and write them to a local path, content-hash-verified BEFORE placement. Fetch your own artifacts (agent_id = this session), a direct child's (lineage-checked), or — for a read-only consumer — any artifact visible to it. A message whose inline text ends at a \"keep reading for more detail\" marker names the agent_id and artifact_id that hold its full text; fetch those to read the rest."
-  };
+  option (message_schema) = {doc: "Retrieve a reported artifact's bytes (e.g. a child's plan manifest) and write them to a local path, content-hash-verified BEFORE placement. Fetch your own artifacts (agent_id = this session), a direct child's (lineage-checked), or — for a read-only consumer — any artifact visible to it. A message whose inline text ends at a \"keep reading for more detail\" marker names the agent_id and artifact_id that hold its full text; fetch those to read the rest."};
   string agent_id = 1 [(field_schema) = {
-    required: true,
-    doc: "The harp of the session that produced the artifact (its own agent_id, or a spawned child's — from agent_run's child_agent_id or the roster)",
+    required: true
+    doc: "The harp of the session that produced the artifact (its own agent_id, or a spawned child's — from agent_run's child_agent_id or the roster)"
     example: "\"swift-amber-falcon\""
   }];
   string artifact_id = 2 [(field_schema) = {
-    required: true,
-    doc: "The artifact's id, from the producer's agent_report result (artifact_ids) or a relayed report",
+    required: true
+    doc: "The artifact's id, from the producer's agent_report result (artifact_ids) or a relayed report"
     example: "\"plan/rollout\""
   }];
   string dest_path = 3 [(field_schema) = {
-    required: true,
-    doc: "Where to write the bytes, resolved against this session's working directory — a path escaping it (e.g. via \"..\") is rejected",
+    required: true
+    doc: "Where to write the bytes, resolved against this session's working directory — a path escaping it (e.g. via \"..\") is rejected"
     example: "\"./rollout.plan.md\""
   }];
 }

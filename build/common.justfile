@@ -58,10 +58,10 @@ trimpath := "-trimpath"
 #           thing being measured stops being the thing that ships.
 # go build creates OUT's parent directory itself, so no mkdir is needed.
 _go-build PKG OUT XPATH EXTRA="":
-    CGO_ENABLED=0 go build {{buildvcs}} {{trimpath}} {{EXTRA}} \
-        -ldflags "-s -w -X {{XPATH}}={{version}}" \
-        -o {{OUT}} {{PKG}}
+    CGO_ENABLED=0 go build {{ buildvcs }} {{ trimpath }} {{ EXTRA }} \
+        -ldflags "-s -w -X {{ XPATH }}={{ version }}" \
+        -o {{ OUT }} {{ PKG }}
 
 # Compress a built binary in place with UPX (best, LZMA).
 _compress OUT:
-    upx --best --lzma {{OUT}}
+    upx --best --lzma {{ OUT }}

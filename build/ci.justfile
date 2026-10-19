@@ -47,7 +47,7 @@ gha_error() {
 # anything calling versionator fail with "detected dubious ownership" without
 # this. No-op to run twice, and harmless outside CI.
 ci-git-safe-directory:
-    git config --global --add safe.directory "{{justfile_directory()}}"
+    git config --global --add safe.directory "{{ justfile_directory() }}"
 
 # Put the repo root and bin/ on PATH for subsequent steps.
 #
@@ -61,7 +61,7 @@ ci-git-safe-directory:
 ci-path:
     #!/usr/bin/env bash
     set -euo pipefail
-    root="{{justfile_directory()}}"
+    root="{{ justfile_directory() }}"
     if [ -n "${GITHUB_PATH:-}" ]; then
         printf '%s\n%s\n' "$root" "$root/bin" >> "$GITHUB_PATH"
     fi
@@ -91,7 +91,7 @@ ci-git-config-bot:
 version-untagged-check BASE:
     #!/usr/bin/env bash
     set -euo pipefail
-    {{_gha_error}}
+    {{ _gha_error }}
     base="$1"
     if [ -n "$base" ] && git rev-parse -q --verify "$base^{commit}" >/dev/null \
         && git diff --quiet "$base" HEAD -- VERSION; then
@@ -120,7 +120,7 @@ version-untagged-check BASE:
 release-tag:
     #!/usr/bin/env bash
     set -euo pipefail
-    {{_gha_error}}
+    {{ _gha_error }}
     v="$(tr -d '[:space:]' < VERSION)"
     if [ -z "$v" ]; then
         gha_error "VERSION file is empty"
@@ -182,7 +182,7 @@ tool-version-args:
 ci-go-version:
     #!/usr/bin/env bash
     set -euo pipefail
-    {{_gha_error}}
+    {{ _gha_error }}
     v="$(grep -E '^GO_VERSION=' .devcontainer/tool-versions.env | cut -d= -f2-)"
     if [ -z "$v" ]; then
         gha_error "GO_VERSION not found in .devcontainer/tool-versions.env"
@@ -245,8 +245,8 @@ seam_test_pkgs() {
 seam-test-pkgs goos:
     #!/usr/bin/env bash
     set -euo pipefail
-    {{_seam_test_pkgs}}
-    seam_test_pkgs {{goos}}
+    {{ _seam_test_pkgs }}
+    seam_test_pkgs {{ goos }}
 
 # Run every package with a platform seam (seam-test-pkgs) natively on a Windows
 # host. No -race: the race detector needs cgo and a C toolchain on Windows, and
@@ -265,22 +265,22 @@ test-darwin: (_test-native "darwin" "macos-latest")
 _test-native goos runner:
     #!/usr/bin/env bash
     set -euo pipefail
-    {{_gha_error}}
-    {{_seam_test_pkgs}}
-    if [ "$(go env GOOS)" != {{goos}} ]; then
-        gha_error "test-{{goos}} runs the {{goos}} arm natively; this host's GOOS is $(go env GOOS) (CI runs it on {{runner}})"
+    {{ _gha_error }}
+    {{ _seam_test_pkgs }}
+    if [ "$(go env GOOS)" != {{ goos }} ]; then
+        gha_error "test-{{ goos }} runs the {{ goos }} arm natively; this host's GOOS is $(go env GOOS) (CI runs it on {{ runner }})"
         exit 1
     fi
     # A read loop, not mapfile: macOS runners ship bash 3.2, which has no
     # mapfile/readarray. The command substitution (not `< <(...)`) also lets
     # set -e stop the recipe when the derivation itself fails.
-    list="$(seam_test_pkgs {{goos}})"
+    list="$(seam_test_pkgs {{ goos }})"
     pkgs=()
     while IFS= read -r p; do
         if [ -n "$p" ]; then pkgs+=("$p"); fi
     done <<<"$list"
     if [ "${#pkgs[@]}" -eq 0 ]; then
-        gha_error "seam-test-pkgs {{goos}} selected no packages"
+        gha_error "seam-test-pkgs {{ goos }} selected no packages"
         exit 1
     fi
     set +e
@@ -289,11 +289,11 @@ _test-native goos runner:
     grep -E '^(--- FAIL|FAIL|ok )' <<<"$out" || true
     if [ "$st" -ne 0 ]; then
         printf '%s\n' "$out" >&2
-        gha_error "test-{{goos}} failed"
+        gha_error "test-{{ goos }} failed"
         exit "$st"
     fi
     if ! grep -qE '^--- PASS: ' <<<"$out"; then
-        gha_error "test-{{goos}} ran no test in ${pkgs[*]}"
+        gha_error "test-{{ goos }} ran no test in ${pkgs[*]}"
         exit 1
     fi
 
@@ -433,11 +433,11 @@ mutshard() {
 '''
 
 # Print the packages shard SHARD (0-based) of SHARDS mutates for SCOPE.
-#   just mutation-shard-plan diff:origin/main 0 8
+# just mutation-shard-plan diff:origin/main 0 8
 mutation-shard-plan SCOPE SHARD SHARDS:
     #!/usr/bin/env bash
     set -euo pipefail
-    {{_mutshard}}
+    {{ _mutshard }}
     mutshard plan -scope "$1" -shard "$2" -shards "$3"
 
 # Run shard SHARD of SHARDS for SCOPE; writes OUT/shard-SHARD.json for
@@ -446,9 +446,9 @@ mutation-shard-plan SCOPE SHARD SHARDS:
 test-mutation-shard SCOPE SHARD SHARDS OUT: _mutation-prereqs
     #!/usr/bin/env bash
     set -euo pipefail
-    {{_mutshard}}
+    {{ _mutshard }}
     mutshard run -scope "$1" -shard "$2" -shards "$3" -out "$4" -- \
-        bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gomutants
+        bash tests/mutation/mutation_tmp.sh "{{ mutation_tmp }}" gomutants
 
 # Judge the union of the shard reports under REPORTS: refuses a missing,
 # stale or never-looked shard, then applies the thresholds above to the summed
@@ -456,17 +456,17 @@ test-mutation-shard SCOPE SHARD SHARDS OUT: _mutation-prereqs
 test-mutation-aggregate SCOPE REPORTS:
     #!/usr/bin/env bash
     set -euo pipefail
-    {{_mutshard}}
-    mutshard aggregate -scope "$1" -reports "$2" -efficacy "{{mutation_efficacy}}" -mcover "{{mutation_mcover}}"
+    {{ _mutshard }}
+    mutshard aggregate -scope "$1" -reports "$2" -efficacy "{{ mutation_efficacy }}" -mcover "{{ mutation_mcover }}"
 
 # The whole module on this machine: one shard of one, then the aggregate.
 # Far too slow to gate a push.
 test-mutation: _mutation-prereqs
-    @"{{just_executable()}}" --justfile "{{justfile()}}" _mutation-unsharded tree
+    @"{{ just_executable() }}" --justfile "{{ justfile() }}" _mutation-unsharded tree
 
 # The changeset against BASE on this machine — the per-push gate, unsharded.
 test-mutation-diff BASE: _mutation-prereqs
-    @"{{just_executable()}}" --justfile "{{justfile()}}" _mutation-unsharded "diff:$1"
+    @"{{ just_executable() }}" --justfile "{{ justfile() }}" _mutation-unsharded "diff:$1"
 
 # --no-deps: the public recipe above already ran _mutation-prereqs.
 _mutation-unsharded SCOPE:
@@ -474,7 +474,7 @@ _mutation-unsharded SCOPE:
     set -euo pipefail
     reports="$(mktemp -d)"
     trap 'rm -rf "$reports"' EXIT
-    just=("{{just_executable()}}" --justfile "{{justfile()}}" --no-deps)
+    just=("{{ just_executable() }}" --justfile "{{ justfile() }}" --no-deps)
     "${just[@]}" test-mutation-shard "$1" 0 1 "$reports"
     "${just[@]}" test-mutation-aggregate "$1" "$reports"
 
@@ -510,7 +510,7 @@ docs-build:
 engine-latest-version ENGINE:
     #!/usr/bin/env bash
     set -euo pipefail
-    {{_gha_error}}
+    {{ _gha_error }}
     engine="$1"
     version="$(.github/scripts/detect-engine-version.sh "$engine")"
     if [ -z "$version" ]; then
@@ -526,7 +526,7 @@ engine-latest-version ENGINE:
 engine-pinned-version LOCK_KEY:
     #!/usr/bin/env bash
     set -euo pipefail
-    {{_gha_error}}
+    {{ _gha_error }}
     key="$1"
     pinned="$(grep -E "^${key}=" .github/engine-versions.env | cut -d= -f2-)"
     if [ -z "$pinned" ]; then

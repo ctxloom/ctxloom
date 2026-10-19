@@ -164,8 +164,11 @@ func namesHome(value, home string) bool {
 // isPathNameByte reports whether b can continue a path element's name, so that
 // a home found next to it is part of some other path.
 func isPathNameByte(b byte) bool {
-	return b == '.' || b == '_' || b == '-' ||
-		('0' <= b && b <= '9') || ('a' <= b && b <= 'z') || ('A' <= b && b <= 'Z')
+	return b == '.' || b == '_' || b == '-' || isASCIIAlnum(b)
+}
+
+func isASCIIAlnum(b byte) bool {
+	return ('0' <= b && b <= '9') || ('a' <= b && b <= 'z') || ('A' <= b && b <= 'Z')
 }
 
 // dropHomeEnv returns env without the variables AssertChildEnvSandboxed would

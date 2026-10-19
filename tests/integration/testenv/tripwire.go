@@ -217,7 +217,7 @@ func underTempRoot(path string, roots []string) bool {
 func claudeDirName(path string) string {
 	b := []byte(path)
 	for i, c := range b {
-		if !('0' <= c && c <= '9' || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z') {
+		if !isASCIIAlnum(c) {
 			b[i] = '-'
 		}
 	}

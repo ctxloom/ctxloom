@@ -82,36 +82,27 @@ var llmEditCmd = &cobra.Command{
 func runLLMCreate(cmd *cobra.Command, args []string) error { return writeLLM(cmd, args[0], false) }
 func runLLMEdit(cmd *cobra.Command, args []string) error   { return writeLLM(cmd, args[0], true) }
 
-// writeLLM is `llm create`/`llm edit`'s shared body — mirrors
-// agent.go's writeAgentBinding, but first picks the file: an llm label may be
-// machine-scoped (--home, the user-global config), where an agent binding is
-// the project's. That asymmetry is a property of the two entities, not drift.
-// reprise:accept-drift
+// writeLLM is `llm create`/`llm edit`'s shared body, but first picks the
+// file: an llm label may be machine-scoped (--home, the user-global config),
+// where an agent binding is the project's. That asymmetry is a property of
+// the two entities, not drift.
 func writeLLM(cmd *cobra.Command, label string, mustExist bool) error {
 	if llmHome {
 		if err := pinHomeConfig(cmd); err != nil {
 			return err
 		}
 	}
-	cfg, err := GetConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-	if err := checkLLMExistence(cfg, label, mustExist); err != nil {
-		return err
-	}
-	req, err := buildSetLLMRequest(cmd, label)
-	if err != nil {
-		return err
-	}
-
-	entry, err := operations.SetLLM(cmd.Context(), App(), req)
-	if err != nil {
-		return err
-	}
-	return emit(cmd, entry, func() error {
-		return renderLLMWritten(cmd.OutOrStdout(), entry, mustExist)
-	})
+	return writeConfigEntry(cmd, mustExist,
+		func(cfg *config.Config) error { return checkLLMExistence(cfg, label, mustExist) },
+		func(*config.Config) (*operations.LLMEntry, error) {
+			req, err := buildSetLLMRequest(cmd, label)
+			if err != nil {
+				return nil, err
+			}
+			return operations.SetLLM(cmd.Context(), App(), req)
+		},
+		nil,
+		renderLLMWritten)
 }
 
 // checkLLMExistence enforces create-vs-edit's differing precondition

@@ -29,7 +29,7 @@ func TestRun_NoToken_RefusedBeforeLaunchWithTheEnginesFix(t *testing.T) {
 			require.ErrorIs(t, err, engine.ErrNoCredential)
 			fix, ok := clifmt.RemedyOf(err)
 			require.True(t, ok)
-			want, _ := clifmt.RemedyOf(operations.AgentTokenMissing(App().Engines(), claude.EngineName, func(string) (string, bool) { return "", false }))
+			want, _ := clifmt.RemedyOf(operations.AgentCredentialMissing(App().Engines(), claude.EngineName, engine.AuthToken, func(string) (string, bool) { return "", false }))
 			assert.Equal(t, want, fix, "the engine's wording, as init and auth show it")
 			assert.Equal(t, exitCodeRefused, clifmt.ExitCodeOf(err))
 		})

@@ -388,6 +388,9 @@ func coverageImportSourcePath(format string) string {
 // future command with no registry entry fails the test loudly instead of
 // silently going unchecked.
 func TestFormatCoverage_AllRootCmdDescendants(t *testing.T) {
+	// doctor exits non-zero when the agent credential is missing; this test is
+	// about every command rendering every format, not about that.
+	withAgentToken(t)
 	coverageScratch = t.TempDir()
 	cfg := formatCoverageProject(t)
 

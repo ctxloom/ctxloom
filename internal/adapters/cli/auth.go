@@ -31,7 +31,9 @@ auth mode reads is exported.
 Every agent ctxloom spawns (a delegated child, a one-shot, a container cell)
 uses one long-lived token you mint and export: for claude, run
 'claude setup-token' and export CLAUDE_CODE_OAUTH_TOKEN, or export it from
-your secret manager. 'ctxloom init' checks for it and runs that flow for you.
+your secret manager. 'ctxloom init' fails, after writing your config, when the
+credential your 'auth:' mode needs is missing, and 'ctxloom doctor' fails (exit 3); on a
+terminal init runs that flow for you first.
 
 Your own 'ctxloom run' session uses the top-level 'auth:' in your config:
 

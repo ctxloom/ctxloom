@@ -25,6 +25,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
@@ -174,7 +175,18 @@ func isolateGitHostState(t *testing.T, home string) {
 // by reference, so --deps here binds the SAME doctorDepsOnlyFlag var
 // doctorCmd.RunE reads; t.Cleanup resets it (resetFlags) so one test's
 // --deps never bleeds into the next.
+//
+// The agent token is exported first: every project here resolves to claude,
+// and a report whose credential is missing fails the process — a state the
+// credential tests drive through execDoctorAsIs on purpose.
 func execDoctor(t *testing.T, root string, args ...string) (string, error) {
+	t.Helper()
+	withAgentToken(t)
+	return execDoctorAsIs(t, root, args...)
+}
+
+// execDoctorAsIs is execDoctor over whatever environment the test arranged.
+func execDoctorAsIs(t *testing.T, root string, args ...string) (string, error) {
 	t.Helper()
 	chdir(t, root)
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
@@ -253,7 +265,45 @@ func doctorMarkersWithStatus(t *testing.T, out string, want operations.DoctorSta
 	return markers
 }
 
-func TestDoctorCmd_AlwaysExitsCleanEvenWhenMisconfigured(t *testing.T) {
+// TestDoctorCmd_ExitStatusFollowsFailRows: a missing credential is a FAIL row
+// and doctor exits with run's fatal-finding status after writing the whole
+// report, in JSON as in text; with the credential present, or with only
+// warnings, doctor exits 0. A script gating on doctor reads that status.
+func TestDoctorCmd_ExitStatusFollowsFailRows(t *testing.T) {
+	const marker = "DOCTOR-CHECK-CREDENTIALS-m5"
+	t.Run("credential missing: FAIL row, non-zero exit", func(t *testing.T) {
+		root, _ := setupProject(t, "claude-code")
+		isolateGitHostState(t, t.TempDir())
+		t.Setenv(claude.OAuthTokenEnv, "")
+		out, err := execDoctorAsIs(t, root)
+		require.Error(t, err)
+		assert.Equal(t, exitCodeFatalFindings, clifmt.ExitCodeOf(err))
+		row := doctorCheckNamed(t, out, marker)
+		assert.Equal(t, operations.DoctorFail, row.Status, "the JSON carries \"fail\"")
+		assert.Contains(t, out, `"status": "fail"`)
+		assert.Contains(t, row.Detail, claude.OAuthTokenEnv)
+		assert.NotEmpty(t, doctorChecksOf(t, out), "the whole report is still written")
+	})
+	t.Run("credential missing, text report", func(t *testing.T) {
+		root, _ := setupProject(t, "claude-code")
+		isolateGitHostState(t, t.TempDir())
+		t.Setenv(claude.OAuthTokenEnv, "")
+		out, err := execDoctorAsIs(t, root, "--format", "text")
+		require.Error(t, err)
+		assert.Contains(t, out, marker+" [fail]")
+		assert.Contains(t, out, "1 failure")
+	})
+	t.Run("warnings only: exit 0", func(t *testing.T) {
+		root, _ := setupProject(t, "claude-code")
+		require.NoError(t, os.Remove(filepath.Join(bundletree.ProjectProfilesDir(t, filepath.Join(root, ".ctxloom")), operations.SeedProfileName+".yaml")))
+		out, err := runDoctor(t, root)
+		require.NoError(t, err)
+		assert.NotEmpty(t, doctorMarkersWithStatus(t, out, operations.DoctorWarn))
+		assert.Empty(t, doctorMarkersWithStatus(t, out, operations.DoctorFail))
+	})
+}
+
+func TestDoctorCmd_WarningsAloneExitClean(t *testing.T) {
 	root, _ := setupProject(t, "claude-code")
 	// The default agent's seed profile is gone — a real misconfiguration
 	// `doctor` DOES flag (as a "warn" line) — but the command itself stays
@@ -285,6 +335,8 @@ func TestDoctorCmd_ReportsCleanOnRightState(t *testing.T) {
 	// whatever LookPath finds, so a no-op script satisfies it.
 	prependFakeBinToPath(t, "claude")
 	prependFakeBinToPath(t, "docker")
+	// The credentials row asks the process environment, as a run does.
+	withAgentToken(t)
 	scaffoldLocalTierState(t, root)
 	out, err := runDoctorClean(t, root)
 	require.NoError(t, err)
@@ -471,7 +523,7 @@ func TestDoctorCmd_JSONShape(t *testing.T) {
 		"DOCTOR-CHECK-HOOKS-TRUST-d4",
 		"DOCTOR-CHECK-SETUP-DEPS-h8",
 		"DOCTOR-CHECK-SETUP-COMPANIONS-i9",
-		"DOCTOR-CHECK-SETUP-AUTHPING-j0",
+		"DOCTOR-CHECK-CREDENTIALS-m5",
 	} {
 		assert.Contains(t, markers, want)
 	}
@@ -532,7 +584,7 @@ func hashTree(t *testing.T, root string) map[string]string {
 	return out
 }
 
-// TestDoctorStatus_WireValuesAreUnchanged pins the constraint: the three
+// TestDoctorStatus_WireValuesAreUnchanged pins the constraint: the four
 // statuses are the vocabulary the "ctxloom-doctor" Agent Skill and every
 // `doctor --format json` consumer read, so naming the type must not have moved a
 // single byte on the wire.
@@ -540,6 +592,7 @@ func TestDoctorStatus_WireValuesAreUnchanged(t *testing.T) {
 	assert.Equal(t, "ok", string(operations.DoctorOK))
 	assert.Equal(t, "warn", string(operations.DoctorWarn))
 	assert.Equal(t, "info", string(operations.DoctorInfo))
+	assert.Equal(t, "fail", string(operations.DoctorFail))
 
 	data, err := json.Marshal(operations.DoctorCheck{Marker: "M", Status: operations.DoctorWarn, Detail: "d"})
 	require.NoError(t, err)

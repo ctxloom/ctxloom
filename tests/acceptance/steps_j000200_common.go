@@ -414,6 +414,8 @@ const freshInitReposPrompt = "Do you have any personal ctxloom repositories? (y/
 // personal repositories. It is hermetic by construction:
 //   - --skip-launch stops init after its questions and scaffold: no auth
 //     probe and no setup session, so no engine runs (mock or real);
+//   - the agent token is exported (a fixture): init fails without one in
+//     every mode, --skip-launch included, after writing its config;
 //   - --no-pull skips the dependency pull;
 //   - GIT_ALLOW_PROTOCOL=file refuses the seeded remote's https clone
 //     outright, which init tolerates (a failed clone warns and continues).
@@ -431,7 +433,7 @@ func driveFreshInitInterview(w *World) (string, error) {
 // the interview never answers (initEngineMenu, initRepoEntry), or init
 // exiting early, fails it at once, naming what init showed.
 func runFreshInitInterview(env *testenv.TestEnvironment, path string) (string, error) {
-	sess, err := env.RunPTY(100, 30, []string{"PATH=" + path, "GIT_ALLOW_PROTOCOL=file"}, "init", "--skip-launch", "--no-pull")
+	sess, err := env.RunPTY(100, 30, []string{"PATH=" + path, "GIT_ALLOW_PROTOCOL=file", claude.OAuthTokenEnv + "=acceptance-fixture-not-a-token"}, "init", "--skip-launch", "--no-pull")
 	if err != nil {
 		return "", fmt.Errorf("start pty session: %w", err)
 	}

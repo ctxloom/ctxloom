@@ -399,7 +399,7 @@ Don't write anything the user didn't agree to.
 
 Run `ctxloom doctor` and show the user its report. This is the full
 postcondition check — marker dir and config validity, the engine resolving
-and authenticating, seeded deps locked and context assembling, hooks/MCP
+and its credential present (not that the engine accepts it), seeded deps locked and context assembling, hooks/MCP
 registered, companions detected, and agents present with resolvable
 profiles. Now that phases 1–4 have built real configured state, `doctor`
 describes it end to end (unlike phase 1's scoped `--deps`, which only asked

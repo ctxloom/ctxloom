@@ -16,15 +16,15 @@ func envWith(vars map[string]string) func(string) (string, bool) {
 	return func(k string) (string, bool) { v, ok := vars[k]; return v, ok }
 }
 
-// TestAgentTokenMissing_IsTheEnginesOwnRefusal: init, auth and run all ask
+// TestAgentCredentialMissing_IsTheEnginesOwnRefusal: init, auth and run all ask
 // the one question — is the token every agent authenticates with exported —
 // and answer it with the engine's own refusal, so the fix the human reads is
 // the engine's one wording wherever they meet it.
-func TestAgentTokenMissing_IsTheEnginesOwnRefusal(t *testing.T) {
+func TestAgentCredentialMissing_IsTheEnginesOwnRefusal(t *testing.T) {
 	reg := engines.Registry()
 	backend := claude.EngineName
 
-	err := AgentTokenMissing(reg, backend, envWith(nil))
+	err := AgentCredentialMissing(reg, backend, engine.AuthToken, envWith(nil))
 	require.ErrorIs(t, err, engine.ErrNoCredential)
 	fix, ok := clifmt.RemedyOf(err)
 	require.True(t, ok, "the refusal names its fix")
@@ -35,6 +35,6 @@ func TestAgentTokenMissing_IsTheEnginesOwnRefusal(t *testing.T) {
 	authFix, _ := clifmt.RemedyOf(authErr)
 	assert.Equal(t, authFix, fix, "the same wording `ctxloom auth` shows")
 
-	assert.NoError(t, AgentTokenMissing(reg, backend, envWith(map[string]string{claude.OAuthTokenEnv: "x"})))
-	assert.NoError(t, AgentTokenMissing(reg, "no-such-engine", envWith(nil)), "an unknown engine declares no token")
+	assert.NoError(t, AgentCredentialMissing(reg, backend, engine.AuthToken, envWith(map[string]string{claude.OAuthTokenEnv: "x"})))
+	assert.NoError(t, AgentCredentialMissing(reg, "no-such-engine", engine.AuthToken, envWith(nil)), "an unknown engine declares no token")
 }

@@ -92,17 +92,19 @@ Feature: init — the setup interview, and what it does to a project that alread
       Then the command succeeds
       And the output contains "personal"
 
-  Rule: Init never takes the agent token; without one it says how to create and export it
+  Rule: Init never takes the agent token; without one it fails, saying how to create and export it
 
     Every agent ctxloom launches authenticates with a long-lived token the
     human creates with the engine's own flow (claude: `claude setup-token`)
     and exports. ctxloom instructs; it never captures or stores the token. On
     a terminal with none exported, init runs that flow on the human's own
     terminal and prints the line to export it. Off a terminal there is nobody
-    to run it for, so init warns and names the steps — in the engine's own
-    wording, the one `ctxloom auth` and `ctxloom run` show — and exits 0: the
-    project IS set up, and only the setup interview's launch was skipped.
-    Once the token is exported, re-running init launches it.
+    to run it for, so init names the steps — in the engine's own wording, the
+    one `ctxloom auth` and `ctxloom run` show — and exits non-zero, as it does
+    under --skip-launch and after the terminal flow too: a project whose
+    agents cannot authenticate is not ready, whatever the mode. The config IS
+    written and stays written, and init says so. Once the token is exported,
+    re-running init launches the interview.
 
     Scenario: Off a terminal with no token exported, init names how to create and export it
       Given an initialized ctxloom project
@@ -111,10 +113,11 @@ Feature: init — the setup interview, and what it does to a project that alread
         """
         ctxloom init
         """
-      Then the command succeeds
+      Then the command exits with code 1
+      And the output contains "config is written"
       And the output contains "claude setup-token"
       And the output contains "export CLAUDE_CODE_OAUTH_TOKEN"
-      And the output contains "re-run `ctxloom init`"
+      And the output contains "or store it in your secret manager"
 
   Rule: A mistyped subcommand must not be mistaken for a bare init
 

@@ -60,16 +60,18 @@ func runTokenSetupAttached(c *exec.Cmd) error {
 	return c.Run()
 }
 
-// ensureAgentToken makes sure the token every agent authenticates with is
-// exported before init probes it. An exported token (by the engine's own
+// ensureAgentToken makes sure the credential the configured auth mode needs
+// is exported before init probes it. An exported one (by the engine's own
 // resolution, as a run makes it) is the whole answer and nothing else
-// happens. Without one, on a terminal, the engine's own token flow runs on
+// happens. Without one, in a mode other than the token the engine's refusal
+// is returned as it stands: its token flow mints a token, not a login. In
+// token mode, on a terminal, the engine's own token flow runs on
 // the human's terminal (stdio inherited, nothing read), then the export line
 // is printed with a placeholder and init stops with ErrTokenExportThenRerun:
 // a child process cannot set its parent shell's environment. Off a terminal
 // it refuses with ErrAgentTokenNotExported. ctxloom never sees, captures or
 // stores the token.
-func ensureAgentToken(ctx context.Context, reg engine.Registry, eng string, interactive bool, shell func(string) (string, bool), out io.Writer) error {
+func ensureAgentToken(ctx context.Context, reg engine.Registry, eng string, mode engine.AuthMode, interactive bool, shell func(string) (string, bool), out io.Writer) error {
 	kind, ok := reg.Lookup(engine.Name(eng))
 	if !ok {
 		return nil
@@ -78,12 +80,12 @@ func ensureAgentToken(ctx context.Context, reg engine.Registry, eng string, inte
 	if !ok {
 		return nil
 	}
-	err := operations.AgentTokenMissing(reg, eng, shell)
+	err := operations.AgentCredentialMissing(reg, eng, mode, shell)
 	if err == nil {
 		return nil
 	}
 	setup, ok := a.(engine.TokenSetup)
-	if !ok {
+	if !ok || mode != engine.AuthToken {
 		return err
 	}
 	cmdline := strings.Join(append([]string{operations.EngineBinary(reg, eng)}, setup.SetupArgs()...), " ")

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"testing"
 
@@ -20,7 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
-	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // tokenGateFake records what the init token gate asked of its two seams: the
@@ -76,7 +77,7 @@ func TestEnsureAgentToken_TokenSet_SkipsTheBootstrap(t *testing.T) {
 	var out bytes.Buffer
 	installTokenGateFake(t, f, &out)
 
-	err := ensureAgentToken(context.Background(), engines.Registry(), tokenGateEngine, true,
+	err := ensureAgentToken(context.Background(), engines.Registry(), tokenGateEngine, engine.AuthToken, true,
 		envOf(map[string]string{claude.OAuthTokenEnv: "fixture-not-a-token", "SHELL": "/bin/zsh"}), &out)
 	require.NoError(t, err)
 	assert.Empty(t, f.ran, "setup-token must not run when the token is set")
@@ -93,7 +94,7 @@ func TestEnsureAgentToken_TerminalNoToken_RunsSetupThenGuides(t *testing.T) {
 	var out bytes.Buffer
 	installTokenGateFake(t, f, &out)
 
-	err := ensureAgentToken(context.Background(), engines.Registry(), tokenGateEngine, true,
+	err := ensureAgentToken(context.Background(), engines.Registry(), tokenGateEngine, engine.AuthToken, true,
 		envOf(map[string]string{"SHELL": "/usr/bin/zsh"}), &out)
 
 	require.ErrorIs(t, err, ErrTokenExportThenRerun)
@@ -125,7 +126,7 @@ func TestEnsureAgentToken_SetupFails_NoExportLine(t *testing.T) {
 	var out bytes.Buffer
 	installTokenGateFake(t, f, &out)
 
-	err := ensureAgentToken(context.Background(), engines.Registry(), tokenGateEngine, true,
+	err := ensureAgentToken(context.Background(), engines.Registry(), tokenGateEngine, engine.AuthToken, true,
 		envOf(map[string]string{"SHELL": "/bin/bash"}), &out)
 	require.ErrorIs(t, err, ErrTokenSetupFailed)
 	assert.NotErrorIs(t, err, ErrTokenExportThenRerun)
@@ -141,7 +142,7 @@ func TestEnsureAgentToken_NoTerminalNoToken_TypedRefusal(t *testing.T) {
 	var out bytes.Buffer
 	installTokenGateFake(t, f, &out)
 
-	err := ensureAgentToken(context.Background(), engines.Registry(), tokenGateEngine, false,
+	err := ensureAgentToken(context.Background(), engines.Registry(), tokenGateEngine, engine.AuthToken, false,
 		envOf(map[string]string{"SHELL": "/bin/zsh"}), &out)
 	require.ErrorIs(t, err, ErrAgentTokenNotExported)
 	assert.Empty(t, f.ran, "setup-token never runs off a terminal")
@@ -150,7 +151,7 @@ func TestEnsureAgentToken_NoTerminalNoToken_TypedRefusal(t *testing.T) {
 	remedy := remedyOf(t, err)
 	assert.Contains(t, remedy, "claude setup-token")
 	assert.Contains(t, remedy, claude.OAuthTokenEnv)
-	assert.Equal(t, remedyOf(t, operations.AgentTokenMissing(engines.Registry(), tokenGateEngine, envOf(nil))), remedy,
+	assert.Equal(t, remedyOf(t, operations.AgentCredentialMissing(engines.Registry(), tokenGateEngine, engine.AuthToken, envOf(nil))), remedy,
 		"init's fix is the engine's own wording, the one `ctxloom auth` and `ctxloom run` show")
 }
 
@@ -160,7 +161,7 @@ func TestEnsureAgentToken_TerminalNoBinary_TypedNamingIt(t *testing.T) {
 	var out bytes.Buffer
 	installTokenGateFake(t, f, &out)
 
-	err := ensureAgentToken(context.Background(), engines.Registry(), tokenGateEngine, true,
+	err := ensureAgentToken(context.Background(), engines.Registry(), tokenGateEngine, engine.AuthToken, true,
 		envOf(map[string]string{"SHELL": "/bin/zsh"}), &out)
 	require.ErrorIs(t, err, ErrTokenSetupUnavailable)
 	assert.Contains(t, err.Error(), "claude")
@@ -171,7 +172,7 @@ func TestEnsureAgentToken_TerminalNoBinary_TypedNamingIt(t *testing.T) {
 func TestEnsureAgentToken_EngineWithoutAuth_NothingToDo(t *testing.T) {
 	f := &tokenGateFake{binary: "/fake/bin/mock"}
 	installTokenGateFake(t, f, nil)
-	require.NoError(t, ensureAgentToken(context.Background(), engines.Registry(), "mock", true, envOf(nil), &bytes.Buffer{}))
+	require.NoError(t, ensureAgentToken(context.Background(), engines.Registry(), "mock", engine.AuthToken, true, envOf(nil), &bytes.Buffer{}))
 	assert.Empty(t, f.ran)
 }
 
@@ -232,25 +233,25 @@ func TestLaunchDiscovery_TokenGate(t *testing.T) {
 		assert.Len(t, f.ran, 1)
 	})
 
-	t.Run("no token off a terminal: setup stands, the launch is skipped with a warning", func(t *testing.T) {
+	t.Run("no token off a terminal: init fails with the fix", func(t *testing.T) {
 		t.Setenv(claude.OAuthTokenEnv, "")
 		f := &tokenGateFake{binary: "/fake/bin/claude"}
 		installTokenGateFake(t, f, nil)
-		var warned bytes.Buffer
-		t.Cleanup(clidiag.SetSink(&warned))
-		require.NoError(t, launchDiscovery(newCmd(), tokenGateEngine, t.TempDir()+"/.ctxloom", false))
+		err := launchDiscovery(newCmd(), tokenGateEngine, t.TempDir()+"/.ctxloom", false)
+		require.ErrorIs(t, err, ErrAgentTokenNotExported)
 		assert.Empty(t, f.ran)
-		assert.Contains(t, warned.String(), ErrAgentTokenNotExported.Error(), "the skipped launch is warned")
+		assert.Contains(t, remedyOf(t, err), "claude setup-token")
 	})
 
-	t.Run("--skip-launch: no engine runs, setup-token included", func(t *testing.T) {
+	t.Run("--skip-launch: no engine runs, setup-token included, and init still fails", func(t *testing.T) {
 		t.Setenv(claude.OAuthTokenEnv, "")
 		f := &tokenGateFake{binary: "/fake/bin/claude"}
 		installTokenGateFake(t, f, nil)
 		orig := initSkipLaunch
 		initSkipLaunch = true
 		t.Cleanup(func() { initSkipLaunch = orig })
-		require.NoError(t, launchDiscovery(newCmd(), tokenGateEngine, t.TempDir()+"/.ctxloom", true))
+		err := launchDiscovery(newCmd(), tokenGateEngine, t.TempDir()+"/.ctxloom", true)
+		require.ErrorIs(t, err, ErrAgentTokenNotExported)
 		assert.Empty(t, f.ran)
 		assert.Zero(t, f.resolved)
 	})
@@ -275,4 +276,27 @@ func TestRunTokenSetupAttached_RefusesInATestBinary(t *testing.T) {
 func withAgentToken(t *testing.T) {
 	t.Helper()
 	t.Setenv(claude.OAuthTokenEnv, "cli-test-fixture-not-a-token")
+}
+
+// A config declaring `auth: login` is asked for a login, never the token: a
+// signed-in human with no token exported passes, and one without a login is
+// handed the engine's own refusal about the store, not setup-token's flow.
+func TestEnsureAgentToken_ResolvesTheConfiguredMode(t *testing.T) {
+	f := &tokenGateFake{binary: "/fake/bin/claude"}
+	installTokenGateFake(t, f, nil)
+	home := testsupport.Isolate(t)
+	t.Setenv(claude.OAuthTokenEnv, "")
+	t.Setenv(claude.ConfigDirEnv, "")
+	require.NoError(t, os.Unsetenv(claude.ConfigDirEnv))
+	noToken := envOf(map[string]string{"SHELL": "/bin/zsh"})
+
+	err := ensureAgentToken(context.Background(), engines.Registry(), tokenGateEngine, engine.AuthLogin, true, noToken, &bytes.Buffer{})
+	require.ErrorIs(t, err, engine.ErrNoCredential)
+	assert.NotErrorIs(t, err, ErrAgentTokenNotExported)
+	assert.NotContains(t, err.Error(), claude.OAuthTokenEnv)
+	assert.Empty(t, f.ran, "setup-token mints a token, not a login")
+
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".claude"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(`{}`), 0o600))
+	require.NoError(t, ensureAgentToken(context.Background(), engines.Registry(), tokenGateEngine, engine.AuthLogin, true, noToken, &bytes.Buffer{}))
 }

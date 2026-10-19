@@ -674,7 +674,7 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 	})
 
 	// cli.doctorCheckIngestionLimit (DOCTOR-CHECK-INGESTION-q7, an "info" line
-	// beside SETUP-AUTHPING-j0) is the inspector that answers now — not by
+	// beside the credentials row) is the inspector that answers now — not by
 	// naming what the engine read, which no inspector can ever do, but by
 	// naming the limit itself. The three phrases below must all land in the
 	// SAME probe's output: ctxloom's own "writes" (the act it can vouch for),

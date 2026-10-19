@@ -72,7 +72,7 @@ func TestDoctor_FullReport_RunsEveryCheckInItsFixedOrder(t *testing.T) {
 		"DOCTOR-CHECK-STALE-HOOKS-n5",
 		"DOCTOR-CHECK-SETUP-DEPS-h8",
 		"DOCTOR-CHECK-SETUP-COMPANIONS-i9",
-		"DOCTOR-CHECK-SETUP-AUTHPING-j0",
+		"DOCTOR-CHECK-CREDENTIALS-m5",
 		"DOCTOR-CHECK-INGESTION-q7",
 		"DOCTOR-CHECK-LOCAL-STATE-p6",
 		"DOCTOR-CHECK-GITIGNORE-f6",
@@ -87,7 +87,7 @@ func TestDoctor_FullReport_RunsEveryCheckInItsFixedOrder(t *testing.T) {
 		"DOCTOR-CHECK-PROJECT-OWNER-v4",
 	}, doctorMarkers(rep))
 	for _, c := range rep.Checks {
-		assert.Containsf(t, []DoctorStatus{DoctorOK, DoctorWarn, DoctorInfo}, c.Status, "%s carries a status outside the vocabulary", c.Marker)
+		assert.Containsf(t, []DoctorStatus{DoctorOK, DoctorWarn, DoctorInfo, DoctorFail}, c.Status, "%s carries a status outside the vocabulary", c.Marker)
 		assert.NotEmptyf(t, c.Detail, "%s reports no detail", c.Marker)
 	}
 }

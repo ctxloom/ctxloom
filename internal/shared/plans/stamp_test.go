@@ -1,0 +1,318 @@
+package plans
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/spf13/afero"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func writePlanFile(t *testing.T, name, content string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	return path
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	return string(data)
+}
+
+func TestStampPlanFile_NoFrontmatter_PrependsBlock(t *testing.T) {
+	path := writePlanFile(t, "current_plan.md", "# Plan\n\nbody here\n")
+	if err := StampPlanFile(afero.NewOsFs(), path, "swift-amber-falcon"); err != nil {
+		t.Fatalf("StampPlanFile: %v", err)
+	}
+	got := readFile(t, path)
+	if !strings.HasPrefix(got, "---\nsessions:\n  - swift-amber-falcon\n---\n") {
+		t.Errorf("expected frontmatter prepended; got:\n%s", got)
+	}
+	if !strings.Contains(got, "# Plan\n\nbody here") {
+		t.Errorf("body should survive verbatim; got:\n%s", got)
+	}
+}
+
+func TestStampPlanFile_ExistingFrontmatter_NoSessions_AppendsKey(t *testing.T) {
+	src := "---\ntitle: Some Plan\nauthor: ctxloom\n---\n\n# body\n"
+	path := writePlanFile(t, "p.md", src)
+	if err := StampPlanFile(afero.NewOsFs(), path, "quiet-silver-meadow"); err != nil {
+		t.Fatalf("StampPlanFile: %v", err)
+	}
+	got := readFile(t, path)
+	if !strings.Contains(got, "title: Some Plan") {
+		t.Errorf("existing keys must survive; got:\n%s", got)
+	}
+	if !strings.Contains(got, "sessions:\n  - quiet-silver-meadow") {
+		t.Errorf("sessions key should be appended with our harp; got:\n%s", got)
+	}
+	if !strings.Contains(got, "# body") {
+		t.Errorf("body must survive; got:\n%s", got)
+	}
+}
+
+func TestStampPlanFile_ExistingSessions_AppendsHarp(t *testing.T) {
+	src := "---\nsessions:\n  - bold-crimson-thunder\n---\n\nbody\n"
+	path := writePlanFile(t, "p.md", src)
+	if err := StampPlanFile(afero.NewOsFs(), path, "swift-amber-falcon"); err != nil {
+		t.Fatalf("StampPlanFile: %v", err)
+	}
+	got := readFile(t, path)
+	if !strings.Contains(got, "bold-crimson-thunder") {
+		t.Errorf("existing session must survive; got:\n%s", got)
+	}
+	if !strings.Contains(got, "swift-amber-falcon") {
+		t.Errorf("new session must be added; got:\n%s", got)
+	}
+}
+
+func TestStampPlanFile_HarpAlreadyPresent_NoOp(t *testing.T) {
+	src := "---\nsessions:\n  - swift-amber-falcon\n  - quiet-silver-meadow\n---\nbody\n"
+	path := writePlanFile(t, "p.md", src)
+	infoBefore, _ := os.Stat(path)
+	if err := StampPlanFile(afero.NewOsFs(), path, "swift-amber-falcon"); err != nil {
+		t.Fatalf("StampPlanFile: %v", err)
+	}
+	got := readFile(t, path)
+	// Content should be byte-identical.
+	if got != src {
+		t.Errorf("idempotent stamp should not modify file; got:\n%s", got)
+	}
+	infoAfter, _ := os.Stat(path)
+	// mtime check is a hint, not a contract (some filesystems coalesce).
+	_ = infoBefore
+	_ = infoAfter
+}
+
+// An unterminated frontmatter block must never corrupt the file
+// (unchanged from before), but it IS a genuine failure to stamp — the doc
+// comment on StampPlanFile promises "caller logs" for exactly this case, and
+// the caller (hook_stamp_plan.go) only logs when err != nil. Returning nil
+// here made that promise false: a stamping hook could silently do nothing,
+// forever, with no diagnostic anywhere.
+func TestStampPlanFile_UnterminatedFrontmatter_LeavesFileUntouchedButErrors(t *testing.T) {
+	src := "---\nthis-is-not-yaml-and-no-close\n# body\n"
+	path := writePlanFile(t, "p.md", src)
+	if err := StampPlanFile(afero.NewOsFs(), path, "swift-amber-falcon"); err == nil {
+		t.Fatal("unterminated frontmatter must be reported as a failure to stamp, not a silent no-op")
+	}
+	if got := readFile(t, path); got != src {
+		t.Errorf("an unterminated frontmatter block must still leave the file untouched; got:\n%s", got)
+	}
+}
+
+// The malformed-YAML-but-properly-terminated case (a closing `---` exists,
+// but the block between them doesn't parse) must fail the same way, for the
+// same reason: "refuse to corrupt" and "silently do nothing forever" are not
+// the same outcome, and only the first is intended.
+func TestStampPlanFile_MalformedYAMLInTerminatedBlock_LeavesFileUntouchedButErrors(t *testing.T) {
+	src := "---\n[this is not a mapping\n---\n# body\n"
+	path := writePlanFile(t, "p.md", src)
+	if err := StampPlanFile(afero.NewOsFs(), path, "swift-amber-falcon"); err == nil {
+		t.Fatal("malformed YAML frontmatter must be reported as a failure to stamp, not a silent no-op")
+	}
+	if got := readFile(t, path); got != src {
+		t.Errorf("malformed frontmatter should leave file untouched; got:\n%s", got)
+	}
+}
+
+func TestStampPlanFile_EmptyFrontmatter_Stamped(t *testing.T) {
+	// An empty but validly-terminated frontmatter block (`---\n---\n`) must be
+	// recognized and stamped, not misclassified as unterminated.
+	src := "---\n---\n# body\n"
+	path := writePlanFile(t, "p.md", src)
+	if err := StampPlanFile(afero.NewOsFs(), path, "swift-amber-falcon"); err != nil {
+		t.Fatalf("StampPlanFile: %v", err)
+	}
+	got := readFile(t, path)
+	if !strings.HasPrefix(got, "---\nsessions:\n  - swift-amber-falcon\n---\n") {
+		t.Errorf("empty frontmatter should be stamped with the harp; got:\n%s", got)
+	}
+	if !strings.Contains(got, "# body") {
+		t.Errorf("body must survive; got:\n%s", got)
+	}
+}
+
+func TestStampPlanFile_EmptyFrontmatterNoBody_Stamped(t *testing.T) {
+	src := "---\n---\n"
+	path := writePlanFile(t, "p.md", src)
+	if err := StampPlanFile(afero.NewOsFs(), path, "swift-amber-falcon"); err != nil {
+		t.Fatalf("StampPlanFile: %v", err)
+	}
+	got := readFile(t, path)
+	if !strings.HasPrefix(got, "---\nsessions:\n  - swift-amber-falcon\n---\n") {
+		t.Errorf("empty frontmatter (no body) should be stamped; got:\n%s", got)
+	}
+}
+
+func TestStampPlanFile_EmptyHarp_Errors(t *testing.T) {
+	path := writePlanFile(t, "p.md", "body\n")
+	if err := StampPlanFile(afero.NewOsFs(), path, ""); err == nil {
+		t.Error("empty harpName should error")
+	}
+}
+
+func TestStampPlanFile_MissingFile_Errors(t *testing.T) {
+	if err := StampPlanFile(afero.NewOsFs(), "/no/such/file.md", "swift-amber-falcon"); err == nil {
+		t.Error("missing file should error")
+	}
+}
+
+func TestStampPlanFile_RoundTripPreservesArbitraryFields(t *testing.T) {
+	src := "---\nstatus: draft\nowner:\n  name: ada\nsessions:\n  - bold-crimson-thunder\n---\n\nbody\n"
+	path := writePlanFile(t, "p.md", src)
+	if err := StampPlanFile(afero.NewOsFs(), path, "swift-amber-falcon"); err != nil {
+		t.Fatalf("StampPlanFile: %v", err)
+	}
+	got := readFile(t, path)
+	for _, want := range []string{"status: draft", "owner:", "name: ada", "bold-crimson-thunder", "swift-amber-falcon"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected %q in output:\n%s", want, got)
+		}
+	}
+}
+
+// TestStampPlanFile_PreservesFileMode pins that stamping a plan is a content
+// edit, not a permissions change. The rewrite is atomic (temp file + rename),
+// so the replacement's mode is whatever the writer is handed — it used to be
+// a hard-coded 0644, which quietly widened a plan the user had kept private.
+func TestStampPlanFile_PreservesFileMode(t *testing.T) {
+	for _, mode := range []os.FileMode{0o600, 0o640, 0o664} {
+		path := writePlanFile(t, "current_plan.md", "# Plan\n\nbody\n")
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatalf("chmod fixture: %v", err)
+		}
+		// The fixture must actually be hostile to the defect before the
+		// behaviour is asserted: confirm the mode really differs from the
+		// 0644 the writer used to hard-code.
+		st, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat fixture: %v", err)
+		}
+		if st.Mode().Perm() != mode {
+			t.Fatalf("fixture did not take mode %v, got %v", mode, st.Mode().Perm())
+		}
+
+		if err := StampPlanFile(afero.NewOsFs(), path, "some-harp"); err != nil {
+			t.Fatalf("stamp: %v", err)
+		}
+		if !strings.Contains(readFile(t, path), "some-harp") {
+			t.Fatalf("stamp did not run: harp missing from %s", path)
+		}
+		after, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat after stamp: %v", err)
+		}
+		if after.Mode().Perm() != mode {
+			t.Fatalf("stamping changed the plan's mode from %v to %v", mode, after.Mode().Perm())
+		}
+
+		// Second stamp: the update path (frontmatter now exists) must preserve
+		// the mode too, not just the prepend path.
+		if err := StampPlanFile(afero.NewOsFs(), path, "other-harp"); err != nil {
+			t.Fatalf("re-stamp: %v", err)
+		}
+		again, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat after re-stamp: %v", err)
+		}
+		if again.Mode().Perm() != mode {
+			t.Fatalf("re-stamping changed the plan's mode from %v to %v", mode, again.Mode().Perm())
+		}
+	}
+}
+
+// StampPlanFile is one half of a contract whose other half lives outside this
+// file: it WRITES the `sessions:` block-list that ParseFrontmatter READS
+// back out of the same document. Neither side can be changed alone — the key,
+// the block-list style, the append-rather-than-replace semantics, and the
+// survival of fields the stamper does not own are one agreement, and nothing
+// else in the tree states it end to end.
+//
+// The fixture uses the <name>.plan.md convention because that is the population
+// ParseFrontmatter reads. IsPlanFile deliberately does NOT match that
+// convention; see its doc comment, which records the mismatch as an open
+// question rather than an oversight, so this pin does not assert either way.
+func TestStampPlanFile_WritesTheSessionsListPlansReadsBack(t *testing.T) {
+	path := writePlanFile(t, "roadmap.plan.md", "---\ntitle: Roadmap\n---\n\nbody text\n")
+
+	// Assert the fixture is hostile: the reader must find nothing before the
+	// writer runs, or a green here would prove nothing about the writer.
+	before, _ := ParseFrontmatter(readFile(t, path))
+	require.Equal(t, "Roadmap", before)
+	_, noSessions := ParseFrontmatter(readFile(t, path))
+	require.Empty(t, noSessions, "the fixture must start with no sessions list")
+
+	require.NoError(t, StampPlanFile(afero.NewOsFs(), path, "vital-deaf-stunt"))
+	require.NoError(t, StampPlanFile(afero.NewOsFs(), path, "lively-harp-two"))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	title, sessions := ParseFrontmatter(string(data))
+	assert.Equal(t, "Roadmap", title, "stamping must preserve frontmatter fields it does not own")
+	assert.Equal(t, []string{"vital-deaf-stunt", "lively-harp-two"}, sessions,
+		"the reader must see every stamped harp, in stamp order")
+	assert.Contains(t, string(data), "body text", "the body must survive verbatim")
+}
+
+// A literal block scalar as the LAST frontmatter key owns the newline that ends
+// its last line — that newline sits just before the closing fence, and the
+// reader (plans.frontmatterBlock) keeps it. A writer that cuts the block at the
+// fence instead reads the value one newline short and re-emits it strip-chomped
+// (`|-`), silently rewriting the user's file. Everything but the stamped key
+// must survive byte for byte.
+func TestStampPlanFile_TrailingLiteralBlockScalar_SurvivesByteForByte(t *testing.T) {
+	cases := []struct {
+		name, initial, want string
+	}{
+		{
+			name:    "clip chomping",
+			initial: "---\nsessions: [earlier]\nnotes: |\n  line one\n  line two\n---\n\n# body\n",
+			want:    "---\nsessions: [earlier, wave81]\nnotes: |\n  line one\n  line two\n---\n\n# body\n",
+		},
+		{
+			// Keep chomping makes the trailing blank line part of the value, so
+			// trimming the encoder's output at the fence clips it just the same.
+			name:    "keep chomping with a trailing blank line",
+			initial: "---\nsessions: [earlier]\nnotes: |+\n  line one\n\n---\n\n# body\n",
+			want:    "---\nsessions: [earlier, wave81]\nnotes: |+\n  line one\n\n---\n\n# body\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writePlanFile(t, "plan.md", tc.initial)
+			require.NoError(t, StampPlanFile(afero.NewOsFs(), path, "wave81"))
+			assert.Equal(t, tc.want, readFile(t, path))
+		})
+	}
+}
+
+// StampPlanFile's file I/O goes through the fs it is handed: the plan lives
+// ONLY in a MemMapFs, so a read through the OS filesystem would find nothing.
+func TestStampPlanFile_ReadsAndWritesThroughTheGivenFs(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	path := filepath.Join(t.TempDir(), "absent-from-disk", "x.plan.md")
+	require.NoError(t, fsys.MkdirAll(filepath.Dir(path), 0o755))
+	testsupport.WriteFile(t, fsys, path, []byte("body\n"), 0o600)
+
+	require.NoError(t, StampPlanFile(fsys, path, "vital-deaf-stunt"))
+	got, err := afero.ReadFile(fsys, path)
+	require.NoError(t, err)
+	require.Contains(t, string(got), "vital-deaf-stunt")
+	_, err = os.Stat(path)
+	require.ErrorIs(t, err, os.ErrNotExist)
+}

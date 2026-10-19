@@ -93,9 +93,8 @@ func skillMatesOutput(cmd *cobra.Command, kind engine.Engine) (engine.HookRespon
 	if harp == "" {
 		return engine.HookResponse{}, errors.New("no " + agent.SessionHarpEnv + " in the environment: there is no session whose transcript says what was invoked")
 	}
-	// The transcript is read through the ACTIVE engine's own adapter, as
-	// next-step does: the reader is selected by the session's recorded
-	// engine, never assumed.
+	// The transcript is read through the ACTIVE engine's own adapter: the
+	// reader is selected by the session's recorded engine, never assumed.
 	adapter, src, err := operations.ResolveTurnTranscript(cmd.Context(), afero.NewOsFs(), App().Engines(), harp, ev.Transcript)
 	if err != nil {
 		return engine.HookResponse{}, err

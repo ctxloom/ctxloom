@@ -28,7 +28,7 @@ import (
 // be distinguished in the marshaled YAML.
 func fixtureConfig() *config.Config {
 	return config.NewFixture(config.Fixture{
-		Settings: config.SettingsConfig{EssenceMaxChars: 8000},
+		Settings: config.SettingsConfig{SilenceUnsupported: true},
 		LM: config.LMConfig{
 			Defaults: config.RoleDefaults{Primary: "big"},
 			Configs: map[string]config.LLMConfig{
@@ -46,7 +46,7 @@ func TestResolveConfigSection_KnownSections(t *testing.T) {
 		section  string
 		contains string // substring expected in the marshaled YAML
 	}{
-		{"config", "config", "essence_max_chars"},
+		{"config", "config", "silence_unsupported"},
 		{"llm", "llm", "gemini-3-pro"},
 	}
 
@@ -152,7 +152,7 @@ func TestConfigFileExists_DistinguishesAbsentFromUnknown(t *testing.T) {
 
 	t.Run("present", func(t *testing.T) {
 		path := filepath.Join(dir, "config.yaml")
-		require.NoError(t, os.WriteFile(path, []byte("schema_version: 7\n"), 0o644))
+		require.NoError(t, os.WriteFile(path, []byte("schema_version: 8\n"), 0o644))
 		exists, err := configFileExists(afero.NewOsFs(), path)
 		require.NoError(t, err)
 		assert.True(t, exists)
@@ -256,7 +256,7 @@ func TestConfigShowGet_HonorEveryFormatWithARealPayload(t *testing.T) {
 
 			out := buf.String()
 			require.NotEmpty(t, out, "%s rendered zero bytes", format)
-			assert.Contains(t, out, "8000", "%s must carry the essence_max_chars sentinel, not an empty envelope", format)
+			assert.Contains(t, out, "silence_unsupported", "%s must carry the settings sentinel, not an empty envelope", format)
 			assert.Contains(t, out, "gemini-3-pro", "%s must carry the llm sentinel", format)
 		})
 	}
@@ -274,8 +274,8 @@ func TestConfigPayload_SectionKeysStaySnakeCase(t *testing.T) {
 
 	m, ok := payload.(map[string]any)
 	require.True(t, ok, "a section payload must be a plain map, got %T", payload)
-	assert.Contains(t, m, "essence_max_chars")
-	assert.NotContains(t, m, "EssenceMaxChars")
+	assert.Contains(t, m, "silence_unsupported")
+	assert.NotContains(t, m, "SilenceUnsupported")
 }
 
 // TestConfigCreateWritesItsSuccessLineToTheCommandWriter pins that
@@ -310,7 +310,7 @@ func setConfigRaw(t *testing.T, v bool) {
 }
 
 func TestRunConfigShow_RendersTheShippedRegistry(t *testing.T) {
-	agentProject(t, "schema_version: 7\nworkspace: worktree\n")
+	agentProject(t, "schema_version: 8\nworkspace: worktree\n")
 	setConfigRaw(t, false)
 	cmd, out := textCmd()
 	require.NoError(t, runConfigShow(cmd, nil))
@@ -319,7 +319,7 @@ func TestRunConfigShow_RendersTheShippedRegistry(t *testing.T) {
 }
 
 func TestRunConfigShow_RawShowsOnlyWhatTheConfigSets(t *testing.T) {
-	agentProject(t, "schema_version: 7\nworkspace: worktree\n")
+	agentProject(t, "schema_version: 8\nworkspace: worktree\n")
 	setConfigRaw(t, true)
 	cmd, out := textCmd()
 	require.NoError(t, runConfigShow(cmd, nil))
@@ -328,7 +328,7 @@ func TestRunConfigShow_RawShowsOnlyWhatTheConfigSets(t *testing.T) {
 }
 
 func TestRunConfigShow_SectionRawNarrowsTheAuthoredDocument(t *testing.T) {
-	agentProject(t, "schema_version: 7\nllm:\n  configs:\n    big: { type: mock, role: fast }\n")
+	agentProject(t, "schema_version: 8\nllm:\n  configs:\n    big: { type: mock, role: fast }\n")
 	setConfigRaw(t, true)
 	cmd, out := textCmd()
 	require.NoError(t, runConfigShow(cmd, []string{"llm"}))
@@ -337,7 +337,7 @@ func TestRunConfigShow_SectionRawNarrowsTheAuthoredDocument(t *testing.T) {
 }
 
 func TestRunConfigShow_SectionRawLeavesTheShippedRegistryOut(t *testing.T) {
-	agentProject(t, "schema_version: 7\nworkspace: worktree\n")
+	agentProject(t, "schema_version: 8\nworkspace: worktree\n")
 	for _, raw := range []bool{false, true} {
 		setConfigRaw(t, raw)
 		cmd, out := textCmd()
@@ -353,7 +353,7 @@ func TestRunConfigShow_SectionRawLeavesTheShippedRegistryOut(t *testing.T) {
 // TestRunConfigShow_SectionScopesTheOutput pins that the section positional
 // is honoured: `show llm` prints the llm section and nothing outside it.
 func TestRunConfigShow_SectionScopesTheOutput(t *testing.T) {
-	agentProject(t, "schema_version: 7\nworkspace: worktree\n")
+	agentProject(t, "schema_version: 8\nworkspace: worktree\n")
 	setConfigRaw(t, false)
 	cmd, out := textCmd()
 	require.NoError(t, runConfigShow(cmd, []string{"llm"}))
@@ -362,7 +362,7 @@ func TestRunConfigShow_SectionScopesTheOutput(t *testing.T) {
 }
 
 func TestRunConfigShow_UnknownSectionRefuses(t *testing.T) {
-	agentProject(t, "schema_version: 7\nworkspace: worktree\n")
+	agentProject(t, "schema_version: 8\nworkspace: worktree\n")
 	setConfigRaw(t, false)
 	cmd, out := textCmd()
 	err := runConfigShow(cmd, []string{"nonsense"})

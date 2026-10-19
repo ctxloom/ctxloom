@@ -13,63 +13,35 @@ Feature: The archaeologist — what did we decide in March?
   covered, so history survives an engine switch and outlives the tool that
   produced it. That is the expensive half, and it is built.
 
-  This journey is the other half: the payoff. Search finds the session, show
-  prints what it concluded, and `run --session` folds it back into a live run's
-  context. History that can be captured but not recalled is an archive, not a
-  memory — the disk fills up and nothing gets easier.
+  This journey is the other half: the payoff. Search finds the session by the
+  question its user asked, show prints what it was about, and `run --session`
+  folds it back into a live run's context. History that can be captured but
+  not recalled is an archive, not a memory — the disk fills up and nothing
+  gets easier.
 
-  # NOTE ON SCOPE. J001000 (j001000_transcript_capture.feature) owns CAPTURE and
-  # proves it thoroughly: per-engine vendor-log conversion, a second recall that
-  # never doubles the conversation, and a live-captured session served from its
-  # own record. Nothing here re-drives that conversion. This journey owns RECALL,
-  # which is the unproven half.
+  # NOTE ON SCOPE. J001000 (j001000_transcript_capture.feature) owns CAPTURE.
+  # Nothing here re-drives that conversion. This journey owns RECALL.
   #
-  # NOTE ON THE THREE MARKERS. A session's searchable text lives in three
-  # places — harp name, index summary, compacted essence — and a search
-  # matching only one of them would look identical to a working one against a
-  # fixture where all three say the same thing. Each carries its OWN marker, so
-  # each scenario proves a specific field participates. The same split is
-  # load-bearing in the resume scenarios: transcript and essence carry
-  # different markers, so "resumed via the transcript" and "resumed via the
-  # essence" are distinguishable outcomes rather than one assertion that either
-  # would satisfy.
+  # NOTE ON THE TWO MARKERS. A session's title is its first user prompt, read
+  # from its transcript; the rest of the conversation is only in the
+  # transcript. Each carries its OWN marker, so "found by its title" and
+  # "resumed with its conversation" are distinguishable outcomes rather than
+  # one assertion either would satisfy.
   #
   # NOTE ON THE FIXTURE'S SECOND SESSION. Every search assertion has a wrong
-  # answer available to give: an unrelated, never-compacted session sits beside
-  # the March one. A search returning one hit proves nothing if there was
-  # nothing else it could have returned.
-  #
-  # NOTE ON TAGS. Each scenario's own comment names the defect it catches
-  # and the mutation that turns it red.
+  # answer available to give: an unrelated session sits beside the March one.
+  # A search returning one hit proves nothing if there was nothing else it
+  # could have returned.
 
   Background:
     Given a design question everyone remembers deciding and nobody remembers why
 
-  # Essence content is the field that matters most and is least likely to be
-  # searched: it is the only place a DECISION is written down in prose, as
-  # opposed to a harp name (three random words) or a summary (one line). If
-  # search does not reach it, the archive is keyed by everything except its
-  # content.
-  #
-  # UNTAGGED 2026-08-05, confirmed to pass as written AND to bite. Mutation:
-  # dropping the essence fallback from cli.sessionMatchesQuery (return false as
-  # soon as the metadata haystack misses) turns this red. The field really is
-  # searched, and this row is what proves it — the essence is the only place a
-  # DECISION is written down in prose.
-  Scenario: A phrase from the decision itself finds the session that made it
-    When I run "ctxloom session search J001200-ESSENCE-WORKTREE-NAMING-DECISION"
-    Then the search names the March session by a phrase that appears only in its compacted essence
-
-  # The summary field, proven separately for the same reason: one scenario per
-  # field, so a regression narrows to a field rather than to "search broke".
-  #
-  # UNTAGGED 2026-08-05, confirmed to pass as written AND to bite. Mutation:
-  # dropping e.Summary from cli.sessionMetadataHaystack turns this red and
-  # leaves the essence row above green — which is exactly the per-field
-  # narrowing this file splits its three markers to get.
-  Scenario: A phrase from the session summary finds it too
-    When I run "ctxloom session search J001200-SUMMARY-ONLY-MARKER"
-    Then the search names the March session by a phrase that appears only in its index summary
+  # A session is titled by the first thing its user asked — the question,
+  # which is what an archivist half-remembers. Mutation: dropping the title
+  # from cli.sessionMetadataHaystack turns this red.
+  Scenario: A phrase from the question she asked finds the session that answered it
+    When I run "ctxloom session search J001200-TITLE-WORKTREE-QUESTION"
+    Then the search names the March session by a phrase from its first prompt
 
   # The empty result, which is the one an archivist hits most and the one most
   # likely to be silent. "Nothing matched" and "the search did not run" must
@@ -85,38 +57,11 @@ Feature: The archaeologist — what did we decide in March?
     When I run "ctxloom session search J001200-MATCHES-ABSOLUTELY-NOTHING"
     Then ctxloom says plainly that nothing matched
 
-  # UNTAGGED 2026-08-05, confirmed to pass as written AND to bite. Mutation:
-  # making runSessionShow's text branch write "" instead of the essence bytes
-  # turns this red while the command still exits 0 — which is the distinction
-  # this row was written for, and one session.feature's shape-only coverage
-  # cannot make.
-  Scenario: Show prints what the session actually concluded
-    When I run "ctxloom session show amber-quiet-heron"
-    Then ctxloom prints the decision the session reached
-
-  # BOUNDARY B9, and the product states the gap itself: `session compact`'s own
-  # help says "Compaction is on-demand: nothing compacts a session
-  # automatically when it ends." So the UNCOMPACTED session is the default case,
-  # not the exception — most of the archive is in this state — and what a
-  # user sees has to distinguish "this session has no summary yet" from "this
-  # session was never recorded", or they will conclude the capture failed and
-  # stop trusting the archive.
-  #
-  # A session with no summary yet is a state, not a failure: every format
-  # exits 0. The structured shape reports compacted:false; the text one prints
-  # cli.sessionUncompactedHint in place of the summary, naming the command
-  # that writes one, so a user does not conclude the capture failed.
-  Scenario Outline: A session nobody ever compacted says so, and says what to do about it
-    When I run "ctxloom session show brisk-copper-moth <flags>"
-    Then the command <outcome>
-    And the output <detail>
-
-    @json-default
-    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
-      | flags         | outcome  | detail                                            |
-      |               | succeeds | reports "compacted" as "false"                    |
-      | --format json | succeeds | reports "compacted" as "false"                    |
-      | --format text | succeeds | contains "session compact brisk-copper-moth"      |
+  # Mutation: making renderSessionShow print the placeholder instead of the
+  # title turns this red while the command still exits 0.
+  Scenario: Show prints what the session was about
+    When I run "ctxloom session show amber-quiet-heron --format text"
+    Then ctxloom prints the question the session was opened with
 
   # THE PAYOFF. Everything upstream — the tee, the readers, the canonical
   # schema, four vendors' conversion — exists to make this one line work.
@@ -135,78 +80,16 @@ Feature: The archaeologist — what did we decide in March?
     When I run "ctxloom run --session amber-quiet-heron --dry-run -p default"
     Then the assembled context carries the conversation she had in March
 
-  # The two resume modes must differ in what reaches the model, or --compact is
-  # a flag that costs a compaction and buys nothing. Asserted as a three-way
-  # discrimination — essence present, raw absent — so neither "carried
-  # everything" nor "carried nothing" can pass.
-  #
-  # The essence reaches the model through the launch's SessionStart hook
-  # (CTXLOOM_RESUMED_FROM/PARTS), NOT through the assembled context, and a
-  # --dry-run stops before the launch sets that env. So the preview shows it
-  # in its own section, read by the hook's own function
-  # (cli.compactedResumePreview over cli.resumedEssenceForInjection) — what is
-  # shown is what the hook would inject. The preview is read-only: a missing or
-  # stale essence is named ("the launch compacts it on demand"), never
-  # compacted, because a dry run writes nothing. Mutation: dropping the
-  # Resumed Essence section from cli.runState.emitDryRun turns this red.
-  Scenario: Resuming through the essence carries the conclusion, not the whole conversation
-    When I run "ctxloom run --session amber-quiet-heron --compact --dry-run -p default"
-    Then the assembled context carries the compacted essence and not the raw conversation
-
   # The payoff row above proves the transcript reaches the ASSEMBLED CONTEXT.
   # This one proves it reaches the MODEL, which is a different claim: a context
   # that assembles correctly and is then dropped on the way to the engine looks
   # identical from the preview. The assertion reads what the engine actually
   # received, not what the CLI reported having sent.
-  #
-  # Asserted in both directions. "Carries the transcript" alone is satisfied by a
-  # mode that carries everything, so the essence must be absent for the claim to
-  # mean "resumed via the transcript" rather than "resumed via something". The
-  # negative half requires the recording to be non-empty, so a launch that never
-  # happened cannot pass by having no marker in it.
-  #
-  # NO --compact TWIN HERE, deliberately. The two modes reach the model by
-  # structurally different routes: full resume folds into the assembled context,
-  # while --compact rides CTXLOOM_RESUMED_FROM/PARTS and a SessionStart hook and
-  # never passes through the launch payload at all. So the mock's recorded input
-  # — which captures that payload — is the wrong instrument for the compacted
-  # half, and a row asserting it there fails for a reason that says nothing about
-  # --compact. The compacted half needs `the hook's additionalContext contains`
-  # (session_hooks.feature) driven with those env vars set, which no step can do
-  # yet.
-  Scenario: Resuming without --compact puts the conversation in front of the model, not the conclusion
+  Scenario: Resuming puts the conversation in front of the model
     Given the mock LLM responds "MOCK-REPLY"
     When I run "ctxloom run --one-shot --session amber-quiet-heron -p default Remind me what we concluded."
     Then the command succeeds
     And the mock recorded input contains "J001200-TRANSCRIPT-ONLY-MARKER"
-    And the mock recorded input does not contain "J001200-ESSENCE-WORKTREE-NAMING-DECISION"
-
-  # THE --compact HALF of the discrimination above, on the only instrument that
-  # can see it. --compact never puts the essence in the launch payload the mock
-  # records — it sets CTXLOOM_RESUMED_FROM/CTXLOOM_RESUMED_PARTS
-  # (cli.resumeCompactEnv) and delivers the essence LATER, at SessionStart, via
-  # cli.resumedEssenceForInjection. So this row drives `ctxloom hook
-  # session-start` directly with those two vars set — the same command and the
-  # same env pair a real resumed session's SessionStart callback receives from
-  # the environment `run --session --compact` set before launching the engine —
-  # and reads the envelope the engine actually gets, via the existing
-  # `the hook's additionalContext contains` step (session_hooks.feature). The
-  # hook never carries the project's context, so nothing but the essence
-  # delivery can put text in the envelope at all.
-  #
-  # UNTAGGED 2026-08-18. Mutation: neutering cli.resumedEssenceForInjection to
-  # return "" unconditionally turns this row red while "Resuming without
-  # --compact..." above stays green — proving the two rows discriminate the two
-  # resume paths rather than merely agreeing with each other.
-  Scenario: The SessionStart hook delivers the essence for a --compact resume
-    Given the environment variable "CTXLOOM_RESUMED_FROM" is set to "amber-quiet-heron"
-    And the environment variable "CTXLOOM_RESUMED_PARTS" is set to "session"
-    When I run "ctxloom hook session-start --engine claude-code" with input:
-      """
-      {"session_id":"vendor-session-1","hook_event_name":"SessionStart"}
-      """
-    Then the command succeeds
-    And the hook's additionalContext contains "J001200-ESSENCE-WORKTREE-NAMING-DECISION"
 
   # A FILED DEFECT (task diffusive-dazzler), reproduced here at the surface a
   # user actually touches. A harp is three random words; mistyping one is the
@@ -227,42 +110,8 @@ Feature: The archaeologist — what did we decide in March?
     When I run "ctxloom run --session no-such-harp-anywhere --dry-run -p default"
     Then ctxloom warns and runs anyway, naming the harp it could not find
 
-  # The model's own side of recall. A human running `session show` is one route;
-  # the assistant reaching for its own memory mid-conversation is the other, and
-  # it is the one that actually gets used, because it needs nobody to remember
-  # that March was where the decision happened.
-  #
-  # The assertion reuses the shared `the tool result contains` step
-  # deliberately: load_session answers in TEXT, not JSON, so a bespoke
-  # assertion that unwrapped the envelope as an object failed on the envelope
-  # rather than on the content — measured while writing this.
-  #
-  # UNTAGGED 2026-08-05. Two findings on the way to green, both fixed here
-  # rather than deferred, neither a production change:
-  #   1. The step table's key was wrong: `harp` instead of the
-  #      loadSessionInput field's actual JSON name `harp_name`. The MCP
-  #      server's schema has additionalProperties:false, so this failed loud
-  #      (a validation error, not a silent miss) — caught immediately, not a
-  #      months-later discovery, but still worth naming since it's exactly the
-  #      "unasserted payload" risk this comment used to warn about.
-  #   2. The deliberate answer IS "load_session returns the ESSENCE, not the
-  #      raw conversation" — confirmed by mcp_tools.feature's own
-  #      "Load a prior session's essence over MCP" scenario, which names it
-  #      "essence" in its title and asserts essence content. cli.loadHarpEssence
-  #      reads essence.md in the session's output dir directly; it never touches
-  #      the raw transcript. So per this scenario's own standing guidance, the
-  #      marker changed (J001200-TRANSCRIPT-ONLY-MARKER -> the essence marker)
-  #      rather than the scenario being deleted: the point was always that
-  #      SOME session content comes back, and it does.
-  # Mutation: truncating the essence bytes before they reach loadSessionResult
-  # (cli.loadHarpEssence's Content field) turns this red.
-  Scenario: The assistant can reach the March session without being told where to look
-    When the agent calls tool "load_session" with:
-      | harp_name | amber-quiet-heron |
-    Then the tool result contains "J001200-ESSENCE-WORKTREE-NAMING-DECISION"
-
   # Recall is a READ. This is the scenario that would catch a resume
-  # implementation that consumes, truncates, compacts or re-writes the record it
+  # implementation that consumes, truncates or re-writes the record it
   # read — a memory that erases itself on use, which is worse than no memory
   # because it fails on the SECOND person to ask the question.
   #

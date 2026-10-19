@@ -140,7 +140,7 @@ func runCLI(t *testing.T, args ...string) cliResult {
 
 // A --permissions value that is not a known posture is rejected before config
 // is even loaded, so a typo cannot silently resolve to a more permissive
-// default. --compact without --session is rejected in the same window.
+// default.
 func TestRunCharacterization_FlagValidationRejectsBeforeAnyWork(t *testing.T) {
 	runCLIFixture(t)
 
@@ -149,8 +149,8 @@ func TestRunCharacterization_FlagValidationRejectsBeforeAnyWork(t *testing.T) {
 	assert.NotContains(t, res.all(), "=== LLM ===", "validation must reject before assembly renders anything")
 
 	res = runCLI(t, "run", "--dry-run", "--format", "text", "--compact", "-p", "dev", "hi")
-	require.Error(t, res.err, "--compact without --session must be rejected")
-	assert.Contains(t, res.err.Error(), "--compact requires --session")
+	require.Error(t, res.err, "--compact is gone with session compaction")
+	assert.Contains(t, res.err.Error(), "unknown flag: --compact")
 }
 
 // -----------------------------------------------------------------------------

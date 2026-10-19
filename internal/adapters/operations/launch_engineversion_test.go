@@ -46,9 +46,8 @@ func topLevelRun(t *testing.T, probe func(ctx context.Context, engine, binary st
 
 // A TOP-LEVEL session's record carries engine_version (task #27). Only
 // delegated children used to record one, so every `ctxloom run` session read
-// back with NoRecordedVersionError, and the turn-end hooks that read the
-// ending turn's transcript (next-step, skill-mates) captured nothing on every
-// top-level run. The version is the one of the binary the launch spawns —
+// back with NoRecordedVersionError, and the hooks that read the ending
+// turn's transcript (skill-mates) captured nothing on every top-level run. The version is the one of the binary the launch spawns —
 // the label's binary_path here — not the engine's default install.
 //
 // MUTATION: drop the record from StartRun → the version assertion goes red.

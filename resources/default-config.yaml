@@ -12,7 +12,7 @@
 # The claude-code models are the claude CLI's aliases (`opus`, `haiku`), not
 # pinned ids: the CLI resolves each to its current model, so these defaults —
 # and every config init writes from them — never go stale on a superseded one.
-schema_version: 7
+schema_version: 8
 
 llm:
   configs:

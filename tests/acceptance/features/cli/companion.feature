@@ -74,7 +74,7 @@ Feature: companion — which programs ctxloom runs alongside your session
       When I run "ctxloom companion add acme"
       Given the project already has the file ".ctxloom/config.yaml":
         """
-        schema_version: 7
+        schema_version: 8
         companions: [beta]
         """
       When I run "ctxloom companion list --format json"
@@ -88,7 +88,7 @@ Feature: companion — which programs ctxloom runs alongside your session
       When I run "ctxloom companion add acme"
       Given the project already has the file ".ctxloom/config.yaml":
         """
-        schema_version: 7
+        schema_version: 8
         companions: []
         """
       When I run "ctxloom companion list --format json"

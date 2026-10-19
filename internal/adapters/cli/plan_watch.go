@@ -55,7 +55,7 @@ func runPlanWatch(cmd *cobra.Command, args []string) error {
 
 	// Recursive: plans live in per-harp subdirectories, and new session dirs
 	// appear over a session's life. Filter to *.plan.md so unrelated session
-	// files (transcripts, essence) don't churn the stream. watch.New no
+	// files (transcripts, notes) don't churn the stream. watch.New no
 	// longer creates the root itself — this IS the reviewable
 	// call site that genuinely needs it: a fresh project with no session yet
 	// has no sessions dir at all, and this command should still be able to

@@ -185,8 +185,6 @@ func TestHarpStateDirs_Layout(t *testing.T) {
 	seg, err := ResolveHarpSegmentPath("swift-amber-falcon", "s1")
 	assert.NoError(t, err)
 	assert.Equal(t, filepath.Join(root, "transcripts", "segments", "s1.jsonl"), seg)
-	assert.Equal(t, filepath.Join("/out", "segments", "s1.md"), OutputSegmentEssencePath("/out", "s1"),
-		"a segment's essence is a readable output: under the output dir")
 }
 
 // TestHarpLockPath_IsBesideTheHarpDir pins the session liveness lock's home:

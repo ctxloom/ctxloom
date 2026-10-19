@@ -48,7 +48,7 @@ func TestAppendManagedDynamicHooks_InstallsTheMailDrainHookOnTurnStart(t *testin
 
 // TestAppendManagedDynamicHooks_MailDrainIsDeliveredNotOnlyDeclared pins that
 // the hook survives into the DELIVERED wire set and stays out of the declared
-// one that capability-loss reporting reads (see the next-step twin).
+// one that capability-loss reporting reads.
 func TestAppendManagedDynamicHooks_MailDrainIsDeliveredNotOnlyDeclared(t *testing.T) {
 	m := newHooks()
 	appendManagedDynamicHooks(m, config.NewFixture(config.Fixture{}), nil, sessions.MailByHook)

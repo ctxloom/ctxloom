@@ -72,8 +72,8 @@ var EnvKeys = []string{
 	// Read through an INJECTED lookup (getenv(sessions.EnvX), the caller
 	// passing os.Getenv), which TestEnvKeysCoversProductionReads only learned
 	// to see once CTXLOOM_OUTPUT_DIR leaked: every containerized session
-	// exports it, and a compaction test that inherited it wrote its fixture
-	// essence.md and next-step.md into that session's real output dir.
+	// exports it, and a test that inherited it wrote its fixture
+	// files into that session's real output dir.
 	"CTXLOOM_OUTPUT_DIR",
 	"CTXLOOM_DIAGNOSTICS_LOG",
 	"CTXLOOM_HOOK_URL",

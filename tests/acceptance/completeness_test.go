@@ -35,10 +35,9 @@ var knownUncoveredTools = []string{
 	// agent_run is exercised by J002100 (steps_j002100_delegation.go,
 	// j002100_delegation.feature — a coordinator spawning delegated children
 	// and auditing their journaled privilege grant); agent_send by J002300
-	// (the real two-way bus, both directions, content asserted on each side); agent_stop by J002100's failure-path scenario, agent_ask by its ask scenario. evaluate_triggers,
-	// compact_session, get_previous_session and list_sessions are INVOKED by
-	// mcp_tools.feature — being named in a feature's prose is not coverage,
-	// which is the hole ranAsTool closes.
+	// (the real two-way bus, both directions, content asserted on each side); agent_stop by J002100's failure-path scenario, agent_ask by its ask scenario. evaluate_triggers
+	// is INVOKED by mcp_tools.feature — being named in a feature's prose is not
+	// coverage, which is the hole ranAsTool closes.
 	//
 	// The control tools, roster, agent_report and agent_fetch_artifact are
 	// pinned at the runner surface against a live coordinator in
@@ -108,8 +107,8 @@ func assertExactUncovered(t *testing.T, label string, got, want []string) int {
 // real gap, so it earns its place only with a reason that survives checking.
 // "Exercised at another layer" must name the test that does it; "requires a
 // real backend" must be true — a mock backend plus a directly seeded canonical
-// transcript reaches more of this surface hermetically than it first appears
-// (see steps_recover_session.go). A tool nothing drives belongs RED below,
+// transcript reaches more of this surface hermetically than it first appears.
+// A tool nothing drives belongs RED below,
 // where it is visible, not excluded here where it is not.
 var excludedTools = map[string]string{}
 

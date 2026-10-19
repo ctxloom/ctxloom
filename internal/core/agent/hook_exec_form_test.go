@@ -21,7 +21,6 @@ func TestCtxloomHooks_AreExecForm(t *testing.T) {
 	}{
 		{"session-start", NewSessionStartHook(), []string{"hook", "session-start"}},
 		{"skill-mates", NewSkillMatesHook(), []string{"hook", "skill-mates"}},
-		{"next-step", NewNextStepHook(), []string{"hook", "next-step"}},
 		{"mail-drain", NewMailDrainHook(), []string{"hook", "mail-drain"}},
 		{"permission", ApprovalHook("PermissionRequest", "", time.Minute), []string{"hook", "permission", "--event", "PermissionRequest"}},
 	} {

@@ -40,12 +40,13 @@ Schema for ctxloom config.yaml files. A file that breaks it — a key it does no
 | `isolation_pids_limit` | one of several shapes | Process/thread cap for every agent container (`--pids-limit`): a count, or `0` / `unlimited` for no cap. Unset: 4096. Like the memory cap, it is not enforced where the runtime cannot (rootless on cgroup v1), with a one-time warning. |
 | `llm` | object | Large language model configuration: a registry of arbitrarily-labeled backend configs plus a role→label map |
 | `non_tty_format` | string | The format ctxloom commands write to stdout when it is NOT a terminal and no --format/--json was given. Unset is json, what a script or agent parsing the output gets; 'yaml', 'toml', 'text' and 'markdown' are the rendering an explicit --format of that name produces. A terminal still gets text, and an explicit --format always wins. Warnings on stderr follow the same choice: JSON Lines under json/yaml/toml, the plain warning line otherwise. A presentation preference, honoured from every layer (CTXLOOM_CONFIG_NON_TTY_FORMAT included). A value outside this set is REFUSED, never replaced by json. Allowed values: `json`, `yaml`, `toml`, `text`, `markdown`. |
-| `output_dir` | string | Absolute directory under which each session's output dir (<output_dir>/<project>/<harp>/: essence, next step, plans, segment essences) is made, replacing the default <Documents>/ctxloom. A session records its output dir when it is minted, so changing this affects new sessions only. |
+| `output_dir` | string | Absolute directory under which each session's output dir (<output_dir>/<project>/<harp>/: plans, reports) is made, replacing the default <Documents>/ctxloom. A session records its output dir when it is minted, so changing this affects new sessions only. |
 | `permissions` | neutralPermissions | Project default permissions block for engines started in THIS project directory — the per-project consent knob: 'in this directory, an agent starts here unless something narrower says otherwise'. The engine-neutral fields only; each resolves the agent binding's own `permissions` > the engine label's `permissions` > THIS > the engine's default. |
 | `runtime` | string | Project default for the AGENT-level runtime axis: where an agent's engine process executes. 'host' (default) runs on the host; 'container-rootless' and 'container-rootful' run it inside the backend's agent image, and name WHO OWNS the container runtime daemon — they are not interchangeable, because a rootful daemon maps the engine's writes to a different uid than a rootless one, so a run that picked the wrong one produces files the other side cannot edit. There is deliberately no bare 'container': it could only be satisfied by guessing an ownership mode. An agent binding's own `runtime` overrides this default. A value outside this set is REFUSED, never degraded: asserted past the parser it would read as not-a-container — the bare host — so a run that asked for a container boundary would execute outside one, unsandboxed, having said so to nobody. Independent of `workspace` — the two axes are never bound together. Allowed values: `host`, `container-rootless`, `container-rootful`. |
-| `schema_version` | integer | Config format generation (integer; distinct from the application version). A file older than this ctxloom reads, or newer than it knows, is refused. Examples: `7`. |
-| `session_purge_age` | string | How old an ended session must be before `ctxloom session sweep --yes` purges it - its transcripts and native history, never its output dir or the files you wrote: an offset in the same grammar as session_reap_age - 30d, 12w, 720h. NO default: unset, the sweep reports what it would purge and purges nothing. `session sweep --purge-older-than` overrides it for one invocation. A session never compacted is never purged by a sweep. A value the grammar cannot parse is REFUSED. |
+| `schema_version` | integer | Config format generation (integer; distinct from the application version). A file older than this ctxloom reads, or newer than it knows, is refused. Examples: `8`. |
+| `session_purge_age` | string | How old an ended session must be before `ctxloom session sweep --yes` purges it - its transcripts and native history, never its output dir or the files you wrote: an offset in the same grammar as session_reap_age - 30d, 12w, 720h. NO default: unset, the sweep reports what it would purge and purges nothing. `session sweep --purge-older-than` overrides it for one invocation. A session whose transcript session_transcript_retention keeps is never purged by a sweep. A value the grammar cannot parse is REFUSED. |
 | `session_reap_age` | string | How old a session must be before `ctxloom clean` reclaims its disposable members (~/.ctxloom/sessions/<harp>/home, work and scratch): an offset in `clean --older-than`'s grammar - 30d, 12w, 720h. Default 30d when unset. `clean --older-than` overrides it for one invocation. Its transcripts and native history are never taken on this age alone; that needs `clean --include-persist`. A session carrying a top-level file named `keep` is never reclaimed. A value the grammar cannot parse is REFUSED, never resolved to the default. |
+| `session_transcript_retention` | string | How long after a session ENDED its transcript - its record, now that engines own compaction - is kept from every destroyer of transcripts: `session transcript purge`, `session purge`, `session remove`, `session sweep` and `clean --include-persist`. An offset in the same grammar as session_reap_age - 30d, 12w, 720h. Default 30d when unset. A session marked keep (`ctxloom session keep <name>`) is kept at any age; an internal one-shot's transcript is reclaimable at any age. A value the grammar cannot parse is REFUSED, never resolved to the default. |
 | `shell_timeout` | object | The shell-tool timeout every engine is given, engine-neutral: each engine maps it onto its own mechanism, leaving a value the user set in that engine's own settings alone. A command that outlives the foreground timeout is moved to the background by the engine rather than finished, so a git commit behind slow hooks ends the turn unconfirmed; the defaults sit far above the engines' own for that reason. |
 | `sync` | object | Remote dependency sync behavior |
 | `ui` | object | Interactive-run terminal layer: the prefix-key agent-observation viewer and the persistent surround bar. `ctxloom run --plain-terminal` disables the whole layer for one session regardless of this section. |
@@ -73,7 +74,6 @@ Behavioral settings
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `essence_max_chars` | integer | Character budget for a compacted session essence (default: 12000) |
 | `silence_unsupported` | boolean | Suppress capability-loss lines when a backend does not support a requested feature (default: false) |
 | `statusline` | boolean | Whether ctxloom manages its HUD statusline (default: true); set false to keep your own |
 | `use_distilled` | boolean | Whether to prefer distilled versions of fragments/prompts (default: true) |
@@ -112,7 +112,7 @@ Role → config-label map. Roles select which labeled config plays which part.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `fast` | string | Label of the config for the compression role (distill, compaction) |
+| `fast` | string | Label of the config for the compression role (distill, triage) when no distiller/triage agent is configured |
 | `primary` | string | Label of the config for the coding/interactive role |
 
 ### shell_timeout
@@ -206,7 +206,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 |-------|------|-------------|
 | `args` | string[] |  |
 | `binary_path` | string | Overrides the engine's own CLI binary (a path, or a name resolved on PATH). Neutral: the launch carries it as the label's binary (engine.LabelConfig.Binary), the one the engine is spawned from and its version probe asks; the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode. |
-| `context_window` | integer | The model's context window, in tokens: what this label's model can hold in one call. Neutral: every engine's label may carry it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Absent, the engine's declared default applies (claude-code: 200000); set it for a model with a different window, e.g. 1000000 for a 1M-context model. Examples: `200000`, `131072`. |
+| `context_window` | integer | The model's context window, in tokens: what this label's model can hold in one call. Accepted on every engine's label so a label can be moved between engines, but only opencode reads it (it cannot discover an endpoint's window and never compacts without it); this engine ignores it. Examples: `200000`, `131072`. |
 | `model` | string | Examples: `opus`, `sonnet`, `haiku`. |
 | `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. |
 | `role` | string | Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime. Allowed values: `primary`, `fast`. |
@@ -216,7 +216,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `context_window` | integer | The model's context window, in tokens: what this label's model can hold in one call. Neutral: every engine's label may carry it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Absent, the engine's declared default applies (claude-code: 200000); set it for a model with a different window, e.g. 1000000 for a 1M-context model. Examples: `200000`, `131072`. |
+| `context_window` | integer | The model's context window, in tokens: what this label's model can hold in one call. Accepted on every engine's label so a label can be moved between engines, but only opencode reads it (it cannot discover an endpoint's window and never compacts without it); this engine ignores it. Examples: `200000`, `131072`. |
 | `mock_control` | map → string | The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map — an engine reads its credentials from the ambient environment. |
 | `model` | string |  |
 | `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. |
@@ -227,7 +227,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `context_window` | integer | The model's context window, in tokens: what this label's model can hold in one call. Neutral: every engine's label may carry it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Absent, the engine's declared default applies (claude-code: 200000); set it for a model with a different window, e.g. 1000000 for a 1M-context model. Examples: `200000`, `131072`. |
+| `context_window` | integer | The model's context window, in tokens: what this label's model can hold in one call. Accepted on every engine's label so a label can be moved between engines, but only opencode reads it (it cannot discover an endpoint's window and never compacts without it); this engine ignores it. Examples: `200000`, `131072`. |
 | `mock_control` | map → string | The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map — an engine reads its credentials from the ambient environment. |
 | `model` | string |  |
 | `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. |
@@ -238,7 +238,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `context_window` | integer | The model's context window, in tokens: what this label's model can hold in one call. Neutral: every engine's label may carry it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Absent, the engine's declared default applies (claude-code: 200000); set it for a model with a different window, e.g. 1000000 for a 1M-context model. Examples: `200000`, `131072`. |
+| `context_window` | integer | The model's context window, in tokens: what this label's model can hold in one call. Accepted on every engine's label so a label can be moved between engines, but only opencode reads it (it cannot discover an endpoint's window and never compacts without it); this engine ignores it. Examples: `200000`, `131072`. |
 | `mock_control` | map → string | The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map — an engine reads its credentials from the ambient environment. |
 | `model` | string |  |
 | `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. |
@@ -249,7 +249,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `context_window` | integer | The model's context window, in tokens: what this label's model can hold in one call. Neutral: every engine's label may carry it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Absent, the engine's declared default applies (claude-code: 200000); set it for a model with a different window, e.g. 1000000 for a 1M-context model. Examples: `200000`, `131072`. |
+| `context_window` | integer | The model's context window, in tokens: what this label's model can hold in one call. Accepted on every engine's label so a label can be moved between engines, but only opencode reads it (it cannot discover an endpoint's window and never compacts without it); this engine ignores it. Examples: `200000`, `131072`. |
 | `mock_control` | map → string | The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map — an engine reads its credentials from the ambient environment. |
 | `model` | string |  |
 | `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. |
@@ -264,7 +264,7 @@ The opencode CLI, driven either against one of opencode's built-in providers (no
 |-------|------|-------------|
 | `args` | string[] | Arguments placed before opencode's own subcommand. |
 | `binary_path` | string | Overrides the path to the opencode binary. |
-| `context_window` | integer | The model's context window, in tokens: what this label's model can hold in one call (llama-server: --ctx-size divided by --parallel). Neutral: every engine's label may carry it; REQUIRED with a provider block, because opencode cannot discover an endpoint's window and never compacts without it (a built-in provider's window is in opencode's own catalog). Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Examples: `131072`, `65536`. |
+| `context_window` | integer | The model's context window, in tokens: what this label's model can hold in one call (llama-server: --ctx-size divided by --parallel). Only opencode reads it; REQUIRED with a provider block, because opencode cannot discover an endpoint's window and never compacts without it (a built-in provider's window is in opencode's own catalog). Examples: `131072`, `65536`. |
 | `model` | string | **Required.** With a provider block, the model id the endpoint serves (llama-server's --alias). Without one, opencode's own provider/model reference, passed through verbatim. Examples: `qwen3.8-27b`, `opencode/big-pickle`. |
 | `model_options` | object | Passed verbatim as the model's options, which reach every request body (e.g. chat_template_kwargs: {enable_thinking: false}, temperature, top_p). |
 | `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. opencode's: mode (build \| plan \| auto) and permission (an opencode permission object). Its approver must be none: opencode run rejects every ask itself. |

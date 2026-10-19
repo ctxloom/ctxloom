@@ -214,8 +214,7 @@ func TestMaterialize_ReleasingContextRestoresAHandWrittenClaudeMd(t *testing.T) 
 // assembled context reaches a session once, through its system prompt. The
 // project settings ctxloom writes at rest carry exactly ONE SessionStart hook
 // of ctxloom's context family — `hook session-start`, which delivers the
-// resumed essence and the session-start notices and never the project's
-// context — and nothing that could hand it the project context: no retired
+// session-start notices and never the project's context — and nothing that could hand it the project context: no retired
 // inject-context hook, no context hash on its argv, no context text in the
 // file.
 func TestMaterialize_Claude_DeliversOneContextFreeSessionStartHook(t *testing.T) {

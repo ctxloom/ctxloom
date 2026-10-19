@@ -107,7 +107,7 @@ func TestRunInit_ExistingDir_HonoursRemoteFlags(t *testing.T) {
 	dir := t.TempDir()
 	appDir := filepath.Join(dir, ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte("schema_version: 7\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte("schema_version: 8\n"), 0o644))
 	chdir(t, dir)
 
 	var gotRepos []string
@@ -150,7 +150,7 @@ func TestRunInit_ExistingDir_ProvisionsTheApprovalsStore(t *testing.T) {
 	dir := t.TempDir()
 	appDir := filepath.Join(dir, ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte("schema_version: 7\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte("schema_version: 8\n"), 0o644))
 	chdir(t, dir)
 
 	withAgentToken(t)
@@ -164,7 +164,7 @@ func TestRunInit_ExistingDir_ProvisionsTheApprovalsStore(t *testing.T) {
 
 	cfg, err := os.ReadFile(filepath.Join(appDir, "config.yaml"))
 	require.NoError(t, err)
-	assert.Equal(t, "schema_version: 7\n", string(cfg), "re-init must not re-scaffold an existing project's config")
+	assert.Equal(t, "schema_version: 8\n", string(cfg), "re-init must not re-scaffold an existing project's config")
 }
 
 // TestDiscoverySessionPrompt_MergesDiscoveryAndAgentSetup pins the collapsed

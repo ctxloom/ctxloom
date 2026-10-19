@@ -40,8 +40,8 @@ var srOldEnough = time.Now().Add(-90 * 24 * time.Hour)
 
 // srSeedHarp plants a harp directory in the real session-dir layout — the
 // sidecar at the top, scratch/ and transcripts/ and package/ as peers, each
-// holding bytes, and an essence in the session's recorded output dir so it
-// reads as compacted — and back-dates it, so "aged" is a property of the
+// holding bytes, its record ending long ago so its transcript is past any
+// retention cutoff these tests use — and back-dates it, so "aged" is a property of the
 // fixture rather than of how long the test ran.
 //
 // The layout is the point: the sweep's whole contract is WHICH of these
@@ -57,7 +57,6 @@ func srSeedHarp(t *testing.T, harp string) string {
 		require.NoError(t, os.WriteFile(p, []byte(body), 0o644))
 	}
 	out := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(out, paths.EssenceFileName), []byte("# essence\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.SessionSidecarFileName), []byte(srLayout[paths.SessionSidecarFileName]+"output_dir: "+out+"\n"), 0o644))
 	srBackdate(t, dir)
 	return dir
@@ -65,7 +64,7 @@ func srSeedHarp(t *testing.T, harp string) string {
 
 // srLayout is the fixture's member set, relative to the harp directory.
 var srLayout = map[string]string{
-	paths.SessionSidecarFileName:                                          "schema_version: 1\nproject_dir: /tmp/demo\n",
+	paths.SessionSidecarFileName:                                          "schema_version: 1\nproject_dir: /tmp/demo\nended_at: " + srOldEnough.UTC().Format(time.RFC3339) + "\n",
 	paths.ScratchDirName + "/scratch.txt":                                 "disposable scratch\n",
 	paths.ScratchDirName + "/overlay/settings.json":                       "{}\n",
 	paths.TranscriptsDirName + "/" + paths.CanonicalTranscriptFileName:    "{\"bulk\":true}\n",
@@ -138,7 +137,7 @@ func srReclaim(t *testing.T, p sessions.ReapPolicy) sessions.Report {
 }
 
 func srRequest(p sessions.ReapPolicy) SweepRequest {
-	return SweepRequest{ReclaimCutoff: p.Cutoff, ReclaimScope: p.Scope, Apply: p.Apply, AllProjects: true, ReclaimOnly: true}
+	return SweepRequest{ReclaimCutoff: p.Cutoff, ReclaimScope: p.Scope, Retention: p.Retention, Apply: p.Apply, AllProjects: true, ReclaimOnly: true}
 }
 
 // TestSweepReclaim_WithoutAnAgeBound_ReclaimsNothing: the reaper's
@@ -171,7 +170,7 @@ func TestSweepReclaim_TakesThePolicysMembers(t *testing.T) {
 	srAssertGone(t, dir, paths.ScratchDirName)
 	srAssertIntact(t, dir, paths.TranscriptsDirName, paths.PackageDirName)
 
-	res = srReclaim(t, sessions.ReapPolicy{Cutoff: srCutoff(), Scope: paths.Persist, Apply: true})
+	res = srReclaim(t, sessions.ReapPolicy{Cutoff: srCutoff(), Scope: paths.Persist, Retention: sessions.Retention{Cutoff: srCutoff()}, Apply: true})
 
 	assert.Equal(t, 1, res.Reclaimed)
 	srAssertGone(t, dir, paths.TranscriptsDirName, paths.PackageDirName)

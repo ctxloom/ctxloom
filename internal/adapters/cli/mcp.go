@@ -36,7 +36,7 @@ bundle that declares it; withhold one with a profile's exclude_mcp.
 
 Tools the session endpoint serves:
   Context:  assemble_context, search_content, search_library
-  Sessions: compact_session, list_sessions, load_session, get_previous_session, recover_session
+  Tasks:    evaluate_triggers (Deferred tasks' revive triggers, triaged)
   Health:   context_status (this session's measured context-window occupancy)
   Agents:   agent_run, agent_send and the other coordination
             tools (delegated child sessions + the coordinator message bus)

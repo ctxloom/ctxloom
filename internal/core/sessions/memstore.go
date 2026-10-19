@@ -295,6 +295,19 @@ func (m *MemStore) RecordEndReason(harpName string, reason EndReason) error {
 	return fmt.Errorf("session not found: %q", harpName)
 }
 
+// SetKeep sets Keep on the named entry, as Manager.SetKeep does.
+func (m *MemStore) SetKeep(harpName string, keep bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.sessions {
+		if m.sessions[i].HarpName == harpName {
+			m.sessions[i].Keep = keep
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: %q", ErrNotFound, harpName)
+}
+
 // MarkPurged stamps PurgedAt on the named entry. Idempotent. Mirrors
 // Manager.MarkPurged's ordering contract (mark before the caller destroys any
 // file) — this fake exists so operations-level tests can exercise that

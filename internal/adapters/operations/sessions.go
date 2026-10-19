@@ -27,10 +27,7 @@ import (
 // Readers group by what they need, and each costs what it needs:
 //   - a full listing (ListSessionsForProject, ListAllSessions) enumerates
 //     every session directory and reads every sidecar;
-//   - one session by harp (GetSession) reads that one directory's sidecar;
-//   - one session by backend id (HarpForSession) has to walk the sidecars,
-//     because a session id — current or rotated past — is recorded only in
-//     the sidecar of the harp that owns it.
+//   - one session by harp (GetSession) reads that one directory's sidecar.
 //
 // Nothing is reconciled away on the way out. A directory with a sidecar is
 // a session and is listed; a purged one carries PurgedAt and is listed as
@@ -54,96 +51,13 @@ func ListSessionsForProject(projectDir string) ([]sessions.Entry, error) {
 // ListAllSessions returns every session across all projects, most-recent-first
 // by last-worked time (ActivityTime). Mirrors ListSessionsForProject without
 // the project filter — the ordered all-projects listing (`session list
-// --all`, the list_sessions MCP tool, the ctxloom://sessions resource).
+// --all`).
 func ListAllSessions() ([]sessions.Entry, error) {
 	mgr, err := openSessions()
 	if err != nil {
 		return nil, err
 	}
 	return mgr.ListAll()
-}
-
-// PreviousSessionRef identifies a prior session to materialize: which backend
-// produced it (agent-of-origin, enabling cross-agent handoff) and the
-// agent-agnostic session id the owning agent server reassembles. For an
-// ACP-launched session there is no backend session id — SessionID is empty and
-// Harp is the sole materialization key (its own canonical transcript lives at
-// ~/.ctxloom/sessions/<harp>/), so the caller distills by harp instead of
-// asking a backend store to reassemble an id it never issued.
-type PreviousSessionRef struct {
-	SessionID string
-	Backend   string
-	Harp      string
-}
-
-// ResolvePreviousSession resolves the session before the active harp's, for a
-// project, from the session index — the authority for ordering, agent-of-origin,
-// and cross-agent routing (ADR 0019). Entries come most-recent-first; the active
-// harp's own entry is skipped and the first prior entry that carries a bound
-// session id wins. Returns nil (no error) when the index has no such entry, so
-// the caller can fall back to the owning agent's own store listing.
-//
-// This replaces the per-backend GetPreviousSession readers: ctxloom decides
-// WHICH session is previous (and which agent owns it); the agent server only
-// materializes a given id. This also keeps agent modules from
-// importing internal/core/sessions.
-func ResolvePreviousSession(projectDir, activeHarp string) (*PreviousSessionRef, error) {
-	entries, err := ListSessionsForProject(projectDir)
-	if err != nil {
-		return nil, err
-	}
-	return selectPreviousEntry(entries, activeHarp), nil
-}
-
-// selectPreviousEntry picks the previous session from project entries
-// (most-recent-first): skip the active harp's own entry and any entry that is
-// not yet materializable, then take the first prior one. An entry is
-// materializable once it has EITHER a bound backend SessionID (the owning agent
-// store can reassemble it) OR a canonical transcript on disk (an ACP session
-// distillable by harp). A still-pending entry — no session id and no canonical
-// transcript — is skipped. Pure for testability.
-func selectPreviousEntry(entries []sessions.Entry, activeHarp string) *PreviousSessionRef {
-	for _, e := range entries {
-		if e.HarpName == activeHarp {
-			continue
-		}
-		if e.SessionID == "" && e.CanonicalTranscriptPath == "" {
-			continue
-		}
-		return &PreviousSessionRef{SessionID: e.SessionID, Backend: e.Backend, Harp: e.HarpName}
-	}
-	return nil
-}
-
-// HarpForSession returns the harp that owns the given backend session id, or ""
-// if the index has no bound entry for it. Used to key a distilled session's plan
-// files (stored under ~/.ctxloom/sessions/<harp>/) when distilling a session by
-// id — e.g. a previous or cross-agent session, where the active harp is wrong.
-//
-// Resolves through the store's lineage-aware lookup (sessions.Store.
-// FindBySessionID), so an id a /clear has since rotated PAST — no longer any
-// entry's CURRENT SessionID, but still recorded in that entry's Rotations —
-// still resolves to the harp that owns it. A plain linear scan over
-// ListSessions (this function's previous body) can only ever match the live
-// binding, so a caller handed a pre-clear session id — a stale hook payload,
-// an old vendor transcript, `memory show`'s own mtime fallback — found no
-// harp at all.
-func HarpForSession(sessionID string) (string, error) {
-	if sessionID == "" {
-		return "", nil
-	}
-	mgr, err := openSessions()
-	if err != nil {
-		return "", err
-	}
-	entry, err := mgr.FindBySessionID(sessionID)
-	if err != nil {
-		return "", err
-	}
-	if entry == nil {
-		return "", nil
-	}
-	return entry.HarpName, nil
 }
 
 // GetSession returns the entry for harp, or nil if absent.
@@ -167,8 +81,7 @@ func RenameSession(oldName, newName string) error {
 	return mgr.Rename(oldName, newName)
 }
 
-// ForgetSession drops a harp entry from the index, leaving transcript and
-// essence files on disk.
+// ForgetSession drops a harp entry from the index, leaving its files on disk.
 func ForgetSession(harp string) error {
 	mgr, err := openSessions()
 	if err != nil {
@@ -325,6 +238,16 @@ func EndSession(harp string, at time.Time) error {
 		return err
 	}
 	return EndSessionIn(mgr, harp, at)
+}
+
+// SetSessionKeep marks (keep true) or unmarks harp's transcript as kept at
+// any age (sessions.Entry.Keep): `ctxloom session keep` and its --undo.
+func SetSessionKeep(harp string, keep bool) error {
+	mgr, err := openSessions()
+	if err != nil {
+		return err
+	}
+	return mgr.SetKeep(harp, keep)
 }
 
 // RecordRunEnd records how one of harp's runs ended on its session entry

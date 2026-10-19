@@ -15,7 +15,7 @@ func TestRunLLMRemove_HomePreviewNamesTheHomeApply(t *testing.T) {
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	agentProject(t, "schema_version: 7\n")
+	agentProject(t, "schema_version: 8\n")
 	require.NoError(t, runLLMWrite(t, false, append([]string{"--home"}, referenceLabelArgs...)...))
 
 	llmHome, llmRemoveYes = true, false

@@ -121,7 +121,7 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
       Given an initialized ctxloom project
       And the project already has the file ".ctxloom/config.yaml":
         """
-        schema_version: 7
+        schema_version: 8
         mcp:
             auto_register_ctxloom: true
             servers:

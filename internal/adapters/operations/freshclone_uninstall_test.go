@@ -45,7 +45,6 @@ func byConstructionHooks() wire.UnifiedHooks {
 	return wire.UnifiedHooks{
 		SessionStart: []wire.Hook{agent.NewSessionStartHook()},
 		PostTool:     []wire.Hook{agent.NewSkillMatesHook(), agent.NewMailPeekHook()},
-		TurnEnd:      []wire.Hook{agent.NewNextStepHook()},
 		TurnStart:    []wire.Hook{agent.NewMailDrainHook()},
 	}
 }

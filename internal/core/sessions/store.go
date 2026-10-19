@@ -15,7 +15,7 @@ var ErrNotFound = errors.New("sessions: session not found")
 // *MemStore is an in-memory adapter. The operations layer depends on this
 // interface so the backing store can change without touching the session
 // operations. The surface is exactly the methods operations invoke;
-// store-only helpers (SetSourceEntries, …) stay on the concrete type.
+// store-only helpers stay on the concrete type.
 type Store interface {
 	ListForProject(projectDir string) ([]Entry, error)
 	ListAll() ([]Entry, error)
@@ -32,6 +32,7 @@ type Store interface {
 	RecordRunEnd(harpName string, end RunEnd) error
 	RecordEndReason(harpName string, reason EndReason) error
 	MarkPurged(harpName string, at time.Time) error
+	SetKeep(harpName string, keep bool) error
 	Rename(oldName, newName string) error
 	Forget(harpName string) error
 }

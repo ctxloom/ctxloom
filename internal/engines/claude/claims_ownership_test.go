@@ -22,7 +22,6 @@ import (
 func ctxloomOwnHooks() []wire.Hook {
 	return []wire.Hook{
 		agent.NewSessionStartHook(),
-		agent.NewNextStepHook(),
 		agent.NewSkillMatesHook(),
 		agent.NewMailDrainHook(),
 		approvalCodec{}.Hooks(time.Minute).PermissionAsk[0],
@@ -36,9 +35,9 @@ func ctxloomOwnHooks() []wire.Hook {
 func fullManagedHookSet() *wire.HooksConfig {
 	own := ctxloomOwnHooks()
 	return &wire.HooksConfig{Unified: wire.UnifiedHooks{
-		SessionStart: append([]wire.Hook{{Command: "ctxloom hook session-bind"}}, own[0], own[1], own[2]),
-		PostTool:     []wire.Hook{{Command: "ctxloom hook stamp-plan"}, own[3]},
-		TurnEnd:      []wire.Hook{own[4]},
+		SessionStart: append([]wire.Hook{{Command: "ctxloom hook session-bind"}}, own[0], own[1]),
+		PostTool:     []wire.Hook{{Command: "ctxloom hook stamp-plan"}, own[2]},
+		TurnEnd:      []wire.Hook{own[3]},
 		PreTool:      []wire.Hook{{Command: "ltk evaluate", Matcher: "Bash"}},
 	}}
 }
@@ -66,7 +65,7 @@ func TestUninstall_ThenInstall_IsIdentity(t *testing.T) {
 	install(t, p, fullManagedHookSet(), ctxloomBundleMCP())
 	applied, err := os.ReadFile(settingsPath)
 	require.NoError(t, err)
-	require.Len(t, hookCommands(t, dir), 9, "precondition: the user's hook and the whole assembled set reached the file")
+	require.Len(t, hookCommands(t, dir), 8, "precondition: the user's hook and the whole assembled set reached the file")
 
 	require.NoError(t, p.Uninstall())
 	assert.Equal(t, []string{userHook}, hookCommands(t, dir),
@@ -178,7 +177,7 @@ func TestUninstall_ReclaimsAnOwnedExecHook(t *testing.T) {
 // TestInstall_WithoutARecord_TakesOutSupersededSpellingsOfItsOwnHooks: a
 // tracked settings.json carries ctxloom hooks no record on this machine names
 // — an older spelling of a callback ctxloom still installs (the shell form of
-// next-step). It runs a ctxloom callback ctxloom is installing into that
+// mail-drain). It runs a ctxloom callback ctxloom is installing into that
 // same group now, so it is ctxloom's own leftover: delivery leaves exactly
 // one of each current hook, and none of the superseded ones, or claude runs
 // every callback twice. The user's hooks — their own script, and their own
@@ -187,15 +186,15 @@ func TestInstall_WithoutARecord_TakesOutSupersededSpellingsOfItsOwnHooks(t *test
 	dir := t.TempDir()
 	settingsPath := ProjectSettingsPath(dir)
 	const (
-		userScript    = "./scripts/my-own-hook.sh"
-		staleNextStep = "'ctxloom' hook next-step"
+		userScript     = "./scripts/my-own-hook.sh"
+		staleMailDrain = "'ctxloom' hook mail-drain"
 	)
-	nextStep := agent.NewNextStepHook()
+	mailDrain := agent.NewMailDrainHook()
 	require.NoError(t, os.MkdirAll(filepath.Dir(settingsPath), 0o755))
 	require.NoError(t, os.WriteFile(settingsPath, []byte(`{"hooks": {
   "Stop": [{"hooks": [
-    {"type": "command", "command": "`+staleNextStep+`", "timeout": 15},
-    {"type": "command", "command": "ctxloom", "args": ["hook", "next-step"], "timeout": 15},
+    {"type": "command", "command": "`+staleMailDrain+`", "timeout": 5},
+    {"type": "command", "command": "ctxloom", "args": ["hook", "mail-drain"], "timeout": 5},
     {"type": "command", "command": "`+userScript+`"},
     {"type": "command", "command": "ctxloom", "args": ["doctor"]}
   ]}]
@@ -203,11 +202,11 @@ func TestInstall_WithoutARecord_TakesOutSupersededSpellingsOfItsOwnHooks(t *test
 
 	install(t, atRest(t, afero.NewOsFs(), dir), &wire.HooksConfig{Unified: wire.UnifiedHooks{
 		SessionStart: []wire.Hook{agent.NewSessionStartHook()},
-		TurnEnd:      []wire.Hook{nextStep},
+		TurnEnd:      []wire.Hook{mailDrain},
 	}}, nil)
 
 	assert.ElementsMatch(t, []string{
-		boundHook(nextStep).Line(),
+		boundHook(mailDrain).Line(),
 		boundHook(agent.NewSessionStartHook()).Line(),
 		userScript,
 		"'ctxloom' 'doctor'",

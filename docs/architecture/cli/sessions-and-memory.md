@@ -1,74 +1,77 @@
-# Sessions, memory, and plan watching
+# Sessions and plan watching
 
-A **session** is one engine run, named by a harp (`swift-amber-falcon`), bound to
-a transcript and optionally to a compacted **essence**. `ctxloom session *`
-browses, edits, removes, compacts, purges, adopts and watches them, lists
-their transcripts, artifacts and worktrees, and lists the plan approvals a live
-coordinator is holding. The memory MCP tools
-(`compact_session`, `list_sessions`, `load_session`, `recover_session`,
-`get_previous_session`) are the agent-facing surface over the same store; they
-live in `internal/adapters/mcp` (`mcp_tools_memory.go`), served both on the
-stdio MCP server and relayed from child agents through the coordinator
-(`coord_host.go`), and this page only points at them. Both surfaces read the
-one read model, `operations.SessionView` (only the CLI listings ask it for a
-session's state; see below).
+A **session** is one engine run, named by a harp (`swift-amber-falcon`), bound
+to a transcript. `ctxloom session *` browses, edits, keeps, removes, purges,
+adopts and watches them, lists their transcripts and worktrees, and lists the
+plan approvals a live coordinator is holding. Every listing reads one read
+model, `operations.SessionView` (only the CLI listings ask it for a session's
+state; see below).
+
+ctxloom does not compact sessions: the engines compact their own context and
+resume their own sessions. There is no agent-facing session tool; the only
+in-session recall is the engine's own.
 
 ## Structure
 
 ```mermaid
 flowchart TD
     subgraph human["human-facing (cobra, internal/adapters/cli)"]
-        SL["session list"] --> LSE["loadSessionEntries"] --> DMS["compactMissingOrStale (--compact)"]
-        SL --> ESR["emitSessionRows (session_full.go)"]
+        SL["session list"] --> LSE["loadSessionEntries"]
+        SL --> ESR["emitSessionRows (session_row.go)"]
         SQ["session search &lt;word&gt;..."] --> SMQ["sessionMatchesQuery → sessionMetadataHaystack / allWordsMatch"]
         SQ --> ESR
-        SS["session show &lt;harp&gt;"] --> RSE["readSessionEssence (session_essence.go)"]
-        SD["session compact &lt;harp&gt;"] --> RSD["runSessionCompact"]
+        SS["session show &lt;harp&gt;"] --> RSS["renderSessionShow"]
+        SK["session keep &lt;harp&gt; [--undo]"] --> SSK[["operations.SetSessionKeep"]]
         SW["session watch &lt;harp&gt;"] --> RSW["runSessionWatch → watchFeedSource → streamWatchEvents"]
         SA["session approvals"] --> RSA["runSessionApprovals → operations.QueryPendingApprovals"]
         SE["session edit / remove / purge / adopt"]
-        SX["session transcript · artifacts · worktrees list/purge"]
+        SX["session transcript · worktrees list/purge"]
         PW["plan watch (hidden)"] --> RPW["runPlanWatch → watch.Stream"]
         HB["hook session-bind"] --> BSFP["bindSessionFromPayload (session_bind.go)"]
     end
 
-    subgraph agentfacing["agent-facing (MCP tools, internal/adapters/mcp)"]
-        H["handleCompactSession · handleListSessions · handleLoadSession<br/>handleRecoverSession · handleGetPreviousSession"]
-        H --> LOD["loadOrCompactSession — the session-id-keyed cache-or-compact choke"]
-        H --> PBH["previousSessionByHarp — the harp-keyed choke"]
-        LOD --> SF["singleflightLoad / singleflightCompact"]
-        PBH --> SF
-        SF --> COMP[["internal/adapters/memory.Compactor"]]
-        ET["evaluate_triggers — handleEvaluateTriggers"] --> OPST[["operations.EvaluateTriggers"]]
-    end
-
-    RSD --> COMP
-    ESR --> PAGER["pagerWriter (pager.go)"]
     LSE --> SV[["operations.SessionView"]]
-    H --> SV
+    RSS --> SV
+    SV --> TITLE[["operations.SessionTitle — the first user prompt of the canonical transcript"]]
+    SE --> RET[["sessions.Retention — whether a transcript may go"]]
     SL -. "state (one probe per row)" .-> LSS[["operations.LockSessionState → sessionlock.Inspect"]]
     SQ -.-> LSS
 ```
 
 ## Row/render types
 
-- `SessionRow` (`session_row.go`) is the lean projection `session list` and
-  `session search` render: summary, harp, state, start/end, the essence *path* but
-  never the essence body — that is `session show`'s job, or `--full`'s. It is
-  projected from `operations.SessionView`, never from the store's entry.
+- `SessionRow` (`session_row.go`) is the projection `session list` and
+  `session search` render: summary (the session's title), harp, state,
+  start/end, and the purged and kept marks. It is projected from
+  `operations.SessionView`, never from the store's entry.
+- The title is `operations.SessionTitle`: the first main-thread user prompt of
+  the session's canonical transcript, cut to its first line and 80 bytes
+  (`sessions.FirstLineSummary`). It is read when the session is listed — one
+  transcript parse per row — and never stored. A session whose transcript
+  holds no prompt has no title; the row shows `(no summary)`.
 - `sessionTime` is a `time.Time` newtype so the same field marshals RFC3339
   for structured formats and a compact local timestamp for text/markdown.
   This works because `clifmt`'s reflective renderer treats any `fmt.Stringer`
   field as a scalar; without the wrapper a table cell shows `time.Time`'s
   verbose default form.
-- `SessionFullRow` (`session_full.go`) embeds `SessionRow` and adds `Essence`,
-  so the two shapes can never drift apart — `clifmt` walks the promoted
-  fields. `newSessionFullRow` reads the body from `SessionRow.EssencePath`, so
-  the two halves of one row can never describe different files.
-- `emitSessionRows` is the shared render tail: lean vs full, and the pager for
-  full text output only — structured formats never reach `pagerWriter`.
+- `emitSessionRows` is the shared render tail for both listings.
+- `session show` emits the `SessionView` itself, its text form one fact per
+  line (`renderSessionShow`).
 - `StartSessionInfo` / `PrintStartSessionBanner` (`session_banner.go`) are
   `run`'s pre-spawn banner.
+
+## Transcript retention: `session keep`
+
+A session's transcript is its record, so every destroyer of transcripts asks
+`sessions.Retention` first: a transcript is reclaimable once its session ended
+(the later of its recorded end and its last activity) more than
+`session_transcript_retention` ago (default `30d`), unless the session is
+marked keep. `session keep <harp>` sets `keep` in the session's sidecar;
+`--undo` clears it. An internal one-shot's transcript is reclaimable at any
+age. The refusals are typed (`sessions.ErrTranscriptRecent`,
+`ErrTranscriptKept`, `ErrNoRetentionBound`, wrapped by
+`operations.ErrPurgeRetained`), and the CLI resolves the cutoff once
+(`transcriptRetention`).
 
 ## How runs ended: `run_ends`
 
@@ -121,11 +124,11 @@ per row and puts the answer in `SessionView.State` (`state` in JSON).
 `sessionlock.Inspect` that never creates the file), and the TUI roster's
 index rows use the same function, so the overlay and the listing speak one
 vocabulary. `session list` and `session search` pass it, so the text table's
-STATE column, `--full`, every structured format and search agree. Search
-does not match a live row's stale end stamp, because it matches what the row
-shows. Both commands take `--state live|ended|unknown`. MCP `list_sessions`
-passes no probe and carries no state: it runs inside a session's own
-process.
+STATE column, every structured format and search agree. Search does not
+match a live row's stale end stamp, because it matches what the row shows.
+Both commands take `--state live|ended|unknown`. A caller that passes no
+probe gets no state: one running inside a session's own process must not
+probe its own lock.
 
 That last point is the in-process hazard. On the fcntl-emulated platforms,
 a probe by the lock's own holder opens and closes a second descriptor on
@@ -149,23 +152,11 @@ burst of filesystem events one plan write produces into one logical change.
 
 ## Invariants
 
-- **Cache-or-compact goes through one choke per keying.** `loadOrCompactSession`
-  for session-id-keyed lookups, `previousSessionByHarp` for harp-keyed. Both
-  route through the singleflight group `HostApp` owns, so concurrent identical
-  compactions collapse to one LLM call; the group is shared across per-call
-  `ctxServer`s deliberately.
-- **The relayed handlers must use `s.self`, not process env.** On the
-  host-relay path a handler runs inside the session-owning process under the
-  *caller's* identity; reading the environment would attribute the call to the
-  host session.
-- **`compactSession` never writes progress to stderr**: on the host-relay path
-  it runs inside the session-owning process, whose stderr is the terminal the
-  harness is drawing its TUI on.
 - **Listings serialize as `[]`, not `null`.**
-- **The previous-session reference shown in `run`'s banner comes from the same
-  primitive the `get_previous_session` tool reads** (`operations.ResolvePreviousSession`),
-  never re-derived.
-- **A purged session is visible as purged in every format.** `SessionRow.Purged`
-  is a plain boolean for structured consumers and the same fact rides the
-  `Summary` badge, so a purged session never reads, in a table a human is
-  looking at, as indistinguishable from one that was never purged.
+- **A purged or kept session is visible as such in every format.**
+  `SessionRow.Purged` and `SessionRow.Kept` are plain booleans for structured
+  consumers and the same facts ride the `Summary` badge, so neither reads, in
+  a table a human is looking at, as indistinguishable from a session with
+  neither mark.
+- **No destroyer of transcripts takes one Retention keeps**, and no flag
+  overrides it.

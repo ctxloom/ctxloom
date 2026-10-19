@@ -22,7 +22,7 @@ func TestMockLM_WriteConfig_PreservesUnrelatedSections(t *testing.T) {
 	}
 	configPath := filepath.Join(configDir, "config.yaml")
 
-	existing := `schema_version: 7
+	existing := `schema_version: 8
 llm:
   configs:
     claude:

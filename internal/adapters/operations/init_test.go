@@ -248,7 +248,7 @@ func TestParseShippedConfig_NamesTheDocument(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "init scaffold")
 
-	cfg, err := parseShippedConfig([]byte("schema_version: 7\n"), "init scaffold")
+	cfg, err := parseShippedConfig([]byte("schema_version: 8\n"), "init scaffold")
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 }

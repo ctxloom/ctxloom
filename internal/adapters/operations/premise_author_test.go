@@ -7,7 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/memory"
+	"github.com/ctxloom/ctxloom/internal/shared/llmturn"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +20,7 @@ type capturedRun struct{ Prompt string }
 
 // draftRunner returns a runner that answers out, plus the capture slot for
 // the prompt it received.
-func draftRunner(out string) (memory.Runner, *capturedRun) {
+func draftRunner(out string) (llmturn.Runner, *capturedRun) {
 	captured := &capturedRun{}
 	return func(_ context.Context, prompt string) (string, error) {
 		captured.Prompt = prompt

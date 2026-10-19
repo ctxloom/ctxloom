@@ -2,8 +2,8 @@
 // (internal/adapters/transcript/vendorreader/claude) into the two
 // call sites that actually need a converted transcript: the interactive-pty
 // exit seam (internal/adapters/cli/run.go, right where transcript.RecordOneshot hooks
-// the oneshot exit) and the recover_session MCP tool (mcp_tools_memory.go),
-// which runs the identical conversion over already-indexed old sessions.
+// the oneshot exit) and `session adopt`, which runs the identical conversion
+// over an already-indexed session's newly adopted lineage.
 // Closes the interactive-pty gap ADR 0035 accepted: an engine
 // driven through its own interactive TUI has no ctxloom memory today because
 // the structured tee (Tee/TeeAndClose) can never reach a pty — this is the
@@ -182,9 +182,8 @@ func vendorSourceClock(fsys afero.Fs, src string) func() time.Time {
 
 // ConvertVendorTranscript imports harp e's vendor-native transcript into
 // ctxloom's canonical transcript.jsonl through a fresh
-// transcript.Recorder, and is the ONE function both the interactive-pty exit
-// seam and the recover_session tool call — the same conversion, triggered from two
-// different moments (just-exited vs. already-indexed).
+// transcript.Recorder: the first-time conversion, beside
+// RefreshVendorTranscript's re-conversion of a session still being written.
 //
 // converted reports whether an import was actually ATTEMPTED (Convert
 // invoked), not whether it produced any canonical lines — Convert's own

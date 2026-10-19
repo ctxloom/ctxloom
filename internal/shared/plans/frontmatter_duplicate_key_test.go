@@ -22,7 +22,7 @@ import (
 // struct, and yaml.v3 rejects a repeated key when decoding into a struct AND
 // discards the WHOLE mapping — so a document that repeated `title:` lost its
 // `sessions:` list to the reader (`taskloom plan list` showed none) while the
-// paired writer, memory.StampPlanFile, kept appending to it.
+// paired writer, StampPlanFile, kept appending to it.
 //
 // Every case here asserts all three halves — the winning value, the survival of
 // the untouched keys, and a warning that NAMES the duplicated key — because

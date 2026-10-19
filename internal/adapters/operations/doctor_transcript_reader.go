@@ -33,8 +33,8 @@ type engineVersionProbe func(ctx context.Context, engine string) (string, error)
 // claims it (see internal/adapters/transcript/vendorreader/version.go for why a
 // fallback to the newest reader is the wrong answer). The refusal messages
 // themselves already carry the diagnosis, but they only appear at the moment
-// of failure, in a warning during `ctxloom run`'s exit or in a recover_session
-// result — never anywhere a user can go and LOOK. This is that place.
+// of failure, in a warning during `ctxloom run`'s exit or a `session adopt` —
+// never anywhere a user can go and LOOK. This is that place.
 //
 // Three states, worded apart on purpose:
 //

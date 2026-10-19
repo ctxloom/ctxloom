@@ -35,7 +35,7 @@ func fullyPopulatedFixture() Fixture {
 		SchemaVersion:                CurrentConfigVersion,
 		LM:                           LMConfig{Configs: map[string]LLMConfig{"fast": {Type: "claude-code"}}},
 		Editor:                       EditorConfig{Command: "vi"},
-		Settings:                     SettingsConfig{EssenceMaxChars: 4096},
+		Settings:                     SettingsConfig{SilenceUnsupported: true},
 		Sync:                         SyncConfig{AutoSync: &autoSync},
 		Agents:                       map[string]agents.Agent{"worker": {LLM: "fast"}},
 		DefaultAgent:                 "worker",
@@ -54,6 +54,7 @@ func fullyPopulatedFixture() Fixture {
 		UI:                           UIConfig{PrefixKey: "ctrl-]", Surround: &surround},
 		SessionReapAge:               "45d",
 		SessionPurgeAge:              "180d",
+		SessionTranscriptRetention:   "60d",
 		NonTTYFormat:                 "text",
 		OutputDir:                    "/data/ctxloom-outputs",
 		Auth:                         engine.AuthLogin,
@@ -139,4 +140,21 @@ func TestSessionPurgeAgeSurvivesSaveRoundTrip(t *testing.T) {
 	reloaded, err = ParseConfig(data)
 	require.NoError(t, err)
 	assert.Empty(t, reloaded.SessionPurgeAge(), "unset has no default")
+}
+
+// session_transcript_retention defaults to 30d when unset, and a written
+// value survives a save.
+func TestSessionTranscriptRetentionSurvivesSaveRoundTrip(t *testing.T) {
+	data, err := yamlx.Marshal(NewFixture(Fixture{SchemaVersion: CurrentConfigVersion, SessionTranscriptRetention: "60d"}))
+	require.NoError(t, err)
+	reloaded, err := ParseConfig(data)
+	require.NoError(t, err)
+	assert.Equal(t, "60d", reloaded.SessionTranscriptRetention())
+
+	data, err = yamlx.Marshal(NewFixture(Fixture{SchemaVersion: CurrentConfigVersion}))
+	require.NoError(t, err)
+	reloaded, err = ParseConfig(data)
+	require.NoError(t, err)
+	assert.Equal(t, DefaultSessionTranscriptRetention, reloaded.SessionTranscriptRetention())
+	assert.Equal(t, "30d", DefaultSessionTranscriptRetention)
 }

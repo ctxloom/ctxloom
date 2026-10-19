@@ -7,10 +7,11 @@ import (
 	"io"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/llmturn"
+
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/memory"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -68,7 +69,7 @@ func init() {
 // InternalSource) and returns its turn and its end. Each pass calls it
 // separately: a critique sharing the drafter's session would be self-review.
 // A var so a test can supply canned runners without an engine.
-var newPremiseRunner = func(ctx context.Context, cfg *config.Config, label string) (memory.Runner, func(), error) {
+var newPremiseRunner = func(ctx context.Context, cfg *config.Config, label string) (llmturn.Runner, func(), error) {
 	s, err := operations.OneShot(App().LaunchFacts(), internalRunHosts(), cfg).Label(label).WorkDir(projectroot.WorkDir()).Start(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("no reachable engine for premise authoring (label %q): %w", label, err)

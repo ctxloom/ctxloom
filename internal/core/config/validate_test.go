@@ -154,16 +154,16 @@ func TestOpen_WithEngines_ValidatesEveryGeneration(t *testing.T) {
 // everyone -- refused, typed, naming what is accepted.
 func TestParseConfig_SessionAuth(t *testing.T) {
 	for doc, want := range map[string]engine.AuthMode{
-		"schema_version: 7\n":              engine.AuthToken,
-		"schema_version: 7\nauth: token\n": engine.AuthToken,
-		"schema_version: 7\nauth: login\n": engine.AuthLogin,
+		"schema_version: 8\n":              engine.AuthToken,
+		"schema_version: 8\nauth: token\n": engine.AuthToken,
+		"schema_version: 8\nauth: login\n": engine.AuthLogin,
 	} {
 		cfg, err := config.ParseConfig([]byte(doc))
 		require.NoError(t, err, doc)
 		assert.Equal(t, want, cfg.SessionAuth(), doc)
 	}
 	for _, mode := range []string{"api-key", "cloud", "keychain"} {
-		_, err := config.ParseConfig([]byte("schema_version: 7\nauth: " + mode + "\n"))
+		_, err := config.ParseConfig([]byte("schema_version: 8\nauth: " + mode + "\n"))
 		require.ErrorIs(t, err, engine.ErrUnknownAuthMode, mode)
 		var r report.Remediable
 		require.ErrorAs(t, err, &r, mode)

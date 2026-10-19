@@ -110,7 +110,7 @@ func newMovedPinProject(t *testing.T, compose composeFinder) *movedPinProject {
 			[]byte("parents:\n  - "+finderRef+"\n"), 0o644))
 	}
 	require.NoError(t, os.WriteFile(paths.ConfigPath(p.appDir),
-		[]byte("schema_version: 7\ndefault_agent: default\nagents:\n  default:\n    profiles: "+defaults+"\n"), 0o644))
+		[]byte("schema_version: 8\ndefault_agent: default\nagents:\n  default:\n    profiles: "+defaults+"\n"), 0o644))
 	p.app = pulledApp(t, p.appDir)
 	ctx := context.Background()
 

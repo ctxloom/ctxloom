@@ -31,7 +31,7 @@ func runSessionStartIn(t *testing.T, marker, payload string) claudeAnswer {
 	root := t.TempDir()
 	appDir := filepath.Join(root, ".ctxloom")
 	require.NoError(t, os.MkdirAll(bundletree.ProjectProfilesDir(t, appDir), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte("schema_version: 7\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte("schema_version: 8\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(bundletree.ProjectProfilesDir(t, appDir), "default.yaml"),
 		[]byte("description: seeded by the test\n"), 0o644))
 	hash, err := agent.WriteContextFile(root, []*agent.Fragment{{Name: "rules", Content: marker}})
@@ -50,37 +50,40 @@ func runSessionStartIn(t *testing.T, marker, payload string) claudeAnswer {
 	return decodeClaudeAnswer(t, out.Bytes())
 }
 
-// TestHookSessionStart_DeliversTheResumedEssenceAndNoticesButNeverTheProjectContext
-// is the hook end to end on a compacted resume's startup: the resumed
-// session's essence arrives as the session's context, the setup nudge as the
-// user's notice, and the project's assembled context — already the session's
-// system prompt — appears in neither.
-func TestHookSessionStart_DeliversTheResumedEssenceAndNoticesButNeverTheProjectContext(t *testing.T) {
+// TestHookSessionStart_DeliversNoticesButNeverContext is the hook end to end
+// on a resumed startup: the setup nudge reaches the user, and nothing arrives
+// as the session's context — not the project's assembled context (already
+// the session's system prompt), and not a summary of the resumed session,
+// even when an older ctxloom left one in the session's output dir. Engines
+// own compaction; the resume's transcript rides the assembled context.
+func TestHookSessionStart_DeliversNoticesButNeverContext(t *testing.T) {
 	testsupport.Isolate(t)
 	const marker = "PROJECT-CONTEXT-MARKER-77ab"
-	harp := "swift-amber-falcon"
-	essencePath, err := harpEssencePath(t, harp)
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(essencePath, []byte("what we did last time\n"), 0o644))
-	t.Setenv("CTXLOOM_RESUMED_FROM", harp)
+	entry, err := mgr.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+	out, err := mgr.RecordOutputDir(entry.HarpName, t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(out, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(out, "essence.md"), []byte("LEFTOVER-SUMMARY-3c1e\n"), 0o644))
+	t.Setenv("CTXLOOM_RESUMED_FROM", entry.HarpName)
 	t.Setenv("CTXLOOM_RESUMED_PARTS", "session")
 
 	got := runSessionStartIn(t, marker, `{"session_id":"s-1","source":"startup"}`)
 
-	require.NotNil(t, got.HookSpecificOutput, "the resumed essence is delivered")
-	assert.Equal(t, claude.HookEventSessionStart, got.HookSpecificOutput.HookEventName)
-	assert.Contains(t, got.HookSpecificOutput.AdditionalContext, "what we did last time", "the compacted essence arrives")
+	assert.Nil(t, got.HookSpecificOutput, "no context is delivered")
 	assert.NotEmpty(t, got.SystemMessage, "the setup nudge reaches the user")
 	whole, err := json.Marshal(got)
 	require.NoError(t, err)
 	assert.NotContains(t, string(whole), marker, "the project's context is never part of the hook's output")
+	assert.NotContains(t, string(whole), "LEFTOVER-SUMMARY-3c1e", "a leftover summary file is never delivered")
 }
 
-// TestHookSessionStart_ClearNamesRecoverAndDeliversNoEssence: after a /clear
-// that displaced a bound transcript, the user is told /recover brings it
-// back, and nothing is delivered as context — not the essence (a /clear is
-// not a resume) and not the project's context.
-func TestHookSessionStart_ClearNamesRecoverAndDeliversNoEssence(t *testing.T) {
+// TestHookSessionStart_ClearNamesNoRecovery: after a /clear that displaced a
+// bound transcript, the hook delivers no context and points at no ctxloom
+// recovery — the engine's own /resume is the way back.
+func TestHookSessionStart_ClearNamesNoRecovery(t *testing.T) {
 	testsupport.Isolate(t)
 	const marker = "PROJECT-CONTEXT-MARKER-91fd"
 	mgr, err := sessions.Open(nil)
@@ -95,7 +98,6 @@ func TestHookSessionStart_ClearNamesRecoverAndDeliversNoEssence(t *testing.T) {
 	got := runSessionStartIn(t, marker, `{"session_id":"post-clear-id","source":"clear"}`)
 
 	assert.Nil(t, got.HookSpecificOutput, "a /clear delivers no context")
-	assert.Contains(t, got.SystemMessage, "/recover", "the /clear notice names /recover")
-	assert.True(t, strings.Contains(got.SystemMessage, "\n\n"), "the setup nudge rides beside the /clear notice: %q", got.SystemMessage)
+	assert.NotContains(t, got.SystemMessage, "/recover")
 	assert.NotContains(t, got.SystemMessage, marker)
 }

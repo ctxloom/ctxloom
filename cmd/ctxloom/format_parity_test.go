@@ -74,7 +74,7 @@ func refusedConfig(t *testing.T) func(*testing.T, ...string) (int, string) {
 	if err := os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	cfg := []byte("schema_version: 7\nzz_unknown_key: 1\n")
+	cfg := []byte("schema_version: 8\nzz_unknown_key: 1\n")
 	if err := os.WriteFile(filepath.Join(dir, ".ctxloom", "config.yaml"), cfg, 0o600); err != nil {
 		t.Fatal(err)
 	}

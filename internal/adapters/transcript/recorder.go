@@ -195,8 +195,8 @@ func NewRecorder(files safefs.Root, harp, engine string, opts ...RecorderOption)
 		opt(r)
 	}
 	// NO CONTENT POLICY HERE, deliberately. A Recorder writes what it is
-	// given, in full; filtering happens on the READ side
-	// (grpc.NewFilteredSource). Storage stays total.
+	// given, in full; any filtering belongs on the READ side. Storage stays
+	// total.
 	//
 	// An earlier revision wrapped this return in a filtering decorator. That
 	// was wrong in a way worth naming, because it looked safe: it reasoned

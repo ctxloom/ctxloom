@@ -6,9 +6,9 @@ import (
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/memory"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/plans"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
@@ -49,10 +49,10 @@ func runStampPlan(cmd *cobra.Command, args []string) error {
 		clidiag.Warn("ctxloom", "stamp-plan: %v", err)
 		return nil
 	}
-	if ev.Path == "" || !memory.IsPlanFile(ev.Path) {
+	if ev.Path == "" || !plans.IsPlanFile(ev.Path) {
 		return nil
 	}
-	if err := memory.StampPlanFile(afero.NewOsFs(), ev.Path, harp); err != nil {
+	if err := plans.StampPlanFile(afero.NewOsFs(), ev.Path, harp); err != nil {
 		clidiag.Warn("ctxloom", "stamp-plan: %v", err)
 	}
 	return nil

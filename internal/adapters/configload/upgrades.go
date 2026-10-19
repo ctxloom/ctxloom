@@ -1,6 +1,7 @@
 package configload
 
 import (
+	configmig "github.com/ctxloom/ctxloom/internal/migrations/config"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -47,4 +48,4 @@ func (u profileRefCanonicalizeUpgrade) Apply(root *yaml.Node) (changed bool) {
 }
 
 // configKind versions every config.yaml layer.
-var configKind = schemaver.Define("ctxloom config", config.CurrentConfigVersion)
+var configKind = schemaver.Define("ctxloom config", config.CurrentConfigVersion, configmig.Steps()...)

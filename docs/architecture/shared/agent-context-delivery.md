@@ -1,6 +1,6 @@
 # agent — context assembly and delivery
 
-How assembled profile context actually reaches the model. Fragments are joined and deduplicated into a hash-named cache file (`.ctxloom/cache/context/<hash>.md`) and framed for the engine's context surface. claude takes it once, as the system prompt of a session `ctxloom run` launches (`--append-system-prompt-file`). No hook delivers it: ctxloom's one SessionStart callback, `hook session-start`, carries a resumed session's essence and the session-start notices, never the project's context. A claude started by hand therefore gets no ctxloom context from a hook; it reads only a context section `ctxloom materialize` wrote at rest (`kit.AppendedSection` in `CLAUDE.md`; see [core/delivery](../core/delivery.md)).
+How assembled profile context actually reaches the model. Fragments are joined and deduplicated into a hash-named cache file (`.ctxloom/cache/context/<hash>.md`) and framed for the engine's context surface. claude takes it once, as the system prompt of a session `ctxloom run` launches (`--append-system-prompt-file`). No hook delivers it: ctxloom's one SessionStart callback, `hook session-start`, carries the session-start notices, never the project's context. A claude started by hand therefore gets no ctxloom context from a hook; it reads only a context section `ctxloom materialize` wrote at rest (`kit.AppendedSection` in `CLAUDE.md`; see [core/delivery](../core/delivery.md)).
 
 ```mermaid
 flowchart TD
@@ -10,7 +10,7 @@ flowchart TD
     FILE --> ENV["CTXLOOM_CONTEXT_FILE<br/>(set for the launched engine)"]
     ADC --> FPC["FrameProjectContext<br/>context_framing.go:30"]
     FPC --> SP["--append-system-prompt-file /<br/>the minimal form's prompt channel"]
-    SSH["NewSessionStartHook<br/>context_hooks.go:26"] --> SS["cli/hook_session_start.go<br/>(essence + notices, no project context)"]
+    SSH["NewSessionStartHook<br/>context_hooks.go:26"] --> SS["cli/hook_session_start.go<br/>(notices, no project context)"]
 ```
 
 ## Assembly and the context file
@@ -42,6 +42,5 @@ flowchart TD
 - **`WriteContextFile` is the only writer of `.ctxloom/cache/context/<hash>.md`.** `BaseContextProvider.GetContextFilePath` independently re-derives that path from the hash rather than asking the writer, so the naming scheme exists in two places.
 - **There is exactly ONE assembler.** `agent.AssembleContext` IS `assembleDedupedContext` under the exported name: it deduplicates on `(Name, content)` and emits the oversize warning, and every path that needs "the assembled context" goes through it (U100-F13, resolved by `footless-swimming`).
 - **`WriteContextFile` returns `("", nil)` when the assembled content is empty**, so `CTXLOOM_CONTEXT_FILE` is never set. Nothing distinguishes "no context configured" from "context assembly produced nothing".
-- **`hook session-start` stays under claude's additionalContext cap.** A resumed essence longer than `claude.AdditionalContextMaxChars` (7,500, under claude's ~10,000) is cut with a pointer to the essence file and to `/recover`, because past the cap the model sees only a short preview.
 - **`RouteUnifiedHooks`' `emit` callback returns nothing**, so a failed emit is invisible to the walker; a caller with zero hooks writes a hook-less settings file with no warning.
 - **ctxloom's hooks are exec form** (`wire.Hook.Command` is the bare `ctxloom`, `wire.Hook.Args` its argv), so no value is ever parsed by a shell, and none carries a fact about the machine that wrote it.

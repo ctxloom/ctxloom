@@ -24,7 +24,7 @@ flowchart LR
   classDef port fill:#ffd,stroke:#a80
   RUN["cli run: the flags → Source"]:::src
   INIT["cli init: the auth probe and the discovery session — two Sources, two identities"]:::src
-  ONE["internal one-shots (a compaction, a triage, the CLI distiller): Source{Internal}, or the distiller agent's binding; a distillation is Source{ToolLess}"]:::src
+  ONE["internal one-shots (a triage, a premise draft, the CLI distiller): Source{Internal}, or the distiller agent's binding; a distillation is Source{ToolLess}"]:::src
   SPAWN["coord prodSpawner.StartEngine: Source{Identity: child, Agent, Workspace, Resume}"]:::src
   START["operations.StartRun: MintIdentity → Resolve → record the engine version (Deps.ProbeVersion; none for a preview)"]:::core
   RES["launch.Resolve — the one constructor"]:::core
@@ -130,7 +130,7 @@ launch.
   (`operations.PreparedCell`, read back by `operations.TransportOf`) until
   the runner is the one process every cell starts (13).
 - **`Source.Internal`, `Source.Model`, `Source.Fragments/Tags`, `Source.Env`.**
-  No shipped binding names a compaction or a triage, so an internal one-shot is
+  No shipped binding names a triage, so an internal one-shot is
   an explicit arm (no binding, no profiles; the label names the engine); a
   binding for each retires it. The model override, the explicit-assembly
   arm's fragments and tags, and the caller's engine passthrough are the
@@ -148,17 +148,16 @@ launch.
 resolved internal one-shot session: ONE minted harp and ONE Launch, driven a
 turn at a time (each turn is the Launch encoded with that turn's prompt over
 the cell's transport, its answer recorded on the session's own transcript).
-`LazyOneShot` starts the session on the first turn, so a compaction served
-from its cache mints nothing. The session compactor (`session compact`, the MCP
-compactor), the bundle distiller (`bundle distill`), the trigger triage and init's auth probe are
-one-shots. The internal arm (`Source.Internal`) composes no profiles. A role
+The bundle distiller (`bundle distill`), premise authoring, the trigger triage
+and init's auth probe are one-shots; each turn's prompt takes one shape
+(`llmturn.RunPrompt`: the instruction ahead of the enveloped material). The internal arm (`Source.Internal`) composes no profiles. A role
 one-shot that runs as its agent (`distiller`, `triage`) composes that
 binding's profiles.
 
 The posture differs by role. The distillations (`operations.DistillerOneShot`:
-`session compact`, the MCP compactor and distill, `bundle distill` and the
-other CLI distill commands) are **tool-less** on every arm: they summarise
-the text their prompt carries (`<content_to_compress>`, `<session_log>`) and
+`bundle distill` and the other CLI distill commands) are **tool-less** on
+every arm: they summarise the text their prompt carries
+(`<content_to_compress>`) and
 use no tool, so they run with none and no MCP server, on any engine that
 implements `engine.ToolLess`. The trigger triage and premise authoring stay
 at **plan** (`operations.InternalSource`), and init's auth probe overrides

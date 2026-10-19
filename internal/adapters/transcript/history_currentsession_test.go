@@ -22,8 +22,7 @@ import (
 // unreadable entry — a file corrupted mid-write, a schema version this build
 // refuses, a permissions change — made "current session" fail outright, while
 // ListSessions over the identical store cheerfully returned every other
-// session. Same data, two answers, and the failing one is the path
-// get_previous_session and the memory compactor take.
+// session. Same data, two answers.
 func TestCurrentSession_SkipsAnUnreadableCandidate(t *testing.T) {
 	testsupport.Isolate(t)
 	ctx := context.Background()
@@ -64,8 +63,8 @@ func TestCurrentSession_SkipsAnUnreadableCandidate(t *testing.T) {
 // skipping is for getting PAST a bad entry to a good one, not for converting a
 // project whose every transcript is unreadable into a clean "no sessions".
 // That distinction is the whole point — "the file was unreadable"
-// and "the conversation was empty" are different facts — and the caller
-// (CanonicalFallbackSource) routes on exactly it.
+// and "the conversation was empty" are different facts, and a caller routes
+// on exactly it.
 func TestCurrentSession_AllCandidatesUnreadableStillErrors(t *testing.T) {
 	testsupport.Isolate(t)
 	const projectDir = "/proj/all-broken"

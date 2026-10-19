@@ -15,8 +15,6 @@
 // ARE the goldens; CI regenerates and diffs (gen-docs-check precedent).
 package mcpschema
 
-import "time"
-
 // Tool names — stable UX, decoupled from the proto message names they bind.
 const (
 	ToolAgentRun           = "agent_run"
@@ -238,11 +236,6 @@ func Routes() map[string]Route {
 		"search_library":   RouteCellLocal,
 
 		// Host-resident — session dirs/transcript stores live on the host.
-		"compact_session":      RouteHostRelay,
-		"load_session":         RouteHostRelay,
-		"recover_session":      RouteHostRelay,
-		"get_previous_session": RouteHostRelay,
-		"list_sessions":        RouteHostRelay,
 		// Host-resident — the task store (~/.ctxloom/tasks/<project-id>.jsonl)
 		// and the project's git history are not mounted into an isolated
 		// child cell.
@@ -253,34 +246,3 @@ func Routes() map[string]Route {
 		"context_status": RouteHostRelay,
 	}
 }
-
-// CompactBudget is what a transcript compaction is actually allowed to take.
-// The work is one LLM subprocess over a whole transcript, so it scales with
-// session length, not with round-trip latency: a long session runs to many
-// minutes of entirely healthy work. The
-// generic plane-2 budget is sized for a coordination frame — a round trip —
-// and billing compaction against it failed every large recover mid-flight.
-// This is a backstop against a wedged host, not a performance target; it is
-// deliberately far past any honest compaction. It bounds BOTH sides of the
-// relay: how long the caller waits, and how long the host lets the work run —
-// one number, so the two can't drift into a host that outlives its caller's
-// patience by design.
-const CompactBudget = 30 * time.Minute
-
-// relayBudgets overrides the caller's default plane-2 request budget for the
-// host-relay tools whose work is measured in minutes. A tool absent here keeps
-// the default, so a genuinely hung request still fails fast.
-var relayBudgets = map[string]time.Duration{
-	"compact_session":      CompactBudget,
-	"load_session":         CompactBudget,
-	"recover_session":      CompactBudget,
-	"get_previous_session": CompactBudget,
-	// list_sessions is a fast index read by default, but compact_missing=true
-	// compacts every title-less/stale row inline — the same minutes-long LLM
-	// work the other compaction tools do, so it needs the same backstop.
-	"list_sessions": CompactBudget,
-}
-
-// RelayBudget returns how long a relayed tool's plane-2 request may take, or
-// zero to keep the caller's default.
-func RelayBudget(tool string) time.Duration { return relayBudgets[tool] }

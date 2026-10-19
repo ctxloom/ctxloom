@@ -19,7 +19,7 @@ func TestProdSpawner_Resolve_MissingAgent_NamesCreate(t *testing.T) {
 	resetStrictness(t)
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	writeSpawnerConfig(t, appDir, "schema_version: 7\nagents:\n  dev:\n    llm: claude-code\n")
+	writeSpawnerConfig(t, appDir, "schema_version: 8\nagents:\n  dev:\n    llm: claude-code\n")
 	s := newSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), nil)
 
 	_, err := s.Resolve(context.Background(), "worker")

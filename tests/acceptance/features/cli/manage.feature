@@ -72,8 +72,8 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # CLAUDE.md included: it is for an agent launched with ctxloom OUT of the
     # loop, which has no system prompt from a `ctxloom run`. (The post-sync
     # refresh is the one at-rest delivery that leaves a launch-borne context
-    # out.) claude also gets ctxloom's session-start hook (the resumed essence
-    # and the session-start notices), which names no context.
+    # out.) claude also gets ctxloom's session-start hook (the session-start
+    # notices), which names no context.
     # (ruled 2026-09-21: sessions carry their surfaces — the project-side
     # copy is an explicit materialize's, so it is spelled out after the
     # scaffold)
@@ -304,7 +304,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # companion at all.
     #
     # Matched on the verb alone: ctxloom's own hooks are written in exec form
-    # (`"command": "ctxloom", "args": ["hook", "next-step"]`), so the binary
+    # (`"command": "ctxloom", "args": ["hook", "skill-mates"]`), so the binary
     # name and the verb are separate JSON strings.
     Scenario: Re-applying hooks does not duplicate them
       Given an initialized ctxloom project
@@ -314,7 +314,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         ctxloom materialize --yes
         """
       Then the command succeeds
-      And the file ".claude/settings.json" contains "next-step" exactly 1 times
+      And the file ".claude/settings.json" contains "skill-mates" exactly 1 times
 
     # Hooks merge across sources by pure APPEND, and each bundle's `order:`
     # sequences only its own hooks within an event. The fixture makes

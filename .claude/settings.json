@@ -28,13 +28,6 @@
         ]
       }
     ],
-    "Stop": [
-      {
-        "hooks": [
-          { "args": ["hook", "next-step"], "command": "ctxloom", "timeout": 15, "type": "command" }
-        ]
-      }
-    ],
     "UserPromptSubmit": [{ "hooks": [{ "args": ["hook", "mail-drain"], "command": "ctxloom", "timeout": 5, "type": "command" }] }]
   },
   "statusLine": {

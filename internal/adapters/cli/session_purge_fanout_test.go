@@ -38,17 +38,18 @@ type purgePayload struct {
 // assertion that matters is the one on DISK: a plan that names the file it
 // would destroy, having already destroyed it, renders identically.
 func TestTranscriptPurge_ReportLeavesEverythingOnDisk(t *testing.T) {
+	releaseTranscriptRetention(t)
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
-	essence := seedEssence(t, harp)
+	leftover := seedLeftoverSummary(t, harp)
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	stdout, stderr, err := execRootCmdBoth(t, "session", "transcript", "purge", harp)
 	require.NoError(t, err)
 
 	assert.True(t, onDisk(t, transcript), "a report must not destroy the transcript")
-	assert.True(t, onDisk(t, essence), "a report must not destroy the essence")
+	assert.True(t, onDisk(t, leftover), "a report must not touch the output dir")
 	assert.Contains(t, stdout+stderr, "removed nothing",
 		"the report must say outright that it removed nothing")
 	assert.Contains(t, stdout+stderr, "session transcript purge "+harp+" --yes",
@@ -57,17 +58,18 @@ func TestTranscriptPurge_ReportLeavesEverythingOnDisk(t *testing.T) {
 
 // TestTranscriptPurge_YesDestroysTheTranscriptOnly is the apply side.
 func TestTranscriptPurge_YesDestroysTheTranscriptOnly(t *testing.T) {
+	releaseTranscriptRetention(t)
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
-	essence := seedEssence(t, harp)
+	leftover := seedLeftoverSummary(t, harp)
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	out, err := execRootCmd(t, "session", "transcript", "purge", harp, "--yes", "--format", "json")
 	require.NoError(t, err)
 
 	assert.False(t, onDisk(t, transcript), "--yes must destroy the transcript")
-	assert.True(t, onDisk(t, essence), "the transcript's destroyer must not reach the essence")
+	assert.True(t, onDisk(t, leftover), "the transcript's destroyer never reaches the output dir: a summary an older ctxloom left there stays")
 
 	var got purgePayload
 	require.NoError(t, json.Unmarshal([]byte(out), &got), "output must be clean JSON: %s", out)
@@ -75,99 +77,49 @@ func TestTranscriptPurge_YesDestroysTheTranscriptOnly(t *testing.T) {
 	assert.Positive(t, got.BytesFreed, "a purge that freed zero bytes destroyed nothing")
 }
 
-// TestTranscriptPurge_NeverCompactedRefuses: the transcript of a session with
-// no essence is the ONLY record of what happened, so destroying it takes the
-// extra deliberate flag. --uncompacted lives here, on the leaf that
-// understands the question, and never on the parent.
-func TestTranscriptPurge_NeverCompactedRefuses(t *testing.T) {
-	dir := testsupport.ProjectDir(t)
-	_, harp := seedEndedSession(t, dir, "claude-code")
-	transcript := seedTranscript(t, harp)
-	t.Cleanup(func() { resetFlags(t, rootCmd) })
-
-	_, stderr, err := execRootCmdBoth(t, "session", "transcript", "purge", harp, "--yes")
-	require.Error(t, err, "destroying the only record of a session must refuse")
-	assert.True(t, onDisk(t, transcript), "a refusal must leave the transcript alone")
-	assert.Contains(t, stderr, "--uncompacted")
-
-	resetFlags(t, rootCmd)
-	_, err = execRootCmd(t, "session", "transcript", "purge", harp, "--uncompacted", "--yes")
-	require.NoError(t, err)
-	assert.False(t, onDisk(t, transcript), "--uncompacted --yes destroys it anyway")
-}
-
-// --- session artifacts purge -----------------------------------------------
-
-func TestArtifactsPurge_ReportLeavesTheEssenceOnDisk(t *testing.T) {
-	dir := testsupport.ProjectDir(t)
-	_, harp := seedEndedSession(t, dir, "claude-code")
-	transcript := seedTranscript(t, harp)
-	essence := seedEssence(t, harp)
-	t.Cleanup(func() { resetFlags(t, rootCmd) })
-
-	stdout, stderr, err := execRootCmdBoth(t, "session", "artifacts", "purge", harp)
-	require.NoError(t, err)
-
-	assert.True(t, onDisk(t, essence), "a report must not destroy the essence")
-	assert.True(t, onDisk(t, transcript))
-	assert.Contains(t, stdout+stderr, "removed nothing")
-	assert.Contains(t, stdout+stderr, "session artifacts purge "+harp+" --yes")
-}
-
-func TestArtifactsPurge_YesDestroysTheEssenceOnly(t *testing.T) {
-	dir := testsupport.ProjectDir(t)
-	_, harp := seedEndedSession(t, dir, "claude-code")
-	transcript := seedTranscript(t, harp)
-	essence := seedEssence(t, harp)
-	t.Cleanup(func() { resetFlags(t, rootCmd) })
-
-	_, err := execRootCmd(t, "session", "artifacts", "purge", harp, "--yes")
-	require.NoError(t, err)
-
-	assert.False(t, onDisk(t, essence), "--yes must destroy the essence")
-	assert.True(t, onDisk(t, transcript), "the essence's destroyer must not reach the transcript")
-}
-
 // --- session purge (the sweep) ---------------------------------------------
 
-func TestSessionPurge_ReportLeavesAllThreePopulationsOnDisk(t *testing.T) {
+func TestSessionPurge_ReportLeavesEverythingOnDisk(t *testing.T) {
+	releaseTranscriptRetention(t)
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
-	essence := seedEssence(t, harp)
+	leftover := seedLeftoverSummary(t, harp)
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	stdout, stderr, err := execRootCmdBoth(t, "session", "purge", harp)
 	require.NoError(t, err)
 
 	assert.True(t, onDisk(t, transcript))
-	assert.True(t, onDisk(t, essence))
+	assert.True(t, onDisk(t, leftover))
 	assert.Contains(t, stdout+stderr, "removed nothing")
 	assert.Contains(t, stdout+stderr, "session purge "+harp+" --yes")
 }
 
-func TestSessionPurge_YesSweepsTranscriptAndArtifacts(t *testing.T) {
+func TestSessionPurge_YesSweepsTheTranscriptAndLeavesTheOutputDir(t *testing.T) {
+	releaseTranscriptRetention(t)
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
-	essence := seedEssence(t, harp)
+	leftover := seedLeftoverSummary(t, harp)
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, err := execRootCmd(t, "session", "purge", harp, "--yes")
 	require.NoError(t, err)
 
 	assert.False(t, onDisk(t, transcript), "the sweep destroys the transcript")
-	assert.False(t, onDisk(t, essence), "the sweep destroys the artifacts too")
+	assert.True(t, onDisk(t, leftover), "the sweep never reaches the output dir")
 }
 
 // TestSessionPurge_KeepsTheIndexEntry pins the boundary between the two
 // destroyers: purge empties a session, delete removes it. A purged session
 // stays listed — marked, not gone — so an operator can still see it existed.
 func TestSessionPurge_KeepsTheIndexEntry(t *testing.T) {
+	releaseTranscriptRetention(t)
 	dir := testsupport.ProjectDir(t)
 	mgr, harp := seedEndedSession(t, dir, "claude-code")
 	seedTranscript(t, harp)
-	seedEssence(t, harp)
+	seedLeftoverSummary(t, harp)
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, err := execRootCmd(t, "session", "purge", harp, "--yes")
@@ -179,25 +131,15 @@ func TestSessionPurge_KeepsTheIndexEntry(t *testing.T) {
 	assert.NotNil(t, entry.PurgedAt, "the index records that the bulk was destroyed")
 }
 
-// TestSessionPurge_UncompactedIsNotOnTheParent: selection flags live on the
-// leaf that understands them. The sweep still cannot destroy the only record
-// of an uncompacted session — it refuses and names the leaf that can.
-func TestSessionPurge_UncompactedIsNotOnTheParent(t *testing.T) {
-	dir := testsupport.ProjectDir(t)
-	_, harp := seedEndedSession(t, dir, "claude-code")
-	transcript := seedTranscript(t, harp)
-	t.Cleanup(func() { resetFlags(t, rootCmd) })
-
-	assert.Nil(t, sessionPurgeCmd.Flags().Lookup("uncompacted"),
-		"--uncompacted belongs to `session transcript purge`, not to the sweep")
+// TestSessionPurge_NoRetentionOverride: nothing past transcript retention
+// is a flag. --uncompacted is gone with compaction, from the leaf and the
+// sweep alike, and the sweep needs no scope flag.
+func TestSessionPurge_NoRetentionOverride(t *testing.T) {
+	assert.Nil(t, sessionTranscriptPurgeCmd.Flags().Lookup("uncompacted"))
+	assert.Nil(t, sessionPurgeCmd.Flags().Lookup("uncompacted"))
+	assert.Nil(t, sessionRemoveCmd.Flags().Lookup("uncompacted"))
 	assert.Nil(t, sessionPurgeCmd.Flags().Lookup("everything"),
 		"--everything is replaced by the fan-out; the sweep needs no scope flag")
-
-	_, stderr, err := execRootCmdBoth(t, "session", "purge", harp, "--yes")
-	require.Error(t, err)
-	assert.True(t, onDisk(t, transcript))
-	assert.Contains(t, stderr, "session transcript purge",
-		"the refusal must name the leaf that can do what was asked")
 }
 
 // TestSessionPurge_LiveSessionRefuses: a session with no ended_at and its
@@ -205,6 +147,7 @@ func TestSessionPurge_UncompactedIsNotOnTheParent(t *testing.T) {
 // refuses — the index's missing ended_at is not consulted — and the refusal
 // names the one deliberate way past it.
 func TestSessionPurge_LiveSessionRefuses(t *testing.T) {
+	releaseTranscriptRetention(t)
 	dir := testsupport.ProjectDir(t)
 	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
@@ -215,7 +158,7 @@ func TestSessionPurge_LiveSessionRefuses(t *testing.T) {
 	require.NoError(t, sessionlock.Hold(entry.HarpName))
 	t.Cleanup(func() { sessionlock.Release(entry.HarpName) })
 	transcript := seedTranscript(t, entry.HarpName)
-	seedEssence(t, entry.HarpName)
+	seedLeftoverSummary(t, entry.HarpName)
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, stderr, err := execRootCmdBoth(t, "session", "purge", entry.HarpName, "--yes")

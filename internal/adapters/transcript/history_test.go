@@ -343,9 +343,9 @@ func splitLines(data []byte) []string {
 //     opens the file lazily on the first SUCCESSFUL Record (see NewRecorder),
 //     so a canonical transcript that decodes to nothing is a failed or
 //     destroyed capture. Returning (empty, nil) made it indistinguishable
-//     from state 1 AND suppressed CanonicalFallbackSource's legacy
-//     fallback, which only runs when GetSession errors — so the caller got a
-//     confidently empty history instead of the transcript that did exist.
+//     from state 1, so a caller that falls back only when GetSession
+//     errors got a confidently empty history instead of the transcript that
+//     did exist.
 //  3. A partially readable file → everything before the break, nil error
 //     (already pinned by TestParseTranscriptFile_TruncatedLine_...).
 func TestParseTranscriptFile_NothingDecoded_FailsLoud(t *testing.T) {

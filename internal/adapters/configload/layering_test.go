@@ -54,8 +54,8 @@ func seedLayers(t *testing.T, fs afero.Fs, home, homeBody, projectBody string) s
 // (home was never even read once a project config.yaml existed).
 func TestLoad_ProjectInheritsHomeKeys(t *testing.T) {
 	cfg := writeLayers(t,
-		"schema_version: 7\ndelegation:\n  concurrency: 3\nruntime: container\nworkspace: none\n",
-		"schema_version: 7\ndefault_agent: dev\nagents:\n  dev:\n    profiles: [go-developer]\n",
+		"schema_version: 8\ndelegation:\n  concurrency: 3\nruntime: container\nworkspace: none\n",
+		"schema_version: 8\ndefault_agent: dev\nagents:\n  dev:\n    profiles: [go-developer]\n",
 	)
 
 	assert.Equal(t, 3, cfg.ToFixture().Delegation.Concurrency, "a home-only key must be inherited by a project that never sets it")
@@ -69,8 +69,8 @@ func TestLoad_ProjectInheritsHomeKeys(t *testing.T) {
 // layering adds inheritance, it does not change who wins a genuine conflict.
 func TestLoad_ProjectOverridesHomeKey(t *testing.T) {
 	cfg := writeLayers(t,
-		"schema_version: 7\nworkspace: worktree\n",
-		"schema_version: 7\nworkspace: none\n",
+		"schema_version: 8\nworkspace: worktree\n",
+		"schema_version: 8\nworkspace: none\n",
 	)
 
 	assert.Equal(t, "none", cfg.ToFixture().Workspace, "project explicitly sets workspace: none, beating home's worktree")
@@ -82,8 +82,8 @@ func TestLoad_ProjectOverridesHomeKey(t *testing.T) {
 // only home defines.
 func TestLoad_HomeAndProjectDeepMergeNestedSection(t *testing.T) {
 	cfg := writeLayers(t,
-		"schema_version: 7\nllm:\n  configs:\n    big: { type: claude-code, model: opus }\n    small: { type: claude-code, model: haiku }\n",
-		"schema_version: 7\nllm:\n  configs:\n    big: { type: claude-code, model: sonnet }\n",
+		"schema_version: 8\nllm:\n  configs:\n    big: { type: claude-code, model: opus }\n    small: { type: claude-code, model: haiku }\n",
+		"schema_version: 8\nllm:\n  configs:\n    big: { type: claude-code, model: sonnet }\n",
 	)
 
 	require.Contains(t, cfg.ToFixture().LM.Configs, "big")
@@ -135,7 +135,7 @@ func TestLoad_ExplicitAppDirEqualToHome_ResolvesSourceHome(t *testing.T) {
 	home := testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	homeAppDir := filepath.Join(home, config.AppDirName)
-	testsupport.WriteFile(t, fs, paths.ConfigPath(homeAppDir), []byte("schema_version: 7\n"), 0644)
+	testsupport.WriteFile(t, fs, paths.ConfigPath(homeAppDir), []byte("schema_version: 8\n"), 0644)
 
 	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(homeAppDir))
 	require.NoError(t, err)
@@ -149,7 +149,7 @@ func TestLoad_ExplicitAppDirDifferentFromHome_StaysSourceProject(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	projectAppDir := "/proj/.ctxloom"
-	testsupport.WriteFile(t, fs, paths.ConfigPath(projectAppDir), []byte("schema_version: 7\n"), 0644)
+	testsupport.WriteFile(t, fs, paths.ConfigPath(projectAppDir), []byte("schema_version: 8\n"), 0644)
 
 	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(projectAppDir))
 	require.NoError(t, err)
@@ -163,7 +163,7 @@ func TestManagerUpdate_TargetingHomeDirectly_PersistsMachineValues(t *testing.T)
 	home := testsupport.Isolate(t)
 	homeAppDir := filepath.Join(home, config.AppDirName)
 	require.NoError(t, os.MkdirAll(homeAppDir, 0o755))
-	require.NoError(t, os.WriteFile(paths.ConfigPath(homeAppDir), []byte("schema_version: 7\n"), 0o644))
+	require.NoError(t, os.WriteFile(paths.ConfigPath(homeAppDir), []byte("schema_version: 8\n"), 0o644))
 
 	mgr := newUpdater(t, WithAppDir(homeAppDir))
 	err := mgr.Update(func(d *config.Draft) error {

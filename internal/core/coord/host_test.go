@@ -75,13 +75,13 @@ func TestHost_DispatchesToTheComposedHostAppUnderTheCallersIdentity(t *testing.T
 	c := newTestCoordinatorWithHost(t, newFakeSpawner(t, nil, nil), app)
 
 	caller := Identity{Harp: "child-harp-1", RunID: "run-1", Depth: 1, Project: c.projectID, ProjectDir: c.projectDir}
-	res, err := c.Host(context.Background(), caller, HostRequest{Tool: "list_sessions", Args: json.RawMessage(`{"limit":1}`)})
+	res, err := c.Host(context.Background(), caller, HostRequest{Tool: "context_status", Args: json.RawMessage(`{"limit":1}`)})
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"tool":"list_sessions","project":"`+c.projectDir+`"}`, string(res.Body))
+	assert.JSONEq(t, `{"tool":"context_status","project":"`+c.projectDir+`"}`, string(res.Body))
 
 	got := app.last(t)
 	assert.Equal(t, caller, got.caller, "the service answers under the caller's identity, never the host process's")
-	assert.Equal(t, "list_sessions", got.req.Tool)
+	assert.Equal(t, "context_status", got.req.Tool)
 	assert.JSONEq(t, `{"limit":1}`, string(got.req.Args))
 }
 
@@ -89,7 +89,7 @@ func TestHost_DispatchesToTheComposedHostAppUnderTheCallersIdentity(t *testing.T
 // an application service refuses every relayed tool, loudly.
 func TestHost_WithoutAHostApp_IsUnimplemented(t *testing.T) {
 	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
-	_, err := c.Host(context.Background(), ownerIdentity(), HostRequest{Tool: "list_sessions"})
+	_, err := c.Host(context.Background(), ownerIdentity(), HostRequest{Tool: "context_status"})
 	require.ErrorIs(t, err, ErrNoHostApp)
 }
 
@@ -107,7 +107,7 @@ func TestHost_ARelayedFrameReachesTheHostAppUnderTheChildsIdentity(t *testing.T)
 	args, err := structpb.NewStruct(map[string]any{"limit": 2})
 	require.NoError(t, err)
 	resp, err := h.Request(context.Background(), &agentcoordpb.AgentRequest{
-		Kind: &agentcoordpb.AgentRequest_Host{Host: &agentcoordpb.HostRequest{Tool: "list_sessions", Args: args}},
+		Kind: &agentcoordpb.AgentRequest_Host{Host: &agentcoordpb.HostRequest{Tool: "context_status", Args: args}},
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, codes.OK, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
@@ -117,7 +117,7 @@ func TestHost_ARelayedFrameReachesTheHostAppUnderTheChildsIdentity(t *testing.T)
 	assert.Equal(t, out.Harp, got.caller.Harp, "the caller is the child that relayed, by its credential")
 	assert.Equal(t, c.projectDir, got.caller.ProjectDir, "a relayed tool answers for the caller's project directory")
 	assert.Equal(t, testProjectID, got.caller.Project, "under the caller's project id, never the directory")
-	assert.Equal(t, "list_sessions", got.req.Tool)
+	assert.Equal(t, "context_status", got.req.Tool)
 	assert.JSONEq(t, `{"limit":2}`, string(got.req.Args))
 }
 
@@ -133,6 +133,6 @@ func TestHost_AnOversizedAnswerIsRefusedUnderTheFrameCap(t *testing.T) {
 		return HostResult{Body: json.RawMessage(`{"blob":"` + string(big) + `"}`)}, nil
 	}}
 	c := newTestCoordinatorWithHost(t, newFakeSpawner(t, nil, nil), app)
-	reply := c.serveAgentRequest(ownerIdentity(), AgentRequest{Kind: HostRequest{Tool: "list_sessions"}})
+	reply := c.serveAgentRequest(ownerIdentity(), AgentRequest{Kind: HostRequest{Tool: "context_status"}})
 	assert.ErrorIs(t, reply.Err, ErrHostAnswerTooLarge)
 }

@@ -9,21 +9,15 @@ This page is generated from `ctxloom session search --help`.
 
 ## ctxloom session search
 
-Search sessions by name, one-line summary, and compacted summary content (default: current project; --all for everything)
+Search sessions by name, title and times (default: current project; --all for everything)
 
 ### Synopsis
 
-Searches session metadata (session name, one-line summary, start/end) and, for
-sessions that have already been compacted, the summary body itself. Every
-given word must match, case-insensitively, somewhere in a session's
-metadata or summary for that session to be included (an AND across words,
-not an OR).
-
-The search itself runs CLI-side: the summary body is read off disk, scanned,
-and discarded per session — it is never handed to a model and never
-returned in a result row (the same lightweight name/summary/state/start/end
-shape `session list` renders). Fetch a matched session's full summary with
-`session show <session-name>`.
+Searches session metadata: the session name, its title (the first thing
+its user asked), and its start/end as `session list` shows them. Every given
+word must match, case-insensitively, somewhere in a session's metadata for
+that session to be included (an AND across words, not an OR). Results are
+the same rows `session list` renders.
 
 --state narrows the matches to sessions in that state (live, ended or
 unknown), read from each session's liveness lock as `session list` does.
@@ -45,7 +39,6 @@ ctxloom session search <word>... [flags]
 
 ```
       --all            Search sessions from every project (default: filter to cwd)
-      --full           Include each matched session's complete compacted summary body (text output pages through $PAGER on a terminal)
       --state string   Only sessions in this state, from the session's liveness lock: live, ended, unknown
 ```
 

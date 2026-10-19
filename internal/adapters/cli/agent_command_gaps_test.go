@@ -42,7 +42,7 @@ func gapCreateProject(t *testing.T, imageBuilt bool) (imageBin string) {
 	bundleDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
 	require.NoError(t, os.MkdirAll(bundleDir, 0o755))
 	bundletree.WriteOS(t, bundleDir, "gapkit", gapKitYAML)
-	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte("schema_version: 7\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte("schema_version: 8\n"), 0o644))
 
 	bin, imageBin := t.TempDir(), t.TempDir()
 	script := "#!/bin/sh\ncase \"$1\" in\n image) [ -n \"$FAKE_IMAGE_BUILT\" ] || exit 1; echo \"$FAKE_IMAGE_ID\";;\n run) for last; do :; done; PATH=" + imageBin + " exec /bin/sh -c \"$last\";;\nesac\n"

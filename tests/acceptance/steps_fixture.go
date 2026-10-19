@@ -370,7 +370,8 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 
 	// A recorded session seeds the home session store so session list/show/
 	// rename/forget can be exercised without launching a backend. project_dir is
-	// the live project so current-project listing finds it too.
+	// the live project so current-project listing finds it too. Its
+	// transcript's first user prompt (seededPrompt) is its title.
 	ctx.Step(`^a recorded session "([^"]*)"$`, func(c context.Context, harp string) error {
 		w := worldFrom(c)
 		if err := seedSessionSidecar(w, harp, sessionSeed{
@@ -380,8 +381,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		}); err != nil {
 			return err
 		}
-		essence := fmt.Sprintf("---\nharp_name: %s\ndistilled_at: 2026-01-01T00:00:00Z\n---\n\nSeeded essence for %s.\n", harp, harp)
-		return writeOutputFile(w, harp, paths.EssenceFileName, essence)
+		return writeSeededTranscript(w, harp)
 	})
 
 	// A git remote serving a ctxloom layout over file://, registered with the

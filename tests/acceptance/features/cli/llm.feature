@@ -326,7 +326,7 @@ Feature: llm — the named engine configurations
       Given an initialized ctxloom project
       And the project already has the file ".ctxloom/config.yaml":
         """
-        schema_version: 7
+        schema_version: 8
         llm:
           configs:
             big:

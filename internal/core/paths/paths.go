@@ -162,20 +162,6 @@ const (
 	// the one who will later wonder why the session was never reclaimed.
 	SessionKeepMarkerFileName = "keep"
 
-	// EssenceFileName is the name of a harp's distilled session essence, at
-	// the top of the session's OUTPUT dir (sessions.Entry.OutputDir): it is a
-	// readable output, so it lives in the human root, never the machine tree.
-	EssenceFileName = "essence.md"
-
-	// NextStepFileName is the name of a harp's captured next step: what the
-	// agent said it was about to do, written by the TurnEnd hook and
-	// OVERWRITTEN every turn, so the file holds the LAST turn's statement.
-	//
-	// It sits beside EssenceFileName because it is consumed with it: the
-	// essence is what the session was, this is what it intended next, and
-	// distillation reads the second to decide what to keep of the first.
-	NextStepFileName = "next-step.md"
-
 	// PlanFileExt is the suffix for a session's plan documents. Plans live
 	// at the top of the session's OUTPUT dir as <descriptive-name>.plan.md
 	// files; a session may hold several.
@@ -280,16 +266,12 @@ const (
 	// included (discover.List).
 	CoordOwnerLockFileName = "owner.lock"
 
-	// SegmentsDirName holds per-rotation artifacts, one pair per displaced
-	// session ID in a harp's sessions.Entry.Rotations lineage, split by kind:
-	// the converted-once canonical <sessionID>.jsonl (ResolveHarpSegmentPath)
-	// and its watermark are machine data under transcripts/segments/; that
-	// rotation's distilled <sessionID>.md is a readable output under the
-	// output dir's segments/ (OutputSegmentEssencePath).
-	//
-	// The harp's own essence.md is the CURRENT one and is overwritten by every
-	// distill; these are the record of what each earlier session was about,
-	// which is otherwise erased by the next /clear.
+	// SegmentsDirName holds per-rotation artifacts, one per displaced session
+	// ID in a harp's sessions.Entry.Rotations lineage: the converted-once
+	// canonical <sessionID>.jsonl (ResolveHarpSegmentPath) and its watermark,
+	// machine data under transcripts/segments/ — the record of what each
+	// earlier session was about, which is otherwise erased by the next
+	// /clear.
 	SegmentsDirName = "segments"
 
 	// HomeLocksDirName is the home-rooted directory holding advisory-lock
@@ -442,7 +424,7 @@ func HarpSidecarLockPath(harp string) (string, error) {
 // can't be resolved; callers fall back to the legacy layout in that case.
 //
 // harp is validated here (harp.Validate) because this is the chokepoint every
-// harp-derived path is built from — essence, ephemeral, canonical transcript,
+// harp-derived path is built from — ephemeral, canonical transcript,
 // and the harp dir itself all layer on this one function. A harp
 // name is a user-renameable string that becomes a single path COMPONENT, so
 // `ctxloom session edit <old> --name ../..` otherwise reached MkdirAll/Symlink on
@@ -552,15 +534,6 @@ func ResolveHarpSegmentsDir(harp string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, SegmentsDirName), nil
-}
-
-// OutputSegmentEssencePath returns <outputDir>/segments/<sessionID>.md — the
-// distilled essence of ONE rotation in a session's lineage. outputDir is the
-// session's recorded output dir (sessions.Entry.OutputDir): the essence is a
-// readable output, so it lives in the human root while the rotation's raw
-// segment stays machine-side (ResolveHarpSegmentPath).
-func OutputSegmentEssencePath(outputDir, sessionID string) string {
-	return filepath.Join(outputDir, SegmentsDirName, sessionID+".md")
 }
 
 // ResolveHarpSegmentPath returns

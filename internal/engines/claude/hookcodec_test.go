@@ -70,8 +70,8 @@ func TestHookCodec_EncodesTheEnvelopeClaudeReads(t *testing.T) {
 		r     engine.HookResponse
 		want  string
 	}{
-		{wire.HookEventSessionStart, engine.HookResponse{Context: "essence", Notice: "run /recover"},
-			`{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"essence"},"systemMessage":"run /recover"}`},
+		{wire.HookEventSessionStart, engine.HookResponse{Context: "resumed context", Notice: "a notice"},
+			`{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"resumed context"},"systemMessage":"a notice"}`},
 		{wire.HookEventTurnStart, engine.HookResponse{Context: "mail"},
 			`{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"mail"}}`},
 		{wire.HookEventTurnStart, engine.HookResponse{Block: true, Reason: "stale wake"},

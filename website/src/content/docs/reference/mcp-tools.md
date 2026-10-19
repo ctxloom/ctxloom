@@ -9,7 +9,7 @@ This page is generated from ctxloom's registered MCP tools and resources, as ser
 
 Reference for the tools and resources ctxloom exposes to the agent it launches — the MCP surface a session's runner serves inside `ctxloom run`. ctxloom's own companion loadout declares the server as **served by the running session's endpoint**: at session start the endpoint's URL and bearer are written into the session's own MCP registry, and the engine dials it directly. There is no `ctxloom` command that speaks this protocol and nothing is registered in the project at rest — ctxloom injects its MCP only while it is running.
 
-The MCP surface is for **working inside a session**: assembling context, searching content, session memory, and delegating to child agents. Everything that *manages* ctxloom (creating or editing bundles, profiles, fragments, and commands; pulling remotes; upgrading dependencies) is done with the ctxloom CLI, not MCP tools. Task tracking lives in the separate `taskloom` binary; its MCP server (`taskloom mcp`) serves the `task_*` tools.
+The MCP surface is for **working inside a session**: assembling context, searching content, measuring the session's context window, triaging deferred tasks, and delegating to child agents. Everything that *manages* ctxloom (creating or editing bundles, profiles, fragments, and commands; pulling remotes; upgrading dependencies) is done with the ctxloom CLI, not MCP tools. Task tracking lives in the separate `taskloom` binary; its MCP server (`taskloom mcp`) serves the `task_*` tools.
 
 ## Tools
 
@@ -124,16 +124,6 @@ Assemble context from a profile, fragments, and/or tags. Returns the combined co
 | `profile` | string | No | Profile name to use |
 | `tags` | string[] | No | Include all fragments with these tags |
 
-### compact_session
-
-Distil a session's PERSISTED transcript into a summary on disk, for a LATER session to pick up. Reads the stored log in a separate process; it does NOT touch your live conversation and frees no context in it. Do NOT call this because you are running low on context — for that, use your harness's native compaction. This exists precisely so that a context-starved agent never has to write its own summary: it runs out of band, against the full transcript, with a fresh budget. Normally you do not call it at all — it runs on shutdown, at startup for historical sessions, and on recovery after a /clear. Call it explicitly only to force an essence before ending a session.
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `backend` | string | No | Backend to read session from (defaults to the configured default LLM) |
-| `model` | string | No | LLM model to use for compaction (defaults to config or claude-3-haiku) |
-| `session_id` | string | No | Session ID to compact (defaults to current session) |
-
 ### context_status
 
 Measure how full this session's context window actually is, instead of estimating it. Returns the most recent recorded sample (percent used, tokens in the window, window size) plus a short trend of earlier samples so the DIRECTION is visible, not just the level. Call this the moment a conversation starts to feel long — before winding down, compacting, splitting work off to a subagent, or telling the user you are running low: this turns that hunch into a number. Samples are captured by ctxloom's statusline integration as the session runs. When no samples exist the tool says so explicitly and returns NO percentage — an absent measurement, never a zero one, because a reported 0% would be indistinguishable from an empty context.
@@ -150,44 +140,6 @@ Evaluate every Deferred task's revive trigger against gathered evidence (git his
 |------|------|----------|-------------|
 | `max_commits` | integer | No | Per-task cap on how many commits (since the task was deferred) are gathered as evidence. Default 20. |
 | `refresh` | boolean | No | Bypass the verdict cache and re-evaluate every Deferred task's trigger against the model, even if nothing about its evidence changed since the last call. |
-
-### get_previous_session
-
-Compact and load an EARLIER session's content — the most recent session BEFORE the active one for this working directory, resolved via the session registry (cross-agent aware; falls back to the second-most-recent transcript). For inspecting a prior session. NOT the post-/clear path: /clear keeps the SAME session alive, so to recover context wiped by /clear use recover_session instead.
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `model` | string | No | LLM model to use for compaction if needed |
-
-### list_sessions
-
-List harp-named sessions with their title, backend, last-activity time, and whether they're compacted — the menu you pick a harp from to hand to load_session. Defaults to the current working directory's project; set all_projects to span every project. Set compact_missing to compact title-less or stale sessions first so every row shows a title.
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `all_projects` | boolean | No | List sessions from every project instead of only the current working directory's project (mirrors session list --all) |
-| `compact_missing` | boolean | No | Compact sessions whose essence is missing or stale before listing, so every row carries a title. Runs the compactor out of band; canonical-transcript sessions compact, legacy-only sessions are skipped. |
-
-### load_session
-
-Compact and load context from a session. Accepts either session_id (backend UUID) or harp_name (human-readable). For names, see ctxloom://sessions/recent.
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `backend` | string | No | Backend to read session from (defaults to the configured default LLM) |
-| `harp_name` | string | No | Harp-named session reference (e.g. "swift-amber-falcon") naming a directory under ~/.ctxloom/sessions. Resolved to a session_id via that session's record; if both are passed, harp_name wins. |
-| `model` | string | No | LLM model to use for compaction if needed |
-| `session_id` | string | No | Backend-native session ID (UUID). Either session_id or harp_name is required. |
-
-### recover_session
-
-Recover context from the current session after /clear. Resolves this session's own transcript by harp identity, falling back to the most recent transcript in this working directory only when that transcript cannot be attributed to a different session, and compacts it (no session id needed; pass one to target a specific session).
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `backend` | string | No | Backend to read session from (defaults to the configured default LLM) |
-| `model` | string | No | LLM model to use for compaction if needed |
-| `session_id` | string | No | Session ID to recover. If not provided, resolves this session's own transcript by harp identity. |
 
 ### roster
 

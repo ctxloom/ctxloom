@@ -9,11 +9,10 @@ import (
 
 // SessionView is the ONE read model the session listing and show render
 // from: what the store records for a session (sessions.Entry) joined with
-// the derived facts every renderer used to compute for itself — whether
-// the session is compacted and where its essence is, whether that essence
-// is stale against the transcript, whether a purge destroyed the transcript,
-// and the one clock the listing is ordered by. Built by ViewSession, once
-// per entry; the CLI's rows and the MCP session menu project from it and
+// the derived facts every renderer used to compute for itself — its title
+// (the first user prompt), whether a purge destroyed the transcript,
+// whether it is marked keep, and the one clock the listing is ordered by.
+// Built by ViewSession, once per entry; the CLI's rows project from it and
 // never from the entry.
 type SessionView struct {
 	Harp    string `json:"harp"`
@@ -24,9 +23,11 @@ type SessionView struct {
 	State  string `json:"state,omitempty"`
 	Engine string `json:"engine"`
 	// NativeSession is the engine's own session key, "" while unbound.
-	NativeSession string    `json:"native_session,omitempty"`
-	Summary       string    `json:"summary,omitempty"`
-	StartedAt     time.Time `json:"started_at"`
+	NativeSession string `json:"native_session,omitempty"`
+	// Title is the session's first user prompt (SessionTitle), "" when its
+	// canonical transcript holds none.
+	Title     string    `json:"title,omitempty"`
+	StartedAt time.Time `json:"started_at"`
 	// EndedAt is when the session's LAST RUN ended. A resumed session keeps
 	// it while it runs again, so it says nothing about now: State does.
 	EndedAt *time.Time `json:"ended_at,omitempty"`
@@ -38,13 +39,9 @@ type SessionView struct {
 	LastActivity time.Time `json:"last_activity"`
 	// Purged says `session purge` destroyed this session's transcript.
 	Purged bool `json:"purged,omitempty"`
-	// Compacted says an essence exists; EssencePath is where.
-	Compacted   bool   `json:"compacted"`
-	EssencePath string `json:"essence_path,omitempty"`
-	// Stale says the essence predates the live transcript; StaleKnown says
-	// whether that could be determined at all (sessions.Entry.SourceStale).
-	Stale      bool `json:"stale,omitempty"`
-	StaleKnown bool `json:"stale_known,omitempty"`
+	// Kept says the session is marked keep (`ctxloom session keep`): its
+	// transcript is kept at any age.
+	Kept bool `json:"kept,omitempty"`
 }
 
 // ViewSession builds the read model for one entry.
@@ -54,15 +51,14 @@ func ViewSession(e sessions.Entry) SessionView {
 		Project:       e.ProjectDir,
 		Engine:        e.Backend,
 		NativeSession: e.SessionID,
-		Summary:       e.Summary,
+		Title:         SessionTitle(e),
 		StartedAt:     e.StartedAt,
 		EndedAt:       e.EndedAt,
 		EndReason:     e.EndReason,
 		LastActivity:  e.LastActivity,
 		Purged:        e.PurgedAt != nil,
+		Kept:          e.Keep,
 	}
-	v.EssencePath, v.Compacted = SessionEssenceInfo(e.HarpName, &e)
-	v.Stale, v.StaleKnown = e.SourceStale()
 	return v
 }
 
@@ -89,8 +85,8 @@ type SessionStateProbe func(harp string) string
 
 // ViewSessions builds the read model for a listing, in the listing's order,
 // asking state for each row's State. A nil state leaves State empty and
-// probes nothing: the caller for a process that may itself hold a listed
-// session's lock (MCP list_sessions) passes none. Never nil: an empty listing
+// probes nothing: a caller in a process that may itself hold a listed
+// session's lock passes none. Never nil: an empty listing
 // renders as an empty table, not as an absent field.
 func ViewSessions(entries []sessions.Entry, state SessionStateProbe) []SessionView {
 	views := make([]SessionView, len(entries))

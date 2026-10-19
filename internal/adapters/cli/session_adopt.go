@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"io"
 
 	"github.com/spf13/afero"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -45,8 +47,8 @@ adopted.
 Without --yes this only reports; nothing on disk or in the session index
 changes. --yes appends every adopted candidate to the session's Rotations
 through the session store, oldest first — never a hand edit of the record —
-and prints the next step (compact or recover) to actually materialize the
-recovered history; it does not run that step itself.
+and then rebuilds the session's canonical transcript from the full lineage,
+so the recovered history is what every reader of the session sees.
 
 The session's engine decides what is a transcript of it, and when each one's
 records were written. An engine whose transcript readers cannot say that is
@@ -160,7 +162,18 @@ func runSessionAdopt(cmd *cobra.Command, args []string) error {
 	if !sessionAdoptYes {
 		return reportAdoptPlanOnly(cmd, harp, wouldAdopt)
 	}
-	return reportAdoptNextStep(cmd, harp, applied)
+	return reportAdoptHeal(cmd, harp, applied, healAdopted)
+}
+
+// healAdopted rebuilds harp's canonical transcript from its whole rotation
+// lineage (operations.ResolveAndHeal), the heal every reader of the session
+// trusts. A var so a test can stand in for the vendor readers.
+var healAdopted = func(ctx context.Context, harp string) error {
+	src, err := operations.ResolveAndHeal(ctx, safefs.New(), App().Engines(), harp)
+	if err != nil {
+		return err
+	}
+	return src.HealErr
 }
 
 // renderSessionAdopt is the text-format body: a one-line summary (verb tense
@@ -199,19 +212,23 @@ func reportAdoptPlanOnly(cmd *cobra.Command, harp string, wouldAdopt int) error 
 	return w.Err()
 }
 
-// reportAdoptNextStep is the LOUD part of a successful --yes: seeding
+// reportAdoptHeal is the LOUD part of a successful --yes: seeding
 // Rotations changes the index, not the canonical transcript a session reader
-// actually loads — this command deliberately never compacts or refreshes
-// that on its own (a caller may want to review the lineage first), so it
-// names the next step outright rather than leaving a caller to assume
-// adoption alone made the recovered history readable.
-func reportAdoptNextStep(cmd *cobra.Command, harp string, adopted int) error {
+// actually loads, so the adoption is followed by the heal that rebuilds it
+// (heal), and the outcome is said outright. A heal that fails leaves the
+// adoption in place — the lineage is recorded — and says the transcript was
+// not rebuilt.
+func reportAdoptHeal(cmd *cobra.Command, harp string, adopted int, heal func(context.Context, string) error) error {
 	w := errwriter.New(cmd.ErrOrStderr())
 	if adopted == 0 {
 		w.Printf("ctxloom adopted nothing for %s: every candidate was already known or overlapped the existing lineage.\n", harp)
 		return w.Err()
 	}
-	w.Printf("ctxloom adopted %d rotation(s) into %s's lineage. Nothing else changed yet — run `ctxloom session compact %s` next (or, from inside that session, /recover) to rebuild its canonical transcript from the full lineage.\n",
-		adopted, harp, harp)
+	if err := heal(cmd.Context(), harp); err != nil {
+		w.Printf("ctxloom adopted %d rotation(s) into %s's lineage, but its canonical transcript was NOT rebuilt from it: %v. The lineage is recorded; the transcript still holds only what it held before.\n",
+			adopted, harp, err)
+		return w.Err()
+	}
+	w.Printf("ctxloom adopted %d rotation(s) into %s's lineage and rebuilt its canonical transcript from the full lineage.\n", adopted, harp)
 	return w.Err()
 }

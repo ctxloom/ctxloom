@@ -73,7 +73,11 @@ engine's `Floor`. The neutral fields (approver, approval timeout, sandbox,
 network) are each the first of the binding, the label and the project that
 declares one, else the engine's default; the sandbox must be one the engine
 enforces on the settled runtime, with no degraded fallback. Nothing
-downstream re-decides it.
+downstream re-decides it. The model also names the one posture of its own
+that asks nobody (`Ungated`; none on an engine without one), so a frontend
+that says "nothing is asked" — the one-shot warning, `agent show`'s headless
+posture, an unattended refusal's remedy — asks the engine instead of
+spelling one engine's token.
 
 **A tool-less launch is not plan.** `Source.ToolLess` asks for a launch that
 grants the model no tool and attaches no MCP server. It resolves only on an

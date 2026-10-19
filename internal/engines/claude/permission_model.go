@@ -292,3 +292,6 @@ func (permissionModel) DefaultSandbox() engine.Sandbox { return engine.SandboxFu
 
 // Reviewer: claude's auto mode hands each call to its classifier.
 func (permissionModel) Reviewer() bool { return true }
+
+// Ungated is bypassPermissions: claude skips every permission prompt.
+func (permissionModel) Ungated() (string, bool) { return modeBypass, true }

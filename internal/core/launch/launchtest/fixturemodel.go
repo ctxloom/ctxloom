@@ -101,3 +101,4 @@ func (FixtureModel) Sandboxes(runtime string) []engine.Sandbox {
 }
 func (FixtureModel) DefaultSandbox() engine.Sandbox { return engine.SandboxFull }
 func (m FixtureModel) Reviewer() bool               { return m.HasReviewer }
+func (FixtureModel) Ungated() (string, bool)        { return "bypass", true }

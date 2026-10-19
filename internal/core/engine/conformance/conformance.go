@@ -210,10 +210,30 @@ func checkEngineFacts(t *testing.T, eng engine.Engine, def engine.Base) {
 			requireTransitions(t, m, m.Transitions(doc))
 		}
 		require.Contains(t, m.Sandboxes("host"), m.DefaultSandbox(), "an engine's default sandbox is one it can enforce")
+		checkUngated(t, m)
 	}
 	if c, ok := eng.Approvals().Get(); ok {
 		require.NotNil(t, c, "a provided approval codec is a codec")
 	}
+}
+
+// checkUngated asserts the posture an engine says asks nobody is one of its
+// own: a mode --permissions can name, which resolves, reads back as itself,
+// and does not plan first — a session waiting on a plan's approval asks
+// someone.
+func checkUngated(t *testing.T, m engine.PermissionModel) {
+	t.Helper()
+	posture, ok := m.Ungated()
+	if !ok {
+		return
+	}
+	require.Containsf(t, m.Postures(), posture, "the posture that asks nobody, %q, is one of the engine's postures", posture)
+	doc, err := m.Resolve(engine.PostureRequest{Mode: posture})
+	require.NoErrorf(t, err, "the posture that asks nobody, %q, resolves as a --permissions mode", posture)
+	decoded, err := m.Decode(doc)
+	require.NoError(t, err)
+	require.Equalf(t, posture, decoded, "a run at %q reads back as %q", posture, posture)
+	require.Falsef(t, m.PlansFirst(doc), "the posture that asks nobody, %q, does not plan first", posture)
 }
 
 // checkModeInstance asserts one mode's instance: Instance binds a session,

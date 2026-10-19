@@ -146,3 +146,6 @@ func (permissionModel) Sandboxes(string) []engine.Sandbox {
 }
 func (permissionModel) DefaultSandbox() engine.Sandbox { return engine.SandboxFull }
 func (permissionModel) Reviewer() bool                 { return false }
+
+// Ungated is bypass, the mock's posture that asks nobody.
+func (permissionModel) Ungated() (string, bool) { return "bypass", true }

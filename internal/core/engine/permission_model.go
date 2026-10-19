@@ -186,4 +186,9 @@ type PermissionModel interface {
 	DefaultSandbox() Sandbox
 	// Reviewer reports whether the engine can serve approver: reviewer.
 	Reviewer() bool
+	// Ungated is the engine's own posture that asks nobody — no human and
+	// no reviewer: whatever its rules leave open runs. ok is false for an
+	// engine that has no such posture. Core asks this rather than spell any
+	// engine's token, since each engine names it differently.
+	Ungated() (posture string, ok bool)
 }

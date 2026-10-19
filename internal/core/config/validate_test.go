@@ -63,6 +63,7 @@ func (stubModel) Label(string) string                                   { return
 func (stubModel) Sandboxes(string) []engine.Sandbox                     { return []engine.Sandbox{engine.SandboxFull} }
 func (stubModel) DefaultSandbox() engine.Sandbox                        { return engine.SandboxFull }
 func (stubModel) Reviewer() bool                                        { return false }
+func (stubModel) Ungated() (string, bool)                               { return "", false }
 
 var errStubBad = errors.New("stub: bad key")
 

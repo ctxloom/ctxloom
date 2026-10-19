@@ -80,3 +80,40 @@ func TestUse_SwapsTheComposedRegistryUntilRestored(t *testing.T) {
 	restore()
 	assert.Equal(t, before, Registry().Names(nil))
 }
+
+// TestUngated_EachEngineNamesItsPostureThatAsksNobody: every composed engine
+// answers engine.PermissionModel.Ungated in its own words. Claude's is
+// bypassPermissions, the mocks' bypass, and opencode's auto: its --auto
+// approves whatever the rules do not deny, and opencode has no reviewer, so
+// nobody is asked. A newly composed engine fails here until its row records
+// what it answers.
+//
+// MUTATION: claude's Ungated answers "bypass" → the claude-code row goes red.
+func TestUngated_EachEngineNamesItsPostureThatAsksNobody(t *testing.T) {
+	type ungated struct {
+		posture string
+		ok      bool
+	}
+	want := map[engine.Name]ungated{
+		"claude-code":   {"bypassPermissions", true},
+		"mock":          {"bypass", true},
+		"mock-launch":   {"bypass", true},
+		"mock-lossy":    {"bypass", true},
+		"mock-noskills": {"bypass", true},
+		"opencode":      {"auto", true},
+	}
+	require.NoError(t, Compose())
+	names := Registry().Names(nil)
+	require.NotEmpty(t, names, "an empty registry would check nothing")
+	for _, name := range names {
+		t.Run(string(name), func(t *testing.T) {
+			row, listed := want[name]
+			require.Truef(t, listed, "engine %s has no row: decide what its Ungated answers", name)
+			e, _ := Registry().Lookup(name)
+			m, ok := e.Permissions().Get()
+			require.True(t, ok, "every composed engine declares a permission model")
+			posture, ok := m.Ungated()
+			assert.Equal(t, row, ungated{posture, ok})
+		})
+	}
+}

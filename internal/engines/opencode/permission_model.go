@@ -161,6 +161,10 @@ func (permissionModel) Sandboxes(string) []engine.Sandbox {
 func (permissionModel) DefaultSandbox() engine.Sandbox { return engine.SandboxFull }
 func (permissionModel) Reviewer() bool                 { return false }
 
+// Ungated is auto: --auto approves whatever the rules do not deny, with no
+// human and no reviewer asked (opencode has no reviewer).
+func (permissionModel) Ungated() (string, bool) { return modeAuto, true }
+
 // defaultPolicy is the policy of a session projected from a request that
 // carries none: build, nobody to approve (run rejects every ask).
 func defaultPolicy() engine.PermissionPolicy {

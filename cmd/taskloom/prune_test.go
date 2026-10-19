@@ -112,6 +112,16 @@ func TestRunPruneCmd_JSONCarriesTheSelectedHarpsAndTheCountsAndChangesNothing(t 
 		"the report names the command that applies exactly this plan")
 }
 
+func TestRunPruneCmd_ReportsTheBoundInUTC(t *testing.T) {
+	tc, _ := seedPruneProject(t)
+
+	local := pruneCmdNow.In(time.FixedZone("UTC-5", -5*60*60))
+	var out, errw strings.Builder
+	require.NoError(t, runPruneCmd(&out, &errw, tc, defaultPruneOptions(clifmt.FormatJSON), local))
+	assert.Equal(t, pruneCmdNow.Add(-7*24*time.Hour).Format(time.RFC3339), decodePrune(t, out.String()).Before,
+		"the bound is reported in UTC, the zone every event's ts is in")
+}
+
 func TestRunPruneCmd_YesRemovesTheSelectedTasksFromTheLog(t *testing.T) {
 	tc, logPath := seedPruneProject(t)
 	listed := func() []string {

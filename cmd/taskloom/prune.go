@@ -147,10 +147,12 @@ func runPruneCmd(out, errw io.Writer, tc operations.TaskContext, opts pruneOptio
 		clidiag.Fwarn(errw, progName, "%s", res.Warning)
 	}
 	rep := pruneReport{
-		ProjectID:   res.ProjectID,
-		ProjectDir:  res.ProjectDir,
-		Statuses:    statuses,
-		Before:      before,
+		ProjectID:  res.ProjectID,
+		ProjectDir: res.ProjectDir,
+		Statuses:   statuses,
+		// In UTC, like every timestamp the log itself carries, rather than
+		// in whatever zone the caller's clock happened to be read in.
+		Before:      before.UTC(),
 		TagQuery:    opts.TagQuery,
 		PruneResult: res.PruneResult,
 	}

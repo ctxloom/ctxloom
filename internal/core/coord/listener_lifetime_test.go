@@ -86,15 +86,20 @@ func TestListener_LivesOnlyWhileAContainerRunNeedsIt(t *testing.T) {
 	c := lifetimeCoordinator(t, stateDir, addr)
 	t.Cleanup(c.Close)
 
-	_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
+	// The listener opens after the run is enqueued and before its runner
+	// starts (TestRunChild_HonoursTheCellsListenBeforeTheRunnerStarts), so a
+	// child that is UP proves Listen returned — and Listen records the address
+	// before returning. Dialling the port proves only that it is bound, which
+	// precedes the record: polling the dial raced the endpoint write.
+	upCtx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer cancel()
+	require.NoError(t, c.awaitChildUp(upCtx, out.Harp))
 	require.Eventually(t, func() bool { return len(c.LiveContainerRunIDs()) == 1 }, conformanceWait, 10*time.Millisecond)
 	runID := c.LiveContainerRunIDs()[0]
 
-	// The run is enqueued before its runner launches; the listener opens in
-	// between.
-	require.Eventually(t, func() bool { return answers(t, c, addr) }, conformanceWait, 10*time.Millisecond,
-		"the listener is open while the container run lives")
+	require.True(t, answers(t, c, addr), "the listener is open while the container run lives")
 	require.Equal(t, []string{addr}, recordedListenAddrs(t, stateDir))
 
 	c.terminateRun(runID, CauseStopped, "test")

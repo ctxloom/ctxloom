@@ -98,7 +98,9 @@ func (f *conformanceFixture) appendFixtureArgv(cli agent.EngineCLI) {
 // reads — deliberately independent of the walk's, so the two can disagree.
 func (f conformanceFixture) expectedReadPath(p agent.CLIProbe) string {
 	switch p.Scope {
-	case agent.ScopeCwd:
+	case agent.ScopeCwd, agent.ScopeCwdAncestors:
+		// The fixture plants nothing in a parent folder, so the walk's answer
+		// for an ancestors probe is the working folder's own path.
 		return filepath.Join(f.cwd, p.Rel)
 	case agent.ScopeHome:
 		return filepath.Join(f.home, p.Rel)

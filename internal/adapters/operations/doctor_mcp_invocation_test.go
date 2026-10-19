@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -134,4 +135,44 @@ func TestDoctorCheckMCPInvocation_UnreadableSurfaceIsNotHealth(t *testing.T) {
 	assert.Contains(t, check.Detail, ".mcp.json", "the report names the file it could not read")
 	assert.Contains(t, check.Detail, "unverified",
 		"the report says the invocation was not checked, rather than implying it passed")
+}
+
+// TestDoctorCheckMCPInvocation_WrongState_AnAncestorsEntryIsNamed: claude reads
+// .mcp.json from the working folder AND every parent, so a stale ctxloom entry
+// in a parent folder kills every plain session in the project while the
+// project's own file is clean. The report must name that parent file by its
+// absolute path, and must not offer the project-side release as the fix: that
+// release cannot reach a file outside the project.
+func TestDoctorCheckMCPInvocation_WrongState_AnAncestorsEntryIsNamed(t *testing.T) {
+	parent := t.TempDir()
+	writeSurface(t, parent, ".mcp.json", `{"mcpServers": {"ctxloom": {"command": "ctxloom", "args": ["mcp"]}}}`)
+	proj := filepath.Join(parent, "proj")
+	require.NoError(t, os.MkdirAll(proj, 0o755))
+
+	check := doctorCheckMCPInvocation(engines.Registry(), proj)
+
+	assert.Equal(t, DoctorWarn, check.Status, "a parent folder's stale entry breaks the project's sessions")
+	assert.Contains(t, check.Detail, filepath.Join(parent, ".mcp.json"), "the report names the parent file, absolute")
+	assert.Contains(t, check.Detail, "by hand", "a file outside the project is fixed by hand")
+	assert.Empty(t, check.Remedy, "the project-side release cannot remove an entry outside the project")
+}
+
+// TestProbePaths_CwdAncestorsRunsNearestFirstToTheRoot pins the one place a
+// probe's scope becomes concrete paths.
+func TestProbePaths_CwdAncestorsRunsNearestFirstToTheRoot(t *testing.T) {
+	p := agent.CLIProbe{Kind: agent.ProbeKindMCP, Scope: agent.ScopeCwdAncestors, Rel: ".mcp.json"}
+
+	got := probePaths(p, filepath.FromSlash("/a/b/c"), "/home/x")
+
+	assert.Equal(t, []string{
+		filepath.FromSlash("/a/b/c/.mcp.json"),
+		filepath.FromSlash("/a/b/.mcp.json"),
+		filepath.FromSlash("/a/.mcp.json"),
+		filepath.FromSlash("/.mcp.json"),
+	}, got, "nearest first, stopping at the filesystem root")
+
+	assert.Equal(t, []string{filepath.FromSlash("/a/b/c/.mcp.json")},
+		probePaths(agent.CLIProbe{Scope: agent.ScopeCwd, Rel: ".mcp.json"}, "/a/b/c", "/h"), "cwd stays one path")
+	assert.Equal(t, []string{filepath.FromSlash("/h/.mcp.json")},
+		probePaths(agent.CLIProbe{Scope: agent.ScopeHome, Rel: ".mcp.json"}, "/a", "/h"))
 }

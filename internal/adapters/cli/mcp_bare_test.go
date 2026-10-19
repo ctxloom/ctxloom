@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -66,6 +68,28 @@ func TestMcpBare_RefusesAMachineAndSaysThereIsNoServer(t *testing.T) {
 		"the refusal names what serves ctxloom's tools")
 	assert.NotContains(t, out, "Auto-register",
 		"no part of the server listing may reach a caller framing JSON-RPC")
+}
+
+// TestMcpBare_RefusalNamesAnAncestorsMCPFile: claude reads .mcp.json from the
+// working folder and every parent, so the entry that launched this refused
+// process may sit in a parent folder. The refusal lands in the engine's
+// stderr log, and has to name the file the user must edit.
+func TestMcpBare_RefusalNamesAnAncestorsMCPFile(t *testing.T) {
+	remoteBareFixture(t)
+	presentTerminal(t, false)
+	parent := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(parent, ".mcp.json"),
+		[]byte(`{"mcpServers": {"ctxloom": {"command": "ctxloom", "args": ["mcp"]}}}`), 0o644))
+	proj := filepath.Join(parent, "proj")
+	require.NoError(t, os.MkdirAll(proj, 0o755))
+	t.Chdir(proj)
+
+	_, err := runRoot(t, "mcp")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), filepath.Join(parent, ".mcp.json"),
+		"the refusal names the parent file holding the entry")
+	assert.Contains(t, err.Error(), "no stdio MCP server", "and still says why")
 }
 
 // TestMcpBare_MachineRefusalSurvivesAFormatRequest covers the shape a script

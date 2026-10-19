@@ -34,7 +34,12 @@ unrendered refuses it (`wire.ErrMCPServerUnrendered`).
 `ctxloom doctor` reports any materialized project registry that still
 LAUNCHES ctxloom as a stdio server as stale (`DOCTOR-CHECK-MCP-INVOCATION-g7`),
 because an engine launching such an entry comes up with none of ctxloom's
-tools and nothing says why.
+tools and nothing says why. The scan covers every file a probe resolves to,
+and claude's `.mcp.json` probe is `ScopeCwdAncestors`: claude reads it from the
+working folder and every parent, so a stale entry in a parent folder is
+reported by its absolute path (to be deleted by hand; the project-side release
+cannot reach it). The bare `ctxloom mcp` refusal runs the same walk from its
+working folder and names each file holding a bare `ctxloom mcp` entry.
 
 ## The `ctxloom mcp` noun
 

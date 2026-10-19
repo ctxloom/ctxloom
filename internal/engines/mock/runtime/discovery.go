@@ -101,6 +101,17 @@ func probeOne(order int, p agent.CLIProbe, cli agent.EngineCLI, argv agent.Parse
 	case agent.ScopeCwd:
 		rec.Root = res.Cwd
 		return observePath(rec, filepath.Join(res.Cwd, p.Rel), p.Dir)
+	case agent.ScopeCwdAncestors:
+		// One record per probe: report the nearest level that holds the file,
+		// or the working folder's own path when none does.
+		rec.Root = res.Cwd
+		paths := p.Paths(res.Cwd, res.Home)
+		for _, path := range paths {
+			if _, err := os.Stat(path); err == nil {
+				return observePath(rec, path, p.Dir)
+			}
+		}
+		return observePath(rec, paths[0], p.Dir)
 	case agent.ScopeHome:
 		rec.Root = res.Home
 		return observePath(rec, filepath.Join(res.Home, p.Rel), p.Dir)

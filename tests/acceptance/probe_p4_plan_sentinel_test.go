@@ -299,7 +299,7 @@ func TestP4Assert_DispatchesByPostureAndRefusesAnUnknownOne(t *testing.T) {
 // control that can never fail.
 func TestP4PermissionValue_MapsThePairAndPanicsOnAnythingElse(t *testing.T) {
 	assert.Equal(t, "plan", p4PermissionValue(liveAgents["claude"], p4Plan))
-	assert.Equal(t, "bypass", p4PermissionValue(liveAgents["claude"], p4Control))
+	assert.Equal(t, "bypassPermissions", p4PermissionValue(liveAgents["claude"], p4Control))
 	assert.Equal(t, "plan", p4PermissionValue(liveAgents["opencode"], p4Plan))
 	assert.Equal(t, "auto", p4PermissionValue(liveAgents["opencode"], p4Control), "opencode's bypass posture is auto")
 	assert.Panics(t, func() { p4PermissionValue(liveAgent{engine: "x"}, p4Control) }, "an engine with no bypass posture must not bind an empty mode")
@@ -312,14 +312,14 @@ func TestP4PermissionValue_MapsThePairAndPanicsOnAnythingElse(t *testing.T) {
 // reaching config.yaml the two cells would become the same cell — both at
 // bypass, both green, the ladder reporting plan enforcement it never exercised.
 func TestP4ConfigYAML_CarriesThePostureOntoTheProductionBindingSurface(t *testing.T) {
-	a := liveAgent{engine: "claude-code", bypass: "bypass", config: fmt.Sprintf("schema_version: %d\nllm:\n  configs:\n    claude:\n      type: claude-code\n      model: claude-haiku-4-5-20251001\n", config.CurrentConfigVersion)}
+	a := liveAgent{engine: "claude-code", bypass: "bypassPermissions", config: fmt.Sprintf("schema_version: %d\nllm:\n  configs:\n    claude:\n      type: claude-code\n      model: claude-haiku-4-5-20251001\n", config.CurrentConfigVersion)}
 
 	plan := p4ConfigYAML(a, "claude", p4Plan, "host")
 	control := p4ConfigYAML(a, "claude", p4Control, "host")
 
 	assert.Contains(t, plan, permissionsBlock(a.engine, "plan"),
 		"the plan cell must bind permissions mode plan on the agent — the production surface a project commits, not a harness substitute")
-	assert.Contains(t, control, permissionsBlock(a.engine, "bypass"))
+	assert.Contains(t, control, permissionsBlock(a.engine, "bypassPermissions"))
 	assert.NotEqual(t, plan, control,
 		"the pair must differ; two identical configs would make the control a duplicate of the cell it is supposed to contrast with")
 

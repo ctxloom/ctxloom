@@ -202,6 +202,41 @@ type Entry struct {
 	// of the run it was resuming. Bounded to the newest MaxRunEnds; the
 	// coordinator's run journal keeps every end.
 	RunEnds []RunEnd `yaml:"run_ends,omitempty" json:"run_ends,omitempty"`
+
+	// EndReason records why a session ended WITHOUT its engine ever having
+	// launched: the run was refused or failed after the mint (the resolver
+	// prepares the session home) and before the engine started. EndedAt says
+	// only when, and the terminal output that said why is gone with the
+	// terminal; without this such a session is a directory and a timestamp.
+	// Nil for a session whose engine launched — the engine's transcript and
+	// status cover those — except a run whose engine refused its credential
+	// after launch, which ends as a refusal.
+	EndReason *EndReason `yaml:"end_reason,omitempty" json:"end_reason,omitempty"`
+}
+
+// The classes of an EndReason.
+const (
+	// EndClassRefused: ctxloom declined to run (exit 2), the fix being the
+	// human's to apply.
+	EndClassRefused = "refused"
+	// EndClassFatalStartup: startup aborted over collected fatal findings
+	// (exit 3).
+	EndClassFatalStartup = "fatal-startup"
+	// EndClassFailed: ctxloom's own error, with no engine status (exit 1).
+	EndClassFailed = "failed"
+	// EndClassCancelled: the run was ended by a signal or its context.
+	EndClassCancelled = "cancelled"
+)
+
+// EndReason is why a session ended before its engine launched (Entry.EndReason).
+// Exit is `ctxloom run`'s own exit status; Class names what that status means.
+// Message is the error ctxloom reported, and Findings each fatal finding as it
+// was printed (its text and its fix).
+type EndReason struct {
+	Exit     int      `yaml:"exit" json:"exit"`
+	Class    string   `yaml:"class" json:"class"`
+	Message  string   `yaml:"message,omitempty" json:"message,omitempty"`
+	Findings []string `yaml:"findings,omitempty" json:"findings,omitempty"`
 }
 
 // MaxRunEnds bounds Entry.RunEnds: a one-shot session mints a run per turn,
@@ -816,6 +851,15 @@ func (m *Manager) MarkEnded(harpName string, at time.Time) error {
 func (m *Manager) RecordRunEnd(harpName string, end RunEnd) error {
 	return m.update(harpName, func(e *Entry) (bool, error) {
 		e.RunEnds = withRunEnd(e.RunEnds, end)
+		return true, nil
+	})
+}
+
+// RecordEndReason records why the session ended before its engine launched
+// (Entry.EndReason).
+func (m *Manager) RecordEndReason(harpName string, reason EndReason) error {
+	return m.update(harpName, func(e *Entry) (bool, error) {
+		e.EndReason = &reason
 		return true, nil
 	})
 }

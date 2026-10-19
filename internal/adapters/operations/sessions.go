@@ -337,6 +337,16 @@ func RecordRunEnd(harp string, end sessions.RunEnd) error {
 	return mgr.RecordRunEnd(harp, end)
 }
 
+// RecordEndReason records why harp's session ended before its engine
+// launched (sessions.Entry.EndReason).
+func RecordEndReason(harp string, reason sessions.EndReason) error {
+	mgr, err := openSessions()
+	if err != nil {
+		return err
+	}
+	return mgr.RecordEndReason(harp, reason)
+}
+
 // EndSessionIn is EndSession against the store the session was minted in:
 // the launch trunk's own store in production, a MemStore in a test.
 func EndSessionIn(mgr sessions.Store, harp string, at time.Time) error {

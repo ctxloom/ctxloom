@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
@@ -116,6 +117,9 @@ type sessionEssence struct {
 	// omitted) otherwise — so a client can open the real file rather than rebuild
 	// the <output dir>/essence.md path itself.
 	EssencePath string `json:"essence_path,omitempty"`
+	// EndReason is why the session ended before its engine launched, absent
+	// for every other session (sessions.Entry.EndReason).
+	EndReason *sessions.EndReason `json:"end_reason,omitempty"`
 }
 
 var sessionShowCmd = &cobra.Command{
@@ -137,14 +141,37 @@ func runSessionShow(cmd *cobra.Command, args []string) error {
 	}
 	view := operations.ViewSession(*entry)
 	essence, compacted := readSessionEssence(afero.NewOsFs(), view)
-	return emit(cmd, sessionEssence{Harp: harp, Compacted: compacted, Essence: essence, EssencePath: view.EssencePath}, func() error {
+	return emit(cmd, sessionEssence{Harp: harp, Compacted: compacted, Essence: essence, EssencePath: view.EssencePath, EndReason: view.EndReason}, func() error {
+		out := cmd.OutOrStdout()
+		if view.EndReason != nil {
+			// Ahead of the summary: for a session that never launched, why it
+			// ended is the whole story.
+			if _, err := fmt.Fprintln(out, endReasonText(*view.EndReason)); err != nil {
+				return err
+			}
+		}
 		if !compacted {
-			_, err := fmt.Fprintln(cmd.OutOrStdout(), uncompactedSessionHint(harp, view.NativeSession))
+			_, err := fmt.Fprintln(out, uncompactedSessionHint(harp, view.NativeSession))
 			return err
 		}
-		_, _ = cmd.OutOrStdout().Write([]byte(essence))
+		_, _ = out.Write([]byte(essence))
 		return nil
 	})
+}
+
+// endReasonText renders a session's end reason for `session show`: its class
+// and exit status, the error ctxloom reported, then each fatal finding as it
+// was printed.
+func endReasonText(r sessions.EndReason) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "ended before its engine launched: %s (exit %d)", r.Class, r.Exit)
+	if r.Message != "" {
+		b.WriteString("\n" + r.Message)
+	}
+	for _, f := range r.Findings {
+		b.WriteString("\n" + f)
+	}
+	return b.String()
 }
 
 // The two hints `session show` prints in place of a summary that does not

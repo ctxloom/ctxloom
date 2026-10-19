@@ -12,7 +12,10 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
+	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -220,6 +223,56 @@ func registerStartupBoundarySteps(ctx *godog.ScenarioContext) {
 		}
 		return nil
 	})
+
+	ctx.Step(`^the minted session's record says it ended before launch as "([^"]*)" with exit (\d+)$`, func(c context.Context, class string, exit int) error {
+		reason, err := mintedSessionEndReason(worldFrom(c))
+		if err != nil {
+			return err
+		}
+		if reason.Class != class || reason.Exit != exit {
+			return fmt.Errorf("the session recorded class %q exit %d, want %q exit %d", reason.Class, reason.Exit, class, exit)
+		}
+		return nil
+	})
+
+	ctx.Step(`^the session record's findings include "([^"]*)"$`, func(c context.Context, want string) error {
+		reason, err := mintedSessionEndReason(worldFrom(c))
+		if err != nil {
+			return err
+		}
+		if !slices.ContainsFunc(reason.Findings, func(f string) bool { return strings.Contains(f, want) }) {
+			return fmt.Errorf("no recorded finding contains %q; findings: %q", want, reason.Findings)
+		}
+		return nil
+	})
+}
+
+// mintedSessionEndReason is the end reason in the one session the isolated
+// HOME's store holds. More or fewer than one session means the scenario did
+// not run the launch it describes; a record with no end_reason is the failure
+// under test.
+func mintedSessionEndReason(w *World) (sessions.EndReason, error) {
+	records, err := filepath.Glob(filepath.Join(sessionStoreRoot(w), "*", paths.SessionSidecarFileName))
+	if err != nil {
+		return sessions.EndReason{}, err
+	}
+	if len(records) != 1 {
+		return sessions.EndReason{}, fmt.Errorf("want exactly one minted session record under %s, found %d: %q", sessionStoreRoot(w), len(records), records)
+	}
+	data, err := os.ReadFile(records[0])
+	if err != nil {
+		return sessions.EndReason{}, err
+	}
+	var doc struct {
+		EndReason *sessions.EndReason `yaml:"end_reason"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return sessions.EndReason{}, fmt.Errorf("parse %s: %w", records[0], err)
+	}
+	if doc.EndReason == nil {
+		return sessions.EndReason{}, fmt.Errorf("%s has no end_reason:\n%s", records[0], data)
+	}
+	return *doc.EndReason, nil
 }
 
 // sessionStoreRoot is the isolated HOME's session store.

@@ -79,6 +79,9 @@ func newSessionRow(v operations.SessionView) SessionRow {
 	if v.Purged {
 		summary += "  🗑 purged (transcript destroyed)"
 	}
+	if v.EndReason != nil {
+		summary += fmt.Sprintf("  ✗ ended before launch: %s (exit %d)", v.EndReason.Class, v.EndReason.Exit)
+	}
 	row := SessionRow{
 		Harp:        v.Harp,
 		Summary:     summary,

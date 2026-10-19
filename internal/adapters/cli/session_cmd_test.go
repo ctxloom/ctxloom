@@ -474,3 +474,49 @@ func TestSessionJSON_SaysCompacted(t *testing.T) {
 		assert.NotContains(t, doc, "distilled", "%s must not use the content feature's key", name)
 	}
 }
+
+// A session that ended before its engine launched says why in `session show`,
+// in text and in JSON, and in the `session list` row: the terminal output that
+// said it is gone, and the session is otherwise a directory and a timestamp.
+func TestSessionShow_PrintsTheEndReason(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	mgr, harp := seedEndedSession(t, dir, "claude-code")
+	require.NoError(t, mgr.RecordEndReason(harp, sessions.EndReason{
+		Exit:     3,
+		Class:    sessions.EndClassFatalStartup,
+		Message:  "ctxloom: aborting startup: 1 fatal finding(s)",
+		Findings: []string{"  - [bundle] failed to load bundle \"x\"\n    fix: repair it"},
+	}))
+
+	out, err := execRootCmd(t, "session", "show", harp, "--format", "text")
+	require.NoError(t, err)
+	assert.Contains(t, out, "ended before its engine launched: fatal-startup (exit 3)")
+	assert.Contains(t, out, "ctxloom: aborting startup: 1 fatal finding(s)")
+	assert.Contains(t, out, "failed to load bundle \"x\"")
+	assert.Contains(t, out, "fix: repair it")
+
+	out, err = execRootCmd(t, "session", "show", harp, "--format", "json")
+	require.NoError(t, err)
+	var got sessionEssence
+	require.NoError(t, json.Unmarshal([]byte(out), &got), out)
+	require.NotNil(t, got.EndReason)
+	assert.Equal(t, 3, got.EndReason.Exit)
+	assert.Equal(t, sessions.EndClassFatalStartup, got.EndReason.Class)
+	assert.Len(t, got.EndReason.Findings, 1)
+
+	row := newSessionRow(operations.ViewSession(sessions.Entry{HarpName: harp, EndReason: got.EndReason}))
+	assert.Contains(t, row.Summary, "ended before launch: fatal-startup (exit 3)")
+}
+
+// A session whose engine launched has no end reason to show.
+func TestSessionShow_NoEndReasonPrintsNothingAboutOne(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	_, harp := seedEndedSession(t, dir, "claude-code")
+
+	out, err := execRootCmd(t, "session", "show", harp, "--format", "text")
+	require.NoError(t, err)
+	assert.NotContains(t, out, "ended before its engine launched")
+	out, err = execRootCmd(t, "session", "show", harp, "--format", "json")
+	require.NoError(t, err)
+	assert.NotContains(t, out, "end_reason")
+}

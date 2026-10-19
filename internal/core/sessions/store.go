@@ -30,6 +30,7 @@ type Store interface {
 	StampMint(harpName string, s MintStamp) error
 	MarkEnded(harpName string, at time.Time) error
 	RecordRunEnd(harpName string, end RunEnd) error
+	RecordEndReason(harpName string, reason EndReason) error
 	MarkPurged(harpName string, at time.Time) error
 	Rename(oldName, newName string) error
 	Forget(harpName string) error

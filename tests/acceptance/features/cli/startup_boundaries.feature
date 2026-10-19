@@ -141,3 +141,26 @@ Feature: What a start writes, and whose pins it reads
       When I run "ctxloom run --dry-run --llm session-owner -f isolation-axes hello"
       Then the startup aborts on a fatal bundle finding
       And the output contains "failed to parse lockfile"
+
+  # A run refused before its engine launches still leaves the session the
+  # resolver minted. The terminal output that said why is gone with the
+  # terminal, so the session's own record must carry the reason: without it the
+  # session is a directory and two timestamps. The assertion is on the
+  # RECORD's bytes (class, exit status and the printed finding), because a
+  # run that exited 3 and wrote nothing is this project's characteristic bug.
+  @end-reason
+  Scenario: A run refused by a fatal startup finding records why its session ended
+    Given an empty project directory
+    And the home config declares the mock engine label "session-owner"
+    And the project already has the file ".ctxloom/lock.yaml":
+      """
+      schema_version: 2
+      bundles:
+        broken:
+          sha: "abc
+          pinned: true
+      """
+    When I run "ctxloom run --one-shot --llm session-owner -f isolation-axes hello"
+    Then the startup aborts on a fatal bundle finding
+    And the minted session's record says it ended before launch as "fatal-startup" with exit 3
+    And the session record's findings include "failed to parse lockfile"

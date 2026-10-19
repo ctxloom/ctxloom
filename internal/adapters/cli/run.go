@@ -412,6 +412,12 @@ type runState struct {
 	permMode    string // the resolved posture, in the engine's words
 	managed     *agent.ManagedConfig
 	activeHarp  string
+	// mintedHarp is the session this run minted, whether or not its launch
+	// resolved ("" before the mint): the session whose end reason is recorded.
+	mintedHarp string
+	// engineLaunched is set once the engine's transport started: past it the
+	// engine's own transcript and status say how the run ended.
+	engineLaunched bool
 	// env is the cell's prepared environment: where and how the runner is
 	// started, whatever the runtime.
 	env isolation.Environment
@@ -435,7 +441,7 @@ type runState struct {
 	runnerHandle *isolation.RunnerHandle
 }
 
-func runRun(cmd *cobra.Command, args []string) error {
+func runRun(cmd *cobra.Command, args []string) (err error) {
 	st := &runState{
 		cmd:  cmd,
 		args: args,
@@ -446,6 +452,10 @@ func runRun(cmd *cobra.Command, args []string) error {
 		// acts only on a NonDegradable finding there.
 		gates: newPhaseGates(os.Stderr, App().Strictness),
 	}
+	// Whatever exit the run takes, a session it minted whose engine never
+	// launched records why it ended. Registered first so it runs last, after
+	// the session's end-mark and teardown.
+	defer func() { st.recordEndReasonUnlaunched(err) }()
 
 	if err := st.validateFlags(); err != nil {
 		return err
@@ -480,16 +490,18 @@ func runRun(cmd *cobra.Command, args []string) error {
 	// fires when that method returns, which for teardown is far too early.
 	// The registration ORDER below is the unwind order (LIFO) and is
 	// load-bearing; each defer's own doc says why it sits where it does.
-	if err := st.resolveLaunch(); err != nil {
-		return st.refused(err)
-	}
 	// Mark the harp ended on whatever exit path we take — clean return,
 	// ctrl+c, or panic. The end timestamp is display only: the last run's
 	// end, shown in the END column (blank while the session's lock says it
 	// is live) and matched by `session search`, and `ended_at` in
 	// SessionView. No transcript lookup reads it and no liveness decision
-	// does: a session's state comes from its liveness lock.
+	// does: a session's state comes from its liveness lock. Registered before
+	// the resolver, which can fail AFTER minting the session; markSessionEnded
+	// is a no-op until one is minted.
 	defer st.markSessionEnded()
+	if err := st.resolveLaunch(); err != nil {
+		return st.refused(err)
+	}
 
 	// The startup gate: config load, sync, assembly and the cell all ran
 	// inside the resolver; every fatal-class finding they recorded aborts
@@ -653,9 +665,13 @@ func (st *runState) resolveLaunch() error {
 		return operations.CheckRunCredential(App().Engines(), backend, mode)
 	}
 	l, err := operations.StartRun(st.ctx, deps, sessions.Seed{ProjectDir: st.workDir, ProjectID: st.projectID}, src)
+	// A launch that failed to resolve still names the session it minted and
+	// ended (operations.StartRun).
+	st.mintedHarp = l.Identity.Harp
 	if err != nil {
 		return err
 	}
+	st.activeHarp = l.Identity.Harp
 	st.projectID = l.Identity.Project
 	// The startup findings are composed HERE, after the cell was prepared:
 	// a degraded-to-host finding is the case they exist for.
@@ -1167,9 +1183,13 @@ func (st *runState) openSessionBanner() func() {
 	return func() {}
 }
 
-// markSessionEnded stamps the harp's end timestamp. runRun defers it only
-// once openSession has minted the harp, so there is always one to mark.
+// markSessionEnded stamps the harp's end timestamp. It marks nothing until
+// the launch has minted a session that resolved: a launch that did not
+// resolve ended its own (operations.StartRun).
 func (st *runState) markSessionEnded() {
+	if st.activeHarp == "" {
+		return
+	}
 	if err := operations.EndSession(st.activeHarp, time.Now()); err != nil {
 		clidiag.Warn("ctxloom", "session end-mark failed: %v", err)
 	}
@@ -1362,6 +1382,7 @@ func (st *runState) startTransport() error {
 	if oerr != nil {
 		return fmt.Errorf("failed to start the run: %w", oerr)
 	}
+	st.engineLaunched = true
 	return nil
 }
 
@@ -1372,7 +1393,13 @@ func (st *runState) drive() error {
 	if st.sessionCoord == nil {
 		return err
 	}
-	return credentialRefusedOutcome(err, st.sessionCoord.CredentialHolds(), st.activeHarp)
+	holds := st.sessionCoord.CredentialHolds()
+	if credentialRefused(holds, st.activeHarp) {
+		// The engine launched and then refused its credential: the one
+		// post-launch end that is ctxloom's refusal, so the one recorded.
+		st.recordCredentialRefused()
+	}
+	return credentialRefusedOutcome(err, holds, st.activeHarp)
 }
 
 // driveTransport runs the session over its transport and returns the run's
@@ -1394,12 +1421,18 @@ func (st *runState) driveTransport() error {
 // REFUSED notice, with its remedy, has already been printed, so the status
 // is relayed unreported. Without such a hold the run's own outcome stands.
 func credentialRefusedOutcome(err error, holds []coord.CredentialHold, harp string) error {
-	for _, h := range holds {
-		if h.Kind == agent.FailureCredentialRejected && slices.Contains(h.Harps, harp) {
-			return clifmt.ExitStatus{Code: exitCodeRefused}
-		}
+	if credentialRefused(holds, harp) {
+		return clifmt.ExitStatus{Code: exitCodeRefused}
 	}
 	return err
+}
+
+// credentialRefused reports whether holds include a refused-credential hold
+// covering harp.
+func credentialRefused(holds []coord.CredentialHold, harp string) bool {
+	return slices.ContainsFunc(holds, func(h coord.CredentialHold) bool {
+		return h.Kind == agent.FailureCredentialRejected && slices.Contains(h.Harps, harp)
+	})
 }
 
 // sessionIO is the terminal seam set the interactive drive pumps onto the

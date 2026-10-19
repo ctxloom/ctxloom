@@ -82,6 +82,24 @@ entries; the coordinator's run journal keeps all of them. It is written by
 the coordinator at every run's end (see agentcoord/child-lifecycle.md, "What
 an end records").
 
+## Why a session never launched: `end_reason`
+
+`ctxloom run` mints its session before the startup checks run (the resolver
+prepares the session home), so a run refused or failed before its engine
+launches leaves a session that is otherwise a directory and two timestamps,
+and the terminal output that said why is gone. `Entry.EndReason`
+(`end_reason` in `session.yaml`) records it: `exit` is `ctxloom run`'s own
+exit status (`clifmt.ExitCodeOf`, the function that decides the process's),
+`class` is what that status means (`refused` for 2, `fatal-startup` for 3,
+`failed` for 1, `cancelled` for a run ended by its context), `message` is the
+error ctxloom reported with its fix, and `findings` is each fatal finding as
+the listing printed it (`strictness.Mode.Item`). It is set on every exit where
+the engine never launched, and is absent for a session whose engine launched:
+the engine's own transcript and status cover those. The one post-launch
+exception is an engine that refused its credential, which exits 2 and is
+recorded as `refused`. `session show` prints it (and carries `end_reason` in
+its JSON); `session list` badges the row's summary.
+
 ## Session state: the lock, not the end stamp
 
 A record's `ended_at` (`Entry.EndedAt`, `SessionView.EndedAt`) is when the

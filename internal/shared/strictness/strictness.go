@@ -386,10 +386,16 @@ func (m Mode) Listing(header string, found report.Findings) string {
 	var b strings.Builder
 	b.WriteString(header)
 	for _, f := range found {
-		b.WriteString("\n  - [" + string(f.Kind) + "] " + f.Text)
-		b.WriteString(clifmt.FixLine("    ", f.Remedy))
+		b.WriteString("\n" + m.Item(f))
 	}
 	return b.String()
+}
+
+// Item is one finding as Listing prints it: its "[kind] text" bullet and its
+// fix line. The one renderer, so a record of what was printed (a session's
+// end reason) cannot differ from the listing.
+func (m Mode) Item(f report.Finding) string {
+	return "  - [" + string(f.Kind) + "] " + f.Text + clifmt.FixLine("    ", f.Remedy)
 }
 
 // ListingError renders found as m's Listing under header, as an error, or nil

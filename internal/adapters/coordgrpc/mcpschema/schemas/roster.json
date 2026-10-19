@@ -58,6 +58,19 @@
               "description": "cause is why an \"ended\" run ended, in the coordinator's terminal cause vocabulary (coord's Cause* constants), so a child that failed is told apart from one that finished. Empty while the run is live.",
               "type": "string"
             },
+            "context_tokens_used": {
+              "description": "context_tokens_used of context_window is how full the run's conversation is, as its engine reported at the end of its latest turn (the RunChannel Heartbeat's fields); 0 when nothing has reported.",
+              "type": [
+                "integer",
+                "string"
+              ]
+            },
+            "context_window": {
+              "type": [
+                "integer",
+                "string"
+              ]
+            },
             "detail": {
               "description": "detail is the terminal cause's human-readable detail: the stopping session and its reason for a stop, the failure text for a launch failure. Empty when the cause carried none.",
               "type": "string"
@@ -97,6 +110,10 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            "parent_harp": {
+              "description": "parent_harp is the harp that delegated the run: a top-level child's is the coordinating session's own. Beside parent_run_id (empty for a top-level child) it is what a roster consumer hangs the tree from.",
+              "type": "string"
             },
             "parent_run_id": {
               "description": "Empty for a depth-1 (top-level) child; set for a depth-2+ grandchild to the SPAWNING run's run_id, so a roster consumer can render the delegation tree without re-deriving it from the event log.",

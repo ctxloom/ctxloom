@@ -44,6 +44,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/benjaminabbitt/hew/go v0.2.3-0.20261006190523-23e75de33349
 	github.com/benjaminabbitt/tagma/ports/go v0.0.0-20261001014351-b1ae80880a26
+	github.com/charmbracelet/x/vt v0.0.0-20260901172002-a5dee49b2863
 	github.com/expr-lang/expr v1.17.8
 	github.com/joho/godotenv v1.5.1
 	github.com/knadh/koanf/maps v0.1.3
@@ -56,6 +57,7 @@ require (
 )
 
 require (
+	github.com/charmbracelet/x/exp/ordered v0.1.0 // indirect
 	github.com/creack/pty v1.1.24 // indirect
 	github.com/cucumber/gherkin/go/v42 v42.0.1 // indirect
 	github.com/cucumber/messages/go/v34 v34.2.1 // indirect
@@ -68,7 +70,7 @@ require (
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/ProtonMail/go-crypto v1.5.2 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
-	github.com/charmbracelet/ultraviolet v0.0.0-20261008173134-6b8d4baf91b4 // indirect
+	github.com/charmbracelet/ultraviolet v0.0.0-20261008173134-6b8d4baf91b4
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect

@@ -13,8 +13,8 @@ import (
 	"golang.org/x/term"
 )
 
-// watchResize emits the terminal size now and on every SIGWINCH, for the client
-// to pump over the bidi Run stream so the controller resizes the agent's pty.
+// watchResize emits the terminal size now and on every SIGWINCH, for the
+// frontend to apply to the pty its session's engine runs on.
 // When ctx is done the goroutine unregisters the SIGWINCH handler and closes
 // the channel so the client's resize pump finishes cleanly (matching the
 // Windows variant's contract) — otherwise long-lived processes that run more

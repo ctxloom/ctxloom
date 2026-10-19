@@ -72,9 +72,9 @@ func (f *fakeEngineHome) runCompleted() *agentcoordpb.RunCompleted {
 // originator holds the master of, or the container's -it tty — through the
 // Terminal the composition root bound. The structured chat is never started
 // for it, no turn sink is registered (coordinator mail reaches an
-// interactive engine through the terminal injector's nudge, not as a queued
-// turn), and the engine's exit is the run's terminal: RunCompleted then
-// RunExited with the engine's exit code.
+// interactive engine through its turn-start hook, not as a queued turn), and
+// the engine's exit is the run's terminal: RunCompleted then RunExited with
+// the engine's exit code.
 func TestDrive_InteractiveLaunchDrivesTheTerminalNotTheChat(t *testing.T) {
 	home := &fakeEngineHome{}
 	sc := &scriptedChat{}

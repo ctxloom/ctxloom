@@ -13,11 +13,11 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/aymanbagabas/go-pty"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
-	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport/vtemu"
@@ -25,9 +25,12 @@ import (
 
 // overlay_render_test.go feeds the controller hand-written engine bytes. This
 // file puts a REAL engine process behind it, hosted the way an interactive run
-// hosts one (runner.RunLaunchSpec, on a pty of its own): the engine's size,
-// its repaints and the overlay's repaint nudge all have to cross that pty as
-// real window sizes and real SIGWINCHes before anything shows on screen.
+// hosts one: on the pty whose master the frontend holds, as its stdio and
+// controlling terminal (hostpty starts the runner so, and the runner hands the
+// engine that terminal as it is), sized before the engine starts. The
+// engine's size, its repaints and the overlay's repaint nudge all have to
+// cross that pty as real window sizes and real SIGWINCHes before anything
+// shows on screen.
 
 // ptyEngineScript paints every row of the window it believes it has with a
 // labelled line, leaving its cursor where the last row's text ends, and
@@ -75,15 +78,15 @@ type ptyEngineHarness struct {
 	stop     string
 	first    *vtemu.Screen // the screen as of the engine's first full paint
 	done     chan struct{}
-	code     int32
-	err      error
+	waitErr  error
 }
 
 // newPTYEngineHarness composes the controller and the real overlay over a
 // real terminal exactly as newRenderHarness does, and runs the engine behind
-// it through runner.RunLaunchSpec: the controller's engine-bound input is the
-// engine's stdin, its engine-output seam the engine's stdout, and its
-// translated window sizes the engine's resize stream.
+// it on a pty of the frontend's: the controller's engine-bound input is
+// written to its master, the master's output is the controller's
+// engine-output seam, and the controller's translated window sizes are
+// applied to it — the first before the engine starts.
 func newPTYEngineHarness(t *testing.T, label string, alt bool, opts ...func(*termui.Options)) *ptyEngineHarness {
 	t.Helper()
 	ptyDev, slave, tty := newComposedPTY(t)
@@ -104,13 +107,20 @@ func newPTYEngineHarness(t *testing.T, label string, alt bool, opts ...func(*ter
 	resize <- &agent.WindowSize{Rows: renderRows, Cols: renderCols}
 	tty.waitUntil(t, "the surround's region", contains("\x1b[1;23r"))
 
-	engineResize := make(chan agent.WindowSize, 8)
+	engine, err := pty.New()
+	require.NoError(t, err)
+	up, ok := engine.(pty.UnixPty)
+	require.True(t, ok, "this harness targets a Unix pty")
+	t.Cleanup(func() { _ = engine.Close() })
+	first := await(t, "the controller's first engine size", c.Resize())
+	require.NoError(t, engine.Resize(int(first.Cols), int(first.Rows)))
 	go func() {
-		defer close(engineResize)
 		for ws := range c.Resize() {
-			engineResize <- *ws
+			_ = engine.Resize(int(ws.Cols), int(ws.Rows))
 		}
 	}()
+	go func() { _, _ = io.Copy(up.Master(), c.Stdin()) }()
+	go func() { _, _ = io.Copy(c.Stdout(), up.Master()) }()
 
 	dir := t.TempDir()
 	h := &ptyEngineHarness{
@@ -120,15 +130,20 @@ func newPTYEngineHarness(t *testing.T, label string, alt bool, opts ...func(*ter
 		stop:          filepath.Join(dir, "stop"),
 		done:          make(chan struct{}),
 	}
-	env := append(os.Environ(), "PAINTHOOK=", "LABEL="+label, "WINCHLOG="+h.winchLog, "STOP="+h.stop)
+	cmd := exec.Command("/bin/sh", "-c", ptyEngineScript)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "PAINTHOOK=", "LABEL="+label, "WINCHLOG="+h.winchLog, "STOP="+h.stop)
 	if alt {
-		env = append(env, "ALT=1")
+		cmd.Env = append(cmd.Env, "ALT=1")
 	}
-	spec := agent.LaunchSpec{BinaryPath: "/bin/sh", Args: []string{"-c", ptyEngineScript}, WorkDir: dir, Env: env, Interactive: true}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = up.Slave(), up.Slave(), up.Slave()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true}
+	require.NoError(t, cmd.Start())
 	go func() {
 		defer close(h.done)
-		h.code, h.err = runner.RunLaunchSpec(ctx, spec, c.Stdin(), c.Stdout(), io.Discard, engineResize)
+		h.waitErr = cmd.Wait()
 	}()
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
 	t.Cleanup(h.end)
 
 	h.first = h.painted("the engine's first paint", 0)
@@ -173,7 +188,7 @@ func (h *ptyEngineHarness) winches() int {
 	return strings.Count(string(b), "w")
 }
 
-// end stops the engine and requires the launch to report its clean exit.
+// end stops the engine and requires its clean exit.
 func (h *ptyEngineHarness) end() {
 	select {
 	case <-h.done:
@@ -181,8 +196,7 @@ func (h *ptyEngineHarness) end() {
 		require.NoError(h.t, os.WriteFile(h.stop, nil, 0o600))
 		await(h.t, "the engine's exit", h.done)
 	}
-	require.NoError(h.t, h.err)
-	assert.Equal(h.t, int32(0), h.code)
+	require.NoError(h.t, h.waitErr, "the engine exits cleanly")
 }
 
 // A real engine on its own pty: the overlay paints as a panel over it, and

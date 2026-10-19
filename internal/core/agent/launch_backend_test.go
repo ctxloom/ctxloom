@@ -28,7 +28,7 @@ func TestExecuteEnv_MergesExtraEnv(t *testing.T) {
 	assert.Equal(t, filepath.Join("/w", ".codex"), env["CODEX_HOME"], "the contributor's env is merged in")
 }
 
-// ---- ExecuteCLI: stdin cleanup relay ----------------------------------------
+// ---- ExecuteCLI: the terminal relay ------------------------------------------
 
 // newSpecCapturingBackend returns a LaunchBackend whose launcher records the
 // LaunchSpec it was handed instead of execing anything, so a test can read what
@@ -37,60 +37,42 @@ func newSpecCapturingBackend() (*LaunchBackend, *LaunchSpec) {
 	var captured LaunchSpec
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
-	b.SetLauncher(func(_ context.Context, spec LaunchSpec, _ io.Reader, _, _ io.Writer, _ <-chan WindowSize) (int32, error) {
+	b.SetLauncher(func(_ context.Context, spec LaunchSpec, _ io.Reader, _, _ io.Writer) (int32, error) {
 		captured = spec
 		return 0, nil
 	})
 	return b, &captured
 }
 
-// TestExecuteCLI_InteractiveRelaysStdinCleanup pins the middle of the stdin
-// ownership chain, which nothing else reaches. The cleanup travels
-// GRPCServer.Run (which makes the io.Pipe and alone may close it) →
-// ExecuteRequest.StdinCleanup → ExecuteCLI → RunInteractive → LaunchSpec →
-// ptyrunner. The grpc suite pins the top of that chain and the ptyrunner suite
-// pins the bottom, but ExecuteCLI is the shared exec tail EVERY exec-style
-// backend funnels through, and it had no test at all — so replacing
-// req.StdinCleanup with a hardcoded nil here passed the whole suite while
-// silently restoring the wedge one layer below where it was fixed.
-//
-// Asserting non-nil alone would not be enough: it survives a relay that
-// fabricates some other closure. The assertion is that the caller's OWN
-// cleanup is what reaches the spec, observed by its effect.
-func TestExecuteCLI_InteractiveRelaysStdinCleanup(t *testing.T) {
+// TestExecuteCLI_InteractiveRunsOnTheRequestsTerminal pins the middle of the
+// terminal's chain: the runner's own stdio travels stdioTerminal →
+// ExecuteRequest.Terminal → ExecuteCLI → RunInteractive → LaunchSpec →
+// runner.RunLaunchSpec, which hands it to the engine. ExecuteCLI is the shared
+// exec tail every exec-style backend funnels through, so the spec must carry
+// the CALLER's terminal — not a substitute, and not nothing, which the
+// launcher would refuse.
+func TestExecuteCLI_InteractiveRunsOnTheRequestsTerminal(t *testing.T) {
 	b, captured := newSpecCapturingBackend()
+	term := &Terminal{}
 
-	released := false
-	_, err := b.ExecuteCLI(context.Background(), &ExecuteRequest{
-		Mode:         ModeInteractive,
-		Stdin:        bytes.NewReader(nil),
-		StdinCleanup: func() { released = true },
-	}, "/bin/true", nil, nil, nil, io.Discard, io.Discard)
+	_, err := b.ExecuteCLI(context.Background(), &ExecuteRequest{Mode: ModeInteractive, Terminal: term}, "/bin/true", nil, nil, nil, io.Discard, io.Discard)
 	require.NoError(t, err)
 
-	require.NotNil(t, captured.StdinCleanup,
-		"the caller's stdin cleanup must reach the launch spec: without it nothing retires the wire stdin and the gRPC stream pump parks forever on its next write")
-	captured.StdinCleanup()
-	assert.True(t, released,
-		"the spec must carry the CALLER's cleanup, not a substitute — only the layer that created the reader knows whether closing it is legal")
+	assert.True(t, captured.Interactive, "an interactive request launches interactively")
+	assert.Same(t, term, captured.Terminal, "the engine runs on the caller's terminal")
 }
 
-// TestExecuteCLI_NonInteractiveCarriesNoStdinCleanup is the other half, and it
-// is a decision rather than an omission: without a pty the reader is handed
-// straight to the child and drained to EOF, so no copier goroutine ever parks
-// on it and no writer waits on a reader that left. Supplying a cleanup here
-// would close a reader that is still legitimately in use.
-func TestExecuteCLI_NonInteractiveCarriesNoStdinCleanup(t *testing.T) {
+// TestExecuteCLI_NonInteractiveCarriesNoTerminal is the other half: a
+// non-interactive launch runs over pipes, and a terminal on its spec would
+// say otherwise.
+func TestExecuteCLI_NonInteractiveCarriesNoTerminal(t *testing.T) {
 	b, captured := newSpecCapturingBackend()
 
-	_, err := b.ExecuteCLI(context.Background(), &ExecuteRequest{
-		Mode:         ModeOneshot,
-		StdinCleanup: func() { t.Error("a non-interactive run must never release the caller's stdin") },
-	}, "/bin/true", nil, bytes.NewReader(nil), nil, io.Discard, io.Discard)
+	_, err := b.ExecuteCLI(context.Background(), &ExecuteRequest{Mode: ModeOneshot, Terminal: &Terminal{}}, "/bin/true", nil, bytes.NewReader(nil), nil, io.Discard, io.Discard)
 	require.NoError(t, err)
 
-	assert.Nil(t, captured.StdinCleanup,
-		"a non-interactive launch owns no pty copier, so there is nothing to release and no reader it may close")
+	assert.False(t, captured.Interactive)
+	assert.Nil(t, captured.Terminal, "a non-interactive launch runs over pipes, never on a terminal")
 }
 
 // ---- cell path: the engine home root ----------------------------------------

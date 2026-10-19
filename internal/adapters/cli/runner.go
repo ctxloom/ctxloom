@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/adapters/runner/interaction"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/parentwatch"
@@ -57,10 +58,10 @@ func runRunner(cmd *cobra.Command, args []string) error {
 		Unsetenv: os.Unsetenv,
 		Ports: func(host *runner.EngineHost, home *runner.Home) (runner.Deps, error) {
 			host.BindTerminal(stdioTerminal{
-				backend: backend,
-				stdin:   os.Stdin,
-				stdout:  os.Stdout,
-				stderr:  os.Stderr,
+				backend:  backend,
+				terminal: &agent.Terminal{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr},
+				stdout:   os.Stdout,
+				stderr:   os.Stderr,
 			})
 			return runnerDepsFor(engineName, host, interaction.Endpoint{Home: home, Wake: interaction.NewWakeSignal(home.SetWake), ClientExit: home.SetEngineExit, Reporter: App().Reporter, Fs: afero.NewOsFs()})
 		},
@@ -69,9 +70,10 @@ func runRunner(cmd *cobra.Command, args []string) error {
 
 // divertRunnerDiagnostics sends this runner's warnings to the file its
 // originator names (sessions.EnvDiagnosticsLog) instead of stderr, which is
-// the engine's pty. A file that cannot be written — a container runner handed
-// a host path — leaves them on stderr: disturbing the display beats losing
-// them. Returns the restore.
+// the terminal the engine draws on, in whatever modes the engine set: a line
+// printed there lands in the middle of its screen. A file that cannot be
+// written — a container runner handed a host path — leaves them on stderr:
+// disturbing the display beats losing them. Returns the restore.
 //
 // The path is consumed: removed from the environment before runner.Main builds
 // the engine, so neither the engine nor anything it starts inherits it. A

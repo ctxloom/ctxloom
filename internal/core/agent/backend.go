@@ -414,25 +414,10 @@ type ExecuteRequest struct {
 	DryRun      bool
 	Temperature float32
 
-	// Stdin and Resize carry the frontend's terminal input into an interactive
-	// run (over the bidi Run stream): Stdin is the keystroke byte stream, Resize
-	// the terminal-size changes. Both nil for non-interactive/oneshot runs.
-	Stdin  io.Reader
-	Resize <-chan WindowSize
-
-	// StdinCleanup releases whatever backs Stdin, supplied by the layer that
-	// CREATED that reader — only that layer knows whether closing it is even
-	// legal. The pty runner invokes it once the stdin copier stops reading,
-	// which is what lets a blocked writer on the other end of an io.Pipe learn
-	// that nobody is reading anymore; such a write is not unblocked by context
-	// or stream cancellation, so without it the server's stream pump wedges.
-	//
-	// nil is a valid and meaningful value: it says this reader must NOT be
-	// released here because the caller still owns it (the runner's terminal
-	// passes the process's real os.Stdin). Carrying the decision explicitly is
-	// the point — it was previously inferred from Stdin's dynamic type, which
-	// silently stopped being true the moment the reader was wrapped.
-	StdinCleanup func()
+	// Terminal is the terminal an interactive run's engine runs on: the
+	// runner's own stdio, handed to the engine as it is (see Terminal). nil
+	// for a non-interactive run.
+	Terminal *Terminal
 
 	// Session and Presented are the runner's terminal drive's inputs: the
 	// engine-facing projection of the Launch (launch.Launch.Session, the ONE

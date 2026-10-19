@@ -109,9 +109,9 @@ func (t *resizeTranslator) Current() (rows, cols int) {
 }
 
 // nudgeWiggleSeparation is the pause between the wiggle's shrink and restore
-// sizes. SIGWINCH is a NON-QUEUED signal: each of the two
-// sizes becomes one TIOCSWINSZ ioctl down at the pty (ptyrunner's apply loop),
-// and if both land before the child's handler gets scheduled and reads
+// sizes. SIGWINCH is a NON-QUEUED signal: each of the two sizes becomes one
+// TIOCSWINSZ ioctl on the engine's pty (the drive's resize pump), and if both
+// land before the child's handler gets scheduled and reads
 // TIOCGWINSZ, the two deliveries coalesce into one — the child then observes
 // only the FINAL size, which equals what it already had, concludes nothing
 // changed, and skips the very repaint Nudge exists to force (this is how
@@ -119,9 +119,9 @@ func (t *resizeTranslator) Current() (rows, cols int) {
 // A real transition has to be OBSERVED, not just sent, so the fix is
 // separation, not a different sequence of sizes. This isn't a wire-level
 // acknowledgement (that would need a new Session method — a contract change),
-// so it's a bounded wait long enough for the intermediate size to travel the
-// send→gate hop chain out to the pty and for the child to receive and act on
-// the resulting SIGWINCH — local IPC plus a signal handler, single-digit
+// so it's a bounded wait long enough for the intermediate size to reach the
+// pty and for the child to receive and act on the resulting SIGWINCH — a
+// channel hop, an ioctl and a signal handler, single-digit
 // milliseconds in the worst realistic case. Nudge fires once per overlay
 // close (not a hot path), so a bounded wait on the clock is the pragmatic
 // fix over reworking wire-level signaling.

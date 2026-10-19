@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,621** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,622** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 200 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 213 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 211 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 210 |
 | `open` | no commit names this ID | **23** |
 
-**Totals: 2268 findings across 162 units — 1,621 resolved, 23 still open, 624 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,622 resolved, 23 still open, 623 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -336,7 +336,7 @@ which also asserts each row's columns sum to its section size.
 
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
-| HIGH | 376 | 352 | 0 | 13 | 6 | 5 |
+| HIGH | 376 | 353 | 0 | 13 | 6 | 4 |
 | MED | 999 | 628 | 15 | 117 | 98 | 141 |
 | LOW | 871 | 629 | 8 | 65 | 105 | 64 |
 | (unparsed) | 22 | 12 | 0 | 5 | 4 | 1 |
@@ -887,7 +887,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U114-F02 | **RESOLVED** `9f18e71a` | **`pidalive_windows.go:7-13`** | CORRECTNESS | **The Windows implementation errs toward DEAD for any process the caller cannot open — and its own doc claims the exact opposite.** It also violates the consumer contract's stated rule that a proce... | U114.md |
 | U115-F01 | **RESOLVED** `5fbf2be2` | **`plans.go:60-103` (vs `internal/adapters/cli/plan_watch.go:57`)`** | CORRECTNESS | `List` enumerates only `<root>/<harp>/*.plan.md` — one level deep — while the paired watcher `ctxloom plan watch` is explicitly **recursive**. Plans in nested subdirectories are watched but never l... | U115.md |
 | U115-F02 | **RESOLVED** `82b4ff31` | **`plans.go:75-78`** | SILENTNOOP | A per-harp `os.ReadDir` failure drops that harp's entire plan set with zero diagnostic and a success return. `taskloom plan list` then prints `(no plans)` and exits 0. | U115.md |
-| U116-F01 | **ESCALATED** (Windows-only, unverifiable on this host — fix designed, see DECISIONS.md) | `ptyrunner.go:69-85`, `:233`; `prepare_windows.go:59` | CORRECTNESS | **On Windows, `drainPTY` burns the full 2-second `ptyDrainGrace` on *every* interactive run** — 1000 iterations of a 2ms sleep — because none of its three exit conditions can fire early. The same h... | U116.md |
+| U116-F01 | **RESOLVED** `b3518078` (`drainPTY` and the relay pty it drained are deleted; the engine runs on the runner's own terminal) | `ptyrunner.go:69-85`, `:233`; `prepare_windows.go:59` | CORRECTNESS | **On Windows, `drainPTY` burns the full 2-second `ptyDrainGrace` on *every* interactive run** — 1000 iterations of a 2ms sleep — because none of its three exit conditions can fire early. The same h... | U116.md |
 | U116-F02 | **RESOLVED** `56241477` | `ptyrunner.go:221` (with `:233`, `:239`)` | SILENTNOOP | **A write failure on the output path is discarded, and `RunInteractive` then reports success with a zero exit code having delivered nothing.** The one thing this function exists to do can fail comp... | U116.md |
 | U117-F01 | **RESOLVED** `efb23fb0` | **`shellenv.go:146-152`** | CORRECTNESS | **The probe's stdout is taken verbatim, with no delimiter or marker fencing, so anything an rc file prints becomes PATH entries.** Interactive shell startup files printing banners is common — `fast... | U117.md |
 | U118-F01 | **RESOLVED** `d55496c5` | `stderrtail.go:41-79` vs `internal/vpio/dockerexec/dockerexec.go:251-277` | DUPLICATE | **`Ring` is duplicated verbatim by `dockerexec.tailRing`, which was written ONE DAY EARLIER and was not absorbed — even though this package's doc states it exists to be "the one implementation" of ... | U118.md |

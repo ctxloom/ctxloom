@@ -1,6 +1,6 @@
 //go:build !linux && !windows
 
-package hostpty
+package ptyrunner
 
 import "golang.org/x/sys/unix"
 

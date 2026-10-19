@@ -2,9 +2,10 @@
 // container: the container runtime's CLI (`docker run -i -t … ctxloom
 // runner <engine>`, the runner as the container's foreground process) is
 // started on a pseudo-terminal this process holds the MASTER of, so the
-// CLI's `-it` attachment IS the terminal the runner's stdio lands on —
-// keystrokes, the engine's bytes and resizes cross the pty and the daemon's
-// tty, never a proxied stream, an exec into a keepalive or a handoff file.
+// CLI's `-it` attachment IS the terminal the runner's stdio lands on, and the
+// runner hands that tty to the engine as its own — keystrokes, the engine's
+// bytes and resizes cross the pty and the daemon's tty, never a proxied
+// stream, an exec into a keepalive or a handoff file.
 //
 // This is the container counterpart of adapters/hostpty, which owns the SAME
 // shape for a host launch; both hand the frontend one pty master, blind to

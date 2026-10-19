@@ -254,9 +254,9 @@ type HomeConfig struct {
 	// owner gone (OwnerLost). Only waiting counts (see runnerChannelLoop): a
 	// turn making progress pauses it. 0 = DefaultOwnerLossWindow.
 	OwnerLossWindow time.Duration
-	// Reporter receives every diagnostic this Home and the courier, doorbell
-	// and terminal injector built on it raise; the runner's composition
-	// chooses the sink. Nil discards.
+	// Reporter receives every diagnostic this Home and the courier and
+	// doorbell built on it raise; the runner's composition chooses the sink.
+	// Nil discards.
 	Reporter report.Sink
 }
 

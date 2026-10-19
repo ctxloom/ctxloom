@@ -70,8 +70,8 @@ An engine is two halves on one port (`internal/core/engine`):
   value (`engines.EngineCLIs`). Both leave with `agent.Backend`. The
   structured drive is per turn (`Instance.Drivers()[0].Turn`); the
   interactive launch is the hosted engine's `Backend.Execute` over the
-  runner's launcher (`runner.RunLaunchSpec`, a plain pty via
-  `ptyrunner.RunInteractive`). The managed-hooks assembly is `operations/managedhooks`.
+  runner's launcher (`runner.RunLaunchSpec`, the engine on the runner's
+  own terminal). The managed-hooks assembly is `operations/managedhooks`.
 
 Outside INITIAL SETUP nothing names or chooses an engine: engine-specific
 behaviour is reached only through the Definition, its approaches and its
@@ -290,7 +290,7 @@ flowchart LR
     CFG["config + profiles<br/>+ bundles"] --> LNCH["launch.Resolve → launch.Launch<br/>(the package, the cell, the label)"]
     LNCH --> CH(["RunnerChannel.StartRun<br/>(the coordinator → the runner)"])
     CH --> RUN["runner.Execute: Kind.Instance(session),<br/>delivery.Static over the plan"]
-    RUN --> INT["interactive: Hosted.Backend.Execute<br/>over runner.RunLaunchSpec (pty)"]
+    RUN --> INT["interactive: Hosted.Backend.Execute<br/>over runner.RunLaunchSpec (the runner's terminal)"]
     RUN --> STR["structured: Instance.Drivers()[0].Turn<br/>over Instance.Exec"]
     RUN -.->|"findings: skipped surfaces, materialized context<br/>(StartRunResult.findings)"| CH
     INT --> ENG["vendor engine process"]

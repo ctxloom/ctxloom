@@ -17,7 +17,7 @@ flowchart TD
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `AssembleContext` | `internal/core/agent/base.go:174` | The one assembler: `assembleDedupedContext` under its exported name. |
+| `AssembleContext` | `internal/core/agent/base.go:163` | The one assembler: `assembleDedupedContext` under its exported name. |
 | `assembleDedupedContext` | `internal/core/agent/contextfile.go:103` | Joins fragments, deduplicates by sha256 of content, warns above 16KB. |
 | `WriteContextFile` | `internal/core/agent/contextfile.go:169` | Writes the deduped context to `.ctxloom/cache/context/<hash>.md` and returns the hash. |
 | `contextFileOptions` | `internal/core/agent/contextfile.go:44` | Options bag: `{fs afero.Fs, stderr io.Writer}`. |

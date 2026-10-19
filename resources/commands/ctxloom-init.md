@@ -234,10 +234,16 @@ question; ask it for every agent, including the ones in 4d.
 Don't guess — you have this already from phase 1 (engines via `ctxloom llm
 list`, existing agents via `ctxloom agent list`, container viability via
 `ctxloom container check`) and phase 3 (profiles). If containers would
-degrade here, plan on `--runtime host` and say why. If they're viable and a
-bundle declares tooling needs, `ctxloom container tooling` shows the proposed
-Containerfile diff — apply only what's approved, then `ctxloom container
-build`.
+degrade here, plan on `--runtime host` and say why. If they're viable, know
+what the agent image will hold: one project-wide base, set by `isolation_base`
+(`ctxloom`, `devcontainer`, or an image ref) — every container agent shares it,
+and the project's devcontainer is reused by default when one exists. The base
+plus ctxloom's own tools is ALL a container agent has: anything installed on
+the host (an MCP server's binary, a language server) is absent unless the base
+carries it. Bundles carry no tooling declaration; only registered companions
+declare tooling, and `ctxloom container tooling` reflects just those, emitting
+instructions for you to act on rather than a diff. `ctxloom doctor` warns when
+an MCP server attached to a container agent has a command the image lacks.
 
 Two DIFFERENT things gate a container runtime, and you need both before you
 can ask 4b-runtime honestly:

@@ -184,7 +184,13 @@ func containerBuildOptions(flags containerBuildFlagValues, cfg *config.Config, b
 var toolingPrompt = resources.MustGetPromptText("tooling")
 
 // toolingCmdLong documents `ctxloom container tooling`.
-const toolingCmdLong = `Collect every registered companion's typed 'tooling' declaration — the
+const toolingCmdLong = `This reflects ONLY registered companions' declarations. It does not look at your
+MCP servers, profiles or bundles, and it writes no Containerfile diff itself:
+it prints instructions and declarations for an LLM to act on. To learn whether
+an MCP server attached to a container agent has its command in the image, run
+'ctxloom doctor'.
+
+Collect every registered companion's typed 'tooling' declaration — the
 tools its content needs inside the agent container image — and emit them with
 instructions for the LLM: fold the additions into the agent image's base
 (the project devcontainer's Dockerfile; 'ctxloom container scaffold' writes one

@@ -234,6 +234,14 @@ type EngineHost struct {
 	// completed or not — consumed on disk before any terminal signal leaves
 	// this runner (awaitAcceptedAcks).
 	accepted []string
+	// launchWho names this run in a finding: its llm label and session harp,
+	// the closest the runner holds to the agent's name (the launch does not
+	// carry the agent binding's own name).
+	launchWho string
+	// mcpFailedSeen is the MCP servers already reported failed, so one that
+	// the engine re-announces at every turn's init is reported once per
+	// session. Guarded by mu.
+	mcpFailedSeen map[string]bool
 
 	// pendingTags is the turn-attribution FIFO: enqueueTurn pushes one tag per
 	// locally-originated turn, in send order, and the turn pops one as it
@@ -600,6 +608,7 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 	eh.driver = t.Instance.Drivers()[0]
 	eh.exec = t.Exec
 	eh.secretFiles = t.Launch.Cell.SecretFiles
+	eh.launchWho = fmt.Sprintf("llm %q, session %s", t.Launch.Label.Label, t.Launch.Identity.Harp)
 	eh.nativeKey = t.Launch.Resume.NativeKey
 	ctx, cancel := context.WithCancel(eh.baseCtx)
 	eh.cancel = cancel
@@ -837,6 +846,38 @@ func (eh *EngineHost) bindOwnerWake(ctx context.Context, home engineHome, t Turn
 	return home.SetWake(w)
 }
 
+// reportFailedMCP raises one warning per MCP server the engine reported
+// `failed` at session start, once per server per session. An attached server
+// that never connected leaves the agent without its tools and says nothing
+// else: the engine carries on, and only this status records it. The usual
+// cause is a command absent where the agent runs (a container image never
+// holds what the host installed), which `ctxloom doctor` names ahead of time.
+func (eh *EngineHost) reportFailedMCP(statuses []agent.MCPStatus) {
+	for _, m := range statuses {
+		if m.Status != mcpStatusFailed {
+			continue
+		}
+		eh.mu.Lock()
+		seen := eh.mcpFailedSeen[m.Name]
+		if eh.mcpFailedSeen == nil {
+			eh.mcpFailedSeen = map[string]bool{}
+		}
+		eh.mcpFailedSeen[m.Name] = true
+		who := eh.launchWho
+		eh.mu.Unlock()
+		if seen {
+			continue
+		}
+		eh.rep.Warnf("MCP server %q failed to connect for this agent (%s): its tools are unavailable. "+
+			"If its command is not installed where the agent runs (a container image holds only its base and ctxloom's tools), "+
+			"set isolation_base to an image that has it or remove the server from the agent's profiles; `ctxloom doctor` checks this", m.Name, who)
+	}
+}
+
+// mcpStatusFailed is the status an engine reports for an MCP server that did
+// not connect (claude's system/init mcp_servers).
+const mcpStatusFailed = "failed"
+
 // runTurn is ONE structured turn: a discrete engine process through the
 // instance's driver, its native events adapted onto plane-1 as they arrive
 // (Message items follow the contract's started→delta*→completed lifecycle,
@@ -909,6 +950,7 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 		for ev := range adaptOut {
 			switch {
 			case ev.Session != nil:
+				eh.reportFailedMCP(ev.Session.MCPServers)
 				if ev.Session.SessionID != "" {
 					sessionID = ev.Session.SessionID
 					eh.announceSession(home, sessionID)

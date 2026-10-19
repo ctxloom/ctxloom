@@ -436,6 +436,11 @@ func runAgentEdit(cmd *cobra.Command, args []string) error {
 // letting the upsert through — is the whole point of the split: a typo'd
 // `edit` used to silently mint a brand-new agent, and a `create` over a live
 // name used to silently overwrite it.
+//
+// It resembles writeLLM but is not a copy to keep in step: only an agent
+// binds profiles and a runtime, so only its write reports the commands those
+// need (reportAgentCommandGaps); an llm label has no such requirements.
+// reprise:accept-drift
 func writeAgentBinding(cmd *cobra.Command, name string, mustExist bool) error {
 	// No help shortcut: the positional arg NAMES the agent to write, and the
 	// shortcut made an agent called "help" impossible to create.
@@ -454,9 +459,32 @@ func writeAgentBinding(cmd *cobra.Command, name string, mustExist bool) error {
 	if err != nil {
 		return err
 	}
+	reportAgentCommandGaps(cmd, name)
 	return emit(cmd, entry, func() error {
 		return renderAgentWritten(cmd.OutOrStdout(), entry, mustExist)
 	})
+}
+
+// reportAgentCommandGaps says, right after the write, which commands the
+// agent now requires that do not resolve where it runs: a profile or MCP
+// server bound to an image or PATH that lacks its binary otherwise fails only
+// when the agent does. Advisory: the write already happened and is never
+// refused or undone, and no image is built or pulled to look. A config that
+// cannot be re-read, or an agent that does not resolve, has nothing to report
+// here (doctor names those).
+func reportAgentCommandGaps(cmd *cobra.Command, name string) {
+	cfg, err := GetConfig()
+	if err != nil {
+		return
+	}
+	gap := App().CommandGapsForAgent(cmd.Context(), cfg, name)
+	if gap.ImageNotBuilt {
+		fmt.Fprintf(cmd.ErrOrStderr(), "ctxloom: note: agent %q runs in a container whose image is not built yet, so the commands it requires were not checked; run `ctxloom container build` and then `ctxloom doctor` to check them\n", name)
+	}
+	if len(gap.Missing) > 0 {
+		clidiag.WarnRemedy("ctxloom", operations.AgentCommandGapRemedy,
+			"agent %q requires commands that do not resolve where it runs: %s", name, gap.Detail())
+	}
 }
 
 // checkAgentExistence enforces create-vs-edit's differing precondition against

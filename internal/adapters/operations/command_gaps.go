@@ -53,31 +53,59 @@ func CommandGapsByAgent(ctx context.Context, reg engine.Registry, cfg *config.Co
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		resolved, err := ResolveAgent(ctx, reg, cfg, name, "")
-		if err != nil {
-			continue
+		gap := commandGapForAgent(ctx, reg, cfg, name, func() []isolation.Runtime { return runtimes })
+		if gap.ImageNotBuilt {
+			gaps.ImageNotBuilt = append(gaps.ImageNotBuilt, name)
 		}
-		required, err := RequiredCommandsForResolved(cfg, resolved)
-		if err != nil || len(required) == 0 {
-			continue
-		}
-		commands := toolchain.Commands(required)
-		var missing []string
-		if launch.IsContainerRuntimeAxis(resolved.Runtime) {
-			var built bool
-			missing, built = missingInContainer(ctx, runtimes, resolved.Backend, cfg, commands)
-			if !built {
-				gaps.ImageNotBuilt = append(gaps.ImageNotBuilt, name)
-				continue
-			}
-		} else {
-			missing = doctorMissingFromPath(commands)
-		}
-		if len(missing) > 0 {
-			gaps.Missing[name] = requirementsNamed(required, missing)
+		if len(gap.Missing) > 0 {
+			gaps.Missing[name] = gap.Missing
 		}
 	}
 	return gaps
+}
+
+// AgentCommandGap is CommandGaps for one agent: the requirements that do not
+// resolve where it runs, or ImageNotBuilt when it is a container agent whose
+// image no runtime holds yet and so nothing could be probed.
+type AgentCommandGap struct {
+	Missing       []toolchain.Requirement
+	ImageNotBuilt bool
+}
+
+// Detail renders Missing as "cargo (bundle rust-development), serena (mcp
+// serena)": each command with the sources that require it.
+func (g AgentCommandGap) Detail() string { return requirementsDetail(g.Missing) }
+
+// CommandGapsForAgent is CommandGapsByAgent for the one named agent, against
+// the config as it stands now (so a caller that just wrote the agent passes
+// the post-write config). The container runtimes are asked for only when the
+// agent runs in a container: a host agent never touches a daemon. An agent
+// that does not resolve, or requires nothing, has no gap.
+func (a *App) CommandGapsForAgent(ctx context.Context, cfg *config.Config, name string) AgentCommandGap {
+	return commandGapForAgent(ctx, a.Engines(), cfg, name, a.containerRuntimes)
+}
+
+func commandGapForAgent(ctx context.Context, reg engine.Registry, cfg *config.Config, name string, runtimes func() []isolation.Runtime) AgentCommandGap {
+	resolved, err := ResolveAgent(ctx, reg, cfg, name, "")
+	if err != nil {
+		return AgentCommandGap{}
+	}
+	required, err := RequiredCommandsForResolved(cfg, resolved)
+	if err != nil || len(required) == 0 {
+		return AgentCommandGap{}
+	}
+	commands := toolchain.Commands(required)
+	var missing []string
+	if launch.IsContainerRuntimeAxis(resolved.Runtime) {
+		var built bool
+		missing, built = missingInContainer(ctx, runtimes(), resolved.Backend, cfg, commands)
+		if !built {
+			return AgentCommandGap{ImageNotBuilt: true}
+		}
+	} else {
+		missing = doctorMissingFromPath(commands)
+	}
+	return AgentCommandGap{Missing: requirementsNamed(required, missing)}
 }
 
 // missingInContainer probes the agent image in the first runtime that holds
@@ -118,15 +146,21 @@ func commandGapsDetail(missing map[string][]toolchain.Requirement) string {
 	agentNames := slices.Sorted(maps.Keys(missing))
 	parts := make([]string, 0, len(agentNames))
 	for _, a := range agentNames {
-		cmds := make([]string, 0, len(missing[a]))
-		for _, r := range missing[a] {
-			srcs := make([]string, len(r.Sources))
-			for i, src := range r.Sources {
-				srcs[i] = src.String()
-			}
-			cmds = append(cmds, fmt.Sprintf("%s (%s)", r.Command, strings.Join(srcs, ", ")))
-		}
-		parts = append(parts, fmt.Sprintf("%s: %s", a, strings.Join(cmds, ", ")))
+		parts = append(parts, fmt.Sprintf("%s: %s", a, requirementsDetail(missing[a])))
 	}
 	return strings.Join(parts, "; ")
+}
+
+// requirementsDetail is one agent's missing commands, each with its sources:
+// "cargo (bundle rust-development), serena (mcp serena)".
+func requirementsDetail(reqs []toolchain.Requirement) string {
+	cmds := make([]string, 0, len(reqs))
+	for _, r := range reqs {
+		srcs := make([]string, len(r.Sources))
+		for i, src := range r.Sources {
+			srcs[i] = src.String()
+		}
+		cmds = append(cmds, fmt.Sprintf("%s (%s)", r.Command, strings.Join(srcs, ", ")))
+	}
+	return strings.Join(cmds, ", ")
 }

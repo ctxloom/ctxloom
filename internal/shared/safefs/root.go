@@ -3,6 +3,7 @@ package safefs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"path/filepath"
 
@@ -63,6 +64,14 @@ func (e *ExposedError) Error() string { return e.Path + " " + e.Why }
 // holder per path at a time, or any number of shared ones, across processes
 // on the real filesystem and across goroutines everywhere (a lock conflicts
 // per taking, not per process).
+//
+// Every taker re-checks, once granted, that the file it locked is still the
+// one at the path (Lock.Current), and when it is not it lets go and takes the
+// lock again, up to lockAttempts times (then ErrLockReplaced). A lock file
+// unlinked while someone waits on it — by ReapLockFile, or any removal made
+// under the lock — would otherwise leave that waiter holding a file nobody
+// else can open, beside a taker of the fresh file at the path: two holders of
+// one lock. LockProtocol names this behaviour across binaries.
 type Locks interface {
 	// Lock blocks until path's lock is held exclusively, creating the lock
 	// file and its directory if missing. A wait that runs long is reported
@@ -107,12 +116,50 @@ var ErrLockHeld = errors.New("safefs: the lock is held")
 // with everything else that opens it.
 var ErrNotRegularFile = errors.New("safefs: lock path is not a regular file")
 
+// ErrLockReplaced is a taker's refusal once the lock file at its path was
+// replaced under it on every one of lockAttempts takes: each lock it was
+// granted was on a file no longer at the path.
+var ErrLockReplaced = errors.New("safefs: the lock file was replaced each time it was taken")
+
+// LockProtocol is the lock-taking protocol this build's takers follow, as
+// every ctxloom-family binary reports it (`version --format json`'s
+// lock_protocol). 2 is the re-check described on Locks: a taker that finds
+// its lock file replaced takes the lock again. A binary that reports less, or
+// nothing, predates it and keeps a lock granted on an unlinked file, so no
+// lock file it may take can be removed while it runs (ReapLockFile's
+// caller's gate).
+const LockProtocol = 2
+
+// lockAttempts bounds how many times a taker takes a lock whose file keeps
+// being replaced between its open and its grant. Each replacement is a whole
+// removal racing this one taker — a reap takes a lock file once — so this
+// many in a row means something is removing the file in a loop.
+const lockAttempts = 16
+
+// takeCurrent takes path's lock with take until the lock it is granted is on
+// the file at path (Lock.Current), letting go of each one that is not.
+func takeCurrent(path string, take func() (Lock, error)) (Lock, error) {
+	for range lockAttempts {
+		lk, err := take()
+		if err != nil {
+			return nil, err
+		}
+		if lk.Current() {
+			return lk, nil
+		}
+		_ = lk.Unlock()
+	}
+	return nil, fmt.Errorf("%w: %s, %d times", ErrLockReplaced, path, lockAttempts)
+}
+
 // WithLock runs fn as ONE serialized transaction under path's lock. fn is the
 // WHOLE cycle — read, modify, write — never just the write: the lock has to
 // be held before the read for "fresh" to mean anything. It never skips the
-// lock: a failure to take it fails the call, and fn does not run.
+// lock: a failure to take it fails the call, and fn does not run. The lock is
+// re-checked as every taker re-checks it (Locks), so a Locks that wraps
+// another without re-checking still never runs fn on a replaced file.
 func WithLock(l Locks, path string, fn func() error) error {
-	lk, err := l.Lock(path)
+	lk, err := takeCurrent(path, func() (Lock, error) { return l.Lock(path) })
 	if err != nil {
 		return err
 	}

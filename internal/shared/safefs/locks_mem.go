@@ -101,8 +101,12 @@ func (l memLocks) Lock(path string) (Lock, error) { return l.take(path, false) }
 func (l memLocks) RLock(path string) (Lock, error) { return l.take(path, true) }
 
 // take is Lock and RLock: it blocks until path's lock is held in the kind
-// shared names.
+// shared names, retried as osLocks retries (takeCurrent).
 func (l memLocks) take(path string, shared bool) (Lock, error) {
+	return takeCurrent(path, func() (Lock, error) { return l.takeOnce(path, shared) })
+}
+
+func (l memLocks) takeOnce(path string, shared bool) (Lock, error) {
 	if err := l.fs.MkdirAll(filepath.Dir(path), lockDirMode); err != nil {
 		return nil, fmt.Errorf("safefs: preparing lock directory for %s: %w", path, err)
 	}
@@ -123,8 +127,12 @@ func (l memLocks) TryLockExisting(ctx context.Context, path string) (Lock, error
 }
 
 // try is TryLock and TryLockExisting; create says whether a missing lock
-// file is created.
+// file is created. It is retried as osLocks retries (takeCurrent).
 func (l memLocks) try(ctx context.Context, path string, create bool) (Lock, error) {
+	return takeCurrent(path, func() (Lock, error) { return l.tryOnce(ctx, path, create) })
+}
+
+func (l memLocks) tryOnce(ctx context.Context, path string, create bool) (Lock, error) {
 	if create {
 		if _, err := l.fs.Stat(filepath.Dir(path)); err != nil {
 			return nil, err
@@ -180,10 +188,11 @@ func (l memLocks) prepare(path string) error {
 }
 
 // held records which file was locked, for Current. Taken after the lock is
-// granted, so a removal racing the grant is seen as one.
+// granted, so a removal racing the grant is seen as one: a file gone by then
+// is recorded as none, which is never current, and the taker retries.
 func (l memLocks) held(path string, s *memRW, shared bool) (Lock, error) {
 	info, err := l.fs.Stat(path)
-	if err != nil {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		s.release(shared)
 		return nil, fmt.Errorf("safefs: stat lock %s: %w", path, err)
 	}
@@ -201,8 +210,11 @@ type memLock struct {
 
 // Current compares file identity where the filesystem exposes it
 // (afero.MemMapFs's file data) and otherwise settles for the path still
-// existing.
+// existing. A lock granted after its file was gone is on no file.
 func (l *memLock) Current() bool {
+	if l.info == nil {
+		return false
+	}
 	now, err := l.fs.Stat(l.path)
 	if err != nil {
 		return false
@@ -219,3 +231,6 @@ func (l *memLock) Unlock() error {
 	l.once.Do(func() { l.rw.release(l.shared) })
 	return nil
 }
+
+// removeLockFile unlinks the lock file at the lock's path (ReapLockFile).
+func (l *memLock) removeLockFile() error { return l.fs.Remove(l.path) }

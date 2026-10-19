@@ -1,12 +1,20 @@
 package operations
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -38,12 +46,12 @@ func TestDoctorCheckMCPInvocation_WrongState_StaleEntryIsNamed(t *testing.T) {
 			root := t.TempDir()
 			writeSurface(t, root, ".mcp.json", body)
 
-			check := doctorCheckMCPInvocation(engines.Registry(), root)
+			check := doctorCheckMCPInvocation(engines.Registry(), root, nil, nil)
 
 			assert.Equal(t, DoctorWarn, check.Status,
 				"a stale entry is a real problem, and warn is this command's fail-loud signal")
 			assert.Contains(t, check.Detail, ".mcp.json", "the report names the file to fix")
-			assert.Equal(t, doctorMCPReleaseRemedy, check.Remedy, "the report names the project-side release as the fix")
+			assert.Contains(t, check.Remedy, "by hand", "no record of writing it: release would leave it, so the fix is by hand")
 		})
 	}
 }
@@ -57,7 +65,7 @@ func TestDoctorCheckMCPInvocation_RightState_NoCtxloomEntryIsQuiet(t *testing.T)
 	root := t.TempDir()
 	writeSurface(t, root, ".mcp.json", `{"mcpServers": {"taskloom": {"command": "taskloom", "args": ["mcp"]}}}`)
 
-	check := doctorCheckMCPInvocation(engines.Registry(), root)
+	check := doctorCheckMCPInvocation(engines.Registry(), root, nil, nil)
 
 	assert.Equal(t, DoctorOK, check.Status, "a registry naming no ctxloom launch is fine")
 	assert.NotContains(t, check.Detail, ".mcp.json",
@@ -78,7 +86,7 @@ func TestDoctorCheckMCPInvocation_ReadsEveryEngineNativeFormat(t *testing.T) {
 			root := t.TempDir()
 			writeSurface(t, root, rel, body)
 
-			check := doctorCheckMCPInvocation(engines.Registry(), root)
+			check := doctorCheckMCPInvocation(engines.Registry(), root, nil, nil)
 
 			assert.Equal(t, DoctorWarn, check.Status)
 			assert.Contains(t, check.Detail, rel, "the report names the engine's own file")
@@ -95,7 +103,7 @@ func TestDoctorCheckMCPInvocation_SessionEndpointEntryIsQuiet(t *testing.T) {
 	writeSurface(t, root, ".mcp.json",
 		`{"mcpServers": {"ctxloom": {"type": "http", "url": "http://127.0.0.1:4242/mcp", "headers": {"Authorization": "Bearer x"}}}}`)
 
-	assert.Equal(t, DoctorOK, doctorCheckMCPInvocation(engines.Registry(), root).Status)
+	assert.Equal(t, DoctorOK, doctorCheckMCPInvocation(engines.Registry(), root, nil, nil).Status)
 }
 
 // TestDoctorCheckMCPInvocation_LeavesForeignServersAlone: only ctxloom's own
@@ -107,7 +115,7 @@ func TestDoctorCheckMCPInvocation_LeavesForeignServersAlone(t *testing.T) {
 	writeSurface(t, root, ".mcp.json",
 		`{"mcpServers": {"taskloom": {"command": "taskloom", "args": ["mcp"]}}}`)
 
-	assert.Equal(t, DoctorOK, doctorCheckMCPInvocation(engines.Registry(), root).Status,
+	assert.Equal(t, DoctorOK, doctorCheckMCPInvocation(engines.Registry(), root, nil, nil).Status,
 		"another tool's invocation is not ctxloom's to correct")
 }
 
@@ -115,8 +123,8 @@ func TestDoctorCheckMCPInvocation_LeavesForeignServersAlone(t *testing.T) {
 // materialized nothing yet has nothing stale, and saying so as `info` keeps
 // the warn channel meaning "act on this".
 func TestDoctorCheckMCPInvocation_NoSurfacesIsNotAProblem(t *testing.T) {
-	assert.Equal(t, DoctorOK, doctorCheckMCPInvocation(engines.Registry(), t.TempDir()).Status)
-	assert.Equal(t, DoctorInfo, doctorCheckMCPInvocation(engines.Registry(), "").Status,
+	assert.Equal(t, DoctorOK, doctorCheckMCPInvocation(engines.Registry(), t.TempDir(), nil, nil).Status)
+	assert.Equal(t, DoctorInfo, doctorCheckMCPInvocation(engines.Registry(), "", nil, nil).Status,
 		"with no project located there is nothing to inspect")
 }
 
@@ -129,7 +137,7 @@ func TestDoctorCheckMCPInvocation_UnreadableSurfaceIsNotHealth(t *testing.T) {
 	root := t.TempDir()
 	writeSurface(t, root, ".mcp.json", `{"mcpServers": {`)
 
-	check := doctorCheckMCPInvocation(engines.Registry(), root)
+	check := doctorCheckMCPInvocation(engines.Registry(), root, nil, nil)
 
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, ".mcp.json", "the report names the file it could not read")
@@ -149,7 +157,7 @@ func TestDoctorCheckMCPInvocation_WrongState_AnAncestorsEntryIsNamed(t *testing.
 	proj := filepath.Join(parent, "proj")
 	require.NoError(t, os.MkdirAll(proj, 0o755))
 
-	check := doctorCheckMCPInvocation(engines.Registry(), proj)
+	check := doctorCheckMCPInvocation(engines.Registry(), proj, nil, nil)
 
 	assert.Equal(t, DoctorWarn, check.Status, "a parent folder's stale entry breaks the project's sessions")
 	assert.Contains(t, check.Detail, filepath.Join(parent, ".mcp.json"), "the report names the parent file, absolute")
@@ -175,4 +183,75 @@ func TestProbePaths_CwdAncestorsRunsNearestFirstToTheRoot(t *testing.T) {
 		probePaths(agent.CLIProbe{Scope: agent.ScopeCwd, Rel: ".mcp.json"}, "/a/b/c", "/h"), "cwd stays one path")
 	assert.Equal(t, []string{filepath.FromSlash("/h/.mcp.json")},
 		probePaths(agent.CLIProbe{Scope: agent.ScopeHome, Rel: ".mcp.json"}, "/a", "/h"))
+}
+
+// recordProjectEntry makes this machine's ownership record say the project
+// writer put a ctxloom entry in root's .mcp.json, by delivering it the way
+// materialize does, then leaves the file holding the stale launch an older
+// ctxloom wrote. Returns the record store and the filesystem it reads targets
+// from.
+func recordProjectEntry(t *testing.T, root string) (delivery.Ownership, afero.Fs) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewOsFs()
+	kind, ok := engines.Registry().Lookup(engine.Name("claude-code"))
+	require.True(t, ok)
+	pkg := composite.Package{MCP: map[string]wire.MCPServer{agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp"}}}}
+	_, _, err := Deliver(context.Background(), safefs.NewMem(fs), kind, pkg, delivery.Loadout{}, atRestPlacement(root, kind.Root().Name, delivery.AllKinds()))
+	require.NoError(t, err)
+	records, err := OwnershipRecordsOn(fs)
+	require.NoError(t, err)
+	states, err := records.Paths(fs, filepath.Join(root, ".mcp.json"))
+	require.NoError(t, err)
+	require.NotEmpty(t, states, "the delivery recorded the project writer's entry")
+	writeSurface(t, root, ".mcp.json", `{"mcpServers": {"ctxloom": {"command": "ctxloom", "args": ["mcp"]}}}`)
+	return records, fs
+}
+
+// TestDoctorCheckMCPInvocation_ARecordedEntryIsReleased: an in-project entry
+// this machine recorded writing is one `materialize --release` takes out, so
+// the release command is a true fix.
+func TestDoctorCheckMCPInvocation_ARecordedEntryIsReleased(t *testing.T) {
+	root := t.TempDir()
+	records, fs := recordProjectEntry(t, root)
+
+	check := doctorCheckMCPInvocation(engines.Registry(), root, records, fs)
+
+	assert.Equal(t, DoctorWarn, check.Status)
+	assert.Equal(t, doctorMCPReleaseRemedy, check.Remedy)
+}
+
+// TestDoctorCheckMCPInvocation_AnUnrecordedEntryIsDeletedByHand: release
+// never removes what this machine has no record of writing, so for such an
+// entry the release command would report "released" and leave it. The fix
+// has to say to delete it, naming the file and the entry.
+func TestDoctorCheckMCPInvocation_AnUnrecordedEntryIsDeletedByHand(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	writeSurface(t, root, ".mcp.json", `{"mcpServers": {"ctxloom": {"command": "ctxloom", "args": ["mcp"]}}}`)
+	fs := afero.NewOsFs()
+	records, err := OwnershipRecordsOn(fs)
+	require.NoError(t, err)
+
+	check := doctorCheckMCPInvocation(engines.Registry(), root, records, fs)
+
+	assert.Equal(t, DoctorWarn, check.Status)
+	assert.NotContains(t, check.Remedy, "--release", "release would leave the entry")
+	assert.Contains(t, check.Remedy, "by hand")
+	assert.Contains(t, check.Remedy, filepath.Join(root, ".mcp.json"), "the fix names the file")
+	assert.Contains(t, check.Remedy, `"`+agent.MCPServerName+`"`, "the fix names the entry key")
+}
+
+// TestDoctorCheckMCPInvocation_FollowingTheReleaseRemedyRemovesTheEntry: the
+// remedy offered for a recorded entry really takes it out.
+func TestDoctorCheckMCPInvocation_FollowingTheReleaseRemedyRemovesTheEntry(t *testing.T) {
+	root := t.TempDir()
+	records, fs := recordProjectEntry(t, root)
+	require.Equal(t, doctorMCPReleaseRemedy, doctorCheckMCPInvocation(engines.Registry(), root, records, fs).Remedy)
+
+	kind, ok := engines.Registry().Lookup(engine.Name("claude-code"))
+	require.True(t, ok)
+	require.NoError(t, Release(context.Background(), safefs.NewMem(fs), kind, atRestPlacement(root, kind.Root().Name, []present.Kind{present.MCP})))
+
+	assert.Equal(t, DoctorOK, doctorCheckMCPInvocation(engines.Registry(), root, records, fs).Status)
 }

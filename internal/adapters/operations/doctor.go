@@ -158,7 +158,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckVersion(),
 			doctorCheckTranscriptReaders(ctx, reg, cfg, app.ProbeEngineVersion),
 			doctorCheckHooksMCP(ctx, reg, cfg, cfgErr),
-			doctorCheckMCPInvocation(reg, doctorProjectDir(cfg)),
+			doctorCheckMCPInvocation(reg, doctorProjectDir(cfg), doctorOwnershipRecords(cfg), configFS(cfg)),
 			doctorCheckStaleHooks(reg, doctorProjectDir(cfg), configFS(cfg), req.HookVerbs),
 			doctorCheckSetupLockAndAssembly(ctx, cfg, cfgErr),
 			doctorCheckSetupCompanions(cfg, cfgErr, app.NoCompanions),

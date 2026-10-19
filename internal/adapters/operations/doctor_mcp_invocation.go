@@ -11,6 +11,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 
 	"github.com/pelletier/go-toml/v2"
+	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
@@ -81,7 +85,7 @@ func probePaths(p agent.CLIProbe, cwd, home string) []string {
 // that can tell a rendered endpoint from a hanging launch.
 //
 // Pure file inspection: it reads what the engines read and launches nothing.
-func doctorCheckMCPInvocation(reg engine.Registry, projectDir string) DoctorCheck {
+func doctorCheckMCPInvocation(reg engine.Registry, projectDir string, records delivery.Ownership, fs afero.Fs) DoctorCheck {
 	const marker = "DOCTOR-CHECK-MCP-INVOCATION-g7"
 	if projectDir == "" {
 		return DoctorCheck{Marker: marker, Status: DoctorInfo,
@@ -94,22 +98,40 @@ func doctorCheckMCPInvocation(reg engine.Registry, projectDir string) DoctorChec
 	switch {
 	case len(stale) > 0:
 		detail := fmt.Sprintf(
-			"%d MCP entr(y/ies) launch ctxloom as a stdio server, which ctxloom no longer ships — the engine will start and its ctxloom tools will never appear: %s. ctxloom's tools are served by the running session's endpoint; the fix takes the entry out of the registry (a release removes an entry this machine's ctxloom recorded writing; delete any other by hand)",
+			"%d MCP entr(y/ies) launch ctxloom as a stdio server, which ctxloom no longer ships — the engine will start and its ctxloom tools will never appear: %s. ctxloom's tools are served by the running session's endpoint; the fix takes the entry out of the registry (a release removes an entry this machine's ctxloom recorded writing, and the fix offers it only for those; delete any other by hand)",
 			len(stale), strings.Join(stale, ", "))
-		var outside []string
+		if abs, err := filepath.Abs(projectDir); err == nil {
+			projectDir = abs
+		}
+		var released, byHand, outside []string
 		for _, path := range stale {
-			if rel, err := filepath.Rel(projectDir, path); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			switch {
+			case !withinDir(projectDir, path):
 				outside = append(outside, path)
+			case projectWriterClaimsEntry(records, fs, path):
+				released = append(released, path)
+			default:
+				byHand = append(byHand, path)
 			}
 		}
-		remedy := doctorMCPReleaseRemedy
+		// A release takes out only what this machine's record says the project
+		// writer put there, so it is offered only for those files.
+		remedy := ""
+		if len(released) > 0 {
+			remedy = doctorMCPReleaseRemedy
+		}
+		if len(byHand) > 0 {
+			by := fmt.Sprintf("delete the %q entry from %s by hand (this machine has no record of writing it, so a release would leave it)", agent.MCPServerName, strings.Join(byHand, ", "))
+			if remedy == "" {
+				remedy = by
+			} else {
+				remedy += "; then " + by
+			}
+		}
 		if len(outside) > 0 {
 			// The engine reads these from a parent folder, and the project-side
 			// release only takes out entries it recorded writing inside the project.
 			detail += "; outside this project, delete the ctxloom entry from each by hand: " + strings.Join(outside, ", ")
-			if len(outside) == len(stale) {
-				remedy = ""
-			}
 		}
 		if len(unreadable) > 0 {
 			detail += "; could not read: " + strings.Join(unreadable, ", ")
@@ -125,6 +147,31 @@ func doctorCheckMCPInvocation(reg engine.Registry, projectDir string) DoctorChec
 	default:
 		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: "no materialized MCP entry launches ctxloom as a stdio server (its tools are served by the running session's endpoint)"}
 	}
+}
+
+// projectWriterClaimsEntry reports whether this machine's ownership record
+// names a project (at-rest) writer's claim on the ctxloom entry in path: the
+// one thing `materialize --release` removes. A record that cannot be read
+// answers no, since a release that cannot find its claim removes nothing.
+func projectWriterClaimsEntry(records delivery.Ownership, fs afero.Fs, path string) bool {
+	if records == nil || fs == nil {
+		return false
+	}
+	states, err := records.Paths(fs, path)
+	if err != nil {
+		return false
+	}
+	for _, st := range states {
+		if st.Pointer != "/"+agent.MCPServerName && !strings.HasSuffix(st.Pointer, "/"+agent.MCPServerName) {
+			continue
+		}
+		for _, w := range st.Writers {
+			if w.Project() {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // scanMCPInvocations reads every file each project MCP surface resolves to
@@ -296,4 +343,15 @@ func stringSlice(raw any) ([]string, bool) {
 		out = append(out, s)
 	}
 	return out, true
+}
+
+// doctorOwnershipRecords is this machine's ownership record on cfg's
+// filesystem, or nil when it cannot be opened, which the check reads as "no
+// record of writing" rather than a failure of its own.
+func doctorOwnershipRecords(cfg *config.Config) delivery.Ownership {
+	records, err := OwnershipRecordsOn(configFS(cfg))
+	if err != nil {
+		return nil
+	}
+	return records
 }

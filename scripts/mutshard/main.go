@@ -46,6 +46,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -315,6 +316,7 @@ func cmdAggregate(args []string, stdout io.Writer) error {
 	}
 	t, verdict := judge(p.shards, st, reports, af.th)
 	reportVerdict(stdout, len(p.shards), af.scope, t, verdict)
+	reportSurvivors(stdout, reports, verdict)
 	return ratchetVerdict(stdout, af, t, verdict)
 }
 
@@ -412,6 +414,76 @@ func printTally(stdout io.Writer, shards int, sc scope, t tally) {
 	_, _ = fmt.Fprintf(stdout, "Killed: %d, Lived: %d, Not covered: %d\n", t.killed, t.lived, t.notCovered)
 	_, _ = fmt.Fprintf(stdout, "Timed out: %d, Not viable: %d, Infra error: %d\n", t.timedOut, t.notViable, t.infraError)
 	_, _ = fmt.Fprintf(stdout, "Test efficacy: %.2f%%\nMutator coverage: %.2f%%\n", t.efficacy(), t.mutantCoverage())
+}
+
+// maxSurvivorsListed caps the survivor list. A staged-diff run has a handful
+// to a few dozen; a whole-tree CI failure can have hundreds, which would bury
+// the verdict. Fifty is a screenful the author can work through, and the "+N
+// more" line says the rest exist.
+const maxSurvivorsListed = 50
+
+// reportSurvivors names the mutants a failing verdict is about: every LIVED
+// and NOT COVERED one, sorted by file then line, one per line. A count alone
+// says the tests are weak but never where. A pass lists nothing.
+func reportSurvivors(stdout io.Writer, reports []report, verdict error) {
+	if verdict == nil || !judged(verdict) {
+		return
+	}
+	var all []gomutantsMutation
+	for _, r := range reports {
+		var out gomutantsOutput
+		if len(r.Gomutants) == 0 || json.Unmarshal(r.Gomutants, &out) != nil {
+			continue
+		}
+		for _, f := range out.Files {
+			for _, m := range f.Mutations {
+				if m.Status == statusLived || m.Status == statusNotCovered {
+					all = append(all, m)
+				}
+			}
+		}
+	}
+	sort.Slice(all, func(i, j int) bool {
+		a, b := all[i], all[j]
+		if a.file() != b.file() {
+			return a.file() < b.file()
+		}
+		if a.Line != b.Line {
+			return a.Line < b.Line
+		}
+		return a.ID < b.ID
+	})
+	for i, m := range all {
+		if i == maxSurvivorsListed {
+			_, _ = fmt.Fprintf(stdout, "+%d more\n", len(all)-i)
+			return
+		}
+		_, _ = fmt.Fprintln(stdout, m.survivorLine())
+	}
+}
+
+// maxSnippet bounds each side of the edit: a block mutant's snippet is a whole
+// statement list, and one survivor stays one line.
+const maxSnippet = 60
+
+// survivorLine is "file:line STATUS KIND: original -> mutated", the edit
+// omitted when the report does not carry it.
+func (m gomutantsMutation) survivorLine() string {
+	line := fmt.Sprintf("%s:%d %s %s", m.file(), m.Line, m.Status, m.Type)
+	if m.Original != "" || m.Replacement != "" {
+		line += fmt.Sprintf(": %s -> %s", oneLine(m.Original), oneLine(m.Replacement))
+	}
+	return strings.TrimSpace(line)
+}
+
+// oneLine collapses a snippet's whitespace, newlines included, and cuts it at
+// maxSnippet runes.
+func oneLine(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > maxSnippet {
+		return string(r[:maxSnippet]) + "..."
+	}
+	return s
 }
 
 func readReports(dir string) ([]report, error) {

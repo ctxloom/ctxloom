@@ -13,6 +13,9 @@ import (
 type mut struct {
 	file, status string
 	line         int
+	// typ, original and replacement are what gomutants records of the edit;
+	// all optional.
+	typ, original, replacement string
 }
 
 // gomutantsJSON builds a gomutants --output report from records, with the
@@ -38,7 +41,8 @@ func gomutantsJSON(t *testing.T, muts ...mut) json.RawMessage {
 			out.Files = append(out.Files, file{Name: "x.go"})
 		}
 		id := fmt.Sprintf("%s:F:CONDITIONALS_NEGATION#%d", m.file, i+1)
-		out.Files[k].Mutations = append(out.Files[k].Mutations, gomutantsMutation{ID: id, Status: m.status, Line: m.line})
+		out.Files[k].Mutations = append(out.Files[k].Mutations, gomutantsMutation{ID: id, Status: m.status, Line: m.line,
+			Type: m.typ, Original: m.original, Replacement: m.replacement})
 		switch m.status {
 		case statusKilled:
 			out.Killed++
@@ -134,8 +138,8 @@ func TestJudge_AShardWithNoMutantsIsFineIfItLooked(t *testing.T) {
 // has a survivor and no kill is still 0% and refused.
 func TestJudge_NothingKilledOrLivedAnywherePasses(t *testing.T) {
 	reports := []report{
-		rep(0, 2, twoShards[0], gomutantsJSON(t, mut{"a/a.go", statusNotCovered, 1}, mut{"a/a.go", statusTimedOut, 2})),
-		rep(1, 2, twoShards[1], gomutantsJSON(t, mut{"b/b.go", statusNotViable, 1}, mut{"b/b.go", statusInfraError, 2})),
+		rep(0, 2, twoShards[0], gomutantsJSON(t, mut{file: "a/a.go", status: statusNotCovered, line: 1}, mut{file: "a/a.go", status: statusTimedOut, line: 2})),
+		rep(1, 2, twoShards[1], gomutantsJSON(t, mut{file: "b/b.go", status: statusNotViable, line: 1}, mut{file: "b/b.go", status: statusInfraError, line: 2})),
 	}
 	got, err := judge(twoShards, testStamp, reports, thresholds{efficacy: 80, mutantCoverage: 70})
 	if err != nil {
@@ -145,7 +149,7 @@ func TestJudge_NothingKilledOrLivedAnywherePasses(t *testing.T) {
 		t.Errorf("tally = %+v, want one each of not covered / timed out / not viable / infra error", got)
 	}
 
-	reports[1] = rep(1, 2, twoShards[1], gomutantsJSON(t, mut{"b/b.go", statusLived, 1}))
+	reports[1] = rep(1, 2, twoShards[1], gomutantsJSON(t, mut{file: "b/b.go", status: statusLived, line: 1}))
 	if _, err := judge(twoShards, testStamp, reports, thresholds{efficacy: 80}); !errors.Is(err, errEfficacy) {
 		t.Errorf("a survivor and no kill: err = %v, want errEfficacy", err)
 	}
@@ -166,7 +170,7 @@ func TestJudge_NothingScoredIsRefusedWithoutEveryShardsEvidence(t *testing.T) {
 		{"a shard never reported a gomutants run", twoShards, []report{rep(0, 2, twoShards[0], empty), rep(1, 2, twoShards[1], nil)}, errMeasuredNothing},
 		{"a shard's report is not gomutants'", twoShards, []report{rep(0, 2, twoShards[0], empty), rep(1, 2, twoShards[1], json.RawMessage(`{}`))}, errUnreadable},
 		{"no shard was given anything to look at", [][]string{nil, nil}, []report{rep(0, 2, nil, nil), rep(1, 2, nil, nil)}, errEfficacy},
-		{"a dry run", twoShards, []report{rep(0, 2, twoShards[0], gomutantsJSON(t, mut{"a/a.go", statusPending, 1})), rep(1, 2, twoShards[1], empty)}, errMeasuredNothing},
+		{"a dry run", twoShards, []report{rep(0, 2, twoShards[0], gomutantsJSON(t, mut{file: "a/a.go", status: statusPending, line: 1})), rep(1, 2, twoShards[1], empty)}, errMeasuredNothing},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -229,11 +233,11 @@ func TestJudge_RefusesAnIncompleteOrInconsistentUnion(t *testing.T) {
 			return r
 		}()}, errStale},
 		{"a shard tested another shard's package", twoShards, []report{rep(0, 2, twoShards[0], gomutantsJSON(t, concat(many("a/a.go", statusKilled, 9), many("b/b.go", statusLived, 1))...)), rep(1, 2, twoShards[1], good1)}, errLeak},
-		{"a shard tested a subpackage it was not given", twoShards, []report{rep(0, 2, twoShards[0], gomutantsJSON(t, mut{"a/sub/s.go", statusKilled, 1})), rep(1, 2, twoShards[1], good1)}, errLeak},
+		{"a shard tested a subpackage it was not given", twoShards, []report{rep(0, 2, twoShards[0], gomutantsJSON(t, mut{file: "a/sub/s.go", status: statusKilled, line: 1})), rep(1, 2, twoShards[1], good1)}, errLeak},
 		{"counters disagree with the records", twoShards, []report{rep(0, 2, twoShards[0], json.RawMessage(`{"go_module":"lab","files":[{"mutations":[{"id":"a/a.go:F:T#1","status":"KILLED"}]}],"mutants_total":1,"mutants_killed":7}`)), rep(1, 2, twoShards[1], good1)}, errUnreadable},
 		{"the total disagrees with the records", twoShards, []report{rep(0, 2, twoShards[0], json.RawMessage(`{"go_module":"lab","files":[{"mutations":[{"id":"a/a.go:F:T#1","status":"KILLED"}]}],"mutants_total":2,"mutants_killed":1}`)), rep(1, 2, twoShards[1], good1)}, errUnreadable},
 		{"a mutation with no id", twoShards, []report{rep(0, 2, twoShards[0], json.RawMessage(`{"go_module":"lab","files":[{"mutations":[{"status":"KILLED"}]}],"mutants_total":1,"mutants_killed":1}`)), rep(1, 2, twoShards[1], good1)}, errUnreadable},
-		{"an unknown status", twoShards, []report{rep(0, 2, twoShards[0], gomutantsJSON(t, mut{"a/a.go", "MAYBE", 1})), rep(1, 2, twoShards[1], good1)}, errUnreadable},
+		{"an unknown status", twoShards, []report{rep(0, 2, twoShards[0], gomutantsJSON(t, mut{file: "a/a.go", status: "MAYBE", line: 1})), rep(1, 2, twoShards[1], good1)}, errUnreadable},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -277,6 +281,158 @@ func TestExitCode_MirrorsGomutants(t *testing.T) {
 	for err, want := range map[error]int{errEfficacy: 10, errMutantCoverage: 11, errLeak: 1, errMissingShard: 1, errRegressed: 1} {
 		if got := exitCode(err); got != want {
 			t.Errorf("exitCode(%v) = %d, want %d", err, got, want)
+		}
+	}
+}
+
+// A refused verdict that names no mutant tells the author the tests are weak
+// and not where: every survivor is listed, sorted by file then line whatever
+// order the shards and the report held them in, with the edit when the report
+// carries it.
+func TestReportSurvivors_ListsEveryLivedAndNotCoveredMutantSorted(t *testing.T) {
+	reports := []report{
+		rep(0, 2, []string{"a"}, gomutantsJSON(t,
+			mut{file: "a/z.go", status: statusLived, line: 9, typ: "ARITHMETIC_BASE", original: "a + b", replacement: "a - b"},
+			mut{file: "a/z.go", status: statusKilled, line: 1})),
+		rep(1, 2, []string{"b"}, gomutantsJSON(t,
+			mut{file: "b/y.go", status: statusNotCovered, line: 4, typ: "CONDITIONALS_NEGATION"},
+			mut{file: "a/a.go", status: statusLived, line: 30, typ: "INCREMENT_DECREMENT", original: "i++", replacement: "i--"})),
+	}
+	var out bytes.Buffer
+	reportSurvivors(&out, reports, errEfficacy)
+	want := []string{
+		"a/a.go:30 LIVED INCREMENT_DECREMENT: i++ -> i--",
+		"a/z.go:9 LIVED ARITHMETIC_BASE: a + b -> a - b",
+		"b/y.go:4 NOT COVERED CONDITIONALS_NEGATION",
+	}
+	got := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(got) != len(want) {
+		t.Fatalf("output = %q, want exactly %d lines", out.String(), len(want))
+	}
+	for i, w := range want {
+		if got[i] != w {
+			t.Errorf("line %d = %q, want %q", i, got[i], w)
+		}
+	}
+}
+
+func TestReportSurvivors_PassingVerdictListsNothing(t *testing.T) {
+	reports := []report{rep(0, 1, []string{"a"}, gomutantsJSON(t, mut{file: "a/a.go", status: statusLived, line: 1}))}
+	var out bytes.Buffer
+	reportSurvivors(&out, reports, nil)
+	if out.Len() != 0 {
+		t.Errorf("output = %q, want none on a pass", out.String())
+	}
+}
+
+func TestReportSurvivors_AFailingVerdictWithNoSurvivorListsNothing(t *testing.T) {
+	reports := []report{rep(0, 1, []string{"a"}, gomutantsJSON(t, mut{file: "a/a.go", status: statusKilled, line: 1}))}
+	var out bytes.Buffer
+	reportSurvivors(&out, reports, errEfficacy)
+	if out.Len() != 0 {
+		t.Errorf("output = %q, want none without a survivor", out.String())
+	}
+}
+
+// A long list is capped so a whole-tree failure does not bury its verdict; the
+// cap's remainder is counted, not dropped silently.
+func TestReportSurvivors_CapsALongListAndCountsTheRest(t *testing.T) {
+	reports := []report{rep(0, 1, []string{"a"}, gomutantsJSON(t, many("a/a.go", statusLived, maxSurvivorsListed+7)...))}
+	var out bytes.Buffer
+	reportSurvivors(&out, reports, errEfficacy)
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != maxSurvivorsListed+1 {
+		t.Fatalf("got %d lines, want %d mutants + the remainder line", len(lines), maxSurvivorsListed)
+	}
+	if lines[maxSurvivorsListed] != "+7 more" {
+		t.Errorf("last line = %q, want %q", lines[maxSurvivorsListed], "+7 more")
+	}
+}
+
+// Through the command line: the verdict's exit code is what it was, and the
+// list rides on the same stdout as the counts.
+func TestCommands_AggregateListsSurvivorsOnAFailingVerdict(t *testing.T) {
+	_, launcher, _ := cmdModule(t)
+	reports := t.TempDir()
+	t.Setenv("STATUS", "LIVED")
+	runShards(t, launcher, reports, "0", "1")
+	code, out := mutshard("aggregate", "-scope", "tree", "-reports", reports, "-efficacy", "80")
+	if code != 10 {
+		t.Fatalf("exit = %d, want 10\n%s", code, out)
+	}
+	if !strings.Contains(out, "f.go:1 LIVED") {
+		t.Errorf("output = %q, want the lived mutant listed", out)
+	}
+}
+
+// One survivor is one line: a block mutant's snippet spans lines and is
+// collapsed, and a very long one is cut.
+func TestReportSurvivors_AnEditIsOneBoundedLine(t *testing.T) {
+	long := strings.Repeat("x", maxSnippet+10)
+	reports := []report{rep(0, 1, []string{"a"}, gomutantsJSON(t,
+		mut{file: "a/a.go", status: statusLived, line: 1, typ: "BRANCH_IF", original: "{\n\t\tcontinue\n\t}", replacement: long},
+		mut{file: "a/a.go", status: statusLived, line: 2, typ: "T", original: "only"},
+		mut{file: "a/a.go", status: statusLived, line: 3, typ: "T", replacement: "only"}))}
+	var out bytes.Buffer
+	reportSurvivors(&out, reports, errEfficacy)
+	want := "a/a.go:1 LIVED BRANCH_IF: { continue } -> " + strings.Repeat("x", maxSnippet) + "...\n" +
+		"a/a.go:2 LIVED T: only ->\n" +
+		"a/a.go:3 LIVED T:  -> only\n"
+	if out.String() != want {
+		t.Errorf("output = %q, want %q", out.String(), want)
+	}
+}
+
+// The ties of the sort are broken the same way every run: line within a file,
+// then id within a line.
+func TestReportSurvivors_SortsByLineThenIDWithinAFile(t *testing.T) {
+	reports := []report{rep(0, 1, []string{"a"}, gomutantsJSON(t,
+		mut{file: "a/a.go", status: statusLived, line: 7, typ: "B"},
+		mut{file: "a/a.go", status: statusLived, line: 2, typ: "Z"},
+		mut{file: "a/a.go", status: statusLived, line: 7, typ: "A"}))}
+	var out bytes.Buffer
+	reportSurvivors(&out, reports, errEfficacy)
+	// gomutantsJSON numbers ids in input order, so line 7's two records tie on
+	// everything but id, and the one listed first by the report sorts first.
+	want := "a/a.go:2 LIVED Z\na/a.go:7 LIVED B\na/a.go:7 LIVED A\n"
+	if out.String() != want {
+		t.Errorf("output = %q, want %q", out.String(), want)
+	}
+}
+
+// A shard the plan gave nothing carries no report, and a refusal to judge has
+// no verdict about survivors: neither prints a list or breaks the other
+// shards' list.
+func TestReportSurvivors_SkipsEmptyShardsAndRefusals(t *testing.T) {
+	reports := []report{
+		rep(0, 2, nil, nil),
+		rep(1, 2, []string{"b"}, gomutantsJSON(t, mut{file: "b/b.go", status: statusLived, line: 1})),
+	}
+	var out bytes.Buffer
+	reportSurvivors(&out, reports, errEfficacy)
+	if out.String() != "b/b.go:1 LIVED\n" {
+		t.Errorf("output = %q", out.String())
+	}
+	out.Reset()
+	reportSurvivors(&out, reports, errStale)
+	if out.Len() != 0 {
+		t.Errorf("a refusal listed %q", out.String())
+	}
+}
+
+// The cap is on the count listed: exactly the cap lists everything with no
+// remainder line, one over lists the cap and counts one.
+func TestReportSurvivors_TheCapBoundary(t *testing.T) {
+	for _, c := range []struct {
+		n    int
+		last string
+	}{{maxSurvivorsListed, "a/a.go:50 LIVED"}, {maxSurvivorsListed + 1, "+1 more"}} {
+		reports := []report{rep(0, 1, []string{"a"}, gomutantsJSON(t, many("a/a.go", statusLived, c.n)...))}
+		var out bytes.Buffer
+		reportSurvivors(&out, reports, errEfficacy)
+		lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+		if got := lines[len(lines)-1]; got != c.last {
+			t.Errorf("%d survivors: last line = %q, want %q", c.n, got, c.last)
 		}
 	}
 }

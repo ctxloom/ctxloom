@@ -53,6 +53,11 @@ type gomutantsMutation struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
 	Line   int    `json:"line"`
+	// Type is the mutator; Original and Replacement are the edit, when the
+	// report carries it.
+	Type        string `json:"type,omitempty"`
+	Original    string `json:"original,omitempty"`
+	Replacement string `json:"replacement,omitempty"`
 }
 
 // file is the module-relative file the mutant is in.

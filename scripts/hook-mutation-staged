@@ -98,8 +98,8 @@ case "$rc" in
     0) exit 0 ;;
     10)
         echo "mutation: the staged change is below the project's mutation threshold." >&2
-        echo "Each mutant listed above as LIVED survived every test: add or sharpen the test that" >&2
-        echo "would catch it, stage it, and commit again." >&2
+        echo "Each mutant listed above (file:line, LIVED or NOT COVERED) survived every test: add or" >&2
+        echo "sharpen the test that would catch it, stage it, and commit again." >&2
         ;;
     *)
         echo "mutation: the run failed before it reached a verdict (exit $rc)." >&2

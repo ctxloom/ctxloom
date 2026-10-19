@@ -39,10 +39,12 @@ import (
 // branches other checkouts have checked out, so its refusal to check out, or
 // delete, a branch that is in use elsewhere does not fire here.
 //
-// The common dir's hooks/, index and HEAD are then shadowed READ-ONLY
-// (gitReadOnlyOverlays): hooks run ON THE HOST at the next git operation in any
-// checkout, and the index and HEAD are the MAIN checkout's, not this one's —
-// this checkout keeps its own in its admin dir. config stays read-write.
+// The common dir's hooks/ is then shadowed READ-ONLY (gitReadOnlyOverlays):
+// hooks run ON THE HOST at the next git operation in any checkout. Its index
+// and HEAD are shadowed too unless this checkout's .git names the common dir
+// itself (a submodule, a --separate-git-dir checkout), whose index and HEAD
+// are its own: a linked worktree's are the MAIN checkout's — it keeps its own
+// in its admin dir. config stays read-write.
 func gitDirMounts(ctx context.Context, rt Runtime, g git.Git, dir, scratchRoot string) ([]mount, error) {
 	common, err := g.CommonDir(ctx, dir)
 	if err != nil {
@@ -54,7 +56,15 @@ func gitDirMounts(ctx context.Context, rt Runtime, g git.Git, dir, scratchRoot s
 	if err != nil {
 		return nil, fmt.Errorf("git common dir %s has no route into the container: %w", common, err)
 	}
-	overlays, err := gitReadOnlyOverlays(rt, common, commonMount)
+	gitDir, _, err := ownAdminDir(dir, filepath.Join(common, "worktrees"))
+	if err != nil {
+		return nil, err
+	}
+	entries := gitLinkedReadOnlyEntries
+	if filepath.Clean(gitDir) == filepath.Clean(common) {
+		entries = gitOwnReadOnlyEntries
+	}
+	overlays, err := gitReadOnlyOverlays(rt, common, commonMount, entries)
 	if err != nil {
 		return nil, err
 	}
@@ -70,12 +80,19 @@ func gitDirMounts(ctx context.Context, rt Runtime, g git.Git, dir, scratchRoot s
 	return append(append(mounts, registry...), pointers...), nil
 }
 
-// gitReadOnlyEntries are the common-dir entries a linked checkout's container
-// may read but never write (gitDirMounts).
-var gitReadOnlyEntries = []string{"hooks", "index", "HEAD"}
+// gitOwnReadOnlyEntries are the git-dir entries a container may read but
+// never write when that git dir is the checkout's own (a main checkout, a
+// submodule): its index and HEAD are its own, and committing rewrites them.
+var gitOwnReadOnlyEntries = []string{"hooks"}
 
-// gitReadOnlyOverlays binds each of gitReadOnlyEntries over itself read-only,
-// through commonMount, after it in the list so it shadows that mount. A write
+// gitLinkedReadOnlyEntries are the common-dir entries a linked checkout's
+// container may read but never write: the index and HEAD there are the main
+// checkout's.
+var gitLinkedReadOnlyEntries = []string{"hooks", "index", "HEAD"}
+
+// gitReadOnlyOverlays binds each of entries (gitOwnReadOnlyEntries or
+// gitLinkedReadOnlyEntries) over itself read-only, through commonMount, which
+// must come before them in the runtime's list so they shadow it. A write
 // git makes to one of them (index.lock or HEAD.lock renamed onto it) fails and
 // git removes its lock; a hook still runs.
 //
@@ -83,7 +100,7 @@ var gitReadOnlyEntries = []string{"hooks", "index", "HEAD"}
 // create one through the read-write mount and fill it with hooks the host
 // runs. A missing index or HEAD is left alone: an empty file in its place is
 // a corrupt index or HEAD to the host's git.
-func gitReadOnlyOverlays(rt Runtime, common string, commonMount mount) ([]mount, error) {
+func gitReadOnlyOverlays(rt Runtime, common string, commonMount mount, entries []string) ([]mount, error) {
 	// Mkdir, not MkdirAll: a common dir that is not there is never created
 	// (its own mount then fails loudly), and so has nothing to overlay.
 	if err := afero.NewOsFs().Mkdir(filepath.Join(common, "hooks"), 0o755); err != nil &&
@@ -91,7 +108,7 @@ func gitReadOnlyOverlays(rt Runtime, common string, commonMount mount) ([]mount,
 		return nil, fmt.Errorf("git hooks dir for its read-only overlay: %w", err)
 	}
 	var mounts []mount
-	for _, name := range gitReadOnlyEntries {
+	for _, name := range entries {
 		host := filepath.Join(common, name)
 		switch _, err := os.Stat(host); {
 		case errors.Is(err, os.ErrNotExist):

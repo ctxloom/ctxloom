@@ -123,3 +123,21 @@ func TestContainer_GitdirMirrorMountUnreadableGit(t *testing.T) {
 	assert.Empty(t, ms)
 	assert.Contains(t, err.Error(), ".git")
 }
+
+// A main checkout's hooks/ or registry that cannot be told present or absent
+// fails the workspace rather than going unshadowed or unmasked.
+func TestGitdirMirrorMounts_MainCheckoutUnreadableEntryFails(t *testing.T) {
+	for _, entry := range []string{"hooks", "worktrees"} {
+		t.Run(entry, func(t *testing.T) {
+			proj := t.TempDir()
+			common := filepath.Join(proj, ".git")
+			gitCommonFixture(t, common, entry != "hooks")
+			require.NoError(t, os.Symlink(entry, filepath.Join(common, entry))) // a loop: stat fails with ELOOP
+
+			_, err := gitdirMirrorMounts(context.Background(), fakeRuntime{name: "docker", available: true},
+				&git.Fake{CommonDirValue: common}, proj, t.TempDir())
+			require.Error(t, err)
+			assert.NotErrorIs(t, err, os.ErrNotExist)
+		})
+	}
+}

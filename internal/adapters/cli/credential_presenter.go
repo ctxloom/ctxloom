@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/termui"
+	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
@@ -33,14 +33,14 @@ const (
 type credentialPresenter struct {
 	holds   func() []coord.CredentialHold
 	noteBar func(text string, d time.Duration)
-	// ring rings the bell once (termui.Controller.Ring).
+	// ring rings the bell once (tui.SplitView.Ring).
 	ring func() bool
 	// announce, set when there is no bar (ui.surround: false), says a line as
 	// each hold opens and as it releases (termui.Controller.Announce).
 	announce func(text string)
 	// session is the root harp a refused credential's remedy restarts.
 	session string
-	clock   termui.Clock
+	clock   tui.Clock
 	shown   string
 	shownAt time.Time
 	// known are the holds seen at the last poll, by holdID; nil until the

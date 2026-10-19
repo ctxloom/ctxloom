@@ -89,11 +89,11 @@ func TestWindowStart(t *testing.T) {
 }
 
 func TestRealClock(t *testing.T) {
-	assert.WithinDuration(t, time.Now(), realClock{}.Now(), time.Second)
+	assert.WithinDuration(t, time.Now(), RealClock{}.Now(), time.Second)
 	fired := make(chan struct{})
-	stop := realClock{}.AfterFunc(time.Hour, func() { close(fired) })
+	stop := RealClock{}.AfterFunc(time.Hour, func() { close(fired) })
 	assert.True(t, stop(), "stopped before it fired")
-	realClock{}.AfterFunc(0, func() { close(fired) })
+	RealClock{}.AfterFunc(0, func() { close(fired) })
 	<-fired
 }
 

@@ -11,7 +11,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/termemu"
-	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/frontend"
 )
@@ -61,13 +60,6 @@ type Header struct {
 	Engine string
 	Model  string
 }
-
-// PresentPolicy and Clock are the approval focus lock's timings and time
-// source, the same ones the terminal layer the split view replaces takes.
-type (
-	PresentPolicy = termui.PresentPolicy
-	Clock         = termui.Clock
-)
 
 // SplitOptions are a split view's seams.
 type SplitOptions struct {
@@ -158,7 +150,7 @@ type Split struct {
 // newSplit builds the model over a pane that already exists.
 func newSplit(ctx context.Context, o SplitOptions, pane termemu.Terminal, post func(tea.Msg), mb *paneMailbox) *Split {
 	if o.Clock == nil {
-		o.Clock = realClock{}
+		o.Clock = RealClock{}
 	}
 	return &Split{
 		ctx:       ctx,
@@ -179,13 +171,6 @@ func newSplit(ctx context.Context, o SplitOptions, pane termemu.Terminal, post f
 		},
 	}
 }
-
-// realClock is real time.
-type realClock struct{}
-
-func (realClock) Now() time.Time { return time.Now() }
-
-func (realClock) AfterFunc(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }
 
 // Messages.
 type frameMsg struct{}

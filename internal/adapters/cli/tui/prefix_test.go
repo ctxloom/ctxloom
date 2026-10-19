@@ -104,3 +104,52 @@ func decodeInput(b string) []tea.Msg {
 func TestPrefixKey_NoPrefixMatchesNoKeystroke(t *testing.T) {
 	assert.False(t, PrefixKey{}.Matches(tea.KeyPressMsg{Code: tea.KeyExtended}), "an empty keystroke is not an empty prefix")
 }
+
+func TestParsePrefixKey_Accepted(t *testing.T) {
+	for _, c := range []struct {
+		in    string
+		want  byte
+		caret string
+	}{
+		{"ctrl-]", 0x1d, "^]"},
+		{"ctrl+]", 0x1d, "^]"},
+		{"Ctrl-]", 0x1d, "^]"},
+		{"ctrl-a", 1, "^A"},
+		{"ctrl-t", 20, "^T"},
+		{"ctrl-\\", 28, "^\\"},
+		{"ctrl-^", 30, "^^"},
+		{"ctrl-_", 31, "^_"},
+		{"ctrl-?", 127, "^?"},
+	} {
+		got, err := ParsePrefixKey(c.in)
+		require.NoError(t, err, c.in)
+		assert.Equal(t, c.want, got.b, c.in)
+		assert.Equal(t, c.caret, got.Caret(), c.in)
+	}
+}
+
+func TestParsePrefixKey_Rejected(t *testing.T) {
+	for _, in := range []string{
+		"",        // empty
+		"]",       // bare printable
+		"a",       // printable would swallow typing
+		"alt-x",   // unknown modifier
+		"ctrl-",   // no key
+		"ctrl-xy", // multi-char
+		"ctrl-1",  // not a control-key character
+		"ctrl-[",  // ESC: shadows every escape sequence
+		"ctrl-i",  // TAB
+		"ctrl-j",  // LF
+		"ctrl-m",  // CR
+		"ctrl-@",  // NUL
+		"ctrl- ",  // NUL, spelled with a space
+		"ctrl-c",  // SIGINT
+		"ctrl-d",  // EOF
+		"ctrl-s",  // XOFF flow control
+		"ctrl-q",  // XON flow control
+		"ctrl-z",  // SIGTSTP
+	} {
+		_, err := ParsePrefixKey(in)
+		assert.Error(t, err, "%q must be rejected", in)
+	}
+}

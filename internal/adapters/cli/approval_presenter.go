@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
@@ -16,7 +17,7 @@ import (
 // modal answers.
 type modalPresenter struct {
 	ui    *termui.Controller
-	clock termui.Clock
+	clock tui.Clock
 }
 
 // Present runs until ctx ends. It implements coord.ApprovalPresenter.
@@ -57,7 +58,7 @@ const (
 //     at warnBefore left (with one more bell);
 //   - nothing pending withdraws a waiting summon;
 //   - a request that timed out leaves a note on the bar: nobody decided it.
-func presentApprovals(ctx context.Context, src coord.ApprovalSource, ui presenterUI, clock termui.Clock) error {
+func presentApprovals(ctx context.Context, src coord.ApprovalSource, ui presenterUI, clock tui.Clock) error {
 	events := src.Subscribe(ctx)
 	p := &presenter{src: src, ui: ui, clock: clock, warned: map[coord.ApprovalID]bool{}, presented: map[coord.ApprovalID]bool{}}
 	defer p.stopSummon()
@@ -92,7 +93,7 @@ func nudge(ch chan struct{}) {
 type presenter struct {
 	src    coord.ApprovalSource
 	ui     presenterUI
-	clock  termui.Clock
+	clock  tui.Clock
 	warned map[coord.ApprovalID]bool
 	// presented holds the pending requests already shown: the subscription
 	// opens before start reads the queue, so a request parked in between is

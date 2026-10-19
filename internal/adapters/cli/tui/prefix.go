@@ -1,9 +1,10 @@
 package tui
 
 import (
-	tea "charm.land/bubbletea/v2"
+	"fmt"
+	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/termui"
+	tea "charm.land/bubbletea/v2"
 )
 
 // PrefixKey is the configured prefix key (ui.prefix_key) as the split view
@@ -16,15 +17,63 @@ type PrefixKey struct {
 	keystroke string // bubbletea's keystroke name for the key, e.g. "ctrl+]"
 }
 
-// ParsePrefixKey parses a config-syntax key name ("ctrl-]", "ctrl+t") under
-// the same rules the terminal layer has always applied: a control key, and
-// none the engine needs verbatim.
+// ParsePrefixKey parses a config-syntax key name ("ctrl-]", "ctrl+t"). Only
+// control keys are accepted: a printable prefix would swallow ordinary
+// typing. Keys the engine needs verbatim to function at all — escape
+// (ctrl-[), tab (ctrl-i), the newline/return pair (ctrl-j/ctrl-m),
+// interrupt/EOF (ctrl-c/ctrl-d), suspend (ctrl-z), and flow control
+// (ctrl-q/ctrl-s) — are rejected with the reason.
 func ParsePrefixKey(s string) (PrefixKey, error) {
-	b, err := termui.ParsePrefixKey(s)
+	b, err := prefixByte(s)
 	if err != nil {
 		return PrefixKey{}, err
 	}
 	return PrefixKey{b: b, keystroke: teaKeyName(b)}, nil
+}
+
+// prefixByte maps a config-syntax key name to the control byte a legacy
+// terminal sends for that key (DEL for ctrl-?).
+func prefixByte(s string) (byte, error) {
+	name := strings.ToLower(strings.TrimSpace(s))
+	rest, ok := strings.CutPrefix(name, "ctrl-")
+	if !ok {
+		rest, ok = strings.CutPrefix(name, "ctrl+")
+	}
+	if !ok || len(rest) != 1 {
+		return 0, fmt.Errorf("prefix key %q: want a control key like %q", s, "ctrl-]")
+	}
+	var b byte
+	switch ch := rest[0]; {
+	case ch >= 'a' && ch <= 'z':
+		b = ch - 'a' + 1
+	case ch == '@', ch == ' ':
+		b = 0
+	case ch >= '[' && ch <= '_': // [ \ ] ^ _
+		b = ch - '[' + 27
+	case ch == '?':
+		b = 127
+	default:
+		return 0, fmt.Errorf("prefix key %q: %q is not a control-key character", s, string(ch))
+	}
+	if why, refused := refusedPrefixes[b]; refused {
+		return 0, fmt.Errorf("prefix key %q: %s", s, why)
+	}
+	return b, nil
+}
+
+// refusedPrefixes are the control bytes the engine needs verbatim, each with
+// why it cannot be the prefix.
+var refusedPrefixes = map[byte]string{
+	0:  "NUL is not usable as a prefix",
+	3:  "ctrl-c sends SIGINT — intercepting it would swallow every interrupt",
+	4:  "ctrl-d is EOF — intercepting it would break input termination",
+	9:  "ctrl-i is TAB — intercepting it would break completion",
+	10: "ctrl-j/ctrl-m are newline/return — intercepting them would break typing",
+	13: "ctrl-j/ctrl-m are newline/return — intercepting them would break typing",
+	17: "ctrl-q/ctrl-s are terminal flow control (XON/XOFF) — intercepting them would break resume/pause",
+	19: "ctrl-q/ctrl-s are terminal flow control (XON/XOFF) — intercepting them would break resume/pause",
+	26: "ctrl-z sends SIGTSTP — intercepting it would swallow every suspend",
+	27: "ESC prefixes every terminal escape sequence (and is deliberately not the viewer key)",
 }
 
 // Matches reports whether msg is a press of the prefix. It compares the
@@ -39,5 +88,13 @@ func (k PrefixKey) Caret() string {
 	if k.keystroke == "" {
 		return ""
 	}
-	return termui.CaretHint(k.b)
+	return caretHint(k.b)
+}
+
+// caretHint renders a control byte in caret notation.
+func caretHint(b byte) string {
+	if b == 127 {
+		return "^?"
+	}
+	return "^" + string(rune(b+64))
 }

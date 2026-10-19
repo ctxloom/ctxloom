@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
@@ -40,7 +39,7 @@ type terminalUIIdentity struct {
 // ui.prefix_key — a broken config fails loudly at the startup gate rather
 // than silently launching with a viewer on the wrong key (or none).
 func validateTerminalUIConfig(cfg *config.Config) {
-	if _, err := termui.ParsePrefixKey(cfg.UIPrefixKey()); err != nil {
+	if _, err := tui.ParsePrefixKey(cfg.UIPrefixKey()); err != nil {
 		strictness.Fail(report.KindConfig,
 			`set ui.prefix_key to a control key (e.g. "ctrl-]") in config.yaml, or pass --degraded to launch anyway`,
 			"invalid ui.prefix_key: %v", err)
@@ -83,7 +82,7 @@ func setupTerminalUI(ctx context.Context, cfg *config.Config, port frontend.Port
 	// The modal is how a pending approval reaches the human: the root's queue
 	// is presented here, on the originator's terminal, and nowhere else.
 	if approvals := port.Approvals(); approvals != nil {
-		go func() { _ = modalPresenter{ui: ui, clock: systemClock{}}.Present(ctx, approvals) }()
+		go func() { _ = modalPresenter{ui: ui, clock: tui.RealClock{}}.Present(ctx, approvals) }()
 	}
 	// A rate limit or a refused credential parks the runs that share it; the
 	// bar keeps the root human told until the hold releases them — or, with
@@ -94,7 +93,7 @@ func setupTerminalUI(ctx context.Context, cfg *config.Config, port frontend.Port
 			holds, _ := port.CredentialHolds(ctx)
 			return holds
 		},
-		noteBar: ui.NoteBar, ring: ui.Ring, session: id.Harp, clock: systemClock{},
+		noteBar: ui.NoteBar, ring: ui.Ring, session: id.Harp, clock: tui.RealClock{},
 	}
 	if !cfg.UISurroundEnabled() {
 		p.announce = ui.Announce
@@ -102,13 +101,6 @@ func setupTerminalUI(ctx context.Context, cfg *config.Config, port frontend.Port
 	go presentCredentialHolds(ctx, p)
 	return ui
 }
-
-// systemClock is real time for the presenter (termui's own is unexported).
-type systemClock struct{}
-
-func (systemClock) Now() time.Time { return time.Now() }
-
-func (systemClock) AfterFunc(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }
 
 // surroundRoster is the surround bar's roster over the port: the
 // coordinator's runs, ended ones included, on the bar's local mirror type

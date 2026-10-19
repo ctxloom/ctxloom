@@ -692,7 +692,7 @@ func stripSGR(s string) string {
 }
 
 // teaKeyName's default arm is unreachable from any configuration:
-// termui.ParsePrefixKey is the only production producer of the prefix byte
+// ParsePrefixKey is the only production producer of the prefix byte
 // (internal/adapters/cli/run_terminal_ui.go builds the overlay from it), and every byte
 // that would fall through — NUL, ESC, and every printable character — it
 // rejects with a reason. This pin couples the two: it goes red if
@@ -702,7 +702,8 @@ func TestTeaKeyName_NamesEveryPrefixParsePrefixKeyAdmits(t *testing.T) {
 	admitted := 0
 	for ch := 0; ch < 128; ch++ {
 		spelling := "ctrl-" + string(rune(ch))
-		b, err := termui.ParsePrefixKey(spelling)
+		k, err := ParsePrefixKey(spelling)
+		b := k.b
 		if err != nil {
 			continue
 		}

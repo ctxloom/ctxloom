@@ -1,16 +1,18 @@
 package acceptance
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // The P15 verdicts, exercised without an engine.
@@ -100,8 +102,9 @@ func TestP15_ProcessAlive(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, alive)
 
-	cmd := exec.Command("true")
-	require.NoError(t, cmd.Run())
+	sandbox := testenv.Sandbox(t.TempDir())
+	cmd := sandbox.HostCommand(context.Background(), "true")
+	require.NoError(t, sandbox.RunCmd(cmd))
 	alive, err = p15ProcessAlive(cmd.Process.Pid)
 	require.NoError(t, err)
 	assert.False(t, alive, "a reaped child")

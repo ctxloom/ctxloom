@@ -83,9 +83,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // probeMCPServerName is the MCP server name ctxloom registers on the engine's
@@ -442,9 +443,7 @@ func probeMCPCallLogSummary(calls []probeMCPCall) string {
 // need GOOS/GOARCH overridden here, and the cell would fail with an exec-format
 // error that names this function.
 func probeMCPBuildServer(dest string) error {
-	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", dest, "github.com/ctxloom/ctxloom/cmd/probe-mcp-server")
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
-	out, err := cmd.CombinedOutput()
+	out, err := testenv.GoCombinedOutput([]string{"CGO_ENABLED=0"}, "build", "-buildvcs=false", "-o", dest, "github.com/ctxloom/ctxloom/cmd/probe-mcp-server")
 	if err != nil {
 		return fmt.Errorf("capability probe P2: building the fixture MCP server (%s): %w\n%s", dest, err, out)
 	}

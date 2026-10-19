@@ -16,8 +16,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
-
 	"github.com/cucumber/godog"
 )
 
@@ -72,7 +70,7 @@ func registerP16StrictMCPConnectorsSteps(ctx *godog.ScenarioContext) {
 					return err
 				}
 			}
-			if out, err := taskstest.GitCmd(filepath.Dir(p.repo), nil, "init", "-q", p.repo).CombinedOutput(); err != nil {
+			if out, err := w.env.CombinedOutput(w.env.GitCommand(filepath.Dir(p.repo), "init", "-q", p.repo)); err != nil {
 				return fmt.Errorf("%s: git init %s: %w: %s", p16Family, p.repo, err, out)
 			}
 			return nil
@@ -101,12 +99,13 @@ func registerP16StrictMCPConnectorsSteps(ctx *godog.ScenarioContext) {
 func p16RunArm(c context.Context, p *p16State, strict bool) p16Arm {
 	runCtx, cancel := context.WithTimeout(c, p16RunTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, p.claudePath, p16Args(strict)...)
+	env := worldFrom(c).env
+	cmd := env.HostCommand(runCtx, p.claudePath, p16Args(strict)...)
 	cmd.Dir = p.repo
 	cmd.Env = liveVendorEnv(p.cred, p.home, p.cfg)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
+	err := env.RunCmd(cmd)
 	return p16Arm{Started: true, TimedOut: errors.Is(runCtx.Err(), context.DeadlineExceeded),
 		Run: probeRun{Stdout: stdout.String(), Stderr: stderr.String(), Err: err, ExitCode: probeExitCode(err)}}
 }

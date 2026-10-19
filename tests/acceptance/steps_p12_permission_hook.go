@@ -18,8 +18,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
-
 	"github.com/cucumber/godog"
 )
 
@@ -83,7 +81,8 @@ func registerP12PermissionHookSteps(ctx *godog.ScenarioContext) {
 		})
 
 	ctx.Step(`^it asks the engine to touch a file outside its working directory in one turn$`, func(c context.Context) error {
-		p := p12Of(worldFrom(c))
+		w := worldFrom(c)
+		p := p12Of(w)
 		if p.dir == "" {
 			return errP12NotRun
 		}
@@ -95,14 +94,14 @@ func registerP12PermissionHookSteps(ctx *godog.ScenarioContext) {
 			"--output-format", "stream-json", "--verbose",
 			"--model", liveClaudeModel,
 		}, p.decision.argv()...)
-		cmd := exec.CommandContext(runCtx, p.claudePath, args...)
+		cmd := w.env.HostCommand(runCtx, p.claudePath, args...)
 		cmd.Dir = p.repo
 		cmd.Env = liveVendorEnv(p.cred, p.home, p.cfg)
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 
 		p.started = true
-		err := cmd.Run()
+		err := w.env.RunCmd(cmd)
 		p.timedOut = errors.Is(runCtx.Err(), context.DeadlineExceeded)
 		p.run = probeRun{Stdout: stdout.String(), Stderr: stderr.String(), Err: err}
 		var exitErr *exec.ExitError
@@ -154,7 +153,7 @@ func p12Fixture(w *World, p *p12State) error {
 			return err
 		}
 	}
-	if out, err := taskstest.GitCmd(filepath.Dir(p.repo), nil, "init", "-q", p.repo).CombinedOutput(); err != nil {
+	if out, err := w.env.CombinedOutput(w.env.GitCommand(filepath.Dir(p.repo), "init", "-q", p.repo)); err != nil {
 		return fmt.Errorf("%s: git init %s: %w: %s", p12Family, p.repo, err, out)
 	}
 	hookPath := filepath.Join(p.dir, p12HookName)

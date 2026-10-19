@@ -17,8 +17,6 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
-
 	"github.com/cucumber/godog"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -86,7 +84,8 @@ func registerP13UntrustedRepoHooksSteps(ctx *godog.ScenarioContext) {
 		})
 
 	ctx.Step(`^it asks the engine to run echo hi in one turn$`, func(c context.Context) error {
-		p := p13Of(worldFrom(c))
+		w := worldFrom(c)
+		p := p13Of(w)
 		if p.dir == "" {
 			return errP13NotRun
 		}
@@ -96,7 +95,7 @@ func registerP13UntrustedRepoHooksSteps(ctx *godog.ScenarioContext) {
 		if p.variant == p13CtxloomUntrusted {
 			args = p.launch.Args
 		}
-		cmd := exec.CommandContext(runCtx, p.claudePath, args...)
+		cmd := w.env.HostCommand(runCtx, p.claudePath, args...)
 		if p.launch.Stdin != nil {
 			cmd.Stdin = bytes.NewReader(p.launch.Stdin)
 		}
@@ -106,7 +105,7 @@ func registerP13UntrustedRepoHooksSteps(ctx *godog.ScenarioContext) {
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 
 		p.started = true
-		err := cmd.Run()
+		err := w.env.RunCmd(cmd)
 		p.timedOut = errors.Is(runCtx.Err(), context.DeadlineExceeded)
 		p.run = probeRun{Stdout: stdout.String(), Stderr: stderr.String(), Err: err}
 		var exitErr *exec.ExitError
@@ -181,8 +180,8 @@ func p13Fixture(w *World, p *p13State) error {
 		}
 	}
 	git := func(args ...string) error {
-		cmd := taskstest.GitCmd(p.repo, nil, append([]string{"-c", "user.name=p13", "-c", "user.email=p13@example.invalid", "-c", "commit.gpgsign=false"}, args...)...)
-		if out, err := cmd.CombinedOutput(); err != nil {
+		cmd := w.env.GitCommand(p.repo, append([]string{"-c", "user.name=p13", "-c", "user.email=p13@example.invalid", "-c", "commit.gpgsign=false"}, args...)...)
+		if out, err := w.env.CombinedOutput(cmd); err != nil {
 			return fmt.Errorf("%s: git %v: %w: %s", p13Family, args, err, out)
 		}
 		return nil

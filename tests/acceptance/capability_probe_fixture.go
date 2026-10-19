@@ -29,7 +29,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // matrixAgent is the one agent binding every cell configures. Fixed, so the
@@ -166,12 +166,11 @@ func runtimeBindingLine(runtime string) string {
 // raised in the assert step BEFORE the step's evidence line prints: without it
 // a zero-checkout red cannot tell "ctxloom refused the isolation and exited"
 // from "it ran and the checkout was reaped" short of paying for another turn.
-func probeCellRunDir(family, projectDir, workspace string, run probeRun) (string, error) {
+func probeCellRunDir(env *testenv.TestEnvironment, family, projectDir, workspace string, run probeRun) (string, error) {
 	if workspace != "worktree" {
 		return projectDir, nil
 	}
-	cmd := taskstest.GitCmd(projectDir, nil, "worktree", "list", "--porcelain")
-	out, err := cmd.Output()
+	out, err := env.Output(env.GitCommand(projectDir, "worktree", "list", "--porcelain"))
 	if err != nil {
 		return "", fmt.Errorf("%s: listing worktrees of %s to locate the cell's per-agent checkout: %w", family, projectDir, err)
 	}

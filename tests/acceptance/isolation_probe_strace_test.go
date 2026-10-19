@@ -3,12 +3,14 @@
 package acceptance
 
 import (
+	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // capturedStrace is a real fragment of `strace -f -e trace=... -o file` output
@@ -185,7 +187,8 @@ func probeShimRun(t *testing.T, args ...string) (traceDir string, got []string) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command(filepath.Join(shimDir, "docker"), args...).CombinedOutput(); err != nil {
+	sandbox := testenv.Sandbox(t.TempDir())
+	if out, err := sandbox.CombinedOutput(sandbox.HostCommand(context.Background(), filepath.Join(shimDir, "docker"), args...)); err != nil {
 		t.Fatalf("shim: %v: %s", err, out)
 	}
 	raw, err := os.ReadFile(record)

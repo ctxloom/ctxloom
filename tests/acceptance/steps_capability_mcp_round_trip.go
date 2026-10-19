@@ -304,7 +304,7 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 
-		if err := cmd.Start(); err != nil {
+		if err := w.env.Start(cmd); err != nil {
 			return fmt.Errorf("probe-p2-mcp: start run: %w", err)
 		}
 		timer := time.AfterFunc(mcpProbeRunTimeout, func() {
@@ -329,7 +329,7 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		m := mcpProbeOf(w)
 
-		runDir, err := probeCellRunDir(mcpProbeFamily, w.env.ProjectDir, m.workspace,
+		runDir, err := probeCellRunDir(w.env, mcpProbeFamily, w.env.ProjectDir, m.workspace,
 			probeRun{Stdout: m.stdout, Stderr: m.stderr, ExitCode: m.exitCode, Err: m.runErr})
 		if err != nil {
 			return err

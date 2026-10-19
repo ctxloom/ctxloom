@@ -199,7 +199,7 @@ func registerP4PlanSentinelSteps(ctx *godog.ScenarioContext) {
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 
-		if err := cmd.Start(); err != nil {
+		if err := w.env.Start(cmd); err != nil {
 			p.runErr = err
 			p.exitCode = -1
 			return nil // not started; the verdict reports it, with the shape

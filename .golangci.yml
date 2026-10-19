@@ -81,6 +81,15 @@ linters:
         - pattern: '^yaml\.(Marshal|NewEncoder)$'
           pkg: '^gopkg\.in/yaml\.v3$'
           msg: 'serialize YAML with yamlx.Marshal (internal/shared/yamlx), the one encoder every writer and the upgrade write-back share'
+        # Every child the acceptance and integration suites start goes through
+        # testenv's spawn gate (testenv.AssertChildEnvSandboxed), which refuses
+        # an environment pointing into the developer's real home. A command
+        # built with exec.Command can be started any way its caller likes, so
+        # in those suites building one is testenv's alone. Scoped to them by
+        # the exclusions below.
+        - pattern: '^exec\.Command(Context)?$'
+          pkg: '^os/exec$'
+          msg: 'build the child with testenv (HostCommand, GitCommand, Command, GoCombinedOutput) and start it with TestEnvironment.Start, RunCmd, Output or CombinedOutput: the spawn gate that keeps children out of the real home'
   exclusions:
     presets:
       - std-error-handling
@@ -104,6 +113,16 @@ linters:
         linters:
           - forbidigo
         text: 'yamlx\.Marshal'
+      # The spawn-gate rule binds only the suites that start real children;
+      # testenv is the gate itself.
+      - path-except: 'tests/(acceptance|integration)/'
+        linters:
+          - forbidigo
+        text: 'exec\.Command'
+      - path: 'tests/integration/testenv/'
+        linters:
+          - forbidigo
+        text: 'exec\.Command'
 
 # v2 moved formatting checks out of `linters:` into this separate top-level
 # section. Without it, `just lint` never gates Go source formatting at all —

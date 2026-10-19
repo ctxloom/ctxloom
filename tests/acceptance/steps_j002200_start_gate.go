@@ -4,6 +4,7 @@ package acceptance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -44,15 +45,18 @@ func j002200StubContainerRuntime(w *World) error {
 	if found != stub {
 		return fmt.Errorf("stub install failed: docker resolves to %q, not the stub %q — this row would run against a real daemon", found, stub)
 	}
-	if err := exec.Command(stub, "info").Run(); err != nil {
+	if err := w.env.RunCmd(w.env.HostCommand(context.Background(), stub, "info")); err != nil {
 		return fmt.Errorf("stub docker does not report a reachable daemon (%v); chainFor would take the runtime-unreachable branch instead", err)
 	}
-	sec, err := exec.Command(stub, "info", "--format", "{{.SecurityOptions}}").Output()
+	sec, err := w.env.Output(w.env.HostCommand(context.Background(), stub, "info", "--format", "{{.SecurityOptions}}"))
 	if err != nil || !strings.Contains(string(sec), "rootless") {
 		return fmt.Errorf("stub docker does not report ROOTLESS ownership (%q, err=%v); the agent asks for container-rootless, so the run would abort at chainFor's runtime gate instead of the START gate this row asserts", strings.TrimSpace(string(sec)), err)
 	}
-	if err := exec.Command(stub, "image", "inspect", "anything").Run(); err == nil {
-		return fmt.Errorf("stub docker reports the image PRESENT; the run would proceed past the image gate and this row would assert nothing")
+	// An exit status, not merely an error: a stub that never started also
+	// errors, and must not read as "image absent".
+	var absent *exec.ExitError
+	if err := w.env.RunCmd(w.env.HostCommand(context.Background(), stub, "image", "inspect", "anything")); !errors.As(err, &absent) {
+		return fmt.Errorf("stub docker does not report the image ABSENT (err=%v); the run would proceed past the image gate and this row would assert nothing", err)
 	}
 	return nil
 }

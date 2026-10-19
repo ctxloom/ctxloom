@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // TestGenSchemasStub_WithoutTag_FailsLoud pins that `go run
@@ -16,8 +18,7 @@ import (
 // nothing at all, silently. The stub must instead fail loud and point at the
 // real invocation (`just gen-schemas`, which supplies the tag).
 func TestGenSchemasStub_WithoutTag_FailsLoud(t *testing.T) {
-	cmd := exec.Command("go", "run", "github.com/ctxloom/ctxloom/cmd/gen-schemas")
-	out, err := cmd.CombinedOutput()
+	out, err := testenv.GoCombinedOutput(nil, "run", "github.com/ctxloom/ctxloom/cmd/gen-schemas")
 
 	require.Error(t, err, "untagged gen-schemas stub must NOT exit 0; got output:\n%s", out)
 	var exitErr *exec.ExitError

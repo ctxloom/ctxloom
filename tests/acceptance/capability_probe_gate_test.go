@@ -184,8 +184,7 @@ func TestProbeCellSkip_DropsTheProbeFieldSoTheLineNamesOneIdentifier(t *testing.
 func TestProbeCellCredentialEnv_TheTokenIsTheWholeCredential(t *testing.T) {
 	withLaunchCredentials(t, map[string]string{claude.OAuthTokenEnv: "fake-token", claude.APIKeyEnv: "fake-key"})
 
-	cmd := exec.Command("true")
-	cmd.Env = []string{"HOME=/tmp/fake-home", "PATH=/usr/bin", claude.OAuthTokenEnv + "=stale"}
+	cmd := &exec.Cmd{Env: []string{"HOME=/tmp/fake-home", "PATH=/usr/bin", claude.OAuthTokenEnv + "=stale"}}
 	home, err := probeCellCredentialEnv("p-test", "claude-code", cmd)
 	require.NoError(t, err)
 
@@ -205,8 +204,7 @@ func TestProbeCellCredentialEnv_NoTokenRefuses(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			withLaunchCredentials(t, creds)
-			cmd := exec.Command("true")
-			cmd.Env = []string{"HOME=/tmp/fake-home"}
+			cmd := &exec.Cmd{Env: []string{"HOME=/tmp/fake-home"}}
 			_, err := probeCellCredentialEnv("p-test", "claude-code", cmd)
 
 			require.Error(t, err)

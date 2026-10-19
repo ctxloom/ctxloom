@@ -18,8 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
-
 	"github.com/cucumber/godog"
 )
 
@@ -112,12 +110,13 @@ func registerP18TurnPostureSteps(ctx *godog.ScenarioContext) {
 func p18RunTurn(c context.Context, p *p18State, n int, spec p18TurnSpec, resume string) (p18TurnRun, error) {
 	runCtx, cancel := context.WithTimeout(c, p18RunTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, p.claudePath, p18Args(spec, resume)...)
+	env := worldFrom(c).env
+	cmd := env.HostCommand(runCtx, p.claudePath, p18Args(spec, resume)...)
 	cmd.Dir = p.repo
 	cmd.Env = liveVendorEnv(p.cred, p.home, p.cfg)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
+	err := env.RunCmd(cmd)
 	t := p18TurnRun{Started: true, TimedOut: errors.Is(runCtx.Err(), context.DeadlineExceeded),
 		Run: probeRun{Stdout: stdout.String(), Stderr: stderr.String(), Err: err, ExitCode: probeExitCode(err)}, Landed: map[string]bool{}}
 
@@ -164,7 +163,7 @@ func p18Fixture(w *World, p *p18State) error {
 			return err
 		}
 	}
-	if out, err := taskstest.GitCmd(filepath.Dir(p.repo), nil, "init", "-q", p.repo).CombinedOutput(); err != nil {
+	if out, err := w.env.CombinedOutput(w.env.GitCommand(filepath.Dir(p.repo), "init", "-q", p.repo)); err != nil {
 		return fmt.Errorf("%s: git init %s: %w: %s", p18Family, p.repo, err, out)
 	}
 	answer, err := p.variant.hookAnswer()

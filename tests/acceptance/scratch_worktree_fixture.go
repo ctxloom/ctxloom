@@ -21,7 +21,6 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
-	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
 const (
@@ -51,9 +50,7 @@ const (
 // environment, so git reads the scenario's fake HOME rather than the
 // developer's.
 func isolatedGit(w *World, dir string, args ...string) (string, error) {
-	cmd := taskstest.GitCmd(dir, nil, args...)
-	cmd.Env = taskstest.HermeticGitEnv(w.env.Command(nil, "version").Env) // the isolated env every helper trusts
-	out, err := cmd.CombinedOutput()
+	out, err := w.env.CombinedOutput(w.env.GitCommand(dir, args...))
 	if err != nil {
 		return string(out), fmt.Errorf("git %s in %s: %s: %w", strings.Join(args, " "), dir, out, err)
 	}

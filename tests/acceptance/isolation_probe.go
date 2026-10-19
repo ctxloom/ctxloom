@@ -75,6 +75,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/engines/opencode"
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // probeAxis names the isolation axis under test: the WORKSPACE axis
@@ -364,14 +365,14 @@ type probeContainerSnapshot struct {
 // `docker diff` on it every 40ms until ctx is cancelled, keeping the last
 // successful enumeration (a "no such container" error, expected once `--rm`
 // tears it down, never overwrites a good snapshot with nothing).
-func watchContainerDiff(ctx context.Context, runtimeBin string) <-chan probeContainerSnapshot {
+func watchContainerDiff(ctx context.Context, env *testenv.TestEnvironment, runtimeBin string) <-chan probeContainerSnapshot {
 	out := make(chan probeContainerSnapshot, 1)
 	go func() {
 		var snap probeContainerSnapshot
-		name := waitForContainerName(ctx, runtimeBin)
+		name := waitForContainerName(ctx, env, runtimeBin)
 		if name != "" {
 			snap.Name = name
-			snap.Mounts = dockerMounts(runtimeBin, name)
+			snap.Mounts = dockerMounts(env, runtimeBin, name)
 			ticker := time.NewTicker(40 * time.Millisecond)
 			defer ticker.Stop()
 		loop:
@@ -390,7 +391,7 @@ func watchContainerDiff(ctx context.Context, runtimeBin string) <-chan probeCont
 					// the kept snapshot now; a transient empty `docker diff`
 					// mid-run no longer wipes out real evidence already
 					// captured.
-					if lines, err := dockerDiff(runtimeBin, name); err == nil && len(lines) > 0 {
+					if lines, err := dockerDiff(env, runtimeBin, name); err == nil && len(lines) > 0 {
 						snap.Diff = lines
 					}
 				}
@@ -418,7 +419,7 @@ func watchContainerDiff(ctx context.Context, runtimeBin string) <-chan probeCont
 // isolation-probe <engine> <axis>` runs one cell at a time and is immune to
 // this; do not fan multiple container-axis cells out concurrently on one
 // host/runner without first giving each a distinguishable agent name.
-func waitForContainerName(ctx context.Context, runtimeBin string) string {
+func waitForContainerName(ctx context.Context, env *testenv.TestEnvironment, runtimeBin string) string {
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -426,8 +427,8 @@ func waitForContainerName(ctx context.Context, runtimeBin string) string {
 		case <-ctx.Done():
 			return ""
 		case <-ticker.C:
-			cmd := exec.Command(runtimeBin, "ps", "--filter", "name=ctxloom-iso-", "--format", "{{.Names}}")
-			cmdOut, err := cmd.Output()
+			cmd := env.HostCommand(ctx, runtimeBin, "ps", "--filter", "name=ctxloom-iso-", "--format", "{{.Names}}")
+			cmdOut, err := env.Output(cmd)
 			if err != nil {
 				continue
 			}
@@ -442,9 +443,8 @@ func waitForContainerName(ctx context.Context, runtimeBin string) string {
 
 // dockerDiff runs `docker diff <name>` and parses it into "A /path" /
 // "C /path" / "D /path" lines — the writable-layer path list, paths only.
-func dockerDiff(runtimeBin, name string) ([]string, error) {
-	cmd := exec.Command(runtimeBin, "diff", name)
-	out, err := cmd.Output()
+func dockerDiff(env *testenv.TestEnvironment, runtimeBin, name string) ([]string, error) {
+	out, err := env.Output(env.HostCommand(context.Background(), runtimeBin, "diff", name))
 	if err != nil {
 		return nil, err
 	}
@@ -460,8 +460,8 @@ func dockerDiff(runtimeBin, name string) ([]string, error) {
 // dockerMounts lists name's mount destinations, nil when the container cannot
 // be inspected (gone already): (d) then reports the stubs, loudly, rather
 // than exempting anything it could not see.
-func dockerMounts(runtimeBin, name string) []string {
-	out, err := exec.Command(runtimeBin, "inspect", "--format", "{{range .Mounts}}{{println .Destination}}{{end}}", name).Output()
+func dockerMounts(env *testenv.TestEnvironment, runtimeBin, name string) []string {
+	out, err := env.Output(env.HostCommand(context.Background(), runtimeBin, "inspect", "--format", "{{range .Mounts}}{{println .Destination}}{{end}}", name))
 	if err != nil {
 		return nil
 	}
@@ -550,8 +550,8 @@ const probeRunTimeout = 5 * time.Minute
 // within probeRunTimeout, and returns cmd.Wait's error either way — a
 // killed-on-timeout run still reports SOME exit error, which the caller's
 // existing exit-code handling turns into a FAILED (not a silent hang).
-func runWithTimeout(cmd *exec.Cmd) error {
-	if err := cmd.Start(); err != nil {
+func runWithTimeout(env *testenv.TestEnvironment, cmd *exec.Cmd) error {
+	if err := env.Start(cmd); err != nil {
 		return err
 	}
 	timer := time.AfterFunc(probeRunTimeout, func() {
@@ -714,7 +714,7 @@ func runProbeWorktree(w *World, backendType string, auth probeAuth) (*probeResul
 	ctx, cancel := context.WithCancel(context.Background())
 	scratchCh := watchScratch(ctx, w.env.HomeDir)
 
-	runErr := runWithTimeout(cmd)
+	runErr := runWithTimeout(w.env, cmd)
 	// Grace window: lets the watcher's ticker take at least a couple more
 	// polls right as the process exits and Cleanup begins, without changing
 	// the "keep last non-empty" semantics that make the exact stop time
@@ -809,13 +809,13 @@ func runProbeContainer(w *World, backendType string, axis probeAxis, runtimeBin 
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 
 	ctx, cancel := context.WithCancel(context.Background())
-	diffCh := watchContainerDiff(ctx, runtimeBin)
+	diffCh := watchContainerDiff(ctx, w.env, runtimeBin)
 	// The session's engine home is a host bind into the container, so what the
 	// engine wrote there is observable on the host — while the run is in
 	// flight, because a one-shot session's home may not outlive it.
 	scratchCh := watchScratch(ctx, w.env.HomeDir)
 
-	runErr := runWithTimeout(cmd)
+	runErr := runWithTimeout(w.env, cmd)
 	time.Sleep(150 * time.Millisecond)
 	cancel()
 	res.Container = <-diffCh

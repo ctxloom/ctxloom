@@ -16,8 +16,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
-
 	"github.com/cucumber/godog"
 )
 
@@ -69,18 +67,19 @@ func registerP17InlineSettingsSteps(ctx *godog.ScenarioContext) {
 		})
 
 	ctx.Step(`^it runs one turn with user settings in the config home and an inline JSON --settings$`, func(c context.Context) error {
-		p := p17Of(worldFrom(c))
+		w := worldFrom(c)
+		p := p17Of(w)
 		if p.dir == "" {
 			return errP12NotRun
 		}
 		runCtx, cancel := context.WithTimeout(c, p17RunTimeout)
 		defer cancel()
-		cmd := exec.CommandContext(runCtx, p.claudePath, p17Args()...)
+		cmd := w.env.HostCommand(runCtx, p.claudePath, p17Args()...)
 		cmd.Dir = p.repo
 		cmd.Env = liveVendorEnv(p.cred, p.home, p.cfg)
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
-		err := cmd.Run()
+		err := w.env.RunCmd(cmd)
 		o := p17Outcome{Cell: p.cell(), Started: true, TimedOut: errors.Is(runCtx.Err(), context.DeadlineExceeded),
 			Run: probeRun{Stdout: stdout.String(), Stderr: stderr.String(), Err: err, ExitCode: probeExitCode(err)}, Fired: map[string]bool{}}
 		for event, marker := range p13Markers {
@@ -117,7 +116,7 @@ func p17Fixture(w *World, p *p17State) error {
 			return err
 		}
 	}
-	if out, err := taskstest.GitCmd(filepath.Dir(p.repo), nil, "init", "-q", p.repo).CombinedOutput(); err != nil {
+	if out, err := w.env.CombinedOutput(w.env.GitCommand(filepath.Dir(p.repo), "init", "-q", p.repo)); err != nil {
 		return fmt.Errorf("%s: git init %s: %w: %s", p17Family, p.repo, err, out)
 	}
 	settings, err := p17HomeSettingsJSON(p.dir)

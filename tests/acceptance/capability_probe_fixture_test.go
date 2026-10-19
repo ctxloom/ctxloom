@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // TestProbeConfigYAML_EveryProbeCarriesTheRuntimeAxisOntoTheBinding is the
@@ -83,7 +83,7 @@ func probeRuntimeBuilders(a liveAgent) map[string]func(string) string {
 // wrong directory and the verdict reports "it never ran" about a cell that ran
 // perfectly. All four arms are pinned.
 func TestProbeCellRunDir_NoneRunsTheProjectItself(t *testing.T) {
-	got, err := probeCellRunDir("probe", "/tmp/proj", "none", probeRun{})
+	got, err := probeCellRunDir(testenv.Sandbox(t.TempDir()), "probe", "/tmp/proj", "none", probeRun{})
 	if err != nil {
 		t.Fatalf("workspace=none must resolve without consulting git at all: %v", err)
 	}
@@ -96,9 +96,9 @@ func TestProbeCellRunDir_WorktreeResolvesThePerAgentCheckout(t *testing.T) {
 	proj := t.TempDir()
 	gitInitForProbe(t, proj)
 	wt := filepath.Join(t.TempDir(), "agent-checkout")
-	taskstest.Git(t, proj, nil, "worktree", "add", "-b", "probe-cell", wt)
+	probeGit(t, proj, "worktree", "add", "-b", "probe-cell", wt)
 
-	got, err := probeCellRunDir("probe", proj, "worktree", probeRun{})
+	got, err := probeCellRunDir(testenv.Sandbox(t.TempDir()), "probe", proj, "worktree", probeRun{})
 	if err != nil {
 		t.Fatalf("a workspace=worktree cell must resolve its per-agent checkout: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestProbeCellRunDir_RefusesWhenNoCheckoutWasCreated(t *testing.T) {
 	proj := t.TempDir()
 	gitInitForProbe(t, proj)
 
-	if _, err := probeCellRunDir("probe", proj, "worktree", probeRun{}); err == nil {
+	if _, err := probeCellRunDir(testenv.Sandbox(t.TempDir()), "probe", proj, "worktree", probeRun{}); err == nil {
 		t.Fatal("ZERO worktrees after a workspace=worktree run must be REFUSED, never smoothed into 'then use the project dir': that substitution lets a cell which never got its checkout pass on the host fixture's evidence, which is the axis silently not being tested")
 	}
 }
@@ -130,7 +130,7 @@ func TestProbeCellRunDir_RefusalCarriesTheRunsOwnEvidence(t *testing.T) {
 	gitInitForProbe(t, proj)
 	run := probeRun{Stdout: "stdout-marker", Stderr: "stderr-marker", ExitCode: 3, Err: fmt.Errorf("exit status 3")}
 
-	_, err := probeCellRunDir("probe", proj, "worktree", run)
+	_, err := probeCellRunDir(testenv.Sandbox(t.TempDir()), "probe", proj, "worktree", run)
 	if err == nil {
 		t.Fatal("ZERO worktrees must still be refused")
 	}
@@ -142,22 +142,31 @@ func TestProbeCellRunDir_RefusalCarriesTheRunsOwnEvidence(t *testing.T) {
 func TestProbeCellRunDir_RefusesWhenAnotherCellLeakedItsCheckout(t *testing.T) {
 	proj := t.TempDir()
 	gitInitForProbe(t, proj)
-	taskstest.Git(t, proj, nil, "worktree", "add", "-b", "cell-one", filepath.Join(t.TempDir(), "one"))
-	taskstest.Git(t, proj, nil, "worktree", "add", "-b", "cell-two", filepath.Join(t.TempDir(), "two"))
+	probeGit(t, proj, "worktree", "add", "-b", "cell-one", filepath.Join(t.TempDir(), "one"))
+	probeGit(t, proj, "worktree", "add", "-b", "cell-two", filepath.Join(t.TempDir(), "two"))
 
-	if _, err := probeCellRunDir("probe", proj, "worktree", probeRun{}); err == nil {
+	if _, err := probeCellRunDir(testenv.Sandbox(t.TempDir()), "probe", proj, "worktree", probeRun{}); err == nil {
 		t.Fatal("TWO worktrees must be refused: this cell cannot tell whose evidence it is about to read, and picking either one is how a cell passes on a previous cell's stamp")
+	}
+}
+
+// probeGit runs git in dir behind the spawn gate, failing t on error.
+func probeGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	sandbox := testenv.Sandbox(t.TempDir())
+	if out, err := sandbox.CombinedOutput(sandbox.GitCommand(dir, args...)); err != nil {
+		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
 	}
 }
 
 func gitInitForProbe(t *testing.T, dir string) {
 	t.Helper()
-	taskstest.Git(t, dir, nil, "init")
-	taskstest.Git(t, dir, nil, "config", "user.email", "probe@example.test")
-	taskstest.Git(t, dir, nil, "config", "user.name", "probe")
+	probeGit(t, dir, "init")
+	probeGit(t, dir, "config", "user.email", "probe@example.test")
+	probeGit(t, dir, "config", "user.name", "probe")
 	if err := os.WriteFile(filepath.Join(dir, "seed"), []byte("seed\n"), 0o600); err != nil {
 		t.Fatalf("seeding the probe repo: %v", err)
 	}
-	taskstest.Git(t, dir, nil, "add", "seed")
-	taskstest.Git(t, dir, nil, "commit", "-m", "seed")
+	probeGit(t, dir, "add", "seed")
+	probeGit(t, dir, "commit", "-m", "seed")
 }

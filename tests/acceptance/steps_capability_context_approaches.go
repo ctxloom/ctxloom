@@ -137,7 +137,7 @@ func registerContextApproachSteps(ctx *godog.ScenarioContext) {
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 
-		if err := cmd.Start(); err != nil {
+		if err := w.env.Start(cmd); err != nil {
 			return fmt.Errorf("%s: start run: %w", approachFamily, err)
 		}
 		timer := time.AfterFunc(matrixRunTimeout, func() {

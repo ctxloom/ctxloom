@@ -28,8 +28,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
-
 	"github.com/cucumber/godog"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -279,7 +277,7 @@ func j000700SetupProject(w *World, configYAML string) error {
 	if err := w.env.InitGitRepo(); err != nil {
 		return err
 	}
-	if _, err := j000700Git(w.env.ProjectDir, "symbolic-ref", "HEAD", "refs/heads/main"); err != nil {
+	if _, err := j000700Git(w.env, w.env.ProjectDir, "symbolic-ref", "HEAD", "refs/heads/main"); err != nil {
 		return err
 	}
 	if err := w.env.WriteFile(".ctxloom/config.yaml", configYAML); err != nil {
@@ -299,10 +297,10 @@ func j000700SetupProject(w *World, configYAML string) error {
 		return err
 	}
 	w.j000700().bareOrigin = bare
-	if _, err := j000700Git(w.env.ProjectDir, "remote", "add", "origin", bare); err != nil {
+	if _, err := j000700Git(w.env, w.env.ProjectDir, "remote", "add", "origin", bare); err != nil {
 		return err
 	}
-	_, err = j000700Git(w.env.ProjectDir, "push", "-u", "origin", "main")
+	_, err = j000700Git(w.env, w.env.ProjectDir, "push", "-u", "origin", "main")
 	return err
 }
 
@@ -331,7 +329,7 @@ func j000700CommitAndPush(w *World, message string) error {
 	if err := w.env.GitCommit(message); err != nil {
 		return err
 	}
-	_, err := j000700Git(w.env.ProjectDir, "push", "origin", "main")
+	_, err := j000700Git(w.env, w.env.ProjectDir, "push", "origin", "main")
 	return err
 }
 
@@ -348,13 +346,13 @@ func j000700BobPull(w *World) error {
 	}
 	if j000700.bobDir == "" {
 		dir := filepath.Join(w.env.Root, "bob-project")
-		if _, err := j000700Git(filepath.Dir(dir), "clone", j000700.bareOrigin, dir); err != nil {
+		if _, err := j000700Git(w.env, filepath.Dir(dir), "clone", j000700.bareOrigin, dir); err != nil {
 			return err
 		}
 		j000700.bobDir = dir
 		return nil
 	}
-	_, err := j000700Git(j000700.bobDir, "pull", "origin", "main")
+	_, err := j000700Git(w.env, j000700.bobDir, "pull", "origin", "main")
 	return err
 }
 
@@ -418,26 +416,25 @@ func findBobCommandFile(w *World, commandName string) (string, error) {
 	return string(data), nil
 }
 
-// j000700GitEnv is the hermetic git invocation environment for J000700's own origin/
-// Bob-clone plumbing (mirrors testenv's unexported runGitE/gitOutput, which
-// this package cannot reach across the package boundary — see the file doc).
-func j000700GitEnv() []string {
-	return append(os.Environ(),
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_CONFIG_GLOBAL=/dev/null",
-		"GIT_CONFIG_SYSTEM=/dev/null",
-	)
+// j000700GitEnv keeps J000700's own origin/Bob-clone git free of the
+// developer's configuration and unable to stop for a credential prompt
+// (mirrors testenv's unexported standaloneGitEnv, which this package cannot
+// reach across the package boundary — see the file doc).
+var j000700GitEnv = []string{
+	"GIT_TERMINAL_PROMPT=0",
+	"GIT_CONFIG_GLOBAL=/dev/null",
+	"GIT_CONFIG_SYSTEM=/dev/null",
 }
 
-// j000700Git runs git in dir with a hermetic environment, returning stdout or
-// an error carrying stderr.
-func j000700Git(dir string, args ...string) (string, error) {
-	cmd := taskstest.GitCmd(dir, nil, args...)
-	cmd.Env = taskstest.HermeticGitEnv(j000700GitEnv())
+// j000700Git runs git in dir under env's sandbox plus j000700GitEnv, returning
+// stdout or an error carrying stderr.
+func j000700Git(env *testenv.TestEnvironment, dir string, args ...string) (string, error) {
+	cmd := env.GitCommand(dir, args...)
+	cmd.Env = append(cmd.Env, j000700GitEnv...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	if err := env.RunCmd(cmd); err != nil {
 		return "", fmt.Errorf("git %s (in %q): %w: %s", strings.Join(args, " "), dir, err, stderr.String())
 	}
 	return stdout.String(), nil
@@ -452,7 +449,7 @@ func j000700NewBareOrigin(w *World) (string, error) {
 		return "", err
 	}
 	bare := filepath.Join(root, "team.git")
-	if _, err := j000700Git(filepath.Dir(bare), "init", "--bare", "-b", "main", bare); err != nil {
+	if _, err := j000700Git(w.env, filepath.Dir(bare), "init", "--bare", "-b", "main", bare); err != nil {
 		return "", err
 	}
 	return bare, nil

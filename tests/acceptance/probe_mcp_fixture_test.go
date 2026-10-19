@@ -22,6 +22,7 @@ package acceptance
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -30,6 +31,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // --- driving the real server ---------------------------------------------------
@@ -48,12 +51,13 @@ func startFixtureServer(t *testing.T, nonce string) (*mcpTestClient, probeMCPFix
 	f, err := probeMCPWriteFixture(t.TempDir(), nonce)
 	require.NoError(t, err)
 
-	cmd := exec.Command(f.Binary, f.Dir)
+	sandbox := testenv.Sandbox(t.TempDir())
+	cmd := sandbox.HostCommand(context.Background(), f.Binary, f.Dir)
 	in, err := cmd.StdinPipe()
 	require.NoError(t, err)
 	out, err := cmd.StdoutPipe()
 	require.NoError(t, err)
-	require.NoError(t, cmd.Start())
+	require.NoError(t, sandbox.Start(cmd))
 	t.Cleanup(func() {
 		_ = in.Close()
 		_ = cmd.Wait()

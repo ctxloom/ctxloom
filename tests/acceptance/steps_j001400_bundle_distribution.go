@@ -73,8 +73,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
-
 	"github.com/cucumber/godog"
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
@@ -294,10 +292,10 @@ func j001400SeedTreeRemote(w *World, st *j001400State) error {
 	bare := filepath.Join(root, "remote.git")
 	work := filepath.Join(root, "work")
 
-	if err := j001400GitAll(root, [][]string{{"init", "--bare", "-b", "main", bare}, {"init", "-b", "main", work}}); err != nil {
+	if err := j001400GitAll(w.env, root, [][]string{{"init", "--bare", "-b", "main", bare}, {"init", "-b", "main", work}}); err != nil {
 		return err
 	}
-	if err := j001400GitAll(work, [][]string{
+	if err := j001400GitAll(w.env, work, [][]string{
 		{"config", "user.email", "trent@example.com"},
 		{"config", "user.name", "Trent"},
 		{"config", "commit.gpgsign", "false"},
@@ -307,7 +305,7 @@ func j001400SeedTreeRemote(w *World, st *j001400State) error {
 	if err := j001400WriteTree(work, st.authored); err != nil {
 		return err
 	}
-	if err := j001400GitAll(work, [][]string{
+	if err := j001400GitAll(w.env, work, [][]string{
 		{"add", "-A"},
 		{"commit", "-m", "publish atelier tree"},
 		{"remote", "add", "origin", bare},
@@ -315,7 +313,7 @@ func j001400SeedTreeRemote(w *World, st *j001400State) error {
 	}); err != nil {
 		return err
 	}
-	if err := j001400Git(bare, "symbolic-ref", "HEAD", "refs/heads/main"); err != nil {
+	if err := j001400Git(w.env, bare, "symbolic-ref", "HEAD", "refs/heads/main"); err != nil {
 		return err
 	}
 	st.bare = bare
@@ -325,9 +323,9 @@ func j001400SeedTreeRemote(w *World, st *j001400State) error {
 
 // j001400GitAll runs a sequence of git commands in dir, stopping at the first
 // failure. Seeding is a linear script of them.
-func j001400GitAll(dir string, cmds [][]string) error {
+func j001400GitAll(env *testenv.TestEnvironment, dir string, cmds [][]string) error {
 	for _, a := range cmds {
-		if err := j001400Git(dir, a...); err != nil {
+		if err := j001400Git(env, dir, a...); err != nil {
 			return err
 		}
 	}
@@ -336,9 +334,8 @@ func j001400GitAll(dir string, cmds [][]string) error {
 
 // j001400Git runs one git command, surfacing its combined output on failure so a
 // seeding problem is diagnosable rather than a bare exit status.
-func j001400Git(dir string, args ...string) error {
-	cmd := taskstest.GitCmd(dir, nil, args...)
-	if out, err := cmd.CombinedOutput(); err != nil {
+func j001400Git(env *testenv.TestEnvironment, dir string, args ...string) error {
+	if out, err := env.CombinedOutput(env.GitCommand(dir, args...)); err != nil {
 		return fmt.Errorf("git %s in %s: %w: %s", strings.Join(args, " "), dir, err, out)
 	}
 	return nil
@@ -900,7 +897,7 @@ func j001400DetachedCheckout(w *World) (string, error) {
 	if err := w.env.GitCommit("j001400: project state before the agent's worktree is cut"); err != nil {
 		return "", fmt.Errorf("commit before cutting the agent's worktree: %w", err)
 	}
-	if err := j001400Git(w.env.ProjectDir, "worktree", "add", "--detach", path); err != nil {
+	if err := j001400Git(w.env, w.env.ProjectDir, "worktree", "add", "--detach", path); err != nil {
 		return "", err
 	}
 	proj := w.env.ProjectDir + string(filepath.Separator)

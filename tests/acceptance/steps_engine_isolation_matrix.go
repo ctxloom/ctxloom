@@ -213,7 +213,7 @@ func registerEngineMatrixSteps(ctx *godog.ScenarioContext) {
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 
-		if err := cmd.Start(); err != nil {
+		if err := w.env.Start(cmd); err != nil {
 			return fmt.Errorf("engine-matrix: start run: %w", err)
 		}
 		timer := time.AfterFunc(matrixRunTimeout, func() {

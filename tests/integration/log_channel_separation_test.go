@@ -66,7 +66,7 @@ func TestLogChannels_StructuredGoesToTheFileAndNeverToAHooksStderr(t *testing.T)
 	cmd.Stdin = strings.NewReader(`{"session_id":"log-channels","source":"startup"}`)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
-	stdout, runErr := cmd.Output()
+	stdout, runErr := env.Output(cmd)
 	require.NoError(t, runErr, "the hook must not fail the engine's session start; stderr: %s", stderr.String())
 
 	logPath := filepath.Join(home, ".ctxloom", "logs", "ctxloom.log")

@@ -43,7 +43,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -251,7 +250,7 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 
-		if err := cmd.Start(); err != nil {
+		if err := w.env.Start(cmd); err != nil {
 			return fmt.Errorf("hook-probe: start run: %w", err)
 		}
 		timer := time.AfterFunc(hookProbeRunTimeout, func() {
@@ -277,7 +276,7 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 		// probeCellRunDir. Reading the project's copy for such a cell would find
 		// nothing and report "the hook never fired", the exact false finding this
 		// probe exists to make impossible.
-		runDir, err := probeCellRunDir(hookProbeFamily, w.env.ProjectDir, h.workspace,
+		runDir, err := probeCellRunDir(w.env, hookProbeFamily, w.env.ProjectDir, h.workspace,
 			probeRun{Stdout: h.stdout, Stderr: h.stderr, ExitCode: h.exitCode, Err: h.runErr})
 		if err != nil {
 			return err
@@ -407,7 +406,7 @@ func hookProbeNeedsSessionHome(string) bool {
 // The needle travels as an ENV VAR, never spliced into the script, so a
 // filesystem path carrying a quote cannot become shell. See
 // hookProbeContainerCarriageScript.
-func hookProbeDockerExec(runtimeBin string) hookProbeContainerExec {
+func hookProbeDockerExec(sandbox *testenv.TestEnvironment, runtimeBin string) hookProbeContainerExec {
 	return func(container string, env map[string]string, argv ...string) ([]byte, error) {
 		args := []string{"exec"}
 		for k, v := range env {
@@ -415,7 +414,7 @@ func hookProbeDockerExec(runtimeBin string) hookProbeContainerExec {
 		}
 		args = append(args, container)
 		args = append(args, argv...)
-		return exec.Command(runtimeBin, args...).Output()
+		return sandbox.Output(sandbox.HostCommand(context.Background(), runtimeBin, args...))
 	}
 }
 
@@ -431,15 +430,15 @@ func hookProbeDockerExec(runtimeBin string) hookProbeContainerExec {
 // cell's container is named ctxloom-iso-<random>, so two container cells racing
 // on one host can attribute the wrong container. `just capability-probe` runs
 // one cell at a time; do not fan these out.
-func hookProbeWatchContainerCarriage(ctx context.Context, runtimeBin, needle string, dirs, authored []string) <-chan string {
+func hookProbeWatchContainerCarriage(ctx context.Context, env *testenv.TestEnvironment, runtimeBin, needle string, dirs, authored []string) <-chan string {
 	out := make(chan string, 1)
 	go func() {
 		defer close(out)
-		name := waitForContainerName(ctx, runtimeBin)
+		name := waitForContainerName(ctx, env, runtimeBin)
 		if name == "" {
 			return
 		}
-		run := hookProbeDockerExec(runtimeBin)
+		run := hookProbeDockerExec(env, runtimeBin)
 		ticker := time.NewTicker(hookProbeCarriagePollInterval)
 		defer ticker.Stop()
 		for {
@@ -471,7 +470,7 @@ func hookProbeStartContainerScan(c context.Context, h *hookProbeState, projectDi
 	}
 	scanCtx, cancel := context.WithCancel(c)
 	return hookProbeWatchContainerCarriage(
-		scanCtx, rt.Command, h.scriptPath,
+		scanCtx, worldFrom(c).env, rt.Command, h.scriptPath,
 		[]string{projectDir}, h.authored,
 	), cancel
 }

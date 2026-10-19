@@ -89,7 +89,7 @@ func TestSecondRun_FoundsItsOwnTree_AndTheFirstKeepsItsState(t *testing.T) {
 	// first owns its root. A one-shot is enough — every `ctxloom run` hosts
 	// its coordinator before it starts the engine.
 	second := env.Command(nil, "run", "--one-shot", "-f", "trees-fragment", "second tree")
-	out, err := second.CombinedOutput()
+	out, err := env.CombinedOutput(second)
 	require.NoError(t, err, "a second run in an owned project must succeed on a tree of its own; output:\n%s", out)
 	require.NotContains(t, string(out), coord.ErrStateOwned.Error(), "a fresh run is never refused; output:\n%s", out)
 	require.NotContains(t, string(out), "coordinator startup failed", "the second run must have hosted its own coordinator; output:\n%s", out)

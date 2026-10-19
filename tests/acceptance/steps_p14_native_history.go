@@ -21,8 +21,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
-
 	"github.com/cucumber/godog"
 
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
@@ -84,25 +82,26 @@ func registerP14NativeHistorySteps(ctx *godog.ScenarioContext) {
 			if err := os.Symlink(p14NativeLink, filepath.Join(p.cfg, claude.TranscriptsDirName)); err != nil {
 				return err
 			}
-			if out, err := taskstest.GitCmd(filepath.Dir(p.repo), nil, "init", "-q", p.repo).CombinedOutput(); err != nil {
+			if out, err := w.env.CombinedOutput(w.env.GitCommand(filepath.Dir(p.repo), "init", "-q", p.repo)); err != nil {
 				return fmt.Errorf("%s: git init %s: %w: %s", p14Family, p.repo, err, out)
 			}
 			return nil
 		})
 
 	ctx.Step(`^it runs one native-history turn$`, func(c context.Context) error {
-		p := worldFrom(c).p14
+		w := worldFrom(c)
+		p := w.p14
 		if p == nil {
 			return fmt.Errorf("%s: the Given step never ran", p14Family)
 		}
 		runCtx, cancel := context.WithTimeout(c, p14RunTimeout)
 		defer cancel()
-		cmd := exec.CommandContext(runCtx, p.claudePath, "-p", "Reply with the single word ok.", "--model", liveClaudeModel)
+		cmd := w.env.HostCommand(runCtx, p.claudePath, "-p", "Reply with the single word ok.", "--model", liveClaudeModel)
 		cmd.Dir = p.repo
 		cmd.Env = liveVendorEnv(p.cred, p.home, p.cfg)
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
-		err := cmd.Run()
+		err := w.env.RunCmd(cmd)
 		p.run = probeRun{Stdout: stdout.String(), Stderr: stderr.String(), Err: err}
 		var exitErr *exec.ExitError
 		switch {

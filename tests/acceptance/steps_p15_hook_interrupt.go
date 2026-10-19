@@ -16,11 +16,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
-
 	"github.com/cucumber/godog"
 
 	"github.com/ctxloom/ctxloom/internal/shared/procsig"
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // p15PollEvery is how often the cell looks for the hook's pid file and, after
@@ -77,7 +76,7 @@ func registerP15HookInterruptSteps(ctx *godog.ScenarioContext) {
 		if p.dir == "" {
 			return errP12NotRun
 		}
-		p.outcome = p15Run(p)
+		p.outcome = p15Run(worldFrom(c).env, p)
 		fmt.Printf("EVIDENCE %s %s: %s\n", p15Family, p.cell(), p.outcome.summary())
 		return nil
 	})
@@ -94,21 +93,21 @@ func registerP15HookInterruptSteps(ctx *godog.ScenarioContext) {
 // p15Run spends the turn: start claude as the driver does, wait for the hook
 // to block, interrupt, give claude the driver's grace, then read the hook.
 // Whatever it observed, it leaves no fixture process running.
-func p15Run(p *p15State) p15Outcome {
+func p15Run(env *testenv.TestEnvironment, p *p15State) p15Outcome {
 	o := p15Outcome{Cell: p.cell()}
 	msg, err := p15UserMessage(p12Prompt(filepath.Join(p.dir, p12ProofName)))
 	if err != nil {
 		o.Run.Err = err
 		return o
 	}
-	cmd := exec.Command(p.claudePath, p15Args(filepath.Join(p.dir, p12SettingsName))...)
+	cmd := env.HostCommand(context.Background(), p.claudePath, p15Args(filepath.Join(p.dir, p12SettingsName))...)
 	cmd.Dir = p.repo
 	cmd.Env = liveVendorEnv(p.cred, p.home, p.cfg)
 	cmd.SysProcAttr = procsig.SpawnAttr()
 	cmd.Stdin = bytes.NewReader(msg)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Start(); err != nil {
+	if err := env.Start(cmd); err != nil {
 		o.Run.Err = err
 		return o
 	}
@@ -209,7 +208,7 @@ func p15Fixture(w *World, p *p15State) error {
 			return err
 		}
 	}
-	if out, err := taskstest.GitCmd(filepath.Dir(p.repo), nil, "init", "-q", p.repo).CombinedOutput(); err != nil {
+	if out, err := w.env.CombinedOutput(w.env.GitCommand(filepath.Dir(p.repo), "init", "-q", p.repo)); err != nil {
 		return fmt.Errorf("%s: git init %s: %w: %s", p15Family, p.repo, err, out)
 	}
 	hookPath := filepath.Join(p.dir, p12HookName)

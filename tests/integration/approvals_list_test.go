@@ -5,7 +5,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
-	"os/exec"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // listedApprovals is the part of `ctxloom session approvals --format json`
@@ -27,10 +28,12 @@ type listedApprovals struct {
 }
 
 // runApprovalsList runs the built binary as ANOTHER process: it shares
-// nothing with the lane but the HOME its coordinator's endpoint is under.
+// nothing with the lane but the HOME its coordinator's endpoint is under,
+// which openContractLane set on this process.
 func runApprovalsList(t *testing.T, format string) string {
 	t.Helper()
-	out, err := exec.CommandContext(context.Background(), agent.CtxloomCommand(), "--format", format, "session", "approvals").CombinedOutput()
+	sandbox := testenv.Sandbox(os.Getenv("HOME"))
+	out, err := sandbox.CombinedOutput(sandbox.HostCommand(context.Background(), agent.CtxloomCommand(), "--format", format, "session", "approvals"))
 	require.NoError(t, err, "%s", out)
 	return string(out)
 }

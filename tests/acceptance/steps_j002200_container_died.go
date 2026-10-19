@@ -4,6 +4,7 @@ package acceptance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -122,20 +123,23 @@ func j002200StubDiedRuntime(w *World) error {
 	if err != nil {
 		return err
 	}
-	if err := exec.Command(stub, "info").Run(); err != nil {
+	if err := w.env.RunCmd(w.env.HostCommand(context.Background(), stub, "info")); err != nil {
 		return fmt.Errorf("stub docker does not report a reachable daemon (%v); chainFor would take the runtime-unreachable branch and this row would assert the wrong gate", err)
 	}
-	sec, err := exec.Command(stub, "info", "--format", "{{.SecurityOptions}}").Output()
+	sec, err := w.env.Output(w.env.HostCommand(context.Background(), stub, "info", "--format", "{{.SecurityOptions}}"))
 	if err != nil || !strings.Contains(string(sec), "rootless") {
 		return fmt.Errorf("stub docker does not report ROOTLESS ownership (%q, err=%v); the agent asks for container-rootless and would abort at the runtime gate", strings.TrimSpace(string(sec)), err)
 	}
-	if err := exec.Command(stub, "image", "inspect", "anything").Run(); err != nil {
+	if err := w.env.RunCmd(w.env.HostCommand(context.Background(), stub, "image", "inspect", "anything")); err != nil {
 		return fmt.Errorf("stub docker reports the image ABSENT (%v); the run would abort at the IMAGE gate, which is a different row", err)
 	}
-	if err := exec.Command(stub, "container", "inspect", "-f", "{{.State.Running}}", "anything").Run(); err == nil {
-		return fmt.Errorf("stub docker reports the container RUNNING; AwaitContainerRunning would succeed and this row would assert nothing")
+	// An exit status, not merely an error: a stub that never started also
+	// errors, and must not read as "container not running".
+	var notRunning *exec.ExitError
+	if err := w.env.RunCmd(w.env.HostCommand(context.Background(), stub, "container", "inspect", "-f", "{{.State.Running}}", "anything")); !errors.As(err, &notRunning) {
+		return fmt.Errorf("stub docker does not report the container STOPPED (err=%v); AwaitContainerRunning would succeed and this row would assert nothing", err)
 	}
-	if err := exec.Command(stub, "run", "--rm", "hello").Run(); err != nil {
+	if err := w.env.RunCmd(w.env.HostCommand(context.Background(), stub, "run", "--rm", "hello")); err != nil {
 		return fmt.Errorf("stub docker cannot run a container at all (%v); the shared-filesystem probe would fail and the run would abort at the WORKSPACE gate, not the transport-start gate this row asserts", err)
 	}
 	return nil

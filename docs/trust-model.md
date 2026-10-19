@@ -273,20 +273,52 @@ needs on first launch.
     that host (gap 2).
 7. **The coordinator's listener can be reachable beyond this host.** It never
     binds `0.0.0.0`, and a plain host session binds loopback only
-    (`TestServe_BindsLoopbackOnly`, `internal/adapters/coordgrpc`). When a
-    container run's runtime has no private route home — no loopback
-    translator and no bridge gateway, as with rootless slirp/pasta — the
-    coordinator also listens on the host's primary outbound address
-    (`publicRoute` in `internal/adapters/isolation/runtime.go`), which is
-    reachable from the LAN, and reports that once per address. Every stream
-    and request on any listener needs a per-run bearer (`Coordinator.Identify`),
-    carried in cleartext h2c (see `docs/architecture/agentcoord/transport.md`).
-    The outbound address is kept because without it a rootless container
-    cannot reach the coordinator at all. Ruled and accepted. What crosses it
-    is that per-run bearer and the launch, never the human's engine
-    credential: a container cell names its credential by file
-    (`launch.Placement.SecretFiles`), written on the originator's side to an
-    owner-only dir on `$XDG_RUNTIME_DIR` and mounted read-only
+    (`TestServe_BindsLoopbackOnly`, `internal/adapters/coordgrpc`). Rootless
+    docker gives its containers no route to the host's loopback and its bridge
+    is not on the host, so for a container run there the coordinator also
+    listens on the host's primary outbound address (`publicRoute` in
+    `internal/adapters/isolation/runtime.go`), and reports that once per
+    address. That address follows the default route: on a laptop it is
+    whatever network the host is on (a café Wi-Fi), so the port is open to that
+    network's hosts. Three things bound it:
+
+    - **Lifetime.** The listener is held by the container runs that need it and
+      closes when the last of them ends (`coordServing.Unlisten`);
+      `endpoint.json` lists only the addresses actually open. A restarted
+      coordinator re-opens a recorded address only while a container run it
+      adopted is live.
+    - **Source filter.** On the rootless-docker route the listener closes, at
+      accept and before any HTTP/2 byte is read, every connection whose peer is
+      not one of this host's own addresses (`hostPeerListener`,
+      `present.Listen.HostPeersOnly`). Rootless docker's containers leave
+      through slirp4netns, a process on the host, so their traffic arrives
+      from the host's own address, and the kernel drops LAN packets that forge
+      a local source. A refused address is reported once per listener.
+    - **Bearer.** Every stream and request on any listener still needs a
+      per-run bearer (`Coordinator.Identify`), checked before the request is
+      decoded (`authGate`).
+
+    The bearer does not cross the LAN: the runner's connection is host-internal
+    (slirp4netns to the host's own address), so it is never on the wire to
+    other hosts. The exposure is reachability of an open port, not sniffing.
+    The wire is still cleartext h2c (see
+    `docs/architecture/agentcoord/transport.md`).
+
+    **Unfiltered routes.** The filter is applied only where container traffic
+    provably arrives from a host address. These non-loopback listeners are not
+    filtered, so any peer that can reach the port can connect and must then
+    hold a valid bearer: rootful docker and rootful podman (the bridge
+    gateway, a private address, where containers arrive from the bridge
+    subnet), the rootful no-gateway fallback to the primary address, rootless
+    podman on a network with no known translator, and podman machine on WSL,
+    where the connection arrives from the VM's NAT address. On the public ones
+    (primary address) the same default-route exposure applies and a host
+    firewall is the only other bound.
+
+    Ruled and accepted. What crosses it is that per-run bearer and the launch,
+    never the human's engine credential: a container cell names its credential
+    by file (`launch.Placement.SecretFiles`), written on the originator's side
+    to an owner-only dir on `$XDG_RUNTIME_DIR` and mounted read-only
     (`isolation.containerPlacement`, `isolation.materializeSecrets`). A host
     cell still carries its credential in the launch's env, over the
     loopback-only listener.

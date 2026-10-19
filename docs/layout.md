@@ -181,10 +181,31 @@ reaps the ones whose file is gone and keeps everything else. Like the rest of
   is never seen, and if a container runtime on `PATH` cannot list its
   containers. It refuses where the processes cannot be listed (anywhere
   without `/proc`), and if the listing does not even show `clean` itself.
-  The check is taken once, just before reaping, so a container or older
-  binary started *during* a `clean --yes` is not seen. Processes another
-  account runs, which this account cannot even name (a `/proc` mounted
-  `hidepid`), are not seen either.
+  Processes another account runs, which this account cannot even name (a
+  `/proc` mounted `hidepid`), are not seen.
+- **The interlock.** The check above looks once, so on its own it would miss
+  whatever starts during the reap. The reap interlock,
+  `~/.ctxloom/locks/reap.interlock` (`paths.LockReapInterlockPath`), closes
+  that for every current binary. `clean --yes` takes it exclusive, in one
+  attempt, *before* the check, and holds it until the last sidecar is
+  reaped; a plain `clean` only probes it. Every activity that takes or binds
+  a sidecar here holds it shared: a container launch from before it binds
+  host lock files until the run is cleaned up, after the container is gone;
+  a write under a sidecar of this directory for just that write. While
+  anything holds it shared, `clean` refuses and says something is active.
+  While `clean` holds it, a launch or a write waits up to 30 seconds and is
+  then refused; it never goes ahead without its hold. A long-running
+  ctxloom, `ltk` or `taskloom` holds it only around each such write, not
+  for its whole life: the MCP servers and coordinators of an open editor
+  session live for days, and holding it that long would mean `clean` could
+  never reap.
+- **What is still open.** A binary older than the interlock does not know
+  it. One running when `clean` looks is refused by the check; one *started*
+  during a `clean --yes` is seen by neither, and if it takes a sidecar the
+  reap then removes, it can hold that lock beside a current taker. The
+  window is the reap itself, after the check, and it closes for good once
+  every ctxloom, `ltk` and `taskloom` on the machine, and in its agent
+  images, is current.
 
 With nothing of the family running, deleting `~/.ctxloom/locks/` by hand is
 safe too: every lock file is recreated on its next use.

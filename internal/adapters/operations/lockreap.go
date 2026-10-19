@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 )
 
 // LockSidecarReport is the lock-sidecar step of `ctxloom clean`: the sidecars
@@ -62,15 +63,19 @@ type LockSidecarRequest struct {
 
 // ReapLockSidecars is the lock-sidecar step of `ctxloom clean`. It sorts
 // every sidecar in the home lock directory by what it guards (classifySidecar)
-// and, once Gate allows it and Apply asks for it, removes each candidate with
-// safefs.ReapLockFile — never one a taker holds. The gate is consulted
-// whenever there is a candidate, with or without Apply, so the report says
-// what --yes would do.
+// and, once nothing holds the reap interlock, Gate allows it and Apply asks
+// for it, removes each candidate with safefs.ReapLockFile — never one a taker
+// holds. The interlock and the gate are consulted whenever there is a
+// candidate, with or without Apply, so the report says what --yes would do.
 //
 // Removing a sidecar is safe only because every taker of this build re-checks
 // the file it locked and retries on a replaced one (safefs.Locks); a binary
 // older than that, or a container's bind of a host sidecar, defeats the
-// re-check, which is what the gate rules out.
+// re-check. The gate rules out both as they stand when it looks; the reap
+// interlock, held exclusive from before that look until the reap ends
+// (takeReapInterlock), keeps out every container launch of this build that
+// would start after it. A binary older than the interlock, started during the
+// reap, is the one thing neither sees.
 func ReapLockSidecars(ctx context.Context, req LockSidecarRequest) (LockSidecarReport, error) {
 	dir, err := paths.HomeLocksDir()
 	if err != nil {
@@ -103,11 +108,18 @@ func ReapLockSidecars(ctx context.Context, req LockSidecarRequest) (LockSidecarR
 	if len(candidates) == 0 {
 		return rep, nil
 	}
-	if rep.Refused, rep.Remedy = req.Gate.refusal(ctx); rep.Refused != "" || !req.Apply {
+	locks := safefs.New().Locks
+	busy, release, err := takeReapInterlock(locks, req.Apply)
+	if err != nil {
+		return rep, fmt.Errorf("clean: lock sidecars: %w", err)
+	}
+	defer release()
+	why, remedy := req.Gate.refusal(ctx)
+	rep.Refused, rep.Remedy = textblocks.JoinWith("; ", busy.why, why), textblocks.JoinWith("; ", busy.remedy, remedy)
+	if rep.Refused != "" || !req.Apply {
 		return rep, nil
 	}
 
-	locks := safefs.New().Locks
 	for _, path := range candidates {
 		// Judged again at the reap: the guarded file may have come back since
 		// the listing, and then its sidecar is in use again.
@@ -126,6 +138,53 @@ func ReapLockSidecars(ctx context.Context, req LockSidecarRequest) (LockSidecarR
 		}
 	}
 	return rep, nil
+}
+
+// interlockFinding is the reap interlock's part of a refusal: empty when
+// nothing held it.
+type interlockFinding struct{ why, remedy string }
+
+// takeReapInterlock takes the reap interlock (paths.LockReapInterlockPath)
+// for a reap that applies: EXCLUSIVE, in one non-blocking attempt, before
+// the gate is consulted, released by the returned release once reaping is
+// done. Everything that starts to take or bind a home sidecar after that
+// waits for the reap (sessions.HoldReapInterlock); anything already doing so
+// holds it shared, and the reap refuses rather than wait. Taken first, it is
+// what makes the gate's one look at the machine hold for the whole reap: a
+// container launched after that look cannot bind a sidecar until the reap
+// is over.
+//
+// A report that does not apply only probes it (Locks.Held), so a plain
+// `ctxloom clean` never makes a launch or a write wait.
+func takeReapInterlock(locks safefs.Locks, apply bool) (interlockFinding, func(), error) {
+	path, err := paths.LockReapInterlockPath()
+	if err != nil {
+		return interlockFinding{}, nil, err
+	}
+	busy := interlockFinding{
+		why:    "a container launch or a ctxloom, ltk or taskloom process is taking or binding home lock sidecars right now: it holds the reap interlock " + path,
+		remedy: "wait for it to finish — a container holds the interlock for as long as it runs — " + lockReapRetry,
+	}
+	if !apply {
+		held, err := locks.Held(path)
+		if err != nil {
+			return interlockFinding{}, nil, err
+		}
+		if held {
+			return busy, func() {}, nil
+		}
+		return interlockFinding{}, func() {}, nil
+	}
+	once, cancel := context.WithCancel(context.Background())
+	cancel() // a done context: one attempt, never a wait
+	lk, err := locks.TryLock(once, path)
+	switch {
+	case errors.Is(err, safefs.ErrLockHeld):
+		return busy, func() {}, nil
+	case err != nil:
+		return interlockFinding{}, nil, err
+	}
+	return interlockFinding{}, func() { _ = lk.Unlock() }, nil
 }
 
 // lockFileSuffix ends every lock file paths names.

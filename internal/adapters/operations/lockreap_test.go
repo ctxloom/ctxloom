@@ -8,11 +8,13 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -33,7 +35,9 @@ func currentGate() LockReapGate {
 				{PID: 10, Comm: "ltk", Exe: "/usr/local/bin/ltk"},
 			}, nil
 		},
-		Version:    func(RunningProcess) ([]byte, error) { return []byte(`{"name":"ltk","version":"v1","lock_protocol":2}`), nil },
+		Version: func(RunningProcess) ([]byte, error) {
+			return []byte(`{"name":"ltk","version":"v1","lock_protocol":2}`), nil
+		},
 		Containers: func(context.Context) ([]string, error) { return nil, nil },
 	}
 }
@@ -174,6 +178,55 @@ func TestReapLockSidecars_ARefusingGateReapsNothing(t *testing.T) {
 	assert.Zero(t, rep.Reaped)
 	assert.Contains(t, rep.Refused, "ctxloom-iso-run")
 	assert.NotEmpty(t, rep.Remedy)
+}
+
+// A container launch or a write holding the reap interlock shared makes the
+// reap refuse, Apply or not, naming that something is active; every sidecar
+// stays.
+func TestReapLockSidecars_ASharedInterlockHolderMakesItRefuse(t *testing.T) {
+	f := newSidecarFixture(t)
+	release, err := sessions.HoldReapInterlock(safefs.New().Locks)
+	require.NoError(t, err)
+	defer release()
+
+	for _, apply := range []bool{false, true} {
+		rep, err := ReapLockSidecars(context.Background(), LockSidecarRequest{Apply: apply, Gate: currentGate()})
+		require.NoError(t, err)
+		assert.Contains(t, rep.Refused, "reap interlock", "apply=%v", apply)
+		assert.NotEmpty(t, rep.Remedy)
+		assert.Zero(t, rep.Reaped)
+	}
+	assertExist(t, map[string]bool{f.orphanRecorded: true, f.orphanLegacy: true})
+}
+
+// The reap holds the interlock exclusive from before its gate looks until it
+// is done: a launch asking for it while the gate is looking waits, then is
+// refused. Once the reap is over the interlock is free again.
+func TestReapLockSidecars_HoldsTheInterlockFromTheGateToTheEnd(t *testing.T) {
+	f := newSidecarFixture(t)
+	wait := sessions.ReapInterlockWait
+	sessions.ReapInterlockWait = 50 * time.Millisecond
+	t.Cleanup(func() { sessions.ReapInterlockWait = wait })
+	var duringGate error
+	gate := currentGate()
+	gate.Containers = func(context.Context) ([]string, error) {
+		release, err := sessions.HoldReapInterlock(safefs.New().Locks)
+		if err == nil {
+			release()
+		}
+		duringGate = err
+		return nil, nil
+	}
+
+	rep, err := ReapLockSidecars(context.Background(), LockSidecarRequest{Apply: true, Gate: gate})
+	require.NoError(t, err)
+
+	require.ErrorIs(t, duringGate, sessions.ErrLockReapInProgress, "a launch got the interlock while the reap's gate was looking")
+	assert.Equal(t, 2, rep.Reaped)
+	assertExist(t, map[string]bool{f.orphanRecorded: false})
+	release, err := sessions.HoldReapInterlock(safefs.New().Locks)
+	require.NoError(t, err, "the reap kept the interlock after it was done")
+	release()
 }
 
 // With no candidate there is nothing to gate: the gate is never consulted.

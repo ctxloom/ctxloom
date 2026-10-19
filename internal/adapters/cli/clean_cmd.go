@@ -70,8 +70,11 @@ reported as unreapable (no recorded path). It removes no sidecar, and says
 why, while a ctxloom, ltk or taskloom that predates the lock re-check may be
 running (each running one is asked for its lock_protocol, and one whose
 binary has been replaced counts as older), while a ctxloom agent container
-is running, or where the running processes cannot be listed (anywhere
-without /proc).
+is running, while a container launch or a write holds the reap interlock
+(~/.ctxloom/locks/reap.interlock), or where the running processes cannot be
+listed (anywhere without /proc). Under --yes it holds that interlock from
+before those checks until the reap ends, and a launch or a write that comes
+meanwhile waits for it, briefly, then is refused.
 
 Never taken: authored content and profiles, approvals, lock.yaml, a session's
 identity and its output dir, a session with an empty 'keep' file at the top

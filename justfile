@@ -1247,6 +1247,17 @@ gitleaks-install:
     set +a
     go install github.com/zricethezav/gitleaks/v8@v${GITLEAKS_VERSION}
 
+# Install shfmt, the shell formatter `just fmt` and lefthook's pre-commit
+# formatter step run on the host, at the version pinned in
+# .devcontainer/tool-versions.env. `go install` honours GOBIN.
+shfmt-install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -a
+    . .devcontainer/tool-versions.env
+    set +a
+    go install mvdan.cc/sh/v3/cmd/shfmt@v${SHFMT_VERSION}
+
 # Scan the STAGED changes for secrets — lefthook's pre-commit `gitleaks`
 # command. Rules and allowlists are .gitleaks.toml; output is redacted. A
 # missing binary fails rather than skipping: a scan that passes by not running

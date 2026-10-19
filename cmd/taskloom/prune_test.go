@@ -199,6 +199,26 @@ func TestRunPruneCmd_NothingToPruneSaysSoAndOffersNoApply(t *testing.T) {
 	assert.Empty(t, errw.String())
 }
 
+// With no project here yet there is nothing to prune: the report says so
+// without a blank "Project:" header, the warning says why, and no identity
+// is minted to answer.
+func TestRunPruneCmd_NoProjectYetPrunesNothing(t *testing.T) {
+	dir := taskstest.ProjectDir(t)
+	tc, err := taskContextSingle()
+	require.NoError(t, err)
+
+	opts := defaultPruneOptions(clifmt.FormatText)
+	opts.Yes = true
+	var out, errw strings.Builder
+	require.NoError(t, runPruneCmd(&out, &errw, tc, opts, pruneCmdNow))
+	assert.Contains(t, out.String(), "Nothing to prune")
+	assert.NotContains(t, out.String(), "Project:")
+	assert.Contains(t, errw.String(), "no project yet")
+	_, logPath, err := operations.ResolveLogPath(tc)
+	require.NoError(t, err)
+	assert.Empty(t, logPath, "a prune must not mint the project a first add would: %s", dir)
+}
+
 func TestRunPruneCmd_RefusesWhatItCannotRead(t *testing.T) {
 	tc, logPath := seedPruneProject(t)
 	before, err := os.ReadFile(logPath)

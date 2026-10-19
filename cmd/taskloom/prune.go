@@ -172,7 +172,11 @@ func runPruneCmd(out, errw io.Writer, tc operations.TaskContext, opts pruneOptio
 // and every reference a survivor still holds to one of them.
 func renderPruneReport(out io.Writer, rep pruneReport) error {
 	w := errwriter.New(out)
-	w.Printf("Project: %s\n\n", formatProjectLabel(rep.ProjectDir, rep.ProjectID))
+	// No label means no project here yet; the warning on stderr says so,
+	// and an empty "Project:" line would only look broken.
+	if label := formatProjectLabel(rep.ProjectDir, rep.ProjectID); label != "" {
+		w.Printf("Project: %s\n\n", label)
+	}
 	criteria := fmt.Sprintf("status %s, last status change before %s",
 		strings.Join(rep.Statuses, " or "), rep.Before.UTC().Format("2006-01-02 15:04 MST"))
 	if rep.TagQuery != "" {

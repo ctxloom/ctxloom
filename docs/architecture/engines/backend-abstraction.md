@@ -40,8 +40,8 @@ in front of the adapters composes a mock kind under its own name
 
 `agent.Backend` (`internal/core/agent`) is the seam the interactive launch and
 the legacy one-shot still drive: `Execute` runs the engine's process over the
-injected `agent.Launcher` — the runner's `runner.RunLaunchSpec`, a pty
-(`ptyrunner.RunInteractive`) for an interactive launch, pipes otherwise. The
+injected `agent.Launcher` — the runner's `runner.RunLaunchSpec`, the runner's
+own terminal (`agent.Terminal`) for an interactive launch, pipes otherwise. The
 structured drive does NOT go through it: a headless turn is the port's
 `Instance.Drivers()[0].Turn` over `Instance.Exec`.
 

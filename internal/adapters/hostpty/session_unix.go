@@ -43,14 +43,18 @@ func prepareSlave(ptty pty.Pty) (release func(), err error) {
 }
 
 // rawInput turns off the slave's INPUT processing, before the child exists
-// to read it. This pty is a byte transport: the frontend already holds the
-// human's terminal in raw mode and the runner relays what it reads, verbatim,
-// into the engine's own pty. A fresh pty is COOKED — the kernel echoes every
-// input byte straight back out the master (terminal query replies and mouse
-// reports painted as `^[[<35;…M` into the engine's prompt), holds input until
-// a newline, rewrites CR to LF and turns ^C into a SIGINT aimed at the runner.
-// Output processing is left alone: the runner's own diagnostics are plain
-// `\n` lines and ONLCR is what renders them.
+// to read it. This pty is the terminal the engine runs on: the runner hands it
+// to the engine as its stdio, and the engine sets the modes it wants once it
+// is up. Before that — while the runner starts — and after the engine has
+// exited, what arrives must reach whoever reads next untouched: the frontend
+// already holds the human's terminal in raw mode and writes what is typed
+// verbatim. A fresh pty is COOKED — the kernel echoes every input byte
+// straight back out the master (terminal query replies and mouse reports
+// painted as `^[[<35;…M` into the engine's prompt), holds input until a
+// newline, rewrites CR to LF and turns ^C into a SIGINT aimed at the runner.
+// Output processing is left alone: the engine keeps or changes it as it
+// chooses, and the runner's own diagnostics are plain `\n` lines that ONLCR
+// renders.
 func rawInput(tty *os.File) error {
 	fd := int(tty.Fd())
 	t, err := unix.IoctlGetTermios(fd, ioctlGetTermios)

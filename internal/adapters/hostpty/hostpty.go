@@ -2,9 +2,11 @@
 // machine: it starts a child on a pseudo-terminal and hands the caller the
 // MASTER end. The runner (`ctxloom runner`) is the child; the originator holds
 // the master, wraps it with the terminal layer (adapters/termui) and pumps
-// SIGWINCH-derived resizes onto it. Resize and signals reach the engine through
-// the pty the kernel carries, not a proxied stream — which is the whole reason
-// the runner is spawned on a pty rather than behind a pipe.
+// SIGWINCH-derived resizes onto it. The runner hands this pty to the engine as
+// its own terminal, so it is the only pty between the engine and the human:
+// resize and signals reach the engine through the pty the kernel carries, not
+// a proxied stream — which is the whole reason the runner is spawned on a pty
+// rather than behind a pipe.
 //
 // This is the host counterpart of adapters/attach, which owns the SAME shape
 // for a container (the docker CLI's -it attachment owns the pty there). Both

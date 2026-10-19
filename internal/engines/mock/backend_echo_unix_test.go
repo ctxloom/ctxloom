@@ -50,7 +50,7 @@ func TestMock_InteractiveEchoReportsItsTerminalsSize(t *testing.T) {
 	select {
 	case err := <-done:
 		require.NoError(t, err)
-	case <-time.After(5*time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("the echo did not end on quit")
 	}
 	assert.Equal(t, 1, strings.Count(out.String(), "mock winsize: 40x120"), "the first size is reported once, with the first line")

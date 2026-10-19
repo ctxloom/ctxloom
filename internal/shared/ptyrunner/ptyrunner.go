@@ -1,5 +1,8 @@
-// Package ptyrunner starts a command on a pseudo-terminal: the one translation
-// from an os/exec command to a go-pty one, with the platform's adjustments.
+// Package ptyrunner starts a command on a pseudo-terminal — the one
+// translation from an os/exec command to a go-pty one, with the platform's
+// adjustments — and sets the line disciplines that terminal carries: raw
+// input while it only carries bytes, a new terminal's while an engine runs
+// on it.
 package ptyrunner
 
 import (

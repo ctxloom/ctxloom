@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/exitstatus"
+	"github.com/ctxloom/ctxloom/internal/shared/ptyrunner"
 	"github.com/ctxloom/ctxloom/internal/shared/shellenv"
 )
 
@@ -62,9 +63,11 @@ func RunLaunchSpec(ctx context.Context, spec agent.LaunchSpec, stdin io.Reader, 
 	cmd.Env = spec.Env
 
 	if spec.Interactive {
-		if err := onTerminal(ctx, cmd, spec.Terminal); err != nil {
+		release, err := onTerminal(ctx, cmd, spec.Terminal)
+		if err != nil {
 			return 1, fmt.Errorf("failed to run %s: %w", spec.BinaryPath, err)
 		}
+		defer release()
 	} else {
 		// Non-interactive: stdin is the caller's reader when provided (a
 		// backend delivering a large oneshot prompt pipes it here so it can't
@@ -105,20 +108,32 @@ func RunLaunchSpec(ctx context.Context, spec agent.LaunchSpec, stdin io.Reader, 
 // terminal has its first size (terminalSizeWait). The engine stays in the
 // runner's process group on the runner's controlling terminal, so the kernel
 // delivers each resize to it as a SIGWINCH, and hangs it up with the runner.
-func onTerminal(ctx context.Context, cmd *exec.Cmd, term *agent.Terminal) error {
+//
+// The engine finds the line discipline a new terminal has: the runner's was
+// made raw for carrying bytes (hostpty), and an engine that reads its
+// terminal as it finds it — a line at a time, with Enter arriving as CR —
+// would wait on that forever. The returned release puts the runner's mode
+// back once the engine has exited. Its failure is not reported: the runner
+// ends with its engine, and a mode that stays costs only the echo of what is
+// typed in the moments before the frontend drops the pty.
+func onTerminal(ctx context.Context, cmd *exec.Cmd, term *agent.Terminal) (release func(), err error) {
 	if term == nil || term.Stdin == nil || term.Stdout == nil || term.Stderr == nil {
-		return errNoTerminal
+		return nil, errNoTerminal
 	}
 	for _, f := range []*os.File{term.Stdin, term.Stdout} {
 		if !xterm.IsTerminal(int(f.Fd())) {
-			return fmt.Errorf("an interactive launch runs its engine on a terminal, and %s is not one", f.Name())
+			return nil, fmt.Errorf("an interactive launch runs its engine on a terminal, and %s is not one", f.Name())
 		}
 	}
 	if err := awaitTerminalSize(ctx, term.Stdout); err != nil {
-		return fmt.Errorf("the run ended before the terminal was sized: %w", err)
+		return nil, fmt.Errorf("the run ended before the terminal was sized: %w", err)
+	}
+	restore, err := ptyrunner.FreshLineDiscipline(term.Stdin)
+	if err != nil {
+		return nil, fmt.Errorf("give the engine a new terminal's line discipline: %w", err)
 	}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = term.Stdin, term.Stdout, term.Stderr
-	return nil
+	return func() { _ = restore() }, nil
 }
 
 // waitForTerminalSize returns once f's terminal reports a non-zero window

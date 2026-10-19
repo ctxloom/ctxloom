@@ -3,6 +3,7 @@
 package ptyrunner
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -40,4 +41,10 @@ func adjustPtyCommand(c *pty.Cmd, original *exec.Cmd) {
 		c.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	c.SysProcAttr.CmdLine = `/c "` + innerCmdLine + `"`
+}
+
+// FreshLineDiscipline has nothing to set on a console: the console host gives
+// a child it starts its own input mode, and a ConPTY carries no termios.
+func FreshLineDiscipline(*os.File) (restore func() error, err error) {
+	return func() error { return nil }, nil
 }

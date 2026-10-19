@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/ptyrunner"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/procalive"
 )
@@ -193,6 +195,45 @@ exit 5`
 	assert.Contains(t, got, "CWD "+workDir, "the engine runs in the spec's working directory")
 	assert.Contains(t, got, "ENV from-the-spec", "the engine gets the spec's environment")
 	assert.Contains(t, got, "GOT:typed-by-the-viewer", "what is typed on the terminal reaches the engine")
+}
+
+// The engine starts on the line discipline a new terminal has, as a program
+// run on a terminal expects: the pty `ctxloom run` starts the runner on has
+// its input made raw (hostpty), and an engine that reads its terminal as it
+// finds it — a line at a time, Enter arriving as CR — would wait forever on
+// that. Once the engine has exited the terminal is back in the mode it was
+// handed in.
+func TestRunLaunchSpec_InteractiveEngineStartsOnAFreshLineDiscipline(t *testing.T) {
+	tt := newTestTerminal(t)
+	tt.size(t, 24, 80)
+	require.NoError(t, ptyrunner.RawInput(tt.pty.Slave()))
+	transport := sttyOf(t, tt.pty.Slave())
+
+	l := launchInteractive(t, tt.terminal(), `echo "MODE $(stty -a | tr '\n' ' ')"
+IFS= read -r line
+echo "GOT:$line"`)
+	tt.waitFor(t, l, "MODE ")
+	mode := tt.out.String()
+	for _, flag := range []string{"icanon", "icrnl", "echo", "isig"} {
+		require.Regexp(t, `[ \t]`+flag+`[ \t;]`, mode, "the engine's terminal has %s on, as a new terminal does", flag)
+	}
+	_, err := tt.pty.Master().Write([]byte("entered-with-cr\r"))
+	require.NoError(t, err)
+	tt.waitFor(t, l, "GOT:entered-with-cr")
+	code, err := l.wait(t)
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), code)
+	assert.Equal(t, transport, sttyOf(t, tt.pty.Slave()), "the terminal is back in the mode it was handed in")
+}
+
+// sttyOf is the line discipline f carries, as stty reports it.
+func sttyOf(t *testing.T, f *os.File) string {
+	t.Helper()
+	cmd := exec.Command("stty", "-g")
+	cmd.Stdin = f
+	out, err := cmd.Output()
+	require.NoError(t, err)
+	return strings.TrimSpace(string(out))
 }
 
 // First paint: the frontend sizes the terminal only once it has taken the

@@ -1,6 +1,7 @@
 package spool
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -112,8 +113,13 @@ func Deliver(fs afero.Fs, m PathMapper, ref Ref, identity string, now time.Time)
 }
 
 // recordDelivered writes identity's record entry, durably, unless it is
-// already there: an existing entry already says what a new one would, and
-// safefs.WriteFile refuses to write zero bytes over an existing file.
+// already there: an existing entry already says what a new one would.
+//
+// Two readers delivering one message concurrently can both find the entry
+// missing. The write refuses zero bytes over an existing file
+// (safefs.ErrEmptyOverwrite), so that refusal means the other reader's entry
+// landed first: the identity is recorded, and that is success. A write that
+// slips past the refusal replaces an empty entry with an empty entry.
 func recordDelivered(fs afero.Fs, entry, identity string) error {
 	if _, err := fs.Stat(entry); err == nil {
 		return nil
@@ -124,6 +130,9 @@ func recordDelivered(fs afero.Fs, entry, identity string) error {
 		return fmt.Errorf("spool: create %s: %w", filepath.Dir(entry), err)
 	}
 	if err := safefs.WriteFile(fs, entry, nil, safefs.PrivateFileMode, safefs.Durable()); err != nil {
+		if errors.Is(err, safefs.ErrEmptyOverwrite) {
+			return nil
+		}
 		return fmt.Errorf("spool: recording %s as delivered: %w", identity, err)
 	}
 	return nil

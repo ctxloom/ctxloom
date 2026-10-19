@@ -9,6 +9,8 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // A delivered in/ message is DELETED, and what survives it is its identity in
@@ -231,4 +233,38 @@ func TestDelivered_RefusesAnIdentityThatIsNotAFileName(t *testing.T) {
 	m := NewHomeMapper()
 	_, err := Delivered(afero.NewOsFs(), m, testHarp, "../escape")
 	assert.Error(t, err)
+}
+
+// lateRecordFs lands a concurrent reader's record of identity the moment this
+// reader has created the record directory: after any check this reader made,
+// before its own write. It is the interleaving two hook processes delivering
+// the same message produce.
+type lateRecordFs struct {
+	afero.Fs
+	t     *testing.T
+	entry string
+}
+
+func (l lateRecordFs) MkdirAll(path string, perm os.FileMode) error {
+	if err := l.Fs.MkdirAll(path, perm); err != nil {
+		return err
+	}
+	if path == filepath.Dir(l.entry) {
+		testsupport.WriteFile(l.t, l.Fs, l.entry, nil, 0o600)
+	}
+	return nil
+}
+
+// Two readers delivering one message both find it unrecorded; the one whose
+// record lands second has delivered it all the same, and says so by succeeding.
+func TestDeliver_ARecordAnotherReaderWroteFirstIsSuccess(t *testing.T) {
+	hostHome(t)
+	m := NewHomeMapper()
+	ref, _ := seedIn(t, m, "raced\n")
+	id := entryFor(t, m, ref).Identity()
+	fs := lateRecordFs{Fs: afero.NewOsFs(), t: t, entry: deliveredPath(t, m, id)}
+
+	require.NoError(t, Deliver(fs, m, ref, id, time.Now()))
+	assert.Empty(t, filesIn(t, m, DirIn), "the loser still finishes the delete")
+	assert.FileExists(t, deliveredPath(t, m, id))
 }

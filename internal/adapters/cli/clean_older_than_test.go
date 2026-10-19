@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/agebound"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -257,45 +258,11 @@ func TestClean_LeavesARunningSession(t *testing.T) {
 	cotAssertPlan(t, dir, true)
 }
 
-func TestParseAgeBound(t *testing.T) {
+// The age grammar itself is agebound's (agebound.TestParse); what is pinned
+// here is that ctxloom's own built-in default is a value that grammar accepts.
+func TestDefaultSessionReapAge_Parses(t *testing.T) {
 	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
-
-	t.Run("day offset", func(t *testing.T) {
-		got, err := parseAgeBound("--older-than", "30d", now)
-		require.NoError(t, err)
-		assert.Equal(t, now.Add(-30*24*time.Hour), got)
-	})
-	t.Run("week offset", func(t *testing.T) {
-		got, err := parseAgeBound("--older-than", "2w", now)
-		require.NoError(t, err)
-		assert.Equal(t, now.Add(-14*24*time.Hour), got)
-	})
-	t.Run("hour offset", func(t *testing.T) {
-		got, err := parseAgeBound("--older-than", "720h", now)
-		require.NoError(t, err)
-		assert.Equal(t, now.Add(-720*time.Hour), got)
-	})
-	t.Run("calendar date", func(t *testing.T) {
-		got, err := parseAgeBound("--older-than", "2026-01-01", now)
-		require.NoError(t, err)
-		assert.Equal(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), got)
-	})
-	t.Run("the built-in default parses", func(t *testing.T) {
-		got, err := parseAgeBound("session_reap_age", config.DefaultSessionReapAge, now)
-		require.NoError(t, err, "a default the grammar rejects would refuse every plain clean")
-		assert.True(t, got.Before(now))
-	})
-
-	// Every rejection must produce a ZERO time WITH an error naming its
-	// source. A parse that silently yielded zero-and-nil would arrive at the
-	// operation as "no bound stated" — refused there, but for the wrong
-	// reason and with the wrong message.
-	for _, bad := range []string{"", "   ", "yesterday", "30x", "-5d", "0d", "01-01-2026"} {
-		t.Run("rejects "+bad, func(t *testing.T) {
-			got, err := parseAgeBound("session_reap_age", bad, now)
-			require.Error(t, err, "a bound that cannot be understood must fail loudly")
-			assert.Contains(t, err.Error(), "session_reap_age")
-			assert.True(t, got.IsZero())
-		})
-	}
+	got, err := agebound.Parse("session_reap_age", config.DefaultSessionReapAge, now)
+	require.NoError(t, err, "a default the grammar rejects would refuse every plain clean")
+	assert.True(t, got.Before(now))
 }

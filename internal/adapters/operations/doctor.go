@@ -633,6 +633,11 @@ func doctorCheckMCPCommands(ctx context.Context, reg engine.Registry, cfg *confi
 // doctorMCPCommandsRemedy names the two ways out of a command gap.
 const doctorMCPCommandsRemedy = "set isolation_base to an image that carries the command (project-wide, one base for every container agent), or remove what requires the command (the MCP server or the bundle) from that agent's profiles"
 
+// AgentCommandGapRemedy is doctorMCPCommandsRemedy for the moment an agent is
+// written: the same two ways out, plus checking again once the image holds
+// what the base lacks.
+const AgentCommandGapRemedy = doctorMCPCommandsRemedy + "; or check again after `ctxloom container build`"
+
 // doctorCheckVersion is deliberately best-effort/skill-guided: there is no
 // update-check infrastructure (internal/adapters/cli/version.go is a bare print), so
 // this reports the running version and defers comparison to the

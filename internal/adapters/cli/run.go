@@ -665,12 +665,16 @@ func (st *runState) resolveLaunch() error {
 		return operations.CheckRunCredential(App().Engines(), backend, mode)
 	}
 	l, err := operations.StartRun(st.ctx, deps, sessions.Seed{ProjectDir: st.workDir, ProjectID: st.projectID}, src)
-	// A launch that failed to resolve still names the session it minted and
-	// ended (operations.StartRun).
-	st.mintedHarp = l.Identity.Harp
 	if err != nil {
+		// A launch that failed to resolve still names the session it minted
+		// and ended, so its end reason has somewhere to go.
+		var unresolved *operations.StartRunError
+		if errors.As(err, &unresolved) {
+			st.mintedHarp = unresolved.Identity.Harp
+		}
 		return err
 	}
+	st.mintedHarp = l.Identity.Harp
 	st.activeHarp = l.Identity.Harp
 	st.projectID = l.Identity.Project
 	// The startup findings are composed HERE, after the cell was prepared:

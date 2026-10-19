@@ -83,3 +83,32 @@ func TestStartRun_NoProbeRecordsNothing(t *testing.T) {
 	_, entry := topLevelRun(t, nil)
 	assert.Empty(t, entry.EngineVersion)
 }
+
+// A launch that does not resolve after its session was minted fails with a
+// *StartRunError naming that session, already ended, so the caller can record
+// why it ended; the resolver's own refusal stays reachable through it.
+//
+// MUTATION: return the bare resolver error → errors.As goes red.
+func TestStartRun_AnUnresolvedLaunchNamesTheSessionItEnded(t *testing.T) {
+	testsupport.Isolate(t)
+	env := launchtest.Deps(t)
+	store, err := sessions.Open(nil)
+	require.NoError(t, err)
+	deps := env.Deps
+	deps.Sessions = store
+	src := launch.Source{Profiles: []string{"base"}, Label: "pinned", Mode: engine.Interactive, WorkDir: env.Project, Permission: "no-such-posture"}
+
+	l, err := StartRun(context.Background(), deps, sessions.Seed{ProjectDir: env.Project}, src)
+	require.Error(t, err)
+	assert.Empty(t, l.Identity.Harp, "a launch that never resolved is not handed back")
+	assert.ErrorIs(t, err, launch.ErrPermissionUnhonoured, "the resolver's refusal is reachable through the error")
+
+	var unresolved *StartRunError
+	require.ErrorAs(t, err, &unresolved)
+	require.NotEmpty(t, unresolved.Identity.Harp, "the error names the session the launch minted")
+	t.Cleanup(func() { sessionlock.Release(unresolved.Identity.Harp) })
+	entry, gerr := GetSession(unresolved.Identity.Harp)
+	require.NoError(t, gerr)
+	require.NotNil(t, entry)
+	assert.NotNil(t, entry.EndedAt, "the minted session was ended, not left half-minted")
+}

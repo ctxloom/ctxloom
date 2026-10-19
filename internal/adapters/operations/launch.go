@@ -43,10 +43,9 @@ import (
 // spawns against the minted harp (deps.ProbeVersion; recordLaunchedVersion).
 // The caller starts the transport it owns from the Launch and
 // ends the session (EndSession) when the run is over; a launch that does not
-// resolve ends its own session here so no harp is left half-minted. That
-// failed launch's Launch still carries the minted Identity, so the caller can
-// record why the session ended (sessions.Entry.EndReason); it is the zero
-// Launch when nothing was minted.
+// resolve ends its own session here so no harp is left half-minted, and its
+// error is a *StartRunError naming that session, so the caller can record why
+// it ended (sessions.Entry.EndReason). A failure before the mint names none.
 func StartRun(ctx context.Context, deps launch.Deps, seed sessions.Seed, src launch.Source) (launch.Launch, error) {
 	base, err := OutputBase(deps.Snapshot.Config)
 	if err != nil {
@@ -65,11 +64,25 @@ func StartRun(ctx context.Context, deps launch.Deps, seed sessions.Seed, src lau
 		if eerr := EndSessionIn(deps.Sessions, id.Harp, time.Now()); eerr != nil {
 			clidiag.Warn("ctxloom", "session %s: end after a refused launch: %v", id.Harp, eerr)
 		}
-		return launch.Launch{Identity: id}, err
+		return launch.Launch{}, &StartRunError{Identity: id, Err: err}
 	}
 	recordLaunchedVersion(ctx, deps, l)
 	return l, nil
 }
+
+// StartRunError is a launch that did not resolve after its session was
+// minted: Identity is that session, already ended, and Err why it did not
+// resolve. It carries the identity rather than a Launch because only
+// launch.Resolve builds a Launch, and this one never resolved.
+type StartRunError struct {
+	Identity sessions.Identity
+	Err      error
+}
+
+func (e *StartRunError) Error() string { return e.Err.Error() }
+
+// Unwrap lets errors.Is and errors.As see the resolver's own refusal.
+func (e *StartRunError) Unwrap() error { return e.Err }
 
 // recordLaunchedVersion records, against l's harp, the version of the binary
 // l spawns: l's engine at its label binary. It runs here, once the launch

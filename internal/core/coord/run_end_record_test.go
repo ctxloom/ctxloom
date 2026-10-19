@@ -155,6 +155,26 @@ func (r *runEndRig) terminal(t *testing.T) Result {
 	}
 }
 
+// exited blocks until the coordinator's watcher has observed the runner
+// process's exit, so a test orders "the kernel killed it" before "its channel
+// dropped" instead of racing that watcher goroutine against runnerExitGrace —
+// which a loaded machine lost, recording the kill with no exit status.
+func (r *runEndRig) exited(t *testing.T) {
+	t.Helper()
+	var x *runnerExit
+	r.c.mu.Lock()
+	if rt := r.c.attach[r.run.RunID]; rt != nil {
+		x = rt.runnerExit
+	}
+	r.c.mu.Unlock()
+	require.NotNil(t, x, "the rig's runner process is watched")
+	select {
+	case <-x.done:
+	case <-time.After(conformanceWait):
+		t.Fatalf("run %s: the runner's exit was never observed", r.run.RunID)
+	}
+}
+
 func (r *runEndRig) record(t *testing.T) RunRecord {
 	t.Helper()
 	var rec RunRecord
@@ -186,6 +206,7 @@ func TestRunEnd_KilledRunnerIsRecordedWithItsSignalEverywhere(t *testing.T) {
 	})
 
 	close(die)       // the kernel kills the runner process…
+	rig.exited(t)    // …the coordinator's watcher sees it die…
 	rig.link.Abort() // …and its channel drops with it.
 
 	res := rig.terminal(t)
@@ -236,6 +257,13 @@ func TestRunEnd_RunnerExitReapedJustAfterTheLossIsStillRecorded(t *testing.T) {
 			return nil
 		}
 	})
+
+	// The grace must outlast the reap's delay however loaded the machine is:
+	// at the rig's 200ms, a starved timer or watcher goroutine landed the
+	// exit after the grace and the end was recorded as "still running".
+	rig.c.mu.Lock()
+	rig.c.runnerExitGrace = conformanceWait
+	rig.c.mu.Unlock()
 
 	rig.link.Abort()
 	time.AfterFunc(50*time.Millisecond, func() { close(die) })

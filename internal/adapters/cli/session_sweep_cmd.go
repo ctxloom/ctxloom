@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
+	"github.com/ctxloom/ctxloom/internal/shared/agebound"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
@@ -95,7 +96,7 @@ func runSessionSweep(cmd *cobra.Command, _ []string) error {
 // every purge row.
 func purgeCutoff(flag string, now time.Time) (time.Time, error) {
 	if flag != "" {
-		return parseAgeBound("--purge-older-than", flag, now)
+		return agebound.Parse("--purge-older-than", flag, now)
 	}
 	cfg, err := GetConfig()
 	if errors.As(err, new(configRefusedError)) {
@@ -107,7 +108,7 @@ func purgeCutoff(flag string, now time.Time) (time.Time, error) {
 		return time.Time{}, nil
 	}
 	if age := cfg.SessionPurgeAge(); age != "" {
-		return parseAgeBound("session_purge_age", age, now)
+		return agebound.Parse("session_purge_age", age, now)
 	}
 	return time.Time{}, nil
 }

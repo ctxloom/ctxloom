@@ -34,6 +34,7 @@ func TestReadScopeFlags_EveryProjectScopedReadTakesGlobal(t *testing.T) {
 		"run":              "launches a task of the current project into a session",
 		"lint":             "checks one store file",
 		"repair":           "rewrites one store file",
+		"prune":            "rewrites one store file",
 		"watch":            "follows one store file",
 		"statuses":         "the status taxonomy: no store is read",
 		"plan show":        "addressed by path, not by project",

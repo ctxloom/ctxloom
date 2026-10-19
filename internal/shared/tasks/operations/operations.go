@@ -914,6 +914,40 @@ func RepairStore(tc TaskContext) error {
 	return store.Repair()
 }
 
+// PruneTaskResult is the render-agnostic result of PruneTasks: the store's
+// tasks.PruneResult plus which store it came from.
+type PruneTaskResult struct {
+	tasks.PruneResult
+	Path    string
+	Warning string
+
+	ProjectID  string
+	ProjectDir string
+}
+
+// PruneTasks resolves tc's task store and prunes it (tasks.Store.Prune), with
+// the tag query evaluated through tc's tag schema. The store is resolved as
+// for a READ: a directory with no project yet has nothing to prune, and a
+// prune must not mint the identity a first add would just to report that.
+func PruneTasks(tc TaskContext, req tasks.PruneRequest) (*PruneTaskResult, error) {
+	store, proj, warning, err := resolveTaskStoreForRead(tc)
+	if err != nil {
+		return nil, err
+	}
+	if store == nil {
+		return &PruneTaskResult{
+			PruneResult: tasks.PruneResult{Applied: req.Apply, Pruned: []tasks.PrunedTask{}, Dangling: []tasks.DanglingReference{}},
+			Warning:     warning,
+		}, nil
+	}
+	req.Schema = tc.TagSchema
+	res, err := store.Prune(req)
+	if err != nil {
+		return nil, fmt.Errorf("prune tasks: %w", err)
+	}
+	return &PruneTaskResult{PruneResult: res, Path: store.Path(), Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}, nil
+}
+
 // readSnapshot is every task in tc's store, for a read: none when the
 // directory has no project yet.
 func readSnapshot(tc TaskContext) ([]tasks.Task, error) {

@@ -81,6 +81,13 @@ type folded struct {
 	// public accessor filters to only currently-Deferred tasks, so a stale
 	// entry for a non-Deferred task is simply never surfaced.
 	deferredSince map[string]time.Time
+
+	// statusSetAt tracks, per live harp, the Ts of the event that most
+	// recently set its status: the add (which carries the initial status) or
+	// the latest status event in replay order. It is the log's own answer to
+	// "when did this task last change status", which prune selects on; text
+	// and tag events never touch it.
+	statusSetAt map[string]time.Time
 }
 
 func newFolded() *folded {
@@ -89,6 +96,7 @@ func newFolded() *folded {
 		issued:        map[string]struct{}{},
 		repaired:      map[string]struct{}{},
 		deferredSince: map[string]time.Time{},
+		statusSetAt:   map[string]time.Time{},
 	}
 }
 
@@ -138,14 +146,22 @@ type parsedEvent struct {
 // as a loud, actionable error instead of silently dropping the second task.
 // Holds no lock — callers serialize as needed.
 func (l *eventLog) fold() (*folded, error) {
-	f := newFolded()
 	data, err := os.ReadFile(l.path)
 	if errors.Is(err, os.ErrNotExist) {
-		return f, nil
+		return newFolded(), nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	return l.foldData(data)
+}
+
+// foldData is fold over bytes already read: the replay itself, apart from
+// where the bytes came from, so prune can fold the exact bytes it is about to
+// filter — and then the filtered result — without a second read that another
+// writer could have extended in between.
+func (l *eventLog) foldData(data []byte) (*folded, error) {
+	f := newFolded()
 	lineNo := 0
 	seenLines := map[string]struct{}{}
 	parsed := make([]parsedEvent, 0)
@@ -268,6 +284,7 @@ func (f *folded) applyAdd(ev Event) {
 	t.CreatedAt = ev.Ts
 	f.byID[ev.Task] = t
 	f.order = append(f.order, ev.Task)
+	f.statusSetAt[ev.Task] = ev.Ts
 	f.noteIfDeferred(ev, t.Status)
 }
 
@@ -294,6 +311,7 @@ func (f *folded) applyStatus(ev Event) {
 	if tr := strings.TrimSpace(ev.Trigger); tr != "" {
 		t.Trigger = tr
 	}
+	f.statusSetAt[ev.Task] = ev.Ts
 	f.noteIfDeferred(ev, ev.Status)
 }
 

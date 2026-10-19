@@ -84,7 +84,7 @@ func TestRootCommandTree_ShipsEveryCommandAndInitOrderNeverReachesTheUser(t *tes
 
 	for _, want := range []string{
 		"add", "edit", "lint", "list", "loadout", "manage", "mcp", "plan",
-		"repair", "run", "show", "status", "statuses", "summary", "tag",
+		"prune", "repair", "run", "show", "status", "statuses", "summary", "tag",
 		"tags", "version", "watch",
 	} {
 		assert.Contains(t, got, want, "a command vanished from the tree twelve init() functions assemble")

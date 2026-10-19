@@ -58,7 +58,7 @@ flowchart TD
       MGR["manage install / uninstall / check"]
       LD["loadout → internal/adapters/companions/loadout"]
       WATCH["watch (hidden JSONL stream)<br/>internal/shared/watch.Stream"]
-      REP["repair"]
+      REP["repair · prune"]
     end
     MGR --> ENG
 ```
@@ -194,6 +194,7 @@ one that dies with the worktree.
 | `watchCmd` / `watchEvent` | Hidden, long-lived JSONL change stream for GUI subscribers over `internal/shared/watch.Stream`, debounced by `watchDebounce`. Emits once immediately so a subscriber renders current state without an initial-query race. `checkWatchFormat` refuses a `--format` it cannot produce |
 | `runCmd` / `launchTaskAgent` / `pickTask` | Picks or matches a task, then execs `ctxloom run` |
 | `repairCmd` | Re-introduces any task displaced by an unresolved harp-id collision under a fresh harp, without rewriting history |
+| `pruneCmd` / `runPruneCmd` | Drops old finished tasks (`--status`, default Done; `--older-than` on the last status change, default 7d, parsed by `agebound.Parse`; `--tag-query`) through `operations.PruneTasks`. Report-only without `--yes`, and says so on stderr with the exact apply command (`pruneApplyCommand`), the `ctxloom clean` contract |
 | `manageInstall` / `manageUninstall` / `manageCheckCmd` | Merge + atomically write each backend config; `check` reports an unreadable config rather than skipping it |
 
 ---

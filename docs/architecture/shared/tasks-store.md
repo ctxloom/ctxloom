@@ -2,7 +2,7 @@
 
 The per-project task store is an append-only JSONL event log (`~/.ctxloom/tasks/<project-id>.jsonl`, or `<repoRoot>/.taskloom/tasks.jsonl` in repo-homed mode; ADR 0025) plus the fold that reduces it to current state. `internal/shared/tasks` owns the log format, the fold, and the `Task` value type; `internal/shared/tasks/paths` owns every filesystem path and the project-id validation chokepoint; `internal/shared/tasks/operations` is the frontend-agnostic layer that resolves *which* store to open and wraps each result for a renderer; `internal/shared/tasks/taskstest` supplies the isolation fixtures every test in the shared tree depends on.
 
-The contract: task state is never mutated in place. Every change is one `\n`-terminated JSON line appended under an exclusive cross-process lock, and current state is always a full replay of the file sorted by timestamp.
+The contract: task state is never mutated in place. Every change is one `\n`-terminated JSON line appended under an exclusive cross-process lock, and current state is always a full replay of the file sorted by timestamp. The one operation that removes lines is `prune` (`taskloom prune --yes`): it drops every line of the tasks it selects, keeps every other line byte for byte, and replaces the file whole by an atomic rename under the same exclusive lock.
 
 ```mermaid
 flowchart TD
@@ -63,7 +63,7 @@ flowchart TD
 | `Event` | `internal/shared/tasks/log.go:22` | The on-disk wire record: one JSON line. Tagged union flattened into one struct; which fields are live depends on `Op`. |
 | op constants (`opAdd`, `opStatus`, `opText`, `opRemove`, `opTag`, `opUntag`) | `internal/shared/tasks/log.go:34` | The six legal ops. An unknown op is a hard fold error — an old binary cannot read a newer log. |
 | `eventLog` | `internal/shared/tasks/log.go:50` | Unexported backend: `path`, `session`, `mu`. Owns locking, folding, appending, and every query. |
-| `folded` | `internal/shared/tasks/log.go:57` | One fold's projection: `byID`, `order`, `issued`, `repaired`, `anomalies`, `deferredSince`. |
+| `folded` | `internal/shared/tasks/log.go:57` | One fold's projection: `byID`, `order`, `issued`, `repaired`, `anomalies`, `deferredSince`, `statusSetAt` (per live harp, the `Ts` of the add or latest status event — the "last status change" prune selects on). |
 | `parsedEvent` | `internal/shared/tasks/log.go:87` | `{ev, lineNo}` — carries the source line number through the timestamp reorder so apply errors can still name `path:line`. |
 | `Store` | `internal/shared/tasks/store.go:19` | Public facade over `eventLog`; single field `log`. Its only structural job is keeping `eventLog` unexported. |
 | status constants (`StatusInProgress`, `StatusToDo`, `StatusDeferred`, `StatusDone`, `StatusArchived`) | `internal/shared/tasks/task.go:23` | The five statuses. |
@@ -86,6 +86,7 @@ flowchart TD
 |---|---|---|
 | `newFolded` | `internal/shared/tasks/log.go:75` | Allocates the four maps; establishes the non-nil-map invariant. |
 | `(*eventLog).fold` | `internal/shared/tasks/log.go:129` | The core reduction: ReadFile → skip blanks → byte-identical-line dedup → Unmarshal → stable-sort by `Ts` → `apply` each. Missing file → empty state, nil error. Any malformed line is a hard error naming `path:line`. |
+| `(*eventLog).foldData` | `internal/shared/tasks/log.go` | `fold` over bytes already read, so `prune` folds exactly the bytes it filters, and then the filtered result. |
 | `(*folded).apply` | `internal/shared/tasks/log.go:180` | Folds one event. Unknown or empty op → hard error. |
 | `(*folded).taskList` | `internal/shared/tasks/log.go:260` | Materializes live tasks in `order`, skipping tombstoned ids. |
 | `(*folded).anomalyError` | `internal/shared/tasks/log.go:283` | Builds a loud error describing every unresolved harp collision. |
@@ -107,6 +108,11 @@ flowchart TD
 | `(*eventLog).repair` | `internal/shared/tasks/log.go:653` | For each unrepaired anomaly, mints a fresh harp and appends a re-`add` carrying `RepairOf`. The re-add does **not** carry the anomaly's `Tags` or `Ts`, so a repaired task loses its tags and its `CreatedAt` becomes the repair time. |
 | `defaultStatus` | `internal/shared/tasks/log.go:689` | `""` → `StatusToDo`; applied at two sites that must agree (`apply`, `repair`). |
 | `anomalyKey` | `internal/shared/tasks/log.go:699` | `hashText(task \x00 text \x00 session \x00 RFC3339Nano ts)`. `anomalyError` and `repair` must compute an identical key or repair never resolves. |
+| `(*eventLog).prune` | `internal/shared/tasks/prune.go` | Refuse an empty status set or a zero bound → absent log is nothing (no lock taken) → lock (exclusive under `Apply`, shared otherwise) → read once → `foldData` + `anomalyError` → `selectForPrune` → `planPrune` → `foldData` the result → `checkSurvivors` → under `Apply` only, `replaceLog`. |
+| `(*folded).selectForPrune` | `internal/shared/tasks/prune.go` | `filterTasks` by status and tag query, then keeps tasks whose `statusSetAt` is before the bound. |
+| `planPrune` | `internal/shared/tasks/prune.go` | Drops every line addressed to a pruned harp, plus the displaced add a pruned task was re-added from (its `repair_of`); keeps every other line verbatim, duplicates and position included. |
+| `checkSurvivors` | `internal/shared/tasks/prune.go` | Refuses a rewrite whose fold differs from the old one on any surviving task (fields, add order, `statusSetAt`, `deferredSince`) or that leaves an unresolved collision. |
+| `replaceLog` | `internal/shared/tasks/prune.go` | `safefs.WriteFileKeepMode` with `Durable()` and `AllowEmpty()`, indirected so a test can force a writer into the window before the rename. |
 
 ### Functions — Store facade
 
@@ -130,6 +136,7 @@ flowchart TD
 | `(*Store).Repair` | `internal/shared/tasks/store.go:143` | Resolves harp collisions. Test-only — no shipped surface calls it, though `anomalyError`'s message names it as the remedy. |
 | `(*Store).Summarize` | `internal/shared/tasks/store.go:148` | Per-status counts + in-progress harps. |
 | `(*Store).DeferredSince` | `internal/shared/tasks/store.go:159` | harp → time each currently-Deferred task entered Deferred. |
+| `(*Store).Prune` | `internal/shared/tasks/prune.go` | Drops old finished tasks (`PruneRequest` → `PruneResult`). Reached by `taskloom prune`; no MCP tool. |
 
 ### Functions — task model, tag query, compaction
 
@@ -205,6 +212,7 @@ Pure leaf: zero internal imports, no I/O beyond `os.UserHomeDir`. Consumed by `c
 | `DeferredSince` | `internal/shared/tasks/operations/operations.go:661` | Resolve → `Store.DeferredSince`. Feeds trigger evaluation. |
 | `ComputeTaskPriorities` | `internal/shared/tasks/operations/operations.go:693` | Resolve → `Store.Snapshot` → `priority.Compute` against the **full** snapshot, never a filtered page. |
 | `LintTasks` | `internal/shared/tasks/operations/operations.go:710` | Resolve → `Store.Snapshot` → `lint.Lint`. Never filters what it inspects. |
+| `PruneTasks` | `internal/shared/tasks/operations/operations.go` | Resolve **for a read** (no project yet → nothing pruned, no identity minted) → `Store.Prune` with `tc.TagSchema`. |
 | `resolveTaskStore` | `internal/shared/tasks/operations/operations.go:737` | Mode dispatch; project-id from pin or live registry; registered-dir lookup; pin-vs-cwd mismatch note; missing-log sibling note; path build; `OpenLog`. |
 | `missingLogSiblingNote` | `internal/shared/tasks/operations/operations.go:823` | Returns a note when the resolved id has no log but the same path is registered under another id that does — best-effort, returns `""` on any registry error. |
 | `resolveRepoHomedStore` | `internal/shared/tasks/operations/operations.go:858` | Opens the checked-in `.taskloom/tasks.jsonl`; errors on an empty `WorkDir` and warns that `--project` is being ignored rather than ignoring it silently. |
@@ -227,20 +235,20 @@ Test-isolation primitives for the whole `internal/shared` tree. The tree must st
 
 **Log format and fold**
 
-- The log is append-only. `(*eventLog).append` is the **only writer** of the JSONL file, and every mutator reaches it. It must emit exactly one `\n`-terminated line; `fold` breaks otherwise.
+- The log is append-only except for `prune`. `(*eventLog).append` is the **only writer that adds** to the JSONL file, and every mutator reaches it. It must emit exactly one `\n`-terminated line; `fold` breaks otherwise. `(*eventLog).prune` is the only writer that removes lines; it replaces the whole file and never adds a record kind.
 - `fold()` sorts by `Event.Ts` (stable) before applying, so **replay order is timestamp order, not file order**. `folded.order` is therefore timestamp order too, despite its comment saying "file order".
 - Task identity is *derived, not fixed*: which of two colliding `add`s keeps a harp is decided by minimum `Ts` at fold time. A git union-merge that introduces a backdated `add` can retroactively reassign a harp between folds. This property is not written down in the source.
 - The log file is checked into git under `merge=union` in repo-homed mode, so concurrent branches produce interleaved lines that the timestamp sort reorders.
 - An unknown or empty `Event.Op` is a **fold error**, not a skip. That fail-closed rule is the only forward-compatibility guard; a log carrying `tag`/`untag` is rejected outright by a pre-tag binary.
 - A malformed line is a hard error naming `path:line` — `fold` never skips lines. (A doc comment on `snapshot` still describes a "malformed-line skip"; there is none.)
 - `apply` silently ignores `status`/`text`/`tag`/`untag` events addressed to an unknown harp — it does not distinguish "tombstoned" from "never existed".
-- `opRemove` deletes from `byID` but leaves the harp in `order`; `taskList`'s nil check is what keeps the two consistent. Harps are never reused.
+- `opRemove` deletes from `byID` but leaves the harp in `order`; `taskList`'s nil check is what keeps the two consistent. A removed harp is never reused. A **pruned** harp has no event left to reserve it, so `issued` no longer holds it and it can, rarely, be minted again.
 - `anomalyKey` must be computed identically by `anomalyError` and `repair`, or a repair never resolves the anomaly it targets.
 
 **Locking**
 
-- Write paths (`addWithTags`, `setStatus`, `setText`, `remove`, `addTags`, `removeTags`, `repair`) take `mu` **then** a *required* exclusive flock, and the lock spans fold-and-append. `lock()` must be called before any mutation and its returned closure deferred — enforced only by convention.
-- Read paths (`snapshot`, `deferredSince`, `currentTags`) take `mu` plus a **best-effort** shared flock: a lock-acquire failure is silently downgraded to an unlocked read, because reads must never block.
+- Write paths (`addWithTags`, `setStatus`, `setText`, `remove`, `addTags`, `removeTags`, `repair`, and `prune` under `Apply`) take `mu` **then** a *required* exclusive flock, and the lock spans fold-and-append (for `prune`, read-filter-rename). `lock()` must be called before any mutation and its returned closure deferred — enforced only by convention. The lock file is `paths.PathFor(log)`, beside the log rather than the log itself, which is what lets `prune` rename a new file into place without invalidating the lock a waiting writer holds a handle to.
+- Read paths (`snapshot`, `deferredSince`, `currentTags`, and report-only `prune`) take `mu` plus a **best-effort** shared flock: a lock-acquire failure is silently downgraded to an unlocked read, because reads must never block.
 - Cross-process serialization of concurrent `add` and `tag` writers is proven by `tests/taskloom/crossprocess_test.go`.
 
 **Read/write asymmetry on collisions**

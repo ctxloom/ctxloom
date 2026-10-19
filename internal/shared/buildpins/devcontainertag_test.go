@@ -138,7 +138,9 @@ func TestDevcontainerTag_IsTheJustfilesOnlyDefinition(t *testing.T) {
 		t.Errorf("%s: devcontainer_tag must be exactly `scripts/devcontainer-tag.sh`, the one definition of the image key", justfilePath)
 	}
 
-	refs := regexp.MustCompile(`\{\{devcontainer_image\}\}(:\{\{devcontainer_tag\}\})?`).FindAllStringSubmatch(content, -1)
+	// `just --fmt` spaces the inside of an interpolation (`{{ x }}`); either
+	// spelling is the same reference.
+	refs := regexp.MustCompile(`\{\{\s*devcontainer_image\s*\}\}(:\{\{\s*devcontainer_tag\s*\}\})?`).FindAllStringSubmatch(content, -1)
 	if len(refs) == 0 {
 		t.Fatalf("%s: no {{devcontainer_image}} references — this gate would check nothing", justfilePath)
 	}

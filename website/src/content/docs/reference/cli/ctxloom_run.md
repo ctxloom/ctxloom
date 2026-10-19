@@ -77,7 +77,7 @@ ctxloom run [flags] [prompt...]
       --no-startup-findings            Do not deliver this launch's startup findings (what doctor reports about this run's config, companions and local state, and anything a --degraded launch proceeded past) into the agent's context
       --one-shot                       Run one turn non-interactively, print the response, and exit
       --permissions string             Permission mode, in the resolved engine's own vocabulary (overrides the agent/label mode)
-      --plain-terminal                 Disable ctxloom's terminal layer (the prefix-key agent viewer and the surround status bar) for this session
+      --plain-terminal                 Disable ctxloom's split view (the agent panel beside the engine's terminal) for this session: the engine draws on the terminal directly
   -p, --profile string                 Profile to use (predefined fragment collection)
       --prompt string                  Prompt to send to the AI (alternative to positional args)
       --session ctxloom session list   Resume the named session (see ctxloom session list): folds its full recorded transcript into this run's assembled context. Combine with --compact to resume via its compacted summary instead.

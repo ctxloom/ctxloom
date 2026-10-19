@@ -85,13 +85,11 @@ raised it and covers only its own children.
 - **It is visible while it lasts.** `roster` marks each held run with a `hold` — its `kind`
   (`rate_limited`), its `source` (the names of the variables or credential stores the
   credential comes from, never their values) and `until_unix`, when it releases. A held run's
-  phase stays `idle`; the `hold` is what tells it apart. The root terminal's bar says how many
-  runs are waiting and when they resume, the overlay's agents pane marks each held run and its
-  feed title reads `held: rate limited until <time>`, and a held run is never reported as
-  stalled. With the bar turned off (`ui.surround: false`), the root terminal prints a line as
-  each hold opens and another as it releases, for this and every hold below, and still rings
-  the bell for a refused credential.
-- **Only the human can cut it short.** Resuming any held run from the overlay releases the whole
+  phase stays `idle`; the `hold` is what tells it apart. The root terminal's agent panel says
+  how many runs are waiting and when they resume, marks each held run in its tree, and the run's
+  feed title reads `held: rate limited until <time>`; a held run is never reported as
+  stalled.
+- **Only the human can cut it short.** Resuming any held run from the agent panel releases the whole
   hold early; a coordinator's own resume of a held child is refused, since it would only meet
   the limit again.
 - **A held child is not relaunched.** If a held child's process dies while it waits, it is not
@@ -115,22 +113,22 @@ the credential**, as it does for a rate limit, but nothing releases this hold on
   an error report leading `CREDENTIAL REFUSED` that says the prompt was not done and must be
   resent. Mail sent to a held run waits and runs once the hold lifts.
 - **It has no deadline.** `roster` marks each held run with a `hold` of `kind`
-  `credential_rejected` and no `until_unix`, and the overlay's feed title reads
+  `credential_rejected` and no `until_unix`, and the run's feed title reads
   `held: credential rejected`.
-- **You are told once, loudly.** The coordinator raises one finding, the root terminal's bar
-  shows a `CREDENTIAL REFUSED` notice naming the credential's variable or store and how many runs
+- **You are told once, loudly.** The coordinator raises one finding, the root terminal's agent
+  panel shows a `CREDENTIAL REFUSED` notice naming the credential's variable or store and how many runs
   are parked, and the terminal bell rings once as the hold opens.
 - **The remedy depends on where the credential comes from.** A credential read from a variable
   (such as `CLAUDE_CODE_OAUTH_TOKEN`) is captured when a child launches, so a running session
   never sees a new value: export a fresh one, then restart the session from that shell with
   `ctxloom run --session <harp>` (the notice names the command). A credential read in place from
   a store (a login) reaches the running session: sign in again, then resume any held run from the
-  overlay.
+  agent panel.
 - **A refusal outranks a rate limit.** If a refusal arrives while the credential is held on its
   rate limit, the hold becomes a refused-credential hold: its timer is cleared and only you
   release it. A rate limit arriving on a refused credential changes nothing.
 - **A coordinator cannot release it.** A coordinating agent's resume of a held child is refused;
-  resuming one from the overlay releases the whole hold.
+  resuming one from the agent panel releases the whole hold.
 
 On the `mock` engine, a prompt containing `mock:credential-rejected` ends its turn on a refused
 credential.
@@ -145,8 +143,8 @@ backs off, after the engine's own retries gave up.
   must be resent. Mail sent to the run meanwhile waits and runs once it resumes.
 - The run is held on its own for a short, fixed backoff, then resumes by itself. If the engine
   is still overloaded, its next turn backs off again.
-- `roster` shows the same `hold`, with `kind` `overloaded`; the root terminal's bar and the
-  overlay say the run is overloaded and when it resumes.
+- `roster` shows the same `hold`, with `kind` `overloaded`; the root terminal's agent panel
+  says the run is overloaded and when it resumes.
 - As with a rate limit, only the human can release it early.
 
 On the `mock` engine, a prompt containing `mock:overloaded` ends its turn overloaded.
@@ -171,9 +169,9 @@ looks like, so it is treated as an overload.
 
 ## Pausing a child
 
-`agent_pause` (or a pause from the overlay) stops a child taking new turns until it is resumed;
+`agent_pause` (or a pause from the agent panel) stops a child taking new turns until it is resumed;
 the reason given is recorded with the pause. `roster` shows a paused child with a `hold` whose
-`kind` is `human` or `agent` (who paused it, with no `until_unix`), and the overlay and bar say
+`kind` is `human` or `agent` (who paused it, with no `until_unix`), and the agent panel says
 "paused by the human" or "paused by its parent". A pause the human made is the human's to
 end: a coordinating agent's `agent_resume` of it is refused. A pause an agent made can be
 ended by that agent or by the human. Stopping a paused child ends its pause with it.
@@ -185,7 +183,7 @@ session's coordinator state as it happens. If the coordinator restarts (or you r
 session with `--session`) while children are held or paused, the holds come back with it:
 held children stay held until the same reset time, a hold whose time passed while it was
 down lifts as soon as it is back, and a paused child stays paused until someone resumes it.
-The `roster`'s `hold` and the root terminal's bar show the hold again, and the human is
+The `roster`'s `hold` and the root terminal's agent panel show the hold again, and the human is
 told once more which holds are still in force.
 
 What happens to the children themselves depends on where they run:

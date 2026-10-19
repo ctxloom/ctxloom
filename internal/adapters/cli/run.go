@@ -1728,7 +1728,7 @@ func init() {
 	runCmd.Flags().BoolVarP(&runDryRun, "dry-run", "n", false, "Show command that would be executed")
 	runCmd.Flags().BoolVar(&runYes, "yes", false, "Let the startup sync refresh the project directory's engine files (hooks, MCP, settings, commands, skills)")
 	runCmd.Flags().BoolVar(&runOneShot, "one-shot", false, "Run one turn non-interactively, print the response, and exit")
-	runCmd.Flags().BoolVar(&runPlainTerminal, "plain-terminal", false, "Disable ctxloom's terminal layer (the prefix-key agent viewer and the surround status bar) for this session")
+	runCmd.Flags().BoolVar(&runPlainTerminal, "plain-terminal", false, "Disable ctxloom's split view (the agent panel beside the engine's terminal) for this session: the engine draws on the terminal directly")
 	runCmd.Flags().BoolVar(&runNoStartupFindings, "no-startup-findings", false, "Do not deliver this launch's startup findings (what doctor reports about this run's config, companions and local state, and anything a --degraded launch proceeded past) into the agent's context")
 	runCmd.Flags().CountVarP(&runVerbosity, "verbose", "v", "Increase verbosity (can be repeated: -v, -vv, -vvv)")
 

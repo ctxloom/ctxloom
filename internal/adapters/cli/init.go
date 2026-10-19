@@ -603,16 +603,17 @@ func pingHosts() operations.RunHosts {
 // one-shot BEFORE init hands off to its raw CLI/TUI ("a dead first session
 // inside a vendor TUI is invisible failure; catch it in code"). It is an
 // internal one-shot of its own — its own harp, ended when it answers — on
-// the engine init selected, at bypass: a throwaway liveness probe with a
-// fixed trivial prompt wants no permission gating, whatever posture the
-// engine's label declares, and says so out loud. Being a one-shot it
-// authenticates as every agent does, with the token (launch.RunAuth): the
-// credential every run ctxloom spawns needs. Any failure (missing binary, no
-// token, a dead subscription token, a real backend error) fails loud, naming
-// the fix for THIS engine; this is a liveness gate, not a login flow.
+// the engine init selected, at the posture every internal one-shot takes
+// (operations.InternalSource). It forces none of its own: its one fixed,
+// trivial turn calls no tool, so no posture changes what it does, and any
+// engine's token forced on every engine is one the others refuse. Being a
+// one-shot it authenticates as every agent does, with the token
+// (launch.RunAuth): the credential every run ctxloom spawns needs. Any
+// failure (missing binary, no token, a dead subscription token, a real
+// backend error) fails loud, naming the fix for THIS engine; this is a
+// liveness gate, not a login flow.
 func pingEngineAuth(ctx context.Context, deps launch.Deps, engine, workDir string) error {
 	src := operations.InternalSource(engine, "", workDir)
-	src.Permission = permissionBypass
 	probe, err := operations.StartOneShot(ctx, deps, pingHosts(), sessions.Seed{ProjectDir: workDir}, src)
 	if err != nil {
 		return probeFailure(engine, probeFailedToStart, err)

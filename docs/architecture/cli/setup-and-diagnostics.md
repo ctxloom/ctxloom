@@ -91,7 +91,10 @@ Two paths:
 `checkSystemDeps` hard-blocks on missing git (with a per-OS install message)
 and warns informationally on the rest. `pingEngineAuth` runs the smallest
 possible oneshot to detect an unauthenticated engine before the interview
-starts, and wraps the failure with a per-engine fix (`engineAuthFixHint`).
+starts, and wraps the failure with a per-engine fix (`engineAuthFixHint`). It
+runs at the posture every internal one-shot takes (`operations.InternalSource`)
+and forces none of its own: its one turn calls no tool, and one engine's
+token forced on every engine is one the others refuse.
 
 `ctxloom init prompt` prints the setup body without launching anything.
 

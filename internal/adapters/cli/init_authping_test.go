@@ -130,26 +130,33 @@ func TestPingEngineAuth_Succeeds(t *testing.T) {
 	assert.Equal(t, engine.Structured, stub.gotLaunch.Mode)
 }
 
-// TestPingEngineAuth_RequestsBypassPermissionExplicitly pins that the ping
-// asks for permissions: bypassPermissions on its launch explicitly, rather than riding
-// whatever the chosen engine's llm label declares (or doesn't).
-// authPingTestConfig declares no llm permissions at all, so without this
-// override its launch would ride the engine's host default. This is a PAYLOAD
-// assertion on the launch the run started with (Launch.Permission), not
-// just "the ping succeeded": a caller-side fallback that quietly caught a
-// refusal and retried some other way could still pass a success-only
-// assertion without this launch ever carrying bypass.
-func TestPingEngineAuth_RequestsBypassPermissionExplicitly(t *testing.T) {
-	stub := &stubRunHost{}
-	stubPingHosts(t, stub)
+// TestPingEngineAuth_ForcesNoPostureOfItsOwn: the ping runs one trivial turn
+// that calls no tool, so it takes the posture every internal one-shot takes
+// (operations.InternalSource) and forces none of its own. It is checked on
+// two engines whose vocabularies differ — the posture claude runs asking
+// nobody is bypassPermissions, the mock's bypass — so a posture forced on
+// every engine is either refused at start by one of them or read back as
+// something other than the internal one-shot's. This is a PAYLOAD assertion
+// on the launch the run started with (Launch.Permission), not just "the ping
+// succeeded".
+//
+// MUTATION: force src.Permission to any one engine's token in pingEngineAuth
+// → one of the two subtests goes red.
+func TestPingEngineAuth_ForcesNoPostureOfItsOwn(t *testing.T) {
+	for _, name := range []string{"claude-code", "mock"} {
+		t.Run(name, func(t *testing.T) {
+			stub := &stubRunHost{}
+			stubPingHosts(t, stub)
+			workDir := t.TempDir()
 
-	cfg := authPingTestConfig(t)
-	err := pingEngineAuth(context.Background(), testLaunchDeps(t, cfg), "claude-code", t.TempDir())
-	require.NoError(t, err)
+			require.NoError(t, pingEngineAuth(context.Background(), testLaunchDeps(t, authPingTestConfig(t)), name, workDir))
 
-	require.NotNil(t, stub.gotLaunch)
-	assert.Equal(t, "bypassPermissions", stub.gotLaunch.Permission.Posture.Document["mode"],
-		"the ping must carry an explicit bypass posture on the launch, not rely on the label's configured (or unset) permissions")
+			require.NotNil(t, stub.gotLaunch)
+			assert.Equal(t, operations.InternalSource(name, "", workDir).Permission,
+				operations.PostureName(engines.Registry(), stub.gotLaunch.Permission.Posture),
+				"the ping runs at the internal one-shot's posture, not one it forces")
+		})
+	}
 }
 
 // discoveryLaunch drives launchDiscovery over stateless deps with a

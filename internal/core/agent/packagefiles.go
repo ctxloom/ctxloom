@@ -231,7 +231,7 @@ func WriteManagedPackageFiles[T any](
 	if err != nil {
 		return nil, fmt.Errorf("agent: deriving home lock path for %s: %w", dir, err)
 	}
-	err = safefs.WithLock(files.Locks, lockPath, func() error {
+	err = safefs.WithLockGuarding(files.Locks, lockPath, dir, func() error {
 		delivered, err = writeManagedPackageFilesLocked(files, dir, items, enabled, itemName, render, opts...)
 		return err
 	})

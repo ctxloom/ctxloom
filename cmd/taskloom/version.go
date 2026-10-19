@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
@@ -19,10 +20,11 @@ var versionCmd = &cobra.Command{
 func runVersion(cmd *cobra.Command, _ []string) error {
 	// Routed through cobrafmt.EmitVersion like every other command (and
 	// cmd/ctxloom's own version): text prints the bare version line;
-	// json/yaml/toml/markdown serialize cobrafmt.VersionInfo. json stays
+	// json/yaml/toml/markdown serialize cobrafmt.VersionInfo. json is
 	// {name,version} — the shape ctxloom's boot probe parses from
-	// `taskloom version --format json`.
-	return cobrafmt.EmitVersion(cmd, progName, version)
+	// `taskloom version --format json` — plus lock_protocol, since taskloom
+	// takes safefs locks.
+	return cobrafmt.EmitVersion(cmd, cobrafmt.VersionInfo{Name: progName, Version: version, LockProtocol: safefs.LockProtocol})
 }
 
 func init() {

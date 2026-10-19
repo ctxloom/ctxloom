@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // runVersionCmd drives the real versionCmd's RunE with a throwaway parent that
@@ -41,7 +42,7 @@ func TestVersionCmd_JSONEmitsNameAndVersion(t *testing.T) {
 	require.NoError(t, err)
 	var got cliversion.Info
 	require.NoError(t, json.Unmarshal([]byte(out), &got))
-	assert.Equal(t, cliversion.Info{Name: "taskloom", Version: version}, got)
+	assert.Equal(t, cliversion.Info{Name: "taskloom", Version: version, LockProtocol: safefs.LockProtocol}, got)
 }
 
 // Routing version through clifmt (like cmd/ctxloom) widens it from text/json

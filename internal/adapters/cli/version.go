@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
@@ -17,7 +18,8 @@ var versionCmd = &cobra.Command{
 }
 
 func runVersion(cmd *cobra.Command, _ []string) error {
-	return emit(cmd, cobrafmt.VersionInfo{Name: "ctxloom", Version: version.Version}, func() error {
+	info := cobrafmt.VersionInfo{Name: "ctxloom", Version: version.Version, LockProtocol: safefs.LockProtocol}
+	return emit(cmd, info, func() error {
 		_, err := fmt.Fprintln(cmd.OutOrStdout(), version.Version)
 		return err
 	})

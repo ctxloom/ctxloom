@@ -347,7 +347,7 @@ func lockInstanceHome(locks safefs.Locks, instanceHome string) (func(), error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w %s: %w", errInstanceHomeUnkeyed, instanceHome, err)
 	}
-	l, err := locks.Lock(lockPath)
+	l, err := safefs.LockGuarding(locks, lockPath, instanceHome)
 	if err != nil {
 		return nil, fmt.Errorf("%w %s: %w", errInstanceHomeUnlocked, lockPath, err)
 	}

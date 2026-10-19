@@ -92,18 +92,22 @@ func EmitError(w io.Writer, cmd *cobra.Command, err error) error {
 	return clifmt.RenderError(w, err, format)
 }
 
-// VersionInfo is the {name, version} payload every family binary's
-// `version` command emits.
+// VersionInfo is the payload every family binary's `version` command emits:
+// {name, version}, and lock_protocol from a binary that takes ctxloom's
+// shared lock files — the protocol its lock takers follow, which a process
+// about to remove those files asks every running binary for. A binary that
+// takes none leaves it zero, and it is omitted.
 type VersionInfo struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
+	Name         string `json:"name"`
+	Version      string `json:"version"`
+	LockProtocol int    `json:"lock_protocol,omitempty"`
 }
 
 // EmitVersion is the shared body of a `version` command: the VersionInfo
 // payload, with text printing the bare version string.
-func EmitVersion(cmd *cobra.Command, name, version string) error {
-	return Emit(cmd, VersionInfo{Name: name, Version: version}, clifmt.WithWriter(clifmt.FormatText, func(w io.Writer) error {
-		_, err := fmt.Fprintln(w, version)
+func EmitVersion(cmd *cobra.Command, info VersionInfo) error {
+	return Emit(cmd, info, clifmt.WithWriter(clifmt.FormatText, func(w io.Writer) error {
+		_, err := fmt.Fprintln(w, info.Version)
 		return err
 	}))
 }

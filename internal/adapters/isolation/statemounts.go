@@ -281,12 +281,13 @@ func (c Container) lockMounts(dir, scratchRoot string) ([]mount, error) {
 		// outside the per-run dir — the project lies in a session dir of the
 		// container's own home, which only a controller sharing that home
 		// produces — has no host directory behind it to prepare.
-		prepare := []string{hostLock}
-		if path.Dir(containerLock) == containerLocks {
-			prepare = append(prepare, filepath.Join(runLocks, path.Base(containerLock)))
+		// The host lock records protected, as every taker of a home sidecar
+		// does (safefs.LockGuarding); the per-run target dies with the run.
+		if err := prepareLockFile(locks, hostLock, protected); err != nil {
+			return nil, fmt.Errorf("container lock mounts: %w", err)
 		}
-		for _, f := range prepare {
-			if err := prepareLockFile(locks, f); err != nil {
+		if path.Dir(containerLock) == containerLocks {
+			if err := prepareLockFile(locks, filepath.Join(runLocks, path.Base(containerLock)), ""); err != nil {
 				return nil, fmt.Errorf("container lock mounts: %w", err)
 			}
 		}
@@ -298,9 +299,15 @@ func (c Container) lockMounts(dir, scratchRoot string) ([]mount, error) {
 // prepareLockFile makes the lock file at path (and its directory) exist as a
 // regular file, under the refusals taking a lock applies, by taking it and
 // letting it go: a bind source has to exist as a FILE before the runtime sees
-// it. A holder of the lock at that instant is waited out.
-func prepareLockFile(locks safefs.Locks, path string) error {
-	lock, err := locks.Lock(path)
+// it. A holder of the lock at that instant is waited out. A non-empty guarded
+// is what the lock file guards, recorded in it if this creates it
+// (safefs.LockGuarding).
+func prepareLockFile(locks safefs.Locks, path, guarded string) error {
+	take := func() (safefs.Lock, error) { return locks.Lock(path) }
+	if guarded != "" {
+		take = func() (safefs.Lock, error) { return safefs.LockGuarding(locks, path, guarded) }
+	}
+	lock, err := take()
 	if err != nil {
 		return err
 	}

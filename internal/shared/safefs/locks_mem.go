@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -96,19 +97,31 @@ func (l memLocks) slot(path string) *memRW {
 	return s
 }
 
-func (l memLocks) Lock(path string) (Lock, error) { return l.take(path, false) }
+func (l memLocks) Lock(path string) (Lock, error) { return l.take(path, false, "") }
 
-func (l memLocks) RLock(path string) (Lock, error) { return l.take(path, true) }
+func (l memLocks) RLock(path string) (Lock, error) { return l.take(path, true, "") }
 
-// take is Lock and RLock: it blocks until path's lock is held in the kind
-// shared names, retried as osLocks retries (takeCurrent).
-func (l memLocks) take(path string, shared bool) (Lock, error) {
-	return takeCurrent(path, func() (Lock, error) { return l.takeOnce(path, shared) })
+// LockGuarding is Lock, recording guarded in a lock file it creates (see
+// GuardingLocks).
+func (l memLocks) LockGuarding(path, guarded string) (Lock, error) {
+	return l.take(path, false, guarded)
 }
 
-func (l memLocks) takeOnce(path string, shared bool) (Lock, error) {
+// take is Lock, RLock and LockGuarding: it blocks until path's lock is held
+// in the kind shared names, retried as osLocks retries (takeCurrent), and
+// records a non-empty guarded in a lock file an attempt creates.
+func (l memLocks) take(path string, shared bool, guarded string) (Lock, error) {
+	return takeCurrent(path, func() (Lock, error) { return l.takeOnce(path, shared, guarded) })
+}
+
+func (l memLocks) takeOnce(path string, shared bool, guarded string) (Lock, error) {
 	if err := l.fs.MkdirAll(filepath.Dir(path), lockDirMode); err != nil {
 		return nil, fmt.Errorf("safefs: preparing lock directory for %s: %w", path, err)
+	}
+	if guarded != "" {
+		if err := l.recordGuarded(path, guarded); err != nil {
+			return nil, err
+		}
 	}
 	if err := l.prepare(path); err != nil {
 		return nil, err
@@ -174,6 +187,13 @@ func (l memLocks) Held(path string) (bool, error) {
 		return false, fmt.Errorf("%w: %s is %s", ErrNotRegularFile, path, info.Mode().Type())
 	}
 	return l.slot(path).held(), nil
+}
+
+// recordGuarded is createRecording on this filesystem.
+func (l memLocks) recordGuarded(path, guarded string) error {
+	return createRecording(path, guarded, func(flag int) (io.WriteCloser, error) {
+		return l.fs.OpenFile(path, flag, lockFileMode)
+	})
 }
 
 // prepare creates the lock file if it is missing and refuses one that is not

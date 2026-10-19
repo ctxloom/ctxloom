@@ -215,11 +215,12 @@ func (o *Owner) Update(ctx context.Context, fn func(*Draft) error) (*Snapshot, e
 // withUpdateLock serializes a config update against every other process
 // rewriting the same file. The lock lives beside the project's own state
 // (paths.ProjectPathFor), never beside the file, and is taken through the
-// config's Root's locks.
+// config's Root's locks. Its name is flattened like a home sidecar's, so a
+// lock file it creates records configPath as they do (safefs.LockGuarding).
 func withUpdateLock(locks safefs.Locks, configPath string, fn func() error) error {
 	lockPath, err := paths.ProjectPathFor(configPath)
 	if err != nil {
 		return fmt.Errorf("config: locating update lock for %s: %w", configPath, err)
 	}
-	return safefs.WithLock(locks, lockPath, fn)
+	return safefs.WithLockGuarding(locks, lockPath, configPath, fn)
 }

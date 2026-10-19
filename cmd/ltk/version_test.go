@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // runVersion drives the real version command's RunE with a --format value.
@@ -49,6 +50,9 @@ func TestVersionJSONEmitsNameAndVersion(t *testing.T) {
 	}
 	if got.Name != progName || got.Version != Version {
 		t.Fatalf("json output = %+v, want {Name: %q, Version: %q}", got, progName, Version)
+	}
+	if got.LockProtocol != safefs.LockProtocol {
+		t.Fatalf("json lock_protocol = %d, want %d: ltk takes the home lock files", got.LockProtocol, safefs.LockProtocol)
 	}
 }
 

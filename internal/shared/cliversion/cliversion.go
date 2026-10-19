@@ -1,6 +1,8 @@
 // Package cliversion is the cross-binary version contract for the ctxloom
 // family. Every binary (ctxloom, ltk, taskloom, …) exposes
-// `<binary> version --format json` as {"name","version"}; ctxloom probes its
+// `<binary> version --format json` as {"name","version"} (plus
+// "lock_protocol" from each binary that takes ctxloom's shared lock files);
+// ctxloom probes its
 // companions by parsing exactly this shape, so both the struct AND the probe
 // that reads it live here as the single source of truth rather than being
 // re-declared per caller.
@@ -22,9 +24,13 @@ import (
 )
 
 // Info is the machine-readable shape of `<binary> version --format json`.
+// LockProtocol is the lock-taking protocol of a binary that takes ctxloom's
+// shared lock files (safefs.LockProtocol); a binary that predates the field
+// leaves it absent, which decodes as 0.
 type Info struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
+	Name         string `json:"name"`
+	Version      string `json:"version"`
+	LockProtocol int    `json:"lock_protocol,omitempty"`
 }
 
 // ProbeTimeout bounds the `<bin> version --format json` exec. A wedged

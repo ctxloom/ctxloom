@@ -192,6 +192,27 @@ func TestWithFileLock_AnInMemoryRootLocksOnItsOwnFs(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr), "an in-memory Root must never create a REAL lock file")
 }
 
+// TestWithFileLock_TheSidecarItCreatesRecordsTheTarget: the home sidecar's
+// flattened name cannot always be read back into the file it guards, so a
+// sidecar WithFileLock creates records that file, absolute, as its content
+// — the record a reaper reads to tell whether the file is gone.
+func TestWithFileLock_TheSidecarItCreatesRecordsTheTarget(t *testing.T) {
+	testsupport.Isolate(t)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	target := filepath.Join(dir, ".mcp.json")
+	lockPath, err := paths.HomePathFor(target)
+	require.NoError(t, err)
+
+	require.NoError(t, sessions.WithFileLock(safefs.New().Locks, ".mcp.json", func() error { return nil }))
+
+	content, err := os.ReadFile(lockPath)
+	require.NoError(t, err)
+	got, ok := safefs.GuardedPath(content)
+	require.True(t, ok, "the sidecar records no path: %q", content)
+	assert.Equal(t, target, got)
+}
+
 // recordingLocks records each Lock and each Unlock it hands out.
 type recordingLocks struct {
 	safefs.Locks

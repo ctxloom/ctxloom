@@ -188,7 +188,7 @@ gate (`TestArch_ClifmtCoreDoesNotLinkCobra`) runs `go list -deps` on `pkg/clifmt
 | `Explicit(cmd)` | whether the user actually asked for a format, as opposed to one derived from a pipe |
 | `Emit(cmd, data, opts…)` | render `data` to `cmd.OutOrStdout()` in the resolved format, through the tree's `Printer` |
 | `EmitError(w, cmd, err)` | `RenderError` in the resolved format, but **only when the format is explicit**; a derived format never restructures stderr |
-| `EmitVersion(cmd, name, version)` | the `{name, version}` payload (`VersionInfo`); text prints the bare version |
+| `EmitVersion(cmd, info)` | the `VersionInfo` payload — `{name, version}`, plus `lock_protocol` from a binary that takes ctxloom's shared lock files (`safefs.LockProtocol`); text prints the bare version |
 | `ApplyDiagnostics(cmd)` | installs a `clidiag.SetStructuredSource` that resolves the format at each warning: on for json/yaml/toml, off otherwise. Call from the root's `PersistentPreRun` |
 | `SetOffTerminalDefault(f)` | the format an unrequested invocation gets off a terminal, asked at each `Resolve` (zero Format: json). Process-wide; returns its restore. ctxloom feeds it the `non_tty_format` config key |
 | `Execute(root, prog, stderr) int` | run the tree and **return** the exit status (never `os.Exit`, so the caller can flush first). Reports nothing for nil or an `ExitStatus`; an envelope under an explicit structured format; otherwise `<prog>: <msg>` plus the fix line |

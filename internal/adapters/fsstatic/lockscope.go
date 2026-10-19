@@ -50,7 +50,10 @@ type lockScope struct {
 	order []string
 }
 
-var _ safefs.Locks = (*lockScope)(nil)
+var (
+	_ safefs.Locks         = (*lockScope)(nil)
+	_ safefs.GuardingLocks = (*lockScope)(nil)
+)
 
 // begin takes the delivery lock and returns the scope holding it.
 func (s *Static) begin() (*lockScope, error) {
@@ -68,6 +71,13 @@ func (s *Static) begin() (*lockScope, error) {
 // Lock takes path's lock for the rest of the run.
 func (sc *lockScope) Lock(path string) (safefs.Lock, error) {
 	return sc.take(path, func() (safefs.Lock, error) { return sc.locks.Lock(path) })
+}
+
+// LockGuarding is Lock, recording guarded in a lock file it creates
+// (safefs.GuardingLocks): the managed dirs a run locks are sidecars of
+// paths.HomePathFor like any foreign file's.
+func (sc *lockScope) LockGuarding(path, guarded string) (safefs.Lock, error) {
+	return sc.take(path, func() (safefs.Lock, error) { return safefs.LockGuarding(sc.locks, path, guarded) })
 }
 
 // RLock takes path's lock EXCLUSIVELY for the rest of the run: a lock the

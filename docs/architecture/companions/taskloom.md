@@ -190,7 +190,7 @@ one that dies with the worktree.
 | Symbol | Notes |
 |---|---|
 | `showCmd` / `renderTaskDetail` | Shows one or more tasks in full, including Done, in argument order. Every id must resolve: any unknown id fails the call, naming all of them, and nothing is printed |
-| `versionCmd` | Text prints the bare version; the structured form is `cobrafmt.VersionInfo` via `cobrafmt.EmitVersion`. **`{name, version}` is a wire contract** — ctxloom's companion probe parses it |
+| `versionCmd` | Text prints the bare version; the structured form is `cobrafmt.VersionInfo` via `cobrafmt.EmitVersion`. **`{name, version}` is a wire contract** — ctxloom's companion probe parses it — and so is `lock_protocol` (`safefs.LockProtocol`): `ctxloom clean` asks every running taskloom for it before it removes a lock file |
 | `watchCmd` / `watchEvent` | Hidden, long-lived JSONL change stream for GUI subscribers over `internal/shared/watch.Stream`, debounced by `watchDebounce`. Emits once immediately so a subscriber renders current state without an initial-query race. `checkWatchFormat` refuses a `--format` it cannot produce |
 | `runCmd` / `launchTaskAgent` / `pickTask` | Picks or matches a task, then execs `ctxloom run` |
 | `repairCmd` | Re-introduces any task displaced by an unresolved harp-id collision under a fresh harp, without rewriting history |

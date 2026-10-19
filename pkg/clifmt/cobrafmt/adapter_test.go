@@ -202,7 +202,24 @@ func TestEmitVersion(t *testing.T) {
 		if err := c.Flags().Set("format", f); err != nil {
 			t.Fatal(err)
 		}
-		if err := EmitVersion(c, "prog", "1.2.3"); err != nil {
+		if err := EmitVersion(c, VersionInfo{Name: "prog", Version: "1.2.3"}); err != nil {
+			t.Fatal(err)
+		}
+		if buf.String() != want {
+			t.Errorf("%s: %q, want %q", f, buf.String(), want)
+		}
+	}
+}
+
+// A binary that takes the shared lock files says which protocol its takers
+// follow; the text form is still the bare version.
+func TestEmitVersion_CarriesTheLockProtocol(t *testing.T) {
+	for f, want := range map[string]string{"text": "1.2.3\n", "json": "{\n  \"name\": \"prog\",\n  \"version\": \"1.2.3\",\n  \"lock_protocol\": 2\n}\n"} {
+		c, buf := newCmd(false)
+		if err := c.Flags().Set("format", f); err != nil {
+			t.Fatal(err)
+		}
+		if err := EmitVersion(c, VersionInfo{Name: "prog", Version: "1.2.3", LockProtocol: 2}); err != nil {
 			t.Fatal(err)
 		}
 		if buf.String() != want {

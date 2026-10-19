@@ -79,7 +79,7 @@ clifmt's cobra adapter. A command builds its result once and hands it to `Emit`,
 | `Resolve` | Precedence: a `Changed` `--json` ⇒ JSON; no `--format` flag registered ⇒ text; a `--format` of the wrong type ⇒ error; otherwise `clifmt.ResolveFormat` with whether stdout is a terminal (`isInteractiveTerminal`). |
 | `Explicit` | Whether the caller actually asked for a format (`--json` or `--format` changed), as opposed to one `Resolve` derived from stdout. |
 | `EmitError` | The failure half: renders an error through `clifmt.RenderError` to an explicit writer. Only an **explicit** format restructures the error stream; a derived one, or one that will not parse, keeps text. |
-| `EmitVersion` | The shared body of a `version` command: emits `VersionInfo` (`{name, version}`), with the bare version string as text. |
+| `EmitVersion` | The shared body of a `version` command: emits `VersionInfo` (`{name, version}`, plus `lock_protocol` from a binary that takes ctxloom's shared lock files), with the bare version string as text. |
 | `ApplyDiagnostics` | `clidiag.SetStructured` on for an explicit or derived json/yaml/toml, off otherwise. |
 | `Execute` | Runs the tree and returns the exit status (`clifmt.ExitCodeOf`), reporting `<prog>: <msg>` plus the fix line, or an envelope under an explicit structured format; nothing for a `clifmt.ExitStatus`. |
 

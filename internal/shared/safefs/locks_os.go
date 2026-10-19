@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -50,25 +51,38 @@ type kernelLock interface {
 }
 
 func (osLocks) Lock(path string) (Lock, error) {
-	return takeOSLock(path, kernelLock.Lock)
+	return takeOSLock(path, kernelLock.Lock, "")
 }
 
 func (osLocks) RLock(path string) (Lock, error) {
-	return takeOSLock(path, kernelLock.RLock)
+	return takeOSLock(path, kernelLock.RLock, "")
 }
 
-// takeOSLock is Lock and RLock: take blocks until the lock is held, in the
-// kind it names, and is retried while what it was granted is no longer the
-// file at path (takeCurrent).
-func takeOSLock(path string, take func(kernelLock) error) (Lock, error) {
-	return takeCurrent(path, func() (Lock, error) { return takeOSLockOnce(path, take) })
+// LockGuarding is Lock, recording guarded in a lock file it creates (see
+// GuardingLocks).
+func (osLocks) LockGuarding(path, guarded string) (Lock, error) {
+	return takeOSLock(path, kernelLock.Lock, guarded)
+}
+
+// takeOSLock is Lock, RLock and LockGuarding: take blocks until the lock is
+// held, in the kind it names, and is retried while what it was granted is no
+// longer the file at path (takeCurrent). A non-empty guarded is recorded in
+// a lock file an attempt creates — every attempt, since the file a retry
+// creates is a new one.
+func takeOSLock(path string, take func(kernelLock) error, guarded string) (Lock, error) {
+	return takeCurrent(path, func() (Lock, error) { return takeOSLockOnce(path, take, guarded) })
 }
 
 // takeOSLockOnce is one attempt of takeOSLock, granted on whichever file the
 // path named when it was opened.
-func takeOSLockOnce(path string, take func(kernelLock) error) (Lock, error) {
+func takeOSLockOnce(path string, take func(kernelLock) error, guarded string) (Lock, error) {
 	if err := os.MkdirAll(filepath.Dir(path), lockDirMode); err != nil {
 		return nil, fmt.Errorf("safefs: preparing lock directory for %s: %w", path, err)
+	}
+	if guarded != "" {
+		if err := recordGuarded(path, guarded); err != nil {
+			return nil, err
+		}
 	}
 	// Checked before the acquire as well as after it: flock(2) on a
 	// non-regular file can fail on its own terms first (darwin answers
@@ -214,6 +228,14 @@ func refuseNonRegular(path string) error {
 		return fmt.Errorf("%w: %s is %s", ErrNotRegularFile, path, info.Mode().Type())
 	}
 	return nil
+}
+
+// recordGuarded is createRecording on the real filesystem, hardened against
+// a planted FIFO as every lock-file open is (lockOpenGuard).
+func recordGuarded(path, guarded string) error {
+	return createRecording(path, guarded, func(flag int) (io.WriteCloser, error) {
+		return os.OpenFile(path, flag|lockOpenGuard, lockFileMode)
+	})
 }
 
 // prepareLockFile creates the lock file at path without taking the lock,

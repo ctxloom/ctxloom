@@ -74,14 +74,14 @@ var LayeringRules = []LayeringRule{
 		// (internal/core/frontend), because frontends other than the terminal
 		// are expected (a VS Code bridge, an ACP server). Core and the shared
 		// toolbox therefore never link a frontend: not the terminal layer, not
-		// the overlay, and not the Charm toolkit those are built on. Test files
-		// are exempt by the analyzer's own scope (production files only); a
-		// core test that needs a UI to assert is an adapter's test and lives
-		// beside that adapter (cli/tui's livetap tests). It subsumes the old
-		// coord-must-not-import-cli/tui cycle row.
+		// the overlay, not the emulator, and not the Charm toolkit those are
+		// built on. Test files are exempt by the analyzer's own scope
+		// (production files only); a core test that needs a UI to assert is an
+		// adapter's test and lives beside that adapter (cli/tui's livetap
+		// tests). It subsumes the old coord-must-not-import-cli/tui cycle row.
 		Name:          "core-and-shared-import-no-frontend",
 		From:          []string{"internal/core", "internal/shared"},
-		Forbid:        []string{"internal/adapters/termui", "internal/adapters/cli/tui"},
+		Forbid:        []string{"internal/adapters/termui", "internal/adapters/cli/tui", "internal/adapters/termemu"},
 		ForbidModules: []string{"charm.land", "github.com/charmbracelet"},
 	},
 	{
@@ -268,6 +268,8 @@ var LayeringRules = []LayeringRule{
 
 			// cli/tui and termui
 			"internal/adapters/cli/tui -> internal/adapters/termui": "slice 13: termui sits over the pty master; the TUI no longer composes it",
+			// cli/tui and termemu
+			"internal/adapters/cli/tui -> internal/adapters/termemu": "sanctioned: the split view's compositor draws the engine's pty through the one emulator seam, which keeps x/vt replaceable behind it; the two are one terminal frontend",
 
 			// operations reaching sibling adapters (it is the application-services
 			// layer; it holds ports, not adapters)

@@ -45,10 +45,16 @@
 // coordinator's state ONLY — config loading, the selection builder, and
 // surface delivery have no read model and stay event-free.
 //
-// D3 (children never prompt): a delegated child runs headless in whatever
-// posture it declared; nobody is at its engine, so the engine denies what
-// the posture and rules leave open, and the runner reports such a turn to
-// the parent as BLOCKED. The coordinator does NOT broker an approval UI: it
-// neither decides a child's engine permission requests nor relays them for
-// a human to decide.
+// APPROVALS (approvalqueue.go, approvals.go): a delegated child runs
+// headless in whatever posture it declared, and nobody is at its engine.
+// What its posture and rules leave open goes to its approver: none denies
+// it, the engine's reviewer decides it, and the human — the default — is
+// asked through the approval route: the runner relays the engine's ask to
+// the coordinator (parkApproval), which parks it in the ROOT's one queue
+// whatever the asker's depth, for the presenter on the root's terminal.
+// The coordinator decides nothing itself: the human answers, a grant they
+// gave covers the call, the timeout denies it, or — when no presenter will
+// ever serve the queue (ApprovalQueue.Unattended: a one-shot, --plain-terminal
+// or headless root) — it is refused at once, naming why. A turn that met a
+// denial reaches the parent as BLOCKED.
 package coord

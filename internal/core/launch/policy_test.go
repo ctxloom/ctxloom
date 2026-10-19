@@ -271,3 +271,30 @@ func TestResolvePolicy_NoCodecInteractiveKeepsTheHuman(t *testing.T) {
 	assert.Equal(t, engine.ApproverHuman, l.Permission.Approver)
 	assert.False(t, l.RoutesApprovals(), "the human answers in the engine's own UI; nothing is routed")
 }
+
+// TestDeclaredApprover: the approver `agent show` reports is the launch's own
+// precedence — the binding, then the llm label, then the project, else the
+// human — and a spelling no approver has is refused, naming where it was.
+func TestDeclaredApprover(t *testing.T) {
+	declare := func(a string) agents.NeutralPermissions { return agents.NeutralPermissions{Approver: a} }
+	for _, tc := range []struct {
+		name                    string
+		binding, label, project string
+		want                    engine.Approver
+	}{
+		{"nothing declared is the human", "", "", "", engine.ApproverHuman},
+		{"the project", "", "", "reviewer", engine.ApproverReviewer},
+		{"the label over the project", "", "none", "reviewer", engine.ApproverNone},
+		{"the binding over both", "human", "none", "reviewer", engine.ApproverHuman},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := launch.DeclaredApprover("dev", agents.Permissions{NeutralPermissions: declare(tc.binding)},
+				"guarded", agents.LabelPermissions{NeutralPermissions: declare(tc.label)}, declare(tc.project))
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+	_, err := launch.DeclaredApprover("dev", agents.Permissions{NeutralPermissions: declare("humans")}, "", agents.LabelPermissions{}, agents.NeutralPermissions{})
+	require.ErrorIs(t, err, launch.ErrPermissionUnhonoured)
+	assert.Contains(t, err.Error(), `approver "humans" from agent "dev"`)
+}

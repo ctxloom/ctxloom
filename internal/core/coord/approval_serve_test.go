@@ -72,6 +72,35 @@ func TestApprovalRequest_ParksAtTheRootAndAnswersTheRun(t *testing.T) {
 	assert.Equal(t, "fine", r.resp.GetApproval().GetMessage())
 }
 
+// TestApprovalRequest_AChildUnderAnUnattendedRootIsRefusedAtOnce: under a
+// root no presenter serves (a one-shot's), a delegated child's request
+// travels the same wire to the same root queue and is refused the moment it
+// arrives, naming why — the child learns the root's mark from the queue its
+// request lands in, not from anything it was launched with.
+func TestApprovalRequest_AChildUnderAnUnattendedRootIsRefusedAtOnce(t *testing.T) {
+	resetStrictness(t)
+	sp := cutoverSpawner(t, 0)
+	c := newCutoverCoordinator(t, sp, 0)
+	c.Approvals().Unattended("nobody can answer it")
+	_, home := awaitCutoverChildIdle(t, c, sp, "task")
+	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer cancel()
+
+	start := time.Now()
+	resp, err := home.Request(ctx, &agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_Approval{Approval: &agentcoordpb.ApprovalRequest{
+		Tool: "Bash", Input: []byte(`{"command":"make"}`), ToolUseId: "toolu_9", Timeout: durationpb.New(20 * time.Minute),
+	}}})
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	require.Zero(t, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
+	assert.Less(t, elapsed, time.Second, "decided at once, not held toward its 20m timeout")
+	assert.False(t, resp.GetApproval().GetAllow())
+	assert.Equal(t, "refused", resp.GetApproval().GetDecider())
+	assert.Equal(t, "nobody can answer it", resp.GetApproval().GetMessage())
+	assert.Empty(t, c.Approvals().Pending(), "nothing waits for a presenter that does not exist")
+}
+
 // TestApprovalRequest_RunEndWithdrawsIt: a request outlives nothing — when
 // the asking run ends, its parked request is denied as cancelled at once
 // rather than holding the human's attention until its timeout.

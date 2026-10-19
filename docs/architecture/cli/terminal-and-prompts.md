@@ -69,6 +69,14 @@ flowchart TD
   `ListRuns` to `termui.RosterEntry`, the approval modal presents
   `Port.Approvals()` and the credential notice polls `Port.CredentialHolds`.
   None of them holds the coordinator (`TestArch_FrontendsHoldNoCoordinator`).
+- The modal is the approval queue's only presenter, so a run that does not
+  build this layer cannot present approvals, and marks its queue unattended
+  (`markUnattended`, over `coord.ApprovalQueue.Unattended`): `hostCoordinator`
+  for a one-shot owner, `prepareSessionIO` when no terminal layer engages
+  (`--plain-terminal`, no tty, an unparseable prefix key). The queue then
+  refuses every request no grant covers at once, at every depth. The startup
+  warnings (`runState.warnPosture`) predict the same outcome from the same
+  facts (`presentsApprovals`) before either has happened.
 - `driveOwnedInteractive` (`run_pty.go`) attaches the session's terminal through
   `Port.Terminal(activeHarp)` — the run's pty — and pumps the wrapped stdin into
   it, its output to stdout, and each resize onto it.

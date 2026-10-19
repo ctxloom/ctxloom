@@ -455,10 +455,13 @@ var probeRegistry = []probeSpec{
 		Paid:         true,
 		Cells:        p4Cells(),
 	},
-	// P5 stays planned deliberately (ruled 2026-09-22): approvals are wanted
-	// back as a capability. It cannot be built yet — a headless run's engine
-	// denies what nothing approves (surfaced as agent.ChatEvent.Denied), and
-	// no approval route reaches a human yet. A cell wires when one does.
+	// P5 is planned: the approval route exists end to end in code — the
+	// engine's PermissionRequest hook (launch.withApprovalHooks) relays the
+	// ask through the runner to the root's queue (coord.ApprovalQueue), which
+	// the interactive root's modal (cli.modalPresenter) presents — but no
+	// live cell has driven a real engine through it. The cell needs an
+	// interactive root on a terminal: a one-shot, --plain-terminal or headless
+	// root presents nothing, and denies every such ask at once.
 	{
 		Name:         probeP5,
 		Title:        "approval surface: an engine permission request must SURFACE to a human, and the gated effect must appear only after the allow",
@@ -975,7 +978,7 @@ func p4Cells() []probeCell {
 	//
 	// The warning flag is the independent confirmation that the ONE line of
 	// config.yaml separating the pair really reached the resolver:
-	// the plan-oneshot warning (cli's warnPosture) fires only when a plan
+	// the plan-oneshot warning (cli.postureWarning) fires only when a plan
 	// posture survives the launch resolver's headless floor into the run,
 	// and it fired on
 	// exactly the cell that bound `permissions: {mode: plan}`. So the two runs differed

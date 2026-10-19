@@ -56,10 +56,11 @@ func TestResolve_AHumanApprovedRunCarriesTheApprovalHooks(t *testing.T) {
 }
 
 // TestResolve_NoApprovalHooksWhereNobodyIsAsked: approver none denies what
-// is left open, an interactive run's human answers in the engine's own UI,
-// and an engine with no codec cannot put a request to anyone (its launch
-// resolves only with approver none) — none of them carries the approval
-// hooks.
+// is left open, a reviewer decides it on its own — so a one-shot under a
+// reviewer never reaches the root's queue, whether or not anything presents
+// it — an interactive run's human answers in the engine's own UI, and an
+// engine with no codec cannot put a request to anyone (its launch resolves
+// only with approver none) — none of them carries the approval hooks.
 func TestResolve_NoApprovalHooksWhereNobodyIsAsked(t *testing.T) {
 	for name, tc := range map[string]struct {
 		opts []launchtest.Option
@@ -68,6 +69,9 @@ func TestResolve_NoApprovalHooksWhereNobodyIsAsked(t *testing.T) {
 		"approver none": {opts: []launchtest.Option{launchtest.WithAgent("dev", launchtest.PermissionBlock(agents.Permissions{
 			NeutralPermissions: agents.NeutralPermissions{Approver: "none"},
 		}))}, mode: engine.Structured},
+		"approver reviewer": {opts: []launchtest.Option{launchtest.WithAgent("dev", launchtest.PermissionBlock(agents.Permissions{
+			NeutralPermissions: agents.NeutralPermissions{Approver: "reviewer"},
+		})), launchtest.FixtureReviewer()}, mode: engine.Structured},
 		"interactive": {opts: []launchtest.Option{launchtest.WithAgent("dev")}, mode: engine.Interactive},
 		"no codec": {opts: []launchtest.Option{launchtest.WithAgent("dev", launchtest.PermissionBlock(agents.Permissions{
 			NeutralPermissions: agents.NeutralPermissions{Approver: "none"},

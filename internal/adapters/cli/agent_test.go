@@ -163,6 +163,22 @@ func TestAgentShow_JSONOmitsTheErrorKeyWhenResolutionSucceeded(t *testing.T) {
 	assert.NotContains(t, string(payload), "resolution_error")
 }
 
+// TestHeadlessPosture: `agent show` says how a headless run of the agent
+// meets a call its posture leaves open — the posture, the approver and where
+// the ask goes, including that the human's asks are denied at once when the
+// root presents none.
+func TestHeadlessPosture(t *testing.T) {
+	for _, tc := range []struct{ posture, approver, want string }{
+		{"acceptEdits", "human", "acceptEdits, approver human — asks go to the root's approvals modal; denied at once when the root is unattended (one-shot, --plain-terminal, headless)"},
+		{"default", "none", "default, approver none — asks are denied at once"},
+		{"default", "reviewer", "default, approver reviewer — the engine's reviewer decides asks"},
+		{"bypass", "none", "bypass, approver none — nothing is asked"},
+		{"", "none", "approver none — asks are denied at once"},
+	} {
+		assert.Equal(t, tc.want, headlessPosture(tc.posture, tc.approver), "%s/%s", tc.posture, tc.approver)
+	}
+}
+
 // renderAgentShow is a run of sequential optional-field arms plus a resolution
 // branch. This drives EVERY arm — each optional field present in one case and
 // absent in the other — so the rendering can be split up without changing a
@@ -180,6 +196,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 		resolved := &operations.ResolvedAgent{
 			Label: "claude-code", Backend: "claude", Model: "opus",
 			EffectivePermissions: "bypassPermissions",
+			Approver:             "human",
 			Fragments:            []string{"a", "b", "c"},
 		}
 
@@ -195,6 +212,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 			"Driving: oneshot\n",
 			"Resolved llm: claude-code (backend: claude, model: opus)\n",
 			"Resolved permissions: bypassPermissions\n",
+			"Headless posture: bypassPermissions, approver human — nothing is asked\n",
 			"Composed fragments: 3\n",
 		} {
 			assert.Contains(t, out, want)
@@ -211,7 +229,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 		assert.Contains(t, out, "Engine (declared): (project default)\n")
 		assert.Contains(t, out, "Resolved llm: default\n")
 		assert.Contains(t, out, "Composed fragments: 0\n")
-		for _, unwanted := range []string{"Runtime:", "Permissions:", "Driving:", "backend:", "Resolved permissions:"} {
+		for _, unwanted := range []string{"Runtime:", "Permissions:", "Driving:", "backend:", "Resolved permissions:", "Headless posture:"} {
 			assert.NotContains(t, out, unwanted)
 		}
 	})

@@ -197,6 +197,57 @@ func TestApprovalQueue_TimeoutDenies(t *testing.T) {
 	})
 }
 
+// TestApprovalQueue_UnattendedRefusesAtOnce: a root no presenter will ever
+// serve (a --one-shot owner) refuses a request the moment it arrives, naming
+// why, instead of holding the asker's turn to the 15-minute deadline. The
+// refusal is journaled like any decision, and nothing is left pending.
+func TestApprovalQueue_UnattendedRefusesAtOnce(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		q, _, path := newTestQueue(t)
+		q.Unattended("nobody can answer it")
+		start := time.Now()
+		d := q.Park(context.Background(), askerID, toolAsk("Bash"), 0)
+		assert.False(t, d.Allow)
+		assert.Equal(t, agent.DeciderRefused, d.Decider)
+		assert.Equal(t, "nobody can answer it", d.Message)
+		assert.Zero(t, time.Since(start), "refused at once, not at the deadline")
+		assert.Empty(t, q.Pending())
+		assert.Equal(t, []string{factApprovalParked, factApprovalDecided}, factKinds(readFacts(t, path)))
+	})
+}
+
+// TestApprovalQueue_UnattendedStillHonoursGrants: a rule the run already holds
+// answers without a human, so an unattended root still allows what it covers.
+func TestApprovalQueue_UnattendedStillHonoursGrants(t *testing.T) {
+	q, _, _ := newTestQueue(t)
+	q.coverWith(askerID, []string{"Bash"})
+	q.Unattended("nobody can answer it")
+	d := q.Park(context.Background(), askerID, toolAsk("Bash"), time.Minute)
+	assert.True(t, d.Allow)
+	assert.Equal(t, agent.DeciderGrant, d.Decider)
+}
+
+// TestApprovalQueue_AttendedStillWaits: without the mark, a request parks for
+// the presenter and is answered by the human — the delegated child under an
+// interactive root is unchanged.
+func TestApprovalQueue_AttendedStillWaits(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		q, _, _ := newTestQueue(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		got := parkAsync(ctx, q, toolAsk("Bash"), 3*time.Minute)
+		synctest.Wait()
+		require.Len(t, q.Pending(), 1, "parked, waiting for the human")
+		time.Sleep(2 * time.Minute)
+		synctest.Wait()
+		require.Len(t, q.Pending(), 1, "still parked well before its deadline")
+		require.NoError(t, q.Answer(q.Pending()[0].ID, ApprovalDecision{Allow: true}))
+		d := <-got
+		assert.True(t, d.Allow)
+		assert.Equal(t, agent.DeciderHuman, d.Decider)
+	})
+}
+
 // TestApprovalQueue_TimeoutBounds: an unset timeout is the ruled 15-minute
 // default; a longer one is capped at the ruled 60 minutes.
 func TestApprovalQueue_TimeoutBounds(t *testing.T) {

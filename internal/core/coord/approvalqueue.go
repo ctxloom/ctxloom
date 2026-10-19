@@ -148,6 +148,9 @@ type ApprovalQueue struct {
 	// runGrants are the rules each live run has been granted, which cover
 	// its later requests. A run's set goes with the run (cancelFrom).
 	runGrants map[runKey][]string
+	// unattended, when set, is why no presenter will ever serve this root
+	// (Unattended): every request it would park is refused at once instead.
+	unattended string
 
 	// grantsLock is held by a revoke from reading the set it pushes until
 	// the revoke is journaled, and by a decision that grants while it is
@@ -285,8 +288,23 @@ func (q *ApprovalQueue) admitLocked(from Identity, req PendingApproval) (Approva
 	// side or the other.
 	case q.coveredLocked(req, q.runGrants[keyOf(from)]):
 		return coveredByGrant, true
+	// Nobody will ever answer it, so waiting out its timeout only stalls the
+	// asker's turn. A grant still covers: that answer needs no human.
+	case q.unattended != "":
+		return ApprovalDecision{Decider: agent.DeciderRefused, Message: q.unattended}, true
 	}
 	return ApprovalDecision{}, false
+}
+
+// Unattended marks a root no presenter will ever serve — a --one-shot owner,
+// or an interactive one with no terminal layer to show the modal — and why.
+// From then on a request that would park is refused at once with why as its
+// message, not held to its deadline. It says nothing of whether the human is
+// at the terminal: an attended root's requests still wait out their time.
+func (q *ApprovalQueue) Unattended(why string) {
+	q.mu.Lock()
+	q.unattended = why
+	q.mu.Unlock()
 }
 
 // Answer resolves a parked request with the human's decision. It succeeds

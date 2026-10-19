@@ -140,7 +140,7 @@ func TestLefthookPreCommitOrder(t *testing.T) {
 		}
 	}
 
-	for _, kind := range []string{"go", "proto", "shell"} {
+	for _, kind := range []string{"go", "proto", "shell", "just"} {
 		if _, ok := formatters[kind]; !ok {
 			t.Errorf("%s: pre-commit runs no %q formatter (%s%s)", lefthookPath, kind, fmtPrefix, kind)
 		}

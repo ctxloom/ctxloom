@@ -54,6 +54,16 @@ pre-commit:
       priority: 3
       run: bash scripts/fmt staged shell
 
+    fmt-just:
+      # `just --fmt` from the just .devcontainer/tool-versions.env pins, in the
+      # devcontainer (`just fmt-just`): the host's own just may be any version,
+      # and another version's formatter writes different bytes. Like
+      # fmt-proto, this step starts a container — only when a justfile is
+      # staged.
+      priority: 4
+      glob: ["justfile", "*/justfile", "justfile.*", "*.justfile", "*.just"]
+      run: bash scripts/fmt staged just
+
     reprise:
       # Duplicate-detection gate: findings involving units changed since HEAD
       # fail unless baselined (the baseline is a git ref reprise maintains

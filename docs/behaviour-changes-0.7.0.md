@@ -187,14 +187,23 @@ automatically and claude asks before anything else. Set `permissions:` on an
 agent, or pass `--permissions <posture>` (`ctxloom run --help` lists them), to
 choose another. `bypass` is only ever used when you declare it.
 
-**Headless runs** (`ctxloom run --one-shot`, and delegated agent runs) have no
-one to answer a prompt, so claude denies every call its posture would have
-asked about. A run is never refused or widened for its posture: a one-shot
-warns at startup, and a delegated child's turn that hit a denial reaches its
-parent as `BLOCKED on <tool>: <reason>` rather than as a finished result.
-`ctxloom init` gives the default agent the `acceptEdits` posture for its
-headless runs (file edits go through without asking) and says so;
-`ctxloom agent edit default --permissions <posture>` changes it.
+**Headless runs** (`ctxloom run --one-shot`, and delegated agent runs) have
+nobody at the engine, so a call their posture would ask about goes to the
+agent's approver. With `approver: human`, the default, it reaches the
+approvals modal of the interactive `ctxloom run` at the root of the tree,
+whatever the depth that asked, and waits there up to `approval_timeout`. When
+the root presents no approvals — it is a one-shot, runs with
+`--plain-terminal`, or has no terminal — nobody can answer, so the call is
+denied at once with a reason that says so and how to let it through. With
+`approver: none` it is denied at once; with `approver: reviewer` claude's own
+reviewer decides. A run is never refused or widened for its posture: a one-shot
+says at startup which calls will be denied, a root that cannot present
+approvals says so for its children too, and a delegated child's turn that hit a
+denial reaches its parent as `BLOCKED on <tool>: <reason>` rather than as a
+finished result. `ctxloom agent show` prints each agent's headless posture and
+where its asks go. `ctxloom init` gives the default agent the `acceptEdits`
+posture for its headless runs (file edits go through without asking) and says
+so; `ctxloom agent edit default --permissions <posture>` changes it.
 
 **claude 2.1.283 or newer** is required: an older claude is refused at launch
 with the upgrade as its remedy.

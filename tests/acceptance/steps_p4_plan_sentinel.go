@@ -30,12 +30,13 @@
 // Nothing here sets a flag the product does not offer, and nothing here
 // reaches around the resolver.
 //
-// AND THE ONE-SHOT INTERACTION MATTERS. A Structured run has no human to
-// answer a prompt, so the engine denies every gated call — which is why P5's
+// AND THE ONE-SHOT INTERACTION MATTERS. A one-shot root presents no
+// approvals, so every gated call is denied at once — which is why P5's
 // approval probe cannot use this invocation at all. resolvePolicy collapses
 // nothing, so plan survives into the run intact. That is the shifty-scroll ruling, and
 // runState.warnPosture is production announcing it — its warning on
-// stderr is the cheapest confirmation, per cell, that the posture arrived.
+// stderr (cli.postureWarning) is the cheapest confirmation, per cell, that
+// the posture arrived.
 package acceptance
 
 import (
@@ -294,7 +295,7 @@ func registerP4PlanSentinelSteps(ctx *godog.ScenarioContext) {
 // punctuation edit does not silently turn an informative line into a misleading
 // one.
 func p4SawPlanOneshotWarning(stderr string) bool {
-	return strings.Contains(stderr, "plan permissions has no human to approve")
+	return strings.Contains(stderr, "--one-shot with plan permissions")
 }
 
 // p4SentinelAbsPath is where the sentinel lives on disk. The run executes with

@@ -38,22 +38,22 @@ Feature: P4 — the plan sentinel: does permissions=plan actually stop a write
   purpose — the plan cell reads a record the control has to have written.
 
   THE POSTURE RIDES THE SURFACE A PROJECT ACTUALLY COMMITS. `permissions:` on the
-  agent binding, resolved by cli.resolvePermissionMode (flag > agent binding >
-  llm label > project default > built-in) and carried to the runner on
-  pb.RunOptions.PermissionMode, where each backend's buildArgs turns it into its
-  own native form — --permission-mode plan for claude. No cell here sets a flag
-  the product does not offer
+  agent binding, resolved by the launch resolver's one permission resolution
+  (launch.resolvePolicy: the --permissions flag over the binding and the llm
+  label, else the project, else the engine's default) and carried on the Launch
+  as its PermissionPolicy (pb Launch.permission), from which each turn's posture
+  is built in the engine's own native form — --permission-mode plan for claude.
+  No cell here sets a flag the product does not offer
   and none reaches around the resolver.
 
   ONE-SHOT DOES NOT LAUNDER THE POSTURE, and it is worth knowing why, because
-  the neighbouring approval probe cannot use this invocation at all. A headless
-  ONESHOT has no human to answer a prompt, so resolvePermissionMode floors any
-  posture that is not SafeHeadless up to bypass. Plan IS SafeHeadless and all
-  backends enforce it, so CollapsePlanIfUnenforced leaves it alone and the floor
-  does not fire: plan reaches the engine intact. Production announces this itself
-  — warnPlanOneshotCancels prints "--one-shot with plan permissions has no human
-  to approve a gated call" on stderr — and that line in a cell's captured stderr
-  is the cheapest per-cell confirmation that the posture arrived.
+  the neighbouring approval probe cannot use this invocation at all. A one-shot
+  root presents no approvals, so every call its posture would ask about is
+  denied at once; the launch resolver neither widens nor collapses the posture
+  for that, so plan reaches the engine intact. Production announces this itself
+  — cli.postureWarning prints "--one-shot with plan permissions: no one can
+  answer approvals in this run" on stderr — and that line in a cell's captured
+  stderr is the cheapest per-cell confirmation that the posture arrived.
 
   # Every cell self-skips LOUDLY, naming the engine and the posture, and the only
   # reason it can skip is that the engine is absent or unauthenticated on this

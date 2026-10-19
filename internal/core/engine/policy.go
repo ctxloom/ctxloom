@@ -15,7 +15,9 @@ type Approver int
 const (
 	// ApproverHuman is the zero value, and the RULED default: an uncovered
 	// request escalates to the human at the root session, and waits for
-	// them until the approval timeout denies it.
+	// them until the approval timeout denies it — or, where the root session
+	// presents no approvals (a one-shot, plain-terminal or headless root),
+	// is denied at once.
 	ApproverHuman Approver = iota
 	// ApproverNone denies whatever the rules and posture leave open; nobody
 	// is asked.

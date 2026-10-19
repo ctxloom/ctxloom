@@ -326,7 +326,10 @@ false — delete it rather than leave it.
 
 A run's `AgentRequest.approval` parks in the ROOT coordinator's approval queue
 (`coord.ApprovalQueue`, served by `Coordinator.parkApproval`) until the human decides,
-its timeout denies it, or the run ends. Only an in-process presenter answers one
+its timeout denies it, or the run ends. A root no presenter serves — a one-shot,
+`--plain-terminal` or headless root, which the hosting process marks
+(`ApprovalQueue.Unattended`) — has every request that no session grant covers
+refused at once, naming why, at whatever depth it was asked. Only an in-process presenter answers one
 (`coord.ApprovalSource`): no wire request reaches `ApprovalQueue.Answer`
 (`TestNoWirePathAnswersAnApproval`). Another terminal can READ the queue —
 `ConsumerService.PendingApprovals`, behind `ctxloom session approvals`; it

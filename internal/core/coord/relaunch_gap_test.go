@@ -95,6 +95,12 @@ func TestEndRun_ExplicitSendInTheRelaunchGapLaunchesOnce(t *testing.T) {
 	assert.Equal(t, 2, sp.chatCount(), "one ended run, one resume: exactly one spawner Start beyond the original — %s", launchDiagnostic(c, sp, harp))
 	assert.Equal(t, 1, liveRunsOf(c, harp), "exactly one live run for the session")
 	assert.NotEqual(t, ended, currentRunID(c, harp))
+	// The slot accounting is read once the resumed turn is over. Read while it
+	// still executes, heldSlots could count its slot and the pool then find it
+	// released by the turn's own idle: two reads straddling a transition, not
+	// a leak (forced by pausing between the reads, 4/5 red).
+	require.Eventually(t, func() bool { return rosterState(c, harp) == StateIdle }, conformanceWait, 10*time.Millisecond,
+		"the resumed turn settles to idle")
 	held := heldSlots(c)
 	assert.LessOrEqual(t, held, 1)
 	assert.True(t, slotsIdleWith(c.slots, int64(slotCap-held)), "the slot pool holds exactly cap minus what live runs hold — no slot leaked (held=%d)", held)

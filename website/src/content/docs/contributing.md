@@ -40,7 +40,7 @@ Every recipe that starts a container or builds an image (`dev-image`, and throug
 
 | Command | Description |
 |---------|-------------|
-| `just test-mutation-diff BASE` | Mutate the lines changed since `BASE`, judged against the project thresholds (efficacy 80%) — the per-push gate CI runs, sharded |
+| `just test-mutation-diff BASE` | Mutate the lines changed since `BASE`, judged against the project thresholds (efficacy 80%) — the per-push gate CI runs, sharded, and what the pre-commit hook runs over the staged change (see [Git hooks](#git-hooks)) |
 | `just test-mutation-pkg PKG [--diff BASE]` | The same, narrowed to one package directory and everything under it |
 | `just test-mutation-ratchet PKG` | Mutate `PKG` whole and judge its survivor count (LIVED + NOT COVERED) against its row in `tests/mutation/survivor_baseline.txt`; `CTXLOOM_MUTATION_BASELINE=update` records the measured count as the row |
 | `just test-mutation` | The whole module, on this machine (slow) |
@@ -70,7 +70,8 @@ cell whose engine is missing or cannot authenticate skips loudly, saying why.
 
 | Command | Description |
 |---------|-------------|
-| `just fmt` | Format code |
+| `just fmt` | Format the repository: gofmt over the Go, `buf format` over the protos (in the devcontainer), shfmt over the shell scripts. `scripts/fmt` defines which files each formatter owns; files under `testdata/` are left alone |
+| `just fmt-check` | The same formatters as a gate: prints each one's drift and fails on any, writing nothing |
 | `just lint` | Lint code. golangci-lint's cache is per checkout, under the gitignored `.cache/golangci-lint/<hash>`, so a worktree never reads another's cached findings; an exported `GOLANGCI_LINT_CACHE` overrides it |
 | `just govulncheck` | Scan every package for known Go vulnerabilities its code can actually reach (govulncheck, pinned in `.devcontainer/tool-versions.env`), and fail on any. It queries the live database at vuln.go.dev, so it can turn red without a change to the tree. CI runs it as the Vulnerability scan job. Extra flags pass through, e.g. `just govulncheck -show traces` for full call paths |
 
@@ -82,6 +83,14 @@ Hooks are managed by [lefthook](https://github.com/evilmartians/lefthook): `left
 |---------|-------------|
 | `just build` | Also builds `bin/archlint`, which the architectural pre-commit hook runs. On a fresh checkout use this rather than a bare `just build-archlint`: archlint type-checks the whole module, so it needs the generated code (`just proto`) that `just build` produces first |
 | `just gitleaks-install` | Installs [gitleaks](https://github.com/gitleaks/gitleaks) at the version pinned in `.devcontainer/tool-versions.env`, for the pre-commit secret scan |
+| `just shfmt-install` | Installs [shfmt](https://github.com/mvdan/sh) at the version pinned in `.devcontainer/tool-versions.env`, for `just fmt` and the pre-commit shell formatter |
+| `just test-mutation-install` | Installs gomutants, for the pre-commit mutation step |
+
+The pre-commit hook runs its steps one at a time, in this order, and stops at the first failure:
+
+1. **Formatters**, over the staged files of their kind: gofmt, `buf format` (only when a `.proto` is staged; it starts the devcontainer) and shfmt. A fully staged file is formatted and re-staged, so the commit carries the formatted bytes. A partially staged file (some of its changes staged, some not) is only checked: if its staged content is not formatted, the commit is refused with "run `just fmt`". The hook never rewrites it, because that would move the lines your unstaged changes apply to.
+2. **Checks**: reprise (duplicate detection), archlint (architectural rules), lint-pins (no pinned version moves backwards) and gitleaks (secret scan).
+3. **Mutation**, over the staged change only. The hook checks `HEAD` out into a throwaway worktree, applies your staged diff there, and runs `just test-mutation-diff HEAD` inside it. Unstaged edits and untracked files never reach it, and it never writes your working tree, index or stash. Only the lines the commit changes are mutated, never a whole package or tree, so a bigger diff takes longer. That is expected: the cost follows the size of the change. A commit with no staged production Go skips this step. Below the project threshold (80% efficacy) the commit is refused, listing the surviving mutants. gomutants runs the covering tests first, so a test that fails on what you staged fails here too, before any verdict.
 
 The pre-commit secret scan (`just secrets-scan-staged`, which you can also run by hand) checks staged changes only, against `.gitleaks.toml` (gitleaks' default rules plus allowlists for known false positives). On a finding: a real credential must be unstaged and rotated; a deliberate test fixture gets a trailing `gitleaks:allow` comment on its line.
 

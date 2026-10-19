@@ -56,10 +56,10 @@ type XVT struct {
 	mouseModes map[ansi.Mode]bool
 	mouse      MouseTracking
 
-	// toChild serialises every byte bound for the child: the emulator's
-	// replies to queries (drained from its pipe) and encoded input.
-	toChildMu sync.Mutex
-	toChild   io.Writer
+	// toChild is the child's input. Only the reply drain writes it: every
+	// byte bound for the child, the emulator's replies and encoded input
+	// alike, crosses the emulator's pipe first, in the order it was sent.
+	toChild io.Writer
 
 	syncing     bool
 	syncSince   time.Time
@@ -112,24 +112,23 @@ func NewXVT(cols, rows int, toChild io.Writer, cb Callbacks) *XVT {
 	return t
 }
 
+// drainSource is what the reply drain reads the emulator's pipe through:
+// the pipe itself. Tests wrap it to make the drain lag.
+var drainSource = func(r io.Reader) io.Reader { return r }
+
 func (t *XVT) drain() {
 	defer close(t.drained)
-	_, _ = io.Copy(childWriter{t}, t.emu)
+	_, _ = io.Copy(childWriter{t.toChild}, drainSource(t.emu))
 }
 
-// childWriter is the pane's side of the child's input: every write is
-// serialised with the others (writeChild).
-type childWriter struct{ t *XVT }
+// childWriter is the drain's side of the child's input. A write the child
+// refuses is dropped rather than ending the drain: undrained, the emulator's
+// next reply blocks its Write forever.
+type childWriter struct{ w io.Writer }
 
-func (w childWriter) Write(p []byte) (int, error) {
-	w.t.writeChild(p)
+func (c childWriter) Write(p []byte) (int, error) {
+	_, _ = c.w.Write(p)
 	return len(p), nil
-}
-
-func (t *XVT) writeChild(p []byte) {
-	t.toChildMu.Lock()
-	defer t.toChildMu.Unlock()
-	_, _ = t.toChild.Write(p)
 }
 
 // handled wraps a handler that takes the sequence whole: x/vt's default
@@ -403,9 +402,13 @@ func (t *XVT) Snapshot() Screen {
 	return s
 }
 
-// SendKey encodes key for the child.
+// SendKey encodes key for the child. It crosses the emulator's reply pipe,
+// the one path every input takes (mouse reports, pastes, focus reports, the
+// emulator's replies), so it reaches the child behind whatever was sent
+// before it. Like them it returns once the drain has taken it, before the
+// child has.
 func (t *XVT) SendKey(key KeyPress) {
-	t.writeChild(t.encode(key))
+	_, _ = t.emu.InputPipe().Write(t.encode(key))
 }
 
 // encode is key's bytes in the protocol the child asked for (nil: none).

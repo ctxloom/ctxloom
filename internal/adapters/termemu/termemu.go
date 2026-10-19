@@ -145,6 +145,8 @@ type Terminal interface {
 	// SendKey, SendMouse and Paste encode one user event for the child, in
 	// whichever protocol the child has asked for (kitty keyboard flags,
 	// SGR mouse, bracketed paste). Mouse coordinates are pane-relative.
+	// Events reach the child in the order they were sent, and may still be
+	// on their way when the call returns.
 	SendKey(KeyPress)
 	SendMouse(MouseEvent)
 	Paste(text string)

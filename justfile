@@ -4,7 +4,7 @@
 # text. Without it, a value like `-run 'TestA|TestB'` gets re-parsed by the
 # script's shell and the `|` acts as an actual pipe (`sh: 1: TestB: not
 # found`) instead of reaching go test as one -run argument.
-set positional-arguments := true
+set positional-arguments
 
 # Gates that MUST be identical here and in justfile.container:
 # test-docker-integration (and its package list), test-arch, plus the
@@ -93,7 +93,7 @@ show-version:
 # are merge-triggered: bump here, commit VERSION, merge — CI tags it immutably
 # (v-prefixed). Example: just set-version 0.7.0
 set-version version:
-    versionator set {{version}}
+    versionator set {{ version }}
 
 # Bump patch version (0.0.X)
 bump-patch:
@@ -117,12 +117,12 @@ release:
 
 # Validate .goreleaser.yml (delegates to devcontainer)
 release-check: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run release-check
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run release-check
 
 # Snapshot-build release artifacts for this platform into dist/ (delegates to
 # devcontainer, which carries the pinned goreleaser).
 release-snapshot: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run release-snapshot
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run release-snapshot
 
 # Build the main binary with all features (delegates to devcontainer)
 #
@@ -134,34 +134,34 @@ release-snapshot: dev-image
 # never running the architectural rules at all. Building it on the path everyone
 # already takes is what keeps the gate armed by default rather than on purpose.
 build: dev-image && _trim-go-cache
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run build
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run build-archlint
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run build
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run build-archlint
 
 # Compress binary with UPX (delegates to devcontainer)
 compress: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run compress
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run compress
 
 # Build + compress all four binaries in the devcontainer (ctxloom + ltk +
 # taskloom + harp, each UPX-compressed). Delegates to the container `build-compressed`.
 build-compressed: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run build-compressed
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run build-compressed
 
 # Build all four binaries UNCOMPRESSED in the devcontainer (fast-starting
 # local install).
 build-all-bins: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run build-all-bins
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run build-all-bins
 
 # Build the ltk companion binary in the devcontainer into bin/ltk, via the ltk
 # module. ltk ships from the unified ctxloom release; main.Version matches
 # `ltk version`.
 build-ltk: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run ltk::build
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run ltk::build
 
 # Build the taskloom companion binary in the devcontainer into bin/taskloom, via
 # the taskloom module. taskloom stamps the lowercase main.version
 # (`taskloom version`).
 build-taskloom: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run taskloom::build
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run taskloom::build
 
 # Build the standalone harp ID-generator binary in the devcontainer into
 # bin/harp, via the harp module. harp is independently distributable (plan
@@ -169,15 +169,15 @@ build-taskloom: dev-image
 # its own release artifact (.goreleaser.yml), not as one of the three
 # binaries `install` puts on the host PATH.
 build-harp: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run harp::build
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run harp::build
 
 # Validate fragment YAML files (delegates to devcontainer)
 validate: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run validate
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run validate
 
 # Generate protobuf code (delegates to devcontainer)
 proto: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run proto
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run proto
 
 # List available plugins
 plugin-list:
@@ -185,7 +185,7 @@ plugin-list:
 
 # Build with verbose output (local, for debugging)
 build-verbose:
-    go build -v -ldflags "{{version_ldflag}}" -o ctxloom ./cmd/ctxloom
+    go build -v -ldflags "{{ version_ldflag }}" -o ctxloom ./cmd/ctxloom
 
 # Regenerate the published JSON Schemas for ctxloom's JSON output into the
 # gitignored resources/schema/gen/ by reflecting their producing Go structs.
@@ -223,13 +223,13 @@ test: && _trim-go-cache
     set -uo pipefail
     failed=()
     echo "===== [1/3] default suite (untagged) — just test-default"
-    if ! "{{just_executable()}}" --justfile "{{justfile()}}" test-default; then failed+=("test-default"); fi
+    if ! "{{ just_executable() }}" --justfile "{{ justfile() }}" test-default; then failed+=("test-default"); fi
     echo ""
     echo "===== [2/3] architectural invariants (-tags arch) — just test-arch"
-    if ! "{{just_executable()}}" --justfile "{{justfile()}}" test-arch; then failed+=("test-arch"); fi
+    if ! "{{ just_executable() }}" --justfile "{{ justfile() }}" test-arch; then failed+=("test-arch"); fi
     echo ""
     echo "===== [3/3] cross-agent conformance (-tags conformance) — just test-conformance"
-    if ! "{{just_executable()}}" --justfile "{{justfile()}}" test-conformance; then failed+=("test-conformance"); fi
+    if ! "{{ just_executable() }}" --justfile "{{ justfile() }}" test-conformance; then failed+=("test-conformance"); fi
     echo ""
     if [ "${#failed[@]}" -ne 0 ]; then
         echo "FAILED GROUP(S): ${failed[*]}" >&2
@@ -269,7 +269,7 @@ test: && _trim-go-cache
 test-default: build _ensure-covdata vet-integration _ensure-gotmpdir
     #!/usr/bin/env bash
     set -e
-    export GOTMPDIR="{{go_tmp}}"
+    export GOTMPDIR="{{ go_tmp }}"
     # Gate on BOTH configurations, not just -race. gomutants and `just cover`
     # both run WITHOUT -race, and that no-race path has caught a real flake
     # that -race's slower goroutine scheduling was masking —
@@ -288,12 +288,12 @@ test-default: build _ensure-covdata vet-integration _ensure-gotmpdir
     raw="$(mktemp coverage.raw.XXXXXX.out)"
     trap 'rm -f "$raw"' EXIT
     go test -trimpath -race -coverprofile="$raw" ./...
-    "{{just_executable()}}" --justfile "{{justfile()}}" _check-no-ctxloom-leak
-    "{{just_executable()}}" --justfile "{{justfile()}}" _filter_coverage "$raw" coverage.out
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _check-no-ctxloom-leak
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _filter_coverage "$raw" coverage.out
 
 # Run tests with verbose output
 test-verbose: _ensure-gotmpdir
-    GOTMPDIR="{{go_tmp}}" go test -trimpath -v ./...
+    GOTMPDIR="{{ go_tmp }}" go test -trimpath -v ./...
 
 # Run the offline suite under a hostile environment to prove test isolation: a
 # junk HOME (no real ~/.ctxloom) plus poison session env. A green run means no
@@ -317,7 +317,7 @@ test-dirty:
 cover: _ensure-gotmpdir && _trim-go-cache
     #!/usr/bin/env bash
     set -e
-    export GOTMPDIR="{{go_tmp}}"
+    export GOTMPDIR="{{ go_tmp }}"
     echo "Running tests with coverage..."
     raw="$(mktemp coverage.raw.XXXXXX.out)"
     trap 'rm -f "$raw"' EXIT
@@ -332,7 +332,7 @@ cover: _ensure-gotmpdir && _trim-go-cache
         grep -E '^(FAIL|--- FAIL)|no such file|panic:|cannot ' "$log" | head -30
         exit 1
     fi
-    "{{just_executable()}}" --justfile "{{justfile()}}" _filter_coverage "$raw" coverage.out
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _filter_coverage "$raw" coverage.out
     echo "Coverage (excluding patterns from .coverignore):"
     go tool cover -func=coverage.out | tail -1
 
@@ -340,11 +340,11 @@ cover: _ensure-gotmpdir && _trim-go-cache
 cover-func: _ensure-gotmpdir
     #!/usr/bin/env bash
     set -e
-    export GOTMPDIR="{{go_tmp}}"
+    export GOTMPDIR="{{ go_tmp }}"
     raw="$(mktemp coverage.raw.XXXXXX.out)"
     trap 'rm -f "$raw"' EXIT
     go test -trimpath -coverprofile="$raw" ./... > /dev/null 2>&1
-    "{{just_executable()}}" --justfile "{{justfile()}}" _filter_coverage "$raw" coverage.out
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _filter_coverage "$raw" coverage.out
     echo "Coverage by function (excluding patterns from .coverignore):"
     go tool cover -func=coverage.out
 
@@ -352,11 +352,11 @@ cover-func: _ensure-gotmpdir
 cover-html: _ensure-gotmpdir
     #!/usr/bin/env bash
     set -e
-    export GOTMPDIR="{{go_tmp}}"
+    export GOTMPDIR="{{ go_tmp }}"
     raw="$(mktemp coverage.raw.XXXXXX.out)"
     trap 'rm -f "$raw"' EXIT
     go test -trimpath -coverprofile="$raw" ./... > /dev/null 2>&1
-    "{{just_executable()}}" --justfile "{{justfile()}}" _filter_coverage "$raw" coverage.out
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _filter_coverage "$raw" coverage.out
     go tool cover -html=coverage.out -o coverage.html
     echo "Coverage report generated: coverage.html"
 
@@ -378,7 +378,7 @@ test-vendor-claude:
 # parse error or an unknown line type; that result is what a pin bump cites.
 # The sandboxed test binary rewrites HOME, hence the path resolved here.
 validate-vendor-claude root=(env("HOME") / ".claude/projects"):
-    VALIDATE_VENDOR_CLAUDE_ROOT="{{root}}" go test -trimpath -count=1 -v -run '^TestValidateLocalClaudeTranscripts$' ./internal/adapters/transcript/vendorreader/claude/
+    VALIDATE_VENDOR_CLAUDE_ROOT="{{ root }}" go test -trimpath -count=1 -v -run '^TestValidateLocalClaudeTranscripts$' ./internal/adapters/transcript/vendorreader/claude/
 
 # REQUIRED on every claude pin bump (owner ruling D-K), beside
 # validate-vendor-claude. Drives the INSTALLED claude interactively on
@@ -391,7 +391,7 @@ validate-vendor-claude root=(env("HOME") / ".claude/projects"):
 # carries the credential (e.g. `zsh -ic 'just validate-wake-claude'`).
 # Live wake gate: a runner-fired wake starts a turn in an idle installed claude.
 validate-wake-claude claude=`command -v claude || true`: build
-    VALIDATE_WAKE_CLAUDE_CTXLOOM="{{justfile_directory()}}/ctxloom" VALIDATE_WAKE_CLAUDE_BIN="{{claude}}" go test -trimpath -count=1 -v -timeout 6m -run '^TestValidateWakeClaude$' ./internal/engines/claude/relay/
+    VALIDATE_WAKE_CLAUDE_CTXLOOM="{{ justfile_directory() }}/ctxloom" VALIDATE_WAKE_CLAUDE_BIN="{{ claude }}" go test -trimpath -count=1 -v -timeout 6m -run '^TestValidateWakeClaude$' ./internal/engines/claude/relay/
 
 # Compile-check the `-tags integration` build fence — a cheap rot gate for
 # tag-gated tests (tests/integration/*_test.go). No container needed: vet
@@ -530,7 +530,7 @@ check-head-builds REF="HEAD": _require-generated _ensure-gotmpdir
 
     cd "$work"
     export GOWORK=off
-    export GOTMPDIR="{{go_tmp}}"
+    export GOTMPDIR="{{ go_tmp }}"
     echo "check-head-builds: compiling $ref ($short) from $work" >&2
     go build -trimpath ./... || explain "go build ./..."
     go vet -trimpath ./... || explain "go vet ./... — default tags, including _test.go files"
@@ -541,7 +541,7 @@ check-head-builds REF="HEAD": _require-generated _ensure-gotmpdir
 
 # Run integration tests (requires ctxloom binary)
 test-integration: build _ensure-gotmpdir && _trim-go-cache
-    GOTMPDIR="{{go_tmp}}" go test -trimpath -v -tags integration ./tests/integration/...
+    GOTMPDIR="{{ go_tmp }}" go test -trimpath -v -tags integration ./tests/integration/...
 
 # Run integration tests matching a -run PATTERN (requires ctxloom binary).
 # Same false-green hazard as test-pkg: a PATTERN that matches nothing still
@@ -556,7 +556,7 @@ test-integration: build _ensure-gotmpdir && _trim-go-cache
 test-integration-run PATTERN: build _ensure-gotmpdir
     #!/usr/bin/env bash
     set -euo pipefail
-    export GOTMPDIR="{{go_tmp}}"
+    export GOTMPDIR="{{ go_tmp }}"
     set +e
     output=$(go test -trimpath -v -tags integration -run "$1" ./tests/integration/... 2>&1)
     status=$?
@@ -599,7 +599,7 @@ test-acceptance: build _ensure-gotmpdir && _trim-go-cache
     #!/usr/bin/env bash
     # No `set -e`: the exit code is captured and propagated deliberately.
     set -uo pipefail
-    GOTMPDIR="{{go_tmp}}" go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    GOTMPDIR="{{ go_tmp }}" go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
     exit $?
 
 # Run a NARROW slice of the acceptance suite: one or more feature files, and
@@ -647,7 +647,7 @@ test-acceptance-focus PATHS TAGS="": build _ensure-gotmpdir
     # ("feature path ... is not available"), but only from inside the -v
     # firehose, and it names the path without saying what PATHS is relative to.
     missing=()
-    IFS=',' read -r -a wanted <<<"{{PATHS}}"
+    IFS=',' read -r -a wanted <<<"{{ PATHS }}"
     for p in "${wanted[@]}"; do
         [ -e "tests/acceptance/$p" ] || missing+=("$p")
     done
@@ -658,11 +658,11 @@ test-acceptance-focus PATHS TAGS="": build _ensure-gotmpdir
         exit 1
     fi
 
-    log="{{go_tmp}}/.acceptance-focus.$$.log"
+    log="{{ go_tmp }}/.acceptance-focus.$$.log"
     trap 'rm -f "$log"' EXIT
-    GOTMPDIR="{{go_tmp}}" \
-    ACCEPTANCE_PATHS={{PATHS}} \
-    ACCEPTANCE_TAGS="{{TAGS}}" \
+    GOTMPDIR="{{ go_tmp }}" \
+    ACCEPTANCE_PATHS={{ PATHS }} \
+    ACCEPTANCE_TAGS="{{ TAGS }}" \
     go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/... 2>&1 | tee "$log"
     status="${PIPESTATUS[0]}"
     if [ "$status" -ne 0 ]; then
@@ -682,7 +682,7 @@ test-acceptance-focus PATHS TAGS="": build _ensure-gotmpdir
         exit 1
     fi
     if [ "${summary}" = "No scenarios" ]; then
-        filter="{{TAGS}}"
+        filter="{{ TAGS }}"
         if [ -z "$filter" ]; then
             filter="~@live && ~@network && ~@future && ~@wip && ~@container (the default, because TAGS was empty)"
         fi
@@ -692,14 +692,14 @@ test-acceptance-focus PATHS TAGS="": build _ensure-gotmpdir
         echo "           $filter" >&2
         echo "       Passing TAGS REPLACES that filter rather than intersecting with it," >&2
         echo "       so opt in with the tag the scenarios actually carry, e.g." >&2
-        echo "           just test-acceptance-focus {{PATHS}} \"@container\"" >&2
+        echo "           just test-acceptance-focus {{ PATHS }} \"@container\"" >&2
         echo "       Do not read this as a pass." >&2
         exit 1
     fi
 
 # Build a coverage-instrumented ctxloom.
 build-cover: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run build-cover
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run build-cover
 
 # Re-run the CLI coverage gates ALONE, against a profile that already exists.
 #
@@ -754,7 +754,7 @@ test-coverage-gate PROFILE="":
 test-acceptance-container: build _ensure-gotmpdir
     ACCEPTANCE_PATHS=features/journeys/j002400_container.feature,features/journeys/j001400_bundle_distribution.feature,features/journeys/j002200_isolation.feature \
     ACCEPTANCE_TAGS="@container" \
-    GOTMPDIR="{{go_tmp}}" \
+    GOTMPDIR="{{ go_tmp }}" \
     go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # The pre-merge gate: every leg, in order, and a failing leg does not stop
@@ -774,7 +774,7 @@ test-acceptance-container: build _ensure-gotmpdir
 # CI either — so a broken release config would surface only when a tag is cut.
 #
 #   just merge-gate                 # logs to a fresh tmp dir, printed first
-#   just merge-gate /path/to/logs   # one <leg>.log per leg
+# just merge-gate /path/to/logs   # one <leg>.log per leg
 merge-gate LOGDIR="":
     #!/usr/bin/env bash
     # No `set -e`: a failing leg must not end the run.
@@ -790,9 +790,9 @@ merge-gate LOGDIR="":
     for leg in "${legs[@]}"; do
         start=$(date +%s)
         if [ "$leg" = test-docker-integration ]; then
-            CTXLOOM_REQUIRE_DOCKER=1 "{{just_executable()}}" --justfile "{{justfile()}}" "$leg" > "$logdir/$leg.log" 2>&1
+            CTXLOOM_REQUIRE_DOCKER=1 "{{ just_executable() }}" --justfile "{{ justfile() }}" "$leg" > "$logdir/$leg.log" 2>&1
         else
-            "{{just_executable()}}" --justfile "{{justfile()}}" "$leg" > "$logdir/$leg.log" 2>&1
+            "{{ just_executable() }}" --justfile "{{ justfile() }}" "$leg" > "$logdir/$leg.log" 2>&1
         fi
         rc=$?
         printf 'merge-gate: %-24s exit %-3d %5ss  %s\n' "$leg" "$rc" "$(( $(date +%s) - start ))" "$logdir/$leg.log"
@@ -815,8 +815,8 @@ merge-gate LOGDIR="":
 # agent), run as a non-root `ctxloom` user. The ctxloom binary is NOT baked in;
 # it is built at runtime from the mounted workspace by test-acceptance-live-container.
 container-build-acceptance: dev-image
-    {{container_cmd}} build -t {{registry}}/ctxloom-acceptance:latest \
-        --build-arg BASE_IMAGE={{devcontainer_image}}:{{devcontainer_tag}} \
+    {{ container_cmd }} build -t {{ registry }}/ctxloom-acceptance:latest \
+        --build-arg BASE_IMAGE={{ devcontainer_image }}:{{ devcontainer_tag }} \
         -f .devcontainer/acceptance.Dockerfile .
 
 # Run the full acceptance suite (incl. @live real-agent scenarios) inside the
@@ -862,7 +862,7 @@ test-acceptance-live-container: container-build-acceptance
     fi
 
     # See the UID note above.
-    if {{container_cmd}} info 2>/dev/null | grep -qi 'rootless'; then
+    if {{ container_cmd }} info 2>/dev/null | grep -qi 'rootless'; then
         run_as=(--user 0:0)
     else
         run_as=(--user "$(id -u):$(id -g)")
@@ -895,7 +895,7 @@ test-acceptance-live-container: container-build-acceptance
         if [ -n "${!k:-}" ]; then keys+=(-e "$k"); fi
     done
 
-    {{container_cmd}} run --rm \
+    {{ container_cmd }} run --rm \
         "${run_as[@]}" \
         "${mounts[@]}" \
         ${keys[@]+"${keys[@]}"} \
@@ -909,7 +909,7 @@ test-acceptance-live-container: container-build-acceptance
         -e "GOFLAGS=-mod=readonly $GOFLAGS" \
         -e GOWORK=off \
         -w /workspace \
-        {{registry}}/ctxloom-acceptance:latest \
+        {{ registry }}/ctxloom-acceptance:latest \
         bash -c 'set -e; \
             go build -o /home/ctxloom/ctxloom . && \
             CTXLOOM_BINARY=/home/ctxloom/ctxloom go test -trimpath -v -tags "acceptance integration" -count=1 ./tests/acceptance/...'
@@ -928,9 +928,9 @@ test-acceptance-live-container: container-build-acceptance
 # liveOpencodeModel and need only the binary and network). Self-skips
 # loudly, naming it, when absent.
 isolation-probe ENGINE AXIS: build _ensure-gotmpdir
-    GOTMPDIR="{{go_tmp}}" \
+    GOTMPDIR="{{ go_tmp }}" \
     ACCEPTANCE_PATHS=features/probes/isolation_probe.feature \
-    ACCEPTANCE_TAGS="@live && @{{ENGINE}} && @{{AXIS}}" \
+    ACCEPTANCE_TAGS="@live && @{{ ENGINE }} && @{{ AXIS }}" \
     go test -trimpath -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run the LIVE delegation round trip (j002300_cross_engine_delegation.feature's
@@ -945,9 +945,9 @@ isolation-probe ENGINE AXIS: build _ensure-gotmpdir
 # engine can outlast `go test`'s 10m default, and a killed run reads as a
 # harness fault rather than the engine being slow.
 live-delegation ENGINE: build _ensure-gotmpdir
-    GOTMPDIR="{{go_tmp}}" \
+    GOTMPDIR="{{ go_tmp }}" \
     ACCEPTANCE_PATHS=features/journeys/j002300_cross_engine_delegation.feature \
-    ACCEPTANCE_TAGS="@live && @delegation && @{{ENGINE}}" \
+    ACCEPTANCE_TAGS="@live && @delegation && @{{ ENGINE }}" \
     go test -trimpath -v -timeout 20m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run ONE cell of the engine x isolation floor
@@ -969,9 +969,9 @@ live-delegation ENGINE: build _ensure-gotmpdir
 # container runtime is reachable. -timeout 30m so a slow container cell fails
 # by saying so rather than by being killed.
 engine-matrix ENGINE RUNTIME WORKSPACE: build _ensure-gotmpdir
-    GOTMPDIR="{{go_tmp}}" \
+    GOTMPDIR="{{ go_tmp }}" \
     ACCEPTANCE_PATHS=features/probes/engine_isolation_matrix.feature \
-    ACCEPTANCE_TAGS="@live && @{{ENGINE}} && @{{RUNTIME}} && @ws-{{WORKSPACE}}" \
+    ACCEPTANCE_TAGS="@live && @{{ ENGINE }} && @{{ RUNTIME }} && @ws-{{ WORKSPACE }}" \
     go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run ONE cell of the capability-probe ladder (tests/acceptance's probe
@@ -998,9 +998,9 @@ engine-matrix ENGINE RUNTIME WORKSPACE: build _ensure-gotmpdir
 # counter). The sweep runner that sequences cells, pre-flights the process
 # table and renders a report is slice S10's job, not this recipe's.
 capability-probe PROBE FEATURE ENGINE RUNTIME WORKSPACE VARIANT="": build _ensure-gotmpdir
-    GOTMPDIR="{{go_tmp}}" \
-    ACCEPTANCE_PATHS=features/{{FEATURE}} \
-    ACCEPTANCE_TAGS="@live && @probe-{{PROBE}} && @{{ENGINE}} && @{{RUNTIME}} && @ws-{{WORKSPACE}}{{ if VARIANT == '' { '' } else { ' && @var-' + VARIANT } }}" \
+    GOTMPDIR="{{ go_tmp }}" \
+    ACCEPTANCE_PATHS=features/{{ FEATURE }} \
+    ACCEPTANCE_TAGS="@live && @probe-{{ PROBE }} && @{{ ENGINE }} && @{{ RUNTIME }} && @ws-{{ WORKSPACE }}{{ if VARIANT == '' { '' } else { ' && @var-' + VARIANT } }}" \
     go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run ONE cell of the plan-sentinel probe (P4 of the capability ladder,
@@ -1022,7 +1022,7 @@ capability-probe PROBE FEATURE ENGINE RUNTIME WORKSPACE VARIANT="": build _ensur
 # the capability-probe design); this is the single-cell unit those will call.
 plan-sentinel ENGINE POSTURE="pair": build _ensure-gotmpdir
     ACCEPTANCE_PATHS=features/probes/capability_plan_sentinel.feature \
-    ACCEPTANCE_TAGS="@live && @probe-p4-plan-sentinel && @{{ENGINE}} && @host && @ws-none{{ if POSTURE == 'pair' { '' } else { ' && @var-' + POSTURE } }}" \
+    ACCEPTANCE_TAGS="@live && @probe-p4-plan-sentinel && @{{ ENGINE }} && @host && @ws-none{{ if POSTURE == 'pair' { '' } else { ' && @var-' + POSTURE } }}" \
     go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run a single package's tests under -race (fast local iteration).
@@ -1070,7 +1070,7 @@ plan-sentinel ENGINE POSTURE="pair": build _ensure-gotmpdir
 test-pkg PKG *ARGS: _require-generated _ensure-gotmpdir && _trim-go-cache
     #!/usr/bin/env bash
     set -euo pipefail
-    export GOTMPDIR="{{go_tmp}}"
+    export GOTMPDIR="{{ go_tmp }}"
     pkg="$1"; shift
     # Read the invocation's own -tags/-run out of ARGS, so the guards below
     # judge the same package view `go test` is about to build.
@@ -1126,7 +1126,7 @@ test-pkg PKG *ARGS: _require-generated _ensure-gotmpdir && _trim-go-cache
     case "$pkg" in
         *tests/integration*|*tests/acceptance*)
             echo "test-pkg: $pkg execs the ctxloom binary — building it first" >&2
-            "{{just_executable()}}" --justfile "{{justfile()}}" build
+            "{{ just_executable() }}" --justfile "{{ justfile() }}" build
             ;;
     esac
     # These trees run subprocess, container and live cells whose image builds
@@ -1203,13 +1203,13 @@ test-mutation-pkg PKG *ARGS: _mutation-prereqs
             exit 2
             ;;
     esac
-    {{_mutshard}}
+    {{ _mutshard }}
     reports="$(mktemp -d)"
     trap 'rm -rf "$reports"' EXIT
     mutshard run -scope "$scope" -pkg "$pkg" -out "$reports" -- \
-        bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gomutants
+        bash tests/mutation/mutation_tmp.sh "{{ mutation_tmp }}" gomutants
     mutshard aggregate -scope "$scope" -pkg "$pkg" -reports "$reports" \
-        -efficacy "{{mutation_efficacy}}" -mcover "{{mutation_mcover}}"
+        -efficacy "{{ mutation_efficacy }}" -mcover "{{ mutation_mcover }}"
 
 # Mutate one package directory PKG whole and judge it by the SURVIVOR RATCHET:
 # its count of unverified mutants (LIVED + NOT COVERED) against PKG's row in
@@ -1221,19 +1221,19 @@ test-mutation-pkg PKG *ARGS: _mutation-prereqs
 # Record the measured count as the row (a new package, or one whose survivors
 # went down):
 #
-#   CTXLOOM_MUTATION_BASELINE=update just test-mutation-ratchet internal/adapters/isolation
+# CTXLOOM_MUTATION_BASELINE=update just test-mutation-ratchet internal/adapters/isolation
 test-mutation-ratchet PKG: _mutation-prereqs
     #!/usr/bin/env bash
     set -euo pipefail
-    {{_mutshard}}
+    {{ _mutshard }}
     update=()
     [ "${CTXLOOM_MUTATION_BASELINE:-}" != update ] || update=(-update)
     reports="$(mktemp -d)"
     trap 'rm -rf "$reports"' EXIT
     mutshard run -scope tree -pkg "$1" -out "$reports" -- \
-        bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gomutants
+        bash tests/mutation/mutation_tmp.sh "{{ mutation_tmp }}" gomutants
     mutshard aggregate -scope tree -pkg "$1" -reports "$reports" \
-        -efficacy "{{mutation_efficacy}}" -mcover "{{mutation_mcover}}" \
+        -efficacy "{{ mutation_efficacy }}" -mcover "{{ mutation_mcover }}" \
         -ratchet tests/mutation/survivor_baseline.txt ${update[@]+"${update[@]}"}
 
 # Install gitleaks, the secret scanner lefthook's pre-commit `gitleaks` command
@@ -1312,7 +1312,7 @@ test-mutation-container: _mutation-prereqs (_container-preflight "docker")
     # TMPDIR to the command, so it is read inside the command, not here.
     # /tmp/work, not a -w dir: docker creates a missing workdir as root, and
     # the image may run as an unprivileged user.
-    bash tests/mutation/mutation_source.sh | bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" bash -c '
+    bash tests/mutation/mutation_source.sh | bash tests/mutation/mutation_tmp.sh "{{ mutation_tmp }}" bash -c '
         exec docker run --rm -i "$@" \
             -v "$TMPDIR:/mutation-tmp" \
             -e TMPDIR=/mutation-tmp \
@@ -1324,7 +1324,7 @@ test-mutation-container: _mutation-prereqs (_container-preflight "docker")
             bash -c "go install github.com/gomutants/gomutants@v${GOMUTANTS_VERSION} \
                 && mkdir /tmp/work && tar -C /tmp/work -xf - && cd /tmp/work \
                 && exec /mutation-tmp/go/bin/gomutants --output /mutation-tmp/report.json \
-                    --threshold-efficacy {{mutation_efficacy}} --threshold-mcover {{mutation_mcover}} ./..."
+                    --threshold-efficacy {{ mutation_efficacy }} --threshold-mcover {{ mutation_mcover }} ./..."
     ' _ "${user_flag[@]}"
 
 # Clean build artifacts
@@ -1359,7 +1359,7 @@ clean:
 clean-caches HOURS="12":
     #!/usr/bin/env bash
     set -uo pipefail
-    hours="{{HOURS}}"
+    hours="{{ HOURS }}"
     case "$hours" in
         ''|*[!0-9]*) echo "clean-caches: HOURS must be a whole number, got '$hours'" >&2; exit 2 ;;
     esac
@@ -1375,7 +1375,7 @@ clean-caches HOURS="12":
             -exec rm -rf {} + 2>/dev/null || true
     fi
     gtmp="$(go env GOTMPDIR 2>/dev/null || true)"
-    for d in "$gtmp" "{{go_tmp}}" "$HOME/.cache/ctxloom-agent-tmp" "$HOME/.cache/goimports"; do
+    for d in "$gtmp" "{{ go_tmp }}" "$HOME/.cache/ctxloom-agent-tmp" "$HOME/.cache/goimports"; do
         [ -n "$d" ] && [ -d "$d" ] || continue
         find "$d" -mindepth 1 -maxdepth 1 -mmin "+$mins" -exec chmod -R u+w {} + 2>/dev/null || true
         find "$d" -mindepth 1 -maxdepth 1 -mmin "+$mins" -exec rm -rf {} + 2>/dev/null \
@@ -1406,7 +1406,7 @@ _trim-go-cache:
     stamp="$gbc/ctxloom-trim.stamp"
     if [ -e "$stamp" ] && [ -z "$(find "$stamp" -mmin +60 2>/dev/null)" ]; then exit 0; fi
     touch "$stamp" 2>/dev/null || exit 0
-    setsid nohup "{{just_executable()}}" --justfile "{{justfile()}}" clean-caches \
+    setsid nohup "{{ just_executable() }}" --justfile "{{ justfile() }}" clean-caches \
         </dev/null >>"$gbc/../ctxloom-trim.log" 2>&1 &
     exit 0
 
@@ -1431,14 +1431,14 @@ _trim-go-cache:
 # thing that grows.
 #
 #   just cache-report        report, warn above the 40 GB default
-#   just cache-report 0      report only, no warning
+# just cache-report 0      report only, no warning
 cache-report LIMIT_GB="40":
     #!/usr/bin/env bash
     set -uo pipefail
     gbc="$(go env GOCACHE 2>/dev/null || echo "$HOME/.cache/go-build")"
     gmc="$(go env GOMODCACHE 2>/dev/null || echo "$HOME/go/pkg/mod")"
     size_gb() { du -sk "$1" 2>/dev/null | awk '{printf "%.1f", $1/1048576}'; }
-    limit="{{LIMIT_GB}}"
+    limit="{{ LIMIT_GB }}"
     echo "GOCACHE     $gbc: $(size_gb "$gbc") GB (limit ${limit} GB)"
     echo "GOMODCACHE  $gmc: $(size_gb "$gmc") GB (never trimmed here)"
     echo "disk:       $(df -h "$HOME" | awk 'NR==2{print $4" free, "$5" used"}')"
@@ -1462,7 +1462,7 @@ cache-report LIMIT_GB="40":
 docker-prune HOURS="6":
     #!/usr/bin/env bash
     set -euo pipefail
-    cutoff=$(date -d '{{HOURS}} hours ago' +%s)
+    cutoff=$(date -d '{{ HOURS }} hours ago' +%s)
     # Repos where EVERY tag (incl. :latest) is per-run throwaway.
     always='^(ctxloom-[^:]*-itest|ctxloom-iso[^:]*|ctxloom-coord[^:]*|vsc-)'
     # Repos where only the content-hash tags are throwaway; :latest is the cache.
@@ -1486,13 +1486,13 @@ docker-prune HOURS="6":
             removed=$((removed + 1))
         fi
     done < <(docker images --format '{{ "{{.Repository}}:{{.Tag}}|{{.CreatedAt}}|{{.Repository}}|{{.Tag}}" }}')
-    echo "Pruned $removed ephemeral image(s) older than {{HOURS}}h."
-    docker image prune -f --filter "until={{HOURS}}h" >/dev/null
-    echo "Pruned dangling layers older than {{HOURS}}h."
+    echo "Pruned $removed ephemeral image(s) older than {{ HOURS }}h."
+    docker image prune -f --filter "until={{ HOURS }}h" >/dev/null
+    echo "Pruned dangling layers older than {{ HOURS }}h."
     # Build cache pins the layers the image prune above frees, so physical disk
     # is not reclaimed until this runs too. Same age floor keeps in-flight work.
-    docker builder prune -f --filter "until={{HOURS}}h" >/dev/null
-    echo "Pruned build cache older than {{HOURS}}h."
+    docker builder prune -f --filter "until={{ HOURS }}h" >/dev/null
+    echo "Pruned build cache older than {{ HOURS }}h."
 
 # Install dependencies
 deps:
@@ -1519,28 +1519,28 @@ fmt-check:
 # straight through (`-w` rewrites, `-d --exit-code` reports, `--path <file>`
 # narrows); scripts/fmt is the caller.
 fmt-proto *ARGS: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run fmt-proto {{ARGS}}
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run fmt-proto {{ ARGS }}
 
 # `just --fmt`, in the devcontainer, so the just .devcontainer/tool-versions.env
 # pins is the one that formats: the host's own just is whatever version the
 # machine has. ARGS pass straight through; scripts/fmt is the caller.
 fmt-just *ARGS: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run fmt-just {{ARGS}}
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run fmt-just {{ ARGS }}
 
 # Lint code (delegates to devcontainer for the pinned golangci-lint)
 lint: dev-image _require-generated && _trim-go-cache
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run lint
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run lint
 
 # Compile every package, and vet every test file, for windows and darwin
 # (delegates to devcontainer).
 # Linux-only code compiles for the other OSes only through build-tagged twins,
 # and this is the gate that proves each twin still has its counterpart.
 build-cross: dev-image _require-generated
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run build-cross
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run build-cross
 
 # Build the architectural linter into bin/archlint (delegates to devcontainer).
 build-archlint: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run build-archlint
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run build-archlint
 
 # Run ctxloom's architectural rules (delegates to devcontainer).
 #
@@ -1548,7 +1548,7 @@ build-archlint: dev-image
 # attributable and CI's golangci-lint baseline is untouched. Wired into
 # lefthook's pre-commit hook against the prebuilt bin/archlint.
 lint-arch: dev-image _require-generated
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run lint-arch
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run lint-arch
 
 # Scan the module for known Go vulnerabilities its code can reach (delegates
 # to devcontainer for the pinned govulncheck).
@@ -1561,7 +1561,7 @@ lint-arch: dev-image _require-generated
 # advisory is published against one of its dependencies. Extra flags pass
 # through, e.g. `just govulncheck -show traces` for the full call paths.
 govulncheck *ARGS: dev-image _require-generated
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run govulncheck {{ARGS}}
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run govulncheck {{ ARGS }}
 
 # Whole-program dead-code sweep.
 #
@@ -1588,7 +1588,7 @@ govulncheck *ARGS: dev-image _require-generated
 
 # Whole-program dead-code sweep (pass "" to drop -test and find test-only code)
 deadcode *ARGS="-test":
-    go tool deadcode -tags acceptance,integration,arch,mutation,conformance,docker_integration {{ARGS}} ./...
+    go tool deadcode -tags acceptance,integration,arch,mutation,conformance,docker_integration {{ ARGS }} ./...
 
 # ===== Code complexity (lizard, in devcontainer) =====
 # lizard is a cross-platform, multi-language per-function complexity analyzer,
@@ -1598,26 +1598,26 @@ deadcode *ARGS="-test":
 # Per-function cyclomatic complexity as a human-readable table + warnings.
 # Defaults to the repo root; pass paths/flags to scope, e.g.
 #   just complexity internal/adapters/remote
-#   just complexity -C 15 .           (warn on functions over CCN 15)
+# just complexity -C 15 .           (warn on functions over CCN 15)
 complexity *ARGS: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run complexity {{ARGS}}
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run complexity {{ ARGS }}
 
 # Same per-function analysis as CSV (header prepended) for LLM/tooling ingest.
 # Columns: nloc,ccn,tokens,params,length,location,file,function,long_name,start,end
 complexity-csv *ARGS: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run complexity-csv {{ARGS}}
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run complexity-csv {{ ARGS }}
 
 # Enforcing gate: fail on any NEW or newly-worsened CCN>10 violation, ratcheted
 # against .complexity-baseline.txt (used by the CI lint job). Pre-existing
 # violations don't fail it; see that file's header and scripts/complexity_gate.py.
 complexity-check: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run complexity-check
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run complexity-check
 
 # Deliberately regenerate .complexity-baseline.txt from the current tree.
 # Never run this to make a genuinely new violation "go away" without review —
 # always look at the diff first. See .complexity-baseline.txt's header.
 complexity-baseline-update: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run complexity-baseline-update
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run complexity-baseline-update
 
 # Run the CLI locally without installing — builds ./ctxloom (host, no
 # CGO) and execs it attached to this terminal, so interactive
@@ -1626,8 +1626,8 @@ complexity-baseline-update: dev-image
 run *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
-    go build -ldflags "{{version_ldflag}}" -o ctxloom ./cmd/ctxloom
-    exec ./ctxloom {{ARGS}}
+    go build -ldflags "{{ version_ldflag }}" -o ctxloom ./cmd/ctxloom
+    exec ./ctxloom {{ ARGS }}
 
 # Build, compress, and install all three binaries to ~/go/bin (standard Go
 # location): ctxloom plus its companions ltk and taskloom, which now ship from
@@ -1684,10 +1684,10 @@ gen-mcp-schemas:
 # since 2026-08-08, so neither drift gate had run in weeks and the breakage was
 # invisible.
 gen-docs-check: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run gen-docs-check
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run gen-docs-check
 
 gen-mcp-schemas-check: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run gen-mcp-schemas-check
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run gen-mcp-schemas-check
 
 # command tree, the MCP reference from the live tool/resource registrations, and
 # ctxloom's and taskloom's config references from their tracked JSON Schemas. One generator
@@ -1759,13 +1759,13 @@ docs-preview:
 gen-living-docs: build _ensure-gotmpdir
     #!/usr/bin/env bash
     set -euo pipefail
-    export GOTMPDIR="{{go_tmp}}"
+    export GOTMPDIR="{{ go_tmp }}"
     # Absolute path: `go test ./tests/acceptance/...` runs with its cwd set to
     # the package directory (tests/acceptance/), not the repo root, so a
     # relative CTXLOOM_DOC_CAPTURE_DIR would silently land one level down and
     # every scenario would render as "not captured" — the generator, run
     # separately via `go run` from the repo root, would never find it.
-    capture_dir="{{TOP}}/.cache/doc-capture"
+    capture_dir="{{ TOP }}/.cache/doc-capture"
     rm -rf "$capture_dir"
     # The same 30m ceiling test-acceptance carries: go test's default 10m is
     # less than the suite takes under load.
@@ -1781,17 +1781,17 @@ gen-living-docs: build _ensure-gotmpdir
 gen-living-docs-focus FEATURE: build _ensure-gotmpdir
     #!/usr/bin/env bash
     set -euo pipefail
-    export GOTMPDIR="{{go_tmp}}"
-    capture_dir="{{TOP}}/.cache/doc-capture-focus"
+    export GOTMPDIR="{{ go_tmp }}"
+    capture_dir="{{ TOP }}/.cache/doc-capture-focus"
     rm -rf "$capture_dir"
     features_dir="$(mktemp -d)"
     trap 'rm -rf "$features_dir"' EXIT
-    src="tests/acceptance/features/{{FEATURE}}"
-    mkdir -p "$features_dir/$(dirname "{{FEATURE}}")"
-    cp "$src" "$features_dir/{{FEATURE}}"
+    src="tests/acceptance/features/{{ FEATURE }}"
+    mkdir -p "$features_dir/$(dirname "{{ FEATURE }}")"
+    cp "$src" "$features_dir/{{ FEATURE }}"
     doc="${src%.feature}.doc.md"
-    if [ -f "$doc" ]; then cp "$doc" "$features_dir/$(dirname "{{FEATURE}}")/"; fi
-    CTXLOOM_DOC_CAPTURE_DIR="$capture_dir" just test-acceptance-focus "features/{{FEATURE}}"
+    if [ -f "$doc" ]; then cp "$doc" "$features_dir/$(dirname "{{ FEATURE }}")/"; fi
+    CTXLOOM_DOC_CAPTURE_DIR="$capture_dir" just test-acceptance-focus "features/{{ FEATURE }}"
     go run ./scripts/gendocs/livingdocs --features-dir "$features_dir" --capture-dir "$capture_dir"
 
 # Initialize .ctxloom directory
@@ -1800,7 +1800,7 @@ init:
 
 # Dry run with test fragments
 dry-run PROMPT:
-    ./ctxloom run -f test-fragment -f additional-context -n "{{PROMPT}}"
+    ./ctxloom run -f test-fragment -f additional-context -n "{{ PROMPT }}"
 
 # ===== Container targets =====
 
@@ -1818,10 +1818,10 @@ container-build-minimal: _require-generated _container-preflight
     ctx=$(mktemp -d)
     trap 'rm -rf "$ctx"' EXIT
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
-        -ldflags "{{version_ldflag}}" \
+        -ldflags "{{ version_ldflag }}" \
         -o "$ctx/ctxloom" ./cmd/ctxloom
     cp container/minimal/Containerfile "$ctx/Containerfile"
-    {{container_cmd}} build -t ctxloom-agent:latest -f "$ctx/Containerfile" "$ctx"
+    {{ container_cmd }} build -t ctxloom-agent:latest -f "$ctx/Containerfile" "$ctx"
 
 # Build the shared agent-image BASE stage (ctxloom-agent-base:latest): the distro
 # plus the coding-agent tool layer (git, ripgrep, curl, certs, unzip, jq). The
@@ -1835,7 +1835,7 @@ container-build-base: _container-preflight
     ctx=$(mktemp -d)
     trap 'rm -rf "$ctx"' EXIT
     cp container/base/Containerfile "$ctx/Containerfile"
-    {{container_cmd}} build -t ctxloom-agent-base:latest -f "$ctx/Containerfile" "$ctx"
+    {{ container_cmd }} build -t ctxloom-agent-base:latest -f "$ctx/Containerfile" "$ctx"
 
 # Build a locally-built ctxloom binary, then delegate to `ctxloom container
 # build <backend> [--engines ...]` — the SAME composed multi-engine
@@ -1854,10 +1854,10 @@ _container-build-via-cli backend *engines: _require-generated _container-preflig
     bin="./ctxloom-build-tmp-$$"
     trap 'rm -f "$bin"' EXIT
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
-        -ldflags "{{version_ldflag}}" \
+        -ldflags "{{ version_ldflag }}" \
         -o "$bin" ./cmd/ctxloom
-    args=(container build {{backend}} --base ctxloom)
-    if [ -n "{{engines}}" ]; then args+=(--engines "{{engines}}"); fi
+    args=(container build {{ backend }} --base ctxloom)
+    if [ -n "{{ engines }}" ]; then args+=(--engines "{{ engines }}"); fi
     "$bin" "${args[@]}"
 
 # The image carries exactly ONE engine, so a vendor outage in an engine it does
@@ -1868,7 +1868,7 @@ container-build-claude: (_container-build-via-cli "claude-code")
 
 # List all ctxloom container images
 container-list:
-    @{{container_cmd}} images | grep -E "ctxloom-agent" | sort
+    @{{ container_cmd }} images | grep -E "ctxloom-agent" | sort
 
 # ===== Devcontainer overlay pattern =====
 # Runs targets inside devcontainer with CGO dependencies (libtokenizers, ONNX runtime)
@@ -2054,7 +2054,7 @@ dev-image: _container-preflight
         [[ -z "$line" || "$line" == \#* ]] && continue
         build_args+=(--build-arg "$line")
     done < .devcontainer/tool-versions.env
-    {{container_cmd}} build "${build_args[@]}" -t {{devcontainer_image}}:{{devcontainer_tag}} -f .devcontainer/Dockerfile .
+    {{ container_cmd }} build "${build_args[@]}" -t {{ devcontainer_image }}:{{ devcontainer_tag }} -f .devcontainer/Dockerfile .
 
 # Internal helper: run just target inside devcontainer
 # Mounts justfile.container as /workspace/justfile (overlay pattern)
@@ -2062,7 +2062,7 @@ _run +ARGS: _container-preflight
     #!/usr/bin/env bash
     if [ -n "$DEVCONTAINER" ] || [ -n "$CI" ] || [ -n "$GITHUB_ACTIONS" ]; then
         # Already inside container (devcontainer or CI), use container justfile directly
-        "{{just_executable()}}" --justfile "{{justfile_directory()}}/justfile.container" {{ARGS}}
+        "{{ just_executable() }}" --justfile "{{ justfile_directory() }}/justfile.container" {{ ARGS }}
     else
         # Run in container with justfile overlay and uid/gid mapping.
         #
@@ -2072,7 +2072,7 @@ _run +ARGS: _container-preflight
         # files nor read mode-0700 dirs. Rootful daemons need --user to avoid
         # leaving root-owned files in the host workspace.
         user_flag=(--user "$(id -u):$(id -g)")
-        if {{container_cmd}} info 2>/dev/null | grep -q "rootless"; then
+        if {{ container_cmd }} info 2>/dev/null | grep -q "rootless"; then
             user_flag=()
         fi
         # Module mode (GOWORK=off): github.com/ctxloom/* resolve from the go.mod
@@ -2126,7 +2126,7 @@ _run +ARGS: _container-preflight
         trap 'rm -rf -- "$git_mask"' EXIT
         git_mount=()
         if [ -e .git ]; then
-            git_mount_args="$(bash scripts/devcontainer-git-mounts.sh "{{TOP}}" /workspace "$git_mask")" || exit 1
+            git_mount_args="$(bash scripts/devcontainer-git-mounts.sh "{{ TOP }}" /workspace "$git_mask")" || exit 1
             mapfile -t git_mount <<< "$git_mount_args"
             [ -n "$git_mount_args" ] || git_mount=()
         fi
@@ -2139,7 +2139,7 @@ _run +ARGS: _container-preflight
         # per-build agent-image key, so recomputing here would mark every local
         # build dirty and rebuild every image, which is the churn this key exists
         # to remove.
-        {{container_cmd}} run --rm \
+        {{ container_cmd }} run --rm \
             "${user_flag[@]}" \
             "${cache_mount[@]}" \
             "${gobuild_mount[@]}" \
@@ -2148,30 +2148,30 @@ _run +ARGS: _container-preflight
             -e GOMODCACHE=/tmp/gomodcache \
             -e GOCACHE=/tmp/.gocache \
             -e GOWORK=off \
-            -e CTXLOOM_VERSION_STAMP="{{version}}" \
-            -v "{{TOP}}:/workspace" \
-            -v "{{TOP}}/justfile.container:/workspace/justfile:ro" \
+            -e CTXLOOM_VERSION_STAMP="{{ version }}" \
+            -v "{{ TOP }}:/workspace" \
+            -v "{{ TOP }}/justfile.container:/workspace/justfile:ro" \
             -w /workspace \
-            {{devcontainer_image}}:{{devcontainer_tag}} \
-            just --justfile /workspace/justfile {{ARGS}}
+            {{ devcontainer_image }}:{{ devcontainer_tag }} \
+            just --justfile /workspace/justfile {{ ARGS }}
     fi
 
 # Build ctxloom (inside devcontainer)
 dev-build: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run build
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run build
 
 # Run any target inside devcontainer
 dev +ARGS: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run {{ARGS}}
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" _run {{ ARGS }}
 
 # Shell into devcontainer for debugging
 dev-shell: dev-image
-    {{container_cmd}} run --rm -it \
+    {{ container_cmd }} run --rm -it \
         --user "$(id -u):$(id -g)" \
-        -v "{{TOP}}:/workspace" \
-        -v "{{TOP}}/justfile.container:/workspace/justfile:ro" \
+        -v "{{ TOP }}:/workspace" \
+        -v "{{ TOP }}/justfile.container:/workspace/justfile:ro" \
         -w /workspace \
-        {{devcontainer_image}}:{{devcontainer_tag}} \
+        {{ devcontainer_image }}:{{ devcontainer_tag }} \
         bash
 
 # Restart THIS Claude Code session's gopls, now.
@@ -2191,4 +2191,3 @@ dev-shell: dev-image
 lsp-restart:
     @./scripts/lsp-refresh --force || true
     @echo "gopls will respawn on the next language-server request."
-

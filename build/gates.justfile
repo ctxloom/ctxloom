@@ -63,7 +63,7 @@ docker_integration_pkgs := "./internal/adapters/attach/... ./internal/adapters/i
 # present internal/core/coord alone ran past go test's implicit 10m alarm,
 # which panics mid-subtest instead of reporting which test failed.
 test-docker-integration: _require-generated _check-docker-integration-pkgs _check-docker-skip-gate
-    go test -trimpath -v -count=1 -timeout 30m -tags docker_integration {{docker_integration_pkgs}}
+    go test -trimpath -v -count=1 -timeout 30m -tags docker_integration {{ docker_integration_pkgs }}
 
 # Drift gate for docker_integration_pkgs: every file carrying the
 # `//go:build docker_integration` constraint must live under a package the
@@ -75,7 +75,7 @@ test-docker-integration: _require-generated _check-docker-integration-pkgs _chec
 _check-docker-integration-pkgs:
     #!/usr/bin/env bash
     set -euo pipefail
-    patterns=({{docker_integration_pkgs}})
+    patterns=({{ docker_integration_pkgs }})
     missing=()
     while IFS= read -r f; do
         [ -n "$f" ] || continue
@@ -258,11 +258,11 @@ _filter_coverage INPUT OUTPUT:
         # Build grep pattern from .coverignore (skip comments and empty lines)
         patterns=$(grep -v '^#' .coverignore | grep -v '^$' | paste -sd '|' -)
         if [ -n "$patterns" ]; then
-            grep -Ev "$patterns" "{{INPUT}}" > "{{OUTPUT}}" || cp "{{INPUT}}" "{{OUTPUT}}"
+            grep -Ev "$patterns" "{{ INPUT }}" > "{{ OUTPUT }}" || cp "{{ INPUT }}" "{{ OUTPUT }}"
             exit 0
         fi
     fi
-    cp "{{INPUT}}" "{{OUTPUT}}"
+    cp "{{ INPUT }}" "{{ OUTPUT }}"
 
 # ===== Pin direction =====
 
@@ -305,7 +305,7 @@ go_tmp := env_var_or_default("CTXLOOM_GOTMPDIR", "/var/tmp/ctxloom-gotmp")
 # global export so a missing directory can never break a recipe that never
 # asked for it.
 _ensure-gotmpdir:
-    @mkdir -p "{{go_tmp}}"
+    @mkdir -p "{{ go_tmp }}"
 
 # Ensure the covdata tool is present for multi-package coverage merges.
 # Go 1.25 dropped covdata (and other secondary tools) from the prebuilt
@@ -333,7 +333,7 @@ _ensure-covdata:
 # selects nothing fails instead of passing.
 test-conformance:
     go test -trimpath -race -tags conformance ./internal/engines/conformance/...
-    "{{just_executable()}}" --justfile "{{justfile()}}" test-pkg ./internal/engines/claude/ -tags conformance -run '^TestClaudeSecureStorage_'
+    "{{ just_executable() }}" --justfile "{{ justfile() }}" test-pkg ./internal/engines/claude/ -tags conformance -run '^TestClaudeSecureStorage_'
 
 # Run the acceptance suite against a COVERAGE-INSTRUMENTED ctxloom and report
 # what it actually executed.
@@ -371,8 +371,8 @@ test-conformance:
 test-acceptance-cover: build-cover _ensure-gotmpdir _ensure-covdata
     #!/usr/bin/env bash
     set -euo pipefail
-    covdir="{{go_tmp}}/acceptance-cover"
-    coverbin="{{justfile_directory()}}/.coverbin"
+    covdir="{{ go_tmp }}/acceptance-cover"
+    coverbin="{{ justfile_directory() }}/.coverbin"
     rm -rf "$covdir"; mkdir -p "$covdir"
     # -count=1 so nothing is served from the test cache: a cached PASS runs no
     # binary and would produce an empty, silently wrong coverage set.
@@ -389,7 +389,7 @@ test-acceptance-cover: build-cover _ensure-gotmpdir _ensure-covdata
     # profile — a TRUNCATED one, which is worse than none: every leaf and flag
     # the run never reached reads as "not exercised", so a gate seeded from it
     # bakes in exemptions for code that is in fact covered.
-    PATH="$coverbin:$PATH" GOTMPDIR="{{go_tmp}}" GOCOVERDIR="$covdir" \
+    PATH="$coverbin:$PATH" GOTMPDIR="{{ go_tmp }}" GOCOVERDIR="$covdir" \
         CTXLOOM_BINARY="$coverbin/ctxloom" \
         go test -trimpath -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
     status=$?
@@ -416,7 +416,7 @@ test-acceptance-cover: build-cover _ensure-gotmpdir _ensure-covdata
     go tool covdata textfmt -i="$covdir" -o="$profile"
     echo
     echo "=== every CLI leaf's RunE ran, and every Changed() flag was passed? ==="
-    CTXLOOM_COVERPROFILE="$profile" GOTMPDIR="{{go_tmp}}" \
+    CTXLOOM_COVERPROFILE="$profile" GOTMPDIR="{{ go_tmp }}" \
         go test -trimpath -v -tags "acceptance integration coveragegate" -count=1 \
         -run 'TestCLICoverage_' ./tests/acceptance/... || status=1
     exit "$status"

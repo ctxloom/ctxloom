@@ -77,6 +77,9 @@ type Frame struct {
 	// CursorVisible whether the child was showing it.
 	Cursor        uv.Position
 	CursorVisible bool
+	// History is how many lines of the pane's history (Terminal.History)
+	// stood above the frame's first row at the commit.
+	History int
 }
 
 // Line is row y as an ANSI-styled string exactly the frame's width in
@@ -141,6 +144,13 @@ type Terminal interface {
 	// Snapshot copies the live screen, ignoring frame boundaries. Tests and
 	// the reference comparison read it; the renderer reads Frame.
 	Snapshot() Screen
+
+	// History reads the pane's history: the lines the main screen scrolled
+	// off its top, 0 the oldest. It returns those of lines from to from+n-1
+	// it holds, each styled as Frame.Line styles a row but only as wide as its
+	// content. The history is bounded: past its bound the oldest line goes
+	// as each new one arrives, and every line's index moves down by one.
+	History(from, n int) []string
 
 	// SendKey, SendMouse and Paste encode one user event for the child, in
 	// whichever protocol the child has asked for (kitty keyboard flags,

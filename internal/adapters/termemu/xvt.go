@@ -315,7 +315,10 @@ func (t *XVT) materialize() {
 			}
 		}
 	}
-	t.frame = Frame{Seq: t.seq, Buf: buf, Cursor: t.emu.CursorPosition(), CursorVisible: t.cursorOn}
+	t.frame = Frame{
+		Seq: t.seq, Buf: buf, Cursor: t.emu.CursorPosition(), CursorVisible: t.cursorOn,
+		History: t.emu.ScrollbackLen(),
+	}
 	t.dirty = false
 }
 
@@ -400,6 +403,23 @@ func (t *XVT) Snapshot() Screen {
 	pos := t.emu.CursorPosition()
 	s.CursorX, s.CursorY = pos.X, pos.Y
 	return s
+}
+
+// History reads the main screen's scrollback.
+func (t *XVT) History(from, n int) []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	sb := t.emu.Scrollback()
+	end := min(from+n, sb.Len())
+	from = max(from, 0)
+	if end <= from {
+		return nil
+	}
+	out := make([]string, 0, end-from)
+	for i := from; i < end; i++ {
+		out = append(out, sb.Line(i).Render())
+	}
+	return out
 }
 
 // SendKey encodes key for the child. It crosses the emulator's reply pipe,

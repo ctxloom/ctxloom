@@ -4,8 +4,6 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"maps"
-	"slices"
 	"strings"
 	"time"
 
@@ -15,29 +13,26 @@ import (
 )
 
 // The root's credential notice: while the coordinator holds runs on their
-// credential, the bar says so, names the carrier, and says when the runs
+// credential, the panel says so, names the carrier, and says when the runs
 // resume on their own — or, for a refused credential, which nothing releases
 // on its own, what the human must do, with ONE bell as that hold opens. The
 // finding the coordinator raises is the other half.
 
 const (
 	// credentialNoteRefresh re-sets an unchanged notice before it can lapse;
-	// it is not re-set every tick, which would clobber every other bar note.
+	// it is not re-set every tick, which would clobber every other panel note.
 	credentialNoteRefresh = time.Minute
 	// credentialNoteFor outlasts a refresh, so the notice never lapses while
 	// a hold is in force.
 	credentialNoteFor = 2 * credentialNoteRefresh
 )
 
-// credentialPresenter keeps the credential notice true on the bar.
+// credentialPresenter keeps the credential notice true on the panel.
 type credentialPresenter struct {
 	holds   func() []coord.CredentialHold
 	noteBar func(text string, d time.Duration)
 	// ring rings the bell once (tui.SplitView.Ring).
 	ring func() bool
-	// announce, set when there is no bar (ui.surround: false), says a line as
-	// each hold opens and as it releases (termui.Controller.Announce).
-	announce func(text string)
 	// session is the root harp a refused credential's remedy restarts.
 	session string
 	clock   tui.Clock
@@ -45,8 +40,7 @@ type credentialPresenter struct {
 	shownAt time.Time
 	// known are the holds seen at the last poll, by holdID; nil until the
 	// first poll, which only seeds it — a hold in force then was rebuilt by a
-	// restart, which re-raises its finding instead of ringing or announcing
-	// it again.
+	// restart, which re-raises its finding instead of ringing again.
 	known map[string]coord.CredentialHold
 }
 
@@ -61,49 +55,31 @@ func holdID(h coord.CredentialHold) string {
 	return id
 }
 
-// track rings for a refusal that opened since the last poll (a hold upgraded
-// to one included) and, with no bar, announces each hold that opened or
-// changed kind, and each that released.
+// track rings once for a refusal that opened since the last poll (a hold
+// upgraded to one included).
 func (p *credentialPresenter) track(holds []coord.CredentialHold) {
 	now := make(map[string]coord.CredentialHold, len(holds))
 	for _, h := range holds {
 		now[holdID(h)] = h
 	}
-	if p.known != nil {
-		p.announceChanges(now)
+	if p.known != nil && p.refusalOpened(now) {
+		p.ring()
 	}
 	p.known = now
 }
 
-// announceChanges compares now with the last poll's holds.
-func (p *credentialPresenter) announceChanges(now map[string]coord.CredentialHold) {
-	rang := false
-	for _, id := range slices.Sorted(maps.Keys(now)) {
-		h := now[id]
-		if prev, seen := p.known[id]; seen && prev.Kind == h.Kind {
-			continue
-		}
-		if h.Kind == agent.FailureCredentialRejected && !rang {
-			p.ring()
-			rang = true
-		}
-		p.say(holdNotice(h, p.session))
-	}
-	for _, id := range slices.Sorted(maps.Keys(p.known)) {
-		if _, still := now[id]; !still {
-			p.say(holdReleasedNotice(p.known[id]))
+// refusalOpened reports whether now holds a refused-credential hold the last
+// poll did not, or held as another kind.
+func (p *credentialPresenter) refusalOpened(now map[string]coord.CredentialHold) bool {
+	for id, h := range now {
+		if prev, seen := p.known[id]; h.Kind == agent.FailureCredentialRejected && (!seen || prev.Kind != h.Kind) {
+			return true
 		}
 	}
+	return false
 }
 
-// say announces text when there is no bar to carry it.
-func (p *credentialPresenter) say(text string) {
-	if p.announce != nil {
-		p.announce(text)
-	}
-}
-
-// refresh polls the holds once, rings and announces what changed (track),
+// refresh polls the holds once, rings for what changed (track),
 // and sets, re-sets or clears the notice.
 func (p *credentialPresenter) refresh() {
 	holds := p.holds()
@@ -137,7 +113,7 @@ func presentCredentialHolds(ctx context.Context, p *credentialPresenter) {
 	}
 }
 
-// credentialNoticeText is the bar's notice for holds ("" for none) in the
+// credentialNoticeText is the panel's notice for holds ("" for none) in the
 // session whose root harp is session: the oldest hold in full, and how many
 // more there are.
 func credentialNoticeText(holds []coord.CredentialHold, session string) string {
@@ -167,19 +143,4 @@ func holdNotice(h coord.CredentialHold, session string) string {
 		return fmt.Sprintf("ENDPOINT UNREACHABLE: %s: %s backs off — it resumes on its own at %s", who, strings.Join(h.Harps, ", "), at)
 	}
 	return fmt.Sprintf("RATE LIMITED: %s (%s): %d waiting — they resume on their own at %s", who, h.Source.Carrier(), len(h.Harps), at)
-}
-
-// holdReleasedNotice says h released and which runs it held resume.
-func holdReleasedNotice(h coord.CredentialHold) string {
-	label := "RATE LIMITED"
-	switch h.Kind {
-	case agent.FailureCredentialRejected:
-		label = "CREDENTIAL REFUSED"
-	case agent.FailureOverloaded:
-		label = "OVERLOADED"
-	case agent.FailureEndpointUnreachable:
-		label = "ENDPOINT UNREACHABLE"
-	}
-	return fmt.Sprintf("%s hold released: %s (%s): %s resume", label, cmp.Or(string(h.Engine), "the engine"),
-		cmp.Or(h.Source.Carrier(), "no credential"), strings.Join(h.Harps, ", "))
 }

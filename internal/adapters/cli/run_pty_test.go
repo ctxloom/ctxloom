@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -252,6 +253,68 @@ func TestDriveOwnedInteractive_EndThatDoesNotEndEscalatesToKill(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	require.True(t, tty.ended.Load())
 	require.True(t, tty.killed.Load(), "a runner End did not end must be Killed")
+}
+
+// stuckTerminal is the session's terminal over a stuckTTY: the runner's
+// output is its master's, and what is typed goes nowhere.
+type stuckTerminal struct{ tty *stuckTTY }
+
+func (s stuckTerminal) Read(p []byte) (int, error) { return s.tty.r.Read(p) }
+func (stuckTerminal) Write(p []byte) (int, error)  { return len(p), nil }
+func (stuckTerminal) Resize(uint16, uint16) error  { return nil }
+
+// splitStopped is the seams of a run whose split view stopped on its own
+// with err, and how many times they were restored.
+func splitStopped(err error) (sessionIO, *atomic.Int32) {
+	done := make(chan error, 1)
+	done <- err
+	restored := &atomic.Int32{}
+	return sessionIO{stdout: io.Discard, uiDone: done, restore: func() { restored.Add(1) }}, restored
+}
+
+// The split view stopping on its own under a live runner means the human's
+// terminal failed under it: nothing renders the runner any more, so the
+// drive ends it, as it does for a drain that ended, and restores the
+// terminal.
+func TestDriveSession_TheSplitViewStoppingEndsTheRunnerAsOutputLost(t *testing.T) {
+	tty := newStuckTTY(true)
+	st := &runState{ctx: context.Background(), pty: tty}
+	sio, restored := splitStopped(errors.New("read /dev/stdin: input/output error"))
+
+	err := driveSessionWithin(t, st, sio, stuckTerminal{tty}, 5*time.Second)
+	require.ErrorIs(t, err, errSessionOutputLost)
+	assert.Contains(t, err.Error(), "input/output error", "the view's own failure is named")
+	require.True(t, tty.ended.Load(), "the runner must be ended once the split view is gone")
+	assert.Positive(t, restored.Load(), "the human's terminal is restored")
+}
+
+// The split view stops with the run's ctx too: a signalled run says it was
+// signalled, never that its output was lost.
+func TestDriveSession_TheSplitViewStoppingWithTheRunIsTheSignal(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	tty := newStuckTTY(true)
+	st := &runState{ctx: ctx, pty: tty}
+	sio, _ := splitStopped(context.Canceled)
+
+	err := driveSessionWithin(t, st, sio, stuckTerminal{tty}, 5*time.Second)
+	require.ErrorIs(t, err, context.Canceled)
+	require.NotErrorIs(t, err, errSessionOutputLost)
+	require.True(t, tty.ended.Load())
+}
+
+// driveSessionWithin is driveWithin for driveSession over sio and term.
+func driveSessionWithin(t *testing.T, st *runState, sio sessionIO, term frontend.Terminal, bound time.Duration) error {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- st.driveSession(sio, term) }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(bound):
+		t.Fatalf("driveSession did not return within %s", bound)
+		return nil
+	}
 }
 
 // recordingTerminal is a frontend.Terminal that records what is typed into

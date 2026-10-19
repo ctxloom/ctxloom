@@ -90,7 +90,7 @@ func startProgram(t *testing.T, port *splitPort, w, h int) *programSplit {
 	p := &programSplit{in: pw, out: newOutTerm(), engine: newEngineSink(), w: w, h: h}
 	prefix, err := ParsePrefixKey("ctrl-]")
 	require.NoError(t, err)
-	o := SplitOptions{Self: selfHarp, Term: p.engine, Prefix: prefix, In: pr, Out: p.out, Header: Header{Harp: selfHarp}, windowSize: [2]int{w, h}}
+	o := SplitOptions{Self: selfHarp, Term: p.engine, Prefix: prefix, In: pr, Out: p.out, Header: Header{Harp: selfHarp}, WindowSize: [2]int{w, h}}
 	if port != nil {
 		o.Port = port.port()
 	}
@@ -279,7 +279,7 @@ func TestStartSplit_FirstPaneSize(t *testing.T) {
 	pr, pw := io.Pipe()
 	defer func() { _ = pw.Close() }()
 	v, err := StartSplit(context.Background(), SplitOptions{
-		Self: selfHarp, Term: newEngineSink(), Prefix: prefix, In: pr, Out: newOutTerm(), windowSize: [2]int{100, 20},
+		Self: selfHarp, Term: newEngineSink(), Prefix: prefix, In: pr, Out: newOutTerm(), WindowSize: [2]int{100, 20},
 		NewPane: func(cols, rows int, toChild io.Writer, cb termemu.Callbacks) termemu.Terminal {
 			got = [2]int{cols, rows}
 			return termemu.NewXVT(cols, rows, toChild, cb)

@@ -200,6 +200,12 @@ func setEnv() []string {
 // crash text names it as the way to force the classic renderer.
 const classicScreenEnv = "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN"
 
+// forceSyncOutputEnv makes an interactive launch bracket every frame in
+// synchronized output (DEC 2026) whatever terminal it detects. The split
+// view's emulator commits a frame at each bracket's end, so a frame claude
+// draws in several writes is shown whole, never torn between them.
+const forceSyncOutputEnv = "CLAUDE_CODE_FORCE_SYNC_OUTPUT"
+
 // disableBackgroundTasksEnv turns off claude's background tasks
 // (run_in_background, auto-backgrounding) for a structured run.
 const disableBackgroundTasksEnv = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"
@@ -246,7 +252,7 @@ func ClaudeEngineCLIs() []agent.EngineCLI {
 			agent.CLIFlag{Name: flagPermissionMode, Value: agent.ValueString,
 				Note: "interactive only: acceptEdits | plan | dontAsk | auto"},
 		),
-		SetEnv: append(setEnv(), classicScreenEnv),
+		SetEnv: append(setEnv(), classicScreenEnv, forceSyncOutputEnv),
 		Probes: probes(),
 	}
 	return []agent.EngineCLI{oneshot, interactive}

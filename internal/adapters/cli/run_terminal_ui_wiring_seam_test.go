@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
-	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/frontend"
 	"github.com/ctxloom/ctxloom/internal/testsupport/livecoord"
@@ -25,18 +24,10 @@ func livePort(s *livecoord.Session, projectDir string) frontend.Port {
 	return (&runState{sessionCoord: s.Coord, workDir: projectDir, activeHarp: livecoord.OwnerHarp}).frontendPort()
 }
 
-// overlayRoster is the overlay's roster as the CLI wires it.
+// overlayRoster is the split view's roster as the CLI wires it.
 func overlayRoster(t *testing.T, s *livecoord.Session, projectDir string) []tui.RosterRow {
 	t.Helper()
 	rows, err := tui.LoadRoster(context.Background(), livePort(s, projectDir), livecoord.OwnerHarp)
-	require.NoError(t, err)
-	return rows
-}
-
-// barRoster is the surround bar's roster as the CLI wires it.
-func barRoster(t *testing.T, s *livecoord.Session) []termui.RosterEntry {
-	t.Helper()
-	rows, err := surroundRoster(context.Background(), livePort(s, ""))
 	require.NoError(t, err)
 	return rows
 }

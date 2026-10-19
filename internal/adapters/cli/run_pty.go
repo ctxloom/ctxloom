@@ -166,7 +166,14 @@ func (st *runState) driveOwnedInteractive() error {
 		_, _ = st.pty.Wait()
 		return fmt.Errorf("the session's terminal: %w", err)
 	}
-	sio := st.prepareSessionIO(port)
+	return st.driveSession(st.prepareSessionIO(port, term), term)
+}
+
+// driveSession is driveOwnedInteractive over the terminal seams sio, the
+// session's terminal term: it pumps them until the runner exits, the run is
+// signalled, or nothing can render the runner any more, and restores sio
+// before it returns.
+func (st *runState) driveSession(sio sessionIO, term frontend.Terminal) error {
 	defer sio.restore()
 
 	pumpCtx, stopPumps := context.WithCancel(st.ctx)
@@ -192,6 +199,16 @@ func (st *runState) driveOwnedInteractive() error {
 		if st.endRunnerAfter(runnerExitAfterDrain) {
 			interrupted = fmt.Errorf("%w: %v", errSessionOutputLost, drainErr)
 		}
+	case uiErr := <-sio.uiDone:
+		// The split view stops on its own only when the human's terminal
+		// failed under it, or the run's ctx ended (a signal, said as one).
+		if st.ctx.Err() != nil {
+			interrupted = fmt.Errorf("the session was signalled to end: %w", st.ctx.Err())
+			st.endRunnerAfter(0)
+			break
+		}
+		interrupted = fmt.Errorf("%w: the split view stopped: %v", errSessionOutputLost, uiErr)
+		st.endRunnerAfter(0)
 	case <-st.pty.Exited():
 	case <-st.ctx.Done():
 		interrupted = fmt.Errorf("the session was signalled to end: %w", st.ctx.Err())

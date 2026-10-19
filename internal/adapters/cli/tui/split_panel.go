@@ -238,14 +238,19 @@ func (s *Split) footerLines(w int) []string {
 
 // pendingLine says how many approvals wait and how long the oldest has.
 func (s *Split) pendingLine() string {
-	line := pendingGlyph + " " + strconv.Itoa(s.pendingN) + " approval"
-	if s.pendingN != 1 {
-		line += "s"
-	}
+	line := pendingGlyph + " " + approvalsCount(s.pendingN)
 	if !s.pendingOldest.IsZero() {
 		line += " · " + ageLabel(s.clock.Now().Sub(s.pendingOldest))
 	}
 	return line + " · a"
+}
+
+// approvalsCount is "1 approval", "3 approvals".
+func approvalsCount(n int) string {
+	if n == 1 {
+		return "1 approval"
+	}
+	return strconv.Itoa(n) + " approvals"
 }
 
 // ageLabel is a wait in the largest whole unit: 40s, 3m, 2h.

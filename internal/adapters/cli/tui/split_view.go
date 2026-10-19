@@ -53,8 +53,8 @@ func StartSplit(ctx context.Context, o SplitOptions) (*SplitView, error) {
 	// The run's own context owns SIGINT and SIGTERM, and a cancelled run
 	// ends the program with it.
 	opts := []tea.ProgramOption{tea.WithContext(ctx), tea.WithoutSignalHandler(), tea.WithInput(o.In), tea.WithOutput(o.Out)}
-	if o.windowSize != [2]int{} {
-		opts = append(opts, tea.WithWindowSize(o.windowSize[0], o.windowSize[1]))
+	if o.WindowSize != [2]int{} {
+		opts = append(opts, tea.WithWindowSize(o.WindowSize[0], o.WindowSize[1]))
 	}
 	v.prog = tea.NewProgram(m, opts...)
 	go func() {

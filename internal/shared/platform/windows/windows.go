@@ -3,6 +3,7 @@
 package windows
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,6 +24,9 @@ func (OS) DocumentsDir() (string, error) {
 
 // PrivateTmpfs is absent: Windows offers no per-user memory-backed dir.
 func (OS) PrivateTmpfs(func(string) string) (string, bool) { return "", false }
+
+// Notify shows nothing: a Windows notifier is not built.
+func (OS) Notify(context.Context, func(string) (string, error), string, string) error { return nil }
 
 // LinkDir makes link a directory JUNCTION to target. A junction needs no
 // privilege, where a symbolic link needs Developer Mode or elevation; the

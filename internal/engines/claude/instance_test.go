@@ -56,8 +56,8 @@ func TestInstance_StructuredDriver_ArgvIsExecPlusTheProtocol(t *testing.T) {
 }
 
 // TestInstance_ExecPinsClassicScreen: an interactive launch carries the
-// classic-renderer pin and declares it on its surface; a print run has no TUI
-// and carries neither.
+// classic-renderer pin and the synchronized-output switch, and declares both
+// on its surface; a print run has no TUI and carries neither.
 func TestInstance_ExecPinsClassicScreen(t *testing.T) {
 	kind, err := Build()
 	require.NoError(t, err)
@@ -69,16 +69,20 @@ func TestInstance_ExecPinsClassicScreen(t *testing.T) {
 		require.NoError(t, err)
 		if mode == engine.Interactive {
 			require.Equal(t, "1", ex.Env[classicScreenEnv], "%v", mode)
+			require.Equal(t, "1", ex.Env[forceSyncOutputEnv], "%v", mode)
 			continue
 		}
 		require.NotContains(t, ex.Env, classicScreenEnv, "%v", mode)
+		require.NotContains(t, ex.Env, forceSyncOutputEnv, "%v", mode)
 	}
 	for _, cli := range ClaudeEngineCLIs() {
 		if cli.Surface == agent.CLISurfaceInteractive {
 			require.Contains(t, cli.SetEnv, classicScreenEnv, "%v", cli.Surface)
+			require.Contains(t, cli.SetEnv, forceSyncOutputEnv, "%v", cli.Surface)
 			continue
 		}
 		require.NotContains(t, cli.SetEnv, classicScreenEnv, "%v", cli.Surface)
+		require.NotContains(t, cli.SetEnv, forceSyncOutputEnv, "%v", cli.Surface)
 	}
 }
 

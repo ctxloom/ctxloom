@@ -19,9 +19,18 @@ import (
 // that surface is told who asked instead; and inside it the approvals
 // model's own lock (no letter or digit decides) holds as everywhere.
 
-// approvalBellInterval rate-limits the arrival bell: a burst of requests
-// rings once.
+// approvalBellInterval rate-limits the arrival bell and the desktop alert
+// beside it: a burst of requests rings and alerts once.
 const approvalBellInterval = 10 * time.Second
+
+// alertTitle heads the desktop notification of an approval waiting.
+const alertTitle = "ctxloom: approval waiting"
+
+// Notifier raises a notification on the human's desktop. It may block; the
+// split view calls it off its own loop.
+type Notifier interface {
+	Notify(title, body string)
+}
 
 // ErrEngaged refuses a summon while the human is using the split view's
 // tree or already has the approvals view open: focus never moves from a
@@ -273,7 +282,7 @@ func (s *Split) applyChromeMsg(msg tea.Msg) tea.Cmd {
 		now := s.clock.Now()
 		if msg.arrived && !s.apprOpen && now.Sub(s.lastBell) >= approvalBellInterval {
 			s.lastBell = now
-			return tea.Raw("\a")
+			return tea.Batch(tea.Raw("\a"), s.alert(msg.n))
 		}
 	case ringMsg:
 		return tea.Raw("\a")
@@ -288,4 +297,17 @@ func (s *Split) applyChromeMsg(msg tea.Msg) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// alert raises the desktop notification for n approvals waiting in this
+// session, off the program's loop; none without a notifier.
+func (s *Split) alert(n int) tea.Cmd {
+	if s.notify == nil {
+		return nil
+	}
+	notify, body := s.notify, s.self+": "+approvalsCount(n)+" waiting"
+	return func() tea.Msg {
+		notify.Notify(alertTitle, body)
+		return nil
+	}
 }

@@ -81,16 +81,18 @@ type SplitOptions struct {
 	Present PresentPolicy
 	// Clock is the split view's time for its own decisions; nil is real time.
 	Clock Clock
+	// Notify raises a desktop notification as an approval parks, beside
+	// the bell and under its rate limit; nil raises none.
+	Notify Notifier
 	// In and Out are the human's terminal.
 	In  io.Reader
 	Out io.Writer
 	// NewPane builds the engine's emulated terminal; nil is termemu.NewXVT.
 	NewPane func(cols, rows int, toChild io.Writer, cb termemu.Callbacks) termemu.Terminal
-
-	// windowSize states the size of an Out bubbletea cannot measure (this
-	// package's tests drive the program over a pipe); zero lets bubbletea
-	// measure the terminal, as it does for a tty.
-	windowSize [2]int
+	// WindowSize states the columns and rows of an Out bubbletea cannot
+	// measure (one that is no tty); zero lets bubbletea measure the
+	// terminal, as it does for a tty.
+	WindowSize [2]int
 }
 
 // Split is the split view's bubbletea model. A pointer: the emulator, the
@@ -104,6 +106,7 @@ type Split struct {
 	header  Header
 	present PresentPolicy
 	clock   Clock
+	notify  Notifier
 	pane    termemu.Terminal
 	// post delivers a message to the running program from any goroutine: a
 	// timer's, the pane's callbacks'.
@@ -161,6 +164,7 @@ func newSplit(ctx context.Context, o SplitOptions, pane termemu.Terminal, post f
 		header:    o.Header,
 		present:   o.Present.Normalized(),
 		clock:     o.Clock,
+		notify:    o.Notify,
 		pane:      pane,
 		post:      post,
 		mailbox:   mb,

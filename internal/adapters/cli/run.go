@@ -1450,16 +1450,24 @@ func credentialRefused(holds []coord.CredentialHold, harp string) bool {
 }
 
 // sessionIO is the terminal seam set the interactive drive pumps onto the
-// pty master. It is one value rather than four returns because they are
+// pty master. It is one value rather than five returns because they are
 // decided together and consumed together, and restore composes onto the
 // others.
 type sessionIO struct {
+	// stdin is pumped into the session's terminal; nil when nothing is (no
+	// tty, or the split view, which writes the human's input itself).
 	stdin  io.Reader
 	stdout io.Writer
+	// resize is pumped onto the session's terminal; nil when nothing is
+	// (the split view sizes it to its pane).
 	resize <-chan *agent.WindowSize
-	// restore unwinds the terminal (raw mode, and the observation layer's
-	// scroll region + held output when one engaged). Idempotent, and a no-op
-	// for a run that never took the terminal.
+	// uiDone receives once the split view has stopped on its own — the
+	// human's terminal failed under it, so nothing renders the session any
+	// more; nil without one.
+	uiDone <-chan error
+	// restore unwinds the terminal (the split view, the diagnostics divert
+	// and raw mode). Idempotent, and a no-op for a run that never took the
+	// terminal.
 	restore func()
 }
 
@@ -1475,42 +1483,41 @@ func (st *runState) frontendPort() frontend.Port {
 }
 
 // prepareSessionIO decides an interactive run's terminal seams: the
-// frontend owns the terminal — raw mode + stdin + resize — and the terminal
-// layer (adapters/termui) wraps the seams before they are pumped onto the
-// session's terminal on port.
-func (st *runState) prepareSessionIO(port frontend.Port) sessionIO {
+// frontend owns the terminal — raw mode + stdin + resize — and the split view
+// (adapters/cli/tui) takes them over, drawing the session's terminal term on
+// port in its pane.
+func (st *runState) prepareSessionIO(port frontend.Port, term frontend.Terminal) sessionIO {
 	sio := sessionIO{stdout: os.Stdout, restore: func() {}}
 	sio.stdin, sio.resize, sio.restore = interactiveTerminal(st.ctx)
-	// Wrap the terminal seams with the observation layer (prefix-key
-	// viewer + surround bar) — real tty only, never a pipe, and
-	// --plain-terminal opts a session out entirely. Its Close composes
-	// onto the raw-mode restore so every exit path (clean, error,
-	// signal-cancelled ctx) unwinds scroll region, held output, and
-	// raw mode together.
-	if sio.stdin != nil && !runPlainTerminal {
-		// The TUI is about to own this terminal, so clidiag warnings must
-		// stop writing to it. Diverted to the session's diagnostics log,
-		// announced before the handover.
-		restoreDiag := redirectDiagnosticsForTUI(st.activeHarp, os.Stderr)
-		if ui := setupTerminalUI(st.ctx, st.cfg, port, terminalUIIdentity{
-			WorkDir: st.workDir,
-			Harp:    st.activeHarp,
-			Agent:   st.boundAgent(),
-			Backend: st.backendName,
-			Model:   st.labelModel,
-		}, sio.stdin, sio.resize); ui != nil {
-			sio.stdin, sio.stdout, sio.resize = ui.Stdin(), ui.Stdout(), ui.Resize()
-			rawRestore := sio.restore
-			sio.restore = func() { ui.Close(); restoreDiag(); rawRestore() }
-		} else {
-			// No TUI engaged after all — stderr is still the user's,
-			// so put the warnings back on it.
-			restoreDiag()
-			markUnattended(st.sessionCoord, App().Engines(), unattendedNoTerminalLayer)
-		}
-	} else {
+	// The split view — real tty only, never a pipe, and --plain-terminal
+	// opts a session out entirely. Its Close composes onto the raw-mode
+	// restore so every exit path (clean, error, signal-cancelled ctx)
+	// unwinds the human's terminal and raw mode together.
+	if sio.stdin == nil || runPlainTerminal {
 		markUnattended(st.sessionCoord, App().Engines(), unattendedNoTerminalLayer)
+		return sio
 	}
+	// The split view is about to own this terminal, so clidiag warnings must
+	// stop writing to it. Diverted to the session's diagnostics log,
+	// announced before the handover.
+	restoreDiag := redirectDiagnosticsForTUI(st.activeHarp, os.Stderr)
+	view := setupSplitView(st.ctx, st.cfg, port, terminalUIIdentity{
+		WorkDir: st.workDir,
+		Harp:    st.activeHarp,
+		Agent:   st.boundAgent(),
+		Backend: st.backendName,
+		Model:   st.labelModel,
+	}, term, splitIO{in: sio.stdin, out: os.Stdout})
+	if view == nil {
+		// No split view after all — stderr is still the user's, so put the
+		// warnings back on it.
+		restoreDiag()
+		markUnattended(st.sessionCoord, App().Engines(), unattendedNoTerminalLayer)
+		return sio
+	}
+	rawRestore := sio.restore
+	sio.stdin, sio.stdout, sio.resize, sio.uiDone = nil, view.Pane(), nil, view.Done()
+	sio.restore = func() { view.Close(); restoreDiag(); rawRestore() }
 	return sio
 }
 

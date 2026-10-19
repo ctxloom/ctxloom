@@ -11,18 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
-	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/livecoord"
 )
 
 // The terminal UI's wiring onto a LIVE coordinating session, pinned end to
-// end: what the overlay's roster, the surround bar's roster, the control
-// verbs and the approval queue show and do when the session hosts a real
-// coordinator holding real children. The overlay and the bar each have unit
-// tests over fakes; these characterize the seam between them and the
-// coordinator.
+// end: what the split view's roster, the control verbs and the approval
+// queue show and do when the session hosts a real coordinator holding real
+// children. The split view has unit tests over fakes; these characterize the
+// seam between it and the coordinator.
 
 // liveTerminalUI is a live session with two children: one idle, one the
 // human paused.
@@ -61,21 +59,6 @@ func TestTerminalUI_OverlayRosterOverALiveSession(t *testing.T) {
 	p := rowOf(t, rows, paused)
 	require.NotNil(t, p.Hold)
 	assert.Equal(t, coord.HoldKindHuman, p.Hold.Kind)
-}
-
-func TestTerminalUI_SurroundRosterOverALiveSession(t *testing.T) {
-	s, _, idle, paused := liveTerminalUI(t)
-	rows := barRoster(t, s)
-	require.Len(t, rows, 2, "the bar lists the coordinator's runs: %+v", rows)
-	byHarp := map[string]termui.RosterEntry{}
-	for _, r := range rows {
-		byHarp[r.Harp] = r
-	}
-	assert.Equal(t, coord.StateIdle, byHarp[idle].State)
-	assert.Positive(t, byHarp[idle].LastActivityUnix, "the bar knows when each child last moved")
-	assert.Empty(t, byHarp[idle].Hold)
-	assert.Equal(t, tui.HoldLabel(&coord.RunHold{Kind: coord.HoldKindHuman}), byHarp[paused].Hold, "a pause is worded as the overlay words it")
-	assert.True(t, rows[0].Harp < rows[1].Harp, "the bar's rows are in harp order")
 }
 
 func TestTerminalUI_ControlAndApprovalsOverALiveSession(t *testing.T) {

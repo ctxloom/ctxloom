@@ -12,10 +12,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/termui"
+	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fakeclock"
+	"github.com/ctxloom/ctxloom/internal/testsupport/frontendfake"
+	"github.com/ctxloom/ctxloom/internal/testsupport/vtemu"
 )
 
 // presenterSource is a coord.ApprovalSource whose events the test sends.
@@ -84,8 +87,7 @@ type barCall struct {
 
 // summonCall is one Summon; it stays in flight until its context ends.
 type summonCall struct {
-	start  termui.OverlayStart
-	notice termui.Notice
+	notice string
 	ctx    context.Context
 }
 
@@ -103,8 +105,8 @@ func newPresenterUIFake() *presenterUIFake {
 
 func (f *presenterUIFake) ui() presenterUI {
 	return presenterUI{
-		summon: func(ctx context.Context, start termui.OverlayStart, n termui.Notice) error {
-			f.summons <- summonCall{start: start, notice: n, ctx: ctx}
+		summon: func(ctx context.Context, notice string) error {
+			f.summons <- summonCall{notice: notice, ctx: ctx}
 			<-ctx.Done()
 			return ctx.Err()
 		},
@@ -210,8 +212,7 @@ func TestPresenter_StartsWithTheBarAndTheModalForWhatIsAlreadyPending(t *testing
 	)
 	r := startPresenter(t, src)
 	s := r.ui.nextSummon(t)
-	assert.Equal(t, termui.OverlayStart{View: "approvals"}, s.start)
-	assert.Equal(t, termui.Notice{Text: "approval from wiry-otter"}, s.notice)
+	assert.Equal(t, "approval from wiry-otter", s.notice)
 	assert.Equal(t, barCall{n: 2, oldest: t0.Add(-65 * time.Second)}, r.ui.lastBar(), "no bell for what was already waiting")
 }
 
@@ -224,7 +225,7 @@ func TestPresenter_AnArrivalRingsAndSummonsForTheNewAsker(t *testing.T) {
 	first := r.ui.nextSummon(t)
 	src.add(pending("b", "calm-heron", t0.Add(time.Second), t0.Add(10*time.Minute)))
 	second := r.ui.nextSummon(t)
-	assert.Equal(t, termui.Notice{Text: "approval from calm-heron"}, second.notice)
+	assert.Equal(t, "approval from calm-heron", second.notice)
 	assert.Error(t, first.ctx.Err(), "the earlier summon was withdrawn")
 	assert.Equal(t, barCall{n: 2, oldest: t0, arrived: true}, r.ui.lastBar())
 }
@@ -284,7 +285,7 @@ func TestPresenter_AResolvedRequestIsForgotten(t *testing.T) {
 	src.resolve(req.ID, agent.DeciderHuman)
 	src.add(req)
 	s := r.ui.nextSummon(t)
-	assert.Equal(t, termui.Notice{Text: "approval from wiry-otter"}, s.notice)
+	assert.Equal(t, "approval from wiry-otter", s.notice)
 }
 
 // TestPresenter_NothingPendingWithdrawsTheSummon: when the last request
@@ -337,7 +338,7 @@ func TestPresenter_TheTwoMinuteWarningRingsAndSummonsOnce(t *testing.T) {
 		r.clk.Advance(time.Second)
 	}
 	warn := r.ui.nextSummon(t)
-	assert.Equal(t, termui.Notice{Text: "approval from wiry-otter"}, warn.notice)
+	assert.Equal(t, "approval from wiry-otter", warn.notice)
 	require.Eventually(t, func() bool { return r.ui.lastBar().arrived }, 5*time.Second, time.Millisecond, "the warning rings")
 	for i := 0; i < 5; i++ {
 		r.waitTick(t)
@@ -361,108 +362,105 @@ func TestPresenter_ReturnsWhenItsContextEnds(t *testing.T) {
 	assert.Error(t, s.ctx.Err())
 }
 
-// fakeModal is the overlay the controller builds; it stays up until aborted.
-type fakeModal struct {
-	quit chan struct{}
-	once sync.Once
+// viewSource is the presenter's queue as the split view reads it: its own
+// subscription, which no test event reaches, so every event the test sends
+// is the presenter's.
+type viewSource struct{ *presenterSource }
+
+func (viewSource) Subscribe(context.Context) <-chan coord.QueueEvent {
+	return make(chan coord.QueueEvent)
 }
 
-func (m *fakeModal) Run(in io.Reader, _ io.Writer, _ termui.OverlayGeometry) error {
-	go func() { _, _ = io.Copy(io.Discard, in) }()
-	<-m.quit
-	return nil
-}
-func (m *fakeModal) Abort()                        { m.once.Do(func() { close(m.quit) }) }
-func (m *fakeModal) Resize(termui.OverlayGeometry) {}
-func (m *fakeModal) Armed(int)                     {}
-func (m *fakeModal) Notify(termui.Notice)          {}
+// paneTerm is the engine's terminal under the split view: it takes what the
+// view writes and never yields output.
+type paneTerm struct{}
 
-// lockedTTY is the controller's terminal.
-type lockedTTY struct {
-	mu sync.Mutex
-	b  strings.Builder
-}
+func (paneTerm) Write(p []byte) (int, error) { return len(p), nil }
+func (paneTerm) Read([]byte) (int, error)    { select {} }
+func (paneTerm) Resize(uint16, uint16) error { return nil }
 
-func (l *lockedTTY) Write(p []byte) (int, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.b.Write(p)
+// humanTTY is the human's terminal under the split view: the screen the
+// program's output draws, re-checked on every write.
+type humanTTY struct {
+	mu     sync.Mutex
+	screen *vtemu.Screen
+	wake   chan struct{}
 }
 
-func (l *lockedTTY) String() string {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.b.String()
+func newHumanTTY(cols, rows int) *humanTTY {
+	return &humanTTY{screen: vtemu.New(rows, cols), wake: make(chan struct{})}
 }
 
-// TestModalPresenter_SummonsTheModalOnTheRealController joins the presenter
-// to a real terminal layer: an arrival puts "⚑ 1 · oldest" on the bar and
-// the approvals modal on the screen, summoned; its timing out leaves the
-// note on the bar.
-func TestModalPresenter_SummonsTheModalOnTheRealController(t *testing.T) {
+// Write draws p; bubbletea writes to a non-tty as to a cooked terminal,
+// relying on ONLCR, so the mapping is done here.
+func (h *humanTTY) Write(p []byte) (int, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.screen.Feed([]byte(strings.ReplaceAll(string(p), "\n", "\r\n")))
+	close(h.wake)
+	h.wake = make(chan struct{})
+	return len(p), nil
+}
+
+// waitScreen blocks until the screen satisfies cond.
+func (h *humanTTY) waitScreen(t *testing.T, what string, cond func(screen string) bool) {
+	t.Helper()
+	expired := testsupport.Expiry(t)
+	for {
+		h.mu.Lock()
+		screen, wake := h.screen.String(), h.wake
+		h.mu.Unlock()
+		if cond(screen) {
+			return
+		}
+		select {
+		case <-wake:
+		case <-expired:
+			t.Fatalf("the screen never showed %s:\n%s", what, screen)
+		}
+	}
+}
+
+// TestModalPresenter_SummonsTheApprovalsViewOnTheRealSplitView joins the
+// presenter to a real split view: a request already parked puts its count
+// on the panel and the approvals view in the pane, inert while it arms; the
+// human closes it, and the request's timing out leaves the note on the
+// panel.
+func TestModalPresenter_SummonsTheApprovalsViewOnTheRealSplitView(t *testing.T) {
 	clk := fakeclock.New()
-	starts := make(chan termui.OverlayStart, 4)
-	modal := &fakeModal{quit: make(chan struct{})}
-	stdinR, stdinW := io.Pipe()
-	tty := &lockedTTY{}
-	// Buffered before New, as watchResize does: the controller establishes the
-	// region inside New.
-	sizes := make(chan *agent.WindowSize, 1)
-	sizes <- &agent.WindowSize{Rows: 24, Cols: 100}
-	ui := termui.New(termui.Options{
-		Stdin: stdinR, TTY: tty, Resize: sizes, Prefix: 0x1d, Surround: true, Clock: clk,
-		NewOverlay: func(s termui.OverlayStart) termui.Overlay { starts <- s; return modal },
-	})
-	require.Contains(t, tty.String(), "\x1b[1;23r", "surround established by New")
-	require.Equal(t, uint16(23), (<-ui.Resize()).Rows, "the initial size, translated inside New")
-	pumpDone := make(chan struct{})
-	go func() {
-		defer close(pumpDone)
-		_, _ = io.Copy(io.Discard, ui.Stdin())
-	}()
-	t.Cleanup(func() {
-		ui.Close()
-		_ = stdinW.Close()
-		close(sizes)
-		<-pumpDone
-	})
-
-	// Parked before the presenter starts: its start shows it, and its arrival
-	// event, delivered after the modal is closed, must not show it again.
 	req := pending("a", "wiry-otter", clk.Now().Add(-5*time.Second), clk.Now().Add(10*time.Minute))
 	src := newPresenterSource(req)
+	prefix, err := tui.ParsePrefixKey("ctrl-]")
+	require.NoError(t, err)
+	stdinR, stdinW := io.Pipe()
+	tty := newHumanTTY(100, 24)
+	view, err := tui.StartSplit(context.Background(), tui.SplitOptions{
+		Port: &frontendfake.Port{ApprovalSource: viewSource{src}}, Self: "root-otter", Term: paneTerm{},
+		Prefix: prefix, Clock: clk, In: stdinR, Out: tty, WindowSize: [2]int{100, 24},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		view.Close()
+		_ = stdinW.Close()
+	})
+
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- modalPresenter{ui: ui, clock: clk}.Present(ctx, src) }()
+	go func() { done <- modalPresenter{ui: view, clock: clk}.Present(ctx, src) }()
 	t.Cleanup(func() {
 		cancel()
 		<-done
 	})
-	// The presenter sets the bar before it starts the Summon that builds the
-	// modal, so the bar is painted once the modal has been asked for.
-	assert.Equal(t, termui.OverlayStart{Summoned: true, View: "approvals"}, <-starts)
-	assert.Contains(t, tty.String(), "⚑ 1 · oldest 00:05")
-	// The human closes the modal before the request times out. The modal's
-	// teardown runs on the controller's overlay goroutine and sends its repaint
-	// nudge after the release is written.
-	modal.Abort()
-	require.Equal(t, uint16(22), (<-ui.Resize()).Rows, "the release's nudge")
-	require.Contains(t, tty.String(), "\x1b[?1049l", "modal released")
-	src.events <- coord.QueueEvent{Kind: coord.QueueAdded, ID: req.ID, Pending: 1}
-	src.settle()
-	// The timeout leaves nothing pending, which withdraws any summon in flight
-	// and waits for it: a re-summon from the event has been made by now.
+	tty.waitScreen(t, "the summoned approvals view, arming, beside the panel's count", func(s string) bool {
+		return strings.Contains(s, "⚑ 1 approval") && strings.Contains(s, "wiry-otter") && strings.Contains(s, "arming —")
+	})
+	clk.Advance(time.Second)
+	tty.waitScreen(t, "the approvals view armed", func(s string) bool { return !strings.Contains(s, "arming —") })
+	_, err = stdinW.Write([]byte("\x1b"))
+	require.NoError(t, err)
+	tty.waitScreen(t, "the approvals view closed", func(s string) bool { return !strings.Contains(s, "wiry-otter") })
+
 	src.resolve("a", agent.DeciderTimeout)
 	src.settle()
-	select {
-	case s := <-starts:
-		t.Fatalf("the closed modal re-opened for a request it already showed: %+v", s)
-	default:
-	}
-	// The release counts as engine output, so a note asked for right after it
-	// waits out the bar's engine-busy window — on the controller's clock,
-	// which only the test moves. A second is past that window and well inside
-	// timedOutNoteFor; the deferred repaint runs inside Advance.
-	clk.Advance(time.Second)
-	assert.Contains(t, tty.String(), timedOutNote, "nobody decided it: the bar says so")
+	tty.waitScreen(t, "the timed-out note", func(s string) bool { return strings.Contains(s, "approval resolved (timed") })
 }

@@ -305,14 +305,15 @@ func countFlag(args []string, flag string) int {
 }
 
 // execEnv is the engine-native env: the relocated home vars, every
-// presentation's env channel, and the classic-screen switch when
-// interactive — or, when structured, background tasks off (the turn's
+// presentation's env channel, and the classic-screen and synchronized-output
+// switches when interactive — or, when structured, background tasks off (the turn's
 // process ends at its result, and a task left running past it would answer
 // into a turn nobody reads).
 func (i *instance) execEnv(presented []present.Presentation) map[string]string {
 	env := kit.ComposeEnv(i.s, presented)
 	if i.s.Mode == engine.Interactive {
 		env[classicScreenEnv] = "1"
+		env[forceSyncOutputEnv] = "1"
 	} else {
 		env[disableBackgroundTasksEnv] = "1"
 	}

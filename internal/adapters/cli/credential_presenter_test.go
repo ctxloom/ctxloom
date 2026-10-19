@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -63,8 +62,8 @@ func TestCredentialNoticeText_OverloadedNamesTheRunNotACredential(t *testing.T) 
 }
 
 // An unreachable-endpoint hold is, like an overload, one run's own backoff:
-// the notice names the run and when it resumes, and no credential; its
-// release names it too; and two runs' holds opened at one instant stay two.
+// the notice names the run and when it resumes, and no credential; and two
+// runs' holds opened at one instant stay two.
 func TestCredentialNoticeText_EndpointUnreachableNamesTheRunNotACredential(t *testing.T) {
 	src := engine.Credentials{Env: map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "v"}}.Source("claude-code")
 	h := coord.CredentialHold{Engine: "claude-code", Source: src, Kind: agent.FailureEndpointUnreachable, Until: limitUntil, Harps: []string{"lan-kid"}}
@@ -75,7 +74,6 @@ func TestCredentialNoticeText_EndpointUnreachableNamesTheRunNotACredential(t *te
 	for _, not := range []string{"RATE LIMITED", "OVERLOADED", "CLAUDE_CODE_OAUTH_TOKEN", "waiting"} {
 		assert.NotContains(t, got, not)
 	}
-	assert.True(t, strings.HasPrefix(holdReleasedNotice(h), "ENDPOINT UNREACHABLE hold released"), holdReleasedNotice(h))
 	other := h
 	other.Harps = []string{"other-kid"}
 	assert.NotEqual(t, holdID(h), holdID(other), "each run's endpoint backoff is its own hold")
@@ -256,71 +254,22 @@ func TestPresentCredentialHolds_RefreshesOnTheTick(t *testing.T) {
 	assert.Contains(t, rec.all()[0], "on their own")
 }
 
-// lineRecorder records every announced line.
-type lineRecorder struct {
-	mu    sync.Mutex
-	lines []string
-}
-
-func (r *lineRecorder) announce(text string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.lines = append(r.lines, text)
-}
-
-func (r *lineRecorder) all() []string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]string(nil), r.lines...)
-}
-
-// With the bar off (ui.surround: false) the human still hears of every hold:
-// a line as each rate-limit, overload or refused-credential hold opens and
-// another as it releases — never on the refreshes in between — and the bell
-// once as a refusal opens.
-func TestCredentialPresenter_WithoutABarAnnouncesEachHoldOpeningAndReleasing(t *testing.T) {
-	src := &holdSource{}
-	lines := &lineRecorder{}
-	bells := &ringCounter{}
+// Refusals that open in one poll ring once between them, and an overload
+// beside them needs nothing from the human.
+func TestCredentialPresenter_RefusalsOpeningTogetherRingOnce(t *testing.T) {
 	clk := fakeclock.New()
-	p := &credentialPresenter{holds: src.get, noteBar: (&noteRecorder{}).noteBar, ring: bells.ring, announce: lines.announce, session: "root-harp", clock: clk}
-	p.refresh()
-
 	token := tokenLimitHold().Source
-	limited := tokenLimitHold("a", "b")
-	limited.Since = clk.Now()
-	overloaded := coord.CredentialHold{Engine: "claude-code", Source: token, Kind: agent.FailureOverloaded, Since: clk.Now(), Until: limitUntil, Harps: []string{"busy-kid"}}
-	src.set(limited, overloaded)
+	src := &holdSource{}
+	bells := &ringCounter{}
+	p := &credentialPresenter{holds: src.get, noteBar: (&noteRecorder{}).noteBar, ring: bells.ring, clock: clk}
 	p.refresh()
-	require.Len(t, lines.all(), 2)
-	assert.Contains(t, lines.all()[0], "RATE LIMITED")
-	assert.Contains(t, lines.all()[1], "OVERLOADED")
-	assert.Zero(t, bells.count(), "a limit or an overload needs nothing from the human")
-	p.refresh()
-	assert.Len(t, lines.all(), 2, "an unchanged hold is not announced again")
 
+	overloaded := coord.CredentialHold{Engine: "claude-code", Source: token, Kind: agent.FailureOverloaded, Since: clk.Now(), Until: limitUntil, Harps: []string{"busy-kid"}}
 	src.set(overloaded)
 	p.refresh()
-	require.Len(t, lines.all(), 3)
-	assert.Contains(t, lines.all()[2], "released")
-	assert.Contains(t, lines.all()[2], "RATE LIMITED")
-	assert.Contains(t, lines.all()[2], "a, b")
+	assert.Zero(t, bells.count(), "an overload needs nothing from the human")
 
-	refused := refusedHold(token, clk.Now().Add(time.Second), "a")
-	src.set(overloaded, refused)
+	src.set(overloaded, refusedHold(token, clk.Now().Add(time.Second), "a"), refusedHold(token, clk.Now().Add(2*time.Second), "b"))
 	p.refresh()
-	require.Len(t, lines.all(), 4)
-	assert.Contains(t, lines.all()[3], "CREDENTIAL REFUSED")
-	assert.Contains(t, lines.all()[3], "ctxloom run --session root-harp")
-	assert.Equal(t, 1, bells.count(), "a refusal rings once")
-
-	src.set()
-	p.refresh()
-	got := lines.all()
-	require.Len(t, got, 6)
-	assert.Contains(t, strings.Join(got[4:], "\n"), "OVERLOADED")
-	assert.Contains(t, strings.Join(got[4:], "\n"), "CREDENTIAL REFUSED")
-	for _, l := range got[4:] {
-		assert.Contains(t, l, "released")
-	}
+	assert.Equal(t, 1, bells.count())
 }

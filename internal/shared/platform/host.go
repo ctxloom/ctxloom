@@ -1,5 +1,7 @@
 package platform
 
+import "context"
+
 // The platform BEHAVIOURS: one small interface per concern, each implemented
 // by a package per OS (platform/linux, platform/darwin, platform/windows),
 // composed into Host and selected for the build target in this package's
@@ -45,11 +47,21 @@ type PrivateTmpfs interface {
 	PrivateTmpfs(getenv func(string) string) (dir string, ok bool)
 }
 
+// DesktopNotifier raises a notification on the human's desktop.
+type DesktopNotifier interface {
+	// Notify shows title and body through the platform's notifier command,
+	// found with resolve, until ctx ends. A platform with no notifier, or a
+	// host where resolve finds none, shows nothing and reports no error: the
+	// notification is a courtesy beside what the terminal shows.
+	Notify(ctx context.Context, resolve func(name string) (string, error), title, body string) error
+}
+
 // Host is every platform behaviour the build target's OS supplies.
 type Host interface {
 	DirLinker
 	UserDirs
 	PrivateTmpfs
+	DesktopNotifier
 }
 
 // Current is the build target's Host.

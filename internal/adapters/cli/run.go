@@ -740,7 +740,7 @@ func (st *runState) warnPosture() {
 		clidiag.Warn("ctxloom", "--permissions %q cannot be honoured as asked on %s; this run uses %q", runPermissions, st.backendName, st.permMode)
 	}
 	if st.launch.Mode == engine.Structured && st.permMode != permissionBypass {
-		clidiag.Warn("ctxloom", "--one-shot with %s permissions has no human to approve a gated call; the engine denies every call the posture would ask about, so those steps will not run", st.permMode)
+		clidiag.Warn("ctxloom", "--one-shot with %s permissions has no human to approve a gated call; every call the posture would ask about is denied at once, so those steps will not run", st.permMode)
 	}
 }
 
@@ -1226,6 +1226,12 @@ func (st *runState) hostCoordinator() func() {
 	}
 
 	st.sessionCoord = sc
+	// A --one-shot owner shows no approval modal (setupTerminalUI is the only
+	// presenter), so a request parked for this root's human could only wait
+	// out its timeout.
+	if mode != coord.OwnerInteractive {
+		markUnattended(sc, unattendedOneShot)
+	}
 	// The owner's credential identifies the owner-owned run's minter
 	// (startOwnedRun); the owner's RUNNER is stamped by StartOwnedRun with
 	// its own per-run trio, so nothing rides this process's environment.
@@ -1459,9 +1465,29 @@ func (st *runState) prepareSessionIO(port frontend.Port) sessionIO {
 			// No TUI engaged after all — stderr is still the user's,
 			// so put the warnings back on it.
 			restoreDiag()
+			markUnattended(st.sessionCoord, unattendedNoTerminalLayer)
 		}
+	} else {
+		markUnattended(st.sessionCoord, unattendedNoTerminalLayer)
 	}
 	return sio
+}
+
+// The reasons a root's approval requests are refused at once rather than
+// parked (coord.ApprovalQueue.Unattended): each names why nobody can answer
+// and what lets the call through instead.
+const (
+	unattendedOneShot         = "nobody can answer it: a --one-shot run has no terminal to approve in — allow the call with a permission rule, or give the agent a posture that asks nobody (--permissions bypass, in a container)"
+	unattendedNoTerminalLayer = "nobody can answer it: this session has no terminal layer to show approvals in (--plain-terminal, or no tty) — allow the call with a permission rule, or give the agent a posture that asks nobody (--permissions bypass, in a container)"
+)
+
+// markUnattended marks sc's approval queue unattended (why); a session that
+// hosts no coordinator has no queue to mark.
+func markUnattended(sc *coord.Coordinator, why string) {
+	if sc == nil || sc.Approvals() == nil {
+		return
+	}
+	sc.Approvals().Unattended(why)
 }
 
 // finalizeRunPrompt applies the last two steps of prompt resolution, after the

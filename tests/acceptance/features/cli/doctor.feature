@@ -194,7 +194,11 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
       Then the command succeeds
       And the output contains "DOCTOR-CHECK-MCP-INVOCATION-g7"
       And the output contains ".mcp.json"
-      And the output contains "ctxloom materialize --release --surface mcp"
+      # Written by hand, so this machine holds no record of it: a release
+      # could not remove it, and the remedy says to delete it instead.
+      And the output contains "entry from"
+      And the output contains "by hand"
+      And the output does not contain "ctxloom materialize --release --surface mcp"
 
     # The paired negative: a report that warned on every project would be
     # indistinguishable from one that works, and would teach a user to skip the

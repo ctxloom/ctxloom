@@ -94,3 +94,36 @@ func TestBuildRoster_SelfIsAlwaysTheFirstRow(t *testing.T) {
 	assert.Equal(t, []string{"self-run@0", "older-run@0"}, rosterOrder(rows))
 	assert.Equal(t, StateLive, rows[0].State, "this run is live")
 }
+
+// The coordinator journals the session's own run with its own harp as its
+// parent (coord.RunRecord.TopLevel): that is a root, not a cycle — the
+// session stays the first row, its children under it.
+func TestBuildRoster_SelfParentedOwnerRunIsTheRoot(t *testing.T) {
+	rows := BuildRoster(
+		[]frontend.Session{{Harp: "older-run", State: frontend.SessionEnded}, {Harp: "self-run", State: frontend.SessionLive}},
+		[]coord.RunInfo{held("self-run", "self-run", coord.StateExecuting, "self-run"), held("kid", "coder", coord.StateIdle, "self-run")},
+		"self-run")
+	assert.Equal(t, []string{"self-run@0", "kid@1", "older-run@0"}, rosterOrder(rows))
+}
+
+// Entering the list over a live session lands on its own row, which the
+// coordinator lists as its own parent.
+func TestSplit_EnteringTheListOverASelfParentedOwnerRun(t *testing.T) {
+	port := newSplitPort()
+	port.sessions = append(port.sessions, frontend.Session{Harp: "older-run", State: frontend.SessionEnded, LastActivity: time.Now()})
+	port.child(selfHarp, selfHarp, selfHarp, coord.StateExecuting)
+	port.child("brave-heron", "coder", selfHarp, coord.StateIdle)
+	h := newSplitHarness(t, port).sized(100, 12)
+	h.typeBytes("\x1d")
+	assert.Equal(t, selfHarp, selectedHarp(h))
+	assert.Equal(t, []string{selfHarp + "@0", "brave-heron@1", "older-run@0"}, rosterOrder(h.s.rows))
+}
+
+// An orphan (its parent unknown to the roster) is a root like any other,
+// ordered by activity among them.
+func TestBuildRoster_AnOrphanIsOrderedAmongTheRoots(t *testing.T) {
+	kid := held("lost-kid", "", coord.StateIdle, "gone-parent")
+	kid.LastEventAt = time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	rows := BuildRoster([]frontend.Session{{Harp: "quiet-root", State: frontend.SessionEnded}}, []coord.RunInfo{kid}, "")
+	assert.Equal(t, []string{"lost-kid@0", "quiet-root@0"}, rosterOrder(rows))
+}

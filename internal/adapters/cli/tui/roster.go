@@ -133,12 +133,14 @@ func placeLineage(rows []RosterRow, self string) []RosterRow {
 	for _, r := range rows {
 		known[r.Harp] = true
 	}
-	// Roots are the rows with no parent, or a parent the roster doesn't know
-	// (an orphan); everything else hangs off its parent.
+	// Roots are the rows with no parent, their own parent (the coordinator
+	// journals a session's own run so: coord.RunRecord.TopLevel), or a parent
+	// the roster doesn't know (an orphan); everything else hangs off its
+	// parent.
 	children := make(map[string][]RosterRow, len(rows))
 	var roots []RosterRow
 	for _, r := range rows {
-		if r.Parent != "" && known[r.Parent] {
+		if r.Parent != r.Harp && known[r.Parent] {
 			children[r.Parent] = append(children[r.Parent], r)
 		} else {
 			roots = append(roots, r)

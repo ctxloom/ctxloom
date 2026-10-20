@@ -291,11 +291,12 @@ func TestDriveSession_TheSplitViewStoppingEndsTheRunnerAsOutputLost(t *testing.T
 
 // The split view stops with the run's ctx too: a signalled run says it was
 // signalled, never that its output was lost.
+//
+// The run's ctx reports its end without a closed Done, so the drive's select
+// can only take the split view's stop: a cancelled ctx would race it.
 func TestDriveSession_TheSplitViewStoppingWithTheRunIsTheSignal(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
 	tty := newStuckTTY(true)
-	st := &runState{ctx: ctx, pty: tty}
+	st := &runState{ctx: endedNoDone{context.Background()}, pty: tty}
 	sio, _ := splitStopped(context.Canceled)
 
 	err := driveSessionWithin(t, st, sio, stuckTerminal{tty}, 5*time.Second)
@@ -377,3 +378,9 @@ func TestPumpSessionInput_KeystrokesAndResizesReachThePortsTerminal(t *testing.T
 	}, 5*time.Second, time.Millisecond)
 	assert.Equal(t, [2]uint16{30, 100}, term.resizes[0])
 }
+
+// endedNoDone is a ctx that reports it ended but never closes Done.
+type endedNoDone struct{ context.Context }
+
+func (endedNoDone) Done() <-chan struct{} { return nil }
+func (endedNoDone) Err() error            { return context.Canceled }

@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -81,12 +82,17 @@ type SessionFeed struct {
 	Errs   <-chan error
 }
 
+// errFeedNoBackend refuses a live feed for a session that records no backend
+// when no config generation names a default.
+var errFeedNoBackend = errors.New("records no backend and no config generation was supplied")
+
 // SessionFeedRequest names the harp and source policy for WatchSessionFeed.
 type SessionFeedRequest struct {
 	Harp   string
 	Source FeedSource
 	// Cfg supplies the default backend for a session record that carries
-	// none; required in that case.
+	// none. Without one such a session has no live tap to look for, and
+	// resolves to its store tail.
 	Cfg *config.Config
 }
 
@@ -102,17 +108,20 @@ func WatchSessionFeed(ctx context.Context, reg engine.Registry, req SessionFeedR
 	if entry == nil {
 		return nil, fmt.Errorf("%w: %q", sessions.ErrNotFound, req.Harp)
 	}
-	backend := entry.Backend
-	if backend == "" {
-		if req.Cfg == nil {
-			return nil, fmt.Errorf("session %q records no backend and no config generation was supplied", req.Harp)
-		}
-		backend = req.Cfg.GetDefaultLLM()
-	}
-
 	source := req.Source
 	if source == "" {
 		source = FeedSourceAuto
+	}
+	backend := entry.Backend
+	if backend == "" && req.Cfg != nil {
+		backend = req.Cfg.GetDefaultLLM()
+	}
+	if backend == "" {
+		// The live tap needs the engine; the store tail does not.
+		if source == FeedSourceLive {
+			return nil, fmt.Errorf("session %q: %w", req.Harp, errFeedNoBackend)
+		}
+		source = FeedSourceStore
 	}
 	if source != FeedSourceStore {
 		feed, lerr := watchLiveFeed(ctx, reg, entry, backend)

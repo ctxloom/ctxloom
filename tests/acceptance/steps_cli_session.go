@@ -61,7 +61,7 @@ func registerCLISessionSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	// The output-dir pair: a readable output (the essence, a plan) lives in
+	// The output-dir pair: a readable output (a plan, an older summary) lives in
 	// the directory the harp's record names, not under the ctxloom home, so
 	// these resolve that record rather than take a home-relative path.
 	ctx.Step(`^the output file "([^"]*)" of session "([^"]*)" exists$`, func(c context.Context, name, harp string) error {
@@ -84,7 +84,7 @@ func registerCLISessionSteps(ctx *godog.ScenarioContext) {
 	// vendor file sitting in that SAME directory the index never recorded
 	// (the orphan `session adopt` exists to find), and a bare backend-only
 	// seed for the unsupported-backend refusal — none of which need an
-	// ended_at or an essence, since adopt reads the vendor store directly
+	// ended_at or an output, since adopt reads the vendor store directly
 	// rather than any destroyer's on-disk artifacts.
 	ctx.Step(`^a recorded session "([^"]*)" with a claude vendor transcript spanning "([^"]*)" to "([^"]*)"$`, func(c context.Context, harp, start, end string) error {
 		return seedAdoptHarp(c, harp, "claude-code", harp+"-live", start, end)

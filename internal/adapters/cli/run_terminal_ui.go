@@ -87,7 +87,7 @@ func setupSplitView(ctx context.Context, cfg *config.Config, port frontend.Port,
 	if err != nil {
 		// Only reachable in degraded mode (the gate aborts otherwise): run
 		// plain rather than guess a key the user didn't configure.
-		clidiag.Warn("ctxloom", "terminal viewer disabled: %v", err)
+		clidiag.Warn("ctxloom", splitViewDisabledWarning, err)
 		return nil
 	}
 	view, err := tui.StartSplit(ctx, tui.SplitOptions{
@@ -102,7 +102,7 @@ func setupSplitView(ctx context.Context, cfg *config.Config, port frontend.Port,
 		Epilogue: splitEpilogue(id.Harp),
 	})
 	if err != nil {
-		clidiag.Warn("ctxloom", "terminal viewer disabled: %v", err)
+		clidiag.Warn("ctxloom", splitViewDisabledWarning, err)
 		return nil
 	}
 	// The split view is how a pending approval reaches the human: the root's
@@ -155,6 +155,13 @@ func diagnosticsLogPath(harp string) (string, error) {
 	return p, nil
 }
 
+// diagnosticsDivertedNotice tells the human, before the split view takes the
+// terminal, where its diagnostics go instead.
+const diagnosticsDivertedNotice = "ctxloom: diagnostics for this session go to %s\n"
+
+// splitViewDisabledWarning says the split view could not be started and why.
+const splitViewDisabledWarning = "terminal viewer disabled: %v"
+
 // redirectDiagnosticsForTUI routes clidiag's stderr warnings into a per-session
 // log for the lifetime of a terminal-UI session, and returns the restore.
 //
@@ -191,7 +198,7 @@ func redirectDiagnosticsForTUI(harp string, announce io.Writer) func() {
 	if err != nil {
 		return decline("could not open %s: %v", path, err)
 	}
-	fmt.Fprintf(announce, "ctxloom: diagnostics for this session go to %s\n", path)
+	fmt.Fprintf(announce, diagnosticsDivertedNotice, path)
 	restore := clidiag.SetSink(f)
 	return func() {
 		restore()

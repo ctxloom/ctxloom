@@ -125,8 +125,49 @@ func TestPrepareSessionIO_LinesWrittenRawEndCRLF(t *testing.T) {
 	clidiag.Warn("ctxloom", "a warning once restored")
 
 	got := stderr.String()
-	assert.Contains(t, got, "diagnostics for this session go to", "the notice reaches the terminal")
+	assert.Contains(t, got, noticePrefix(diagnosticsDivertedNotice), "the notice reaches the terminal")
 	assert.Contains(t, got, "a warning while raw\r\n", "a warning while raw ends CR LF")
 	assert.Equal(t, strings.Count(got, "\n"), strings.Count(got, "\r\n"), "no line written raw ends in a bare LF: %q", got)
 	assert.NotContains(t, got, "once restored", "a restored terminal takes warnings on clidiag's own sink again")
+}
+
+// noticePrefix is format's text before its first verb.
+func noticePrefix(format string) string {
+	before, _, _ := strings.Cut(format, "%")
+	return before
+}
+
+// --plain-terminal keeps the session on the terminal's own seams: no split
+// view is attempted, so nothing is diverted or announced, and the engine
+// reads the terminal directly.
+func TestPrepareSessionIO_PlainTerminalAttemptsNoSplitView(t *testing.T) {
+	testsupport.Isolate(t)
+	origIsTerminal, origMakeRaw, origRestore, origSink, origStderr, origPlain := termIsTerminal, termMakeRaw, termRestore, termModeResetSink, termStderr, runPlainTerminal
+	t.Cleanup(func() {
+		termIsTerminal, termMakeRaw, termRestore, termModeResetSink, termStderr, runPlainTerminal = origIsTerminal, origMakeRaw, origRestore, origSink, origStderr, origPlain
+	})
+	var stderr bytes.Buffer
+	termIsTerminal = func(int) bool { return true }
+	termMakeRaw = func(int) (*term.State, error) { return &term.State{}, nil }
+	termRestore = func(int, *term.State) error { return nil }
+	termModeResetSink = func() io.Writer { return nil }
+	termStderr = func() io.Writer { return &stderr }
+	runPlainTerminal = true
+	var diag bytes.Buffer
+	restoreSink := clidiag.SetSink(&diag)
+	defer restoreSink()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	// A prefix key the split view refuses, so a view wrongly attempted
+	// stays off the test's own terminal and is seen by its warning.
+	st := &runState{ctx: ctx, activeHarp: "plump-loose-sash",
+		cfg: config.NewFixture(config.Fixture{UI: config.UIConfig{PrefixKey: "ctrl-["}})}
+	sio := st.prepareSessionIO(nil, nil)
+	defer sio.restore()
+
+	assert.NotNil(t, sio.stdin, "the engine reads the terminal")
+	assert.Nil(t, sio.uiDone, "no split view runs")
+	assert.NotContains(t, stderr.String(), noticePrefix(diagnosticsDivertedNotice), "nothing is diverted")
+	assert.NotContains(t, diag.String(), noticePrefix(splitViewDisabledWarning), "no view is attempted")
 }

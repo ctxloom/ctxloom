@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -200,4 +201,66 @@ func TestRunnerTerminalEnv_ForwardsTheLogOnlyWhenTheUIOwnsTheTerminal(t *testing
 
 	termIsTerminal, runPlainTerminal = func(int) bool { return false }, false
 	assert.NotContains(t, st.runnerTerminalEnv(spawn), sessions.EnvDiagnosticsLog, "no tty, no terminal UI, nothing to divert from")
+}
+
+// A harp no session dir can be named for leaves no epilogue rather than a
+// line naming no path.
+func TestSplitEpilogue_NamesTheTranscriptOrNothing(t *testing.T) {
+	testsupport.Isolate(t)
+	transcript, err := paths.HarpCanonicalTranscriptPath("self-harp")
+	require.NoError(t, err)
+	assert.Equal(t, fmt.Sprintf(SplitTranscriptLine, transcript), splitEpilogue("self-harp"))
+	assert.Empty(t, splitEpilogue("../not-a-harp"))
+}
+
+// A split view that cannot start is none, and says why: the session runs on
+// the plain seams with the reason on the human's stderr.
+func TestSetupSplitView_AViewThatCannotStartWarnsAndIsNone(t *testing.T) {
+	for name, c := range map[string]struct {
+		cfg   *config.Config
+		human splitIO
+	}{
+		// Only under --degraded: the startup gate refuses it otherwise.
+		"a prefix key it refuses": {config.NewFixture(config.Fixture{UI: config.UIConfig{PrefixKey: "ctrl-["}}), splitIO{in: bytes.NewReader(nil), out: io.Discard}},
+		"no output terminal":      {&config.Config{}, splitIO{in: bytes.NewReader(nil)}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			home := testsupport.Isolate(t)
+			var diag bytes.Buffer
+			restore := clidiag.SetSink(&diag)
+			defer restore()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			view := setupSplitView(ctx, c.cfg, degradedSessionPort(t, home), terminalUIIdentity{Harp: "self-harp"}, paneTerm{}, c.human)
+			assert.Nil(t, view)
+			assert.Contains(t, diag.String(), noticePrefix(splitViewDisabledWarning))
+		})
+	}
+}
+
+// A desktop notification is bounded: the notifier gets a live context that
+// ends desktopAlertWait from now, never one already over.
+func TestDesktopAlert_BoundsTheNotifier(t *testing.T) {
+	host := &recordingNotifier{}
+	start := time.Now()
+	desktopAlert{host: host, resolve: func(string) (string, error) { return "", nil }}.Notify("t", "b")
+	require.True(t, host.called)
+	assert.NoError(t, host.errAtCall, "the notifier is not handed an expired context")
+	require.True(t, host.hasDeadline)
+	assert.WithinRange(t, host.deadline, start, time.Now().Add(desktopAlertWait))
+}
+
+type recordingNotifier struct {
+	called      bool
+	errAtCall   error
+	deadline    time.Time
+	hasDeadline bool
+}
+
+func (n *recordingNotifier) Notify(ctx context.Context, _ func(string) (string, error), _, _ string) error {
+	n.called = true
+	n.errAtCall = ctx.Err()
+	n.deadline, n.hasDeadline = ctx.Deadline()
+	return nil
 }

@@ -124,3 +124,6 @@ __pycache__/
 # it also carries project settings ctxloom does not own.
 .claude/commands/
 .claude/skills/
+
+# Scratch output for the human (reports, notes); never committed.
+/tmp/

@@ -70,7 +70,8 @@ func TestTerminalUIPort_NoCoordinatorRosterDegradesToEmptyNotError(t *testing.T)
 
 	rows, err := tui.LoadRoster(context.Background(), degradedSessionPort(t, workDir), "self-harp")
 	require.NoError(t, err)
-	assert.Empty(t, rows, "no coordinator hosted and no indexed sessions: an empty roster, not an error")
+	require.Len(t, rows, 1, "no coordinator hosted and no indexed sessions: the session's own row alone, not an error")
+	assert.Equal(t, "self-harp", rows[0].Harp)
 }
 
 func TestTerminalUIPort_NoCoordinatorControlIsNotInjectable(t *testing.T) {
@@ -263,4 +264,23 @@ func (n *recordingNotifier) Notify(ctx context.Context, _ func(string) (string, 
 	n.errAtCall = ctx.Err()
 	n.deadline, n.hasDeadline = ctx.Deadline()
 	return nil
+}
+
+func TestValidateTerminalUIConfig_BadListWindowIsFatalFinding(t *testing.T) {
+	strictness.Reset()
+	t.Cleanup(strictness.Reset)
+
+	mark := strictness.Checkpoint()
+	validateTerminalUIConfig(config.NewFixture(config.Fixture{UI: config.UIConfig{ListWindow: "soon"}}))
+	found := strictness.Since(mark)
+	require.Len(t, found, 1, "an invalid list window must be a collected startup finding")
+	assert.Equal(t, report.KindConfig, found[0].Kind)
+	assert.Contains(t, found[0].Text, "ui.list_window")
+	assert.Contains(t, found[0].Text, tui.ErrInvalidListWindow.Error())
+
+	mark = strictness.Checkpoint()
+	for _, ok := range []string{"", "7d", "0", "all"} {
+		validateTerminalUIConfig(config.NewFixture(config.Fixture{UI: config.UIConfig{ListWindow: ok}}))
+	}
+	assert.Empty(t, strictness.Since(mark))
 }

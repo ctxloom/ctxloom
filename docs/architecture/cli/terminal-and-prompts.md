@@ -53,7 +53,8 @@ flowchart TD
 - `watchResize` emits the initial size, then one per SIGWINCH, latest-wins,
   and closes the channel on ctx cancel; the Windows build-tagged counterpart
   emits one size and closes.
-- `validateTerminalUIConfig` parses `ui.prefix_key` (`tui.ParsePrefixKey`); a
+- `validateTerminalUIConfig` parses `ui.prefix_key` (`tui.ParsePrefixKey`)
+  and `ui.list_window` (`tui.ParseListWindow`, `tui.ErrInvalidListWindow`); a
   bad value records a **fatal-class** strictness finding, consumed when
   `runState.gateStartup` closes the startup phase — before anything is
   spawned. `setupSplitView` starts the split view; a bad key there only warns

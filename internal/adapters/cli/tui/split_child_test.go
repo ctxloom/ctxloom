@@ -156,7 +156,7 @@ func TestSplitChild_FeedLifecycleNotes(t *testing.T) {
 	h.send(feedClosedMsg{harp: "brave-heron", err: errors.New("watch broke")})
 	assert.True(t, h.panelHas("feed ended: watch broke"))
 	h.send(feedErrMsg{harp: "brave-heron", err: errors.New("no transcript")})
-	assert.True(t, h.panelHas("feed brave-heron: no transcript"))
+	assert.Equal(t, "feed brave-heron: no transcript", h.s.noteLine())
 	h.send(feedErrMsg{harp: "someone-else", err: errors.New("not mine")})
 	assert.False(t, h.panelHas("not mine"))
 

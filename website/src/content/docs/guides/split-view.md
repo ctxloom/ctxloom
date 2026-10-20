@@ -10,6 +10,12 @@ When the run ends, your engine's last screen stays in your terminal, followed by
 
 ## In the panel
 
+Your session is always the top row, with the agents it delegated to under it. Each level of the list is ordered by activity, most recent first. An agent that is waiting for you to approve a call is marked ⚑ after its name (⚑2 when it waits on two), and it moves to the top of its level. Unread mail shows as ✉ and a count.
+
+The list shows only agents and sessions active within `ui.list_window` (default **7d**; `all` shows everything). Your own session, anything running, and anything waiting on an approval or holding mail are always shown, whatever their age. A dim line at the foot of the panel says how many rows are hidden.
+
+When you move the keyboard to the panel, the selection starts on the agent the pane is showing.
+
 | Key | Does |
 |---|---|
 | `j` / `k`, ↓ / ↑ | Select an agent. The right pane shows it: your engine's terminal, or a delegated agent's feed |

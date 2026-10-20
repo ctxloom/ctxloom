@@ -26,7 +26,7 @@ func Parse(source, raw string, now time.Time) (time.Time, error) {
 	if s == "" {
 		return time.Time{}, fmt.Errorf("%s needs an age: an offset like 30d, or a date like 2026-01-01", source)
 	}
-	if d, err := time.ParseDuration(expandDurationUnits(s)); err == nil {
+	if d, ok := Offset(s); ok {
 		if d <= 0 {
 			return time.Time{}, fmt.Errorf("%s %q is not a positive age", source, raw)
 		}
@@ -36,6 +36,14 @@ func Parse(source, raw string, now time.Time) (time.Time, error) {
 		return t, nil
 	}
 	return time.Time{}, fmt.Errorf("%s %q is neither an offset (30d, 12w, 720h) nor a date (2026-01-01)", source, raw)
+}
+
+// Offset reads raw as a span of time in the grammar Parse takes for an
+// offset — Go's duration units plus d and w — and reports whether it is
+// one. Any sign is the caller's to judge.
+func Offset(raw string) (time.Duration, bool) {
+	d, err := time.ParseDuration(expandDurationUnits(strings.TrimSpace(raw)))
+	return d, err == nil
 }
 
 // expandDurationUnits rewrites the day and week suffixes time.ParseDuration

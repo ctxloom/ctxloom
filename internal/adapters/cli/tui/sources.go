@@ -29,13 +29,29 @@ type RosterRow struct {
 	// Unread is how many messages wait undelivered in the child's inbox
 	// (coord.RunInfo.Unread).
 	Unread int
+	// Pending is how many approvals the agent waits on the human for: the
+	// approval queue's requests whose asker (From) is this harp. The split
+	// view sets it; BuildRoster leaves it zero.
+	Pending int
 	// LastActivity is when the coordinator last saw the run change state
 	// (coord.RunInfo.LastEventAt); zero for a row it holds no run for.
 	LastActivity time.Time
+	// SessionActivity is when the session index last saw the session worked
+	// (frontend.Session.LastActivity); zero for a run the index lacks.
+	SessionActivity time.Time
 	// ContextTokens of ContextWindow is how full the agent's context is, as
 	// its engine last reported (coord.RunInfo); zero when nothing has.
 	ContextTokens uint64
 	ContextWindow uint64
+}
+
+// Activity is when r was last active: the later of the coordinator's last
+// event and the index's last-worked time. The tree is ordered by it.
+func (r RosterRow) Activity() time.Time {
+	if r.LastActivity.After(r.SessionActivity) {
+		return r.LastActivity
+	}
+	return r.SessionActivity
 }
 
 // Feed is one open observation feed. Cancel releases the watch (switching

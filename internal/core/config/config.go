@@ -558,6 +558,12 @@ type UIConfig struct {
 	// enters the pane's scrollback. Control keys only — a printable prefix
 	// would swallow ordinary typing.
 	PrefixKey string `mapstructure:"prefix_key" yaml:"prefix_key,omitempty"`
+	// ListWindow is how recently a row must have been active for the agent
+	// list to show it ("7d" by default; "0" or "all" shows every row). The
+	// run's own session, anything running, and anything waiting on an
+	// approval or holding unread mail show whatever their age. Parsed by
+	// the split view (tui.ParseListWindow): one grammar, one parser.
+	ListWindow string `mapstructure:"list_window" yaml:"list_window,omitempty"`
 }
 
 // DelegationConfig groups the project-wide agent-delegation settings. They are
@@ -730,6 +736,18 @@ func (c *Config) UIPrefixKey() string {
 		return DefaultUIPrefixKey
 	}
 	return c.ui.PrefixKey
+}
+
+// DefaultUIListWindow is the default ui.list_window: a week.
+const DefaultUIListWindow = "7d"
+
+// UIListWindow returns the configured ui.list_window, defaulting to
+// DefaultUIListWindow.
+func (c *Config) UIListWindow() string {
+	if c.ui.ListWindow == "" {
+		return DefaultUIListWindow
+	}
+	return c.ui.ListWindow
 }
 
 // IsolationImageFor returns the user-provided agent image override for the

@@ -22,6 +22,8 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
@@ -604,7 +606,7 @@ func TestWatchSessionFeed_ErrorSurface(t *testing.T) {
 	bare := seedFeedHarp(t, home, false) // no live tap, no transcript, no session id
 	_, err = WatchSessionFeed(context.Background(), engines.Registry(), SessionFeedRequest{Harp: bare})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "nothing to watch")
+	assert.ErrorIs(t, err, frontend.ErrNothingCaptured)
 }
 
 // TestAdaptConsumerFeed_ToolCallsAndBoundaries drives the normalization core
@@ -660,4 +662,43 @@ func TestAdaptConsumerFeed_ToolCallsAndBoundaries(t *testing.T) {
 	// immediately next (nothing queued ahead of it).
 	assistantMessage(t, f, "m-2", "three")
 	assert.Equal(t, "three", feedEntryContent(t, nextFeedEvent(t, feed.Events)))
+}
+
+// TestWatchSessionFeed_NoBackendIsTheStoreTail: a session that records no
+// backend (one whose launch failed before an engine was chosen) has no live
+// tap to look for, but its store tail needs none: it is the store's answer —
+// nothing captured, or the transcript — not a refusal over the backend. Only
+// a feed that must be live still refuses.
+func TestWatchSessionFeed_NoBackendIsTheStoreTail(t *testing.T) {
+	testsupport.Isolate(t)
+	mgr, err := sessions.Open(nil)
+	require.NoError(t, err)
+	bare, err := mgr.AssignHarp("/proj", "")
+	require.NoError(t, err)
+
+	var warned bytes.Buffer
+	restore := clidiag.SetSink(&warned)
+	_, err = WatchSessionFeed(context.Background(), engines.Registry(), SessionFeedRequest{Harp: bare.HarpName})
+	restore()
+	assert.ErrorIs(t, err, frontend.ErrNothingCaptured)
+	assert.NotContains(t, warned.String(), "live tap", "no engine, so no live tap is looked for")
+
+	_, err = WatchSessionFeed(context.Background(), engines.Registry(), SessionFeedRequest{Harp: bare.HarpName, Source: FeedSourceLive})
+	assert.ErrorIs(t, err, errFeedNoBackend)
+	cfg, err := config.ParseConfig([]byte("llm:\n  configs:\n    c:\n      type: claude-code\n  defaults:\n    primary: c\n"))
+	require.NoError(t, err)
+	_, err = WatchSessionFeed(context.Background(), engines.Registry(), SessionFeedRequest{Harp: bare.HarpName, Source: FeedSourceLive, Cfg: cfg})
+	require.Error(t, err, "no coordinator holds it")
+	assert.NotErrorIs(t, err, errFeedNoBackend, "the config's default engine stands in, and the live tap is looked for")
+
+	rec, err := transcript.NewRecorder(safefs.New(), bare.HarpName, "claude-code")
+	require.NoError(t, err)
+	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeUser, Content: "kept anyway"}}))
+	require.NoError(t, rec.Close())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	feed, err := WatchSessionFeed(ctx, engines.Registry(), SessionFeedRequest{Harp: bare.HarpName})
+	require.NoError(t, err)
+	assert.Equal(t, "store", feed.Source)
+	assert.Equal(t, "kept anyway", feedEntryContent(t, nextFeedEvent(t, feed.Events)))
 }

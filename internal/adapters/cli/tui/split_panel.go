@@ -188,8 +188,14 @@ func (s *Split) treeLine(i, w int, selected bool, now time.Time) string {
 	if r.Cause != "" {
 		label += " " + r.Cause
 	}
+	switch {
+	case r.Pending > 1:
+		label += " " + pendingGlyph + strconv.Itoa(r.Pending)
+	case r.Pending == 1:
+		label += " " + pendingGlyph
+	}
 	if r.Unread > 0 {
-		label += " ✉" + strconv.Itoa(r.Unread)
+		label += " ✉ " + strconv.Itoa(r.Unread)
 	}
 	body := strings.Repeat(" ", min(r.Depth, 3)) + fold + activityGlyph(r, now) + " " + label
 	inner := w - 1
@@ -221,7 +227,14 @@ func (s *Split) footerLines(w int) []string {
 	if s.pendingN > 0 {
 		add(s.pendingLine(), styleHeader)
 	}
-	if note := s.noteLine(); note != "" {
+	if s.hiddenRows > 0 {
+		add(hiddenNote(s.hiddenRows), styleDim)
+	}
+	switch note := s.noteLine(); {
+	case s.errOneLine:
+		// padCell cuts it, and says so.
+		out = append(out, padCell(" "+note, w))
+	case note != "":
 		add(note, lipgloss.NewStyle())
 	}
 	switch {
@@ -284,7 +297,11 @@ func (s *Split) glyphColumn(h int) []string {
 	start := windowStart(sel, len(visible), h)
 	now := s.clock.Now()
 	for y := 0; y < h && start+y < len(visible); y++ {
-		g := activityGlyph(s.rows[visible[start+y]], now) + " "
+		r := s.rows[visible[start+y]]
+		g := activityGlyph(r, now) + " "
+		if r.Pending > 0 {
+			g = pendingGlyph + " "
+		}
 		if start+y == sel {
 			g = styleSelected.Render(g)
 		}

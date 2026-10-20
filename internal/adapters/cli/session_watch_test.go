@@ -30,6 +30,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -308,7 +309,7 @@ func TestRunSessionWatch_ByLocation_RetiredScrapersErrorCleanly(t *testing.T) {
 
 			err := runSessionWatch(cmd, []string{harp})
 			require.Error(t, err, "a retired scraper's by-location watch must fail loudly, not hang or stream nothing silently")
-			assert.Contains(t, err.Error(), "nothing to watch")
+			assert.ErrorIs(t, err, frontend.ErrNothingCaptured)
 		})
 	}
 }
@@ -331,7 +332,7 @@ func TestRunSessionWatch_NothingToWatch(t *testing.T) {
 
 	err = runSessionWatch(cmd, []string{entry.HarpName})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "nothing to watch")
+	assert.ErrorIs(t, err, frontend.ErrNothingCaptured)
 }
 
 // TestRunSessionWatch_UnknownSource: an invalid --source is rejected before

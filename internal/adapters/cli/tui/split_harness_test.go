@@ -161,6 +161,9 @@ type splitPort struct {
 	controls  []coord.ControlRequest
 	controlFn func(coord.ControlRequest) (coord.ControlResult, error)
 	queue     coord.ApprovalSource
+	// feedErrs are WatchFeed's refusals, per harp, one per open in order;
+	// an open past them succeeds.
+	feedErrs map[string][]error
 }
 
 func newSplitPort() *splitPort {
@@ -241,6 +244,11 @@ func (p *splitPort) port() frontend.Port {
 			ch := make(chan frontend.FeedEvent, 16)
 			p.mu.Lock()
 			p.watched = append(p.watched, harp)
+			if errs := p.feedErrs[harp]; len(errs) > 0 {
+				p.feedErrs[harp] = errs[1:]
+				p.mu.Unlock()
+				return frontend.Feed{}, errs[0]
+			}
 			p.feeds[harp] = ch
 			p.mu.Unlock()
 			context.AfterFunc(ctx, func() { p.releases <- harp })

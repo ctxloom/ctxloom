@@ -45,3 +45,15 @@ func TestParse(t *testing.T) {
 		})
 	}
 }
+
+func TestOffset(t *testing.T) {
+	for in, want := range map[string]time.Duration{"7d": 168 * time.Hour, "2w": 336 * time.Hour, " 90m ": 90 * time.Minute, "0": 0, "-1d": -24 * time.Hour} {
+		got, ok := Offset(in)
+		assert.True(t, ok, in)
+		assert.Equal(t, want, got, in)
+	}
+	for _, in := range []string{"", "soon", "2026-01-01", "7x"} {
+		_, ok := Offset(in)
+		assert.False(t, ok, in)
+	}
+}

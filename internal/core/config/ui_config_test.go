@@ -17,3 +17,14 @@ func TestUIPrefixKey_Configured(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "ctrl-t", cfg.UIPrefixKey())
 }
+
+func TestUIListWindow_DefaultIsSevenDays(t *testing.T) {
+	var c Config
+	assert.Equal(t, "7d", c.UIListWindow())
+}
+
+func TestUIListWindow_Configured(t *testing.T) {
+	cfg, err := ParseConfig([]byte("ui:\n  list_window: all\n"))
+	require.NoError(t, err)
+	assert.Equal(t, "all", cfg.UIListWindow())
+}

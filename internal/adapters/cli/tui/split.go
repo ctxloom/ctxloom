@@ -92,6 +92,10 @@ type SplitOptions struct {
 	// Epilogue is the line Close leaves on Out after the pane's final frame,
 	// once the split view has given the main screen back; "" leaves none.
 	Epilogue string
+	// ListWindow is how recently a row must have been active for the
+	// agent list to show it (ui.list_window, ParseListWindow); zero shows
+	// every row.
+	ListWindow time.Duration
 	// WindowSize states the columns and rows of an Out bubbletea cannot
 	// measure (one that is no tty); zero lets bubbletea measure the
 	// terminal, as it does for a tty.
@@ -126,11 +130,20 @@ type Split struct {
 	paneW       int // the pane size the engine was last given (0: none yet)
 	paneH       int
 
-	focus     splitFocus
-	rows      []RosterRow
-	sel       string
-	collapsed map[string]bool
-	runEvents <-chan coord.Event
+	focus splitFocus
+	// roster is the tree as the port last gave it; rows is it arranged for
+	// the panel (arrangeRows).
+	roster []RosterRow
+	rows   []RosterRow
+	// pendingBy is how many approvals wait per asking harp.
+	pendingBy map[string]int
+	// listWindow is SplitOptions.ListWindow; hiddenRows how many rows it
+	// leaves out of rows.
+	listWindow time.Duration
+	hiddenRows int
+	sel        string
+	collapsed  map[string]bool
+	runEvents  <-chan coord.Event
 	// refreshArmed: a debounced roster refresh is already scheduled.
 	refreshArmed bool
 
@@ -145,12 +158,14 @@ type Split struct {
 	approvalsView
 	lastInput time.Time
 
-	status    string
-	errMsg    string
-	rosterErr string
-	banner    string
-	note      string
-	noteGen   int
+	status string
+	errMsg string
+	// errOneLine: errMsg is a feed's failure, shown on one line.
+	errOneLine bool
+	rosterErr  string
+	banner     string
+	note       string
+	noteGen    int
 }
 
 // newSplit builds the model over a pane that already exists.
@@ -159,20 +174,21 @@ func newSplit(ctx context.Context, o SplitOptions, pane termemu.Terminal, post f
 		o.Clock = RealClock{}
 	}
 	return &Split{
-		ctx:       ctx,
-		port:      o.Port,
-		self:      o.Self,
-		term:      o.Term,
-		prefix:    o.Prefix,
-		header:    o.Header,
-		present:   o.Present.Normalized(),
-		clock:     o.Clock,
-		notify:    o.Notify,
-		pane:      pane,
-		post:      post,
-		mailbox:   mb,
-		sel:       o.Self,
-		collapsed: map[string]bool{},
+		ctx:        ctx,
+		port:       o.Port,
+		self:       o.Self,
+		term:       o.Term,
+		prefix:     o.Prefix,
+		header:     o.Header,
+		present:    o.Present.Normalized(),
+		clock:      o.Clock,
+		notify:     o.Notify,
+		pane:       pane,
+		post:       post,
+		mailbox:    mb,
+		sel:        o.Self,
+		listWindow: o.ListWindow,
+		collapsed:  map[string]bool{},
 		approvalsView: approvalsView{
 			apprTick: approvalsTickEvery,
 		},
@@ -263,7 +279,7 @@ func (s *Split) updateMore(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case rosterWatchMsg, rosterEventsMsg, rosterRefreshMsg, rosterMsg, rosterErrMsg:
 		return s.applyRosterMsg(msg)
-	case feedOpenedMsg, feedErrMsg, feedEventMsg, feedClosedMsg:
+	case feedOpenedMsg, feedErrMsg, feedEventMsg, feedClosedMsg, feedRetryMsg:
 		return s.applyChildFeedMsg(msg)
 	case controlResultMsg:
 		s.applyControlResult(msg)

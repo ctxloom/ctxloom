@@ -282,6 +282,8 @@ func (s *Split) applyChromeMsg(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case approvalsCountMsg:
 		s.pendingN, s.pendingOldest = msg.n, msg.oldest
+		s.pendingBy = countPending(s.approvalSource())
+		s.arrangeRows()
 		now := s.clock.Now()
 		if msg.arrived && !s.apprOpen && now.Sub(s.lastBell) >= approvalBellInterval {
 			s.lastBell = now

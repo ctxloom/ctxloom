@@ -54,7 +54,8 @@ func TestTerminalUI_OverlayRosterOverALiveSession(t *testing.T) {
 	assert.Equal(t, livecoord.OwnerHarp, r.Parent)
 	assert.Equal(t, coord.StateIdle, r.State, "the coordinator's state wins over the lock's")
 	assert.Nil(t, r.Hold)
-	assert.Zero(t, r.Depth, "a parent the roster does not list leaves the child at the root")
+	assert.Equal(t, 1, r.Depth, "under the session's own row, which the roster makes when the index does not list it")
+	assert.Equal(t, livecoord.OwnerHarp, rows[0].Harp, "the session's own row first")
 
 	p := rowOf(t, rows, paused)
 	require.NotNil(t, p.Hold)

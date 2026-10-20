@@ -154,7 +154,7 @@ func TestSplit_TreeRowAnnotations(t *testing.T) {
 	}})
 	tree := h.s.treeLines(rosterPaneWidth, 3)
 	assert.Equal(t, " ▾◐ "+selfHarp, strings.TrimRight(ansi.Strip(tree[0]), " "))
-	assert.Equal(t, "  ✓ a final-reported ✉1", strings.TrimRight(ansi.Strip(tree[1]), " "))
+	assert.Equal(t, "  ✓ a final-reported ✉ 1", strings.TrimRight(ansi.Strip(tree[1]), " "))
 	assert.Equal(t, "  ◐ b"+strings.Repeat(" ", 18)+"50%", ansi.Strip(tree[2]), "the gauge right-aligned, the row the panel's width")
 }
 

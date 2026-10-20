@@ -125,6 +125,50 @@ func TestRefreshForRead_LeavesAPurgedSessionPurged(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr), "a read must not rebuild a purged session's transcript")
 }
 
+// ResolveAndHeal is a purged session's re-capture: a rebuild clears its purge
+// mark, and the entry it returns reads unmarked. A rebuild that is refused, or
+// that finds no engine log, leaves the mark.
+func TestResolveAndHeal_ClearsThePurgeMarkOnlyWhenItRebuilds(t *testing.T) {
+	for name, tc := range map[string]struct {
+		prepare     func(t *testing.T, mgr *sessions.Manager, e sessions.Entry)
+		wantRebuilt bool
+	}{
+		"rebuilt": {func(*testing.T, *sessions.Manager, sessions.Entry) {}, true},
+		"refused": {func(t *testing.T, mgr *sessions.Manager, e sessions.Entry) {
+			require.NoError(t, mgr.RecordEngineVersion(e.HarpName, "0.0.1"))
+		}, false},
+		"no engine log": {func(t *testing.T, _ *sessions.Manager, e sessions.Entry) {
+			require.NoError(t, os.Remove(e.TranscriptPath))
+		}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			testsupport.Isolate(t)
+			mgr, entry := seedGrownClaudeHarp(t, 6)
+			require.NoError(t, mgr.MarkPurged(entry.HarpName, time.Now().UTC()))
+			canon, err := paths.HarpCanonicalTranscriptPath(entry.HarpName)
+			require.NoError(t, err)
+			require.NoError(t, os.Remove(canon))
+			tc.prepare(t, mgr, entry)
+
+			src, err := ResolveAndHeal(context.Background(), safefs.New(), engines.Registry(), entry.HarpName)
+			require.NoError(t, err)
+			require.NotNil(t, src.Entry)
+			assert.Equal(t, tc.wantRebuilt, src.Healed)
+			stored, err := mgr.Find(entry.HarpName)
+			require.NoError(t, err)
+			require.NotNil(t, stored)
+			if tc.wantRebuilt {
+				require.NoError(t, src.HealErr)
+				assert.Nil(t, src.Entry.PurgedAt, "the entry returned is the one the re-capture left")
+				assert.Nil(t, stored.PurgedAt, "a rebuild clears the purge mark")
+			} else {
+				assert.NotNil(t, src.Entry.PurgedAt)
+				assert.NotNil(t, stored.PurgedAt, "a heal that rebuilt nothing leaves the purge mark")
+			}
+		})
+	}
+}
+
 // A listing titles a session whose last capture held no user prompt yet from
 // its vendor log as it is now.
 func TestViewSessions_RefreshesAnUntitledRowBeforeTitlingIt(t *testing.T) {

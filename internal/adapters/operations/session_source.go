@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -32,6 +33,12 @@ type ResolvedSource struct {
 // so every caller refreshes once, whatever it believes about the session's
 // state. It never chdirs.
 //
+// A purged session's heal is its re-capture: a rebuild that committed a
+// canonical transcript clears its purge mark (sessions.Store.ClearPurged), so
+// it is listed and refreshed on read as an ordinary session again. A heal
+// that rebuilt nothing or failed leaves the mark. A reader that must not
+// re-capture a purged session does not call this (RefreshForRead).
+//
 // harp == "" or an unindexed harp resolves to a zero ResolvedSource with no
 // error and Healed == false: there is nothing to heal.
 func ResolveAndHeal(ctx context.Context, files safefs.Root, reg engine.Registry, harp string) (ResolvedSource, error) {
@@ -45,6 +52,9 @@ func ResolveAndHeal(ctx context.Context, files safefs.Root, reg engine.Registry,
 
 	src := ResolvedSource{Entry: entry}
 	src.Healed, src.HealErr = RefreshVendorTranscript(ctx, files, reg, *entry)
+	if src.Healed && src.HealErr == nil && entry.PurgedAt != nil {
+		src.HealErr = clearPurged(harp)
+	}
 
 	// Re-resolve after a successful heal: a fresh conversion can populate or
 	// change CanonicalTranscriptPath (computed on read — see sessions.Entry's
@@ -56,6 +66,18 @@ func ResolveAndHeal(ctx context.Context, files safefs.Root, reg engine.Registry,
 		}
 	}
 	return src, nil
+}
+
+// clearPurged removes harp's purge mark once its transcript is re-captured.
+func clearPurged(harp string) error {
+	mgr, err := openSessions()
+	if err == nil {
+		err = mgr.ClearPurged(harp)
+	}
+	if err != nil {
+		return fmt.Errorf("clear %s's purge mark: %w", harp, err)
+	}
+	return nil
 }
 
 // ReadRefreshFailed is the warning a read path gives when refreshing the

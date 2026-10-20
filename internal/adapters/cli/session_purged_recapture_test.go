@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,6 +54,40 @@ func assertRecaptured(t *testing.T, canon, by string) {
 	assert.NoError(t, err, "%s re-captures a purged session's transcript", by)
 }
 
+// assertNoLongerPurged pins what a re-capture makes of a purged session: an
+// ordinary one again. Its record carries no purge mark, `session list` does
+// not show it as purged, and a read refreshes its transcript once more.
+func assertNoLongerPurged(t *testing.T, harp, canon, by string) {
+	t.Helper()
+	mgr, err := sessions.Open(nil)
+	require.NoError(t, err)
+	entry, err := mgr.Find(harp)
+	require.NoError(t, err)
+	require.NotNil(t, entry)
+	assert.Nil(t, entry.PurgedAt, "%s clears the purge mark", by)
+
+	out, err := execRootCmd(t, "session", "list", "--format", "json")
+	require.NoError(t, err)
+	assert.NotContains(t, jsonRowsByHarp(t, out)[harp], "purged", "after %s, session list shows an ordinary session", by)
+
+	require.NoError(t, os.Remove(canon))
+	_, err = execRootCmd(t, "session", "show", harp, "--format", "json")
+	require.NoError(t, err)
+	assertRecaptured(t, canon, "a read after "+by)
+}
+
+// assertStillPurged pins that a re-capture that rebuilt nothing leaves the
+// purge mark where it was.
+func assertStillPurged(t *testing.T, harp, by string) {
+	t.Helper()
+	mgr, err := sessions.Open(nil)
+	require.NoError(t, err)
+	entry, err := mgr.Find(harp)
+	require.NoError(t, err)
+	require.NotNil(t, entry)
+	assert.NotNil(t, entry.PurgedAt, "%s rebuilt nothing, so the session stays marked purged", by)
+}
+
 func TestPurgedSession_AdoptRecapturesIt(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	harp, canon := seedPurgedClaudeSession(t, dir)
@@ -72,6 +107,69 @@ func TestPurgedSession_AdoptRecapturesIt(t *testing.T) {
 	require.NoError(t, err, stderr)
 	require.Contains(t, stdout, "id-orphan", "the earlier session is the one adopted")
 	assertRecaptured(t, canon, "session adopt")
+	assertNoLongerPurged(t, harp, canon, "session adopt")
+}
+
+// With no earlier log to adopt, adopt still rebuilds a purged session's
+// transcript from the engine log that survives, and says so.
+func TestPurgedSession_AdoptWithNothingToAdoptRecapturesIt(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	harp, canon := seedPurgedClaudeSession(t, dir)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
+
+	_, stderr, err := execRootCmdBoth(t, "session", "adopt", harp, "--yes", "--format", "text")
+	require.NoError(t, err, stderr)
+	assert.Contains(t, stderr, fmt.Sprintf(adoptPurgedRebuilt, harp))
+	assertRecaptured(t, canon, "session adopt with nothing to adopt")
+	assertNoLongerPurged(t, harp, canon, "session adopt with nothing to adopt")
+}
+
+// adopt's report on a purged session says that --yes would rebuild it.
+func TestPurgedSession_AdoptReportSaysItWouldRebuild(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	harp, canon := seedPurgedClaudeSession(t, dir)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
+
+	_, stderr, err := execRootCmdBoth(t, "session", "adopt", harp, "--format", "text")
+	require.NoError(t, err, stderr)
+	assert.Contains(t, stderr, fmt.Sprintf(adoptPlanPurged, harp))
+	assertNotRecaptured(t, canon, "session adopt's report")
+	assertStillPurged(t, harp, "session adopt's report")
+}
+
+// A purged session whose engine log did not survive has nothing to rebuild
+// from: adopt says so, and the session stays purged.
+func TestPurgedSession_AdoptWithNoEngineLogKeepsTheMark(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	harp, canon := seedPurgedClaudeSession(t, dir)
+	mgr, err := sessions.Open(nil)
+	require.NoError(t, err)
+	entry, err := mgr.Find(harp)
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(entry.TranscriptPath))
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
+
+	_, stderr, err := execRootCmdBoth(t, "session", "adopt", harp, "--yes", "--format", "text")
+	require.NoError(t, err, stderr)
+	assert.Contains(t, stderr, fmt.Sprintf(adoptPurgedNothingToRebuild, harp))
+	assertNotRecaptured(t, canon, "session adopt with no engine log")
+	assertStillPurged(t, harp, "session adopt with no engine log")
+}
+
+// A rebuild that fails says why, and the session stays purged.
+func TestPurgedSession_AdoptWhoseRebuildFailsKeepsTheMark(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	harp, canon := seedPurgedClaudeSession(t, dir)
+	refuseRebuild(t, harp)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
+
+	_, stderr, err := execRootCmdBoth(t, "session", "adopt", harp, "--yes", "--format", "text")
+	require.NoError(t, err, stderr)
+	_, healErr := healAdopted(context.Background(), harp)
+	require.Error(t, healErr)
+	assert.Contains(t, stderr, fmt.Sprintf(adoptPurgedNotRebuilt, harp, healErr))
+	assertNotRecaptured(t, canon, "a failed session adopt")
+	assertStillPurged(t, harp, "a failed session adopt")
 }
 
 func TestPurgedSession_AnInteractiveExitRecapturesIt(t *testing.T) {
@@ -80,6 +178,26 @@ func TestPurgedSession_AnInteractiveExitRecapturesIt(t *testing.T) {
 
 	healVendorTranscriptOnExit(harp)
 	assertRecaptured(t, canon, "an interactive run's exit")
+	assertNoLongerPurged(t, harp, canon, "an interactive run's exit")
+}
+
+func TestPurgedSession_AnInteractiveExitWhoseRebuildFailsKeepsTheMark(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	harp, canon := seedPurgedClaudeSession(t, dir)
+	refuseRebuild(t, harp)
+
+	healVendorTranscriptOnExit(harp)
+	assertNotRecaptured(t, canon, "a failed interactive exit")
+	assertStillPurged(t, harp, "a failed interactive exit")
+}
+
+// refuseRebuild records an engine version no transcript reader is validated
+// for, so every rebuild of harp is refused (vendorreader.SelectAdapter).
+func refuseRebuild(t *testing.T, harp string) {
+	t.Helper()
+	mgr, err := sessions.Open(nil)
+	require.NoError(t, err)
+	require.NoError(t, mgr.RecordEngineVersion(harp, "0.0.1"))
 }
 
 func TestPurgedSession_ShowDoesNotRecaptureIt(t *testing.T) {

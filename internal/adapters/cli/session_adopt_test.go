@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -225,7 +226,10 @@ func TestSessionAdopt_ApplyHealsTheTranscript(t *testing.T) {
 			t.Cleanup(func() { resetFlags(t, rootCmd) })
 			var healed []string
 			prev := healAdopted
-			healAdopted = func(_ context.Context, h string) error { healed = append(healed, h); return tc.healErr }
+			healAdopted = func(_ context.Context, h string) (bool, error) {
+				healed = append(healed, h)
+				return tc.healErr == nil, tc.healErr
+			}
 			t.Cleanup(func() { healAdopted = prev })
 
 			_, stderr, err := execRootCmdBoth(t, "session", "adopt", harp, "--yes", "--format", "text")
@@ -236,6 +240,23 @@ func TestSessionAdopt_ApplyHealsTheTranscript(t *testing.T) {
 	}
 }
 
+// A session that is not purged, with nothing to adopt, is not rebuilt: the
+// adopt changed nothing a reader loads, and says so.
+func TestSessionAdopt_NothingToAdoptOnAnUnpurgedSessionDoesNotHeal(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	_, harp, _ := seedClaudeHarpWithVendorDir(t, dir)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
+	var healed []string
+	prev := healAdopted
+	healAdopted = func(_ context.Context, h string) (bool, error) { healed = append(healed, h); return true, nil }
+	t.Cleanup(func() { healAdopted = prev })
+
+	_, stderr, err := execRootCmdBoth(t, "session", "adopt", harp, "--yes", "--format", "text")
+	require.NoError(t, err)
+	assert.Empty(t, healed, "nothing adopted into an unpurged session is nothing to rebuild")
+	assert.Equal(t, fmt.Sprintf(adoptNothing, harp), stderr)
+}
+
 // The real heal reports both of ResolveAndHeal's failures: a session it
 // cannot resolve, and one it resolved but could not rebuild (HealErr) —
 // never a silent success the adopt would then announce as "rebuilt".
@@ -243,14 +264,15 @@ func TestHealAdopted_ReportsResolveAndHealFailures(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	_, harp, _ := seedClaudeHarpWithVendorDir(t, dir)
 
-	err := healAdopted(context.Background(), harp)
+	_, err := healAdopted(context.Background(), harp)
 	var noVersion *vendorreader.NoRecordedVersionError
 	require.ErrorAs(t, err, &noVersion, "the fixture records no engine version, so the rebuild refuses")
 
 	hd, err := paths.HarpDir(harp)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(hd, paths.SessionSidecarFileName), []byte("{{{"), 0o644))
-	require.Error(t, healAdopted(context.Background(), harp), "an unreadable record is not a heal")
+	_, err = healAdopted(context.Background(), harp)
+	require.Error(t, err, "an unreadable record is not a heal")
 }
 
 // A failed heal's report is written to the diagnostic channel, and a write
@@ -261,6 +283,6 @@ func TestReportAdoptHeal_SurfacesAWriteFailure(t *testing.T) {
 	cmd.SetErr(&failingWriter{err: writeErr})
 	cmd.SetContext(context.Background())
 
-	err := reportAdoptHeal(cmd, "swift-amber-falcon", 1, func(context.Context, string) error { return errors.New("heal failed") })
+	err := reportAdoptHeal(cmd, "swift-amber-falcon", 1, false, func(context.Context, string) (bool, error) { return false, errors.New("heal failed") })
 	require.ErrorIs(t, err, writeErr)
 }

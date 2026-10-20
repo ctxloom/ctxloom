@@ -87,6 +87,9 @@ type AdoptScan struct {
 	Backend    string
 	ScanDir    string
 	Candidates []AdoptCandidate
+	// Purged reports that the session carries a purge mark: an adopt
+	// rebuilds its transcript even when it adopts nothing.
+	Purged bool
 }
 
 // adoptTimelineSpan is one lineage member's timestamp span, known either
@@ -160,7 +163,7 @@ func ScanAdoptCandidates(fsys afero.Fs, reg engine.Registry, harp string) (*Adop
 	candidates = append(candidates, spanned...)
 	candidates = append(candidates, unspanned...)
 
-	return &AdoptScan{Harp: harp, Backend: entry.Backend, ScanDir: scanDir, Candidates: candidates}, nil
+	return &AdoptScan{Harp: harp, Backend: entry.Backend, ScanDir: scanDir, Candidates: candidates, Purged: entry.PurgedAt != nil}, nil
 }
 
 // collectAdoptCandidates classifies every file in scanDir

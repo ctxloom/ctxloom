@@ -160,21 +160,36 @@ func runSessionAdopt(cmd *cobra.Command, args []string) error {
 	}
 
 	if !sessionAdoptYes {
-		return reportAdoptPlanOnly(cmd, harp, wouldAdopt)
+		return reportAdoptPlanOnly(cmd, harp, wouldAdopt, scan.Purged)
 	}
-	return reportAdoptHeal(cmd, harp, applied, healAdopted)
+	return reportAdoptHeal(cmd, harp, applied, scan.Purged, healAdopted)
 }
 
 // healAdopted rebuilds harp's canonical transcript from its whole rotation
 // lineage (operations.ResolveAndHeal), the heal every reader of the session
-// trusts. A var so a test can stand in for the vendor readers.
-var healAdopted = func(ctx context.Context, harp string) error {
+// trusts, and reports whether it rebuilt one. A var so a test can stand in
+// for the vendor readers.
+var healAdopted = func(ctx context.Context, harp string) (rebuilt bool, err error) {
 	src, err := operations.ResolveAndHeal(ctx, safefs.New(), App().Engines(), harp)
 	if err != nil {
-		return err
+		return false, err
 	}
-	return src.HealErr
+	return src.Healed, src.HealErr
 }
+
+// What `session adopt --yes` says on the diagnostic channel when it adopted
+// nothing: about a session that is not purged, and about a purged one, whose
+// transcript it rebuilds anyway.
+const (
+	adoptNothing                = "ctxloom adopted nothing for %s: every candidate was already known or overlapped the existing lineage.\n"
+	adoptPurgedRebuilt          = "ctxloom adopted nothing for %s, which was purged: rebuilt its canonical transcript from the engine log that survives; it is no longer marked purged.\n"
+	adoptPurgedNothingToRebuild = "ctxloom adopted nothing for %s, which was purged: no engine log survives to rebuild its canonical transcript from; it stays marked purged.\n"
+	adoptPurgedNotRebuilt       = "ctxloom adopted nothing for %s, which was purged: its canonical transcript was NOT rebuilt: %v. It stays marked purged.\n"
+)
+
+// adoptPlanPurged is the report-only run's note that --yes rebuilds a purged
+// session's transcript whatever it adopts.
+const adoptPlanPurged = "%s is purged: --yes also rebuilds its canonical transcript from whatever engine log survives.\n"
 
 // renderSessionAdopt is the text-format body: a one-line summary (verb tense
 // matching whether this was applied, matching the purge family's convention)
@@ -206,9 +221,12 @@ func renderSessionAdopt(w io.Writer, res sessionAdoptResult, wouldAdopt int) err
 // outcome, so the difference between "would adopt" and "adopted" is said
 // outright on the diagnostic channel, every run, not left to verb tense in a
 // table a caller might only skim.
-func reportAdoptPlanOnly(cmd *cobra.Command, harp string, wouldAdopt int) error {
+func reportAdoptPlanOnly(cmd *cobra.Command, harp string, wouldAdopt int, purged bool) error {
 	w := errwriter.New(cmd.ErrOrStderr())
 	w.Printf("ctxloom adopted nothing — this was a report, not an adoption. %d candidate(s) would be adopted. To apply exactly this plan:\n  ctxloom session adopt %s --%s\n", wouldAdopt, harp, yesFlagName)
+	if purged {
+		w.Printf(adoptPlanPurged, harp)
+	}
 	return w.Err()
 }
 
@@ -218,17 +236,41 @@ func reportAdoptPlanOnly(cmd *cobra.Command, harp string, wouldAdopt int) error 
 // (heal), and the outcome is said outright. A heal that fails leaves the
 // adoption in place — the lineage is recorded — and says the transcript was
 // not rebuilt.
-func reportAdoptHeal(cmd *cobra.Command, harp string, adopted int, heal func(context.Context, string) error) error {
+//
+// A purged session is rebuilt even when nothing was adopted: its engine log
+// may have outlived the purge, and adopt is an explicit act of re-capture
+// (reportPurgedRebuild).
+func reportAdoptHeal(cmd *cobra.Command, harp string, adopted int, purged bool, heal func(context.Context, string) (bool, error)) error {
 	w := errwriter.New(cmd.ErrOrStderr())
 	if adopted == 0 {
-		w.Printf("ctxloom adopted nothing for %s: every candidate was already known or overlapped the existing lineage.\n", harp)
+		if purged {
+			return reportPurgedRebuild(cmd, harp, heal)
+		}
+		w.Printf(adoptNothing, harp)
 		return w.Err()
 	}
-	if err := heal(cmd.Context(), harp); err != nil {
+	if _, err := heal(cmd.Context(), harp); err != nil {
 		w.Printf("ctxloom adopted %d rotation(s) into %s's lineage, but its canonical transcript was NOT rebuilt from it: %v. The lineage is recorded; the transcript still holds only what it held before.\n",
 			adopted, harp, err)
 		return w.Err()
 	}
 	w.Printf("ctxloom adopted %d rotation(s) into %s's lineage and rebuilt its canonical transcript from the full lineage.\n", adopted, harp)
+	return w.Err()
+}
+
+// reportPurgedRebuild rebuilds a purged session that adopted nothing and says
+// which way it went: rebuilt (and no longer purged), nothing to rebuild from,
+// or failed. Only a rebuild clears the purge mark (operations.ResolveAndHeal).
+func reportPurgedRebuild(cmd *cobra.Command, harp string, heal func(context.Context, string) (bool, error)) error {
+	w := errwriter.New(cmd.ErrOrStderr())
+	rebuilt, err := heal(cmd.Context(), harp)
+	switch {
+	case err != nil:
+		w.Printf(adoptPurgedNotRebuilt, harp, err)
+	case rebuilt:
+		w.Printf(adoptPurgedRebuilt, harp)
+	default:
+		w.Printf(adoptPurgedNothingToRebuild, harp)
+	}
 	return w.Err()
 }

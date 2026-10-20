@@ -81,3 +81,16 @@ func TestSplit_SelectionSurvivesAReorder(t *testing.T) {
 	h.keys("j")
 	assert.Equal(t, "brave-heron", h.s.sel, "moving on goes from where the harp now is")
 }
+
+// The running session is the first row however it is known: from the
+// coordinator alone it is moved up, and known to neither it is made.
+func TestBuildRoster_SelfIsAlwaysTheFirstRow(t *testing.T) {
+	index := []frontend.Session{{Harp: "older-run", State: frontend.SessionEnded}}
+	rows := BuildRoster(index, []coord.RunInfo{held("kid", "", coord.StateIdle, "self-run"), held("self-run", "lead", coord.StateExecuting, "")}, "self-run")
+	assert.Equal(t, []string{"self-run@0", "kid@1", "older-run@0"}, rosterOrder(rows))
+	assert.Equal(t, "lead", rows[0].Agent, "the coordinator's row, moved")
+
+	rows = BuildRoster(index, nil, "self-run")
+	assert.Equal(t, []string{"self-run@0", "older-run@0"}, rosterOrder(rows))
+	assert.Equal(t, StateLive, rows[0].State, "this run is live")
+}

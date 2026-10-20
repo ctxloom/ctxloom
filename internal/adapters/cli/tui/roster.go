@@ -64,16 +64,8 @@ func rosterRows(index []frontend.Session, held []coord.RunInfo, selfHarp string)
 		rows = append(rows, indexRow(e, h, ok))
 		seen[e.Harp] = true
 	}
-	// The running session first, then the rest in index order.
 	for _, e := range index {
-		if e.Harp == selfHarp {
-			addIndexRow(e)
-		}
-	}
-	for _, e := range index {
-		if e.Harp != selfHarp {
-			addIndexRow(e)
-		}
+		addIndexRow(e)
 	}
 	for _, h := range heldOrder {
 		if !seen[h.Harp] {
@@ -81,7 +73,23 @@ func rosterRows(index []frontend.Session, held []coord.RunInfo, selfHarp string)
 			seen[h.Harp] = true
 		}
 	}
-	return rows
+	return selfFirst(rows, selfHarp)
+}
+
+// selfFirst puts the running session's row first, making one when neither
+// the index nor the coordinator lists it yet: it is the row the pane starts
+// on, and the parent its children nest under. It is live — it is this run.
+func selfFirst(rows []RosterRow, selfHarp string) []RosterRow {
+	if selfHarp == "" {
+		return rows
+	}
+	i := rowIndex(rows, selfHarp)
+	if i < 0 {
+		return append([]RosterRow{{Harp: selfHarp, State: StateLive}}, rows...)
+	}
+	self := rows[i]
+	rows = slices.Delete(rows, i, i+1)
+	return slices.Insert(rows, 0, self)
 }
 
 // indexRow renders one index entry, enriched by the coordinator's held row for

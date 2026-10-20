@@ -35,7 +35,7 @@ flowchart TD
 
     subgraph vendor["Regime C — interactive pty, read back after the fact"]
       VF[("vendor file<br/>rollout-*.jsonl · &lt;uuid&gt;.jsonl<br/>transcript_full.jsonl · data.sqlite3")]
-      CVT["operations.ConvertVendorTranscript<br/>vendorreader.go:122"]
+      CVT["operations.ResolveAndHeal → RefreshVendorTranscript<br/>session_source.go · vendorreader.go<br/>(interactive exit, session adopt)"]
       VA["vendorreader.VendorAdapter.Convert<br/>adapter.go:68"]
       DRV["vendorreader.ConvertJSONLLines<br/>driver.go:29"]
       SIB["vendorreader.SessionInfoBuilder<br/>sessioninfo.go:16"]
@@ -133,7 +133,7 @@ reports the lost-event total once.
 | Symbol | file:line | Notes |
 |---|---|---|
 | `CanonicalHistory` | `history.go:51` | `{workDir string, store sessions.Store}`; harp-keyed, project-scoped read view. **Structurally satisfies `pb.SessionSource`** (asserted in `history_interface_test.go:18`) |
-| `NewCanonicalHistory` | `history.go` | Has no production caller since session compaction was removed |
+| `NewCanonicalHistory` | `history.go` | Has no production caller |
 | `GetSession` | `history.go:71` | Validates harp, resolves + stats the path, delegates to `ParseTranscriptFile`. Touches **neither** of the type's fields — it is a free function wearing a method's clothes, which exists to satisfy `pb.SessionSource` |
 | `ListSessions` | `history.go:103` | Enumerates project harps from the index, parses each, builds `SessionMeta`; a per-harp parse failure warns via `clidiag` and continues |
 | `CurrentSession` | `history.go:134` | Returns the newest canonical-backed session. Returns the **first** candidate's `GetSession` error rather than skipping to the next — unlike `ListSessions` |
@@ -159,7 +159,7 @@ situation; that holds only for an **absent** file.
 
 ```mermaid
 flowchart TD
-    OPS["operations.ConvertVendorTranscript<br/>vendorreader.go:122<br/>registry: vendorreader.go:70-75"]
+    OPS["operations.RefreshVendorTranscript<br/>vendorreader.go"]
     OPS -->|"Convert(ctx, rec, src)"| IFACE["VendorAdapter (interface)<br/>adapter.go:68"]
 
     IFACE -.implemented by.-> CLAUDE["claude.Adapter<br/>claude.go:39"]

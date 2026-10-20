@@ -25,11 +25,10 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   interactive session is unresumable — exactly the interactive-pty gap ADR
   0035 accepted and docs/transcript-schema.md's "Capture regimes" now closes.
 
-  # THE HERMETIC DOOR IS GONE. The recall tools (recover_session,
-  # load_session) that used to trigger the conversion without an engine binary
-  # were removed with session compaction; the conversion is pinned by unit
-  # tests (internal/adapters/operations vendor-reader tests, the cli exit
-  # seam's), and end to end only under @live.
+  # NO HERMETIC DOOR. Nothing triggers the conversion without an engine
+  # binary, so it is pinned by unit tests (internal/adapters/operations
+  # vendor-reader tests, the cli exit seam's), and end to end only under
+  # @live.
 
   Background:
     Given an initialized ctxloom project

@@ -2,8 +2,8 @@ package engine
 
 // ToolLess is the marker an engine implements when it can run a session that
 // grants the model NO tool and attaches NO MCP server: an internal one-shot
-// that only reads the text it is handed and answers (a distillation, a
-// compaction). Such a run is not plan: nothing it could do needs approving,
+// that only reads the text it is handed and answers (a distillation). Such a
+// run is not plan: nothing it could do needs approving,
 // so it carries no approver and no plan posture, and no approval route.
 //
 // The marker is the proof. A tool-less launch runs only on an engine that

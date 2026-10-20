@@ -197,8 +197,8 @@ func read(getenv func(string) string, lookup func(string) (string, bool), x r) {
 // TestScrubInheritedEnv_ClearsAContainerOutputDir is the sandbox half of the
 // CTXLOOM_OUTPUT_DIR leak: a containerized session exports it, and a test
 // binary that kept it resolved every harp's output dir to that session's real
-// one (sessions.OutputDirIn), so the memory package's compaction and
-// next-step tests wrote their fixtures there. SandboxedMain must drop it
+// one (sessions.OutputDirIn), so any test that writes into an output dir
+// wrote its fixtures there. SandboxedMain must drop it
 // before any test runs, along with every other EnvKeys variable.
 func TestScrubInheritedEnv_ClearsAContainerOutputDir(t *testing.T) {
 	for _, k := range EnvKeys {
@@ -255,7 +255,7 @@ func findUncoveredEnvReads(t *testing.T, dirs []string, known map[string]bool) m
 	// injects its lookup (sessions.OutputDirIn(harp, os.Getenv) reads
 	// getenv(EnvOutputDir)), and a read through the injected func is as live
 	// as a direct one. Matching os.* alone is how CTXLOOM_OUTPUT_DIR went
-	// unlisted, unscrubbed, and every compaction test in a containerized
+	// unlisted, unscrubbed, and every output-dir test in a containerized
 	// session wrote into that session's real output dir.
 	identRe := regexp.MustCompile(`[A-Za-z0-9_]*(?i:getenv|lookupenv|lookup)\(([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\)`)
 	constRe := regexp.MustCompile(`(?m)^\s*(?:const\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:string\s*)?=\s*"(CTXLOOM_[A-Z0-9_]+)"`)

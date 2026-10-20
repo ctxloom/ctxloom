@@ -206,10 +206,10 @@ func TestHarpLockPath_IsBesideTheHarpDir(t *testing.T) {
 }
 
 // TestHarpDir_RefusesTraversingNames is the class gate at the path
-// chokepoint: every harp-derived path (essence, ephemeral, canonical
-// transcript, the harp dir itself) is built from HarpDir, so a name that is
-// not one path component must be refused HERE rather than at each caller's
-// MkdirAll. The assertion is on the RESOLVED PATH, not on the error string:
+// chokepoint: every harp-derived path (ephemeral, canonical transcript,
+// context metrics, the harp dir itself) is built from HarpDir, so a name
+// that is not one path component must be refused HERE rather than at each
+// caller's MkdirAll. The assertion is on the RESOLVED PATH, not on the error string:
 // whatever HarpDir returns must still live under the sessions root.
 func TestHarpDir_RefusesTraversingNames(t *testing.T) {
 	testsupport.Isolate(t)

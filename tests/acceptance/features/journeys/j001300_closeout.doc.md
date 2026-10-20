@@ -27,8 +27,8 @@ knowledge, the knowledge becomes authored content, the content shapes the next
 session — and skip that leg and ctxloom is a delivery pipeline with an open
 loop. It can hand an assistant everything the team has ever written down, and
 nothing that last week discovered. Boundary B10 in the product's own audit says
-this plainly: lessons die in `essence.md`. There is no path from what a session
-concluded to what the next session is told.
+this plainly: lessons die in the transcript. There is no path from what a
+session concluded to what the next session is told.
 
 The debris half is what makes anyone actually run it.
 <!-- /doc:intro -->
@@ -88,12 +88,12 @@ directory still exists.
 
 - **Machine-written** — transcripts, native history, scratch, diagnostics, in
   the session dir. Purgeable bulk, and the reason anyone runs this at all.
-- **Derived** — the compacted essence, in the session's output dir, and the
-  session record. Cheap; a sweep never takes it, and only an explicit
-  `session purge` empties the essence.
-  A purged session stays in the index MARKED purged, because a session that
+- **The record** — the session's index entry. Cheap; nothing takes it. A
+  purged session stays in the index MARKED purged, because a session that
   vanishes from the index is indistinguishable from one that never existed.
-- **Human-authored** — plan files, design notes, write-ups. Never negotiable.
+- **Human-authored** — the session's output dir (plan files, and any summary
+  an older ctxloom left there) and authored files anywhere: design notes,
+  write-ups. Never negotiable; no destroyer reaches the output dir.
 
 The third class carries a further requirement that is easy to miss: authored
 files are not merely preserved, they are NAMED in the report. A file that is
@@ -125,40 +125,31 @@ cleanup that only reports is theatre. The line drawn between them:
   `--yes` applies only what THIS invocation's plan showed, and no config key
   may pre-answer it;
 - the refusal list is hard-coded: no force-remove, no `-D`, no dirty or
-  unmerged or unowned trees, no live session, no sweeping a session nobody
-  ever summarised, no touching vendor stores.
+  unmerged or unowned trees, no live session, no destroying a transcript its
+  retention keeps, no touching vendor stores.
 
 Several scenarios here enforce individual lines of that list directly, which is
 the point of writing it as a feature file rather than a paragraph.
 
 ### The lessons skill is a security boundary, not a convenience
 
-A compactable, distributable lessons skill sounds like a small ergonomic
-feature and is not. It reads whole session transcripts — the most sensitive
-artifact ctxloom holds — and decides what gets written back into checked-in,
-team-distributed fragments. A hostile one is simultaneously a
-context-exfiltration primitive and a context-poisoning primitive, and it is a
-strictly higher-value target than any ordinary fragment.
+No verb turns a session into authored content yet, so this leg has no
+scenario; what it will have to honour is settled here. A distributable lessons
+skill sounds like a small ergonomic feature and is not. It reads whole session
+transcripts — the most sensitive artifact ctxloom holds — and decides what gets
+written back into checked-in, team-distributed fragments. A hostile one is
+simultaneously a context-exfiltration primitive and a context-poisoning
+primitive, and it is a strictly higher-value target than any ordinary
+fragment.
 
-That is the argument FOR routing it through `trust.KindSkill` rather than any
-ad-hoc mechanism: a config key naming a file path would bypass trust entirely,
-while a skill rides the same per-item, hash-bound choke as every other skill,
-so a changed lessons skill re-enters review like any other content change.
-
-The consumer half does not exist yet: `session compact` accepts neither
-`--skill` nor `--to-bundle`, so there is nowhere for a trust decision to be
-consulted. The signal it will have to honour is already built —
-`operations.GetSkill` returns `errs.ErrSkillWithheld` out of the gated exposure
-pipeline — and the requirement is that a withheld skill fails loud there rather
-than falling back to the embedded prompt. That scenario is here.
-
-The degrade is not hypothetical: ctxloom ships it once already, on a different
-command. `cli.loadCompactPrompt` swallows every error from its lookup —
-including "this content is withheld pending review" — and silently falls back
-to the embedded prompt, so on `bundle distill` and `fragment distill` a trust
-decision quietly changes which prompt runs and the user is never told. That is
-tracked on its own; it is *not* on `session compact`'s path, which runs
-`runSessionCompact` -> `compactEntry` -> `memory.NewCompactor`.
+That is the argument for delivering it as a skill through the same pipeline as
+every other skill rather than through a config key naming a file path: the
+pipeline is where a skill is withheld (`operations.GetSkill` returns
+`errs.ErrSkillWithheld`), and the requirement is that a withheld lessons skill
+fails loud rather than falling back to an embedded prompt. `bundle distill`
+already draws that line for its own prompt: `cli.loadDistillPrompt` refuses a
+withheld `distill` command instead of silently substituting the built-in
+default.
 
 <!-- doc:outro -->
 The one command that ties the legs together is deliberately not a new

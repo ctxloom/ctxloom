@@ -105,8 +105,8 @@ or companion-loadout hook: a bundle hook's only narrowing is `tool:`
 ctxloom's one session_start callback, registered unconditionally among
 ctxloom's own hooks (`managedhooks.appendManagedDynamicHooks`). It answers
 with a `HookResponse`, encoded by the firing engine's codec. It **never**
-carries the project's context, and — since session compaction was removed —
-no recovered context of any kind. A payload it cannot read fails the hook
+carries the project's context, nor recovered context of any kind: engines
+resume and compact their own sessions. A payload it cannot read fails the hook
 (non-zero exit).
 
 - `agentSetupNudge` — the "profiles but no agents" nudge. It is user-facing,

@@ -134,12 +134,15 @@ engine's private files after the fact.
   backend whose descriptor declares a `vendorreader.VendorAdapter`
   (`engine.Descriptor.TranscriptReaders`), the engine's native store is converted
   through the same `transcript.Recorder` the tee uses — on exit of an
-  interactive `ctxloom run` (`convertVendorTranscriptOnExit`), and on demand
-  when a read finds no canonical transcript (`operations.ResolveAndHeal`,
-  triggered by `transcript.NoCanonicalTranscriptError`). Conversion is
-  best-effort and idempotent: a harp that already has a canonical transcript
-  is never reconverted. A backend with no adapter, driven interactively, has
-  no ctxloom memory.
+  interactive `ctxloom run` (`convertVendorTranscriptOnExit`), and when
+  `session adopt --yes` records an older session's lineage. Both go through
+  `operations.ResolveAndHeal`, which refreshes unconditionally: a canonical
+  transcript that already exists is rebuilt (or extended from its
+  watermark), because an earlier capture may have caught the session
+  part-way. No read converts or refreshes; a reader finding no canonical
+  transcript gets `transcript.NoCanonicalTranscriptError`. Conversion is
+  best-effort. A backend with no adapter, driven interactively, has no
+  ctxloom memory.
 
 ---
 
@@ -153,9 +156,10 @@ version is `transcript.SchemaVersion`.
 
 ## 7. Reading it back
 
-`transcript.CanonicalHistory` is the harp-keyed read view, implementing
-`transcript.Source`. It is the live read path behind
-compaction, the MCP memory tools and `ctxloom session`.
+`transcript.ParseTranscriptFile` is the read path behind `ctxloom session`
+(the session title, the session feed's scrollback) and `run --resume`'s
+replayed transcript. `transcript.CanonicalHistory` is the harp-keyed read
+view over it, implementing `transcript.Source`; it has no production caller.
 
 No reader validates a line against `docs/transcript.schema.json` at runtime;
 the schema is enforced by the `internal/adapters/transcript` tests, which validate

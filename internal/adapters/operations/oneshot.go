@@ -197,8 +197,8 @@ func InternalSource(label, model, workDir string) launch.Source {
 var ErrOneShotNoWorkDir = errors.New("internal one-shot: no working directory")
 
 // OneShotBuilder assembles an internal one-shot over the generation cfg
-// belongs to, run on the coordinator hosts yields: the compactor's
-// distiller, the trigger evaluator's triage, premise authoring. No field has
+// belongs to, run on the coordinator hosts yields: the distiller, the
+// trigger evaluator's triage, premise authoring. No field has
 // a default: an unset Label resolves the way any launch's does (the
 // project's primary), an unset Model is the label's own, and WorkDir is
 // required (Start refuses without it).

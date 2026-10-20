@@ -76,7 +76,6 @@ Learn more: [Concepts](https://ctxloom.dev/concepts/bundles)
 | `ctxloom agent` | Inspect local agents (engine↔profile bindings) |
 | `ctxloom remote` | Manage remotes and discover content |
 | `ctxloom session` | Browse and manage harp-named sessions |
-| `ctxloom memory` | Manage session memory (external compaction) |
 | `ctxloom mcp` | List configured MCP servers (`ctxloom mcp serve` runs ctxloom as one) |
 | `ctxloom manage` | Install and manage ctxloom's project harness |
 | `ctxloom container` | Manage agent container images |

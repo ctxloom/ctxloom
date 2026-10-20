@@ -11,7 +11,7 @@ import (
 )
 
 // helpJargon is the internal vocabulary user-facing help does not use: a
-// session is named by its session name, and compaction produces its summary.
+// session is named by its session name, and a summary is a summary.
 // Flag names, JSON keys and MCP fields keep their spellings; this reads only
 // the prose a user is shown.
 var helpJargon = regexp.MustCompile(`(?i)\b(harps?|essences?)\b`)

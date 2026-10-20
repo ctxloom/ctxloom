@@ -73,8 +73,10 @@ Feature: The archaeologist — what did we decide in March?
   # native store) and resumed from the wrong one. Fixed by making
   # RecordedSessionEntries prefer entry.CanonicalTranscriptPath (populated
   # only when transcript.jsonl exists on disk) via transcript.ParseTranscriptFile,
-  # which is now its only source. Mutation: disabling the canonical-transcript
-  # read turns this red again.
+  # which is now its only source. A dry run reads it through
+  # CapturedSessionEntries, which shares that read (capturedEntries) without
+  # the refresh. Mutation: disabling the canonical-transcript read turns this
+  # red again.
   Scenario: Resuming the March session puts that conversation back in front of a model
     When I run "ctxloom run --session amber-quiet-heron --dry-run -p default"
     Then the assembled context carries the conversation she had in March
@@ -118,7 +120,8 @@ Feature: The archaeologist — what did we decide in March?
   # measured blind spot recorded here rather than left to be rediscovered.
   #
   # Mutation that kills it: deleting the canonical transcript at the TOP of
-  # operations.RecordedSessionEntries, before anything reads it. So the subject
+  # operations.capturedEntries (the read a dry run's CapturedSessionEntries
+  # and RecordedSessionEntries share), before anything reads it. So the subject
   # genuinely runs and the assertion genuinely reads the bytes on disk; this is
   # not a row satisfied by nothing happening.
   #

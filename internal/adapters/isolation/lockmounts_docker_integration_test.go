@@ -49,11 +49,6 @@ func TestContainerLockMounts_HostLocksUnreachableFromChild(t *testing.T) {
 		require.NoError(t, os.WriteFile(lp, []byte("host"), 0o644))
 		hostLocks = append(hostLocks, lp)
 	}
-	hostLocksDir, err := paths.HomeLocksDir()
-	require.NoError(t, err)
-	before, err := os.ReadDir(hostLocksDir)
-	require.NoError(t, err)
-
 	projectDir := t.TempDir()
 	c := NewContainerFor(rt, "mock").WithImage("alpine:latest").WithSessionState(SessionState{Harp: "brisk-teal-otter"})
 	ws, err := c.prepareWorkspace(ctx, projectDir, "locks-itest")
@@ -62,6 +57,12 @@ func TestContainerLockMounts_HostLocksUnreachableFromChild(t *testing.T) {
 	cw, ok := ws.(*containerWorkspace)
 	require.True(t, ok)
 	mounts := append([]mount{{Host: projectDir, Container: projectDir}}, cw.extraMounts...)
+
+	// Snapshotted after prepareWorkspace: the host's own entries (the reap
+	// interlock bind holds) are there before the child starts.
+	hostLocksDir, err := paths.HomeLocksDir()
+	require.NoError(t, err)
+	before := lockDirNames(t, hostLocksDir)
 
 	locksIn := path.Join(defaultContainerHome, paths.AppDirName, paths.HomeLocksDirName)
 	script := "mkdir -p " + locksIn + " && ls -A " + locksIn + "; echo ---"
@@ -82,9 +83,18 @@ func TestContainerLockMounts_HostLocksUnreachableFromChild(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "host", string(got))
 	}
-	after, err := os.ReadDir(hostLocksDir)
+	assert.Equal(t, before, lockDirNames(t, hostLocksDir), "the child must not plant anything in the host locks dir")
+}
+
+func lockDirNames(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
-	assert.Equal(t, len(before), len(after), "the child must not plant anything in the host locks dir")
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
 }
 
 // The one lock that DOES cross: a file the engine rewrites in place through

@@ -172,6 +172,28 @@ func TestPurgedSession_AdoptWhoseRebuildFailsKeepsTheMark(t *testing.T) {
 	assertStillPurged(t, harp, "a failed session adopt")
 }
 
+// A rebuild that lands while the purge mark cannot be cleared is said as
+// exactly that: the transcript was rebuilt, and the session is still purged.
+func TestPurgedSession_AdoptThatCannotClearTheMarkSaysItRebuilt(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	harp, canon := seedPurgedClaudeSession(t, dir)
+	// The sidecar lock's path taken by a directory: every sidecar write fails,
+	// and a nothing-to-adopt adopt writes the sidecar only to clear the mark.
+	lock, err := paths.HarpSidecarLockPath(harp)
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(lock))
+	require.NoError(t, os.Mkdir(lock, 0o755))
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
+
+	_, stderr, err := execRootCmdBoth(t, "session", "adopt", harp, "--yes", "--format", "text")
+	require.NoError(t, err, stderr)
+	rebuiltStillMarked := strings.SplitN(adoptPurgedRebuiltStillMarked, "%v", 2)[0]
+	assert.Contains(t, stderr, fmt.Sprintf(rebuiltStillMarked, harp))
+	assert.NotContains(t, stderr, fmt.Sprintf(strings.SplitN(adoptPurgedNotRebuilt, "%v", 2)[0], harp))
+	assertRecaptured(t, canon, "a session adopt that cannot clear the mark")
+	assertStillPurged(t, harp, "a session adopt that cannot clear the mark")
+}
+
 func TestPurgedSession_AnInteractiveExitRecapturesIt(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	harp, canon := seedPurgedClaudeSession(t, dir)

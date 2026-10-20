@@ -68,6 +68,11 @@ func ResolveAndHeal(ctx context.Context, files safefs.Root, reg engine.Registry,
 	return src, nil
 }
 
+// ErrPurgeMarkNotCleared is ResolveAndHeal's HealErr when a purged session's
+// transcript was rebuilt but its purge mark could not be cleared: the
+// session is re-captured and still marked purged.
+var ErrPurgeMarkNotCleared = errors.New("transcript rebuilt, but its purge mark was not cleared")
+
 // clearPurged removes harp's purge mark once its transcript is re-captured.
 func clearPurged(harp string) error {
 	mgr, err := openSessions()
@@ -75,7 +80,7 @@ func clearPurged(harp string) error {
 		err = mgr.ClearPurged(harp)
 	}
 	if err != nil {
-		return fmt.Errorf("clear %s's purge mark: %w", harp, err)
+		return fmt.Errorf("%s: %w: %w", harp, ErrPurgeMarkNotCleared, err)
 	}
 	return nil
 }

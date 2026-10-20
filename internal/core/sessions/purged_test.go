@@ -72,3 +72,8 @@ func TestMemStore_ClearPurged_MatchesTheManager(t *testing.T) {
 	assert.Nil(t, found.PurgedAt)
 	assert.ErrorIs(t, s.ClearPurged("no-such-harp"), ErrNotFound)
 }
+
+func TestMemStore_MarkPurged_RefusesAnUnknownHarpLikeTheManager(t *testing.T) {
+	assert.ErrorIs(t, NewMemStore().MarkPurged("no-such-harp", time.Now()), ErrNotFound)
+	assert.ErrorIs(t, newManager(t).MarkPurged("no-such-harp", time.Now()), ErrNotFound)
+}

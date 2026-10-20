@@ -197,14 +197,15 @@ func (m *MemStore) BindEngine(harpName, engine string) error {
 	return m.mutate(harpName, func(e *Entry) { e.Backend = engine })
 }
 
-// mutate applies fn to the named entry under the lock, or reports
-// ErrNotFound.
-func (m *MemStore) mutate(harpName string, fn func(*Entry)) error {
+// mutate is every single-entry mutator's body, as Manager.update is the
+// Manager's: it applies apply to the named entry under the lock, and refuses
+// an unknown harp with ErrNotFound.
+func (m *MemStore) mutate(harpName string, apply func(*Entry)) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i := range m.sessions {
 		if m.sessions[i].HarpName == harpName {
-			fn(&m.sessions[i])
+			apply(&m.sessions[i])
 			return nil
 		}
 	}
@@ -254,58 +255,23 @@ func (m *MemStore) AppendRotations(harpName string, rotations []Rotation) error 
 
 // MarkEnded stamps EndedAt on the named entry. Idempotent.
 func (m *MemStore) MarkEnded(harpName string, at time.Time) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for i := range m.sessions {
-		if m.sessions[i].HarpName != harpName {
-			continue
-		}
-		t := at.UTC()
-		m.sessions[i].EndedAt = &t
-		return nil
-	}
-	return fmt.Errorf("session not found: %q", harpName)
+	t := at.UTC()
+	return m.mutate(harpName, func(e *Entry) { e.EndedAt = &t })
 }
 
 // RecordRunEnd matches *Manager.RecordRunEnd.
 func (m *MemStore) RecordRunEnd(harpName string, end RunEnd) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for i := range m.sessions {
-		if m.sessions[i].HarpName != harpName {
-			continue
-		}
-		m.sessions[i].RunEnds = withRunEnd(m.sessions[i].RunEnds, end)
-		return nil
-	}
-	return fmt.Errorf("session not found: %q", harpName)
+	return m.mutate(harpName, func(e *Entry) { e.RunEnds = withRunEnd(e.RunEnds, end) })
 }
 
 // RecordEndReason matches *Manager.RecordEndReason.
 func (m *MemStore) RecordEndReason(harpName string, reason EndReason) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for i := range m.sessions {
-		if m.sessions[i].HarpName != harpName {
-			continue
-		}
-		m.sessions[i].EndReason = &reason
-		return nil
-	}
-	return fmt.Errorf("session not found: %q", harpName)
+	return m.mutate(harpName, func(e *Entry) { e.EndReason = &reason })
 }
 
 // SetKeep sets Keep on the named entry, as Manager.SetKeep does.
 func (m *MemStore) SetKeep(harpName string, keep bool) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for i := range m.sessions {
-		if m.sessions[i].HarpName == harpName {
-			m.sessions[i].Keep = keep
-			return nil
-		}
-	}
-	return fmt.Errorf("%w: %q", ErrNotFound, harpName)
+	return m.mutate(harpName, func(e *Entry) { e.Keep = keep })
 }
 
 // MarkPurged stamps PurgedAt on the named entry. Idempotent. Mirrors
@@ -313,45 +279,20 @@ func (m *MemStore) SetKeep(harpName string, keep bool) error {
 // file) — this fake exists so operations-level tests can exercise that
 // ordering without a real index.yaml.
 func (m *MemStore) MarkPurged(harpName string, at time.Time) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for i := range m.sessions {
-		if m.sessions[i].HarpName != harpName {
-			continue
-		}
-		t := at.UTC()
-		m.sessions[i].PurgedAt = &t
-		return nil
-	}
-	return fmt.Errorf("session not found: %q", harpName)
+	t := at.UTC()
+	return m.mutate(harpName, func(e *Entry) { e.PurgedAt = &t })
 }
 
 // ClearPurged removes PurgedAt from the named entry, matching
 // *Manager.ClearPurged.
 func (m *MemStore) ClearPurged(harpName string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for i := range m.sessions {
-		if m.sessions[i].HarpName == harpName {
-			m.sessions[i].PurgedAt = nil
-			return nil
-		}
-	}
-	return fmt.Errorf("%w: %q", ErrNotFound, harpName)
+	return m.mutate(harpName, func(e *Entry) { e.PurgedAt = nil })
 }
 
 // StampMint records what the mint knew on the named entry, matching
 // *Manager.StampMint.
 func (m *MemStore) StampMint(harpName string, s MintStamp) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for i := range m.sessions {
-		if m.sessions[i].HarpName == harpName {
-			s.apply(&m.sessions[i])
-			return nil
-		}
-	}
-	return fmt.Errorf("session not found: %q", harpName)
+	return m.mutate(harpName, s.apply)
 }
 
 // RecordEngineVersion stamps EngineVersion on the named entry, matching
@@ -362,16 +303,7 @@ func (m *MemStore) RecordEngineVersion(harpName, version string) error {
 	if version == "" {
 		return nil
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for i := range m.sessions {
-		if m.sessions[i].HarpName != harpName {
-			continue
-		}
-		m.sessions[i].EngineVersion = version
-		return nil
-	}
-	return fmt.Errorf("session not found: %q", harpName)
+	return m.mutate(harpName, func(e *Entry) { e.EngineVersion = version })
 }
 
 // Rename changes a harp name, erroring if oldName is absent, newName is taken,

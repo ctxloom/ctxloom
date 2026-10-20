@@ -184,10 +184,11 @@ var healAdopted = func(ctx context.Context, harp string) (rebuilt bool, err erro
 // nothing: about a session that is not purged, and about a purged one, whose
 // transcript it rebuilds anyway.
 const (
-	adoptNothing                = "ctxloom adopted nothing for %s: every candidate was already known or overlapped the existing lineage.\n"
-	adoptPurgedRebuilt          = "ctxloom adopted nothing for %s, which was purged: rebuilt its canonical transcript from the engine log that survives; it is no longer marked purged.\n"
-	adoptPurgedNothingToRebuild = "ctxloom adopted nothing for %s, which was purged: no engine log survives to rebuild its canonical transcript from; it stays marked purged.\n"
-	adoptPurgedNotRebuilt       = "ctxloom adopted nothing for %s, which was purged: its canonical transcript was NOT rebuilt: %v. It stays marked purged.\n"
+	adoptNothing                  = "ctxloom adopted nothing for %s: every candidate was already known or overlapped the existing lineage.\n"
+	adoptPurgedRebuilt            = "ctxloom adopted nothing for %s, which was purged: rebuilt its canonical transcript from the engine log that survives; it is no longer marked purged.\n"
+	adoptPurgedNothingToRebuild   = "ctxloom adopted nothing for %s, which was purged: no engine log survives to rebuild its canonical transcript from; it stays marked purged.\n"
+	adoptPurgedNotRebuilt         = "ctxloom adopted nothing for %s, which was purged: its canonical transcript was NOT rebuilt: %v. It stays marked purged.\n"
+	adoptPurgedRebuiltStillMarked = "ctxloom adopted nothing for %s, which was purged: rebuilt its canonical transcript from the engine log that survives, but it is STILL marked purged: %v\n"
 )
 
 // adoptPlanPurged is the report-only run's note that --yes rebuilds a purged
@@ -262,12 +263,14 @@ func reportAdoptHeal(cmd *cobra.Command, harp string, adopted int, purged bool, 
 }
 
 // reportPurgedRebuild rebuilds a purged session that adopted nothing and says
-// which way it went: rebuilt (and no longer purged), nothing to rebuild from,
-// or failed. Only a rebuild clears the purge mark (operations.ResolveAndHeal).
+// which way it went: rebuilt (and no longer purged), rebuilt but still
+// marked purged, nothing to rebuild from, or failed. Only a rebuild clears the purge mark (operations.ResolveAndHeal).
 func reportPurgedRebuild(cmd *cobra.Command, harp string, heal func(context.Context, string) (bool, error)) error {
 	w := errwriter.New(cmd.ErrOrStderr())
 	rebuilt, err := heal(cmd.Context(), harp)
 	switch {
+	case rebuilt && errors.Is(err, operations.ErrPurgeMarkNotCleared):
+		w.Printf(adoptPurgedRebuiltStillMarked, harp, err)
 	case err != nil:
 		w.Printf(adoptPurgedNotRebuilt, harp, err)
 	case rebuilt:

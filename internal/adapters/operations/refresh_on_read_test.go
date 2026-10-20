@@ -191,7 +191,7 @@ func TestResolveAndHeal_ReportsAPurgeMarkItCouldNotClear(t *testing.T) {
 	src, err := ResolveAndHeal(context.Background(), safefs.New(), engines.Registry(), entry.HarpName)
 	require.NoError(t, err)
 	assert.True(t, src.Healed)
-	require.Error(t, src.HealErr, "a purge mark that stays must not read as a clean re-capture")
+	require.ErrorIs(t, src.HealErr, ErrPurgeMarkNotCleared, "a purge mark that stays must not read as a clean re-capture")
 	stored, err := mgr.Find(entry.HarpName)
 	require.NoError(t, err)
 	require.NotNil(t, stored)

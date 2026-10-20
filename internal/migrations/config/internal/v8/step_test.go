@@ -32,6 +32,10 @@ func TestStep_EmptiedSectionLeavesAndAbsentKeyIsUntouched(t *testing.T) {
 	assert.Equal(t, "schema_version: 7\n", apply(t, "schema_version: 7\nconfig:\n    essence_max_chars: 4096\n"))
 	assert.Equal(t, "schema_version: 7\nworkspace: worktree\n", apply(t, "schema_version: 7\nworkspace: worktree\n"))
 	assert.Equal(t, "schema_version: 7\nconfig: [x]\n", apply(t, "schema_version: 7\nconfig: [x]\n"))
+	// Not a mapping, so no emptied section: an empty sequence or a scalar
+	// stays for the strict decode to refuse, never silently dropped.
+	assert.Equal(t, "schema_version: 7\nconfig: []\n", apply(t, "schema_version: 7\nconfig: []\n"))
+	assert.Equal(t, "schema_version: 7\nconfig: off\n", apply(t, "schema_version: 7\nconfig: off\n"))
 }
 
 func TestStep_MigratesToEight(t *testing.T) {

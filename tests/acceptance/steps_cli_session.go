@@ -140,7 +140,8 @@ const adoptVendorDirRel = "claude-projects-fixture"
 func writeAdoptVendorHomeFile(c context.Context, sessionID, start, end string) error {
 	w := worldFrom(c)
 	line := func(ts string) string {
-		return fmt.Sprintf(`{"type":"user","sessionId":%q,"timestamp":%q}`, sessionID, ts)
+		return fmt.Sprintf(`{"type":"user","sessionId":%q,"timestamp":%q,"uuid":%q,"message":{"role":"user","content":"hello from %s"}}`,
+			sessionID, ts, sessionID+ts, sessionID)
 	}
 	content := line(start) + "\n" + line(end) + "\n"
 	return w.env.WriteHomeFile(filepath.Join(adoptVendorDirRel, sessionID+".jsonl"), content)
@@ -149,7 +150,9 @@ func writeAdoptVendorHomeFile(c context.Context, sessionID, start, end string) e
 // seedAdoptHarp records a session bound to a real vendor transcript
 // (sessionID.jsonl under adoptVendorDirRel) spanning start to end, so
 // `session adopt` has a live binding to scan alongside and a real directory
-// to scan for orphans.
+// to scan for orphans. It records the engine version the backend's reader is
+// validated for, so the rebuild --yes runs can read the transcript: a failed
+// rebuild fails the command.
 func seedAdoptHarp(c context.Context, harp, backend, sessionID, start, end string) error {
 	w := worldFrom(c)
 	if err := seedSessionSidecar(w, harp, sessionSeed{
@@ -157,6 +160,7 @@ func seedAdoptHarp(c context.Context, harp, backend, sessionID, start, end strin
 		Backend:        backend,
 		StartedAt:      "2026-01-01T00:00:00Z",
 		TranscriptPath: filepath.Join(w.env.HomeDir, adoptVendorDirRel, sessionID+".jsonl"),
+		EngineVersion:  j001000SeededEngineVersion(backend),
 	}); err != nil {
 		return err
 	}

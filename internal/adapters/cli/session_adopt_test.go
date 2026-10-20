@@ -32,8 +32,10 @@ func writeAdoptVendorFile(t *testing.T, dir, sessionID string, start, end time.T
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	path := filepath.Join(dir, sessionID+".jsonl")
 	line := func(ts time.Time) string {
-		b, err := json.Marshal(map[string]string{
+		b, err := json.Marshal(map[string]any{
 			"type": "user", "sessionId": sessionID, "timestamp": ts.UTC().Format(time.RFC3339Nano),
+			"uuid":    sessionID + ts.UTC().Format(time.RFC3339Nano),
+			"message": map[string]string{"role": "user", "content": "hello from " + sessionID},
 		})
 		require.NoError(t, err)
 		return string(b)
@@ -105,15 +107,16 @@ func TestSessionAdopt_DryRunWritesNothing(t *testing.T) {
 // not just a mutation this process happens to still hold.
 func TestSessionAdopt_ApplyAppendsThroughStore_SurvivesReload(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
-	_, harp, vendorDir := seedClaudeHarpWithVendorDir(t, dir)
+	mgr, harp, vendorDir := seedClaudeHarpWithVendorDir(t, dir)
+	seedEngineVersion(t, mgr, harp, "claude-code")
 	orphanPath := writeAdoptVendorFile(t, vendorDir, "id-orphan",
 		time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC), time.Date(2026, 4, 5, 1, 0, 0, 0, time.UTC))
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	stdout, stderr, err := execRootCmdBoth(t, "session", "adopt", harp, "--yes", "--format", "text")
-	require.NoError(t, err)
+	require.NoError(t, err, stderr)
 	assert.Contains(t, stdout, "adopted")
-	assert.Contains(t, stderr, "adopted 1 rotation")
+	assert.Contains(t, stderr, "adopted 1 rotation(s) into "+harp+"'s lineage and rebuilt its canonical transcript")
 	assert.NotContains(t, stderr, "session compact")
 
 	fresh, err := sessions.Open(nil)
@@ -212,11 +215,12 @@ func TestSessionAdopt_JSONShapesCandidatesWithVerdictAndReason(t *testing.T) {
 // NOT rebuilt with the reason. No step is left for the caller to run.
 func TestSessionAdopt_ApplyHealsTheTranscript(t *testing.T) {
 	for name, tc := range map[string]struct {
-		healErr error
-		want    string
+		healErr  error
+		want     string
+		wantExit int
 	}{
-		"healed":      {nil, "rebuilt its canonical transcript"},
-		"heal failed": {errors.New("vendor log unreadable"), "was NOT rebuilt from it: vendor log unreadable"},
+		"healed":      {nil, "rebuilt its canonical transcript", 0},
+		"heal failed": {errors.New("vendor log unreadable"), "was NOT rebuilt from it: vendor log unreadable", 1},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := testsupport.ProjectDir(t)
@@ -233,7 +237,11 @@ func TestSessionAdopt_ApplyHealsTheTranscript(t *testing.T) {
 			t.Cleanup(func() { healAdopted = prev })
 
 			_, stderr, err := execRootCmdBoth(t, "session", "adopt", harp, "--yes", "--format", "text")
-			require.NoError(t, err)
+			if tc.wantExit == 0 {
+				require.NoError(t, err)
+			} else {
+				requireAdoptFailed(t, err, stderr)
+			}
 			assert.Equal(t, []string{harp}, healed, "the heal runs once, for the adopting session")
 			assert.Contains(t, stderr, tc.want)
 		})

@@ -38,6 +38,11 @@ canonical transcript from whatever engine log outlived the purge, and a
 session it rebuilds is no longer marked purged. One with no surviving engine
 log stays purged.
 
+A --yes whose rebuild fails exits 1 after saying why: a rebuild that fails
+or is refused, a purged session with no engine log left to rebuild from, and
+one rebuilt but still marked purged. Adopting nothing into a session that is not
+purged, and a report without --yes, exit 0.
+
 The session's engine decides what is a transcript of it, and when each one's
 records were written. An engine whose transcript readers cannot say that is
 refused, naming the engine, rather than silently scanning nothing.

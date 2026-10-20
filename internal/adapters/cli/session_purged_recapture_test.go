@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // A purged session's transcript is re-captured only on an explicit act — a
@@ -150,7 +151,7 @@ func TestPurgedSession_AdoptWithNoEngineLogKeepsTheMark(t *testing.T) {
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, stderr, err := execRootCmdBoth(t, "session", "adopt", harp, "--yes", "--format", "text")
-	require.NoError(t, err, stderr)
+	requireAdoptFailed(t, err, stderr)
 	assert.Contains(t, stderr, fmt.Sprintf(adoptPurgedNothingToRebuild, harp))
 	assertNotRecaptured(t, canon, "session adopt with no engine log")
 	assertStillPurged(t, harp, "session adopt with no engine log")
@@ -164,7 +165,7 @@ func TestPurgedSession_AdoptWhoseRebuildFailsKeepsTheMark(t *testing.T) {
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, stderr, err := execRootCmdBoth(t, "session", "adopt", harp, "--yes", "--format", "text")
-	require.NoError(t, err, stderr)
+	requireAdoptFailed(t, err, stderr)
 	_, healErr := healAdopted(context.Background(), harp)
 	require.Error(t, healErr)
 	assert.Contains(t, stderr, fmt.Sprintf(adoptPurgedNotRebuilt, harp, healErr))
@@ -186,7 +187,7 @@ func TestPurgedSession_AdoptThatCannotClearTheMarkSaysItRebuilt(t *testing.T) {
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, stderr, err := execRootCmdBoth(t, "session", "adopt", harp, "--yes", "--format", "text")
-	require.NoError(t, err, stderr)
+	requireAdoptFailed(t, err, stderr)
 	rebuiltStillMarked := strings.SplitN(adoptPurgedRebuiltStillMarked, "%v", 2)[0]
 	assert.Contains(t, stderr, fmt.Sprintf(rebuiltStillMarked, harp))
 	assert.NotContains(t, stderr, fmt.Sprintf(strings.SplitN(adoptPurgedNotRebuilt, "%v", 2)[0], harp))
@@ -211,6 +212,15 @@ func TestPurgedSession_AnInteractiveExitWhoseRebuildFailsKeepsTheMark(t *testing
 	healVendorTranscriptOnExit(harp)
 	assertNotRecaptured(t, canon, "a failed interactive exit")
 	assertStillPurged(t, harp, "a failed interactive exit")
+}
+
+// requireAdoptFailed pins that an adopt whose rebuild failed exits 1, and
+// silently: the message it printed is the whole report.
+func requireAdoptFailed(t *testing.T, err error, stderr string) {
+	t.Helper()
+	var status clifmt.ExitStatus
+	require.ErrorAs(t, err, &status, stderr)
+	assert.Equal(t, 1, status.Code)
 }
 
 // refuseRebuild records an engine version no transcript reader is validated

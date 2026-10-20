@@ -177,16 +177,20 @@ func (s *Split) waitFeedCmd() tea.Cmd {
 }
 
 // arrangeRows lays the roster out for the panel: each row carries the
-// approvals its agent waits on, and a waiting row goes to the top of its
-// level, ahead of the activity order — the running session excepted, which
-// stays first.
+// approvals its agent waits on, a waiting row goes to the top of its level,
+// ahead of the activity order — the running session excepted, which stays
+// first — and only the rows within the list window show.
 func (s *Split) arrangeRows() {
 	rows := make([]RosterRow, len(s.roster))
 	for i, r := range s.roster {
 		r.Pending = s.pendingBy[r.Harp]
 		rows[i] = r
 	}
-	s.rows = waitingFirst(rows, s.self)
+	s.rows, s.hiddenRows = waitingFirst(rows, s.self), 0
+	if s.listWindow > 0 {
+		keep := func(r RosterRow) bool { return alwaysShown(r, s.self, s.sel) }
+		s.rows, s.hiddenRows = inWindow(s.rows, s.clock.Now().Add(-s.listWindow), keep)
+	}
 }
 
 // waitingFirst reorders each level of a lineage-ordered tree (a row's

@@ -36,13 +36,19 @@ type terminalUIIdentity struct {
 }
 
 // validateTerminalUIConfig records a fatal-by-default finding for an invalid
-// ui.prefix_key — a broken config fails loudly at the startup gate rather
-// than silently launching with a viewer on the wrong key (or none).
+// ui.prefix_key or ui.list_window — a broken config fails loudly at the
+// startup gate rather than silently launching with a viewer on the wrong key
+// (or none), or a list cut to a window the user didn't configure.
 func validateTerminalUIConfig(cfg *config.Config) {
 	if _, err := tui.ParsePrefixKey(cfg.UIPrefixKey()); err != nil {
 		strictness.Fail(report.KindConfig,
 			`set ui.prefix_key to a control key (e.g. "ctrl-]") in config.yaml, or pass --degraded to launch anyway`,
 			"invalid ui.prefix_key: %v", err)
+	}
+	if _, err := tui.ParseListWindow(cfg.UIListWindow()); err != nil {
+		strictness.Fail(report.KindConfig,
+			`set ui.list_window to a duration (e.g. "7d") or "all" in config.yaml, or pass --degraded to launch anyway`,
+			"invalid ui.list_window: %v", err)
 	}
 }
 
@@ -90,16 +96,20 @@ func setupSplitView(ctx context.Context, cfg *config.Config, port frontend.Port,
 		clidiag.Warn("ctxloom", splitViewDisabledWarning, err)
 		return nil
 	}
+	// A window refused at the gate reaches here only under --degraded: it
+	// is then no window, so nothing is hidden on a guess.
+	window, _ := tui.ParseListWindow(cfg.UIListWindow())
 	view, err := tui.StartSplit(ctx, tui.SplitOptions{
-		Port:     port,
-		Self:     id.Harp,
-		Term:     term,
-		Prefix:   prefix,
-		Header:   tui.Header{Harp: id.Harp, Agent: id.Agent, Engine: id.Backend, Model: id.Model},
-		Notify:   desktopAlert{host: platform.Current(), resolve: shellenv.Resolve},
-		In:       human.in,
-		Out:      human.out,
-		Epilogue: splitEpilogue(id.Harp),
+		Port:       port,
+		Self:       id.Harp,
+		Term:       term,
+		Prefix:     prefix,
+		Header:     tui.Header{Harp: id.Harp, Agent: id.Agent, Engine: id.Backend, Model: id.Model},
+		Notify:     desktopAlert{host: platform.Current(), resolve: shellenv.Resolve},
+		In:         human.in,
+		Out:        human.out,
+		Epilogue:   splitEpilogue(id.Harp),
+		ListWindow: window,
 	})
 	if err != nil {
 		clidiag.Warn("ctxloom", splitViewDisabledWarning, err)

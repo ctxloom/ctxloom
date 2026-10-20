@@ -138,6 +138,7 @@ Interactive-run split view: the agent list beside the selected agent's pane. `ct
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `list_window` | string | How recently a row must have been active for the split view's agent list to show it: a duration - 7d, 2w, 12h, 90m. Default 7d. `0` or `all` shows every row. The run's own session, anything running, and anything waiting on an approval or holding unread mail show whatever their age, and a dim line at the panel's foot says how many rows are hidden. A value the grammar cannot parse is REFUSED at launch. Examples: `7d`, `all`. |
 | `prefix_key` | string | Keystroke that toggles focus between the split view's agent list and its pane; prefix then [ or PgUp enters the pane's scrollback (q or Esc leaves it). Control keys only (`ctrl-<char>`); keys the engine needs verbatim — ctrl-i (tab), ctrl-j/ctrl-m (newline/return), ctrl-[ (escape) — are rejected. Default: ctrl-]. Examples: `ctrl-]`, `ctrl-t`. |
 
 ## Definitions

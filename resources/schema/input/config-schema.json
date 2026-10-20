@@ -323,6 +323,15 @@
             "ctrl-]",
             "ctrl-t"
           ]
+        },
+        "list_window": {
+          "type": "string",
+          "pattern": "^(all|0|[0-9]+(d|w|h|m|s))$",
+          "description": "How recently a row must have been active for the split view's agent list to show it: a duration - 7d, 2w, 12h, 90m. Default 7d. `0` or `all` shows every row. The run's own session, anything running, and anything waiting on an approval or holding unread mail show whatever their age, and a dim line at the panel's foot says how many rows are hidden. A value the grammar cannot parse is REFUSED at launch.",
+          "examples": [
+            "7d",
+            "all"
+          ]
         }
       },
       "additionalProperties": false

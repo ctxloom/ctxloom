@@ -227,6 +227,9 @@ func (s *Split) footerLines(w int) []string {
 	if s.pendingN > 0 {
 		add(s.pendingLine(), styleHeader)
 	}
+	if s.hiddenRows > 0 {
+		add(hiddenNote(s.hiddenRows), styleDim)
+	}
 	switch note := s.noteLine(); {
 	case s.errOneLine:
 		// padCell cuts it, and says so.

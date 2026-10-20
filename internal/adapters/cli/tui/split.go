@@ -92,6 +92,10 @@ type SplitOptions struct {
 	// Epilogue is the line Close leaves on Out after the pane's final frame,
 	// once the split view has given the main screen back; "" leaves none.
 	Epilogue string
+	// ListWindow is how recently a row must have been active for the
+	// agent list to show it (ui.list_window, ParseListWindow); zero shows
+	// every row.
+	ListWindow time.Duration
 	// WindowSize states the columns and rows of an Out bubbletea cannot
 	// measure (one that is no tty); zero lets bubbletea measure the
 	// terminal, as it does for a tty.
@@ -133,9 +137,13 @@ type Split struct {
 	rows   []RosterRow
 	// pendingBy is how many approvals wait per asking harp.
 	pendingBy map[string]int
-	sel       string
-	collapsed map[string]bool
-	runEvents <-chan coord.Event
+	// listWindow is SplitOptions.ListWindow; hiddenRows how many rows it
+	// leaves out of rows.
+	listWindow time.Duration
+	hiddenRows int
+	sel        string
+	collapsed  map[string]bool
+	runEvents  <-chan coord.Event
 	// refreshArmed: a debounced roster refresh is already scheduled.
 	refreshArmed bool
 
@@ -166,20 +174,21 @@ func newSplit(ctx context.Context, o SplitOptions, pane termemu.Terminal, post f
 		o.Clock = RealClock{}
 	}
 	return &Split{
-		ctx:       ctx,
-		port:      o.Port,
-		self:      o.Self,
-		term:      o.Term,
-		prefix:    o.Prefix,
-		header:    o.Header,
-		present:   o.Present.Normalized(),
-		clock:     o.Clock,
-		notify:    o.Notify,
-		pane:      pane,
-		post:      post,
-		mailbox:   mb,
-		sel:       o.Self,
-		collapsed: map[string]bool{},
+		ctx:        ctx,
+		port:       o.Port,
+		self:       o.Self,
+		term:       o.Term,
+		prefix:     o.Prefix,
+		header:     o.Header,
+		present:    o.Present.Normalized(),
+		clock:      o.Clock,
+		notify:     o.Notify,
+		pane:       pane,
+		post:       post,
+		mailbox:    mb,
+		sel:        o.Self,
+		listWindow: o.ListWindow,
+		collapsed:  map[string]bool{},
 		approvalsView: approvalsView{
 			apprTick: approvalsTickEvery,
 		},

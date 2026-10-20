@@ -26,11 +26,12 @@ import (
 
 var sessionTranscriptCmd = groupNodeDefault(&cobra.Command{
 	Use:   "transcript",
-	Short: "The recorded conversation behind a session: list it, watch it, destroy it",
+	Short: "The recorded conversation behind a session: list it, show it, watch it, destroy it",
 	Long: `A session's transcript is ctxloom's own canonical, engine-agnostic record
 of what was said, at ~/.ctxloom/sessions/<session-name>/transcripts/transcript.jsonl.
 
   list      which sessions have one, and how large it is (the bare form)
+  show      print one whole, then exit — for a file or a pipe
   watch     stream one as structured turns, live or from the store
   purge     destroy the machine-written bulk, reporting first`,
 }, "list")
@@ -70,7 +71,7 @@ Naming a session restricts the listing to that one session.`,
 func init() {
 	sessionTranscriptListCmd.Flags().BoolVar(&sessionTranscriptListAll, "all", false,
 		"Include sessions from every project (default: filter to cwd)")
-	sessionTranscriptCmd.AddCommand(sessionTranscriptListCmd, sessionWatchCmd)
+	sessionTranscriptCmd.AddCommand(sessionTranscriptListCmd, sessionTranscriptShowCmd, sessionWatchCmd)
 	sessionCmd.AddCommand(sessionTranscriptCmd)
 }
 

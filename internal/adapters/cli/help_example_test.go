@@ -56,11 +56,12 @@ var exampleToken = regexp.MustCompile(`'[^']*'|"[^"]*"|\S+`)
 
 // exampleWords splits one example line the way a shell would, enough for
 // these lines: quotes group a word, an unquoted '#' word starts a comment,
-// and only the first command of a "&&", "|" or ";" chain is kept.
+// only the first command of a "&&", "|" or ";" chain is kept, and a ">"
+// redirect ends it.
 func exampleWords(line string) []string {
 	var words []string
 	for _, tok := range exampleToken.FindAllString(line, -1) {
-		if strings.HasPrefix(tok, "#") || tok == "&&" || tok == "|" || tok == ";" {
+		if strings.HasPrefix(tok, "#") || tok == "&&" || tok == "|" || tok == ";" || tok == ">" {
 			break
 		}
 		words = append(words, strings.Trim(tok, `'"`))

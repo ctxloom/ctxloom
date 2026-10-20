@@ -163,3 +163,28 @@ func pollTranscript(ctx context.Context, label, path string, poll time.Duration,
 	}()
 	return events, errs
 }
+
+// ReplayEvents is a whole transcript, read at once, in the watch vocabulary:
+// every entry in order, each turn closed by a Boundary over its entries. A
+// turn opens at a main-thread user entry and runs to the next one; a
+// subagent's (sidechain) prompt is inside its parent's turn. Material ahead
+// of the first prompt is a turn of its own. No heartbeats: nothing is idle in
+// a read that has already ended.
+func ReplayEvents(entries []agent.SessionEntry) []*WatchEvent {
+	var events []*WatchEvent
+	from := 0
+	closeTurn := func(to int) {
+		if to > from {
+			events = append(events, &WatchEvent{Boundary: &ResponseBoundary{FromIndex: from, ToIndex: to}})
+			from = to
+		}
+	}
+	for i := range entries {
+		if entries[i].Type == agent.EntryTypeUser && !entries[i].Sidechain {
+			closeTurn(i)
+		}
+		events = append(events, &WatchEvent{Entry: &entries[i]})
+	}
+	closeTurn(len(entries))
+	return events
+}

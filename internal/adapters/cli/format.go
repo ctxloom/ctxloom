@@ -14,7 +14,7 @@ import (
 
 // Output formats accepted by the global --format flag. These two remain
 // distinct string constants (not clifmt.Format aliases) because a handful of
-// streaming commands — session transcript watch, plan watch, run's structured REPL/chat
+// streaming commands — session transcript watch and show, plan watch, run's structured REPL/chat
 // event stream — switch on --format themselves, over their own text/json pair
 // (see unknownFormatError below), rather than going through emit();
 // they render one event at a time and structurally can't hand clifmt a

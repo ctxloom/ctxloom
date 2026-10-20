@@ -212,6 +212,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 
 	// --- skip: streaming (own text/json-only format switch, not emit()) ---
 	"session transcript watch": {skip: "streaming: renders one event at a time via its own format switch (see format.go's session/plan watch note), not a single emit() result"},
+	"session transcript show":  {skip: "streaming: watch's text/json renderers over a finished feed, not emit(); both formats pinned by session_transcript_show_test.go"},
 	"plan watch":               {skip: "streaming: same shape as session transcript watch"},
 	"run":                      {skip: "streaming + spawns a real engine subprocess: not a single emit() result; run.go's RunE does call emit() on at least one branch (agent-mode payload), not independently re-verified for every branch here"},
 

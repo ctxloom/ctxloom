@@ -16,6 +16,18 @@ import (
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
+// containerWatchHint names a launched container and the command that follows
+// its log (container name, runtime CLI, container name). The name is randomly
+// suffixed and dies with the container, so this line is the only place an
+// operator learns it. It rides clidiag's sink like every other diagnostic:
+// on a plain terminal that is stderr, and under the split view it is the
+// session's diagnostics log, never the terminal the view paints.
+const containerWatchHint = "container %s (watch: %s logs -f %s)"
+
+// containerRunnerTrail is the -v trail naming the runtime a delegated runner
+// launches on.
+const containerRunnerTrail = "container runner (%s, direct)"
+
 // StartRunner launches the engine runner INSIDE a container via a plain
 // docker/podman `run`: `ctxloom runner <engine>` is the container's
 // foreground process (runner.Main). It dials the coordinator out, so the
@@ -39,7 +51,7 @@ func (c Container) startRunner(ctx context.Context, backendName, label string, v
 		return nil, fmt.Errorf("container start-runner: unexpected workspace %T (expected a container workspace)", ws)
 	}
 	if verbosity > 0 {
-		fmt.Fprintf(os.Stderr, "ctxloom: container runner (%s, direct)\n", c.runtime.Name())
+		clidiag.Warn("ctxloom", containerRunnerTrail, c.runtime.Name())
 	}
 	spawnEnv, err := remintReach(cw, spawnEnv)
 	if err != nil {
@@ -49,10 +61,8 @@ func (c Container) startRunner(ctx context.Context, backendName, label string, v
 		return nil, err
 	}
 	name := containerName(cw.agentID)
-	// The watch hint is the container's log handle: the name is randomly
-	// suffixed and dies with the container, so this line is the only place
-	// an operator learns it. Unconditional on purpose.
-	fmt.Fprintf(os.Stderr, "ctxloom: container %s (watch: %s logs -f %s)\n", name, c.runtime.Binary(), name)
+	// Unconditional on purpose: the hint is the container's only log handle.
+	clidiag.Warn("ctxloom", containerWatchHint, name, c.runtime.Binary(), name)
 	spec := c.buildRunnerSpec(backendName, name, cw, spawnEnv)
 	return startDirectRunner(c.runtime, spec, spawnEnv)
 }
@@ -75,7 +85,7 @@ func (c Container) interactiveRunner(_ context.Context, backendName string, ws w
 		return nil, "", err
 	}
 	name := containerName(cw.agentID)
-	fmt.Fprintf(os.Stderr, "ctxloom: container %s (watch: %s logs -f %s)\n", name, c.runtime.Binary(), name)
+	clidiag.Warn("ctxloom", containerWatchHint, name, c.runtime.Binary(), name)
 	spec := c.buildRunnerSpec(backendName, name, cw, spawnEnv)
 	spec.TTY = true
 	// The runner process runs under RunnerTerm (the last -e wins over the

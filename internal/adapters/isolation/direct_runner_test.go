@@ -1,6 +1,7 @@
 package isolation
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os/exec"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // stateMount is a stand-in for one of the session-state mounts
@@ -249,4 +252,47 @@ func runnerSpecFor(rt Runtime, backend, dir string, env []string, mounts []mount
 	cw := &containerWorkspace{dir: dir, extraEnv: env, extraMounts: mounts, agentID: "m"}
 	placeRoots(c, cw)
 	return c.buildRunnerSpec(backend, "name", cw, nil)
+}
+
+// TestContainerRunner_LaunchNoticesRideTheDiagnosticsSink: a container
+// runner's launch notices — the `logs -f` watch hint and the -v runner trail —
+// go through clidiag's sink, never straight to os.Stderr. Under `ctxloom run`
+// the split view owns the terminal and points that sink at the session's
+// diagnostics log; a child container started while it is up wrote the hint to
+// raw stderr, which drew it over the agent list. Both launch shapes are
+// covered: the delegated (attached) runner and the interactive one.
+func TestContainerRunner_LaunchNoticesRideTheDiagnosticsSink(t *testing.T) {
+	rt := scriptRuntime{
+		fakeRuntime: fakeRuntime{name: "docker", binary: "sh", available: true},
+		args:        []string{"-c", "exit 0"},
+	}
+	c := NewContainerFor(rt, "mock").WithImage("img")
+
+	t.Run("delegated runner", func(t *testing.T) {
+		var sink bytes.Buffer
+		restore := clidiag.SetSink(&sink)
+		done := captureStderr(t)
+		h, err := c.startRunner(t.Context(), "mock", "", 1, newRunnerTestWorkspace(), nil)
+		stderr := done()
+		restore()
+		require.NoError(t, err)
+		require.NoError(t, h.Wait())
+
+		assert.Empty(t, stderr, "nothing may bypass the diagnostics sink onto the terminal")
+		assert.Contains(t, sink.String(), clidiag.Line("ctxloom", containerWatchHint, h.Name, rt.Binary(), h.Name))
+		assert.Contains(t, sink.String(), clidiag.Line("ctxloom", containerRunnerTrail, rt.Name()))
+	})
+
+	t.Run("interactive runner", func(t *testing.T) {
+		var sink bytes.Buffer
+		restore := clidiag.SetSink(&sink)
+		done := captureStderr(t)
+		_, name, err := c.interactiveRunner(t.Context(), "mock", newRunnerTestWorkspace(), nil)
+		stderr := done()
+		restore()
+		require.NoError(t, err)
+
+		assert.Empty(t, stderr, "nothing may bypass the diagnostics sink onto the terminal")
+		assert.Contains(t, sink.String(), clidiag.Line("ctxloom", containerWatchHint, name, rt.Binary(), name))
+	})
 }

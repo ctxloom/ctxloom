@@ -187,6 +187,7 @@
         "output_tokens": { "type": "integer", "minimum": 0 },
         "cache_read_tokens": { "type": "integer", "minimum": 0 },
         "cache_creation_tokens": { "type": "integer", "minimum": 0 },
+        "context_tokens": { "type": "integer", "minimum": 0 },
         "context_window": { "type": "integer", "minimum": 0 },
         "max_output_tokens": { "type": "integer", "minimum": 0 },
         "cost_usd": { "type": "number", "minimum": 0 },

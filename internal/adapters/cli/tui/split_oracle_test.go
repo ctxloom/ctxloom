@@ -213,7 +213,7 @@ func TestSplit_KeysForThePaneNeverAnswerAnApproval(t *testing.T) {
 	h.advance(termoracle.QuietFor)
 	require.NoError(t, <-reply)
 	require.True(t, h.s.apprOpen)
-	assert.Contains(t, strings.Join(paneText(h), "\n"), "keys here never reach the engine", "the approval holds the pane")
+	assert.Contains(t, strings.Join(paneText(h), "\n"), "keys come here, not to the engine", "the approval holds the pane")
 	h.typeBytes("\r")
 	assert.Equal(t, 1, h.s.armDiscarded)
 	h.advance(termoracle.ArmFor)

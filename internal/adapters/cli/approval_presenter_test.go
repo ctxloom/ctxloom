@@ -452,7 +452,7 @@ func TestModalPresenter_SummonsTheApprovalsViewOnTheRealSplitView(t *testing.T) 
 		<-done
 	})
 	tty.waitScreen(t, "the summoned approvals view, arming, beside the panel's count", func(s string) bool {
-		return strings.Contains(s, "⚑ 1 approval") && strings.Contains(s, "wiry-otter") && strings.Contains(s, "arming —")
+		return strings.Contains(s, "! 1 approval") && strings.Contains(s, "wiry-otter") && strings.Contains(s, "arming —")
 	})
 	clk.Advance(time.Second)
 	tty.waitScreen(t, "the approvals view armed", func(s string) bool { return !strings.Contains(s, "arming —") })

@@ -29,8 +29,9 @@ const (
 	// idleDozeAfter is how long an idle run waits before its glyph says it
 	// has gone quiet.
 	idleDozeAfter = 10 * time.Minute
-	// pendingGlyph marks approvals waiting on the human.
-	pendingGlyph = "⚑"
+	// pendingGlyph marks approvals waiting on the human: it takes the place
+	// of a waiting agent's activity glyph, drawn in styleWarn.
+	pendingGlyph = "!"
 )
 
 // noOwnControlNote is the note for a control key pressed on the session's
@@ -143,16 +144,22 @@ func (s *Split) treeLine(i, w int, selected bool, now time.Time) string {
 		label += " " + r.Cause
 	}
 	var right []string
-	switch {
-	case r.Pending > 1:
+	if r.Pending > 1 {
 		right = append(right, pendingGlyph+strconv.Itoa(r.Pending))
-	case r.Pending == 1:
-		right = append(right, pendingGlyph)
 	}
 	if r.Unread > 0 {
 		right = append(right, "✉ "+strconv.Itoa(r.Unread))
 	}
-	body := strings.Repeat(" ", min(r.Depth, 3)) + activityGlyph(r, now) + " " + label
+	glyph := activityGlyph(r, now)
+	if r.Pending > 0 {
+		glyph = pendingGlyph
+		if !selected {
+			// A selected row is drawn whole in its own style; a colour
+			// inside it would end that style partway along.
+			glyph = styleWarn.Render(glyph)
+		}
+	}
+	body := strings.Repeat(" ", min(r.Depth, 3)) + glyph + " " + label
 	inner := w - 1
 	if len(right) > 0 {
 		tail := strings.Join(right, " ")
@@ -183,7 +190,7 @@ func (s *Split) footerLines(w int) []string {
 		add(s.banner, styleSelected)
 	}
 	if s.pendingN > 0 {
-		add(s.pendingLine(), styleHeader)
+		add(s.pendingLine(), styleWarn)
 	}
 	if line := s.filterLine(); line != "" {
 		add(line, styleDim)
@@ -256,16 +263,19 @@ func (s *Split) glyphColumn(h int) []string {
 	for y := 0; y < h && start+y < len(s.rows); y++ {
 		r := s.rows[start+y]
 		g := activityGlyph(r, now) + " "
-		if r.Pending > 0 {
-			g = pendingGlyph + " "
-		}
-		if start+y == sel {
+		switch {
+		case start+y == sel:
+			if r.Pending > 0 {
+				g = pendingGlyph + " "
+			}
 			g = styleSelected.Render(g)
+		case r.Pending > 0:
+			g = styleWarn.Render(pendingGlyph) + " "
 		}
 		lines[y] = g
 	}
 	if s.pendingN > 0 && h > 0 {
-		lines[h-1] = styleHeader.Render(pendingGlyph + " ")
+		lines[h-1] = styleWarn.Render(pendingGlyph) + " "
 	}
 	return lines
 }

@@ -30,7 +30,7 @@ func TestSplit_ASummonedApprovalShowsTheChildsEscapesAsText(t *testing.T) {
 	require.NoError(t, <-reply)
 
 	screen := strings.Join(h.screen(), "\n")
-	assert.Contains(t, screen, "┌ ctxloom approval ─ keys here never reach the engine")
+	assert.Contains(t, screen, "┌ ctxloom approval ─ keys come here, not to the engine")
 	assert.Contains(t, screen, "$ rm -rf build⟨ESC⟩[2J⟨ESC⟩[H[ Allow ]⟨ESC⟩]0;pwned⟨U+0007⟩ ⟨U+202E⟩gnp.exe")
 	assert.Contains(t, screen, "arming — keys are ignored for a moment")
 

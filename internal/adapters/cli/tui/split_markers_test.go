@@ -37,9 +37,10 @@ func treeText(h *splitHarness) []string {
 	return lines
 }
 
-// A row whose agent waits on approvals says so at its right edge — ⚑, with
-// the count past one — and its unread mail as ✉ N, which a long name is cut
-// short to keep; it sorts to the top of
+// A row whose agent waits on approvals says so in place of its activity
+// glyph — a red ! — with the count past one at its right edge beside its
+// unread mail as ✉ N, which a long name is cut short to keep; it sorts to
+// the top of
 // its level, ahead of the activity order. The footer keeps the total. The
 // asker is the queue's own attribution (each request's From harp).
 func TestSplit_RowMarkersAndApprovalsFirst(t *testing.T) {
@@ -54,11 +55,13 @@ func TestSplit_RowMarkersAndApprovalsFirst(t *testing.T) {
 	assert.Equal(t, []string{selfHarp + "@0", "mid-wren@1", "calm-swan@1", "busy-crow@1"}, rosterOrder(h.s.rows),
 		"rows waiting on an approval first, by activity among themselves")
 	tree := treeText(h)
-	assert.Equal(t, "  ◐ mid-wren·finder      ⚑", tree[1])
-	assert.Equal(t, "  ◐ calm-swan·revi… ⚑2 ✉ 4", tree[2])
+	assert.Equal(t, "  ! mid-wren·finder", tree[1])
+	assert.Equal(t, "  ! calm-swan·revi… !2 ✉ 4", tree[2])
+	assert.Contains(t, h.s.treeLine(1, rosterPaneWidth, false, h.clk.Now()), styleWarn.Render(pendingGlyph), "drawn to catch the eye")
+	assert.NotContains(t, h.s.treeLine(1, rosterPaneWidth, true, h.clk.Now()), styleWarn.Render(pendingGlyph), "but not inside a selected row's own style")
 	assert.True(t, h.panelHas(pendingGlyph+" 3 approvals"), "the footer keeps the total")
 
-	assert.Equal(t, "  ◐ calm-swan·reviewer            ⚑2 ✉ 4", strings.TrimRight(ansi.Strip(h.s.treeLine(2, 40, false, h.clk.Now())), " "))
+	assert.Equal(t, "  ! calm-swan·reviewer            !2 ✉ 4", strings.TrimRight(ansi.Strip(h.s.treeLine(2, 40, false, h.clk.Now())), " "))
 
 	q.resolve("r1")
 	q.resolve("r2")
@@ -81,7 +84,7 @@ func TestSplit_ApprovalsReorderKeepsTheSelection(t *testing.T) {
 	assert.Equal(t, "calm-swan", selectedHarp(h), "up from where busy-crow now is: calm-swan, raised above it")
 }
 
-// On a terminal too narrow for the tree, ⚑ stands in for a waiting row's
+// On a terminal too narrow for the tree, ! stands in for a waiting row's
 // state glyph.
 func TestSplit_GlyphColumnFlagsAWaitingRow(t *testing.T) {
 	h, _, q := markersHarness(t, rosterPaneWidth+minPaneCols)

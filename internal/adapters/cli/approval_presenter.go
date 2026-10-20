@@ -11,7 +11,7 @@ import (
 )
 
 // modalPresenter presents the root's approval queue on the interactive run's
-// split view: the panel's ⚑ count and bell, and the approvals view summoned
+// split view: the panel's ! count and bell, and the approvals view summoned
 // at the human's next typing pause. It is the queue's one presenter; only
 // the approvals view answers.
 type modalPresenter struct {

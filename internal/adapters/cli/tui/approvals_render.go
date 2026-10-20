@@ -26,7 +26,10 @@ var (
 )
 
 // modalTitle states the approvals view's one trust property on every frame.
-const modalTitle = " ctxloom approval ─ keys here never reach the engine "
+const modalTitle = " ctxloom approval ─ keys come here, not to the engine "
+
+// prefixHereNote answers the prefix pressed inside the approvals view.
+const prefixHereNote = "this view already has the keyboard: ←→ choose, Enter confirm, Esc later"
 
 // apprChrome is what the split view knows about the approvals view's arming.
 type apprChrome struct {
@@ -96,7 +99,7 @@ func (a approvalsModel) rule(w int, left, right string) string {
 
 // topRule carries the title and the pending count.
 func (a approvalsModel) topRule(w int) string {
-	count := " ⚑ " + strconv.Itoa(a.liveCount()) + " pending "
+	count := " " + pendingGlyph + " " + strconv.Itoa(a.liveCount()) + " pending "
 	fill := w - 2 - lipgloss.Width(modalTitle) - lipgloss.Width(count)
 	if fill < 1 {
 		return styleFrame.Render(padCell("┌"+modalTitle, w))

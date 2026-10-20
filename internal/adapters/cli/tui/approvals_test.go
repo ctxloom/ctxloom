@@ -475,16 +475,22 @@ func TestApprovals_TheModalClosesWhenTheLastRequestIsGone(t *testing.T) {
 	assert.True(t, h.quit)
 }
 
-// TestApprovals_EscCtrlCAndThePrefixHideWithoutDeciding — even inside a
-// re-arm window, since hiding decides nothing.
-func TestApprovals_EscCtrlCAndThePrefixHideWithoutDeciding(t *testing.T) {
-	for _, k := range []string{"esc", "ctrl+]"} {
-		h := newApprHarness(t, newFakeQueue(bashReq("a", "wiry-otter", "ls", 5*time.Minute)))
-		h.keys("right", k)
-		assert.True(t, h.quit, k)
-		assert.Empty(t, h.q.calls(), k)
-	}
-	h := newApprHarness(t, newFakeQueue(bashReq("a", "wiry-otter", "ls", 5*time.Minute), bashReq("b", "calm-heron", "ls", 6*time.Minute)))
+// TestApprovals_EscAndCtrlCHideWithoutDeciding — even inside a re-arm
+// window, since hiding decides nothing.
+func TestApprovals_EscAndCtrlCHideWithoutDeciding(t *testing.T) {
+	h := newApprHarness(t, newFakeQueue(bashReq("a", "wiry-otter", "ls", 5*time.Minute)))
+	h.keys("right", "esc")
+	assert.True(t, h.quit)
+	assert.Empty(t, h.q.calls())
+
+	h = newApprHarness(t, newFakeQueue(bashReq("a", "wiry-otter", "ls", 5*time.Minute)))
+	h.keys("right", "ctrl+]")
+	assert.False(t, h.quit, "the prefix, pressed to reach the view, keeps it")
+	assert.Contains(t, h.screen(), prefixHereNote, "and says it already has the keyboard")
+	assert.Empty(t, h.q.calls())
+	h.keys("esc")
+	assert.True(t, h.quit)
+	h = newApprHarness(t, newFakeQueue(bashReq("a", "wiry-otter", "ls", 5*time.Minute), bashReq("b", "calm-heron", "ls", 6*time.Minute)))
 	h.keys("down")
 	h.send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	assert.True(t, h.quit, "ctrl-c hides inside the re-arm window")

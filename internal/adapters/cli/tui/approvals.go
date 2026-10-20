@@ -347,11 +347,18 @@ func answerCmd(src coord.ApprovalSource, what string, ids []coord.ApprovalID, d 
 }
 
 // key handles one key press; hide reports that the human dismissed the view
-// (Later, Esc, ctrl-c, the prefix) — which never decides anything.
+// (Later, Esc, ctrl-c) — which never decides anything. The prefix does not:
+// everywhere else it moves the keyboard to the other side, and a human
+// pressing it here to reach this view would put the decision off unseen. It
+// says the view already has the keyboard instead.
 func (a approvalsModel) key(msg tea.KeyPressMsg) (next approvalsModel, cmd tea.Cmd, hide bool) {
 	k := msg.String()
-	if k == "ctrl+c" || k == a.prefixKey {
+	if k == "ctrl+c" {
 		return a, nil, true
+	}
+	if k == a.prefixKey {
+		a.note = prefixHereNote
+		return a, nil, false
 	}
 	if a.now().Before(a.inertUntil) {
 		a.inertDiscarded++

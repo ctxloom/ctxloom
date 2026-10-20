@@ -239,7 +239,7 @@ func TestSplit_FocusReportsFollowTheHumansTerminal(t *testing.T) {
 func TestSplit_ChromeCountsBellsAndNotes(t *testing.T) {
 	h := newSplitHarness(t, newSplitPort()).sized(100, 12)
 	h.send(approvalsCountMsg{n: 2, oldest: h.clk.Now().Add(-3 * time.Minute), arrived: true})
-	assert.True(t, h.panelHas("⚑ 2 approvals · 3m · a"))
+	assert.True(t, h.panelHas("! 2 approvals · 3m · a"))
 	assert.Equal(t, []string{"\a"}, h.raws())
 	h.advance(approvalBellInterval - time.Second)
 	h.send(approvalsCountMsg{n: 3, arrived: true})
@@ -247,7 +247,7 @@ func TestSplit_ChromeCountsBellsAndNotes(t *testing.T) {
 	h.advance(time.Second)
 	h.send(approvalsCountMsg{n: 1, arrived: true})
 	assert.Len(t, h.raws(), 2)
-	assert.True(t, h.panelHas("⚑ 1 approval · a"))
+	assert.True(t, h.panelHas("! 1 approval · a"))
 	h.send(ringMsg{})
 	assert.Len(t, h.raws(), 3, "a ring always rings")
 

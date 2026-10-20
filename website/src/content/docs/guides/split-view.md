@@ -10,7 +10,7 @@ When the run ends, your engine's last screen stays in your terminal, followed by
 
 ## In the panel
 
-Your session is always the top row, with the agents it delegated to under it. Each level of the list is ordered by activity, most recent first. An agent that is waiting for you to approve a call is marked ⚑ at the row's right edge (⚑2 when it waits on two), and it moves to the top of its level. Unread mail shows there as ✉ and a count. A name too long for the panel is cut short to keep them.
+Your session is always the top row, with the agents it delegated to under it. Each level of the list is ordered by activity, most recent first. An agent that is waiting for you to approve a call is marked with a red **!** in place of its activity glyph (and !2 at the row's right edge when it waits on two), and it moves to the top of its level. The approvals line at the panel's foot is red too. Unread mail shows there as ✉ and a count. A name too long for the panel is cut short to keep them.
 
 The list shows only agents and sessions active within `ui.list_window` (default **7d**; `all` shows everything). Anything running, and anything waiting on an approval or holding mail, shows whatever its age. `w` widens the window for this session (1h, 1d, 7d, any age, then round again), and `f` filters by status: all, active (not ended), waiting (on your approval), or ended. Your own session and the selected agent always show, and so does the parent of any agent that shows; one shown only for that is dim. A dim line at the foot of the panel says what is hidden: `+416 older than 7d`, or, under a status filter, the filter, the window and the count, for example `active · 7d · +4 hidden`.
 
@@ -40,4 +40,4 @@ The pane shows the agent's feed above an input line. Enter sends what you typed,
 
 ## Approvals
 
-When a delegated agent asks you to approve a call, the terminal bell rings. On Linux, a desktop notification also appears if `notify-send` is installed. The approvals view takes the pane the next time you pause typing, and it ignores keys for a moment so that one meant for your engine can't answer it. To decide, move with ←/→ (or Tab) and press Enter. Esc puts the decision off.
+When a delegated agent asks you to approve a call, the terminal bell rings. On Linux, a desktop notification also appears if `notify-send` is installed. The approvals view takes the pane the next time you pause typing, and it ignores keys for a moment so that one meant for your engine can't answer it. Once it shows, it has the keyboard: there is nothing to switch to. To decide, move with ←/→ (or Tab) and press Enter. Esc puts the decision off; Ctrl+] there leaves the view open and says so.

@@ -220,6 +220,9 @@ func (s *Split) approvalKey(msg tea.KeyPressMsg) tea.Cmd {
 	s.appr = next
 	if hide {
 		s.closeApprovals()
+		if s.pendingN > 0 {
+			s.flash(laterNote(s.prefix.Caret(), s.focus == focusList), laterNoteFor)
+		}
 		return nil
 	}
 	return cmd
@@ -236,6 +239,18 @@ func (s *Split) approvalPaste(text string) {
 func (s *Split) discardWhileArming() {
 	s.armDiscarded++
 	s.armUntil = s.clock.Now().Add(s.present.ArmFor)
+}
+
+// laterNoteFor is how long the note a put-off decision leaves shows.
+const laterNoteFor = 8 * time.Second
+
+// laterNote says how to reopen the approvals a human just put off: a from
+// the tree, which caret (the prefix) reaches when the pane has the keyboard.
+func laterNote(caret string, inTree bool) string {
+	if inTree {
+		return pendingGlyph + " still waiting · a reopens"
+	}
+	return pendingGlyph + " still waiting · " + caret + " then a reopens"
 }
 
 // closeApprovals hides the approvals view. Focus is where the view found

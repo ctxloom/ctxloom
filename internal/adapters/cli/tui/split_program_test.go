@@ -226,7 +226,7 @@ func TestSplitView_SummonShowsAndHonoursItsContext(t *testing.T) {
 	p := startProgram(t, port, 110, 30)
 	require.NoError(t, p.v.Summon(context.Background(), "approvals", "approval from brave-heron"), "no input yet: quiet")
 	p.out.waitUntil(t, "the approval", func(out []byte) bool {
-		return strings.Contains(strings.Join(screenOf(out, p.w, p.h).Text(), "\n"), "keys here never reach the engine")
+		return strings.Contains(strings.Join(screenOf(out, p.w, p.h).Text(), "\n"), "keys come here, not to the engine")
 	})
 	assert.ErrorContains(t, p.v.Summon(context.Background(), "palette", "x"), `no view "palette"`, "only the approvals view is summoned")
 
@@ -248,7 +248,7 @@ func TestSplitView_CloseEndsItAndRefusesAfter(t *testing.T) {
 	p.v.Note("hello", time.Minute)
 	p.out.waitUntil(t, "the note and the count", func(out []byte) bool {
 		text := strings.Join(screenOf(out, p.w, p.h).Text(), "\n")
-		return strings.Contains(text, "hello") && strings.Contains(text, "⚑ 1 approval")
+		return strings.Contains(text, "hello") && strings.Contains(text, "! 1 approval")
 	})
 	p.v.Close()
 	select {

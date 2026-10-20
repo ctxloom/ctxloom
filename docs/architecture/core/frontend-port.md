@@ -102,7 +102,7 @@ The agent list is decided once, below every frontend, in `internal/core/frontend
 (`roster.go`): `BuildRoster` merges the index and the runs into the lineage tree, and
 `ArrangeRoster` orders and filters it for display — the status filter
 (`StatusFilter`: all · active · waiting · ended) and the age window (`ui.list_window`,
-read by `ParseListWindow`; `NextListWindow` steps 1h · 1d · 7d · any age). A row the
+read by `operations.ParseListWindow`, an adapter since it reads config; `NextListWindow` steps 1h · 1d · 7d · any age). A row the
 window would hide still shows while it matters now (running, waiting on an approval,
 holding mail, held); the running session and the selection always show, as does the
 parent of every row that shows, marked `RosterRow.Context`. `Port.Roster` is

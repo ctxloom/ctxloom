@@ -393,6 +393,26 @@ func (q *pumpQueue) Pending() []coord.PendingApproval {
 
 func (q *pumpQueue) Subscribe(context.Context) <-chan coord.QueueEvent { return q.ch }
 
+// Putting a decision off says how to come back to it, from wherever the
+// keyboard lands.
+func TestSplit_LaterSaysHowToReopen(t *testing.T) {
+	port := newSplitPort()
+	port.queue = newFakeQueue(bashReq("a", "wiry-otter", "ls", time.Hour))
+	h := newSplitHarness(t, port).sized(110, 40)
+	h.send(approvalsCountMsg{n: 1})
+	h.typeBytes("\x1d")
+	h.keys("a", "esc")
+	assert.False(t, h.s.apprOpen)
+	assert.Equal(t, laterNote(h.s.prefix.Caret(), true), h.s.noteLine(), "from the tree: a")
+	assert.Contains(t, h.s.noteLine(), "a reopens")
+	h.keys("a")
+	assert.True(t, h.s.apprOpen, "and a does")
+	h.keys("esc")
+	h.advance(laterNoteFor)
+	assert.Empty(t, h.s.noteLine(), "the note goes")
+	assert.Contains(t, laterNote("^]", false), "^] then a reopens", "from the pane: the prefix first")
+}
+
 // The approvals view in the split takes pastes into its note field, as the
 // modal does, and only Enter on Deny denies.
 func TestSplit_ApprovalsTakeAPasteIntoTheNote(t *testing.T) {

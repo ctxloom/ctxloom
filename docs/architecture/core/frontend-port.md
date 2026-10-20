@@ -1,9 +1,8 @@
 # The frontend port
 
 `internal/core/frontend` is the ONE UI-neutral surface every frontend consumes.
-The terminal UI (the `adapters/termui` interceptor and surround bar, the
-`adapters/cli/tui` overlay, and `ctxloom run`'s own terminal drive) is the first
-frontend; a VS Code bridge and an ACP server are expected. Every frontend gets
+The terminal UI (the `adapters/cli/tui` split view and `ctxloom run`'s own
+terminal drive) is the first frontend; a VS Code bridge and an ACP server are expected. Every frontend gets
 everything from the port, and core never knows which frontend is attached.
 Ruled by the human 2026-10-13 (split-agent-view plan, session lone-shiny-mummy);
 step 2 of task `vengeful-scrubber`.
@@ -20,16 +19,14 @@ approvals, the control verbs, the interactive terminal — is in-process only: s
 ```mermaid
 flowchart TD
   subgraph frontends["frontends (adapters) — consume the port only"]
-    TERMUI["adapters/termui<br/>interceptor · surround bar"]
-    TUI["adapters/cli/tui<br/>overlay (bubbletea)"]
+    TUI["adapters/cli/tui<br/>split view (bubbletea)"]
     CLIUI["adapters/cli<br/>run_terminal_ui.go · presenters · run_pty.go drive"]
     FUTURE["(future) VS Code bridge · ACP server"]
   end
   PORT[["internal/core/frontend.Port<br/>UI-neutral; core types only"]]
   TUI --> PORT
   CLIUI --> PORT
-  CLIUI --> TERMUI
-  TUI --> TERMUI
+  CLIUI --> TUI
   FUTURE -.-> PORT
   subgraph impls["implementations"]
     INPROC["operations.NewFrontendPort<br/>frontendport.go — in-process"]
@@ -42,16 +39,16 @@ flowchart TD
   INPROC --> INDEX["session index + session lock<br/>(LockSessionState)"]
   INPROC --> PTY["the run's pty<br/>hostpty.Session (TerminalHost)"]
   WIRE --> COORD
-  CORE["internal/core/**, internal/shared/**"] -. "FORBIDDEN: termui, cli/tui,<br/>charm.land/*, github.com/charmbracelet/*" .-> frontends
+  CORE["internal/core/**, internal/shared/**"] -. "FORBIDDEN: cli/tui, termemu,<br/>charm.land/*, github.com/charmbracelet/*" .-> frontends
 ```
 
 `ctxloom run` composes the port once per session (`runState.frontendPort`,
-`cli/run.go`) and hands that one value to the surround bar's roster
-(`surroundRoster`), the overlay (`tui.Sources{Port, Self}`), the approval modal
+`cli/run.go`) and hands that one value to the split view (`tui.SplitOptions.Port`:
+its tree, a child's feed, the control verbs), the approval presenter
 (`modalPresenter` over `Port.Approvals`), the credential notice
 (`credentialPresenter` over `Port.CredentialHolds`), and the interactive drive
-(`driveOwnedInteractive` pumps keystrokes, output and resize through
-`Port.Terminal`). None of them holds the coordinator.
+(`driveOwnedInteractive` takes `Port.Terminal`, which the split view writes
+keystrokes and resizes to and whose output the drive copies into its pane). None of them holds the coordinator.
 
 ## The contract, by symbol
 
@@ -108,13 +105,13 @@ real gRPC dial. `frontendfake.Port` is the double a frontend's unit tests share.
 ## Enforcement
 
 - **`core-and-shared-import-no-frontend`** (`archrules.LayeringRules`): no production
-  file under `internal/core` or `internal/shared` imports `adapters/termui`,
-  `adapters/cli/tui`, or any `charm.land/*` / `github.com/charmbracelet/*` module.
+  file under `internal/core` or `internal/shared` imports `adapters/cli/tui`,
+  `adapters/termemu`, or any `charm.land/*` / `github.com/charmbracelet/*` module.
   Third-party modules are named through `LayeringRule.ForbidModules`, matched by import
   path; `TestArch_LayeringForbidModules_NameRealModules` fails a prefix that matches no
   required module. Enforced by `just lint-arch` and the pre-commit hook.
 - **`TestArch_FrontendsHoldNoCoordinator`** (`tests/arch`): no production file of
-  `termui`, `cli/tui`, or the CLI's terminal-UI and presenter files names
+  `cli/tui`, or the CLI's terminal-UI and presenter files names
   `coord.Coordinator`.
 - **`TestNoWirePathAnswersAnApproval`** (`coordgrpc`): ConsumerService is exactly its
   reviewed methods and no decision crosses the wire.

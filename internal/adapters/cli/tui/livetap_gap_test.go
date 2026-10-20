@@ -3,23 +3,18 @@ package tui_test
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
@@ -31,7 +26,7 @@ import (
 // it proves that a real seq discontinuity on the wire — the shape
 // consumer.go's watchHub.broadcast produces when a slow subscriber's
 // bounded ring drops an event (PART 2) — really does turn into a real,
-// visible notice in the real tui.Overlay (PART 1's gap detection, wired all
+// visible notice in the real tui.SplitView (PART 1's gap detection, wired all
 // the way through). It deliberately does NOT try to provoke an actual
 // buffer overflow by racing a real StartRun child's event volume against
 // gRPC flow control: that mechanism is proven directly and deterministically
@@ -168,13 +163,13 @@ func toolCallEvent(seq uint64) *agentcoordpb.AgentEvent {
 	}
 }
 
-// TestLiveTap_GapNoticeReachesTheOverlay proves a real seq gap on the wire
-// renders as a real, visible notice in the real tui.Overlay: entry (seq 1)
+// TestLiveTap_GapNoticeReachesTheSplitView proves a real seq gap on the wire
+// renders as a real, visible notice in the real tui.SplitView: entry (seq 1)
 // -> [seq 4 arrives, skipping 2 and 3] -> a gap notice -> entry (seq 4) ->
 // clean end on RunCompleted. This makes obsolete the note livetap_test.go
 // used to carry ("operations.SessionFeedEvent.Gap is never set anywhere on
 // the live path any more... a vestige of the retired agentbus tap").
-func TestLiveTap_GapNoticeReachesTheOverlay(t *testing.T) {
+func TestLiveTap_GapNoticeReachesTheSplitView(t *testing.T) {
 	home := testsupport.Isolate(t)
 	projectDir := home + "/proj"
 	require.NoError(t, os.MkdirAll(projectDir, 0o755))
@@ -183,44 +178,21 @@ func TestLiveTap_GapNoticeReachesTheOverlay(t *testing.T) {
 	f := newGapFakeConsumer(harp, "run-1")
 	startGapFakeCoordinator(t, home, "proj", f)
 
-	// The overlay's own port: its roster lists the seeded harp from the
-	// index, and opening it resolves the live tap the fake serves.
-	src := tui.Sources{Port: operations.NewFrontendPort(operations.FrontendDeps{Engines: engines.Registry(), WorkDir: projectDir})}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ov := tui.NewOverlay(ctx, src, 0x1d, termui.OverlayStart{})
-	pr, pw := io.Pipe()
-	defer pw.Close()
-	var tty syncBuf
-	done := make(chan error, 1)
-	go func() { done <- ov.Run(pr, &tty, tuiGeo()) }()
-
-	waitForLiveTap(t, "the feed to resolve live", func() bool {
-		return strings.Contains(tty.String(), "· live")
-	})
+	// The split view's own port: its tree lists the seeded harp from the
+	// index, and selecting it resolves the live tap the fake serves.
+	port := operations.NewFrontendPort(operations.FrontendDeps{Engines: engines.Registry(), WorkDir: projectDir})
+	in, screen := startLiveSplit(t, port, "")
+	screen.waitFor(t, "the seeded harp in the tree", harp)
+	_, err := in.Write([]byte("\x1dj"))
+	require.NoError(t, err)
+	screen.waitFor(t, "the feed resolved live", "feed: "+harp, "· live")
 
 	f.push(t, toolCallEvent(1))
-	waitForLiveTap(t, "the first tool_use entry to render", func() bool {
-		return strings.Contains(tty.String(), "seq-1")
-	})
+	screen.waitFor(t, "the first tool_use entry", "seq-1")
 
 	// Skip 2 and 3: a real hub drop, on the wire, looks exactly like this.
 	f.push(t, toolCallEvent(4))
-	waitForLiveTap(t, "a gap notice for the 2 skipped events to render", func() bool {
-		return strings.Contains(tty.String(), "2 live events dropped")
-	})
-	waitForLiveTap(t, "the entry after the gap to render", func() bool {
-		return strings.Contains(tty.String(), "seq-4")
-	})
+	screen.waitFor(t, "a gap notice for the 2 skipped events, then the entry after it", "2 live events dropped", "seq-4")
 
 	f.push(t, &agentcoordpb.AgentEvent{Seq: 5, Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{}}})
-
-	_, err := pw.Write([]byte("q"))
-	require.NoError(t, err)
-	select {
-	case runErr := <-done:
-		assert.NoError(t, runErr)
-	case <-time.After(3 * time.Second):
-		t.Fatal("overlay did not quit")
-	}
 }

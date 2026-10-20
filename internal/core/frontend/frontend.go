@@ -1,6 +1,6 @@
 // Package frontend is the frontend port: the ONE UI-neutral surface every
-// frontend consumes. The terminal UI (adapters/termui with the adapters/cli/tui
-// overlay) is the first frontend; a VS Code bridge and an ACP server are
+// frontend consumes. The terminal UI (the adapters/cli/tui split view) is the
+// first frontend; a VS Code bridge and an ACP server are
 // expected. Every frontend gets everything from this port, and core never
 // knows which one is attached.
 //

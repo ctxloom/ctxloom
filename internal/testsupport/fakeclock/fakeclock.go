@@ -1,5 +1,5 @@
 // Package fakeclock is a manual clock for tests of code that takes its time
-// from an injected Now/AfterFunc pair (termui.Clock is one): time moves only
+// from an injected Now/AfterFunc pair (tui.Clock is one): time moves only
 // on Advance, which runs every timer that has come due, in deadline order, on
 // the caller's goroutine — so a test forces each interleaving instead of
 // sleeping into one.

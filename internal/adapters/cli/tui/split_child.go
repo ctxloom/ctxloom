@@ -200,7 +200,7 @@ func (s *Split) sendControl(req coord.ControlRequest) tea.Cmd {
 }
 
 // applyControlResult lands one control round trip's outcome as the panel's
-// note, worded as the overlay words it.
+// note.
 func (s *Split) applyControlResult(msg controlResultMsg) {
 	note, failed := controlOutcome(msg)
 	if failed {

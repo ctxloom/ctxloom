@@ -98,7 +98,7 @@ func TestSplitChild_TypingSendsThroughControl(t *testing.T) {
 }
 
 // The tree's control keys act on its selected child: pause and resume at
-// once, worded as the overlay words them; ? and s latch the input line's verb
+// once, saying what changed; ? and s latch the input line's verb
 // and hand it focus. Interrupt is a steer's alone.
 func TestSplitChild_TreeControlKeys(t *testing.T) {
 	h, port := childHarness(t)

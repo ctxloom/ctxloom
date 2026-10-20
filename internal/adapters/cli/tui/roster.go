@@ -18,7 +18,7 @@ const (
 
 // BuildRoster merges the session index (every session of this project, each
 // with its lock's verdict) with the coordinator's runs (children with
-// lineage and delivery state) into the overlay's display rows: index order
+// lineage and delivery state) into the tree's display rows: index order
 // preserved (most recent first, the running session pinned on top), children
 // lineage-indented directly under their parent. A harp present in both keeps
 // the index row's engine and takes the held row's richer agent/state; a held

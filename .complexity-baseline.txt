@@ -30,7 +30,6 @@
 ./internal/adapters/cli/mcp_doccomment_test.go|TestDocComments_NameOnlyConstructorsThatExist t * testing . T|1|11|TestDocComments_NameOnlyConstructorsThatExist|34-76
 ./internal/adapters/cli/run_owned.go|renderOwnedRunEvents ctx context . Context , out io . Writer , format , runID string , events < - chan * agentcoordpb . AgentEvent , turnIdle chan < - string , capture bool|1|26|renderOwnedRunEvents|199-301
 ./internal/adapters/cli/session_compact.go|compactMissingOrStale cmd * cobra . Command , entries [ ] sessions . Entry , appDir string|1|11|compactMissingOrStale|27-81
-./internal/adapters/cli/tui/model.go| m Model|1|25||421-502
 ./internal/adapters/cli/tui/render_test.go|assertTerminatedEscapes t * testing . T , s string , msg string , args ... any|1|11|assertTerminatedEscapes|202-232
 ./internal/adapters/cli/util_config_write.go||1|11||196-269
 ./internal/adapters/cli/util_config_write.go|buildAndWriteApplicationRecord fs afero . Fs , target string , format hew . FormatID , tl hew . TransformList , patchBytes , before , after [ ] byte|1|11|buildAndWriteApplicationRecord|579-643
@@ -80,11 +79,6 @@
 ./internal/adapters/remote/registry.go|(r*Registry)Update name string , edit RemoteEdit|1|16|Update|283-349
 ./internal/adapters/remote/registry.go|(r*Registry)save|1|11|save|121-187
 ./internal/adapters/remote/repo_cache.go|(c*RepoCache)safeRepoPath parts ... string|1|11|safeRepoPath|381-402
-./internal/adapters/termui/prefixkey.go|ParsePrefixKey s string|1|18|ParsePrefixKey|15-56
-./internal/adapters/termui/surround.go|(s*surround)SetSize rows , cols int|1|13|SetSize|160-219
-./internal/adapters/termui/tear_test.go|TestSurround_StressScriptedChildNoTearNoBleed t * testing . T|1|12|TestSurround_StressScriptedChildNoTearNoBleed|287-329
-./internal/adapters/termui/vtguard.go|(g*vtGuard)finishCSI|1|31|finishCSI|280-361
-./internal/adapters/termui/vtguard.go|(g*vtGuard)stepEsc b byte|1|17|stepEsc|129-192
 ./internal/adapters/transcript/recorder.go|(r*fileRecorder)record ev agent . ChatEvent|1|11|record|325-384
 ./internal/adapters/transcript/vendorreader/claude/claude_test.go|TestConvert_RealFieldsSurvive t * testing . T|1|19|TestConvert_RealFieldsSurvive|197-262
 ./internal/adapters/transcript/vendorreader/claude/locate.go|(l Locator)Discover workDir string|1|17|Discover|43-116

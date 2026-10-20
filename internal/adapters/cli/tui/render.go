@@ -83,7 +83,7 @@ func endedLabel(r RosterRow) string {
 
 // HoldLabel says what a hold waits on and, when it releases itself, until
 // when ("" for no hold) — the one wording for a hold on every root surface
-// (the overlay's feed title, the bar's digest).
+// (the feed title, the tree's rows).
 func HoldLabel(h *coord.RunHold) string {
 	switch {
 	case h == nil:

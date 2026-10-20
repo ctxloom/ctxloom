@@ -10,7 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/displaysafe"
 )
 
-// Approvals in the split view keep the modal's focus locks. A summoned
+// Approvals in the split view keep their focus locks. A summoned
 // approval takes the right pane only at a pause in the human's typing
 // (PresentPolicy.QuietFor), so a key typed for the engine lands in the
 // engine; once shown it is inert for PresentPolicy.ArmFor, restarting on
@@ -40,6 +40,9 @@ var ErrEngaged = errors.New("tui: the split view is in use; the notice was shown
 // ErrUnavailable refuses a summon the split view cannot show: it has
 // closed, or the session has no approval queue.
 var ErrUnavailable = errors.New("tui: the split view is unavailable")
+
+// approvalsUnavailable is why the approvals view cannot open.
+const approvalsUnavailable = "approvals unavailable (no coordinator for this session)"
 
 // errSummonReplaced ends a summon a newer one took the place of.
 var errSummonReplaced = errors.New("tui: summon replaced by a newer one")

@@ -99,8 +99,6 @@ A bounded, mutex-guarded tail of a child's stderr, filled by the child's own std
 |---|---|---|
 | `internal/adapters/isolation` | `startDirectRunner` (`stderrtail.New`) | tail read via `RunnerHandle.StderrTail` |
 
-A related but distinct implementation of the bounded-byte-tail concept lives at `internal/adapters/termui/ring.go:6-54` (`Ring` — a true fixed-capacity circular buffer with a `dropped` counter and `Drain()`-and-reset, deliberately not goroutine-safe).
-
 ## `internal/shared/shellenv`
 
 Widens binary resolution from the process's inherited `PATH` to the user's login+interactive shell `PATH`. Solves the detached-GUI launch (Dock icon, editor extension host) that inherits a bare `PATH` without nvm/rbenv/homebrew/`~/go/bin`, sometimes with `$SHELL` unset. Consumers: `git grep 'shellenv\.Resolve'` — the runner's spawn path (`runner.resolveBinaryPath`) and the engine-availability probe in `internal/adapters/operations`.

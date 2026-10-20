@@ -49,7 +49,7 @@ func TestValidateTerminalUIConfig_DefaultAndValidKeysPass(t *testing.T) {
 }
 
 // A run with no hosted coordinator (coordinator startup failed, or was
-// skipped) still hands the bar and the overlay a working port: an empty
+// skipped) still hands the split view a working port: an empty
 // roster (never an error), the typed ErrNotInjectable rather than a
 // nil-pointer panic on Control, and no approval queue.
 

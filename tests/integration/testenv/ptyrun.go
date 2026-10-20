@@ -25,9 +25,8 @@ const ptyGracefulShutdown = 2 * time.Second
 
 // ptyCapture is a goroutine-safe accumulator for everything read off a pty's
 // master side: the pty's own io.Copy-draining goroutine writes into it while
-// the test reads it back at will. Same idiom as internal/adapters/termui's
-// overlay_composition_test.go syncBuf / internal/adapters/cli/tui's overlay_test.go
-// syncBuffer — re-derived here (rather than exported and reused) because this
+// the test reads it back at will. Same idiom as internal/adapters/cli/tui's
+// split_program_test.go outTerm — re-derived here (rather than exported and reused) because this
 // one backs a real subprocess's pty, not an in-process pty pair, and those
 // types are unexported to a different package besides.
 //
@@ -177,9 +176,7 @@ const ptyFence = "\x00<ctxloom-pty-settle-fence>\x00"
 // emulator — so with any other TERM the run blocks for termenv's multi-second
 // query timeout on literally every invocation (measured: ~5.3s, dominating
 // and destabilizing suite runtime). TERM=dumb steers that detection away from
-// probing at all; it does not affect the surround bar/viewer's own escape
-// sequences, which internal/adapters/termui writes unconditionally and never gates on
-// TERM.
+// probing at all; the split view still draws under it.
 func (e *TestEnvironment) RunPTY(cols, rows int, extraEnv []string, args ...string) (*PTYSession, error) {
 	return e.RunPTYFrom(e.AppBinary, cols, rows, extraEnv, args...)
 }

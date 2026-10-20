@@ -19,7 +19,7 @@ import (
 // in-process core — the coupling the port exists to remove, and what would
 // keep an out-of-process frontend from being the same code.
 var (
-	frontendTrees = []string{"internal/adapters/termui", "internal/adapters/cli/tui"}
+	frontendTrees = []string{"internal/adapters/cli/tui"}
 	frontendFiles = []string{
 		"internal/adapters/cli/run_terminal_ui.go",
 		"internal/adapters/cli/approval_presenter.go",

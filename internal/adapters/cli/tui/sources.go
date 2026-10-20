@@ -8,21 +8,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/frontend"
 )
 
-// Sources are the overlay's seams: the frontend port it observes and acts
-// through, the session it runs in, and its clock. The CLI wires the session's
-// in-process port (operations.NewFrontendPort); tests inject a double.
-type Sources struct {
-	// Port is everything the overlay reads and does: the session index and
-	// the coordinator's runs for the roster, one harp's feed, the control
-	// verbs, and the approval queue. Nil leaves the overlay nothing to show,
-	// and every action says it is unavailable.
-	Port frontend.Port
-	// Self is the session's own harp, pinned on top of the roster.
-	Self string
-	// Now is the view's clock for countdowns and tombstones; nil is real time.
-	Now func() time.Time
-}
-
 // RosterRow is one line of the agents pane.
 type RosterRow struct {
 	Harp   string
@@ -54,7 +39,7 @@ type RosterRow struct {
 }
 
 // Feed is one open observation feed. Cancel releases the watch (switching
-// harps, closing the overlay).
+// harps, closing the split view).
 type Feed struct {
 	// Source is what actually fed the stream: "live" or "store".
 	Source string
@@ -63,7 +48,7 @@ type Feed struct {
 	Cancel context.CancelFunc
 }
 
-// LoadRoster is the overlay's roster over port: the session index merged
+// LoadRoster is the split view's roster over port: the session index merged
 // with the coordinator's runs (BuildRoster), self pinned on top. The runs are
 // enrichment — children's lineage and state — and their absence never blanks
 // the pane: a port that cannot list them leaves the index rows as they are.

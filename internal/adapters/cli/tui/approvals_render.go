@@ -15,7 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
-// The modal is framed and coloured unlike the engine's own prompt, and it has
+// The approvals view is framed and coloured unlike the engine's own prompt, and it has
 // no numbered options, so it cannot be mistaken for one — nor one for it.
 var (
 	styleFrame = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
@@ -25,13 +25,13 @@ var (
 	styleDel   = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 )
 
-// modalTitle states the modal's one trust property on every frame.
+// modalTitle states the approvals view's one trust property on every frame.
 const modalTitle = " ctxloom approval ─ keys here never reach the engine "
 
-// apprChrome is what the overlay knows about the modal's own arming.
+// apprChrome is what the split view knows about the approvals view's arming.
 type apprChrome struct {
-	arming       bool // summoned, and termui has not armed it yet
-	armDiscarded int  // keys termui discarded while arming
+	arming       bool // summoned, and not armed yet
+	armDiscarded int  // keys the split view discarded while arming
 }
 
 // render draws the approvals view as exactly h lines of w columns: a framed

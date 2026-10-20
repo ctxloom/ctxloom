@@ -135,7 +135,7 @@ left, the selected agent's view on the right, drawn by one compositor.
   commits a `termemu.Frame` at synchronized-output boundaries and reports the
   child's title, bell, OSC 52 clipboard and mouse mode through
   `termemu.Callbacks`. Only adapters import it: the layering rule keeps core and
-  shared free of it, as it does termui and cli/tui.
+  shared free of it, as it does cli/tui.
 - **`tui.Split`** (the bubbletea model) and **`tui.SplitView`** (`tui.StartSplit`)
   compose the screen. The left panel is the roster from the frontend port
   (`WatchRuns`, re-read with `ListRuns` on each event), with a token gauge and an
@@ -174,12 +174,9 @@ left, the selected agent's view on the right, drawn by one compositor.
   emulator's replies all cross x/vt's reply pipe to one drain, so they reach
   the engine in the order they were sent.
 - **`internal/testsupport/termoracle`** is the root terminal surface's contract
-  (prefix-key encodings, the input token corpus, the summon contract). Today's
-  termui and `tui.Split` both pass it, so wiring the split view in cannot quietly
-  drop a behaviour the run depends on.
-
-termui and the overlay it summoned are no longer on the run path; their
-deletion is pending.
+  (prefix-key encodings, the input token corpus, the summon contract), taken
+  from the terminal layer the split view replaced; `tui.Split` passes it, so a
+  behaviour the run depended on cannot be dropped unnoticed.
 
 ## Terminal predicates
 

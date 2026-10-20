@@ -30,7 +30,7 @@ func loginLimitHold(harps ...string) coord.CredentialHold {
 // A rate-limited hold waits on its own: the notice names the engine, the
 // credential's carrier (a variable's name, or a store read in place) and how
 // many runs wait, and says when they resume as an absolute time — a countdown
-// would change every tick and clobber every other bar note. It asks the human
+// would change every tick and clobber every other panel note. It asks the human
 // for nothing.
 func TestCredentialNoticeText_RateLimited(t *testing.T) {
 	assert.Equal(t, "", credentialNoticeText(nil, ""))
@@ -206,7 +206,7 @@ func (s *holdSource) get() []coord.CredentialHold {
 	return append([]coord.CredentialHold(nil), s.holds...)
 }
 
-// A hold puts its notice on the bar; it is not re-set while unchanged until
+// A hold puts its notice on the panel; it is not re-set while unchanged until
 // it would expire, then re-set so it never lapses; its release clears it.
 func TestCredentialPresenter_RefreshKeepsTheNoticeUpWhileHeld(t *testing.T) {
 	src := &holdSource{}
@@ -215,7 +215,7 @@ func TestCredentialPresenter_RefreshKeepsTheNoticeUpWhileHeld(t *testing.T) {
 	p := &credentialPresenter{holds: src.get, noteBar: rec.noteBar, ring: func() bool { return true }, clock: clk}
 
 	p.refresh()
-	assert.Empty(t, rec.all(), "nothing held: the bar is left alone")
+	assert.Empty(t, rec.all(), "nothing held: the panel is left alone")
 
 	src.set(tokenLimitHold("a"))
 	p.refresh()

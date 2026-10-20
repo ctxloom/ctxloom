@@ -11,7 +11,7 @@ import (
 
 // Plan styles: light, and only where the structure is unambiguous. A plan is
 // shown for the human to judge, not rendered as a document; a markdown engine
-// would be a large dependency whose output the modal would then have to trust.
+// would be a large dependency whose output the approvals view would then have to trust.
 var (
 	styleMDH     = lipgloss.NewStyle().Bold(true)
 	styleMDFence = lipgloss.NewStyle().Faint(true)

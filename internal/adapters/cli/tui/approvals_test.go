@@ -15,11 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/testsupport/frontendfake"
 )
 
 // fakeQueue is a coord.ApprovalSource the test drives: it parks what the
@@ -159,36 +157,67 @@ func bashReq(id, harp, cmd string, left time.Duration) coord.PendingApproval {
 	return toolReq(id, harp, "Bash", string(in), left)
 }
 
-// apprHarness drives a summoned modal's Model through Update, the way the
-// tui tests drive the roster view: hermetic, no terminal.
+// apprHarness drives a summoned approvals view's model hermetically, no
+// terminal: keys go to it as the split view hands them over, and its chrome
+// is what the split view shows around it.
 type apprHarness struct {
 	t   *testing.T
 	q   *fakeQueue
 	clk *testClock
-	m   Model
-	// quit is set once the model asked to close.
+	m   apprView
+	// quit is set once the view asked to close, or closed itself empty.
 	quit bool
 }
+
+// apprView is the approvals model with the split view's chrome around it.
+type apprView struct {
+	appr   approvalsModel
+	chrome apprChrome
+}
+
+// render is the view at the harness's size.
+func (v apprView) render() string { return strings.Join(v.appr.render(110, 40, v.chrome), "\n") }
+
+// armedMsg ends a summoned view's inert window, n keys swallowed in it.
+type armedMsg int
 
 func newApprHarness(t *testing.T, q *fakeQueue) *apprHarness {
 	t.Helper()
 	clk := &testClock{t: apprBase}
-	geo := termui.OverlayGeometry{Cols: 110, Rows: 40, PanelRows: 12}
-	m := NewModel(context.Background(), Sources{Port: &frontendfake.Port{ApprovalSource: q}, Now: clk.now}, geo, 0x1d)
-	m, _ = m.openApprovals(true)
+	a := newApprovalsModel(q, clk.now, "ctrl+]")
 	// The tests deliver ticks themselves; the model's own tick then fires at
 	// once and is dropped, instead of holding the harness for a second.
-	m.appr.tickEvery = 0
-	return &apprHarness{t: t, q: q, clk: clk, m: m}
+	a.tickEvery = 0
+	a.events = q.Subscribe(context.Background())
+	a.resync()
+	return &apprHarness{t: t, q: q, clk: clk, m: apprView{appr: a, chrome: apprChrome{arming: true}}}
 }
 
-// send delivers msg and runs whatever command comes back: a quit is noted,
-// a decision's result is fed back in, and the standing pump's and tick's
-// messages are dropped — the tests deliver those themselves.
+// send delivers msg and runs whatever command comes back: a decision's
+// result is fed back in, and the standing pump's and tick's messages are
+// dropped — the tests deliver those themselves.
 func (h *apprHarness) send(msg tea.Msg) {
 	h.t.Helper()
-	next, cmd := h.m.Update(msg)
-	h.m = next.(Model)
+	var cmd tea.Cmd
+	switch msg := msg.(type) {
+	case armedMsg:
+		h.m.chrome = apprChrome{armDiscarded: int(msg)}
+	case tea.KeyPressMsg:
+		var hide bool
+		h.m.appr, cmd, hide = h.m.appr.key(msg)
+		h.quit = h.quit || hide
+	case tea.PasteMsg:
+		h.m.appr = h.m.appr.paste(msg.Content)
+	case queueEventMsg:
+		h.m.appr, cmd = h.m.appr.applyQueueEvent(msg)
+	case approvalsTickMsg:
+		h.m.appr, cmd = h.m.appr.applyTick()
+	case answerResultMsg:
+		h.m.appr = h.m.appr.applyAnswerResult(msg)
+	case revokeResultMsg:
+		h.m.appr = h.m.appr.applyRevokeResult(msg)
+	}
+	h.quit = h.quit || h.m.appr.done()
 	h.run(cmd)
 }
 
@@ -203,7 +232,7 @@ func (h *apprHarness) run(cmd tea.Cmd) {
 		for _, c := range msg {
 			h.run(c)
 		}
-	case answerResultMsg, revokeResultMsg, bgDoneMsg:
+	case answerResultMsg, revokeResultMsg:
 		h.send(msg)
 	}
 }
@@ -285,7 +314,7 @@ func TestApprovals_EnterOnAnActionAnswersTheLatchedRequest(t *testing.T) {
 // TestApprovals_SelectionChangeResetsFocusAndRearms is T12's first case.
 func TestApprovals_SelectionChangeResetsFocusAndRearms(t *testing.T) {
 	h := newApprHarness(t, newFakeQueue(bashReq("a", "wiry-otter", "ls", 5*time.Minute), bashReq("b", "calm-heron", "rm -rf /", 9*time.Minute)))
-	h.send(armedMsg(0)) // termui's own arming is over
+	h.send(armedMsg(0)) // the split view's own arming is over
 	h.keys("right", "down")
 	assert.Contains(t, h.screen(), "[ Later ]", "moving the selection put focus back on Later")
 	h.keys("right", "enter")
@@ -462,39 +491,13 @@ func TestApprovals_EscCtrlCAndThePrefixHideWithoutDeciding(t *testing.T) {
 }
 
 // TestApprovals_ArmingIsShownUntilArmed: the summoned modal says it is inert
-// until termui arms it, then how many keys the window swallowed.
+// until the split view arms it, then how many keys the window swallowed.
 func TestApprovals_ArmingIsShownUntilArmed(t *testing.T) {
 	h := newApprHarness(t, newFakeQueue(bashReq("a", "wiry-otter", "ls", 5*time.Minute)))
 	assert.Contains(t, h.screen(), "arming — keys are ignored for a moment")
 	h.send(armedMsg(3))
 	assert.NotContains(t, h.screen(), "arming —")
 	assert.Contains(t, h.screen(), "3 key(s) ignored while arming")
-}
-
-// TestApprovals_NoticeBannerThenAOpensTheView: a request that arrives while
-// the human is in the roster view is a banner naming the asking harp; a
-// opens the approvals view. The notice is sanitized like everything else.
-func TestApprovals_NoticeBannerThenAOpensTheView(t *testing.T) {
-	q := newFakeQueue(bashReq("a", "wiry-otter", "ls", 5*time.Minute))
-	m := NewModel(context.Background(), Sources{Port: &frontendfake.Port{ApprovalSource: q}}, termui.OverlayGeometry{Cols: 100, Rows: 30, PanelRows: 10}, 0x1d)
-	next, _ := m.Update(noticeMsg("approval from wiry-otter\x1b[2J"))
-	m = next.(Model)
-	view := ansi.Strip(m.render())
-	assert.Contains(t, view, "⚑ approval from wiry-otter⟨ESC⟩[2J — a to review")
-	next, _ = m.Update(keyMsg("a"))
-	m = next.(Model)
-	assert.True(t, m.approvals)
-	assert.True(t, m.full, "a takes the full screen over an engine on the main screen")
-	assert.Contains(t, ansi.Strip(m.render()), "ctxloom approval ─ keys here never reach the engine")
-	assert.NotContains(t, ansi.Strip(m.render()), "a to review", "the banner is spent once the view is open")
-}
-
-func TestApprovals_UnavailableWithoutACoordinator(t *testing.T) {
-	m := NewModel(context.Background(), Sources{}, termui.OverlayGeometry{Cols: 100, Rows: 30, PanelRows: 10}, 0x1d)
-	next, _ := m.Update(keyMsg("a"))
-	m = next.(Model)
-	assert.False(t, m.approvals)
-	assert.Contains(t, ansi.Strip(m.render()), approvalsUnavailable)
 }
 
 // TestApprovals_RenderFitsEverySizeAndNeverCutsAnAction: exactly h lines of

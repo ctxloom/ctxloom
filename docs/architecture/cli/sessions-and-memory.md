@@ -122,7 +122,7 @@ verdicts are the three states:
 per row and puts the answer in `SessionView.State` (`state` in JSON).
 `operations.LockSessionState` is the production probe (a non-blocking
 `sessionlock.Inspect` that never creates the file), and the TUI roster's
-index rows use the same function, so the overlay and the listing speak one
+index rows use the same function, so the split view's tree and the listing speak one
 vocabulary. `session list` and `session search` pass it, so the text table's
 STATE column, every structured format and search agree. Search does not
 match a live row's stale end stamp, because it matches what the row shows.

@@ -235,7 +235,7 @@ func TestBuildRoster_CarriesActivityAndTheContextGauge(t *testing.T) {
 }
 
 // TestRosterStates_AreTheListingsWords: the roster and `ctxloom session list`
-// say a session's state in one vocabulary, the port's — and the overlay's
+// say a session's state in one vocabulary, the port's — and the tree's
 // ended word is the coordinator's, so that must be the port's too.
 func TestRosterStates_AreTheListingsWords(t *testing.T) {
 	assert.Equal(t, frontend.SessionLive, StateLive)

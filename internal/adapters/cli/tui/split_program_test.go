@@ -86,15 +86,22 @@ type programSplit struct {
 
 func startProgram(t *testing.T, port *splitPort, w, h int) *programSplit {
 	t.Helper()
+	return startProgramCtx(context.Background(), t, port, w, h, "")
+}
+
+// startProgramCtx is startProgram under ctx, with epilogue as the line the
+// split view leaves after its final frame.
+func startProgramCtx(ctx context.Context, t *testing.T, port *splitPort, w, h int, epilogue string) *programSplit {
+	t.Helper()
 	pr, pw := io.Pipe()
 	p := &programSplit{in: pw, out: newOutTerm(), engine: newEngineSink(), w: w, h: h}
 	prefix, err := ParsePrefixKey("ctrl-]")
 	require.NoError(t, err)
-	o := SplitOptions{Self: selfHarp, Term: p.engine, Prefix: prefix, In: pr, Out: p.out, Header: Header{Harp: selfHarp}, WindowSize: [2]int{w, h}}
+	o := SplitOptions{Self: selfHarp, Term: p.engine, Prefix: prefix, In: pr, Out: p.out, Header: Header{Harp: selfHarp}, WindowSize: [2]int{w, h}, Epilogue: epilogue}
 	if port != nil {
 		o.Port = port.port()
 	}
-	p.v, err = StartSplit(context.Background(), o)
+	p.v, err = StartSplit(ctx, o)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		p.v.Close()
@@ -254,6 +261,62 @@ func TestSplitView_CloseEndsItAndRefusesAfter(t *testing.T) {
 	assert.ErrorIs(t, p.v.Summon(context.Background(), "approvals", "n"), ErrUnavailable)
 	p.v.SetApprovals(2, time.Time{}, true) // returns: the program is gone
 	p.v.Close()                            // twice is harmless
+}
+
+// mainScreen is what the human's terminal shows once the split view has
+// left the alternate screen: everything written after the last 1049l,
+// replayed on a fresh reference terminal.
+func mainScreen(t *testing.T, out []byte, w, h int) []string {
+	t.Helper()
+	i := bytes.LastIndex(out, []byte("\x1b[?1049l"))
+	require.GreaterOrEqual(t, i, 0, "the split view left the alternate screen")
+	return screenOf(out[i:], w, h).Text()
+}
+
+// Closing leaves the pane's final frame on the main screen, and the
+// epilogue on the line after it: the shell's scrollback keeps the last
+// thing the engine showed, not the panel.
+func TestSplitView_CloseLeavesTheFinalFrameAndTheEpilogue(t *testing.T) {
+	const epilogue = "full session transcript: /x/transcript.jsonl"
+	p := startProgramCtx(context.Background(), t, nil, 110, 16, epilogue)
+	_, _ = p.v.Pane().Write([]byte("\x1b[1;34mfirst row\x1b[0m\r\nsecond row\r\nlast row"))
+	p.waitPaneShown(t)
+	p.v.Close()
+
+	got := mainScreen(t, p.out.bytes(), p.w, p.h)
+	assert.Equal(t, []string{"first row", "second row", "last row", epilogue}, got[:4],
+		"the frame's rows, its trailing blank rows dropped, then the epilogue")
+	for _, row := range got[4:] {
+		assert.Empty(t, row, "nothing follows the epilogue")
+	}
+	assert.NotContains(t, strings.Join(got, "\n"), "agents", "the panel is not left behind")
+	i := bytes.LastIndex(p.out.bytes(), []byte("\x1b[?1049l"))
+	assert.Contains(t, string(p.out.bytes()[i:]), "\x1b[34;1mfirst row\x1b[m\r\n", "the frame keeps its styles, and no padding")
+
+	assert.True(t, strings.HasPrefix(finalFrame(p.v.pane.Frame(), epilogue), "\r"),
+		"the frame starts in column 0 wherever the main screen's cursor stood")
+
+	before := len(p.out.bytes())
+	p.v.Close()
+	assert.Len(t, p.out.bytes(), before, "a second Close prints nothing more")
+}
+
+// A run ended by its context (a signal) stops the program on its own; the
+// Close that unwinds it still leaves the final frame.
+func TestSplitView_CloseAfterTheContextEndedLeavesTheFinalFrame(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	p := startProgramCtx(ctx, t, nil, 110, 16, "")
+	_, _ = p.v.Pane().Write([]byte("still here"))
+	p.waitPaneShown(t)
+	cancel()
+	<-p.v.Done()
+	p.v.Close()
+
+	got := mainScreen(t, p.out.bytes(), p.w, p.h)
+	assert.Equal(t, "still here", got[0])
+	for _, row := range got[1:] {
+		assert.Empty(t, row, "no epilogue was asked for")
+	}
 }
 
 // A summon withdrawn by its context never shows later: once the human has

@@ -15,7 +15,7 @@ import (
 // presenter, so these are the facts that decide whether prepareSessionIO
 // builds that layer, and marks the queue unattended when it does not: an
 // interactive launch (a one-shot has no terminal session), no
-// --plain-terminal, stdin a terminal, and a prefix key setupTerminalUI can
+// --plain-terminal, stdin a terminal, and a prefix key setupSplitView can
 // parse (refused at the startup gate unless --degraded).
 func presentsApprovals(mode engine.Mode, plainTerminal, stdinTerminal bool, prefixErr error) bool {
 	return mode == engine.Interactive && !plainTerminal && stdinTerminal && prefixErr == nil

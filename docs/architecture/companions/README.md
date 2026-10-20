@@ -17,7 +17,6 @@ its own documentation.
 | [taskloom.md](taskloom.md) | `cmd/taskloom` + `internal/taskloom/{config,engine,workdir}` | Per-project task tracking over an append-only harp-keyed log, exposed as both a CLI and an MCP server, with its own config surface and project-root resolution that do not depend on ctxloom |
 | [transcript.md](transcript.md) | `internal/adapters/transcript` + `internal/adapters/transcript/vendorreader` and its per-engine readers | ctxloom's own canonical conversation record: the versioned append-only JSONL schema, the writer every capture path shares, the reader, and the vendor-format readers |
 | [sessions.md](sessions.md) | `internal/core/sessions` | The harp-keyed session store (one `session.yaml` sidecar per session directory) binding harp → backend session ID → project dir → transcript path, and the transcript-retention rule every destroyer of transcripts asks, behind a two-adapter storage port |
-| [termui.md](termui.md) | `internal/adapters/termui` | The raw-ANSI terminal frontend for an interactive run: prefix-key interceptor, reserved status row, output hold gate, and a VT-sequence guard |
 | [hostpty.md](hostpty.md) | `internal/adapters/hostpty` + `internal/adapters/attach` | The pty the originator holds around `ctxloom runner`: a host process (hostpty) or `docker run -i -t … ctxloom runner` as a container's foreground (attach) |
 | [docsgen.md](docsgen.md) | `internal/shared/docsgen` | Deterministic generation of man pages, per-command markdown, an MCP tool page, and a config page from a product's live cobra tree, live MCP registrations, and tracked JSON Schema |
 | [selfexec.md](selfexec.md) | `internal/adapters/selfexec` | Resolving the path of the running ctxloom binary, so a materialized engine surface names the binary that materialized it |
@@ -34,7 +33,7 @@ flowchart TD
 
     subgraph run["A ctxloom run"]
       SESS["internal/core/sessions<br/>mint harp → bind session ID"]
-      TERM["internal/adapters/termui<br/>terminal frontend"]
+      TERM["internal/adapters/cli/tui<br/>the split view"]
       VP["internal/adapters/hostpty · attach<br/>the runner on a pty"]
       TR["internal/adapters/transcript<br/>capture"]
     end
@@ -49,7 +48,7 @@ flowchart TD
     SESS -->|"harp"| TERM
     TR -->|"transcript.jsonl: the session's title and record"| SESS
     VP --> TERM
-    TERM -->|"Stdin/Stdout/Resize"| VP
+    TERM -->|"keys · resize; the pane takes its output"| VP
 
     LTK -->|"loadout.yaml, once registered (companion add)"| CTX["ctxloom"]
     TL -->|"loadout.yaml, once registered (companion add)"| CTX

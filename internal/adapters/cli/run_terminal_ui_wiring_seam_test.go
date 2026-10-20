@@ -32,7 +32,7 @@ func overlayRoster(t *testing.T, s *livecoord.Session, projectDir string) []tui.
 	return rows
 }
 
-// terminalUIActions are the overlay's control verb and approval queue as the
+// terminalUIActions are the split view's control verb and approval queue as the
 // CLI wires them.
 func terminalUIActions(t *testing.T, s *livecoord.Session, projectDir string) (func(context.Context, coord.ControlRequest) (coord.ControlResult, error), coord.ApprovalSource) {
 	t.Helper()

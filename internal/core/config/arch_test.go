@@ -236,8 +236,8 @@ func TestArch_ConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 			"isolation_base: devcontainer\n",
 		},
 		{
-			"terminal-ui section (viewer prefix key + surround toggle)",
-			"ui:\n  prefix_key: ctrl-t\n  surround: false\n",
+			"split-view section (prefix key)",
+			"ui:\n  prefix_key: ctrl-t\n",
 		},
 		// These are REAL regressions found by the unknown-key work: each key
 		// is honored by the parser but was absent from the schema, so

@@ -55,6 +55,21 @@ type approvalSurface interface {
 
 var _ approvalSurface = (*tui.SplitView)(nil)
 
+// SplitTranscriptLine is the line the split view leaves under the engine's
+// final frame as it exits: the main screen keeps only that last screen, and
+// the session's transcript keeps the rest.
+const SplitTranscriptLine = "full session transcript: %s"
+
+// splitEpilogue is SplitTranscriptLine for harp's canonical transcript; ""
+// when no session dir can be named for it.
+func splitEpilogue(harp string) string {
+	p, err := paths.HarpCanonicalTranscriptPath(harp)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf(SplitTranscriptLine, p)
+}
+
 // splitIO is the human's terminal the split view runs on.
 type splitIO struct {
 	in  io.Reader
@@ -76,14 +91,15 @@ func setupSplitView(ctx context.Context, cfg *config.Config, port frontend.Port,
 		return nil
 	}
 	view, err := tui.StartSplit(ctx, tui.SplitOptions{
-		Port:   port,
-		Self:   id.Harp,
-		Term:   term,
-		Prefix: prefix,
-		Header: tui.Header{Harp: id.Harp, Agent: id.Agent, Engine: id.Backend, Model: id.Model},
-		Notify: desktopAlert{host: platform.Current(), resolve: shellenv.Resolve},
-		In:     human.in,
-		Out:    human.out,
+		Port:     port,
+		Self:     id.Harp,
+		Term:     term,
+		Prefix:   prefix,
+		Header:   tui.Header{Harp: id.Harp, Agent: id.Agent, Engine: id.Backend, Model: id.Model},
+		Notify:   desktopAlert{host: platform.Current(), resolve: shellenv.Resolve},
+		In:       human.in,
+		Out:      human.out,
+		Epilogue: splitEpilogue(id.Harp),
 	})
 	if err != nil {
 		clidiag.Warn("ctxloom", "terminal viewer disabled: %v", err)

@@ -14,11 +14,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/displaysafe"
 )
 
-// The approvals model is the modal's content: the list of parked requests,
-// the selected one's detail, and the action row, with the sub-views an action
-// opens. It is shared by the summoned modal and the prefix-opened view.
+// The approvals model is the approvals view's content: the list of parked
+// requests, the selected one's detail, and the action row, with the sub-views
+// an action opens. It is shared by a summoned view and one the tree opened.
 //
-// Its rules are the modal's fourth focus lock, "nothing decides by accident":
+// Its rules are the approvals view's fourth focus lock, "nothing decides by accident":
 //   - focus starts on the neutral action (Later; Back in a sub-view), and
 //     deciding means moving onto an action and pressing Enter — no letter or
 //     digit decides, and a paste only ever types into an open text field;
@@ -34,10 +34,10 @@ const (
 	// tombstoneFor is how long a request that resolved without the human
 	// (timed out, withdrawn) stays in the list, saying so.
 	tombstoneFor = 5 * time.Second
-	// rearmFor is the inert window after a focus reset: half termui's default
-	// arming window. The summoned modal's first arming is termui's (keys are
-	// discarded before they reach the overlay); a reset happens inside the
-	// overlay, where only the model can hold keys back.
+	// rearmFor is the inert window after a focus reset: half the default
+	// arming window (PresentPolicy.ArmFor). A summoned view's first arming is
+	// the split view's (keys are discarded before they reach the model); a
+	// reset happens inside the model, which holds keys back itself.
 	rearmFor = 375 * time.Millisecond
 	// approvalsTickEvery re-renders the countdowns and expires tombstones.
 	approvalsTickEvery = time.Second
@@ -127,11 +127,6 @@ func waitQueueCmd(ch <-chan coord.QueueEvent) tea.Cmd {
 
 func (a approvalsModel) tick() tea.Cmd {
 	return tea.Tick(a.tickEvery, func(time.Time) tea.Msg { return approvalsTickMsg{} })
-}
-
-// initCmds are the view's standing commands: the queue pump and the tick.
-func (a approvalsModel) initCmds() tea.Cmd {
-	return tea.Batch(waitQueueCmd(a.events), a.tick())
 }
 
 // done reports that the list held requests and now holds nothing, not even

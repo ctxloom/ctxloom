@@ -94,11 +94,6 @@ func cloneSync(s SyncConfig) SyncConfig {
 	return s
 }
 
-func cloneUIConfig(u UIConfig) UIConfig {
-	u.Surround = cloneBoolPtr(u.Surround)
-	return u
-}
-
 func cloneEditor(e EditorConfig) EditorConfig {
 	e.Args = slices.Clone(e.Args)
 	return e

@@ -15,8 +15,7 @@ import (
 )
 
 // The panel is the split view's left column: the session's name at the top,
-// the agent tree, and at the bottom what the surround bar used to carry —
-// approvals waiting, the last action's note, the key hints. There is no
+// the agent tree, and at the bottom approvals waiting, the last action's note, the key hints. There is no
 // bottom bar: on a terminal too narrow for the tree the panel becomes a
 // column of glyphs, one per agent.
 

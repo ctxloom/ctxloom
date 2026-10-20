@@ -64,6 +64,17 @@ func TestLoad_UnknownNestedKey_NamesTheFullPath(t *testing.T) {
 	assert.Contains(t, warns[0].Text, "use_distilled", "and suggest the near-miss key it meant")
 }
 
+// ui.surround toggled the bottom bar the split view replaced; it was removed,
+// not renamed, so a config still carrying it is told the key is unknown.
+func TestLoad_UISurround_IsUnknown(t *testing.T) {
+	cfg := loadYAML(t, "schema_version: 7\nui:\n  prefix_key: ctrl-t\n  surround: false\n")
+
+	warns := unknownKeyWarnings(cfg)
+	require.Len(t, warns, 1, "ui.surround is the one unknown key")
+	assert.Contains(t, warns[0].Text, "ui.surround", "the message must carry the dotted path")
+	assert.Equal(t, "ctrl-t", cfg.UIPrefixKey(), "the rest of the ui section still loads")
+}
+
 // Every unknown key is reported, not just the first: a user who pasted a stale
 // block must be told about all of it in one pass, the way the findings gate lists
 // every finding rather than the first.

@@ -98,3 +98,18 @@ func caretHint(b byte) string {
 	}
 	return "^" + string(rune(b+64))
 }
+
+// teaKeyName maps a raw control byte onto bubbletea's key-name vocabulary, so
+// the prefix matches the key bubbletea decoded.
+func teaKeyName(b byte) string {
+	switch {
+	case b >= 1 && b <= 26:
+		return "ctrl+" + string(rune('a'+b-1))
+	case b >= 28 && b <= 31: // \ ] ^ _
+		return "ctrl+" + string(rune('['+b-27))
+	case b == 127:
+		return "backspace"
+	default:
+		return "ctrl+@"
+	}
+}

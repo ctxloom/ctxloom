@@ -87,13 +87,13 @@ func TestKoanf_ListsReplaceNotConcat(t *testing.T) {
 // requirement a naive "skip falsy/zero values" merge implementation fails.
 func TestKoanf_ExplicitZeroBeatsInheritance(t *testing.T) {
 	t.Run("explicit false beats inherited true", func(t *testing.T) {
-		home := map[string]any{"ui": map[string]any{"surround": true}}
-		project := map[string]any{"ui": map[string]any{"surround": false}}
+		home := map[string]any{"sync": map[string]any{"auto_sync": true}}
+		project := map[string]any{"sync": map[string]any{"auto_sync": false}}
 
 		merged, err := Merge(home, project)
 		require.NoError(t, err)
 
-		assert.Equal(t, false, merged["ui"].(map[string]any)["surround"])
+		assert.Equal(t, false, merged["sync"].(map[string]any)["auto_sync"])
 	})
 
 	t.Run("explicit empty string beats inherited non-empty", func(t *testing.T) {

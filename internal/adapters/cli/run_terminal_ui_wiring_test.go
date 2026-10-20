@@ -65,18 +65,18 @@ func TestTerminalUI_ControlAndApprovalsOverALiveSession(t *testing.T) {
 	s, projectDir, idle, _ := liveTerminalUI(t)
 	control, approvals := terminalUIActions(t, s, projectDir)
 
-	_, err := control(context.Background(), coord.ControlRequest{Verb: coord.ControlVerbSteer, Harp: idle, Body: "steered from the overlay"})
+	_, err := control(context.Background(), coord.ControlRequest{Verb: coord.ControlVerbSteer, Harp: idle, Body: "steered from the split view"})
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		return slices.ContainsFunc(s.Prompts(idle), func(p string) bool { return strings.Contains(p, "steered from the overlay") })
+		return slices.ContainsFunc(s.Prompts(idle), func(p string) bool { return strings.Contains(p, "steered from the split view") })
 	}, liveWait, pollEvery, "the human's steer reaches the child as a turn")
 	// A request is withdrawn when the turn that asked it ends, so ask only
 	// once the steered turn is over.
 	s.Settle(t, idle, 2)
 
-	require.NotNil(t, approvals, "a hosted coordinator gives the overlay its approval queue")
+	require.NotNil(t, approvals, "a hosted coordinator gives the split view its approval queue")
 	s.Ask(t, idle, "Bash")
 	require.Eventually(t, func() bool {
 		return slices.ContainsFunc(approvals.Pending(), func(p coord.PendingApproval) bool { return p.From.Harp == idle })
-	}, liveWait, pollEvery, "a child's request is what the overlay's queue lists")
+	}, liveWait, pollEvery, "a child's request is what the split view's queue lists")
 }

@@ -2,10 +2,10 @@
 // input tables and the summon contract that the interactive run's terminal
 // layer must keep, stated once and run against every implementation of it.
 //
-// The tables were taken from what the homegrown layer (internal/adapters/termui)
-// does today, and its tests run them against it; the split view
-// (internal/adapters/cli/tui, Split) runs the same tables, so a behaviour the
-// replacement drops fails a named case instead of going unnoticed. Where the
+// The tables were taken from what the homegrown terminal layer the split view
+// replaced did; the split view (internal/adapters/cli/tui, Split) runs them,
+// so a behaviour the replacement drops fails a named case instead of going
+// unnoticed. Where the
 // replacement differs on purpose, the case says so in its own field, never by
 // being left out.
 package termoracle

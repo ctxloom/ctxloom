@@ -313,20 +313,16 @@
     },
     "ui": {
       "type": "object",
-      "description": "Interactive-run terminal layer: the prefix-key agent-observation viewer and the persistent surround bar. `ctxloom run --plain-terminal` disables the whole layer for one session regardless of this section.",
+      "description": "Interactive-run split view: the agent list beside the selected agent's pane. `ctxloom run --plain-terminal` replaces the split view with a plain passthrough for one session regardless of this section.",
       "properties": {
         "prefix_key": {
           "type": "string",
           "pattern": "^ctrl[-+].$",
-          "description": "Keystroke that engages the observation viewer during an interactive run; pressing it twice sends one literal prefix byte to the engine. Control keys only (`ctrl-<char>`); keys the engine needs verbatim \u2014 ctrl-i (tab), ctrl-j/ctrl-m (newline/return), ctrl-[ (escape) \u2014 are rejected. Default: ctrl-].",
+          "description": "Keystroke that toggles focus between the split view's agent list and its pane; prefix then [ or PgUp enters the pane's scrollback (q or Esc leaves it). Control keys only (`ctrl-<char>`); keys the engine needs verbatim \u2014 ctrl-i (tab), ctrl-j/ctrl-m (newline/return), ctrl-[ (escape) \u2014 are rejected. Default: ctrl-].",
           "examples": [
             "ctrl-]",
             "ctrl-t"
           ]
-        },
-        "surround": {
-          "type": "boolean",
-          "description": "Persistent bottom status bar (harp \u00b7 agent \u00b7 engine \u2502 children digest \u2502 prefix hint), drawn on a reserved terminal row the engine cannot paint over. Default: true."
         }
       },
       "additionalProperties": false

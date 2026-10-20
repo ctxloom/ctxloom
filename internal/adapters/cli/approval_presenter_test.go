@@ -203,7 +203,7 @@ func (r *presenterRun) waitTick(t *testing.T) {
 var t0 = fakeclock.Epoch
 
 // TestPresenter_StartsWithTheBarAndTheModalForWhatIsAlreadyPending: a
-// presenter that starts over parked requests shows them at once — the bar's
+// presenter that starts over parked requests shows them at once — the panel's
 // count and oldest arrival, and a summon naming the soonest-deadline asker.
 func TestPresenter_StartsWithTheBarAndTheModalForWhatIsAlreadyPending(t *testing.T) {
 	src := newPresenterSource(
@@ -217,8 +217,8 @@ func TestPresenter_StartsWithTheBarAndTheModalForWhatIsAlreadyPending(t *testing
 }
 
 // TestPresenter_AnArrivalRingsAndSummonsForTheNewAsker: each arrival rings
-// (the bar rate-limits it) and replaces an in-flight summon with one naming
-// the new asker — so a human in the overlay is told who is asking now.
+// (the split view rate-limits it) and replaces an in-flight summon with one
+// naming the new asker — so a human in the tree is told who is asking now.
 func TestPresenter_AnArrivalRingsAndSummonsForTheNewAsker(t *testing.T) {
 	src := newPresenterSource(pending("a", "wiry-otter", t0, t0.Add(9*time.Minute)))
 	r := startPresenter(t, src)
@@ -251,7 +251,7 @@ func TestPresenter_AnArrivalAlreadyPresentedAtStartIsNotSummonedAgain(t *testing
 	src.resolve(req.ID, agent.DeciderHuman)
 	src.settle()
 	r.ui.noSummon(t)
-	assert.Greater(t, r.ui.barCount(), bars, "the bar still follows the queue")
+	assert.Greater(t, r.ui.barCount(), bars, "the panel still follows the queue")
 }
 
 // TestPresenter_AnArrivalIsSummonedOnce: one arrival event per request; a
@@ -289,7 +289,7 @@ func TestPresenter_AResolvedRequestIsForgotten(t *testing.T) {
 }
 
 // TestPresenter_NothingPendingWithdrawsTheSummon: when the last request
-// resolves before the modal could appear, it never appears, and the bar
+// resolves before the approvals view could appear, it never appears, and the panel
 // clears.
 func TestPresenter_NothingPendingWithdrawsTheSummon(t *testing.T) {
 	src := newPresenterSource(pending("a", "wiry-otter", t0, t0.Add(9*time.Minute)))
@@ -302,7 +302,7 @@ func TestPresenter_NothingPendingWithdrawsTheSummon(t *testing.T) {
 }
 
 // TestPresenter_ATimedOutRequestLeavesABarNote: nobody decided it, so the
-// bar says so once the modal is gone; a withdrawn or decided request does not.
+// bar says so once the approvals view is gone; a withdrawn or decided request does not.
 func TestPresenter_ATimedOutRequestLeavesABarNote(t *testing.T) {
 	src := newPresenterSource(pending("a", "wiry-otter", t0, t0.Add(9*time.Minute)), pending("b", "calm-heron", t0, t0.Add(9*time.Minute)), pending("c", "kind-otter", t0, t0.Add(9*time.Minute)))
 	r := startPresenter(t, src)
@@ -314,7 +314,7 @@ func TestPresenter_ATimedOutRequestLeavesABarNote(t *testing.T) {
 	assert.Equal(t, []string{"approval resolved (timed out)"}, r.ui.noteList())
 }
 
-// TestPresenter_TheBarsAgeKeepsCounting: while anything is pending the bar
+// TestPresenter_TheBarsAgeKeepsCounting: while anything is pending the panel
 // is refreshed every second, with no bell.
 func TestPresenter_TheBarsAgeKeepsCounting(t *testing.T) {
 	src := newPresenterSource(pending("a", "wiry-otter", t0, t0.Add(9*time.Minute)))

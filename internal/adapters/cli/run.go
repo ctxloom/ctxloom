@@ -594,7 +594,7 @@ func (st *runState) bindLaunch(l launch.Launch, opened operations.Opened) {
 
 // boundAgent names the binding this run launched under (--agent, or the
 // default agent for a bare launch; none for an explicit -p/-f/-t assembly) —
-// the surround bar's identity, read off the Source this invocation built.
+// the split view's header, read off the Source this invocation built.
 func (st *runState) boundAgent() string {
 	switch {
 	case runAgent != "":
@@ -1088,7 +1088,7 @@ func (st *runState) hostCoordinator() func() {
 	}
 
 	st.sessionCoord = sc
-	// A --one-shot owner shows no approval modal (setupTerminalUI is the only
+	// A --one-shot owner shows no split view (setupSplitView starts the only
 	// presenter), so a request parked for this root's human could only wait
 	// out its timeout.
 	if mode != coord.OwnerInteractive {

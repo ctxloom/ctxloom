@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -10,6 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/cli"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -140,6 +143,20 @@ func TestRunPTY_SplitViewDrawsTheTreeBesideTheEngine(t *testing.T) {
 
 	quitAndAwaitCleanExit(t, sess)
 	assert.True(t, leftAltScreen(sess.Output()), "process exit leaves the split view's alternate screen")
+
+	// The main screen keeps the engine's final frame, without the panel,
+	// and the line naming the session's transcript under it.
+	main := sess.Display()
+	// At the start of a row: the run's last line before the split view was
+	// written raw, so the main screen's cursor need not be in column 0.
+	assert.Contains(t, main, "\nmock echo: session-live", "the engine's final frame is left on the main screen, from column 0")
+	assert.NotContains(t, main, splitPaneHint, "the panel is not")
+	label, _, _ := strings.Cut(cli.SplitTranscriptLine, "%s")
+	assert.Contains(t, main, label, "the transcript line follows the frame")
+	out := sess.Output()
+	tail := out[strings.LastIndex(out, "\x1b[?1049l"):]
+	assert.Contains(t, tail, filepath.Join(paths.TranscriptsDirName, paths.CanonicalTranscriptFileName)+"\r\n",
+		"it names the session's canonical transcript")
 }
 
 // TestRunPTY_CtrlBracketMovesFocusToTheTree drives the Ctrl-] prefix
@@ -188,4 +205,6 @@ func TestRunPTY_PlainTerminalNeverEngages(t *testing.T) {
 	out := sess.Output()
 	assert.NotContains(t, out, "\x1b[?1049h", "--plain-terminal never takes the alternate screen")
 	assert.NotContains(t, sess.Display(), splitPaneHint, "--plain-terminal never draws the panel")
+	label, _, _ := strings.Cut(cli.SplitTranscriptLine, "%s")
+	assert.NotContains(t, out, label, "nor leaves the split view's transcript line")
 }

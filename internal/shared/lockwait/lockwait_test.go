@@ -2,8 +2,11 @@ package lockwait_test
 
 import (
 	"bufio"
+	"bytes"
+	"io"
 	"os"
 	"os/exec"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +17,7 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // waitHelperEnv, present, tells a re-executed test binary to block instead of
@@ -58,7 +62,7 @@ func TestWatch_ReportsAWaitItCannotEnd(t *testing.T) {
 		}
 	}()
 
-	want := lockwait.WaitNotice("the child's forever-blocked call")
+	want := lockwait.WaitLine("the child's forever-blocked call")
 	deadline := time.After(30 * time.Second)
 	for {
 		select {
@@ -98,10 +102,18 @@ func TestWatch_StopReturnsPromptlyWhenTheOperationFinishesFirst(t *testing.T) {
 //
 // The observer replaces the process-wide logger for the duration, so nothing
 // here depends on a log file or on stderr at all.
+//
+// The human line rides clidiag's sink, never raw stderr: a coordinator lock
+// can stall while the split view owns the terminal, where that sink is the
+// session's diagnostics log and a raw write would paint over the view.
 func TestWatch_AWaitPastItsBudgetLeavesAStructuredRecord(t *testing.T) {
 	core, logs := observer.New(zapcore.WarnLevel)
 	restore := zap.ReplaceGlobals(zap.New(core))
 	defer restore()
+	var sink bytes.Buffer
+	restoreSink := clidiag.SetSink(&sink)
+	defer restoreSink()
+	stderr := captureStderr(t)
 
 	stop := lockwait.Watch("a call parked past its budget")
 	defer stop()
@@ -109,10 +121,39 @@ func TestWatch_AWaitPastItsBudgetLeavesAStructuredRecord(t *testing.T) {
 	require.Eventually(t, func() bool { return logs.Len() > 0 },
 		lockwait.After+10*time.Second, 50*time.Millisecond,
 		"a wait past After left no structured record; only the stderr line exists, and that dies with the process")
+	// The record is written after the line, and the restore waits out any
+	// sink write in flight, so the sink is settled once both have happened.
+	restoreSink()
+	assert.Equal(t, lockwait.WaitLine("a call parked past its budget")+"\n", sink.String(),
+		"the human line rides the diagnostics sink")
+	assert.Empty(t, stderr(), "nothing may bypass the diagnostics sink onto the terminal")
 
 	entries := logs.FilterMessage(lockwait.LogWaitExceeded).All()
 	require.Len(t, entries, 1, "exactly one record per watched wait; got %v", logs.All())
 	assert.Equal(t, zapcore.WarnLevel, entries[0].Level, "a wait past budget is a warning, not information")
 	assert.Equal(t, "a call parked past its budget", entries[0].ContextMap()["path"],
 		"the record names WHAT was waited on, or it cannot be matched to a stall afterwards")
+}
+
+// captureStderr swaps os.Stderr for a pipe until the returned func runs, which
+// restores it and returns everything written meanwhile.
+func captureStderr(t *testing.T) func() string {
+	t.Helper()
+	orig := os.Stderr
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stderr = w
+	var once sync.Once
+	var out string
+	stop := func() string {
+		once.Do(func() {
+			_ = w.Close()
+			os.Stderr = orig
+			b, _ := io.ReadAll(r)
+			out = string(b)
+		})
+		return out
+	}
+	t.Cleanup(func() { stop() })
+	return stop
 }

@@ -15,11 +15,13 @@
 package lockwait
 
 import (
-	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"go.uber.org/zap"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // After is how long an acquisition may block before it is reported as still
@@ -32,7 +34,7 @@ const After = 3 * time.Second
 // behind. Exported so a test asserts on the record, not on scraped text.
 const LogWaitExceeded = "lock_wait_exceeded"
 
-// waitNotice is the stderr line a wait past After prints. The label is part
+// waitNotice is the warning a wait past After reports. The label is part
 // of it: "something is stuck" is not actionable, "stuck on THIS thing" names
 // what to look for.
 func waitNotice(label string) string {
@@ -41,7 +43,8 @@ func waitNotice(label string) string {
 
 // Watch starts a watchdog goroutine that reports the wait if the operation
 // it guards has not finished within After: "still waiting for lock on
-// <label>" on stderr for whoever is watching the terminal, and a
+// <label>" as a clidiag warning for whoever is watching the terminal (its
+// sink: stderr, or the session's diagnostics log under the split view), and a
 // LogWaitExceeded record in the structured log for whoever reads the stall
 // after the process is gone. Call the returned stop function when the
 // operation completes; it
@@ -60,7 +63,7 @@ func Watch(label string) (stop func()) {
 		select {
 		case <-settled:
 		case <-timer.C:
-			fmt.Fprintln(os.Stderr, waitNotice(label))
+			clidiag.Warn(diagProg(), "%s", waitNotice(label))
 			zap.L().Warn(LogWaitExceeded, zap.String("path", label))
 		}
 	}()
@@ -68,4 +71,17 @@ func Watch(label string) (stop func()) {
 		close(settled)
 		<-finished
 	}
+}
+
+// diagProg is the program name the wait line is stamped with. It is read from
+// the running executable because this package is shared: the same wait is
+// reported under taskloom, ltk and ctxloom, and each must name itself.
+func diagProg() string { return progOf(os.Args[0]) }
+
+// progOf is the program name arg0 runs as, "ctxloom" when it names none.
+func progOf(arg0 string) string {
+	if prog := filepath.Base(arg0); prog != "." && prog != string(filepath.Separator) {
+		return prog
+	}
+	return "ctxloom"
 }

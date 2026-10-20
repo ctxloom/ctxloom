@@ -88,6 +88,32 @@ func RefreshForRead(ctx context.Context, files safefs.Root, reg engine.Registry,
 	return cmp.Or(src.Entry, entry), nil
 }
 
+// TranscriptMayBeStale reports whether e's canonical transcript may be behind
+// what RefreshForRead would make of it: e's bound engine log was written
+// after the copy was, or e has no copy while its engine log exists. A purged
+// session is never stale — RefreshForRead does not refresh it either. It
+// stats files and reads none, so a preview can say it without refreshing.
+func TranscriptMayBeStale(files safefs.Root, reg engine.Registry, e sessions.Entry) bool {
+	if e.PurgedAt != nil {
+		return false
+	}
+	vr, ok := vendorReaderFor(reg, e.Backend)
+	if !ok {
+		return false
+	}
+	src, ok := vr.locate(context.Background(), files.Fs, e)
+	if !ok {
+		return false
+	}
+	vendor, err := files.Fs.Stat(src)
+	if err != nil {
+		return false
+	}
+	// No copy — CanonicalTranscriptPath empty, or its file gone — is stale.
+	canon, err := files.Fs.Stat(e.CanonicalTranscriptPath)
+	return err != nil || vendor.ModTime().After(canon.ModTime())
+}
+
 // SessionRefresh refreshes one listed session's canonical transcript and
 // returns its entry as the refresh left it. ViewSessions asks it only of a
 // row that has no title.

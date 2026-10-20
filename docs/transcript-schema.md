@@ -137,7 +137,8 @@ engine's private files after the fact.
   interactive `ctxloom run` (`healVendorTranscriptOnExit`), when
   `session adopt --yes` records an older session's lineage, and before a
   reader shows or resumes the session (`operations.RefreshForRead`): `run
-  --session` and the coordinator's ended-child resume
+  --session` (not its `--dry-run`, which previews the copy as captured and
+  writes nothing) and the coordinator's ended-child resume
   (`operations.RecordedSessionEntries`), `session show`, and the titles of
   `session list`/`search` rows that have none yet. A session whose run did
   not exit through ctxloom (killed, crashed, in a container, its engine run

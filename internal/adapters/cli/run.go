@@ -355,7 +355,8 @@ func runRun(cmd *cobra.Command, args []string) (err error) {
 	// Dry run mode - show the resolved launch and the prompt, then stop
 	// before anything stateful or interactive happens: the same resolver,
 	// over stateless ports (no session written, no cell prepared, no
-	// coordinator, no task seeding, no plugin launch).
+	// coordinator, no task seeding, no plugin launch, and a resumed
+	// session's transcript read as captured, not refreshed).
 	if runDryRun {
 		return st.emitDryRun()
 	}
@@ -616,18 +617,36 @@ func (st *runState) mayDelegate() []string {
 
 // resumedTranscript is the --session (full resume) lead: the resumed harp's
 // full recorded transcript trails the assembled context as its own block.
+// A real run refreshes that transcript from the engine's log first; a dry
+// run reads the copy the session has, writing nothing, and says when that
+// copy may be stale (dryRunTranscriptMayBeStale).
 func (st *runState) resumedTranscript() []composite.Fragment {
 	if runResumeSession == "" {
 		return nil
 	}
-	rendered := resumeFullContext("", runResumeSession, func(harp string) ([]agent.SessionEntry, error) {
+	entries := func(harp string) ([]agent.SessionEntry, error) {
 		return operations.RecordedSessionEntries(st.ctx, safefs.New(), App().Engines(), harp)
-	})
+	}
+	if runDryRun {
+		entries = func(harp string) ([]agent.SessionEntry, error) {
+			got, stale, err := operations.CapturedSessionEntries(safefs.New(), App().Engines(), harp)
+			if stale {
+				clidiag.Warn("ctxloom", "resume %s: %s", harp, dryRunTranscriptMayBeStale)
+			}
+			return got, err
+		}
+	}
+	rendered := resumeFullContext("", runResumeSession, entries)
 	if rendered == "" {
 		return nil
 	}
 	return []composite.Fragment{{Name: "resumed-transcript", Body: rendered}}
 }
+
+// dryRunTranscriptMayBeStale is a dry run's notice that the resumed
+// transcript it previews is the session's last capture, and its engine has
+// logged since: a real run refreshes it first and may carry more.
+const dryRunTranscriptMayBeStale = "this preview reads the last captured transcript, and the engine's log has changed since; a real run refreshes it first"
 
 // warnPosture says out loud when the posture the run launches with is not
 // what the flag asked for, which gated calls its resolved policy denies at
@@ -885,7 +904,7 @@ func (st *runState) emitDryRun() error {
 	}
 	// The preview shows what the launch would carry: a --session full
 	// resume's transcript already leads pkg's context (resumedTranscript,
-	// through src.Extra).
+	// through src.Extra), as the session last captured it.
 	context := pkg.Context.Text
 	payload := dryRunJSON{
 		Agent:       runAgent,

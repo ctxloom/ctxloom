@@ -208,7 +208,8 @@ error when the harp's rotation lineage says there was a conversation to recover.
 caller reaches it through `operations.ResolveAndHeal` — the interactive-pty exit
 (`cli.healVendorTranscriptOnExit`), `session adopt` (`cli.healAdopted`), and the readers that show
 or resume a session through `operations.RefreshForRead` (`RecordedSessionEntries` behind `run
---session` and the ended-child resume, `session show`, and `session list`/`search` for a row with
+--session` and the ended-child resume — a `run --session --dry-run` reads the copy as captured
+through `CapturedSessionEntries` and writes nothing, `session show`, and `session list`/`search` for a row with
 no title) — and each acts on `HealErr` only: the exit and the readers warn and go on with the copy
 the harp has, `adopt` returns it.
 

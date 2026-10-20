@@ -19,7 +19,11 @@ drives it.
 3. **Dry run** — `emitDryRun` runs the SAME resolver over stateless ports (an
    in-memory session store, the project root as the cell) and stops; it is
    gated (`gateStartup`) like a real start, so previewing a broken setup
-   says so.
+   says so. A `--session` resume's transcript is previewed as the session
+   last captured it (`operations.CapturedSessionEntries`), not refreshed
+   from the engine's log; the preview warns when that copy may be stale
+   (`operations.TranscriptMayBeStale`: the engine's log was written after
+   it). A real run refreshes it first, so the two can differ.
 4. **Resolve the launch** — `resolveLaunch` (`operations.StartRun` over
    `launch.Deps`): the session minted, the package assembled and carried, the
    session's MCP endpoint minted onto the session record, the cell prepared.

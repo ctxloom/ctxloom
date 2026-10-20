@@ -162,3 +162,13 @@ func TestViewSessions_LeavesATitledRowsCopyAlone(t *testing.T) {
 	assert.True(t, strings.HasPrefix(views[0].Title, grownTitle), "got title %q", views[0].Title)
 	assert.Equal(t, before, canonicalLines(t, entry.HarpName), "a titled row's copy is not rewritten by a listing")
 }
+
+// A row whose session left the index after it was listed keeps the entry it
+// was listed with.
+func TestReadRefresh_KeepsARowWhoseSessionLeftTheIndex(t *testing.T) {
+	testsupport.Isolate(t)
+	listed := sessions.Entry{HarpName: "listed-then-removed", Backend: "claude-code"}
+
+	got := ReadRefresh(context.Background(), safefs.New(), engines.Registry())(listed)
+	assert.Equal(t, listed, got)
+}

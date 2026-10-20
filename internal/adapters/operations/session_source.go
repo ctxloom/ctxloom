@@ -1,7 +1,9 @@
 package operations
 
 import (
+	"cmp"
 	"context"
+	"errors"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -77,17 +79,13 @@ func RefreshForRead(ctx context.Context, files safefs.Root, reg engine.Registry,
 	if err != nil || entry == nil || entry.PurgedAt != nil {
 		return entry, err
 	}
+	// The refresh's own lookup failing is a failed refresh like any other:
+	// the read goes on with the entry it already has.
 	src, err := ResolveAndHeal(ctx, files, reg, harp)
-	if err != nil {
-		return nil, err
+	if err := errors.Join(err, src.HealErr); err != nil {
+		clidiag.Warn("ctxloom", "session %s: %s: %v", harp, ReadRefreshFailed, err)
 	}
-	if src.HealErr != nil {
-		clidiag.Warn("ctxloom", "session %s: %s: %v", harp, ReadRefreshFailed, src.HealErr)
-	}
-	if src.Entry == nil {
-		return entry, nil
-	}
-	return src.Entry, nil
+	return cmp.Or(src.Entry, entry), nil
 }
 
 // SessionRefresh refreshes one listed session's canonical transcript and
@@ -96,7 +94,8 @@ func RefreshForRead(ctx context.Context, files safefs.Root, reg engine.Registry,
 type SessionRefresh func(sessions.Entry) sessions.Entry
 
 // ReadRefresh is the production SessionRefresh: RefreshForRead, keeping the
-// listed entry when the session cannot be looked up again.
+// listed entry when the session cannot be looked up or has left the index
+// since it was listed.
 func ReadRefresh(ctx context.Context, files safefs.Root, reg engine.Registry) SessionRefresh {
 	return func(e sessions.Entry) sessions.Entry {
 		fresh, err := RefreshForRead(ctx, files, reg, e.HarpName)

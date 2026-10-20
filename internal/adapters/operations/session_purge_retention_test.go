@@ -83,3 +83,49 @@ func TestPurgeSession_KeepThenUndoDoesNotRestartRetention(t *testing.T) {
 	assert.True(t, res.Applied)
 	assert.NoFileExists(t, transcript)
 }
+
+// A refusal still carries the plan's header: the CLI emits the result beside
+// the refusal, so it says which harp and which destroyer refused.
+func TestPurgeSession_RetentionRefusalCarriesTheResult(t *testing.T) {
+	harp, _ := seedPurgeableSession(t)
+	res, err := PurgeSession(harp, PurgeSessionRequest{
+		Harp:        harp,
+		Populations: []PurgePopulation{PurgePopulationTranscript},
+		Retention:   sessions.Retention{Cutoff: time.Now().Add(-time.Hour)},
+	})
+	require.ErrorIs(t, err, ErrPurgeRetained)
+	require.NotNil(t, res)
+	assert.Equal(t, harp, res.Harp)
+	assert.Equal(t, []PurgePopulation{PurgePopulationTranscript}, res.Populations)
+}
+
+// The retention guard protects a real file: a retained session whose
+// transcript is already gone is not refused forever, it plans nothing.
+func TestPurgeSession_RetentionAsksOnlyWhenATranscriptIsThere(t *testing.T) {
+	harp, transcript := seedPurgeableSession(t)
+	require.NoError(t, os.Remove(transcript))
+
+	res, err := PurgeSession(harp, PurgeSessionRequest{
+		Harp:        harp,
+		Populations: []PurgePopulation{PurgePopulationTranscript},
+		Retention:   sessions.Retention{Cutoff: time.Now().Add(-time.Hour)},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, res.Destroy)
+}
+
+// Retention guards the transcript population only: a request that does not
+// ask for it destroys no transcript, so a retained one does not refuse it.
+func TestPurgeSession_RetentionAsksOnlyWhenTheTranscriptIsWanted(t *testing.T) {
+	harp, transcript := seedPurgeableSession(t)
+
+	res, err := PurgeSession(harp, PurgeSessionRequest{
+		Harp:        harp,
+		Populations: []PurgePopulation{"not-the-transcript"},
+		Retention:   sessions.Retention{Cutoff: time.Now().Add(-time.Hour)},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, res.Destroy)
+	assert.NotEmpty(t, res.Keep, "the transcript is kept, and named")
+	assert.FileExists(t, transcript)
+}

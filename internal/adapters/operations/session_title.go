@@ -18,9 +18,6 @@ import (
 // title ("") — a renderer chooses its own placeholder. A subagent's prompt
 // (a sidechain entry) is not the user's and never titles a session.
 func SessionTitle(e sessions.Entry) string {
-	if e.CanonicalTranscriptPath == "" {
-		return ""
-	}
 	sess, err := transcript.ParseTranscriptFile(e.CanonicalTranscriptPath, e.HarpName)
 	if err != nil {
 		return ""

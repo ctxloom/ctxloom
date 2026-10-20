@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -122,4 +123,100 @@ func TestSweepSessions_ScopeIsTheProject(t *testing.T) {
 		SweepRequest{ProjectDir: "/elsewhere", ReclaimCutoff: time.Now(), AllProjects: true})
 	require.NoError(t, err)
 	assert.NotEmpty(t, ssRows(rep, "done-quiet-heron"))
+}
+
+// ssFacts is the one session's facts from ClassifySessions.
+func ssFacts(t *testing.T, req SweepRequest, harp string) SessionFacts {
+	t.Helper()
+	all, err := ClassifySessions(context.Background(), git.NewExec(), req)
+	require.NoError(t, err)
+	for _, f := range all {
+		if f.Harp == harp {
+			return f
+		}
+	}
+	t.Fatalf("no facts for %s", harp)
+	return SessionFacts{}
+}
+
+// ssBytesUnder is the size of the fixture's files under the named top-level
+// members.
+func ssBytesUnder(members ...string) (n int64) {
+	for rel, body := range srLayout {
+		top, _, _ := strings.Cut(rel, "/")
+		if slices.Contains(members, top) {
+			n += int64(len(body))
+		}
+	}
+	return n
+}
+
+// A session whose record cannot be read has nothing proving it ended: its
+// transcript is retained however old its files are, the reason is reported,
+// and a persist-scope reclaim measures only what the reaper would take from
+// it — the default scope's members.
+func TestClassifySessions_NoRecordRetainsTheTranscript(t *testing.T) {
+	testsupport.Isolate(t)
+	dir := ssSeed(t, "lost-quiet-heron", "session", "")
+	require.NoError(t, os.Remove(filepath.Join(dir, paths.SessionSidecarFileName)))
+	srBackdate(t, dir)
+	req := SweepRequest{AllProjects: true, ReclaimCutoff: srCutoff(), ReclaimScope: paths.Persist, Retention: sessions.Retention{Cutoff: srCutoff()}}
+
+	f := ssFacts(t, req, "lost-quiet-heron")
+	require.ErrorIs(t, f.Retained, sessions.ErrTranscriptRecent)
+	assert.Equal(t, f.Retained.Error(), f.RetainedReason)
+
+	released := ssFacts(t, SweepRequest{AllProjects: true, ReclaimCutoff: srCutoff(), Retention: sessions.Retention{Cutoff: srCutoff()}}, "lost-quiet-heron")
+	assert.Equal(t, released.ReclaimBytes, f.ReclaimBytes, "a retained session's persist reclaim takes only the default scope's members")
+}
+
+// A record-less session retained by its recent conversation anyway is
+// reported by when it ended, not overwritten by the missing record.
+func TestClassifySessions_NoRecordRecentReportsWhenItEnded(t *testing.T) {
+	testsupport.Isolate(t)
+	dir := ssSeed(t, "lost-quiet-heron", "session", "")
+	require.NoError(t, os.Remove(filepath.Join(dir, paths.SessionSidecarFileName)))
+	srBackdate(t, dir)
+	recent := time.Now().Add(-time.Hour).Truncate(time.Second)
+	require.NoError(t, os.Chtimes(filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName), recent, recent))
+
+	f := ssFacts(t, SweepRequest{AllProjects: true, ReclaimCutoff: time.Now(), Retention: sessions.Retention{Cutoff: srCutoff()}}, "lost-quiet-heron")
+	require.ErrorIs(t, f.Retained, sessions.ErrTranscriptRecent)
+	assert.Contains(t, f.RetainedReason, recent.UTC().Format(time.RFC3339))
+}
+
+// A released session's persist-scope reclaim measures its transcripts too;
+// a retained one's does not.
+func TestClassifySessions_PersistReclaimMeasuresTheTranscriptOnlyWhenReleased(t *testing.T) {
+	testsupport.Isolate(t)
+	ssSeed(t, "done-quiet-heron", "session", "")
+	ssSeed(t, "raw-quiet-heron", "session", "recent")
+	req := SweepRequest{ProjectDir: "/tmp/demo", ReclaimCutoff: srCutoff(), Retention: sessions.Retention{Cutoff: srCutoff()}}
+	persist := req
+	persist.ReclaimScope = paths.Persist
+
+	def := ssFacts(t, req, "done-quiet-heron")
+	assert.Equal(t, def.ReclaimBytes+ssBytesUnder(paths.TranscriptsDirName, paths.PackageDirName), ssFacts(t, persist, "done-quiet-heron").ReclaimBytes)
+	assert.Equal(t, ssFacts(t, req, "raw-quiet-heron").ReclaimBytes, ssFacts(t, persist, "raw-quiet-heron").ReclaimBytes)
+}
+
+// A session is purgeable by its machine-written files alone, and its purge
+// bytes are theirs: an authored file beside them counts for neither.
+func TestClassifySessions_PurgeFactsAreTheMachineFilesOnly(t *testing.T) {
+	testsupport.Isolate(t)
+	dir := ssSeed(t, "done-quiet-heron", "session", "")
+	req := SweepRequest{ProjectDir: "/tmp/demo", ReclaimCutoff: srCutoff(), Retention: sessions.Retention{Cutoff: srCutoff()}}
+
+	f := ssFacts(t, req, "done-quiet-heron")
+	assert.True(t, f.Purgeable)
+	assert.Equal(t, ssBytesUnder(paths.TranscriptsDirName), f.PurgeBytes, "the purge takes the transcripts, not the authored package")
+
+	for rel := range srLayout {
+		if strings.HasPrefix(rel, paths.TranscriptsDirName+"/") {
+			require.NoError(t, os.Remove(filepath.Join(dir, filepath.FromSlash(rel))))
+		}
+	}
+	f = ssFacts(t, req, "done-quiet-heron")
+	assert.False(t, f.Purgeable, "authored files alone are nothing to purge")
+	assert.Zero(t, f.PurgeBytes)
 }

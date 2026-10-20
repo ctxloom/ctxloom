@@ -395,10 +395,10 @@ func sweepScopeIncludes(entry *sessions.Entry, req SweepRequest) bool {
 }
 
 // reclaimMembers is the member set a reclaim measures: the request's, narrowed
-// the way ReapSession narrows it for a session whose transcript is retained
-// under a persist reclaim scope.
+// the way ReapSession narrows it for a session whose transcript is retained —
+// to the default scope's members, which a narrower scope takes anyway.
 func reclaimMembers(req SweepRequest, releasable bool) []paths.HarpMember {
-	if req.ReclaimScope == paths.Persist && !releasable {
+	if !releasable {
 		return sessions.ReapPolicy{}.Members() // ReapSession's own narrowing
 	}
 	return req.reapPolicy(false).Members()

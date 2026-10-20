@@ -62,6 +62,7 @@ func TestViewSession_TitleIsTheFirstUserPrompt(t *testing.T) {
 // never an error and never a placeholder at this layer.
 func TestViewSession_NoUserPromptIsNoTitle(t *testing.T) {
 	testsupport.Isolate(t)
+	assert.Empty(t, SessionTitle(sessions.Entry{}), "no transcript path at all")
 	assert.Empty(t, ViewSession(seedTitledHarp(t)).Title)
 	assert.Empty(t, ViewSession(seedTitledHarp(t,
 		agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "only me"})).Title)

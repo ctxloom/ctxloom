@@ -348,3 +348,74 @@ func TestSessionShow_NoEndReasonPrintsNothingAboutOne(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, out, "end_reason")
 }
+
+// `session show` reports the session's state from the liveness probe, in
+// every format.
+func TestSessionShow_StateIsTheLivenessProbe(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	_, harp := seedEndedSession(t, dir, "claude-code")
+	prev := sessionStateOf
+	sessionStateOf = func(string) string { return operations.SessionUnknown }
+	t.Cleanup(func() { sessionStateOf = prev })
+
+	out, err := execRootCmd(t, "session", "show", harp, "--format", "json")
+	require.NoError(t, err)
+	var got operations.SessionView
+	require.NoError(t, json.Unmarshal([]byte(out), &got), out)
+	assert.Equal(t, operations.SessionUnknown, got.State)
+}
+
+// renderSessionShow prints one fact per line, and a fact that is absent —
+// no native session, no end while it runs again, not purged, not kept —
+// adds no line at all.
+func TestRenderSessionShow_EachPresentFactIsALine(t *testing.T) {
+	started := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
+	ended := time.Date(2026, 7, 2, 18, 30, 0, 0, time.UTC)
+	full := operations.SessionView{
+		Harp: "swift-amber-falcon", Project: "/proj/demo", State: operations.SessionUnknown,
+		Engine: "claude-code", NativeSession: "native-1234", Title: "a title",
+		StartedAt: started, EndedAt: &ended, Purged: true, Kept: true,
+	}
+	render := func(v operations.SessionView) string {
+		var buf bytes.Buffer
+		require.NoError(t, renderSessionShow(&buf, v))
+		return buf.String()
+	}
+	lines := func(s string) int { return strings.Count(s, "\n") }
+
+	out := render(full)
+	for _, want := range []string{operations.SessionUnknown, "/proj/demo", "native-1234", sessionTime(started).String(), sessionTime(ended).String()} {
+		assert.Contains(t, out, want)
+	}
+
+	live := full
+	live.State = operations.SessionLive
+	assert.NotContains(t, render(live), sessionTime(ended).String(), "a session running again has no end to show")
+	assert.Equal(t, lines(out)-1, lines(render(live)))
+
+	for name, drop := range map[string]func(*operations.SessionView){
+		"native": func(v *operations.SessionView) { v.NativeSession = "" },
+		"purged": func(v *operations.SessionView) { v.Purged = false },
+		"kept":   func(v *operations.SessionView) { v.Kept = false },
+	} {
+		v := full
+		drop(&v)
+		assert.Equal(t, lines(out)-1, lines(render(v)), "dropping %s drops its line", name)
+	}
+}
+
+// A write that fails while rendering `session show` is returned.
+func TestRenderSessionShow_SurfacesAWriteFailure(t *testing.T) {
+	writeErr := errors.New("stdout broke")
+	err := renderSessionShow(&failingWriter{err: writeErr}, operations.SessionView{Harp: "swift-amber-falcon"})
+	require.ErrorIs(t, err, writeErr)
+}
+
+// A kept session's summary keeps its title: the badge is appended, never a
+// replacement.
+func TestNewSessionRow_KeptBadgeKeepsTheTitle(t *testing.T) {
+	row := newSessionRow(operations.SessionView{Harp: "swift-amber-falcon", Title: "a title", Kept: true})
+	assert.True(t, strings.HasPrefix(row.Summary, "a title"), row.Summary)
+	plain := newSessionRow(operations.SessionView{Harp: "swift-amber-falcon", Title: "a title"})
+	assert.Greater(t, len(row.Summary), len(plain.Summary), "and the kept badge is there")
+}

@@ -657,7 +657,9 @@ auto-distill on edit, `.distilled.md` and `use_distilled` all work as before.
   `ctxloom run --session <name>`.
 - `ctxloom hook next-step` and the TurnEnd hook entry that ran it. The next
   `ctxloom materialize --yes` (or any re-delivery of ctxloom's managed hooks)
-  removes the entry from a project's `.claude/settings.json`.
+  removes the entry from a project's `.claude/settings.json`. A settings
+  file ctxloom holds no record of (a tracked one in a fresh clone) keeps it
+  until `ctxloom doctor --fix`, which reports the dead verb and takes it out.
 - What the session-start hook delivered for compaction: the resumed essence,
   and the "context cleared, run /recover" notice after `/clear`. The start
   banner no longer points at a previous session or a "resume" skill.

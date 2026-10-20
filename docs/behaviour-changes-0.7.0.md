@@ -400,6 +400,17 @@ default agent's; with no `--backend`, the project's configured engines.
   the same rule, so a hook of yours that runs `ctxloom <something else>` no
   longer counts as ctxloom's. ctxloom's `env` values, CLAUDE.md and command
   files committed to a clone are still not removed without a record.
+- **A statusline ctxloom did not write is left in place, and materialize
+  says so.** claude's HUD statusline is installed only where there is none
+  or ctxloom's own (`ctxloom hook hud`). Your own statusline, or one an
+  older ctxloom wrote with another command spelling, stays, and
+  `ctxloom materialize` lists "a statusline ctxloom did not write is in
+  place; remove it to get ctxloom's" under `skipped`; the run still
+  succeeds. Remove it by hand to get ctxloom's.
+- **A materialize that meets a `.claude/settings.json` it cannot read
+  writes no backup.** It refuses, as before, saying "the original is left
+  untouched; fix the JSON and re-run". Before, the refusal named a
+  `settings.json.corrupt-<n>` backup that was never written.
 - **`ctxloom profile materialize`, `ctxloom manage hooks install` and
   `ctxloom manage hooks uninstall` are removed.** A script that calls one now
   fails with `unknown command`. Use `ctxloom materialize` (it takes the

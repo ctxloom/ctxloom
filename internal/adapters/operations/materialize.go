@@ -104,8 +104,9 @@ type EngineOutcome struct {
 	NotCarried        []agent.SurfaceLoss `json:"not_carried,omitempty"`
 	WithheldByPremise []PremiseWithhold   `json:"withheld_by_premise,omitempty"`
 	// Skipped names each command or skill the engine's writers skipped or
-	// refused (an unsafe name, a failed render, a vendor constraint): the
-	// rest was delivered, these were not.
+	// refused (an unsafe name, a failed render, a vendor constraint), and each
+	// value a settings writer left standing rather than claim (a statusline
+	// ctxloom did not write): the rest was delivered, these were not.
 	Skipped []string `json:"skipped,omitempty"`
 	// Refused names, in a dry run, each kind whose delivery would be
 	// refused (a value that is not ctxloom's, a declared file missing, a

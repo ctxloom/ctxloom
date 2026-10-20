@@ -83,6 +83,8 @@ against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
 6. **Writes are marker-merged or manifest-scoped, never whole-file overwrites.**
 7. **claude never passes `safefs.AllowEmpty()`**, so a zero-byte write over an existing file it writes is refused by safefs's empty-write guard (and `agent.CanonicalJSON` always emits at least `{}\n` anyway).
 8. **`--strict-mcp-config` follows the repository's trust verdict** (`repoSourceArgs`): a trusted repository's launch layers `--mcp-config` over its project `.mcp.json`; any other verdict adds `--setting-sources user --strict-mcp-config`, so the repository's own settings and MCP servers never load, and a presentation that depends on them is refused (`ErrUntrustedProjectMCP`, `errUntrustedSettingsPresented`).
+9. **The statusline is claimed only when absent or exactly ctxloom's own command** (`statuslineClaimable`); any other — the user's own, or an earlier ctxloom's spelling — is left in place and reported as a finding (`StatuslineNotOurs`, on `engine.SettingsInputs.Report`), never adopted or replaced.
+10. **The settings approach refuses a `settings.json` it cannot read without a backup** (`approachWriter`, `RefuseCorruptUntouched`): it runs over the static writer's overlay, which discards a refused run's writes, so a backup would never land. The status read, off the overlay, backs the original up and names it.
 
 ## Divergences from documented or implied behavior
 

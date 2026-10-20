@@ -79,7 +79,7 @@ and HUD statusline from the settings file. The only other writer is the refresh
 `ctxloom deps pull --yes` and `ctxloom run --yes` run after a sync, which
 writes the same kinds except a context the engine already takes at launch.
 
-Materializing every kind also writes the command files exported from commands, the MCP servers your bundles declare, and the HUD statusline (honoring `config.statusline`). ctxloom's own MCP server is not among them: it is served by a running `ctxloom run` session and registered only for that session, so nothing ctxloom-owned is left executable at rest. There is no MCP tool for this; hook management is CLI-only.
+Materializing every kind also writes the command files exported from commands, the MCP servers your bundles declare, and the HUD statusline (honoring `config.statusline`; a statusline ctxloom did not write is left in place and reported, so remove it to get ctxloom's). ctxloom's own MCP server is not among them: it is served by a running `ctxloom run` session and registered only for that session, so nothing ctxloom-owned is left executable at rest. There is no MCP tool for this; hook management is CLI-only.
 
 `ctxloom manage hooks list` shows every hook that will fire, per event, in order, with the profile, bundle or companion each came from.
 

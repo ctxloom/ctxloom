@@ -37,6 +37,11 @@ type ClaudeCodeHookWriter struct {
 	// projectClaims is the ownership record's account of what the project
 	// writer has installed (agent.SettingsOptions.ProjectClaims).
 	projectClaims func(target string) ([]string, error)
+	// overlaid says FS is the static writer's overlay, whose writes a refusal
+	// discards: a corrupt file is then refused with no backup
+	// (agent.RefuseCorruptUntouched), since one written there would never
+	// land. The settings approach's reads set it (approachWriter).
+	overlaid bool
 }
 
 // getFS returns the filesystem to use, defaulting to the OS filesystem. It is
@@ -142,9 +147,10 @@ type claudeCodeHook struct {
 //
 // On a PARSE failure it does NOT fabricate an empty settings object: empty
 // settings would read as "nothing installed" and "no statusline", and a
-// statusline claim would then take a slot a corrupt file still holds. The raw
-// bytes are backed up to <path>.corrupt-<unix-timestamp> and a real error is
-// returned, pointing the user at the backup to fix by hand.
+// statusline claim would then take a slot a corrupt file still holds. A real
+// error is returned (corruptSettings): off the static writer's overlay the
+// raw bytes are first backed up to <path>.corrupt-<unix-timestamp> and the
+// error points the user at the backup to fix by hand.
 func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, error) {
 	settings := &claudeCodeSettings{
 		Hooks: make(map[string][]claudeCodeHookMatcher),
@@ -217,8 +223,7 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 // is not the same as "the user has none": treating the two alike would hand a
 // statusline claim a slot the user had filled. ctxloom is the wrong party to
 // decide the fate of a value it just failed to read, so this takes the same
-// stance as parsePermissions and the hooks block: back the original up and
-// refuse.
+// stance as parsePermissions and the hooks block: refuse (corruptSettings).
 func (w *ClaudeCodeHookWriter) parseStatusLine(path string, data []byte, raw json.RawMessage) (*claudeCodeStatusLine, error) {
 	var sl claudeCodeStatusLine
 	if err := json.Unmarshal(raw, &sl); err != nil {
@@ -258,10 +263,15 @@ func (w *ClaudeCodeHookWriter) parsePermissions(path string, data []byte, raw js
 
 // corruptSettings is this writer's binding of agent.RefuseCorrupt (see its
 // doc): back the original bytes up, then return an error so the caller aborts
-// before touching the file. Every partial-parse failure in loadSettings
-// routes through here so no future field can be added with a
-// warn-and-continue branch: a warning is not a guard.
+// before touching the file — or, over the static writer's overlay (overlaid),
+// back nothing up and say the original is left untouched. Every
+// partial-parse failure in loadSettings routes through here so no future
+// field can be added with a warn-and-continue branch: a warning is not a
+// guard.
 func (w *ClaudeCodeHookWriter) corruptSettings(path string, data []byte, what string, cause error, consequence string) error {
+	if w.overlaid {
+		return agent.RefuseCorruptUntouched(path, what, cause, consequence)
+	}
 	return agent.RefuseCorrupt(w.getFS(), path, data, what, cause, consequence)
 }
 

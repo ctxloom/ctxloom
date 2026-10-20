@@ -203,8 +203,9 @@ type Loadout struct {
 	// file (engine.ContextInputs.File).
 	ContextFile string
 	// Report is where the commands and skills writers report an item they
-	// skip; nil discards. A materialize collects them into its result, a
-	// run reports them through its reporter.
+	// skip, and the settings writer a value it leaves standing; nil
+	// discards. A materialize collects them into its result, a run reports
+	// them through its reporter.
 	Report report.Sink
 }
 
@@ -283,7 +284,7 @@ func InputsFor(lo Loadout, dynamic engine.DynamicApproach) (Inputs, error) {
 	return Inputs{
 		Context:  engine.ContextInputs{Text: []byte(pkg.Context.Text), Hash: pkg.Context.Hash, File: lo.ContextFile},
 		MCP:      engine.MCPInputs{Servers: servers},
-		Settings: engine.SettingsInputs{DenyTools: pkg.DenyTools, Statusline: pkg.Statusline, ShellTimeout: pkg.ShellTimeout, Exports: lo.Exports},
+		Settings: engine.SettingsInputs{DenyTools: pkg.DenyTools, Statusline: pkg.Statusline, ShellTimeout: pkg.ShellTimeout, Exports: lo.Exports, Report: lo.Report},
 		Hooks:    engine.HooksInputs{Hooks: pkg.Hooks.Unified, Ext: pkg.Hooks.Ext},
 		Commands: engine.CommandsInputs{Commands: lo.Exports.Commands, Report: lo.Report},
 		Skills:   engine.SkillsInputs{Skills: lo.Exports.Skills, Report: lo.Report},

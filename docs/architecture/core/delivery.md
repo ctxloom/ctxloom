@@ -177,6 +177,26 @@ counts. The post-sync refresh without `--yes`
 reports that as `RefreshSkipped` only when something differs or is
 refused, so a project already current gets no note.
 
+An approach runs only over its overlay, and a run that refuses has its
+overlay discarded: nothing it wrote lands. So an approach that refuses a
+user's file it cannot read (claude's settings approach, over a
+`settings.json` that does not parse or holds a block of the wrong shape)
+writes no `.corrupt-*` backup and names none — `agent.RefuseCorruptUntouched`
+says the original is left untouched — in a dry run and an apply alike
+(`TestMaterialize_CorruptFileRefusalClaimsNoBackup`). A writer outside the
+overlay (the settings status read, taskloom's `.mcp.json` registrar) still
+backs the original up and names the backup (`agent.RefuseCorrupt`).
+
+A value a settings approach leaves standing rather than claim is a finding,
+not a refusal: claude's statusline writer claims only a statusline that is
+absent or exactly ctxloom's own command, and one ctxloom did not write — the
+user's own, or an earlier ctxloom's spelling — is left in place and reported
+on the loadout's `Report` (`engine.SettingsInputs.Report`;
+`claude.StatuslineNotOurs`, "remove it to get ctxloom's"). A materialize
+lists it among the engine's `Skipped`, and the run still succeeds
+(`TestMaterialize_ReportsAStatuslineItDidNotWrite`). Nothing adopts,
+migrates or replaces such a statusline.
+
 ## The placement core, and the at-rest plan
 
 The planning and targeting every static delivery shares is one pair of

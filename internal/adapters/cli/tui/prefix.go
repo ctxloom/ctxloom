@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -24,42 +25,40 @@ type PrefixKey struct {
 // interrupt/EOF (ctrl-c/ctrl-d), suspend (ctrl-z), and flow control
 // (ctrl-q/ctrl-s) — are rejected with the reason.
 func ParsePrefixKey(s string) (PrefixKey, error) {
-	b, err := prefixByte(s)
-	if err != nil {
-		return PrefixKey{}, err
-	}
-	return PrefixKey{b: b, keystroke: teaKeyName(b)}, nil
-}
-
-// prefixByte maps a config-syntax key name to the control byte a legacy
-// terminal sends for that key (DEL for ctrl-?).
-func prefixByte(s string) (byte, error) {
 	name := strings.ToLower(strings.TrimSpace(s))
 	rest, ok := strings.CutPrefix(name, "ctrl-")
 	if !ok {
 		rest, ok = strings.CutPrefix(name, "ctrl+")
 	}
 	if !ok || len(rest) != 1 {
-		return 0, fmt.Errorf("prefix key %q: want a control key like %q", s, "ctrl-]")
+		return PrefixKey{}, fmt.Errorf("prefix key %q: %w", s, errPrefixNotControlKey)
 	}
+	// b is the control byte a legacy terminal sends for the key (DEL for
+	// ctrl-?).
 	var b byte
 	switch ch := rest[0]; {
 	case ch >= 'a' && ch <= 'z':
 		b = ch - 'a' + 1
-	case ch == '@', ch == ' ':
-		b = 0
+	case ch == '@': // NUL, b's zero value
 	case ch >= '[' && ch <= '_': // [ \ ] ^ _
 		b = ch - '[' + 27
 	case ch == '?':
 		b = 127
 	default:
-		return 0, fmt.Errorf("prefix key %q: %q is not a control-key character", s, string(ch))
+		return PrefixKey{}, fmt.Errorf("prefix key %q: %q %w", s, string(ch), errPrefixNotControlChar)
 	}
 	if why, refused := refusedPrefixes[b]; refused {
-		return 0, fmt.Errorf("prefix key %q: %s", s, why)
+		return PrefixKey{}, fmt.Errorf("prefix key %q: %w: %s", s, errPrefixReserved, why)
 	}
-	return b, nil
+	return PrefixKey{b: b, keystroke: teaKeyName(b)}, nil
 }
+
+// The reasons ParsePrefixKey refuses a key name.
+var (
+	errPrefixNotControlKey  = errors.New(`want a control key like "ctrl-]"`)
+	errPrefixNotControlChar = errors.New("is not a control-key character")
+	errPrefixReserved       = errors.New("the engine needs this key verbatim")
+)
 
 // refusedPrefixes are the control bytes the engine needs verbatim, each with
 // why it cannot be the prefix.

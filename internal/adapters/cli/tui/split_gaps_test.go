@@ -296,6 +296,27 @@ func TestSplit_NoCursorBeforeASize(t *testing.T) {
 	assert.Nil(t, h.s.cursor(), "a child's input line has no row to sit on yet")
 }
 
+// A summoned approval takes the pane without moving focus off it, and the
+// engine's cursor goes with the pane: none blinks over the approval.
+func TestSplit_NoCursorOverASummonedApproval(t *testing.T) {
+	port := newSplitPort()
+	port.queue = newFakeQueue(bashReq("a1", "brave-heron", "ls", time.Hour))
+	h := newSplitHarness(t, port).sized(100, 30)
+	require.NotNil(t, h.s.View().Cursor, "the engine's cursor shows before the summon")
+	reply := make(chan error, 1)
+	h.send(summonMsg{id: 1, notice: "approval from brave-heron", reply: reply})
+	require.NoError(t, <-reply)
+	require.Equal(t, focusPane, h.s.focus)
+	assert.Nil(t, h.s.View().Cursor)
+}
+
+// A one-row terminal is a size: the cursor sits on its only row.
+func TestSplit_CursorOnAOneRowTerminal(t *testing.T) {
+	h := newSplitHarness(t, newSplitPort()).sized(100, 1)
+	require.NotNil(t, h.s.View().Cursor)
+	assert.Zero(t, h.s.View().Cursor.Y)
+}
+
 func TestSplit_SummonWhileTheTreesApprovalsAreOpen(t *testing.T) {
 	port := newSplitPort()
 	port.queue = newFakeQueue(bashReq("a1", "brave-heron", "ls", time.Hour))

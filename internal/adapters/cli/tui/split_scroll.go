@@ -112,10 +112,7 @@ func (s *Split) keepScroll() {
 func (s *Split) scrollLines(w, h int) []string {
 	hist := s.frame.History
 	top := min(s.scroll.top, hist)
-	var back []string
-	if top < hist {
-		back = s.pane.History(top, min(h, hist-top))
-	}
+	back := s.pane.History(top, min(h, hist-top))
 	live := s.terminalLines(w, h) // h rows: v below is always inside them
 	blank := strings.Repeat(" ", w)
 	out := make([]string, h)

@@ -668,8 +668,11 @@ func validatePermissionFlag(known []string, flag string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("unknown --permissions %q; valid: %s", flag, strings.Join(known, "|"))
+	return fmt.Errorf("%w %q; valid: %s", errUnknownPermissions, flag, strings.Join(known, "|"))
 }
+
+// errUnknownPermissions refuses a typed --permissions value no engine names.
+var errUnknownPermissions = errors.New("unknown --permissions")
 
 // loadConfig loads this run's configuration, surfaces the warnings it
 // downgraded (they are what arms the startup gate) and settles the profile
@@ -879,12 +882,9 @@ func (st *runState) emitDryRun() error {
 		return err
 	}
 	// The preview shows what the launch would carry: a --session full
-	// resume trails the assembled context exactly as the lead the launch
-	// composes (resumedTranscript).
+	// resume's transcript already leads pkg's context (resumedTranscript,
+	// through src.Extra).
 	context := pkg.Context.Text
-	if runResumeSession != "" {
-		context = resumeFullContext(context, runResumeSession, operations.RecordedSessionEntries)
-	}
 	payload := dryRunJSON{
 		Agent:       runAgent,
 		Workspace:   string(l.Declared.Workspace),
@@ -995,9 +995,12 @@ func (st *runState) resumeEnv() map[string]string {
 	if runResumeSession == "" {
 		return nil
 	}
-	fmt.Fprintf(os.Stderr, "ctxloom: resuming full transcript from %s\n", runResumeSession)
+	fmt.Fprintf(os.Stderr, resumingTranscriptNotice, runResumeSession)
 	return map[string]string{"CTXLOOM_RESUMED_FROM": runResumeSession, "CTXLOOM_RESUMED_PARTS": "transcript"}
 }
+
+// resumingTranscriptNotice announces a --session run's resume on stderr.
+const resumingTranscriptNotice = "ctxloom: resuming full transcript from %s\n"
 
 // openSessionBanner prints the start-session display — a read-only summary
 // of this session, BEFORE the engine spawns — and sets the terminal window

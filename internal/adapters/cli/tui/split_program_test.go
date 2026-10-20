@@ -405,3 +405,14 @@ func TestSplitView_CloseDrawsTheEnginesLastFrame(t *testing.T) {
 	drawn := got[:max(bytes.LastIndex(got, []byte("\x1b[?1049l")), 0)]
 	assert.Contains(t, strings.Join(screenOf(drawn, 100, 10).Text(), "\n"), "the engine's last words")
 }
+
+// An engine that left its screen blank leaves no rows on the main screen:
+// the epilogue, if any, is the first line after the cursor.
+func TestFinalFrame_ABlankScreenLeavesNoRows(t *testing.T) {
+	pane := termemu.NewXVT(20, 4, io.Discard, termemu.Callbacks{})
+	t.Cleanup(func() { _ = pane.Close() })
+	f := pane.Frame()
+	require.NotNil(t, f.Buf)
+	assert.Equal(t, "\r", finalFrame(f, ""))
+	assert.Equal(t, "\repilogue\n", finalFrame(f, "epilogue"))
+}

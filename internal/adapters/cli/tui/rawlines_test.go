@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,3 +23,16 @@ func TestRawLines_EveryLineEndsCRLF(t *testing.T) {
 	}
 	assert.Equal(t, "one\r\ntwo\r\nthree\r\nfour\r\n", out.String())
 }
+
+// TestRawLines_ReportsTheTerminalsWriteError: a write the terminal refuses is
+// reported, with none of the caller's bytes counted as written.
+func TestRawLines_ReportsTheTerminalsWriteError(t *testing.T) {
+	refused := errors.New("terminal gone")
+	n, err := RawLines(failingWriter{refused}).Write([]byte("line\n"))
+	require.ErrorIs(t, err, refused)
+	assert.Zero(t, n)
+}
+
+type failingWriter struct{ err error }
+
+func (w failingWriter) Write([]byte) (int, error) { return 0, w.err }

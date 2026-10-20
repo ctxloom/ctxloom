@@ -412,12 +412,9 @@ func (t *XVT) History(from, n int) []string {
 	sb := t.emu.Scrollback()
 	end := min(from+n, sb.Len())
 	from = max(from, 0)
-	if end <= from {
-		return nil
-	}
-	out := make([]string, 0, end-from)
-	for i := from; i < end; i++ {
-		out = append(out, sb.Line(i).Render())
+	out := make([]string, max(end-from, 0))
+	for i := range out {
+		out[i] = sb.Line(from + i).Render()
 	}
 	return out
 }

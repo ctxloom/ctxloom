@@ -22,6 +22,32 @@ import (
 // entriesFn seam, so it is testable without a live session index or backend
 // transcript reader.
 
+// A run without --session carries no resume: no transcript lead, no
+// resumed-from pair, and nothing said about a resume.
+func TestRunState_NoResumeWithoutASession(t *testing.T) {
+	prev := runResumeSession
+	runResumeSession = ""
+	t.Cleanup(func() { runResumeSession = prev })
+	var diag bytes.Buffer
+	restore := clidiag.SetSink(&diag)
+	defer restore()
+
+	st := &runState{}
+	assert.Nil(t, st.resumedTranscript())
+	assert.Nil(t, st.resumeEnv())
+	assert.Empty(t, diag.String(), "no resume is looked up")
+}
+
+// A --session run names what it resumed from for the session instructions.
+func TestRunState_ResumeEnvNamesTheResumedHarp(t *testing.T) {
+	prev := runResumeSession
+	runResumeSession = "swift-amber-falcon"
+	t.Cleanup(func() { runResumeSession = prev })
+
+	assert.Equal(t, map[string]string{"CTXLOOM_RESUMED_FROM": "swift-amber-falcon", "CTXLOOM_RESUMED_PARTS": "transcript"},
+		(&runState{}).resumeEnv())
+}
+
 // TestResumeFullContext_FoldsRenderedTranscript covers the happy path: a
 // resolvable harp's recorded entries render and join onto the existing
 // assembled context via the SAME operations.RenderResumedTranscript/

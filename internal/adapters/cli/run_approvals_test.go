@@ -29,8 +29,8 @@ func TestValidatePermissionFlag(t *testing.T) {
 	assert.NoError(t, validatePermissionFlag(known, "plan"))
 	assert.NoError(t, validatePermissionFlag(known, "bypass"))
 	assert.NoError(t, validatePermissionFlag(known, "BYPASS"), "case-insensitive")
-	assert.Error(t, validatePermissionFlag(known, "plann"), "typo is rejected, not silently widened")
-	assert.Error(t, validatePermissionFlag(known, "dontAsk"), "a retired mode names no engine's")
+	assert.ErrorIs(t, validatePermissionFlag(known, "plann"), errUnknownPermissions, "typo is rejected, not silently widened")
+	assert.ErrorIs(t, validatePermissionFlag(known, "dontAsk"), errUnknownPermissions, "a retired mode names no engine's")
 }
 
 // TestPostureWarning: the startup warning is computed from the RESOLVED

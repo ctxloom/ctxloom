@@ -128,28 +128,37 @@ func TestParsePrefixKey_Accepted(t *testing.T) {
 	}
 }
 
+// TestParsePrefixKey_Rejected: each refusal names why — not a control key
+// at all, a character no control key carries, or a control key the engine
+// needs verbatim.
 func TestParsePrefixKey_Rejected(t *testing.T) {
-	for _, in := range []string{
-		"",        // empty
-		"]",       // bare printable
-		"a",       // printable would swallow typing
-		"alt-x",   // unknown modifier
-		"ctrl-",   // no key
-		"ctrl-xy", // multi-char
-		"ctrl-1",  // not a control-key character
-		"ctrl-[",  // ESC: shadows every escape sequence
-		"ctrl-i",  // TAB
-		"ctrl-j",  // LF
-		"ctrl-m",  // CR
-		"ctrl-@",  // NUL
-		"ctrl- ",  // NUL, spelled with a space
-		"ctrl-c",  // SIGINT
-		"ctrl-d",  // EOF
-		"ctrl-s",  // XOFF flow control
-		"ctrl-q",  // XON flow control
-		"ctrl-z",  // SIGTSTP
+	for _, c := range []struct {
+		in   string
+		want error
+	}{
+		{"", errPrefixNotControlKey},        // empty
+		{"]", errPrefixNotControlKey},       // bare printable
+		{"a", errPrefixNotControlKey},       // printable would swallow typing
+		{"alt-x", errPrefixNotControlKey},   // unknown modifier
+		{"ctrl-", errPrefixNotControlKey},   // no key
+		{"ctrl-xy", errPrefixNotControlKey}, // multi-char
+		{"ctrl-1", errPrefixNotControlChar}, // below the letters
+		{"ctrl-`", errPrefixNotControlChar}, // between _ and a
+		{"ctrl-{", errPrefixNotControlChar}, // just past z
+		{"ctrl-~", errPrefixNotControlChar}, // past z, where ctrl-a's arithmetic would land on ^^
+		{"ctrl-[", errPrefixReserved},       // ESC: shadows every escape sequence
+		{"ctrl-i", errPrefixReserved},       // TAB
+		{"ctrl-j", errPrefixReserved},       // LF
+		{"ctrl-m", errPrefixReserved},       // CR
+		{"ctrl-@", errPrefixReserved},       // NUL
+		{"ctrl- ", errPrefixNotControlKey},  // the space is trimmed: no key
+		{"ctrl-c", errPrefixReserved},       // SIGINT
+		{"ctrl-d", errPrefixReserved},       // EOF
+		{"ctrl-s", errPrefixReserved},       // XOFF flow control
+		{"ctrl-q", errPrefixReserved},       // XON flow control
+		{"ctrl-z", errPrefixReserved},       // SIGTSTP
 	} {
-		_, err := ParsePrefixKey(in)
-		assert.Error(t, err, "%q must be rejected", in)
+		_, err := ParsePrefixKey(c.in)
+		assert.ErrorIs(t, err, c.want, "%q", c.in)
 	}
 }

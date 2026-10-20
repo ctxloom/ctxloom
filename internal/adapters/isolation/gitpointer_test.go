@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -382,7 +383,21 @@ func TestGitReadOnlyOverlays_UnroutableEntryFails(t *testing.T) {
 	gitCommonFixture(t, common, true)
 	elsewhere := t.TempDir()
 	mounts, err := gitReadOnlyOverlays(fakeRuntime{name: "docker"}, common, bind(elsewhere, elsewhere, false), gitLinkedReadOnlyEntries)
-	require.Error(t, err)
+	require.ErrorIs(t, err, ErrUnmapped, "the refusal carries why the entry has no name in the child")
+	assert.Nil(t, mounts, "no partial overlay set escapes")
+}
+
+// An entry whose state cannot be read (here a symlink loop) fails the
+// workspace with the cause intact rather than being taken as absent and
+// left unshadowed: only a missing entry is skipped.
+func TestGitReadOnlyOverlays_UnreadableEntryFailsWithItsCause(t *testing.T) {
+	_, _, common := linkedCheckoutIn(t, "")
+	gitCommonFixture(t, common, true)
+	index := filepath.Join(common, "index")
+	require.NoError(t, os.Remove(index))
+	require.NoError(t, os.Symlink(index, index))
+	mounts, err := gitReadOnlyOverlays(fakeRuntime{name: "docker"}, common, bind(common, common, false), gitLinkedReadOnlyEntries)
+	require.ErrorIs(t, err, syscall.ELOOP)
 	assert.Nil(t, mounts, "no partial overlay set escapes")
 }
 

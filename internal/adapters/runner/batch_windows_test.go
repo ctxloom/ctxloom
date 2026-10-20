@@ -3,6 +3,9 @@
 package runner
 
 import (
+	"context"
+	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -10,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // TestStartBatchViaCmdExe pins the Windows wiring: a batch engine is started
@@ -36,4 +41,16 @@ func TestStartBatchViaCmdExe(t *testing.T) {
 		cmd := &exec.Cmd{Path: npmShim, Args: []string{"claude", "line one\nline two"}}
 		require.ErrorIs(t, startBatchViaCmdExe(cmd), errBatchArgument)
 	})
+}
+
+// TestRunLaunchSpec_RefusesABatchArgumentCmdExeCannotCarry: the launcher
+// stops at startBatchViaCmdExe's refusal rather than handing the script to
+// CreateProcess with an argument cmd.exe would split or drop.
+func TestRunLaunchSpec_RefusesABatchArgumentCmdExeCannotCarry(t *testing.T) {
+	script := filepath.Join(t.TempDir(), "engine.cmd")
+	require.NoError(t, os.WriteFile(script, []byte("@exit /b 0\r\n"), 0o755))
+	spec := agent.LaunchSpec{BinaryPath: script, Args: []string{"line one\nline two"}}
+	code, err := RunLaunchSpec(context.Background(), spec, nil, io.Discard, io.Discard)
+	require.ErrorIs(t, err, errBatchArgument)
+	assert.Equal(t, int32(1), code)
 }

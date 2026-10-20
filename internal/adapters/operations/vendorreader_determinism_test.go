@@ -30,11 +30,11 @@ func canonicalBytes(t *testing.T, harp string) []byte {
 	return b
 }
 
-// TestConvertVendorTranscript_Deterministic_ReconversionsAreByteIdentical is
+// TestRefreshVendorTranscript_Deterministic_ReconversionsAreByteIdentical is
 // the determinism pin for the merge-blocking defect filed as taskloom
 // luxurious-roast: converting the SAME, UNCHANGED vendor transcript must
 // produce byte-IDENTICAL canonical output every time, not merely
-// same-length-or-longer (TestConvertVendorTranscriptOnExit_ConvertsBoundTranscript,
+// same-length-or-longer (TestHealVendorTranscriptOnExit_ConvertsBoundTranscript,
 // one layer up in internal/adapters/cli, only ever asserted GreaterOrEqual, which is
 // exactly the assertion an actively non-deterministic byte count could still
 // fail — "4915" is not >= "4917" was the live repro).
@@ -43,33 +43,33 @@ func canonicalBytes(t *testing.T, harp string) []byte {
 // time.Now().UTC() (recorder.go's now field) with no way to override it —
 // including on THIS import path, which re-reads and re-writes the whole
 // vendor transcript from scratch on every call
-// (convertVendorTranscript's doc comment). TS is RFC3339Nano, which trims
+// (RefreshVendorTranscript's doc comment). TS is RFC3339Nano, which trims
 // trailing fractional zeros, so its formatted width varies from call to
 // call even when nothing about the source did — corrupting any staleness
 // fingerprint or byte-exact fixture assertion built on the canonical bytes.
-// Reconversion used to be rare (a permanent presence-guarded no-op); it is
-// now routine (RefreshVendorTranscript's refresh-once exit-capture heal —
-// internal/adapters/cli/run.go's convertVendorTranscriptOnExit), which is what makes
-// this a live, not theoretical, defect.
+// Reconversion is routine — every exit capture rebuilds
+// (internal/adapters/cli/run.go's healVendorTranscriptOnExit, through
+// RefreshVendorTranscript) — which is what makes this a live, not
+// theoretical, defect.
 //
 // The fix is transcript.WithClock, wired through vendorSourceClock: every
 // record's TS is now the SOURCE FILE's own mtime, which does not change
 // unless the source itself is rewritten.
 //
-// This test exercises the real, public entry points — ConvertVendorTranscript
-// then RefreshVendorTranscript, twice — rather than fixing a clock by hand,
+// This test exercises the real, public entry point — RefreshVendorTranscript,
+// three times — rather than fixing a clock by hand,
 // so a regression anywhere on the path (the adapter, the recorder, or the
 // clock plumbing between operations and transcript) turns it red. A
 // reintroduced time.Now() on this path kills it: two Convert calls
 // separated by a real sleep essentially never produce the identical
 // RFC3339Nano value byte-for-byte, so exact equality — not just length — is
 // the assertion, deliberately.
-func TestConvertVendorTranscript_Deterministic_ReconversionsAreByteIdentical(t *testing.T) {
+func TestRefreshVendorTranscript_Deterministic_ReconversionsAreByteIdentical(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "determinism-pin-harp"
 	e := claudeEntry(harp, claudeFixturePath)
 
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 	first := canonicalBytes(t, harp)

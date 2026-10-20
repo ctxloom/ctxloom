@@ -262,7 +262,7 @@ Every host-side launch enters through `launch.Resolve`
 | `WatchSessionFeed` / `watchLiveFeed` / `watchStoreFeed` / `adaptConsumerFeed` | `sessionfeed.go:96,133,460,264` | Unified observation feed: prefer a live coordinator over gRPC, fall back to the recorded store. `adaptConsumerFeed` folds live item-lifecycle deltas back into whole `agent.SessionEntry` values with seq-based gap detection. |
 | `feedScrollback` | `sessionfeed.go:422` | Reads the harp's recorded transcript once as the live feed's prefix. |
 | `RecordedSessionEntries` / `RenderResumedTranscript` / `JoinLeadBlocks` | `resume.go:16,41,82` | Transcript replay for resume; the rendered block is tail-truncated to 32 KiB. `JoinLeadBlocks` joins non-empty lead blocks with a blank line and has six production call sites across three packages. |
-| `ConvertVendorTranscript` / `RefreshVendorTranscript` | `vendorreader.go` | Converts a vendor-native transcript into the canonical JSONL via the per-engine vendor-reader registry; `ConvertVendorTranscript` is a no-op once a canonical file exists, `RefreshVendorTranscript` rebuilds it unconditionally. |
+| `RefreshVendorTranscript` | `vendorreader.go` | Converts a vendor-native transcript into the canonical JSONL via the per-engine vendor-reader registry, rebuilding it unconditionally and committing it atomically only on success. |
 | `ResolveAndHeal` | `session_source.go` | The one source-resolution + refresh seam: the harp's index entry plus an unconditional refresh of its canonical transcript. Called when an interactive run exits and by `session adopt`; nothing refreshes on read. |
 
 ## Search and schema targets

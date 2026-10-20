@@ -61,9 +61,8 @@ func claudeEntry(harp, vendorPath string) sessions.Entry {
 	}
 }
 
-// TestRefreshVendorTranscript_ReplacesRatherThanAppends is the trap this whole
-// verb exists to avoid, and the reason it could not simply be
-// ConvertVendorTranscript with its guard removed.
+// TestRefreshVendorTranscript_ReplacesRatherThanAppends is the trap a
+// rebuild over an existing canonical transcript must avoid.
 //
 // A Recorder APPENDS, and a conversion from the beginning records the whole
 // source again. So a re-conversion that
@@ -76,7 +75,7 @@ func TestRefreshVendorTranscript_ReplacesRatherThanAppends(t *testing.T) {
 	harp := "refresh-replaces-harp"
 	e := claudeEntry(harp, claudeFixturePath)
 
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 	first := canonicalLines(t, harp)
@@ -105,7 +104,7 @@ func TestRefreshVendorTranscript_PicksUpVendorGrowth(t *testing.T) {
 	vendorPath := vendorFileWithLines(t, 2)
 	e := claudeEntry(harp, vendorPath)
 
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 	before := canonicalLines(t, harp)
@@ -142,7 +141,7 @@ func TestRefreshVendorTranscript_KeepsExistingTranscriptWhenNothingToConvert(t *
 	testsupport.Isolate(t)
 	harp := "refresh-nothing-harp"
 
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), claudeEntry(harp, claudeFixturePath))
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), claudeEntry(harp, claudeFixturePath))
 	require.NoError(t, err)
 	require.True(t, converted)
 	before := canonicalLines(t, harp)
@@ -173,7 +172,7 @@ func TestRefreshVendorTranscript_FailedRefreshKeepsTheTranscriptItHad(t *testing
 	harp := "refresh-failure-harp"
 	e := sessions.Entry{HarpName: harp, Backend: "claude-code", TranscriptPath: claudeFixturePath, EngineVersion: stubEngineVersion}
 
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 	before := canonicalLines(t, harp)
@@ -213,7 +212,7 @@ func TestRefreshVendorTranscript_LeavesNoRebuildArtifact(t *testing.T) {
 	// fixed ".rebuild" suffix, so the check above alone would pass even if a
 	// temp were leaking under the new name — list the transcripts dir directly and
 	// require it hold nothing but the canonical file and its ownership-probe
-	// lock sidecar (paths.PathFor(dest) — see convertVendorTranscript's
+	// lock sidecar (paths.PathFor(dest) — see rebuildCanonicalTranscript's
 	// TryLock probe). The lock file is a legitimate, permanent
 	// fixture beside the path it guards, not a leftover temp: the first
 	// TryLock call creates it (os.O_CREATE) and every later acquisition

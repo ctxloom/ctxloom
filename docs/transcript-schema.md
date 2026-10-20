@@ -134,7 +134,7 @@ engine's private files after the fact.
   backend whose descriptor declares a `vendorreader.VendorAdapter`
   (`engine.Descriptor.TranscriptReaders`), the engine's native store is converted
   through the same `transcript.Recorder` the tee uses — on exit of an
-  interactive `ctxloom run` (`convertVendorTranscriptOnExit`), and when
+  interactive `ctxloom run` (`healVendorTranscriptOnExit`), and when
   `session adopt --yes` records an older session's lineage. Both go through
   `operations.ResolveAndHeal`, which refreshes unconditionally: a canonical
   transcript that already exists is rebuilt (or extended from its

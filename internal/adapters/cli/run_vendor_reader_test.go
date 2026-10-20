@@ -49,23 +49,23 @@ func canonicalTranscriptExists(t *testing.T, harp string) bool {
 	return false
 }
 
-// TestConvertVendorTranscriptOnExit_EmptyHarp and
-// TestConvertVendorTranscriptOnExit_UnknownHarp cover the two "there is
-// nothing to convert" degrades convertVendorTranscriptOnExit must survive
+// TestHealVendorTranscriptOnExit_EmptyHarp and
+// TestHealVendorTranscriptOnExit_UnknownHarp cover the two "there is
+// nothing to convert" degrades healVendorTranscriptOnExit must survive
 // silently — no panic, no index mutation — mirroring RecordOneshot's own
 // empty-input discipline.
-func TestConvertVendorTranscriptOnExit_EmptyHarp(t *testing.T) {
+func TestHealVendorTranscriptOnExit_EmptyHarp(t *testing.T) {
 	testsupport.Isolate(t)
-	convertVendorTranscriptOnExit("") // must not panic
+	healVendorTranscriptOnExit("") // must not panic
 }
 
-func TestConvertVendorTranscriptOnExit_UnknownHarp(t *testing.T) {
+func TestHealVendorTranscriptOnExit_UnknownHarp(t *testing.T) {
 	testsupport.Isolate(t)
-	convertVendorTranscriptOnExit("harp-never-indexed") // must not panic
+	healVendorTranscriptOnExit("harp-never-indexed") // must not panic
 	assert.False(t, canonicalTranscriptExists(t, "harp-never-indexed"))
 }
 
-// TestConvertVendorTranscriptOnExit_UnregisteredBackend covers a harp whose
+// TestHealVendorTranscriptOnExit_UnregisteredBackend covers a harp whose
 // backend declares no transcript reader: the exit seam is a
 // SILENT no-op — no canonical file and no warning — because there is no reader
 // to refuse with. The backend name is synthetic: every registered backend has a
@@ -73,7 +73,7 @@ func TestConvertVendorTranscriptOnExit_UnknownHarp(t *testing.T) {
 // transcript and recorded version are ones the claude reader WOULD accept, so
 // the only thing standing between this harp and a conversion is the missing
 // registry entry — a registry hit here would convert, or at least warn.
-func TestConvertVendorTranscriptOnExit_UnregisteredBackend(t *testing.T) {
+func TestHealVendorTranscriptOnExit_UnregisteredBackend(t *testing.T) {
 	testsupport.Isolate(t)
 	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
@@ -90,16 +90,16 @@ func TestConvertVendorTranscriptOnExit_UnregisteredBackend(t *testing.T) {
 	restore := clidiag.SetSink(&warnings)
 	defer restore()
 
-	convertVendorTranscriptOnExit(entry.HarpName)
+	healVendorTranscriptOnExit(entry.HarpName)
 	assert.False(t, canonicalTranscriptExists(t, entry.HarpName))
 	assert.Empty(t, warnings.String(), "a registry miss is quiet; only a registered reader can refuse")
 }
 
-// TestConvertVendorTranscriptOnExit_ConvertsBoundTranscript is the real,
+// TestHealVendorTranscriptOnExit_ConvertsBoundTranscript is the real,
 // end-to-end exit-seam behavior this function exists for: a harp whose
 // SessionStart bind hook recorded a real (fixture) claude transcript path
 // gets a canonical transcript.jsonl after the interactive session exits.
-func TestConvertVendorTranscriptOnExit_ConvertsBoundTranscript(t *testing.T) {
+func TestHealVendorTranscriptOnExit_ConvertsBoundTranscript(t *testing.T) {
 	testsupport.Isolate(t)
 	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
@@ -110,17 +110,14 @@ func TestConvertVendorTranscriptOnExit_ConvertsBoundTranscript(t *testing.T) {
 	seedEngineVersion(t, mgr, entry.HarpName, "claude-code")
 	require.NoError(t, mgr.BindSession(entry.HarpName, "sess-1", claudeVendorFixturePath(t)))
 
-	convertVendorTranscriptOnExit(entry.HarpName)
+	healVendorTranscriptOnExit(entry.HarpName)
 	assert.True(t, canonicalTranscriptExists(t, entry.HarpName))
 
 	// Re-running the exit seam a second time (e.g. a resumed `ctxloom run`
 	// against the same harp exiting again) must not LOSE what the first call
-	// captured. This is deliberately no longer a byte-identical assertion
-	// (path H): the pre-fix behavior was a
-	// presence-guarded no-op on the second call, which is exactly the bug
-	// this fix removes — a second call now genuinely
-	// re-converts, on purpose, so it may legitimately produce MORE than the
-	// first (see TestConvertVendorTranscriptOnExit_CapturesTheTailAfterAMidSessionRecover
+	// captured. A second call genuinely re-converts, so it may legitimately
+	// produce MORE than the first (see
+	// TestHealVendorTranscriptOnExit_CapturesTheTailAfterAMidSessionCapture
 	// for the case that matters — a source that grew between calls). What
 	// must never happen is losing content the first call already captured.
 	p, err := paths.HarpCanonicalTranscriptPath(entry.HarpName)
@@ -129,25 +126,23 @@ func TestConvertVendorTranscriptOnExit_ConvertsBoundTranscript(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, before)
 
-	convertVendorTranscriptOnExit(entry.HarpName)
+	healVendorTranscriptOnExit(entry.HarpName)
 	after, err := os.ReadFile(p)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(after), len(before),
 		"a second on-exit call against an unchanged source must not shrink the canonical transcript")
 }
 
-// TestConvertVendorTranscriptOnExit_CapturesTheTailAfterAMidSessionCapture
+// TestHealVendorTranscriptOnExit_CapturesTheTailAfterAMidSessionCapture
 // is the filed defect's exact scenario, pinned: a canonical transcript
 // already exists — an earlier capture mid-session materialized one — and the
-// session then kept going. The pre-fix behavior called
-// operations.ConvertVendorTranscript directly, whose presence guard makes it
-// a PERMANENT no-op once ANY canonical transcript exists, so every turn
-// after that capture was silently lost at exit: exit 0, no error, canonical
-// transcript frozen at the capture moment forever.
+// session then kept going. An exit capture that trusted the existing file as
+// complete would lose every turn after that capture silently: exit 0, no
+// error, canonical transcript frozen at the capture moment forever.
 //
 // This asserts on the canonical transcript's own bytes — the failure mode is
 // silent, so the call's own success is not evidence.
-func TestConvertVendorTranscriptOnExit_CapturesTheTailAfterAMidSessionCapture(t *testing.T) {
+func TestHealVendorTranscriptOnExit_CapturesTheTailAfterAMidSessionCapture(t *testing.T) {
 	testsupport.Isolate(t)
 	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
@@ -168,7 +163,7 @@ func TestConvertVendorTranscriptOnExit_CapturesTheTailAfterAMidSessionCapture(t 
 	require.NoError(t, mgr.BindSession(entry.HarpName, "sess-1", vendorPath))
 
 	// The mid-session capture itself.
-	convertVendorTranscriptOnExit(entry.HarpName)
+	healVendorTranscriptOnExit(entry.HarpName)
 	require.True(t, canonicalTranscriptExists(t, entry.HarpName))
 	p, err := paths.HarpCanonicalTranscriptPath(entry.HarpName)
 	require.NoError(t, err)
@@ -179,7 +174,7 @@ func TestConvertVendorTranscriptOnExit_CapturesTheTailAfterAMidSessionCapture(t 
 	require.NoError(t, os.WriteFile(vendorPath, full, 0o644))
 
 	// The interactive session now exits for real.
-	convertVendorTranscriptOnExit(entry.HarpName)
+	healVendorTranscriptOnExit(entry.HarpName)
 	afterExit, err := os.ReadFile(p)
 	require.NoError(t, err)
 

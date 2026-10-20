@@ -36,15 +36,13 @@ func (a partialFailAdapter) Convert(_ context.Context, _ afero.Fs, rec transcrip
 	return assert.AnError
 }
 
-// Convert failing partway through a transcript still leaves
-// whatever it already wrote on disk (transcript.Recorder creates its file on
-// the first SUCCESSFUL Record — recorder.go's NewRecorder doc — and every
-// Record before the failure succeeded). hasCanonicalTranscript's guard is
-// presence-only, so a LATER call for the same harp saw that partial file and
-// treated the harp as "already captured" forever — masking the original
-// failure permanently and never giving a fixed parser (or a corrected vendor
-// file) a chance to produce a complete import.
-func TestConvertVendorTranscript_FailurePartwayDoesNotPermanentlyMaskAsCaptured(t *testing.T) {
+// A Convert failing partway through a harp's FIRST conversion has already
+// recorded some lines (transcript.Recorder creates its file on the first
+// SUCCESSFUL Record — recorder.go's NewRecorder doc). None of them may reach
+// the canonical path: a partial file there reads back as a complete,
+// captured transcript, masking the failure from every reader. The failure
+// must surface, and a later call must genuinely retry it.
+func TestRefreshVendorTranscript_FailurePartwayLeavesNoCanonicalTranscript(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "convert-partial-failure-harp"
 
@@ -52,17 +50,16 @@ func TestConvertVendorTranscript_FailurePartwayDoesNotPermanentlyMaskAsCaptured(
 
 	e := sessions.Entry{HarpName: harp, Backend: engine, TranscriptPath: claudeFixturePath, EngineVersion: stubEngineVersion}
 
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	assert.True(t, converted, "Convert was genuinely attempted")
 	require.Error(t, err, "a partial failure must surface as an error the first time")
 
-	assert.False(t, hasCanonicalTranscript(afero.NewOsFs(), harp),
-		"a failed import must not leave a canonical file that a later retry mistakes for a complete, already-captured transcript")
+	assert.Nil(t, canonicalBytes(t, harp),
+		"a failed import must not leave a canonical file a reader mistakes for a complete transcript")
 
-	// A second call must genuinely retry, not silently no-op as "already
-	// captured" — confirm the same partial-then-fail signature reproduces
-	// (not "converted=false, nil" as a stale-guard no-op would give).
-	converted2, err2 := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
+	// A second call genuinely retries: the same partial-then-fail signature
+	// reproduces.
+	converted2, err2 := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	assert.True(t, converted2, "a prior failed attempt must not permanently block retry")
 	assert.Error(t, err2)
 }
@@ -78,15 +75,11 @@ func (zeroLineAdapter) Convert(_ context.Context, _ afero.Fs, _ transcript.Recor
 	return nil
 }
 
-// ConvertVendorTranscript returned (true, nil) — "converted" —
-// whenever Convert itself succeeded, with NO check that any bytes actually
-// landed on disk. transcript.Recorder creates its canonical file only on the
-// FIRST SUCCESSFUL Record (recorder.go's NewRecorder doc), so a Convert that
-// writes zero lines leaves no canonical file at all — yet the importer
-// reported "converted: <harp>" for it anyway. Because hasCanonicalTranscript
-// then still sees no file, EVERY subsequent backfill run repeats the same
-// false "converted" report — not a one-time lie, a standing one.
-func TestConvertVendorTranscript_ZeroLinesIsNotReportedAsConverted(t *testing.T) {
+// converted reports bytes committed, not Convert succeeding: a Convert that
+// records zero lines leaves no canonical file at all, and reporting
+// "converted" for it would be a standing lie repeated on every call, since
+// nothing on disk changes between them.
+func TestRefreshVendorTranscript_ZeroLinesIsNotReportedAsConverted(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "convert-zero-lines-harp"
 
@@ -94,9 +87,9 @@ func TestConvertVendorTranscript_ZeroLinesIsNotReportedAsConverted(t *testing.T)
 
 	e := sessions.Entry{HarpName: harp, Backend: engine, TranscriptPath: claudeFixturePath, EngineVersion: stubEngineVersion}
 
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	assert.False(t, converted,
 		"a Convert that wrote zero canonical lines must not be reported as \"converted\" — nothing was actually delivered")
-	assert.False(t, hasCanonicalTranscript(afero.NewOsFs(), harp), "no canonical file should exist when nothing was recorded")
+	assert.Nil(t, canonicalBytes(t, harp), "no canonical file should exist when nothing was recorded")
 }

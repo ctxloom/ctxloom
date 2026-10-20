@@ -32,7 +32,7 @@ import (
 // has no state to leak between calls. It would NOT, on its own, have caught
 // this project's actual regression (transcript.fileRecorder's wall-clock TS,
 // not adapter state) — see
-// operations.TestConvertVendorTranscript_Deterministic_ReconversionsAreByteIdentical
+// operations.TestRefreshVendorTranscript_Deterministic_ReconversionsAreByteIdentical
 // for the pin that exercises the real clock plumbing end to end, with no
 // clock fixed by hand.
 func TestConvert_DeterministicAcrossFreshAndSharedAdapterInstances(t *testing.T) {

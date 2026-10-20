@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/frontend"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -301,6 +302,27 @@ func TestDriveSession_TheSplitViewStoppingWithTheRunIsTheSignal(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	require.NotErrorIs(t, err, errSessionOutputLost)
 	require.True(t, tty.ended.Load())
+}
+
+// A session that ends is captured: however the drive ends, the harp's vendor
+// transcript is converted into its canonical one before the drive returns.
+func TestDriveSession_AnEndedSessionIsCaptured(t *testing.T) {
+	testsupport.Isolate(t)
+	mgr, err := sessions.Open(nil)
+	require.NoError(t, err)
+	entry, err := mgr.AssignHarp("/tmp/project", "claude-code")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
+	require.NoError(t, err)
+	seedEngineVersion(t, mgr, entry.HarpName, "claude-code")
+	require.NoError(t, mgr.BindSession(entry.HarpName, "sess-1", claudeVendorFixturePath(t)))
+
+	tty := newStuckTTY(true)
+	st := &runState{ctx: context.Background(), pty: tty, activeHarp: entry.HarpName}
+	sio, _ := splitStopped(errors.New("read /dev/stdin: input/output error"))
+
+	_ = driveSessionWithin(t, st, sio, stuckTerminal{tty}, 5*time.Second)
+	assert.True(t, canonicalTranscriptExists(t, entry.HarpName), "the ended session's transcript is captured")
 }
 
 // driveSessionWithin is driveWithin for driveSession over sio and term.

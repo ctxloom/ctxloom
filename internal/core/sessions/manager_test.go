@@ -487,7 +487,7 @@ func TestFindBySessionID_UnknownIDReturnsNil(t *testing.T) {
 // EVERY rotation already on record (the ordinary shape for a pre-lineage-fix
 // /clear, task escapable-vanity's e4cd4c8a case) must land FIRST in
 // Rotations, not appended after the newest one — the harp-lifetime rebuild
-// (operations.convertVendorTranscript) concatenates Rotations in array
+// (operations.RefreshVendorTranscript) concatenates Rotations in array
 // order, so an out-of-order slice would splice this segment into the
 // conversation at the wrong point.
 func TestAppendRotations_InsertsBeforeExistingByRotatedAt(t *testing.T) {

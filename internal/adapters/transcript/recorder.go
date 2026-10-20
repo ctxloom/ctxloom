@@ -267,7 +267,7 @@ func openAppendFile(fs afero.Fs) func(path string) (io.WriteCloser, error) {
 // internal/core/coord/enginehost.go) and takes a SHARED ownership
 // lock on the canonical transcript here, held for the recorder's lifetime
 // and released in Close. This is the other half of the easeful-dial fix:
-// operations.convertVendorTranscript's refresh path takes the matching
+// operations.RefreshVendorTranscript's rebuild takes the matching
 // EXCLUSIVE lock (TryLock) before rebuilding the same file, so a rebuild
 // that lands while this recorder is live sees the shared lock held and
 // skips rather than renaming the inode this recorder is still appending to

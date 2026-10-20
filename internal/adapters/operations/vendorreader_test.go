@@ -67,7 +67,7 @@ func canonicalLines(t *testing.T, harp string) []string {
 	return lines
 }
 
-func TestConvertVendorTranscript_ClaudeCodeBoundPath(t *testing.T) {
+func TestRefreshVendorTranscript_ClaudeCodeBoundPath(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "convert-claude-harp"
 	e := sessions.Entry{
@@ -77,7 +77,7 @@ func TestConvertVendorTranscript_ClaudeCodeBoundPath(t *testing.T) {
 		EngineVersion:  "2.1.225",
 	}
 
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	assert.True(t, converted)
 
@@ -95,7 +95,7 @@ func TestConvertVendorTranscript_ClaudeCodeBoundPath(t *testing.T) {
 	}
 }
 
-func TestConvertVendorTranscript_UnregisteredBackend(t *testing.T) {
+func TestRefreshVendorTranscript_UnregisteredBackend(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "convert-unregistered-harp"
 	e := sessions.Entry{
@@ -104,24 +104,24 @@ func TestConvertVendorTranscript_UnregisteredBackend(t *testing.T) {
 		TranscriptPath: claudeFixturePath,
 	}
 
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	assert.False(t, converted)
 	assert.Nil(t, canonicalLines(t, harp))
 }
 
-func TestConvertVendorTranscript_NoBoundTranscript(t *testing.T) {
+func TestRefreshVendorTranscript_NoBoundTranscript(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "convert-no-transcript-harp"
 	e := sessions.Entry{HarpName: harp, Backend: "claude-code"} // never bound
 
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	assert.False(t, converted)
 	assert.Nil(t, canonicalLines(t, harp))
 }
 
-func TestConvertVendorTranscript_DanglingBoundPath(t *testing.T) {
+func TestRefreshVendorTranscript_DanglingBoundPath(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "convert-dangling-harp"
 	e := sessions.Entry{
@@ -130,77 +130,18 @@ func TestConvertVendorTranscript_DanglingBoundPath(t *testing.T) {
 		TranscriptPath: filepath.Join(t.TempDir(), "does-not-exist.jsonl"),
 	}
 
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	assert.False(t, converted, "a bind pointing at a since-removed file must degrade to not-found, not a hard failure")
 }
 
-// TestConvertVendorTranscript_Idempotent covers the exit-seam contract: once
-// a canonical transcript exists for a harp, a second call is a permanent
-// no-op for it — never a re-import (which would duplicate every entry, since
-// Convert reads from the beginning; see ConvertVendorTranscript's
-// own doc comment).
-func TestConvertVendorTranscript_Idempotent(t *testing.T) {
-	testsupport.Isolate(t)
-	harp := "convert-idempotent-harp"
-	e := sessions.Entry{
-		HarpName:       harp,
-		Backend:        "claude-code",
-		TranscriptPath: claudeFixturePath,
-		EngineVersion:  stubEngineVersion,
-	}
-
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
-	require.NoError(t, err)
-	require.True(t, converted)
-	first := canonicalLines(t, harp)
-	require.NotEmpty(t, first)
-
-	converted, err = ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
-	require.NoError(t, err)
-	assert.False(t, converted, "a harp that already has a canonical transcript must be skipped")
-	assert.Equal(t, first, canonicalLines(t, harp), "the canonical file must be byte-for-byte untouched by the skipped second call")
-}
-
-// TestConvertVendorTranscript_PreRenameFileIsNotACanonicalTranscript pins
-// the one-name contract at the conversion guard: hasCanonicalTranscript
-// looks for paths.CanonicalTranscriptFileName only. A transcripts/ holding just
-// the pre-rename leaf (transcript.acp.jsonl) has no canonical transcript, so
-// the conversion RUNS and lands under the current name; the pre-rename file
-// is an unknown file the conversion neither reads nor touches.
-func TestConvertVendorTranscript_PreRenameFileIsNotACanonicalTranscript(t *testing.T) {
-	testsupport.Isolate(t)
-	harp := "convert-pre-rename-harp"
-
-	transcripts, err := paths.HarpTranscriptsDir(harp)
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(transcripts, 0o755))
-	preRename := filepath.Join(transcripts, "transcript.acp.jsonl")
-	require.NoError(t, os.WriteFile(preRename, []byte(`{"v":1,"harp":"`+harp+`"}`+"\n"), 0o644))
-
-	e := sessions.Entry{
-		HarpName:       harp,
-		Backend:        "claude-code",
-		TranscriptPath: claudeFixturePath,
-		EngineVersion:  stubEngineVersion,
-	}
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
-	require.NoError(t, err)
-	assert.True(t, converted, "a pre-rename leaf is not a canonical transcript; the conversion must run")
-
-	assert.NotNil(t, canonicalLines(t, harp), "the conversion lands under the current name")
-	preRenameData, err := os.ReadFile(preRename)
-	require.NoError(t, err)
-	assert.Equal(t, `{"v":1,"harp":"`+harp+`"}`+"\n", string(preRenameData), "the pre-rename file is neither read nor touched")
-}
-
-// TestConvertVendorTranscript_BestEffortOnFailure: a bind that STATS fine
+// TestRefreshVendorTranscript_BestEffortOnFailure: a bind that STATS fine
 // (locate succeeds) but is not actually a readable transcript file (a
 // directory, standing in for "the bind pointed somewhere Convert's own
 // os.Open/read genuinely can't handle") surfaces as a real error with
 // converted=true — "tried and failed", distinct from every "nothing to do"
 // case above.
-func TestConvertVendorTranscript_BestEffortOnFailure(t *testing.T) {
+func TestRefreshVendorTranscript_BestEffortOnFailure(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "convert-failure-harp"
 	e := sessions.Entry{
@@ -210,16 +151,16 @@ func TestConvertVendorTranscript_BestEffortOnFailure(t *testing.T) {
 		EngineVersion:  stubEngineVersion,
 	}
 
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	assert.True(t, converted, "Convert was genuinely attempted")
 	assert.Error(t, err)
 }
 
-func TestConvertVendorTranscript_EmptyHarp(t *testing.T) {
+func TestRefreshVendorTranscript_EmptyHarp(t *testing.T) {
 	testsupport.Isolate(t)
 	e := sessions.Entry{Backend: "claude-code", TranscriptPath: claudeFixturePath}
 
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	assert.False(t, converted)
 }
@@ -242,7 +183,7 @@ func TestVendorReaderRegistry_IsAPortWithARealAndADegenerateMember(t *testing.T)
 }
 
 // TestLocateBoundTranscript exercises the shared locate func directly
-// (rather than only indirectly through ConvertVendorTranscript above), so a
+// (rather than only indirectly through RefreshVendorTranscript above), so a
 // future edit to its stat-and-degrade behavior is caught at the unit it
 // actually lives in.
 func TestLocateBoundTranscript(t *testing.T) {
@@ -297,7 +238,7 @@ func TestRotationFixtures_MarkersAreDisjoint(t *testing.T) {
 	assert.NotContains(t, string(rotationBytes), liveMarker)
 }
 
-// TestConvertVendorTranscript_RotationLineage_ConcatenatesSegmentAndLive pins
+// TestRefreshVendorTranscript_RotationLineage_ConcatenatesSegmentAndLive pins
 // the harp-lifetime rebuild's core payload contract: the canonical transcript
 // produced for a harp with rotation history contains bytes from BOTH the
 // cached rotation segment AND the live conversion, segment first. This is the
@@ -309,7 +250,7 @@ func TestRotationFixtures_MarkersAreDisjoint(t *testing.T) {
 // BEFORE the Contains assertions — two empty reads would trivially "agree" on
 // containing nothing, which would pass the Contains checks below for the
 // wrong reason.
-func TestConvertVendorTranscript_RotationLineage_ConcatenatesSegmentAndLive(t *testing.T) {
+func TestRefreshVendorTranscript_RotationLineage_ConcatenatesSegmentAndLive(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "rotation-concat-harp"
 	e := sessions.Entry{
@@ -322,7 +263,7 @@ func TestConvertVendorTranscript_RotationLineage_ConcatenatesSegmentAndLive(t *t
 		},
 	}
 
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	assert.True(t, converted)
 
@@ -347,7 +288,7 @@ func TestConvertVendorTranscript_RotationLineage_ConcatenatesSegmentAndLive(t *t
 	assert.Contains(t, string(segBytes), rotationMarker)
 }
 
-// TestConvertVendorTranscript_CachedSegmentIsReused pins that a rotation
+// TestRefreshVendorTranscript_CachedSegmentIsReused pins that a rotation
 // segment is converted AT MOST ONCE: once cached, a later rebuild
 // (RefreshVendorTranscript) must reuse the cached file rather than re-running
 // the vendor adapter over that rotation's transcript again.
@@ -357,7 +298,7 @@ func TestConvertVendorTranscript_RotationLineage_ConcatenatesSegmentAndLive(t *t
 // correct behavior), the poison survives into the final canonical transcript.
 // If a mutation makes it reconvert unconditionally, the poison is
 // overwritten by a fresh conversion of the real fixture and never appears.
-func TestConvertVendorTranscript_CachedSegmentIsReused(t *testing.T) {
+func TestRefreshVendorTranscript_CachedSegmentIsReused(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "rotation-cache-reuse-harp"
 	e := sessions.Entry{
@@ -370,7 +311,7 @@ func TestConvertVendorTranscript_CachedSegmentIsReused(t *testing.T) {
 		},
 	}
 
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 
@@ -393,12 +334,12 @@ func TestConvertVendorTranscript_CachedSegmentIsReused(t *testing.T) {
 	assert.Contains(t, joined, liveMarker, "the live binding must still be converted fresh on every refresh")
 }
 
-// TestConvertVendorTranscript_RotationVendorFileGone_SkipsSegmentWithoutFailingRebuild
+// TestRefreshVendorTranscript_RotationVendorFileGone_SkipsSegmentWithoutFailingRebuild
 // pins the per-rotation degrade: one rotation whose vendor file has since
 // vanished must be SKIPPED with a diagnostic, not fail the whole rebuild —
 // the live binding (and any other, still-present rotation) must still be
 // converted.
-func TestConvertVendorTranscript_RotationVendorFileGone_SkipsSegmentWithoutFailingRebuild(t *testing.T) {
+func TestRefreshVendorTranscript_RotationVendorFileGone_SkipsSegmentWithoutFailingRebuild(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "rotation-gone-harp"
 	gone := filepath.Join(t.TempDir(), "does-not-exist.jsonl")
@@ -416,7 +357,7 @@ func TestConvertVendorTranscript_RotationVendorFileGone_SkipsSegmentWithoutFaili
 	restore := clidiag.SetSink(&warnings)
 	defer restore()
 
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err, "one missing rotation file must not fail the whole rebuild")
 	assert.True(t, converted)
 
@@ -428,7 +369,7 @@ func TestConvertVendorTranscript_RotationVendorFileGone_SkipsSegmentWithoutFaili
 	assert.Contains(t, warnings.String(), harp)
 }
 
-// TestConvertVendorTranscript_AllSourcesMissing_SurfacesRatherThanSilentlySucceeding
+// TestRefreshVendorTranscript_AllSourcesMissing_SurfacesRatherThanSilentlySucceeding
 // pins the project's characteristic silent-no-op guard applied to the
 // harp-lifetime rebuild: a harp whose index carries rotation history (proof
 // that a pre-clear conversation once existed) but whose live binding AND
@@ -436,7 +377,7 @@ func TestConvertVendorTranscript_RotationVendorFileGone_SkipsSegmentWithoutFaili
 // converted=false success — the latter is indistinguishable from "there was
 // never anything to recover" and would send `session recover` right back to
 // finding nothing, silently, for good.
-func TestConvertVendorTranscript_AllSourcesMissing_SurfacesRatherThanSilentlySucceeding(t *testing.T) {
+func TestRefreshVendorTranscript_AllSourcesMissing_SurfacesRatherThanSilentlySucceeding(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "rotation-all-missing-harp"
 	goneLive := filepath.Join(t.TempDir(), "live-gone.jsonl")
@@ -451,7 +392,7 @@ func TestConvertVendorTranscript_AllSourcesMissing_SurfacesRatherThanSilentlySuc
 		},
 	}
 
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	assert.True(t, converted, "a rebuild WAS attempted (rotation history existed)")
 	require.Error(t, err, "recovering nothing from a harp with rotation history must surface, not silently succeed")
 	assert.Contains(t, err.Error(), harp)
@@ -460,7 +401,7 @@ func TestConvertVendorTranscript_AllSourcesMissing_SurfacesRatherThanSilentlySuc
 	assert.Nil(t, canonicalLines(t, harp), "no canonical file may be left behind when the rebuild surfaces an error")
 }
 
-// TestConvertVendorTranscript_Refresh_ReplacesExistingSymlinkWithARegularFile
+// TestRefreshVendorTranscript_ReplacesExistingSymlinkWithARegularFile
 // is a defensive robustness check on the atomic install, NOT a pin of a real
 // production scenario: paths.HarpCanonicalTranscriptPath
 // (<harp>/transcripts/transcript.jsonl) is what this function's dest
@@ -468,7 +409,7 @@ func TestConvertVendorTranscript_AllSourcesMissing_SurfacesRatherThanSilentlySuc
 // test only confirms os.Rename's documented behavior (replaces whatever is
 // at the destination, symlink or not, without following it) holds here too,
 // in case that assumption is ever leaned on for real.
-func TestConvertVendorTranscript_Refresh_ReplacesExistingSymlinkWithARegularFile(t *testing.T) {
+func TestRefreshVendorTranscript_ReplacesExistingSymlinkWithARegularFile(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "rotation-symlink-harp"
 	e := sessions.Entry{

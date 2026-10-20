@@ -73,9 +73,10 @@ flowchart TD
    conversion or chat that produces zero events therefore leaves **no file at all** — this is
    deliberate, so that "file absent" means "nothing was ever recorded" rather than "a zero-byte
    file exists". `NewRecorder` only validates and resolves the path.
-2. **`operations.hasCanonicalTranscript` gates re-import on file *existence*** (`vendorreader.go:158`).
-   Composed with (1), a zero-entry import is retried forever; composed with a *partial* write, the
-   harp becomes permanently un-importable.
+2. **Nothing trusts an existing canonical file as complete.** `operations.RefreshVendorTranscript`
+   rebuilds it from the vendor source on every call, writing through a temporary sibling that is
+   renamed into place only on success, so a failed or empty conversion leaves the harp exactly as
+   it was.
 
 ---
 
@@ -180,28 +181,31 @@ flowchart TD
 
 ### 5.1 The shared contract and primitives
 
-| Symbol | file:line | Notes |
-|---|---|---|
-| `VendorAdapter` | `adapter.go:68` | `Convert(ctx, rec transcript.Recorder, src string) error`. `src` is engine-specific: a file path for claude |
-| `ConvertJSONLLines` | `driver.go:29` | The scan/stream/flush driver: record the up-front `Session` event if `info != nil`, then per line — ctx check, `dispatch(line)` — then `flush()` |
-| `ReadJSONLLines` / `OpenAndReadJSONLLines` | `lines.go:31`, `:57` | Unbounded `bufio.Reader` (deliberately not a capped `Scanner` — vendor lines run to tens of KB). Keeps a final line with no trailing newline. Wraps failures with the vendor prefix |
-| `SessionInfoBuilder` | `sessioninfo.go:16` | Latches each `ChatSessionInfo` field on its **first non-zero value** and tracks `found`, so "no metadata anywhere" yields `nil` rather than an all-zero struct. Setters at `:23`,`:31`,`:40`,`:49`; `Build` at `:57` |
-| `RecordFunc` | `record.go:17` | Returns a closure wrapping `rec.Record` failures as `"<vendor>: record: %w"` |
-| `TextEntry` | `entries.go:33` | Non-empty text → a one-element `[]ChatEvent`; **nil for empty text**, so a blank turn contributes nothing rather than a zero-length entry |
-| `ToolUseEvent` / `ToolResultEvent` | `entries.go:45`, `:60` | The canonical tool_use / tool_result shapes, named once |
-| `NonEmptyRaw` | `entries.go:19` | Normalizes an empty `json.RawMessage` to nil |
-| `JoinNonEmpty` / `JoinNonEmptyFunc` | `text.go:15`, `:30` | Blank-line joins, filtering empties |
-| `FlushComplete` | `turn.go:22` | Records a still-open turn boundary at EOF — "a boundary at end of file is real data, not something to drop" (`turn.go:19-21`). Clears `*pending` **before** `record` returns |
+All symbols are in `internal/adapters/transcript/vendorreader` unless qualified.
 
-**The contract's central limitation.** `Convert` returns **only `error`** — no count of records
-written, lines seen, or lines skipped. So no caller can distinguish "the vendor format drifted and
-I recognized nothing" from "the session was genuinely empty".
-`operations/vendorreader.go:99-106` documents that loss as intentional: `converted` reports
-whether an import was *attempted*, "not whether it produced any canonical lines". Downstream,
-`BackfillResult` has three buckets (`Converted`, `Skipped`, `Failed`) and a zero-entry conversion
-lands in `Converted` beside a 5,000-line import; `cli/session_backfill.go:77` prints
-`converted: <harp>`. On the interactive-pty path `cli/run.go:1333` discards even the `converted`
-bool.
+| Symbol | File | Notes |
+|---|---|---|
+| `VendorAdapter` | `adapter.go` | `Convert(ctx, fsys, rec transcript.Recorder, src string) error`. `src` is engine-specific: a file path for claude |
+| `ConvertJSONLLines` | `driver.go` | The scan/stream/flush driver: record the up-front `Session` event if `info != nil`, then per line — ctx check, `dispatch(line)` — then `flush()` |
+| `ReadJSONLLines` / `OpenAndReadJSONLLines` | `lines.go` | Unbounded `bufio.Reader` (deliberately not a capped `Scanner` — vendor lines run to tens of KB). Keeps a final line with no trailing newline. Wraps failures with the vendor prefix |
+| `SessionInfoBuilder` | `sessioninfo.go` | Latches each `ChatSessionInfo` field on its **first non-zero value** and tracks `found`, so "no metadata anywhere" yields `nil` from `Build` rather than an all-zero struct |
+| `RecordFunc` | `record.go` | Returns a closure wrapping `rec.Record` failures as `"<vendor>: record: %w"` |
+| `TextEntry` | `entries.go` | Non-empty text → a one-element `[]ChatEvent`; **nil for empty text**, so a blank turn contributes nothing rather than a zero-length entry |
+| `ToolUseEvent` / `ToolResultEvent` | `entries.go` | The canonical tool_use / tool_result shapes, named once |
+| `NonEmptyRaw` | `entries.go` | Normalizes an empty `json.RawMessage` to nil |
+| `JoinNonEmpty` / `JoinNonEmptyFunc` | `text.go` | Blank-line joins, filtering empties |
+| `FlushComplete` | `turn.go` | Records a still-open turn boundary at EOF — "a boundary at end of file is real data, not something to drop". Clears `*pending` **before** `record` returns |
+
+**What a conversion reports.** `Convert` returns **only `error`** — no count of records written,
+lines seen, or lines skipped — so the floor against a silent-empty import lives in each adapter:
+claude's `converter.checkFloor` turns zero entries out of a file holding user/assistant lines, or
+out of a file whose lines are all malformed, into an error. One level up,
+`operations.RefreshVendorTranscript`'s `converted` reports that a rebuild committed bytes:
+`operations.commitRebuild` aborts a rebuild that wrote nothing and reports `converted=false`, or an
+error when the harp's rotation lineage says there was a conversation to recover. Both live callers
+reach it through `operations.ResolveAndHeal` — the interactive-pty exit
+(`cli.healVendorTranscriptOnExit`) and `session adopt` (`cli.healAdopted`) — and both act on
+`HealErr` only: the exit warns, `adopt` returns it.
 
 ### 5.2 Per-engine adapters
 
@@ -215,24 +219,27 @@ Every adapter can return `nil` having recorded zero conversational entries, and 
 structurally the same in each:
 
 1. **empty / all-blank source** — the line reader returns `(nil, nil)`, the loop runs zero times;
-2. **every line malformed** — each `dispatch` returns `nil` per the documented skip-don't-abort
-   contract (`claude/session.go:161`);
+2. **every line malformed** — each `dispatch` skips the line per the documented skip-don't-abort
+   contract;
 3. **discriminator drift** — a renamed `type`/`status`/variant key matches no case and every line
-   falls through (`claude/session.go:174`);
+   falls through;
 4. **shape drift** — a renamed container field decodes to a zero value with no error, because
    `encoding/json` is used without `DisallowUnknownFields` and with no presence assertion on any
    required field.
 
-One variant worth naming individually:
+For claude, `converter.checkFloor` closes routes 2 and 4 wherever the file holds user/assistant
+lines: zero entries from such a file, or from an all-malformed one, is an error rather than a
+success. Route 3 is reported, not refused: a line type the adapter has never heard of is counted, and
+`converter.reportDrops` warns naming every such type. Route 1, and a file of nothing but administrative lines, stays
+a legitimate empty success.
 
-- **Worse than empty (claude):** `scanSessionInfo` still latches the session id, so the
-  output is **one Session record and zero conversation**. It looks captured.
-
-**Partial-import stickiness.** A conversion that fails partway leaves a partial canonical file,
-and the presence-only guard treats it as complete permanently. `ConvertJSONLLines` widens the
-window by recording the `Session` event at `driver.go:31` *before* the first `ctx.Err()` check at
-`:37`, so even an already-cancelled context can leave a one-line stub.
-`operations/vendorreader.go:139`'s defer only `Close`s; nothing removes the partial file.
+**No partial import survives.** `ConvertJSONLLines` records the `Session` event *before* its first
+`ctx.Err()` check, so a conversion that fails — even on an already-cancelled context — has
+written at least that line. None of it reaches the canonical path: `operations.RefreshVendorTranscript`
+converts into a temporary sibling (`operations.newRebuildFile`) and `operations.commitRebuild`
+renames it into place only when the whole rebuild succeeded with bytes, aborting it otherwise. A
+failed first conversion therefore leaves no canonical file, a failed rebuild leaves the previous
+one byte-identical, and the next call simply converts again.
 
 ---
 
@@ -285,9 +292,10 @@ window by recording the `Session` event at `driver.go:31` *before* the first `ct
 - **`internal/core/sessions`** supplies the harp→project index `CanonicalHistory` enumerates, and
   `Entry.CanonicalTranscriptPath` is filled by `sessions.fillCanonicalTranscript` using the same
   resolver `GetSession` calls independently.
-- **`internal/adapters/operations/vendorreader*.go`** owns adapter registration, locator discovery, the
-  `hasCanonicalTranscript` idempotency guard, and the `BackfillResult` bucketing — every
-  consequence of "the vendor reader cannot report a count" surfaces there, not here.
+- **`internal/adapters/operations/vendorreader*.go`** owns adapter registration, locator discovery,
+  and the canonical rebuild (`RefreshVendorTranscript`: the ownership probe, the watermark resume,
+  the temp-then-rename commit) — every consequence of "the vendor reader cannot report a count"
+  surfaces there, not here.
 - **`internal/adapters/operations`** reads the canonical transcript directly through
   `ParseTranscriptFile`: a session's title (`SessionTitle`), resume (`RecordedSessionEntries`).
 - **`internal/adapters/runner`** owns the live producer (the engine host's `CoordinatedRecorder`

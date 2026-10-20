@@ -180,81 +180,45 @@ func vendorSourceClock(fsys afero.Fs, src string) func() time.Time {
 	return func() time.Time { return ts }
 }
 
-// ConvertVendorTranscript imports harp e's vendor-native transcript into
-// ctxloom's canonical transcript.jsonl through a fresh
-// transcript.Recorder: the first-time conversion, beside
-// RefreshVendorTranscript's re-conversion of a session still being written.
+// RefreshVendorTranscript converts harp e's vendor-native transcript into
+// ctxloom's canonical transcript.jsonl, atomically replacing any canonical
+// transcript the harp already has. It is the one conversion verb: the
+// interactive-pty exit seam and `session adopt` both rebuild through it.
 //
-// converted reports whether an import was actually ATTEMPTED (Convert
-// invoked), not whether it produced any canonical lines — Convert's own
-// degrade-to-partial contract (vendorreader.VendorAdapter's doc comment) means a
-// vendor file that parses to zero real entries is a legitimate outcome, not
-// a signal this function should try to distinguish from "nothing to
-// import." converted=false, err=nil covers every "nothing to do" case: e's
-// backend isn't registered, e has no locatable vendor transcript, or a
-// canonical transcript already exists for the harp.
+// It never trusts an existing canonical file as complete. The session may
+// still be being written — converting at 12:00 and reading back at 14:00
+// must not yield a transcript silently frozen at noon, which is worse than
+// no transcript because it is indistinguishable from a complete one — so
+// every call re-derives the canonical file from the vendor source.
 //
-// converted=false with an ERROR is the REFUSAL case, and it is new: a session
-// whose recorded engine version matches no adapter ctxloom carries — including
-// a session that records no version at all, which every session predating
-// version recording does — is not read. Nothing is attempted, nothing is
+// When the adapter can resume (vendorreader.ResumableAdapter) and the harp's
+// watermark still describes its files (transcriptWatermark), a rebuild reads
+// only the vendor bytes from the watermark on and copies the canonical prefix
+// forward as raw bytes. Otherwise — and on the first conversion — the whole
+// vendor transcript is re-read and re-written.
+//
+// converted reports whether a rebuild was actually ATTEMPTED and committed
+// bytes, not whether the vendor file held real entries — Convert's own
+// degrade-to-partial contract (vendorreader.VendorAdapter's doc comment) makes
+// a vendor file that parses to zero entries a legitimate outcome.
+// converted=false, err=nil covers every "nothing to do" case: e's backend
+// isn't registered, e has no locatable vendor transcript, the conversion
+// produced no bytes, or a live recorder owns the canonical transcript (see
+// rebuildCanonicalTranscript's ownership probe).
+//
+// converted=false with an ERROR is the REFUSAL case: a session whose recorded
+// engine version matches no adapter ctxloom carries — including a session that
+// records no version at all — is not read. Nothing is attempted, nothing is
 // written, and the error says which version was refused against which
 // validated ranges. See vendorreader/version.go for why this never falls
 // through to a "newest" adapter.
 //
-// Idempotent BY NON-REPETITION, not by content-diffing: Convert reads the
-// vendor source from its beginning (resuming from a checkpoint is a separate
-// verb, vendorreader.ResumableAdapter, which only a watermarked rebuild uses),
-// so calling this twice
-// for the same harp after the first call actually wrote a canonical file
-// would DUPLICATE every entry, not merge them. The guard against that is
-// hasCanonicalTranscript below: once ANY canonical transcript exists for a
-// harp, this is a permanent no-op for it, by design.
-//
-// A session that is STILL GROWING is the one case that guard answers wrongly,
-// and RefreshVendorTranscript — not this function — is the answer to it.
-//
-// Best-effort at the CALLER's discretion: this function returns a real error
-// when Convert or Recorder construction fails (so a caller can tell "genuinely
-// nothing to import" from "tried and failed" — the two need different UX,
-// silence vs. a warning/report row) — it does not swallow errors itself.
-//
-// A Convert failure never leaves a partial canonical file behind: conversion
-// writes to a temporary sibling that is renamed into place only on success, so
-// a failure mid-transcript leaves the harp exactly as it was. Without that,
-// hasCanonicalTranscript's presence-only guard would treat a partial file as a
-// complete one forever, silently masking the original failure on every later
-// call for this harp instead of allowing a genuine retry.
-func ConvertVendorTranscript(ctx context.Context, files safefs.Root, reg engine.Registry, e sessions.Entry) (converted bool, err error) {
-	return convertVendorTranscript(ctx, files, reg, e, false)
-}
-
-// RefreshVendorTranscript re-converts e's vendor-native transcript even when a
-// canonical one already exists, atomically replacing it.
-//
-// It is for a session that is STILL BEING WRITTEN. ConvertVendorTranscript's
-// presence-only idempotency is correct for a finished session — a transcript
-// that cannot change need never be re-read — and is exactly wrong for a live
-// one: converting at 12:00 and reading back at 14:00 yields a transcript
-// silently frozen at noon, which is worse than the failure it replaced because
-// it is indistinguishable from a complete one.
-//
-// When the adapter can resume (vendorreader.ResumableAdapter) and the harp's
-// watermark still describes its files (transcriptWatermark), a refresh reads
-// only the vendor bytes from the watermark on and copies the canonical prefix
-// forward as raw bytes. Otherwise — and on the first conversion — the whole
-// vendor transcript is re-read and re-written. That is why this is a separate
-// verb rather than the default: callers that know their session is finished
-// should not pay even the copy, and a sweep across an index must not.
-func RefreshVendorTranscript(ctx context.Context, files safefs.Root, reg engine.Registry, e sessions.Entry) (converted bool, err error) {
-	return convertVendorTranscript(ctx, files, reg, e, true)
-}
-
-// convertVendorTranscript is the shared body of ConvertVendorTranscript and
-// RefreshVendorTranscript. refresh drops the already-captured guard and lets the
-// resulting file replace an existing canonical transcript; everything else —
-// adapter selection, the refusal level, degrade-to-partial, the temp-then-rename
-// write — is identical, so the two verbs cannot drift into two conversions.
+// Best-effort at the CALLER's discretion: a Convert or Recorder failure is
+// returned as a real error (so a caller can tell "genuinely nothing to import"
+// from "tried and failed"), never swallowed here. A failure never leaves a
+// partial canonical file behind: conversion writes to a temporary sibling that
+// is renamed into place only on success, so the harp keeps exactly what it
+// had.
 //
 // The rebuild is HARP-LIFETIME, not single-file: e.Rotations (sessions.Entry's
 // lineage of displaced bindings — see sessions.Manager.BindSession) names every
@@ -262,18 +226,14 @@ func RefreshVendorTranscript(ctx context.Context, files safefs.Root, reg engine.
 // canonical file this produces is the concatenation of each rotation's cached
 // segment (paths.ResolveHarpSegmentPath, converted once and reused thereafter —
 // see appendRotationSegment) followed by the live binding's own conversion. A
-// pre-lineage build (no Rotations recorded) degrades to exactly the old
-// single-file behavior. Without this, a harp that had ever been /clear'd lost
-// everything said before the clear the moment the canonical transcript was
-// (re)built: the vendor file naming that conversation was still on disk, but
-// nothing pointed at it anymore.
-func convertVendorTranscript(ctx context.Context, files safefs.Root, reg engine.Registry, e sessions.Entry, refresh bool) (converted bool, err error) {
+// harp with no Rotations recorded is a single-file conversion. Without this, a
+// harp that had ever been /clear'd lost everything said before the clear the
+// moment the canonical transcript was rebuilt: the vendor file naming that
+// conversation was still on disk, but nothing pointed at it anymore.
+func RefreshVendorTranscript(ctx context.Context, files safefs.Root, reg engine.Registry, e sessions.Entry) (converted bool, err error) {
 	fsys := files.Fs
 	vr, ok := vendorReaderFor(reg, e.Backend)
 	if !ok || e.HarpName == "" {
-		return false, nil
-	}
-	if !refresh && hasCanonicalTranscript(fsys, e.HarpName) {
 		return false, nil
 	}
 	liveSrc, liveOK := vr.locate(ctx, fsys, e)
@@ -304,13 +264,12 @@ func convertVendorTranscript(ctx context.Context, files safefs.Root, reg engine.
 	// fail AFTER recording some lines (a bad byte partway through a large
 	// transcript), and a Recorder creates its file on the first SUCCESSFUL
 	// Record — so writing in place leaves a real, non-empty, PARTIAL canonical
-	// file, which hasCanonicalTranscript's presence-only guard then treats as a
-	// complete one on every future call, permanently masking the failure. And a
-	// refresh writing in place would APPEND a second full copy of the vendor
-	// transcript onto the existing one, since a Recorder appends — and even a
-	// resumed conversion must first drop the previous refresh's provisional
-	// tail. Committing only on success answers both: the harp
-	// keeps whatever it had until a complete replacement exists.
+	// file where a complete one stood. And a rebuild writing in place would
+	// APPEND a second full copy of the vendor transcript onto the existing
+	// one, since a Recorder appends — and even a resumed conversion must first
+	// drop the previous rebuild's provisional tail. Committing only on success
+	// answers both: the harp keeps whatever it had until a complete
+	// replacement exists.
 	//
 	// dest here is the canonical path (paths.HarpCanonicalTranscriptPath —
 	// <harp>/transcripts/transcript.jsonl), never the engine's native file
@@ -322,14 +281,14 @@ func convertVendorTranscript(ctx context.Context, files safefs.Root, reg engine.
 	if derr != nil {
 		return true, fmt.Errorf("resolve canonical transcript path for %s: %w", e.HarpName, derr)
 	}
-	return rebuildCanonicalTranscript(ctx, files, adapter, e, dest, liveSrc, liveOK, refresh)
+	return rebuildCanonicalTranscript(ctx, files, adapter, e, dest, liveSrc, liveOK)
 }
 
 // rebuildCanonicalTranscript builds e's canonical transcript at dest from its
 // rotation segments and, when liveOK, the live vendor file liveSrc, committing
-// it only when the rebuild produced bytes. See convertVendorTranscript for the
+// it only when the rebuild produced bytes. See RefreshVendorTranscript for the
 // contract; converted reports whether a rebuild was attempted.
-func rebuildCanonicalTranscript(ctx context.Context, files safefs.Root, adapter vendorreader.VendorAdapter, e sessions.Entry, dest, liveSrc string, liveOK, refresh bool) (converted bool, err error) {
+func rebuildCanonicalTranscript(ctx context.Context, files safefs.Root, adapter vendorreader.VendorAdapter, e sessions.Entry, dest, liveSrc string, liveOK bool) (converted bool, err error) {
 	fsys := files.Fs
 
 	// OWNERSHIP PROBE: a refresh REBUILDS a canonical
@@ -347,21 +306,13 @@ func rebuildCanonicalTranscript(ctx context.Context, files safefs.Root, adapter 
 	// it is current by construction, so the rebuild is redundant, not
 	// merely blocked: skip it and let the caller read the existing
 	// canonical transcript as-is.
-	//
-	// This only guards the REFRESH path. A first-time ConvertVendorTranscript
-	// only ever runs for an interactive session (no live tee — see this
-	// file's header comment), which by construction has no default-path
-	// Recorder to race with, so probing there would only cost a syscall for
-	// no exclusion anybody needs.
-	if refresh {
-		release, acquired, lerr := tryOwnCanonicalTranscript(files, e.HarpName, dest)
-		if lerr != nil {
-			return false, lerr
-		}
-		defer release()
-		if !acquired {
-			return false, nil
-		}
+	release, acquired, lerr := tryOwnCanonicalTranscript(files, e.HarpName, dest)
+	if lerr != nil {
+		return false, lerr
+	}
+	defer release()
+	if !acquired {
+		return false, nil
 	}
 
 	// The transcripts dir is normally created lazily by transcript.Recorder's
@@ -594,20 +545,6 @@ func appendFileBytes(fsys afero.Fs, w io.Writer, src string) error {
 		return fmt.Errorf("copy %s: %w", src, err)
 	}
 	return nil
-}
-
-// hasCanonicalTranscript reports whether harp already has a canonical
-// transcript on disk (paths.HarpCanonicalTranscriptPath, the one name it is
-// ever written under) — ConvertVendorTranscript's idempotency guard (see its
-// doc comment for why presence, not a staleness/mtime comparison, is the
-// right check here).
-func hasCanonicalTranscript(fsys afero.Fs, harp string) bool {
-	p, err := paths.HarpCanonicalTranscriptPath(harp)
-	if err != nil {
-		return false
-	}
-	_, err = fsys.Stat(p)
-	return err == nil
 }
 
 // recordSpannerFor is the reader of the named engine's store that can read a

@@ -1449,7 +1449,7 @@ func recordOneshotAnswer(harp, backend, prompt, answer string) error {
 	return nil
 }
 
-// convertVendorTranscriptOnExit runs the vendor-transcript heal
+// healVendorTranscriptOnExit runs the vendor-transcript heal
 // (operations.ResolveAndHeal) for an interactive-pty session that just
 // exited. Extracted to its own small, directly-unit-testable function (no
 // pty involved) rather than inlined at the call site above,
@@ -1459,15 +1459,11 @@ func recordOneshotAnswer(harp, backend, prompt, answer string) error {
 // never returned, so a transcript-import hiccup can never fail an otherwise-
 // successful interactive run.
 //
-// It must not go through operations.ConvertVendorTranscript, whose presence
-// guard makes it a PERMANENT NO-OP once any canonical transcript exists for
-// the harp. An earlier exit capture of the same session (a resumed run) or
-// a `session adopt` materializes exactly such a canonical file, so the exit
-// capture would be skipped and everything recorded after it would be
-// invisible to every later reader.
-// ResolveAndHeal refreshes once, unconditionally — a canonical file existing
-// here is not evidence it is complete.
-func convertVendorTranscriptOnExit(harp string) {
+// ResolveAndHeal rebuilds once, unconditionally: an earlier exit capture of
+// the same session (a resumed run) or a `session adopt` may already have
+// materialized a canonical transcript, and its existing here is not evidence
+// it is complete.
+func healVendorTranscriptOnExit(harp string) {
 	if harp == "" {
 		return
 	}

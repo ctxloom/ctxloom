@@ -66,23 +66,19 @@ func memCanonical(t *testing.T, mem afero.Fs, harp string) []string {
 	return lines
 }
 
-func TestConvertVendorTranscript_ReadsAndWritesThroughTheGivenFs(t *testing.T) {
+func TestRefreshVendorTranscript_ReadsAndWritesThroughTheGivenFs(t *testing.T) {
 	testsupport.Isolate(t)
 	mem := afero.NewMemMapFs()
 	harp := "memfs-convert-harp"
 	src := seedMem(t, mem, path.Join(memVendorRoot, "live.jsonl"), fixtureLines(t, 0))
 
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.NewMem(mem), engines.Registry(), claudeEntry(harp, src))
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.NewMem(mem), engines.Registry(), claudeEntry(harp, src))
 	require.NoError(t, err)
 	require.True(t, converted)
 	assert.NotEmpty(t, memCanonical(t, mem, harp))
-
-	converted, err = ConvertVendorTranscript(context.Background(), safefs.NewMem(mem), engines.Registry(), claudeEntry(harp, src))
-	require.NoError(t, err)
-	assert.False(t, converted, "the canonical transcript the fs holds is the idempotency guard")
 }
 
-func TestConvertVendorTranscript_RotationSegmentLivesInTheGivenFs(t *testing.T) {
+func TestRefreshVendorTranscript_RotationSegmentLivesInTheGivenFs(t *testing.T) {
 	testsupport.Isolate(t)
 	mem := afero.NewMemMapFs()
 	harp := "memfs-rotation-harp"
@@ -93,7 +89,7 @@ func TestConvertVendorTranscript_RotationSegmentLivesInTheGivenFs(t *testing.T) 
 	e := claudeEntry(harp, liveSrc)
 	e.Rotations = []sessions.Rotation{{SessionID: "pre-clear-id", TranscriptPath: rotSrc, RotatedAt: time.Now()}}
 
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.NewMem(mem), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.NewMem(mem), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 	assert.Contains(t, strings.Join(memCanonical(t, mem, harp), "\n"), rotationMarker)
@@ -113,7 +109,7 @@ func TestRefreshVendorTranscript_ResumesFromAWatermarkInTheGivenFs(t *testing.T)
 	src := seedMem(t, mem, path.Join(memVendorRoot, "live.jsonl"), fixtureLines(t, settledPrefix))
 	e := liveClaudeEntry(harp, src)
 
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.NewMem(mem), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.NewMem(mem), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 	wmPath := watermarkPath(t, harp)
@@ -137,7 +133,7 @@ func TestRefreshVendorTranscript_ResumesFromAWatermarkInTheGivenFs(t *testing.T)
 
 	fresh := afero.NewMemMapFs()
 	testsupport.WriteFile(t, fresh, src, grown, 0o644)
-	converted, err = ConvertVendorTranscript(context.Background(), safefs.NewMem(fresh), engines.Registry(), e)
+	converted, err = RefreshVendorTranscript(context.Background(), safefs.NewMem(fresh), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 	assert.Equal(t, withoutRecordTimes(memCanonical(t, fresh, harp)), resumed)
@@ -192,7 +188,7 @@ func TestRefreshVendorTranscript_ProbesOwnershipThroughTheGivenRootsLocks(t *tes
 	harp := "memfs-ownership-harp"
 	src := seedMem(t, mem, path.Join(memVendorRoot, "live.jsonl"), fixtureLines(t, 0))
 	e := liveClaudeEntry(harp, src)
-	converted, err := ConvertVendorTranscript(context.Background(), files, engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), files, engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 
@@ -208,4 +204,24 @@ func TestRefreshVendorTranscript_ProbesOwnershipThroughTheGivenRootsLocks(t *tes
 	converted, err = RefreshVendorTranscript(context.Background(), files, engines.Registry(), e)
 	require.NoError(t, err)
 	assert.True(t, converted, "once the recorder releases, the rebuild proceeds")
+}
+
+// TestRefreshVendorTranscript_AnOwnershipProbeThatCannotRunFails: a rebuild
+// whose ownership probe cannot even be taken (here, a Root that refuses every
+// write) fails with the probe's error and writes nothing, rather than
+// rebuilding unguarded.
+func TestRefreshVendorTranscript_AnOwnershipProbeThatCannotRunFails(t *testing.T) {
+	testsupport.Isolate(t)
+	mem := afero.NewMemMapFs()
+	harp := "memfs-probe-fails-harp"
+	src := seedMem(t, mem, path.Join(memVendorRoot, "live.jsonl"), fixtureLines(t, 0))
+
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.NewMem(afero.NewReadOnlyFs(mem)), engines.Registry(), claudeEntry(harp, src))
+	require.ErrorIs(t, err, fs.ErrPermission, "the probe's own failure is returned")
+	assert.False(t, converted)
+	dest, err := paths.HarpCanonicalTranscriptPath(harp)
+	require.NoError(t, err)
+	exists, err := afero.Exists(mem, dest)
+	require.NoError(t, err)
+	assert.False(t, exists)
 }

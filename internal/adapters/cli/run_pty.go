@@ -222,7 +222,7 @@ func (st *runState) driveSession(sio sessionIO, term frontend.Terminal) error {
 	}
 	runnerStatus, waitErr := st.pty.Wait()
 	sio.restore()
-	convertVendorTranscriptOnExit(st.activeHarp)
+	healVendorTranscriptOnExit(st.activeHarp)
 	if interrupted != nil {
 		return interrupted
 	}

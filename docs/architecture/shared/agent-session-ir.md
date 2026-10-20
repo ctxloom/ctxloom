@@ -1,6 +1,6 @@
 # agent — session transcript IR
 
-The normalized conversation representation every engine's transcript is mapped *into* and every consumer (memory compaction, resume, the transcript importers) reads *out of*. `SessionEntry` is the hub type: one struct per conversation turn, a discriminated union flattened into fields whose liveness depends on `Type` and `SystemKind`. Each of these DTOs has a JSON mirror in `internal/adapters/transcript/record.go` — two declarations of one shape, the standing cost of a hub IR.
+The normalized conversation representation every engine's transcript is mapped *into* and every consumer (resume, session titles, the transcript importers) reads *out of*. `SessionEntry` is the hub type: one struct per conversation turn, a discriminated union flattened into fields whose liveness depends on `Type` and `SystemKind`. Each of these DTOs has a JSON mirror in `internal/adapters/transcript/record.go` — two declarations of one shape, the standing cost of a hub IR.
 
 ```mermaid
 classDiagram
@@ -74,7 +74,7 @@ classDiagram
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `MainThreadEntries` | `internal/core/agent/backend.go:297` | Filters out sidechain entries; used by memory compaction and resume. |
+| `MainThreadEntries` | `internal/core/agent/backend.go:297` | Filters out sidechain entries; used by resume and session titles. |
 | `NewSessionStore` | `internal/core/agent/sessionstore.go:35` | Returns `SessionStore{FS: afero.NewOsFs()}`. |
 | `(*SessionStore) ResolveHomeDir` | `internal/core/agent/sessionstore.go:40` | `HomeDir` override, else `os.UserHomeDir`. |
 | `(*SessionStore) ParseSessionFile` | `internal/core/agent/sessionstore.go:105` | Opens a JSONL transcript, runs an unbounded `bufio.Reader` loop calling `parseLine` per line, and derives `StartTime`/`EndTime` from the first and last entry. |

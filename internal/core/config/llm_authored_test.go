@@ -26,7 +26,7 @@ import (
 func TestIsLLMUserAuthored_EmptyRegistry_DefaultLabelsAreNotUserAuthored(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("schema_version: 7\n"), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("schema_version: 8\n"), 0644))
 
 	cfg, err := configload.Load(configload.WithRoot(safefs.NewMem(fs)), configload.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -43,7 +43,7 @@ func TestIsLLMUserAuthored_ExplicitEntry_IsUserAuthored(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(
-		"schema_version: 7\nllm:\n  configs:\n    big: { type: claude-code, model: opus }\n"), 0644))
+		"schema_version: 8\nllm:\n  configs:\n    big: { type: claude-code, model: opus }\n"), 0644))
 
 	cfg, err := configload.Load(configload.WithRoot(safefs.NewMem(fs)), configload.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -59,7 +59,7 @@ func TestIsLLMUserAuthored_ExplicitOverrideOfADefaultName_IsUserAuthored(t *test
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(
-		"schema_version: 7\nllm:\n  configs:\n    claude-code: { permissions: { mode: bypass } }\n"), 0644))
+		"schema_version: 8\nllm:\n  configs:\n    claude-code: { permissions: { mode: bypass } }\n"), 0644))
 
 	cfg, err := configload.Load(configload.WithRoot(safefs.NewMem(fs)), configload.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -71,7 +71,7 @@ func TestIsLLMUserAuthored_ExplicitOverrideOfADefaultName_IsUserAuthored(t *test
 func TestIsLLMUserAuthored_UnknownLabel_IsFalse(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("schema_version: 7\n"), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("schema_version: 8\n"), 0644))
 
 	cfg, err := configload.Load(configload.WithRoot(safefs.NewMem(fs)), configload.WithAppDir(appDir))
 	require.NoError(t, err)

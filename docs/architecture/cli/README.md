@@ -38,7 +38,7 @@ flowchart TD
     THICK --> ISO[["internal/adapters/isolation"]]
     THICK --> COORD[["internal/core/coord"]]
     THICK --> TTY[["internal/adapters/hostpty · cli/tui"]]
-    OPS --> DOM[["domain: bundles · config · memory · remote · signing · transcript"]]
+    OPS --> DOM[["domain: bundles · config · remote · signing · transcript"]]
     FMT --> CE[["pkg/clifmt/cobrafmt → pkg/clifmt"]]
     SH --> STR[["shared/strictness"]]
 ```
@@ -68,7 +68,7 @@ command's help text:
 | [llm-runners.md](llm-runners.md) | `ctxloom llm` (engine labels) and `ctxloom runner`, the one runner process |
 | [bundles-items-skills.md](bundles-items-skills.md) | `bundle`, `fragment`, `command`, `skill`, distillation, `search` |
 | [profiles-and-agents.md](profiles-and-agents.md) | `profile *`, `materialize`, `agent *` |
-| [sessions-and-memory.md](sessions-and-memory.md) | `session *`, the memory MCP tools (by pointer), `plan watch` |
+| [sessions-and-memory.md](sessions-and-memory.md) | `session *`, transcript retention (`session keep`), `plan watch` |
 | [remotes.md](remotes.md) | `remote *` and `deps *` — the dependency lifecycle |
 | [setup-and-diagnostics.md](setup-and-diagnostics.md) | `init`, `config`, `manage`, `container`, `doctor`, `completion`, `version`, `util config-write` |
 | [hooks.md](hooks.md) | The hidden `hook` namespace |

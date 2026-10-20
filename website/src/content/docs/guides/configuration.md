@@ -61,7 +61,7 @@ The file declares its format generation as `schema_version`. A file declaring no
 :::
 
 ```yaml
-schema_version: 7
+schema_version: 8
 
 # Language model configuration.
 # `llm.configs` is a registry of arbitrarily-labeled backend configs — the
@@ -75,13 +75,12 @@ llm:
     quick: { type: claude-code, model: haiku }
   defaults:
     primary: big      # coding/interactive role → label
-    fast: quick       # compression role (distill, compaction) → label
+    fast: quick       # compression role (distill) → label
 
 # Behavioral settings
 config:
   use_distilled: true         # prefer distilled fragment versions (default true)
   statusline: true            # let ctxloom manage the HUD statusline
-  essence_max_chars: 10000    # character budget for a distilled session essence
 
 # Editor (fallback: VISUAL env → EDITOR env → nano).
 editor:
@@ -165,16 +164,14 @@ llm:
       model: "opus"                 # a claude CLI alias, or a full model id to pin one
       binary_path: "/path/to/bin"   # optional
       args: []                      # extra CLI arguments
-      context_window: 1000000       # optional; tokens the model holds (claude-code default: 200000)
+      context_window: 1000000       # optional; only opencode reads it
   defaults:
     primary: claude-code
 ```
 
-`context_window` is the model's context window in tokens. Any label may set it, whatever its
-`type`. It bounds what ctxloom sends that model in one internal call: compaction hands the
-distiller at most 150,000 tokens of transcript, or less when the distiller's window minus the
-prompt and the essence it writes is smaller. Leave it out for an engine's usual models (the
-engine declares a default); set it for a model whose window differs.
+`context_window` is the model's context window in tokens. Any label may carry it, whatever its
+`type`, so a label can move between engines, but only opencode reads it: opencode cannot
+discover an endpoint's window and never compacts without one (see the opencode label below).
 
 `binary_path` and `args` are neutral too: any label may carry them. `binary_path` is the binary
 the launch spawns in place of the engine's own (`claude`, `opencode`), and the one whose version
@@ -414,21 +411,22 @@ updated automatically whenever you pull or upgrade:
 ctxloom deps pull        # Fetch referenced content and update lock.yaml
 ```
 
-## Memory Configuration
+## Session Configuration
 
-Session memory is always enabled. Compaction and distillation run as the
-agent named `distiller` — its engine, environment and runtime — falling back
-to the **fast role** (`llm.defaults.fast`) with a warning when no such agent
-is configured. Either way the session is offered no tool and no MCP server,
-so the agent's `permissions:` block does not apply to it. The size of a
-distilled session essence is a behavioral setting:
+ctxloom does not compact sessions; your engine does. A session's transcript is
+its record, and every command that destroys transcripts keeps one until the
+session ended more than `session_transcript_retention` ago (default `30d`, in
+the `clean --older-than` grammar), or at any age while the session is marked
+keep (`ctxloom session keep <harp>`):
 
 ```yaml
-llm:
-  defaults:
-    fast: quick              # config label used for distillation without a distiller agent
-config:
-  essence_max_chars: 10000   # character budget for a distilled session essence
+session_transcript_retention: 60d   # keep transcripts for 60 days after a session ends
 ```
 
-See [Session Memory Guide](/getting-started/memory) for usage details.
+Distillation (prompt compression) runs as the agent named `distiller` — its
+engine, environment and runtime — falling back to the **fast role**
+(`llm.defaults.fast`) with a warning when no such agent is configured. Either
+way the session is offered no tool and no MCP server, so the agent's
+`permissions:` block does not apply to it.
+
+See [Session History](/getting-started/memory) for usage details.

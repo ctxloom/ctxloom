@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -23,7 +24,8 @@ func sdReq() SweepRequest {
 	}
 }
 
-// sdDead is an ended human session, compacted, older than both cutoffs,
+// sdDead is an ended human session, its transcript released by retention,
+// older than both cutoffs,
 // holding reclaimable and purgeable data and nothing that spares it: the
 // fact set every row below perturbs one field of.
 func sdDead() SessionFacts {
@@ -34,7 +36,6 @@ func sdDead() SessionFacts {
 		LastActive:   sdNow.Add(-120 * 24 * time.Hour),
 		Lock:         sessionlock.Dead,
 		LockReason:   "its lock file exists and nothing holds it",
-		Compacted:    true,
 		Reclaimable:  true,
 		ReclaimBytes: 10,
 		Purgeable:    true,
@@ -122,23 +123,31 @@ func TestDecideSweep(t *testing.T) {
 			want:  []SweepAction{SweepReclaim},
 		},
 		{
-			name:  "7 compacted and aged past the purge cutoff: reclaim, then purge",
+			name:  "7 released by retention and aged past the purge cutoff: reclaim, then purge",
 			facts: sdDead,
 			want:  []SweepAction{SweepReclaim, SweepPurge},
 			check: func(t *testing.T, rows []SweepRow) { assert.Equal(t, SweepPlanned, rows[1].Verdict) },
 		},
 		{
-			name:  "8 a human's uncompacted session is never purged, and is told how to compact",
-			facts: func() SessionFacts { f := sdDead(); f.Compacted = false; return f },
-			want:  []SweepAction{SweepReclaim, SweepSpare},
+			name: "8 a transcript retention keeps is never purged",
+			facts: func() SessionFacts {
+				f := sdDead()
+				f.Retained = fmt.Errorf("%w: it ended yesterday", sessions.ErrTranscriptRecent)
+				return f
+			},
+			want: []SweepAction{SweepReclaim, SweepSpare},
 			check: func(t *testing.T, rows []SweepRow) {
-				assert.Equal(t, "ctxloom session compact aged-quiet-heron", rows[1].Command)
+				assert.Contains(t, rows[1].Reason, "ended yesterday")
+				assert.Empty(t, rows[1].Command, "only time releases it")
 			},
 		},
 		{
-			name:  "9 an internal one-shot is purged without a compact",
-			facts: func() SessionFacts { f := sdDead(); f.Compacted = false; f.Origin = sessions.OriginOneShot; return f },
-			want:  []SweepAction{SweepReclaim, SweepPurge},
+			name:  "9 a kept transcript is never purged, and is told how to release it",
+			facts: func() SessionFacts { f := sdDead(); f.Retained = sessions.ErrTranscriptKept; return f },
+			want:  []SweepAction{SweepReclaim, SweepSpare},
+			check: func(t *testing.T, rows []SweepRow) {
+				assert.Equal(t, "ctxloom session keep aged-quiet-heron --undo", rows[1].Command)
+			},
 		},
 		{
 			name:  "10 undelivered mail spares it from purge and is counted",

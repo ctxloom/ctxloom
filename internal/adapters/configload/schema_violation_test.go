@@ -41,7 +41,7 @@ func schemaViolations(t *testing.T, cfg *config.Config) []*config.SchemaViolatio
 // it used to be, and not filed under the generic validate kind the startup
 // gate cannot tell from a schema-compile failure.
 func TestLoad_MistypedValue_IsATypedSchemaViolation(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 7\nruntime: 5\n")
+	cfg := loadYAML(t, "schema_version: 8\nruntime: 5\n")
 
 	got := schemaViolations(t, cfg)
 	require.Len(t, got, 1, "warnings: %+v", cfg.GetWarnings())
@@ -56,7 +56,7 @@ func TestLoad_MistypedValue_IsATypedSchemaViolation(t *testing.T) {
 
 // A nested key is reported by its full dotted path, through a dynamic map key.
 func TestLoad_MistypedNestedValue_NamesTheDottedPath(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 7\nagents:\n  a:\n    llm: e\n    profiles: dev\n")
+	cfg := loadYAML(t, "schema_version: 8\nagents:\n  a:\n    llm: e\n    profiles: dev\n")
 
 	got := schemaViolations(t, cfg)
 	require.Len(t, got, 1, "warnings: %+v", cfg.GetWarnings())
@@ -69,7 +69,7 @@ func TestLoad_MistypedNestedValue_NamesTheDottedPath(t *testing.T) {
 // violation, named by key path, with the constraint it broke in place of an
 // expected type. It used to stay a raw-text validate warning.
 func TestLoad_BadEnum_IsASchemaViolationWithItsConstraint(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 7\nagents:\n  a:\n    llm: e\n    permissions:\n      sandbox: nonsense\n")
+	cfg := loadYAML(t, "schema_version: 8\nagents:\n  a:\n    llm: e\n    permissions:\n      sandbox: nonsense\n")
 
 	assert.Empty(t, unknownKeyWarnings(cfg), "a bad enum is not an unknown key")
 	got := schemaViolations(t, cfg)
@@ -86,7 +86,7 @@ func TestLoad_BadEnum_IsASchemaViolationWithItsConstraint(t *testing.T) {
 // those per-branch failures are not separate defects, so the violation is
 // reported ONCE, at the entry the anyOf governs.
 func TestLoad_EntryMatchingNoAlternative_IsOneViolationAtTheEntry(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 7\nllm:\n  configs:\n    big:\n      type: gemini\n")
+	cfg := loadYAML(t, "schema_version: 8\nllm:\n  configs:\n    big:\n      type: gemini\n")
 
 	got := schemaViolations(t, cfg)
 	require.Len(t, got, 1, "warnings: %+v", cfg.GetWarnings())
@@ -97,7 +97,7 @@ func TestLoad_EntryMatchingNoAlternative_IsOneViolationAtTheEntry(t *testing.T) 
 // An unknown key and a mistyped value in one file are two findings of two
 // kinds: neither hides the other.
 func TestLoad_UnknownKeyAndMistypedValue_AreBothReported(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 7\nruntime: 5\nfrobnicate: 1\n")
+	cfg := loadYAML(t, "schema_version: 8\nruntime: 5\nfrobnicate: 1\n")
 
 	require.Len(t, unknownKeyWarnings(cfg), 1, "warnings: %+v", cfg.GetWarnings())
 	got := schemaViolations(t, cfg)
@@ -121,7 +121,7 @@ func TestLoad_EveryRegisteredEngineIsASchemaValidLLMType(t *testing.T) {
 	}
 	for _, name := range engines.Registry().Names(nil) {
 		t.Run(string(name), func(t *testing.T) {
-			cfg := loadYAML(t, "schema_version: 7\nllm:\n  configs:\n    x:\n      type: "+string(name)+"\n"+requiredKeys[string(name)])
+			cfg := loadYAML(t, "schema_version: 8\nllm:\n  configs:\n    x:\n      type: "+string(name)+"\n"+requiredKeys[string(name)])
 			assert.Empty(t, schemaViolations(t, cfg), "warnings: %+v", cfg.GetWarnings())
 		})
 	}
@@ -131,7 +131,7 @@ func TestLoad_EveryRegisteredEngineIsASchemaValidLLMType(t *testing.T) {
 // the LAST backend with a bad value inside is still that backend's shape, and
 // its bad value is the defect, named at its own key.
 func TestLoad_FaultInsideALaterAlternative_IsReportedAtItsKey(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 7\nllm:\n  configs:\n    local:\n      type: opencode\n      model: qwen\n      provider: {base_url: http://127.0.0.1:9/v1, output_limit: 1}\n      context_window: big\n")
+	cfg := loadYAML(t, "schema_version: 8\nllm:\n  configs:\n    local:\n      type: opencode\n      model: qwen\n      provider: {base_url: http://127.0.0.1:9/v1, output_limit: 1}\n      context_window: big\n")
 
 	got := schemaViolations(t, cfg)
 	require.Len(t, got, 1, "warnings: %+v", cfg.GetWarnings())
@@ -143,7 +143,7 @@ func TestLoad_FaultInsideALaterAlternative_IsReportedAtItsKey(t *testing.T) {
 // A bad enum value on a property other than the discriminator is a bad value
 // inside the shape the entry IS, not a sign the entry is another shape.
 func TestLoad_BadEnumInsideTheMatchingAlternative_IsReportedAtItsKey(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 7\nllm:\n  configs:\n    big:\n      type: claude-code\n      role: boss\n")
+	cfg := loadYAML(t, "schema_version: 8\nllm:\n  configs:\n    big:\n      type: claude-code\n      role: boss\n")
 
 	got := schemaViolations(t, cfg)
 	require.Len(t, got, 1, "warnings: %+v", cfg.GetWarnings())
@@ -156,7 +156,7 @@ func TestLoad_BadEnumInsideTheMatchingAlternative_IsReportedAtItsKey(t *testing.
 // own to name, and is reported where the anyOf governs: it matches none of
 // the shapes. It is never silently accepted.
 func TestLoad_AnotherBackendsKeyInsideTheMatchingAlternative_IsOneViolationAtTheEntry(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 7\nllm:\n  configs:\n    big:\n      type: claude-code\n      share: auto\n")
+	cfg := loadYAML(t, "schema_version: 8\nllm:\n  configs:\n    big:\n      type: claude-code\n      share: auto\n")
 
 	assert.Empty(t, unknownKeyWarnings(cfg), "premise: share is a key the anyOf declares, so it is not unknown")
 	got := schemaViolations(t, cfg)

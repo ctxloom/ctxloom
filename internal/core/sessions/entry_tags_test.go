@@ -30,12 +30,10 @@ func TestEntry_JSONTagsMirrorYAMLKeys(t *testing.T) {
 
 	// computedOnRead lists the fields deliberately absent from the sidecar
 	// because they are derived on read: the harp name from the directory,
-	// summary and detail from essence.md, the rest from stat. Everything
+	// the rest from stat. Everything
 	// else must mirror.
 	computedOnRead := map[string]bool{
 		"HarpName":                true,
-		"Summary":                 true,
-		"Detail":                  true,
 		"LastActivity":            true,
 		"CanonicalTranscriptPath": true,
 	}
@@ -86,8 +84,6 @@ func TestEntry_DerivedFieldsAreTheOnlyJSONOnlyKeys(t *testing.T) {
 	}
 	assert.Equal(t, []string{
 		"HarpName=harp_name",
-		"Summary=summary",
-		"Detail=detail",
 		"CanonicalTranscriptPath=canonical_transcript_path",
 	}, jsonOnly)
 }

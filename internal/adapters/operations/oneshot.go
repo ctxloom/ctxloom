@@ -7,7 +7,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
@@ -179,79 +178,6 @@ func (o *OneShotSession) End() {
 	}
 }
 
-// LazyOneShot is an internal one-shot whose session starts on the FIRST
-// turn: a caller that never turns (a compaction served from its cache)
-// mints nothing. Turn is assignable to memory.Runner, ContextWindow to
-// memory.CompactionConfig.ContextWindow; End releases the session if one
-// started.
-type LazyOneShot struct {
-	start   func(ctx context.Context) (*OneShotSession, error)
-	engines engine.Registry
-	mu      sync.Mutex
-	os      *OneShotSession
-}
-
-// session is the started session, starting it first if none has.
-func (l *LazyOneShot) session(ctx context.Context) (*OneShotSession, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.os == nil {
-		o, err := l.start(ctx)
-		if err != nil {
-			return nil, err
-		}
-		l.os = o
-	}
-	return l.os, nil
-}
-
-// Turn drives one turn, starting the session first if none has.
-func (l *LazyOneShot) Turn(ctx context.Context, prompt string) (string, error) {
-	o, err := l.session(ctx)
-	if err != nil {
-		return "", err
-	}
-	return o.Turn(ctx, prompt)
-}
-
-// ContextWindow is the context window, in tokens, of the label this
-// one-shot runs on (LaunchContextWindow), starting the session first if none
-// has: the label is the one the launch actually resolved — an explicit
-// label, the role agent's, or defaults.fast — so it is read from there, not
-// re-derived. A caller asks it only when it is about to turn.
-func (l *LazyOneShot) ContextWindow(ctx context.Context) (int, error) {
-	o, err := l.session(ctx)
-	if err != nil {
-		return 0, err
-	}
-	return LaunchContextWindow(l.engines, o.Launch), nil
-}
-
-// LaunchContextWindow is the context window, in tokens, of a resolved
-// launch's label: the label's own neutral `context_window`, else the
-// declared default of the engine the launch runs, else 0 (unknown). The
-// engine is reached through the registry by the launch's engine name, so no
-// engine is named here.
-func LaunchContextWindow(reg engine.Registry, l launch.Launch) int {
-	if n := config.LabelContextWindow(l.Label.Body); n > 0 {
-		return n
-	}
-	if eng, ok := reg.Lookup(l.Engine); ok {
-		return eng.Root().ContextWindow
-	}
-	return 0
-}
-
-// End releases the session, if one started. Idempotent.
-func (l *LazyOneShot) End() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.os != nil {
-		l.os.End()
-		l.os = nil
-	}
-}
-
 // InternalSource is the Source an internal one-shot asks with: no binding,
 // the label naming its engine (model overridden when the caller says so),
 // at plan. An internal one-shot (triage, premise authoring) only reads and
@@ -300,9 +226,8 @@ const (
 	triageAgent    = "triage"
 )
 
-// DistillerOneShot is the one-shot every distillation runs on: session
-// compaction (`session compact`, the MCP compactor) and content
-// distillation. It runs as the distiller agent; a Label named on it (an
+// DistillerOneShot is the one-shot content distillation (prompt
+// compression) runs on. It runs as the distiller agent; a Label named on it (an
 // explicit `--llm`) wins. It is TOOL-LESS on every arm (marauding-magnolia,
 // decision #5): a distillation summarises the text its prompt carries and
 // needs no tool, so it asks for no tool and no MCP server rather than for
@@ -379,14 +304,6 @@ func (b *OneShotBuilder) arm(rep report.Sink) launch.Source {
 	report.To(rep).WarnOncef("no %q agent is configured, so this %s runs on llm.defaults.fast (%q); create one with `ctxloom agent create %s` to choose its engine, env and runtime",
 		b.role, b.role, fast, b.role)
 	return InternalSource(fast, b.model, b.workDir)
-}
-
-// Lazy defers Start to the one-shot's first turn: a caller that never turns
-// (a compaction served from its cache) mints nothing. Start's refusals
-// surface from that turn.
-func (b *OneShotBuilder) Lazy() *LazyOneShot {
-	built := *b
-	return &LazyOneShot{start: built.Start, engines: b.facts.Engines}
 }
 
 // isolationGateErr is the fail-loudly member gate over the strictness findings

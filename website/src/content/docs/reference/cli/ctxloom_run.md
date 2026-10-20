@@ -38,8 +38,6 @@ Verbosity levels (-v can be repeated):
 
 Use --session <name> to resume a prior session by the name 'ctxloom session list' shows:
 its full recorded transcript is folded into this run's assembled context.
-Add --compact to resume via the session's compacted summary instead
-(compacting on demand first if one doesn't exist yet).
 
 Exit status: when the engine ran and exited, ctxloom run exits with the
 engine's own status — its exit code, or 128+signum when a signal ended it
@@ -62,7 +60,6 @@ ctxloom run [flags] [prompt...]
   ctxloom run -t security "check for vulnerabilities"
   ctxloom run -vv -p developer "debug mode"
   ctxloom run --session swift-amber-falcon
-  ctxloom run --session swift-amber-falcon --compact
 ```
 
 ### Options
@@ -70,7 +67,6 @@ ctxloom run [flags] [prompt...]
 ```
       --agent string                   Run a named local agent binding: its composed profiles, engine, and runtime (excludes -p/-f/-t)
   -r, --command string                 Run a saved command by name
-      --compact                        With --session, resume via the session's compacted summary instead of its full transcript (compacts on demand first if not yet compacted)
   -n, --dry-run                        Show command that would be executed
   -f, --fragment strings               Context fragment(s) to include (can be repeated)
   -l, --llm string                     config label to use (e.g. claude-code, claude-fast); overrides the configured default
@@ -80,7 +76,7 @@ ctxloom run [flags] [prompt...]
       --plain-terminal                 Disable ctxloom's split view (the agent panel beside the engine's terminal) for this session: the engine draws on the terminal directly
   -p, --profile string                 Profile to use (predefined fragment collection)
       --prompt string                  Prompt to send to the AI (alternative to positional args)
-      --session ctxloom session list   Resume the named session (see ctxloom session list): folds its full recorded transcript into this run's assembled context. Combine with --compact to resume via its compacted summary instead.
+      --session ctxloom session list   Resume the named session (see ctxloom session list): folds its full recorded transcript into this run's assembled context.
   -t, --tag strings                    Include fragments with this tag (can be repeated)
   -v, --verbose count                  Increase verbosity (can be repeated: -v, -vv, -vvv)
       --workspace string               Session workspace axis (none|worktree; empty = project default)

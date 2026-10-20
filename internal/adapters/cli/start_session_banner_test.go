@@ -6,8 +6,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 )
 
 // TestPrintStartSessionBanner_MinimalInfo covers the degraded case (startup
@@ -32,20 +30,12 @@ func TestPrintStartSessionBanner_FullInfo(t *testing.T) {
 		Profiles:  []string{"developer", "reviewer"},
 		Fragments: []string{"coding-standards", "security"},
 		Tokens:    4200,
-		Previous:  &operations.PreviousSessionRef{Harp: "quiet-loyal-otter", Backend: "claude-code"},
 	})
 	out := buf.String()
 	assert.True(t, strings.HasPrefix(out, "ctxloom: starting session swift-amber-falcon (claude-code)"))
 	assert.Contains(t, out, "profiles: developer, reviewer")
 	assert.Contains(t, out, "context: 2 fragment(s), ~4200 tokens")
-	assert.Contains(t, out, "previous session: quiet-loyal-otter")
-	assert.Contains(t, out, "resume")
-}
-
-func TestPrintStartSessionBanner_NoPreviousSession(t *testing.T) {
-	var buf bytes.Buffer
-	PrintStartSessionBanner(&buf, StartSessionInfo{Harp: "first-run-harp", Label: "claude-code"})
-	assert.NotContains(t, buf.String(), "previous session:")
+	assert.NotContains(t, out, "resume", "the banner points at no in-session recovery: engines own that")
 }
 
 func TestPrintStartSessionBanner_TokensWithNoFragments(t *testing.T) {

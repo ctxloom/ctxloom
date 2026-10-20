@@ -12,7 +12,7 @@ Here's what that buys you, then how to get it running in a few minutes.
 |------------|-------------|
 | **Context Assembly** | Combine fragments into profiles, deliver to Claude Code through the engine's own context channel |
 | **Slash Commands** | Commands become `/commands` in Claude Code automatically |
-| **Session Memory** | Recover context after `/clear`, or pick up an earlier session |
+| **Session History** | Find an earlier session by what you asked it, and pick it up again |
 | **Remote Pull** | Pull bundles from GitHub/GitLab, lockfile for reproducibility |
 | **Token Optimization** | Distill fragments and commands with a cheap, fast LLM |
 
@@ -199,6 +199,6 @@ which resolves fragments.
 ## Next Steps
 
 - [Authoring Bundles](/getting-started/authoring) - Create your own bundles
-- [Session Memory](/getting-started/memory) - Preserve context across sessions
+- [Session History](/getting-started/memory) - Find and resume earlier sessions
 - [Discovery](/guides/discovery) - Find community bundles
 - [Profiles](/concepts/profiles) - Save common fragment combinations

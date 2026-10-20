@@ -44,13 +44,8 @@ func TestGetBuiltinCommand(t *testing.T) {
 	}
 }
 
-// recover was migrated from a built-in slash command to an in-engine "resume"
-// Agent Skill (WS-5, Decision 10/11): it depended on the runtime resume
-// picker at startup (run.go), which no session-selection-free startup no
-// longer has a place for. It now ships in the ctxloom-default remote bundle
-// as a skill backed by recover_session/load_session/get_previous_session,
-// not as a resources/commands/ builtin — see docs/backend-contract.md and the
-// ctxloom-default repo's skills/resume/SKILL.md.
+// recover is not a built-in command: in-session recall went with session
+// compaction (engines resume their own sessions).
 func TestGetBuiltinCommand_Unknown(t *testing.T) {
 	_, err := GetBuiltinCommand("nope-no-such-command")
 	if err == nil {
@@ -159,7 +154,6 @@ func TestGetPromptText(t *testing.T) {
 		"tooling",
 		"distill-default",
 		"layer-instructions",
-		"session-compact",
 	} {
 		got, err := GetPromptText(name)
 		if err != nil {

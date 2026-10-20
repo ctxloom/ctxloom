@@ -65,7 +65,7 @@ func TestRunLLMList_TextMarksAuthoredAndFallbackDifferently(t *testing.T) {
 	// ("claude-code"), in a single listing. The default is pinned to a THIRD
 	// name so the two markers are checked both with and without "(default)"
 	// sitting between them.
-	agentProject(t, "schema_version: 7\nllm:\n  configs:\n    big: { type: mock }\n  defaults:\n    primary: mock\n")
+	agentProject(t, "schema_version: 8\nllm:\n  configs:\n    big: { type: mock }\n  defaults:\n    primary: mock\n")
 	cmd, out := textCmd()
 	require.NoError(t, runLLMList(cmd, nil))
 
@@ -79,7 +79,7 @@ func TestRunLLMList_TextMarksAuthoredAndFallbackDifferently(t *testing.T) {
 }
 
 func TestRunLLMList_JSONCarriesAuthored(t *testing.T) {
-	agentProject(t, "schema_version: 7\nllm:\n  configs:\n    big: { type: mock }\n")
+	agentProject(t, "schema_version: 8\nllm:\n  configs:\n    big: { type: mock }\n")
 	cmd, out := textCmd()
 	cmd.Flags().String("format", formatText, "")
 	require.NoError(t, cmd.Flags().Set("format", formatJSON))
@@ -104,7 +104,7 @@ func TestRunLLMList_JSONCarriesAuthored(t *testing.T) {
 // distinction exists for: a project with NO llm block at all gets every
 // default label merged into its read view, and not one of them is the user's.
 func TestRunLLMList_WholeRegistryFallbackIsNeverAuthored(t *testing.T) {
-	agentProject(t, "schema_version: 7\n")
+	agentProject(t, "schema_version: 8\n")
 	cmd, out := textCmd()
 	cmd.Flags().String("format", formatText, "")
 	require.NoError(t, cmd.Flags().Set("format", formatJSON))
@@ -154,7 +154,7 @@ func TestRunLLMList_TextWithholdsContainerForEngineWithoutAuthAndSaysWhy(t *test
 	// the schema refuses the entry. That is the point of the fixture — no
 	// valid backend lacks a container story — so the config loads degraded.
 	t.Setenv("CTXLOOM_DEGRADED", "1")
-	agentProject(t, "schema_version: 7\nllm:\n  configs:\n    editor: { type: acp }\n")
+	agentProject(t, "schema_version: 8\nllm:\n  configs:\n    editor: { type: acp }\n")
 	cmd, out := textCmd()
 	require.NoError(t, runLLMList(cmd, nil))
 
@@ -169,7 +169,7 @@ func TestRunLLMList_TextWithholdsContainerForEngineWithoutAuthAndSaysWhy(t *test
 // TestRunLLMList_TextOffersBothContainerAxesForAnAuthedEngine proves the gate
 // is not simply off for everyone.
 func TestRunLLMList_TextOffersBothContainerAxesForAnAuthedEngine(t *testing.T) {
-	agentProject(t, "schema_version: 7\n")
+	agentProject(t, "schema_version: 8\n")
 	cmd, out := textCmd()
 	require.NoError(t, runLLMList(cmd, nil))
 
@@ -186,7 +186,7 @@ func TestRunLLMList_JSONCarriesTheRuntimeOffer(t *testing.T) {
 	// the schema refuses the entry. That is the point of the fixture — no
 	// valid backend lacks a container story — so the config loads degraded.
 	t.Setenv("CTXLOOM_DEGRADED", "1")
-	agentProject(t, "schema_version: 7\nllm:\n  configs:\n    editor: { type: acp }\n")
+	agentProject(t, "schema_version: 8\nllm:\n  configs:\n    editor: { type: acp }\n")
 	cmd, out := textCmd()
 	cmd.Flags().String("format", formatText, "")
 	require.NoError(t, cmd.Flags().Set("format", formatJSON))

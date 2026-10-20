@@ -112,13 +112,13 @@ type Origin string
 
 const (
 	// OriginSession is a human's session: a run at depth 0 that is not a
-	// one-shot. Its transcript is never destroyed uncompacted by a sweep.
+	// one-shot. Its transcript is kept until its retention passes.
 	OriginSession Origin = "session"
 	// OriginAgent is a delegated child's session.
 	OriginAgent Origin = "agent"
 	// OriginOneShot is an internal one-shot (a distiller, a probe): a single
-	// machine-driven turn nobody resumes, so a sweep may purge it without an
-	// essence.
+	// machine-driven turn nobody resumes, so its transcript is reclaimable at
+	// any age (Retention).
 	OriginOneShot Origin = "oneshot"
 )
 

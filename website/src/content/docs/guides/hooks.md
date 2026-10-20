@@ -4,7 +4,7 @@ title: "Hooks and Context Injection"
 
 You never paste your standards into a new session again. Start a session with `ctxloom run`, and your fragments and profile are already in the conversation before you type a word.
 
-Claude Code gets the assembled context one way: a `ctxloom run` session passes it to Claude Code as an appended system prompt file in the session's own home. A Claude Code you start directly with `claude` gets no ctxloom context from a hook; it reads only what `ctxloom materialize` wrote into the project at rest (see [Profiles](/concepts/profiles)). `ctxloom materialize` wires ctxloom's hooks into the project, including a **SessionStart hook**, but that hook never carries the project's context. It delivers a resumed session's essence and ctxloom's session-start notices. This guide explains both and how to configure them.
+Claude Code gets the assembled context one way: a `ctxloom run` session passes it to Claude Code as an appended system prompt file in the session's own home. A Claude Code you start directly with `claude` gets no ctxloom context from a hook; it reads only what `ctxloom materialize` wrote into the project at rest (see [Profiles](/concepts/profiles)). `ctxloom materialize` wires ctxloom's hooks into the project, including a **SessionStart hook**, but that hook never carries the project's context. It delivers ctxloom's session-start notices. This guide explains both and how to configure them.
 
 ## How Context Injection Works
 
@@ -146,8 +146,6 @@ ctxloom hook session-start
 
 - Takes no arguments; reads the SessionStart payload on stdin
 - Never outputs the project's context, which a `ctxloom run` session already has as its system prompt
-- After `ctxloom run --session <name> --compact`, outputs the compacted essence of the session you resumed. An essence longer than about 7,500 characters is cut, with a pointer to the essence file and to `/recover`, because Claude Code shows the model only a short preview of longer hook output
-- After `/clear`, tells you to run `/recover` when the cleared conversation can be brought back
 - In a project with profiles but no agents, suggests setting up an agent
 
 ### Environment Variables
@@ -155,7 +153,7 @@ ctxloom hook session-start
 | Variable | Description |
 |----------|-------------|
 | `CTXLOOM_VERBOSE` | Enable verbose output for debugging |
-| `CTXLOOM_RESUMED_FROM` / `CTXLOOM_RESUMED_PARTS` | Set by `ctxloom run --session`; tell the SessionStart hook which session's essence to deliver |
+| `CTXLOOM_RESUMED_FROM` / `CTXLOOM_RESUMED_PARTS` | Set by `ctxloom run --session`; name the session this run resumed, which the session's MCP instructions state |
 | `CTXLOOM_CONTEXT_FILE` | Path to the assembled context file, set on the launched engine's environment whenever context was assembled — not read by the SessionStart hook |
 
 ## Debugging Hooks

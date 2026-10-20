@@ -13,8 +13,8 @@ import (
 )
 
 // evaluateTriggersDesc is registered on BOTH surfaces — the stdio server and
-// the runner's host relay (mcp_runner.go) — from this one declaration, like its
-// five session-memory siblings in mcp_tools_memory.go.
+// the runner's host relay (mcp_runner.go) — from this one declaration, like
+// context_status.
 
 // evaluateTriggersResult mirrors operations.EvaluateTriggersResult; Verdicts
 // rides the pure triggers.Verdict shape directly rather than a duplicate
@@ -77,8 +77,7 @@ func (s *ctxServer) handleEvaluateTriggers(ctx context.Context, _ *mcp.CallToolR
 
 // evaluateTriggersTaskContext builds the TaskContext handleEvaluateTriggers
 // evaluates triggers against. SessionHarp comes from s.self — the call-scoped
-// identity every sibling handler in this package uses (mcp_tools_memory.go's
-// s.self.Harp) — never from process env: env is process-wide, so
+// identity every handler in this package uses — never from process env: env is process-wide, so
 // on any path where one process serves more than one caller, reading it here
 // would attribute the call to whichever caller's env happened to be set last,
 // not the actual caller. ProjectID is left as a live env read:

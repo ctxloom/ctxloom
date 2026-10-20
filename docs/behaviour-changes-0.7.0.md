@@ -82,18 +82,21 @@ as an unknown key (see section 2).
 (`.ctxloom/content/bundles/v2/project/profiles/<name>.yaml`), under the same
 `hooks:` key, spelled identically.
 
-## 4. Session essences moved to the session's output dir
+## 4. A session's readable outputs live in its output dir
 
-A session's essence, next step and plans, and each per-rotation essence
-(`segments/<sessionID>.md`), now live in the session's output dir —
+A session's plans (and published reports) live in the session's output dir —
 `<Documents>/ctxloom/<project>/<harp>/` by default, or under the `output_dir`
 config key — recorded in the session's `session.yaml` when it is created. The
 machine state (transcripts, native engine history, spool) stays under
-`~/.ctxloom/sessions/<harp>/`. No sweep or `ctxloom clean` ever deletes the
-output dir; only `ctxloom session artifacts purge` removes an essence there. The project-rooted
+`~/.ctxloom/sessions/<harp>/`. Nothing ctxloom runs — no destroyer, no sweep,
+no `ctxloom clean` — ever deletes the output dir. The project-rooted
 `<project>/.ctxloom/sessions/<sessionID>.md` store is no longer written or read.
 Existing files there are not migrated and are safe to delete; `ctxloom session
 adopt` re-indexes an outside session if you want its history back.
+
+Session essences (`essence.md`, `segments/<sessionID>.md`) and the captured
+next step (`next-step.md`) are no longer written at all — session compaction
+is removed (§15). Any you already have stay where they are, as notes.
 
 ## 5. A hook declared once runs once, however many profiles reach it
 
@@ -128,8 +131,8 @@ designed outcome, not a fault — this section is here so you can recognise it
 and know there is nothing to fix.
 
 **What you will see.** Nothing fails and nothing is deleted. You get a warning,
-at the end of an interactive `ctxloom run` and when you `/recover` a session
-(the `recover_session` tool), naming the session and the reason:
+at the end of an interactive `ctxloom run` and when `ctxloom session adopt
+--yes` rebuilds a session's transcript, naming the session and the reason:
 
     ctxloom: warning: vendor transcript import: fluent-amber-heron records no
     claude-code version, so ctxloom cannot tell which transcript format wrote
@@ -145,8 +148,8 @@ carries a reader for gets the other refusal, which prints the gap:
     parsing a format it has never been checked against
 
 **What it costs you.** Only ctxloom's own canonical transcript for that
-session, and therefore anything downstream of it — a distilled essence, a
-`/recover` that replays the conversation. The engine's own transcript is
+session, and therefore anything downstream of it — its title in `session
+list`, a `ctxloom run --session` that replays the conversation. The engine's own transcript is
 untouched on disk in the engine's own store, and the engine's own resume still
 works. Nothing is lost; it is not re-stated in ctxloom's format.
 
@@ -297,10 +300,9 @@ In 0.7 the context reaches claude once, as the system prompt of a session
 that `ctxloom run` launches. The hook no longer carries it:
 
 - `hook inject-context` is removed. Its replacement, `ctxloom hook
-  session-start`, takes no arguments. It delivers the compacted essence of a
-  session resumed with `ctxloom run --session <name> --compact`, the
-  "context cleared, run /recover" notice after `/clear`, and the agent-setup
-  nudge. It never delivers the project's context.
+  session-start`, takes no arguments. It delivers the agent-setup nudge, and
+  never the project's context (nor, since §15, a resumed session's essence or
+  a "run /recover" notice).
 - **A claude session you start by hand gets no ctxloom context from any
   hook.** It reads only what was materialized into the project at rest
   (§13), by `ctxloom materialize --yes`. The refresh that runs after
@@ -532,10 +534,8 @@ Grouped by what you would have to change.
   class, now also fire on PowerShell, MultiEdit and NotebookEdit.
 - `subagent` is renamed to `agent` across config, CLI, API and prompts.
 - Distillation runs tool-less on every engine: `bundle distill`,
-  `fragment distill`, `command distill` and item edits, every MCP
-  tool that compacts a session (`compact_session`, and a session load that
-  compacts first), and `session compact` give the model no tool and attach no MCP
-  server. They are not plan mode, so they need no approval channel. They
+  `fragment distill`, `command distill` and item edits give the model no tool
+  and attach no MCP server. They are not plan mode, so they need no approval channel. They
   still run as the `distiller` agent (or the `--llm` you name), but that
   agent's `permissions:` block and its profiles' MCP servers no longer apply
   to them. An engine runs a tool-less session only if it implements one
@@ -645,6 +645,69 @@ Grouped by what you would have to change.
   `GIT_ALTERNATE_OBJECT_DIRECTORIES` — so ctxloom run from a git hook or an
   alias that passes `-c` no longer picks up those overrides. When git cannot
   answer, every `GIT_` variable is removed.
+
+## 15. ctxloom no longer compacts sessions — the engines do
+
+Session compaction — distilling a session's transcript into an `essence.md`
+that a later session resumed from — is removed. Every engine ctxloom drives
+compacts its own context, and resumes its own sessions. **Prompt compression
+is unaffected**: `bundle distill`, `fragment distill`, `command distill`,
+auto-distill on edit, `.distilled.md` and `use_distilled` all work as before.
+
+**Removed.**
+- `ctxloom session compact`, `ctxloom session list --compact`, and
+  `ctxloom run --session <name> --compact` (a bare `--session` still resumes,
+  folding the session's full transcript into the run's context).
+- `ctxloom session artifacts` (`list`, `purge`). `session purge` and
+  `session remove` no longer reach the output dir (§4).
+- `session list --full` and `session search --full` (they printed essence
+  bodies). `session search` matches the session's name, title and times.
+- The MCP tools `compact_session`, `load_session`, `recover_session`,
+  `get_previous_session` and `list_sessions`. There is no in-session recall
+  through ctxloom; use your engine's own resume (claude's `/resume`), or
+  `ctxloom run --session <name>`.
+- `ctxloom hook next-step` and the TurnEnd hook entry that ran it. The next
+  `ctxloom materialize --yes` (or any re-delivery of ctxloom's managed hooks)
+  removes the entry from a project's `.claude/settings.json`. A settings
+  file ctxloom holds no record of (a tracked one in a fresh clone) keeps it
+  until `ctxloom doctor --fix`, which reports the dead verb and takes it out.
+- What the session-start hook delivered for compaction: the resumed essence,
+  and the "context cleared, run /recover" notice after `/clear`. The start
+  banner no longer points at a previous session or a "resume" skill.
+- The `config.essence_max_chars` key. The config moves to format generation
+  8; a generation-7 config is migrated in memory (the key is dropped) and
+  persisted under `--write-upgrades`.
+- From JSON output: `session show`'s `compacted`, `essence` and
+  `essence_path` (it now prints the session's record — see below);
+  `session list`/`search`'s `essence_path`; `run --dry-run`'s
+  `resumed_essence` and `resumed_essence_note`. The session sidecar stops
+  recording `source_entries` (generation 3; older sidecars migrate in
+  memory).
+
+**A session's title is its first prompt.** The `summary` a `session list` or
+`session search` row carries — in the table and in JSON, where an editor's
+session picker reads it — is now the first thing the session's user asked:
+the first user prompt in the session's recorded transcript, cut to its first
+line and 80 characters, read when the session is listed. A session whose
+transcript holds no prompt shows `(no summary)`. `session show <name>` prints
+the session's record: its title, state, engine, native session, project,
+start and end, and whether it was purged or is kept.
+
+**A transcript is kept until its session ended 30 days ago.** With no
+essence standing in for it, a session's transcript is its record. Every
+destroyer of transcripts — `session transcript purge`, `session purge`,
+`session remove`, `session sweep` and `clean --include-persist` — refuses
+one whose session ended within `session_transcript_retention` (a new config
+key, default `30d`), and refuses a session marked keep at any age. `ctxloom
+session keep <name>` marks one (stored in the session's sidecar, which moves
+to generation 2; `session list` shows `kept`), and `--undo` releases it. An
+internal one-shot's transcript stays reclaimable at any age. `--uncompacted`
+is removed, and no flag overrides retention.
+
+**Files already on disk are left alone.** `essence.md`, `segments/*.md` and
+`next-step.md` files an older ctxloom wrote stay in each session's output
+dir as notes; nothing reads, rewrites or deletes them. There is no cleanup
+step.
 
 ## If you ran a 0.7 development build
 

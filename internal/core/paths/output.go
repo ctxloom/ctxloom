@@ -12,7 +12,7 @@ import (
 const whatOutputBase = "the default output base"
 
 // DefaultOutputBase returns <documents>/ctxloom: where a session's readable
-// outputs (essence, next step, plans, segment essences, published reports)
+// outputs (plans, published reports)
 // go when the output_dir config key does not say otherwise. documents is the
 // platform's Documents folder (platform.UserDirs), because it is the folder a
 // human already browses — and it is NOT under ~/.ctxloom, so a test binary

@@ -9,12 +9,13 @@ This page is generated from `ctxloom session remove --help`.
 
 ## ctxloom session remove
 
-Remove a session entirely: its index entry, its transcript and its summary
+Remove a session entirely: its index entry and its transcript
 
 ### Synopsis
 
-Removes all three of a session's own artifacts — the index entry, the
-recorded transcript, and the compacted summary.
+Removes a session's own artifacts — the index entry and the recorded
+transcript. The session's output dir (plans, notes) is the human's and is
+left where it is.
 
 Authored files in the session directory are never destroyed; they are named in
 the report and left where they are, so removing a session cannot take work
@@ -23,10 +24,8 @@ nobody filed with it.
 Without --yes this only reports; nothing on disk or in the session index
 changes, on a TTY or not.
 
-A session that was never compacted is refused, because removing it would
-destroy the only record of what happened. To do it deliberately, destroy the
-transcript first with 'ctxloom session transcript purge <session-name> --uncompacted
---yes', then remove.
+The transcript is the session's record, so a session that ended within
+session_transcript_retention (default 30d), or one marked keep, is refused.
 
 To empty a session but keep it listed, use 'ctxloom session purge'.
 

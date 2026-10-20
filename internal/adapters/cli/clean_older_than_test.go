@@ -32,7 +32,7 @@ func cotProject(t *testing.T) string {
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, paths.AppDirName), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.AppDirName, paths.ConfigFileName+".yaml"),
-		[]byte("schema_version: 7\n"), 0o644))
+		[]byte("schema_version: 8\n"), 0o644))
 	t.Setenv(projectroot.EnvVar, dir)
 	resetApp()
 	t.Cleanup(resetApp)
@@ -55,10 +55,10 @@ const (
 	cotPlan    = "{\"bulk\":true}\n"
 )
 
-// cotSeedSession plants a COMPACTED harp directory in the session layout —
-// a scratch/ file, a transcript under transcripts/ and an essence in its
-// recorded output dir — whose owner is provably gone, aged by the given
-// amount. Compacted, because only a compacted session's persistent members are
+// cotSeedSession plants a harp directory in the session layout — a scratch/
+// file and a transcript under transcripts/ — whose owner is provably gone,
+// aged by the given amount. Its last activity is its end, so past
+// session_transcript_retention (30d by default) its persistent members are
 // --include-persist's to take.
 func cotSeedSession(t *testing.T, harp string, age time.Duration) string {
 	t.Helper()
@@ -69,7 +69,6 @@ func cotSeedSession(t *testing.T, harp string, age time.Duration) string {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.ScratchDirName, "scratch.txt"), []byte(cotScratch), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName), []byte(cotPlan), 0o644))
 	out := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(out, paths.EssenceFileName), []byte("---\nsummary: seeded\n---\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.SessionSidecarFileName), []byte("schema_version: 1\nproject_dir: /tmp/demo\noutput_dir: "+out+"\n"), 0o644))
 
 	require.NoError(t, sessionlock.Hold(harp))
@@ -151,7 +150,7 @@ func TestClean_WithoutOlderThan_ReapsOnTheDefaultAge(t *testing.T) {
 // is reaped when session_reap_age says five days.
 func TestClean_HonoursSessionReapAgeFromHomeConfig(t *testing.T) {
 	cotProject(t)
-	cotHomeConfig(t, "schema_version: 7\nsession_reap_age: 5d\n")
+	cotHomeConfig(t, "schema_version: 8\nsession_reap_age: 5d\n")
 	dir := cotSeedSession(t, "aged-quiet-heron", 10*24*time.Hour)
 
 	rep := cotRun(t, "--yes", "--format", "json")
@@ -166,7 +165,7 @@ func TestClean_HonoursSessionReapAgeFromHomeConfig(t *testing.T) {
 // which would reap on an age nobody chose. Nothing on disk changes.
 func TestClean_RefusesAMalformedSessionReapAge(t *testing.T) {
 	cotProject(t)
-	cotHomeConfig(t, "schema_version: 7\nsession_reap_age: soon\n")
+	cotHomeConfig(t, "schema_version: 8\nsession_reap_age: soon\n")
 	dir := cotSeedSession(t, "aged-quiet-heron", 90*24*time.Hour)
 
 	_, err := execRootCmd(t, "clean", "--yes", "--format", "json")
@@ -181,7 +180,7 @@ func TestClean_RefusesAMalformedSessionReapAge(t *testing.T) {
 // invocation's bound and beats the configured one in both directions.
 func TestClean_OlderThan_OverridesTheConfiguredAge(t *testing.T) {
 	cotProject(t)
-	cotHomeConfig(t, "schema_version: 7\nsession_reap_age: 5d\n")
+	cotHomeConfig(t, "schema_version: 8\nsession_reap_age: 5d\n")
 	dir := cotSeedSession(t, "aged-quiet-heron", 10*24*time.Hour)
 
 	cotRun(t, "--older-than", "20d", "--yes", "--format", "json")
@@ -222,6 +221,23 @@ func TestClean_IncludePersist_ReclaimsPersistToo(t *testing.T) {
 	assert.Equal(t, 1, rep.Sessions.Reclaimed)
 	cotAssertPlan(t, dir, false)
 	assert.DirExists(t, dir, "the session directory itself stays")
+}
+
+// TestClean_IncludePersist_RetainsARecentTranscript: --include-persist takes
+// a session's transcript only once session_transcript_retention (30d by
+// default) has passed since it ended. A session aged past the reclaim bound
+// but within retention gives up its scratch and keeps its transcript.
+func TestClean_IncludePersist_RetainsARecentTranscript(t *testing.T) {
+	cotProject(t)
+	dir := cotSeedSession(t, "recent-quiet-heron", 10*24*time.Hour)
+
+	rep := cotRun(t, "--older-than", "5d", "--include-persist", "--yes", "--format", "json")
+
+	assert.Equal(t, 1, rep.Sessions.Reclaimed, "its ephemeral members are reclaimed")
+	cotAssertScratch(t, dir, false)
+	cotAssertPlan(t, dir, true)
+	require.Len(t, rep.Sessions.Candidates, 1)
+	assert.Contains(t, rep.Sessions.Candidates[0].Reason, "retention")
 }
 
 // TestClean_KeepMarker_ExemptsTheSession: an empty file named `keep` at the

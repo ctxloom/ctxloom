@@ -314,7 +314,7 @@ fragments:
 
 ## Next Steps
 
-- [Session Memory](/getting-started/memory) - Preserve context across sessions
+- [Session History](/getting-started/memory) - Find and resume earlier sessions
 - [Profiles](/concepts/profiles) - Combine bundles into profiles
 - [Sharing](/guides/sharing) - Full guide to publishing bundles
 - [Distillation](/guides/distillation) - Token optimization details

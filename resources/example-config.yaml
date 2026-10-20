@@ -1,6 +1,6 @@
 # ctxloom Configuration
 # See https://github.com/ctxloom/ctxloom for documentation
-schema_version: 7
+schema_version: 8
 
 # Large language model configuration.
 #
@@ -22,12 +22,11 @@ schema_version: 7
 #     quick: { type: claude-code, model: haiku }  # ...two claude-code backends
 #   defaults:
 #     primary: big     # coding/interactive role → label
-#     fast:    quick    # fallback for distill/compaction/triage when no `distiller`/`triage` agent is configured
+#     fast:    quick    # fallback for distill/triage when no `distiller`/`triage` agent is configured
 
 # Behavioral settings.
 # config:
 #   use_distilled: true       # prefer .distilled.md versions (default true)
-#   essence_max_chars: 12000  # character budget for a compacted session essence
 
 # The default agent: a bare `ctxloom run` binds it (its profiles become the
 # context, its engine/runtime/permissions the transport). default_agent names an

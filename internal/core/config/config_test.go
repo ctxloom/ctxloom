@@ -1048,9 +1048,8 @@ llm:
 // =============================================================================
 
 // =============================================================================
-// Compaction Settings Tests
+// LLM Role Tests
 // =============================================================================
-// Compaction settings control how session logs are compressed for memory.
 
 // TestPrimaryLabelModel covers what the deleted GetDefaultLLMModel accessor
 // used to: the primary role's model, read through ResolveLLM directly.
@@ -1198,7 +1197,7 @@ func TestFragmentRef_MarshalYAML(t *testing.T) {
 
 // Regression: Save round-trips the labeled-config registry, the role map, the
 // config (settings) block, and the editor block. The fast role's labeled
-// config carries the compression model; essence_max_chars lives under
+// config carries the compression model; silence_unsupported lives under
 func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
 	// Real-OS-fs Load below (no WithFS): isolate HOME so the home-layer read
 	// (D2/D3 layering) never reaches this developer's real ~/.ctxloom.
@@ -1216,7 +1215,7 @@ func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
 			},
 			Defaults: RoleDefaults{Primary: "big", Fast: "fast"},
 		},
-		settings: SettingsConfig{EssenceMaxChars: 4096},
+		settings: SettingsConfig{SilenceUnsupported: true},
 		editor:   EditorConfig{Command: "vim", Args: []string{"-p"}},
 	}
 	require.NoError(t, cfg.saveLocked(cfg.getFS(), paths.ConfigPath(tmpDir)))
@@ -1233,7 +1232,7 @@ func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
 	fastBackend, fastModel := loaded.ResolveLLM(loaded.FastLabel())
 	assert.Equal(t, "mock", fastBackend)
 	assert.Equal(t, "haiku", fastModel)
-	assert.Equal(t, 4096, loaded.GetEssenceMaxChars())
+	assert.True(t, loaded.ShouldSilenceUnsupported())
 	assert.Equal(t, "vim", loaded.ToFixture().Editor.Command)
 	assert.Equal(t, []string{"-p"}, loaded.ToFixture().Editor.Args)
 }

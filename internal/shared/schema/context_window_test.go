@@ -49,7 +49,7 @@ func TestConfigValidator_ContextWindow(t *testing.T) {
 	v, err := NewConfigValidator()
 	require.NoError(t, err)
 	label := func(body string) []byte {
-		return []byte("schema_version: 7\nllm:\n  configs:\n    big: " + body + "\n")
+		return []byte("schema_version: 8\nllm:\n  configs:\n    big: " + body + "\n")
 	}
 	for _, ok := range []string{
 		"{ type: claude-code, model: opus, context_window: 1000000 }",

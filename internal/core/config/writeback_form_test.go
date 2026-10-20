@@ -18,7 +18,7 @@ import (
 func TestConfigSaveIsWriteBackForm(t *testing.T) {
 	for name, seed := range map[string]string{
 		"first write": "",
-		"patch":       "# hand edited\nschema_version: 7\nmcp:\n  servers:\n    srv:\n      command: x # mine\n",
+		"patch":       "# hand edited\nschema_version: 8\nmcp:\n  servers:\n    srv:\n      command: x # mine\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()

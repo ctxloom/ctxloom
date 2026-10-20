@@ -46,7 +46,7 @@ Two native CLI surfaces.
 
 - **Oneshot**: `claude --print`, **prompt on stdin** (`agent.PromptStdin`, `enginecli.go:182`; `promptStdin`, `claudecode.go:350`). Argv delivery was moved to stdin after it hit `E2BIG` on `ctxloom weave`.
 - **Interactive**: prompt as a trailing argv positional (`enginecli.go:194`; `claudecode.go:338-342`), plus `--name <harp>` from `CTXLOOM_SESSION_HARP` (`claudecode.go:223`, `:273`) — interactive only, since `/rename` cannot be injected.
-- **Tool-less one-shot** (distill and compaction; `Claude.ToolLess`, the `engine.ToolLess` marker): `--permission-prompts none --tools "" --print --strict-mcp-config`, no `--mcp-config`, and per-turn settings `{"permissions":{"defaultMode":"dontAsk"}}` whatever the posture. It is not plan, so no approver or approval route is needed.
+- **Tool-less one-shot** (distill; `Claude.ToolLess`, the `engine.ToolLess` marker): `--permission-prompts none --tools "" --print --strict-mcp-config`, no `--mcp-config`, and per-turn settings `{"permissions":{"defaultMode":"dontAsk"}}` whatever the posture. It is not plan, so no approver or approval route is needed.
 
 The declared flag vocabulary (`enginecli.go:79-95`) is 15 flags, all verified
 against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
@@ -89,7 +89,7 @@ against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
 ## Divergences from documented or implied behavior
 
 - **`buildArgs` can emit a variadic flag as the last token before the trailing prompt positional, with no `--` terminator** (`claudecode.go:258`, `:300-309`, `:338-342`), so claude's parser can swallow the prompt as flag values. Today's safety is incidental — `--model`/`--name` happen to follow. `agent.CLIFlag.Value` has no `ValueVariadic`, so the anti-drift test structurally cannot catch it.
-- **The minimal-oneshot path (distill/compaction) returns `ExitCode 0, err nil` having written zero bytes** — both write errors are discarded with `_, _ =` (`claudecode.go:132-150`).
+- **The minimal-oneshot path (distill) returns `ExitCode 0, err nil` having written zero bytes** — both write errors are discarded with `_, _ =` (`claudecode.go:132-150`).
 - **A malformed `permissions` block is warned about and then deleted from the user's file** — `delete(raw, "permissions")` runs unconditionally, outside the `else` (`claude.go:311-330`), destroying user `allow`/`ask`/`defaultMode`/`additionalDirectories`. No corrupt-file backup on this path.
 - **The field doc promises to preserve "legacy mcpServers for backwards compat" while the code does `delete(raw, "mcpServers")`** with no migration anywhere (`claude.go:100` vs `:333`). It also fires on the uninstall path.
 - **Empty assembled context produces no file, no flag, and no warning** (`contextdelivery.go:50-55`; `claudecode.go:294-299`); nothing distinguishes "legitimately no context" from "assembly bug".

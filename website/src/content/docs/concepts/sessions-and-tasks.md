@@ -7,9 +7,8 @@ conversation — you can lose track of what you'd agreed still needed doing. ctx
 keeps both: a session so the conversation itself survives, a task so a work item
 does too, even once the session it came from is gone.
 
-A **session** is one working conversation, recorded by ctxloom so it survives
-`/clear` and can be recovered or distilled later (see
-[Session Memory](/getting-started/memory/)). **Tasks** are durable work items
+A **session** is one working conversation, recorded by ctxloom so you can find
+it and resume it later (see [Session History](/getting-started/memory/)). **Tasks** are durable work items
 attached to your project that outlive any single session.
 
 ## Tasks
@@ -52,8 +51,7 @@ in the project's task log, and any session reads them from there with
 `task_list`.
 
 When you *resume* a session with `ctxloom run --session <harp>`, its full recorded
-transcript is folded into the new run's context. Add `--compact` to resume from
-its distilled essence instead.
+transcript is folded into the new run's context.
 
 ## Tasks vs. the agent's to-dos
 
@@ -71,12 +69,10 @@ Rule of thumb: reach for the agent's to-dos for the micro-plan of *what I'm doin
 right now*; use tasks for *work that should still exist tomorrow*.
 
 The two also survive by different mechanisms, and it is worth knowing which.
-When a session is distilled for memory, the essence captures the conversation
-plus the session's plan documents (the `.plan.md` files in the session
-directory) — verbatim, so nothing is paraphrased away. The agent's TodoWrite
-checklist is *not* extracted; it dies with the conversation, which is what
-ephemeral means.
+The agent's TodoWrite checklist lives in the conversation: your engine's own
+compaction may summarise it away, and it dies with the conversation, which is
+what ephemeral means. A session's plan documents (the `.plan.md` files in its
+output dir) are files, so they survive both.
 
 Tasks need no extraction at all. They are already on disk in the per-project task
-log, so they outlive the essence and the session that created them — a task is
-still there whether or not anyone ever distilled the conversation it came from.
+log, so they outlive the session that created them.

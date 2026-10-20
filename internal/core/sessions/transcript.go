@@ -1,9 +1,6 @@
 package sessions
 
 import (
-	"bufio"
-	"bytes"
-	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -187,92 +184,4 @@ func fillCanonicalTranscript(e *Entry) {
 	if _, err := os.Stat(p); err == nil {
 		e.CanonicalTranscriptPath = p
 	}
-}
-
-// TranscriptStale compares a transcript's current ENTRY COUNT to the count
-// stamped when an essence was compacted from it (Entry.SourceEntries). It
-// reports whether the essence is out of date and whether that could be
-// determined at all: known=false (stale=false) when there is no stamped count
-// (never compacted), no transcript path, or the file cannot be read.
-//
-// See Entry.SourceEntries for WHY this counts entries rather than bytes.
-// Read-only and best-effort per the fault-tolerance philosophy — an unreadable
-// transcript degrades to "can't tell", never an error.
-func TranscriptStale(transcriptPath string, stampedEntries int) (stale, known bool) {
-	if stampedEntries == 0 || transcriptPath == "" {
-		return false, false
-	}
-	live, ok := CountTranscriptEntries(transcriptPath)
-	if !ok {
-		return false, false
-	}
-	return live != stampedEntries, true
-}
-
-// CountTranscriptEntries counts the conversational ENTRY records in a
-// canonical transcript (one JSON record per line, kind "entry"). It reports
-// ok=false when the file cannot be read at all.
-//
-// It decodes only each line's kind — never the whole record — because this
-// runs on the cache-HIT path, where the entire point is to avoid work. A
-// malformed line is skipped rather than fatal, matching how every transcript
-// reader in this project treats one.
-//
-// It lives here, not in internal/adapters/transcript, because internal/adapters/transcript
-// imports this package: the counter must be self-contained or the two form a
-// cycle. It needs nothing but stdlib, so that costs nothing.
-func CountTranscriptEntries(path string) (int, bool) {
-	f, err := os.Open(path)
-	if err != nil {
-		return 0, false
-	}
-	defer func() { _ = f.Close() }()
-
-	var kindOnly struct {
-		Kind string `json:"kind"`
-	}
-	count := 0
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 {
-			continue
-		}
-		kindOnly.Kind = ""
-		if err := json.Unmarshal(line, &kindOnly); err != nil {
-			continue // malformed line: skip, never fatal
-		}
-		if kindOnly.Kind == transcriptEntryKind {
-			count++
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return 0, false
-	}
-	return count, true
-}
-
-// transcriptEntryKind is the canonical transcript's conversational record
-// kind. Named rather than inlined so the string appears once (see
-// internal/adapters/transcript.KindEntry, which this must agree with; this package
-// cannot import that one without a cycle).
-const transcriptEntryKind = "entry"
-
-// SourceStale reports whether this entry's compacted essence is out of date
-// relative to its source transcript, and whether that could be determined (see
-// TranscriptStale). `session list` uses it to badge stale rows.
-//
-// Prefers CanonicalTranscriptPath over TranscriptPath (S4): once a
-// harp has a captured canonical transcript, that IS the file the compactor
-// actually compacts from (memory stamps its entry count the same way), so
-// staleness must compare against it — comparing the essence's stamped count
-// to the legacy engine file's would compare two different sources and the
-// badge would lie.
-func (e Entry) SourceStale() (stale, known bool) {
-	path := e.TranscriptPath
-	if e.CanonicalTranscriptPath != "" {
-		path = e.CanonicalTranscriptPath
-	}
-	return TranscriptStale(path, e.SourceEntries)
 }

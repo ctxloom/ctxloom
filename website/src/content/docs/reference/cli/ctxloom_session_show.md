@@ -9,7 +9,14 @@ This page is generated from `ctxloom session show --help`.
 
 ## ctxloom session show
 
-Print the compacted summary of a named session
+Show a named session: its title, state, engine and times
+
+### Synopsis
+
+Shows one session's record: its title (the first thing its user asked,
+from the session's recorded transcript), its state now (from its liveness
+lock), its engine and native session, its project, when it started and
+ended, and whether it was purged or is marked keep.
 
 ```
 ctxloom session show <session-name> [flags]

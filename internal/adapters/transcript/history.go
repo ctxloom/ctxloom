@@ -1,8 +1,7 @@
 // This file (history.go) defines the READER counterpart to record.go/
 // recorder.go: transcript.CanonicalHistory turns a harp's captured
 // transcript.jsonl (paths.HarpCanonicalTranscriptPath) back into the normalized
-// agent.Session/agent.SessionMeta shape ctxloom's memory consumers already
-// depend on (slice S3).
+// agent.Session/agent.SessionMeta shape (slice S3).
 //
 // CanonicalHistory is engine-agnostic by construction: every structured
 // engine's frames already folded onto agent.ChatEvent before the Recorder
@@ -47,9 +46,8 @@ func NewCanonicalHistory(workDir string, store sessions.Store) *CanonicalHistory
 
 // NoCanonicalTranscriptError reports that harpName has no captured canonical
 // transcript on disk — GetSession's os.IsNotExist case. It is a distinct type
-// (not a bare fmt.Errorf) so a caller several layers up (e.g. the
-// recover_session MCP handler) can errors.As it to extract the harp and
-// produce an actionable message, rather than pattern-matching the error text.
+// (not a bare fmt.Errorf) so a caller several layers up can errors.As it to
+// extract the harp and produce an actionable message, rather than pattern-matching the error text.
 // Error() keeps the original wording so existing callers that only check for
 // "an error" (never the text) see no behavior change.
 type NoCanonicalTranscriptError struct {

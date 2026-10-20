@@ -24,7 +24,7 @@ The authorities are code, not this page:
 | Machine, disposable | session dir | rebuilt or recreated per launch | `home/` (engine config homes), `locks/` (the lock files of the session's own files) |
 | Work | session dir | kept while it holds work; triaged, never removed blind | `work/` (worktree checkouts) |
 | Scratch | session dir | one run | `scratch/` (`ctxloom-iso-*`, `ctxloom-tmp-*`, the secret dir's disk fallback) |
-| Readable output | output dir | the human's; ctxloom's sweeps never delete it | `essence.md`, `next-step.md`, `*.plan.md`, `segments/<id>.md`, `reports/` |
+| Readable output | output dir | the human's; nothing ctxloom runs deletes it | `*.plan.md`, `reports/` (and any `essence.md`, `next-step.md`, `segments/<id>.md` an older ctxloom left) |
 
 One per-session path lives outside both: the socket root (`engine.Session.SocketRoot`,
 computed beside the engine by `launch.SocketRoot`), a short owner-only directory
@@ -55,8 +55,7 @@ process, and `kit.ReleaseSocketRoot` removes it, when empty, after the engine en
   scratch/ctxloom-iso-*, ctxloom-tmp-*, ctxloom-secret-*
 
 <Documents>/ctxloom/<project>/<harp>/       output dir (session.yaml output_dir)
-  essence.md, next-step.md, *.plan.md
-  segments/<id>.md
+  *.plan.md
   reports/<agent harp>/                     each agent's FINAL report in this tree
     report.md                               the report's text
     <artifact name>                         each artifact it published, latest revision
@@ -125,8 +124,8 @@ directory in its place.
 | `home/<leaf>` | keep | delete (owner and every ended child) | delete | delete | — |
 | `locks/` | keep | keep | delete | delete | — |
 | `work/` checkouts | removed when clean, kept with work (existing triage) | — | triaged | triaged | triaged |
-| `spool/`, `package/`, `diagnostics.log`, `context-metrics.jsonl` | keep | keep | keep | delete (compacted only) | keep |
-| `native/`, `transcripts/` | keep | keep | keep | delete (compacted only) | delete (compacted, or an internal one-shot) |
+| `spool/`, `package/`, `diagnostics.log`, `context-metrics.jsonl` | keep | keep | keep | delete (retention passed only) | keep |
+| `native/`, `transcripts/` | keep | keep | keep | delete (retention passed only) | delete (retention passed, or an internal one-shot) |
 | `session.yaml`, `keep` | keep | keep | keep | keep | keep |
 | coordinator root | keep | delete only if ephemeral and settled | — | — | removed with the session |
 | output dir | keep | keep | never | never | never |
@@ -137,8 +136,10 @@ engine's history store into `native/` when the home holds it as a real directory
 `sessions.UseHistoryStores`, never its siblings; see Windows below), and leaves the home when
 that fails. Close's rule lives in `Coordinator.removeDisposableMembers`; the reaper's in
 `sessions.ReapPolicy.Members`; the purge populations in `operations.PurgeSession`, of which
-the sweep requests only the transcript population. The output dir is reachable by exactly
-one destroyer, the explicit `ctxloom session artifacts purge` (`outputEssenceItems`).
+the sweep requests only the transcript population. "Retention passed" is
+`sessions.Retention`: the session ended more than `session_transcript_retention` (default
+`30d`) ago and is not marked keep (`ctxloom session keep`). No destroyer reaches the output
+dir.
 
 ## Secrets
 
@@ -181,11 +182,10 @@ environment, and a host runner start that still carries it is refused
   `home/<leaf>`, on both sides, is what makes `../../native/<leaf>/<history>` correct
   whatever the instance root is named.
 - **The session dir is machine state; readable outputs go to the output dir.** A human
-  looking for a plan or an essence should find it where they keep documents, and nothing
+  looking for a plan should find it where they keep documents, and nothing
   that reclaims machine state should be able to take it.
 - **The output dir path is recorded, not re-derived.** See "The output dir".
-- **The sweep never deletes the output dir.** It is the human's; only the explicit
-  artifacts purge reaches into it.
+- **Nothing ctxloom runs deletes the output dir.** It is the human's.
 - **Close cleans every finished agent in the tree.** A finished agent's home and scratch
   are pure cost; an agent whose run has not ended (an adopted run whose runner never came
   back) may still have an engine using its home, so it is left for the sweep.

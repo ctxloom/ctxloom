@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/llmturn"
+
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/memory"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
@@ -66,7 +67,7 @@ type PremiseCritique struct {
 // CritiquePremise attacks draft, the proposed premise for the fragment name
 // with the given body, against siblings — the premises it could collide with,
 // which the caller supplies WITHOUT this fragment's own entry. One LLM call
-// through the shared distillation path (memory.RunPrompt).
+// through the shared one-shot prompt path (llmturn.RunPrompt).
 func CritiquePremise(ctx context.Context, cfg PremiseAuthorConfig, name, body string, draft *PremiseDraft, siblings []PremiseIndexEntry) (*PremiseCritique, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("critique premise: fragment name is empty")
@@ -85,7 +86,7 @@ func CritiquePremise(ctx context.Context, cfg PremiseAuthorConfig, name, body st
 	if err != nil {
 		return nil, fmt.Errorf("critique premise for %q: %w", name, err)
 	}
-	out, err := memory.RunPrompt(ctx, cfg.Run, prompt, payload)
+	out, err := llmturn.RunPrompt(ctx, cfg.Run, prompt, payload)
 	if err != nil {
 		return nil, fmt.Errorf("critique premise for %q: %w", name, err)
 	}

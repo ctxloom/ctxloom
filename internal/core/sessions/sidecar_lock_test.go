@@ -55,8 +55,8 @@ func TestManager_EveryMutatingMethodLocksTheHarpsSidecarLock(t *testing.T) {
 		{"RecordEngineVersion", func(t *testing.T, m *Manager) {
 			require.NoError(t, m.RecordEngineVersion(lockTestHarp, "2.1.0"))
 		}},
-		{"SetSourceEntries", func(t *testing.T, m *Manager) {
-			require.NoError(t, m.SetSourceEntries(lockTestHarp, 12))
+		{"SetKeep", func(t *testing.T, m *Manager) {
+			require.NoError(t, m.SetKeep(lockTestHarp, true))
 		}},
 		{"Rename", func(t *testing.T, m *Manager) {
 			require.NoError(t, m.Rename(lockTestHarp, "brisk-amber-otter"))

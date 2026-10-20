@@ -24,7 +24,7 @@ import (
 // so nothing downstream (`agent list`, `run --agent x`, default_agent) can
 // ever see a binding with nothing bound.
 func TestLoad_EnginelessAgentIsRefusedNamingKeyAndPath(t *testing.T) {
-	cfg := writeLayers(t, "", "schema_version: 7\nagents:\n  x: {}\n  dev:\n    profiles: [default]\n")
+	cfg := writeLayers(t, "", "schema_version: 8\nagents:\n  x: {}\n  dev:\n    profiles: [default]\n")
 
 	_, present := cfg.GetConfiguredAgents()["x"]
 	assert.False(t, present, "an agent with no llm and no profiles must be dropped from the agents map, not carried as an empty binding")
@@ -47,7 +47,7 @@ func TestLoad_EnginelessAgentIsRefusedNamingKeyAndPath(t *testing.T) {
 // then the project default), so an agent bound to profiles alone is a real
 // agent and must keep loading exactly as before.
 func TestLoad_AgentWithProfilesButNoLLMIsAccepted(t *testing.T) {
-	cfg := writeLayers(t, "", "schema_version: 7\nagents:\n  reviewer:\n    profiles: [cr-correctness]\n")
+	cfg := writeLayers(t, "", "schema_version: 8\nagents:\n  reviewer:\n    profiles: [cr-correctness]\n")
 
 	got, ok := cfg.Agent("reviewer")
 	require.True(t, ok)
@@ -59,7 +59,7 @@ func TestLoad_AgentWithProfilesButNoLLMIsAccepted(t *testing.T) {
 // alone is a complete engine binding (the context is then the project
 // default's), so it is not engineless either.
 func TestLoad_AgentWithLLMButNoProfilesIsAccepted(t *testing.T) {
-	cfg := writeLayers(t, "", "schema_version: 7\nllm:\n  configs:\n    fast: {type: claude-code}\nagents:\n  quick:\n    llm: fast\n")
+	cfg := writeLayers(t, "", "schema_version: 8\nllm:\n  configs:\n    fast: {type: claude-code}\nagents:\n  quick:\n    llm: fast\n")
 
 	got, ok := cfg.Agent("quick")
 	require.True(t, ok)
@@ -74,8 +74,8 @@ func TestLoad_HomeEnginelessAgentIsRefusedNamingHomePath(t *testing.T) {
 	home := testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	projectAppDir := seedLayers(t, fs, home,
-		"schema_version: 7\nagents:\n  help: {}\n",
-		"schema_version: 7\nagents:\n  dev:\n    profiles: [default]\n",
+		"schema_version: 8\nagents:\n  help: {}\n",
+		"schema_version: 8\nagents:\n  dev:\n    profiles: [default]\n",
 	)
 	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(projectAppDir))
 	require.NoError(t, err)
@@ -101,7 +101,7 @@ func TestManagerUpdate_ProjectWriteDoesNotFoldHomeAgentIntoProjectFile(t *testin
 	home := testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	homeAppDir := filepath.Join(home, config.AppDirName)
-	projectAppDir := seedLayers(t, fs, home, "schema_version: 7\nagents:\n  help: {}\n", "schema_version: 7\n")
+	projectAppDir := seedLayers(t, fs, home, "schema_version: 8\nagents:\n  help: {}\n", "schema_version: 8\n")
 
 	mgr := newUpdater(t, WithRoot(safefs.NewMem(fs)), WithAppDir(projectAppDir))
 	require.NoError(t, mgr.Update(func(d *config.Draft) error {
@@ -119,5 +119,5 @@ func TestManagerUpdate_ProjectWriteDoesNotFoldHomeAgentIntoProjectFile(t *testin
 
 	homeAfter, err := afero.ReadFile(fs, paths.ConfigPath(homeAppDir))
 	require.NoError(t, err)
-	assert.Equal(t, "schema_version: 7\nagents:\n  help: {}\n", string(homeAfter), "a project-layer write never touches the home file")
+	assert.Equal(t, "schema_version: 8\nagents:\n  help: {}\n", string(homeAfter), "a project-layer write never touches the home file")
 }

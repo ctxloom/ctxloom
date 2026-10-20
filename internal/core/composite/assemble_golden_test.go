@@ -100,7 +100,7 @@ commands:
         description: Release (disabled for claude)
 `
 
-const goldenConfig = `schema_version: 7
+const goldenConfig = `schema_version: 8
 agents:
   default:
     profiles: [golden-auto]

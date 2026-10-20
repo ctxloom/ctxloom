@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"slices"
@@ -21,7 +20,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
-	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
@@ -68,16 +66,10 @@ var (
 	runVerbosity     int
 	runSeedTask      string
 	runSeedStatus    string
-	// runResumeSession/runResumeCompact are the two deterministic-resume flags
-	//   --session <harp>            full resume: the harp's full recorded
-	//                                transcript is folded into THIS run's
-	//                                assembled context (resumeFullContext).
-	//   --session <harp> --compact  compacted resume: the harp's essence
-	//                                (compacting on demand if missing) rides
-	//                                the CTXLOOM_RESUMED_FROM/PARTS + SessionStart
-	//                                -hook essence path (resumeCompactEnv).
+	// runResumeSession is the deterministic-resume flag: --session <harp>
+	// folds the harp's full recorded transcript into THIS run's assembled
+	// context (resumeFullContext).
 	runResumeSession string
-	runResumeCompact bool
 )
 
 // dryRunJSON is the --format json shape for `run --dry-run`: the resolved
@@ -103,12 +95,6 @@ type dryRunJSON struct {
 	Profiles    []string         `json:"profiles"`
 	Fragments   []string         `json:"fragments"`
 	Context     string           `json:"context"`
-	// ResumedEssence is what a --session --compact launch delivers through
-	// its SessionStart hook rather than through Context: the harp's
-	// compacted essence (compactedResumePreview). ResumedEssenceNote says
-	// when the launch would compact first, so what is shown is not final.
-	ResumedEssence     string `json:"resumed_essence,omitempty"`
-	ResumedEssenceNote string `json:"resumed_essence_note,omitempty"`
 	// Delivery is the plan's static routes: each surface's root, the
 	// project-root and work-dir routes marked unsafe.
 	Delivery []routeJSON `json:"delivery"`
@@ -149,41 +135,6 @@ type axesJSON struct {
 	Runtime   string `json:"runtime"`
 }
 
-// execCommand is the seam tests override to avoid actually shelling
-// out. Production points it at exec.CommandContext
-var execCommand = exec.CommandContext
-
-// shellOutCompact is the ON-DEMAND compact implementation, reached from
-// resumeCompactEnv when `run --session <harp> --compact` needs an essence that
-// does not exist yet. It runs `ctxloom session compact <harp>` as a child
-// process so this file doesn't need to depend on the compactor or any LLM
-// machinery itself. Stdout/stderr are piped through to the user.
-//
-// Compaction is on-demand only: nothing compacts at exit, so a session stays
-// title-less until something explicitly asks for one.
-//
-// ctx bounds the child via exec.CommandContext: when ctx is cancelled the
-// stdlib kills the process.
-func shellOutCompact(ctx context.Context, harpName string) error {
-	// selfexec.Path survives an in-place upgrade that unlinks the executing
-	// inode; it is shared with the gRPC client, which cannot import cmd.
-	exe := selfexec.Path()
-	c := execCommand(ctx, exe, "session", "compact", harpName)
-	c.Stdout = os.Stderr
-	c.Stderr = os.Stderr
-	return c.Run()
-}
-
-// validateResumeFlags rejects --compact without --session up front (friction
-// like an unknown --llm/--permissions): --compact only modifies HOW --session
-// resumes, so it is meaningless on its own.
-func validateResumeFlags(session string, compact bool) error {
-	if compact && session == "" {
-		return fmt.Errorf("--compact requires --session <session-name>")
-	}
-	return nil
-}
-
 // resumeFullContext is the full-resume mode's context source: it folds the
 // resumed harp's full recorded transcript into the assembled context BEFORE
 // it is split into fragments, via the SAME primitives the ACP resume path
@@ -203,79 +154,6 @@ func resumeFullContext(existing, harp string, entriesFn func(string) ([]agent.Se
 		return existing
 	}
 	return textblocks.Join(existing, operations.RenderResumedTranscript(harp, entries))
-}
-
-// resumeCompactEnv is the compacted-resume mode's env source: the
-// CTXLOOM_RESUMED_FROM/CTXLOOM_RESUMED_PARTS pair that the session-start
-// hook's resumedEssenceForInjection and the MCP session instructions
-// (operations.sessionLine) consume. PARTS is "session" so
-// resumePartsIncludeSession's essence gate opens; a compacted resume restores
-// no tasks.
-//
-// essenceFn/staleFn/compactFn are injected (production: operations.
-// ReadHarpEssence/resumeEssenceStale/shellOutCompact — the `session compact`
-// compactor path, session_cmd.go's runSessionCompact/operations.CompactEntry/
-// memory.NewCompactor) so compact-on-demand is unit-testable without
-// shelling out. A compact failure warns rather than blocking launch; the
-// session-start hook then simply finds no essence and delivers none.
-//
-// It compacts when the essence is MISSING or STALE: a harp /clear'd since its
-// last compact still has SOME essence, and resuming from it would silently
-// resume from a frozen prefix. staleFn decides staleness; a nil staleFn means
-// "never stale".
-func resumeCompactEnv(harp string, essenceFn func(string) ([]byte, error), staleFn func(string) bool, compactFn func(context.Context, string) error) map[string]string {
-	_, err := essenceFn(harp)
-	missing := err != nil
-	stale := !missing && staleFn != nil && staleFn(harp)
-	if missing || stale {
-		// Unbounded context.Background(): this runs before the session's
-		// terminal is handed to the user, so there is no shell to unblock yet.
-		if dErr := compactFn(context.Background(), harp); dErr != nil {
-			clidiag.Warn("ctxloom", "could not compact %s for resume summary: %v", harp, dErr)
-		}
-	}
-	return map[string]string{
-		"CTXLOOM_RESUMED_FROM":  harp,
-		"CTXLOOM_RESUMED_PARTS": resumedPartsSession,
-	}
-}
-
-// resumedPartsSession is the CTXLOOM_RESUMED_PARTS value a compacted resume
-// sets, and the one resumePartsIncludeSession opens the essence gate on.
-const resumedPartsSession = "session"
-
-// compactedResumePreview is what a --compact --dry-run shows of the resume:
-// the essence the launch's SessionStart hook would inject
-// (resumedEssenceForInjection, over the env resumeCompactEnv sets), plus a
-// caveat when the launch would replace it first.
-//
-// It is READ-ONLY, and that is the difference from a real launch: a launch
-// compacts a missing or stale essence on demand (resumeCompactEnv) before the
-// engine starts, which writes the essence and the session index. A preview
-// writes nothing, so it names what the launch would do instead of doing it.
-func compactedResumePreview(harp string, staleFn func(string) bool) (essence, note string) {
-	essence = resumedEssenceForInjection("startup", harp, resumedPartsSession)
-	switch {
-	case essence == "":
-		note = fmt.Sprintf("%s is not compacted yet; the launch compacts it on demand before the session starts", harp)
-	case staleFn(harp):
-		note = fmt.Sprintf("%s's summary is stale; the launch re-compacts it before the session starts, so the session will see a newer one than this", harp)
-	}
-	return essence, note
-}
-
-// resumeEssenceStale is resumeCompactEnv's production staleFn: whether harp's
-// essence is out of date relative to its source transcript, via the same
-// predicate `session list --compact`'s sweep gates on (Entry.SourceStale()).
-// An unresolvable harp is not reported stale — resumeCompactEnv's own
-// essence-missing check already covers "nothing to compare against".
-func resumeEssenceStale(harp string) bool {
-	entry, err := operations.GetSession(harp)
-	if err != nil || entry == nil {
-		return false
-	}
-	stale, known := entry.SourceStale()
-	return known && stale
 }
 
 // seedTaskIntoSession marks the task with harpID In Progress (or the given
@@ -341,8 +219,6 @@ Verbosity levels (-v can be repeated):
 
 Use --session <name> to resume a prior session by the name 'ctxloom session list' shows:
 its full recorded transcript is folded into this run's assembled context.
-Add --compact to resume via the session's compacted summary instead
-(compacting on demand first if one doesn't exist yet).
 
 Exit status: when the engine ran and exited, ctxloom run exits with the
 engine's own status — its exit code, or 128+signum when a signal ended it
@@ -356,8 +232,7 @@ CREDENTIAL REFUSED notice) also exits 2, whatever the engine's own status.`,
   ctxloom run -p reviewer -f extra-rules "review this PR"
   ctxloom run -t security "check for vulnerabilities"
   ctxloom run -vv -p developer "debug mode"
-  ctxloom run --session swift-amber-falcon
-  ctxloom run --session swift-amber-falcon --compact`,
+  ctxloom run --session swift-amber-falcon`,
 	RunE: runRun,
 }
 
@@ -738,11 +613,10 @@ func (st *runState) mayDelegate() []string {
 	return binding.MayDelegate
 }
 
-// resumedTranscript is the --session (full resume — no --compact) lead: the
-// resumed harp's full recorded transcript trails the assembled context as
-// its own block. --compact takes the essence path instead (resumeEnv).
+// resumedTranscript is the --session (full resume) lead: the resumed harp's
+// full recorded transcript trails the assembled context as its own block.
 func (st *runState) resumedTranscript() []composite.Fragment {
-	if runResumeSession == "" || runResumeCompact {
+	if runResumeSession == "" {
 		return nil
 	}
 	rendered := resumeFullContext("", runResumeSession, operations.RecordedSessionEntries)
@@ -778,10 +652,7 @@ func (st *runState) warnPosture() {
 // sourced postures, and a mode the resolved engine in particular does not
 // take, are the engine's to refuse when the launch resolves.
 func (st *runState) validateFlags() error {
-	if err := validatePermissionFlag(operations.PostureNames(App().Engines()), runPermissions); err != nil {
-		return err
-	}
-	return validateResumeFlags(runResumeSession, runResumeCompact)
+	return validatePermissionFlag(operations.PostureNames(App().Engines()), runPermissions)
 }
 
 // validatePermissionFlag refuses a typed --permissions value that is not a
@@ -1010,7 +881,7 @@ func (st *runState) emitDryRun() error {
 	// resume trails the assembled context exactly as the lead the launch
 	// composes (resumedTranscript).
 	context := pkg.Context.Text
-	if runResumeSession != "" && !runResumeCompact {
+	if runResumeSession != "" {
 		context = resumeFullContext(context, runResumeSession, operations.RecordedSessionEntries)
 	}
 	payload := dryRunJSON{
@@ -1028,9 +899,6 @@ func (st *runState) emitDryRun() error {
 		EngineHome:  engineHomeRoute(l.Cell.HomeMode),
 		Tokens:      tokens.Estimate(context),
 		Prompt:      st.prompt,
-	}
-	if runResumeSession != "" && runResumeCompact {
-		payload.ResumedEssence, payload.ResumedEssenceNote = compactedResumePreview(runResumeSession, resumeEssenceStale)
 	}
 	payload.Findings = findingsOf(st.gates.mode, st.gates.pending())
 	if err := st.printDryRun(l, payload); err != nil {
@@ -1064,9 +932,6 @@ func (st *runState) printDryRun(l launch.Launch, payload dryRunJSON) error {
 			fmt.Println(context)
 		} else {
 			fmt.Println("(no context)")
-		}
-		if runResumeSession != "" && runResumeCompact {
-			printResumedEssence(payload)
 		}
 		fmt.Println("\n=== Prompt ===")
 		if st.prompt != "" {
@@ -1122,52 +987,22 @@ func printListOr(items []string, none string) {
 	}
 }
 
-// printResumedEssence prints the compacted resume's essence and its note.
-func printResumedEssence(payload dryRunJSON) {
-	fmt.Printf("\n=== Resumed Summary (%s, delivered at session start) ===\n", runResumeSession)
-	if payload.ResumedEssence != "" {
-		fmt.Println(payload.ResumedEssence)
-	}
-	if payload.ResumedEssenceNote != "" {
-		fmt.Println("(" + payload.ResumedEssenceNote + ")")
-	}
-}
-
-// resumeEnv is the CTXLOOM_RESUMED_FROM/PARTS pair for whichever --session
-// mode this run is in.
-//
-// --session --compact: compacted resume via the harp's essence (compacting on
-// demand first if missing) — see resumeCompactEnv's doc for the full
-// mechanism. Full resume (--session without --compact) carries its transcript
-// as a trailing context block (resumedTranscript); it still sets CTXLOOM_RESUMED_FROM/
-// PARTS="transcript" so the session instructions surface the "resumed from"
-// note, with a PARTS value the session-start hook's essence delivery ignores
-// (the content already rode the fragment path — no double-injection).
+// resumeEnv is the CTXLOOM_RESUMED_FROM/PARTS pair for a --session run. The
+// transcript itself rides the assembled context (resumedTranscript); the
+// pair only lets the session instructions say "resumed from".
 func (st *runState) resumeEnv() map[string]string {
-	switch {
-	case runResumeSession != "" && runResumeCompact:
-		fmt.Fprintf(os.Stderr, "ctxloom: resuming compacted summary from %s\n", runResumeSession)
-		return resumeCompactEnv(runResumeSession, operations.ReadHarpEssence, resumeEssenceStale, shellOutCompact)
-	case runResumeSession != "":
-		fmt.Fprintf(os.Stderr, "ctxloom: resuming full transcript from %s\n", runResumeSession)
-		return map[string]string{"CTXLOOM_RESUMED_FROM": runResumeSession, "CTXLOOM_RESUMED_PARTS": "transcript"}
+	if runResumeSession == "" {
+		return nil
 	}
-	return nil
+	fmt.Fprintf(os.Stderr, "ctxloom: resuming full transcript from %s\n", runResumeSession)
+	return map[string]string{"CTXLOOM_RESUMED_FROM": runResumeSession, "CTXLOOM_RESUMED_PARTS": "transcript"}
 }
 
 // openSessionBanner prints the start-session display — a read-only summary
 // of this session, BEFORE the engine spawns — and sets the terminal window
 // title to the harp. It returns the terminal-title restore for runRun to
 // defer — the OSC2 push/pop pair has to unwind on runRun's frame.
-//
-// previous is resolved via the SAME primitive the get_previous_session MCP
-// tool reads — never re-derived — and is purely informational: bringing it
-// back is the resume skill's job, not something this banner offers to do.
 func (st *runState) openSessionBanner() func() {
-	previous, prevErr := operations.ResolvePreviousSession(st.workDir, st.activeHarp)
-	if prevErr != nil {
-		clidiag.Warn("ctxloom", "previous-session lookup failed: %v", prevErr)
-	}
 	PrintStartSessionBanner(os.Stderr, StartSessionInfo{
 		Harp:      st.activeHarp,
 		Backend:   st.backendName,
@@ -1176,7 +1011,6 @@ func (st *runState) openSessionBanner() func() {
 		Fragments: st.opened.Package.Loaded,
 		Tokens:    tokens.Estimate(st.opened.Package.Context.Text),
 		Unsafe:    unsafeLabels(st.launch),
-		Previous:  previous,
 	})
 
 	// Set the terminal window title to the harp name via the OSC2 escape
@@ -1626,9 +1460,10 @@ func recordOneshotAnswer(harp, backend, prompt, answer string) error {
 //
 // It must not go through operations.ConvertVendorTranscript, whose presence
 // guard makes it a PERMANENT NO-OP once any canonical transcript exists for
-// the harp. A session where the user ran /recover mid-flight materializes
-// exactly such a canonical file, so the exit capture would be skipped and
-// everything after that /recover would be invisible to every later compact.
+// the harp. Any earlier refresh (a `session watch`, a turn-change heal)
+// materializes exactly such a canonical file, so the exit capture would be
+// skipped and everything recorded after it would be invisible to every later
+// reader.
 // ResolveAndHeal refreshes once, unconditionally — a canonical file existing
 // here is not evidence it is complete.
 func convertVendorTranscriptOnExit(harp string) {
@@ -1732,12 +1567,9 @@ func init() {
 	runCmd.Flags().BoolVar(&runNoStartupFindings, "no-startup-findings", false, "Do not deliver this launch's startup findings (what doctor reports about this run's config, companions and local state, and anything a --degraded launch proceeded past) into the agent's context")
 	runCmd.Flags().CountVarP(&runVerbosity, "verbose", "v", "Increase verbosity (can be repeated: -v, -vv, -vvv)")
 
-	// Deterministic resume (two modes; see resumeFullContext/resumeCompactEnv):
-	// bare --session folds the harp's full recorded transcript into this run's
-	// assembled context; --session --compact resumes via its compacted essence
-	// instead, compacting on demand first if one doesn't exist yet.
-	runCmd.Flags().StringVar(&runResumeSession, "session", "", "Resume the named session (see `ctxloom session list`): folds its full recorded transcript into this run's assembled context. Combine with --compact to resume via its compacted summary instead.")
-	runCmd.Flags().BoolVar(&runResumeCompact, "compact", false, "With --session, resume via the session's compacted summary instead of its full transcript (compacts on demand first if not yet compacted)")
+	// Deterministic resume (see resumeFullContext): --session folds the
+	// harp's full recorded transcript into this run's assembled context.
+	runCmd.Flags().StringVar(&runResumeSession, "session", "", "Resume the named session (see `ctxloom session list`): folds its full recorded transcript into this run's assembled context.")
 
 	// Internal: used by `ctxloom tasks run` to seed one browsed task into the
 	// new session's store. Hidden — not part of the public run surface.

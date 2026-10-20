@@ -97,3 +97,32 @@ func TestDoctorCmd_EveryRegisteredHookSubcommandIsLive(t *testing.T) {
 	check := doctorCheckNamed(t, out, "DOCTOR-CHECK-STALE-HOOKS-n5")
 	assert.Equal(t, operations.DoctorOK, check.Status, check.Detail)
 }
+
+// A tracked settings file on a machine with no claims record keeps the
+// `hook next-step` callback an older ctxloom delivered (delivery withdraws
+// only what its record names, or a superseded spelling of what it installs
+// now). The verb is gone from this binary, so doctor reports the entry —
+// in the exec form ctxloom writes — and `--fix` takes it out.
+func TestDoctorCmd_RetiredNextStepCallbackIsStale(t *testing.T) {
+	root, _ := setupProject(t, "claude-code")
+	settings := filepath.Join(root, ".claude", "settings.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(settings), 0o755))
+	require.NoError(t, os.WriteFile(settings, []byte(`{"hooks": {"Stop": [{"hooks": [
+  {"type": "command", "command": "ctxloom", "args": ["hook", "next-step", "--engine", "claude-code"], "timeout": 5},
+  {"type": "command", "command": "ctxloom", "args": ["hook", "mail-drain", "--engine", "claude-code"], "timeout": 5}
+]}]}}`), 0o644))
+
+	out, err := runDoctor(t, root, "--format", "json")
+	require.NoError(t, err)
+	check := doctorCheckNamed(t, out, "DOCTOR-CHECK-STALE-HOOKS-n5")
+	assert.Equal(t, operations.DoctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "next-step")
+	assert.NotContains(t, check.Detail, "mail-drain", "a live verb is not reported")
+
+	_, err = runDoctor(t, root, "--format", "json", "--fix")
+	require.NoError(t, err)
+	got, err := os.ReadFile(settings)
+	require.NoError(t, err)
+	assert.NotContains(t, string(got), "next-step", "the fix takes the retired callback out")
+	assert.Contains(t, string(got), "mail-drain", "and leaves the live one")
+}

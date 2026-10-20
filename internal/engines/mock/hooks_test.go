@@ -212,7 +212,7 @@ func TestMock_AHookNarrowedToAToolClass_FiresOnlyForThatTool(t *testing.T) {
 // a mock double names that double as the engine firing it — the double's own
 // name, never the base mock's — so the verb decodes through its codec.
 func TestMock_ADeliveredCallbackNamesTheDouble(t *testing.T) {
-	_, _, ex := deliverHookedAt(t, func(u *wire.UnifiedHooks, h wire.Hook) { u.TurnEnd = []wire.Hook{h} }, agent.NewNextStepHook())
+	_, _, ex := deliverHookedAt(t, func(u *wire.UnifiedHooks, h wire.Hook) { u.TurnEnd = []wire.Hook{h} }, agent.NewSkillMatesHook())
 	file := ""
 	for i, a := range ex.Args {
 		if a == mock.HooksFlag && i+1 < len(ex.Args) {
@@ -222,7 +222,7 @@ func TestMock_ADeliveredCallbackNamesTheDouble(t *testing.T) {
 	hooks, err := mock.DeliveredHooksFile(file)
 	require.NoError(t, err)
 	require.Len(t, hooks.TurnEnd, 1)
-	require.Equal(t, []string{"hook", "next-step", agent.HookEngineFlag, string(mock.Name)}, hooks.TurnEnd[0].Args)
+	require.Equal(t, []string{"hook", "skill-mates", agent.HookEngineFlag, string(mock.Name)}, hooks.TurnEnd[0].Args)
 }
 
 // TestMock_HooksCodec_RoundTripsItsOwnWire: the mock's codec decodes the

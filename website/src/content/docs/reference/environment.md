@@ -74,7 +74,7 @@ The credential is the token, read on the host exactly as under [Engine Authentic
 
 | Variable | Description |
 |----------|-------------|
-| `CTXLOOM_OUTPUT_DIR` | Set by ctxloom, not read from your shell: `/ctxloom/out`, where the container reaches the session's output dir (essence, plans, reports), since the host path recorded in `session.yaml` is not mounted |
+| `CTXLOOM_OUTPUT_DIR` | Set by ctxloom, not read from your shell: `/ctxloom/out`, where the container reaches the session's output dir (plans, reports), since the host path recorded in `session.yaml` is not mounted |
 | `TERM`, `COLORTERM` | Forwarded so the engine renders with the host terminal's actual capabilities instead of the image default (or `dumb`, which drops color and cursor control) |
 | `PUID`, `PGID` | *Not* read from your environment. The isolation runtime sets them and passes them into the container: your own uid/gid on Linux and macOS, and on Windows (which has no POSIX uid) the image's own `ctxloom` user. The image's entrypoint remaps its baked-in `ctxloom` user to them and drops privileges before the engine starts, so files the engine writes into the bind-mounted project are owned by you, not by root. If the remap can't be performed (no usable `gosu`/`setpriv` in the image) the entrypoint refuses to run the engine as root and the launch fails; `--degraded` does not change that. Rootless Docker never sets these, because container-root there already is the launching user |
 

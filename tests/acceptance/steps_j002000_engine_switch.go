@@ -252,7 +252,7 @@ func registerJ002000Steps(ctx *godog.ScenarioContext) {
 	// reaps an entry it warns "session <harp> dropped from the index" on
 	// stderr, so the message announcing that the history was DELETED contained
 	// the very string the assertion looked for. Measured: inverting
-	// operations.isUnrecoverable so a compacted entry is reaped left this
+	// operations.isUnrecoverable so a recorded entry is reaped left this
 	// scenario green while `session list --all` listed nothing at all.
 	ctx.Step(`^the sessions recorded under the old engine are still listed after the switch$`, func(c context.Context) error {
 		w := worldFrom(c)
@@ -283,7 +283,7 @@ func registerJ002000Steps(ctx *godog.ScenarioContext) {
 		// recorded by a DIFFERENT engine than the one now bound, which is
 		// exactly the state a migration leaves behind.
 		transcriptPath := filepath.Join(w.env.HomeDir, filepath.FromSlash(j001200HarpHome(j001200Harp)+"/transcripts/transcript.jsonl"))
-		if err := j001200AddIndexEntry(w, j001200Harp, "pre-switch session", transcriptPath); err != nil {
+		if err := j001200AddIndexEntry(w, j001200Harp, transcriptPath); err != nil {
 			return err
 		}
 		return j001200WriteCanonicalTranscript(w, j001200Harp, []string{

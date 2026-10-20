@@ -59,7 +59,4 @@ func TestOneShot_StartRefusesAnIncompleteLaunch(t *testing.T) {
 
 	_, err = OneShot(LaunchFacts{Engines: engines.Registry()}, nil, cfg).WorkDir(t.TempDir()).Start(ctx)
 	require.ErrorIs(t, err, ErrLaunchFactsNoSessionClaims)
-
-	_, err = OneShot(LaunchFacts{Engines: engines.Registry()}, nil, cfg).WorkDir(t.TempDir()).Lazy().Turn(ctx, "hi")
-	require.ErrorIs(t, err, ErrLaunchFactsNoSessionClaims, "Lazy defers Start's refusals to the first turn")
 }

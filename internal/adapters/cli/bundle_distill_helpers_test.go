@@ -286,7 +286,7 @@ func TestLoadDistillPrompt_AlwaysYieldsAUsablePrompt(t *testing.T) {
 	require.NotEmpty(t, defaultDistillPrompt, "the embedded fallback is the whole reason absence needs no error")
 
 	t.Run("no distill command anywhere falls back to the embedded default", func(t *testing.T) {
-		agentProject(t, "schema_version: 7\n")
+		agentProject(t, "schema_version: 8\n")
 		cfg, err := GetConfig()
 		require.NoError(t, err)
 
@@ -297,7 +297,7 @@ func TestLoadDistillPrompt_AlwaysYieldsAUsablePrompt(t *testing.T) {
 	})
 
 	t.Run("a bundle-provided distill command wins", func(t *testing.T) {
-		agentProject(t, "schema_version: 7\n")
+		agentProject(t, "schema_version: 8\n")
 		cfg, err := GetConfig()
 		require.NoError(t, err)
 		cfg = seedDistillCommand(t, cfg)
@@ -320,7 +320,7 @@ func TestLoadDistillPrompt_AlwaysYieldsAUsablePrompt(t *testing.T) {
 // linked item — and the command is linked through its bundle's tags. The
 // sentinel and the refusal it maps to are the same either way.
 func TestLoadDistillPrompt_WithheldConfiguredPromptRefusesWithExit2(t *testing.T) {
-	agentProject(t, "schema_version: 7\n")
+	agentProject(t, "schema_version: 8\n")
 	cfg, err := GetConfig()
 	require.NoError(t, err)
 	cfg = seedDistillCommand(t, cfg)
@@ -413,7 +413,7 @@ func isolatedHome(t *testing.T) {
 // distillProjectYAML is a project whose fast role resolves, so a distiller is
 // actually constructed — without a resolvable label newLLMDistiller
 // returns early and the prompt is never resolved at all.
-const distillProjectYAML = "schema_version: 7\nllm:\n  configs:\n    fast: { type: claude-code, model: haiku }\n  defaults:\n    fast: fast\n"
+const distillProjectYAML = "schema_version: 8\nllm:\n  configs:\n    fast: { type: claude-code, model: haiku }\n  defaults:\n    fast: fast\n"
 
 // TestBundleDistill_ConfiguredPromptIsUsed: a project with a deliverable
 // `distill` command must not be refused, and the constructed distiller must

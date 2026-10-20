@@ -1,14 +1,12 @@
 package sessions
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -42,27 +40,6 @@ func TestOutputDir_ASessionThatRecordedNoneIsTheSentinel(t *testing.T) {
 	require.NoError(t, err)
 	_, err = OutputDir(e.HarpName)
 	assert.ErrorIs(t, err, ErrNoOutputDir)
-}
-
-// Compacted asks the recorded output dir, never the session dir.
-func TestCompacted_IsAnEssenceInTheRecordedOutputDir(t *testing.T) {
-	testsupport.Isolate(t)
-	m, err := Open(nil)
-	require.NoError(t, err)
-	e, err := m.AssignHarp("/src/widget", "claude-code")
-	require.NoError(t, err)
-	dir, err := paths.HarpDir(e.HarpName)
-	require.NoError(t, err)
-	assert.False(t, Compacted(dir), "no output dir recorded: nowhere an essence could be")
-
-	out, err := m.RecordOutputDir(e.HarpName, t.TempDir())
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.EssenceFileName), []byte("# stray\n"), 0o644))
-	assert.False(t, Compacted(dir), "an essence in the session dir is not the session's essence")
-
-	require.NoError(t, os.MkdirAll(out, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(out, paths.EssenceFileName), []byte("# e\n"), 0o644))
-	assert.True(t, Compacted(dir))
 }
 
 func TestMemStoreRecordOutputDir_MatchesTheManager(t *testing.T) {

@@ -7,9 +7,9 @@ import (
 )
 
 // ParseVerdicts parses the model's batch-triage response into verdicts.
-// There is no schema-constrained output anywhere in this codebase (see
-// parseLLMFrontmatter in internal/adapters/memory/compactor.go for the established
-// prompt-in/text-out precedent) — the model is ASKED for strict JSON, but the
+// There is no schema-constrained output anywhere in this codebase (every
+// internal one-shot is prompt-in/text-out, through llmturn.RunPrompt) — the
+// model is ASKED for strict JSON, but the
 // response may still carry a markdown code fence or a leading sentence of
 // prose, so both are stripped defensively before unmarshaling.
 //

@@ -10,9 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -21,8 +19,7 @@ import (
 // canonical capture is the only transcript. These tests pin what every reader
 // does for a harp that has NO canonical capture — bound only by an engine
 // session id, or only by a located vendor transcript path — for each shipped
-// engine: resume and compact refuse, scrollback degrades to live-only, and a
-// source resolves sessions only from canonical capture.
+// engine: resume refuses and scrollback degrades to live-only.
 var shippedEngines = []string{"claude-code", "mock"}
 
 // boundWithoutCapture mints a harp for eng bound to an engine session id (and
@@ -78,14 +75,6 @@ func TestRecordedSessionEntries_UnreadableCanonicalCaptureRefuses(t *testing.T) 
 	}
 }
 
-func TestCompactable_VendorPathWithoutCanonicalCaptureRefuses(t *testing.T) {
-	testsupport.Isolate(t)
-	require.Error(t, compactable(&sessions.Entry{
-		HarpName:       "vexed-scary-gab",
-		TranscriptPath: "/nonexistent/vendor/transcript.jsonl",
-	}))
-}
-
 func TestFeedScrollback_WithoutCanonicalCaptureIsLiveOnly(t *testing.T) {
 	for _, eng := range shippedEngines {
 		for name, entry := range map[string]*sessions.Entry{
@@ -110,34 +99,6 @@ func TestWatchStoreFeed_WithoutCanonicalCaptureRefuses(t *testing.T) {
 			feed, err := watchStoreFeed(context.Background(), entry)
 			require.Error(t, err)
 			assert.Nil(t, feed)
-		})
-	}
-}
-
-func TestSessionSources_ServeOnlyCanonicalCapture(t *testing.T) {
-	for _, eng := range shippedEngines {
-		t.Run(eng, func(t *testing.T) {
-			home := testsupport.Isolate(t)
-			ctx := context.Background()
-
-			resolved, _, err := ResolveSessionSource(engines.Registry(), &config.Config{}, eng, home)
-			require.NoError(t, err)
-			compact, err := CompactionSource(home)
-			require.NoError(t, err)
-
-			for name, src := range map[string]interface {
-				GetSession(context.Context, string) (*agent.Session, error)
-				CurrentSession(context.Context) (*agent.Session, error)
-			}{"resolved": resolved, "compact": compact} {
-				_, err := src.GetSession(ctx, "engine-native-id")
-				assert.Error(t, err, "%s: an uncaptured session is not found", name)
-				cur, err := src.CurrentSession(ctx)
-				assert.NoError(t, err, name)
-				assert.Nil(t, cur, "%s: a project with no capture has no current session", name)
-			}
-			metas, err := resolved.ListSessions(ctx)
-			require.NoError(t, err)
-			assert.Empty(t, metas)
 		})
 	}
 }

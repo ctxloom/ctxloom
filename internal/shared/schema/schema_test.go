@@ -27,7 +27,7 @@ func TestConfigValidator_ValidateBytes(t *testing.T) {
 
 	t.Run("valid config", func(t *testing.T) {
 		yaml := `
-schema_version: 7
+schema_version: 8
 llm:
   configs:
     big: { type: claude-code, model: opus }
@@ -41,7 +41,7 @@ agents:
     profiles: [proj/dev]
 config:
   use_distilled: true
-  essence_max_chars: 8000
+  silence_unsupported: true
 `
 		err := v.ValidateBytes([]byte(yaml))
 		assert.NoError(t, err)
@@ -57,7 +57,7 @@ config:
 	// as free-form: config must not be able to name an engine no build of
 	// ctxloom can run.
 	t.Run("unregistered backend type codex is refused", func(t *testing.T) {
-		err := v.ValidateBytes([]byte("schema_version: 7\nllm:\n  configs:\n    big: { type: codex }\n"))
+		err := v.ValidateBytes([]byte("schema_version: 8\nllm:\n  configs:\n    big: { type: codex }\n"))
 		assert.Error(t, err)
 	})
 
@@ -69,7 +69,7 @@ config:
 	// header_timeout_ms 0 is legal: it disables the timeout.
 	t.Run("opencode label", func(t *testing.T) {
 		label := func(body string) []byte {
-			return []byte("schema_version: 7\nllm:\n  configs:\n    qwen:\n      type: opencode\n" + body)
+			return []byte("schema_version: 8\nllm:\n  configs:\n    qwen:\n      type: opencode\n" + body)
 		}
 		const full = "      model: qwen3.8-27b\n      context_window: 131072\n      provider: { base_url: http://192.168.1.20:8081/v1, output_limit: 8192, header_timeout_ms: 0, chunk_timeout_ms: 300000 }\n      model_options: { chat_template_kwargs: { enable_thinking: false }, temperature: 0.7 }\n      snapshot: false\n      title_generation: false\n      share: disabled\n      permissions: { approver: none, mode: build }\n"
 		require.NoError(t, v.ValidateBytes(label(full)))
@@ -90,7 +90,7 @@ config:
 		} {
 			raw := label(body)
 			if name == "no type" {
-				raw = []byte("schema_version: 7\nllm:\n  configs:\n    qwen:\n" + body)
+				raw = []byte("schema_version: 8\nllm:\n  configs:\n    qwen:\n" + body)
 			}
 			assert.Error(t, v.ValidateBytes(raw), name)
 		}
@@ -123,7 +123,7 @@ func TestConfigValidator_RejectsTypoedHookKey(t *testing.T) {
 	require.NoError(t, err)
 
 	yaml := `
-schema_version: 7
+schema_version: 8
 hooks:
   unified:
     session_start:

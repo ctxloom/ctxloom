@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 )
 
 // The read-only start-session banner `ctxloom run` prints between minting a
@@ -14,13 +12,10 @@ import (
 // shows is session-index data.
 
 // StartSessionInfo is the read-only pre-spawn summary `ctxloom run` prints
-// just before launching the engine: this session's harp,
-// an assembled-context summary, and a pointer to the previous session for
-// this project. Every field is something the caller already computed for
-// THIS launch (context assembly, harp assignment) or resolved via the SAME
-// primitive the get_previous_session MCP tool reads
-// (operations.ResolvePreviousSession, internal/adapters/operations/sessions.go) — the
-// banner never re-derives a summary of its own.
+// just before launching the engine: this session's harp and an
+// assembled-context summary. Every field is something the caller already
+// computed for THIS launch (context assembly, harp assignment) — the banner
+// never re-derives a summary of its own.
 type StartSessionInfo struct {
 	Harp      string
 	Backend   string
@@ -33,12 +28,6 @@ type StartSessionInfo struct {
 	// the real engine home ("engine-home → host") — each the binding's own
 	// selection, never a default. Empty when the run stays in its session.
 	Unsafe []string
-	// Previous is the project's prior session, or nil when there is none
-	// (first run in this project). Informational only — startup no longer
-	// offers to resume it; the in-engine "resume" skill
-	// (recover_session/load_session/get_previous_session) is how a user
-	// actually pulls it back, from inside the session that just started.
-	Previous *operations.PreviousSessionRef
 }
 
 // PrintStartSessionBanner renders info to w as the read-only start-session
@@ -70,8 +59,5 @@ func PrintStartSessionBanner(w io.Writer, info StartSessionInfo) {
 	}
 	if len(info.Unsafe) > 0 {
 		fmt.Fprintf(w, "  unsafe: %s — selected on the binding, never a default; the run writes outside its session home\n", strings.Join(info.Unsafe, ", "))
-	}
-	if info.Previous != nil && info.Previous.Harp != "" {
-		fmt.Fprintf(w, "  previous session: %s — bring it back in-session with the \"resume\" skill\n", info.Previous.Harp)
 	}
 }

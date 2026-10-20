@@ -351,13 +351,12 @@ var envLiteralsOnceAllowed = map[string]string{
 	"internal/adapters/configload/appdir.go":    "slice 7: launch.HostFacts carries home, cwd and the temp root from cmd/*; the reader's directory discovery then takes them as values",
 
 	// the CLI: HostFacts are computed once by the composition root
-	"internal/adapters/cli/bundle_items.go":    "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
-	"internal/adapters/cli/clean_cmd.go":       "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
-	"internal/adapters/cli/doctor_cmd.go":      "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*; until then the CLI reads the home it hands operations.Doctor (DoctorRequest.Home)",
-	"internal/adapters/cli/init.go":            "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
-	"internal/adapters/cli/session_cmd.go":     "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
-	"internal/adapters/cli/session_compact.go": "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
-	"internal/adapters/cli/session_query.go":   "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
+	"internal/adapters/cli/bundle_items.go":  "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
+	"internal/adapters/cli/clean_cmd.go":     "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
+	"internal/adapters/cli/doctor_cmd.go":    "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*; until then the CLI reads the home it hands operations.Doctor (DoctorRequest.Home)",
+	"internal/adapters/cli/init.go":          "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
+	"internal/adapters/cli/session_cmd.go":   "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
+	"internal/adapters/cli/session_query.go": "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
 
 	// the engines: Home() is a HomeSpec the runner realises
 	"internal/engines/claude/claude.go":                          "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",

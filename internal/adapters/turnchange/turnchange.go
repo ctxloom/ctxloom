@@ -1,8 +1,8 @@
 // Package turnchange answers questions about the TURN NOW ENDING, off the
 // engine's own transcript. Its principal question is the close-out one: did
 // this turn perform a change-making action? Nothing fires that check
-// automatically today. LastAssistantText answers the other one — what did the turn
-// SAY — for the TurnEnd next-step capture.
+// automatically today. ReadTranscript also serves the skill-mates hook, which
+// reads what the session has invoked.
 //
 // The question it replaces is "is the working tree dirty". That proxy is
 // wrong for the session shape that most needs a close-out checklist: a
@@ -476,28 +476,4 @@ func ClassifyTranscript(ctx context.Context, fsys afero.Fs, adapter vendorreader
 		return Decision{Changed: true, Reason: "transcript could not be read: " + err.Error()}, err
 	}
 	return ClassifyEvents(evs), nil
-}
-
-// LastAssistantText returns the text of the LAST main-thread assistant message
-// in the turn now ending, or "" when the turn produced none.
-//
-// Scoped to CurrentTurn, so a turn that says nothing yields nothing rather
-// than an answer recovered from an earlier turn — the caller overwrites
-// per-turn storage with this, and a stale message re-presented as the current
-// one is worse than no message at all.
-//
-// Sidechain entries are excluded: a subagent's closing words are its report to
-// this agent, not this agent's statement of what IT intends to do next.
-func LastAssistantText(evs []agent.ChatEvent) string {
-	turn := CurrentTurn(evs)
-	for i := len(turn) - 1; i >= 0; i-- {
-		e := turn[i].Entry
-		if e == nil || e.Type != agent.EntryTypeAssistant || e.Sidechain {
-			continue
-		}
-		if text := strings.TrimSpace(e.Content); text != "" {
-			return text
-		}
-	}
-	return ""
 }

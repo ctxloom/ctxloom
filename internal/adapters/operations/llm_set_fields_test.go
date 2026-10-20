@@ -17,7 +17,7 @@ import (
 
 // TestSetLLM_ASingleSetLands: one assignment is applied and persisted.
 func TestSetLLM_ASingleSetLands(t *testing.T) {
-	_, appDir := loadConfigDir(t, "schema_version: 7\n")
+	_, appDir := loadConfigDir(t, "schema_version: 8\n")
 	mgr := managerFor(t, appDir)
 
 	_, err := SetLLM(context.Background(), mgr, SetLLMRequest{Label: "big", Type: ptr("mock"), Set: []string{"permissions.approver=none"}})
@@ -41,7 +41,7 @@ func TestSetLLM_ASetTheNextLoadWouldRefuseWritesNothing(t *testing.T) {
 		"an assignment with no key":           "=1",
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, appDir := loadConfigDir(t, "schema_version: 7\n")
+			_, appDir := loadConfigDir(t, "schema_version: 8\n")
 			mgr := managerFor(t, appDir)
 
 			_, err := SetLLM(context.Background(), mgr, SetLLMRequest{Label: "big", Type: ptr("mock"), Set: []string{set}})

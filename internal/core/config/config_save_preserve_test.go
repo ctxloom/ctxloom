@@ -29,7 +29,7 @@ func TestConfig_Save_PreservesCommentsAndKeyOrder(t *testing.T) {
 	// comments. The file's leading comment hangs on its first key, so a save
 	// that dropped and re-appended that key would take the comment with it.
 	seed := "# ctxloom project config — hand edited, do not clobber\n" +
-		"schema_version: 7\n" +
+		"schema_version: 8\n" +
 		"editor:\n" +
 		"  command: vim # my preferred editor\n" +
 		"custom_unknown: keepme # an app ctxloom does not model\n" +
@@ -65,7 +65,7 @@ func TestConfig_Save_PreservesCommentsAndKeyOrder(t *testing.T) {
 
 	// The unrelated change landed and the generation stayed where it was.
 	assert.Contains(t, got, "reviewer", "the unrelated default_agent change must land")
-	assert.Contains(t, got, "\nschema_version: 7\n")
+	assert.Contains(t, got, "\nschema_version: 8\n")
 
 	// Original key ORDER is preserved (version before editor before
 	// custom_unknown), NOT re-sorted alphabetically.

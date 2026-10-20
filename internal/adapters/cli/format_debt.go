@@ -80,5 +80,4 @@ var formatDebtAllowlist = map[string]string{
 	"profile modify": "profile.go: the modify RunE must route through emit()",
 
 	// --- session surface (session_cmd.go) ---
-	"session compact": "session_cmd.go: runSessionCompact must route through emit()",
 }

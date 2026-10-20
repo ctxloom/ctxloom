@@ -1,9 +1,10 @@
 package managedhooks
 
 import (
-	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 
 	"github.com/stretchr/testify/assert"
 

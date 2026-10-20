@@ -136,19 +136,18 @@ func TestConvertVendorTranscriptOnExit_ConvertsBoundTranscript(t *testing.T) {
 		"a second on-exit call against an unchanged source must not shrink the canonical transcript")
 }
 
-// TestConvertVendorTranscriptOnExit_CapturesTheTailAfterAMidSessionRecover is
-// the filed defect's exact scenario, pinned: a canonical
-// transcript already exists — because the user ran /recover mid-session,
-// which materializes one — and the session then kept going. The pre-fix
-// behavior called operations.ConvertVendorTranscript directly, whose
-// presence guard makes it a PERMANENT no-op once ANY canonical transcript
-// exists, so every turn after that /recover was silently lost at exit: exit
-// 0, no error, canonical transcript frozen at the /recover moment forever.
+// TestConvertVendorTranscriptOnExit_CapturesTheTailAfterAMidSessionCapture
+// is the filed defect's exact scenario, pinned: a canonical transcript
+// already exists — an earlier capture mid-session materialized one — and the
+// session then kept going. The pre-fix behavior called
+// operations.ConvertVendorTranscript directly, whose presence guard makes it
+// a PERMANENT no-op once ANY canonical transcript exists, so every turn
+// after that capture was silently lost at exit: exit 0, no error, canonical
+// transcript frozen at the capture moment forever.
 //
-// This asserts on the canonical transcript's own bytes, exactly like the
-// D/E mid-session-refresh tests (mcp_tools_memory_recover_test.go) — the
-// failure mode is silent, so the tool's own success is not evidence.
-func TestConvertVendorTranscriptOnExit_CapturesTheTailAfterAMidSessionRecover(t *testing.T) {
+// This asserts on the canonical transcript's own bytes — the failure mode is
+// silent, so the call's own success is not evidence.
+func TestConvertVendorTranscriptOnExit_CapturesTheTailAfterAMidSessionCapture(t *testing.T) {
 	testsupport.Isolate(t)
 	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
@@ -163,22 +162,20 @@ func TestConvertVendorTranscriptOnExit_CapturesTheTailAfterAMidSessionRecover(t 
 	lines := strings.Split(strings.TrimRight(string(full), "\n"), "\n")
 	require.Greater(t, len(lines), 4)
 	vendorPath := filepath.Join(t.TempDir(), "live-transcript.jsonl")
-	// Half the transcript: simulates the moment a mid-session /recover ran
+	// Half the transcript: simulates the moment a mid-session capture ran
 	// and materialized a canonical transcript from what existed so far.
 	require.NoError(t, os.WriteFile(vendorPath, []byte(strings.Join(lines[:len(lines)/2], "\n")+"\n"), 0o644))
 	require.NoError(t, mgr.BindSession(entry.HarpName, "sess-1", vendorPath))
 
-	// The mid-session /recover's own capture (today's recover_session path,
-	// unaffected by this fix — exercised directly here rather than through
-	// the MCP server for a narrower, faster test).
+	// The mid-session capture itself.
 	convertVendorTranscriptOnExit(entry.HarpName)
 	require.True(t, canonicalTranscriptExists(t, entry.HarpName))
 	p, err := paths.HarpCanonicalTranscriptPath(entry.HarpName)
 	require.NoError(t, err)
-	afterRecover, err := os.ReadFile(p)
+	afterEarlier, err := os.ReadFile(p)
 	require.NoError(t, err)
 
-	// The session keeps going after the mid-session /recover.
+	// The session keeps going after the mid-session capture.
 	require.NoError(t, os.WriteFile(vendorPath, full, 0o644))
 
 	// The interactive session now exits for real.
@@ -186,8 +183,8 @@ func TestConvertVendorTranscriptOnExit_CapturesTheTailAfterAMidSessionRecover(t 
 	afterExit, err := os.ReadFile(p)
 	require.NoError(t, err)
 
-	assert.Greater(t, len(afterExit), len(afterRecover),
-		"exit-time capture must pick up everything the session did after the mid-session /recover, not freeze at the recover moment")
+	assert.Greater(t, len(afterExit), len(afterEarlier),
+		"exit-time capture must pick up everything the session did after the mid-session capture, not freeze at that moment")
 	assert.Contains(t, string(afterExit), "[Request interrupted by user for tool use]",
-		"the turns added after the mid-session recover must be in the transcript exit-time capture writes")
+		"the turns added after the mid-session capture must be in the transcript exit-time capture writes")
 }

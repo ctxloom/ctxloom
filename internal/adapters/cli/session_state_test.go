@@ -18,7 +18,7 @@ import (
 // stateFixture is three sessions of one project, each stamped ended (the last
 // run's end) and each in a different state now, as the lock probe reports it:
 // a resumed session running again, one that ended, and one whose lock cannot
-// be read. Every essence carries the word "lockstep" so a search matches all
+// be read. Every title carries the word "lockstep" so a search matches all
 // three and only --state narrows.
 type stateFixture struct {
 	live, ended, unknown string
@@ -40,7 +40,7 @@ func seedStateFixture(t *testing.T) stateFixture {
 		require.NoError(t, err)
 		end := base.Add(time.Duration(i) * 7 * time.Hour)
 		require.NoError(t, mgr.MarkEnded(e.HarpName, end))
-		seedCompactedEssence(t, e.HarpName, "## Summary\n\nKept the lockstep tests honest.\n")
+		recordPromptsFor(t, e.HarpName, "Keep the lockstep tests honest")
 		*slot = e.HarpName
 		f.endOf[e.HarpName] = end
 	}
@@ -68,7 +68,6 @@ func runSessionCmd(t *testing.T, args ...string) (string, error) {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
-		sessionListFull, sessionQueryFull = false, false
 		sessionListState, sessionQueryState = "", ""
 	})
 	err := rootCmd.Execute()
@@ -88,28 +87,20 @@ func jsonRowsByHarp(t *testing.T, out string) map[string]map[string]any {
 
 // TestSessionList_JSON_StateFromTheLockAndNoEndWhileLive: every row carries
 // the lock's state, and a live session — though its record still carries the
-// last run's end stamp — has no end, in the lean and the --full shape alike.
+// last run's end stamp — has no end.
 func TestSessionList_JSON_StateFromTheLockAndNoEndWhileLive(t *testing.T) {
-	for _, full := range []bool{false, true} {
-		t.Run(map[bool]string{false: "lean", true: "full"}[full], func(t *testing.T) {
-			f := seedStateFixture(t)
-			args := []string{"session", "list", "--format", "json"}
-			if full {
-				args = append(args, "--full")
-			}
-			out, err := runSessionCmd(t, args...)
-			require.NoError(t, err)
+	f := seedStateFixture(t)
+	out, err := runSessionCmd(t, "session", "list", "--format", "json")
+	require.NoError(t, err)
 
-			rows := jsonRowsByHarp(t, out)
-			require.Len(t, rows, 3)
-			assert.Equal(t, "live", rows[f.live]["state"])
-			assert.Equal(t, "ended", rows[f.ended]["state"])
-			assert.Equal(t, "unknown", rows[f.unknown]["state"])
-			assert.NotContains(t, rows[f.live], "end", "a live session's end is blank: its stamp is the LAST run's")
-			assert.Contains(t, rows[f.ended], "end")
-			assert.Contains(t, rows[f.unknown], "end", "an unknown session shows its end stamp as recorded")
-		})
-	}
+	rows := jsonRowsByHarp(t, out)
+	require.Len(t, rows, 3)
+	assert.Equal(t, "live", rows[f.live]["state"])
+	assert.Equal(t, "ended", rows[f.ended]["state"])
+	assert.Equal(t, "unknown", rows[f.unknown]["state"])
+	assert.NotContains(t, rows[f.live], "end", "a live session's end is blank: its stamp is the LAST run's")
+	assert.Contains(t, rows[f.ended], "end")
+	assert.Contains(t, rows[f.unknown], "end", "an unknown session shows its end stamp as recorded")
 }
 
 // TestSessionList_Text_StateColumnAndBlankEnd: the table has a STATE column,

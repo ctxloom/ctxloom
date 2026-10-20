@@ -41,7 +41,7 @@ export default defineConfig({
 						{ label: 'Trusting the Binaries', link: '/getting-started/binary-trust/' },
 						{ label: 'Quick Start', link: '/getting-started/quickstart/' },
 						{ label: 'Authoring Bundles', link: '/getting-started/authoring/' },
-						{ label: 'Session Memory', link: '/getting-started/memory/' },
+						{ label: 'Session History', link: '/getting-started/memory/' },
 					],
 				},
 				{

@@ -17,15 +17,14 @@ Assigns fields on a session's index entry. Only the flags you pass are
 applied; everything else keeps its current value.
 
   --name <new-name>   rename the session. The backend transcript is unaffected —
-                      the entry keeps its bound session id, its transcript
-                      path and its summary; only the name it answers to moves.
+                      the entry keeps its bound session id and its transcript
+                      path; only the name it answers to moves.
 
 Unlike every other 'edit' in ctxloom, the bare form does NOT open an editor.
 A session is a record of something that happened: its index entry is written
-by ctxloom itself, and its summary is derived — 'ctxloom session compact'
-rewrites that file whole. There is no authored document here for an editor to
-round-trip, so the bare form refuses rather than accept edits a later
-compaction would discard.
+by ctxloom itself, and its title is derived from its recorded transcript.
+There is no authored document here for an editor to round-trip, so the bare
+form refuses rather than accept edits nothing would keep.
 
 ```
 ctxloom session edit <session-name> [flags]

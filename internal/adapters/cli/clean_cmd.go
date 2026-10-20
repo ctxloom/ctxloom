@@ -121,6 +121,7 @@ func runClean(cmd *cobra.Command, _ []string) error {
 	sweep, err := operations.SweepSessions(cmd.Context(), nil, operations.SweepRequest{
 		ReclaimCutoff: policy.Cutoff,
 		ReclaimScope:  policy.Scope,
+		Retention:     policy.Retention,
 		AllProjects:   true,
 		Apply:         policy.Apply,
 		ReclaimOnly:   true,

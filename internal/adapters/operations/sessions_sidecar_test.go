@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -65,7 +66,7 @@ func TestListAllSessions_PurgedDirectoryListsAsPurged(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(canonical), 0o755))
 	require.NoError(t, os.WriteFile(canonical, []byte(`{"kind":"entry"}`+"\n"), 0o644))
 
-	_, err = PurgeSession(e.HarpName, PurgeSessionRequest{Populations: []PurgePopulation{PurgePopulationTranscript}, Uncompacted: true, EvenIfLive: true, Apply: true})
+	_, err = PurgeSession(e.HarpName, PurgeSessionRequest{Populations: []PurgePopulation{PurgePopulationTranscript}, Retention: sessions.Retention{Cutoff: time.Now().Add(time.Hour)}, EvenIfLive: true, Apply: true})
 	require.NoError(t, err)
 	assert.NoFileExists(t, canonical, "precondition: the purge destroyed the capture")
 	assert.DirExists(t, filepath.Dir(canonical), "precondition: the purge left the directory")

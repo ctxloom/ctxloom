@@ -77,7 +77,7 @@ func TestAssemble_WithInvalidProfile(t *testing.T) {
 	})
 
 	assembled := Assemble(cfg, nil)
-	assert.NotEmpty(t, commandsOf(assembled.For("turn_end")), "ctxloom's own hooks are still assembled around the unresolvable profile")
+	assert.NotEmpty(t, commandsOf(assembled.For("session_start")), "ctxloom's own hooks are still assembled around the unresolvable profile")
 }
 
 func TestAssemble_CircularProfileIsWarnedNotMasked(t *testing.T) {

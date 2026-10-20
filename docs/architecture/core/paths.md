@@ -45,7 +45,7 @@ flowchart TD
     HD --> HSC["HarpScratchDir<br/>scratch/ (per-run scratch)"]
 
     DOC["platform Documents folder"] --> DOB["DefaultOutputBase<br/>&lt;Documents&gt;/ctxloom (or the output_dir config key)"]
-    DOB --> OD["OutputDir(base, project, harp)<br/>readable outputs: essence, next step, plans, segment essences"]
+    DOB --> OD["OutputDir(base, project, harp)<br/>readable outputs: plans, reports"]
 
     AP["appPath (caller-supplied)"] --> CP["ConfigPath config.yaml"]
     AP --> RP["RemotesPath remotes.yaml"]
@@ -94,7 +94,7 @@ Three vocabularies share one file; `AppDirName` and `CacheDir` cross groups.
 
 | Group | Constants |
 |---|---|
-| Home / session layout | `SessionsDir`, the session-dir member names `paths.HarpMembers` rows are built from, the output-dir leaves (`OutputDirName`, `EssenceFileName`, `NextStepFileName`, `PlanFileExt`), `LogsDir`, `TriggersDir`, `CoordDirName`, `CoordEndpointFileName` |
+| Home / session layout | `SessionsDir`, the session-dir member names `paths.HarpMembers` rows are built from, the output-dir leaves (`OutputDirName`, `PlanFileExt`), `LogsDir`, `TriggersDir`, `CoordDirName`, `CoordEndpointFileName` |
 | Project app-dir layout | `AppDirName`, `ConfigFileName`, `RemotesFileName`, `LockFileName`, `ProfilesDir`, `AgentsDir`, `ContentDir`, `CacheDir`, `RepoContentPrefix`, `BundlesDir`, `ReposCacheDir`, `ContextCacheDir`, `ProjectIDFileName` |
 | Local state tier | `StateDir`, `LocksDir`, `HomeLocksDirName`, `SessionEngineHomesDirName` |
 
@@ -213,7 +213,7 @@ sidecar whose file is gone (`operations.ReapLockSidecars`).
    `MountedMembers` what the isolation adapter mounts. `sessions.Layout` derives every
    session-dir path from it, and the ONE reaper (`sessions.Reap`) removes members by the
    table's `Lifetime` axis alone — `sessions.ReapPolicy.Members` is the Ephemeral rows,
-   plus the top-level machine rows of a compacted session under a human's `--include-persist` — judging age by the one
+   plus the top-level machine rows of a session whose transcript retention has passed, under a human's `--include-persist` — judging age by the one
    clock (`sessions.ActivityTime`: the newest mtime under the session dir, the dir's own
    mtime and every symlink's excluded). `TestArch_ReaperMemberNamesAreTableRows` keeps
    every member constant the reap, purge and clean code names a row of the table.
@@ -260,7 +260,7 @@ entries and the current code support, and no more.
   degrades or guesses, so nothing here reports: every resolver either composes a path from what it
   was given or returns an error.
 - **Imported by:** every package that locates an artifact on disk — for example `config` and `operations` for
-  project artifacts; `sessions`, `memory`, `transcript`,
+  project artifacts; `sessions`, `transcript`,
   `agentcoord/coord` and `cli` for per-harp session state; `claude` for the
   per-session engine-home instance.
 

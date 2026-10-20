@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -36,6 +37,11 @@ type sessionSeed struct {
 // sessionSidecarSchemaVersion is the generation a planted sidecar is
 // stamped with: one the store loads.
 const sessionSidecarSchemaVersion = 1
+
+// leftoverSummaryName is the file an older ctxloom's session compaction left
+// in a session's output dir. Nothing reads or destroys it now; it stays as a
+// note for the human, and every destroyer is asserted to leave it.
+const leftoverSummaryName = "essence.md"
 
 // sessionSeedEntry is one prior binding of a seeded session, in the sidecar's
 // own rotation shape.
@@ -92,6 +98,42 @@ func outputDirFor(w *World, harp string) string {
 	return defaultOutputDirIn(w, w.env.ProjectDir, harp)
 }
 
+// seededPrompt is the first user prompt a seeded session's transcript
+// records — and so the title its listing shows. "Seeded" is the word a
+// scenario searches every seeded session by.
+func seededPrompt(harp string) string { return "Seeded prompt for " + harp + "." }
+
+// seededTranscriptRel is harp's canonical transcript, home-relative.
+func seededTranscriptRel(harp string) string {
+	return filepath.Join(".ctxloom", "sessions", harp, "transcripts", "transcript.jsonl")
+}
+
+// writeSeededTranscript records harp's canonical transcript: one user prompt
+// (seededPrompt), in the canonical record schema the store's readers parse.
+// Real bytes, so a purge has something to free.
+func writeSeededTranscript(w *World, harp string) error {
+	line := fmt.Sprintf(`{"v":1,"harp":%q,"engine":"claude-code","seq":0,"ts":"2026-01-01T00:00:00Z","kind":"entry","entry":{"type":"user","content":%q}}`,
+		harp, seededPrompt(harp))
+	return w.env.WriteHomeFile(seededTranscriptRel(harp), line+"\n")
+}
+
+// backdateSessionDir sets every mtime under harp's session directory to at:
+// a session's activity is its directory's newest mtime, so a session that
+// ENDED at a recorded time must also look untouched since then, or
+// transcript retention reads it as just used.
+func backdateSessionDir(w *World, harp string, at time.Time) error {
+	dir := filepath.Join(w.env.HomeDir, ".ctxloom", "sessions", harp)
+	return filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
+		return os.Chtimes(p, at, at)
+	})
+}
+
 // writeOutputFile writes name into harp's output dir.
 func writeOutputFile(w *World, harp, name, body string) error {
 	p := filepath.Join(outputDirFor(w, harp), filepath.FromSlash(name))
@@ -99,41 +141,4 @@ func writeOutputFile(w *World, harp, name, body string) error {
 		return err
 	}
 	return os.WriteFile(p, []byte(body), 0o644)
-}
-
-// mergeSessionSidecar overlays seed's SET fields onto harp's existing
-// sidecar and leaves every other key as the store wrote it. It exists for a
-// fixture that seeds history under a LIVE session — the standing owner's,
-// whose record carries the MCP endpoint its runner serves and whatever else
-// the launch bound — where a rewrite from the seed alone would erase the
-// session the scenario is about.
-func mergeSessionSidecar(w *World, harp string, seed sessionSeed) error {
-	rel := ".ctxloom/sessions/" + harp + "/" + paths.SessionSidecarFileName
-	existing, err := w.env.ReadHomeFile(rel)
-	if err != nil {
-		return fmt.Errorf("merge into session %q: read its record: %w", harp, err)
-	}
-	var doc map[string]any
-	if err := yaml.Unmarshal([]byte(existing), &doc); err != nil {
-		return fmt.Errorf("merge into session %q: parse its record: %w", harp, err)
-	}
-	overlay, err := yamlx.Marshal(seed)
-	if err != nil {
-		return fmt.Errorf("merge into session %q: %w", harp, err)
-	}
-	var fields map[string]any
-	if err := yaml.Unmarshal(overlay, &fields); err != nil {
-		return err
-	}
-	if doc == nil {
-		doc = map[string]any{}
-	}
-	for k, v := range fields {
-		doc[k] = v
-	}
-	body, err := yamlx.Marshal(doc)
-	if err != nil {
-		return err
-	}
-	return w.env.WriteHomeFile(rel, string(body))
 }

@@ -4,7 +4,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -15,10 +14,6 @@ import (
 // instead of just the ones started in the current working directory.
 var sessionQueryAll bool
 
-// sessionQueryFull mirrors sessionListFull: swap the lean result rows for
-// the FULL projection carrying each matched session's complete essence body.
-var sessionQueryFull bool
-
 // sessionQueryState mirrors sessionListState: only matches in that state.
 var sessionQueryState string
 
@@ -27,18 +22,12 @@ var sessionQueryState string
 // top-level `ctxloom search` (verb-spine reorg §5).
 var sessionSearchCmd = &cobra.Command{
 	Use:   "search <word>...",
-	Short: "Search sessions by name, one-line summary, and compacted summary content (default: current project; --all for everything)",
-	Long: `Searches session metadata (session name, one-line summary, start/end) and, for
-sessions that have already been compacted, the summary body itself. Every
-given word must match, case-insensitively, somewhere in a session's
-metadata or summary for that session to be included (an AND across words,
-not an OR).
-
-The search itself runs CLI-side: the summary body is read off disk, scanned,
-and discarded per session — it is never handed to a model and never
-returned in a result row (the same lightweight name/summary/state/start/end
-shape ` + "`session list`" + ` renders). Fetch a matched session's full summary with
-` + "`session show <session-name>`" + `.
+	Short: "Search sessions by name, title and times (default: current project; --all for everything)",
+	Long: `Searches session metadata: the session name, its title (the first thing
+its user asked), and its start/end as ` + "`session list`" + ` shows them. Every given
+word must match, case-insensitively, somewhere in a session's metadata for
+that session to be included (an AND across words, not an OR). Results are
+the same rows ` + "`session list`" + ` renders.
 
 --state narrows the matches to sessions in that state (live, ended or
 unknown), read from each session's liveness lock as ` + "`session list`" + ` does.
@@ -52,7 +41,6 @@ searched either.`,
 
 func init() {
 	sessionSearchCmd.Flags().BoolVar(&sessionQueryAll, "all", false, "Search sessions from every project (default: filter to cwd)")
-	sessionSearchCmd.Flags().BoolVar(&sessionQueryFull, "full", false, "Include each matched session's complete compacted summary body (text output pages through $PAGER on a terminal)")
 	addSessionStateFlag(sessionSearchCmd, &sessionQueryState)
 	sessionCmd.AddCommand(sessionSearchCmd)
 }
@@ -60,9 +48,8 @@ func init() {
 // runSessionQuery loads the same candidate set `session list` would (project-
 // scoped by default, every project under --all), keeps only the entries
 // sessionMatchesQuery accepts, and renders them through the same
-// emitSessionRows tail `session list` uses (SessionRow by default, or the
-// --full essence-body projection) — so a query result is indistinguishable
-// in shape from a list result, just pre-filtered.
+// emitSessionRows tail `session list` uses — so a query result is
+// indistinguishable in shape from a list result, just pre-filtered.
 func runSessionQuery(cmd *cobra.Command, args []string) error {
 	if err := checkSessionState(sessionQueryState); err != nil {
 		return err
@@ -82,8 +69,7 @@ func runSessionQuery(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Filtered by state before matching, so a session the filter drops
-	// never has its essence read.
+	// Filtered by state before matching.
 	views := filterSessionState(operations.ViewSessions(entries, sessionStateOf), sessionQueryState)
 	matched := make([]operations.SessionView, 0, len(views))
 	for _, v := range views {
@@ -91,29 +77,18 @@ func runSessionQuery(cmd *cobra.Command, args []string) error {
 			matched = append(matched, v)
 		}
 	}
-	return emitSessionRows(cmd, matched, sessionQueryFull)
+	return emitSessionRows(cmd, matched)
 }
 
 // sessionMatchesQuery reports whether every word in words is found
-// case-insensitively in the session's metadata (harp name, summary,
-// formatted start/end) OR — only when the metadata search misses — its
-// compacted essence body, read the same way `session show` reads it
-// (readSessionEssence). Metadata is checked first so a session that already
-// matches, or one that was never compacted, never pays the cost of reading
-// an essence file off disk.
+// case-insensitively in the session's metadata: harp name, title, and the
+// start/end as the row shows them.
 func sessionMatchesQuery(v operations.SessionView, words []string) bool {
-	if allWordsMatch(sessionMetadataHaystack(v), words) {
-		return true
-	}
-	body, ok := readSessionEssence(afero.NewOsFs(), v)
-	if !ok {
-		return false
-	}
-	return allWordsMatch(strings.ToLower(body), words)
+	return allWordsMatch(sessionMetadataHaystack(v), words)
 }
 
 // sessionMetadataHaystack builds the lowercase text session query matches
-// metadata words against: harp name, summary, and the same start/end
+// metadata words against: harp name, title, and the same start/end
 // formatting SessionRow renders, so a query for a date fragment behaves
 // like a query against what the user can actually see in the row — which
 // has no end while the session is live.
@@ -121,7 +96,7 @@ func sessionMetadataHaystack(v operations.SessionView) string {
 	var b strings.Builder
 	b.WriteString(v.Harp)
 	b.WriteByte(' ')
-	b.WriteString(v.Summary)
+	b.WriteString(v.Title)
 	b.WriteByte(' ')
 	b.WriteString(sessionTime(v.StartedAt).String())
 	if v.EndedAt != nil && v.State != operations.SessionLive {

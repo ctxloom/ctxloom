@@ -180,11 +180,6 @@ func (p *Profile) UnmarshalYAML(node *yaml.Node) error {
 type SettingsConfig struct {
 	UseDistilled *bool `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"` // Prefer .distilled.md versions (default true)
 	Statusline   *bool `mapstructure:"statusline" yaml:"statusline,omitempty"`       // Manage the ctxloom HUD statusline (default true)
-	// EssenceMaxChars is the target size of a finished session essence. 0 means
-	// the default (see Config.GetEssenceMaxChars). The essence is re-injected
-	// into a fresh context window on resume, so this trades detail retained
-	// against context spent on every resume.
-	EssenceMaxChars int `mapstructure:"essence_max_chars" yaml:"essence_max_chars,omitempty"`
 	// SilenceUnsupported suppresses capability-loss reporting: the "NOT
 	// carried" lines naming what the selected engine has no structural place
 	// for. Default false, because a loss the user's own bundles asked for is

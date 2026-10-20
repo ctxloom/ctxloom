@@ -119,13 +119,25 @@ func reapSeed(t *testing.T, l Layout, harp string) string {
 		require.NoError(t, os.WriteFile(p, []byte(body), 0o644))
 	}
 	require.NoError(t, os.Symlink(filepath.Join(t.TempDir(), "elsewhere.jsonl"), filepath.Join(dir, reapLinkName)))
-	// The session is compacted: its recorded output dir holds an essence.
-	out := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(out, paths.EssenceFileName), []byte("# essence\n"), 0o644))
-	sidecar := filepath.Join(dir, paths.SessionSidecarFileName)
-	require.NoError(t, os.WriteFile(sidecar, []byte(reapFixture[paths.SessionSidecarFileName]+"output_dir: "+out+"\n"), 0o644))
+	// The session ended long ago: past any retention cutoff these tests use,
+	// so its transcript is reclaimable.
+	reapWriteSidecar(t, dir, "ended_at: "+reapOldEnough.UTC().Format(time.RFC3339)+"\n")
 	reapBackdate(t, dir)
 	return dir
+}
+
+// reapWriteSidecar rewrites the session's sidecar as the fixture's plus
+// extra.
+func reapWriteSidecar(t *testing.T, dir, extra string) {
+	t.Helper()
+	sidecar := filepath.Join(dir, paths.SessionSidecarFileName)
+	require.NoError(t, os.WriteFile(sidecar, []byte(reapFixture[paths.SessionSidecarFileName]+extra), 0o644))
+}
+
+// reapPersist is a persist-scope policy (--include-persist) whose transcript
+// retention cutoff is the reap's own age bound.
+func reapPersist(apply bool) ReapPolicy {
+	return ReapPolicy{Cutoff: reapCutoff(), Scope: paths.Persist, Retention: Retention{Cutoff: reapCutoff()}, Apply: apply}
 }
 
 // reapBackdate sets every mtime under dir to reapOldEnough. Symlinks are
@@ -245,15 +257,15 @@ func TestReap_TakesTheSessionsLockFiles(t *testing.T) {
 }
 
 // TestReap_PersistScope_TakesTheMachineMembersWithTheTranscript: Scope
-// Persist is a human's --include-persist, and from a COMPACTED session it
-// TAKES the persistent machine members — the transcripts and native history
+// Persist is a human's --include-persist, and from a session whose
+// transcript retention has passed it TAKES the persistent machine members — the transcripts and native history
 // with them. The session's identity still survives: the directory stays, and
 // the session still lists and resolves.
 func TestReap_PersistScope_TakesTheMachineMembersWithTheTranscript(t *testing.T) {
 	l := reapLayout(t)
 	dir := reapSeed(t, l, "aged-quiet-heron")
 
-	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Scope: paths.Persist, Apply: true}, nil)
+	rep, err := Reap(context.Background(), l, deadLocks(), reapPersist(true), nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, rep.Reclaimed)
@@ -263,66 +275,78 @@ func TestReap_PersistScope_TakesTheMachineMembersWithTheTranscript(t *testing.T)
 	assert.Contains(t, rep.Members, paths.TranscriptsDirName)
 }
 
-// reapSeedUncompacted is reapSeed without the essence: the session was never
-// compacted, so its transcript is the only record of it.
-func reapSeedUncompacted(t *testing.T, l Layout, harp string) string {
+// reapSeedRetained is reapSeed whose transcript Retention keeps: the
+// session ended within the retention period ("recent"), or it is marked keep
+// ("keep"). Its members are still aged past the reap's own bound.
+func reapSeedRetained(t *testing.T, l Layout, harp, why string) string {
 	t.Helper()
 	dir := reapSeed(t, l, harp)
-	out, ok := OutputDirOf(dir)
-	require.True(t, ok)
-	require.NoError(t, os.Remove(filepath.Join(out, paths.EssenceFileName)))
+	switch why {
+	case "recent":
+		reapWriteSidecar(t, dir, "ended_at: "+time.Now().UTC().Format(time.RFC3339)+"\n")
+	case "keep":
+		reapWriteSidecar(t, dir, "ended_at: "+reapOldEnough.UTC().Format(time.RFC3339)+"\nkeep: true\n")
+	default:
+		t.Fatalf("unknown retention %q", why)
+	}
 	reapBackdate(t, dir)
 	return dir
 }
 
-// TestReap_PersistScope_SparesThePersistStoreOfAnUncompactedSession: without
-// an essence the transcript is the session's only record, so even
-// --include-persist leaves its persistent machine members alone — the same rule PurgeSession
-// enforces with ErrPurgeUncompacted. The ephemeral members still go: a wider
-// scope must never free less than the default one. The report names the
-// spare and the command that lifts it.
-func TestReap_PersistScope_SparesThePersistStoreOfAnUncompactedSession(t *testing.T) {
-	l := reapLayout(t)
-	dir := reapSeedUncompacted(t, l, "aged-quiet-heron")
+// TestReap_PersistScope_SparesThePersistStoreOfARetainedSession: a session's
+// transcript is its record, so --include-persist leaves the persistent
+// machine members of a session that ended within the retention period, or
+// is marked keep, alone — the rule PurgeSession enforces too. The ephemeral
+// members still go: a wider scope must never free less than the default one.
+// The report names the spare and why.
+func TestReap_PersistScope_SparesThePersistStoreOfARetainedSession(t *testing.T) {
+	for why, wantReason := range map[string]string{
+		"recent": "ended within the transcript retention period",
+		"keep":   "marked keep",
+	} {
+		t.Run(why, func(t *testing.T) {
+			l := reapLayout(t)
+			dir := reapSeedRetained(t, l, "aged-quiet-heron", why)
 
-	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Scope: paths.Persist, Apply: true}, nil)
-	require.NoError(t, err)
+			rep, err := Reap(context.Background(), l, deadLocks(), reapPersist(true), nil)
+			require.NoError(t, err)
 
-	assert.FileExists(t, filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName), "an uncompacted session's transcript is its only record")
-	for rel, body := range reapFixture {
-		m := reapTopRow(t, rel)
-		p := filepath.Join(dir, filepath.FromSlash(rel))
-		switch {
-		case rel == paths.SessionSidecarFileName:
-			continue
-		case m.Lifetime == paths.Ephemeral:
-			assert.NoFileExists(t, p, "%s is ephemeral and is still reaped", rel)
-		default:
-			got, err := os.ReadFile(p)
-			if assert.NoError(t, err, "%s must survive", rel) {
-				assert.Equal(t, body, string(got))
+			assert.FileExists(t, filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName), "a retained session's transcript is kept")
+			for rel, body := range reapFixture {
+				m := reapTopRow(t, rel)
+				p := filepath.Join(dir, filepath.FromSlash(rel))
+				switch {
+				case rel == paths.SessionSidecarFileName:
+					continue
+				case m.Lifetime == paths.Ephemeral:
+					assert.NoFileExists(t, p, "%s is ephemeral and is still reaped", rel)
+				default:
+					got, err := os.ReadFile(p)
+					if assert.NoError(t, err, "%s must survive", rel) {
+						assert.Equal(t, body, string(got))
+					}
+				}
 			}
-		}
+			require.Len(t, rep.Candidates, 1)
+			c := rep.Candidates[0]
+			assert.Equal(t, ReapReclaimed, c.Verdict, "its ephemeral members were reclaimed")
+			assert.Contains(t, c.Reason, wantReason)
+		})
 	}
-	require.Len(t, rep.Candidates, 1)
-	c := rep.Candidates[0]
-	assert.Equal(t, ReapReclaimed, c.Verdict, "its ephemeral members were reclaimed")
-	assert.Contains(t, c.Reason, "never compacted")
-	assert.Contains(t, c.Reason, "ctxloom session compact aged-quiet-heron")
 }
 
-// TestReap_PersistScope_UncompactedWithOnlyPersistDataIsSpared: when
-// persistent machine data is all an uncompacted session holds, nothing is taken and the
-// session is reported spared rather than hidden.
-func TestReap_PersistScope_UncompactedWithOnlyPersistDataIsSpared(t *testing.T) {
+// TestReap_PersistScope_RetainedWithOnlyPersistDataIsSpared: when
+// persistent machine data is all a retained session holds, nothing is taken
+// and the session is reported spared rather than hidden.
+func TestReap_PersistScope_RetainedWithOnlyPersistDataIsSpared(t *testing.T) {
 	l := reapLayout(t)
-	dir := reapSeedUncompacted(t, l, "aged-quiet-heron")
+	dir := reapSeedRetained(t, l, "aged-quiet-heron", "recent")
 	for _, m := range (ReapPolicy{}).Members() {
 		require.NoError(t, os.RemoveAll(l.Member("aged-quiet-heron", m)))
 	}
 	reapBackdate(t, dir)
 
-	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Scope: paths.Persist, Apply: true}, nil)
+	rep, err := Reap(context.Background(), l, deadLocks(), reapPersist(true), nil)
 	require.NoError(t, err)
 
 	assert.FileExists(t, filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName))
@@ -330,8 +354,20 @@ func TestReap_PersistScope_UncompactedWithOnlyPersistDataIsSpared(t *testing.T) 
 	assert.Zero(t, rep.Bytes)
 	require.Len(t, rep.Candidates, 1)
 	assert.Equal(t, ReapSpared, rep.Candidates[0].Verdict)
-	assert.Contains(t, rep.Candidates[0].Reason, "never compacted")
-	assert.Contains(t, rep.Candidates[0].Reason, "ctxloom session compact aged-quiet-heron")
+	assert.Contains(t, rep.Candidates[0].Reason, "ended within the transcript retention period")
+}
+
+// TestReap_PersistScope_WithoutARetentionCutoffRefuses: the persist scope
+// destroys transcripts, so it must not be callable without the rule that
+// decides which ones.
+func TestReap_PersistScope_WithoutARetentionCutoffRefuses(t *testing.T) {
+	l := reapLayout(t)
+	dir := reapSeed(t, l, "aged-quiet-heron")
+
+	_, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Scope: paths.Persist, Apply: true}, nil)
+
+	require.ErrorIs(t, err, ErrNoRetentionBound)
+	reapAssertPresence(t, dir, func(string, paths.HarpMember) bool { return false })
 }
 
 // TestReap_WithoutAnAgeBound_ReapsNothing is the load-bearing one at this
@@ -373,7 +409,7 @@ func TestReap_BytesCountOnlyWhatThePolicyTakes(t *testing.T) {
 
 	ephemeral, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff()}, nil)
 	require.NoError(t, err)
-	persist, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Scope: paths.Persist}, nil)
+	persist, err := Reap(context.Background(), l, deadLocks(), reapPersist(false), nil)
 	require.NoError(t, err)
 
 	var wantEphemeral, wantPersist int64
@@ -398,7 +434,7 @@ func TestReap_KeepMarkerExemptsTheSession(t *testing.T) {
 	require.NoError(t, os.WriteFile(l.KeepMarker("aged-quiet-heron"), nil, 0o644))
 	reapBackdate(t, dir)
 
-	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Scope: paths.Persist, Apply: true}, nil)
+	rep, err := Reap(context.Background(), l, deadLocks(), reapPersist(true), nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, rep.Kept)
@@ -762,14 +798,14 @@ func TestReap_MovesAHomesRealHistoryIntoNativeFirst(t *testing.T) {
 	assert.Equal(t, "container\n", got(t, filepath.Join(dir, paths.NativeDirName, "claude"), "projects/-p/s.jsonl"))
 }
 
-// --include-persist on an uncompacted session spares native/ but takes home/:
+// --include-persist on a retained session spares native/ but takes home/:
 // the home's history still lands in native/.
-func TestReap_PersistScope_UncompactedKeepsTheHomesHistoryInNative(t *testing.T) {
+func TestReap_PersistScope_RetainedKeepsTheHomesHistoryInNative(t *testing.T) {
 	l := reapLayout(t)
-	dir := reapSeedUncompacted(t, l, "aged-quiet-heron")
+	dir := reapSeedRetained(t, l, "aged-quiet-heron", "recent")
 	reapSeedHomeHistory(t, dir)
 
-	_, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Scope: paths.Persist, Apply: true}, nil)
+	_, err := Reap(context.Background(), l, deadLocks(), reapPersist(true), nil)
 	require.NoError(t, err)
 
 	assert.NoDirExists(t, filepath.Join(dir, paths.SessionEngineHomesDirName))

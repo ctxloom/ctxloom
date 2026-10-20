@@ -2,15 +2,17 @@ package cli
 
 import (
 	"bytes"
-	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
+
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	mockreader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/mock"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -192,13 +194,19 @@ func seedTranscript(t *testing.T, harp string) string {
 	return path
 }
 
-// seedEssence writes a compacted essence for harp and returns its path.
-func seedEssence(t *testing.T, harp string) string {
+// seedLeftoverSummary writes the summary file an older ctxloom's session
+// compaction left in harp's output dir, and returns its path. Nothing reads
+// or destroys it now: it stays as a note for the human.
+func seedLeftoverSummary(t *testing.T, harp string) string {
 	t.Helper()
-	path, err := harpEssencePath(t, harp)
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
-	require.NoError(t, os.WriteFile(path, []byte("# Seeded essence\n"), 0o644))
+	return seedLeftoverSummaryWith(t, harp, "# Seeded summary\n")
+}
+
+// seedLeftoverSummaryWith is seedLeftoverSummary with body as its contents.
+func seedLeftoverSummaryWith(t *testing.T, harp, body string) string {
+	t.Helper()
+	path := filepath.Join(testOutputDir(t, harp), "essence.md")
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
 	return path
 }
 
@@ -228,4 +236,26 @@ func onDisk(t *testing.T, path string) bool {
 	}
 	require.True(t, os.IsNotExist(err), "stat %s: %v", path, err)
 	return false
+}
+
+// viewTitled is the read model of e as if its canonical transcript opened
+// with a user prompt reading title: ViewSession derives the title from the
+// transcript, and a projection test needs only the value.
+func viewTitled(e sessions.Entry, title string) operations.SessionView {
+	v := operations.ViewSession(e)
+	v.Title = title
+	return v
+}
+
+// releaseTranscriptRetention makes every destroyer's retention release every
+// fixture for the rest of the test: its cutoff lies past them all. For tests
+// about something other than retention — the lock, the populations — whose
+// fixtures end "now"; retention itself is tested on the real resolution.
+func releaseTranscriptRetention(t *testing.T) {
+	t.Helper()
+	prev := resolveTranscriptRetention
+	resolveTranscriptRetention = func(now time.Time) (sessions.Retention, error) {
+		return sessions.Retention{Cutoff: now.Add(time.Hour)}, nil
+	}
+	t.Cleanup(func() { resolveTranscriptRetention = prev })
 }

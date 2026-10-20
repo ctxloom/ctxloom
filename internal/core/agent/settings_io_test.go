@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"os"
 	"testing"
 
@@ -154,4 +155,38 @@ func TestSettingsStatus_Wired(t *testing.T) {
 			assert.Equal(t, tc.want, tc.status.Wired())
 		})
 	}
+}
+
+// TestRefuseCorrupt_BacksUpAndNamesTheBackup: a caller writing through a real
+// filesystem gets the original's bytes backed up beside it, and the refusal
+// names that backup.
+// MUTATION: the backup write dropped → red; the message naming another path → red.
+func TestRefuseCorrupt_BacksUpAndNamesTheBackup(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	path := "/p/settings.json"
+	data := []byte(`{"permissions":{"deny":"nope"}}`)
+	err := RefuseCorrupt(fs, path, data, "permissions.deny", errors.New("cause"), "to avoid dropping existing permission rules")
+	require.Error(t, err)
+	backups, globErr := afero.Glob(fs, path+".corrupt-*")
+	require.NoError(t, globErr)
+	require.Len(t, backups, 1)
+	got, readErr := afero.ReadFile(fs, backups[0])
+	require.NoError(t, readErr)
+	assert.Equal(t, data, got)
+	assert.Contains(t, err.Error(), CorruptBackedUp+" "+backups[0])
+	assert.NotContains(t, err.Error(), CorruptLeftUntouched)
+}
+
+// TestRefuseCorruptUntouched_ClaimsNoBackup: the variant for a caller whose
+// writes a refusal discards names no backup and says the original is left
+// as it stands, naming the file and what failed.
+// MUTATION: the message naming a backup → red.
+func TestRefuseCorruptUntouched_ClaimsNoBackup(t *testing.T) {
+	cause := errors.New("cause")
+	err := RefuseCorruptUntouched("/p/settings.json", "permissions.deny", cause, "to avoid dropping existing permission rules")
+	require.ErrorIs(t, err, cause)
+	assert.Contains(t, err.Error(), CorruptLeftUntouched)
+	assert.Contains(t, err.Error(), "permissions.deny")
+	assert.Contains(t, err.Error(), "settings.json")
+	assert.NotContains(t, err.Error(), CorruptBackedUp)
 }

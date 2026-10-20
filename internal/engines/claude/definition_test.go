@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -252,18 +253,53 @@ func TestDeliverSettings_ClaimsTheStatuslineAndEachDeny(t *testing.T) {
 }
 
 // TestDeliverSettings_LeavesAStatuslineThatIsNotCtxloomsCanonicalOne: a
-// statusline the user set — their own program, or the ctxloom binary with
-// arguments of their choosing — is theirs, and is not claimed.
+// statusline the user set — their own program, the ctxloom binary with
+// arguments of their choosing, or an earlier ctxloom's spelling — is not
+// claimed, and the delivery says so (StatuslineNotOurs) rather than leave
+// ctxloom's statusline silently uninstalled.
+// MUTATION: the else branch reports nothing → red.
 func TestDeliverSettings_LeavesAStatuslineThatIsNotCtxloomsCanonicalOne(t *testing.T) {
 	def := claudeDef(t)
-	for _, cmd := range []string{"my-hud", agent.CtxloomCommand() + " hook hud --theme mine"} {
+	for _, cmd := range []string{"my-hud", agent.CtxloomCommand() + " hook hud --theme mine", "/usr/local/bin/ctxloom hook hud"} {
 		start, project, _ := hostStart(t)
 		path := filepath.Join(project, ConfigDirName, SettingsFileName)
 		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 		require.NoError(t, os.WriteFile(path, []byte(`{"statusLine": {"type": "command", "command": "`+cmd+`"}}`), 0o644))
-		d, err := def.Settings.DeliverSettings(start, present.RootProjectRoot, engine.SettingsInputs{Statusline: true}, nil)
+		var found report.Findings
+		d, err := def.Settings.DeliverSettings(start, present.RootProjectRoot, engine.SettingsInputs{Statusline: true, Report: &found}, nil)
 		require.NoError(t, err)
 		require.Empty(t, claimsUnder(settingsClaimsIn(t, d, project), "/statusLine"), cmd)
+		require.Len(t, found, 1, cmd)
+		require.Contains(t, found[0].Text, StatuslineNotOurs, cmd)
+		require.Contains(t, found[0].Text, path, "the finding names the file")
+		require.False(t, found[0].Fatal(), "a finding, not a failure")
+	}
+}
+
+// TestDeliverSettings_ReportsNoStatuslineFindingWhenItClaims: with no
+// statusline, or ctxloom's own, the statusline is claimed and nothing is
+// reported; nor is anything when no statusline is asked for.
+// MUTATION: the finding reported unconditionally → red.
+func TestDeliverSettings_ReportsNoStatuslineFindingWhenItClaims(t *testing.T) {
+	def := claudeDef(t)
+	for name, c := range map[string]struct {
+		body       string
+		statusline bool
+	}{
+		"none":          {"", true},
+		"ctxloom's own": {`{"statusLine": {"type": "command", "command": "` + ctxloomStatusLineCommand() + `"}}`, true},
+		"not asked for": {`{"statusLine": {"type": "command", "command": "my-hud"}}`, false},
+	} {
+		start, project, _ := hostStart(t)
+		if c.body != "" {
+			path := filepath.Join(project, ConfigDirName, SettingsFileName)
+			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+			require.NoError(t, os.WriteFile(path, []byte(c.body), 0o644))
+		}
+		var found report.Findings
+		_, err := def.Settings.DeliverSettings(start, present.RootProjectRoot, engine.SettingsInputs{Statusline: c.statusline, Report: &found}, nil)
+		require.NoError(t, err, name)
+		require.Empty(t, found, name)
 	}
 }
 
@@ -550,7 +586,10 @@ func TestDeliverMCP_AClaimNamesTheBundleItCameThrough(t *testing.T) {
 
 // TestDeliverSettings_RefusesAnEnvItCannotRead: an env that is not an object
 // is the user's file in a state ctxloom cannot read, and is refused like
-// every other unreadable block of it — not read as "no timeouts set".
+// every other unreadable block of it — not read as "no timeouts set". The
+// approach runs only over the static writer's overlay, which discards what
+// a refused run wrote, so it backs nothing up and claims no backup.
+// MUTATION: approachWriter leaves overlaid unset → red.
 func TestDeliverSettings_RefusesAnEnvItCannotRead(t *testing.T) {
 	def := claudeDef(t)
 	start, project, _ := hostStart(t)
@@ -559,7 +598,8 @@ func TestDeliverSettings_RefusesAnEnvItCannotRead(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(`{"env": "not-an-object"}`), 0o644))
 	_, err := def.Settings.DeliverSettings(start, present.RootProjectRoot, engine.SettingsInputs{ShellTimeout: shellTimeout}, nil)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), agent.CorruptLeftUntouched)
 	backups, globErr := filepath.Glob(path + ".corrupt-*")
 	require.NoError(t, globErr)
-	require.Len(t, backups, 1, "refused the way every unreadable block is: the original backed up beside it")
+	require.Empty(t, backups, "no backup is written for the overlay to discard")
 }

@@ -1322,3 +1322,21 @@ func TestStatus_AUsersOwnCtxloomHookIsNotWired(t *testing.T) {
 	assert.True(t, status.HooksPresent, "control: a `hook <verb>` callback is ctxloom's")
 	assert.True(t, status.StatusLine, "control: the `hook hud` statusline is ctxloom's")
 }
+
+// TestStatus_CorruptSettingsBacksUpAndNamesTheBackup: the status read runs on
+// the filesystem it is given, outside the static writer's overlay, so a
+// settings.json it cannot read is backed up beside it and the refusal names
+// the backup — unlike the settings approach's, which the overlay discards.
+// MUTATION: the writer refusing as overlaid → red.
+func TestStatus_CorruptSettingsBacksUpAndNamesTheBackup(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	root := "/project"
+	path := ProjectSettingsPath(root)
+	testsupport.WriteFileString(t, fs, path, `{"permissions":{"deny":"nope"}}`, 0o644)
+	_, err := NewWriter(agent.SettingsOptions{FS: fs}).Status(root)
+	require.Error(t, err)
+	backups, globErr := afero.Glob(fs, path+".corrupt-*")
+	require.NoError(t, globErr)
+	require.Len(t, backups, 1)
+	assert.Contains(t, err.Error(), agent.CorruptBackedUp+" "+backups[0])
+}

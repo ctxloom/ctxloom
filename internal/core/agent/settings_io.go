@@ -77,6 +77,14 @@ func GetFS(fs afero.Fs) afero.Fs {
 	return fs
 }
 
+// The two remedies a corrupt-file refusal ends on: the backup it wrote
+// (RefuseCorrupt, followed by the backup's path), or none, the original left
+// as it stands (RefuseCorruptUntouched).
+const (
+	CorruptBackedUp      = "original backed up to"
+	CorruptLeftUntouched = "the original is left untouched; fix the JSON and re-run"
+)
+
 // RefuseCorrupt is the one refusal shape for "part of this user-owned file
 // will not parse, and writing it back would therefore lose whatever could not
 // be read".
@@ -87,9 +95,10 @@ func GetFS(fs afero.Fs) afero.Fs {
 //
 // Every backend that reads a user-editable settings/hooks/MCP file,
 // round-trips it, and writes it back must route its partial-parse failures
-// here. The alternative — warn and continue with an empty structure — reads
-// as "fault tolerance" and IS silent data destruction: the empty structure
-// gets persisted over the file it failed to read. A warning is not a guard.
+// here, or to RefuseCorruptUntouched. The alternative — warn and continue
+// with an empty structure — reads as "fault tolerance" and IS silent data
+// destruction: the empty structure gets persisted over the file it failed to
+// read. A warning is not a guard.
 //
 // what names the thing that failed to parse; consequence completes
 // "refusing to write <file> … <consequence>".
@@ -99,5 +108,13 @@ func RefuseCorrupt(fs afero.Fs, path string, data []byte, what string, cause err
 	if err := afero.WriteFile(fs, backupPath, data, 0o600); err != nil {
 		return fmt.Errorf("failed to parse %s: %w; additionally failed to back up the corrupt file: %v - refusing to write %s %s", what, cause, err, name, consequence)
 	}
-	return fmt.Errorf("failed to parse %s: %w - original backed up to %s; fix the JSON and re-run (refusing to write %s %s)", what, cause, backupPath, name, consequence)
+	return fmt.Errorf("failed to parse %s: %w - %s %s; fix the JSON and re-run (refusing to write %s %s)", what, cause, CorruptBackedUp, backupPath, name, consequence)
+}
+
+// RefuseCorruptUntouched is RefuseCorrupt for a caller whose writes do not
+// outlive its refusal — a delivery approach, run over the static writer's
+// overlay, which discards everything the run wrote when it refuses. A backup
+// written there would never land, so it writes none and names none.
+func RefuseCorruptUntouched(path, what string, cause error, consequence string) error {
+	return fmt.Errorf("failed to parse %s: %w - %s (refusing to write %s %s)", what, cause, CorruptLeftUntouched, filepath.Base(path), consequence)
 }

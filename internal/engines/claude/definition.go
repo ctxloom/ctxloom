@@ -304,11 +304,24 @@ func bashTimeoutEnv(st engine.ShellTimeout) map[string]string {
 	}
 }
 
-// settingsClaims claims the statusline when asked for and free to claim,
-// each denied tool as an element of permissions.deny — a deny the user
-// already has is theirs, and the record finds it rather than taking it —
-// and each of the shell timeout's env the user has not set to a value of
-// their own.
+// approachWriter is the settings writer the settings approach reads
+// through: fs is the static writer's overlay (engine.SettingsApproach is
+// called only by it), so a corrupt file is refused with no backup.
+func approachWriter(fs afero.Fs) *ClaudeCodeHookWriter {
+	return &ClaudeCodeHookWriter{FS: fs, overlaid: true}
+}
+
+// StatuslineNotOurs is the finding for a statusline the writer leaves
+// unclaimed because ctxloom did not write it (statuslineClaimable). It fits
+// both statuslines that can stand there: the user's own, and an earlier
+// ctxloom's under another command spelling.
+const StatuslineNotOurs = "a statusline ctxloom did not write is in place; remove it to get ctxloom's"
+
+// settingsClaims claims the statusline when asked for and free to claim —
+// reporting one it leaves standing on in.Report (StatuslineNotOurs) — each
+// denied tool as an element of permissions.deny — a deny the user already
+// has is theirs, and the record finds it rather than taking it — and each of
+// the shell timeout's env the user has not set to a value of their own.
 func settingsClaims(fs afero.Fs, path string, in engine.SettingsInputs) ([]present.Claim, error) {
 	statusline, deny := in.Statusline, in.DenyTools
 	claims, err := bashTimeoutClaims(fs, path, bashTimeoutEnv(in.ShellTimeout))
@@ -323,6 +336,8 @@ func settingsClaims(fs afero.Fs, path string, in engine.SettingsInputs) ([]prese
 		if free {
 			claims = append(claims, present.Claim{Pointer: present.PointerKey("statusLine"),
 				Value: map[string]any{"type": "command", "command": ctxloomStatusLineCommand()}})
+		} else {
+			report.To(in.Report).Warnf("%s: %s", path, StatuslineNotOurs)
 		}
 	}
 	seen := map[string]bool{}
@@ -343,7 +358,7 @@ func bashTimeoutClaims(fs afero.Fs, path string, want map[string]string) ([]pres
 	if len(want) == 0 {
 		return nil, nil
 	}
-	w := &ClaudeCodeHookWriter{FS: fs}
+	w := approachWriter(fs)
 	settings, err := w.loadSettings(path) // a missing file is empty settings
 	if err != nil {
 		return nil, err
@@ -376,7 +391,7 @@ func bashTimeoutClaims(fs afero.Fs, path string, want map[string]string) ([]pres
 // the user's own program, or the ctxloom binary with arguments the user
 // chose — is the user's.
 func statuslineClaimable(fs afero.Fs, path string) (bool, error) {
-	settings, err := (&ClaudeCodeHookWriter{FS: fs}).loadSettings(path) // a missing file is empty settings
+	settings, err := approachWriter(fs).loadSettings(path) // a missing file is empty settings
 	if err != nil {
 		return false, err
 	}

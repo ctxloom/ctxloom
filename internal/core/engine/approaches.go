@@ -105,12 +105,15 @@ var ErrContextFileUnsupported = errors.New("engine: this context approach cannot
 // registers each under, the session's own endpoint included as a URL entry.
 type MCPInputs struct{ Servers map[string]wire.MCPServer }
 
-// SettingsInputs is what the settings surface carries.
+// SettingsInputs is what the settings surface carries, and where the writer
+// reports a value it leaves standing rather than claim (a statusline it did
+// not write); nil discards.
 type SettingsInputs struct {
 	DenyTools    []string
 	Statusline   bool
 	ShellTimeout ShellTimeout
 	Exports      Exports
+	Report       report.Sink
 }
 
 // ShellTimeout is how long the engine's shell tool runs a command in the

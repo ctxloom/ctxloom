@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -176,6 +177,27 @@ func TestAgentRun_JournalsAcceptanceBeforeTheUntraceableSpan(t *testing.T) {
 // The budget is shrunk to make the notice certain; nothing here asserts how
 // long anything took.
 func TestAgentRun_ASpawnStillPreparingSaysSoOutLoud(t *testing.T) {
+	assertParkedSpawnSaysSo(t, func() {})
+}
+
+// TestAgentRun_ASpawnNoticeIsFoundBehindAForeignWarning forces the
+// interleaving the package run produced: the clidiag sink is process-wide,
+// so a warning from any other writer — a goroutine an earlier test's
+// coordinator left past its close budget, an unrelated coordinator
+// diagnostic — can land on it before the spawn's notice. The foreign line is
+// written FIRST, deterministically; the notice must still be found.
+func TestAgentRun_ASpawnNoticeIsFoundBehindAForeignWarning(t *testing.T) {
+	assertParkedSpawnSaysSo(t, func() {
+		clidiag.Warn("coord-test", "an unrelated warning from another writer")
+	})
+}
+
+// assertParkedSpawnSaysSo parks a spawn inside Resolve past a 1ms notice
+// budget and asserts the notice it prints. foreign runs after the sink is
+// installed and before the spawn starts, so a test can put other lines on
+// the sink ahead of the notice.
+func assertParkedSpawnSaysSo(t *testing.T, foreign func()) {
+	t.Helper()
 	resetStrictness(t)
 	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	sp.resolveEntered = make(chan string, 1)
@@ -183,9 +205,13 @@ func TestAgentRun_ASpawnStillPreparingSaysSoOutLoud(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 	c.spawnNoticeAfter = time.Millisecond
 
-	sink := &signallingSink{seen: make(chan string, 4)}
+	// The sink is process-wide, so it carries every writer's lines, not only
+	// this spawn's: the notice is SELECTED by its own text (msgSpawnPending
+	// over this caller, agent and budget), never taken as the first line.
+	sink := &signallingSink{seen: make(chan string, 64)}
 	restore := clidiag.SetSink(sink)
 	defer restore()
+	foreign()
 
 	done := make(chan error, 1)
 	go func() {
@@ -193,11 +219,18 @@ func TestAgentRun_ASpawnStillPreparingSaysSoOutLoud(t *testing.T) {
 		done <- err
 	}()
 
+	want := fmt.Sprintf(msgSpawnPending, ownerIdentity().Harp, "worker", c.spawnNoticeAfter)
 	var notice string
-	select {
-	case notice = <-sink.seen:
-	case <-time.After(conformanceWait):
-		t.Fatal("a spawn parked past its notice budget never reported itself — the operator sees nothing at all")
+	deadline := time.After(conformanceWait)
+	for notice == "" {
+		select {
+		case line := <-sink.seen:
+			if strings.Contains(line, want) {
+				notice = line
+			}
+		case <-deadline:
+			t.Fatal("a spawn parked past its notice budget never reported itself — the operator sees nothing at all")
+		}
 	}
 	assert.Contains(t, notice, "agent_run", "the notice names the verb that is stuck")
 	assert.Contains(t, notice, ownerIdentity().Harp, "…the caller")

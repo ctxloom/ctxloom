@@ -439,6 +439,11 @@ const defaultSpawnNoticeAfter = 15 * time.Second
 // notice budget leaves behind.
 const logSpawnPending = "agent_run_spawn_pending"
 
+// msgSpawnPending is the operator-facing warning a spawn parked past its
+// notice budget prints: the caller's label, the agent, the budget.
+const msgSpawnPending = "agent_run: %s's spawn of agent %q has been preparing for over %s and is not registered yet, " +
+	"so it is not in the roster and has no run id; it is still starting, NOT lost — do not spawn a second one"
+
 // notePendingSpawn arms the watchdog over agent_run's pre-registration span
 // and returns the function that stands it down. The caller defers that
 // function, so every exit from the span — success, refusal, panic — disarms
@@ -458,9 +463,7 @@ func (c *Coordinator) notePendingSpawn(caller Identity, agentName string) (settl
 	timer := time.AfterFunc(after, func() {
 		c.audit("agent_run.pending", caller.Harp, map[string]string{"agent": agentName, "after": after.String()})
 		zap.L().Warn(logSpawnPending, zap.String("caller", caller.Harp), zap.String("agent", agentName), zap.Duration("after", after))
-		c.rep.Warnf("agent_run: %s's spawn of agent %q has been preparing for over %s and is not registered yet, "+
-			"so it is not in the roster and has no run id; it is still starting, NOT lost — do not spawn a second one",
-			callerLabel(caller), agentName, after)
+		c.rep.Warnf(msgSpawnPending, callerLabel(caller), agentName, after)
 	})
 	return func() { timer.Stop() }
 }

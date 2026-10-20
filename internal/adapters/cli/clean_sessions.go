@@ -43,7 +43,7 @@ func sessionReapPolicy(now time.Time) (sessions.ReapPolicy, error) {
 	}
 	cutoff, err := reclaimCutoff(cleanOlderThan, now)
 	if err != nil {
-		return p, err
+		return sessions.ReapPolicy{}, err
 	}
 	p.Cutoff = cutoff
 	if p.Scope == paths.Persist {

@@ -282,3 +282,49 @@ func TestDefaultSessionReapAge_Parses(t *testing.T) {
 	require.NoError(t, err, "a default the grammar rejects would refuse every plain clean")
 	assert.True(t, got.Before(now))
 }
+
+// TestClean_IncludePersistHonoursSessionTranscriptRetention: the retention
+// that guards --include-persist is the configured one — a ten-day-old
+// session's transcript, which the 30d default keeps, goes when
+// session_transcript_retention says five days.
+func TestClean_IncludePersistHonoursSessionTranscriptRetention(t *testing.T) {
+	cotProject(t)
+	dir := cotSeedSession(t, "aged-quiet-heron", 10*24*time.Hour)
+
+	cotRun(t, "--older-than", "7d", "--include-persist", "--yes", "--format", "json")
+	cotAssertPlan(t, dir, true)
+
+	cotHomeConfig(t, "schema_version: 8\nsession_transcript_retention: 5d\n")
+	cotRun(t, "--older-than", "7d", "--include-persist", "--yes", "--format", "json")
+	cotAssertPlan(t, dir, false)
+}
+
+// TestClean_RefusesAMalformedSessionTranscriptRetention: a retention the
+// schema admits but the grammar refuses (a zero age) refuses the persist
+// reap, naming the key — never a zero cutoff, which would gate nothing.
+// Nothing on disk changes.
+func TestClean_RefusesAMalformedSessionTranscriptRetention(t *testing.T) {
+	cotProject(t)
+	cotHomeConfig(t, "schema_version: 8\nsession_transcript_retention: 0d\n")
+	dir := cotSeedSession(t, "aged-quiet-heron", 90*24*time.Hour)
+
+	_, err := execRootCmd(t, "clean", "--include-persist", "--yes", "--format", "json")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "session_transcript_retention", "the refusal names the thing to fix")
+	cotAssertScratch(t, dir, true)
+	cotAssertPlan(t, dir, true)
+}
+
+// A malformed --older-than refuses the policy under --include-persist too:
+// resolving the retention after it must not swallow the refusal.
+func TestSessionReapPolicy_MalformedOlderThanRefusesUnderIncludePersist(t *testing.T) {
+	cotProject(t)
+	prevAge, prevPersist := cleanOlderThan, cleanIncludePersist
+	t.Cleanup(func() { cleanOlderThan, cleanIncludePersist = prevAge, prevPersist })
+	cleanOlderThan, cleanIncludePersist = "soon", true
+
+	_, err := sessionReapPolicy(time.Now())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--older-than")
+}

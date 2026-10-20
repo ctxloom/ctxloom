@@ -220,3 +220,24 @@ func BenchmarkFrontendPort_ListSessionsProbesEveryIndexRow(b *testing.B) {
 		_, _ = port.ListSessions(context.Background())
 	}
 }
+
+// TestFrontendPort_ListSessions_CarriesLastActivity: each index session
+// carries the index's own last-worked time, the clock `session list` orders
+// by, so a frontend can order and age the rows itself.
+func TestFrontendPort_ListSessions_CarriesLastActivity(t *testing.T) {
+	home := testsupport.Isolate(t)
+	projectDir := home + "/proj"
+	mgr, err := sessions.Open(nil)
+	require.NoError(t, err)
+	_, err = mgr.AssignHarp(projectDir, "claude-code")
+	require.NoError(t, err)
+	entries, err := mgr.ListForProject(projectDir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	require.False(t, entries[0].LastActivity.IsZero())
+
+	list, err := NewFrontendPort(FrontendDeps{WorkDir: projectDir}).ListSessions(context.Background())
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.True(t, entries[0].LastActivity.Equal(list[0].LastActivity), "the index's last-worked time")
+}

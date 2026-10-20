@@ -55,7 +55,7 @@ func (p *frontendPort) ListSessions(context.Context) ([]frontend.Session, error)
 	}
 	out := make([]frontend.Session, len(entries))
 	for i, e := range entries {
-		out[i] = frontend.Session{Harp: e.HarpName, Engine: e.Backend, State: p.d.SessionState(e.HarpName)}
+		out[i] = frontend.Session{Harp: e.HarpName, Engine: e.Backend, State: p.d.SessionState(e.HarpName), LastActivity: e.LastActivity}
 	}
 	return out, nil
 }

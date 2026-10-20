@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"slices"
+	"strings"
+
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/frontend"
 )
@@ -18,14 +21,15 @@ const (
 
 // BuildRoster merges the session index (every session of this project, each
 // with its lock's verdict) with the coordinator's runs (children with
-// lineage and delivery state) into the tree's display rows: index order
-// preserved (most recent first, the running session pinned on top), children
-// lineage-indented directly under their parent. A harp present in both keeps
+// lineage and delivery state) into the tree's display rows: the running
+// session pinned on top, children lineage-indented directly under their
+// parent, and each level ordered by Activity, most recent first (ties by
+// harp). A harp present in both keeps
 // the index row's engine and takes the held row's richer agent/state; a held
 // child with no index entry (e.g. a containerized child whose transcript
 // hasn't landed) still shows.
 func BuildRoster(index []frontend.Session, held []coord.RunInfo, selfHarp string) []RosterRow {
-	return placeLineage(rosterRows(index, held, selfHarp))
+	return placeLineage(rosterRows(index, held, selfHarp), selfHarp)
 }
 
 // heldRow is the roster row the coordinator's run r says.
@@ -83,7 +87,7 @@ func rosterRows(index []frontend.Session, held []coord.RunInfo, selfHarp string)
 // indexRow renders one index entry, enriched by the coordinator's held row for
 // the same harp when there is one.
 func indexRow(e frontend.Session, held RosterRow, isHeld bool) RosterRow {
-	row := RosterRow{Harp: e.Harp, Engine: e.Engine}
+	row := RosterRow{Harp: e.Harp, Engine: e.Engine, SessionActivity: e.LastActivity}
 	if !isHeld {
 		row.State = e.State
 		return row
@@ -111,11 +115,12 @@ func indexRow(e frontend.Session, held RosterRow, isHeld bool) RosterRow {
 	return row
 }
 
-// placeLineage moves children under their parent, depth-indented, preserving
-// the order rows arrived in among siblings. The child index is built in one
+// placeLineage moves children under their parent, depth-indented, each
+// level ordered by activity (byActivity), with self — the running session —
+// first among the roots. The child index is built in one
 // pass, so the walk visits a node's actual children rather than rescanning
 // every row per node.
-func placeLineage(rows []RosterRow) []RosterRow {
+func placeLineage(rows []RosterRow, self string) []RosterRow {
 	known := make(map[string]bool, len(rows))
 	for _, r := range rows {
 		known[r.Harp] = true
@@ -130,6 +135,15 @@ func placeLineage(rows []RosterRow) []RosterRow {
 		} else {
 			roots = append(roots, r)
 		}
+	}
+	if len(roots) > 0 && roots[0].Harp == self {
+		// rosterRows put the running session first; it stays there.
+		byActivity(roots[1:])
+	} else {
+		byActivity(roots)
+	}
+	for _, kids := range children {
+		byActivity(kids)
 	}
 
 	placed := make(map[string]bool, len(rows))
@@ -155,4 +169,14 @@ func placeLineage(rows []RosterRow) []RosterRow {
 		place(r, 0)
 	}
 	return out
+}
+
+// byActivity orders sibling rows most recently active first, ties by harp.
+func byActivity(rows []RosterRow) {
+	slices.SortFunc(rows, func(a, b RosterRow) int {
+		if c := b.Activity().Compare(a.Activity()); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Harp, b.Harp)
+	})
 }

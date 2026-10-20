@@ -23,6 +23,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
@@ -103,6 +104,9 @@ type Session struct {
 	Engine string
 	// State is SessionLive, SessionEnded or SessionUnknown.
 	State string
+	// LastActivity is when the session was last worked, the time the index
+	// orders by.
+	LastActivity time.Time
 }
 
 // RunWatch is one open WatchRuns stream.

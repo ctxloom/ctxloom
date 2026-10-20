@@ -51,13 +51,13 @@ func TestBuildRoster_ChildrenNestUnderParent(t *testing.T) {
 	require.Len(t, rows, 4)
 	assert.Equal(t, "perky-same-chevy", rows[0].Harp)
 	assert.Equal(t, 0, rows[0].Depth)
-	assert.Equal(t, "swift-elm-fox", rows[1].Harp, "children directly under their parent")
+	assert.Equal(t, "deep-oak-hen", rows[1].Harp, "a run with no index entry still shows; siblings of equal activity by name")
 	assert.Equal(t, 1, rows[1].Depth)
-	assert.Equal(t, "developer", rows[1].Agent, "the coordinator's run enriches the index row")
-	assert.Equal(t, "executing", rows[1].State, "the coordinator's state wins over the lock's verdict")
-	assert.Equal(t, "claude-code", rows[1].Engine, "index engine survives the merge")
-	assert.Equal(t, "deep-oak-hen", rows[2].Harp, "a run with no index entry still shows")
+	assert.Equal(t, "swift-elm-fox", rows[2].Harp, "children directly under their parent")
 	assert.Equal(t, 1, rows[2].Depth)
+	assert.Equal(t, "developer", rows[2].Agent, "the coordinator's run enriches the index row")
+	assert.Equal(t, "executing", rows[2].State, "the coordinator's state wins over the lock's verdict")
+	assert.Equal(t, "claude-code", rows[2].Engine, "index engine survives the merge")
 	assert.Equal(t, "unrelated-flat-owl", rows[3].Harp)
 	assert.Equal(t, 0, rows[3].Depth)
 }
@@ -101,12 +101,10 @@ func TestBuildRoster_OrphanChildPlacesFlat(t *testing.T) {
 	assert.Equal(t, 0, rows[0].Depth, "an orphan (parent unknown) shows at the root")
 }
 
-// Characterization of the lineage walk before a later change replaces its
-// scan-every-row-per-node placement with a children index: depth accumulates
-// down the chain, siblings keep the order the roster produced them in, and a
-// subtree is emitted immediately after its parent rather than after its
-// parent's siblings.
-func TestBuildRoster_GrandchildrenNestAndSiblingsKeepRosterOrder(t *testing.T) {
+// The lineage walk: depth accumulates down the chain, siblings of equal
+// activity order by name, and a subtree is emitted immediately after its
+// parent rather than after its parent's siblings.
+func TestBuildRoster_GrandchildrenNestAndSiblingsOrderByName(t *testing.T) {
 	rows := BuildRoster(nil, []coord.RunInfo{
 		held("root", "", "live", ""),
 		held("kid-b", "", "executing", "root"),
@@ -119,7 +117,7 @@ func TestBuildRoster_GrandchildrenNestAndSiblingsKeepRosterOrder(t *testing.T) {
 	for _, r := range rows {
 		got = append(got, fmt.Sprintf("%s@%d", r.Harp, r.Depth))
 	}
-	assert.Equal(t, []string{"root@0", "kid-b@1", "grandkid@2", "kid-a@1", "other-root@0"}, got)
+	assert.Equal(t, []string{"other-root@0", "root@0", "kid-a@1", "kid-b@1", "grandkid@2"}, got)
 }
 
 // A parent cycle cannot arise from the coordinator, but the walk must still

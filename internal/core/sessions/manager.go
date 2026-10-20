@@ -596,7 +596,7 @@ func (e *Entry) recordRotation(cur string) {
 // The surviving rotations are appended and the WHOLE slice is then
 // RE-SORTED by RotatedAt ascending — not left in call order. Rotations is
 // documented (and the harp-lifetime canonical rebuild, operations.
-// convertVendorTranscript, depends on it) as oldest-first array order; a
+// RefreshVendorTranscript, depends on it) as oldest-first array order; a
 // caller adopting a vendor file that predates every rotation already on
 // record — the ordinary shape for a pre-fix orphan, which by construction
 // is OLDER than everything the store has ever known about this harp — must

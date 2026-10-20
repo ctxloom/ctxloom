@@ -87,7 +87,7 @@ func TestRecorder_DefaultPath_HoldsSharedOwnershipLockUntilClose(t *testing.T) {
 
 // TestRecorder_WithWriter_TakesNoOwnershipLock asserts the OTHER half of the
 // design: a WithWriter recorder takes NO lock on the canonical transcript. A
-// vendor re-conversion (operations.convertVendorTranscript) fills one while
+// vendor re-conversion (operations.RefreshVendorTranscript) fills one while
 // holding that transcript's EXCLUSIVE lock, so a shared lock taken here would
 // block it against its own writer.
 //

@@ -256,7 +256,7 @@ func TestSessionStoreContract_RotationLineage(t *testing.T) {
 // SessionID against both the current binding and existing Rotations, and the
 // resulting slice stays sorted by RotatedAt ascending — oldest first,
 // regardless of call order — since the harp-lifetime canonical rebuild
-// (operations.convertVendorTranscript) concatenates Rotations in array
+// (operations.RefreshVendorTranscript) concatenates Rotations in array
 // order. MemStore is the fake every operations-level adopt test runs
 // against, so a fake that left the slice in call order instead of
 // RotatedAt order would make that whole test suite pass against a

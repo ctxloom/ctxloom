@@ -17,7 +17,7 @@ import (
 //
 // It exists so those hooks route by the session's ACTUAL engine instead of
 // assuming one. It reads vendorReaderFor — the same registry-derived view
-// convertVendorTranscript reads — so a hook and a canonical conversion can
+// RefreshVendorTranscript reads — so a hook and a canonical conversion can
 // never disagree about which parser an engine's bytes get, and no second
 // engine-identity roster is minted.
 //
@@ -35,7 +35,7 @@ import (
 // serve an engine with no per-session file.
 //
 // Selection happens AFTER the source is known, matching
-// convertVendorTranscript: an unknown-version refusal is a real, actionable
+// RefreshVendorTranscript: an unknown-version refusal is a real, actionable
 // signal and should only be raised about a session that actually has a
 // transcript to read.
 func ResolveTurnTranscript(ctx context.Context, fsys afero.Fs, reg engine.Registry, harp, hookTranscriptPath string) (vendorreader.VendorAdapter, string, error) {

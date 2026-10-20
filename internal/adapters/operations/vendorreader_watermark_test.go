@@ -96,7 +96,7 @@ func TestRefreshVendorTranscript_ResumesFromTheWatermarkWithoutReadingThePrefix(
 	vendorPath := vendorFileWithLines(t, settledPrefix)
 	e := liveClaudeEntry(harp, vendorPath)
 
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 	wm := readWatermark(t, harp)

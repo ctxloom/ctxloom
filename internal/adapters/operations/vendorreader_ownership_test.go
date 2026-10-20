@@ -21,7 +21,7 @@ import (
 // canonical transcript's default path for its whole lifetime
 // (fileRecorder.ensureFile), and RefreshVendorTranscript's rebuild takes the
 // matching EXCLUSIVE TryLock before replacing that same file
-// (convertVendorTranscript's ownership probe). The two can therefore never
+// (rebuildCanonicalTranscript's ownership probe). The two can therefore never
 // both proceed at once: a rebuild that would have renamed a fresh conversion
 // over the recorder's open inode — silently orphaning it, losing every event
 // recorded afterward, exit 0, no error — now backs off instead.
@@ -34,8 +34,8 @@ import (
 // file — the loss this defect caused is now structurally impossible rather
 // than merely rare.
 //
-// Mutation kill: deleting the `if refresh { ... TryLock ... }` block in
-// convertVendorTranscript (always rebuild, as before the fix) turns this red
+// Mutation kill: deleting the TryLock probe in rebuildCanonicalTranscript
+// (always rebuild, as before the fix) turns this red
 // — the rebuild would replace canonPath's inode (SameFile fails) and the
 // post-skip write would land in a file nothing reads (Contains fails).
 // Verified by hand: commenting out the probe block reproduces both failures.
@@ -133,10 +133,9 @@ func TestRefreshVendorTranscript_ConcurrentRebuildsSerialize(t *testing.T) {
 	harp := "concurrent-rebuild-harp"
 	e := claudeEntry(harp, claudeFixturePath)
 
-	// Seed a canonical transcript so canonicalDestination(refresh=true) has
-	// a current-named file to resolve, matching the shape a real second
-	// rebuild would see.
-	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
+	// Seed a canonical transcript, matching the shape a real second rebuild
+	// would see.
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 
@@ -144,7 +143,7 @@ func TestRefreshVendorTranscript_ConcurrentRebuildsSerialize(t *testing.T) {
 	require.NoError(t, err)
 
 	// Stand in for "a first rebuild is already in progress": hold the exact
-	// exclusive lock convertVendorTranscript's probe takes.
+	// exclusive lock rebuildCanonicalTranscript's probe takes.
 	holder, err := safefs.New().Locks.Lock(paths.PathFor(dest))
 	require.NoError(t, err)
 	defer func() { _ = holder.Unlock() }()

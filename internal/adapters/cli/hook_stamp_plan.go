@@ -49,7 +49,7 @@ func runStampPlan(cmd *cobra.Command, args []string) error {
 		clidiag.Warn("ctxloom", "stamp-plan: %v", err)
 		return nil
 	}
-	if ev.Path == "" || !plans.IsPlanFile(ev.Path) {
+	if !plans.IsPlanFile(ev.Path) { // no path is no plan file
 		return nil
 	}
 	if err := plans.StampPlanFile(afero.NewOsFs(), ev.Path, harp); err != nil {

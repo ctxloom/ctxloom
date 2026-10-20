@@ -2,6 +2,9 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -51,4 +54,39 @@ func TestStampPlanHook_SilentOnNonEditPayload(t *testing.T) {
 	require.NoError(t, stampPlanCmd.RunE(cmd, nil))
 
 	assert.Empty(t, sink.String(), "a payload with no file_path is not an error")
+}
+
+// stampPlanPayload is a post_file_edit payload naming path.
+func stampPlanPayload(t *testing.T, path string) string {
+	t.Helper()
+	b, err := json.Marshal(map[string]any{"tool_input": map[string]string{"file_path": path}})
+	require.NoError(t, err)
+	return string(b)
+}
+
+// The hook stamps the session's harp into an edited plan file, and leaves an
+// edited file that is no plan file byte-for-byte alone.
+func TestStampPlanHook_StampsOnlyAPlanFile(t *testing.T) {
+	const harp = "wave-u036-f10"
+	t.Setenv("CTXLOOM_SESSION_HARP", harp)
+	dir := t.TempDir()
+	const body = "# notes\n"
+	plan := filepath.Join(dir, "plan.md")
+	other := filepath.Join(dir, "notes.md")
+	for _, p := range []string{plan, other} {
+		require.NoError(t, os.WriteFile(p, []byte(body), 0o644))
+	}
+
+	for _, p := range []string{plan, other} {
+		cmd := firedBy(t, &cobra.Command{}, claude.EngineName)
+		cmd.SetIn(strings.NewReader(stampPlanPayload(t, p)))
+		require.NoError(t, stampPlanCmd.RunE(cmd, nil))
+	}
+
+	got, err := os.ReadFile(plan)
+	require.NoError(t, err)
+	assert.Contains(t, string(got), harp, "a plan file is stamped with the session's harp")
+	got, err = os.ReadFile(other)
+	require.NoError(t, err)
+	assert.Equal(t, body, string(got), "a file that is no plan file is never touched")
 }

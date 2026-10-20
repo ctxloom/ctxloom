@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // testProg is the program name these tests open logs for. Not "ctxloom": a
@@ -206,10 +208,12 @@ func TestLazy_FirstWriteCreatesAndLaterWritesAppend(t *testing.T) {
 }
 
 // A sink that cannot be opened fails its writes rather than pretending they
-// landed, and says so ONCE on stderr. The stderr line is the only trace a lost
-// log leaves — zap's own error channel is this same sink — so without it the
-// degradation is indistinguishable from a process that had nothing to say;
-// once, because a process that logs often must not repeat it per record.
+// landed, and says so ONCE as a clidiag warning. That line is the only trace a
+// lost log leaves — zap's own error channel is this same sink — so without it
+// the degradation is indistinguishable from a process that had nothing to say;
+// once, because a process that logs often must not repeat it per record. It
+// rides clidiag's sink, never raw stderr: under the split view that sink is
+// the session's diagnostics log, and a raw write paints over the view.
 // HOME pointing at a regular file makes ~/.ctxloom impossible to create.
 func TestLazy_AnUnopenableLogFailsTheWriteAndSaysSoOnce(t *testing.T) {
 	notADir := filepath.Join(t.TempDir(), "home-is-a-file")
@@ -222,12 +226,15 @@ func TestLazy_AnUnopenableLogFailsTheWriteAndSaysSoOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var sink bytes.Buffer
+	restore := clidiag.SetSink(&sink)
 	real := os.Stderr
 	os.Stderr = w
 	ws := Lazy(testProg)
 	_, err1 := ws.Write([]byte("lost\n"))
 	_, err2 := ws.Write([]byte("also lost\n"))
 	os.Stderr = real
+	restore()
 	w.Close()
 	var stderr bytes.Buffer
 	_, _ = stderr.ReadFrom(r)
@@ -236,7 +243,10 @@ func TestLazy_AnUnopenableLogFailsTheWriteAndSaysSoOnce(t *testing.T) {
 	if err1 == nil || err2 == nil {
 		t.Errorf("a write to a log that could not be opened reported success (errs %v, %v)", err1, err2)
 	}
-	if n := strings.Count(stderr.String(), testProg+": warning:"); n != 1 {
-		t.Errorf("stderr carried %d open-failure warnings, want exactly 1:\n%s", n, stderr.String())
+	if n := strings.Count(sink.String(), testProg+": warning:"); n != 1 {
+		t.Errorf("the diagnostics sink carried %d open-failure warnings, want exactly 1:\n%s", n, sink.String())
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("the open-failure warning bypassed the diagnostics sink onto stderr:\n%s", stderr.String())
 	}
 }

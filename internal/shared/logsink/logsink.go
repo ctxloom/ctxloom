@@ -24,6 +24,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // MaxBytes is the size at which the log is rolled aside at open. Bounded
@@ -89,7 +90,7 @@ func (l *lazyFile) Write(p []byte) (int, error) {
 		l.opened = true
 		l.f, l.err = Open(l.prog)
 		if l.err != nil {
-			fmt.Fprintf(os.Stderr, "%s: warning: could not open the log (%v); continuing without it\n", l.prog, l.err)
+			clidiag.Warn(l.prog, "could not open the log (%v); continuing without it", l.err)
 		}
 	}
 	if l.err != nil {

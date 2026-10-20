@@ -80,7 +80,7 @@ func clearPurged(harp string) error {
 		err = mgr.ClearPurged(harp)
 	}
 	if err != nil {
-		return fmt.Errorf("%s: %w: %w", harp, ErrPurgeMarkNotCleared, err)
+		return fmt.Errorf("%s: %w: %v", harp, ErrPurgeMarkNotCleared, err)
 	}
 	return nil
 }

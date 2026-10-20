@@ -269,7 +269,7 @@ func reportPurgedRebuild(cmd *cobra.Command, harp string, heal func(context.Cont
 	w := errwriter.New(cmd.ErrOrStderr())
 	rebuilt, err := heal(cmd.Context(), harp)
 	switch {
-	case rebuilt && errors.Is(err, operations.ErrPurgeMarkNotCleared):
+	case errors.Is(err, operations.ErrPurgeMarkNotCleared):
 		w.Printf(adoptPurgedRebuiltStillMarked, harp, err)
 	case err != nil:
 		w.Printf(adoptPurgedNotRebuilt, harp, err)

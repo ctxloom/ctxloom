@@ -63,6 +63,10 @@ func TestMemStore_ClearPurged_MatchesTheManager(t *testing.T) {
 	e, err := s.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 	require.NoError(t, s.MarkPurged(e.HarpName, time.Now()))
+	marked, err := s.Find(e.HarpName)
+	require.NoError(t, err)
+	require.NotNil(t, marked)
+	require.NotNil(t, marked.PurgedAt, "the fixture must start marked")
 
 	require.NoError(t, s.ClearPurged(e.HarpName))
 

@@ -35,6 +35,9 @@ func TestAllowlists_NameFilesThatExist(t *testing.T) {
 		{"archrules.LedgerDisciplineAllowed", filesOf(archrules.LedgerDisciplineAllowed)},
 		{"archrules.WriteDisciplineAllowed", filesOf(archrules.WriteDisciplineAllowed)},
 		{"archrules.TestWriteDisciplineAllowed", filesOf(archrules.TestWriteDisciplineAllowed)},
+		{"stdStreamScopes", stdStreamScopes},
+		{"stdStreamExemptDirs", stdStreamExemptDirs},
+		{"archrules.StdStreamsAllowed", filesOf(archrules.StdStreamsAllowed)},
 	} {
 		for _, rel := range list.paths {
 			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err != nil {

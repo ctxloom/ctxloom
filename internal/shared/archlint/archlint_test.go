@@ -98,3 +98,18 @@ func TestSessionBind_UnadmittedCaller(t *testing.T) {
 func TestJSONTags_EverySinkIsWatched(t *testing.T) {
 	run(t, archlint.JSONTagsAnalyzer, "internal/jsonsinkplant")
 }
+
+// TestStdStreams_LibraryCodeNamesNoStandardStream plants every spelling of a
+// write to the process's own stdout/stderr in library code — through a renamed
+// os import, in a function and a package-level var — beside names that only
+// look like one (a field named Stderr, a logger's own Printf), which must not
+// report. The CLI's own packages, a binary's main package, a package outside
+// the scopes and one outside the module are not judged; an allowlisted symbol
+// is honoured, and an allowlisted symbol that no longer reaches a stream is
+// reported stale.
+func TestStdStreams_LibraryCodeNamesNoStandardStream(t *testing.T) {
+	run(t, archlint.StdStreamsAnalyzer,
+		"internal/adapters/streamplant", "internal/adapters/cli/streamcli", "internal/adapters/streamgen",
+		"internal/streamout", "internal/shared/stderrtail", "internal/shared/logboot")
+	analysistest.Run(t, analysistest.TestData(), archlint.StdStreamsAnalyzer, "example.com/streamext")
+}

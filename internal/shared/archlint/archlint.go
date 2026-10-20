@@ -49,6 +49,7 @@ func Analyzers() []*analysis.Analyzer {
 		SessionBindAnalyzer,
 		VocabularyAnalyzer,
 		JSONTagsAnalyzer,
+		StdStreamsAnalyzer,
 	}
 }
 

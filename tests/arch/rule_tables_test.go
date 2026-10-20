@@ -27,6 +27,7 @@ var ruleTableReaders = map[string][]string{
 	"LayeringRules":              {"internal/shared/archlint", "tests/arch"},
 	"LedgerDisciplineAllowed":    {"internal/shared/archlint"},
 	"LockDisciplineAllowed":      {"internal/shared/archlint"},
+	"StdStreamsAllowed":          {"internal/shared/archlint"},
 	"TestWriteDisciplineAllowed": {"internal/shared/archlint"},
 	"WriteDisciplineAllowed":     {"internal/shared/archlint"},
 }

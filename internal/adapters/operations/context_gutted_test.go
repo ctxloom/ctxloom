@@ -1,7 +1,6 @@
 package operations
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -61,18 +60,23 @@ func TestGuttedProfiles(t *testing.T) {
 // TestWarnGuttedProfiles_NamesProfileAndWithheldItems pins the advisory: it
 // fires only when the assembly actually withheld something (a profile that is
 // empty for any other reason is not withholding's story to tell), and it names
-// the profile — the thing the old generic tally never did.
+// the profile — the thing the old generic tally never did. It rides clidiag's
+// sink, never raw stderr: a child's assembly can run while the split view
+// owns the terminal, where that sink is the session's diagnostics log.
 func TestWarnGuttedProfiles_NamesProfileAndWithheldItems(t *testing.T) {
 	withheld := []bundles.Withhold{{Ref: "ctxloom+git://github.com/acme/repo//bundles/ensemble#fragments/role", Reason: "it is linked"}}
 
-	var out bytes.Buffer
-	warnGuttedProfilesTo(&out, map[string][]string{"coordinator": {"role"}}, nil, withheld)
+	out := captureWarnings(t)
+	stderr := captureStderr(t, func() {
+		warnGuttedProfiles(map[string][]string{"coordinator": {"role"}}, nil, withheld)
+	})
+	assert.Empty(t, stderr, "the advisory must not bypass the diagnostics sink")
 	text := out.String()
 	assert.Contains(t, text, "coordinator", "the gutted PROFILE must be named")
 	assert.Contains(t, text, "bundles/ensemble", "the withheld item's bundle must be named")
 
 	// Nothing withheld → silent.
-	var quiet bytes.Buffer
-	warnGuttedProfilesTo(&quiet, map[string][]string{"coordinator": {"role"}}, nil, nil)
-	assert.Empty(t, quiet.String())
+	out.Reset()
+	warnGuttedProfiles(map[string][]string{"coordinator": {"role"}}, nil, nil)
+	assert.Empty(t, out.String())
 }

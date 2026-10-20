@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"sort"
 	"strings"
 
@@ -371,13 +369,8 @@ func guttedProfiles(declared map[string][]string, loaded []string) []string {
 // content was withheld in full (withheld is the assembly's tally): assembly
 // then produces a stub and exits 0 — the agent still answers, with its whole
 // role missing — so the profile is named. It stays a WARNING rather than a
-// startup fault.
+// startup fault, on clidiag's sink like every other diagnostic.
 func warnGuttedProfiles(declared map[string][]string, loaded []string, withheld []bundles.Withhold) {
-	warnGuttedProfilesTo(os.Stderr, declared, loaded, withheld)
-}
-
-// warnGuttedProfilesTo is warnGuttedProfiles with the sink injected.
-func warnGuttedProfilesTo(w io.Writer, declared map[string][]string, loaded []string, withheld []bundles.Withhold) {
 	if len(withheld) == 0 {
 		// The profile may be empty for reasons that are not withholding (an
 		// empty bundle, an exclusion filter). Only speak to withholding.
@@ -388,7 +381,7 @@ func warnGuttedProfilesTo(w io.Writer, declared map[string][]string, loaded []st
 		refs[i] = item.Ref
 	}
 	for _, p := range guttedProfiles(declared, loaded) {
-		clidiag.Fwarn(w, "ctxloom",
+		clidiag.Warn("ctxloom",
 			"profile %q contributed NO content to this context: every fragment it declares was withheld. "+
 				"Withheld item(s): %s",
 			p, strings.Join(refs, ", "))

@@ -148,7 +148,7 @@ func TestRunCharacterization_FlagValidationRejectsBeforeAnyWork(t *testing.T) {
 	runCLIFixture(t)
 
 	res := runCLI(t, "run", "--dry-run", "--format", "text", "--permissions", "no-such-posture", "-p", "dev", "hi")
-	require.Error(t, res.err, "an unknown --permissions value must be a hard error")
+	require.ErrorIs(t, res.err, errUnknownPermissions, "an unknown --permissions value must be a hard error")
 	assert.NotContains(t, res.all(), "=== LLM ===", "validation must reject before assembly renders anything")
 
 	res = runCLI(t, "run", "--dry-run", "--format", "text", "--compact", "-p", "dev", "hi")

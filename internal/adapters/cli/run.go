@@ -668,8 +668,11 @@ func validatePermissionFlag(known []string, flag string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("unknown --permissions %q; valid: %s", flag, strings.Join(known, "|"))
+	return fmt.Errorf("%w %q; valid: %s", errUnknownPermissions, flag, strings.Join(known, "|"))
 }
+
+// errUnknownPermissions refuses a typed --permissions value no engine names.
+var errUnknownPermissions = errors.New("unknown --permissions")
 
 // loadConfig loads this run's configuration, surfaces the warnings it
 // downgraded (they are what arms the startup gate) and settles the profile

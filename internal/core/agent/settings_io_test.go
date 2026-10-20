@@ -165,8 +165,9 @@ func TestRefuseCorrupt_BacksUpAndNamesTheBackup(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	path := "/p/settings.json"
 	data := []byte(`{"permissions":{"deny":"nope"}}`)
-	err := RefuseCorrupt(fs, path, data, "permissions.deny", errors.New("cause"), "to avoid dropping existing permission rules")
-	require.Error(t, err)
+	cause := errors.New("cause")
+	err := RefuseCorrupt(fs, path, data, "permissions.deny", cause, "to avoid dropping existing permission rules")
+	require.ErrorIs(t, err, cause, "the refusal carries the parse failure")
 	backups, globErr := afero.Glob(fs, path+".corrupt-*")
 	require.NoError(t, globErr)
 	require.Len(t, backups, 1)

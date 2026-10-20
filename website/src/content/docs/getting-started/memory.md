@@ -69,6 +69,8 @@ ctxloom session purge <harp> --yes        # Empty a session, keep it listed
 
 `remove` and `purge` only report what they would do until you pass `--yes`.
 
+A purged session stays listed as purged, and reading it never brings its transcript back. If its engine's own log outlived the purge, `ctxloom session adopt <harp> --yes` or a new interactive run of the session rebuilds the transcript from it, and the session is an ordinary one again.
+
 ## Storage
 
 Each session keeps its machine state in a directory under your home, keyed by its harp name, and its readable outputs in an output dir under your Documents folder (`<Documents>/ctxloom/<project>/<harp>/`, or wherever the `output_dir` config key says):

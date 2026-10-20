@@ -152,7 +152,10 @@ engine's private files after the fact.
   the first prompt and a copy that has one already holds it. A refresh that
   fails on a read warns and the read goes on with the copy the session has,
   which the failed refresh leaves as it was; a purged session is never
-  refreshed by a read. Conversion is best-effort. A
+  refreshed by a read. It is re-captured only by `session adopt --yes`
+  (even when that adopts nothing) or by the exit of a new interactive run
+  of it, from whatever engine log outlived the purge; a rebuild clears its
+  purge mark, and one that rebuilds nothing leaves the session purged. Conversion is best-effort. A
   backend with no adapter, driven interactively, has no ctxloom memory.
 
 ---

@@ -30,6 +30,11 @@ A session whose lock does not prove its owner dead is REFUSED: a running
 agent may still be appending to this transcript. A held lock, or no lock at
 all, both refuse. Pass --even-if-live to destroy it anyway.
 
+A purged session stays marked purged, and no read rebuilds its transcript.
+If its engine's own log outlives the purge, 'ctxloom session adopt
+<session-name> --yes' or a new interactive run of the session rebuilds the
+transcript from it, and the session is an ordinary one again.
+
 ```
 ctxloom session transcript purge <session-name> [flags]
 ```

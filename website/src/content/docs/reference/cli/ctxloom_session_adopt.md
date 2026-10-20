@@ -33,6 +33,11 @@ through the session store, oldest first — never a hand edit of the record —
 and then rebuilds the session's canonical transcript from the full lineage,
 so the recovered history is what every reader of the session sees.
 
+A purged session is rebuilt even when nothing is adopted: --yes rebuilds its
+canonical transcript from whatever engine log outlived the purge, and a
+session it rebuilds is no longer marked purged. One with no surviving engine
+log stays purged.
+
 The session's engine decides what is a transcript of it, and when each one's
 records were written. An engine whose transcript readers cannot say that is
 refused, naming the engine, rather than silently scanning nothing.

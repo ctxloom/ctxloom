@@ -34,6 +34,11 @@ refuse. Pass --even-if-live to sweep it anyway. The scratch worktrees keep
 their own verdict: a worktree whose owner is not provably dead is skipped
 and reported, never reaped.
 
+A purged session stays marked purged, and no read rebuilds its transcript.
+If its engine's own log outlives the purge, 'ctxloom session adopt
+<session-name> --yes' or a new interactive run of the session rebuilds the
+transcript from it, and the session is an ordinary one again.
+
 ```
 ctxloom session purge <session-name> [flags]
 ```

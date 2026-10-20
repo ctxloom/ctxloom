@@ -82,7 +82,12 @@ at any age while the session is marked keep ('ctxloom session keep
 
 A session whose lock does not prove its owner dead is REFUSED: a running
 agent may still be appending to this transcript. A held lock, or no lock at
-all, both refuse. Pass --even-if-live to destroy it anyway.`,
+all, both refuse. Pass --even-if-live to destroy it anyway.
+
+A purged session stays marked purged, and no read rebuilds its transcript.
+If its engine's own log outlives the purge, 'ctxloom session adopt
+<session-name> --yes' or a new interactive run of the session rebuilds the
+transcript from it, and the session is an ordinary one again.`,
 	Example: `  ctxloom session transcript purge amber-swift-owl --yes`,
 	Args:    cobra.ExactArgs(1),
 	RunE:    runSessionTranscriptPurge,
@@ -121,7 +126,12 @@ agent may still be writing the transcript this would destroy. A held lock,
 or no lock at all (every session from before the lock existed), both
 refuse. Pass --even-if-live to sweep it anyway. The scratch worktrees keep
 their own verdict: a worktree whose owner is not provably dead is skipped
-and reported, never reaped.`,
+and reported, never reaped.
+
+A purged session stays marked purged, and no read rebuilds its transcript.
+If its engine's own log outlives the purge, 'ctxloom session adopt
+<session-name> --yes' or a new interactive run of the session rebuilds the
+transcript from it, and the session is an ordinary one again.`,
 	Example: `  ctxloom session purge amber-swift-owl --yes`,
 	Args:    cobra.ExactArgs(1),
 	RunE:    runSessionPurge,

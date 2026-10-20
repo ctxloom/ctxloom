@@ -203,7 +203,11 @@ or resume a session through `operations.RefreshForRead` (`RecordedSessionEntries
 --session` and the ended-child resume — a `run --session --dry-run` reads the copy as captured
 through `CapturedSessionEntries` and writes nothing, `session show`, `session transcript show`, and `session
 list`/`search` for a row with no title) — and each acts on `HealErr` only: the exit and the readers warn and go on with the copy
-the harp has, `adopt` returns it.
+the harp has, `adopt` returns it. For a purged session `ResolveAndHeal` is its re-capture: a
+rebuild that commits a canonical transcript clears the purge mark (`sessions.Store.ClearPurged`),
+and one that rebuilds nothing or fails leaves it. Only the exit and `adopt` re-capture a purged
+session; `RefreshForRead` never refreshes one, and `session adopt --yes` rebuilds one even when it
+adopts no earlier log.
 
 ### 5.2 Per-engine adapters
 

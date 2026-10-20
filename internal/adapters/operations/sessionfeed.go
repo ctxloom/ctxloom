@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
@@ -464,10 +465,11 @@ func feedScrollback(entry *sessions.Entry) []agent.SessionEntry {
 
 // watchStoreFeed is the store tail behind the unified shape: the harp's
 // captured transcript, tailed host-side — correct regardless of which engine
-// or container ran the session.
+// or container ran the session. A harp with none captured yet is
+// frontend.ErrNothingCaptured.
 func watchStoreFeed(ctx context.Context, entry *sessions.Entry) (*SessionFeed, error) {
 	if entry.CanonicalTranscriptPath == "" {
-		return nil, fmt.Errorf("session %q has no captured transcript; nothing to watch yet (ctxloom captures a session's transcript as its turns are recorded)", entry.HarpName)
+		return nil, fmt.Errorf("session %q has %w", entry.HarpName, frontend.ErrNothingCaptured)
 	}
 	watchEvents, errs := transcript.WatchCanonicalTranscript(ctx, entry.CanonicalTranscriptPath, entry.HarpName, 0)
 

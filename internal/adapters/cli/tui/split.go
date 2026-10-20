@@ -145,12 +145,14 @@ type Split struct {
 	approvalsView
 	lastInput time.Time
 
-	status    string
-	errMsg    string
-	rosterErr string
-	banner    string
-	note      string
-	noteGen   int
+	status string
+	errMsg string
+	// errOneLine: errMsg is a feed's failure, shown on one line.
+	errOneLine bool
+	rosterErr  string
+	banner     string
+	note       string
+	noteGen    int
 }
 
 // newSplit builds the model over a pane that already exists.
@@ -263,7 +265,7 @@ func (s *Split) updateMore(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case rosterWatchMsg, rosterEventsMsg, rosterRefreshMsg, rosterMsg, rosterErrMsg:
 		return s.applyRosterMsg(msg)
-	case feedOpenedMsg, feedErrMsg, feedEventMsg, feedClosedMsg:
+	case feedOpenedMsg, feedErrMsg, feedEventMsg, feedClosedMsg, feedRetryMsg:
 		return s.applyChildFeedMsg(msg)
 	case controlResultMsg:
 		s.applyControlResult(msg)

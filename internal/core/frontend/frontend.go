@@ -55,7 +55,10 @@ type Port interface {
 
 	// WatchFeed opens one agent's feed: its live event stream while the
 	// coordinator holds it, else its transcript's tail. It runs until ctx
-	// ends; Events closes when the feed does.
+	// ends; Events closes when the feed does. An agent with neither — no
+	// live tap and no transcript captured yet — is ErrNothingCaptured: a
+	// feed that has not started, which opens once its first turn is
+	// recorded.
 	WatchFeed(ctx context.Context, harp string) (Feed, error)
 
 	// CredentialHolds is ConsumerService.CredentialHolds: every hold a turn
@@ -137,6 +140,10 @@ type Terminal interface {
 
 // ErrNoTerminal refuses a Terminal attach to a run that has none.
 var ErrNoTerminal = errors.New("frontend: this run has no interactive terminal — only the session's own interactive run does; a delegated child is headless, so watch its feed")
+
+// ErrNothingCaptured refuses a feed for an agent nothing feeds yet: no
+// coordinator holds it live and no transcript of it has been captured.
+var ErrNothingCaptured = errors.New("no captured transcript; nothing to watch yet (ctxloom captures a session's transcript as its turns are recorded)")
 
 // ErrNoCoordinator refuses a coordinator-backed request in a session that
 // hosts no coordinator.

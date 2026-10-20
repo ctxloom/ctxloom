@@ -1,13 +1,16 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 )
 
 // A delegated child is headless: the split view shows it as its feed (the
@@ -17,8 +20,27 @@ import (
 // the child takes at its next turn — or, with alt+enter, a steer that
 // interrupts the turn in flight. There is no child terminal to type into.
 
-// feedPage is how far PgUp/PgDn scroll a child's feed.
-const feedPage = 10
+const (
+	// feedPage is how far PgUp/PgDn scroll a child's feed.
+	feedPage = 10
+	// feedRetryEvery is how often a child with nothing captured yet has its
+	// feed opened again: it starts once the child's first turn is recorded.
+	feedRetryEvery = 2 * time.Second
+	// feedWaitingNote is the pane while a child's feed has not started.
+	feedWaitingNote = "no turns captured yet — the feed starts with the first"
+)
+
+// feedRetryMsg is a feed open falling due again for the child the pane
+// showed when token was its.
+type feedRetryMsg struct {
+	harp  string
+	token *feedToken
+}
+
+// feedToken is one showing of a child in the pane: each open mints a fresh
+// one, so a retry scheduled for an earlier showing — even of the same harp —
+// is told apart. Not zero-sized, so every token is a distinct pointer.
+type feedToken struct{ _ byte }
 
 // childView is the selected child's half of the pane.
 type childView struct {
@@ -26,6 +48,10 @@ type childView struct {
 	source string
 	feed   *Feed
 	items  []feedItem
+	// waiting: nothing is captured for the child yet, and its feed's open
+	// is retried until something is.
+	waiting bool
+	token   *feedToken
 	// scroll is how many lines above the tail the view sits; 0 follows it.
 	scroll int
 	// verb is the input line's control verb: a steer (the human's send)
@@ -39,6 +65,7 @@ func (c *childView) open(harp string) {
 	c.close()
 	c.harp = harp
 	c.verb = coord.ControlVerbSteer
+	c.token = &feedToken{}
 }
 
 // close releases the feed's watch (openFeed always gives it a Cancel) and
@@ -93,11 +120,24 @@ func (s *Split) applyChildFeedMsg(msg tea.Msg) tea.Cmd {
 		}
 		s.child.feed = msg.feed
 		s.child.source = msg.feed.Source
+		s.child.waiting = false
 		return s.waitFeedCmd()
 	case feedErrMsg:
-		if msg.harp == s.child.harp {
-			s.reportErr(fmt.Sprintf("feed %s: %v", msg.harp, msg.err))
+		if msg.harp != s.child.harp {
+			return nil
 		}
+		if errors.Is(msg.err, frontend.ErrNothingCaptured) {
+			s.child.waiting = true
+			retry := feedRetryMsg{harp: msg.harp, token: s.child.token}
+			s.clock.AfterFunc(feedRetryEvery, func() { s.post(retry) })
+			return nil
+		}
+		s.reportFeedErr(fmt.Sprintf("feed %s: %v", msg.harp, msg.err))
+	case feedRetryMsg:
+		if msg.token != s.child.token {
+			return nil
+		}
+		return s.openFeedCmd(msg.harp)
 	case feedEventMsg:
 		if msg.harp != s.child.harp || s.child.feed == nil {
 			return nil
@@ -110,7 +150,7 @@ func (s *Split) applyChildFeedMsg(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 		if msg.err != nil {
-			s.reportErr(fmt.Sprintf("feed ended: %v", msg.err))
+			s.reportFeedErr(fmt.Sprintf("feed ended: %v", msg.err))
 		} else {
 			s.reportOK("feed ended (agent exited)")
 		}
@@ -210,8 +250,15 @@ func (s *Split) applyControlResult(msg controlResultMsg) {
 	s.reportOK(note)
 }
 
-func (s *Split) reportOK(note string)  { s.status, s.errMsg = note, "" }
-func (s *Split) reportErr(note string) { s.status, s.errMsg = "", note }
+func (s *Split) reportOK(note string)  { s.status, s.errMsg, s.errOneLine = note, "", false }
+func (s *Split) reportErr(note string) { s.status, s.errMsg, s.errOneLine = "", note, false }
+
+// reportFeedErr is a feed's failure as the note: one line, cut to the
+// panel's width, since an error from below the port can run a paragraph.
+func (s *Split) reportFeedErr(note string) {
+	s.reportErr(note)
+	s.errOneLine = true
+}
 
 // listControl acts on the tree's selected row: pause and resume at once; a
 // verb that carries text latches the input line and hands it focus.
@@ -235,6 +282,9 @@ func (s *Split) childLines(w, h int) []string {
 	out = append(out, styleHeader.Render(padCell(" "+s.childTitle(), w)))
 	bodyH := s.feedHeight(h)
 	lines := s.feedLines(w)
+	if s.child.waiting {
+		lines = []string{styleDim.Render(" " + feedWaitingNote)}
+	}
 	end := len(lines) - min(s.child.scroll, s.maxScroll(len(lines), bodyH))
 	for _, l := range lines[max(end-bodyH, 0):end] {
 		out = append(out, padCell(l, w))

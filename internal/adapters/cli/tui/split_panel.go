@@ -221,7 +221,11 @@ func (s *Split) footerLines(w int) []string {
 	if s.pendingN > 0 {
 		add(s.pendingLine(), styleHeader)
 	}
-	if note := s.noteLine(); note != "" {
+	switch note := s.noteLine(); {
+	case s.errOneLine:
+		// padCell cuts it, and says so.
+		out = append(out, padCell(" "+note, w))
+	case note != "":
 		add(note, lipgloss.NewStyle())
 	}
 	switch {

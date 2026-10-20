@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
@@ -98,7 +99,7 @@ func TestWatchStoreFeed_WithoutCanonicalCaptureRefuses(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			testsupport.Isolate(t)
 			feed, err := watchStoreFeed(context.Background(), entry)
-			require.Error(t, err)
+			require.ErrorIs(t, err, frontend.ErrNothingCaptured)
 			assert.Nil(t, feed)
 		})
 	}

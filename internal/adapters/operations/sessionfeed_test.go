@@ -22,6 +22,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
@@ -604,7 +605,7 @@ func TestWatchSessionFeed_ErrorSurface(t *testing.T) {
 	bare := seedFeedHarp(t, home, false) // no live tap, no transcript, no session id
 	_, err = WatchSessionFeed(context.Background(), engines.Registry(), SessionFeedRequest{Harp: bare})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "nothing to watch")
+	assert.ErrorIs(t, err, frontend.ErrNothingCaptured)
 }
 
 // TestAdaptConsumerFeed_ToolCallsAndBoundaries drives the normalization core

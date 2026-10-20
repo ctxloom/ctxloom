@@ -427,8 +427,7 @@ fragments:
 // TestRun_NonTTYStdinNeverEngagesTerminalUI makes explicit what every other
 // TestRun_* case in this file already proves implicitly (Run's stdin is
 // unset, so os/exec gives the child /dev/null, never a tty): a non-tty stdin
-// skips the whole terminal observation layer (surround bar + prefix-key
-// viewer). Unlike those cases, this one omits --one-shot, so the run attempts
+// skips the split view. Unlike those cases, this one omits --one-shot, so the run attempts
 // INTERACTIVE mode (pb.ExecutionMode_INTERACTIVE) rather than short-circuiting
 // to ONESHOT before ever reaching run_terminal.go's interactiveTerminal —
 // proving the term.IsTerminal(stdin) gate itself, which --one-shot bypasses
@@ -445,8 +444,7 @@ func TestRun_NonTTYStdinNeverEngagesTerminalUI(t *testing.T) {
 
 	assert.Equal(t, 0, env.LastExitCode())
 	out := env.LastOutput()
-	assert.NotContains(t, out, "\x1b[1;", "a non-tty stdin never establishes the surround's protected region")
-	assert.NotContains(t, out, "\x1b[?1049h\x1b[r", "a non-tty stdin never wires the prefix interceptor")
+	assert.NotContains(t, out, "\x1b[?1049h", "a non-tty stdin never enters the split view's alternate screen")
 	assert.Contains(t, out, "plain response", "the run still completes normally on the unwrapped seams")
 }
 

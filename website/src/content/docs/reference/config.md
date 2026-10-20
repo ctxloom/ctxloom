@@ -48,7 +48,7 @@ Schema for ctxloom config.yaml files. A file that breaks it — a key it does no
 | `session_reap_age` | string | How old a session must be before `ctxloom clean` reclaims its disposable members (~/.ctxloom/sessions/<harp>/home, work and scratch): an offset in `clean --older-than`'s grammar - 30d, 12w, 720h. Default 30d when unset. `clean --older-than` overrides it for one invocation. Its transcripts and native history are never taken on this age alone; that needs `clean --include-persist`. A session carrying a top-level file named `keep` is never reclaimed. A value the grammar cannot parse is REFUSED, never resolved to the default. |
 | `shell_timeout` | object | The shell-tool timeout every engine is given, engine-neutral: each engine maps it onto its own mechanism, leaving a value the user set in that engine's own settings alone. A command that outlives the foreground timeout is moved to the background by the engine rather than finished, so a git commit behind slow hooks ends the turn unconfirmed; the defaults sit far above the engines' own for that reason. |
 | `sync` | object | Remote dependency sync behavior |
-| `ui` | object | Interactive-run terminal layer: the prefix-key agent-observation viewer and the persistent surround bar. `ctxloom run --plain-terminal` disables the whole layer for one session regardless of this section. |
+| `ui` | object | Interactive-run split view: the agent list beside the selected agent's pane. `ctxloom run --plain-terminal` replaces the split view with a plain passthrough for one session regardless of this section. |
 | `workspace` | string | Project default for the SESSION-level workspace axis: where a session's working directory lives. 'none' (default) is the shared live project dir; 'worktree' gives each session its own git worktree. Overridden per invocation by run/acp --workspace (or an agent_run spawn's workspace field). Deliberately not an agent trait — needing a private cwd is a property of how a session is launched. A value outside this set is REFUSED, never degraded: asserted past the parser it would read as the shared checkout, so a typo'd request for isolation would run in your live project directory. Allowed values: `none`, `worktree`. |
 
 ### agents (map values)
@@ -134,12 +134,11 @@ Remote dependency sync behavior
 
 ### ui
 
-Interactive-run terminal layer: the prefix-key agent-observation viewer and the persistent surround bar. `ctxloom run --plain-terminal` disables the whole layer for one session regardless of this section.
+Interactive-run split view: the agent list beside the selected agent's pane. `ctxloom run --plain-terminal` replaces the split view with a plain passthrough for one session regardless of this section.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `prefix_key` | string | Keystroke that engages the observation viewer during an interactive run; pressing it twice sends one literal prefix byte to the engine. Control keys only (`ctrl-<char>`); keys the engine needs verbatim — ctrl-i (tab), ctrl-j/ctrl-m (newline/return), ctrl-[ (escape) — are rejected. Default: ctrl-]. Examples: `ctrl-]`, `ctrl-t`. |
-| `surround` | boolean | Persistent bottom status bar (harp · agent · engine │ children digest │ prefix hint), drawn on a reserved terminal row the engine cannot paint over. Default: true. |
+| `prefix_key` | string | Keystroke that toggles focus between the split view's agent list and its pane; prefix then [ or PgUp enters the pane's scrollback (q or Esc leaves it). Control keys only (`ctrl-<char>`); keys the engine needs verbatim — ctrl-i (tab), ctrl-j/ctrl-m (newline/return), ctrl-[ (escape) — are rejected. Default: ctrl-]. Examples: `ctrl-]`, `ctrl-t`. |
 
 ## Definitions
 

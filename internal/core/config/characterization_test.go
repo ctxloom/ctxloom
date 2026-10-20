@@ -56,7 +56,6 @@ func characterizationCases() []characterizationCase {
 			return NewFixture(Fixture{
 				SchemaVersion: 1,
 				Sync:          SyncConfig{AutoSync: &no},
-				UI:            UIConfig{Surround: &no},
 			})
 		}},
 		{"default_overlay", func() *Config {
@@ -191,7 +190,6 @@ sync:
   auto_sync: true
 ui:
   prefix_key: ctrl-]
-  surround: true
 workspace: worktree
 `,
 	"full/authored": `agents:
@@ -246,7 +244,6 @@ sync:
   auto_sync: true
 ui:
   prefix_key: ctrl-]
-  surround: true
 workspace: worktree
 `,
 	"full/saveLocked": `agents:
@@ -301,26 +298,19 @@ sync:
   auto_sync: true
 ui:
   prefix_key: ctrl-]
-  surround: true
 workspace: worktree
 `,
 	"explicit_false_and_stale_version/MarshalYAML": `schema_version: 7
 sync:
   auto_sync: false
-ui:
-  surround: false
 `,
 	"explicit_false_and_stale_version/authored": `schema_version: 7
 sync:
   auto_sync: false
-ui:
-  surround: false
 `,
 	"explicit_false_and_stale_version/saveLocked": `schema_version: 7
 sync:
   auto_sync: false
-ui:
-  surround: false
 `,
 	"default_overlay/MarshalYAML": `llm:
   configs:

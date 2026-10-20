@@ -195,10 +195,9 @@ type Config struct {
 	// records its own output dir at mint, so changing this moves where NEW
 	// sessions write, never an existing session's files.
 	outputDir string
-	// ui configures the interactive-run terminal layer (the prefix-key viewer
-	// and the persistent surround bar). Flag/env never lives here — only
-	// presentation preferences; `run --plain-terminal` disables the layer
-	// entirely regardless of this section.
+	// ui configures the interactive-run split view (the prefix key). Flag/env
+	// never lives here — only presentation preferences; `run --plain-terminal`
+	// disables the split view entirely regardless of this section.
 	ui UIConfig
 	// sessionReapAge is how old a session must be before `ctxloom clean`
 	// reclaims its disposable store (~/.ctxloom/sessions/<harp>/ephemeral),
@@ -360,7 +359,7 @@ func (c *Config) toDoc() configDoc {
 		IsolationPidsLimit:           c.isolationPidsLimit,
 		Companions:                   slices.Clone(c.companions),
 		OutputDir:                    c.outputDir,
-		UI:                           cloneUIConfig(c.ui),
+		UI:                           c.ui,
 		SessionReapAge:               c.sessionReapAge,
 		SessionPurgeAge:              c.sessionPurgeAge,
 		NonTTYFormat:                 c.nonTTYFormat,
@@ -543,16 +542,13 @@ type EditorConfig struct {
 	Args    []string `mapstructure:"args" yaml:"args,omitempty"`       // Additional arguments
 }
 
-// UIConfig holds the interactive-run terminal-layer preferences.
+// UIConfig holds the interactive-run split view's preferences.
 type UIConfig struct {
-	// PrefixKey is the keystroke that engages the agent-observation viewer
-	// during an interactive run ("ctrl-]" by default; press it twice to send
-	// one literal prefix byte to the engine). Control keys only — a printable
-	// prefix would swallow ordinary typing.
+	// PrefixKey is the keystroke that toggles focus between the split view's
+	// agent list and its pane ("ctrl-]" by default); prefix then [ or PgUp
+	// enters the pane's scrollback. Control keys only — a printable prefix
+	// would swallow ordinary typing.
 	PrefixKey string `mapstructure:"prefix_key" yaml:"prefix_key,omitempty"`
-	// Surround toggles the persistent bottom status bar (harp · agent · engine
-	// │ children digest │ prefix hint). Default true; nil means unset.
-	Surround *bool `mapstructure:"surround" yaml:"surround,omitempty"`
 }
 
 // DelegationConfig groups the project-wide agent-delegation settings. They are
@@ -707,12 +703,6 @@ func (c *Config) UIPrefixKey() string {
 		return DefaultUIPrefixKey
 	}
 	return c.ui.PrefixKey
-}
-
-// UISurroundEnabled reports whether the persistent surround bar is enabled
-// (default true; `ui.surround: false` opts out).
-func (c *Config) UISurroundEnabled() bool {
-	return c.ui.Surround == nil || *c.ui.Surround
 }
 
 // IsolationImageFor returns the user-provided agent image override for the

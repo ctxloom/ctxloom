@@ -29,7 +29,6 @@ import (
 // value, so a key missing from a render can only mean the persist path
 // dropped it — never that the value was empty and legitimately pruned.
 func fullyPopulatedFixture() Fixture {
-	surround := true
 	autoSync := true
 	return Fixture{
 		SchemaVersion:                CurrentConfigVersion,
@@ -51,7 +50,7 @@ func fullyPopulatedFixture() Fixture {
 		IsolationPidsLimit:           "2048",
 		IsolationEngines:             []string{"claude-code"},
 		Companions:                   []string{"acme"},
-		UI:                           UIConfig{PrefixKey: "ctrl-]", Surround: &surround},
+		UI:                           UIConfig{PrefixKey: "ctrl-]"},
 		SessionReapAge:               "45d",
 		SessionPurgeAge:              "180d",
 		NonTTYFormat:                 "text",
@@ -83,10 +82,9 @@ func TestSessionReapAgeSurvivesSaveRoundTrip(t *testing.T) {
 // the field whose absence prompted it, asserted end to end through the
 // documented API.
 func TestUISurvivesSaveRoundTrip(t *testing.T) {
-	surround := false
 	cfg := NewFixture(Fixture{
 		SchemaVersion: CurrentConfigVersion,
-		UI:            UIConfig{PrefixKey: "ctrl-b", Surround: &surround},
+		UI:            UIConfig{PrefixKey: "ctrl-b"},
 	})
 
 	data, err := yamlx.Marshal(cfg)
@@ -94,10 +92,7 @@ func TestUISurvivesSaveRoundTrip(t *testing.T) {
 
 	var doc configDoc
 	require.NoError(t, yaml.Unmarshal(data, &doc))
-	assert.Equal(t, "ctrl-b", doc.UI.PrefixKey, "the viewer prefix key was silently discarded on save")
-	if assert.NotNil(t, doc.UI.Surround, "the surround toggle was silently discarded on save") {
-		assert.False(t, *doc.UI.Surround, "an explicit surround:false must round-trip as false, not vanish into the default true")
-	}
+	assert.Equal(t, "ctrl-b", doc.UI.PrefixKey, "the prefix key was silently discarded on save")
 }
 
 // TestDelegationDepthAloneSurvivesSaveRoundTrip covers the gap the class

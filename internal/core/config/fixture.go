@@ -153,7 +153,7 @@ func NewFixture(f Fixture) *Config {
 		isolationPidsLimit:           f.IsolationPidsLimit,
 		companions:                   slices.Clone(f.Companions),
 		outputDir:                    f.OutputDir,
-		ui:                           cloneUIConfig(f.UI),
+		ui:                           f.UI,
 		sessionReapAge:               f.SessionReapAge,
 		sessionPurgeAge:              f.SessionPurgeAge,
 		nonTTYFormat:                 f.NonTTYFormat,

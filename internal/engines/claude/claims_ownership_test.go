@@ -224,3 +224,29 @@ func boundHook(h wire.Hook) wire.Hook {
 	h.Args = boundArgs(h.Args)
 	return h
 }
+
+// retiredNextStepHook is the TurnEnd callback an older ctxloom delivered to
+// feed session compaction's task hint. No build installs it now, and the
+// `hook next-step` verb is gone, so claude would run a callback that fails
+// at every turn end if re-delivery left it in place.
+func retiredNextStepHook() wire.Hook {
+	return wire.Hook{Type: "command", Command: agent.CtxloomCommand(), Args: []string{"hook", "next-step"}, Timeout: 5}
+}
+
+// TestInstall_ReDeliveryWithdrawsTheRetiredNextStepHook: a project whose
+// claims record names the `hook next-step` callback an older ctxloom wrote
+// loses it on the next delivery of today's managed set, and keeps every
+// callback still declared.
+func TestInstall_ReDeliveryWithdrawsTheRetiredNextStepHook(t *testing.T) {
+	dir := t.TempDir()
+	older := fullManagedHookSet()
+	older.Unified.TurnEnd = append(older.Unified.TurnEnd, retiredNextStepHook())
+	install(t, atRest(t, afero.NewOsFs(), dir), older, ctxloomBundleMCP())
+	stale := boundHook(retiredNextStepHook()).Line()
+	require.Contains(t, hookCommands(t, dir), stale, "precondition: the older delivery wrote the next-step callback")
+
+	install(t, atRest(t, afero.NewOsFs(), dir), fullManagedHookSet(), ctxloomBundleMCP())
+	after := hookCommands(t, dir)
+	assert.NotContains(t, after, stale, "re-delivery must withdraw the retired next-step callback its record names")
+	assert.Contains(t, after, boundHook(agent.NewMailDrainHook()).Line(), "control: a still-declared callback is re-delivered")
+}

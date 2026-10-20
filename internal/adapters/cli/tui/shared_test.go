@@ -268,6 +268,7 @@ func TestFeedTitleOf_NamesEachPart(t *testing.T) {
 		"feed: h (coder·claude) · paused by the human · ended: failed — exit 1 · ✉ 2 unread · live · ▼ follow",
 		feedTitleOf(RosterRow{Harp: "h", Agent: "coder", Engine: "claude", Hold: &coord.RunHold{Kind: coord.HoldKindHuman}, Cause: "failed", Detail: "exit 1", Unread: 2}, "live", true))
 	assert.Equal(t, "feed: h · ended: done", feedTitleOf(RosterRow{Harp: "h", Cause: "done"}, "", false))
+	assert.Equal(t, "feed: h · ✉ 1 unread", feedTitleOf(RosterRow{Harp: "h", Unread: 1}, "", false), "a single unread message is shown")
 }
 
 // A negative width frames nothing, never a negative pad.

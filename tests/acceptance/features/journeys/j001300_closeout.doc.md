@@ -65,11 +65,16 @@ layout rather than by taste: they are session-scoped by construction, and
 For those, ctxloom may reap, and the safety semantics are not invented here.
 `isolation.ReapOrphanedWorktrees` already treats "I cannot prove who owned
 this" identically to "someone is still using this: never touch it", spares
-uncommitted work in place, and removes only genuinely clean trees. Today that
-logic is reachable only from a startup sweep that reports nothing to anybody.
-The proposed leaf drives the same code with a report attached — reuse, not
-reimplementation, which is why the scenarios assert the reaper's existing
-outcome vocabulary of reaped / spared / skipped.
+uncommitted work in place, and removes only genuinely clean trees. The
+`session worktrees` sub-noun is the leaf for them: its bare form, `list`,
+reports the verdict each checkout would get, and `purge <session-name> --yes`
+removes the ones it can prove are safe. It drives the same classifier and
+remover as everything else that reaps — the startup sweep a `ctxloom run`
+makes (`operations.SweepOrphanedWorktrees`, which speaks only when it removed
+something), and `session sweep` and `clean` (`operations.SweepSessions`),
+which triage a session's worktrees before reclaiming it — with a report
+attached. Reuse, not reimplementation, which is why the scenarios assert the
+reaper's existing outcome vocabulary of reaped / spared / skipped.
 
 Long-lived worktrees a human made live outside the sessions root and are
 invisible to that finder by construction. They get a doctor REPORT and no

@@ -9,9 +9,8 @@ Feature: The archaeologist — what did we decide in March?
 
   ctxloom captures a great deal. It tees every structured run into a canonical
   transcript it owns, and converts four different vendors' private stores into
-  that same format the moment someone reaches for a session the tee never
-  covered, so history survives an engine switch and outlives the tool that
-  produced it. That is the expensive half, and it is built.
+  that same format when an interactive run the tee never covered exits, so
+  history survives an engine switch and outlives the tool that produced it. That is the expensive half, and it is built.
 
   This journey is the other half: the payoff. Search finds the session by the
   question its user asked, show prints what it was about, and `run --session`

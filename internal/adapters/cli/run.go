@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
 	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
@@ -1333,8 +1334,8 @@ func (st *runState) prepareSessionIO(port frontend.Port, term frontend.Terminal)
 	}
 	// The split view is about to own this terminal, so clidiag warnings must
 	// stop writing to it. Diverted to the session's diagnostics log,
-	// announced before the handover.
-	restoreDiag := redirectDiagnosticsForTUI(st.activeHarp, os.Stderr)
+	// announced before the handover — on a terminal already raw.
+	restoreDiag := redirectDiagnosticsForTUI(st.activeHarp, tui.RawLines(termStderr()))
 	view := setupSplitView(st.ctx, st.cfg, port, terminalUIIdentity{
 		WorkDir: st.workDir,
 		Harp:    st.activeHarp,

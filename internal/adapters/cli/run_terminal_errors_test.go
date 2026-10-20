@@ -11,6 +11,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/term"
+
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // TestInteractiveTerminal_RawModeFailureSaysSo pins the diagnostic on the
@@ -89,4 +93,40 @@ func TestInteractiveTerminal_RestoreSwitchesOffEngineModes(t *testing.T) {
 	assert.Contains(t, out.String(), "\x1b[?25h", "restore must leave the cursor visible")
 	assert.Equal(t, []string{"modes reset", "termios restored"}, events,
 		"the mode reset is written once, while the terminal is still the session's, then termios is restored")
+}
+
+// TestPrepareSessionIO_LinesWrittenRawEndCRLF: from raw mode until it is
+// restored, a line ctxloom writes to the terminal must end CR LF, since raw
+// mode returns no carriage on LF — the diagnostics notice before the split
+// view, and every warning on the terminal while it is raw. Without a split
+// view (a bad prefix key under --degraded) the session stays raw with its
+// warnings back on the terminal, so this reaches every write on the path.
+func TestPrepareSessionIO_LinesWrittenRawEndCRLF(t *testing.T) {
+	testsupport.Isolate(t)
+	origIsTerminal, origMakeRaw, origRestore, origSink, origStderr, origPlain := termIsTerminal, termMakeRaw, termRestore, termModeResetSink, termStderr, runPlainTerminal
+	t.Cleanup(func() {
+		termIsTerminal, termMakeRaw, termRestore, termModeResetSink, termStderr, runPlainTerminal = origIsTerminal, origMakeRaw, origRestore, origSink, origStderr, origPlain
+	})
+	var stderr bytes.Buffer
+	termIsTerminal = func(int) bool { return true }
+	termMakeRaw = func(int) (*term.State, error) { return &term.State{}, nil }
+	termRestore = func(int, *term.State) error { return nil }
+	termModeResetSink = func() io.Writer { return nil }
+	termStderr = func() io.Writer { return &stderr }
+	runPlainTerminal = false
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	st := &runState{ctx: ctx, activeHarp: "plump-loose-sash",
+		cfg: config.NewFixture(config.Fixture{UI: config.UIConfig{PrefixKey: "ctrl-["}})}
+	sio := st.prepareSessionIO(nil, nil)
+	clidiag.Warn("ctxloom", "a warning while raw")
+	sio.restore()
+	clidiag.Warn("ctxloom", "a warning once restored")
+
+	got := stderr.String()
+	assert.Contains(t, got, "diagnostics for this session go to", "the notice reaches the terminal")
+	assert.Contains(t, got, "a warning while raw\r\n", "a warning while raw ends CR LF")
+	assert.Equal(t, strings.Count(got, "\n"), strings.Count(got, "\r\n"), "no line written raw ends in a bare LF: %q", got)
+	assert.NotContains(t, got, "once restored", "a restored terminal takes warnings on clidiag's own sink again")
 }

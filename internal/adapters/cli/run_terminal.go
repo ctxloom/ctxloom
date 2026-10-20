@@ -6,6 +6,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 	"golang.org/x/term"
@@ -18,7 +19,7 @@ import (
 // termModeResetSink is where the restore writes terminalModeReset: the
 // terminal the engine painted on (stdout), or nil when stdout is not one — the
 // engine's mode switches then never reached a terminal and there is nothing to
-// undo.
+// undo. termStderr is the terminal ctxloom's own lines go to (stderr).
 var (
 	termIsTerminal    = term.IsTerminal
 	termMakeRaw       = term.MakeRaw
@@ -29,6 +30,7 @@ var (
 		}
 		return nil
 	}
+	termStderr = func() io.Writer { return os.Stderr }
 )
 
 // terminalModeReset turns off the terminal modes an engine session switches on
@@ -62,7 +64,8 @@ const terminalModeReset = "" +
 // callers should defer it immediately (panic safety) and may also call it
 // inline to put the terminal back before any normal-path output. When stdin is
 // not a terminal it returns (nil, nil, no-op) and the run proceeds without a
-// pty owner.
+// pty owner. While the terminal is raw, clidiag's warnings reach it through
+// tui.RawLines, so each ends CR LF; the restore hands them back.
 func interactiveTerminal(ctx context.Context) (io.Reader, <-chan *agent.WindowSize, func()) {
 	fd := int(os.Stdin.Fd())
 	if !termIsTerminal(fd) {
@@ -78,6 +81,7 @@ func interactiveTerminal(ctx context.Context) (io.Reader, <-chan *agent.WindowSi
 		clidiag.Warn("ctxloom", "could not put the terminal in raw mode: %v — this session will not receive your keystrokes", err)
 		return nil, nil, func() {}
 	}
+	restoreSink := clidiag.SetSink(tui.RawLines(termStderr()))
 	var once sync.Once
 	restore := func() {
 		once.Do(func() {
@@ -87,6 +91,7 @@ func interactiveTerminal(ctx context.Context) (io.Reader, <-chan *agent.WindowSi
 			if rerr := termRestore(fd, oldState); rerr != nil {
 				clidiag.Warn("ctxloom", "failed to restore terminal state: %v", rerr)
 			}
+			restoreSink()
 		})
 	}
 	return os.Stdin, watchResize(ctx, os.Stdin), restore

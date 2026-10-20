@@ -144,11 +144,16 @@ func TestRunPTY_SplitViewDrawsTheTreeBesideTheEngine(t *testing.T) {
 	quitAndAwaitCleanExit(t, sess)
 	assert.True(t, leftAltScreen(sess.Output()), "process exit leaves the split view's alternate screen")
 
+	// Lines the run writes before the split view, on a terminal already raw,
+	// end CR LF: the alternate screen is entered with the cursor in column 0.
+	before, _, _ := strings.Cut(sess.Output(), "\x1b[?1049h")
+	assert.Regexp(t, `diagnostics for this session go to [^\r\n]*\r\n`, before, "the diagnostics notice ends CR LF")
+	assert.Equal(t, strings.Count(before, "\n"), strings.Count(before, "\r\n"), "no line before the split view ends in a bare LF: %q", before)
+
 	// The main screen keeps the engine's final frame, without the panel,
 	// and the line naming the session's transcript under it.
 	main := sess.Display()
-	// At the start of a row: the run's last line before the split view was
-	// written raw, so the main screen's cursor need not be in column 0.
+	// At the start of a row: the frame starts in column 0.
 	assert.Contains(t, main, "\nmock echo: session-live", "the engine's final frame is left on the main screen, from column 0")
 	assert.NotContains(t, main, splitPaneHint, "the panel is not")
 	label, _, _ := strings.Cut(cli.SplitTranscriptLine, "%s")
@@ -181,6 +186,12 @@ func TestRunPTY_CtrlBracketMovesFocusToTheTree(t *testing.T) {
 
 	quitAndAwaitCleanExit(t, sess)
 	assert.True(t, leftAltScreen(sess.Output()), "process exit leaves the split view's alternate screen")
+
+	// Lines the run writes before the split view, on a terminal already raw,
+	// end CR LF: the alternate screen is entered with the cursor in column 0.
+	before, _, _ := strings.Cut(sess.Output(), "\x1b[?1049h")
+	assert.Regexp(t, `diagnostics for this session go to [^\r\n]*\r\n`, before, "the diagnostics notice ends CR LF")
+	assert.Equal(t, strings.Count(before, "\n"), strings.Count(before, "\r\n"), "no line before the split view ends in a bare LF: %q", before)
 }
 
 // TestRunPTY_PlainTerminalNeverEngages proves --plain-terminal opts a pty

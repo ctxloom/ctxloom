@@ -32,6 +32,7 @@ type Store interface {
 	RecordRunEnd(harpName string, end RunEnd) error
 	RecordEndReason(harpName string, reason EndReason) error
 	MarkPurged(harpName string, at time.Time) error
+	ClearPurged(harpName string) error
 	SetKeep(harpName string, keep bool) error
 	Rename(oldName, newName string) error
 	Forget(harpName string) error

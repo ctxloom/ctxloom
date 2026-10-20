@@ -326,6 +326,20 @@ func (m *MemStore) MarkPurged(harpName string, at time.Time) error {
 	return fmt.Errorf("session not found: %q", harpName)
 }
 
+// ClearPurged removes PurgedAt from the named entry, matching
+// *Manager.ClearPurged.
+func (m *MemStore) ClearPurged(harpName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.sessions {
+		if m.sessions[i].HarpName == harpName {
+			m.sessions[i].PurgedAt = nil
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: %q", ErrNotFound, harpName)
+}
+
 // StampMint records what the mint knew on the named entry, matching
 // *Manager.StampMint.
 func (m *MemStore) StampMint(harpName string, s MintStamp) error {

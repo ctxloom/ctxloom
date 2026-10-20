@@ -52,6 +52,9 @@ func TestManager_EveryMutatingMethodLocksTheHarpsSidecarLock(t *testing.T) {
 		{"MarkPurged", func(t *testing.T, m *Manager) {
 			require.NoError(t, m.MarkPurged(lockTestHarp, time.Now()))
 		}},
+		{"ClearPurged", func(t *testing.T, m *Manager) {
+			require.NoError(t, m.ClearPurged(lockTestHarp))
+		}},
 		{"RecordEngineVersion", func(t *testing.T, m *Manager) {
 			require.NoError(t, m.RecordEngineVersion(lockTestHarp, "2.1.0"))
 		}},

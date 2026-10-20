@@ -850,6 +850,20 @@ func (m *Manager) MarkPurged(harpName string, at time.Time) error {
 	})
 }
 
+// ClearPurged removes the named entry's PurgedAt: a purged session whose
+// canonical transcript was rebuilt from the engine log that outlived the purge
+// is an ordinary session again. Idempotent: an unmarked entry is not
+// rewritten.
+func (m *Manager) ClearPurged(harpName string) error {
+	return m.update(harpName, func(e *Entry) (bool, error) {
+		if e.PurgedAt == nil {
+			return false, nil
+		}
+		e.PurgedAt = nil
+		return true, nil
+	})
+}
+
 // SetKeep marks (keep true) or unmarks the named session's transcript as
 // kept (Entry.Keep). Idempotent: an unchanged mark is not rewritten.
 func (m *Manager) SetKeep(harpName string, keep bool) error {

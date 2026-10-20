@@ -84,18 +84,15 @@ func (r Retention) Retains(e *Entry, lastActive time.Time) error {
 // newest mtime under its transcripts and its engine's native history. It is
 // deliberately not ActivityTime: a write to the session's record (`session
 // keep` and its --undo, a purge mark) is not the session being worked on,
-// and must not restart its retention. Zero, with no error, when neither
-// member holds anything. Symlinks are not followed.
-func TranscriptActivity(l Layout, harp string) (time.Time, error) {
+// and must not restart its retention. Zero when neither member holds
+// anything; an absent member or an unreadable corner is no activity, so it
+// never fails. Symlinks and directories' own mtimes are not counted.
+func TranscriptActivity(l Layout, harp string) time.Time {
 	var newest time.Time
 	for _, member := range []string{paths.TranscriptsDirName, paths.NativeDirName} {
-		root := l.member(harp, member)
-		err := filepath.WalkDir(root, func(p string, d fs.DirEntry, walkErr error) error {
+		_ = filepath.WalkDir(l.member(harp, member), func(_ string, d fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
-				if p == root && errors.Is(walkErr, fs.ErrNotExist) {
-					return filepath.SkipAll
-				}
-				return nil // an unreadable corner is not activity
+				return nil // absent or unreadable: not activity
 			}
 			if d.Type()&fs.ModeSymlink != 0 || d.IsDir() {
 				return nil
@@ -105,9 +102,6 @@ func TranscriptActivity(l Layout, harp string) (time.Time, error) {
 			}
 			return nil
 		})
-		if err != nil {
-			return time.Time{}, err
-		}
 	}
-	return newest, nil
+	return newest
 }

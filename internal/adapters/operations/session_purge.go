@@ -272,14 +272,12 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 
 // retainsTranscript asks r about entry's session, its end reckoned from the
 // sidecar's record and when its conversation was last written
-// (sessions.Ended, sessions.TranscriptActivity). Activity that cannot be read
-// counts as now: nothing then proves the conversation ended.
+// (sessions.Ended, sessions.TranscriptActivity). Without a layout to read the
+// activity from it counts as now: nothing then proves the conversation ended.
 func retainsTranscript(r sessions.Retention, entry *sessions.Entry) error {
 	last := time.Now()
 	if l, err := sessions.HomeLayout(); err == nil {
-		if at, aErr := sessions.TranscriptActivity(l, entry.HarpName); aErr == nil {
-			last = at
-		}
+		last = sessions.TranscriptActivity(l, entry.HarpName)
 	}
 	return r.Retains(entry, last)
 }

@@ -811,3 +811,59 @@ func TestReap_PersistScope_RetainedKeepsTheHomesHistoryInNative(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(dir, paths.SessionEngineHomesDirName))
 	assert.Equal(t, "container\n", got(t, filepath.Join(dir, paths.NativeDirName, "claude"), "projects/-p/s.jsonl"))
 }
+
+// TestReap_PersistScope_NoSidecarRetainsTheTranscript: a session whose
+// sidecar cannot be read has nothing proving it ended, so --include-persist
+// keeps its transcript however old its files are — the persist store is
+// spared, the ephemeral members still go.
+func TestReap_PersistScope_NoSidecarRetainsTheTranscript(t *testing.T) {
+	l := reapLayout(t)
+	dir := reapSeed(t, l, "aged-quiet-heron")
+	require.NoError(t, os.Remove(filepath.Join(dir, paths.SessionSidecarFileName)))
+	reapBackdate(t, dir)
+
+	rep, err := Reap(context.Background(), l, deadLocks(), reapPersist(true), nil)
+	require.NoError(t, err)
+
+	transcript := filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName)
+	assert.FileExists(t, transcript, "nothing proves the session ended: its transcript is kept")
+	assert.FileExists(t, filepath.Join(dir, filepath.FromSlash(paths.NativeDirName+"/claude/projects/-tmp-demo/s1.jsonl")))
+	require.Len(t, rep.Candidates, 1)
+	require.Contains(t, rep.Candidates[0].Reason, ErrTranscriptRecent.Error())
+}
+
+// TestReap_PersistScope_NoSidecarRecentKeepsTheEndReason: a sidecar-less
+// session that is retained by its recent activity anyway is reported by that
+// activity (the time it ended), not overwritten by the missing sidecar.
+func TestReap_PersistScope_NoSidecarRecentKeepsTheEndReason(t *testing.T) {
+	l := reapLayout(t)
+	dir := reapSeed(t, l, "aged-quiet-heron")
+	require.NoError(t, os.Remove(filepath.Join(dir, paths.SessionSidecarFileName)))
+	reapBackdate(t, dir)
+	recent := reapCutoff().Add(time.Hour).Truncate(time.Second)
+	require.NoError(t, os.Chtimes(filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName), recent, recent))
+	// Aged by ActivityTime regardless: the reap's own bound is wider here.
+	p := reapPersist(true)
+	p.Cutoff = time.Now()
+
+	rep, err := Reap(context.Background(), l, deadLocks(), p, nil)
+	require.NoError(t, err)
+
+	require.Len(t, rep.Candidates, 1)
+	assert.Contains(t, rep.Candidates[0].Reason, recent.UTC().Format(time.RFC3339), "the reason names when it ended")
+}
+
+// TestReap_DefaultScope_AsksNoRetention: the default scope never takes a
+// transcript, so it never consults Retention — a reclaimed session carries no
+// "spared" reason.
+func TestReap_DefaultScope_AsksNoRetention(t *testing.T) {
+	l := reapLayout(t)
+	reapSeed(t, l, "aged-quiet-heron")
+
+	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
+	require.NoError(t, err)
+
+	require.Len(t, rep.Candidates, 1)
+	assert.Equal(t, ReapReclaimed, rep.Candidates[0].Verdict)
+	assert.Empty(t, rep.Candidates[0].Reason)
+}

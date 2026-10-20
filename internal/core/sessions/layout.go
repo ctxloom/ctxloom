@@ -90,25 +90,25 @@ func (l Layout) KeepMarker(harp string) string {
 // OutputDirOf reads the output dir recorded in the sidecar of the session in
 // dir. ok is false when there is no readable sidecar or it records none.
 func OutputDirOf(dir string) (string, bool) {
-	e, ok := sidecarOf(dir)
-	if !ok || e.OutputDir == "" {
+	e := sidecarOf(dir)
+	if e == nil || e.OutputDir == "" {
 		return "", false
 	}
 	return e.OutputDir, true
 }
 
-// sidecarOf reads the sidecar of the session in dir. ok is false (and the
-// entry nil) when there is no sidecar this build can read.
-func sidecarOf(dir string) (*Entry, bool) {
+// sidecarOf reads the sidecar of the session in dir: nil when there is no
+// sidecar this build can read.
+func sidecarOf(dir string) *Entry {
 	data, err := os.ReadFile(filepath.Join(dir, paths.SessionSidecarFileName))
 	if err != nil {
-		return nil, false
+		return nil
 	}
 	e, err := decodeSidecar(data)
 	if err != nil {
-		return nil, false
+		return nil
 	}
-	return e, true
+	return e
 }
 
 // OutputDirIn is harp's output dir as the calling process reaches it:

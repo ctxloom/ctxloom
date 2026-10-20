@@ -361,11 +361,7 @@ func classifySession(ctx context.Context, g git.Git, l sessions.Layout, store se
 	if _, err := os.Lstat(l.KeepMarker(name)); err == nil {
 		f.Kept = true
 	}
-	active, aErr := sessions.TranscriptActivity(l, name)
-	if aErr != nil {
-		active = time.Now() // unreadable: nothing proves the conversation ended
-	}
-	f.Retained = req.Retention.Retains(entry, active)
+	f.Retained = req.Retention.Retains(entry, sessions.TranscriptActivity(l, name))
 	if entry == nil && f.Retained == nil {
 		f.Retained = fmt.Errorf("%w: its record cannot be read", sessions.ErrTranscriptRecent)
 	}

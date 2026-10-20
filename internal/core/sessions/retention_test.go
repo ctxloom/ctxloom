@@ -94,8 +94,7 @@ func TestTranscriptActivity_IsTheConversationNotTheRecord(t *testing.T) {
 	dir := reapSeed(t, l, "aged-quiet-heron") // every mtime backdated to reapOldEnough
 	reapWriteSidecar(t, dir, "keep: true\n")  // the record, written now
 
-	got, err := TranscriptActivity(l, "aged-quiet-heron")
-	require.NoError(t, err)
+	got := TranscriptActivity(l, "aged-quiet-heron")
 	assert.WithinDuration(t, reapOldEnough, got, time.Second, "the record's write is not transcript activity")
 
 	ok, err := ActivityTime(l, "aged-quiet-heron")
@@ -111,7 +110,57 @@ func TestTranscriptActivity_NoConversationIsZero(t *testing.T) {
 	require.NoError(t, os.RemoveAll(filepath.Join(dir, paths.TranscriptsDirName)))
 	require.NoError(t, os.RemoveAll(filepath.Join(dir, paths.NativeDirName)))
 
-	got, err := TranscriptActivity(l, "aged-quiet-heron")
-	require.NoError(t, err)
+	got := TranscriptActivity(l, "aged-quiet-heron")
 	assert.True(t, got.IsZero())
+}
+
+// A session whose record cannot be read is judged by its activity alone,
+// never a crash: Ended and Retains take a nil entry.
+func TestRetention_NilEntryIsJudgedByActivityAlone(t *testing.T) {
+	cutoff := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	old, recent := cutoff.Add(-time.Hour), cutoff.Add(time.Hour)
+	r := Retention{Cutoff: cutoff}
+
+	assert.Equal(t, old, Ended(nil, old))
+	assert.NoError(t, r.Retains(nil, old))
+	require.ErrorIs(t, r.Retains(nil, recent), ErrTranscriptRecent)
+	require.ErrorIs(t, r.Retains(nil, time.Time{}), ErrTranscriptRecent)
+}
+
+// Transcript activity is the NEWEST file mtime under the conversation's
+// members, whichever is walked first; a directory's own mtime and a
+// symlink's are not the conversation being written.
+func TestTranscriptActivity_IsTheNewestFileNotADirOrLink(t *testing.T) {
+	l := reapLayout(t)
+	dir := reapSeed(t, l, "aged-quiet-heron") // every mtime backdated to reapOldEnough
+	newer := reapOldEnough.Add(time.Hour)
+	tdir := filepath.Join(dir, paths.TranscriptsDirName)
+	// "a-" sorts before every other entry, so the walk meets the newest file
+	// first and the older ones after it.
+	first := filepath.Join(tdir, "a-newest.jsonl")
+	require.NoError(t, os.WriteFile(first, []byte("{}\n"), 0o644))
+	require.NoError(t, os.Chtimes(first, newer, newer))
+	// A link made now, and a directory touched now, are both newer than any
+	// file.
+	require.NoError(t, os.Symlink(first, filepath.Join(tdir, "z-link.jsonl")))
+	require.NoError(t, os.Mkdir(filepath.Join(dir, paths.NativeDirName, "z-fresh-dir"), 0o755))
+
+	assert.WithinDuration(t, newer, TranscriptActivity(l, "aged-quiet-heron"), time.Millisecond)
+}
+
+// An unchanged keep mark is not rewritten: the sidecar is under the session
+// dir, so a rewrite would move its ActivityTime and restart the reap's age
+// bound for a session nobody worked on.
+func TestManager_SetKeepUnchangedDoesNotRewrite(t *testing.T) {
+	m, root := openSidecarRoot(t)
+	writeSidecar(t, root, "swift-amber-falcon", "project_dir: /proj\nstarted_at: 2026-09-01T10:00:00Z\n")
+	require.NoError(t, m.SetKeep("swift-amber-falcon", true))
+	sidecar := filepath.Join(root, "swift-amber-falcon", testSidecarName)
+	require.NoError(t, os.Chtimes(sidecar, reapOldEnough, reapOldEnough))
+
+	require.NoError(t, m.SetKeep("swift-amber-falcon", true))
+
+	fi, err := os.Stat(sidecar)
+	require.NoError(t, err)
+	assert.WithinDuration(t, reapOldEnough, fi.ModTime(), time.Second, "an unchanged mark must not touch the sidecar")
 }

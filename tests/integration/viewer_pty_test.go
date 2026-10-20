@@ -4,6 +4,7 @@ package integration
 
 import (
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -218,4 +219,60 @@ func TestRunPTY_PlainTerminalNeverEngages(t *testing.T) {
 	assert.NotContains(t, sess.Display(), splitPaneHint, "--plain-terminal never draws the panel")
 	label, _, _ := strings.Cut(cli.SplitTranscriptLine, "%s")
 	assert.NotContains(t, out, label, "nor leaves the split view's transcript line")
+}
+
+// startedHarp is the harp the run's banner names, before the split view.
+func startedHarp(t *testing.T, sess *testenv.PTYSession) string {
+	t.Helper()
+	m := regexp.MustCompile(`starting session (\S+)`).FindStringSubmatch(sess.Output())
+	require.NotNil(t, m, "no session banner; captured: %q", sess.Output())
+	return m[1]
+}
+
+// rowWith is the index of the first display row that says text, or -1.
+func rowWith(display, text string) int {
+	return slices.IndexFunc(strings.Split(display, "\n"), func(r string) bool {
+		panel, _, _ := strings.Cut(r, splitDivider)
+		return strings.Contains(panel, text)
+	})
+}
+
+// TestRunPTY_TreeStartsOnTheRunsOwnSession: through the real binary and its
+// hosted coordinator — which journals the session's own run as its own
+// parent — the run's own session is the tree's top row, above an older
+// session of the project, and the prefix hands the tree the keyboard on it:
+// one j moves to the older session and shows its feed.
+func TestRunPTY_TreeStartsOnTheRunsOwnSession(t *testing.T) {
+	env := setupPTYTestEnv(t)
+	run := func(prompt string) *testenv.PTYSession {
+		sess, err := env.RunPTY(ptyCols, ptyRows, []string{"CTXLOOM_MOCK_ECHO_STDIN=1"}, "run", "-f", "viewer-fragment", prompt)
+		require.NoError(t, err)
+		t.Cleanup(sess.Close)
+		typeLineAndAwaitEcho(t, sess, "session-live")
+		return sess
+	}
+	first := run("the older session")
+	older := startedHarp(t, first)
+	quitAndAwaitCleanExit(t, first)
+
+	sess := run("the running session")
+	self := startedHarp(t, sess)
+	display, both := sess.AwaitDisplay(t, func(display string) bool {
+		return rowWith(display, older) >= 0 && rowWith(display, "● "+self) >= 0
+	})
+	require.True(t, both, "the tree never listed both sessions; the display:\n%s", display)
+	assert.Less(t, rowWith(display, "● "+self), rowWith(display, older), "the run's own session is above the older one:\n%s", display)
+
+	_, err := sess.Write([]byte{0x1d, 'j'})
+	require.NoError(t, err)
+	display, moved := sess.AwaitDisplay(t, func(display string) bool { return strings.Contains(display, "feed: "+older) })
+	require.True(t, moved, "one j from the run's own row never reached the older session; the display:\n%s", display)
+
+	_, err = sess.Write([]byte{'k', 'q'})
+	require.NoError(t, err)
+	display, back := sess.AwaitDisplay(t, func(display string) bool {
+		return !strings.Contains(display, splitTreeHint) && strings.Contains(display, splitPaneHint) && !strings.Contains(display, "feed: ")
+	})
+	require.True(t, back, "k and q never brought the engine back; the display:\n%s", display)
+	quitAndAwaitCleanExit(t, sess)
 }

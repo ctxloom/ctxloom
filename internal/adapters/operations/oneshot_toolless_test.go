@@ -21,8 +21,8 @@ import (
 
 // Every arm a distillation can take — the distiller agent, an explicit
 // label, the defaults.fast fallback — asks for a tool-less launch and names
-// no posture (marauding-magnolia, decision #5): distill, MCP compaction and
-// session compact all build on DistillerOneShot.
+// no posture (marauding-magnolia, decision #5): every distillation builds on
+// DistillerOneShot.
 func TestDistillerOneShot_IsToolLessOnEveryArm(t *testing.T) {
 	for name, tc := range map[string]struct {
 		cfg   *config.Config

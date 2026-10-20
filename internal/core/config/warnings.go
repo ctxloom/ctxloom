@@ -41,7 +41,7 @@ const (
 	// it is the worst outcome: the setting looks applied and is not.
 	WarnKindUnknownKey WarningKind = "unknown-key"
 	// WarnKindMigrationLossy: the in-memory schema upgrade had to drop a
-	// user-set value (e.g. a compaction model with no label to attach it to).
+	// user-set value (e.g. a setting whose new home has no place for it).
 	WarnKindMigrationLossy WarningKind = "migration-lossy"
 	// WarnKindEnginelessAgent: an `agents:` entry declares no llm and no
 	// profiles — nothing that could resolve an engine. That is not a degraded

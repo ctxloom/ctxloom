@@ -1460,10 +1460,10 @@ func recordOneshotAnswer(harp, backend, prompt, answer string) error {
 //
 // It must not go through operations.ConvertVendorTranscript, whose presence
 // guard makes it a PERMANENT NO-OP once any canonical transcript exists for
-// the harp. Any earlier refresh (a `session watch`, a turn-change heal)
-// materializes exactly such a canonical file, so the exit capture would be
-// skipped and everything recorded after it would be invisible to every later
-// reader.
+// the harp. An earlier exit capture of the same session (a resumed run) or
+// a `session adopt` materializes exactly such a canonical file, so the exit
+// capture would be skipped and everything recorded after it would be
+// invisible to every later reader.
 // ResolveAndHeal refreshes once, unconditionally — a canonical file existing
 // here is not evidence it is complete.
 func convertVendorTranscriptOnExit(harp string) {

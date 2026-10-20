@@ -33,7 +33,7 @@ type LLMConfig struct {
 // RoleDefaults maps a role to the config label that plays it. Roles select
 // which labeled config serves which part; labels are looked up verbatim in
 // LMConfig.Configs. "primary" is the coding/interactive role; "fast" is the
-// compression role (distillation, session compaction).
+// compression role (content distillation).
 type RoleDefaults struct {
 	Primary string `mapstructure:"primary" yaml:"primary,omitempty"`
 	Fast    string `mapstructure:"fast" yaml:"fast,omitempty"`

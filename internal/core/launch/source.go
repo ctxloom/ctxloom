@@ -37,7 +37,7 @@ type Source struct {
 	// findings — appended to the package's context after the assembly, in
 	// order (composite.Package.WithLead).
 	Extra []composite.Fragment
-	// Internal marks an internal one-shot (a compaction, a triage, the setup
+	// Internal marks an internal one-shot (a distillation, a triage, the setup
 	// probe): no binding and no profiles are selected — the prompt is the
 	// whole instruction and Label names the engine. It is still a real
 	// session: a harp, an endpoint, the managed surfaces. It exists because
@@ -45,7 +45,7 @@ type Source struct {
 	Internal bool
 	// ToolLess asks for a launch that grants the model NO tool and attaches
 	// NO MCP server: an internal one-shot that only reads what its prompt
-	// carries and answers (a distillation, a compaction). It is not a
+	// carries and answers (a distillation). It is not a
 	// permission posture: it takes none (Permission must be ""), resolves
 	// no approver, and runs only on an engine that implements
 	// engine.ToolLess, whose own launch is what makes it tool-less.

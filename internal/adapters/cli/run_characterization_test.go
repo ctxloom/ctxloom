@@ -13,8 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
@@ -373,6 +376,31 @@ func TestRunCharacterization_UnboundResumeSessionDegrades(t *testing.T) {
 
 	assert.Equal(t, without.Context, with.Context, "an unprimeable harp leaves the assembled context untouched")
 	assert.Contains(t, res.stderr, "no recorded history to prime", "the degrade is announced, not silent")
+}
+
+// The RESOLVABLE arm: a harp with a recorded transcript primes the preview
+// with it, exactly once — the lead the launch composes (resumedTranscript),
+// not that lead and the dry run's own copy of it.
+func TestRunCharacterization_ResumeSessionPrimesThePreviewOnce(t *testing.T) {
+	dir := runCLIFixture(t)
+	entry, err := operations.AssignSessionHarp(dir, "claude-code", t.TempDir())
+	require.NoError(t, err)
+	const payload = "RESUMED-TRANSCRIPT-PAYLOAD"
+	rec, err := transcript.NewRecorder(safefs.New(), entry.HarpName, "claude-code")
+	require.NoError(t, err)
+	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: payload}}))
+	require.NoError(t, rec.Close())
+
+	res := runCLI(t, "run", "--dry-run", "--format", "json", "--session", entry.HarpName, "-p", "dev", "hi")
+	require.NoError(t, res.err, res.all())
+	var got dryRunJSON
+	require.NoError(t, json.Unmarshal([]byte(res.out), &got))
+	assert.Equal(t, 1, strings.Count(got.Context, payload), "the resumed transcript leads the preview once: %s", got.Context)
+	assert.Equal(t, 1, strings.Count(res.stderr, fmt.Sprintf(resumingTranscriptNotice, entry.HarpName)), "the resume is announced once: %s", res.stderr)
+
+	plain := runCLI(t, "run", "--dry-run", "--format", "json", "-p", "dev", "hi")
+	require.NoError(t, plain.err, plain.all())
+	assert.NotContains(t, plain.stderr, strings.TrimSuffix(fmt.Sprintf(resumingTranscriptNotice, ""), "\n"), "a run that resumes nothing announces no resume")
 }
 
 // The UNRESOLVABLE arm of the same contract: a harp that is not in the session

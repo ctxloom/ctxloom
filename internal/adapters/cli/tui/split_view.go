@@ -95,8 +95,10 @@ func (v *SplitView) Close() {
 }
 
 // finalFrame is f's rows for the main screen, styled and unpadded, its
-// trailing blank rows dropped, then epilogue: each line ended CR LF, since the human's
-// terminal may still be raw.
+// trailing blank rows dropped, then epilogue: each line ended CR LF, since
+// the human's terminal may still be raw. It starts with a CR: leaving the
+// alternate screen puts the cursor back where it stood on entry, which after
+// a line written raw is not column 0.
 func finalFrame(f termemu.Frame, epilogue string) string {
 	var rows []string
 	if f.Buf != nil {
@@ -111,6 +113,7 @@ func finalFrame(f termemu.Frame, epilogue string) string {
 		rows = append(rows, epilogue)
 	}
 	var b strings.Builder
+	b.WriteString("\r")
 	for _, r := range rows {
 		b.WriteString(r)
 		b.WriteString("\r\n")

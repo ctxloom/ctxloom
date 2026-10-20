@@ -293,6 +293,9 @@ func TestSplitView_CloseLeavesTheFinalFrameAndTheEpilogue(t *testing.T) {
 	i := bytes.LastIndex(p.out.bytes(), []byte("\x1b[?1049l"))
 	assert.Contains(t, string(p.out.bytes()[i:]), "\x1b[34;1mfirst row\x1b[m\r\n", "the frame keeps its styles, and no padding")
 
+	assert.True(t, strings.HasPrefix(finalFrame(p.v.pane.Frame(), epilogue), "\r"),
+		"the frame starts in column 0 wherever the main screen's cursor stood")
+
 	before := len(p.out.bytes())
 	p.v.Close()
 	assert.Len(t, p.out.bytes(), before, "a second Close prints nothing more")

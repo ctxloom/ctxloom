@@ -147,7 +147,9 @@ func TestRunPTY_SplitViewDrawsTheTreeBesideTheEngine(t *testing.T) {
 	// The main screen keeps the engine's final frame, without the panel,
 	// and the line naming the session's transcript under it.
 	main := sess.Display()
-	assert.Contains(t, main, "mock echo: session-live", "the engine's final frame is left on the main screen")
+	// At the start of a row: the run's last line before the split view was
+	// written raw, so the main screen's cursor need not be in column 0.
+	assert.Contains(t, main, "\nmock echo: session-live", "the engine's final frame is left on the main screen, from column 0")
 	assert.NotContains(t, main, splitPaneHint, "the panel is not")
 	label, _, _ := strings.Cut(cli.SplitTranscriptLine, "%s")
 	assert.Contains(t, main, label, "the transcript line follows the frame")

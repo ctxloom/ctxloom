@@ -9,9 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -232,4 +234,33 @@ func TestSessionAdopt_ApplyHealsTheTranscript(t *testing.T) {
 			assert.Contains(t, stderr, tc.want)
 		})
 	}
+}
+
+// The real heal reports both of ResolveAndHeal's failures: a session it
+// cannot resolve, and one it resolved but could not rebuild (HealErr) —
+// never a silent success the adopt would then announce as "rebuilt".
+func TestHealAdopted_ReportsResolveAndHealFailures(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	_, harp, _ := seedClaudeHarpWithVendorDir(t, dir)
+
+	err := healAdopted(context.Background(), harp)
+	var noVersion *vendorreader.NoRecordedVersionError
+	require.ErrorAs(t, err, &noVersion, "the fixture records no engine version, so the rebuild refuses")
+
+	hd, err := paths.HarpDir(harp)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(hd, paths.SessionSidecarFileName), []byte("{{{"), 0o644))
+	require.Error(t, healAdopted(context.Background(), harp), "an unreadable record is not a heal")
+}
+
+// A failed heal's report is written to the diagnostic channel, and a write
+// that fails there is returned, not swallowed.
+func TestReportAdoptHeal_SurfacesAWriteFailure(t *testing.T) {
+	writeErr := errors.New("stderr broke")
+	cmd := &cobra.Command{}
+	cmd.SetErr(&failingWriter{err: writeErr})
+	cmd.SetContext(context.Background())
+
+	err := reportAdoptHeal(cmd, "swift-amber-falcon", 1, func(context.Context, string) error { return errors.New("heal failed") })
+	require.ErrorIs(t, err, writeErr)
 }

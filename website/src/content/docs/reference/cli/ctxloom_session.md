@@ -46,6 +46,6 @@ ctxloom session [flags]
 * [ctxloom session search](/reference/cli/ctxloom_session_search/)	 - Search sessions by name, title and times (default: current project; --all for everything)
 * [ctxloom session show](/reference/cli/ctxloom_session_show/)	 - Show a named session: its title, state, engine and times
 * [ctxloom session sweep](/reference/cli/ctxloom_session_sweep/)	 - Tidy every ended session of this project by rule: remove what it can prove is safe, report the rest
-* [ctxloom session transcript](/reference/cli/ctxloom_session_transcript/)	 - The recorded conversation behind a session: list it, watch it, destroy it
+* [ctxloom session transcript](/reference/cli/ctxloom_session_transcript/)	 - The recorded conversation behind a session: list it, show it, watch it, destroy it
 * [ctxloom session worktrees](/reference/cli/ctxloom_session_worktrees/)	 - The scratch git checkouts a session left behind: list them, remove the safe ones
 

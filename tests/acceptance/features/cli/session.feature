@@ -24,6 +24,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
     ctxloom session search <word>... [--state live|ended|unknown]
     ctxloom session transcript              (bare: lists)
     ctxloom session transcript list [<harp>]
+    ctxloom session transcript show <harp>
     ctxloom session transcript watch <harp>
     ctxloom session transcript purge <harp> [--yes]
     ctxloom session worktrees               (bare: lists)
@@ -253,6 +254,16 @@ Feature: session — the record of what your assistant did, and the tools to pru
       When I run "ctxloom session transcript list no-such-harp"
       Then the command fails
       And the output contains "no-such-harp"
+
+    # Off a terminal (which this harness always is) show's default is NDJSON:
+    # the whole transcript, and nothing else, on stdout, then exit.
+    Scenario: Show prints the whole transcript and exits, ready for a pipe
+      Given an initialized ctxloom project
+      And a recorded session "amber-swift-owl"
+      When I run "ctxloom session transcript show amber-swift-owl"
+      Then the command succeeds
+      And every line of stdout is a JSON object
+      And the output contains "Seeded prompt for amber-swift-owl."
 
     Scenario: Watching moved under the transcript it watches
       Given an initialized ctxloom project

@@ -4,9 +4,11 @@ package acceptance
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cucumber/godog"
@@ -92,6 +94,23 @@ func registerCLISessionSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^an orphaned claude vendor transcript "([^"]*)" for "([^"]*)" spanning "([^"]*)" to "([^"]*)"$`, func(c context.Context, candidateID, _, start, end string) error {
 		return writeAdoptVendorHomeFile(c, candidateID, start, end)
+	})
+
+	// NDJSON, what a pipe into jq reads: stdout is one or more lines, each
+	// one JSON object and nothing else.
+	ctx.Step(`^every line of stdout is a JSON object$`, func(c context.Context) error {
+		w := worldFrom(c)
+		out := w.env.LastStdout()
+		if strings.TrimSpace(out) == "" {
+			return fmt.Errorf("stdout is empty")
+		}
+		for _, line := range strings.Split(strings.TrimSuffix(out, "\n"), "\n") {
+			var obj map[string]any
+			if err := json.Unmarshal([]byte(line), &obj); err != nil {
+				return fmt.Errorf("stdout line %q is not a JSON object: %w; stdout:\n%s", line, err, out)
+			}
+		}
+		return nil
 	})
 
 	ctx.Step(`^a recorded session "([^"]*)" for backend "([^"]*)"$`, func(c context.Context, harp, backend string) error {

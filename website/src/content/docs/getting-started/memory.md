@@ -14,7 +14,18 @@ The transcript lives at `~/.ctxloom/sessions/<harp>/transcripts/transcript.jsonl
 - A structured session, such as a child launched with `agent_run`, streams through ctxloom's own process, and every message, tool call and tool result is recorded as it happens.
 - `ctxloom run --one-shot` records only the prompt you sent and the reply that came back.
 
-`ctxloom session transcript` lists, watches and purges these transcripts.
+`ctxloom session transcript` lists, shows, watches and purges these transcripts.
+
+## Reading a transcript
+
+`session transcript show` prints a session's whole transcript and exits, so you can save it or pipe it. It refreshes the transcript from your engine's log first, and writes nothing but the transcript to stdout:
+
+```bash
+ctxloom session transcript show <harp> --format text > session.txt
+ctxloom session transcript show <harp> --format json | jq -r 'select(.entry.type == "user") | .entry.content'
+```
+
+The output is `session transcript watch`'s: text prints each turn with a rule after it, and `--format json` prints one JSON event per line (`{"entry": …}` or `{"boundary": …}`), so a jq filter written for one works on the other. Piped or redirected with no `--format`, the output is JSON (your `non_tty_format`). To follow a session while it runs, use `session transcript watch <harp>`.
 
 ## Finding a session
 

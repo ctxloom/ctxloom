@@ -9,7 +9,7 @@ This page is generated from `ctxloom session transcript --help`.
 
 ## ctxloom session transcript
 
-The recorded conversation behind a session: list it, watch it, destroy it
+The recorded conversation behind a session: list it, show it, watch it, destroy it
 
 ### Synopsis
 
@@ -17,6 +17,7 @@ A session's transcript is ctxloom's own canonical, engine-agnostic record
 of what was said, at ~/.ctxloom/sessions/<session-name>/transcripts/transcript.jsonl.
 
   list      which sessions have one, and how large it is (the bare form)
+  show      print one whole, then exit — for a file or a pipe
   watch     stream one as structured turns, live or from the store
   purge     destroy the machine-written bulk, reporting first
 
@@ -40,5 +41,6 @@ ctxloom session transcript [flags]
 * [ctxloom session](/reference/cli/ctxloom_session/)	 - Browse and manage your recorded sessions
 * [ctxloom session transcript list](/reference/cli/ctxloom_session_transcript_list/)	 - List which sessions have a captured transcript, and how large each one is
 * [ctxloom session transcript purge](/reference/cli/ctxloom_session_transcript_purge/)	 - Destroy a finished session's recorded conversation, keeping its record entry
+* [ctxloom session transcript show](/reference/cli/ctxloom_session_transcript_show/)	 - Print a session's whole transcript, then exit
 * [ctxloom session transcript watch](/reference/cli/ctxloom_session_transcript_watch/)	 - Stream a session's transcript as structured turns (messages, not raw bytes)
 

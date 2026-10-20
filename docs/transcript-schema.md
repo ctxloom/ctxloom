@@ -138,7 +138,8 @@ engine's private files after the fact.
   `session adopt --yes` records an older session's lineage, and before a
   reader shows or resumes the session (`operations.RefreshForRead`): `run
   --session` and the coordinator's ended-child resume
-  (`operations.RecordedSessionEntries`), `session show`, and the titles of
+  (`operations.RecordedSessionEntries`), `session show`,
+  `session transcript show`, and the titles of
   `session list`/`search` rows that have none yet. A session whose run did
   not exit through ctxloom (killed, crashed, in a container, its engine run
   outside ctxloom) is therefore read as its engine's log has it now, not as

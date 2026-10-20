@@ -49,5 +49,5 @@ ctxloom session transcript list [<session-name>] [flags]
 
 ### SEE ALSO
 
-* [ctxloom session transcript](/reference/cli/ctxloom_session_transcript/)	 - The recorded conversation behind a session: list it, watch it, destroy it
+* [ctxloom session transcript](/reference/cli/ctxloom_session_transcript/)	 - The recorded conversation behind a session: list it, show it, watch it, destroy it
 

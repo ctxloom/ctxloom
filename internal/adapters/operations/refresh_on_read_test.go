@@ -172,3 +172,145 @@ func TestReadRefresh_KeepsARowWhoseSessionLeftTheIndex(t *testing.T) {
 	got := ReadRefresh(context.Background(), safefs.New(), engines.Registry())(listed)
 	assert.Equal(t, listed, got)
 }
+
+// ageCanonical backdates harp's canonical transcript by an hour and returns
+// its bytes and mtime as they then are.
+func ageCanonical(t *testing.T, harp string) (path string, body []byte, mtime time.Time) {
+	t.Helper()
+	path, err := paths.HarpCanonicalTranscriptPath(harp)
+	require.NoError(t, err)
+	old := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(path, old, old))
+	body, err = os.ReadFile(path)
+	require.NoError(t, err)
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	return path, body, info.ModTime()
+}
+
+// A preview of a resume reads the copy the session has and writes nothing:
+// the turns its vendor log gained since are not in it, the copy is
+// byte-identical with its mtime unchanged, and the copy is reported stale.
+func TestCapturedSessionEntries_ReadsTheCopyAndWritesNothing(t *testing.T) {
+	testsupport.Isolate(t)
+	_, entry := seedGrownClaudeHarp(t, 6)
+	canon, body, mtime := ageCanonical(t, entry.HarpName)
+
+	entries, stale, err := CapturedSessionEntries(safefs.New(), engines.Registry(), entry.HarpName)
+	require.NoError(t, err)
+	assert.NotEmpty(t, entries)
+	assert.False(t, entriesContain(entries, grownTurn), "nothing was refreshed, so the copy is the last capture")
+	assert.True(t, stale, "the vendor log is newer than the copy")
+
+	after, err := os.ReadFile(canon)
+	require.NoError(t, err)
+	assert.Equal(t, body, after, "the copy is not rewritten")
+	info, err := os.Stat(canon)
+	require.NoError(t, err)
+	assert.Equal(t, mtime, info.ModTime(), "the copy is not touched")
+}
+
+// A copy written after its vendor log last changed is not reported stale.
+func TestCapturedSessionEntries_ACopyNewerThanItsVendorLogIsNotStale(t *testing.T) {
+	testsupport.Isolate(t)
+	_, entry := seedGrownClaudeHarp(t, 6)
+	old := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(entry.TranscriptPath, old, old))
+	_, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), entry)
+	require.NoError(t, err)
+
+	entries, stale, err := CapturedSessionEntries(safefs.New(), engines.Registry(), entry.HarpName)
+	require.NoError(t, err)
+	assert.True(t, entriesContain(entries, grownTurn))
+	assert.False(t, stale)
+}
+
+// A session whose vendor log was never captured is reported stale: a real
+// run would capture it first.
+func TestCapturedSessionEntries_ASessionNeverCapturedIsStale(t *testing.T) {
+	testsupport.Isolate(t)
+	_, entry := seedGrownClaudeHarp(t, 0)
+
+	_, stale, err := CapturedSessionEntries(safefs.New(), engines.Registry(), entry.HarpName)
+	require.Error(t, err, "there is no copy to read")
+	assert.True(t, stale)
+	assert.Empty(t, canonicalLines(t, entry.HarpName), "nothing is captured by a preview")
+}
+
+// A purged session is not reported stale though its vendor log survives: a
+// real run does not refresh it either.
+func TestCapturedSessionEntries_APurgedSessionIsNotStale(t *testing.T) {
+	testsupport.Isolate(t)
+	mgr, entry := seedGrownClaudeHarp(t, 6)
+	require.NoError(t, mgr.MarkPurged(entry.HarpName, time.Now().UTC()))
+	canon, err := paths.HarpCanonicalTranscriptPath(entry.HarpName)
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(canon))
+
+	_, stale, err := CapturedSessionEntries(safefs.New(), engines.Registry(), entry.HarpName)
+	require.Error(t, err)
+	assert.False(t, stale)
+}
+
+// An unindexed harp is an error, like RecordedSessionEntries', and not stale.
+func TestCapturedSessionEntries_UnknownHarpErrors(t *testing.T) {
+	testsupport.Isolate(t)
+
+	entries, stale, err := CapturedSessionEntries(safefs.New(), engines.Registry(), "no-such-harp-anywhere")
+	require.Error(t, err)
+	assert.Nil(t, entries)
+	assert.False(t, stale)
+}
+
+// A session whose engine keeps no log ctxloom reads is never stale: a real
+// resume has nothing to refresh it from either.
+func TestTranscriptMayBeStale_AnEngineWithNoReaderIsNotStale(t *testing.T) {
+	testsupport.Isolate(t)
+	_, entry := seedGrownClaudeHarp(t, 6)
+	entry.Backend = "no-such-engine"
+
+	assert.False(t, TranscriptMayBeStale(safefs.New(), engines.Registry(), entry))
+}
+
+// A session bound to no engine log is never stale.
+func TestTranscriptMayBeStale_AnUnboundSessionIsNotStale(t *testing.T) {
+	testsupport.Isolate(t)
+	_, entry := seedGrownClaudeHarp(t, 6)
+	entry.TranscriptPath = ""
+
+	assert.False(t, TranscriptMayBeStale(safefs.New(), engines.Registry(), entry))
+}
+
+// A session whose bound engine log has since vanished is never stale.
+func TestTranscriptMayBeStale_AVanishedEngineLogIsNotStale(t *testing.T) {
+	testsupport.Isolate(t)
+	_, entry := seedGrownClaudeHarp(t, 6)
+	require.NoError(t, os.Remove(entry.TranscriptPath))
+
+	assert.False(t, TranscriptMayBeStale(safefs.New(), engines.Registry(), entry))
+}
+
+// A copy the index names whose file has since gone is stale.
+func TestTranscriptMayBeStale_ACopyThatIsGoneIsStale(t *testing.T) {
+	testsupport.Isolate(t)
+	_, entry := seedGrownClaudeHarp(t, 6)
+	require.NoError(t, os.Remove(entry.CanonicalTranscriptPath))
+
+	assert.True(t, TranscriptMayBeStale(safefs.New(), engines.Registry(), entry))
+}
+
+// A session the index cannot read is a lookup failure, said as one, not an
+// unknown session.
+func TestCapturedSessionEntries_AnUnreadableIndexEntryIsALookupFailure(t *testing.T) {
+	testsupport.Isolate(t)
+	_, entry := seedGrownClaudeHarp(t, 6)
+	sidecar, err := paths.HarpSidecarPath(entry.HarpName)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(sidecar, []byte("{{ not yaml"), 0o644))
+	_, want := GetSession(entry.HarpName)
+	require.Error(t, want)
+
+	_, stale, err := CapturedSessionEntries(safefs.New(), engines.Registry(), entry.HarpName)
+	require.ErrorContains(t, err, want.Error())
+	assert.False(t, stale)
+}

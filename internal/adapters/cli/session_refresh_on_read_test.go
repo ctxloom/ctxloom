@@ -1,16 +1,19 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -83,15 +86,48 @@ func TestSessionSearch_MatchesATitleTheVendorLogGrewSinceTheLastCapture(t *testi
 	assert.Contains(t, rows, harp)
 }
 
-// `run --session` primes the resumed run with the turns its engine logged
-// after the session's last capture.
+// A real `run --session` primes the resumed run with the turns its engine
+// logged after the session's last capture: the lead a launch composes
+// (resumedTranscript) is built over the refreshed transcript.
 func TestRunCharacterization_ResumeSessionReadsTheTurnsLoggedSinceTheLastCapture(t *testing.T) {
 	dir := runCLIFixture(t)
 	harp := seedGrownClaudeSession(t, dir, 6)
+	runResumeSession, runDryRun = harp, false
+	t.Cleanup(func() { runResumeSession = "" })
+
+	lead := (&runState{ctx: context.Background()}).resumedTranscript()
+	require.Len(t, lead, 1)
+	assert.Contains(t, lead[0].Body, grownTurn, "the resume reads the session as its engine logged it")
+}
+
+// `run --session --dry-run` previews the transcript the session has and
+// writes nothing: the canonical file is byte-identical with its mtime
+// unchanged, the turns logged since are not in the preview, and the preview
+// says its copy may be stale.
+func TestRunCharacterization_DryRunResumeReadsTheCaptureAndWritesNothing(t *testing.T) {
+	dir := runCLIFixture(t)
+	harp := seedGrownClaudeSession(t, dir, 6)
+	canon, err := paths.HarpCanonicalTranscriptPath(harp)
+	require.NoError(t, err)
+	old := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(canon, old, old))
+	before, err := os.ReadFile(canon)
+	require.NoError(t, err)
+	beforeInfo, err := os.Stat(canon)
+	require.NoError(t, err)
 
 	res := runCLI(t, "run", "--dry-run", "--format", "json", "--session", harp, "-p", "dev", "hi")
 	require.NoError(t, res.err, res.all())
 	var got dryRunJSON
 	require.NoError(t, json.Unmarshal([]byte(res.out), &got))
-	assert.Contains(t, got.Context, grownTurn, "the resume reads the session as its engine logged it")
+	assert.NotContains(t, got.Context, grownTurn, "a preview reads the last capture")
+	assert.Contains(t, got.Context, "## Resumed session "+harp, "the capture still leads the preview: %s", got.Context)
+	assert.Contains(t, res.stderr, dryRunTranscriptMayBeStale)
+
+	after, err := os.ReadFile(canon)
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "a dry run must not rewrite the transcript")
+	afterInfo, err := os.Stat(canon)
+	require.NoError(t, err)
+	assert.Equal(t, beforeInfo.ModTime(), afterInfo.ModTime(), "a dry run must not touch the transcript")
 }

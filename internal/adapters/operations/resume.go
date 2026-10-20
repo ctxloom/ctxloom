@@ -8,6 +8,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
@@ -31,6 +32,30 @@ func RecordedSessionEntries(ctx context.Context, files safefs.Root, reg engine.R
 	if err != nil {
 		return nil, fmt.Errorf("look up session %q: %w", harp, err)
 	}
+	return capturedEntries(harp, entry)
+}
+
+// CapturedSessionEntries is RecordedSessionEntries without the refresh: it
+// reads the canonical transcript harp has now, and refreshes and writes
+// nothing — a preview of a resume (`run --session --dry-run`). stale reports
+// whether that copy may be behind what a real resume would read
+// (TranscriptMayBeStale), and is reported alongside an error too: a session
+// never captured has no copy to read, but a real resume would capture it.
+func CapturedSessionEntries(files safefs.Root, reg engine.Registry, harp string) (entries []agent.SessionEntry, stale bool, err error) {
+	entry, err := GetSession(harp)
+	if err != nil {
+		return nil, false, fmt.Errorf("look up session %q: %w", harp, err)
+	}
+	if entry != nil {
+		stale = TranscriptMayBeStale(files, reg, *entry)
+	}
+	entries, err = capturedEntries(harp, entry)
+	return entries, stale, err
+}
+
+// capturedEntries reads entry's canonical transcript as it is on disk.
+// entry is harp's index entry, nil for an unindexed harp.
+func capturedEntries(harp string, entry *sessions.Entry) ([]agent.SessionEntry, error) {
 	// RefreshForRead, like GetSession, reports an ABSENT harp as (nil, nil) — "no such entry" is not
 	// an error to it. Dereferencing without this check is what turned a
 	// mistyped harp (three random words; the most ordinary mistake available

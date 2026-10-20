@@ -26,7 +26,7 @@ import (
 // on any breaking change to the envelope or payload shapes. A reader
 // encountering a Record.V it does not recognize must fail loud rather than
 // guess at the shape (memory "isolation-must-not-negotiate": fail loud, never
-// silently mis-parse) — enforced by the S3 CanonicalHistory reader, not here.
+// silently mis-parse) — enforced by ParseTranscriptFile, not here.
 const SchemaVersion = 1
 
 // Kind discriminates which payload field of a Record is populated. Exactly

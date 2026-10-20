@@ -160,7 +160,7 @@ func WithContinuation(seq int, sessionID string) RecorderOption {
 // project's empty-input discipline (memory "silent-no-op-failure-mode": ask
 // of every writer whether empty input fails or succeeds writing nothing —
 // here it succeeds writing NOTHING, verifiably, by leaving no file). A
-// consumer (S3's CanonicalHistory) can therefore treat file-absent as
+// reader (sessions.Entry.CanonicalTranscriptPath is empty) can therefore treat file-absent as
 // "nothing was ever recorded for this harp" without needing to also handle a
 // present-but-empty file as a separate case.
 //

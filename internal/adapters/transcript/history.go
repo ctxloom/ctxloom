@@ -1,66 +1,27 @@
 // This file (history.go) defines the READER counterpart to record.go/
-// recorder.go: transcript.CanonicalHistory turns a harp's captured
-// transcript.jsonl (paths.HarpCanonicalTranscriptPath) back into the normalized
-// agent.Session/agent.SessionMeta shape (slice S3).
+// recorder.go: ParseTranscriptFile turns a harp's captured transcript.jsonl
+// (paths.HarpCanonicalTranscriptPath) back into the normalized agent.Session
+// shape.
 //
-// CanonicalHistory is engine-agnostic by construction: every structured
-// engine's frames already folded onto agent.ChatEvent before the Recorder
-// (recorder.go) ever wrote a line, so there is exactly one reader for every
-// structured engine. It makes no assumption that a transcript's engine name
-// is currently registered: a canonical transcript captured under a
-// since-removed engine still reads.
+// It is engine-agnostic by construction: every structured engine's frames
+// already folded onto agent.ChatEvent before the Recorder (recorder.go) ever
+// wrote a line, so there is exactly one reader for every structured engine.
+// It makes no assumption that a transcript's engine name is currently
+// registered: a canonical transcript captured under a since-removed engine
+// still reads.
 package transcript
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
-
-// CanonicalHistory is the harp-keyed, project-scoped read view over ctxloom's
-// own captured transcripts. A harp alone is enough to resolve
-// paths.HarpCanonicalTranscriptPath, so GetSession takes no workDir at all.
-// workDir is still needed to scope ListSessions/CurrentSession to "this
-// project's sessions" (there is no per-project canonical directory; harps
-// live in one flat ~/.ctxloom/sessions/<harp>/ root), resolved via the
-// harp<->project index (internal/core/sessions.Store).
-type CanonicalHistory struct {
-	workDir string
-	store   sessions.Store
-}
-
-// NewCanonicalHistory returns a CanonicalHistory scoped to workDir, resolving
-// project membership through store (the harp<->project session index;
-// *sessions.Manager in production, *sessions.MemStore in tests).
-func NewCanonicalHistory(workDir string, store sessions.Store) *CanonicalHistory {
-	return &CanonicalHistory{workDir: workDir, store: store}
-}
-
-// NoCanonicalTranscriptError reports that harpName has no captured canonical
-// transcript on disk — GetSession's os.IsNotExist case. It is a distinct type
-// (not a bare fmt.Errorf) so a caller several layers up can errors.As it to
-// extract the harp and produce an actionable message, rather than pattern-matching the error text.
-// Error() keeps the original wording so existing callers that only check for
-// "an error" (never the text) see no behavior change.
-type NoCanonicalTranscriptError struct {
-	Harp string
-}
-
-func (e *NoCanonicalTranscriptError) Error() string {
-	return fmt.Sprintf("transcript: no canonical transcript captured for harp %q", e.Harp)
-}
 
 // SchemaVersionError reports that a canonical transcript line carries a
 // schema version this build does not recognize. It is a distinct type (not a
-// bare fmt.Errorf) for the same reason NoCanonicalTranscriptError is: every
+// bare fmt.Errorf) so a caller can tell it apart: every
 // consumer of ParseTranscriptFile reduces failure to `err != nil` and then
 // handles it exactly like a corrupt file — skipped from a listing, degraded
 // to live-only, retried on the next poll tick. Those responses are defensible
@@ -76,140 +37,6 @@ type SchemaVersionError struct {
 
 func (e *SchemaVersionError) Error() string {
 	return fmt.Sprintf("transcript: %s: line carries schema version %d, this reader knows version %d — refusing to guess at an unrecognized shape", e.Path, e.Found, e.Known)
-}
-
-// Newer reports whether the file was written by a LATER build than this one,
-// which is the case with an actionable remedy: upgrade. The reverse (a file
-// older than any version this build still reads) is a different situation and
-// must not be reported with the same advice.
-func (e *SchemaVersionError) Newer() bool { return e.Found > e.Known }
-
-// GetSession materializes harpName's canonical transcript. harpName IS the
-// lookup key — there is no separate backend-native session id to resolve, the
-// exact simplification the canonical schema buys (every line already carries
-// the harp). Returns an error, not an empty Session, when no canonical
-// transcript was ever captured for this harp: the mirror image of the
-// Recorder's empty-input contract (NewRecorder leaves no file for a chat that
-// produced zero events, recorder.go), so "no file" and "captured, empty"
-// never get confused on the read side either — and nor does
-// "a file that decoded to nothing", which ParseTranscriptFile now also
-// errors on rather than returning as an empty conversation.
-func (h *CanonicalHistory) GetSession(_ context.Context, harpName string) (*agent.Session, error) {
-	if harpName == "" {
-		return nil, fmt.Errorf("transcript: GetSession requires a non-empty harp")
-	}
-	path, err := paths.HarpCanonicalTranscriptPath(harpName)
-	if err != nil {
-		return nil, fmt.Errorf("transcript: canonical transcript path for harp %q: %w", harpName, err)
-	}
-	if _, statErr := os.Stat(path); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return nil, &NoCanonicalTranscriptError{Harp: harpName}
-		}
-		return nil, fmt.Errorf("transcript: stat %s: %w", path, statErr)
-	}
-	return ParseTranscriptFile(path, harpName)
-}
-
-// ListSessions returns SessionMeta for every harp in this project that has a
-// canonical transcript, most-recent-first — the same ordering
-// sessions.Store.ListForProject already produces (activity-time, not
-// creation-time). A harp with NO canonical transcript (pre-capture,
-// interactive-pty-only, or a zero-event chat) is simply absent from the
-// result; S3 does not fall back to a legacy per-engine reader for it (that
-// selection is S4's job, plan §4b "Selection rule").
-//
-// A harp whose canonical file exists but fails to parse (corrupt beyond
-// recovery, or an evolved schema version this build doesn't know — see
-// ParseTranscriptFile) is skipped with a warning rather than failing the
-// whole listing: one bad session must not hide every other project session
-// from `session list`. GetSession, by contrast, is a
-// direct request for exactly that harp and surfaces the same failure as a
-// hard error — see its doc comment.
-func (h *CanonicalHistory) ListSessions(_ context.Context) ([]agent.SessionMeta, error) {
-	entries, err := h.store.ListForProject(h.workDir)
-	if err != nil {
-		return nil, fmt.Errorf("transcript: list sessions for %s: %w", h.workDir, err)
-	}
-
-	var metas []agent.SessionMeta
-	for _, e := range entries {
-		if e.CanonicalTranscriptPath == "" {
-			continue
-		}
-		sess, perr := ParseTranscriptFile(e.CanonicalTranscriptPath, e.HarpName)
-		if perr != nil {
-			warnSkippedTranscript(e.HarpName, e.CanonicalTranscriptPath, perr)
-			continue
-		}
-		metas = append(metas, agent.SessionMeta{
-			ID:         e.HarpName,
-			StartTime:  sess.StartTime,
-			EndTime:    sess.EndTime,
-			EntryCount: len(sess.Entries),
-			Path:       e.CanonicalTranscriptPath,
-		})
-	}
-	return metas, nil
-}
-
-// CurrentSession returns the most-recently-active canonical-backed session
-// for this project, or (nil, nil) when none exists — the same "clean no
-// sessions" contract pb.SessionReader.CurrentSession documents, so a caller
-// can present an empty state without special-casing this reader.
-//
-// A candidate that cannot be read is SKIPPED with a warning and the next
-// most-recent one tried, exactly as ListSessions does: the two must survive
-// the same store state, or one stale entry answers "no current session" for a
-// project whose sessions `session list` is happily enumerating. Only when
-// every candidate fails is an error returned — and then it is the first
-// failure, not (nil, nil), because "none of these files could be read" and
-// "this project has no sessions" are different facts and the caller
-// (the canonical-fallback source) routes on the difference. See
-// ParseTranscriptFile's doc for the same discrimination on the read side.
-func (h *CanonicalHistory) CurrentSession(ctx context.Context) (*agent.Session, error) {
-	entries, err := h.store.ListForProject(h.workDir)
-	if err != nil {
-		return nil, fmt.Errorf("transcript: current session for %s: %w", h.workDir, err)
-	}
-	var firstErr error
-	for _, e := range entries { // already most-recent-first
-		if e.CanonicalTranscriptPath == "" {
-			continue
-		}
-		sess, serr := h.GetSession(ctx, e.HarpName)
-		if serr == nil {
-			return sess, nil
-		}
-		if firstErr == nil {
-			firstErr = serr
-		}
-		warnSkippedTranscript(e.HarpName, e.CanonicalTranscriptPath, serr)
-	}
-	// Every candidate failed. That is NOT the clean "no sessions" state: the
-	// project has captured transcripts, none of them could be read, and
-	// reporting (nil, nil) would assert the conversations were empty when all
-	// that is known is that the files were unreadable — the discrimination
-	// ParseTranscriptFile's doc states and the canonical-fallback source routes on.
-	if firstErr != nil {
-		return nil, firstErr
-	}
-	return nil, nil
-}
-
-// warnSkippedTranscript reports one transcript this reader passed over, and
-// is the single place the version case is separated from every other failure.
-// Both are skipped identically — one bad session must not hide the rest — but
-// they are not the same news: "this file is damaged" invites the user to
-// write the session off, while "this file was written by a newer ctxloom"
-// means the session is intact and one upgrade away.
-func warnSkippedTranscript(harp, path string, err error) {
-	var vErr *SchemaVersionError
-	if errors.As(err, &vErr) && vErr.Newer() {
-		clidiag.Warn("ctxloom", "transcript: skip %s (%s): written by a newer ctxloom (schema v%d; this build reads v%d) — the session is intact, upgrade ctxloom to read it", harp, path, vErr.Found, vErr.Known)
-		return
-	}
-	clidiag.Warn("ctxloom", "transcript: skip %s (%s): %v", harp, path, err)
 }
 
 // ParseTranscriptFile reads a canonical transcript.jsonl at path and

@@ -261,9 +261,10 @@ Every host-side launch enters through `launch.Resolve`
 | `SessionIndexUpgrade` | `sessions.go:239` | Returns the pending schema upgrade plus its commit closure. |
 | `WatchSessionFeed` / `watchLiveFeed` / `watchStoreFeed` / `adaptConsumerFeed` | `sessionfeed.go:96,133,460,264` | Unified observation feed: prefer a live coordinator over gRPC, fall back to the recorded store. `adaptConsumerFeed` folds live item-lifecycle deltas back into whole `agent.SessionEntry` values with seq-based gap detection. |
 | `feedScrollback` | `sessionfeed.go:422` | Reads the harp's recorded transcript once as the live feed's prefix. |
-| `RecordedSessionEntries` / `RenderResumedTranscript` / `JoinLeadBlocks` | `resume.go:16,41,82` | Transcript replay for resume; the rendered block is tail-truncated to 32 KiB. `JoinLeadBlocks` joins non-empty lead blocks with a blank line and has six production call sites across three packages. |
+| `RecordedSessionEntries` / `CapturedSessionEntries` / `RenderResumedTranscript` / `JoinLeadBlocks` | `resume.go` | Transcript replay for resume: `RecordedSessionEntries` refreshes first (`RefreshForRead`); `CapturedSessionEntries` reads the copy as captured, writes nothing, and reports whether it may be stale (`run --session --dry-run`). The rendered block is tail-truncated to 32 KiB. `JoinLeadBlocks` joins non-empty lead blocks with a blank line and has six production call sites across three packages. |
 | `RefreshVendorTranscript` | `vendorreader.go` | Converts a vendor-native transcript into the canonical JSONL via the per-engine vendor-reader registry, rebuilding it unconditionally and committing it atomically only on success. |
-| `ResolveAndHeal` | `session_source.go` | The one source-resolution + refresh seam: the harp's index entry plus an unconditional refresh of its canonical transcript. Called when an interactive run exits and by `session adopt`; nothing refreshes on read. |
+| `ResolveAndHeal` | `session_source.go` | The one source-resolution + refresh seam: the harp's index entry plus an unconditional refresh of its canonical transcript. Called when an interactive run exits, by `session adopt`, and through `RefreshForRead` before a session is shown or resumed. |
+| `RefreshForRead` / `TranscriptMayBeStale` | `session_source.go` | `ResolveAndHeal` for a reader: a failed refresh warns and the read goes on; a purged session is never refreshed. `TranscriptMayBeStale` stats, without reading, whether the bound engine log was written after the copy. |
 
 ## Search and schema targets
 

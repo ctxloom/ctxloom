@@ -37,6 +37,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	mockrt "github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
@@ -217,11 +218,12 @@ func assertDeliveredSurfaces(t *testing.T, rep mockrt.Report, wantContextHash st
 
 	// ABSENT: surfaces that were NEVER delivered must report present:false — the
 	// silent-no-op signal. .claude/agents/ has no delivery surface at all;
-	// .mcp.json was not delivered in this run.
+	// .mcp.json was not delivered in this run, in the working folder or any
+	// parent claude reads it from.
 	if agents := recordFor(t, rep, "agents", "cwd"); agents.Present {
 		t.Fatalf("agents surface reported present but was never delivered: %+v", agents)
 	}
-	if mcp := recordFor(t, rep, "mcp", "cwd"); mcp.Present {
+	if mcp := recordFor(t, rep, string(agent.ProbeKindMCP), string(agent.ScopeCwdAncestors)); mcp.Present {
 		t.Fatalf("mcp surface reported present but was never delivered: %+v", mcp)
 	}
 	if rep.DiscoveryDigest == "" {

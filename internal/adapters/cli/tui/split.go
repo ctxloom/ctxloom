@@ -89,6 +89,9 @@ type SplitOptions struct {
 	Out io.Writer
 	// NewPane builds the engine's emulated terminal; nil is termemu.NewXVT.
 	NewPane func(cols, rows int, toChild io.Writer, cb termemu.Callbacks) termemu.Terminal
+	// Epilogue is the line Close leaves on Out after the pane's final frame,
+	// once the split view has given the main screen back; "" leaves none.
+	Epilogue string
 	// WindowSize states the columns and rows of an Out bubbletea cannot
 	// measure (one that is no tty); zero lets bubbletea measure the
 	// terminal, as it does for a tty.

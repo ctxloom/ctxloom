@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -78,6 +80,29 @@ func TestTerminalUIPort_NoCoordinatorControlIsNotInjectable(t *testing.T) {
 
 func TestTerminalUIPort_NoCoordinatorHasNoApprovalSource(t *testing.T) {
 	assert.Nil(t, degradedSessionPort(t, "/irrelevant").Approvals(), "no coordinator hosted: no approval source — never a typed nil the view would call")
+}
+
+// Closing the split view leaves, after the engine's final frame, the line
+// that says where the whole session is: the main screen keeps only the last
+// screen, the session's transcript keeps the rest.
+func TestSetupSplitView_CloseNamesTheSessionTranscript(t *testing.T) {
+	home := testsupport.Isolate(t)
+	workDir := home + "/proj"
+	require.NoError(t, os.MkdirAll(workDir, 0o755))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	in, feed := io.Pipe()
+	defer func() { _ = feed.Close() }()
+	var out bytes.Buffer
+
+	view := setupSplitView(ctx, &config.Config{}, degradedSessionPort(t, workDir), terminalUIIdentity{Harp: "self-harp"}, paneTerm{}, splitIO{in: in, out: &out})
+	require.NotNil(t, view)
+	view.Close()
+
+	transcript, err := paths.HarpCanonicalTranscriptPath("self-harp")
+	require.NoError(t, err)
+	assert.True(t, bytes.HasSuffix(out.Bytes(), []byte(fmt.Sprintf(SplitTranscriptLine, transcript)+"\r\n")),
+		"the transcript line is the last thing written: %q", out.String())
 }
 
 // TestRedirectDiagnosticsForTUI_AnnouncesTheOutcome pins both halves of the

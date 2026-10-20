@@ -90,8 +90,11 @@ flowchart TD
   under it: like a drain that ended, that is output lost, and the runner is
   ended; with the run's ctx it is the signal. Every exit path restores the
   terminal: `SplitView.Close` draws the pane's last frame and gives the
-  terminal back (the alternate screen left, the mouse modes reset), then raw
-  mode is undone.
+  terminal back (the alternate screen left, the mouse modes reset), then
+  writes that frame to the main screen with `SplitOptions.Epilogue` under it
+  (`cli.SplitTranscriptLine`: the session's canonical transcript,
+  `paths.HarpCanonicalTranscriptPath`), then raw mode is undone. A run
+  without the split view (`--plain-terminal`, no tty) leaves neither.
 - `redirectDiagnosticsForTUI` diverts `clidiag` warnings to
   `<harpdir>/diagnostics.log` and returns a restore func. It is installed
   only for interactive runs that own a terminal and did not pass

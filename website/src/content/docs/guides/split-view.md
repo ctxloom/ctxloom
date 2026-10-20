@@ -6,6 +6,8 @@ On a terminal, `ctxloom run` shows the **agent panel** on the left and the selec
 
 `ui.prefix_key` (default **Ctrl+]**) moves the keyboard between the pane and the panel. `--plain-terminal` turns the split view off for one run.
 
+When the run ends, your engine's last screen stays in your terminal, followed by a line naming the session's full transcript: only that last screen reaches your shell's scrollback, and the transcript has the rest.
+
 ## In the panel
 
 | Key | Does |

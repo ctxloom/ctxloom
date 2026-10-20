@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,13 +19,16 @@ import (
 // terminal, and the handles the session's presenters drive it by. Every
 // method is safe from any goroutine.
 type SplitView struct {
-	prog   *tea.Program
-	pane   termemu.Terminal
-	cancel context.CancelFunc
-	done   chan error    // the program's result, once
-	exited chan struct{} // closed once the program has returned
-	ids    atomic.Uint64
-	close  sync.Once
+	prog *tea.Program
+	pane termemu.Terminal
+	out  io.Writer
+	// epilogue is the line left after the final frame (SplitOptions.Epilogue).
+	epilogue string
+	cancel   context.CancelFunc
+	done     chan error    // the program's result, once
+	exited   chan struct{} // closed once the program has returned
+	ids      atomic.Uint64
+	close    sync.Once
 }
 
 // StartSplit starts the split view on o.In/o.Out and returns once it runs.
@@ -48,7 +52,7 @@ func StartSplit(ctx context.Context, o SplitOptions) (*SplitView, error) {
 	// The emulator's size until the first resize; the engine is not sized
 	// before then, so nothing it draws is laid out for this.
 	pane := newPane(80, 24, o.Term, mb.callbacks())
-	v := &SplitView{pane: pane, cancel: cancel, done: make(chan error, 1), exited: make(chan struct{})}
+	v := &SplitView{pane: pane, out: o.Out, epilogue: o.Epilogue, cancel: cancel, done: make(chan error, 1), exited: make(chan struct{})}
 	m := newSplit(ctx, o, pane, func(msg tea.Msg) { go v.prog.Send(msg) }, mb)
 	// The run's own context owns SIGINT and SIGTERM, and a cancelled run
 	// ends the program with it.
@@ -76,14 +80,42 @@ func (v *SplitView) Done() <-chan error { return v.done }
 
 // Close stops the split view, restoring the human's terminal, and releases
 // the emulator. The pane's last committed frame is drawn first: what the
-// engine wrote before Close reaches the human's terminal.
+// engine wrote before Close reaches the human's terminal. Once the main
+// screen is back, that frame is written to it, then the epilogue, so the
+// shell's scrollback keeps the last thing the engine showed. A split view
+// its context already stopped leaves them too.
 func (v *SplitView) Close() {
 	v.close.Do(func() {
 		v.prog.Send(frameMsg{})
 		v.prog.Quit()
 		<-v.exited
+		_, _ = io.WriteString(v.out, finalFrame(v.pane.Frame(), v.epilogue))
 		_ = v.pane.Close()
 	})
+}
+
+// finalFrame is f's rows for the main screen, styled and unpadded, its
+// trailing blank rows dropped, then epilogue: each line ended CR LF, since the human's
+// terminal may still be raw.
+func finalFrame(f termemu.Frame, epilogue string) string {
+	var rows []string
+	if f.Buf != nil {
+		for y := range f.Buf.Height() {
+			rows = append(rows, strings.TrimRight(f.Line(y), " "))
+		}
+		for len(rows) > 0 && f.Buf.Line(len(rows)-1).String() == "" {
+			rows = rows[:len(rows)-1]
+		}
+	}
+	if epilogue != "" {
+		rows = append(rows, epilogue)
+	}
+	var b strings.Builder
+	for _, r := range rows {
+		b.WriteString(r)
+		b.WriteString("\r\n")
+	}
+	return b.String()
 }
 
 // running reports whether the program is still up.

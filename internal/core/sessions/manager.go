@@ -104,9 +104,9 @@ type Entry struct {
 	// fillCanonicalTranscript). Empty means no canonical transcript has
 	// landed for this harp yet: a pre-capture session, an interactive-pty-only
 	// session (§2d/§4d — not tee'd), or a chat that produced zero ChatEvents.
-	// This is the enumeration key internal/adapters/transcript.CanonicalHistory (S3)
-	// uses to discover which of a project's sessions it can serve,
-	// independent of the legacy per-engine TranscriptPath.
+	// It is what a reader of a session's captured transcript
+	// (internal/adapters/transcript.ParseTranscriptFile) is handed,
+	// independent of the per-engine TranscriptPath.
 	CanonicalTranscriptPath string `yaml:"-" json:"canonical_transcript_path,omitempty"`
 
 	// PurgedAt records when `ctxloom session purge` destroyed this session's

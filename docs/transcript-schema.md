@@ -151,15 +151,14 @@ engine's private files after the fact.
   the first prompt and a copy that has one already holds it. A refresh that
   fails on a read warns and the read goes on with the copy the session has,
   which the failed refresh leaves as it was; a purged session is never
-  refreshed by a read. A reader finding no canonical transcript gets
-  `transcript.NoCanonicalTranscriptError`. Conversion is best-effort. A
+  refreshed by a read. Conversion is best-effort. A
   backend with no adapter, driven interactively, has no ctxloom memory.
 
 ---
 
 ## 6. Schema evolution
 
-`v` gates it. `CanonicalHistory` (`internal/adapters/transcript/history.go`) fails loud
+`v` gates it. `ParseTranscriptFile` (`internal/adapters/transcript/history.go`) fails loud
 on a `Record.V` it does not recognize — never a silent mis-parse. The current
 version is `transcript.SchemaVersion`.
 
@@ -169,8 +168,7 @@ version is `transcript.SchemaVersion`.
 
 `transcript.ParseTranscriptFile` is the read path behind `ctxloom session`
 (the session title, the session feed's scrollback) and `run --resume`'s
-replayed transcript. `transcript.CanonicalHistory` is the harp-keyed read
-view over it, implementing `transcript.Source`; it has no production caller.
+replayed transcript.
 
 No reader validates a line against `docs/transcript.schema.json` at runtime;
 the schema is enforced by the `internal/adapters/transcript` tests, which validate

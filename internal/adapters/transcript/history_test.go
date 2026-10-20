@@ -1,7 +1,6 @@
 package transcript
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,7 +11,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -43,34 +41,19 @@ func writeTempTranscript(t *testing.T, harp string, data []byte) string {
 	return dst
 }
 
-// mint registers harp under projectDir in store (AssignHarp mints its own
-// name; Rename retargets it to the exact name a fixture was installed
-// under — the only way MemStore's Store-port surface lets a test pick a
-// specific harp name).
-func mint(t *testing.T, store *sessions.MemStore, harp, projectDir string) {
-	t.Helper()
-	e, err := store.AssignHarp(projectDir, "test-engine")
-	require.NoError(t, err)
-	require.NoError(t, store.Rename(e.HarpName, harp))
-}
-
-// TestCanonicalHistory_RoundTrip_RealPayload feeds every capture regime —
+// TestParseTranscriptFile_RoundTrip_RealPayload feeds every capture regime —
 // the structured-chat fixtures and a live oneshot record — through
-// CanonicalHistory.GetSession end to end (harp -> disk file -> agent.Session)
+// ParseTranscriptFile end to end (harp -> disk file -> agent.Session)
 // and asserts on the reconstructed payload — never merely "no error" or
 // "some entries exist". This is the exact discipline the four broken
 // per-engine readers skipped (memory "silent-no-op-failure-mode"): PROVE the
 // bytes survive the round trip, per regime.
-func TestCanonicalHistory_RoundTrip_RealPayload(t *testing.T) {
+func TestParseTranscriptFile_RoundTrip_RealPayload(t *testing.T) {
 	testsupport.Isolate(t)
-	ctx := context.Background()
 
 	t.Run("claude-code", func(t *testing.T) {
 		harp := "claude-fixture-harp"
-		installFixture(t, "claude-code", harp)
-		h := NewCanonicalHistory("/proj/claude", sessions.NewMemStore())
-
-		sess, err := h.GetSession(ctx, harp)
+		sess, err := ParseTranscriptFile(installFixture(t, "claude-code", harp), harp)
 		require.NoError(t, err)
 		require.NotNil(t, sess)
 		assert.Equal(t, harp, sess.ID)
@@ -97,10 +80,7 @@ func TestCanonicalHistory_RoundTrip_RealPayload(t *testing.T) {
 
 	t.Run("mock: permission line is envelope, not conversation", func(t *testing.T) {
 		harp := "mock-fixture-harp"
-		installFixture(t, "mock", harp)
-		h := NewCanonicalHistory("/proj/mock", sessions.NewMemStore())
-
-		sess, err := h.GetSession(ctx, harp)
+		sess, err := ParseTranscriptFile(installFixture(t, "mock", harp), harp)
 		require.NoError(t, err)
 		// The denied line (kind=="denied") must NOT surface as a
 		// conversation entry — it's a refusal, not turn content — so this
@@ -124,9 +104,10 @@ func TestCanonicalHistory_RoundTrip_RealPayload(t *testing.T) {
 	t.Run("two-entry oneshot", func(t *testing.T) {
 		harp := "mock-oneshot-harp"
 		require.NoError(t, RecordOneshot(safefs.New(), harp, "mock", "Reply with just: ok", "ok"))
-		h := NewCanonicalHistory("/proj/oneshot", sessions.NewMemStore())
+		path, err := paths.HarpCanonicalTranscriptPath(harp)
+		require.NoError(t, err)
 
-		sess, err := h.GetSession(ctx, harp)
+		sess, err := ParseTranscriptFile(path, harp)
 		require.NoError(t, err)
 		require.Len(t, sess.Entries, 2, "oneshot capture is exactly a user entry + an assistant entry")
 		assert.Equal(t, agent.EntryTypeUser, sess.Entries[0].Type)
@@ -152,55 +133,6 @@ func mustParseRFC3339(t *testing.T, s string) time.Time {
 	ts, err := time.Parse(time.RFC3339, s)
 	require.NoError(t, err)
 	return ts.UTC()
-}
-
-// TestCanonicalHistory_GetSession_NoFile_Errors pins the read-side mirror of
-// the Recorder's empty-input contract (recorder_test.go's
-// TestRecorder_EmptyInput_WritesNoFile): a harp with no captured transcript
-// must fail loud, not return an empty-but-successful Session that could be
-// mistaken for "captured, and genuinely empty".
-func TestCanonicalHistory_GetSession_NoFile_Errors(t *testing.T) {
-	testsupport.Isolate(t)
-	h := NewCanonicalHistory("/proj/none", sessions.NewMemStore())
-
-	sess, err := h.GetSession(context.Background(), "never-captured-harp")
-	assert.Error(t, err)
-	assert.Nil(t, sess)
-}
-
-// TestCanonicalHistory_GetSession_EmptyHarp_Errors pins fail-loud-on-misuse:
-// a blank harp is a caller bug, rejected immediately.
-func TestCanonicalHistory_GetSession_EmptyHarp_Errors(t *testing.T) {
-	testsupport.Isolate(t)
-	h := NewCanonicalHistory("/proj/none", sessions.NewMemStore())
-
-	_, err := h.GetSession(context.Background(), "")
-	assert.Error(t, err)
-}
-
-// TestCanonicalHistory_GetSession_PreRenameFilenameIsNotATranscript pins
-// the one-name contract: the canonical transcript lives under
-// paths.CanonicalTranscriptFileName and nothing else. A harp whose transcripts/
-// holds only the pre-rename leaf (transcript.acp.jsonl) has NO canonical
-// transcript — GetSession reports that, and never silently reads the file
-// under the old name.
-func TestCanonicalHistory_GetSession_PreRenameFilenameIsNotATranscript(t *testing.T) {
-	testsupport.Isolate(t)
-	harp := "pre-rename-harp"
-
-	dir, err := paths.HarpTranscriptsDir(harp)
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	data, err := os.ReadFile(fixturePath("claude-code.transcript.acp.jsonl"))
-	require.NoError(t, err)
-	preRename := filepath.Join(dir, "transcript.acp.jsonl")
-	require.NoError(t, os.WriteFile(preRename, data, 0o644))
-
-	h := NewCanonicalHistory("/proj/legacy", sessions.NewMemStore())
-	sess, err := h.GetSession(context.Background(), harp)
-	var noTranscript *NoCanonicalTranscriptError
-	require.ErrorAs(t, err, &noTranscript, "a pre-rename leaf is not a canonical transcript; got %v", err)
-	assert.Nil(t, sess)
 }
 
 // TestParseTranscriptFile_TruncatedLine_DegradesToPartial pins the crash/
@@ -250,66 +182,6 @@ func TestParseTranscriptFile_UnknownSchemaVersion_FailsLoud(t *testing.T) {
 	_, err := ParseTranscriptFile(dst, "future-harp")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "schema version")
-}
-
-// TestCanonicalHistory_ListSessions_And_CurrentSession exercises the
-// project-scoped enumeration path end to end: two harps captured under the
-// same project, minted in oldest-first order so their (real, monotonically
-// increasing) StartedAt values order them deterministically — neither harp
-// gets a legacy TranscriptPath, so sessions.ActivityTime falls back to
-// StartedAt for ordering (see sessions.ActivityTime). ListSessions must
-// return both, most-recent-first, with accurate EntryCount; CurrentSession
-// must return the newer one's full session. A harp in a different project,
-// and a harp with NO canonical transcript captured at all, must both be
-// excluded.
-func TestCanonicalHistory_ListSessions_And_CurrentSession(t *testing.T) {
-	testsupport.Isolate(t)
-	ctx := context.Background()
-	const projectDir = "/proj/multi"
-
-	older := "claude-fixture-harp"
-	newer := "mock-fixture-harp"
-	installFixture(t, "claude-code", older)
-	installFixture(t, "mock", newer)
-
-	store := sessions.NewMemStore()
-	mint(t, store, older, projectDir)
-	time.Sleep(2 * time.Millisecond) // force a distinct, later StartedAt
-	mint(t, store, newer, projectDir)
-	// A harp in a DIFFERENT project must never leak into this project's list.
-	mint(t, store, "other-project-harp", "/proj/elsewhere")
-	// A harp with NO canonical transcript captured yet must be silently
-	// excluded (not a zero-entry phantom row) — the plan's "enumerate by
-	// presence" rule.
-	mint(t, store, "no-transcript-harp", projectDir)
-
-	h := NewCanonicalHistory(projectDir, store)
-
-	metas, err := h.ListSessions(ctx)
-	require.NoError(t, err)
-	require.Len(t, metas, 2, "exactly the two project harps WITH a captured canonical transcript")
-	assert.Equal(t, newer, metas[0].ID, "most-recent-first by StartedAt")
-	assert.Equal(t, 7, metas[0].EntryCount, "mock fixture's 7 entry-kind lines")
-	assert.Equal(t, older, metas[1].ID)
-	assert.Equal(t, 5, metas[1].EntryCount, "claude-code fixture's 5 entry-kind lines")
-
-	cur, err := h.CurrentSession(ctx)
-	require.NoError(t, err)
-	require.NotNil(t, cur)
-	assert.Equal(t, newer, cur.ID)
-	require.Len(t, cur.Entries, 7)
-}
-
-// TestCanonicalHistory_CurrentSession_NoSessions_ReturnsNilNil pins the
-// "clean no sessions" contract pb.SessionReader.CurrentSession documents:
-// nil, nil — never an error — for a project with nothing captured yet.
-func TestCanonicalHistory_CurrentSession_NoSessions_ReturnsNilNil(t *testing.T) {
-	testsupport.Isolate(t)
-	h := NewCanonicalHistory("/proj/empty", sessions.NewMemStore())
-
-	sess, err := h.CurrentSession(context.Background())
-	assert.NoError(t, err)
-	assert.Nil(t, sess)
 }
 
 // splitLines splits fixture bytes into non-empty trimmed lines.

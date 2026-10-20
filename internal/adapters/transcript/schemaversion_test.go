@@ -1,19 +1,14 @@
 package transcript
 
 import (
-	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // futureVersionLine is one syntactically perfect canonical line carrying a
@@ -33,9 +28,8 @@ func futureVersionLine() []byte {
 // next poll tick forever. None of those is wrong on its own; what makes the
 // contract toothless is that not one of them CAN tell "this file is damaged"
 // from "this build is older than this file", which are opposite instructions
-// to the user. A distinct error type is what makes the distinction reachable,
-// the same way NoCanonicalTranscriptError already makes "never captured"
-// reachable from several layers up.
+// to the user. A distinct error type is what makes the distinction reachable
+// from several layers up.
 func TestParseTranscriptFile_VersionMismatchIsDiscriminable(t *testing.T) {
 	testsupport.Isolate(t)
 	path := writeTempTranscript(t, "future-version-harp", futureVersionLine())
@@ -56,35 +50,4 @@ func TestParseTranscriptFile_VersionMismatchIsDiscriminable(t *testing.T) {
 	_, cErr := ParseTranscriptFile(corrupt, "corrupt-harp")
 	require.Error(t, cErr)
 	assert.False(t, errors.As(cErr, &vErr), "an unparseable file is not a version mismatch")
-}
-
-// TestListSessions_VersionMismatchWarningIsActionable pins the payload of the
-// diagnostic, not merely that one is emitted: a user whose ctxloom is too old
-// to read a transcript must be told THAT, rather than being told the file is
-// unreadable and left to conclude their session was lost.
-func TestListSessions_VersionMismatchWarningIsActionable(t *testing.T) {
-	testsupport.Isolate(t)
-	const projectDir = "/proj/version-skew"
-
-	good := "claude-fixture-harp"
-	installFixture(t, "claude-code", good)
-	future := "future-version-harp"
-	writeTempTranscript(t, future, futureVersionLine())
-
-	store := sessions.NewMemStore()
-	mint(t, store, good, projectDir)
-	time.Sleep(2 * time.Millisecond)
-	mint(t, store, future, projectDir)
-
-	var sink bytes.Buffer
-	t.Cleanup(clidiag.SetSink(&sink))
-
-	metas, err := NewCanonicalHistory(projectDir, store).ListSessions(context.Background())
-	require.NoError(t, err)
-	require.Len(t, metas, 1, "the readable session is still listed")
-
-	out := sink.String()
-	require.Contains(t, out, future, "the warning must name the harp it skipped")
-	assert.Contains(t, out, "newer", "the warning must say the FILE is newer than this build")
-	assert.Contains(t, out, "upgrade", "and say what the user can do about it")
 }

@@ -61,10 +61,8 @@ flowchart TD
 
     DISK --> PTF["ParseTranscriptFile<br/>history.go:170"]
     PTF -->|"v != SchemaVersion → hard error<br/>bad JSON → line dropped"| SESS["agent.Session"]
-    CH["CanonicalHistory<br/>history.go:51<br/>{workDir, sessions.Store}"] --> PTF
-    CH -.structurally satisfies.-> PBS["pb.SessionSource"]
-    IDX[("sessions/index.yaml<br/>Entry.CanonicalTranscriptPath")] --> CH
-    SESS --> CONS["transcript/source.go (this package's own reader port)<br/>operations/sessionfeed.go · operations.SessionTitle · resume"]
+    IDX[("sessions/index.yaml<br/>Entry.CanonicalTranscriptPath")] --> PTF
+    SESS --> CONS["operations/sessionfeed.go · operations.SessionTitle · resume"]
 ```
 
 **The two things to hold in mind:**
@@ -135,20 +133,14 @@ reports the lost-event total once.
 
 | Symbol | file:line | Notes |
 |---|---|---|
-| `CanonicalHistory` | `history.go:51` | `{workDir string, store sessions.Store}`; harp-keyed, project-scoped read view. **Structurally satisfies `pb.SessionSource`** (asserted in `history_interface_test.go:18`) |
-| `NewCanonicalHistory` | `history.go` | Has no production caller |
-| `GetSession` | `history.go:71` | Validates harp, resolves + stats the path, delegates to `ParseTranscriptFile`. Touches **neither** of the type's fields — it is a free function wearing a method's clothes, which exists to satisfy `pb.SessionSource` |
-| `ListSessions` | `history.go:103` | Enumerates project harps from the index, parses each, builds `SessionMeta`; a per-harp parse failure warns via `clidiag` and continues |
-| `CurrentSession` | `history.go:134` | Returns the newest canonical-backed session. Returns the **first** candidate's `GetSession` error rather than skipping to the next — unlike `ListSessions` |
 | `ParseTranscriptFile` | `history.go:170` | Streams the JSONL, version-checks each line, folds entries, computes the ts span. **Split contract:** a bad-JSON line is dropped silently (`history.go:183`); a `v` mismatch is a hard **file** error (`:185-187`) |
 | `entriesFromRecord` | `history.go:215` | One `Record` → 0 or 1 `agent.SessionEntry` |
 
-**Two path-resolution routes.** `GetSession` stats `paths.HarpCanonicalTranscriptPath` itself;
-`ListSessions` trusts `Entry.CanonicalTranscriptPath` from the session store. They agree today only
-because `sessions.fillCanonicalTranscript` happens to stat the same path.
+Every reader is handed `Entry.CanonicalTranscriptPath` from the session store, which
+`sessions.fillCanonicalTranscript` fills by stat'ing `paths.HarpCanonicalTranscriptPath`.
 
 **The version-mismatch contract has no teeth end to end.** The consumers swallow the hard
-error: `operations/sessionfeed.go` warns and returns nil; the transcript watch (`source.go`) warns on
+error: `operations/sessionfeed.go` warns and returns nil; the transcript watch (`watch.go`) warns on
 **every poll tick, forever**, since a version error is permanent, and re-parses the whole file
 on each tick — `ParseTranscriptFile` offers no incremental/tail API.
 
@@ -295,9 +287,8 @@ one byte-identical, and the next call simply converts again.
 
 ## 7. Where this subsystem meets others
 
-- **`internal/core/sessions`** supplies the harp→project index `CanonicalHistory` enumerates, and
-  `Entry.CanonicalTranscriptPath` is filled by `sessions.fillCanonicalTranscript` using the same
-  resolver `GetSession` calls independently.
+- **`internal/core/sessions`** fills `Entry.CanonicalTranscriptPath` (`sessions.fillCanonicalTranscript`,
+  stat'ing `paths.HarpCanonicalTranscriptPath`); every reader hands that path to `ParseTranscriptFile`.
 - **`internal/adapters/operations/vendorreader*.go`** owns adapter registration, locator discovery,
   and the canonical rebuild (`RefreshVendorTranscript`: the ownership probe, the watermark resume,
   the temp-then-rename commit) — every consequence of "the vendor reader cannot report a count"
@@ -305,4 +296,4 @@ one byte-identical, and the next call simply converts again.
 - **`internal/adapters/operations`** reads the canonical transcript directly through
   `ParseTranscriptFile`: a session's title (`SessionTitle`), resume (`RecordedSessionEntries`).
 - **`internal/adapters/runner`** owns the live producer (the engine host's `CoordinatedRecorder`
-  wiring); the reader port (`source.go`) is this package's own.
+  wiring).

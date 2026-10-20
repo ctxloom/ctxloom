@@ -245,6 +245,8 @@ func TestConvert_RealFieldsSurvive(t *testing.T) {
 			assert.Equal(t, 10, r.Complete.InputTokens)
 			assert.Equal(t, 1, r.Complete.OutputTokens)
 			assert.Equal(t, 32371, r.Complete.CacheCreationTokens)
+			assert.Equal(t, r.Complete.InputTokens+r.Complete.CacheReadTokens+r.Complete.CacheCreationTokens, r.Complete.ContextTokens,
+				"in context: one response's uncached, cache-read and cache-written input")
 			assert.Equal(t, "", r.Complete.StopReason, "the fixture's session was interrupted mid-turn: stop_reason never arrived")
 		}
 	}

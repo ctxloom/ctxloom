@@ -690,6 +690,7 @@ func (c *converter) handleAssistant(l line) error {
 		OutputTokens:        l.Message.Usage.OutputTokens,
 		CacheReadTokens:     l.Message.Usage.CacheReadInputTokens,
 		CacheCreationTokens: l.Message.Usage.CacheCreationInputTokens,
+		ContextTokens:       l.Message.Usage.InputTokens + l.Message.Usage.CacheReadInputTokens + l.Message.Usage.CacheCreationInputTokens,
 		Model:               l.Message.Model,
 		StopReason:          l.Message.StopReason,
 	}

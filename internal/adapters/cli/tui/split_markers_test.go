@@ -37,8 +37,9 @@ func treeText(h *splitHarness) []string {
 	return lines
 }
 
-// A row whose agent waits on approvals says so after its name — ⚑, with
-// the count past one — and its unread mail as ✉ N; it sorts to the top of
+// A row whose agent waits on approvals says so at its right edge — ⚑, with
+// the count past one — and its unread mail as ✉ N, which a long name is cut
+// short to keep; it sorts to the top of
 // its level, ahead of the activity order. The footer keeps the total. The
 // asker is the queue's own attribution (each request's From harp).
 func TestSplit_RowMarkersAndApprovalsFirst(t *testing.T) {
@@ -53,11 +54,11 @@ func TestSplit_RowMarkersAndApprovalsFirst(t *testing.T) {
 	assert.Equal(t, []string{selfHarp + "@0", "mid-wren@1", "calm-swan@1", "busy-crow@1"}, rosterOrder(h.s.rows),
 		"rows waiting on an approval first, by activity among themselves")
 	tree := treeText(h)
-	assert.Equal(t, "  ◐ mid-wren·finder ⚑", tree[1])
-	assert.Equal(t, "  ◐ calm-swan·reviewer ⚑2", tree[2][:len("  ◐ calm-swan·reviewer ⚑2")])
+	assert.Equal(t, "  ◐ mid-wren·finder      ⚑", tree[1])
+	assert.Equal(t, "  ◐ calm-swan·revi… ⚑2 ✉ 4", tree[2])
 	assert.True(t, h.panelHas(pendingGlyph+" 3 approvals"), "the footer keeps the total")
 
-	assert.Equal(t, "  ◐ calm-swan·reviewer ⚑2 ✉ 4", strings.TrimRight(ansi.Strip(h.s.treeLine(2, 40, false, h.clk.Now())), " "))
+	assert.Equal(t, "  ◐ calm-swan·reviewer            ⚑2 ✉ 4", strings.TrimRight(ansi.Strip(h.s.treeLine(2, 40, false, h.clk.Now())), " "))
 
 	q.resolve("r1")
 	q.resolve("r2")

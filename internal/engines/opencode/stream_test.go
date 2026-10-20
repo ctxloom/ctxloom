@@ -312,6 +312,7 @@ func TestTurn_RecoveredOverflowCompletesNormally(t *testing.T) {
 	assert.Equal(t, "stop", cs[0].StopReason)
 	assert.Equal(t, 900, cs[0].InputTokens)
 	assert.Equal(t, 100, cs[0].CacheReadTokens)
+	assert.Equal(t, 1000, cs[0].ContextTokens, "in context: input and cache reads together")
 }
 
 // An overflow it does not recover from completes the turn as one.

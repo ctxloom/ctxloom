@@ -251,6 +251,26 @@ type sjUsage struct {
 	OutputTokens             int `json:"output_tokens"`
 	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	// Iterations is the result frame's usage per model call of the turn, in
+	// order.
+	Iterations []sjUsage `json:"iterations"`
+}
+
+// inContext is how many tokens u's call had in context: claude bills a
+// call's input as three parts — uncached, read from the cache, written to
+// it — and all three were in the prompt.
+func (u sjUsage) inContext() int {
+	return u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
+}
+
+// contextTokens is how many tokens the turn's last model call had in
+// context: its iteration's, when the result lists them. Without them the
+// turn-level usage stands in, exact for a turn of one call.
+func (u sjUsage) contextTokens() int {
+	if n := len(u.Iterations); n > 0 {
+		return u.Iterations[n-1].inContext()
+	}
+	return u.inContext()
 }
 
 type sjModelUse struct {
@@ -395,6 +415,7 @@ func resultToTurnMeta(e *sjEvent) *agent.TurnMeta {
 		tm.OutputTokens = e.Usage.OutputTokens
 		tm.CacheReadTokens = e.Usage.CacheReadInputTokens
 		tm.CacheCreationTokens = e.Usage.CacheCreationInputTokens
+		tm.ContextTokens = e.Usage.contextTokens()
 	}
 	model, mu := pickGeneratingModel(e.ModelUsage)
 	tm.Model = model

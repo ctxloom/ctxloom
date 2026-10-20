@@ -26,7 +26,7 @@ func treeHas(h *splitHarness, text string) bool {
 }
 
 // The roster's first state is the watch's snapshot; what no event carries
-// (the context gauge here) shows only once an event has triggered a fresh
+// (the unread mail here) shows only once an event has triggered a fresh
 // read — one read per burst, after the debounce — or the safety tick has.
 func TestSplit_RosterFollowsTheRunWatchDebounced(t *testing.T) {
 	port := newSplitPort()
@@ -35,7 +35,7 @@ func TestSplit_RosterFollowsTheRunWatchDebounced(t *testing.T) {
 	require.True(t, treeHas(h, "brave-heron·coder"), "the snapshot is the first roster")
 	require.Zero(t, port.runReads(), "the snapshot needed no read of its own")
 
-	port.setRuns(func(r []coord.RunInfo) { r[0].ContextTokens, r[0].ContextWindow = 50_000, 200_000 })
+	port.setRuns(func(r []coord.RunInfo) { r[0].Unread = 2 })
 	h.send(rosterEventsMsg{})
 	h.send(rosterEventsMsg{})
 	h.advance(rosterDebounce - time.Millisecond)
@@ -43,12 +43,12 @@ func TestSplit_RosterFollowsTheRunWatchDebounced(t *testing.T) {
 	h.send(rosterEventsMsg{})
 	h.advance(time.Millisecond)
 	assert.Equal(t, 1, port.runReads(), "a burst of events is one read")
-	assert.True(t, treeHas(h, "25%"), "the fresh read carries the gauge")
+	assert.True(t, treeHas(h, "✉ 2"), "the fresh read carries the mail")
 
-	port.setRuns(func(r []coord.RunInfo) { r[0].ContextTokens = 100_000 })
+	port.setRuns(func(r []coord.RunInfo) { r[0].Unread = 5 })
 	h.advance(rosterSafetyEvery - rosterDebounce)
 	assert.Equal(t, 2, port.runReads(), "the safety tick reads with no event")
-	assert.True(t, treeHas(h, "50%"))
+	assert.True(t, treeHas(h, "✉ 5"))
 	h.advance(rosterSafetyEvery)
 	assert.Equal(t, 3, port.runReads(), "and keeps ticking")
 

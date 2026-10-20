@@ -137,13 +137,14 @@ type Split struct {
 	rows   []RosterRow
 	// pendingBy is how many approvals wait per asking harp.
 	pendingBy map[string]int
-	// listWindow is SplitOptions.ListWindow; hiddenRows how many rows it
-	// leaves out of rows.
-	listWindow time.Duration
-	hiddenRows int
-	sel        string
-	collapsed  map[string]bool
-	runEvents  <-chan coord.Event
+	// listWindow starts as SplitOptions.ListWindow and statusFilter as every
+	// status; w and f cycle them. hiddenRows is how many rows they leave out
+	// of rows.
+	listWindow   time.Duration
+	statusFilter frontend.StatusFilter
+	hiddenRows   int
+	sel          string
+	runEvents    <-chan coord.Event
 	// refreshArmed: a debounced roster refresh is already scheduled.
 	refreshArmed bool
 
@@ -188,7 +189,6 @@ func newSplit(ctx context.Context, o SplitOptions, pane termemu.Terminal, post f
 		mailbox:    mb,
 		sel:        o.Self,
 		listWindow: o.ListWindow,
-		collapsed:  map[string]bool{},
 		approvalsView: approvalsView{
 			apprTick: approvalsTickEvery,
 		},

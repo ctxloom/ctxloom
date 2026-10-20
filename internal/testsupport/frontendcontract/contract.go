@@ -71,6 +71,7 @@ func Run(t *testing.T, live func(t *testing.T) World, degraded func(t *testing.T
 	t.Run("runs: an ended child stays listed with why it ended", func(t *testing.T) { runsEnded(t, live(t)) })
 	t.Run("runs: a watch opens on a snapshot, streams live events, and closes with its context", func(t *testing.T) { runsWatch(t, live(t)) })
 	t.Run("sessions: the index lists a delegated child with a liveness verdict", func(t *testing.T) { sessionsList(t, live(t)) })
+	t.Run("roster: a delegated child nests under the session, carries its approvals, and filters by status", func(t *testing.T) { rosterArranged(t, live(t)) })
 	t.Run("feed: a child's answers reach its feed live", func(t *testing.T) { feedLive(t, live(t)) })
 	t.Run("approvals: a request parks, is answered once, and its session grant can be revoked", func(t *testing.T) { approvalsAnswer(t, live(t)) })
 	t.Run("approvals: a request denied with a message tells the asker why", func(t *testing.T) { approvalsDeny(t, live(t)) })
@@ -404,8 +405,49 @@ func terminalChild(t *testing.T, w World) {
 	assert.ErrorIs(t, err, frontend.ErrNoTerminal)
 }
 
+func rosterArranged(t *testing.T, w World) {
+	child := w.Delegate(t, "roster me")
+	w.Ask(t, child, "Bash")
+	ctx := context.Background()
+	harps := func(r frontend.Roster) []string {
+		var out []string
+		for _, row := range r.Rows {
+			out = append(out, row.Harp)
+		}
+		return out
+	}
+	var all frontend.Roster
+	eventually(t, "the child's approval reaches its roster row", func() bool {
+		var err error
+		all, err = w.Port().Roster(ctx, frontend.RosterQuery{Self: w.Self()})
+		require.NoError(t, err)
+		i := slices.IndexFunc(all.Rows, func(r frontend.RosterRow) bool { return r.Harp == child })
+		return i >= 0 && all.Rows[i].Pending == 1
+	})
+	require.NotEmpty(t, all.Rows)
+	assert.Equal(t, w.Self(), all.Rows[0].Harp, "the session is the first row")
+	i := slices.IndexFunc(all.Rows, func(r frontend.RosterRow) bool { return r.Harp == child })
+	assert.Equal(t, 1, all.Rows[i].Depth, "the child nests under the session")
+	assert.Equal(t, "worker", all.Rows[i].Agent)
+
+	waiting, err := w.Port().Roster(ctx, frontend.RosterQuery{Self: w.Self(), Status: frontend.StatusWaiting})
+	require.NoError(t, err)
+	assert.Equal(t, []string{w.Self(), child}, harps(waiting), "waiting: the asker, under the session")
+	assert.True(t, waiting.Rows[0].Context, "the session shows as context: it waits on nothing")
+	assert.False(t, waiting.Rows[1].Context)
+
+	ended, err := w.Port().Roster(ctx, frontend.RosterQuery{Self: w.Self(), Status: frontend.StatusEnded})
+	require.NoError(t, err)
+	assert.NotContains(t, harps(ended), child, "a live child is not ended")
+	assert.Equal(t, len(all.Rows)-len(ended.Rows), ended.Hidden, "what the filter leaves out is counted")
+}
+
 func degradedPort(t *testing.T, p frontend.Port) {
 	ctx := context.Background()
+	roster, err := p.Roster(ctx, frontend.RosterQuery{Self: "self-harp"})
+	require.NoError(t, err, "the roster needs no coordinator")
+	require.NotEmpty(t, roster.Rows)
+	assert.Equal(t, "self-harp", roster.Rows[0].Harp, "the session is its own roster's first row")
 	snap, err := p.ListRuns(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, snap.Runs, "no coordinator holds no runs")

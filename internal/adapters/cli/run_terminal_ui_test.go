@@ -278,7 +278,7 @@ func TestValidateTerminalUIConfig_BadListWindowIsFatalFinding(t *testing.T) {
 	require.Len(t, found, 1, "an invalid list window must be a collected startup finding")
 	assert.Equal(t, report.KindConfig, found[0].Kind)
 	assert.Contains(t, found[0].Text, "ui.list_window")
-	assert.Contains(t, found[0].Text, tui.ErrInvalidListWindow.Error())
+	assert.Contains(t, found[0].Text, frontend.ErrInvalidListWindow.Error())
 
 	mark = strictness.Checkpoint()
 	for _, ok := range []string{"", "7d", "0", "all"} {

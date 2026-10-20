@@ -684,7 +684,7 @@ func TestEngineHost_CancellationEmitsRunCompletedAndRunExited(t *testing.T) {
 	}
 	require.NotNil(t, completed, "the terminal RunCompleted must be emitted")
 	require.NotNil(t, completed.GetResult().GetUsage())
-	assert.Equal(t, uint64(10), completed.GetResult().GetUsage().GetInputTokens())
+	assert.Equal(t, uint64(4), completed.GetResult().GetUsage().GetInputTokens())
 	// 0.0000015 USD → 1.5 micros → round-half-even → 2.
 	assert.Equal(t, uint64(2), completed.GetResult().GetUsage().GetCostUsdMicros(), "money converts ONCE at the runner boundary, round-half-even")
 	assert.Equal(t, uint32(1), completed.GetResult().GetNumTurns())

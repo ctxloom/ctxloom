@@ -10,16 +10,18 @@ When the run ends, your engine's last screen stays in your terminal, followed by
 
 ## In the panel
 
-Your session is always the top row, with the agents it delegated to under it. Each level of the list is ordered by activity, most recent first. An agent that is waiting for you to approve a call is marked ⚑ after its name (⚑2 when it waits on two), and it moves to the top of its level. Unread mail shows as ✉ and a count.
+Your session is always the top row, with the agents it delegated to under it. Each level of the list is ordered by activity, most recent first. An agent that is waiting for you to approve a call is marked ⚑ at the row's right edge (⚑2 when it waits on two), and it moves to the top of its level. Unread mail shows there as ✉ and a count. A name too long for the panel is cut short to keep them.
 
-The list shows only agents and sessions active within `ui.list_window` (default **7d**; `all` shows everything). Your own session, anything running, and anything waiting on an approval or holding mail are always shown, whatever their age. A dim line at the foot of the panel says how many rows are hidden.
+The list shows only agents and sessions active within `ui.list_window` (default **7d**; `all` shows everything). Anything running, and anything waiting on an approval or holding mail, shows whatever its age. `w` widens the window for this session (1h, 1d, 7d, any age, then round again), and `f` filters by status: all, active (not ended), waiting (on your approval), or ended. Your own session and the selected agent always show, and so does the parent of any agent that shows; one shown only for that is dim. A dim line at the foot of the panel says what is hidden: `+416 older than 7d`, or, under a status filter, the filter, the window and the count, for example `active · 7d · +4 hidden`.
 
 When you move the keyboard to the panel, the selection starts on the agent the pane is showing.
 
 | Key | Does |
 |---|---|
 | `j` / `k`, ↓ / ↑ | Select an agent. The right pane shows it: your engine's terminal, or a delegated agent's feed |
-| Enter | Fold or unfold an agent's children |
+| Enter | Return the keyboard to the pane, on the selected agent |
+| `f` | Cycle the status filter: all, active, waiting, ended |
+| `w` | Cycle the age window: 1h, 1d, 7d, any age |
 | `[`, PgUp | Scroll back through your engine's terminal |
 | `a` | Open the approvals waiting for you |
 | `i` | Send the selected agent a message |

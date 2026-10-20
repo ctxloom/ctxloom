@@ -66,19 +66,6 @@ func TestSplit_DozingIsTenMinutesIdle(t *testing.T) {
 	assert.Equal(t, "◐", activityGlyph(r, now))
 }
 
-func TestCompactCount_Boundaries(t *testing.T) {
-	for _, c := range []struct {
-		n    uint64
-		want string
-	}{
-		{999, "999"}, {1000, "1k"}, {1999, "1k"}, {999_999, "999k"}, {1_000_000, "1.0M"},
-		{1_049_999, "1.0M"}, {1_050_000, "1.1M"},
-	} {
-		assert.Equal(t, c.want, compactCount(c.n), "%d", c.n)
-	}
-	assert.Equal(t, "100%", tokenLabel(RosterRow{ContextTokens: 1, ContextWindow: 1}), "a window of one is a window")
-}
-
 func TestWindowStart(t *testing.T) {
 	for _, c := range []struct{ sel, n, h, want int }{
 		{0, 3, 5, 0}, {2, 3, 5, 0}, {-1, 9, 4, 0}, {0, 9, 4, 0}, {3, 9, 4, 1},
@@ -150,25 +137,14 @@ func TestSplit_TreeRowAnnotations(t *testing.T) {
 	h.send(rosterMsg{rows: []RosterRow{
 		{Harp: selfHarp},
 		{Harp: "a", Depth: 1, State: StateEnded, Cause: coord.CauseFinalReported, Unread: 1},
-		{Harp: "b", Depth: 1, State: coord.StateIdle, Unread: 0, ContextTokens: 5, ContextWindow: 10},
+		{Harp: "b", Depth: 1, State: coord.StateIdle, ContextTokens: 5, ContextWindow: 10},
+		{Harp: "viral-soapy-aqua", Agent: "finder", Depth: 1, State: coord.StateExecuting, Unread: 3},
 	}})
-	tree := h.s.treeLines(rosterPaneWidth, 3)
-	assert.Equal(t, " ▾◐ "+selfHarp, strings.TrimRight(ansi.Strip(tree[0]), " "))
-	assert.Equal(t, "  ✓ a final-reported ✉ 1", strings.TrimRight(ansi.Strip(tree[1]), " "))
-	assert.Equal(t, "  ◐ b"+strings.Repeat(" ", 18)+"50%", ansi.Strip(tree[2]), "the gauge right-aligned, the row the panel's width")
-}
-
-// A parent whose only child is the tree's last row folds.
-func TestSplit_FoldTheLastSubtree(t *testing.T) {
-	h := newSplitHarness(t, newSplitPort()).sized(100, 10)
-	h.send(rosterMsg{rows: []RosterRow{{Harp: selfHarp}, {Harp: "p", Depth: 1}, {Harp: "c", Depth: 2}}})
-	assert.Contains(t, h.s.treeLines(rosterPaneWidth, 3)[1], foldOpen)
-	h.typeBytes("\x1d")
-	h.keys("j", "enter")
-	assert.Equal(t, []int{0, 1}, h.s.visibleRows())
-	assert.Contains(t, h.s.treeLines(rosterPaneWidth, 3)[1], foldClosed)
-	h.keys("enter")
-	assert.Equal(t, []int{0, 1, 2}, h.s.visibleRows())
+	tree := h.s.treeLines(rosterPaneWidth, 4)
+	assert.Equal(t, " ◐ "+selfHarp, strings.TrimRight(ansi.Strip(tree[0]), " "))
+	assert.Equal(t, "  ✓ a final-reported   ✉ 1", ansi.Strip(tree[1]), "the mail right-aligned, the row the panel's width")
+	assert.Equal(t, "  ◐ b", strings.TrimRight(ansi.Strip(tree[2]), " "), "no context gauge")
+	assert.Equal(t, "  ● viral-soapy-aqua·… ✉ 3", ansi.Strip(tree[3]), "a long name is cut short, never the mail")
 }
 
 // With no row selected the tree's j starts from the top; with no rows it

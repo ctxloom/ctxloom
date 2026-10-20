@@ -8,10 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/contextmetrics"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/core/spool"
 )
 
 var hookHudCmd = &cobra.Command{
@@ -19,10 +21,11 @@ var hookHudCmd = &cobra.Command{
 	Hidden: true, // Machine callback (statusline command) - not for direct use
 	Short:  "Output a formatted statusline for the active agent's HUD",
 	Long: `Reads the active agent's session JSON from stdin and outputs a formatted
-statusline combining the session's model/context info with ctxloom project status.
+statusline combining the session's model/context info with ctxloom's own status.
 
 This is the command an agent runs for its statusline after each assistant message,
-displaying context usage, model info, and active ctxloom profile/bundle counts.
+displaying model info, context usage, cost, the session's harp and the mail
+waiting for it.
 
 Agent-neutral by design: the input is the common statusline JSON shape (model,
 context window, cost, worktree). Claude Code is the only agent today that supports
@@ -97,10 +100,13 @@ func (s agentSessionJSON) modelName() string {
 	return ""
 }
 
-// ctxloomHudInfo holds ctxloom-specific data for the HUD.
+// ctxloomHudInfo holds ctxloom-specific data for the HUD. It names no
+// profile: a session does not record the agent or profile it was launched
+// with, and the configured default agent's would be a guess presented as a
+// fact.
 type ctxloomHudInfo struct {
-	Profile     string
-	BundleCount int
+	// Unread is how many messages wait for this session, not yet delivered.
+	Unread int
 }
 
 func runHookHud(cmd *cobra.Command, args []string) error {
@@ -125,8 +131,7 @@ func runHookHud(cmd *cobra.Command, args []string) error {
 	// serves back.
 	recordContextSample(session)
 
-	// Gather ctxloom info (fault tolerant - continue with empty info on error)
-	info := gatherCtxloomInfo()
+	info := ctxloomHudInfo{Unread: hudUnread(afero.NewOsFs(), os.Getenv(sessions.EnvHarp))}
 
 	// Format and output the statusline
 	fmt.Print(formatHud(session, info))
@@ -174,31 +179,24 @@ func recordContextSample(session agentSessionJSON) {
 	_, _ = contextmetrics.Record(s.Harp, s)
 }
 
-// gatherCtxloomInfo loads ctxloom project info for the HUD.
-func gatherCtxloomInfo() ctxloomHudInfo {
-	info := ctxloomHudInfo{}
-
-	cfg, err := GetConfig()
+// hudUnread is how many messages wait undelivered in harp's inbox: the
+// count the parent's agent list shows as ✉. It runs on every refresh, so
+// with nothing waiting it costs mail-peek's two directory listings and
+// parses nothing. Best-effort and silent like the rest of the HUD: an inbox
+// that cannot be read shows no mail rather than corrupting the status bar.
+func hudUnread(fs afero.Fs, harp string) int {
+	if harp == "" {
+		return 0
+	}
+	mapper := spool.NewHomeMapper()
+	if has, err := spool.HasMail(fs, mapper, harp); err != nil || !has {
+		return 0
+	}
+	n, err := spool.Unread(fs, mapper, harp)
 	if err != nil {
-		return info
+		return 0
 	}
-
-	// Get active profile (the default agent's first composed profile)
-	defaults := cfg.DefaultAgentProfiles()
-	if len(defaults) > 0 {
-		info.Profile = defaults[0]
-
-		// Resolve profile to count bundles
-		loader := cfg.GetProfileLoader()
-		if loader != nil {
-			resolved, err := loader.ResolveProfile(info.Profile, nil)
-			if err == nil {
-				info.BundleCount = len(resolved.Bundles)
-			}
-		}
-	}
-
-	return info
+	return n
 }
 
 // ANSI color helpers
@@ -250,19 +248,14 @@ func formatHud(session agentSessionJSON, info ctxloomHudInfo) string {
 		parts = append(parts, fmt.Sprintf("%s$%.2f%s", colorDim, session.Cost.TotalCostUSD, colorReset))
 	}
 
-	// ctxloom profile info
-	if info.Profile != "" {
-		ctxParts := []string{info.Profile}
-		if info.BundleCount > 0 {
-			ctxParts = append(ctxParts, fmt.Sprintf("%db", info.BundleCount))
-		}
-		parts = append(parts, fmt.Sprintf("%s%s%s", colorDim, strings.Join(ctxParts, " "), colorReset))
-	}
-
 	// Harp session name (Phase 3.5.1). Surfaced here so the user sees
 	// the session's identity in the status bar at all times.
 	if harp := os.Getenv(sessions.EnvHarp); harp != "" {
 		parts = append(parts, fmt.Sprintf("%s⌁ %s%s", colorDim, harp, colorReset))
+	}
+
+	if info.Unread > 0 {
+		parts = append(parts, fmt.Sprintf("%s✉ %d%s", colorYellow, info.Unread, colorReset))
 	}
 
 	// Worktree indicator

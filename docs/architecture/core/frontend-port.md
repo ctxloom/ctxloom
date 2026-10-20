@@ -61,6 +61,7 @@ keystrokes and resizes to and whose output the drive copies into its pane). None
 | `CredentialHolds` | every turn-failure hold in force — rate limit, refused credential, overload, unreachable endpoint — oldest first; carrier **names** only | `Coordinator.CredentialHolds` | `CredentialHolds` (new) |
 | `Approvals` | the root's approval queue: pending requests (asker, lineage, tool, deadline), arrival/resolution subscription, the one place a request is answered (allow once, allow for the session with rules, a posture change, deny with a message), the session grants an allow left and their revocation; nil when none | `Coordinator.Approvals()` (`coord.ApprovalSource`) | `PendingApprovals` only (read-only, no id) |
 | `Control` | the human initiator's verbs on any held run: **steer** is the human's send (durable mail the target takes at its next turn), steer with `Interrupt` cuts the turn in flight and is its next turn now; question, summarize, pause, resume | `Coordinator.Control(InitiatorHuman, …)` | none |
+| `Roster` | the agent list as a frontend shows it, arranged under a `RosterQuery` (self, selection, status filter, age window): index and runs merged into one lineage tree (`BuildRoster`), each row's waiting approvals, waiting rows first in their level, only the rows the filters pass, the self/selection/parents they keep marked `Context`, and how many they hide | `ComposeRoster` over the port's own `ListSessions` · `ListRuns` · `Approvals` | none (computable from `ListRuns` and the index) |
 | `Terminal` | the session's own interactive terminal: read the engine's output, type into it, `Resize`; every other run is headless (`ErrNoTerminal`) | the run's pty master and `Resize` | none (bytes never travel over gRPC) |
 
 Errors a frontend branches on: `frontend.ErrNoTerminal`, `frontend.ErrNoCoordinator`
@@ -77,7 +78,7 @@ sequenceDiagram
   participant H as runner Home
   participant C as coord (RunChannel)
   participant P as port / ConsumerService
-  E->>R: Complete{InputTokens, ContextWindow}
+  E->>R: Complete{ContextTokens, ContextWindow}
   R->>H: reportContextUsage(used, window)
   H->>C: AgentFrame.Heartbeat{context_tokens_used, context_window}
   C->>C: RecordContextUsage — latest per harp, unjournaled
@@ -85,9 +86,29 @@ sequenceDiagram
   C-->>P: RunInfo.ContextTokens / ContextWindow
 ```
 
+`TurnMeta.ContextTokens` is what was in context at the turn's last model call —
+uncached input, cache reads and cache writes together. It is not `InputTokens`, the
+uncached part alone: claude serves nearly the whole conversation from its cache, so
+that part is a handful of tokens. claude reads it off the result frame's last
+`usage.iterations` entry; opencode off its last step's tokens.
+
 The gauge is a gauge, not state: no fact journals it, so a restarted coordinator
 shows none for a harp until that harp's next turn. It is keyed by harp because a
 harp driven one run per turn is still one conversation.
+
+## The roster
+
+The agent list is decided once, below every frontend, in `internal/core/frontend`
+(`roster.go`): `BuildRoster` merges the index and the runs into the lineage tree, and
+`ArrangeRoster` orders and filters it for display — the status filter
+(`StatusFilter`: all · active · waiting · ended) and the age window (`ui.list_window`,
+read by `ParseListWindow`; `NextListWindow` steps 1h · 1d · 7d · any age). A row the
+window would hide still shows while it matters now (running, waiting on an approval,
+holding mail, held); the running session and the selection always show, as does the
+parent of every row that shows, marked `RosterRow.Context`. `Port.Roster` is
+`ComposeRoster` over the port; the terminal UI keeps the merged rows it last read and
+re-arranges them with `ArrangeRoster` on each key, so a filter change costs no read. A
+frontend draws the rows it is given and decides none of this.
 
 ## The contract tests
 

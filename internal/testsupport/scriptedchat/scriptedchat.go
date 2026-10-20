@@ -67,7 +67,7 @@ type Chat struct {
 	// limit, or a refused credential.
 	Failed func(ex engine.Exec, prompt string) *agent.TurnFailure
 	// ContextWindow is the context window each completed turn reports
-	// beside its context usage (TurnMeta.InputTokens); zero reports none.
+	// beside its context usage (TurnMeta.ContextTokens); zero reports none.
 	ContextWindow int
 	// GotEnv / GotRunnerEnv are what the fake spawner's Start was handed for
 	// this engine: the ENGINE's ambient env and the RUNNER's per-spawn env
@@ -259,7 +259,7 @@ func turnEvents(text string, plan turnPlan) []agent.ChatEvent {
 	for i := range denials {
 		evs = append(evs, agent.ChatEvent{Denied: &denials[i]})
 	}
-	return append(evs, agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn", InputTokens: 10, ContextWindow: plan.window, CostUSD: 0.0000015, Denials: denials}})
+	return append(evs, agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn", InputTokens: 4, ContextTokens: 10, ContextWindow: plan.window, CostUSD: 0.0000015, Denials: denials}})
 }
 
 var _ engine.Instance = (*Chat)(nil)

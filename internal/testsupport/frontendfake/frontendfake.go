@@ -24,6 +24,9 @@ type Port struct {
 	ApprovalSource coord.ApprovalSource
 	ControlFn      func(ctx context.Context, req coord.ControlRequest) (coord.ControlResult, error)
 	TerminalFn     func(harp string) (frontend.Terminal, error)
+	// RosterFn answers Roster; unset, Roster composes the double's own
+	// sessions, runs and approvals (frontend.ComposeRoster).
+	RosterFn func(ctx context.Context, q frontend.RosterQuery) (frontend.Roster, error)
 }
 
 var _ frontend.Port = (*Port)(nil)
@@ -56,6 +59,13 @@ func (p *Port) WatchFeed(ctx context.Context, harp string) (frontend.Feed, error
 		return frontend.Feed{Source: "store", Events: events, Errs: make(chan error, 1)}, nil
 	}
 	return p.WatchFeedFn(ctx, harp)
+}
+
+func (p *Port) Roster(ctx context.Context, q frontend.RosterQuery) (frontend.Roster, error) {
+	if p.RosterFn == nil {
+		return frontend.ComposeRoster(ctx, p, q)
+	}
+	return p.RosterFn(ctx, q)
 }
 
 func (p *Port) CredentialHolds(ctx context.Context) ([]coord.CredentialHold, error) {

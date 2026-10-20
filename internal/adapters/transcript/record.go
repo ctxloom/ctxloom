@@ -206,6 +206,7 @@ type CompletePayload struct {
 	OutputTokens        int     `json:"output_tokens,omitempty"`
 	CacheReadTokens     int     `json:"cache_read_tokens,omitempty"`
 	CacheCreationTokens int     `json:"cache_creation_tokens,omitempty"`
+	ContextTokens       int     `json:"context_tokens,omitempty"`
 	ContextWindow       int     `json:"context_window,omitempty"`
 	MaxOutputTokens     int     `json:"max_output_tokens,omitempty"`
 	CostUSD             float64 `json:"cost_usd,omitempty"`
@@ -393,6 +394,7 @@ func completePayload(m *agent.TurnMeta) *CompletePayload {
 		OutputTokens:        m.OutputTokens,
 		CacheReadTokens:     m.CacheReadTokens,
 		CacheCreationTokens: m.CacheCreationTokens,
+		ContextTokens:       m.ContextTokens,
 		ContextWindow:       m.ContextWindow,
 		MaxOutputTokens:     m.MaxOutputTokens,
 		CostUSD:             m.CostUSD,

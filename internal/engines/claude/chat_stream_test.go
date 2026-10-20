@@ -70,10 +70,27 @@ func TestMapStreamJSONEvent_Result_CompleteWithMetadata(t *testing.T) {
 	assert.Equal(t, 64_000, c.MaxOutputTokens)
 	assert.Greater(t, c.InputTokens, 0)
 	assert.Greater(t, c.CacheReadTokens, 0)
+	assert.Equal(t, 23933+14157+3988, c.ContextTokens, "in context: uncached, cache-read and cache-written input")
 	assert.InDelta(t, 0.1667485, c.CostUSD, 1e-6)
 	assert.Equal(t, "end_turn", c.StopReason)
 	assert.Equal(t, 1, c.NumTurns)
 	assert.Nil(t, evs[0].Entry, "result is metadata only — no content (no double-render of result string)")
+}
+
+// A turn of several model calls has its LAST call's context in context, not
+// the turn's sums; without iterations the turn-level usage stands in.
+func TestResultToTurnMeta_ContextTokensAreTheLastCalls(t *testing.T) {
+	u := &sjUsage{
+		InputTokens: 9, CacheReadInputTokens: 300, CacheCreationInputTokens: 60,
+		Iterations: []sjUsage{
+			{InputTokens: 3, CacheReadInputTokens: 100, CacheCreationInputTokens: 20},
+			{InputTokens: 6, CacheReadInputTokens: 200, CacheCreationInputTokens: 40},
+		},
+	}
+	assert.Equal(t, 246, resultToTurnMeta(&sjEvent{Usage: u}).ContextTokens)
+	u.Iterations = nil
+	assert.Equal(t, 369, resultToTurnMeta(&sjEvent{Usage: u}).ContextTokens)
+	assert.Zero(t, resultToTurnMeta(&sjEvent{}).ContextTokens, "no usage: none reported")
 }
 
 func TestMapStreamJSONEvent_SystemInit_SessionInfo(t *testing.T) {

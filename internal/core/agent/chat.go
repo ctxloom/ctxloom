@@ -244,17 +244,22 @@ type PermissionDenial struct {
 // StopReason, DurationMs and Model are the per-turn exceptions, as their names
 // suggest: each describes the one response this meta completes.
 type TurnMeta struct {
-	InputTokens         int // session total: tokens in context as of this turn
+	InputTokens         int // uncached input tokens, as the engine reports them
 	OutputTokens        int // session total
 	CacheReadTokens     int // session total
 	CacheCreationTokens int // session total
-	ContextWindow       int // model's context window (for an "x / N" gauge)
-	MaxOutputTokens     int
-	CostUSD             float64 // session total, in USD
-	Model               string
-	StopReason          string
-	DurationMs          int
-	NumTurns            int
+	// ContextTokens is how many tokens were in context at the turn's last
+	// model call — uncached input, cache reads and cache writes together:
+	// what the next call starts from, and the "x" of an "x / ContextWindow"
+	// gauge. Zero when the engine reported none.
+	ContextTokens   int
+	ContextWindow   int // model's context window (for an "x / N" gauge)
+	MaxOutputTokens int
+	CostUSD         float64 // session total, in USD
+	Model           string
+	StopReason      string
+	DurationMs      int
+	NumTurns        int
 	// Denials is every tool call the turn's engine refused. A turn with
 	// any did not do all it was asked: it is BLOCKED, not done.
 	Denials []PermissionDenial

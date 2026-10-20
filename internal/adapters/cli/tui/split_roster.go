@@ -13,8 +13,8 @@ import (
 
 // The panel's roster rides the port's WatchRuns: its snapshot is the first
 // roster, and every event after it — a loss marker included — schedules one
-// fresh read, debounced, because what the tree shows (phase, hold, unread,
-// the context gauge) is carried by no event: only ListRuns states it. A slow
+// fresh read, debounced, because what the tree shows (phase, hold, unread)
+// is carried by no event: only ListRuns states it. A slow
 // tick re-reads behind that, for a change no event announces.
 
 const (
@@ -71,7 +71,7 @@ func (s *Split) snapshotRosterCmd(snap coord.RunsSnapshot) tea.Cmd {
 		if err != nil {
 			return rosterErrMsg{err}
 		}
-		return rosterMsg{BuildRoster(index, snap.Runs, self)}
+		return rosterMsg{frontend.BuildRoster(index, snap.Runs, self)}
 	}
 }
 
@@ -176,67 +176,11 @@ func (s *Split) waitFeedCmd() tea.Cmd {
 	return waitEventCmd(s.child.harp, s.child.feed)
 }
 
-// arrangeRows lays the roster out for the panel: each row carries the
-// approvals its agent waits on, a waiting row goes to the top of its level,
-// ahead of the activity order — the running session excepted, which stays
-// first — and only the rows within the list window show.
+// arrangeRows lays the roster out for the panel under the panel's filters
+// (frontend.ArrangeRoster): the rule every frontend shows its list by.
 func (s *Split) arrangeRows() {
-	rows := make([]RosterRow, len(s.roster))
-	for i, r := range s.roster {
-		r.Pending = s.pendingBy[r.Harp]
-		rows[i] = r
-	}
-	s.rows, s.hiddenRows = waitingFirst(rows, s.self), 0
-	if s.listWindow > 0 {
-		keep := func(r RosterRow) bool { return alwaysShown(r, s.self, s.sel) }
-		s.rows, s.hiddenRows = inWindow(s.rows, s.clock.Now().Add(-s.listWindow), keep)
-	}
-}
-
-// waitingFirst reorders each level of a lineage-ordered tree (a row's
-// subtree directly after it, one level deeper) so the subtrees whose root
-// waits on an approval come first, the order otherwise kept. A first root
-// that is self stays first.
-func waitingFirst(rows []RosterRow, self string) []RosterRow {
-	var subtrees [][]RosterRow
-	for i := 0; i < len(rows); {
-		j := i + 1
-		for j < len(rows) && rows[j].Depth > rows[i].Depth {
-			j++
-		}
-		subtrees = append(subtrees, append([]RosterRow{rows[i]}, waitingFirst(rows[i+1:j], "")...))
-		i = j
-	}
-	pinned := 0
-	if len(subtrees) > 0 && subtrees[0][0].Harp == self {
-		pinned = 1
-	}
-	slices.SortStableFunc(subtrees[pinned:], func(a, b []RosterRow) int {
-		return cmpWaiting(b[0]) - cmpWaiting(a[0])
+	r := frontend.ArrangeRoster(s.roster, s.pendingBy, frontend.RosterQuery{
+		Self: s.self, Selected: s.sel, Status: s.statusFilter, Window: s.listWindow, Now: s.clock.Now(),
 	})
-	out := make([]RosterRow, 0, len(rows))
-	for _, st := range subtrees {
-		out = append(out, st...)
-	}
-	return out
-}
-
-// cmpWaiting is 1 for a row waiting on an approval, else 0.
-func cmpWaiting(r RosterRow) int {
-	if r.Pending > 0 {
-		return 1
-	}
-	return 0
-}
-
-// countPending is how many of the queue's requests each harp asked.
-func countPending(src coord.ApprovalSource) map[string]int {
-	out := map[string]int{}
-	if src == nil {
-		return out
-	}
-	for _, p := range src.Pending() {
-		out[p.From.Harp]++
-	}
-	return out
+	s.rows, s.hiddenRows = r.Rows, r.Hidden
 }

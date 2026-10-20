@@ -11,21 +11,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/frontend"
 )
 
-func TestParseListWindow(t *testing.T) {
-	for in, want := range map[string]time.Duration{
-		"7d": 7 * 24 * time.Hour, "2w": 14 * 24 * time.Hour, "12h": 12 * time.Hour, "90m": 90 * time.Minute,
-		" 7d ": 7 * 24 * time.Hour, "0": 0, "all": 0, "0d": 0,
-	} {
-		got, err := ParseListWindow(in)
-		require.NoError(t, err, in)
-		assert.Equal(t, want, got, in)
-	}
-	for _, in := range []string{"", "-1d", "soon", "7x", "2026-01-01", "ALL d"} {
-		_, err := ParseListWindow(in)
-		assert.ErrorIs(t, err, ErrInvalidListWindow, in)
-	}
-}
-
 // windowHarness is a session with rows of every age and kind under a
 // seven-day window, the clock at t0.
 func windowHarness(t *testing.T) (*splitHarness, *splitPort) {
@@ -80,7 +65,7 @@ func TestSplit_ListWindowHidesOldRows(t *testing.T) {
 	}, rowHarps(h.s.rows))
 	assert.Equal(t, selfHarp, h.s.rows[0].Harp)
 	assert.Equal(t, "stale-asker", h.s.rows[1].Harp, "the waiting row first")
-	assert.Equal(t, []string{" +3 older · ui.list_window"}, panelLinesWith(h, "older"))
+	assert.Equal(t, []string{" +3 older than 7d"}, panelLinesWith(h, "older"))
 	assert.Equal(t, 3, h.s.hiddenRows)
 }
 
@@ -98,7 +83,7 @@ func TestSplit_ListWindowRowsReappear(t *testing.T) {
 	h.send(rosterRefreshMsg{debounced: true})
 	assert.Contains(t, rowHarps(h.s.rows), "stale-kid")
 	assert.Contains(t, rowHarps(h.s.rows), "stale-ended")
-	assert.Equal(t, []string{" +1 older · ui.list_window"}, panelLinesWith(h, "older"))
+	assert.Equal(t, []string{" +1 older than 7d"}, panelLinesWith(h, "older"))
 
 	q.add(bashReq("r2", "stale-unknown", "ls", time.Hour))
 	h.send(approvalsCountMsg{n: 2})

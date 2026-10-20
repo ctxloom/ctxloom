@@ -45,7 +45,7 @@ func validateTerminalUIConfig(cfg *config.Config) {
 			`set ui.prefix_key to a control key (e.g. "ctrl-]") in config.yaml, or pass --degraded to launch anyway`,
 			"invalid ui.prefix_key: %v", err)
 	}
-	if _, err := tui.ParseListWindow(cfg.UIListWindow()); err != nil {
+	if _, err := frontend.ParseListWindow(cfg.UIListWindow()); err != nil {
 		strictness.Fail(report.KindConfig,
 			`set ui.list_window to a duration (e.g. "7d") or "all" in config.yaml, or pass --degraded to launch anyway`,
 			"invalid ui.list_window: %v", err)
@@ -98,7 +98,7 @@ func setupSplitView(ctx context.Context, cfg *config.Config, port frontend.Port,
 	}
 	// A window refused at the gate reaches here only under --degraded: it
 	// is then no window, so nothing is hidden on a guess.
-	window, _ := tui.ParseListWindow(cfg.UIListWindow())
+	window, _ := frontend.ParseListWindow(cfg.UIListWindow())
 	view, err := tui.StartSplit(ctx, tui.SplitOptions{
 		Port:       port,
 		Self:       id.Harp,

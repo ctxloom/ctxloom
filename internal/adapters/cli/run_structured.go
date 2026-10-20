@@ -83,6 +83,7 @@ type chatCompleteJSON struct {
 	OutputTokens        int     `json:"outputTokens"`
 	CacheReadTokens     int     `json:"cacheReadTokens"`
 	CacheCreationTokens int     `json:"cacheCreationTokens"`
+	ContextTokens       int     `json:"contextTokens"`
 	ContextWindow       int     `json:"contextWindow"`
 	MaxOutputTokens     int     `json:"maxOutputTokens"`
 	CostUSD             float64 `json:"costUsd"`
@@ -169,6 +170,7 @@ func chatEventToJSON(ev agent.ChatEvent) chatEventJSON {
 			OutputTokens:        c.OutputTokens,
 			CacheReadTokens:     c.CacheReadTokens,
 			CacheCreationTokens: c.CacheCreationTokens,
+			ContextTokens:       c.ContextTokens,
 			ContextWindow:       c.ContextWindow,
 			MaxOutputTokens:     c.MaxOutputTokens,
 			CostUSD:             c.CostUSD,

@@ -320,6 +320,7 @@ func (m *turnStream) meta(stop string) *agent.TurnMeta {
 		InputTokens:         int(m.last.Input),
 		CacheReadTokens:     int(m.last.Cache.Read),
 		CacheCreationTokens: int(m.last.Cache.Write),
+		ContextTokens:       int(m.last.Input + m.last.Cache.Read + m.last.Cache.Write),
 		OutputTokens:        m.totals.output,
 		CostUSD:             m.totals.cost,
 		ContextWindow:       m.window,

@@ -92,14 +92,14 @@ func (s *Split) inputPrompt() string {
 	return " " + label + " → " + s.child.harp + ": "
 }
 
-// retarget points the right pane at visible[i]: the engine's terminal for
-// the session's own row, the child's feed for any other. i is -1 only when
-// no row is visible.
-func (s *Split) retarget(visible []int, i int) tea.Cmd {
-	if i < 0 || s.rows[visible[i]].Harp == s.sel {
+// retarget points the right pane at rows[i]: the engine's terminal for the
+// session's own row, the child's feed for any other. i is -1 only when there
+// are no rows.
+func (s *Split) retarget(i int) tea.Cmd {
+	if i < 0 || s.rows[i].Harp == s.sel {
 		return nil
 	}
-	s.sel = s.rows[visible[i]].Harp
+	s.sel = s.rows[i].Harp
 	if s.showingTerminal() {
 		s.child.close()
 		return nil
@@ -264,7 +264,7 @@ func (s *Split) reportFeedErr(note string) {
 // verb that carries text latches the input line and hands it focus.
 func (s *Split) listControl(verb string) tea.Cmd {
 	if s.showingTerminal() {
-		s.reportOK(controlLabel(verb) + ": select a child — the session's own agent is the terminal")
+		s.flash(noOwnControlNote, noOwnControlFor)
 		return nil
 	}
 	if !controlTakesBody(verb) {

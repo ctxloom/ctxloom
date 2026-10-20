@@ -54,7 +54,7 @@ flowchart TD
   and closes the channel on ctx cancel; the Windows build-tagged counterpart
   emits one size and closes.
 - `validateTerminalUIConfig` parses `ui.prefix_key` (`tui.ParsePrefixKey`)
-  and `ui.list_window` (`tui.ParseListWindow`, `tui.ErrInvalidListWindow`); a
+  and `ui.list_window` (`frontend.ParseListWindow`, `frontend.ErrInvalidListWindow`); a
   bad value records a **fatal-class** strictness finding, consumed when
   `runState.gateStartup` closes the startup phase — before anything is
   spawned. `setupSplitView` starts the split view; a bad key there only warns
@@ -142,8 +142,11 @@ left, the selected agent's view on the right, drawn by one compositor.
   shared free of it, as it does cli/tui.
 - **`tui.Split`** (the bubbletea model) and **`tui.SplitView`** (`tui.StartSplit`)
   compose the screen. The left panel is the roster from the frontend port
-  (`WatchRuns`, re-read with `ListRuns` on each event), with a token gauge and an
-  activity glyph per row; it folds a subtree on Enter and collapses to a glyph
+  (`WatchRuns`, re-read with `ListRuns` on each event), with an activity glyph
+  per row and its approvals and unread mail right-aligned; `f` cycles a status
+  filter and `w` an age window (`frontend.ArrangeRoster`, the port's roster
+  rule), Enter hands the keyboard to the
+  selected row's pane, and the panel collapses to a glyph
   column on a narrow terminal. The right pane is the root's emulated terminal,
   each row serialized once from the emulator, or, for a selected child, that
   child's event feed plus a line that sends `agent_send` (or `agent_steer` to

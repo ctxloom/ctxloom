@@ -82,6 +82,11 @@ type Port interface {
 	// the steer is its next turn now), question, summarize, pause, resume.
 	Control(ctx context.Context, req coord.ControlRequest) (coord.ControlResult, error)
 
+	// Roster is the agent list arranged under q — the session index merged
+	// with the coordinator's runs, filtered and ordered for display —
+	// ComposeRoster over this port. A frontend shows its rows as given.
+	Roster(ctx context.Context, q RosterQuery) (Roster, error)
+
 	// Terminal attaches to harp's interactive terminal: the session's own
 	// interactive run, the one run with a pty. Every other run is headless
 	// (a delegated child is watched through its feed), and so is a session

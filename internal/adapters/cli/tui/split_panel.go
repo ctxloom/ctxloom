@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/displaysafe"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 )
 
 // The panel is the split view's left column: the session's name at the top,
@@ -30,13 +31,18 @@ const (
 	idleDozeAfter = 10 * time.Minute
 	// pendingGlyph marks approvals waiting on the human.
 	pendingGlyph = "⚑"
-	// foldOpen and foldClosed mark a row with children, expanded or not.
-	foldOpen   = "▾"
-	foldClosed = "▸"
+)
+
+// noOwnControlNote is the note for a control key pressed on the session's
+// own row, which is its terminal and takes none; it shows for
+// noOwnControlFor.
+const (
+	noOwnControlNote = "i ? s p r act on a child: select one with j/k"
+	noOwnControlFor  = 4 * time.Second
 )
 
 // splitHints are the tree's keys, shown while it has focus.
-const splitHints = "j/k move · enter fold · [ scroll · a approvals · i send · ? ask · s summarize · p pause · r resume · esc back"
+const splitHints = "j/k move · enter open · f/w filter · [ scroll · a approvals · i send · ? ask · s summarize · p/r pause/resume · esc back"
 
 // activityGlyph is r's glyph in the split view's tree: launching, in a turn,
 // idle (dozing once idle a while), held, ended, failed — and for a session
@@ -53,58 +59,13 @@ func activityGlyph(r RosterRow, now time.Time) string {
 	return rowGlyph(r)
 }
 
-// tokenLabel is how full r's context is: a percentage of its window, or the
-// count alone when the window is unknown; "" when nothing has reported.
-func tokenLabel(r RosterRow) string {
-	switch {
-	case r.ContextTokens == 0:
-		return ""
-	case r.ContextWindow > 0:
-		return strconv.FormatUint(min(r.ContextTokens*100/r.ContextWindow, 999), 10) + "%"
-	}
-	return compactCount(r.ContextTokens)
-}
-
-// compactCount writes n in at most four columns: 950, 12k, 1.2M.
-func compactCount(n uint64) string {
-	switch {
-	case n < 1000:
-		return strconv.FormatUint(n, 10)
-	case n < 1_000_000:
-		return strconv.FormatUint(n/1000, 10) + "k"
-	}
-	return strconv.FormatFloat(float64(n)/1e6, 'f', 1, 64) + "M"
-}
-
-// visibleRows are the indices, into rows, of the tree's rows with every
-// collapsed row's descendants left out.
-func (s *Split) visibleRows() []int {
-	var out []int
-	for i := 0; i < len(s.rows); i++ {
-		out = append(out, i)
-		if s.collapsed[s.rows[i].Harp] {
-			for d := s.rows[i].Depth; i+1 < len(s.rows) && s.rows[i+1].Depth > d; i++ {
-			}
-		}
-	}
-	return out
-}
-
-// visibleSel is the selection's position among the visible rows, or -1.
-func (s *Split) visibleSel(visible []int) int {
-	return slices.IndexFunc(visible, func(i int) bool { return s.rows[i].Harp == s.sel })
-}
+// selIndex is the selection's index among rows, or -1.
+func (s *Split) selIndex() int { return rowIndex(s.rows, s.sel) }
 
 // windowStart is the first of h rows shown out of n, keeping row sel in the
 // middle where it can.
 func windowStart(sel, n, h int) int {
 	return max(min(sel-h/2, n-h), 0)
-}
-
-// hasChildren reports whether rows[i] has rows under it: lineage order puts
-// a row's children directly after it, one level deeper.
-func (s *Split) hasChildren(i int) bool {
-	return i+1 < len(s.rows) && s.rows[i+1].Depth > s.rows[i].Depth
 }
 
 // rowIndex is harp's index among rows, or -1.
@@ -160,27 +121,20 @@ func (s *Split) headerLines(w int) []string {
 // treeLines are the agent tree in h rows, windowed around the selection.
 func (s *Split) treeLines(w, h int) []string {
 	lines := make([]string, h)
-	visible := s.visibleRows()
-	sel := s.visibleSel(visible)
-	start := windowStart(sel, len(visible), h)
+	sel := s.selIndex()
+	start := windowStart(sel, len(s.rows), h)
 	now := s.clock.Now()
-	for y := 0; y < h && start+y < len(visible); y++ {
-		lines[y] = s.treeLine(visible[start+y], w, start+y == sel, now)
+	for y := 0; y < h && start+y < len(s.rows); y++ {
+		lines[y] = s.treeLine(start+y, w, start+y == sel, now)
 	}
 	return lines
 }
 
-// treeLine is rows[i]: indent, fold mark, glyph, harp·role and its
-// annotations, the context gauge right-aligned.
+// treeLine is rows[i]: indent, glyph, harp·role and its cause; right-aligned,
+// the approvals and mail waiting, which a long name is cut short to keep. A
+// row the filter keeps only for its place in the tree is dim.
 func (s *Split) treeLine(i, w int, selected bool, now time.Time) string {
 	r := s.rows[i]
-	fold := ""
-	if s.hasChildren(i) {
-		fold = foldOpen
-		if s.collapsed[r.Harp] {
-			fold = foldClosed
-		}
-	}
 	label := r.Harp
 	if r.Agent != "" {
 		label += "·" + r.Agent
@@ -188,19 +142,21 @@ func (s *Split) treeLine(i, w int, selected bool, now time.Time) string {
 	if r.Cause != "" {
 		label += " " + r.Cause
 	}
+	var right []string
 	switch {
 	case r.Pending > 1:
-		label += " " + pendingGlyph + strconv.Itoa(r.Pending)
+		right = append(right, pendingGlyph+strconv.Itoa(r.Pending))
 	case r.Pending == 1:
-		label += " " + pendingGlyph
+		right = append(right, pendingGlyph)
 	}
 	if r.Unread > 0 {
-		label += " ✉ " + strconv.Itoa(r.Unread)
+		right = append(right, "✉ "+strconv.Itoa(r.Unread))
 	}
-	body := strings.Repeat(" ", min(r.Depth, 3)) + fold + activityGlyph(r, now) + " " + label
+	body := strings.Repeat(" ", min(r.Depth, 3)) + activityGlyph(r, now) + " " + label
 	inner := w - 1
-	if tok := tokenLabel(r); tok != "" {
-		body = padCell(body, inner-len(tok)-1) + " " + tok
+	if len(right) > 0 {
+		tail := strings.Join(right, " ")
+		body = padCell(body, inner-lipgloss.Width(tail)-1) + " " + tail
 	}
 	line := " " + padCell(body, inner)
 	switch {
@@ -208,6 +164,8 @@ func (s *Split) treeLine(i, w int, selected bool, now time.Time) string {
 		return styleSelected.Render(line)
 	case selected:
 		return styleHeader.Render(line)
+	case r.Context:
+		return styleDim.Render(line)
 	}
 	return line
 }
@@ -227,8 +185,8 @@ func (s *Split) footerLines(w int) []string {
 	if s.pendingN > 0 {
 		add(s.pendingLine(), styleHeader)
 	}
-	if s.hiddenRows > 0 {
-		add(hiddenNote(s.hiddenRows), styleDim)
+	if line := s.filterLine(); line != "" {
+		add(line, styleDim)
 	}
 	switch note := s.noteLine(); {
 	case s.errOneLine:
@@ -292,12 +250,11 @@ func (s *Split) noteLine() string {
 // selection marked, and the approvals flag on the bottom row while any wait.
 func (s *Split) glyphColumn(h int) []string {
 	lines := make([]string, h)
-	visible := s.visibleRows()
-	sel := s.visibleSel(visible)
-	start := windowStart(sel, len(visible), h)
+	sel := s.selIndex()
+	start := windowStart(sel, len(s.rows), h)
 	now := s.clock.Now()
-	for y := 0; y < h && start+y < len(visible); y++ {
-		r := s.rows[visible[start+y]]
+	for y := 0; y < h && start+y < len(s.rows); y++ {
+		r := s.rows[start+y]
 		g := activityGlyph(r, now) + " "
 		if r.Pending > 0 {
 			g = pendingGlyph + " "
@@ -321,10 +278,14 @@ func (s *Split) listKey(msg tea.KeyPressMsg) tea.Cmd {
 		return s.moveSel(1)
 	case "k", "up":
 		return s.moveSel(-1)
-	case "enter":
-		s.fold()
-	case "esc", "q":
+	case "enter", "esc", "q":
 		s.focus = focusPane
+	case "f":
+		s.statusFilter = s.statusFilter.Next()
+		s.arrangeRows()
+	case "w":
+		s.listWindow = frontend.NextListWindow(s.listWindow)
+		s.arrangeRows()
 	case "[", "pgup":
 		s.enterScroll(k == "pgup")
 	case "a":
@@ -335,24 +296,12 @@ func (s *Split) listKey(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-// moveSel moves the selection d visible rows (from the top when it is on
-// none) and re-targets the pane.
+// moveSel moves the selection d rows (from the top when it is on none) and
+// re-targets the pane.
 func (s *Split) moveSel(d int) tea.Cmd {
-	visible := s.visibleRows()
-	at := s.visibleSel(visible)
+	at := s.selIndex()
 	if at < 0 {
 		d = 0
 	}
-	return s.retarget(visible, min(max(at+d, 0), len(visible)-1))
-}
-
-// fold collapses or expands the selected row's subtree; on a row with
-// none, Enter hands focus back to the pane.
-func (s *Split) fold() {
-	i := rowIndex(s.rows, s.sel)
-	if i < 0 || !s.hasChildren(i) {
-		s.focus = focusPane
-		return
-	}
-	s.collapsed[s.sel] = !s.collapsed[s.sel]
+	return s.retarget(min(max(at+d, 0), len(s.rows)-1))
 }

@@ -1403,14 +1403,13 @@ func (eh *EngineHost) takeTurnFinal() string {
 }
 
 // reportContextUsage hands the coordinator a completed turn's context gauge
-// — tokens in context out of the model's window, as TurnMeta reports them
-// (running totals, so the latest turn's is the conversation's) — when the
-// engine reported either.
+// — the tokens in context at its last model call (TurnMeta.ContextTokens)
+// out of the model's window — when the engine reported either.
 func reportContextUsage(home engineHome, m *agent.TurnMeta) {
-	if m.InputTokens <= 0 && m.ContextWindow <= 0 {
+	if m.ContextTokens <= 0 && m.ContextWindow <= 0 {
 		return
 	}
-	home.reportContextUsage(nonNegU64(m.InputTokens), nonNegU64(m.ContextWindow))
+	home.reportContextUsage(nonNegU64(m.ContextTokens), nonNegU64(m.ContextWindow))
 }
 
 // usageFromMeta projects the engine's cumulative turn accounting onto the

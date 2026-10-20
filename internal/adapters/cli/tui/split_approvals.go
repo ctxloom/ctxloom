@@ -8,6 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/displaysafe"
+	"github.com/ctxloom/ctxloom/internal/core/frontend"
 )
 
 // Approvals in the split view keep their focus locks. A summoned
@@ -282,7 +283,7 @@ func (s *Split) applyChromeMsg(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case approvalsCountMsg:
 		s.pendingN, s.pendingOldest = msg.n, msg.oldest
-		s.pendingBy = countPending(s.approvalSource())
+		s.pendingBy = frontend.PendingByAsker(s.approvalSource())
 		s.arrangeRows()
 		now := s.clock.Now()
 		if msg.arrived && !s.apprOpen && now.Sub(s.lastBell) >= approvalBellInterval {
@@ -292,16 +293,22 @@ func (s *Split) applyChromeMsg(msg tea.Msg) tea.Cmd {
 	case ringMsg:
 		return tea.Raw("\a")
 	case noteMsg:
-		s.noteGen++
-		s.note = msg.text
-		gen := s.noteGen
-		s.clock.AfterFunc(msg.d, func() { s.post(noteExpiredMsg{gen: gen}) })
+		s.flash(msg.text, msg.d)
 	case noteExpiredMsg:
 		if msg.gen == s.noteGen {
 			s.note = ""
 		}
 	}
 	return nil
+}
+
+// flash shows text as the panel's note for d, unless a later note replaces
+// it first.
+func (s *Split) flash(text string, d time.Duration) {
+	s.noteGen++
+	s.note = text
+	gen := s.noteGen
+	s.clock.AfterFunc(d, func() { s.post(noteExpiredMsg{gen: gen}) })
 }
 
 // alert raises the desktop notification for n approvals waiting in this

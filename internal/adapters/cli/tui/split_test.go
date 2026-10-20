@@ -73,7 +73,7 @@ func TestSplit_SnapshotComposesPanelDividerAndPane(t *testing.T) {
 	assert.Equal(t, " "+selfHarp, rowText(scr, 0, 0, panelW), "the header names the session")
 	assert.Equal(t, " claude-code·haiku", rowText(scr, 1, 0, panelW))
 	tree := []string{rowText(scr, 2, 0, panelW), rowText(scr, 3, 0, panelW), rowText(scr, 4, 0, panelW)}
-	assert.Equal(t, []string{" ▾● " + selfHarp, "  ● brave-heron·coder", "  ◐ sleepy-ibis·reviewer"}, tree)
+	assert.Equal(t, []string{" ● " + selfHarp, "  ● brave-heron·coder", "  ◐ sleepy-ibis·reviewer"}, tree)
 	assert.Equal(t, " ^] agents", rowText(scr, 11, 0, panelW), "the footer, with the pane focused")
 
 	c := h.s.View().Cursor
@@ -128,33 +128,25 @@ func glyphs(s termemu.Screen, rows int) []string {
 	return out
 }
 
-func TestSplit_EnterFoldsASubtreeAndHandsALeafBackToThePane(t *testing.T) {
+func TestSplit_EnterHandsTheSelectedRowItsPane(t *testing.T) {
 	port := newSplitPort()
 	port.child("brave-heron", "coder", selfHarp, coord.StateExecuting)
 	port.child("tiny-wren", "tester", "brave-heron", coord.StateIdle)
-	port.child("sleepy-ibis", "reviewer", selfHarp, coord.StateIdle)
 	h := newSplitHarness(t, port).sized(100, 12)
 	tree := func() []string {
 		var out []string
-		for _, r := range h.screen()[2:6] {
+		for _, r := range h.screen()[2:5] {
 			out = append(out, strings.TrimSpace(strings.SplitN(r, "│", 2)[0]))
 		}
 		return out
 	}
-	require.Equal(t, []string{"▾● " + selfHarp, "▾● brave-heron·coder", "◐ tiny-wren·tester", "◐ sleepy-ibis·reviewer"}, tree())
+	require.Equal(t, []string{"● " + selfHarp, "● brave-heron·coder", "◐ tiny-wren·tester"}, tree(), "no fold marks")
 
 	h.typeBytes("\x1d")
 	h.keys("j", "enter")
-	assert.Equal(t, []string{"▾● " + selfHarp, "▸● brave-heron·coder", "◐ sleepy-ibis·reviewer", ""}, tree(), "folded: the grandchild is hidden")
-	assert.Equal(t, focusList, h.s.focus, "folding keeps the tree focused")
-	h.keys("j")
-	assert.Equal(t, "sleepy-ibis", h.s.sel, "a folded subtree is skipped by j")
-	h.keys("k", "enter")
-	assert.Equal(t, []string{"▾● " + selfHarp, "▾● brave-heron·coder", "◐ tiny-wren·tester", "◐ sleepy-ibis·reviewer"}, tree(), "unfolded")
-
-	h.keys("j", "j", "enter")
-	assert.Equal(t, "sleepy-ibis", h.s.sel)
-	assert.Equal(t, focusPane, h.s.focus, "enter on a leaf hands focus back to the pane")
+	assert.Equal(t, "brave-heron", h.s.sel)
+	assert.Equal(t, focusPane, h.s.focus, "enter on a row with children hands focus to its pane")
+	assert.Equal(t, []string{"● " + selfHarp, "● brave-heron·coder", "◐ tiny-wren·tester"}, tree(), "and hides nothing")
 	h.keys("k", "k", "k")
 	assert.Equal(t, "kkk", h.s.child.text, "with the pane focused, keys type into the child's line")
 }
@@ -180,15 +172,4 @@ func TestActivityGlyph_EveryState(t *testing.T) {
 	} {
 		assert.Equal(t, c.want, activityGlyph(c.row, now), c.name)
 	}
-}
-
-func TestTokenLabel(t *testing.T) {
-	assert.Equal(t, "25%", tokenLabel(RosterRow{ContextTokens: 50_000, ContextWindow: 200_000}))
-	assert.Equal(t, "100%", tokenLabel(RosterRow{ContextTokens: 200_000, ContextWindow: 200_000}))
-	assert.Equal(t, "999%", tokenLabel(RosterRow{ContextTokens: 50_000_000, ContextWindow: 1000}), "capped at three digits")
-	assert.Equal(t, "74k", tokenLabel(RosterRow{ContextTokens: 74_999}), "no window: the count")
-	assert.Equal(t, "950", tokenLabel(RosterRow{ContextTokens: 950}))
-	assert.Equal(t, "1.2M", tokenLabel(RosterRow{ContextTokens: 1_234_567}))
-	assert.Empty(t, tokenLabel(RosterRow{}), "nothing reported")
-	assert.Empty(t, tokenLabel(RosterRow{ContextWindow: 200_000}), "a window and no count: nothing has reported yet")
 }

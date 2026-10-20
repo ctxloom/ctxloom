@@ -562,7 +562,7 @@ type UIConfig struct {
 	// list to show it ("7d" by default; "0" or "all" shows every row). The
 	// run's own session, anything running, and anything waiting on an
 	// approval or holding unread mail show whatever their age. Parsed by
-	// the split view (tui.ParseListWindow): one grammar, one parser.
+	// the split view (frontend.ParseListWindow): one grammar, one parser.
 	ListWindow string `mapstructure:"list_window" yaml:"list_window,omitempty"`
 }
 

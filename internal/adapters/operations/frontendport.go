@@ -126,6 +126,10 @@ func frontendFeedEvent(ev SessionFeedEvent) (frontend.FeedEvent, bool) {
 	return fe, fe.Entry != nil || fe.Gap > 0
 }
 
+func (p *frontendPort) Roster(ctx context.Context, q frontend.RosterQuery) (frontend.Roster, error) {
+	return frontend.ComposeRoster(ctx, p, q)
+}
+
 func (p *frontendPort) CredentialHolds(context.Context) ([]coord.CredentialHold, error) {
 	if p.d.Coord == nil {
 		return nil, nil

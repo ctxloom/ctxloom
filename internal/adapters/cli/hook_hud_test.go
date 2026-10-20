@@ -60,12 +60,11 @@ func TestFormatHud_HarpDisplay(t *testing.T) {
 		pct := 42.0
 		session.ContextWindow.UsedPercentage = &pct
 		session.Cost.TotalCostUSD = 1.23
-		out := formatHud(session, ctxloomHudInfo{Profile: "developer", BundleCount: 5})
+		out := formatHud(session, ctxloomHudInfo{Unread: 2})
 		assert.Contains(t, out, "Claude Sonnet")
 		assert.Contains(t, out, "42%")
 		assert.Contains(t, out, "$1.23")
-		assert.Contains(t, out, "developer")
-		assert.Contains(t, out, "5b")
+		assert.Contains(t, out, "✉ 2")
 		assert.Contains(t, out, "bold-crimson-thunder")
 	})
 }

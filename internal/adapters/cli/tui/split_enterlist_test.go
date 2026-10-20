@@ -13,9 +13,8 @@ import (
 
 // selectedHarp is the harp of the row the tree draws as selected, or "".
 func selectedHarp(h *splitHarness) string {
-	visible := h.s.visibleRows()
-	if i := h.s.visibleSel(visible); i >= 0 {
-		return h.s.rows[visible[i]].Harp
+	if i := h.s.selIndex(); i >= 0 {
+		return h.s.rows[i].Harp
 	}
 	return ""
 }

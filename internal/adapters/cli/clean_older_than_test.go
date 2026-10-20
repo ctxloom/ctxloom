@@ -328,3 +328,27 @@ func TestSessionReapPolicy_MalformedOlderThanRefusesUnderIncludePersist(t *testi
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "--older-than")
 }
+
+// Every destroyer of transcripts refuses on a retention the grammar
+// refuses, naming the key, before it touches anything — none proceeds on a
+// zero cutoff.
+func TestTranscriptDestroyers_RefuseAMalformedRetention(t *testing.T) {
+	for _, args := range [][]string{
+		{"session", "remove", "aged-quiet-heron"},
+		{"session", "purge", "aged-quiet-heron"},
+		{"session", "transcript", "purge", "aged-quiet-heron"},
+		{"session", "sweep", "--all-projects", "--purge-older-than", "1d", "--older-than", "1d", "--yes"},
+	} {
+		t.Run(args[1]+" "+args[2], func(t *testing.T) {
+			cotProject(t)
+			cotHomeConfig(t, "schema_version: 8\nsession_transcript_retention: 0d\n")
+			dir := cotSeedSession(t, "aged-quiet-heron", 90*24*time.Hour)
+
+			_, err := execRootCmd(t, args...)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "session_transcript_retention", "the refusal names the thing to fix")
+			cotAssertPlan(t, dir, true)
+		})
+	}
+}

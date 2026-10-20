@@ -257,30 +257,105 @@ func assertParkedSpawnSaysSo(t *testing.T, foreign func()) {
 // notice's contract: it must not fire for the ordinary case. A warning that
 // prints on every spawn is a warning nobody reads, which is how the real one
 // would be missed.
+//
+// The sink is process-wide, so its first line may be anyone's: the notice is
+// looked for among EVERY line the sink received, by its own text. The spawn
+// is driven to completion before the sink is drained, and the span's end
+// stands the notice down for good, so the drain sees every notice this spawn
+// could ever print.
 func TestAgentRun_APromptSpawnNeverReportsItselfStuck(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	// A mutex-guarded sink, not captureWarnings' bare bytes.Buffer: the
-	// writer here would be the watchdog's own goroutine, so reading a plain
-	// buffer is only safe while the bug is absent — exactly backwards for a
-	// test whose job is to notice the bug.
-	sink := &signallingSink{seen: make(chan string, 4)}
+	sink := &signallingSink{seen: make(chan string, 64)}
 	restore := clidiag.SetSink(sink)
 	defer restore()
 
 	_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 
-	select {
-	case line := <-sink.seen:
-		assert.NotContains(t, line, "not registered yet",
-			"an ordinary spawn is well inside the notice budget and must stay silent")
-	default:
-	}
+	assertNoSpawnNotice(t, sink, fmt.Sprintf(msgSpawnPending, ownerIdentity().Harp, "worker", c.spawnNoticeAfter),
+		"an ordinary spawn is well inside the notice budget and must stay silent")
 	assert.Empty(t, readAuditKind(t, c, "agent_run.pending"),
 		"and journals no pending fact")
+}
+
+// TestAgentRun_ASpawnNoticeRacingTheSpanEndStaysSilent forces the timer race:
+// the notice's callback has already STARTED when the span ends (its stop
+// reports it could not recall it, as time.Timer.Stop does for a callback
+// already running), and its body runs only after the run is registered. A
+// notice then would claim "not registered yet" about a run that is in the
+// roster, which is the false statement the notice exists to prevent the
+// operator from acting on. Whichever of the callback and the span's end
+// takes the guard first wins; here the end does, so the callback says and
+// journals nothing.
+func TestAgentRun_ASpawnNoticeRacingTheSpanEndStaysSilent(t *testing.T) {
+	resetStrictness(t)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp.resolveEntered = make(chan string, 1)
+	sp.resolveGate = make(chan struct{})
+	armed := make(chan func(), 1)
+	c := newTestCoordinatorWith(t, sp, func(o *Options) {
+		o.AfterFunc = func(_ time.Duration, f func()) func() bool {
+			select {
+			case armed <- f:
+			default:
+			}
+			return func() bool { return false }
+		}
+	})
+
+	sink := &signallingSink{seen: make(chan string, 64)}
+	restore := clidiag.SetSink(sink)
+	defer restore()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
+		done <- err
+	}()
+	select {
+	case <-sp.resolveEntered:
+	case <-time.After(conformanceWait):
+		t.Fatal("Resolve never ran")
+	}
+	var fire func()
+	select {
+	case fire = <-armed:
+	default:
+		t.Fatal("the span is open and its notice timer was never armed")
+	}
+
+	close(sp.resolveGate)
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(conformanceWait):
+		t.Fatal("AgentRun never returned")
+	}
+
+	fire()
+
+	assertNoSpawnNotice(t, sink, fmt.Sprintf(msgSpawnPending, ownerIdentity().Harp, "worker", c.spawnNoticeAfter),
+		"a notice whose callback runs after the span ended describes a run that is already registered")
+	assert.Empty(t, readAuditKind(t, c, "agent_run.pending"),
+		"and the journal must not record a pending spawn after its registration")
+}
+
+// assertNoSpawnNotice drains every line the sink has received and fails if
+// any carries want. It does not wait: the caller has already brought about
+// every write it means to rule out.
+func assertNoSpawnNotice(t *testing.T, sink *signallingSink, want, why string) {
+	t.Helper()
+	for {
+		select {
+		case line := <-sink.seen:
+			assert.NotContains(t, line, want, why)
+		default:
+			return
+		}
+	}
 }
 
 // signallingSink is a clidiag sink that hands each written line to a test on

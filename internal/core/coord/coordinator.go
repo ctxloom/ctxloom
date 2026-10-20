@@ -102,9 +102,9 @@ type Options struct {
 	Reporter report.Sink
 	// Clock overrides command time (tests). Nil = time.Now.
 	Clock func() time.Time
-	// AfterFunc arms a hold's release timer on Clock's timeline
-	// (time.AfterFunc's shape, as fakeclock.Clock has it). Nil =
-	// time.AfterFunc. An Option rather than a field set after New, because
+	// AfterFunc arms the coordinator's timers — a hold's release, a pending
+	// spawn's notice — on Clock's timeline (time.AfterFunc's shape, as
+	// fakeclock.Clock has it). Nil = time.AfterFunc. An Option rather than a field set after New, because
 	// New itself re-arms the timers of the holds it adopts.
 	AfterFunc func(d time.Duration, f func()) (stop func() bool)
 	// LookupEnv reads this process's environment (os.LookupEnv's shape). Nil
@@ -431,7 +431,8 @@ type Coordinator struct {
 	// by key; holdsF is the authority on which holds are in force. Guarded by
 	// holdMu.
 	holds map[string]*holdLocal
-	// afterFunc arms a hold's backoff timer (Options.AfterFunc); holdStep is
+	// afterFunc arms a hold's backoff timer and a pending spawn's notice
+	// (Options.AfterFunc); holdStep is
 	// Options.holdStep (a test seam; nil in production).
 	afterFunc func(d time.Duration, f func()) (stop func() bool)
 	holdStep  func(step string)

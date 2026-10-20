@@ -9,6 +9,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -460,12 +461,29 @@ func (c *Coordinator) notePendingSpawn(caller Identity, agentName string) (settl
 	if after <= 0 {
 		return func() {}
 	}
-	timer := time.AfterFunc(after, func() {
+	// Stopping the timer cannot recall a callback that has already started,
+	// so the callback and the span's end take one guard and whichever takes
+	// it first wins: a notice is either emitted (journal, log, warning)
+	// entirely before the span ends, or not at all. Never after — then it
+	// would say "not registered yet" about a registered run.
+	var mu sync.Mutex
+	ended := false
+	stop := c.afterFunc(after, func() {
+		mu.Lock()
+		defer mu.Unlock()
+		if ended {
+			return
+		}
 		c.audit("agent_run.pending", caller.Harp, map[string]string{"agent": agentName, "after": after.String()})
 		zap.L().Warn(logSpawnPending, zap.String("caller", caller.Harp), zap.String("agent", agentName), zap.Duration("after", after))
 		c.rep.Warnf(msgSpawnPending, callerLabel(caller), agentName, after)
 	})
-	return func() { timer.Stop() }
+	return func() {
+		stop()
+		mu.Lock()
+		ended = true
+		mu.Unlock()
+	}
 }
 
 // callerLabel names a caller for a human-facing line. A depth-0 owner may

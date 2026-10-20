@@ -4,9 +4,9 @@ import (
 	"context"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/shared/safefs"
-
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // ResolvedSource is a harp's session-index entry plus the outcome of trying
@@ -54,4 +54,59 @@ func ResolveAndHeal(ctx context.Context, files safefs.Root, reg engine.Registry,
 		}
 	}
 	return src, nil
+}
+
+// ReadRefreshFailed is the warning a read path gives when refreshing the
+// session's canonical transcript failed and the read went on with the copy
+// the session already has.
+const ReadRefreshFailed = "refreshing its transcript from the engine's log failed; reading the copy it has"
+
+// RefreshForRead is ResolveAndHeal for a reader that shows or resumes harp: a
+// session whose run did not exit through ctxloom (killed, crashed, in a
+// container, its engine run outside ctxloom) is read as its engine's log has
+// it now, not as its last capture left it. It returns harp's entry as the
+// refresh left it; nil, nil for an unindexed harp.
+//
+// A failed refresh never blocks the read: it is warned, and the reader reads
+// the copy the session already has, which a failed refresh leaves as it was
+// (RefreshVendorTranscript's temp-then-rename commit). A purged session is
+// not refreshed: its engine's log may outlive the purge, and a read must not
+// rebuild the transcript the purge destroyed.
+func RefreshForRead(ctx context.Context, files safefs.Root, reg engine.Registry, harp string) (*sessions.Entry, error) {
+	entry, err := GetSession(harp)
+	if err != nil || entry == nil || entry.PurgedAt != nil {
+		return entry, err
+	}
+	src, err := ResolveAndHeal(ctx, files, reg, harp)
+	if err != nil {
+		return nil, err
+	}
+	if src.HealErr != nil {
+		clidiag.Warn("ctxloom", "session %s: %s: %v", harp, ReadRefreshFailed, src.HealErr)
+	}
+	if src.Entry == nil {
+		return entry, nil
+	}
+	return src.Entry, nil
+}
+
+// SessionRefresh refreshes one listed session's canonical transcript and
+// returns its entry as the refresh left it. ViewSessions asks it only of a
+// row that has no title.
+type SessionRefresh func(sessions.Entry) sessions.Entry
+
+// ReadRefresh is the production SessionRefresh: RefreshForRead, keeping the
+// listed entry when the session cannot be looked up again.
+func ReadRefresh(ctx context.Context, files safefs.Root, reg engine.Registry) SessionRefresh {
+	return func(e sessions.Entry) sessions.Entry {
+		fresh, err := RefreshForRead(ctx, files, reg, e.HarpName)
+		if err != nil {
+			clidiag.Warn("ctxloom", "session %s: %s: %v", e.HarpName, ReadRefreshFailed, err)
+			return e
+		}
+		if fresh == nil {
+			return e
+		}
+		return *fresh
+	}
 }

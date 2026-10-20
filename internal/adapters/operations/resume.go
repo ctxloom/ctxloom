@@ -1,34 +1,37 @@
 package operations
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // RecordedSessionEntries resolves a harp to its recorded transcript entries.
-// Shared by the ACP resume path and the coordinator's ended-child resume.
+// Shared by `run --session` and the coordinator's ended-child resume.
 //
 // The entries come from ctxloom's OWN canonical transcript
 // (entry.CanonicalTranscriptPath — populated only when transcript.jsonl
-// actually exists on disk): no shipped engine keeps a transcript store of its
-// own, so a harp with no canonical capture has nothing to resume from. A
-// vendor transcript is brought into the canonical schema by the
-// vendor-transcript importer, after which it resumes like any other.
+// actually exists on disk), refreshed from the engine's log first
+// (RefreshForRead): a session whose run did not exit through ctxloom resumes
+// from what its engine recorded, not from its last capture. A failed refresh
+// warns and resumes from the copy the session has.
 //
 // Every failure here is an ERROR, never a panic and never a silent empty
-// slice: the three callers all treat an error as "warn and carry on with the
+// slice: both callers treat an error as "warn and carry on with the
 // context you have" (see cli/run.go's resumeFullContext), and a typo'd or
 // stale --session must never block a launch.
-func RecordedSessionEntries(harp string) ([]agent.SessionEntry, error) {
-	entry, err := GetSession(harp)
+func RecordedSessionEntries(ctx context.Context, files safefs.Root, reg engine.Registry, harp string) ([]agent.SessionEntry, error) {
+	entry, err := RefreshForRead(ctx, files, reg, harp)
 	if err != nil {
 		return nil, fmt.Errorf("look up session %q: %w", harp, err)
 	}
-	// GetSession reports an ABSENT harp as (nil, nil) — "no such entry" is not
+	// RefreshForRead, like GetSession, reports an ABSENT harp as (nil, nil) — "no such entry" is not
 	// an error to it. Dereferencing without this check is what turned a
 	// mistyped harp (three random words; the most ordinary mistake available
 	// on this command) into a nil-pointer stack trace, and it did so on the

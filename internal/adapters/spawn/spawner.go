@@ -23,6 +23,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -361,7 +362,7 @@ func (r cellRuntime) Start(ctx context.Context, l launch.Launch, env map[string]
 }
 
 func (s *spawner) ResumeHistory(ctx context.Context, harp string) string {
-	entries, err := operations.RecordedSessionEntries(harp)
+	entries, err := operations.RecordedSessionEntries(ctx, safefs.New(), s.app.Engines(), harp)
 	if err != nil {
 		s.rep.Warnf("agent resume %s: no recorded history to prime (%v); resuming with the agent context only", harp, err)
 		return ""

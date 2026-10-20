@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Bare `ctxloom session` lists the recorded sessions: the collection is the
@@ -52,9 +53,15 @@ func runSessionList(cmd *cobra.Command, _ []string) error {
 	// The rows render from the one read model (operations.SessionView),
 	// never from the entry: harp, title (the first user prompt), state,
 	// start, end. State is one lock probe per row; the title one transcript
-	// parse per row.
-	views := filterSessionState(operations.ViewSessions(entries, sessionStateOf), sessionListState)
+	// parse per row, and a refresh first only for a row with no title.
+	views := filterSessionState(operations.ViewSessions(entries, sessionStateOf, readRefresh(cmd)), sessionListState)
 	return emitSessionRows(cmd, views)
+}
+
+// readRefresh is the listing's title refresh (operations.ReadRefresh) over
+// the process's engines.
+func readRefresh(cmd *cobra.Command) operations.SessionRefresh {
+	return operations.ReadRefresh(cmd.Context(), safefs.New(), App().Engines())
 }
 
 // loadSessionEntries reads the session index: every project's sessions when
@@ -90,7 +97,7 @@ ended, and whether it was purged or is marked keep.`,
 
 func runSessionShow(cmd *cobra.Command, args []string) error {
 	harp := args[0]
-	entry, err := operations.GetSession(harp)
+	entry, err := operations.RefreshForRead(cmd.Context(), safefs.New(), App().Engines(), harp)
 	if err != nil {
 		return err
 	}

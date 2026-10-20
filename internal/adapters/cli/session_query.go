@@ -70,7 +70,7 @@ func runSessionQuery(cmd *cobra.Command, args []string) error {
 	}
 
 	// Filtered by state before matching.
-	views := filterSessionState(operations.ViewSessions(entries, sessionStateOf), sessionQueryState)
+	views := filterSessionState(operations.ViewSessions(entries, sessionStateOf, readRefresh(cmd)), sessionQueryState)
 	matched := make([]operations.SessionView, 0, len(views))
 	for _, v := range views {
 		if sessionMatchesQuery(v, args) {

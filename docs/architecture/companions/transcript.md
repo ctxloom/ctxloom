@@ -35,7 +35,7 @@ flowchart TD
 
     subgraph vendor["Regime C — interactive pty, read back after the fact"]
       VF[("vendor file<br/>rollout-*.jsonl · &lt;uuid&gt;.jsonl<br/>transcript_full.jsonl · data.sqlite3")]
-      CVT["operations.ResolveAndHeal → RefreshVendorTranscript<br/>session_source.go · vendorreader.go<br/>(interactive exit, session adopt)"]
+      CVT["operations.ResolveAndHeal → RefreshVendorTranscript<br/>session_source.go · vendorreader.go<br/>(interactive exit, session adopt,<br/>RefreshForRead before a read)"]
       VA["vendorreader.VendorAdapter.Convert<br/>adapter.go:68"]
       DRV["vendorreader.ConvertJSONLLines<br/>driver.go:29"]
       SIB["vendorreader.SessionInfoBuilder<br/>sessioninfo.go:16"]
@@ -76,7 +76,9 @@ flowchart TD
 2. **Nothing trusts an existing canonical file as complete.** `operations.RefreshVendorTranscript`
    rebuilds it from the vendor source on every call, writing through a temporary sibling that is
    renamed into place only on success, so a failed or empty conversion leaves the harp exactly as
-   it was.
+   it was. That is what lets the readers that show or resume a session refresh first
+   (`operations.RefreshForRead`): a session whose run did not exit through ctxloom is read as its
+   engine's log has it now, and a failed refresh costs the read nothing.
 
 ---
 
@@ -202,10 +204,13 @@ claude's `converter.checkFloor` turns zero entries out of a file holding user/as
 out of a file whose lines are all malformed, into an error. One level up,
 `operations.RefreshVendorTranscript`'s `converted` reports that a rebuild committed bytes:
 `operations.commitRebuild` aborts a rebuild that wrote nothing and reports `converted=false`, or an
-error when the harp's rotation lineage says there was a conversation to recover. Both live callers
-reach it through `operations.ResolveAndHeal` — the interactive-pty exit
-(`cli.healVendorTranscriptOnExit`) and `session adopt` (`cli.healAdopted`) — and both act on
-`HealErr` only: the exit warns, `adopt` returns it.
+error when the harp's rotation lineage says there was a conversation to recover. Every live
+caller reaches it through `operations.ResolveAndHeal` — the interactive-pty exit
+(`cli.healVendorTranscriptOnExit`), `session adopt` (`cli.healAdopted`), and the readers that show
+or resume a session through `operations.RefreshForRead` (`RecordedSessionEntries` behind `run
+--session` and the ended-child resume, `session show`, and `session list`/`search` for a row with
+no title) — and each acts on `HealErr` only: the exit and the readers warn and go on with the copy
+the harp has, `adopt` returns it.
 
 ### 5.2 Per-engine adapters
 

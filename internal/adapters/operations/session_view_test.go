@@ -67,12 +67,12 @@ func TestViewSession_UnmarkedSessionIsNeitherPurgedNorKept(t *testing.T) {
 func TestViewSessions_KeepsTheListingsOrder(t *testing.T) {
 	testsupport.Isolate(t)
 
-	views := ViewSessions([]sessions.Entry{{HarpName: "b-harp"}, {HarpName: "a-harp"}}, nil)
+	views := ViewSessions([]sessions.Entry{{HarpName: "b-harp"}, {HarpName: "a-harp"}}, nil, nil)
 
 	require.Len(t, views, 2)
 	assert.Equal(t, "b-harp", views[0].Harp)
 	assert.Equal(t, "a-harp", views[1].Harp)
-	assert.NotNil(t, ViewSessions(nil, nil), "an empty listing is an empty slice, not nil")
+	assert.NotNil(t, ViewSessions(nil, nil, nil), "an empty listing is an empty slice, not nil")
 }
 
 // TestViewSessions_StateComesFromTheProbe: a session's state is what the
@@ -95,7 +95,7 @@ func TestViewSessions_StateComesFromTheProbe(t *testing.T) {
 	}, func(harp string) string {
 		asked = append(asked, harp)
 		return probe[harp]
-	})
+	}, nil)
 
 	require.Len(t, views, 3)
 	assert.Equal(t, SessionLive, views[0].State)
@@ -113,7 +113,7 @@ func TestViewSessions_StateComesFromTheProbe(t *testing.T) {
 // runs inside a session's own process) gets no state and probes nothing — the field is absent from JSON rather than a guess.
 func TestViewSessions_NoProbeNoState(t *testing.T) {
 	testsupport.Isolate(t)
-	views := ViewSessions([]sessions.Entry{{HarpName: "swift-amber-falcon"}}, nil)
+	views := ViewSessions([]sessions.Entry{{HarpName: "swift-amber-falcon"}}, nil, nil)
 	require.Len(t, views, 1)
 	assert.Empty(t, views[0].State)
 	b, err := json.Marshal(views[0])

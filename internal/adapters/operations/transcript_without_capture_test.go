@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -43,7 +44,7 @@ func TestRecordedSessionEntries_WithoutCanonicalCaptureRefuses(t *testing.T) {
 		t.Run(eng, func(t *testing.T) {
 			testsupport.Isolate(t)
 			entry := boundWithoutCapture(t, eng, "")
-			entries, err := RecordedSessionEntries(entry.HarpName)
+			entries, err := RecordedSessionEntries(context.Background(), safefs.New(), engines.Registry(), entry.HarpName)
 			require.Error(t, err)
 			assert.Nil(t, entries)
 		})
@@ -68,7 +69,7 @@ func TestRecordedSessionEntries_UnreadableCanonicalCaptureRefuses(t *testing.T) 
 			require.NotEmpty(t, entry.CanonicalTranscriptPath)
 			require.NoError(t, os.WriteFile(entry.CanonicalTranscriptPath, []byte("{not json\n"), 0o600))
 
-			entries, err := RecordedSessionEntries(entry.HarpName)
+			entries, err := RecordedSessionEntries(context.Background(), safefs.New(), engines.Registry(), entry.HarpName)
 			require.Error(t, err)
 			assert.Nil(t, entries)
 		})

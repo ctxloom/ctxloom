@@ -271,7 +271,7 @@ func TestSessionList_EmptyIndexRendersEmptyJSONList(t *testing.T) {
 		entries, err := loadSessionEntries(all)
 		require.NoError(t, err, "all=%v", all)
 		cmd, out := formatCmd("json")
-		require.NoError(t, emitSessionRows(cmd, operations.ViewSessions(entries, nil)))
+		require.NoError(t, emitSessionRows(cmd, operations.ViewSessions(entries, nil, nil)))
 		assert.Equal(t, "[]\n", out.String(), "all=%v", all)
 	}
 }

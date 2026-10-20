@@ -13,8 +13,12 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   companion) never special-cases three vendor formats.
 
   AND NOBODY RUNS AN IMPORT. The conversion fires when an interactive run
-  exits, and when `session adopt --yes` records an older session's lineage.
-  There is no import chore to remember.
+  exits, when `session adopt --yes` records an older session's lineage, and
+  before ctxloom shows or resumes a session (`run --session`, `session show`,
+  the title of a `session list`/`search` row that has none yet). A session
+  whose run did not exit through ctxloom (killed, crashed, in a container,
+  its engine run outside ctxloom) is read as its engine's log has it now, not
+  as its last capture left it. There is no import chore to remember.
 
   COMMAND SURFACES THIS FILE COVERS: under @live, an interactive
   `ctxloom run`.
@@ -25,10 +29,11 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   interactive session is unresumable — exactly the interactive-pty gap ADR
   0035 accepted and docs/transcript-schema.md's "Capture regimes" now closes.
 
-  # NO HERMETIC DOOR. Nothing triggers the conversion without an engine
-  # binary, so it is pinned by unit tests (internal/adapters/operations
-  # vendor-reader tests, the cli exit seam's), and end to end only under
-  # @live.
+  # NO HERMETIC DOOR. No hermetic step binds a session to an engine's own
+  # log, so the conversion is pinned by unit tests (internal/adapters/operations
+  # vendor-reader and refresh-on-read tests, the cli exit seam's and its
+  # session show/list/search and run --session readers'), and end to end only
+  # under @live.
 
   Background:
     Given an initialized ctxloom project

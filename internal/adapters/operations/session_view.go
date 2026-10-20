@@ -88,10 +88,20 @@ type SessionStateProbe func(harp string) string
 // probes nothing: a caller in a process that may itself hold a listed
 // session's lock passes none. Never nil: an empty listing
 // renders as an empty table, not as an absent field.
-func ViewSessions(entries []sessions.Entry, state SessionStateProbe) []SessionView {
+//
+// refresh is asked of a row with no title only, and the row is titled from
+// what it returns: a title is the session's first prompt, which a copy that
+// has one already holds, so a listing refreshes only the sessions whose last
+// capture had none (one never captured — its run killed before ctxloom saw
+// it exit — or captured before its user spoke). A nil refresh refreshes
+// nothing.
+func ViewSessions(entries []sessions.Entry, state SessionStateProbe, refresh SessionRefresh) []SessionView {
 	views := make([]SessionView, len(entries))
 	for i, e := range entries {
 		views[i] = ViewSession(e)
+		if views[i].Title == "" && refresh != nil {
+			views[i] = ViewSession(refresh(e))
+		}
 		if state != nil {
 			views[i].State = state(e.HarpName)
 		}

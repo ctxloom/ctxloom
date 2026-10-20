@@ -620,7 +620,9 @@ func (st *runState) resumedTranscript() []composite.Fragment {
 	if runResumeSession == "" {
 		return nil
 	}
-	rendered := resumeFullContext("", runResumeSession, operations.RecordedSessionEntries)
+	rendered := resumeFullContext("", runResumeSession, func(harp string) ([]agent.SessionEntry, error) {
+		return operations.RecordedSessionEntries(st.ctx, safefs.New(), App().Engines(), harp)
+	})
 	if rendered == "" {
 		return nil
 	}
@@ -1466,6 +1468,14 @@ func recordOneshotAnswer(harp, backend, prompt, answer string) error {
 // the same session (a resumed run) or a `session adopt` may already have
 // materialized a canonical transcript, and its existing here is not evidence
 // it is complete.
+//
+// The readers that show or resume a session refresh it themselves
+// (operations.RefreshForRead), so this seam is not what keeps them fresh. It
+// stays for what reads the canonical file without refreshing it: the split
+// view's epilogue names that file to the human as the session's full
+// transcript (splitEpilogue) the moment the run ends, and `session
+// transcript list`'s size and `session transcript watch`'s store tail and
+// scrollback read it as they find it.
 func healVendorTranscriptOnExit(harp string) {
 	if harp == "" {
 		return

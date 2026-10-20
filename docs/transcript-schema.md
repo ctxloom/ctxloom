@@ -134,15 +134,25 @@ engine's private files after the fact.
   backend whose descriptor declares a `vendorreader.VendorAdapter`
   (`engine.Descriptor.TranscriptReaders`), the engine's native store is converted
   through the same `transcript.Recorder` the tee uses — on exit of an
-  interactive `ctxloom run` (`healVendorTranscriptOnExit`), and when
-  `session adopt --yes` records an older session's lineage. Both go through
+  interactive `ctxloom run` (`healVendorTranscriptOnExit`), when
+  `session adopt --yes` records an older session's lineage, and before a
+  reader shows or resumes the session (`operations.RefreshForRead`): `run
+  --session` and the coordinator's ended-child resume
+  (`operations.RecordedSessionEntries`), `session show`, and the titles of
+  `session list`/`search` rows that have none yet. A session whose run did
+  not exit through ctxloom (killed, crashed, in a container, its engine run
+  outside ctxloom) is therefore read as its engine's log has it now, not as
+  its last capture left it. All of these go through
   `operations.ResolveAndHeal`, which refreshes unconditionally: a canonical
   transcript that already exists is rebuilt (or extended from its
   watermark), because an earlier capture may have caught the session
-  part-way. No read converts or refreshes; a reader finding no canonical
-  transcript gets `transcript.NoCanonicalTranscriptError`. Conversion is
-  best-effort. A backend with no adapter, driven interactively, has no
-  ctxloom memory.
+  part-way. A listing refreshes only a row with no title, because a title is
+  the first prompt and a copy that has one already holds it. A refresh that
+  fails on a read warns and the read goes on with the copy the session has,
+  which the failed refresh leaves as it was; a purged session is never
+  refreshed by a read. A reader finding no canonical transcript gets
+  `transcript.NoCanonicalTranscriptError`. Conversion is best-effort. A
+  backend with no adapter, driven interactively, has no ctxloom memory.
 
 ---
 

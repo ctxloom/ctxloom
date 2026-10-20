@@ -1,9 +1,10 @@
 // This file wires the per-engine vendorreader.VendorAdapter implementations
-// (internal/adapters/transcript/vendorreader/claude) into the two
-// call sites that actually need a converted transcript: the interactive-pty
-// exit seam (internal/adapters/cli/run.go, right where transcript.RecordOneshot hooks
-// the oneshot exit) and `session adopt`, which runs the identical conversion
-// over an already-indexed session's newly adopted lineage.
+// (internal/adapters/transcript/vendorreader/claude) into the call sites
+// that need a converted transcript: the interactive-pty exit seam
+// (internal/adapters/cli/run.go, right where transcript.RecordOneshot hooks
+// the oneshot exit), `session adopt`, which runs the identical conversion
+// over an already-indexed session's newly adopted lineage, and the readers
+// that show or resume a session (RefreshForRead).
 // Closes the interactive-pty gap ADR 0035 accepted: an engine
 // driven through its own interactive TUI has no ctxloom memory today because
 // the structured tee (Tee/TeeAndClose) can never reach a pty — this is the
@@ -183,7 +184,8 @@ func vendorSourceClock(fsys afero.Fs, src string) func() time.Time {
 // RefreshVendorTranscript converts harp e's vendor-native transcript into
 // ctxloom's canonical transcript.jsonl, atomically replacing any canonical
 // transcript the harp already has. It is the one conversion verb: the
-// interactive-pty exit seam and `session adopt` both rebuild through it.
+// interactive-pty exit seam, `session adopt` and the readers that show or
+// resume a session (RefreshForRead) all rebuild through it.
 //
 // It never trusts an existing canonical file as complete. The session may
 // still be being written — converting at 12:00 and reading back at 14:00

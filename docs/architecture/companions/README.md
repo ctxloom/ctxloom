@@ -82,8 +82,12 @@ shorter to read:
 3. **Two individually-correct decisions composing into the failure both were written to prevent.**
    The clearest instance is in `transcript`: the `Recorder`'s lazy file open is documented as
    *upholding* the silent-no-op discipline (no events ⇒ no file, so "absent" means "nothing was
-   recorded"), and `operations.hasCanonicalTranscript`'s existence check is a reasonable
-   idempotency guard — composed, a zero-entry import reports success and is retried forever.
+   recorded"), and a presence-only "already imported" guard over the canonical file was a
+   reasonable idempotency check — composed, a zero-entry import reported success and was retried
+   forever. That guard is gone (`operations.RefreshVendorTranscript` rebuilds unconditionally and
+   reports a rebuild that wrote nothing as not converted); the shape is left described here
+   because it is the one to look for wherever an existence check stands in for a completeness
+   check.
 
 ## Scope note
 

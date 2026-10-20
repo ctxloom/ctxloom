@@ -307,13 +307,66 @@ func TestSplitScroll_ASummonWhileScrollingIsRefused(t *testing.T) {
 // Scroll state never outlives what it scrolls: whatever takes the pane or
 // the keyboard away ends it, however it got there.
 func TestSplitScroll_EndsWithTheEnginesPane(t *testing.T) {
-	port := newSplitPort()
-	port.queue = newFakeQueue(bashReq("a1", "brave-heron", "ls", time.Hour))
-	h := scrolled(t, port)
+	for name, takeAway := range map[string]func(s *Split){
+		"the approvals view took the pane": func(s *Split) { s.apprOpen = true },
+		"another agent took the pane":      func(s *Split) { s.sel = "kid" },
+		"the tree took the keyboard":       func(s *Split) { s.focus = focusList },
+	} {
+		t.Run(name, func(t *testing.T) {
+			port := newSplitPort()
+			port.queue = newFakeQueue(bashReq("a1", "brave-heron", "ls", time.Hour))
+			h := scrolled(t, port)
+			h.typeBytes("\x1d[")
+			require.True(t, h.s.scroll.on)
+			takeAway(h.s)
+			h.frame()
+			assert.False(t, h.s.scroll.on)
+		})
+	}
+}
+
+// The history shown is the committed frame's: output the engine has drawn
+// since, even what it has already scrolled off, waits for the next frame
+// rather than showing over the frame's own live rows.
+func TestSplitScroll_ShowsTheCommittedFramesHistory(t *testing.T) {
+	h := scrolled(t, newSplitPort())
 	h.typeBytes("\x1d[")
-	h.s.apprOpen = true
-	h.frame()
-	assert.False(t, h.s.scroll.on, "the approvals view took the pane")
+	h.keys("up", "up")
+	rows, marker := shown(h)
+	require.Equal(t, "[2/14]", marker)
+	want := strings.Split(numbered(13, 18), "\r\n")
+	require.Equal(t, want, rows)
+
+	// L15 is redrawn, then scrolled off with the rest of the screen.
+	_, _ = h.pane.Write([]byte("\x1b[1;1HX15\x1b[6;1H\r\n\r\n\r\n\r\n\r\n\r\n"))
+	rows, _ = shown(h)
+	assert.Equal(t, want, rows, "nothing past the frame shows before it lands")
+}
+
+// A history the engine clears under the reader leaves blank rows, still the
+// pane's width, until the next frame.
+func TestSplitScroll_AClearedHistoryLeavesFullWidthBlankRows(t *testing.T) {
+	h := scrolled(t, newSplitPort())
+	h.typeBytes("\x1d\x1b[5~")
+	require.Equal(t, 8, h.s.scroll.top)
+	_, _ = h.pane.Write([]byte("\x1b[3J"))
+	for y, row := range h.s.render() {
+		assert.Equal(t, 100, ansi.StringWidth(row), "row %d", y)
+	}
+	rows, _ := shown(h)
+	for y, row := range rows {
+		assert.Empty(t, row, "row %d", y)
+	}
+}
+
+// A one-row pane still carries the scroll position.
+func TestSplitScroll_AOneRowPaneIsMarked(t *testing.T) {
+	h := newSplitHarness(t, newSplitPort()).sized(100, 1)
+	h.engineWrites(numbered(1, 3))
+	require.Equal(t, 2, h.s.frame.History)
+	h.typeBytes("\x1d[")
+	_, marker := first(h)
+	assert.Equal(t, "[0/2]", marker)
 }
 
 // mouseOf is the mouse reporting the human's terminal is left in by out,

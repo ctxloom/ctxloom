@@ -126,8 +126,13 @@ type Split struct {
 	paneW       int // the pane size the engine was last given (0: none yet)
 	paneH       int
 
-	focus     splitFocus
-	rows      []RosterRow
+	focus splitFocus
+	// roster is the tree as the port last gave it; rows is it arranged for
+	// the panel (arrangeRows).
+	roster []RosterRow
+	rows   []RosterRow
+	// pendingBy is how many approvals wait per asking harp.
+	pendingBy map[string]int
 	sel       string
 	collapsed map[string]bool
 	runEvents <-chan coord.Event

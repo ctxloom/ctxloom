@@ -29,6 +29,10 @@ type RosterRow struct {
 	// Unread is how many messages wait undelivered in the child's inbox
 	// (coord.RunInfo.Unread).
 	Unread int
+	// Pending is how many approvals the agent waits on the human for: the
+	// approval queue's requests whose asker (From) is this harp. The split
+	// view sets it; BuildRoster leaves it zero.
+	Pending int
 	// LastActivity is when the coordinator last saw the run change state
 	// (coord.RunInfo.LastEventAt); zero for a row it holds no run for.
 	LastActivity time.Time

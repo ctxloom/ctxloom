@@ -146,9 +146,10 @@ func (s *Split) armSafetyTick() {
 // that left the roster hands the selection back to the session's own row,
 // and its feed goes with it.
 func (s *Split) applyRoster(rows []RosterRow) {
-	s.rows = rows
+	s.roster = rows
 	s.rosterErr = ""
-	if s.showingTerminal() || slices.ContainsFunc(rows, func(r RosterRow) bool { return r.Harp == s.sel }) {
+	s.arrangeRows()
+	if s.showingTerminal() || slices.ContainsFunc(s.rows, func(r RosterRow) bool { return r.Harp == s.sel }) {
 		return
 	}
 	s.sel = s.self
@@ -173,4 +174,65 @@ func (s *Split) waitFeedCmd() tea.Cmd {
 		return nil
 	}
 	return waitEventCmd(s.child.harp, s.child.feed)
+}
+
+// arrangeRows lays the roster out for the panel: each row carries the
+// approvals its agent waits on, and a waiting row goes to the top of its
+// level, ahead of the activity order — the running session excepted, which
+// stays first.
+func (s *Split) arrangeRows() {
+	rows := make([]RosterRow, len(s.roster))
+	for i, r := range s.roster {
+		r.Pending = s.pendingBy[r.Harp]
+		rows[i] = r
+	}
+	s.rows = waitingFirst(rows, s.self)
+}
+
+// waitingFirst reorders each level of a lineage-ordered tree (a row's
+// subtree directly after it, one level deeper) so the subtrees whose root
+// waits on an approval come first, the order otherwise kept. A first root
+// that is self stays first.
+func waitingFirst(rows []RosterRow, self string) []RosterRow {
+	var subtrees [][]RosterRow
+	for i := 0; i < len(rows); {
+		j := i + 1
+		for j < len(rows) && rows[j].Depth > rows[i].Depth {
+			j++
+		}
+		subtrees = append(subtrees, append([]RosterRow{rows[i]}, waitingFirst(rows[i+1:j], "")...))
+		i = j
+	}
+	pinned := 0
+	if len(subtrees) > 0 && subtrees[0][0].Harp == self {
+		pinned = 1
+	}
+	slices.SortStableFunc(subtrees[pinned:], func(a, b []RosterRow) int {
+		return cmpWaiting(b[0]) - cmpWaiting(a[0])
+	})
+	out := make([]RosterRow, 0, len(rows))
+	for _, st := range subtrees {
+		out = append(out, st...)
+	}
+	return out
+}
+
+// cmpWaiting is 1 for a row waiting on an approval, else 0.
+func cmpWaiting(r RosterRow) int {
+	if r.Pending > 0 {
+		return 1
+	}
+	return 0
+}
+
+// countPending is how many of the queue's requests each harp asked.
+func countPending(src coord.ApprovalSource) map[string]int {
+	out := map[string]int{}
+	if src == nil {
+		return out
+	}
+	for _, p := range src.Pending() {
+		out[p.From.Harp]++
+	}
+	return out
 }

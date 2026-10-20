@@ -7,11 +7,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/term"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -283,4 +285,61 @@ func TestValidateTerminalUIConfig_BadListWindowIsFatalFinding(t *testing.T) {
 		validateTerminalUIConfig(config.NewFixture(config.Fixture{UI: config.UIConfig{ListWindow: ok}}))
 	}
 	assert.Empty(t, strictness.Since(mark))
+}
+
+// TestPrepareSessionIO_SplitViewKeepsDiagnosticsOffTheScreen: once the split
+// view owns the terminal, a diagnostic raised mid-session — a child's
+// container announcing its watch hint is the one that broke the panel —
+// lands in the session's diagnostics log, and the human's screen carries
+// nothing but the view's own frames and the pre-handover notice naming that
+// log. The process's real stdin, stdout and stderr are swapped for files, so
+// a write that bypassed the sink would be seen on them.
+func TestPrepareSessionIO_SplitViewKeepsDiagnosticsOffTheScreen(t *testing.T) {
+	home := testsupport.Isolate(t)
+	workDir := home + "/proj"
+	require.NoError(t, os.MkdirAll(workDir, 0o755))
+	origIsTerminal, origMakeRaw, origRestore, origSink, origStderr, origPlain := termIsTerminal, termMakeRaw, termRestore, termModeResetSink, termStderr, runPlainTerminal
+	t.Cleanup(func() {
+		termIsTerminal, termMakeRaw, termRestore, termModeResetSink, termStderr, runPlainTerminal = origIsTerminal, origMakeRaw, origRestore, origSink, origStderr, origPlain
+	})
+	termIsTerminal = func(int) bool { return true }
+	termMakeRaw = func(int) (*term.State, error) { return &term.State{}, nil }
+	termRestore = func(int, *term.State) error { return nil }
+	termModeResetSink = func() io.Writer { return nil }
+	termStderr = func() io.Writer { return os.Stderr }
+	runPlainTerminal = false
+
+	in, feed, err := os.Pipe()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = feed.Close(); _ = in.Close() })
+	screenOut, err := os.Create(filepath.Join(t.TempDir(), "stdout"))
+	require.NoError(t, err)
+	screenErr, err := os.Create(filepath.Join(t.TempDir(), "stderr"))
+	require.NoError(t, err)
+	realIn, realOut, realErr := os.Stdin, os.Stdout, os.Stderr
+	os.Stdin, os.Stdout, os.Stderr = in, screenOut, screenErr
+	t.Cleanup(func() { os.Stdin, os.Stdout, os.Stderr = realIn, realOut, realErr })
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	st := &runState{ctx: ctx, workDir: workDir, activeHarp: "plump-loose-sash", cfg: &config.Config{}}
+	sio := st.prepareSessionIO(degradedSessionPort(t, workDir), paneTerm{})
+	require.NotNil(t, sio.uiDone, "the split view must be up for this test to mean anything")
+	const hint = "container ctxloom-iso-child-0123 (watch: docker logs -f ctxloom-iso-child-0123)"
+	clidiag.Warn("ctxloom", "%s", hint)
+	sio.restore()
+	os.Stdin, os.Stdout, os.Stderr = realIn, realOut, realErr
+
+	logPath, err := diagnosticsLogPath("plump-loose-sash")
+	require.NoError(t, err)
+	logged, err := os.ReadFile(logPath)
+	require.NoError(t, err)
+	assert.Equal(t, clidiag.Line("ctxloom", "%s", hint), string(logged), "the diagnostic lands in the session's diagnostics log")
+	frames, err := os.ReadFile(screenOut.Name())
+	require.NoError(t, err)
+	assert.NotContains(t, string(frames), "ctxloom-iso-child-0123", "the view's frames never carry the diagnostic")
+	stderr, err := os.ReadFile(screenErr.Name())
+	require.NoError(t, err)
+	assert.Equal(t, strings.ReplaceAll(fmt.Sprintf(diagnosticsDivertedNotice, logPath), "\n", "\r\n"), string(stderr),
+		"stderr carries only the notice written before the handover")
 }

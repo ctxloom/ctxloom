@@ -244,3 +244,24 @@ func TestScanAdoptCandidates_NoTranscriptPathErrors(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), entry.HarpName)
 }
+
+// The scan says whether the session is purged: adopt rebuilds a purged
+// session's transcript even when it adopts nothing.
+func TestScanAdoptCandidates_SaysWhetherTheSessionIsPurged(t *testing.T) {
+	mgr := newAdoptManager(t)
+	dir := t.TempDir()
+	entry, err := mgr.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+	livePath := writeClaudeVendorFile(t, dir, "id-live",
+		time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC), time.Date(2026, 1, 10, 1, 0, 0, 0, time.UTC), nil)
+	require.NoError(t, mgr.BindSession(entry.HarpName, "id-live", livePath))
+
+	scan, err := ScanAdoptCandidates(afero.NewOsFs(), engines.Registry(), entry.HarpName)
+	require.NoError(t, err)
+	assert.False(t, scan.Purged)
+
+	require.NoError(t, mgr.MarkPurged(entry.HarpName, time.Now()))
+	scan, err = ScanAdoptCandidates(afero.NewOsFs(), engines.Registry(), entry.HarpName)
+	require.NoError(t, err)
+	assert.True(t, scan.Purged)
+}

@@ -140,6 +140,14 @@ func TestResolveAndHeal_ClearsThePurgeMarkOnlyWhenItRebuilds(t *testing.T) {
 		"no engine log": {func(t *testing.T, _ *sessions.Manager, e sessions.Entry) {
 			require.NoError(t, os.Remove(e.TranscriptPath))
 		}, false},
+		// A rebuild that is attempted and recovers nothing: the lineage names
+		// a rotation, and neither it nor the live log survives.
+		"rotations recover nothing": {func(t *testing.T, mgr *sessions.Manager, e sessions.Entry) {
+			require.NoError(t, mgr.AppendRotations(e.HarpName, []sessions.Rotation{{
+				SessionID: "sess-0", TranscriptPath: e.TranscriptPath + ".gone", RotatedAt: time.Now().Add(-time.Hour),
+			}}))
+			require.NoError(t, os.Remove(e.TranscriptPath))
+		}, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			testsupport.Isolate(t)
@@ -153,12 +161,11 @@ func TestResolveAndHeal_ClearsThePurgeMarkOnlyWhenItRebuilds(t *testing.T) {
 			src, err := ResolveAndHeal(context.Background(), safefs.New(), engines.Registry(), entry.HarpName)
 			require.NoError(t, err)
 			require.NotNil(t, src.Entry)
-			assert.Equal(t, tc.wantRebuilt, src.Healed)
+			assert.Equal(t, tc.wantRebuilt, src.Healed && src.HealErr == nil)
 			stored, err := mgr.Find(entry.HarpName)
 			require.NoError(t, err)
 			require.NotNil(t, stored)
 			if tc.wantRebuilt {
-				require.NoError(t, src.HealErr)
 				assert.Nil(t, src.Entry.PurgedAt, "the entry returned is the one the re-capture left")
 				assert.Nil(t, stored.PurgedAt, "a rebuild clears the purge mark")
 			} else {
@@ -167,6 +174,28 @@ func TestResolveAndHeal_ClearsThePurgeMarkOnlyWhenItRebuilds(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A re-capture whose purge mark cannot be cleared says so: the transcript was
+// rebuilt, and the session is still marked purged.
+func TestResolveAndHeal_ReportsAPurgeMarkItCouldNotClear(t *testing.T) {
+	testsupport.Isolate(t)
+	mgr, entry := seedGrownClaudeHarp(t, 6)
+	require.NoError(t, mgr.MarkPurged(entry.HarpName, time.Now().UTC()))
+	// The sidecar lock's path taken by a directory: every sidecar write fails.
+	lock, err := paths.HarpSidecarLockPath(entry.HarpName)
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(lock))
+	require.NoError(t, os.Mkdir(lock, 0o755))
+
+	src, err := ResolveAndHeal(context.Background(), safefs.New(), engines.Registry(), entry.HarpName)
+	require.NoError(t, err)
+	assert.True(t, src.Healed)
+	require.Error(t, src.HealErr, "a purge mark that stays must not read as a clean re-capture")
+	stored, err := mgr.Find(entry.HarpName)
+	require.NoError(t, err)
+	require.NotNil(t, stored)
+	assert.NotNil(t, stored.PurgedAt)
 }
 
 // A listing titles a session whose last capture held no user prompt yet from

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	"github.com/spf13/afero"
@@ -171,10 +172,7 @@ func runSessionAdopt(cmd *cobra.Command, args []string) error {
 // for the vendor readers.
 var healAdopted = func(ctx context.Context, harp string) (rebuilt bool, err error) {
 	src, err := operations.ResolveAndHeal(ctx, safefs.New(), App().Engines(), harp)
-	if err != nil {
-		return false, err
-	}
-	return src.Healed, src.HealErr
+	return src.Healed, errors.Join(err, src.HealErr)
 }
 
 // What `session adopt --yes` says on the diagnostic channel when it adopted

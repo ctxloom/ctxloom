@@ -286,3 +286,15 @@ func TestReportAdoptHeal_SurfacesAWriteFailure(t *testing.T) {
 	err := reportAdoptHeal(cmd, "swift-amber-falcon", 1, false, func(context.Context, string) (bool, error) { return false, errors.New("heal failed") })
 	require.ErrorIs(t, err, writeErr)
 }
+
+// The purged-session report is written to the diagnostic channel too, and a
+// write that fails there is returned.
+func TestReportAdoptHeal_PurgedSurfacesAWriteFailure(t *testing.T) {
+	writeErr := errors.New("stderr broke")
+	cmd := &cobra.Command{}
+	cmd.SetErr(&failingWriter{err: writeErr})
+	cmd.SetContext(context.Background())
+
+	err := reportAdoptHeal(cmd, "swift-amber-falcon", 0, true, func(context.Context, string) (bool, error) { return true, nil })
+	require.ErrorIs(t, err, writeErr)
+}

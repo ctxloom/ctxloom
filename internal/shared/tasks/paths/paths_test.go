@@ -42,6 +42,36 @@ func TestValidateProjectID_RejectsTraversalAndSeparators(t *testing.T) {
 	}
 }
 
+// TestHomeProjectStoreDir_RejectsTraversal proves the store-dir chokepoint
+// refuses a crafted id before it can name a dir outside ~/.ctxloom/projects —
+// it becomes a container bind source.
+func TestHomeProjectStoreDir_RejectsTraversal(t *testing.T) {
+	for _, id := range []string{"../../escape", "", ".", "a/b"} {
+		if _, err := HomeProjectStoreDir(id); err == nil {
+			t.Errorf("HomeProjectStoreDir(%q) = nil error, want rejection", id)
+		}
+	}
+	got, err := HomeProjectStoreDir("swift-amber-falcon")
+	if err != nil {
+		t.Fatalf("HomeProjectStoreDir(valid) = %v", err)
+	}
+	if filepath.Base(got) != "swift-amber-falcon" || filepath.Base(filepath.Dir(got)) != ProjectsDir {
+		t.Fatalf("HomeProjectStoreDir = %q, want …/%s/swift-amber-falcon", got, ProjectsDir)
+	}
+}
+
+// TestHomeProjectStoreDir_FailsClosedWithoutAHome: a home that cannot be
+// resolved is an error, never a store dir guessed relative to the cwd —
+// a container would bind whatever that guess named.
+func TestHomeProjectStoreDir_FailsClosedWithoutAHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	got, err := HomeProjectStoreDir("swift-amber-falcon")
+	if err == nil {
+		t.Fatalf("HomeProjectStoreDir with no home = %q, nil error; want an error", got)
+	}
+}
+
 // TestHomeTasksLogPath_RejectsTraversal proves the file-path chokepoint
 // refuses a crafted id before it can steer a write outside ~/.ctxloom/tasks.
 func TestHomeTasksLogPath_RejectsTraversal(t *testing.T) {

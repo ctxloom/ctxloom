@@ -88,7 +88,7 @@ func assertPOSIXTargets(t *testing.T, mounts []mount) {
 }
 
 // B2: the full session-state set — the mounted members, the output dir, the
-// task log and lock — lands at POSIX container paths.
+// task log and lock, the project store dir — lands at POSIX container paths.
 func TestSessionStateMounts_TargetsArePOSIX(t *testing.T) {
 	testsupport.Isolate(t)
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, claude.EngineName)

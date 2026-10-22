@@ -28,9 +28,11 @@ const (
 	// import leaves apart from this edge, so there is no cycle to break.
 	AppDirName = paths.AppDirName
 
-	// projectsDir is the home-rooted subdirectory holding the project-identity
-	// registry that maps a stable project-id to its current path.
-	projectsDir = "projects"
+	// ProjectsDir is the home-rooted subdirectory holding the project-identity
+	// registry that maps a stable project-id to its current path, and, one
+	// directory per project-id, the Rust taskloom's SQLite store
+	// (<project-id>/state.db and its WAL sidecars).
+	ProjectsDir = "projects"
 
 	// IndexFileName is the name of the registry index file.
 	IndexFileName = "index.yaml"
@@ -85,7 +87,7 @@ func homeProjectsDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, AppDirName, projectsDir), nil
+	return filepath.Join(home, AppDirName, ProjectsDir), nil
 }
 
 // ProjectRegistryPath returns ~/.ctxloom/projects/index.yaml — the registry
@@ -133,6 +135,22 @@ func HomeTasksLogPath(projectID string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(root, projectID+TasksLogExt), nil
+}
+
+// HomeProjectStoreDir resolves ~/.ctxloom/projects/<project-id> — the
+// directory the Rust taskloom keeps this project's state.db in, beside the
+// -wal and -shm sidecars SQLite's WAL mode writes next to it. The id is
+// validated as a single clean path segment first, for the reason
+// HomeTasksLogPath gives.
+func HomeProjectStoreDir(projectID string) (string, error) {
+	if err := ValidateProjectID(projectID); err != nil {
+		return "", err
+	}
+	root, err := homeProjectsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, projectID), nil
 }
 
 // ValidateProjectID reports whether id is safe to use as the single-segment

@@ -111,6 +111,15 @@ const containerOutputDir = "/ctxloom/out"
 //	    business reading — let alone appending to — another project's task
 //	    log. Which project it is comes from the CTXLOOM_PROJECT_ID the run env
 //	    pins.
+//	~/.ctxloom/projects/<project-id>/ → the same path under the container
+//	    home: the Rust taskloom's store for THIS project (state.db). A
+//	    DIRECTORY, not the file: SQLite's WAL mode writes state.db-wal and
+//	    state.db-shm beside it, and a first write creates state.db itself —
+//	    a single-file bind reaches none of those. Only this project's dir,
+//	    never ~/.ctxloom/projects: that holds every project's store and the
+//	    machine-wide registry (index.yaml). The registry is not needed: with
+//	    CTXLOOM_PROJECT_ID pinned the Rust binary resolves the project from
+//	    the pin and neither reads nor binds through it.
 //
 // Native history is NOT among these: it is mounted beside the engine homes
 // by the relocator (containerRelocator.relocate), where the home's relative
@@ -193,8 +202,9 @@ func (c Container) outputMounts() ([]mount, error) {
 	return []mount{bind(dir, containerOutputDir, false)}, nil
 }
 
-// taskStoreMounts binds the project's task log and its lock, or — with no
-// pinned project id — warns and binds nothing.
+// taskStoreMounts binds the project's task log and its lock, and the
+// project's Rust store dir, or — with no pinned project id — warns and binds
+// nothing.
 func (c Container) taskStoreMounts() ([]mount, error) {
 	var mounts []mount
 	if c.state.ProjectID == "" {
@@ -228,6 +238,20 @@ func (c Container) taskStoreMounts() ([]mount, error) {
 			}
 			mounts = append(mounts, bind(src, path.Join(c.home, taskpaths.AppDirName, taskpaths.TasksDir, filepath.Base(src)), false))
 		}
+		// The store dir must exist before `run` too: a rootful daemon asked
+		// to bind a missing source creates it as ROOT, and the host user's
+		// own taskloom could then never write its project's database. Made
+		// here, as the invoking user, it is owned by the same user every
+		// runtime maps the in-container writer to (the PUID remap, rootless
+		// docker's root, rootless podman's keep-id), as the log is.
+		storeDir, err := taskpaths.HomeProjectStoreDir(c.state.ProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("container task-store mount: %w", err)
+		}
+		if err := os.MkdirAll(storeDir, 0o755); err != nil {
+			return nil, fmt.Errorf("container task-store mount: %w", err)
+		}
+		mounts = append(mounts, bind(storeDir, path.Join(c.home, taskpaths.AppDirName, taskpaths.ProjectsDir, c.state.ProjectID), false))
 	}
 	return mounts, nil
 }

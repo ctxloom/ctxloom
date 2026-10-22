@@ -19,10 +19,13 @@ import (
 // TestSessionStateMounts_MembersOutputAndTaskLog pins the state mounts: each
 // Mounted session member at the same relative path under the CONTAINER home,
 // the session's output dir at containerOutputDir with CTXLOOM_OUTPUT_DIR
-// naming it, and this project's task log and its lock at the same two paths
-// under the container home. Host sources are created as the KIND they are (a
-// missing FILE source would be created as a directory by the runtime) and
-// every mount is RW.
+// naming it, this project's task log and its lock at the same two paths
+// under the container home, and this project's Rust taskloom store directory
+// (~/.ctxloom/projects/<project-id>/, holding state.db and its WAL sidecars)
+// at the same path under the container home. Host sources are created as the
+// KIND they are (a missing FILE source would be created as a directory by the
+// runtime, a missing dir source as root by a rootful daemon) and every mount
+// is RW.
 func TestSessionStateMounts_MembersOutputAndTaskLog(t *testing.T) {
 	home := testsupport.Isolate(t)
 	const harp = "brisk-teal-otter"
@@ -33,7 +36,7 @@ func TestSessionStateMounts_MembersOutputAndTaskLog(t *testing.T) {
 	require.NoError(t, err)
 
 	members := paths.MountedMembers()
-	require.Len(t, mounts, len(members)+3)
+	require.Len(t, mounts, len(members)+4)
 	sessionDir := filepath.Join(home, ".ctxloom", "sessions", harp)
 	for i, m := range members {
 		assert.Equal(t, mount{
@@ -57,6 +60,11 @@ func TestSessionStateMounts_MembersOutputAndTaskLog(t *testing.T) {
 		Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl.lock"),
 		Container: path.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl.lock"),
 	}, mounts[len(members)+2], "the log's lock rides along: a lock the container cannot see excludes nothing")
+	assert.Equal(t, mount{
+		Host:      filepath.Join(home, ".ctxloom", "projects", "proj-1"),
+		Container: path.Join(defaultContainerHome, ".ctxloom", "projects", "proj-1"),
+	}, mounts[len(members)+3], "THIS project's state.db directory binds whole, so SQLite's WAL sidecars and a first write survive teardown")
+	assert.DirExists(t, mounts[len(members)+3].Host, "the store dir exists before `run`, so no rootful daemon creates it as root")
 	for _, m := range mounts {
 		assert.False(t, m.ReadOnly, "state mounts are RW")
 		assert.NotEqual(t, sessionDir, m.Host, "the session dir is never mounted whole")
@@ -114,6 +122,8 @@ func TestSessionStateMounts_NoProjectID_SkipsTaskMount(t *testing.T) {
 
 	_, statErr := os.Stat(filepath.Join(home, ".ctxloom", "tasks"))
 	assert.True(t, os.IsNotExist(statErr), "no shared task dir is minted without a project id")
+	_, statErr = os.Stat(filepath.Join(home, ".ctxloom", "projects"))
+	assert.True(t, os.IsNotExist(statErr), "no project store dir is minted without a project id")
 }
 
 // A container run gets ONE project's task log, never the home-rooted dir that
@@ -131,20 +141,51 @@ func TestSessionStateMounts_TaskMountReachesOnlyThisProjectsLog(t *testing.T) {
 	otherLog := filepath.Join(tasksDir, "proj-b.jsonl")
 	require.NoError(t, os.WriteFile(otherLog, []byte("{\"op\":\"add\"}\n"), 0o644))
 	ownLog := filepath.Join(tasksDir, "proj-a.jsonl")
+	projectsDir := filepath.Join(home, ".ctxloom", "projects")
+	otherDB := filepath.Join(projectsDir, "proj-b", "state.db")
+	require.NoError(t, os.MkdirAll(filepath.Dir(otherDB), 0o755))
+	require.NoError(t, os.WriteFile(otherDB, []byte("sqlite"), 0o644))
+	registry := filepath.Join(projectsDir, "index.yaml")
+	require.NoError(t, os.WriteFile(registry, []byte("projects: []\n"), 0o644))
+	ownDB := filepath.Join(projectsDir, "proj-a", "state.db")
 
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
 	c.state = SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-a"}
 	mounts, _, err := c.sessionStateMounts()
 	require.NoError(t, err)
 
-	var reachesOwn bool
+	var reachesOwn, reachesOwnDB bool
 	for _, m := range mounts {
 		assert.False(t, mountReaches(m, otherLog),
 			"mount %s → %s hands this run another project's task log (%s)", m.Host, m.Container, otherLog)
+		assert.False(t, mountReaches(m, otherDB),
+			"mount %s → %s hands this run another project's task database (%s)", m.Host, m.Container, otherDB)
+		assert.False(t, mountReaches(m, registry),
+			"mount %s → %s hands this run the machine-wide project registry (%s)", m.Host, m.Container, registry)
 		reachesOwn = reachesOwn || mountReaches(m, ownLog)
+		reachesOwnDB = reachesOwnDB || mountReaches(m, ownDB)
 	}
 	assert.True(t, reachesOwn,
 		"the run's OWN task log must still reach the host store: least privilege is a narrower mount, not no mount")
+	assert.True(t, reachesOwnDB,
+		"the run's OWN state.db must reach the host store, or a containerized Rust taskloom's writes die with the container")
+}
+
+// A store dir that cannot be prepared refuses the run rather than handing
+// the runtime a missing bind source, which a rootful daemon would create as
+// root. Here ~/.ctxloom/projects is a regular file, so no dir can go under it.
+func TestSessionStateMounts_UnpreparableStoreDirIsRefused(t *testing.T) {
+	home := testsupport.Isolate(t)
+	projects := filepath.Join(home, ".ctxloom", "projects")
+	require.NoError(t, os.MkdirAll(filepath.Dir(projects), 0o755))
+	require.NoError(t, os.WriteFile(projects, nil, 0o644))
+
+	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
+	c.state = SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"}
+	mounts, _, err := c.sessionStateMounts()
+	require.Error(t, err)
+	assert.Nil(t, mounts)
+	assert.Contains(t, err.Error(), "container task-store mount")
 }
 
 // mountReaches reports whether host path p is inside (or is) what m exposes to

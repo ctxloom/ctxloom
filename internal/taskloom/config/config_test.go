@@ -306,6 +306,11 @@ func TestSchema_TopLevelAdditionalPropertiesFalse(t *testing.T) {
 			// before decode; Config deliberately carries no field for it.
 			continue
 		}
+		if name == TagPermitsKey {
+			// Rust taskloom's to enforce: accepted and validated, never
+			// decoded (see TagPermitsKey).
+			continue
+		}
 		found := false
 		for i := 0; i < rt.NumField(); i++ {
 			tag := rt.Field(i).Tag.Get("yaml")

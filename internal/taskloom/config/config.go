@@ -81,6 +81,14 @@ const (
 	// --config-set/TASKLOOM_CONFIG_ override, must set.
 	HomingConfigKey = "homing"
 
+	// TagPermitsKey is Rust taskloom's closed tag vocabulary (see the
+	// `tag_permits` key in the schema). The schema accepts it and validates
+	// its shape, so a repository shared with Rust taskloom loads here, but
+	// Config carries no field for it: this taskloom stays permissive about
+	// tags and enforces nothing the permits say. It reports nothing about
+	// them either: no notice surface fits a key every command would trip on.
+	TagPermitsKey = "tag_permits"
+
 	// homingFlagName is taskloom's dedicated root flag naming the same
 	// setting for a single invocation (highest precedence — see ResolveMode).
 	homingFlagName = "homing"

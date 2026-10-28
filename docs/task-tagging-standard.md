@@ -602,7 +602,7 @@ they do not permit. It says nothing about closed rows.
     low-priority        ->  triage:level=4 or =5
     urgent, next, backlog -> nothing; priority is derived, never tagged
     deferred            ->  the Deferred STATUS, which is real mechanism
-    for-review, review  ->  code-review
+    for-review, review, code-review -> human:verify
     sdk1-blocked        ->  (obsolete; the SDK-1 work is finished)
     publish-blocker     ->  triage:blocks-release=
     release, release=X, release-blocker, a bare version, milestone=, phase
@@ -631,8 +631,9 @@ look parked to a human while reading as live to every tool.
 `for-review`, `review` and `code-review` all mean the same thing and all exist.
 That is the hazard the tags reference names directly — running `taskloom tags`
 before coining a word is how you notice that a near-identical spelling is
-already in use. Prefer `code-review`; it has the most rows and the clearest
-name. The other two are left in place on the rows that carry them.
+already in use. All three say what `human:verify` says, a person must look at
+the result, so all three retire into it. They are left in place on the closed
+rows that carry them; an open or Deferred row is re-tagged `human:verify`.
 
 ---
 

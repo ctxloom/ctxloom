@@ -77,23 +77,23 @@ operators and/or/not, where each operator applies to the expression(s)
 before it. A bare tag list with no operator is an implicit AND. Tags
 match case-sensitively; operators are case-insensitive. Discover the
 tags in use (with counts) via "taskloom tags".`,
-	Example: `  # active tasks tagged both urgent AND release
-  taskloom list --tag-query urgent/release/and
+	Example: `  # active tasks tagged both human:decision AND area:cli
+  taskloom list --tag-query human:decision/area:cli/and
 
   # the same — a bare tag list is an implicit AND
-  taskloom list --tag-query urgent/release
+  taskloom list --tag-query human:decision/area:cli
 
-  # tagged urgent OR release
-  taskloom list --tag-query urgent/release/or
+  # tagged human:decision OR area:cli
+  taskloom list --tag-query human:decision/area:cli/or
 
-  # active tasks NOT tagged urgent
-  taskloom list --tag-query urgent/not
+  # active tasks NOT tagged human:decision
+  taskloom list --tag-query human:decision/not
 
-  # (urgent AND release) OR blocked — postfix composes left to right
-  taskloom list --tag-query urgent/release/and/blocked/or
+  # (human:decision AND area:cli) OR human:verify — postfix composes left to right
+  taskloom list --tag-query human:decision/area:cli/and/human:verify/or
 
   # include completed and Deferred matches too
-  taskloom list --tag-query release --all
+  taskloom list --tag-query triage:blocks-release --all
 
   # In Progress tasks mentioning "docs"
   taskloom list --status "In Progress" --term docs
@@ -380,7 +380,7 @@ func wrapTagQueryError(err error) error {
 	return report.Error{Fix: tagQueryRemedy, Err: err}
 }
 
-const tagQueryRemedy = "queries are postfix: tags first, operator after — e.g. urgent/release/and, urgent/not; an and/or/not operator needs enough operands already on the query's stack, or it fails (see 'taskloom list --help' for more)"
+const tagQueryRemedy = "queries are postfix: tags first, operator after — e.g. human:decision/area:cli/and, human:decision/not; an and/or/not operator needs enough operands already on the query's stack, or it fails (see 'taskloom list --help' for more)"
 
 // renderGlobalTaskTable prints a --global (or no-project-fallback) listing as
 // one table section per project, reusing renderTaskTable per section so the
@@ -705,8 +705,8 @@ with "taskloom list --tag-query".`,
 	Example: `  taskloom tags
   taskloom tags --json
 
-  # how the release-tagged work breaks down by every other tag
-  taskloom tags --tag-query release
+  # how the work blocking a release breaks down by every other tag
+  taskloom tags --tag-query triage:blocks-release
 
   # the tag distribution of everything still open
   taskloom tags --status @open
@@ -951,7 +951,7 @@ func runStatusesCmd(cmd *cobra.Command, args []string) error {
 func init() {
 	listCmd.Flags().StringSliceVar(&tasksListStatuses, "status", nil, `filter by status (repeatable); also accepts the classes "@open" (every non-terminal status) and "@terminal" (every completed one), expanded from the live taxonomy and mixable with literal statuses`)
 	listCmd.Flags().StringVar(&tasksListTerm, "term", "", "filter by case-insensitive substring of task text")
-	listCmd.Flags().StringVar(&tasksListTagQuery, "tag-query", "", `filter by postfix tag query, e.g. "urgent/release/and", "urgent/not" (see examples in --help; list tags with "taskloom tags")`)
+	listCmd.Flags().StringVar(&tasksListTagQuery, "tag-query", "", `filter by postfix tag query, e.g. "human:decision/area:cli/and", "human:decision/not" (see examples in --help; list tags with "taskloom tags")`)
 	listCmd.Flags().BoolVar(&tasksListAll, "all", false, "include the tasks hidden by default: completed (Done/Archived) and Deferred")
 	listCmd.Flags().BoolVar(&tasksListGlobal, "global", false, "aggregate tasks across every privately-homed project instead of just the current one (repo-homed projects are never included -- see this command's long help)")
 	listCmd.Flags().StringVar(&tasksListSort, "sort", "", `sort order: "priority" for derived, rank-normalized priority (descending); default (unset) leaves today's order unchanged`)
@@ -969,7 +969,7 @@ func init() {
 
 	tagsCmd.Flags().StringSliceVar(&tasksTagsStatuses, "status", nil, `count only tasks in these statuses (repeatable); accepts the "@open"/"@terminal" classes exactly as `+"`taskloom list --status`"+` does`)
 	tagsCmd.Flags().StringVar(&tasksTagsTerm, "term", "", "count only tasks whose TEXT contains this case-insensitive substring (this narrows the tasks counted, never the tag names listed)")
-	tagsCmd.Flags().StringVar(&tasksTagsTagQuery, "tag-query", "", `count only tasks matching this postfix tag query, e.g. "urgent/release/and" (see "taskloom list --help" for the grammar)`)
+	tagsCmd.Flags().StringVar(&tasksTagsTagQuery, "tag-query", "", `count only tasks matching this postfix tag query, e.g. "human:decision/area:cli/and" (see "taskloom list --help" for the grammar)`)
 	summaryCmd.Flags().BoolVar(&tasksSummaryGlobal, "global", false, "sum the counts across every privately-homed project instead of just the current one (repo-homed projects are never included -- see \"taskloom list --help\")")
 
 	tagsCmd.Flags().BoolVar(&tasksTagsGlobal, "global", false, "count across every privately-homed project instead of just the current one (repo-homed projects are never included -- see \"taskloom list --help\")")

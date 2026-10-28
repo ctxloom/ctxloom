@@ -476,3 +476,14 @@ func TestSummary_MarkdownCountsAreASection(t *testing.T) {
 	require.NoError(t, summaryCmd.RunE(c, nil))
 	assert.Contains(t, out.String(), "## Counts\n\n**"+tasks.StatusToDo+":** 1\n")
 }
+
+// list and tags each take a --tag-query, empty by default, and their usage
+// gives an example in the settled tag vocabulary.
+func TestTagQueryFlags_ListAndTagsTakeOne(t *testing.T) {
+	for _, c := range []*cobra.Command{listCmd, tagsCmd} {
+		f := c.Flags().Lookup("tag-query")
+		require.NotNil(t, f, c.Name())
+		assert.Equal(t, "", f.DefValue, c.Name())
+		assert.Contains(t, f.Usage, `"human:decision/area:cli/and"`, c.Name())
+	}
+}

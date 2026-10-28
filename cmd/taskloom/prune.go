@@ -70,8 +70,8 @@ pruned events can bring them back; pruning again removes them.`,
   # take them
   taskloom prune --yes
 
-  # Done and Archived tasks untouched for a month, tagged release
-  taskloom prune --older-than 30d --status Done --status Archived --tag-query release --yes
+  # Done and Archived tasks untouched for a month that blocked a release
+  taskloom prune --older-than 30d --status Done --status Archived --tag-query triage:blocks-release --yes
 
   # every finished status, by the @terminal class
   taskloom prune --status @terminal`,
@@ -244,7 +244,7 @@ func init() {
 	pruneCmd.Flags().StringSliceVar(&pruneStatuses, "status", []string{tasks.StatusDone},
 		`the statuses that qualify a task for pruning (repeatable); also accepts the classes "@open" and "@terminal", as for list`)
 	pruneCmd.Flags().StringVar(&pruneTagQuery, "tag-query", "",
-		`prune only tasks matching this postfix tag query, e.g. "urgent/release/and" (see "taskloom list --help" for the grammar)`)
+		`prune only tasks matching this postfix tag query, e.g. "human:decision/area:cli/and" (see "taskloom list --help" for the grammar)`)
 	pruneCmd.Flags().BoolVar(&pruneYes, "yes", false,
 		"rewrite the log; without it prune only reports what it would remove")
 	rootCmd.AddCommand(pruneCmd)

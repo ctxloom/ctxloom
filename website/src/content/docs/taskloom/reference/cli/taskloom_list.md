@@ -55,23 +55,23 @@ taskloom list [flags]
 ### Examples
 
 ```
-  # active tasks tagged both urgent AND release
-  taskloom list --tag-query urgent/release/and
+  # active tasks tagged both human:decision AND area:cli
+  taskloom list --tag-query human:decision/area:cli/and
 
   # the same — a bare tag list is an implicit AND
-  taskloom list --tag-query urgent/release
+  taskloom list --tag-query human:decision/area:cli
 
-  # tagged urgent OR release
-  taskloom list --tag-query urgent/release/or
+  # tagged human:decision OR area:cli
+  taskloom list --tag-query human:decision/area:cli/or
 
-  # active tasks NOT tagged urgent
-  taskloom list --tag-query urgent/not
+  # active tasks NOT tagged human:decision
+  taskloom list --tag-query human:decision/not
 
-  # (urgent AND release) OR blocked — postfix composes left to right
-  taskloom list --tag-query urgent/release/and/blocked/or
+  # (human:decision AND area:cli) OR human:verify — postfix composes left to right
+  taskloom list --tag-query human:decision/area:cli/and/human:verify/or
 
   # include completed and Deferred matches too
-  taskloom list --tag-query release --all
+  taskloom list --tag-query triage:blocks-release --all
 
   # In Progress tasks mentioning "docs"
   taskloom list --status "In Progress" --term docs
@@ -97,7 +97,7 @@ taskloom list [flags]
       --limit int          cap the number of rows returned (0 = no cap); omitted rows are reported on stderr, and status/summary counts are never affected
       --sort string        sort order: "priority" for derived, rank-normalized priority (descending); default (unset) leaves today's order unchanged
       --status strings     filter by status (repeatable); also accepts the classes "@open" (every non-terminal status) and "@terminal" (every completed one), expanded from the live taxonomy and mixable with literal statuses
-      --tag-query string   filter by postfix tag query, e.g. "urgent/release/and", "urgent/not" (see examples in --help; list tags with "taskloom tags")
+      --tag-query string   filter by postfix tag query, e.g. "human:decision/area:cli/and", "human:decision/not" (see examples in --help; list tags with "taskloom tags")
       --term string        filter by case-insensitive substring of task text
 ```
 

@@ -58,8 +58,8 @@ taskloom prune [flags]
   # take them
   taskloom prune --yes
 
-  # Done and Archived tasks untouched for a month, tagged release
-  taskloom prune --older-than 30d --status Done --status Archived --tag-query release --yes
+  # Done and Archived tasks untouched for a month that blocked a release
+  taskloom prune --older-than 30d --status Done --status Archived --tag-query triage:blocks-release --yes
 
   # every finished status, by the @terminal class
   taskloom prune --status @terminal
@@ -71,7 +71,7 @@ taskloom prune [flags]
   -h, --help                help for prune
       --older-than string   prune only tasks whose last status change is older than this age (30d, 12w, 720h) or date (2026-01-01) (default "7d")
       --status strings      the statuses that qualify a task for pruning (repeatable); also accepts the classes "@open" and "@terminal", as for list (default [Done])
-      --tag-query string    prune only tasks matching this postfix tag query, e.g. "urgent/release/and" (see "taskloom list --help" for the grammar)
+      --tag-query string    prune only tasks matching this postfix tag query, e.g. "human:decision/area:cli/and" (see "taskloom list --help" for the grammar)
       --yes                 rewrite the log; without it prune only reports what it would remove
 ```
 

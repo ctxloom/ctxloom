@@ -53,8 +53,8 @@ taskloom tags [flags]
   taskloom tags
   taskloom tags --json
 
-  # how the release-tagged work breaks down by every other tag
-  taskloom tags --tag-query release
+  # how the work blocking a release breaks down by every other tag
+  taskloom tags --tag-query triage:blocks-release
 
   # the tag distribution of everything still open
   taskloom tags --status @open
@@ -69,7 +69,7 @@ taskloom tags [flags]
       --global                          count across every privately-homed project instead of just the current one (repo-homed projects are never included -- see "taskloom list --help")
   -h, --help                            help for tags
       --status taskloom list --status   count only tasks in these statuses (repeatable); accepts the "@open"/"@terminal" classes exactly as taskloom list --status does
-      --tag-query string                count only tasks matching this postfix tag query, e.g. "urgent/release/and" (see "taskloom list --help" for the grammar)
+      --tag-query string                count only tasks matching this postfix tag query, e.g. "human:decision/area:cli/and" (see "taskloom list --help" for the grammar)
       --term string                     count only tasks whose TEXT contains this case-insensitive substring (this narrows the tasks counted, never the tag names listed)
 ```
 

@@ -14,7 +14,7 @@ Add and/or remove tags on a task
 ### Synopsis
 
 Add and/or remove tags on a task, keyed by its harp ID. A tag is
-(namespace:)key(=value): "urgent" and "triage:kind=defect" are both tags.
+(namespace:)key(=value): "area:cli" and "triage:kind=defect" are both tags.
 
 --add and --remove are each repeatable; at least one is required. --add is
 applied before --remove, so a tag named in both ends up removed. See the
@@ -28,8 +28,8 @@ taskloom tag <harp-id> [flags]
 ### Examples
 
 ```
-  taskloom tag swift-amber-falcon --add urgent --add release
-  taskloom tag swift-amber-falcon --remove urgent --add blocked
+  taskloom tag swift-amber-falcon --add human:decision --add area:cli
+  taskloom tag swift-amber-falcon --remove human:decision --add human:verify
 ```
 
 ### Options

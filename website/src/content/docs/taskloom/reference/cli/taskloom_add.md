@@ -45,12 +45,12 @@ taskloom add <text> [flags]
 ### Examples
 
 ```
-  taskloom add "ship the release notes" --tag release --tag docs
+  taskloom add "ship the release notes" --tag area:docs --tag human:voice
   taskloom add "investigate flaky TestFoo" --status "In Progress"
   taskloom add "revisit caching" --status Deferred --trigger "the v2 API ships"
   taskloom add "dedupe the retry loop in the sync client
 (found 2026-07-19, session icy-weary-chimp, while reviewing config layering)"
-  taskloom add --tag cli -- "--json drops the error envelope"
+  taskloom add --tag area:cli -- "--json drops the error envelope"
 ```
 
 ### Options

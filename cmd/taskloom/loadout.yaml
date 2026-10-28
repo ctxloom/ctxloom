@@ -142,7 +142,7 @@ run:
 
             # every harp; every harp carrying a tag
             taskloom list --all --json | jq -r '.[].harp_id'
-            taskloom list --all --json | jq -r '.[]|select(.tags[]?=="urgent")|.harp_id'
+            taskloom list --all --json | jq -r '.[]|select(.tags[]?=="human:decision")|.harp_id'
 
         `Task`'s JSON tags are a cross-surface contract: the CLI and the MCP tools
         emit the same snake_case keys, so one jq filter works against either.
@@ -303,6 +303,11 @@ run:
           Exactly one per task; the range is enforced, so `0` and `6` are
           refused.
         - `area:` — which subsystem. Exactly one per task.
+        - `human:` — why a PERSON is needed: `decision`, `voice`, `authority`,
+          `verify`, `prerequisite` or `action`. Repeatable. Never the flat
+          `human`: it said where a row went, never why.
+        - `triage:blocks-release=<semver>` — the one way to say a release
+          waits on this. No `release`, version or milestone tags.
         - `touches:` — a repo-relative FILE path this task will EDIT.
           Repeatable. This is what says whether two tasks can run at once: two
           agents editing one file collide whatever symbols each touched.

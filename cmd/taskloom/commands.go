@@ -486,12 +486,12 @@ time anyone reads the task; a symbol name still finds it.
 
 Text that begins with "-" (a subject naming the flag it is about) is parsed
 as a flag however it is quoted; put -- before it to end flag parsing.`,
-	Example: `  taskloom add "ship the release notes" --tag release --tag docs
+	Example: `  taskloom add "ship the release notes" --tag area:docs --tag human:voice
   taskloom add "investigate flaky TestFoo" --status "In Progress"
   taskloom add "revisit caching" --status Deferred --trigger "the v2 API ships"
   taskloom add "dedupe the retry loop in the sync client
 (found 2026-07-19, session icy-weary-chimp, while reviewing config layering)"
-  taskloom add --tag cli -- "--json drops the error envelope"`,
+  taskloom add --tag area:cli -- "--json drops the error envelope"`,
 	Args: textArgs(1),
 	RunE: runAdd,
 }
@@ -620,14 +620,14 @@ var tagCmd = &cobra.Command{
 	Use:   "tag <harp-id>",
 	Short: "Add and/or remove tags on a task",
 	Long: `Add and/or remove tags on a task, keyed by its harp ID. A tag is
-(namespace:)key(=value): "urgent" and "triage:kind=defect" are both tags.
+(namespace:)key(=value): "area:cli" and "triage:kind=defect" are both tags.
 
 --add and --remove are each repeatable; at least one is required. --add is
 applied before --remove, so a tag named in both ends up removed. See the
 tags already in use with "taskloom tags"; filter tasks by tag with
 "taskloom list --tag-query".`,
-	Example: `  taskloom tag swift-amber-falcon --add urgent --add release
-  taskloom tag swift-amber-falcon --remove urgent --add blocked`,
+	Example: `  taskloom tag swift-amber-falcon --add human:decision --add area:cli
+  taskloom tag swift-amber-falcon --remove human:decision --add human:verify`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTag,
 }

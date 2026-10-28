@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -486,4 +487,21 @@ func TestTagQueryFlags_ListAndTagsTakeOne(t *testing.T) {
 		assert.Equal(t, "", f.DefValue, c.Name())
 		assert.Contains(t, f.Usage, `"human:decision/area:cli/and"`, c.Name())
 	}
+}
+
+// No command's help teaches a retired tag (the human's ruling of
+// 2026-10-27): urgent is retired, priority being derived.
+func TestHelp_TeachesNoRetiredTag(t *testing.T) {
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		texts := []string{c.Long, c.Example}
+		c.LocalFlags().VisitAll(func(f *pflag.Flag) { texts = append(texts, f.Usage) })
+		for _, text := range texts {
+			assert.NotContains(t, text, "urgent", c.CommandPath())
+		}
+		for _, sub := range c.Commands() {
+			walk(sub)
+		}
+	}
+	walk(rootCmd)
 }

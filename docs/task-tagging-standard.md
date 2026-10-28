@@ -75,10 +75,21 @@ while an aging exposed defect escalates. How a task's urgency MOVES with age is
 a property of what kind of work it is; how much it matters today is the level.
 
 The factual flags — `triage:data-loss`, `triage:security`, `triage:crashes`,
-`triage:no-workaround`, `triage:regression` — are **searchable labels, not
+`triage:no-workaround`, `triage:regression`, `triage:silent-no-op`,
+`triage:flaky` — are bare keys, with no value, and **searchable labels, not
 score inputs**. They record what is true about an issue so a `--tag-query` can
 find it. The ranking consequence of those facts is exactly what the level is
 for, and having them scored too would count the same fact twice.
+`triage:security` does not imply level 1; rate the level by consequence.
+
+`triage:blind-gate=<gate>` is the one fact that IS scored, because the fault
+hides itself: `decay_fn` escalates a green gate that measures nothing on a
+30-day curve. Name the gate. Rust taskloom declares it an enum — `unit`,
+`integration`, `acceptance`, `mutation`, `lint`, `ci` — and a bare
+`triage:blind-gate` carries no value for `{{triage:blind-gate=*}}` to match,
+so it escalates nothing and nothing says so. A project with more gates
+re-declares the enum in its `tag_schema`, repeating the built-in values;
+ctxloom adds `conformance` and `doctor`.
 
 ---
 
@@ -194,13 +205,15 @@ entirely for those tasks — its absence is now MEANINGFUL rather than missing,
 and `repo:` is what says so.
 
 One task, one foreign repo — a task spanning two is two tasks, because it cannot
-land atomically. That rule is PROSE, not enforced, and the reason is worth
+land atomically. No write refuses a second one, and the reason is worth
 knowing: `tagma.arity:"..."=scalar` only binds a namespaced key=value target
 like `triage:kind`. `repo:` is shaped like `area:` — a bare namespace:key with
 no value — so there is nothing for the arity enforcer to bind to. taskloom
 refuses such a declaration when it loads the tag schema rather than accepting
-one that would enforce nothing. `area:` has the same prose-only "exactly one
-per task" rule for the same reason.
+one that would enforce nothing. `area:` has the same "exactly one per task"
+rule for the same reason. What catches a second one is `taskloom lint` (Rust
+taskloom): it reports more than one `area:` or `repo:` on any open or Deferred
+row, in every project, permits or not.
 
 This was not designed up front. Four independent auditors hit the same wall on
 the same day and each invented a different workaround — one wrote a
@@ -280,6 +293,11 @@ Deliberately NOT the things it resembles:
 It is therefore REPEATABLE, and a row carrying several `queue:` dates is the
 useful signal that something keeps being admitted and keeps not landing.
 
+A day that runs more than one queue suffixes them: `queue:<YYYYMMDD>-<N>`, N
+numbering that day's queues from 0.
+
+    queue:20260916-0    queue:20260916-1
+
 ---
 
 ## Why a task needs a PERSON — `human:`
@@ -356,10 +374,11 @@ So `human:` is REPEATABLE, and declaring it scalar would be actively harmful
 rather than merely useless: taskloom's write seam collapses a scalar re-tag with
 newest-wins, so the second reason would silently displace the first.
 
-The value vocabulary is PROSE, not enforced, and the reason is the same one
-recorded for `repo:` above — see that section. A misspelling stores cleanly and
-is then reachable by no query. `taskloom tags` is the check: a value with a
-count of one, sitting beside a near-identical spelling, is the tell.
+Where a project declares tag permits (below), `human:` is closed to these
+six and any other key is refused on write. Where it does not, the vocabulary
+is PROSE, not enforced: a misspelling stores cleanly and is then reachable by
+no query. `taskloom tags` is the check there: a value with a count of one,
+sitting beside a near-identical spelling, is the tell.
 
 ### Where the authority lives
 
@@ -522,20 +541,77 @@ survive a query.
 
 ---
 
+## Which tags a project permits — `tag_permits`
+
+A project that declares `tag_permits` in its `.taskloom/config.yaml` closes
+its vocabulary: a write adding a tag they do not permit is REFUSED, naming the
+`taskloom permit` that would permit it. A project that declares none stays
+permissive. Only Rust taskloom has permits; Go taskloom accepts any
+well-formed tag.
+
+    tag_permits:
+      namespaces:
+        area: [cli, config, docs]           # closed: these keys only
+        human: [decision, voice, authority, verify, prerequisite, action]
+        triage: [security, data-loss, crashes, no-workaround, regression,
+                 silent-no-op, flaky]
+        relates: open                       # open: any key
+      # no flat tags
+
+A namespace is OPEN only when its keys name things that exist somewhere else
+and cannot be listed ahead of time — harp ids, paths, symbols, branches, dates:
+`relates:`, `touches:`, `sig:`, `queue:`, `landed:`. Every namespace whose keys
+are words is CLOSED: `area:`, `repo:`, `human:`, `platform:`, `ctxloom:` (key
+`plan` only), and the factual flags under `triage:`. The targets the tag schema
+declares — `triage:level`, `kind`, `effort`, `blocks-release`, `exposed`,
+`verdict`, `audited`, `blind-gate` — need no permit; the schema already checks
+their values. Flat tags are permitted one by one, under `tags:`; the core
+permits none, because every flat tag in use answers a question one of the
+namespaces already answers.
+
+The tags this standard defines are the CORE, the same in every project, and
+the core is COPIED into each project's `tag_permits`, not built in. Only the
+`area:` and `repo:` keys are the project's own.
+
+Only a person changes the permits: `taskloom permit area:cli` (`area:` opens
+the namespace) and `taskloom revoke area:cli`, on the CLI and nowhere else. An
+agent that could permit its own tags would be the problem this fixes — tags
+coined on the fly, most of them used once. Revoking a tag that tasks still
+carry is refused, and the refusal lists them. `taskloom permits` lists what is
+permitted; agents read the same as the `taskloom://tag-permits` resource.
+
+**A REFUSED TAG IS A QUESTION FOR THE HUMAN.** Choose a permitted tag that says
+the same thing, or propose the one you need and let them permit it. Never coin
+a near-twin that happens to pass: it stores cleanly and no query anyone runs
+will find it.
+
+---
+
 ## Retired vocabulary — what these tags were, and what replaced them
 
 `taskloom tags` lists every tag ever used, with active and total counts. A tag
 with a live total and zero active rows is not necessarily dead — it may just be
-between uses — so the ones below are named explicitly. NOTHING IS STRIPPED: the
-rows that carried them keep them, because a closed row's tags are part of its
-record and rewriting them would edit history a later reader may want.
+between uses — so the ones below are named explicitly. NOTHING IS STRIPPED from
+a closed row: its tags are part of its record and rewriting them would edit
+history a later reader may want. An open or Deferred row is re-tagged, and
+where the project declares permits `taskloom lint` reports any tag on one that
+they do not permit. It says nothing about closed rows.
 
+    human               ->  human:<decision|voice|authority|verify|prerequisite|action>
     needs-decision      ->  human:decision
     low-priority        ->  triage:level=4 or =5
+    urgent, next, backlog -> nothing; priority is derived, never tagged
     deferred            ->  the Deferred STATUS, which is real mechanism
     for-review, review  ->  code-review
     sdk1-blocked        ->  (obsolete; the SDK-1 work is finished)
     publish-blocker     ->  triage:blocks-release=
+    release, release=X, release-blocker, a bare version, milestone=, phase
+                        ->  triage:blocks-release=<semver>, if it truly blocks
+                            that release; otherwise nothing
+    triage:was-release  ->  nothing; the log keeps the record
+    security, silent-no-op, flake, flaky (flat)
+                        ->  triage:security, triage:silent-no-op, triage:flaky
+    dx, ux              ->  nothing
 
 `needs-decision` deserves its own note, because it is the most likely to be
 re-invented. It reached 39 rows and zero survivors. It was an earlier attempt at

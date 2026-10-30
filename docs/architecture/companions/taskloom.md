@@ -1,5 +1,12 @@
 # `taskloom` — per-project task tracking
 
+> **This documents the Go taskloom (`cmd/taskloom`), which retires at cutover.** The Rust
+> taskloom (github.com/ctxloom/taskloom) that replaces it serves **no MCP** and has no
+> `taskloom manage`: agents run its CLI (`taskloom add/list/edit/status/tag/show/summary/tags/
+> permits/schema`, `--json`, postfix `--tag-query`), and ctxloom's agent-facing text points them
+> there. The MCP surface, the registrar registry and `manage` described below exist only in the
+> Go source until it is removed; describe the Rust binary from its own repo, not here.
+
 **What it is.** `taskloom` is a second standalone binary (`cmd/taskloom`) over an append-only,
 harp-keyed task log. It exposes one store **twice** — as a cobra CLI and as an MCP stdio server
 (`taskloom mcp`: the `task_*` tools and the `taskloom://` resources). `taskloom --help` and the

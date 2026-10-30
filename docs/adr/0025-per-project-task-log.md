@@ -69,3 +69,14 @@ The goal: one task store that preserves the task→context bond, survives projec
 **Revive trigger (fork log seeding):** until dump/load lands, a fork — whether a detected copy or an inconclusive probe — starts an *empty* log with a warning. Revive to optionally seed the fork from the contested id's log via dump/load.
 
 **Revive trigger (session entries referencing project-id):** the registry resolves identity today without rewriting every `Entry.ProjectDir`. Revive when path drift across a project move actually breaks session matching in practice, rather than pre-emptively.
+
+## Amendment (2026-10-30): the task tools are a CLI, not MCP
+
+"Relationship to prior ADRs" says `task_list`, `task_add` and `task_set_status`
+stay as the operational MCP tools, and Mechanics speaks of never blocking
+`task_list`. The store this ADR decides is unchanged, but its agent-facing
+surface is not: the Rust taskloom (github.com/ctxloom/taskloom), which replaces
+the Go `cmd/taskloom` at cutover, serves no MCP. Agents read and write this log
+through the `taskloom` CLI (`list`, `add`, `status`, `edit`, `tag`, `show`, with
+`--json`), and the fault-tolerance rule applies to `taskloom list` instead. See
+the 0024 amendment of the same date.

@@ -13,15 +13,18 @@ attached to your project that outlive any single session.
 
 ## Tasks
 
-Tasks are tracked by the standalone `taskloom` binary, which ships an MCP server
-(`taskloom mcp`):
+Tasks are tracked by the standalone `taskloom` binary. You and your agents use
+the same CLI; taskloom serves no MCP, and an agent runs it in its shell (output
+is JSON whenever stdout is not a terminal, or ask for it with `--json`):
 
 ```
-task_add          # add a task
-task_list         # list tasks (optionally filtered by status)
-task_set_status   # move a task between statuses
-task_edit         # replace a task's text
-task_tag          # add or remove a task's tags
+taskloom add <text>                     # add a task
+taskloom list                           # list tasks (--status, postfix --tag-query)
+taskloom status <harp> <status>         # move a task between statuses
+taskloom status <harp> --trigger <cond> # defer a task on a revive condition
+taskloom edit <harp> <text>             # replace a task's text
+taskloom tag <harp> --add/--remove <t>  # add or remove a task's tags
+taskloom show <harp>                    # show a task whole
 ```
 
 ctxloom does not carry a copy of taskloom's wiring. It finds taskloom the same
@@ -30,15 +33,15 @@ startup ctxloom resolves each companion you registered (`ctxloom companion add
 taskloom`) on your `PATH` and runs `<bin> loadout --format yaml`; nothing on
 `PATH` is run unless its name is registered (`ctxloom companion list` shows
 what is registered and whether each resolves). The loadout the binary prints
-carries the bundle it contributes, MCP server included, and that content is
+carries the bundle it contributes (its guidance, commands and hooks), and that content is
 taken as the companion's own, the same way your project's authored content is.
 
 The practical consequence: install `taskloom` and register it (the installer
 does both) and it wires itself in; `ctxloom companion remove taskloom --yes`
 takes it out of the session.
 
-The same store is scriptable from your shell (`taskloom add`, `taskloom list`,
-`taskloom status`, `taskloom edit`, `taskloom summary`, `taskloom statuses`).
+The read-only commands round it out: `taskloom summary`, `taskloom statuses`,
+`taskloom tags`, `taskloom permits` and `taskloom schema`.
 
 They live in a per-project task log, and each task is attributed to the session
 that created it. A task has a status — `To Do`, `In Progress`, `Done`,
@@ -48,7 +51,7 @@ concrete condition that should bring it back onto the active list.
 Because tasks are stored on disk rather than in the conversation, they **persist
 across `/clear`** and across resumes. Nothing carries them into a run: they stay
 in the project's task log, and any session reads them from there with
-`task_list`.
+`taskloom list`.
 
 When you *resume* a session with `ctxloom run --session <harp>`, its full recorded
 transcript is folded into the new run's context.

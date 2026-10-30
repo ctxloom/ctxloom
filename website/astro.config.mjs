@@ -106,8 +106,10 @@ export default defineConfig({
 					items: [
 						{ label: 'Overview', link: '/taskloom/' },
 						{ label: 'Tags', link: '/taskloom/tags/' },
+						// Agents use the CLI too: taskloom serves no MCP. The generated
+						// mcp-tools page still exists (Go taskloom's docs generator emits it,
+						// stamped as removed) but is deliberately left out of the sidebar.
 						{ label: 'CLI', items: [{ autogenerate: { directory: 'taskloom/reference/cli' } }] },
-						{ label: 'MCP Tools', link: '/taskloom/reference/mcp-tools/' },
 					],
 				},
 				{

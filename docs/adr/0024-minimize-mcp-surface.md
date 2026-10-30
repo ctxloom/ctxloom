@@ -110,3 +110,18 @@ the model needs a structured/validated return value or streaming feedback the
 CLI's text output can't provide. "The model needs to do X mid-session" is not
 sufficient on its own; X is already reachable via the shell. Absent that, new
 management capabilities are CLI-only.
+
+## Amendment (2026-10-30): task tracking left the MCP surface
+
+The Decision lists task tracking (`task_list`, `task_add`, `task_set_status`) as
+one of the operational MCP tool groups, and its boundary statement ends "plus
+tasks". Both no longer hold. The Rust taskloom
+(github.com/ctxloom/taskloom), which replaces the Go `cmd/taskloom` at cutover,
+serves **no MCP** and has no `taskloom manage`: agents track tasks by running its
+CLI (`taskloom add/list/edit/status/tag/show/summary/tags/permits/schema`, with
+`--json` and a postfix `--tag-query`). This applies the Revive trigger above in
+reverse: a structured return value was the case for an MCP tool, and the CLI's
+`--json` output (the default off a terminal) provides it, so shell invocation is
+adequate. ctxloom's own MCP surface is unchanged by this; its session
+instructions, built-in commands and docs now point agents at the taskloom CLI.
+The Go taskloom keeps its MCP server until it retires at cutover.

@@ -3,6 +3,8 @@
 package main
 
 import (
+	"strings"
+
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/shared/docsgen"
@@ -23,6 +25,7 @@ import (
 // read straight off the registrations. The page's intro is the server's own
 // instructions string, not a hand-written copy of it.
 func registerDocsCmd(root *cobra.Command) {
+	markMCPRemoved(root)
 	root.AddCommand(docsgen.NewCommand(&docsgen.Product{
 		Bin:       progName,
 		Root:      root,
@@ -38,6 +41,39 @@ func registerDocsCmd(root *cobra.Command) {
 		MCPServer:  newMCPServer(),
 		MCPSource:  "cmd/taskloom/mcp_tools.go",
 		MCPCommand: "taskloom mcp",
-		MCPIntro:   mcpServerInstructions,
+		MCPIntro:   mcpRemovedNotice + "\n\n" + mcpServerInstructions,
 	}))
+}
+
+// mcpRemoved says, on every generated page about taskloom's MCP surface, that
+// the Rust taskloom replacing this one at cutover serves no MCP: agents drive
+// its CLI instead. It is stamped at documentation time only, so the shipped Go
+// binary's own --help is unchanged. The CLI pages (and their man pages) take
+// the plain sentence; the MCP page, markdown alone, takes it as a callout.
+const (
+	mcpRemoved = "Removed in the Rust taskloom (github.com/ctxloom/taskloom), which serves no MCP and has no `taskloom manage`: agents run its CLI (`list`, `add`, `status`, `edit`, `tag`, `show`, with `--json`), and `taskloom <command> --help` is the reference. This documents the Go taskloom, which retires at cutover."
+
+	mcpRemovedNotice = ":::caution[Removed in the Rust taskloom]\n" + mcpRemoved + " See the [CLI reference](/taskloom/reference/cli/).\n:::"
+)
+
+// markMCPRemoved prefixes mcpRemoved to the long description of `taskloom mcp`
+// and of `taskloom manage` and its subcommands, the commands that serve or
+// register the MCP surface, so their generated CLI pages carry it.
+func markMCPRemoved(root *cobra.Command) {
+	var mark func(*cobra.Command)
+	mark = func(c *cobra.Command) {
+		long := c.Long
+		if long == "" {
+			long = c.Short
+		}
+		c.Long = mcpRemoved + "\n\n" + strings.TrimSpace(long)
+		for _, sub := range c.Commands() {
+			mark(sub)
+		}
+	}
+	for _, c := range root.Commands() {
+		if c.Name() == "mcp" || c.Name() == "manage" {
+			mark(c)
+		}
+	}
 }

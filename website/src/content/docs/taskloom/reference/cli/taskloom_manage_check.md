@@ -11,6 +11,12 @@ This page is generated from `taskloom manage check --help`.
 
 Report where the taskloom MCP server is registered
 
+### Synopsis
+
+Removed in the Rust taskloom (github.com/ctxloom/taskloom), which serves no MCP and has no `taskloom manage`: agents run its CLI (`list`, `add`, `status`, `edit`, `tag`, `show`, with `--json`), and `taskloom <command> --help` is the reference. This documents the Go taskloom, which retires at cutover.
+
+Report where the taskloom MCP server is registered
+
 ```
 taskloom manage check [flags]
 ```

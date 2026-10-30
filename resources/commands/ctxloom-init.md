@@ -89,8 +89,8 @@ reconfigure instead of a re-scaffold — you now know what to leave alone.
 ctxloom ships alongside two first-party companion binaries that extend it
 without any ctxloom code change:
 
-- **taskloom** — per-project task tracking (the `task_list`/`task_add`/
-  `task_set_status`/`task_edit` MCP tools, plus the `taskloom` CLI).
+- **taskloom** — per-project task tracking through the `taskloom` CLI
+  (`list`/`add`/`status`/`edit`/`tag`/`show`; it serves no MCP).
 - **ltk** — a command-redirect pre-tool hook that intercepts risky shell
   invocations before they run.
 
@@ -106,8 +106,8 @@ but the user runs it themselves; ctxloom never installs a binary for you.
 automatically (no separate registration step) — `ctxloom manage check`
 should now show it, and `ctxloom manage hooks check` should show its hooks
 applied to the backends in use. ltk self-installs its own pre-tool hook the
-first time it's invoked; taskloom's MCP tools ride the same `ctxloom run`
-session delivery that serves ctxloom's own MCP endpoint.
+first time it's invoked; agents reach taskloom by running its CLI, so it
+needs no MCP registration.
 
 ## Phase 3 — Profiles + content
 

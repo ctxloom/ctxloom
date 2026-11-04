@@ -18,12 +18,17 @@ import (
 // to live, as does anything that takes the keyboard or the pane away: the
 // prefix, another agent selected, the approvals view.
 //
+// Over an engine that asked for no mouse reports, the wheel enters it too,
+// as tmux's copy-mode -e does: wheel up enters a few lines back, and wheel
+// down to the bottom returns to live. Entered from the keyboard, it is left
+// from the keyboard.
+//
 // While it is on, nothing the human types, pastes or clicks reaches the
 // engine, and the engine's output keeps landing. The view is anchored, as
 // tmux's copy mode is: arriving output leaves the same lines in the pane.
-// The human's terminal reports the mouse only while it is on, so the wheel
-// scrolls the pane; native selection is lost for that time alone, and the
-// engine's own mouse mode is the terminal's again on the way out.
+// The human's terminal reports cell motion while it is on, so the wheel
+// scrolls the pane, and the engine's own mouse mode is the terminal's again
+// on the way out.
 
 const (
 	// scrollWheelLines is how far one notch of the wheel scrolls.
@@ -35,6 +40,9 @@ const (
 // paneScroll is scroll mode's state.
 type paneScroll struct {
 	on bool
+	// byWheel: the wheel entered it, so the wheel reaching the bottom
+	// leaves it.
+	byWheel bool
 	// top is the line at the pane's first row, counted down the history
 	// and on into the live frame: 0 is the oldest history line, the frame's
 	// History its first row. It stays put as the history grows: that is the
@@ -94,6 +102,9 @@ func (s *Split) scrollMouse(msg tea.MouseMsg) {
 		s.scrollBy(-scrollWheelLines)
 	case tea.MouseWheelDown:
 		s.scrollBy(scrollWheelLines)
+		if s.scroll.byWheel && s.scroll.top >= s.frame.History {
+			s.scroll = paneScroll{}
+		}
 	}
 }
 

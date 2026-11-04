@@ -38,6 +38,8 @@ The pane shows the agent's feed above an input line. Enter sends what you typed,
 
 `[` or PgUp in the panel shows the history of your engine's terminal. A marker in the top-right corner shows how far back you are. PgUp / PgDn, ↑ / ↓, `g` and `G` move, and the mouse wheel scrolls. `q` or Esc returns to the live screen. Your keys don't reach the engine while you scroll back, but its output keeps arriving.
 
+When your engine doesn't use the mouse itself, the wheel over its pane scrolls back too: wheel up to start, and wheel down to the bottom to return to the live screen. To select text with the mouse, hold Shift while you drag (Option on macOS).
+
 ## Approvals
 
 When a delegated agent asks you to approve a call, the terminal bell rings. On Linux, a desktop notification also appears if `notify-send` is installed. The approvals view takes the pane the next time you pause typing, and it ignores keys for a moment so that one meant for your engine can't answer it. Once it shows, it has the keyboard: there is nothing to switch to. To decide, move with ←/→ (or Tab) and press Enter. Esc puts the decision off; Ctrl+] there leaves the view open and says so.

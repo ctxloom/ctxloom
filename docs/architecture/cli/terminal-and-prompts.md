@@ -172,11 +172,17 @@ left, the selected agent's view on the right, drawn by one compositor.
   and `G` move, `q` or Esc return to live. The view is anchored as output
   arrives, as tmux's copy mode is, until the history reaches x/vt's bound and
   starts dropping its oldest lines. Keys, pastes and clicks never reach the
-  engine meanwhile; its output keeps landing. The human's terminal reports the
-  mouse (cell motion, for the wheel) only while scrolling: `Split.keepScroll`
-  ends scroll mode whenever the pane or the keyboard goes elsewhere, so every
-  exit restores the engine's own mouse mode, and closing the split view resets
-  the terminal's.
+  engine meanwhile; its output keeps landing. Over the engine's pane the
+  human's terminal always reports at least cell motion, whatever the engine
+  asked for: the split view is on the alternate screen, where a terminal that
+  reports nothing turns the wheel into arrow keys (xterm.js always, VTE by
+  default), which the engine reads as prompt history. Over an engine that
+  asked for no mouse, wheel up enters scroll mode and wheel down to the bottom
+  leaves it, as tmux's `copy-mode -e` does; its clicks and motion go nowhere.
+  Native selection takes the terminal's override (Shift+drag, Option+drag on
+  macOS). `Split.keepScroll` ends scroll mode whenever the pane or the keyboard
+  goes elsewhere, so every exit restores the engine's own mouse mode, and
+  closing the split view resets the terminal's.
 - **One path to the child**: keys, mouse reports, pastes, focus reports and the
   emulator's replies all cross x/vt's reply pipe to one drain, so they reach
   the engine in the order they were sent.

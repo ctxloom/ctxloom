@@ -279,7 +279,10 @@ type splitHarness struct {
 	port   *splitPort
 	engine *engineSink
 	pane   *termemu.XVT
-	posted []tea.Msg
+	// paneEvents are the pane's mouse-tracking changes, delivered to the
+	// split after each engine write as the mailbox pump would.
+	paneEvents paneEventsMsg
+	posted     []tea.Msg
 	// out is every command result the harness does not feed back: raw
 	// output, clipboard writes, the renderer's own requests.
 	out []tea.Msg
@@ -290,7 +293,9 @@ type harnessOpt func(*SplitOptions)
 func newSplitHarness(t testing.TB, port *splitPort, opts ...harnessOpt) *splitHarness {
 	t.Helper()
 	h := &splitHarness{t: t, clk: fakeclock.New(), port: port, engine: newEngineSink()}
-	h.pane = termemu.NewXVT(80, 24, h.engine, termemu.Callbacks{})
+	h.pane = termemu.NewXVT(80, 24, h.engine, termemu.Callbacks{
+		Mouse: func(m termemu.MouseTracking) { h.paneEvents = append(h.paneEvents, paneMouseMsg(m)) },
+	})
 	t.Cleanup(func() { _ = h.pane.Close() })
 	prefix, err := ParsePrefixKey("ctrl-]")
 	require.NoError(t, err)
@@ -374,6 +379,10 @@ func (h *splitHarness) frame() { h.send(frameMsg{}) }
 // engineWrites feeds the engine's output into the pane and lands the frame.
 func (h *splitHarness) engineWrites(s string) {
 	_, _ = h.pane.Write([]byte(s))
+	if ev := h.paneEvents; len(ev) > 0 {
+		h.paneEvents = nil
+		h.send(ev)
+	}
 	h.frame()
 }
 

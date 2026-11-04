@@ -245,7 +245,7 @@ func TestSplitScroll_MouseModeIsRestoredOnEveryExit(t *testing.T) {
 		asked termemu.MouseTracking
 		want  tea.MouseMode
 	}{
-		{"none", termemu.MouseOff, tea.MouseModeNone},
+		{"none", termemu.MouseOff, tea.MouseModeCellMotion},
 		{"all motion", termemu.MouseMotion, tea.MouseModeAllMotion},
 	}
 	for _, ex := range exits {

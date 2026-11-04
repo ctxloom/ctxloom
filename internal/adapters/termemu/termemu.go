@@ -161,6 +161,11 @@ type Terminal interface {
 	SendMouse(MouseEvent)
 	Paste(text string)
 
+	// Mouse is the child's mouse tracking now: what SendMouse encodes for.
+	// Callbacks.Mouse reports the same changes, asynchronously to whoever
+	// hands them off.
+	Mouse() MouseTracking
+
 	// SetDefaultColors makes fg and bg the colours the child's default
 	// foreground and background stand for: what it is told when it asks
 	// (OSC 10 / OSC 11), which is how it picks a light or dark theme. A nil

@@ -402,7 +402,9 @@ func (s *Split) paste(text string) tea.Cmd {
 
 // mouse forwards a mouse event over the engine's pane, in pane coordinates,
 // when the engine asked for mouse reports; anything over the panel or the
-// divider goes nowhere. While scrolling it is the scroll's.
+// divider goes nowhere. While scrolling it is the scroll's. Over an engine
+// that asked for none, the wheel scrolls its history and nothing else is
+// anyone's.
 func (s *Split) mouse(msg tea.MouseMsg) {
 	if s.scroll.on {
 		s.scrollMouse(msg)
@@ -415,6 +417,16 @@ func (s *Split) mouse(msg tea.MouseMsg) {
 	m := msg.Mouse()
 	m.X -= panelW + 1
 	if m.X < 0 {
+		return
+	}
+	// The pane's own tracking, not the renderer's copy: that one arrives
+	// through the mailbox, after the pane already encodes for the new mode.
+	if s.pane.Mouse() == termemu.MouseOff {
+		if _, ok := msg.(tea.MouseWheelMsg); ok && m.Button == tea.MouseWheelUp && s.frame.History > 0 {
+			s.enterScroll(false)
+			s.scroll.byWheel = true
+			s.scrollBy(-scrollWheelLines)
+		}
 		return
 	}
 	um := uv.Mouse(m)
@@ -444,15 +456,19 @@ func (s *Split) View() tea.View {
 	case s.scroll.on:
 		v.MouseMode = tea.MouseModeCellMotion
 	case s.showingTerminal() && !s.apprOpen:
-		v.MouseMode = teaMouseMode(s.mouseMode)
+		v.MouseMode = max(teaMouseMode(s.mouseMode), tea.MouseModeCellMotion)
 	}
 	v.Cursor = s.cursor()
 	return v
 }
 
-// teaMouseMode is the renderer's mouse mode for the engine's tracking: the
-// split view asks the human's terminal for exactly what the engine asked of
-// its own, so with none the human's terminal keeps native selection.
+// teaMouseMode is the renderer's mouse mode for the engine's tracking: what
+// the engine asked of its own terminal. View asks the human's terminal for
+// at least cell motion over the engine's pane, since the split view is on
+// the alternate screen, where a terminal reporting nothing turns the wheel
+// into arrow keys (xterm.js always, VTE by default) and the engine reads
+// them as its prompt history. Native selection then takes the terminal's
+// override: Shift+drag in xterm.js and most others, Option+drag on macOS.
 func teaMouseMode(m termemu.MouseTracking) tea.MouseMode { return teaMouseModes[m] }
 
 // teaMouseModes maps the engine's tracking onto the renderer's modes; no

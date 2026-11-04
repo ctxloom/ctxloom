@@ -194,7 +194,7 @@ func TestSplit_PaneEventsReachTheHumansTerminal(t *testing.T) {
 	h.send(paneEventsMsg{paneMouseMsg(termemu.MouseMotion)})
 	assert.Equal(t, tea.MouseModeAllMotion, h.s.View().MouseMode)
 	h.send(paneEventsMsg{paneMouseMsg(termemu.MouseOff)})
-	assert.Equal(t, tea.MouseModeNone, h.s.View().MouseMode, "the engine asked for none: native selection")
+	assert.Equal(t, tea.MouseModeCellMotion, h.s.View().MouseMode, "the engine asked for none: the wheel is still reported")
 	h.send(paneEventsMsg{paneMouseMsg(termemu.MouseClicks)})
 	h.typeBytes("\x1d")
 	h.keys("a")

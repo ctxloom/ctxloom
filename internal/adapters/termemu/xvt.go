@@ -435,6 +435,13 @@ func (t *XVT) encode(key KeyPress) []byte {
 	return t.keys.encodeKey(key)
 }
 
+// Mouse is the child's mouse tracking now.
+func (t *XVT) Mouse() MouseTracking {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.mouse
+}
+
 // SendMouse encodes a pane-relative mouse event in the mouse mode and
 // encoding the child enabled (nothing when it enabled none).
 func (t *XVT) SendMouse(m MouseEvent) {

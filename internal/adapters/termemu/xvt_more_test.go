@@ -1,6 +1,7 @@
 package termemu
 
 import (
+	"io"
 	"testing"
 	"time"
 
@@ -191,4 +192,17 @@ func TestSendKey_UnencodableSendsNothing(t *testing.T) {
 	p.SendKey(KeyPress{Code: 'a', Text: "a"})
 	p.SendKey(KeyPress{Code: 'b', Text: "b"})
 	assert.Equal(t, "ab", sink.settled(t, p), "nothing for F13; keys after it still go")
+}
+
+// Mouse reads the child's tracking as the pane encodes for it, at once.
+func TestXVT_MouseIsTheChildsTrackingNow(t *testing.T) {
+	x := NewXVT(10, 2, io.Discard, Callbacks{})
+	defer func() { _ = x.Close() }()
+	assert.Equal(t, MouseOff, x.Mouse())
+	_, _ = x.Write([]byte("\x1b[?1000h"))
+	assert.Equal(t, MouseClicks, x.Mouse())
+	_, _ = x.Write([]byte("\x1b[?1003h"))
+	assert.Equal(t, MouseMotion, x.Mouse())
+	_, _ = x.Write([]byte("\x1b[?1003l\x1b[?1000l"))
+	assert.Equal(t, MouseOff, x.Mouse())
 }

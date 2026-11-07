@@ -1,17 +1,18 @@
 ---
 title: "taskloom"
-description: "Per-project task tracking for you and your agents: one append-only log, a CLI, and an MCP server over the same store."
+description: "Per-project task tracking for you and your agents: one append-only log, and one CLI over it that you and your agents both run."
 ---
 
 An agent notices something worth doing later and mentions it once, in passing — then the
 session ends, or the context window turns over, and that follow-up is gone. taskloom's shared
-store is what fixes this: an agent that files a follow-up with `task_add` files it where you
+store is what fixes this: an agent that files a follow-up with `taskloom add` files it where you
 will see it with `taskloom list`; a task you defer on the command line disappears from the
 agent's active list too.
 
 **taskloom** is a per-project task store that ships from the ctxloom repo. It keeps one
-append-only log per project and puts two front doors on it: the `taskloom` CLI for you, and
-an MCP server (`taskloom mcp`) for your agents — both reading and writing the *same* tasks.
+append-only log per project and puts one front door on it: the `taskloom` CLI, which you run
+at the prompt and your agents run in their shell — both reading and writing the *same* tasks.
+taskloom serves no MCP; an agent needs nothing registered, only `taskloom` on its `PATH`.
 
 Tasks are keyed by **harp IDs** (`swift-amber-falcon`) rather than numbers, so an ID stays
 stable and unambiguous when a model echoes it back in a later call.
@@ -55,13 +56,14 @@ for it".
 
 So `Deferred` is the one status that cannot be set without an argument. `taskloom status
 <harp-id> Deferred` fails unless a `--trigger` is supplied or the task already carries one
-from a previous deferral. The store enforces this once, so the CLI and the MCP tools obey the
+from a previous deferral. The store enforces this, so you and your agents are held to the
 same rule.
 
 Triggers are declarative free text, and nothing evaluates them mechanically. Revival is a
 review step, not a mechanism: list the deferred tasks (`taskloom list --status Deferred`),
 reason about which triggers have actually fired, and move the ones that have back with
-`taskloom status <harp-id> "To Do"`. There is no automatic transition — an LLM judges, a
+`taskloom status <harp-id> --clear-trigger`, which returns a task to the status it was deferred
+from. There is no automatic transition — an LLM judges, a
 human confirms. (A `check-triggers` command that automates this review ships as one of
 `ctxloom`'s own built-in slash commands, embedded in the `ctxloom` binary and available in
 any session `ctxloom run` launches — it is not part of taskloom's loadout, so a bare
@@ -113,21 +115,24 @@ print a warning.
 
 ## Working with agents
 
-Agents reach the same store through `taskloom mcp`, which serves five tools: `task_list`,
-`task_add`, `task_tag`, `task_set_status`, and `task_edit`. The intended shape of a coordinator
-session is straightforward. It opens by calling `task_list` to see what is already outstanding
-rather than re-deriving the work from scratch. It files anything it discovers but won't do now
-with `task_add` — the follow-up it would otherwise mention once in prose and lose when the
-context window turns over. It moves work with `task_set_status` as it goes, and echoes a task's
+Agents reach the same store by running the same CLI: `taskloom list`, `add`, `edit`, `status`,
+`tag` and `show`, with `summary`, `tags`, `permits` and `schema` to read the store's shape. Pass
+`--json` for machine-readable output (it is also the default whenever stdout is not a terminal,
+as in an agent's shell). The intended shape of a coordinator session is straightforward. It
+opens with `taskloom list` to see what is already outstanding rather than re-deriving the work
+from scratch. It files anything it discovers but won't do now with `taskloom add` — the
+follow-up it would otherwise mention once in prose and lose when the context window turns over.
+It moves work with `taskloom status <harp-id> <status>` as it goes, and echoes a task's
 `harp_id` back whenever it refers to that task later, which is what the stable ids are for.
 Every task can also carry [tags](/taskloom/tags/) — flat markers like `urgent`, or
-namespace-scoped facts like `triage:kind=defect` — set with `task_add`'s `tags` parameter or
-added/removed later with `task_tag`, and filtered on with `task_list`'s `tag_query`.
+namespace-scoped facts like `triage:kind=defect` — set with `taskloom add --tag` or
+added/removed later with `taskloom tag <harp-id> --add/--remove`, and filtered on with
+`taskloom list --tag-query`, a postfix expression (`triage:kind=defect/urgent/and`).
 
 The discipline that makes this pay off is the deferral rule. An agent that finishes a job and
 notices three things it deliberately did not do should file them, not bury them in a summary.
-If one of them is blocked, it defers with the trigger rather than dropping it. Because the CLI
-and MCP write the same log, everything the agent files is waiting in `taskloom list` when you
+If one of them is blocked, it defers with the trigger rather than dropping it. Because you and
+the agent write the same log through the same CLI, everything the agent files is waiting in `taskloom list` when you
 get back.
 
 ## plan, run, and watch
@@ -155,8 +160,6 @@ polling. It is hidden from `--help` and there is little reason to run it by hand
 - **[Tags](/taskloom/tags/)** — the `(namespace:)key(=value)` tag shape, `tag_query`'s postfix boolean grammar, scalar
   targets, and priority ranking.
 - **[CLI reference](/taskloom/reference/cli/)** — every command, generated from the binary.
-- **[MCP tools reference](/taskloom/reference/mcp-tools/)** — every tool and resource `taskloom
-  mcp` serves, generated from the registrations.
 
 ## Install
 

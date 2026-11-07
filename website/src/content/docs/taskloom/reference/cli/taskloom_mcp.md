@@ -13,6 +13,8 @@ Serve the task tools over MCP on stdio
 
 ### Synopsis
 
+Removed in the Rust taskloom (github.com/ctxloom/taskloom), which serves no MCP and has no `taskloom manage`: agents run its CLI (`list`, `add`, `status`, `edit`, `tag`, `show`, with `--json`), and `taskloom <command> --help` is the reference. This documents the Go taskloom, which retires at cutover.
+
 Run an MCP server on stdio exposing the task store to agents:
 task_list, task_add, task_tag, task_set_status, and task_edit. The project and session
 are resolved per call from CTXLOOM_PROJECT_ID / CTXLOOM_SESSION_HARP (exported

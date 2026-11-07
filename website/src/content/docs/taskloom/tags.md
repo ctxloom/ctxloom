@@ -12,9 +12,9 @@ Tags are how you carve that list back into something you can query instead of sc
 `urgent` and `taskloom list --tag-query urgent` shows just that one, no matter how many others
 pile up around it. Tag it `blocked` when it's stuck and it drops out of `--tag-query
 "blocked/not"` without you having to remember which ones those were. An agent filing a
-just-noticed follow-up can tag it on the way in (`task_add`'s `tags` parameter), so it's already
+just-noticed follow-up can tag it on the way in (`taskloom add --tag`), so it's already
 sorted before you ever see the list — and a tag it later needs to retract (a fix that turned out
-not to be needed) comes off with `task_tag` the same way it went on, no separate "undo" concept
+not to be needed) comes off with `taskloom tag --remove` the same way it went on, no separate "undo" concept
 to learn.
 
 ## What a tag is
@@ -31,12 +31,12 @@ taskloom tag swift-amber-falcon --add triage:kind=defect
 ```
 
 `--add` and `--remove` are both repeatable and can be combined in one call; `--add` is applied
-before `--remove`, so naming the same tag in both takes it off. The MCP twin is `task_tag`, with
-the same `add`/`remove` shape, for an agent doing the same thing without a shell.
+before `--remove`, so naming the same tag in both takes it off. Agents run the same command;
+taskloom has no separate agent-facing tag API.
 
 ## Filtering: `tag_query` is postfix, not a search string
 
-`taskloom list --tag-query` (and `task_list`'s `tag_query` parameter) doesn't take a boolean
+`taskloom list --tag-query` doesn't take a boolean
 expression the way you'd type one — it takes a **postfix (RPN)** one: tags first, operator
 after.
 
@@ -148,8 +148,7 @@ taskloom: add tags: refused 1 tag(s), nothing written: fatal startup findings:
 
 ## Ranking a pile of tags into one order: `--sort priority`
 
-Once tasks carry structured tags, `taskloom list --sort priority` (and `task_list`'s
-`sort="priority"`) folds them into one derived, 0–5, rank-normalized score per task — not a
+Once tasks carry structured tags, `taskloom list --sort priority` folds them into one derived, 0–5, rank-normalized score per task — not a
 number you assign by hand, but one computed from `tag_schema`'s declared `priority_fn` /
 `decay_fn` formulas over each task's actual tag values, plus a couple of taskloom-provided
 built-ins like `age_days`. Every returned task carries its own `derived_priority` so you can see
@@ -164,10 +163,10 @@ task tagged `triage:exploited-in-wild` is pinned to the maximum priority while i
 
 `taskloom tags` lists every tag currently in use, with active/total counts per tag — the fastest
 way to notice that `blockd` (typo, count 1) and `blocked` (the real tag, count 12) both exist
-before you add a third spelling. The MCP twin is the `taskloom://tag-vocabulary` resource. For
-the schema itself — which targets are declared scalar, their enums, their ranges, their formulas
-— read `taskloom://tag-schema`, or the `tag_schema` field in the [config
-reference](/taskloom/reference/config/).
+before you add a third spelling. For the schema itself — which targets are declared scalar, their
+enums, their ranges, their formulas — run `taskloom schema`, or read the `tag_schema` field in
+the [config reference](/taskloom/reference/config/). Where a project restricts which tags may be
+written at all, `taskloom permits` lists what it permits. All three take `--json`.
 
 ## Reference
 
@@ -175,8 +174,5 @@ reference](/taskloom/reference/config/).
   tags`](/taskloom/reference/cli/taskloom_tags/)** — CLI commands, generated from the binary.
 - **[`taskloom list --tag-query`](/taskloom/reference/cli/taskloom_list/)** — the full query
   grammar, in `--help` form.
-- **[MCP tools reference](/taskloom/reference/mcp-tools/)** — `task_tag`, `task_list`'s
-  `tag_query` and `sort` parameters, and the `tag-schema` / `tag-vocabulary` resources, generated
-  from the tool registrations.
 - **[Configuration](/taskloom/reference/config/)** — `tag_schema`'s full declaration grammar
   (`arity`, `enum`, `range`, `priority_fn`, `decay_fn`, `hide`, `type`).

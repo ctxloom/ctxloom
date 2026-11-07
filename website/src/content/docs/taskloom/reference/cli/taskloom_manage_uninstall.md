@@ -11,6 +11,12 @@ This page is generated from `taskloom manage uninstall --help`.
 
 Remove the taskloom MCP server from backend configs
 
+### Synopsis
+
+Removed in the Rust taskloom (github.com/ctxloom/taskloom), which serves no MCP and has no `taskloom manage`: agents run its CLI (`list`, `add`, `status`, `edit`, `tag`, `show`, with `--json`), and `taskloom <command> --help` is the reference. This documents the Go taskloom, which retires at cutover.
+
+Remove the taskloom MCP server from backend configs
+
 ```
 taskloom manage uninstall [flags]
 ```

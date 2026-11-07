@@ -106,10 +106,10 @@ also installs on its own). ctxloom's built-in bundles wire them into your agent
 **when the binary is on PATH** — a missing companion degrades to a one-line
 warning, never a broken session:
 
-- **taskloom** — per-project task tracking: an append-only task log with a CLI
-  and an MCP server (`task_list`/`task_add`/`task_set_status`/`task_edit`).
-  Standalone use: `taskloom manage install` registers it with Claude Code
-  directly.
+- **taskloom** — per-project task tracking: an append-only task log behind one
+  CLI that you and your agents both run (`taskloom list`/`add`/`status`/`edit`/
+  `tag`/`show`, `--json` for machines). It serves no MCP, so it needs no
+  registration: standalone use is just `taskloom` on PATH.
 - **ltk** — a pre-tool hook that redirects commands you'd rather the agent not
   run (e.g. `go test` → "use the task runner" → the agent retries `just test`).
   ctxloom registers the hook; rules are opt-in per project via
@@ -121,9 +121,9 @@ What works with what:
 | Installed | You get |
 |---|---|
 | ctxloom only | Context assembly, profiles, remotes — task tools and command redirects disabled (warned once) |
-| + taskloom | `task_*` MCP tools in every backend, `taskloom` CLI, `ctxloom run --seed-task` |
+| + taskloom | Task tracking via the `taskloom` CLI (agents told to use it in every backend), `ctxloom run --seed-task` |
 | + ltk | Pre-tool command redirects per project rules |
-| taskloom/ltk without ctxloom | Each fully works standalone; self-register with `<tool> manage install` |
+| taskloom/ltk without ctxloom | Each fully works standalone; taskloom needs only PATH, ltk self-registers with `ltk manage install` |
 
 Opt out at install time: `--no-taskloom`, `--no-ltk`, `--no-companions`
 (script) or just don't `brew install` them. Check wiring anytime:

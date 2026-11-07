@@ -79,7 +79,7 @@ param(
     [Parameter()]
     [string]$Version,
 
-    # Companion opt-outs: taskloom (task tracking MCP server) and ltk (command
+    # Companion opt-outs: taskloom (task tracking CLI) and ltk (command
     # guardrail pre-tool hook) install alongside ctxloom by default. A
     # companion that fails to download is a warning, never a failed install.
     [Parameter()]

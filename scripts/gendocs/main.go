@@ -109,5 +109,5 @@ const mcpIntro = "Reference for the tools and resources ctxloom exposes to the a
 	"agents. Everything that *manages* ctxloom " +
 	"(creating or editing bundles, profiles, fragments, and commands; pulling remotes; " +
 	"upgrading dependencies) is done with the ctxloom CLI, " +
-	"not MCP tools. Task tracking lives in the separate `taskloom` binary; its MCP server " +
-	"(`taskloom mcp`) serves the `task_*` tools."
+	"not MCP tools. Task tracking lives in the separate `taskloom` CLI, which serves no MCP: " +
+	"agents run it through their shell (`taskloom --help`)."

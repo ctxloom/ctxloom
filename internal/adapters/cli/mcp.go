@@ -44,8 +44,8 @@ Tools the session endpoint serves:
 The catalog listings (fragments, commands, skills) are exposed as MCP
 resources (ctxloom://...), not tools. All management (bundles, remotes,
 review/approve, trust, pinning) is done with the ctxloom CLI, not MCP tools.
-Task tracking lives in the standalone taskloom binary; its MCP server
-('taskloom mcp') serves the task_* tools.`,
+Task tracking lives in the standalone taskloom CLI, which serves no MCP:
+agents run it through their shell ('taskloom --help').`,
 }, "server"))
 
 // MCP subcommands for managing MCP server configurations

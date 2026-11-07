@@ -29,7 +29,7 @@ Withholding it costs the session every ctxloom tool, including the
 
 ## What the Server Exposes
 
-The MCP surface is deliberately small: it retrieves context, reports the session's context-window occupancy, and delegates to other ctxloom agents. Everything that *manages* ctxloom (bundles, profiles, remotes, review/approval, trust, hooks) is CLI-only; an agent runs those commands through its shell. Task tracking is served by the separate `taskloom mcp` server.
+The MCP surface is deliberately small: it retrieves context, reports the session's context-window occupancy, and delegates to other ctxloom agents. Everything that *manages* ctxloom (bundles, profiles, remotes, review/approval, trust, hooks) is CLI-only; an agent runs those commands through its shell. Task tracking is the separate `taskloom` CLI, which serves no MCP: an agent runs it through its shell too.
 
 Read-only catalog listings, such as fragments, commands and skills, are MCP resources (`ctxloom://...`) rather than tools; `ctxloom://help` describes every resource URI to the connected agent.
 

@@ -22,7 +22,7 @@ type companionHint struct {
 // this map gets the generic fallback, so a companion nobody curated text for is
 // still reported rather than dropped.
 var companionHints = map[string]companionHint{
-	"taskloom": {"task tools (task_list/task_add/...)", "brew install ctxloom/tap/taskloom"},
+	"taskloom": {"task tracking CLI (taskloom list/add/status/...)", "brew install ctxloom/tap/taskloom"},
 	"ltk":      {"command-redirect pre-tool hook", "brew install ctxloom/tap/ltk"},
 }
 

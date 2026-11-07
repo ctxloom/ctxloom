@@ -57,7 +57,7 @@ readonly DOWNLOAD_BASE="https://github.com/${REPO}/releases/download"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 BINARY_NAME="ctxloom"
 
-# Companion tools - taskloom (task tracking MCP server) and ltk (command
+# Companion tools - taskloom (task tracking CLI) and ltk (command
 # guardrail pre-tool hook). ctxloom runs a companion only once it is registered
 # by name (`ctxloom companion add`), so each one installed here is registered.
 # Both ship from THIS same release/tag, so they install alongside ctxloom from

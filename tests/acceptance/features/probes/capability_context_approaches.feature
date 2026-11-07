@@ -85,7 +85,7 @@ Feature: Context-approach sweep — the same task, delivered by each mechanism t
   and nothing else stripped, must parse as JSON and equal {"hello": "<the
   nonce>"} exactly. Fences, a preamble or terminal decoration are RED, and the
   red is the finding. Anything that must be tolerated gets its own tagged
-  Examples block and its own measured evidence — never a weaker matcher.
+  examples block and its own measured evidence — never a weaker matcher.
 
   ADDRESSING ONE CELL. Every Examples block carries the probe, the engine, both
   isolation axes and its VARIANT as tags, so

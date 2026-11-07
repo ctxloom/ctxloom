@@ -64,7 +64,7 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
   JSON:", goes RED. That red is a FINDING about that engine in that cell — the
   precise thing this matrix exists to produce — and it must never be absorbed by
   loosening the matcher. Anything that has to be tolerated gets its own tagged
-  Examples block and its own measured evidence, where a reader can see it.
+  examples block and its own measured evidence, where a reader can see it.
   The failure message names WHICH shape it found: a run that failed outright, a
   silent no-op (exit 0, empty stdout), an output-FORMAT failure, a
   CONTEXT-DELIVERY failure (well-formed JSON, no nonce), or a wrong shape.

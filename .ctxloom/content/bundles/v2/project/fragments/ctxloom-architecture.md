@@ -3,9 +3,9 @@ tags:
   - domain
   - architecture
 ---
-# ctxloom-rs: architecture vocabulary
+# ctxloom: architecture vocabulary
 
-ctxloom-rs is the Rust rewrite of ctxloom: hexagonal architecture around
+ctxloom is the Rust rewrite of ctxloom: hexagonal architecture around
 CQRS/event sourcing, built on **annals** (event-sourcing kernel, store
 contract, `annals_diagnostic`) and **angzarr** (`angzarr-proto` wire types,
 `angzarr-build` code generation from `proto/`).

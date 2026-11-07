@@ -1,4 +1,4 @@
 # Git hooks, managed by lefthook (`just hooks-install`). The gates are
-# gates/lefthook.yml; ctxloom-rs's parameters for them are in its justfile.
+# gates/lefthook.yml; ctxloom's parameters for them are in its justfile.
 extends:
   - gates/lefthook.yml

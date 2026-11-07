@@ -299,7 +299,7 @@ async fn test_the_project_port_places_the_store_by_id_not_by_the_projects_store_
 
 // ------------------------------------------------ a store from before the embedded store
 //
-// D7 (the extraction plan): ctxloom-rs inherits the opener's refusal. Before
+// D7 (the extraction plan): ctxloom inherits the opener's refusal. Before
 // the opener was shared, ctxloom opened any file at `ctxloom.db`, migrating
 // an earlier event store's in place; now it is refused, naming the backup to
 // move it to, and left exactly as it was.

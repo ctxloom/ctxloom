@@ -1,11 +1,14 @@
 # Introduction
 
-ctxloom-rs is the Rust ctxloom: a port of the Go ctxloom onto angzarr-embedded,
+ctxloom is the Rust ctxloom: a port of the Go ctxloom onto angzarr-embedded,
 one user journey at a time, with architect review of each milestone. The plan
 (`ctxloom-rs-port.plan.md`, §10) orders the milestones by journey
 (`crates/root/bin/ctxloom/features/journeys/`); each makes its journey's
 scenarios pass, with the cli contracts it touches. A milestone starts as red
 tests, committed red on `port/<milestone>`, reviewed, then implemented green.
+
+The repository is `ctxloom` (github.com/ctxloom/ctxloom); the Go ctxloom is
+preserved on its `go-final` branch. The primary checkout's leaf is `ctxloom`.
 
 The features are the spec, and are written first: a journey tells a user's
 story with the commands they type; a command's contract lives in its
@@ -321,7 +324,7 @@ rest; `VERBOSE=1 just <gate>` shows the full output.
 
 The gates and their recipes are `gates/gates.just` and
 `gates/lefthook.yml`: the justfile imports the one and lefthook.yml extends
-the other. The justfile keeps ctxloom-rs's parameters for them
+the other. The justfile keeps ctxloom's parameters for them
 (`mutation_thresholds`, `workspace_wide`, `staged_tree`, `feature_rules`,
 `features_prepare`) and its own recipes (`build`, `lint`, `test-pkg`, `run`,
 `clean-target`, `mutants-batch`, `closeout`, `selftest`); their tool

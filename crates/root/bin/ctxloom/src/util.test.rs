@@ -3,7 +3,7 @@
 //! its refusals, from Go's help text and the feature's opening paragraph.
 //!
 //! plan supersedes Go (8.2, "`util config-write` ... keep byte-for-byte"):
-//! ctxloom-rs reads and writes JSON documents (what every foreign file in
+//! ctxloom reads and writes JSON documents (what every foreign file in
 //! Go's acceptance corpus is); a YAML or TOML target is refused by name until
 //! those formats are ported.
 

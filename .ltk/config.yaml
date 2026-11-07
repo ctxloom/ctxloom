@@ -1,4 +1,4 @@
-# llm-tool-killer rules for ctxloom-rs: building, testing, linting and mutation
+# llm-tool-killer rules for ctxloom: building, testing, linting and mutation
 # testing go through `just`, whose recipes are terse (one `ok`/`FAIL` line, the full log
 # in target/logs/, VERBOSE=1 for everything) and carry the gates' flags. A raw
 # cargo run puts a full build log in an agent's context and can disagree with

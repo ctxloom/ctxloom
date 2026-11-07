@@ -1,8 +1,8 @@
 # Changing the gates
 
 These gates were the shared gates repository (`~/workspace/gates`), brought
-into ctxloom-rs at its `8c131cf` with their history, as taskloom and annals
-brought in their own copies. They are ctxloom-rs's own now: change them
+into ctxloom at its `8c131cf` with their history, as taskloom and annals
+brought in their own copies. They are ctxloom's own now: change them
 here, and nothing here reaches the other repositories, nor anything there
 this one. Carry a fix across by hand when more than one needs it.
 

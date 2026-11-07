@@ -33,7 +33,7 @@ RUN apt-get update \
         git ripgrep curl ca-certificates unzip jq strace \
     && rm -rf /var/lib/apt/lists/*
 
-# --- ctxloom-rs project tooling -------------------------------------------
+# --- ctxloom project tooling -------------------------------------------
 # Native build deps for the workspace (rust-development): a C toolchain for
 # build scripts, and protoc for angzarr-build's codegen from proto/.
 RUN apt-get update \

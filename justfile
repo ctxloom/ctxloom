@@ -2,7 +2,7 @@
 # private hook entry points fmt-staged, test-staged, test-commit,
 # mutants-staged, secrets-scan-staged, push-check, merge-check; and the `_run`
 # machinery and extractors) are gates/gates.just, imported below; this file
-# gives them ctxloom-rs's parameters and keeps its own recipes (`build`,
+# gives them ctxloom's parameters and keeps its own recipes (`build`,
 # `lint`, `test-pkg`, `clean-target`, `mutants-batch`, `closeout`,
 # `selftest`). `just --list` shows the public ones by group; the private ones
 # still run by name (`just test-staged`).

@@ -1,12 +1,7 @@
-# ctxloom-rs
+# ctxloom
 
-> **Moved.** This repository is archived. The Rust ctxloom now lives in
-> [ctxloom/ctxloom](https://github.com/ctxloom/ctxloom) (`main`); the Go
-> ctxloom it replaces is preserved on that repository's `go-final` branch.
-
-
-A port of ctxloom into Rust from Go, piece by piece, with architect review of
-each piece as it is ported.
+The Rust ctxloom, ported from the Go ctxloom (preserved on the `go-final` branch), piece by piece,
+with architect review of each piece as it is ported.
 
 ## Licence
 

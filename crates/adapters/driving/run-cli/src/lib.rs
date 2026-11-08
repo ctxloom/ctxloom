@@ -67,27 +67,11 @@ pub fn run<S: RunService>(
     err: &mut dyn Write,
 ) -> Result<u8, Failure> {
     let format = call.format();
-    let mut prompt = one(run, "prompt").unwrap_or_default();
-    if prompt.is_empty() {
-        prompt = many(run, "prompt_words").join(" ");
-    }
-    let saved_command = one(run, "command").unwrap_or_default();
-    if prompt.trim().is_empty() && saved_command.is_empty() {
+    let mut prompt = prompt_of(run);
+    if prompt.trim().is_empty() && one(run, "command").unwrap_or_default().is_empty() {
         prompt = piped().unwrap_or_default();
     }
-    let request = OneShot {
-        run: RunRequest {
-            agent: one(run, "agent").unwrap_or_default(),
-            profile: one(run, "profile").unwrap_or_default(),
-            fragments: many(run, "fragment"),
-            tags: many(run, "tag"),
-            llm: one(run, "llm").unwrap_or_default(),
-            prompt,
-            saved_command,
-            workspace: one(run, "workspace").unwrap_or_default(),
-        },
-        engine: one(run, "engine").unwrap_or_default(),
-    };
+    let request = request_of(run, prompt);
     let done = service.one_shot(&call.globals, &request);
     say_notices(&done.notices, PROG, format, catalog, err);
     let answer = done.result.map_err(|error| {
@@ -103,6 +87,57 @@ pub fn run<S: RunService>(
         )
     })?;
     Ok(0)
+}
+
+/// The prompt the line gave: `--prompt`, else the words.
+fn prompt_of(run: &ArgMatches) -> String {
+    let prompt = one(run, "prompt").unwrap_or_default();
+    if prompt.is_empty() {
+        many(run, "prompt_words").join(" ")
+    } else {
+        prompt
+    }
+}
+
+fn request_of(run: &ArgMatches, prompt: String) -> OneShot {
+    OneShot {
+        run: RunRequest {
+            agent: one(run, "agent").unwrap_or_default(),
+            profile: one(run, "profile").unwrap_or_default(),
+            fragments: many(run, "fragment"),
+            tags: many(run, "tag"),
+            llm: one(run, "llm").unwrap_or_default(),
+            prompt,
+            saved_command: one(run, "command").unwrap_or_default(),
+            workspace: one(run, "workspace").unwrap_or_default(),
+        },
+        engine: one(run, "engine").unwrap_or_default(),
+    }
+}
+
+/// `run` without `--one-shot`: the human's session. The engine is given her
+/// terminal, so nothing is read from standard input and nothing is printed
+/// here; what the plan noticed is said on the error stream, and the exit is
+/// the engine's.
+pub fn session<S: RunService>(
+    service: &mut S,
+    run: &ArgMatches,
+    call: &Call<'_>,
+    catalog: &Catalog,
+    _out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Result<u8, Failure> {
+    let request = request_of(run, prompt_of(run));
+    let done = service.interactive(&call.globals, &request);
+    say_notices(&done.notices, PROG, call.format(), catalog, err);
+    let ended = done.result.map_err(|error| {
+        let exit = error.exit_code();
+        Failure::new(error, exit)
+    })?;
+    Ok(ended
+        .code
+        .and_then(|code| u8::try_from(code).ok())
+        .unwrap_or(1))
 }
 
 fn write_answer(format: Format, answer: &Answer, out: &mut dyn Write) -> io::Result<()> {

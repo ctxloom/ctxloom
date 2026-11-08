@@ -24,7 +24,9 @@ use library_application::{Flags, Library};
 use os::Mode;
 use ports::{Names, Project, ProjectIdentity};
 use project_registry::{Environment, ProjectRegistry};
-use run_application::{Answer, Core, Done, OneShot, Parts, Place, RunError, RunService, Runs};
+use run_application::{
+    Answer, Core, Done, Ended, OneShot, Parts, Place, RunError, RunService, Runs,
+};
 use run_launcher::{Launcher, Orders, Recorder};
 use run_ports::{Engine, Limits};
 use runs_application::{AppError as CoreError, Enqueuer};
@@ -211,8 +213,22 @@ fn path_text(path: &Path) -> String {
     path.display().to_string()
 }
 
-impl RunService for OneShots<'_> {
-    fn one_shot(&mut self, flags: &Flags, request: &OneShot) -> Done<Answer> {
+impl OneShots<'_> {
+    /// The run use cases over the project, on a runtime of their own, for
+    /// `use_case` to drive.
+    fn with_runs<T>(
+        &mut self,
+        use_case: impl AsyncFnOnce(
+            &mut Runs<
+                InProcessCore<SqliteStore>,
+                OsTokenSource,
+                HostLauncher,
+                SessionDirs,
+                System,
+                SessionDirs,
+            >,
+        ) -> Done<T>,
+    ) -> Done<T> {
         let refused = |reason: String| Done {
             result: Err(RunError::Session(CoreError::Failed { reason })),
             notices: Vec::new(),
@@ -229,13 +245,23 @@ impl RunService for OneShots<'_> {
         };
         runtime.block_on(async {
             match self.assemble(library).await {
-                Ok(mut runs) => runs.one_shot(flags, request).await,
+                Ok(mut runs) => use_case(&mut runs).await,
                 Err(error) => Done {
                     result: Err(error),
                     notices: Vec::new(),
                 },
             }
         })
+    }
+}
+
+impl RunService for OneShots<'_> {
+    fn one_shot(&mut self, flags: &Flags, request: &OneShot) -> Done<Answer> {
+        self.with_runs(async |runs| runs.one_shot(flags, request).await)
+    }
+
+    fn interactive(&mut self, flags: &Flags, request: &OneShot) -> Done<Ended> {
+        self.with_runs(async |runs| runs.interactive(flags, request).await)
     }
 }
 

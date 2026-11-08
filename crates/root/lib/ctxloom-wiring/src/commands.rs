@@ -62,8 +62,9 @@ fn build_deps(wiring: &Wiring) -> Result<Deps, LibError> {
     }))))
 }
 
-/// `run --one-shot`: the library plans it, the run use cases do it. A prompt
-/// piped on standard input is read only where nothing else gave one.
+/// `run --one-shot`, or `run` (the human's session): the library plans it, the
+/// run use cases do it. A one-shot's prompt piped on standard input is read
+/// only where nothing else gave one; a session is given the terminal.
 fn one_shot(
     env: &Arc<EnvSnapshot>,
     deps: &Rc<Deps>,
@@ -78,6 +79,9 @@ fn one_shot(
     let remotes: Rc<dyn deps_ports::RemoteLibrary> = deps.clone();
     let library = crate::library::build(&wiring, Some(remotes)).map_err(|e| Failure::new(e, 1))?;
     let mut uses = crate::oneshot::OneShots::new(&wiring, library);
+    if !run_cli::is_one_shot(run) {
+        return run_cli::session(&mut uses, run, call, catalog, out, err);
+    }
     let mut piped = || {
         let stdin = std::io::stdin();
         (!stdin.is_terminal()).then(|| std::io::read_to_string(stdin).unwrap_or_default())
@@ -389,9 +393,7 @@ impl Extension for Commands {
         let wired = self.wired().map_err(|e| Failure::new(e, 1))?;
         if noun == "run" {
             let run = call.matches.subcommand_matches("run");
-            if let Some(run) =
-                run.filter(|m| run_cli::is_one_shot(m) && !cli_support::flag(m, "dry-run"))
-            {
+            if let Some(run) = run.filter(|m| !cli_support::flag(m, "dry-run")) {
                 return one_shot(&env, &wired.deps, run, call, catalog, out, err);
             }
         }

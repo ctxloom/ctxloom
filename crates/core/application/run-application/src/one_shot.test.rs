@@ -608,3 +608,47 @@ async fn claim(edge: &TestEdge, harp: &str, session: &str) {
         .await
         .unwrap();
 }
+
+// The human's session: the same plan and the same launch, her terminal given to
+// the engine's command, no prompt needed, ended by her leaving it.
+#[tokio::test]
+async fn an_interactive_run_gives_her_terminal_to_the_engine_and_ends_by_its_exit() {
+    let mut script = Script::answering();
+    script.prompt = "";
+    script.runner = ScriptedRunner::exits(0);
+    let mut rig = rig(script);
+    let done = rig.runs.interactive(&Flags::default(), &ask()).await;
+    let ended = done.result.unwrap();
+    assert_eq!(
+        (ended.harp.as_str(), ended.engine.as_str()),
+        ("amber-swift-owl", "fake")
+    );
+    assert_eq!(ended.code, Some(0));
+    assert!(rig.runner.seen.lock().unwrap().is_empty());
+    {
+        let seen = rig.runner.seen_terminal.lock().unwrap();
+        assert_eq!(seen[0].cwd.as_deref(), Some("/work/proj"));
+    }
+    let events = session_events(&rig.edge, &ended.session).await;
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, sessions::SessionEvent::SessionMinted(m)
+        if m.origin == sessions::Origin::Session)));
+    assert_eq!(
+        event_names(&run_events(&rig.edge, &ended.session).await),
+        ["RunEnqueued", "RunnerAttached", "RunEnded"]
+    );
+}
+
+#[tokio::test]
+async fn an_interactive_run_that_cannot_start_its_engine_says_so() {
+    let mut script = Script::answering();
+    script.runner =
+        ScriptedRunner::answering(run_ports::Launch::NotStarted(run_ports::LaunchFailure {
+            deterministic: true,
+            detail: "no claude".to_string(),
+        }));
+    let mut rig = rig(script);
+    let done = rig.runs.interactive(&Flags::default(), &ask()).await;
+    assert!(matches!(done.result, Err(RunError::NotStarted { .. })));
+}

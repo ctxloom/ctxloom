@@ -8,7 +8,9 @@
 //!
 //! A turn is one command and a later turn a new one that resumes the engine's
 //! own session (`TurnRequest::resume`); there is no engine process between
-//! turns. `drive_interactive`, the human's terminal run, is not built yet.
+//! turns.
+//! `drive_interactive` is the human's terminal run: its command is given her
+//! terminal ([`crate::RunnerLauncher::launch_terminal`]).
 
 use std::collections::BTreeMap;
 use std::fmt;

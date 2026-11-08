@@ -1013,15 +1013,35 @@ fn test_an_explicit_tag_selection_matching_nothing_fails_loudly() {
         .contains("no-such-tag-anywhere");
 }
 
-// run.feature: (outside --dry-run the launch is S6's: this build says so)
-// the run without --dry-run is refused, not silently a dry run
+// run.feature: `ctxloom run [prompt...]` is a session: the engine is launched
+// in her terminal with the plan's context and the prompt as its opening. The
+// engine here is a stub first on PATH, never the real one.
 #[test]
-fn test_a_run_that_is_not_a_dry_run_is_refused_until_the_launch_arrives() {
+fn test_a_run_that_is_not_a_dry_run_launches_the_engine_with_the_context_and_the_prompt() {
     let project = demo_with_testing();
     project.profile("dev", "demo");
-    let ran = project.run(&["run", "--profile", "dev", "hello"]);
-    assert_eq!(ran.code, 2, "{}", ran.said());
-    ran.contains("--dry-run");
+    let bin = project.home().join("stub-bin");
+    files::put_program(
+        bin.join("claude"),
+        "for a in \"$@\"; do printf '%s\\n' \"$a\" >> \"$(dirname \"$0\")/launch\"; [ -f \"$a\" ] && cat \"$a\" >> \"$(dirname \"$0\")/launch\"; done\nexit 0\n",
+    );
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        crate::tests::host_var("PATH")
+            .unwrap_or_default()
+            .to_string_lossy()
+    );
+    let ran = project.run_with(&[("PATH", &path)], &["run", "--profile", "dev", "hello"]);
+    ran.succeeds();
+    let launch = files::read(bin.join("launch")).expect("the stub was launched");
+    assert!(launch.contains("--append-system-prompt-file"), "{launch}");
+    assert!(launch.contains("FRAGMENT-BODY-testing"), "{launch}");
+    assert!(launch.contains("hello"), "{launch}");
+    assert!(
+        !launch.contains("-p\n"),
+        "a session is not print mode: {launch}"
+    );
 }
 
 // ---------------------------------------------------------------- fault_tolerance.feature

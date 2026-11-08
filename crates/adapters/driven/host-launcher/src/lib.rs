@@ -55,6 +55,38 @@ impl RunnerLauncher for HostLauncher {
             }),
         }
     }
+
+    /// The human's session: the command is given this process's terminal and
+    /// stays in its foreground process group, which `run_within` cannot do
+    /// (it pipes the streams and puts the command in a group of its own, where
+    /// a read of the terminal would stop it). So this one program is not run
+    /// through `run_within`: it has no deadline and nothing to capture, the
+    /// human ends it, and her Ctrl-C reaches it as it reaches any program she
+    /// started.
+    fn launch_terminal(&self, command: &TurnCommand) -> Launch {
+        let mut process = std::process::Command::new(&command.program);
+        process.args(&command.args).env_clear().envs(&command.env);
+        if let Some(cwd) = &command.cwd {
+            process.current_dir(cwd);
+        }
+        match process.status() {
+            Err(error) => Launch::NotStarted(LaunchFailure {
+                deterministic: error.kind() == std::io::ErrorKind::NotFound,
+                detail: error.to_string(),
+            }),
+            Ok(status) => Launch::Over(TurnOutput {
+                exit: Exit {
+                    code: status.code(),
+                    signal: signal_of(&status),
+                },
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+                timed_out: false,
+                truncated: false,
+                drain_incomplete: false,
+            }),
+        }
+    }
 }
 
 /// The signal that ended a process, when one did: std spells it in the

@@ -21,6 +21,9 @@ pub struct Order {
     pub env: BTreeMap<String, String>,
     /// Where the turn's command runs.
     pub cwd: Option<String>,
+    /// The human's terminal session, not a turn: the engine's command is
+    /// given her terminal and the prompt may be empty.
+    pub interactive: bool,
 }
 
 /// The orders placed and not yet taken, by session id text and incarnation.

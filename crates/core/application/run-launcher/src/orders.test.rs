@@ -10,6 +10,7 @@ fn order(harp: &str) -> Order {
         prompt: "p".to_string(),
         env: BTreeMap::new(),
         cwd: None,
+        interactive: false,
     }
 }
 

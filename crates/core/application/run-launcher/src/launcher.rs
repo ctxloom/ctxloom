@@ -57,6 +57,10 @@ pub enum Outcome {
         class: FailureClass,
         detail: String,
     },
+    /// The human's terminal session is over; it took no turns.
+    Ended {
+        code: Option<i32>,
+    },
     /// Nothing was started: no engine, no home, no program.
     NotStarted {
         detail: String,
@@ -180,6 +184,9 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
             }
         };
         self.record(&who, attached()).await?;
+        if order.interactive {
+            return self.terminal(&who, &command, done).await;
+        }
         self.record(
             &who,
             RunnerFact::TurnStarted(runs::TurnStarted { turn: TURN }),
@@ -244,6 +251,37 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
         Ok(done(outcome))
     }
 
+    /// The human's session: the command is given her terminal and runs until
+    /// she ends it, taking no turns of the run's; its exit ends the run.
+    async fn terminal(
+        &self,
+        who: &Identity,
+        command: &TurnCommand,
+        done: impl Fn(Outcome) -> Launched,
+    ) -> Result<Launched, LaunchError> {
+        let output = match self.runner.launch_terminal(command) {
+            Launch::NotStarted(failure) => {
+                self.not_started(who, failure.deterministic, &failure.detail)
+                    .await?;
+                return Ok(done(Outcome::NotStarted {
+                    detail: failure.detail,
+                }));
+            }
+            Launch::Over(output) => output,
+        };
+        self.record(
+            who,
+            RunnerFact::RunExited(runs::RunExited {
+                code: output.exit.code.unwrap_or(0),
+                signal: output.exit.signal.unwrap_or(0),
+            }),
+        )
+        .await?;
+        Ok(done(Outcome::Ended {
+            code: output.exit.code,
+        }))
+    }
+
     fn engine(&self, name: &str) -> Option<Arc<dyn Engine>> {
         self.engines.iter().find(|e| e.name() == name).cloned()
     }
@@ -269,18 +307,24 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
                 .write(&order.harp, &format!("home/{}", file.rel), &file.bytes)
                 .map_err(|e| e.to_string())?;
         }
-        self.speak(order, Speaker::User, &order.prompt)
-            .map_err(|e| e.to_string())?;
-        let command = engine
-            .drive_turn(&TurnRequest {
-                prompt: order.prompt.clone(),
-                home,
-                context_path: prepared.context_path,
-                resume: None,
-                env: order.env.clone(),
-                cwd: order.cwd.clone(),
-            })
-            .map_err(|e| e.to_string())?;
+        if !order.prompt.trim().is_empty() {
+            self.speak(order, Speaker::User, &order.prompt)
+                .map_err(|e| e.to_string())?;
+        }
+        let request = TurnRequest {
+            prompt: order.prompt.clone(),
+            home,
+            context_path: prepared.context_path,
+            resume: None,
+            env: order.env.clone(),
+            cwd: order.cwd.clone(),
+        };
+        let command = if order.interactive {
+            engine.drive_interactive(&request)
+        } else {
+            engine.drive_turn(&request)
+        }
+        .map_err(|e| e.to_string())?;
         Ok((engine, command))
     }
 

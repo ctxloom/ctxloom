@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use run_ports::{Engine, EngineError, PrepareRequest, TurnRequest};
+use run_ports::{Engine, PrepareRequest, TurnRequest};
 
 use crate::{Claude, CONTEXT_PROMPT_FILE};
 
@@ -116,12 +116,34 @@ fn preparing_a_home_writes_the_context_file_it_names() {
 }
 
 #[test]
-fn the_interactive_run_is_not_built_yet() {
+fn the_interactive_run_is_the_terminal_command_with_the_context_and_no_print_mode() {
+    let mut asked = request();
+    asked.prompt = String::new();
+    asked.env = env(&[("PATH", "/usr/bin"), ("HOME", "/home/alice")]);
+    let command = Claude::new().drive_interactive(&asked).unwrap();
+    assert_eq!(command.program, "claude");
     assert_eq!(
-        Claude::new().drive_interactive(&request()),
-        Err(EngineError::NotYet {
-            engine: "claude-code".to_string(),
-            operation: "drive_interactive".to_string()
-        })
+        command.args,
+        vec![
+            "--append-system-prompt-file",
+            "/p/.ctxloom/sessions/h/home/ctxloom-context.md"
+        ]
+    );
+    assert!(command.stdin.is_empty());
+    assert_eq!(command.cwd.as_deref(), Some("/p"));
+    let names: Vec<&str> = command.env.keys().map(String::as_str).collect();
+    assert_eq!(names, vec!["CLAUDE_CONFIG_DIR", "PATH"]);
+    assert_eq!(
+        command.env.get("CLAUDE_CONFIG_DIR").map(String::as_str),
+        Some("/p/.ctxloom/sessions/h/home")
+    );
+}
+
+#[test]
+fn an_interactive_run_given_a_prompt_opens_on_it() {
+    let command = Claude::new().drive_interactive(&request()).unwrap();
+    assert_eq!(
+        command.args.last().map(String::as_str),
+        Some("what does this project expect of me?")
     );
 }

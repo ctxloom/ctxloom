@@ -193,3 +193,41 @@ fn a_program_the_system_refuses_to_start_may_start_next_time() {
     };
     assert!(!failure.deterministic);
 }
+
+#[test]
+fn a_terminal_session_runs_on_exactly_the_commands_environment_and_reports_its_exit() {
+    let (_dir, mut command) =
+        program("#!/bin/sh\n[ \"$ONLY\" = yes ] && [ -z \"$HOME\" ] && exit 7\nexit 5\n");
+    command.env.insert("ONLY".to_string(), "yes".to_string());
+    let output = over(HostLauncher.launch_terminal(&command));
+    assert_eq!(
+        output.exit,
+        Exit {
+            code: Some(7),
+            signal: None
+        }
+    );
+    assert!(output.stdout.is_empty() && output.stderr.is_empty());
+}
+
+#[test]
+fn a_terminal_session_that_cannot_start_is_not_started() {
+    let command = TurnCommand::new("/no/such/program");
+    let Launch::NotStarted(failure) = HostLauncher.launch_terminal(&command) else {
+        panic!("it cannot have started")
+    };
+    assert!(failure.deterministic);
+}
+
+#[test]
+fn a_terminal_session_ended_by_a_signal_reports_the_signal() {
+    let (_dir, command) = program("#!/bin/sh\nkill -9 $$\n");
+    let output = over(HostLauncher.launch_terminal(&command));
+    assert_eq!(
+        output.exit,
+        Exit {
+            code: None,
+            signal: Some(9)
+        }
+    );
+}

@@ -51,6 +51,16 @@ pub struct Answer {
     pub answer: String,
 }
 
+/// What a human's session came to: it was hers, and it is over.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Ended {
+    pub harp: String,
+    pub session: String,
+    pub engine: String,
+    /// The engine's exit code, none where a signal ended it.
+    pub code: Option<i32>,
+}
+
 /// What a command came to: its answer or its error, and what it noticed.
 pub struct Done<T> {
     pub result: Result<T, RunError>,
@@ -72,6 +82,9 @@ impl Planner for library_application::Library {
 pub trait RunService {
     /// `run --one-shot`.
     fn one_shot(&mut self, flags: &Flags, request: &OneShot) -> Done<Answer>;
+
+    /// `run`: the human's session, in her terminal.
+    fn interactive(&mut self, flags: &Flags, request: &OneShot) -> Done<Ended>;
 }
 
 /// The core the run is served by: its edge, and the store and catalog the
@@ -178,14 +191,60 @@ where
         }
     }
 
-    async fn run(&mut self, previewed: Previewed, request: &OneShot) -> Result<Answer, RunError> {
+    /// `run`: the human's session. The engine's command is given her terminal
+    /// and the run ends when she leaves it; a prompt is optional, and opens the
+    /// conversation when given.
+    pub async fn interactive(&mut self, flags: &Flags, request: &OneShot) -> Done<Ended> {
+        let planned = self.planner.plan(flags, &request.run);
+        let mut notices = planned.notices;
+        let result = match planned.result {
+            Err(error) => Err(RunError::Plan(Box::new(error))),
+            Ok(previewed) => self.session(previewed, request).await,
+        };
+        Done {
+            result,
+            notices: std::mem::take(&mut notices),
+        }
+    }
+
+    async fn session(
+        &mut self,
+        previewed: Previewed,
+        request: &OneShot,
+    ) -> Result<Ended, RunError> {
+        let (session, harp, engine, run) = self.start(previewed, request, true).await?;
+        let launched = self.launched(&session).await?;
+        self.ended(&run).await?;
+        match launched.outcome {
+            Turn::Ended { code } => Ok(Ended {
+                harp,
+                session,
+                engine,
+                code,
+            }),
+            Turn::NotStarted { detail } => Err(RunError::NotStarted { detail }),
+            other => Err(RunError::Turn {
+                class: run_ports::FailureClass::EngineError,
+                detail: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Plan checked, the session minted, the order placed and the run
+    /// enqueued: the session, its name, the engine and the run.
+    async fn start(
+        &mut self,
+        previewed: Previewed,
+        request: &OneShot,
+        interactive: bool,
+    ) -> Result<(String, String, String, Uuid), RunError> {
         if !previewed.fatal.is_empty() {
             return Err(RunError::Plan(Box::new(PlanError::aborted(
                 &previewed.fatal,
             ))));
         }
         let plan = previewed.plan;
-        if plan.prompt.trim().is_empty() {
+        if !interactive && plan.prompt.trim().is_empty() {
             return Err(RunError::NoPrompt);
         }
         let engine = if request.engine.is_empty() {
@@ -200,7 +259,7 @@ where
             });
         }
         let project = self.identity.for_write(None).map_err(RunError::Project)?;
-        let (session, harp) = self.mint(&project, &engine).await?;
+        let (session, harp) = self.mint(&project, &engine, interactive).await?;
         self.orders.place(
             &session,
             1,
@@ -211,18 +270,29 @@ where
                 prompt: plan.prompt,
                 env: self.env.clone(),
                 cwd: Some(self.place.project_dir.clone()),
+                interactive,
             },
         );
         self.recorder.watch(&session);
+        let mode = if interactive {
+            runs::RunMode::Interactive
+        } else {
+            runs::RunMode::OneShot
+        };
         let enqueued = self
             .enqueuer
             .enqueue(EnqueueRequest {
                 session: session.clone(),
                 incarnation: 1,
-                mode: runs::RunMode::OneShot,
+                mode,
             })
             .await
             .map_err(RunError::Session)?;
+        Ok((session, harp, engine, enqueued.run))
+    }
+
+    /// Launch what is owed and record it: this session's launch.
+    async fn launched(&mut self, session: &str) -> Result<Launched, RunError> {
         let launched = self
             .launcher
             .step(self.core.store(), self.core.catalog())
@@ -232,13 +302,18 @@ where
             .step(self.core.store(), self.core.catalog())
             .await
             .map_err(RunError::Launch)?;
-        let ours = launched
+        launched
             .into_iter()
             .find(|l: &Launched| l.session == session)
             .ok_or_else(|| RunError::NotEnded {
-                run: text(&enqueued.run),
-            })?;
-        self.ended(&enqueued.run).await?;
+                run: session.to_string(),
+            })
+    }
+
+    async fn run(&mut self, previewed: Previewed, request: &OneShot) -> Result<Answer, RunError> {
+        let (session, harp, engine, run) = self.start(previewed, request, false).await?;
+        let ours = self.launched(&session).await?;
+        self.ended(&run).await?;
         match ours.outcome {
             Turn::Answered { answer, .. } if answer.trim().is_empty() => Err(RunError::EmptyAnswer),
             Turn::Answered { answer, .. } => Ok(Answer {
@@ -249,6 +324,10 @@ where
             }),
             Turn::Failed { class, detail } => Err(RunError::Turn { class, detail }),
             Turn::NotStarted { detail } => Err(RunError::NotStarted { detail }),
+            Turn::Ended { .. } => Err(RunError::Turn {
+                class: run_ports::FailureClass::EngineError,
+                detail: "a turn ended as a session".to_string(),
+            }),
         }
     }
 
@@ -258,6 +337,7 @@ where
         &mut self,
         project: &Project,
         engine: &str,
+        interactive: bool,
     ) -> Result<(String, String), RunError> {
         let edge = self.core.edge();
         let id = uuid::Uuid::from_slice(&self.ids.command_id().value).unwrap_or_default();
@@ -280,7 +360,7 @@ where
                 .await
             {
                 Ok(_) => {
-                    self.mint_on(&edge, project, engine, &session, &harp)
+                    self.mint_on(&edge, project, engine, &session, &harp, interactive)
                         .await?;
                     return Ok((session, harp));
                 }
@@ -307,6 +387,7 @@ where
         engine: &str,
         session: &str,
         harp: &str,
+        interactive: bool,
     ) -> Result<(), RunError> {
         let mint: SessionCommand = MintSession {
             harp: harp.to_string(),
@@ -314,7 +395,11 @@ where
             project_dir: self.place.project_dir.clone(),
             output_dir: format!("{}/{harp}", self.place.output_root),
             engine: engine.to_string(),
-            origin: Origin::Oneshot,
+            origin: if interactive {
+                Origin::Session
+            } else {
+                Origin::Oneshot
+            },
             started_at: None,
             depth: 0,
         }

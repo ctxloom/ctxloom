@@ -8,8 +8,8 @@
 //! does the running.
 //!
 //! Stopping a turn from outside, before its deadline, is not in this port yet:
-//! the deadline is the only stop (the plan's Step 3 gives an interactive run
-//! its own).
+//! the deadline is the only stop. The human's terminal session has none: she
+//! ends it.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -142,6 +142,12 @@ impl Launch {
 /// (or killed at its deadline).
 pub trait RunnerLauncher: Send + Sync {
     fn launch(&self, command: &TurnCommand, limits: &Limits) -> Launch;
+
+    /// Run the human's terminal session: the command is given this process's
+    /// terminal (its standard input, output and error) and the foreground,
+    /// with no deadline and nothing captured; the answer is how it ended
+    /// (`TurnOutput`'s streams are empty).
+    fn launch_terminal(&self, command: &TurnCommand) -> Launch;
 }
 
 #[cfg(test)]

@@ -5,9 +5,9 @@
 use angzarr_presentation::{Catalog, Format};
 use clap::{Arg, ArgAction, Command};
 use library_application::{AppError, Flags, Notice};
-use run_application::{Answer, Done, OneShot, RunError, RunService};
+use run_application::{Answer, Done, Ended, OneShot, RunError, RunService};
 
-use super::{is_one_shot, run, with_one_shot, Call};
+use super::{is_one_shot, run, session, with_one_shot, Call};
 
 /// The library's `run`, as far as this crate reads it.
 fn library_run() -> Command {
@@ -36,6 +36,7 @@ fn library_run() -> Command {
 }
 
 struct Double {
+    ended: Option<Result<Ended, RunError>>,
     asked: Vec<(Flags, OneShot)>,
     reply: Option<Result<Answer, RunError>>,
 }
@@ -43,6 +44,7 @@ struct Double {
 impl Double {
     fn answering(answer: &str) -> Double {
         Double {
+            ended: None,
             asked: Vec::new(),
             reply: Some(Ok(Answer {
                 harp: "amber-swift-owl".to_string(),
@@ -55,6 +57,7 @@ impl Double {
 
     fn failing(error: RunError) -> Double {
         Double {
+            ended: None,
             asked: Vec::new(),
             reply: Some(Err(error)),
         }
@@ -62,6 +65,14 @@ impl Double {
 }
 
 impl RunService for Double {
+    fn interactive(&mut self, flags: &Flags, request: &OneShot) -> Done<Ended> {
+        self.asked.push((flags.clone(), request.clone()));
+        Done {
+            result: self.ended.take().expect("asked once"),
+            notices: vec![Notice::text("a notice".to_string())],
+        }
+    }
+
     fn one_shot(&mut self, flags: &Flags, request: &OneShot) -> Done<Answer> {
         self.asked.push((flags.clone(), request.clone()));
         Done {
@@ -308,4 +319,75 @@ fn every_diagnostic_has_a_message_using_exactly_its_args() {
             .unwrap_or_else(|| panic!("{code} has no message"));
         assert!(line.contains("$ext_err_txt"));
     }
+}
+
+fn go_session(line: &[&str], service: &mut Double) -> (Result<u8, (String, u8)>, String, String) {
+    let program = Command::new("ctxloom").subcommand(with_one_shot(library_run()));
+    let mut argv = vec!["ctxloom", "run"];
+    argv.extend_from_slice(line);
+    let matches = program.try_get_matches_from(argv).unwrap();
+    let call = Call {
+        matches: &matches,
+        explicit_format: None,
+        default_format: Format::Json,
+        stdout_is_terminal: false,
+        globals: Flags::default(),
+    };
+    let catalog = Catalog::en_us(&[library_application::EN_US, crate::EN_US]).unwrap();
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let exit = session(
+        service,
+        matches.subcommand_matches("run").unwrap(),
+        &call,
+        &catalog,
+        &mut out,
+        &mut err,
+    )
+    .map_err(|f| (f.cause.code().to_string(), f.exit));
+    (
+        exit,
+        String::from_utf8(out).unwrap(),
+        String::from_utf8(err).unwrap(),
+    )
+}
+
+fn ended(code: Option<i32>) -> Ended {
+    Ended {
+        harp: "amber-swift-owl".to_string(),
+        session: "s".to_string(),
+        engine: "claude-code".to_string(),
+        code,
+    }
+}
+
+#[test]
+fn a_session_asks_with_the_line_prints_nothing_and_exits_as_the_engine_did() {
+    let mut double = Double::failing(RunError::NoPrompt);
+    double.ended = Some(Ok(ended(Some(3))));
+    let (exit, out, err) = go_session(&["--profile", "dev", "hello", "there"], &mut double);
+    assert_eq!(exit, Ok(3));
+    assert_eq!(out, "", "the engine had the terminal; nothing more is said");
+    assert!(err.contains("a notice"));
+    let (_, asked) = &double.asked[0];
+    assert_eq!(asked.run.profile, "dev");
+    assert_eq!(asked.run.prompt, "hello there");
+}
+
+#[test]
+fn a_session_ended_by_a_signal_exits_one() {
+    let mut double = Double::failing(RunError::NoPrompt);
+    double.ended = Some(Ok(ended(None)));
+    assert_eq!(go_session(&[], &mut double).0, Ok(1));
+}
+
+#[test]
+fn a_session_that_could_not_start_fails_with_the_errors_exit() {
+    let mut double = Double::failing(RunError::NoPrompt);
+    double.ended = Some(Err(RunError::NotStarted {
+        detail: "no claude".to_string(),
+    }));
+    assert_eq!(
+        go_session(&[], &mut double).0,
+        Err(("run-application-not-started".to_string(), 1))
+    );
 }

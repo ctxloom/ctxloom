@@ -211,6 +211,8 @@ pub fn names(events: &[RunEvent]) -> Vec<&'static str> {
 pub struct ScriptedRunner {
     pub answer: Launch,
     pub seen: Arc<Mutex<Vec<TurnCommand>>>,
+    /// The commands given a terminal.
+    pub seen_terminal: Arc<Mutex<Vec<TurnCommand>>>,
 }
 
 impl ScriptedRunner {
@@ -232,6 +234,7 @@ impl ScriptedRunner {
         ScriptedRunner {
             answer,
             seen: Arc::default(),
+            seen_terminal: Arc::default(),
         }
     }
 }
@@ -239,6 +242,11 @@ impl ScriptedRunner {
 impl RunnerLauncher for ScriptedRunner {
     fn launch(&self, command: &TurnCommand, _: &Limits) -> Launch {
         self.seen.lock().unwrap().push(command.clone());
+        self.answer.clone()
+    }
+
+    fn launch_terminal(&self, command: &TurnCommand) -> Launch {
+        self.seen_terminal.lock().unwrap().push(command.clone());
         self.answer.clone()
     }
 }
@@ -298,11 +306,12 @@ impl Engine for ScriptedEngine {
         self.outcome.clone()
     }
 
-    fn drive_interactive(&self, _: &TurnRequest) -> Result<TurnCommand, EngineError> {
-        Err(EngineError::NotYet {
-            engine: "fake".to_string(),
-            operation: "drive_interactive".to_string(),
-        })
+    fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
+        let mut command = TurnCommand::new("fake-terminal");
+        command.args = vec![request.context_path.clone(), request.prompt.clone()];
+        command.env = request.env.clone();
+        command.cwd = request.cwd.clone();
+        Ok(command)
     }
 }
 
@@ -407,6 +416,7 @@ pub fn order(engine: &str) -> Order {
         prompt: "THE-PROMPT".to_string(),
         env: BTreeMap::from([("PATH".to_string(), "/bin".to_string())]),
         cwd: Some("/work/proj".to_string()),
+        interactive: false,
     }
 }
 

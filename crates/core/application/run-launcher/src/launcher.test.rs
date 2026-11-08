@@ -436,3 +436,58 @@ async fn an_order_names_the_engine_the_launcher_reports() {
     assert!(!rig.launcher.drives("claude-code"));
     assert_eq!(rig.launcher.engines(), ["fake"]);
 }
+
+// The human's session: the engine's terminal command is given her terminal; no
+// turn is recorded, the run ends by the exit, and the home carries the hooks.
+#[tokio::test]
+async fn an_interactive_launch_gives_the_terminal_to_the_engines_command_and_ends_by_its_exit() {
+    let mut interactive = order("fake");
+    interactive.interactive = true;
+    interactive.prompt = String::new();
+    let mut rig = rig(
+        ScriptedEngine::answering("never read", None),
+        ScriptedRunner::exits(4),
+        orders_with(interactive),
+    );
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    assert_eq!(launched[0].outcome, Outcome::Ended { code: Some(4) });
+    assert!(
+        rig.runner.seen.lock().unwrap().is_empty(),
+        "no captured turn"
+    );
+    {
+        let seen = rig.runner.seen_terminal.lock().unwrap();
+        assert_eq!(seen[0].program, "fake-terminal");
+        assert_eq!(seen[0].cwd.as_deref(), Some("/work/proj"));
+    }
+    assert_eq!(
+        names(&run_events(&rig.edge, SESSION).await),
+        ["RunEnqueued", "RunnerAttached", "RunEnded"]
+    );
+    // She has said nothing yet: the transcript holds no line.
+    assert_eq!(rig.records.text(HARP, "transcripts/transcript.jsonl"), None);
+    assert!(rig.records.text(HARP, "home/ctx.md").is_some());
+}
+
+#[tokio::test]
+async fn an_interactive_command_that_cannot_start_is_not_started() {
+    let mut interactive = order("fake");
+    interactive.interactive = true;
+    let mut rig = rig(
+        ScriptedEngine::answering("", None),
+        ScriptedRunner::answering(Launch::NotStarted(LaunchFailure {
+            deterministic: true,
+            detail: "no claude".to_string(),
+        })),
+        orders_with(interactive),
+    );
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    assert_eq!(
+        launched[0].outcome,
+        Outcome::NotStarted {
+            detail: "no claude".to_string()
+        }
+    );
+}

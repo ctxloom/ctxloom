@@ -90,11 +90,23 @@ impl Engine for Claude {
         stream::read_turn(output)
     }
 
-    fn drive_interactive(&self, _request: &TurnRequest) -> Result<TurnCommand, EngineError> {
-        Err(EngineError::NotYet {
-            engine: NAME.to_string(),
-            operation: "drive_interactive".to_string(),
-        })
+    /// The human's terminal run: no print mode, no stream, the context in
+    /// the system prompt, and the prompt (when she gave one) as the
+    /// conversation's opening. The command is given her terminal.
+    fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
+        let mut command = TurnCommand::new(PROGRAM);
+        command.args.push("--append-system-prompt-file".to_string());
+        command.args.push(request.context_path.clone());
+        if let Some(native_id) = &request.resume {
+            command.args.push("--resume".to_string());
+            command.args.push(native_id.clone());
+        }
+        if !request.prompt.trim().is_empty() {
+            command.args.push(request.prompt.clone());
+        }
+        command.env = environment(&request.env, &request.home);
+        command.cwd = request.cwd.clone();
+        Ok(command)
     }
 }
 

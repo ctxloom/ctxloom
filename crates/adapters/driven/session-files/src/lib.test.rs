@@ -547,3 +547,20 @@ fn a_records_failure_names_the_file_and_the_systems_own_text() {
         other => panic!("{other:?}"),
     }
 }
+
+// Only a file that is not there reads as none: a path that cannot be read
+// for any other reason is the error, with the file and the system's words.
+#[test]
+fn a_records_read_that_fails_otherwise_than_by_absence_is_the_error() {
+    use run_ports::{RecordsError, SessionRecords};
+    let (fs, mut dirs) = dirs();
+    // A file where a directory must be: reading under it is not "not found".
+    write(&fs, &dirs, "home", "in the way");
+    let bad = SessionRecords::read(&mut dirs, HARP, "home/x").unwrap_err();
+    match bad {
+        RecordsError::Io { harp, rel, .. } => {
+            assert_eq!((harp.as_str(), rel.as_str()), (HARP, "home/x"));
+        }
+        other => panic!("{other:?}"),
+    }
+}

@@ -34,7 +34,7 @@ pub use config_write::ConfigWritten;
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{SetupError, EN_US};
-pub use hooks::{HookAnswer, SessionBind};
+pub use hooks::{harp_marker, HookAnswer, SessionBind};
 pub use manage::{
     BackendStatus, CheckReport, GitignoreReport, HookRow, HooksEvent, HooksList, InstallPlan,
     InstallReport, InstallRequest, PullReport, SurfaceCurrency, UninstallReport,

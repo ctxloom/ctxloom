@@ -1,11 +1,12 @@
-//! The engines' callbacks: `hook session-start` and `hook skill-mates`
+//! The engines' callbacks, all reached by `hook <engine> execute <native>`
+//! ([`Setup::execute_hook`]); the session-start notice and the skill mates
 //! (Go's `hook_session_start.go`, `hook_skill_mates.go`,
 //! `skill_mates_decide.go`). A hook must never fail the host engine's
 //! startup: what it can foresee going wrong is silence, and only a payload it
 //! cannot read, or an engine it does not know, is an error.
 
 use library_application::{Flags, PackageRequest};
-use surface_ports::{EngineSurfaces, HookResponse};
+use surface_ports::{EngineSurfaces, HookCodec, HookEvent, HookResponse};
 
 use crate::{Setup, SetupError};
 
@@ -37,6 +38,17 @@ pub struct SessionBind {
     pub transcript: String,
 }
 
+/// The harp self-id marker, `<ctxloom name="..." kind="harp" />`: the only
+/// index-independent statement of which harp owns a transcript. `None` for
+/// nothing it can say truthfully: an empty harp, or one the attribute syntax
+/// cannot carry (a `"` or `>` would make it read back as a different harp).
+pub fn harp_marker(harp: &str) -> Option<String> {
+    if harp.is_empty() || harp.contains(['"', '>']) {
+        return None;
+    }
+    Some(format!(r#"<ctxloom name="{harp}" kind="harp" />"#))
+}
+
 impl Setup {
     /// `hook <engine> execute <native>`: the one entry every engine callback
     /// reaches (the owner's ruling, 2026-11-08). The engine is resolved through
@@ -47,7 +59,6 @@ impl Setup {
     /// bind; a post-tool call answers what `skill_mates` does; every other
     /// event (turn_end, message_display, post_tool_batch, ...) answers
     /// silence. `harp` is the session the hook runs in (may be empty).
-    // Red-test stub (port/run-one-shot): the green step writes it.
     pub fn execute_hook(
         &self,
         engine: &str,
@@ -55,8 +66,39 @@ impl Setup {
         payload: &str,
         harp: &str,
     ) -> Result<HookAnswer, SetupError> {
-        let _ = (engine, native, payload, harp);
-        todo!("execute_hook")
+        let codec = self.firing(engine)?.codec();
+        let unified = codec.unified_event(native);
+        let event = codec.decode(&unified, payload).map_err(SetupError::cause)?;
+        let encode =
+            |response: &HookResponse| codec.encode(&unified, response).map_err(SetupError::cause);
+        match unified.as_str() {
+            "session_start" => {
+                let marker = harp_marker(harp);
+                let usable = marker.is_some();
+                let stdout = encode(&HookResponse {
+                    context: marker.unwrap_or_default(),
+                    notice: self.agent_nudge(),
+                    ..HookResponse::default()
+                })?;
+                Ok(HookAnswer {
+                    stdout,
+                    bind: usable.then(|| SessionBind {
+                        harp: harp.to_string(),
+                        native_id: event.native_session,
+                        transcript: event.transcript,
+                    }),
+                    harp_missing: !usable,
+                })
+            }
+            "post_tool" => Ok(HookAnswer {
+                stdout: encode(&self.mates_response(codec, &event))?,
+                ..HookAnswer::default()
+            }),
+            _ => Ok(HookAnswer {
+                stdout: encode(&HookResponse::default())?,
+                ..HookAnswer::default()
+            }),
+        }
     }
 
     fn firing(&self, engine: &str) -> Result<&dyn EngineSurfaces, SetupError> {
@@ -77,24 +119,29 @@ impl Setup {
         codec
             .decode("session_start", payload)
             .map_err(SetupError::cause)?;
+        codec
+            .encode(
+                "session_start",
+                &HookResponse {
+                    notice: self.agent_nudge(),
+                    ..HookResponse::default()
+                },
+            )
+            .map_err(SetupError::cause)
+    }
+
+    /// The session-start notice: the nudge to set up agents when the project
+    /// has profiles and none; empty otherwise.
+    fn agent_nudge(&self) -> String {
         let flags = Flags {
             degraded: true,
             ..Flags::default()
         };
         let package = self.library.package(&flags, &PackageRequest::default());
-        let notice = match package.result {
+        match package.result {
             Ok(p) if !p.has_agents && p.has_profiles => AGENT_SETUP_NUDGE.to_string(),
             _ => String::new(),
-        };
-        codec
-            .encode(
-                "session_start",
-                &HookResponse {
-                    notice,
-                    ..HookResponse::default()
-                },
-            )
-            .map_err(SetupError::cause)
+        }
     }
 
     /// The engine's answer to a PostToolUse: when the tool call completed a
@@ -106,6 +153,15 @@ impl Setup {
         let event = codec
             .decode("post_tool", payload)
             .map_err(SetupError::cause)?;
+        let response = self.mates_response(codec, &event);
+        codec
+            .encode("post_tool", &response)
+            .map_err(SetupError::cause)
+    }
+
+    /// What a decoded PostToolUse is answered with: the mates line when it
+    /// completed a skill, else nothing.
+    fn mates_response(&self, codec: &dyn HookCodec, event: &HookEvent) -> HookResponse {
         let mut response = HookResponse::default();
         if !event.skill.is_empty() {
             let transcript = if event.transcript.is_empty() {
@@ -119,9 +175,7 @@ impl Setup {
                 .unwrap_or_default();
             response.context = self.mates_line(&event.skill, &invoked);
         }
-        codec
-            .encode("post_tool", &response)
-            .map_err(SetupError::cause)
+        response
     }
 
     /// The one line the hook injects: the completed skill and the mates it

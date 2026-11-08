@@ -233,3 +233,22 @@ fn test_a_payload_that_does_not_read_fails_the_executed_hook() {
         .execute_hook("claude-code", "Stop", "not json", "brisk-copper-moth")
         .is_err());
 }
+
+// Go: harpmarker TestFormat.
+#[test]
+fn test_the_marker_names_the_harp() {
+    assert_eq!(
+        harp_marker("plump-loose-sash").as_deref(),
+        Some(r#"<ctxloom name="plump-loose-sash" kind="harp" />"#)
+    );
+    assert_eq!(harp_marker(""), None);
+}
+
+// Go: "A '\"' closes the name attribute early, so the element reads back as a
+// DIFFERENT, possibly real harp; a '>' closes the element before kind=\"harp\"
+// is reached ... a marker that names the wrong harp is worse than no marker".
+#[test]
+fn test_a_harp_the_marker_cannot_carry_has_no_marker() {
+    assert_eq!(harp_marker("a\"b"), None);
+    assert_eq!(harp_marker("a>b"), None);
+}

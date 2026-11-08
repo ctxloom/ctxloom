@@ -40,7 +40,11 @@ fn run(
     match harness.when(command).result() {
         Ok(events) => Ok(events),
         Err(Failure::Rejected(rejected)) => {
-            Err(angzarr_diagnostic::Diagnostic::code(&rejected).to_string())
+            let typed = rejected
+                .rejection::<angzarr_embedded::markup::TypedRefusal>()
+                .expect("a typed refusal");
+            let rejection = crate::TreeRejection::try_from(typed).expect("a tree refusal");
+            Err(angzarr_diagnostic::Diagnostic::code(&rejection).to_string())
         }
         Err(other) => panic!("not a rejection: {other:?}"),
     }

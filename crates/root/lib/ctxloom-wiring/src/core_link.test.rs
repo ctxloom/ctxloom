@@ -183,7 +183,7 @@ async fn a_fact_at_the_race_cap_is_parked_over_app_serve_in() {
         .len();
     world.store.fail(std::iter::repeat_n(
         Fault::Conflict,
-        crate::core_link::RACE_RUNS as usize,
+        crate::core_link::RACE_RUNS.get() as usize,
     ));
     assert_eq!(
         facts.record(&world.identity, exited()).await,
@@ -301,8 +301,8 @@ mod the_edge_over_trees {
         assert_eq!(book.cover, Some(tree()));
         assert_eq!(book.pages.len(), 1);
         assert_eq!(
-            answered.outcome.map(|o| o.delivery),
-            Some(angzarr_embedded::v1::DeliveryOutcome::Applied as i32)
+            answered.delivery,
+            angzarr_embedded::v1::DeliveryOutcome::Applied
         );
         let book = edge
             .handle(occupy("s"))

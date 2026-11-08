@@ -25,6 +25,14 @@ const SECOND: &str = "5f0c7a52-2222-5222-8222-000000000002";
 
 type Said = (String, BTreeMap<String, String>);
 
+/// The domain's rejection a typed refusal is, by its type.
+fn refused(rejected: &angzarr_embedded::Rejected) -> SessionRejection {
+    let typed = rejected
+        .rejection::<angzarr_embedded::markup::TypedRefusal>()
+        .expect("a typed refusal");
+    SessionRejection::try_from(typed).expect("a refusal of this domain")
+}
+
 fn said(diagnostic: &dyn Diagnostic) -> Said {
     let args = diagnostic
         .args()
@@ -66,7 +74,7 @@ impl Claim {
     fn run(&mut self, command: impl Into<NameClaimCommand>) -> Result<Vec<NameClaimEvent>, Said> {
         match self.harness.when(command).result() {
             Ok(events) => Ok(events),
-            Err(Failure::Rejected(rejected)) => Err(said(&rejected)),
+            Err(Failure::Rejected(rejected)) => Err(said(&refused(&rejected))),
             Err(other) => panic!("not a rejection: {other:?}"),
         }
     }

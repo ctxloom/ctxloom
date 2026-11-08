@@ -151,6 +151,56 @@ fn test_no_store_wide_position_is_anywhere_in_the_workspace_sources() {
     assert!(hits.is_empty(), "a commit position is back: {hits:#?}");
 }
 
+/// The terms that spell a refusal's business status. A status exists
+/// EXCLUSIVELY as the `(refusal_status)` option of a message of the protos;
+/// the Rust sources hold none (the generated `REFUSAL_STATUS` constant,
+/// derived from the proto, is the one way to name it, and carries none of
+/// these). Spelled in pieces so this file does not hold them itself.
+fn statuses() -> Vec<String> {
+    [
+        concat!("with", "_status"),
+        concat!("Business", "Status::"),
+        concat!("Refusal", "Status::"),
+        concat!("REFUSAL_", "STATUS_"),
+        concat!("FAILED_", "PRECONDITION"),
+        concat!("INVALID_", "ARGUMENT"),
+        concat!("ALREADY_", "EXISTS"),
+        concat!("PERMISSION_", "DENIED"),
+        concat!("OUT_OF_", "RANGE"),
+        concat!("NOT", "_FOUND"),
+    ]
+    .map(String::from)
+    .to_vec()
+}
+
+/// No refusal status is spelled in any Rust source: not a constant, a table,
+/// a default or a status override. This file included (its terms are
+/// spelled in pieces).
+#[test]
+fn test_no_refusal_status_is_spelled_in_the_rust_sources() {
+    let root = super::repo_root();
+    let mut all = Vec::new();
+    files(&root.join("crates"), &mut all);
+    let mut scanned = 0;
+    let mut hits = Vec::new();
+    for path in all {
+        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+            continue;
+        }
+        let Ok(text) = files::read(&path) else {
+            continue;
+        };
+        scanned += 1;
+        for term in statuses() {
+            if text.contains(&term) {
+                hits.push(format!("{}: {term}", path.display()));
+            }
+        }
+    }
+    assert!(scanned > 100, "scanned only {scanned} Rust files");
+    assert!(hits.is_empty(), "a status is spelled in Rust: {hits:#?}");
+}
+
 #[test]
 fn test_annals_has_left_the_workspace() {
     let output = std::process::Command::new(env!("CARGO"))

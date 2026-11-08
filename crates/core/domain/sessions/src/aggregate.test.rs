@@ -27,6 +27,14 @@ pub(crate) const HARP: &str = "amber-swift-owl";
 /// (decision 14.37: a key and a map, never English).
 pub(crate) type Said = (String, BTreeMap<String, String>);
 
+/// The domain's rejection a typed refusal is, by its type.
+fn refused(rejected: &angzarr_embedded::Rejected) -> SessionRejection {
+    let typed = rejected
+        .rejection::<angzarr_embedded::markup::TypedRefusal>()
+        .expect("a typed refusal");
+    SessionRejection::try_from(typed).expect("a refusal of this domain")
+}
+
 pub(crate) fn said(diagnostic: &dyn Diagnostic) -> Said {
     let args = diagnostic
         .args()
@@ -89,7 +97,7 @@ impl Session {
     ) -> Result<Vec<SessionEvent>, Said> {
         match self.harness.when(command).result() {
             Ok(events) => Ok(events),
-            Err(Failure::Rejected(rejected)) => Err(said(&rejected)),
+            Err(Failure::Rejected(rejected)) => Err(said(&refused(&rejected))),
             Err(other) => panic!("not a rejection: {other:?}"),
         }
     }
@@ -111,7 +119,7 @@ impl Session {
                 .iter()
                 .filter(|book| book.cover.as_ref() == Some(&cover()))
                 .flat_map(|book| &book.pages)
-                .map(|page| SessionEvent::from_any(page.payload.as_ref().unwrap()).unwrap())
+                .map(|page| SessionEvent::from_any(event_any(page)).unwrap())
                 .collect()),
             _ => Ok(Vec::new()),
         }
@@ -130,14 +138,14 @@ impl Session {
             page: Some(CommandPage {
                 body: Some(command_page::Body::Fact(Fact {
                     payload: Some(Any::from_msg(&fact.to_wire()).unwrap()),
+                    origin: Some(FactOrigin {
+                        external_id: external_id.to_string(),
+                        description: String::new(),
+                    }),
                 })),
-                fact_origin: Some(FactOrigin {
-                    external_id: external_id.to_string(),
-                    description: String::new(),
-                }),
+
                 ..CommandPage::default()
             }),
-            handling: None,
         };
         self.harness.when_book(book).events()
     }
@@ -415,7 +423,10 @@ fn a_bind_fact_carries_its_external_id_and_a_repeat_is_a_duplicate() {
         .pages()
         .last()
         .and_then(|page| page.meta.clone())
-        .and_then(|meta| meta.fact)
+        .and_then(|meta| match meta.causation {
+            Some(angzarr_embedded::v1::event_meta::Causation::Fact(cause)) => cause.origin,
+            _ => None,
+        })
         .expect("the event records its fact origin");
     assert_eq!(
         origin.external_id,
@@ -431,8 +442,10 @@ fn a_bind_fact_carries_its_external_id_and_a_repeat_is_a_duplicate() {
 #[test]
 fn a_transcript_only_bind_is_identified_by_its_transcript() {
     let book = |path: &str| crate::bind_book(cover(), &bind("", path));
-    let id =
-        |b: angzarr_embedded::v1::CommandBook| b.page.unwrap().fact_origin.unwrap().external_id;
+    let id = |b: angzarr_embedded::v1::CommandBook| match b.page.unwrap().body.unwrap() {
+        angzarr_embedded::v1::command_page::Body::Fact(fact) => fact.origin.unwrap().external_id,
+        other => panic!("not a fact: {other:?}"),
+    };
     assert_eq!(
         id(book("/t0")),
         "bind:07070707-0707-0707-0707-070707070707:path:/t0"
@@ -798,3 +811,11 @@ pub(crate) mod tests_support {
 
 #[path = "stable_id.test.rs"]
 mod stable_id;
+
+/// The domain event a page carries.
+fn event_any(page: &angzarr_embedded::v1::EventPage) -> &angzarr_embedded::Any {
+    match &page.body {
+        Some(angzarr_embedded::v1::event_page::Body::Event(event)) => event,
+        other => panic!("not a domain event: {other:?}"),
+    }
+}

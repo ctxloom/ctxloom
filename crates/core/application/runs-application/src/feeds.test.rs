@@ -137,10 +137,11 @@ async fn mail_from_outside_the_runs_workflow_is_caught_by_the_inbox_catch_up() {
     );
     let inbox = feeds.inbox(who, 0).await.unwrap();
     assert!(
-        inbox.iter().any(|page| page
-            .payload
-            .as_ref()
-            .is_some_and(|any| any.type_url.ends_with("MessageArrived"))),
+        inbox.iter().any(|page| matches!(
+            &page.body,
+            Some(angzarr_embedded::v1::event_page::Body::Event(any))
+                if any.type_url.ends_with("MessageArrived")
+        )),
         "the inbox catch-up finds it"
     );
 }

@@ -3,9 +3,13 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
+use angzarr_embedded::markup::TypedRefusal;
 use angzarr_embedded::{Failure, Rejected};
 use run_ports::Unserved;
+use runs::RunRejection;
+use sessions::SessionRejection;
+use trees::TreeRejection;
 
 /// Why a credential did not identify. For the AUDIT only: the caller is told
 /// nothing of which (plan 5.3; listener plan 4.3: "never the token").
@@ -50,7 +54,7 @@ impl AppError {
     pub(crate) fn from_failure(failure: Failure<Rejected>) -> AppError {
         match failure {
             Failure::Rejected(rejected) => {
-                let report = rejected.report();
+                let report = domain_report(&rejected);
                 AppError::Refused {
                     code: report.code().to_string(),
                     args: report
@@ -65,6 +69,24 @@ impl AppError {
             },
         }
     }
+}
+
+/// What the domain refused with, as its stable code and args: the refusal's
+/// TYPE read back as the rejection of the domain that raised it (the runs',
+/// the sessions' or the trees'), and never its business status. A refusal of
+/// none of them (the coordinator's own) is reported as the runtime made it.
+fn domain_report(rejected: &Rejected) -> Report {
+    let report = |rejection: &dyn Diagnostic| Report::of(rejection);
+    rejected
+        .rejection::<TypedRefusal>()
+        .and_then(|typed| {
+            RunRejection::try_from(typed)
+                .ok()
+                .map(|r| report(&r))
+                .or_else(|| SessionRejection::try_from(typed).ok().map(|r| report(&r)))
+                .or_else(|| TreeRejection::try_from(typed).ok().map(|r| report(&r)))
+        })
+        .unwrap_or_else(|| rejected.report().clone())
 }
 
 /// An arg as text: a number or string as it is, a cause as its code.

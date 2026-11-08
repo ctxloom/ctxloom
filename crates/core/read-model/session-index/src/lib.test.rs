@@ -111,10 +111,10 @@ fn book(id: u8, payload: Any) -> CommandBook {
         page: Some(CommandPage {
             body: Some(command_page::Body::Command(Command {
                 payload: Some(payload),
+                handling: None,
             })),
             ..CommandPage::default()
         }),
-        handling: None,
     }
 }
 
@@ -423,4 +423,23 @@ fn an_event_the_index_cannot_read_is_a_bug_naming_it() {
     let error = sessions::SessionEvent::from_any(&any).unwrap_err();
     let coded = super::bug(&error);
     assert!(format!("{coded:?}").contains("Nope"), "{coded:?}");
+}
+
+// A framework meta-event on a session stream is no session event: it is not
+// folded, and not the projector's bug.
+#[test]
+fn a_meta_event_is_not_folded() {
+    use angzarr_embedded::v1::{event_page, EventBook, EventPage, MetaEvent};
+    let mut index = SessionIndex::new();
+    let meta = EventBook {
+        cover: Some(cover(FIRST)),
+        pages: vec![EventPage {
+            sequence: 0,
+            body: Some(event_page::Body::MetaEvent(MetaEvent::default())),
+            meta: None,
+        }],
+        next_sequence: 1,
+        ..EventBook::default()
+    };
+    index.project(&meta).unwrap();
 }

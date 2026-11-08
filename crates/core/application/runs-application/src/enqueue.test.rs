@@ -60,7 +60,10 @@ async fn the_enqueue_journals_the_digest_and_never_the_token() {
         .pages(&cover)
         .await
         .into_iter()
-        .flat_map(|page| page.payload.map(|any| any.value).unwrap_or_default())
+        .flat_map(|page| match page.body {
+            Some(angzarr_embedded::v1::event_page::Body::Event(any)) => any.value,
+            _ => Vec::new(),
+        })
         .collect();
     for token in [&enqueued.runner_token, &enqueued.model_token] {
         let digest = token.hash();

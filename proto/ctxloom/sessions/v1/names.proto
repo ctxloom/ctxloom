@@ -11,9 +11,8 @@ import "io/angzarr/v1/options.proto";
 
 message NameClaimState {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_AGGREGATE
-    domain: "session-names"
-    name: "NameClaim"
+    component_name: "name-claim"
+    aggregate: {domain: "session-names"}
   };
 
   string project_id = 1;
@@ -31,6 +30,7 @@ message ClaimName {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.sessions.v1.NameClaimState"
     emits: ["ctxloom.sessions.v1.Claimed"]
+    refuses: "ctxloom.sessions.v1.NamesTaken"
   };
 
   string project_id = 1;
@@ -43,6 +43,8 @@ message ReleaseName {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.sessions.v1.NameClaimState"
     emits: ["ctxloom.sessions.v1.Released"]
+    refuses: "ctxloom.sessions.v1.NoClaim"
+    refuses: "ctxloom.sessions.v1.NotHolder"
   };
 
   string session = 1;
@@ -59,3 +61,32 @@ message Claimed {
 message Released {
   option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.NameClaimState"};
 }
+
+// region refusals
+//
+// A command's refusals, one typed message each, listed in the `refuses` of
+// the commands that raise them. The status is the gRPC meaning of what is
+// refused, declared here and nowhere else; the code, args and text a person
+// reads are the domain's `SessionRejection` (`rejection.rs`), mapped from
+// the refusal's TYPE, never its status.
+
+// A claim on a name another session holds.
+message NamesTaken {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_ALREADY_EXISTS;
+
+  string harp = 1;
+}
+
+// A release of a name nobody holds.
+message NoClaim {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
+}
+
+// A release by a session that does not hold the name.
+message NotHolder {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string harp = 1;
+}
+
+// endregion refusals

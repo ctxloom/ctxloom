@@ -112,10 +112,10 @@ impl Wiring {
                 page: Some(CommandPage {
                     body: Some(command_page::Body::Command(Command {
                         payload: Some(command.to_any()),
+                        handling: None,
                     })),
                     ..CommandPage::default()
                 }),
-                handling: None,
             };
             run_book(at, book)
         };
@@ -255,10 +255,10 @@ async fn claim_name<S: Store + ReadStore + Processed + Send + Sync>(
                 page: Some(CommandPage {
                     body: Some(command_page::Body::Command(Command {
                         payload: Some(claim.to_any()),
+                        handling: None,
                     })),
                     ..CommandPage::default()
                 }),
-                handling: None,
             },
             &Sampled {
                 now: started,

@@ -14,11 +14,11 @@ prost.workspace = true
 run-ports.workspace = true
 runs.workspace = true
 sessions.workspace = true
+trees.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
 angzarr-embedded = { workspace = true, features = ["test-support"] }
-trees.workspace = true
 run-ports = { workspace = true, features = ["test-support"] }
 mutants.workspace = true
 sha2.workspace = true

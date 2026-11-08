@@ -16,6 +16,7 @@
 //! without never displaces), `AppendRotations`, `SetKeep`, `Rename`,
 //! `Forget` and `harp.Validate`.
 
+#[allow(dead_code)]
 mod generated {
     include!(concat!(env!("OUT_DIR"), "/ctxloom.sessions.v1.domain.rs"));
 }
@@ -24,16 +25,27 @@ mod harp;
 mod inbox;
 mod lifeline;
 mod names;
+mod refusal;
 mod rejection;
 mod state;
 
 use angzarr_embedded::Timestamp;
+
+/// The session aggregate's commands, one variant per command type.
+pub type SessionCommand = SessionStateCommand;
+/// The session aggregate's events, one variant per event type.
+pub type SessionEvent = SessionStateEvent;
+/// The name-claim aggregate's commands, one variant per command type.
+pub type NameClaimCommand = NameClaimStateCommand;
+/// The name-claim aggregate's events, one variant per event type.
+pub type NameClaimEvent = NameClaimStateEvent;
 
 pub use aggregate::SessionAggregate;
 pub use generated::*;
 pub use harp::{validate, validate_rename, MAX_NAME_LEN};
 pub use lifeline::RELAUNCH_BUDGET;
 pub use names::{claim_root, project_namespace, NameClaimAggregate};
+pub use refusal::NotOurs;
 #[cfg(any(test, feature = "test-support"))]
 pub use rejection::diagnostic_samples;
 pub use rejection::{SessionRejection, EN_US};
@@ -119,6 +131,15 @@ fn stamped(rotation: &Rotation, recorded_at: Timestamp) -> Rotation {
         rotated_at: Some(rotation.rotated_at.unwrap_or(recorded_at)),
         ..rotation.clone()
     }
+}
+
+/// A fact's answer: the event it records, or none when it changed nothing.
+pub(crate) fn record<E: angzarr_embedded::markup::DomainMessage>(
+    event: Option<E>,
+) -> Result<angzarr_embedded::markup::FactEmit<SessionAggregate>, angzarr_embedded::markup::Bug> {
+    Ok(angzarr_embedded::markup::FactEmit::of(event.map(|event| {
+        angzarr_embedded::markup::pack_message(&event)
+    })))
 }
 
 /// What a mint records: refused when the stream is `taken` (it holds a
@@ -318,14 +339,13 @@ pub fn bind_book(
                 payload: Some(
                     angzarr_embedded::Any::from_msg(&bind.to_wire()).expect("a bind encodes"),
                 ),
+                origin: Some(FactOrigin {
+                    external_id: format!("bind:{session}:{key}"),
+                    description: String::new(),
+                }),
             })),
-            fact_origin: Some(FactOrigin {
-                external_id: format!("bind:{session}:{key}"),
-                description: String::new(),
-            }),
             ..CommandPage::default()
         }),
-        handling: None,
     }
 }
 

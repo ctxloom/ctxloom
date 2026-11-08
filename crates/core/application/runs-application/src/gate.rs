@@ -7,7 +7,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use angzarr_embedded::markup::DomainMessage;
-use angzarr_embedded::v1::{Cover, EventPage, Uuid};
+use angzarr_embedded::v1::{event_page, Cover, EventPage, Uuid};
 use angzarr_embedded::{Payload, StoreError};
 use run_ports::{Edge, Token, TokenHash};
 
@@ -31,7 +31,10 @@ fn url<M: DomainMessage>() -> String {
 
 /// A page's event as `E`, if it is one.
 fn decode<E: Payload>(page: &EventPage) -> Option<E> {
-    E::from_any(page.payload.as_ref()?).ok()
+    match page.body.as_ref()? {
+        event_page::Body::Event(event) => E::from_any(event).ok(),
+        event_page::Body::MetaEvent(_) => None,
+    }
 }
 
 /// A store that could not be read.

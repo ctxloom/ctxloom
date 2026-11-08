@@ -173,13 +173,40 @@ The rules:
   never an aggregate. There is no commit position, fork point or global
   position anywhere (a test greps the sources for them).
 
+## A refusal is a typed message; its status lives in the proto alone
+
+A command refuses with a typed refusal MESSAGE of ctxloom's own protos
+(`proto/ctxloom/...`, and the scheduler's under `proto/io/angzarr/scheduler`),
+one per rejection, listed in the `refuses` of the commands that raise it, each
+with a `(refusal_status)` MESSAGE option (no default; the standard gRPC
+meaning: NOT_FOUND for a missing thing, ALREADY_EXISTS for a taken name,
+INVALID_ARGUMENT for a bad argument, FAILED_PRECONDITION when state forbids,
+PERMISSION_DENIED when the requester may not). That option is the only place a
+status is spelled: no Rust source holds a status constant, table, default or
+`with_status` call (a test greps `crates/**/*.rs` for them); the one way Rust
+names it is the generated `REFUSAL_STATUS` constant the `refuse!` macro of a
+domain's `refusal.rs` reads. What a person is told (the crate-prefixed code,
+its args, the en-US message) is the domain's `*Rejection` diagnostic, mapped
+back from the refusal's TYPE by `TryFrom<&TypedRefusal>` and by nothing else,
+never from its status: `sessions-application`'s `typed::run` for the sessions
+commands, `runs-application`'s `AppError::from_failure` for the edge.
+
+A fact is keyed by its `Fact.origin.external_id` (`FactOrigin`): the
+coordinator derives the fact's command id from it, so a redelivery to one
+stream is a DUPLICATE; the event it produces records the origin on its
+`Causation::Fact`. A fact the kernel dead-letters is answered
+`ANGZARR_REASON_FACT_DEAD_LETTERED`, which the runs application reports as
+`Recorded::Parked` (final, never retried).
+
 ## The pins: one of each
 
 The lock holds ONE `angzarr-embedded`, `angzarr-proto`, `angzarr-ports` and
 `angzarr-diagnostic` (a test reads Cargo.lock). Every pin in `Cargo.toml` is
-a full commit. The angzarr pins are one line (angzarr-embedded 9db9299,
-core dd59566, angzarr-cli b47c357, angzarr-platform 7b448a8); taskloom's
-crates (71bfc28) and ctxloom-lib's (c66dd6b) are built on it, so moving one
+a full commit. The angzarr pins are one line (angzarr-embedded e3e22db on
+angzarr-router d2b019f, core 44143e6, angzarr-build ea9f15d (the markup
+generator, `angzarr-build` and `angzarr-codegen`, its own repository),
+angzarr-platform b25486d); taskloom's crates (f1954cc) and ctxloom-lib's
+(72a4dd4) are built on it, so moving one
 moves all. The lock holds one of every angzarr crate. The platform crates (`os`, `file-system`, `file-lock`) are
 angzarr-platform's, and `angzarr-presentation` and `angzarr-diagnostic` are
 angzarr core's, all `Apache-2.0 OR BSD-3-Clause`; this workspace is

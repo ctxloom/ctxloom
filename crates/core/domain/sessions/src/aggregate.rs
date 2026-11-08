@@ -13,18 +13,20 @@
 //! - one `#[applies]` per event, folding at its page's `recorded_at`;
 //! - no snapshot: a session's stream is short, and every load replays it.
 
-use angzarr_embedded::markup::{Context, Failed, PageContext, Record};
+use angzarr_embedded::markup::{Bug, Context, FactEmit, Failed, PageContext, Refuses};
 use angzarr_embedded_macros::{aggregate, applies, handles_cmd, handles_fact};
 
+use crate::refusal::refuse;
 use crate::{
-    adopted, end_recorded, engine_bound, forgotten, inbox, kept_changed, lifeline, purged, renamed,
-    session_minted, AdoptRotations, BindEngineSession, ClaimMessage, DeliverMessage, EndRecorded,
-    EngineSessionBound, FailMessage, ForgetSession, IncarnationEnded, IncarnationOwed, KeptChanged,
-    MessageArrived, MessageClaimed, MessageDelivered, MessageFailed, MintSession, RecordEnd,
-    RecordIncarnationEnded, RecordMessageArrived, RecordPurge, RenameSession, RenamedTo,
-    SessionAdopted, SessionCommand, SessionEvent, SessionForgotten, SessionMinted, SessionPurged,
-    SessionRejection, SessionState, SetKept, SteerWithdrawn, StopOrdered, StopSession,
-    WithdrawSteer,
+    adopted, end_recorded, engine_bound, forgotten, inbox, kept_changed, lifeline, purged, record,
+    renamed, session_minted, AdoptRotations, AlreadyDelivered, BindEngineSession, ChildCannotStop,
+    ClaimMessage, DeliverMessage, EndRecorded, EngineSessionBound, FailMessage, ForgetSession,
+    Forgotten, HarpInvalid, HarpTooLong, IncarnationEnded, IncarnationOwed, KeptChanged,
+    MessageArrived, MessageClaimed, MessageDelivered, MessageFailed, MintSession, NoSession,
+    RecordEnd, RecordIncarnationEnded, RecordMessageArrived, RecordPurge, RenameSession, RenamedTo,
+    SessionAdopted, SessionCommand, SessionEvent, SessionExists, SessionForgotten, SessionMinted,
+    SessionPurged, SessionRejection, SessionState, SetKept, SteerWithdrawn, StopOrdered,
+    StopSession, UnknownMessage, WithdrawSteer,
 };
 
 /// The session aggregate: one session, folded from its stream.
@@ -53,14 +55,21 @@ fn fold(session: &mut SessionState, event: SessionEvent, page: &PageContext) {
 impl SessionAggregate {
     /// Create the session in the stream the caller addressed: refused on a
     /// stream with history, recorded at `ctx.recorded_at()`.
-    #[handles_cmd(MintSession)]
+    #[handles_cmd(MintSession, refuses(SessionExists, HarpInvalid))]
     fn mint(
         &self,
         cmd: MintSession,
         ctx: &Context,
-    ) -> Result<(SessionMinted, IncarnationOwed), Failed<SessionRejection>> {
+    ) -> Result<(SessionMinted, IncarnationOwed), Failed<Refuses<Self, MintSession>>> {
         let taken = ctx.command.had_prior_events;
-        let minted = session_minted(&self.session, taken, &cmd)?;
+        let minted = session_minted(&self.session, taken, &cmd).map_err(|rejection| {
+            refuse!(
+                SessionRejection,
+                rejection,
+                Refuses<Self, MintSession>,
+                [SessionExists{harp} => SessionExists, HarpInvalid{harp, reason} => HarpInvalid]
+            )
+        })?;
         // Owner ruling 2026-11-04 (S5 review Q1 (b)): a new session owes its
         // first incarnation in the same decision.
         Ok((minted, lifeline::first_owed()))
@@ -70,97 +79,156 @@ impl SessionAggregate {
     /// 2026-11-04, S5 review item 8), so it is never refused; records nothing
     /// when it changes nothing, or when the stream holds no live session.
     #[handles_fact(BindEngineSession)]
-    fn bind(&self, fact: BindEngineSession, ctx: &Context) -> Record<Self> {
+    fn bind(&self, fact: BindEngineSession, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
-        Record::of(engine_bound(&self.session, &fact).ok().flatten())
+        record(engine_bound(&self.session, &fact).ok().flatten())
     }
 
     /// Mark or unmark the transcript kept; `None` when it changes nothing.
-    #[handles_cmd(SetKept)]
+    #[handles_cmd(SetKept, refuses(NoSession, Forgotten))]
     fn set_kept(
         &self,
         cmd: SetKept,
         ctx: &Context,
-    ) -> Result<Option<KeptChanged>, Failed<SessionRejection>> {
+    ) -> Result<Option<KeptChanged>, Failed<Refuses<Self, SetKept>>> {
         let _ = ctx;
-        Ok(kept_changed(&self.session, &cmd)?)
+        kept_changed(&self.session, &cmd).map_err(|rejection| {
+            refuse!(
+                SessionRejection,
+                rejection,
+                Refuses<Self, SetKept>,
+                [NoSession => NoSession, Forgotten{harp} => Forgotten]
+            )
+        })
     }
 
     /// Rename the session; `None` when the name is the one held.
-    #[handles_cmd(RenameSession)]
+    #[handles_cmd(RenameSession, refuses(NoSession, Forgotten, HarpInvalid, HarpTooLong))]
     fn rename(
         &self,
         cmd: RenameSession,
         ctx: &Context,
-    ) -> Result<Option<RenamedTo>, Failed<SessionRejection>> {
+    ) -> Result<Option<RenamedTo>, Failed<Refuses<Self, RenameSession>>> {
         let _ = ctx;
-        Ok(renamed(&self.session, &cmd)?)
+        renamed(&self.session, &cmd).map_err(|rejection| {
+            refuse!(
+                SessionRejection,
+                rejection,
+                Refuses<Self, RenameSession>,
+                [NoSession => NoSession, Forgotten{harp} => Forgotten, HarpInvalid{harp, reason} => HarpInvalid, HarpTooLong{harp, limit, length} => HarpTooLong]
+            )
+        })
     }
 
     /// Record that a purge destroyed the transcript.
-    #[handles_cmd(RecordPurge)]
+    #[handles_cmd(RecordPurge, refuses(NoSession, Forgotten))]
     fn record_purge(
         &self,
         cmd: RecordPurge,
         ctx: &Context,
-    ) -> Result<SessionPurged, Failed<SessionRejection>> {
+    ) -> Result<SessionPurged, Failed<Refuses<Self, RecordPurge>>> {
         let _ = ctx;
-        Ok(purged(&self.session, &cmd)?)
+        purged(&self.session, &cmd).map_err(|rejection| {
+            refuse!(
+                SessionRejection,
+                rejection,
+                Refuses<Self, RecordPurge>,
+                [NoSession => NoSession, Forgotten{harp} => Forgotten]
+            )
+        })
     }
 
     /// Forget the session, keeping its stream.
-    #[handles_cmd(ForgetSession)]
+    #[handles_cmd(ForgetSession, refuses(NoSession, Forgotten))]
     fn forget(
         &self,
         cmd: ForgetSession,
         ctx: &Context,
-    ) -> Result<SessionForgotten, Failed<SessionRejection>> {
+    ) -> Result<SessionForgotten, Failed<Refuses<Self, ForgetSession>>> {
         let _ = (cmd, ctx);
-        Ok(forgotten(&self.session)?)
+        forgotten(&self.session).map_err(|rejection| {
+            refuse!(
+                SessionRejection,
+                rejection,
+                Refuses<Self, ForgetSession>,
+                [NoSession => NoSession, Forgotten{harp} => Forgotten]
+            )
+        })
     }
 
     /// Adopt rotations the lineage lacks; `None` when it lacks none.
-    #[handles_cmd(AdoptRotations)]
+    #[handles_cmd(AdoptRotations, refuses(NoSession, Forgotten))]
     fn adopt(
         &self,
         cmd: AdoptRotations,
         ctx: &Context,
-    ) -> Result<Option<SessionAdopted>, Failed<SessionRejection>> {
+    ) -> Result<Option<SessionAdopted>, Failed<Refuses<Self, AdoptRotations>>> {
         let _ = ctx;
-        Ok(adopted(&self.session, &cmd)?)
+        adopted(&self.session, &cmd).map_err(|rejection| {
+            refuse!(
+                SessionRejection,
+                rejection,
+                Refuses<Self, AdoptRotations>,
+                [NoSession => NoSession, Forgotten{harp} => Forgotten]
+            )
+        })
     }
 
     /// Record when the last run ended.
-    #[handles_cmd(RecordEnd)]
+    #[handles_cmd(RecordEnd, refuses(NoSession, Forgotten))]
     fn record_end(
         &self,
         cmd: RecordEnd,
         ctx: &Context,
-    ) -> Result<EndRecorded, Failed<SessionRejection>> {
+    ) -> Result<EndRecorded, Failed<Refuses<Self, RecordEnd>>> {
         let _ = ctx;
-        Ok(end_recorded(&self.session, &cmd)?)
+        end_recorded(&self.session, &cmd).map_err(|rejection| {
+            refuse!(
+                SessionRejection,
+                rejection,
+                Refuses<Self, RecordEnd>,
+                [NoSession => NoSession, Forgotten{harp} => Forgotten]
+            )
+        })
     }
 
     /// Order the session's runs to stop; refused from a child.
-    #[handles_cmd(StopSession)]
+    #[handles_cmd(StopSession, refuses(NoSession, Forgotten, ChildCannotStop))]
     fn stop_session(
         &self,
         cmd: StopSession,
         ctx: &Context,
-    ) -> Result<Option<StopOrdered>, Failed<SessionRejection>> {
+    ) -> Result<Option<StopOrdered>, Failed<Refuses<Self, StopSession>>> {
         let _ = ctx;
-        Ok(lifeline::stop_ordered(&self.session, &cmd)?)
+        lifeline::stop_ordered(&self.session, &cmd).map_err(|rejection| {
+            refuse!(
+                SessionRejection,
+                rejection,
+                Refuses<Self, StopSession>,
+                [NoSession => NoSession, Forgotten{harp} => Forgotten, ChildCannotStop{depth} => ChildCannotStop]
+            )
+        })
     }
 
     /// Withdraw a queued steer.
-    #[handles_cmd(WithdrawSteer)]
+    #[handles_cmd(
+        WithdrawSteer,
+        refuses(NoSession, Forgotten, UnknownMessage, AlreadyDelivered)
+    )]
     fn withdraw_steer(
         &self,
         cmd: WithdrawSteer,
         ctx: &Context,
-    ) -> Result<Option<SteerWithdrawn>, Failed<SessionRejection>> {
+    ) -> Result<Option<SteerWithdrawn>, Failed<Refuses<Self, WithdrawSteer>>> {
         let _ = ctx;
-        Ok(inbox::withdrawn(&self.session, &cmd)?)
+        inbox::withdrawn(&self.session, &cmd).map_err(|rejection| {
+            refuse!(
+                SessionRejection,
+                rejection,
+                Refuses<Self, WithdrawSteer>,
+                [NoSession => NoSession, Forgotten{harp} => Forgotten, UnknownMessage{message_id} => UnknownMessage, AlreadyDelivered{message_id} => AlreadyDelivered]
+            )
+        })
     }
 
     /// A run's end, told by the policy run to session (a fact).
@@ -169,31 +237,35 @@ impl SessionAggregate {
         &self,
         fact: RecordIncarnationEnded,
         ctx: &Context,
-    ) -> Record<Self> {
+    ) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
         lifeline::ended(&self.session, &fact)
     }
 
     #[handles_fact(RecordMessageArrived)]
-    fn message_arrived(&self, fact: RecordMessageArrived, ctx: &Context) -> Record<Self> {
+    fn message_arrived(
+        &self,
+        fact: RecordMessageArrived,
+        ctx: &Context,
+    ) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
         inbox::arrived(&self.session, &fact)
     }
 
     #[handles_fact(ClaimMessage)]
-    fn claim_message(&self, fact: ClaimMessage, ctx: &Context) -> Record<Self> {
+    fn claim_message(&self, fact: ClaimMessage, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
         inbox::claimed(&self.session, &fact)
     }
 
     #[handles_fact(DeliverMessage)]
-    fn deliver_message(&self, fact: DeliverMessage, ctx: &Context) -> Record<Self> {
+    fn deliver_message(&self, fact: DeliverMessage, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
         inbox::delivered(&self.session, &fact)
     }
 
     #[handles_fact(FailMessage)]
-    fn fail_message(&self, fact: FailMessage, ctx: &Context) -> Record<Self> {
+    fn fail_message(&self, fact: FailMessage, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
         inbox::failed(&self.session, &fact)
     }

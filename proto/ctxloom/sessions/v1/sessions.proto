@@ -17,9 +17,8 @@ import "io/angzarr/v1/options.proto";
 // prompt of its transcript, and the state is `Liveness`'s.
 message SessionState {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_AGGREGATE
-    domain: "sessions"
-    name: "Session"
+    component_name: "session"
+    aggregate: {domain: "sessions"}
   };
 
   // The harp: the session's name, which a rename changes.
@@ -109,6 +108,8 @@ message MintSession {
     // Owner ruling 2026-11-04 (S5 review Q1 (b)): a mint also records the
     // session's first owed incarnation.
     emits: ["ctxloom.sessions.v1.SessionMinted", "ctxloom.sessions.v1.IncarnationOwed"]
+    refuses: "ctxloom.sessions.v1.SessionExists"
+    refuses: "ctxloom.sessions.v1.HarpInvalid"
   };
 
   string harp = 1;
@@ -134,10 +135,9 @@ message MintSession {
 // different id that names a transcript is a rotation; a different id naming
 // no transcript never displaces the binding; nothing at all records nothing.
 message BindEngineSession {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.EngineSessionBound"]
-    fact: true
   };
 
   string native_id = 1;
@@ -151,6 +151,8 @@ message SetKept {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.KeptChanged"]
+    refuses: "ctxloom.sessions.v1.NoSession"
+    refuses: "ctxloom.sessions.v1.Forgotten"
   };
 
   bool kept = 1;
@@ -163,6 +165,10 @@ message RenameSession {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.RenamedTo"]
+    refuses: "ctxloom.sessions.v1.NoSession"
+    refuses: "ctxloom.sessions.v1.Forgotten"
+    refuses: "ctxloom.sessions.v1.HarpInvalid"
+    refuses: "ctxloom.sessions.v1.HarpTooLong"
   };
 
   string harp = 1;
@@ -176,6 +182,8 @@ message RecordPurge {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.SessionPurged"]
+    refuses: "ctxloom.sessions.v1.NoSession"
+    refuses: "ctxloom.sessions.v1.Forgotten"
   };
 
   uint64 files = 1;
@@ -189,6 +197,8 @@ message ForgetSession {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.SessionForgotten"]
+    refuses: "ctxloom.sessions.v1.NoSession"
+    refuses: "ctxloom.sessions.v1.Forgotten"
   };
 }
 
@@ -199,6 +209,8 @@ message AdoptRotations {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.SessionAdopted"]
+    refuses: "ctxloom.sessions.v1.NoSession"
+    refuses: "ctxloom.sessions.v1.Forgotten"
   };
 
   repeated Rotation rotations = 1;
@@ -211,6 +223,8 @@ message RecordEnd {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.EndRecorded"]
+    refuses: "ctxloom.sessions.v1.NoSession"
+    refuses: "ctxloom.sessions.v1.Forgotten"
   };
 
   google.protobuf.Timestamp at = 1;
@@ -309,6 +323,9 @@ message StopSession {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.StopOrdered"]
+    refuses: "ctxloom.sessions.v1.NoSession"
+    refuses: "ctxloom.sessions.v1.Forgotten"
+    refuses: "ctxloom.sessions.v1.ChildCannotStop"
   };
 
   uint32 requester_depth = 1;
@@ -320,6 +337,10 @@ message WithdrawSteer {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.SteerWithdrawn"]
+    refuses: "ctxloom.sessions.v1.NoSession"
+    refuses: "ctxloom.sessions.v1.Forgotten"
+    refuses: "ctxloom.sessions.v1.UnknownMessage"
+    refuses: "ctxloom.sessions.v1.AlreadyDelivered"
   };
 
   string message_id = 1;
@@ -331,10 +352,9 @@ message WithdrawSteer {
 // budget allows, it is not stopped and the cause is not `stopped`;
 // otherwise it gives up and notices the parent.
 message RecordIncarnationEnded {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.IncarnationEnded"]
-    fact: true
   };
 
   uint32 incarnation = 1;
@@ -344,10 +364,9 @@ message RecordIncarnationEnded {
 // Mail arrived (a fact, from the policy that routes a send to the
 // recipient's session). external_id `arrive:<session>:<message_id>`.
 message RecordMessageArrived {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.MessageArrived"]
-    fact: true
   };
 
   string message_id = 1;
@@ -358,10 +377,9 @@ message RecordMessageArrived {
 
 // external_id `claim:<session>:<message_id>:<claimant>`.
 message ClaimMessage {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.MessageClaimed"]
-    fact: true
   };
 
   string message_id = 1;
@@ -371,10 +389,9 @@ message ClaimMessage {
 // external_id `deliver:<session>:<message_id>`; deduplicated by id (Go's
 // `in/delivered/`).
 message DeliverMessage {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.MessageDelivered"]
-    fact: true
   };
 
   string message_id = 1;
@@ -382,10 +399,9 @@ message DeliverMessage {
 }
 
 message FailMessage {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.MessageFailed"]
-    fact: true
   };
 
   string message_id = 1;
@@ -451,3 +467,71 @@ message MessageFailed {
 }
 
 // endregion lifeline and inbox
+
+// region refusals
+//
+// A command's refusals, one typed message each, listed in the `refuses` of
+// the commands that raise them. The status is the gRPC meaning of what is
+// refused, declared here and nowhere else; the code, args and text a person
+// reads are the domain's `SessionRejection` (`rejection.rs`), mapped from
+// the refusal's TYPE, never its status.
+
+// A mint on a stream that already holds a session.
+message SessionExists {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_ALREADY_EXISTS;
+
+  string harp = 1;
+}
+
+// A command to a stream holding no session.
+message NoSession {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
+}
+
+// A command to a session that was forgotten (`session remove --yes`).
+message Forgotten {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string harp = 1;
+}
+
+// A harp that cannot be a session's name; `reason` is one of `empty`,
+// `directory`, `separator`, `control`, `whitespace`.
+message HarpInvalid {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string harp = 1;
+  string reason = 2;
+}
+
+// A name a human chose that is past the bound.
+message HarpTooLong {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string harp = 1;
+  uint64 limit = 2;
+  uint64 length = 3;
+}
+
+// A stop ordered by a child; `depth` is the requester's.
+message ChildCannotStop {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_PERMISSION_DENIED;
+
+  uint64 depth = 1;
+}
+
+// A withdrawal of a message the inbox does not hold.
+message UnknownMessage {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
+
+  string message_id = 1;
+}
+
+// A steer withdrawn after it was delivered.
+message AlreadyDelivered {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string message_id = 1;
+}
+
+// endregion refusals

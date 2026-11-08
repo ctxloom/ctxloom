@@ -12,7 +12,7 @@ use angzarr_embedded::markup::DomainMessage;
 use angzarr_embedded::v1::{
     command_page, CommandBook, CommandPage, Cover, DeliveryOutcome, Fact as AFact, FactOrigin, Uuid,
 };
-use angzarr_embedded::{Answered, Any};
+use angzarr_embedded::{Answered, Any, Failure, KernelError};
 use run_ports::{Arrival, Edge, Unserved};
 
 use crate::error::AppError;
@@ -89,14 +89,13 @@ fn book_of(cover: Cover, payload: Any, external_id: String) -> CommandBook {
         page: Some(CommandPage {
             body: Some(command_page::Body::Fact(AFact {
                 payload: Some(payload),
+                origin: Some(FactOrigin {
+                    external_id,
+                    description: String::new(),
+                }),
             })),
-            fact_origin: Some(FactOrigin {
-                external_id,
-                description: String::new(),
-            }),
             ..CommandPage::default()
         }),
-        handling: None,
     }
 }
 
@@ -283,8 +282,10 @@ impl Fact for ModelFact {
 pub enum Recorded {
     Applied,
     Duplicate,
-    /// At the race cap (D13): dead-lettered, alerted, nothing persisted. The
-    /// caller treats it as FINAL for that fact and never retries it.
+    /// Dead-lettered by the kernel (a handler bug, or the race cap, D13): the
+    /// sender is answered `ANGZARR_REASON_FACT_DEAD_LETTERED`, nothing is
+    /// persisted. The caller treats it as FINAL for that fact and never
+    /// retries it.
     Parked,
 }
 
@@ -312,25 +313,25 @@ impl<E: Edge> Facts<E> {
             let domain = book.cover.map(|c| c.domain).unwrap_or_default();
             return Err(AppError::Denied(Unserved::Hidden { domain }));
         }
-        let answered = self
-            .edge
-            .serve(book, Arrival::Loopback)
-            .await
-            .map_err(AppError::from_unserved)?;
-        Recorded::of(&answered).ok_or_else(|| AppError::Failed {
-            reason: "the kernel gave no delivery outcome".to_string(),
-        })
+        match self.edge.serve(book, Arrival::Loopback).await {
+            Ok(answered) => Recorded::of(&answered).ok_or_else(|| AppError::Failed {
+                reason: "the kernel gave no delivery outcome".to_string(),
+            }),
+            // A fact the kernel dead-letters is answered so, and is final.
+            Err(Unserved::Failed(Failure::Kernel(KernelError::FactDeadLettered { .. }))) => {
+                Ok(Recorded::Parked)
+            }
+            Err(unserved) => Err(AppError::from_unserved(unserved)),
+        }
     }
 }
 
 impl Recorded {
     /// The spec's delivery outcome of `answered`, if it names one.
     pub(crate) fn of(answered: &Answered) -> Option<Recorded> {
-        let delivery = answered.outcome.as_ref()?.delivery;
-        match DeliveryOutcome::try_from(delivery).ok()? {
+        match answered.delivery {
             DeliveryOutcome::Applied => Some(Recorded::Applied),
             DeliveryOutcome::Duplicate => Some(Recorded::Duplicate),
-            DeliveryOutcome::Parked => Some(Recorded::Parked),
             DeliveryOutcome::Unspecified => None,
         }
     }

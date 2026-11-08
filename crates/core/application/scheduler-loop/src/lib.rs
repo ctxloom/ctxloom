@@ -20,7 +20,9 @@ mod error;
 use std::time::Duration;
 
 use angzarr_embedded::markup::pack_message;
-use angzarr_embedded::v1::{command_page, CommandBook, CommandPage, Cover, Fact, FactOrigin};
+use angzarr_embedded::v1::{
+    command_page, event_page, CommandBook, CommandPage, Cover, Fact, FactOrigin,
+};
 use angzarr_embedded::{
     ids, CatchUp, Failure, Handled, Kernel, Payload, Processed, ReadStore, Rejected, Sampled,
     Store, Timestamp, Watch,
@@ -184,15 +186,14 @@ async fn fire<S: Store>(
         page: Some(CommandPage {
             body: Some(command_page::Body::Fact(Fact {
                 payload: Some(pack_message(&due)),
+                origin: Some(FactOrigin {
+                    external_id: external_id.clone(),
+                    description: String::new(),
+                }),
             })),
-            fact_origin: Some(FactOrigin {
-                external_id: external_id.clone(),
-                description: String::new(),
-            }),
             correlation_id: alarm.correlation.clone(),
             ..CommandPage::default()
         }),
-        handling: None,
     };
     // A fact's command id is the kernel's derivation from its external id; the
     // sample's is unused for it.
@@ -211,7 +212,10 @@ async fn fire<S: Store>(
                         == Some((&cover.domain, root))
                 })
                 .flat_map(|book| &book.pages)
-                .filter_map(|page| page.payload.as_ref())
+                .filter_map(|page| match &page.body {
+                    Some(event_page::Body::Event(event)) => Some(event),
+                    _ => None,
+                })
                 .any(|payload| {
                     matches!(
                         SchedulerEvent::from_any(payload),
@@ -221,7 +225,6 @@ async fn fire<S: Store>(
             Ok(if fired { Sent::Fired } else { Sent::Nothing })
         }
         Ok(Handled::Duplicate(..)) => Ok(Sent::Duplicate),
-        Ok(Handled::Parked(_)) => Ok(Sent::Nothing),
         Err(failure) => Err(failure_code(&failure)),
     }
 }

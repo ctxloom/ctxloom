@@ -16,9 +16,8 @@ import "io/angzarr/v1/options.proto";
 // message anchors the component.
 message RunState {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_AGGREGATE
-    domain: "runs"
-    name: "Run"
+    component_name: "run"
+    aggregate: {domain: "runs"}
   };
 
   string session = 1;
@@ -69,6 +68,10 @@ message EnqueueRun {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.RunEnqueued"]
+    refuses: "ctxloom.runs.v1.AlreadyEnqueued"
+    refuses: "ctxloom.runs.v1.CredentialHashInvalid"
+    refuses: "ctxloom.runs.v1.CredentialsNotDistinct"
+    refuses: "ctxloom.runs.v1.NotItsStream"
   };
 
   string session = 1;
@@ -84,6 +87,9 @@ message QueueTurn {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.TurnQueued"]
+    refuses: "ctxloom.runs.v1.NoRun"
+    refuses: "ctxloom.runs.v1.Ended"
+    refuses: "ctxloom.runs.v1.TurnInFlight"
   };
 
   string prompt_ref = 1;
@@ -95,6 +101,7 @@ message RequestStop {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.StopRequested"]
+    refuses: "ctxloom.runs.v1.NoRun"
   };
 
   string reason = 1;
@@ -105,10 +112,9 @@ message RequestStop {
 // region facts (what already happened: recorded, never refused)
 
 message RunnerAttached {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.RunnerAttachedRecorded"]
-    fact: true
   };
 
   string runner_id = 1;
@@ -117,20 +123,18 @@ message RunnerAttached {
 
 // `turn` is the sequence of the TurnQueued event it answers (plan 4.3).
 message TurnStarted {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.TurnStartedRecorded"]
-    fact: true
   };
 
   uint64 turn = 1;
 }
 
 message TurnCompleted {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.TurnCompletedRecorded"]
-    fact: true
   };
 
   uint64 turn = 1;
@@ -140,10 +144,9 @@ message TurnCompleted {
 }
 
 message TurnFailed {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.TurnFailedRecorded"]
-    fact: true
   };
 
   uint64 turn = 1;
@@ -154,10 +157,9 @@ message TurnFailed {
 // The runner (or the launcher, on process exit) ended. The FIRST terminal
 // input ends the run; a second records nothing.
 message RunExited {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.RunEnded"]
-    fact: true
   };
 
   int32 code = 1;
@@ -165,10 +167,9 @@ message RunExited {
 }
 
 message LaunchFailed {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.RunEnded"]
-    fact: true
   };
 
   bool deterministic = 1;
@@ -182,10 +183,9 @@ message LaunchFailed {
 // them (`report:<run>:<turn>:<ordinal>`, `final:<run>:<turn>`). References
 // (run, turn, text_ref), not embedded authority.
 message SummaryReported {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.SummaryReportedRecorded"]
-    fact: true
   };
 
   uint64 turn = 1;
@@ -198,10 +198,9 @@ message SummaryReported {
 // transitions nothing; acceptance is a separate refusable command by a decider
 // role. It does not end the run or revoke a credential.
 message FinalReported {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.FinalReportedRecorded"]
-    fact: true
   };
 
   uint64 turn = 1;
@@ -293,3 +292,53 @@ message RunEnded {
 }
 
 // endregion events
+
+// region refusals
+//
+// A command's refusals, one typed message each, listed in the `refuses` of
+// the commands that raise them. The status is the gRPC meaning of what is
+// refused, declared here and nowhere else; the code, args and text a person
+// reads are the domain's `RunRejection` (`rejection.rs`), mapped from the
+// refusal's TYPE, never its status.
+
+// An enqueue on a stream that already holds a run.
+message AlreadyEnqueued {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_ALREADY_EXISTS;
+}
+
+// A command to a stream holding no run.
+message NoRun {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
+}
+
+// A turn queued while one is in flight.
+message TurnInFlight {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  uint64 turn = 1;
+}
+
+// A command to a run that has ended (the end fence).
+message Ended {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+}
+
+// A credential hash that is not a SHA-256 digest (32 bytes).
+message CredentialHashInvalid {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  uint64 length = 1;
+}
+
+// An enqueue on a stream whose root is not the run's derived root.
+message NotItsStream {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+}
+
+// The runner's and the model's credential hashes are the same, so a token
+// would not name one principal (fail closed).
+message CredentialsNotDistinct {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+}
+
+// endregion refusals

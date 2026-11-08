@@ -222,10 +222,10 @@ pub fn run(store: &MemoryStore, id: u8, seconds: i64, command: impl Into<Session
         page: Some(CommandPage {
             body: Some(command_page::Body::Command(Command {
                 payload: Some(command.into().to_any()),
+                handling: None,
             })),
             ..CommandPage::default()
         }),
-        handling: None,
     };
     run_book(store, seconds, book);
 }
@@ -344,10 +344,10 @@ pub fn claim(
         page: Some(CommandPage {
             body: Some(command_page::Body::Command(Command {
                 payload: Some(command.to_any()),
+                handling: None,
             })),
             ..CommandPage::default()
         }),
-        handling: None,
     };
     let sampled = Sampled {
         now: Timestamp {

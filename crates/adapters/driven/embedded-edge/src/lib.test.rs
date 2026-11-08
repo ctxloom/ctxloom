@@ -60,11 +60,10 @@ fn a_kernel_failure_is_passed_as_it_is() {
 // `ctxloom-wiring`'s `core_link` test. Mutation runs only this crate's own
 // tests, so these kill the wrappers' mutants.
 mod through_an_app {
-    use std::convert::Infallible;
     use std::sync::atomic::{AtomicU8, Ordering};
     use std::sync::Arc;
 
-    use angzarr_embedded::markup::{Context, DomainMessage};
+    use angzarr_embedded::markup::{Context, DomainMessage, Failed, Unrefusable};
     use angzarr_embedded::testing::MemoryStore;
     use angzarr_embedded::v1::{CommandBook, Cover, EventPage, Uuid};
     use angzarr_embedded::{pack, CommandBookExt, Registry, Sampled, Timestamp, WireError};
@@ -132,7 +131,7 @@ mod through_an_app {
             &self,
             _cmd: SwitchOn,
             _ctx: &Context,
-        ) -> Result<Option<SwitchedOn>, Infallible> {
+        ) -> Result<Option<SwitchedOn>, Failed<Unrefusable>> {
             Ok((!self.on).then_some(SwitchedOn))
         }
 
@@ -141,7 +140,7 @@ mod through_an_app {
             &self,
             _cmd: SwitchOff,
             _ctx: &Context,
-        ) -> Result<Option<SwitchedOff>, Infallible> {
+        ) -> Result<Option<SwitchedOff>, Failed<Unrefusable>> {
             Ok(self.on.then_some(SwitchedOff))
         }
 
@@ -206,8 +205,8 @@ mod through_an_app {
         assert_eq!(book.cover, Some(cover()));
         assert_eq!(book.pages.len(), 1);
         assert_eq!(
-            answered.outcome.map(|o| o.delivery),
-            Some(angzarr_embedded::v1::DeliveryOutcome::Applied as i32)
+            answered.delivery,
+            angzarr_embedded::v1::DeliveryOutcome::Applied
         );
     }
 

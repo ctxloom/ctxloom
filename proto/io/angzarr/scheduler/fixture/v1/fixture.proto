@@ -12,9 +12,8 @@ import "io/angzarr/v1/options.proto";
 
 message DummyState {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_AGGREGATE
-    domain: "dummy"
-    name: "Dummy"
+    component_name: "dummy"
+    aggregate: {domain: "dummy"}
   };
 
   google.protobuf.Timestamp deadline = 1;

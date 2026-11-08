@@ -13,8 +13,9 @@ use angzarr_embedded::{Any, Failure, Handled, Payload, Registry};
 
 use crate::{
     run_root, EndCause, EnqueueRun, FinalReported, LaunchFailed, QueueTurn, RequestStop,
-    RunAggregate, RunCommand, RunEnded, RunEvent, RunExited, RunMode, RunState, RunnerAttached,
-    SummaryReported, TurnCompleted, TurnFailed, TurnFailureClass, TurnStarted, RUN_DOMAIN,
+    RunAggregate, RunCommand, RunEnded, RunEvent, RunExited, RunMode, RunRejection, RunState,
+    RunnerAttached, SummaryReported, TurnCompleted, TurnFailed, TurnFailureClass, TurnStarted,
+    RUN_DOMAIN,
 };
 
 const SESSION: &str = "5f0c7a52-1111-5111-8111-000000000001";
@@ -23,6 +24,14 @@ const RUNNER_HASH: [u8; 32] = [0xab; 32];
 const MODEL_HASH: [u8; 32] = [0xcd; 32];
 
 type Said = (String, BTreeMap<String, String>);
+
+/// The domain's rejection a typed refusal is, by its type.
+fn refused(rejected: &angzarr_embedded::Rejected) -> RunRejection {
+    let typed = rejected
+        .rejection::<angzarr_embedded::markup::TypedRefusal>()
+        .expect("a typed refusal");
+    RunRejection::try_from(typed).expect("a refusal of this domain")
+}
 
 fn said(diagnostic: &dyn Diagnostic) -> Said {
     let args = diagnostic
@@ -73,7 +82,7 @@ impl Run {
     fn command(&mut self, command: impl Into<RunCommand>) -> Result<Vec<RunEvent>, Said> {
         match self.harness.when(command).result() {
             Ok(events) => Ok(events),
-            Err(Failure::Rejected(rejected)) => Err(said(&rejected)),
+            Err(Failure::Rejected(rejected)) => Err(said(&refused(&rejected))),
             Err(other) => panic!("not a rejection: {other:?}"),
         }
     }
@@ -102,14 +111,16 @@ fn fact_book(fact: impl DomainMessage, external_id: &str) -> CommandBook {
     CommandBook {
         cover: Some(cover()),
         page: Some(CommandPage {
-            body: Some(command_page::Body::Fact(Fact { payload: Some(any) })),
-            fact_origin: Some(FactOrigin {
-                external_id: external_id.to_string(),
-                description: String::new(),
-            }),
+            body: Some(command_page::Body::Fact(Fact {
+                payload: Some(any),
+                origin: Some(FactOrigin {
+                    external_id: external_id.to_string(),
+                    description: String::new(),
+                }),
+            })),
+
             ..CommandPage::default()
         }),
-        handling: None,
     }
 }
 
@@ -269,7 +280,7 @@ fn two_turns_of_one_runner_are_one_run_enqueued_and_one_run_ended() {
         .harness
         .pages()
         .iter()
-        .map(|page| RunEvent::from_any(page.payload.as_ref().unwrap()).unwrap())
+        .map(|page| RunEvent::from_any(event_any(page)).unwrap())
         .collect();
     let enqueued = all
         .iter()
@@ -469,7 +480,7 @@ fn a_final_claim_is_recorded_and_ends_nothing() {
         .harness
         .pages()
         .iter()
-        .any(|page| RunEvent::from_any(page.payload.as_ref().unwrap())
+        .any(|page| RunEvent::from_any(event_any(page))
             .is_ok_and(|e| matches!(e, RunEvent::RunEnded(_)))));
 }
 
@@ -630,4 +641,12 @@ fn commands_to_a_stream_with_no_run_are_refused() {
     };
     let (code, _) = run.command(stop).unwrap_err();
     assert_eq!(code, "runs-no-run");
+}
+
+/// The domain event a page carries.
+fn event_any(page: &angzarr_embedded::v1::EventPage) -> &angzarr_embedded::Any {
+    match &page.body {
+        Some(angzarr_embedded::v1::event_page::Body::Event(event)) => event,
+        other => panic!("not a domain event: {other:?}"),
+    }
 }

@@ -12,6 +12,7 @@
 //! Nothing here knows an application: the crate lifts into angzarr (core; embedded the first user)
 //! as it is (scheduler.plan.md section 8).
 
+#[allow(dead_code)]
 mod generated {
     include!(concat!(
         env!("OUT_DIR"),
@@ -21,13 +22,20 @@ mod generated {
 mod aggregate;
 mod delivery;
 mod reached;
+mod refusal;
 mod rejection;
 mod state;
+
+/// The scheduler aggregate's commands, one variant per command type.
+pub type SchedulerCommand = SchedulerStateCommand;
+/// The scheduler aggregate's events, one variant per event type.
+pub type SchedulerEvent = SchedulerStateEvent;
 
 pub use aggregate::SchedulerAggregate;
 pub use delivery::delivered;
 pub use generated::*;
 pub use reached::AlarmReached;
+pub use refusal::NotOurs;
 #[cfg(any(test, feature = "test-support"))]
 pub use rejection::diagnostic_samples;
 pub use rejection::{SchedulerRejection, EN_US};

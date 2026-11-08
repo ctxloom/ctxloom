@@ -17,6 +17,7 @@ use angzarr_embedded_host::App;
 use embedded_edge::EmbeddedEdge;
 use runs::RunAggregate;
 use sessions::{NameClaimAggregate, SessionAggregate};
+use std::num::NonZeroU32;
 use trees::TreeAggregate;
 
 /// How many times the kernel runs a fact that keeps losing its race before it
@@ -24,7 +25,10 @@ use trees::TreeAggregate;
 /// Parking writes the fact's dead letter, itself a store write: a store that
 /// refuses every write parks nothing (the write of the letter fails too), and a
 /// test that scripts losses scripts exactly this many.
-pub(crate) const RACE_RUNS: u32 = 3;
+pub(crate) const RACE_RUNS: NonZeroU32 = match NonZeroU32::new(3) {
+    Some(runs) => runs,
+    None => NonZeroU32::MIN,
+};
 
 /// The instant and the fresh command id each call is handled at: this is the
 /// composition root, where the clock and the ids live.

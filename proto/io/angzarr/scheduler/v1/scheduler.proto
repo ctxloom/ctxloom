@@ -22,9 +22,8 @@ import "io/angzarr/v1/options.proto";
 // stream, rooted compute_root("scheduler", <the target stream's text>).
 message SchedulerState {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_AGGREGATE
-    domain: "scheduler"
-    name: "Scheduler"
+    component_name: "scheduler"
+    aggregate: {domain: "scheduler"}
   };
 
   Stream target = 1;
@@ -50,6 +49,8 @@ message ArmAlarm {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.scheduler.v1.SchedulerState"
     emits: ["io.angzarr.scheduler.v1.AlarmArmed"]
+    refuses: "io.angzarr.scheduler.v1.AlarmIdEmpty"
+    refuses: "io.angzarr.scheduler.v1.TargetMismatch"
   };
 
   // The stream to tell: the asking domain's own (domain, root, edition).
@@ -90,10 +91,9 @@ message AlarmReached {
 // so a re-send is a duplicate. Never refused; recorded as AlarmFired only for
 // an alarm armed at exactly this `at`.
 message AlarmDue {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "io.angzarr.scheduler.v1.SchedulerState"
     emits: ["io.angzarr.scheduler.v1.AlarmFired"]
-    fact: true
   };
 
   string alarm_id = 1;
@@ -129,3 +129,27 @@ message AlarmFired {
 }
 
 // endregion events
+
+// region refusals
+//
+// A command's refusals, one typed message each, listed in the `refuses` of
+// the command that raises it. The status is the gRPC meaning of what is
+// refused, declared here and nowhere else; the code, args and text a person
+// reads are the domain's `SchedulerRejection` (`rejection.rs`), mapped from
+// the refusal's TYPE, never its status.
+
+// An ArmAlarm with no alarm id.
+message AlarmIdEmpty {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+}
+
+// An ArmAlarm whose target is not the one this stream belongs to: `stream`
+// is the stream commanded, `target` the target asked for.
+message TargetMismatch {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string stream = 1;
+  string target = 2;
+}
+
+// endregion refusals

@@ -4,11 +4,12 @@
 //! catches up from the store, as another process's does.
 
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
+use angzarr_embedded::angzarr_router::hpb::ProjectRequest;
 use angzarr_embedded::markup::DomainMessage;
 use angzarr_embedded::testing::block_on_ready as ready;
 use angzarr_embedded::v1::{
-    command_page, Command, CommandBook, CommandPage, Cover, EventBook, EventMeta, EventPage, Fact,
-    FactOrigin, Uuid,
+    command_page, event_page, Command, CommandBook, CommandPage, Cover, EventBook, EventMeta,
+    EventPage, Fact, FactOrigin, Uuid,
 };
 use angzarr_embedded::{
     Any, CatchUp, EventStore, Kernel, OnRetryable, Payload, Purge, Registry, Sampled, StreamRef,
@@ -125,10 +126,10 @@ fn command(cover: Cover, message: impl DomainMessage) -> CommandBook {
         page: Some(CommandPage {
             body: Some(command_page::Body::Command(Command {
                 payload: Some(Any::from_msg(&message.to_wire()).unwrap()),
+                handling: None,
             })),
             ..CommandPage::default()
         }),
-        handling: None,
     }
 }
 
@@ -138,14 +139,14 @@ fn fact(cover: Cover, message: impl DomainMessage, external_id: &str) -> Command
         page: Some(CommandPage {
             body: Some(command_page::Body::Fact(Fact {
                 payload: Some(Any::from_msg(&message.to_wire()).unwrap()),
+                origin: Some(FactOrigin {
+                    external_id: external_id.to_string(),
+                    description: String::new(),
+                }),
             })),
-            fact_origin: Some(FactOrigin {
-                external_id: external_id.to_string(),
-                description: String::new(),
-            }),
+
             ..CommandPage::default()
         }),
-        handling: None,
     }
 }
 
@@ -279,7 +280,7 @@ fn due_keeps_the_correlation_of_the_arming_event() {
 fn page(sequence: u64, event: SchedulerEvent, correlation: u8) -> EventPage {
     EventPage {
         sequence,
-        payload: Some(event.to_any()),
+        body: Some(event_page::Body::Event(event.to_any())),
         meta: Some(EventMeta {
             correlation_id: Some(Uuid::from_bytes([correlation; 16])),
             ..EventMeta::default()
@@ -363,13 +364,29 @@ fn an_event_the_scheduler_cannot_read_is_the_projectors_bug() {
     let mut due = Due::new();
     let stranger = EventPage {
         sequence: 0,
-        payload: Some(Any {
+        body: Some(event_page::Body::Event(Any {
             type_url: "/toy.v1.Stranger".to_string(),
             value: vec![],
-        }),
+        })),
         meta: None,
     };
     assert!(due.project(&book(vec![stranger], 1)).is_err());
+}
+
+// A framework meta-event on a scheduler stream is no scheduler event: it is
+// not folded, and not the projector's bug.
+#[test]
+fn a_meta_event_is_not_folded() {
+    let mut due = Due::new();
+    let meta = EventPage {
+        sequence: 0,
+        body: Some(event_page::Body::MetaEvent(
+            angzarr_embedded::v1::MetaEvent::default(),
+        )),
+        meta: None,
+    };
+    due.project(&book(vec![meta], 1)).unwrap();
+    assert!(due.due_at_or_before(&at(100)).is_empty());
 }
 
 #[test]
@@ -385,13 +402,16 @@ fn an_unreadable_event_fails_the_projector_with_a_code_and_the_type_url() {
     let model = DueModel::default();
     let stranger = EventPage {
         sequence: 0,
-        payload: Some(Any {
+        body: Some(event_page::Body::Event(Any {
             type_url: "/toy.v1.Stranger".to_string(),
             value: vec![],
-        }),
+        })),
         meta: None,
     };
-    let error = ready(model.dispatch(&book(vec![stranger], 1))).unwrap_err();
+    let error = ready(model.dispatch(&ProjectRequest {
+        events: Some(book(vec![stranger], 1)),
+    }))
+    .unwrap_err();
     assert!(!error.code.is_empty());
     assert!(
         error.extras.values().any(|v| v.contains("toy.v1.Stranger")),

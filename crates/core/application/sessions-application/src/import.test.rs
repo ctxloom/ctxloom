@@ -292,11 +292,11 @@ fn a_name_another_session_holds_leaves_the_go_session() {
                                 session: "other-session".to_string(),
                             }),
                         )),
+                        handling: None,
                     },
                 )),
                 ..angzarr_embedded::v1::CommandPage::default()
             }),
-            handling: None,
         };
         let sampled = Sampled {
             now: Timestamp {

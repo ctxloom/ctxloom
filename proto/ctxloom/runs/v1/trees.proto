@@ -9,9 +9,8 @@ import "io/angzarr/v1/options.proto";
 
 message TreeState {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_AGGREGATE
-    domain: "trees"
-    name: "Tree"
+    component_name: "tree"
+    aggregate: {domain: "trees"}
   };
 
   string owner_session = 1;
@@ -21,6 +20,7 @@ message FoundTree {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.runs.v1.TreeState"
     emits: ["ctxloom.runs.v1.TreeFounded"]
+    refuses: "ctxloom.runs.v1.AlreadyFounded"
   };
 
   string owner_session = 1;
@@ -35,6 +35,7 @@ message OccupyTree {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.runs.v1.TreeState"
     emits: ["ctxloom.runs.v1.TreeOccupied"]
+    refuses: "ctxloom.runs.v1.NoTree"
   };
 
   string session = 1;
@@ -54,3 +55,23 @@ message TreeOccupied {
 
   string session = 1;
 }
+
+// region refusals
+//
+// A command's refusals, one typed message each, listed in the `refuses` of
+// the command that raises it. The status is the gRPC meaning of what is
+// refused, declared here and nowhere else; the code and text a person reads
+// are the domain's `TreeRejection` (`rejection.rs`), mapped from the
+// refusal's TYPE, never its status.
+
+// A founding on a stream that already holds a tree.
+message AlreadyFounded {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_ALREADY_EXISTS;
+}
+
+// A command to a stream holding no tree.
+message NoTree {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
+}
+
+// endregion refusals

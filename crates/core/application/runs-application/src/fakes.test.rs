@@ -33,7 +33,10 @@ use crate::{Credential, Identity, Principal};
 /// dead letter, and that write is a store write too, so it must find the
 /// script spent (a script longer than the cap fails the letter's write, and the
 /// fact is then an error, not parked). No backoff: nothing here waits.
-const RACE_RUNS: u32 = 3;
+const RACE_RUNS: std::num::NonZeroU32 = match std::num::NonZeroU32::new(3) {
+    Some(runs) => runs,
+    None => std::num::NonZeroU32::MIN,
+};
 
 /// How far a domain is exposed (the host's `Expose`); absent is none.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,8 +83,10 @@ impl KernelEdge {
 
     /// Every write from now on loses its race to another writer.
     pub(crate) fn lose_every_race(&self) {
-        self.store
-            .fail(std::iter::repeat_n(Fault::Conflict, RACE_RUNS as usize));
+        self.store.fail(std::iter::repeat_n(
+            Fault::Conflict,
+            RACE_RUNS.get() as usize,
+        ));
     }
 
     /// How many requests reached the exposure seam.
@@ -134,7 +139,7 @@ impl KernelEdge {
             });
         Ok(Answered {
             events: Some(events),
-            outcome: Some(handled.outcome()),
+            delivery: handled.delivery(),
         })
     }
 }
@@ -195,10 +200,10 @@ pub(crate) fn command_book(cover: Cover, message: impl DomainMessage) -> Command
         page: Some(CommandPage {
             body: Some(command_page::Body::Command(Command {
                 payload: Some(Any::from_msg(&message.to_wire()).unwrap()),
+                handling: None,
             })),
             ..CommandPage::default()
         }),
-        handling: None,
     }
 }
 
@@ -214,14 +219,14 @@ pub(crate) fn fact_book(
         page: Some(CommandPage {
             body: Some(command_page::Body::Fact(Fact {
                 payload: Some(Any::from_msg(&message.to_wire()).unwrap()),
+                origin: Some(FactOrigin {
+                    external_id: external_id.to_string(),
+                    description: String::new(),
+                }),
             })),
-            fact_origin: Some(FactOrigin {
-                external_id: external_id.to_string(),
-                description: String::new(),
-            }),
+
             ..CommandPage::default()
         }),
-        handling: None,
     }
 }
 

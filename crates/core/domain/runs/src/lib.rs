@@ -3,15 +3,23 @@
 //! second incarnation is a new stream and a late fact for an ended run can
 //! never touch the resumed one. ONE run per incarnation, NOT per turn.
 
+#[allow(dead_code)]
 mod generated {
     include!(concat!(env!("OUT_DIR"), "/ctxloom.runs.v1.domain.rs"));
 }
 mod aggregate;
+mod refusal;
 mod rejection;
 mod state;
 
+/// The run aggregate's commands, one variant per command type.
+pub type RunCommand = RunStateCommand;
+/// The run aggregate's events, one variant per event type.
+pub type RunEvent = RunStateEvent;
+
 pub use aggregate::RunAggregate;
 pub use generated::*;
+pub use refusal::NotOurs;
 #[cfg(any(test, feature = "test-support"))]
 pub use rejection::diagnostic_samples;
 pub use rejection::{RunRejection, EN_US};

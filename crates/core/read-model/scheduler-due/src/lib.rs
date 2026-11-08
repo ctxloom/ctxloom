@@ -13,7 +13,8 @@ use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use angzarr_embedded::angzarr_router::error::CodedError;
-use angzarr_embedded::v1::{EventBook, Projection, Uuid};
+use angzarr_embedded::angzarr_router::hpb::{ProjectRequest, ProjectResponse};
+use angzarr_embedded::v1::{event_page, EventBook, Uuid};
 use angzarr_embedded::{CatchUp, Payload, PayloadError, ProjectorHandler, Timestamp};
 use scheduler::{instant, stream_text, SchedulerEvent, Stream, SCHEDULER_DOMAIN};
 
@@ -71,9 +72,13 @@ impl Due {
             _ => self.streams.remove(&root).unwrap_or_default(),
         };
         for page in &book.pages {
-            let event = page.payload.clone().unwrap_or_default();
+            // A framework meta-event is no scheduler event: only a domain's
+            // event is folded.
+            let Some(event_page::Body::Event(event)) = &page.body else {
+                continue;
+            };
             let correlation = page.meta.as_ref().and_then(|m| m.correlation_id.clone());
-            fold(&mut held, SchedulerEvent::from_any(&event)?, correlation);
+            fold(&mut held, SchedulerEvent::from_any(event)?, correlation);
         }
         self.streams.insert(root, held);
         Ok(())
@@ -157,14 +162,10 @@ impl ProjectorHandler for DueModel {
         "scheduler-due"
     }
 
-    async fn dispatch(&self, events: &EventBook) -> Result<Projection, CodedError> {
-        self.due().project(events).map_err(|error| bug(&error))?;
-        Ok(Projection {
-            cover: events.cover.clone(),
-            projector: self.name().to_string(),
-            next_sequence: events.next_sequence,
-            projection: None,
-        })
+    async fn dispatch(&self, request: &ProjectRequest) -> Result<ProjectResponse, CodedError> {
+        let events = request.events.clone().unwrap_or_default();
+        self.due().project(&events).map_err(|error| bug(&error))?;
+        Ok(ProjectResponse { projection: None })
     }
 }
 

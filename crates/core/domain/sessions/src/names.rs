@@ -1,12 +1,13 @@
 //! The name-claim aggregate: one stream per (project, harp text), holding
 //! which session has the name (D5 Q1, owner-approved).
 
-use angzarr_embedded::markup::{Context, Failed, PageContext};
+use angzarr_embedded::markup::{Context, Failed, PageContext, Refuses};
 use angzarr_embedded_macros::{aggregate, applies, handles_cmd};
 
+use crate::refusal::refuse;
 use crate::{
-    ClaimName, Claimed, NameClaimCommand, NameClaimEvent, NameClaimState, ReleaseName, Released,
-    SessionRejection,
+    ClaimName, Claimed, NameClaimCommand, NameClaimEvent, NameClaimState, NamesTaken, NoClaim,
+    NotHolder, ReleaseName, Released, SessionRejection,
 };
 
 /// The namespace every project's name-claim namespace derives from: the
@@ -45,18 +46,23 @@ impl NameClaimAggregate {
 #[aggregate(domain = "session-names", command = NameClaimCommand, event = NameClaimEvent)]
 impl NameClaimAggregate {
     /// Take the name for a session; `None` when its holder asks again.
-    #[handles_cmd(ClaimName)]
+    #[handles_cmd(ClaimName, refuses(NamesTaken))]
     fn claim(
         &self,
         cmd: ClaimName,
         ctx: &Context,
-    ) -> Result<Option<Claimed>, Failed<SessionRejection>> {
+    ) -> Result<Option<Claimed>, Failed<Refuses<Self, ClaimName>>> {
         let _ = ctx;
         if self.claim.session == cmd.session {
             return Ok(None);
         }
         if !self.claim.session.is_empty() {
-            return Err(SessionRejection::NamesTaken { harp: cmd.harp }.into());
+            return Err(refuse!(
+                SessionRejection,
+                SessionRejection::NamesTaken { harp: cmd.harp },
+                Refuses<Self, ClaimName>,
+                [NamesTaken{harp} => NamesTaken]
+            ));
         }
         Ok(Some(Claimed {
             project_id: cmd.project_id,
@@ -66,21 +72,30 @@ impl NameClaimAggregate {
     }
 
     /// Give the name back.
-    #[handles_cmd(ReleaseName)]
+    #[handles_cmd(ReleaseName, refuses(NoClaim, NotHolder))]
     fn release(
         &self,
         cmd: ReleaseName,
         ctx: &Context,
-    ) -> Result<Released, Failed<SessionRejection>> {
+    ) -> Result<Released, Failed<Refuses<Self, ReleaseName>>> {
         let _ = ctx;
         if self.claim.session.is_empty() {
-            return Err(SessionRejection::NoClaim.into());
+            return Err(refuse!(
+                SessionRejection,
+                SessionRejection::NoClaim,
+                Refuses<Self, ReleaseName>,
+                [NoClaim => NoClaim]
+            ));
         }
         if self.claim.session != cmd.session {
-            return Err(SessionRejection::NotHolder {
-                harp: self.claim.harp.clone(),
-            }
-            .into());
+            return Err(refuse!(
+                SessionRejection,
+                SessionRejection::NotHolder {
+                    harp: self.claim.harp.clone(),
+                },
+                Refuses<Self, ReleaseName>,
+                [NotHolder{harp} => NotHolder]
+            ));
         }
         Ok(Released {})
     }

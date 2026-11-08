@@ -44,8 +44,8 @@ async fn a_fact_on_the_callers_own_run_is_admitted_and_applied() {
             .await
             .unwrap_or_else(|e| panic!("{arrival:?}: {e:?}"));
         assert_eq!(
-            answered.outcome.map(|o| o.delivery),
-            Some(angzarr_embedded::v1::DeliveryOutcome::Applied as i32),
+            answered.delivery,
+            angzarr_embedded::v1::DeliveryOutcome::Applied,
             "{arrival:?}"
         );
     }
@@ -325,8 +325,8 @@ async fn the_model_records_claims_and_the_runner_cannot() {
                 .await
                 .unwrap_or_else(|e| panic!("{arrival:?} {}: {e:?}", claim.type_url()));
             assert_eq!(
-                answered.outcome.map(|o| o.delivery),
-                Some(angzarr_embedded::v1::DeliveryOutcome::Applied as i32)
+                answered.delivery,
+                angzarr_embedded::v1::DeliveryOutcome::Applied
             );
             let denied = admission
                 .admit(arrival, &world.me.credential, claim.book(who))

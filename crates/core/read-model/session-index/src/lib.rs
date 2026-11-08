@@ -25,7 +25,8 @@ use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use angzarr_embedded::angzarr_router::error::CodedError;
-use angzarr_embedded::v1::{Cover, EventBook, Projection};
+use angzarr_embedded::angzarr_router::hpb::{ProjectRequest, ProjectResponse};
+use angzarr_embedded::v1::{event_page, Cover, EventBook};
 use angzarr_embedded::{
     CatchUp, Domain, PageContext, Payload, PayloadError, ProjectorHandler, Timestamp,
 };
@@ -96,13 +97,17 @@ impl SessionIndex {
             _ => self.streams.remove(&root).unwrap_or_default(),
         };
         for page in &book.pages {
-            let event = page.payload.clone().unwrap_or_default();
+            // A framework meta-event is no session event: only a domain's
+            // event is folded.
+            let Some(event_page::Body::Event(event)) = &page.body else {
+                continue;
+            };
             let at = PageContext {
                 cover: book.cover.as_ref(),
                 sequence: page.sequence,
                 meta: page.meta.as_ref(),
             };
-            SessionAggregate::apply(&mut session, &SessionEvent::from_any(&event)?, &at);
+            SessionAggregate::apply(&mut session, &SessionEvent::from_any(event)?, &at);
         }
         self.streams.insert(root, session);
         Ok(())
@@ -169,14 +174,10 @@ impl ProjectorHandler for SessionIndexes {
         "session-index"
     }
 
-    async fn dispatch(&self, events: &EventBook) -> Result<Projection, CodedError> {
-        self.index().project(events).map_err(|error| bug(&error))?;
-        Ok(Projection {
-            cover: events.cover.clone(),
-            projector: self.name().to_string(),
-            next_sequence: events.next_sequence,
-            projection: None,
-        })
+    async fn dispatch(&self, request: &ProjectRequest) -> Result<ProjectResponse, CodedError> {
+        let events = request.events.clone().unwrap_or_default();
+        self.index().project(&events).map_err(|error| bug(&error))?;
+        Ok(ProjectResponse { projection: None })
     }
 }
 

@@ -56,14 +56,14 @@ mod dummy {
             page: Some(CommandPage {
                 body: Some(command_page::Body::Fact(Fact {
                     payload: Some(Any::from_msg(&fact.to_wire()).unwrap()),
+                    origin: Some(FactOrigin {
+                        external_id: id.to_string(),
+                        description: String::new(),
+                    }),
                 })),
-                fact_origin: Some(FactOrigin {
-                    external_id: id.to_string(),
-                    description: String::new(),
-                }),
+
                 ..CommandPage::default()
             }),
-            handling: None,
         };
         let before = h.pages().len();
         h.when_book(book).handled().unwrap();
@@ -85,7 +85,7 @@ mod dummy {
         assert_eq!(reach(&mut h, DEADLINE_ALARM, 100, "b"), 0, "passed already");
         let last = h.pages().pop().unwrap();
         assert!(matches!(
-            <DummyEvent as angzarr_embedded::Payload>::from_any(last.payload.as_ref().unwrap()),
+            <DummyEvent as angzarr_embedded::Payload>::from_any(crate::tests::event_any(&last)),
             Ok(DummyEvent::DeadlinePassed(p)) if p.at == at(100)
         ));
     }
@@ -112,5 +112,13 @@ mod dummy {
         let mut h = harness();
         h.when(Close {}).events();
         assert!(h.state().closed);
+    }
+}
+
+/// The domain event a page carries.
+pub(crate) fn event_any(page: &angzarr_embedded::v1::EventPage) -> &angzarr_embedded::Any {
+    match &page.body {
+        Some(angzarr_embedded::v1::event_page::Body::Event(event)) => event,
+        other => panic!("not a domain event: {other:?}"),
     }
 }

@@ -24,6 +24,7 @@ mod go_sidecar;
 mod import;
 mod read;
 mod service;
+mod typed;
 mod types;
 mod write;
 
@@ -62,7 +63,7 @@ pub(crate) fn failed(error: angzarr_embedded::StoreError) -> AppError {
 /// hands a use case, or a driving adapter, a letter a kernel call answered.
 #[cfg(any(test, feature = "test-support"))]
 pub fn dead_letter_sample(component: &str) -> DeadLetter {
-    use angzarr_embedded::v1::{AngzarrDeadLetter, Cover, Diagnostic};
+    use angzarr_embedded::v1::{angzarr_dead_letter::Why, AngzarrDeadLetter, Cover, Diagnostic};
     DeadLetter {
         stream: Cover {
             domain: sessions::SESSION_DOMAIN.to_string(),
@@ -72,10 +73,10 @@ pub fn dead_letter_sample(component: &str) -> DeadLetter {
         at: angzarr_embedded::DeadLetterAt::Sequence(0),
         letter: AngzarrDeadLetter {
             source_component: component.to_string(),
-            reason: Some(Diagnostic {
+            why: Some(Why::Reason(Diagnostic {
                 code: "ROUTER_REASON_UNHANDLED_HANDLER_ERROR".to_string(),
                 args: Default::default(),
-            }),
+            })),
             ..AngzarrDeadLetter::default()
         },
     }

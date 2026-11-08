@@ -134,7 +134,7 @@ impl World {
     fn dummy(&self, n: u8) -> Vec<DummyEvent> {
         self.pages(&dummy_cover(n))
             .iter()
-            .map(|p| DummyEvent::from_any(p.payload.as_ref().unwrap()).unwrap())
+            .map(|p| DummyEvent::from_any(event_any(p)).unwrap())
             .collect()
     }
 
@@ -160,7 +160,7 @@ impl World {
     fn scheduler_events(&self, n: u8) -> Vec<SchedulerEvent> {
         self.pages(&self.scheduler_cover(n))
             .iter()
-            .map(|p| SchedulerEvent::from_any(p.payload.as_ref().unwrap()).unwrap())
+            .map(|p| SchedulerEvent::from_any(event_any(p)).unwrap())
             .collect()
     }
 }
@@ -243,14 +243,14 @@ fn due_book(n: u8, seconds: i64) -> (CommandBook, String) {
                     alarm_id: DEADLINE_ALARM.to_string(),
                     at: at(seconds),
                 })),
+                origin: Some(FactOrigin {
+                    external_id: id.clone(),
+                    description: String::new(),
+                }),
             })),
-            fact_origin: Some(FactOrigin {
-                external_id: id.clone(),
-                description: String::new(),
-            }),
+
             ..CommandPage::default()
         }),
-        handling: None,
     };
     (book, id)
 }
@@ -531,10 +531,12 @@ fn a_stream_the_model_cannot_read_is_reported_and_the_others_still_fire() {
     let broken = w.scheduler_cover(2);
     let stranger = EventPage {
         sequence: 0,
-        payload: Some(angzarr_embedded::Any {
-            type_url: "/toy.v1.Stranger".to_string(),
-            value: vec![],
-        }),
+        body: Some(angzarr_embedded::v1::event_page::Body::Event(
+            angzarr_embedded::Any {
+                type_url: "/toy.v1.Stranger".to_string(),
+                value: vec![],
+            },
+        )),
         meta: Some(EventMeta::default()),
     };
     let stream = StreamRef::try_from(&broken).unwrap();
@@ -606,4 +608,12 @@ fn samples_are_not_empty_and_every_diagnostic_has_a_message_that_uses_exactly_it
         .to_string(),
         "scheduler-loop-catch-up-failed reason=x"
     );
+}
+
+/// The domain event a page carries.
+fn event_any(page: &angzarr_embedded::v1::EventPage) -> &angzarr_embedded::Any {
+    match &page.body {
+        Some(angzarr_embedded::v1::event_page::Body::Event(event)) => event,
+        other => panic!("not a domain event: {other:?}"),
+    }
 }

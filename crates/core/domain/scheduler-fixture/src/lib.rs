@@ -7,7 +7,7 @@
 
 use std::convert::Infallible;
 
-use angzarr_embedded::markup::{Commands, PageContext, Record};
+use angzarr_embedded::markup::{pack_message, Commands, FactEmit, PageContext};
 use angzarr_embedded::Timestamp;
 use angzarr_embedded_macros::{aggregate, applies, handles_cmd, handles_fact, on_event, policy};
 use scheduler::{stream_for, AlarmReached, ArmAlarm, CancelAlarm, SchedulerAggregate, Stream};
@@ -27,6 +27,11 @@ mod generated {
         "/io.angzarr.scheduler.fixture.v1.domain.rs"
     ));
 }
+/// The dummy aggregate's commands, one variant per command type.
+pub type DummyCommand = DummyStateCommand;
+/// The dummy aggregate's events, one variant per event type.
+pub type DummyEvent = DummyStateEvent;
+
 pub use generated::*;
 
 /// The domain's name.
@@ -45,7 +50,11 @@ pub struct DummyAggregate {
 #[aggregate(domain = "dummy", command = DummyCommand, event = DummyEvent)]
 impl DummyAggregate {
     #[handles_cmd(SetDeadline)]
-    fn set_deadline(&self, cmd: SetDeadline, ctx: &Context) -> Result<DeadlineSet, Infallible> {
+    fn set_deadline(
+        &self,
+        cmd: SetDeadline,
+        ctx: &Context,
+    ) -> Result<DeadlineSet, Failed<Unrefusable>> {
         let _ = ctx;
         Ok(DeadlineSet {
             deadline: cmd.deadline,
@@ -53,7 +62,7 @@ impl DummyAggregate {
     }
 
     #[handles_cmd(Close)]
-    fn close(&self, cmd: Close, ctx: &Context) -> Result<Closed, Infallible> {
+    fn close(&self, cmd: Close, ctx: &Context) -> Result<Closed, Failed<Unrefusable>> {
         let _ = (cmd, ctx);
         Ok(Closed {})
     }
@@ -62,11 +71,17 @@ impl DummyAggregate {
     /// dummy's own arming, recorded only if it is still the deadline and the
     /// dummy is still open and has not passed yet.
     #[handles_fact(AlarmReached)]
-    fn reached(&self, fact: AlarmReached, ctx: &Context) -> Record<Self> {
+    fn reached(
+        &self,
+        fact: AlarmReached,
+        ctx: &Context,
+    ) -> Result<FactEmit<Self>, angzarr_embedded::markup::Bug> {
         let _ = ctx;
         let live = !self.closed && !self.passed;
         let matches = fact.alarm_id == DEADLINE_ALARM && self.deadline == Some(fact.at);
-        Record::of((live && matches).then_some(DeadlinePassed { at: fact.at }))
+        Ok(FactEmit::of(
+            (live && matches).then(|| pack_message(&DeadlinePassed { at: fact.at })),
+        ))
     }
 
     #[applies(DeadlineSet)]

@@ -1,11 +1,12 @@
 //! The tree aggregate on angzarr-embedded's markup.
 
-use angzarr_embedded::markup::{Context, Failed, PageContext};
+use angzarr_embedded::markup::{Context, Failed, PageContext, Refuses};
 use angzarr_embedded_macros::{aggregate, applies, handles_cmd};
 
+use crate::refusal::refuse;
 use crate::{
-    FoundTree, OccupyTree, TreeCommand, TreeEvent, TreeFounded, TreeOccupied, TreeRejection,
-    TreeState,
+    AlreadyFounded, FoundTree, NoTree, OccupyTree, TreeCommand, TreeEvent, TreeFounded,
+    TreeOccupied, TreeRejection, TreeState,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -23,10 +24,19 @@ impl TreeAggregate {
 #[aggregate(domain = "trees", command = TreeCommand, event = TreeEvent)]
 impl TreeAggregate {
     /// Found the tree, once, snapshotting its limits; its owner occupies it.
-    #[handles_cmd(FoundTree)]
-    fn found(&self, cmd: FoundTree, ctx: &Context) -> Result<TreeFounded, Failed<TreeRejection>> {
+    #[handles_cmd(FoundTree, refuses(AlreadyFounded))]
+    fn found(
+        &self,
+        cmd: FoundTree,
+        ctx: &Context,
+    ) -> Result<TreeFounded, Failed<Refuses<Self, FoundTree>>> {
         if ctx.command.had_prior_events {
-            return Err(TreeRejection::AlreadyFounded.into());
+            return Err(refuse!(
+                TreeRejection,
+                TreeRejection::AlreadyFounded,
+                Refuses<Self, FoundTree>,
+                [AlreadyFounded => AlreadyFounded]
+            ));
         }
         Ok(TreeFounded {
             owner_session: cmd.owner_session,
@@ -37,15 +47,20 @@ impl TreeAggregate {
     }
 
     /// Change the occupant; the occupant occupying again records nothing.
-    #[handles_cmd(OccupyTree)]
+    #[handles_cmd(OccupyTree, refuses(NoTree))]
     fn occupy(
         &self,
         cmd: OccupyTree,
         ctx: &Context,
-    ) -> Result<Option<TreeOccupied>, Failed<TreeRejection>> {
+    ) -> Result<Option<TreeOccupied>, Failed<Refuses<Self, OccupyTree>>> {
         let _ = ctx;
         if !self.tree.founded {
-            return Err(TreeRejection::NoTree.into());
+            return Err(refuse!(
+                TreeRejection,
+                TreeRejection::NoTree,
+                Refuses<Self, OccupyTree>,
+                [NoTree => NoTree]
+            ));
         }
         let changed = self.tree.occupant != cmd.session;
         Ok(changed.then_some(TreeOccupied {

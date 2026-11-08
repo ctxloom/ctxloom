@@ -15,6 +15,7 @@ use angzarr_embedded::{CommandBookExt, Handled, OnRetryable, Registry};
 use angzarr_embedded_runner::Runner;
 
 use crate::bridge::Port;
+use crate::typed;
 use ports::{Clock, CommandIds, Delay, Jitter, Project, ProjectIdentity};
 use session_ports::{GoSession, GoSessions, ProjectStores};
 use sessions::{
@@ -286,13 +287,13 @@ where
             harp: harp.to_string(),
             session: id.to_string(),
         });
-        let claimed = runner
-            .run::<NameClaimAggregate, SessionRejection, _>(
-                store,
-                CommandBook::command_of(claim_cover, &claim),
-                &step_id("claim"),
-            )
-            .await?;
+        let claimed = typed::run::<NameClaimAggregate, _, _, _>(
+            &mut runner,
+            store,
+            CommandBook::command_of(claim_cover, &claim),
+            &step_id("claim"),
+        )
+        .await?;
         match claimed {
             Ok(_) => {}
             Err(refusal)
@@ -319,9 +320,13 @@ where
             .collect();
         let mut already = false;
         for (step, command) in commands {
-            let handled = runner
-                .run::<SessionAggregate, SessionRejection, _>(store, command, &step_id(step))
-                .await??;
+            let handled = typed::run::<SessionAggregate, _, _, _>(
+                &mut runner,
+                store,
+                command,
+                &step_id(step),
+            )
+            .await??;
             if step == "mint" {
                 already = matches!(handled, Handled::Duplicate(..));
             }

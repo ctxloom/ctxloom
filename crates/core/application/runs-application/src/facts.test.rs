@@ -5,6 +5,7 @@ use std::sync::Arc;
 use run_ports::Edge;
 
 use angzarr_embedded::v1::{DeliveryOutcome, Uuid};
+use angzarr_embedded::Answered;
 
 use crate::fakes::{fact_book, uuid, World, SESSION_ME};
 use crate::{AppError, Facts, Identity, ModelFact, Principal, Recorded, RunnerFact};
@@ -193,10 +194,10 @@ fn a_fact_is_sent_as_a_fact_body_with_its_external_id() {
     for (url, book, external_id) in books {
         let page = book.page.expect("a page");
         assert!(matches!(page.body, Some(Body::Fact(_))), "{url}");
-        assert_eq!(
-            page.fact_origin.expect("an origin").external_id,
-            external_id
-        );
+        let Some(Body::Fact(fact)) = page.body else {
+            unreachable!("asserted a fact above")
+        };
+        assert_eq!(fact.origin.expect("an origin").external_id, external_id);
     }
 }
 
@@ -451,14 +452,22 @@ async fn every_agent_fact_applies_in_every_state() {
     }
 }
 
-// NEW-DESIGN: the answer maps the spec's three outcomes and no others.
+// NEW-DESIGN: the answer maps the spec's two delivery outcomes and no others;
+// a fact the kernel dead-letters is not an outcome but a failure
+// (`ANGZARR_REASON_FACT_DEAD_LETTERED`), which `record` answers `Parked`.
 #[test]
 fn recorded_is_the_specs_delivery_outcome() {
-    let named = |outcome: DeliveryOutcome| match outcome {
-        DeliveryOutcome::Applied => Recorded::Applied,
-        DeliveryOutcome::Duplicate => Recorded::Duplicate,
-        DeliveryOutcome::Parked => Recorded::Parked,
-        DeliveryOutcome::Unspecified => panic!("unspecified is not an answer"),
+    let answered = |delivery| Answered {
+        events: None,
+        delivery,
     };
-    assert_eq!(named(DeliveryOutcome::Parked), Recorded::Parked);
+    assert_eq!(
+        Recorded::of(&answered(DeliveryOutcome::Applied)),
+        Some(Recorded::Applied)
+    );
+    assert_eq!(
+        Recorded::of(&answered(DeliveryOutcome::Duplicate)),
+        Some(Recorded::Duplicate)
+    );
+    assert_eq!(Recorded::of(&answered(DeliveryOutcome::Unspecified)), None);
 }

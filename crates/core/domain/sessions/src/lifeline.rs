@@ -2,11 +2,11 @@
 //! is open, the relaunch budget (the SESSION's, per harp, not per run) and the
 //! stop flag.
 
-use angzarr_embedded::markup::{Context, Record};
+use angzarr_embedded::markup::{pack_message, Bug, CommandContext, FactEmit};
 
 use crate::{
-    live, InboxStatus, IncarnationEnded, IncarnationOwed, RecordIncarnationEnded, SessionAggregate,
-    SessionEvent, SessionRejection, SessionState, StopOrdered, StopSession,
+    live, record, InboxStatus, IncarnationEnded, IncarnationOwed, RecordIncarnationEnded,
+    SessionAggregate, SessionEvent, SessionRejection, SessionState, StopOrdered, StopSession,
 };
 
 /// How many automatic relaunches a session spends before it gives up, reset
@@ -63,9 +63,12 @@ pub(crate) fn mail_pending(held: &SessionState) -> bool {
 /// parent is to be noticed (except for an idle reap, which is no death). An
 /// end for an incarnation that is not the open one (already ended, or stale)
 /// records nothing.
-pub(crate) fn ended(held: &SessionState, end: &RecordIncarnationEnded) -> Record<SessionAggregate> {
+pub(crate) fn ended(
+    held: &SessionState,
+    end: &RecordIncarnationEnded,
+) -> Result<FactEmit<SessionAggregate>, Bug> {
     if live(held).is_err() || held.open_incarnation != Some(end.incarnation) {
-        return Record::of(None::<IncarnationEnded>);
+        return Ok(FactEmit::none());
     }
     let relaunch = mail_pending(held)
         && held.relaunches < RELAUNCH_BUDGET
@@ -76,12 +79,14 @@ pub(crate) fn ended(held: &SessionState, end: &RecordIncarnationEnded) -> Record
         cause: end.cause.clone(),
         notice_parent: !relaunch && end.cause != CAUSE_IDLE_REAPED,
     };
-    Record::of(ended).then(move |after: &SessionAggregate, _: &Context| {
-        relaunch.then(|| IncarnationOwed {
-            incarnation: after.state().incarnation + 1,
-            reason: RELAUNCH.to_string(),
-        })
-    })
+    Ok(FactEmit::of([pack_message(&ended)]).then(
+        move |after: &SessionAggregate, _: &CommandContext| {
+            record(relaunch.then(|| IncarnationOwed {
+                incarnation: after.state().incarnation + 1,
+                reason: RELAUNCH.to_string(),
+            }))
+        },
+    ))
 }
 
 /// The reason of an owed incarnation that spends the relaunch budget.

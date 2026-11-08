@@ -8,6 +8,7 @@ use angzarr_embedded::{CommandBookExt, Handled, OnRetryable};
 use angzarr_embedded_runner::Runner;
 
 use crate::bridge::Port;
+use crate::typed;
 use ports::{Clock, CommandIds, Delay, Jitter, Project, ProjectIdentity};
 use session_index::{Retained, Retention, SessionRecord};
 use session_ports::{Liveness, LockState, ProjectStores, SessionFiles};
@@ -90,9 +91,9 @@ where
             retry: self.retry,
             dead_letters: &mut *self.dead_letters,
         };
-        let handled = runner
-            .run::<SessionAggregate, _, _>(store, book, &command_id)
-            .await??;
+        let handled =
+            typed::run::<SessionAggregate, _, _, _>(&mut runner, store, book, &command_id)
+                .await??;
         Ok(recorded(&handled))
     }
 
@@ -164,9 +165,7 @@ where
             retry: self.retry,
             dead_letters: &mut *self.dead_letters,
         };
-        runner
-            .run::<NameClaimAggregate, SessionRejection, _>(store, book, &command_id)
-            .await??;
+        typed::run::<NameClaimAggregate, _, _, _>(&mut runner, store, book, &command_id).await??;
         Ok(())
     }
 

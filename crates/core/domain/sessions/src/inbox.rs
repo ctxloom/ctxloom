@@ -1,10 +1,10 @@
 //! The session's inbox (the former mailbox, D5 Q4): queued, claimed,
 //! delivered, withdrawn, failed.
 
-use angzarr_embedded::markup::{Context, Record};
+use angzarr_embedded::markup::{pack_message, Bug, CommandContext, FactEmit};
 
 use crate::{
-    lifeline, live, ClaimMessage, DeliverMessage, FailMessage, InboxEntry, InboxStatus,
+    lifeline, live, record, ClaimMessage, DeliverMessage, FailMessage, InboxEntry, InboxStatus,
     IncarnationOwed, MessageArrived, MessageClaimed, MessageDelivered, MessageFailed,
     RecordMessageArrived, SessionAggregate, SessionEvent, SessionRejection, SessionState,
     SteerWithdrawn, WithdrawSteer,
@@ -18,24 +18,24 @@ use crate::{
 pub(crate) fn arrived(
     held: &SessionState,
     arrive: &RecordMessageArrived,
-) -> Record<SessionAggregate> {
+) -> Result<FactEmit<SessionAggregate>, Bug> {
     if live(held).is_err() || entry(held, &arrive.message_id).is_some() {
-        return Record::of(None::<MessageArrived>);
+        return Ok(FactEmit::none());
     }
-    Record::of(MessageArrived {
+    Ok(FactEmit::of([pack_message(&MessageArrived {
         message_id: arrive.message_id.clone(),
         from: arrive.from.clone(),
         kind: arrive.kind.clone(),
         body_ref: arrive.body_ref.clone(),
-    })
-    .then(|after: &SessionAggregate, _: &Context| {
+    })])
+    .then(|after: &SessionAggregate, _: &CommandContext| {
         let session = after.state();
         let owed = session.open_incarnation.is_none() && !session.stopped;
-        owed.then(|| IncarnationOwed {
+        record(owed.then(|| IncarnationOwed {
             incarnation: session.incarnation + 1,
             reason: lifeline::MAIL.to_string(),
-        })
-    })
+        }))
+    }))
 }
 
 /// The inbox's entry for `message_id`.
@@ -53,18 +53,24 @@ fn unsettled(held: &SessionState, message_id: &str) -> bool {
 }
 
 /// The first claimant wins: a claim on queued mail only.
-pub(crate) fn claimed(held: &SessionState, claim: &ClaimMessage) -> Record<SessionAggregate> {
+pub(crate) fn claimed(
+    held: &SessionState,
+    claim: &ClaimMessage,
+) -> Result<FactEmit<SessionAggregate>, Bug> {
     let queued =
         entry(held, &claim.message_id).is_some_and(|entry| entry.status == InboxStatus::Queued);
-    Record::of((queued && live(held).is_ok()).then(|| MessageClaimed {
+    record((queued && live(held).is_ok()).then(|| MessageClaimed {
         message_id: claim.message_id.clone(),
         claimant: claim.claimant.clone(),
     }))
 }
 
 /// Delivered once: a second delivery of the same mail records nothing.
-pub(crate) fn delivered(held: &SessionState, deliver: &DeliverMessage) -> Record<SessionAggregate> {
-    Record::of(
+pub(crate) fn delivered(
+    held: &SessionState,
+    deliver: &DeliverMessage,
+) -> Result<FactEmit<SessionAggregate>, Bug> {
+    record(
         (unsettled(held, &deliver.message_id) && live(held).is_ok()).then(|| MessageDelivered {
             message_id: deliver.message_id.clone(),
             at_turn: deliver.at_turn,
@@ -72,8 +78,11 @@ pub(crate) fn delivered(held: &SessionState, deliver: &DeliverMessage) -> Record
     )
 }
 
-pub(crate) fn failed(held: &SessionState, fail: &FailMessage) -> Record<SessionAggregate> {
-    Record::of(
+pub(crate) fn failed(
+    held: &SessionState,
+    fail: &FailMessage,
+) -> Result<FactEmit<SessionAggregate>, Bug> {
+    record(
         (unsettled(held, &fail.message_id) && live(held).is_ok()).then(|| MessageFailed {
             message_id: fail.message_id.clone(),
             reason: fail.reason.clone(),

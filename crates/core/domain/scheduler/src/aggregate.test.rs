@@ -80,20 +80,27 @@ impl Scheduler {
     ) -> Result<Vec<SchedulerEvent>, Refusal> {
         match self.harness.when(command).result() {
             Ok(events) => Ok(events),
-            Err(Failure::Rejected(rejected)) => Err((
-                rejected.code().to_string(),
-                rejected
-                    .args()
-                    .into_iter()
-                    .map(|(name, arg)| {
-                        let text = match arg {
-                            Arg::Str(text) => text,
-                            other => format!("{other:?}"),
-                        };
-                        (name.to_string(), text)
-                    })
-                    .collect(),
-            )),
+            Err(Failure::Rejected(rejected)) => {
+                let typed = rejected
+                    .rejection::<angzarr_embedded::markup::TypedRefusal>()
+                    .expect("a typed refusal");
+                let rejection =
+                    crate::SchedulerRejection::try_from(typed).expect("a scheduler refusal");
+                Err((
+                    rejection.code().to_string(),
+                    rejection
+                        .args()
+                        .into_iter()
+                        .map(|(name, arg)| {
+                            let text = match arg {
+                                Arg::Str(text) => text,
+                                other => format!("{other:?}"),
+                            };
+                            (name.to_string(), text)
+                        })
+                        .collect(),
+                ))
+            }
             Err(other) => panic!("not a rejection: {other:?}"),
         }
     }
@@ -116,14 +123,14 @@ fn fact_book(cover: Cover, fact: AlarmDue, external_id: &str) -> CommandBook {
         page: Some(CommandPage {
             body: Some(command_page::Body::Fact(Fact {
                 payload: Some(Any::from_msg(&fact.to_wire()).unwrap()),
+                origin: Some(FactOrigin {
+                    external_id: external_id.to_string(),
+                    description: String::new(),
+                }),
             })),
-            fact_origin: Some(FactOrigin {
-                external_id: external_id.to_string(),
-                description: String::new(),
-            }),
+
             ..CommandPage::default()
         }),
-        handling: None,
     }
 }
 
@@ -206,9 +213,13 @@ fn arm_in(cover: Cover, cmd: ArmAlarm) -> Result<Option<AlarmArmed>, String> {
         .arm(cmd, &ctx)
         .map_err(|failed| match failed {
             angzarr_embedded::markup::Failed::Rejected { rejection, .. } => {
-                rejection.code().to_string()
+                let typed: angzarr_embedded::markup::TypedRefusal = rejection.into();
+                crate::SchedulerRejection::try_from(&typed)
+                    .expect("a scheduler refusal")
+                    .code()
+                    .to_string()
             }
-            other => format!("{other:?}"),
+            _ => "not a refusal".to_string(),
         })
 }
 
@@ -341,7 +352,7 @@ fn alarm_due_at_the_armed_instant_records_alarm_fired() {
     s.command(arm("deadline", 10)).unwrap();
     s.fact(due("deadline", 10), "a");
     let pages = s.harness.pages();
-    let event = SchedulerEvent::from_any(pages[1].payload.as_ref().unwrap()).unwrap();
+    let event = SchedulerEvent::from_any(event_any(&pages[1])).unwrap();
     assert!(same(&[event], &[fired("deadline", 10)]));
 }
 
@@ -385,4 +396,12 @@ fn a_resent_alarm_due_is_duplicate() {
         Handled::Duplicate(..)
     ));
     assert_eq!(s.pages(), 2);
+}
+
+/// The domain event a page carries.
+fn event_any(page: &angzarr_embedded::v1::EventPage) -> &angzarr_embedded::Any {
+    match &page.body {
+        Some(angzarr_embedded::v1::event_page::Body::Event(event)) => event,
+        other => panic!("not a domain event: {other:?}"),
+    }
 }

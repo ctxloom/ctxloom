@@ -108,5 +108,5 @@ fn an_error_displays_its_code_and_args_and_has_samples() {
     let error = TokenError::Malformed { length: 3 };
     assert_eq!(error.to_string(), "run-ports-token-malformed length=3");
     assert_eq!(error.args().len(), 1);
-    assert_eq!(diagnostic_samples().len(), 1);
+    assert_eq!(crate::token::diagnostic_samples().len(), 1);
 }

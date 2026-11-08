@@ -122,7 +122,7 @@ pub const EN_US: (&str, &str) = (
 
 /// One value of every error, for the catalog test.
 #[cfg(any(test, feature = "test-support"))]
-pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
+pub(crate) fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     vec![Box::new(TokenError::Malformed { length: 3 })]
 }
 

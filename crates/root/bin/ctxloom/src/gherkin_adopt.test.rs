@@ -121,12 +121,12 @@ impl World {
         out
     }
 
-    fn launch_record(&self) -> String {
+    pub(super) fn launch_record(&self) -> String {
         files::read(self.adopt_scratch().join("bin/claude-launch")).unwrap_or_default()
     }
 
     /// The scenario's temporary directory, beside the project and the home.
-    fn adopt_scratch(&self) -> PathBuf {
+    pub(super) fn adopt_scratch(&self) -> PathBuf {
         self.common
             .project
             .dir()
@@ -144,7 +144,7 @@ fn outside_ctxloom<V: Clone>(tree: &BTreeMap<String, V>) -> BTreeMap<String, V> 
 }
 
 #[given("Alice's assistant is Claude Code")]
-fn claude_code(w: &mut World) {
+pub(super) fn claude_code(w: &mut World) {
     let bin = w.adopt_scratch().join("bin");
     files::put_program(bin.join("claude"), CLAUDE_STUB);
     let project = &w.common.project;
@@ -156,7 +156,7 @@ fn claude_code(w: &mut World) {
 }
 
 #[given("ctxloom's published default content is within reach")]
-fn published_default(w: &mut World) {
+pub(super) fn published_default(w: &mut World) {
     let root = w.adopt_scratch().join("published");
     let (bare, work) = (root.join("ctxloom-default"), root.join("work"));
     files::mkdirs(&root);
@@ -197,7 +197,7 @@ fn published_default(w: &mut World) {
 /// The token every agent authenticates with: a fixture, so init's check
 /// for it passes and no real credential is read.
 #[given("Alice has exported her assistant's token")]
-fn token(w: &mut World) {
+pub(super) fn token(w: &mut World) {
     w.common.set_env(
         "CLAUDE_CODE_OAUTH_TOKEN",
         "sk-ant-oat01-acceptance-fixture-not-real".to_string(), // gitleaks:allow

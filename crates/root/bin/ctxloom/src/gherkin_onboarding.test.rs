@@ -140,7 +140,7 @@ impl World {
         let url = format!("file://{}", bare.display());
         self.common.run_lines(
             &format!(
-                "ctxloom remote create {remote} {url} --forge git\nctxloom profile modify {J000700_PROFILE} --add-bundle {remote}/{bundle}"
+                "ctxloom remote create {remote} {url} --forge git\nctxloom profile edit {J000700_PROFILE} --add-bundle {remote}/{bundle}"
             ),
             "",
         );

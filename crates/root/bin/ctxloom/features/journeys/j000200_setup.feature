@@ -1,10 +1,8 @@
+# world: base
 # Ported from journeys/j000200_setup.feature (rev f36e8dfb2)
-# NOT ported: the scenarios tagged @pending: the first has no steps yet (`init`
-#   of a new project, `remote create`, `deps pull` and `profile edit` are built;
-#   what is missing is its Given/When/Then steps and an interactive `run`), and
-#   the others need the setup interview to launch an engine.
+# NOT ported: the scenarios tagged @pending: they need the setup interview to
+#   launch an engine.
 @doc
-@pending
 Feature: Setting up ctxloom on a project
 
   A developer's assistant is only as good as the context it is handed. Left to
@@ -37,6 +35,7 @@ Feature: Setting up ctxloom on a project
   # On a terminal, setup interviews her. The interview runs in a session that
   # cannot see what it has just configured, so ctxloom offers to restart her
   # into the configured one.
+  @pending
   Scenario: Setup configures the agents, then a restart delivers their context
     # substitution: one engine, no Outline; the Thens say what her restarted assistant receives.
     Given Alice has a personal ctxloom repository
@@ -53,7 +52,7 @@ Feature: Setting up ctxloom on a project
     And her restarted assistant receives her company repository's content
 
   # With a real assistant: it can use what it was handed.
-  @live
+  @live @pending
   Scenario Outline: The restarted <engine> assistant can see every source
     # substitution: told as the user's flow, with the commands she runs.
     Given Alice has personal and company ctxloom repositories, served by a real <engine> assistant

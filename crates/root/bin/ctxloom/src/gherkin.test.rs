@@ -296,6 +296,9 @@ impl World {
 #[path = "gherkin_adopt.test.rs"]
 mod adopt;
 
+#[path = "gherkin_setup.test.rs"]
+mod setup;
+
 // ------------------------------------------------------------------ given
 
 #[given(expr = "the environment variable {string} is set to {string}")]

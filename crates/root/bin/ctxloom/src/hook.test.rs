@@ -22,6 +22,7 @@ impl Env {
             .env_clear()
             .env("HOME", self.home())
             .env("USERPROFILE", self.home())
+            .env("TMPDIR", crate::tests::temp_root())
             .current_dir(self.home())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

@@ -201,6 +201,34 @@ fn test_no_refusal_status_is_spelled_in_the_rust_sources() {
     assert!(hits.is_empty(), "a status is spelled in Rust: {hits:#?}");
 }
 
+/// A test that spawns the binary in a directory of its own, with a cleared
+/// environment, must hand it the temporary root it made that directory under
+/// (`TMPDIR`). The binary finds its project by walking up from the working
+/// directory and stops at its temporary root; without it, it stops at `/tmp`,
+/// so a temporary directory made anywhere else (a `TMPDIR` below the real
+/// home, as the closeout's mutation run sets one) lets the walk climb out of
+/// the test and find the real `~/.ctxloom` as its project.
+#[test]
+fn test_every_spawn_in_a_directory_hands_the_child_its_temporary_root() {
+    let src = super::repo_root().join("crates/root/bin/ctxloom/src");
+    let mut missing = Vec::new();
+    let mut spawners = 0;
+    for path in files::children(&src) {
+        if !path.to_string_lossy().ends_with(".test.rs") || path.ends_with("workspace.test.rs") {
+            continue;
+        }
+        let text = files::read(&path).expect("a test file");
+        if text.contains(".env_clear()") && text.contains(".current_dir(") {
+            spawners += 1;
+            if !text.contains("\"TMPDIR\"") {
+                missing.push(path.display().to_string());
+            }
+        }
+    }
+    assert!(spawners >= 5, "found only {spawners} spawning test files");
+    assert!(missing.is_empty(), "no TMPDIR handed on: {missing:#?}");
+}
+
 #[test]
 fn test_annals_has_left_the_workspace() {
     let output = std::process::Command::new(env!("CARGO"))

@@ -280,6 +280,7 @@ impl Project {
             .env_clear()
             .env("HOME", &self.home)
             .env("USERPROFILE", &self.home)
+            .env("TMPDIR", crate::tests::temp_root())
             .current_dir(cwd);
         for name in ["PATH", "SystemRoot"] {
             if let Some(value) = crate::tests::host_var(name) {

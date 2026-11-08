@@ -197,6 +197,7 @@ impl World {
             .env_clear()
             .env("PATH", crate::tests::host_var("PATH").unwrap_or_default())
             .env("HOME", self.common.project.home())
+            .env("TMPDIR", crate::tests::temp_root())
             .output()
             .expect("git runs");
         assert!(

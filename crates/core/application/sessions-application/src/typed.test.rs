@@ -419,11 +419,11 @@ fn a_refusal_of_no_domain_has_no_rejection_and_the_runtimes_report() {
             value: Vec::new(),
         },
     );
-    match settle::<SessionAggregate>(&store, unknown) {
-        Err(Unrun::Failed(_)) => {}
-        Ok(Err(refusal)) => assert_eq!(refusal.rejection, None),
-        _ => panic!("refused by the runtime"),
-    }
+    // Not a retryable failure: the kernel's answer is final, not given up on.
+    assert!(matches!(
+        settle::<SessionAggregate>(&store, unknown),
+        Err(Unrun::Failed(_))
+    ));
 }
 
 #[test]
@@ -452,4 +452,33 @@ fn a_command_to_a_stream_holding_no_session_is_refused_no_session() {
     );
     assert_eq!(refused.rejection, SessionRejection::NoSession);
     let _ = project("p");
+}
+
+/// A store that could not say is a retryable failure: the kernel's retries
+/// spent, the use case gives up at once (and says after how many attempts).
+#[test]
+fn a_store_that_could_not_say_is_given_up_on_not_failed() {
+    use angzarr_embedded::testing::{Fault, FaultyStore};
+    let store = FaultyStore::new(MemoryStore::default());
+    store.fail(std::iter::repeat_n(Fault::Unavailable, 8));
+    let registry = crate::registry();
+    let (mut clock, mut delay, mut dead_letters) =
+        (FakeClock::default(), FakeDelay::default(), Vec::new());
+    let mut runner = Runner {
+        registry: &registry,
+        clock: &mut Port(&mut clock),
+        delay: &mut Port(&mut delay),
+        retry: OnRetryable {
+            max_retries: 0,
+            ..OnRetryable::default()
+        },
+        dead_letters: &mut dead_letters,
+    };
+    let answered = ready(run::<SessionAggregate, _, _, _>(
+        &mut runner,
+        &store,
+        to_session(mint("owl")),
+        &Uuid::from_bytes([9; 16]),
+    ));
+    assert!(matches!(answered, Err(Unrun::GaveUp { attempts: 1, .. })));
 }

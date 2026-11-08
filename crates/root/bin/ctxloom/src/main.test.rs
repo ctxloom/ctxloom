@@ -29,6 +29,15 @@
 
 use std::path::{Path, PathBuf};
 
+/// The temporary root the tests make their directories under, which every
+/// spawned `ctxloom` is told (`TMPDIR`): its project walk stops there, so it
+/// cannot climb out of a test's directory into the real home's `.ctxloom`.
+pub(crate) fn temp_root() -> std::path::PathBuf {
+    process_env::EnvSnapshot::from_process()
+        .temp_dir()
+        .to_path_buf()
+}
+
 /// A variable of the process the tests run in, for passing on to the binary
 /// they spawn (the process's environment is read once, by the snapshot).
 pub(crate) fn host_var(name: &str) -> Option<std::ffi::OsString> {
@@ -167,6 +176,7 @@ impl Env {
             .env_clear()
             .env("HOME", self.home())
             .env("USERPROFILE", self.home())
+            .env("TMPDIR", crate::tests::temp_root())
             .current_dir(self.home());
         for name in ["PATH", "SystemRoot"] {
             if let Some(value) = crate::tests::host_var(name) {

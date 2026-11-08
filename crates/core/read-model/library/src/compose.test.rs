@@ -655,3 +655,78 @@ fn test_a_companion_fragment_the_profile_names_too_is_assembled_once() {
     assert_eq!(package.context, "Companion guide.");
     assert_eq!(package.fragments.len(), 1);
 }
+
+// Step 1b-ii: a remote profile's references carry the commit `deps pull`
+// pinned. The installed bundle IS that commit's content, so a pin at the
+// installed commit is read from it; a pin at any other commit is not readable
+// here, and is withheld.
+const PINNED_KIT: &str = "ctxloom+file:///srv/o.git//bundles/kit";
+
+fn installed_kit() -> Catalog {
+    use crate::catalog::RemoteOrigin;
+    crate::testdata::catalog_of(&[("origin/kit", crate::testdata::BETA)]).with_origins(
+        [(
+            "origin/kit".to_string(),
+            RemoteOrigin {
+                reference: PINNED_KIT.to_string(),
+                url: "file:///srv/o.git".to_string(),
+                sha: "a".repeat(40),
+                files: BTreeMap::new(),
+                executable: BTreeSet::new(),
+            },
+        )]
+        .into(),
+    )
+}
+
+fn pinned_at(version: &str) -> Selection {
+    Selection {
+        fragments: vec![FragmentAsk {
+            name: format!("{PINNED_KIT}#fragments/tagged"),
+            version: version.to_string(),
+            priority: 0,
+        }],
+        ..Selection::default()
+    }
+}
+
+#[test]
+fn test_a_pin_at_the_installed_commit_is_read_from_the_installed_bundle() {
+    let package = assemble(
+        &installed_kit(),
+        &pinned_at(&"a".repeat(40)),
+        &Options::default(),
+    );
+    assert_eq!(package.findings, Vec::new());
+    assert_eq!(package.context, "Tagged body.");
+}
+
+#[test]
+fn test_a_pin_at_another_commit_is_withheld_and_says_which_is_installed() {
+    let package = assemble(
+        &installed_kit(),
+        &pinned_at(&"b".repeat(40)),
+        &Options::default(),
+    );
+    assert_eq!(package.context, "");
+    assert_eq!(package.findings.len(), 1);
+    let text = &package.findings[0].text;
+    assert!(text.contains(&"b".repeat(40)), "{text}");
+    assert!(text.contains(&"a".repeat(40)), "{text}");
+}
+
+// A pin on a bundle that is not installed from anywhere cannot be read.
+#[test]
+fn test_a_pin_on_a_project_bundle_is_withheld() {
+    let selection = Selection {
+        fragments: vec![FragmentAsk {
+            name: ALPHA_STYLE.to_string(),
+            version: "abc123".to_string(),
+            priority: 0,
+        }],
+        ..Selection::default()
+    };
+    let package = assemble(&corpus(), &selection, &Options::default());
+    assert_eq!(package.context, "");
+    assert_eq!(package.findings.len(), 1);
+}

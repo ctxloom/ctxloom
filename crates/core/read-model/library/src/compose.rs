@@ -538,10 +538,7 @@ fn load_failure(ask: &FragmentAsk, message: &str) -> Finding {
 /// One ask loaded from the catalog.
 fn load(catalog: &Catalog, ask: &FragmentAsk) -> Result<ItemRead, String> {
     if !ask.version.is_empty() {
-        return Err(format!(
-            "version {} of {} cannot be read: pinned content versions are resolved from the bundle's repository, which this build does not read",
-            ask.version, ask.name
-        ));
+        pin_readable(catalog, ask)?;
     }
     let Some((base, selector)) = ask.name.split_once('#') else {
         return catalog
@@ -567,6 +564,32 @@ fn load(catalog: &Catalog, ask: &FragmentAsk) -> Result<ItemRead, String> {
         .ok()
         .and_then(|found| found.into_iter().next())
         .ok_or_else(|| format!("fragment not found: \"{item}\" in bundle \"{canonical}\""))
+}
+
+/// Whether the pin of `ask` can be read: the bundle it names is installed from
+/// a remote at exactly that commit, so the installed content is the pinned
+/// content. Any other commit is resolved from the bundle's repository, which
+/// is not read here.
+fn pin_readable(catalog: &Catalog, ask: &FragmentAsk) -> Result<(), String> {
+    let bundle = ask
+        .name
+        .split_once('#')
+        .map_or(ask.name.as_str(), |(b, _)| b);
+    let installed = catalog
+        .lookup(bundle)
+        .ok()
+        .and_then(|entry| catalog.origin(&entry.name));
+    match installed {
+        Some(origin) if origin.sha == ask.version => Ok(()),
+        Some(origin) => Err(format!(
+            "version {} of {} cannot be read: the installed one is {}, and other pinned content versions are resolved from the bundle's repository, which this build does not read",
+            ask.version, ask.name, origin.sha
+        )),
+        None => Err(format!(
+            "version {} of {} cannot be read: pinned content versions are resolved from the bundle's repository, which this build does not read",
+            ask.version, ask.name
+        )),
+    }
 }
 
 /// The identity the context dedupes on: the source-qualified, version-less

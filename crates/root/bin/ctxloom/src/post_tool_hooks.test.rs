@@ -1,5 +1,5 @@
 //! Plain tests for what post_tool_hooks.feature does not cover (the feature
-//! runs in `gherkin_surfaces.test.rs`): `hook skill-mates`.
+//! runs in `gherkin_surfaces.test.rs`): `hook claude-code execute PostToolUse`.
 //!
 //! plan supersedes Go (8.4, "`--engine` on every callback"): the engine whose
 //! codec reads the payload and the transcript is the one the hook was
@@ -75,7 +75,7 @@ fn test_a_mate_the_session_already_invoked_is_not_named_again() {
     let invoked = r#"{"type":"assistant","isSidechain":false,"message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Skill","input":{"skill":"unattended"}}]}}"#;
     project.write("turn.jsonl", &format!("{TRANSCRIPT}{invoked}\n"));
     let ran = project.run_input(
-        &["hook", "skill-mates", "--engine", "claude-code"],
+        &["hook", "claude-code", "execute", "PostToolUse"],
         &payload(&project, "Skill", r#"{"skill":"admit","args":""}"#),
         &[("CTXLOOM_SESSION_HARP", HARP)],
     );
@@ -89,7 +89,7 @@ fn test_a_mate_the_session_already_invoked_is_not_named_again() {
 fn test_a_hook_under_an_unknown_engine_is_refused_by_name() {
     let project = Project::initialized();
     project
-        .run_input(&["hook", "skill-mates", "--engine", "nosuch"], "{}", &[])
+        .run_input(&["hook", "nosuch", "execute", "PostToolUse"], "{}", &[])
         .fails()
         .contains("nosuch");
 }

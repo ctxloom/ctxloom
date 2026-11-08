@@ -29,7 +29,7 @@ fn matcher_of_op(op: &JsonOp) -> Option<String> {
     }
 }
 
-// RED (port/run-one-shot): a callback is installed as `hook <engine> execute
+// a callback is installed as `hook <engine> execute
 // <native event>`, whatever verb its author wrote; the native event is the one
 // the unified event routes to.
 #[test]
@@ -55,7 +55,7 @@ fn test_a_ctxloom_callback_executes_the_native_hook_of_its_event() {
     }
 }
 
-// RED: the two events the primary agent's data comes from have a hook file
+// the two events the primary agent's data comes from have a hook file
 // form, and the route and the codec's name mapping are reverses.
 #[test]
 fn test_every_unified_event_routes_to_the_native_one_the_codec_maps_back() {
@@ -76,7 +76,7 @@ fn test_every_unified_event_routes_to_the_native_one_the_codec_maps_back() {
     }
 }
 
-// RED: has_callback keeps its first word and reads the engine and `execute`.
+// has_callback keeps its first word and reads the engine and `execute`.
 #[test]
 fn test_a_callback_is_found_by_its_execute_form_only() {
     let settings = |args: &str| {

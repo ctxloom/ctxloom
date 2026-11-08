@@ -116,9 +116,9 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         | claude-code | CLAUDE.md                       | Isolation: specify both axes  |
         | mock        | MOCK_CONTEXT.md                 | Isolation: specify both axes  |
 
-      Examples: claude's settings carry the session-start hook, which names no context
+      Examples: claude's settings carry the SessionStart hook, which names no context
         | engine      | context_surface       | context_marker      |
-        | claude-code | .claude/settings.json | session-start       |
+        | claude-code | .claude/settings.json | SessionStart        |
 
     # ONE CLAIM, MANY SHAPES. ctxloom's own MCP server is the companion's
     # DYNAMIC declaration — served by the running session's endpoint, injected
@@ -283,7 +283,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
 
     # A claim scoped to hooks.SessionStart specifically, parsed rather than a
     # whole-file substring: ctxloom's own statusLine command also carries the
-    # substring "ctxloom hook" (`ctxloom hook hud`), so a bare `contains`
+    # substring "ctxloom hook" (`ctxloom hook claude-code execute statusline`), so a bare `contains`
     # check here is satisfied by the statusline whether or not any hook was
     # ever installed or removed.
     #
@@ -299,7 +299,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         ctxloom materialize --yes
         """
       Then the command succeeds
-      And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook session-start"
+      And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook claude-code execute SessionStart"
       When Alice inspects and then removes them:
         """
         ctxloom manage hooks check
@@ -309,15 +309,16 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       And the file ".claude/settings.json" does not exist
 
     # Asserted on a hook CTXLOOM ITSELF installs, not on one a companion
-    # contributes. `session-bind` ships in taskloom's loadout, so this counted
+    # contributes. `session-bind` shipped in taskloom's loadout, so this counted
     # a hook that was present only because the developer happened to have
     # taskloom installed — the scenario passed or vanished depending on the
     # machine, and its subject (append twice, appear once) never needed a
     # companion at all.
     #
-    # Matched on the verb alone: ctxloom's own hooks are written in exec form
-    # (`"command": "ctxloom", "args": ["hook", "skill-mates"]`), so the binary
-    # name and the verb are separate JSON strings.
+    # Matched on the hook's own matcher: ctxloom's own hooks are written in
+    # exec form (`"command": "ctxloom", "args": ["hook", "claude-code",
+    # "execute", "PostToolUse"]`), and the skill-mates hook is the one narrowed
+    # to the Skill tool.
     Scenario: Re-applying hooks does not duplicate them
       Given an initialized ctxloom project
       When Alice installs the hooks twice:
@@ -326,7 +327,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         ctxloom materialize --yes
         """
       Then the command succeeds
-      And the file ".claude/settings.json" contains "skill-mates" exactly 1 times
+      And the file ".claude/settings.json" contains "Skill" exactly 1 times
 
     # Hooks merge across sources by pure APPEND, and each bundle's `order:`
     # sequences only its own hooks within an event. The fixture makes
@@ -461,14 +462,14 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         ctxloom materialize --yes
         """
       Then the command succeeds
-      And the file ".claude/settings.json" does not contain "hook hud"
+      And the file ".claude/settings.json" does not contain "execute statusline"
       When Alice turns it back on and re-applies:
         """
         ctxloom manage statusline install
         ctxloom materialize --yes
         """
       Then the command succeeds
-      And the file ".claude/settings.json" contains "hook hud"
+      And the file ".claude/settings.json" contains "execute statusline"
 
   Rule: A file the user wrote by hand is never damaged
 
@@ -492,7 +493,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         ctxloom materialize --yes
         """
       Then the command succeeds
-      And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook session-start"
+      And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook claude-code execute SessionStart"
       And the file ".claude/settings.json" contains "1234567890123456789"
       And the file ".claude/settings.json" contains "-9223372036854775808"
       And the file ".claude/settings.json" contains "18446744073709551615"
@@ -523,7 +524,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Then the command fails
       And the output contains "refusing to write settings.json"
       And the file ".claude/settings.json" contains "ccusage"
-      And the file ".claude/settings.json" registers no SessionStart hook whose command contains "hook session-start"
+      And the file ".claude/settings.json" registers no SessionStart hook whose command contains "hook claude-code execute SessionStart"
 
   Rule: ctxloom's private state stays out of source control
 
@@ -593,8 +594,8 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         ctxloom materialize --yes --degraded
         """
       Then the command succeeds
-      And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook session-start"
-      And the file ".claude/settings.json" contains "ctxloom hook hud"
+      And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook claude-code execute SessionStart"
+      And the file ".claude/settings.json" contains "ctxloom hook claude-code execute statusline"
       And the file ".mcp.json" registers no MCP server named "ctxloom"
       When Alice takes it back out:
         """

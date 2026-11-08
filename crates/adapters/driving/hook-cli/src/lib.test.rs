@@ -2,7 +2,7 @@
 
 use super::*;
 
-// RED (port/run-one-shot): the noun is `hook <engine> execute <hook-name>`,
+// the noun is `hook <engine> execute <hook-name>`,
 // hidden; `session-bind`, `hud`, `session-start` and `skill-mates` are no
 // longer verbs (they became `hook claude-code execute SessionStart`,
 // `... statusline`, `... SessionStart` and `... PostToolUse`).

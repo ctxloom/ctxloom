@@ -1,4 +1,4 @@
-//! RED (port/run-one-shot): `hook <engine> execute <hook-name>` over a fake
+//! `hook <engine> execute <hook-name>` over a fake
 //! application.
 
 use std::cell::RefCell;

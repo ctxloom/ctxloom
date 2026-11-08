@@ -610,5 +610,5 @@ fn test_a_pull_with_yes_also_refreshes_the_projects_engine_files() {
         .lacks("Project refresh skipped");
     world
         .project
-        .file_contains(".claude/settings.json", "session-start");
+        .file_contains(".claude/settings.json", "SessionStart");
 }

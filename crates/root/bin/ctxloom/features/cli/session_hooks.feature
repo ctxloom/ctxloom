@@ -1,20 +1,21 @@
 # world: surfaces
 # Ported from cli/session_hooks.feature
 # NOT ported: these Go scenarios, and why:
-#   - session-bind, hud and the retired turn-changed: S4's, tested in
+#   - the bind, the statusline (`hook <engine> execute SessionStart` and
+#     `... statusline`) and the retired turn-changed: S4's, tested in
 #     hook.test.rs.
 #   - stamp-plan: taskloom's (D17).
 
 
 Feature: The machine callbacks every session fires — do they deliver, and do they stay on their channel?
 
-  Four hidden commands run on every ctxloom session, invoked by the host
-  engine rather than by a person: `hook session-start` hands the engine the
-  session-start notices (never the project's context, which the session
-  already has as its system prompt),
-  `hook session-bind` records
-  which backend session belongs to which harp, `hook stamp-plan` marks a plan
-  file with the session that edited it, and `hook hud` renders the statusline.
+  Hidden callbacks run on every ctxloom session, invoked by the host engine
+  rather than by a person, all as `hook <engine> execute <hook-name>`:
+  `hook claude-code execute SessionStart` hands the engine the session-start
+  notices (never the project's context, which the session already has as its
+  system prompt) and records which backend session belongs to which harp,
+  `hook stamp-plan` marks a plan file with the session that edited it, and
+  `hook claude-code execute statusline` renders the statusline.
   Nobody types any of them, so nobody notices when one stops working.
 
   They share a contract that makes them unusually easy to break quietly. A
@@ -51,10 +52,11 @@ Feature: The machine callbacks every session fires — do they deliver, and do t
       """
       HOOK-MUST-NOT-DELIVER-THIS-EXACT-TEXT and nothing else in this project says so.
       """
-    When I run "ctxloom hook session-start --engine claude-code" with input:
+    And the session harp is "brisk-copper-moth"
+    When I run "ctxloom hook claude-code execute SessionStart" with input:
       """
       {"session_id":"vendor-session-1","hook_event_name":"SessionStart","source":"startup"}
       """
     Then the command succeeds
-    And the hook's additionalContext is empty
+    And the hook's additionalContext contains "brisk-copper-moth"
     And the output does not contain "HOOK-MUST-NOT-DELIVER-THIS-EXACT-TEXT"

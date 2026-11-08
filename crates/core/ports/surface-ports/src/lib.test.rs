@@ -146,7 +146,7 @@ fn test_a_hook_spells_its_shared_members_in_order() {
     assert_eq!(bare, vec![("type", Json::text("command"))]);
 }
 
-// RED (port/run-one-shot): a callback is installed as `hook <engine> execute
+// a callback is installed as `hook <engine> execute
 // <native event>`; the authored verb and the `--engine` suffix are gone.
 #[test]
 fn test_a_callback_executes_the_engines_native_hook() {

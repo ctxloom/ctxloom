@@ -30,7 +30,7 @@ fn test_feed_tolerates_a_child_that_exited_without_reading() {
 #[test]
 fn test_feed_reports_a_payload_the_child_read() {
     let mut child = Command::new(binary())
-        .args(["hook", "hud"])
+        .args(["hook", "claude-code", "execute", "statusline"])
         .env_clear()
         .stdin(Stdio::piped())
         .stdout(Stdio::null())

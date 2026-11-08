@@ -305,7 +305,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
         ctxloom deps pull --yes --format text
         """
       Then the command succeeds
-      And the file ".claude/settings.json" contains "session-start"
+      And the file ".claude/settings.json" contains "SessionStart"
       And the output does not contain "Project refresh skipped"
 
   Rule: Pull reconciles to upstream — it removes what upstream no longer has

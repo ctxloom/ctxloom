@@ -128,7 +128,7 @@ fn test_the_hooks_answer_from_a_config_that_a_strict_load_would_refuse() {
 }
 
 // ---------------------------------------------------------------------------
-// RED (port/run-one-shot): `hook <engine> execute <native hook name>`.
+// `hook <engine> execute <native hook name>`.
 
 const MARKER: &str = r#"<ctxloom name="brisk-copper-moth" kind="harp" />"#;
 

@@ -143,7 +143,7 @@ fn test_the_skills_a_transcript_invoked_are_its_main_threads() {
 }
 
 // ---------------------------------------------------------------------------
-// RED (port/run-one-shot). Real payloads from a live claude 2.1.319 run, in
+// Real payloads from a live claude 2.1.319 run, in
 // `fixtures/` (paths stripped): what the primary agent's hooks carry, which the
 // codec must decode into the neutral event (plan sultry-coauthor, Q10).
 

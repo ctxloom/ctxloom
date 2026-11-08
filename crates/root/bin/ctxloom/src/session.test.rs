@@ -625,30 +625,9 @@ fn test_edit_name_renames_the_harp_and_moves_its_output_folder() {
 const SESSION_START: &str = r#"{"session_id":"vendor-session-42","transcript_path":"/tmp/vendor/transcript.jsonl","hook_event_name":"SessionStart"}"#;
 
 // session_hooks.feature: "Binding a session records the harp both in the
-// transcript and in the index": the marker on stdout (parsed ALONE as JSON),
-// and the index binds the harp to the session.
-#[test]
-fn test_binding_a_session_records_the_harp_in_the_transcript_and_in_the_index() {
-    let home = Home::new();
-    home.seed("brisk-copper-moth", &[]);
-    let ran = home.env.run_hook(
-        &["hook", "session-bind", "--engine", "claude-code"],
-        SESSION_START,
-        &[("CTXLOOM_SESSION_HARP", "brisk-copper-moth")],
-    );
-    assert_eq!(ran.code, 0, "{}", ran.said());
-    let reply = ran.json();
-    assert!(reply["hookSpecificOutput"]["additionalContext"]
-        .as_str()
-        .unwrap()
-        .contains("brisk-copper-moth"));
-    let shown = home.run(&["session", "show", "brisk-copper-moth", "--format", "json"]);
-    assert_eq!(shown.json()["native_session"], "vendor-session-42");
-}
-
-// RED (port/run-one-shot): the same bind through the one callback form,
-// `hook claude-code execute SessionStart`: the marker on stdout (as context)
-// and the binding in the index.
+// transcript and in the index", through the one callback form,
+// `hook claude-code execute SessionStart`: the marker on stdout (parsed ALONE as
+// JSON, as context) and the binding in the index.
 #[test]
 fn test_executing_session_start_binds_the_session_and_emits_the_marker() {
     let home = Home::new();
@@ -690,7 +669,7 @@ fn test_a_second_bind_with_a_new_session_rotates_the_binding() {
     let vars = [("CTXLOOM_SESSION_HARP", "brisk-copper-moth")];
     let bind = |payload: &str| {
         home.env.run_hook(
-            &["hook", "session-bind", "--engine", "claude-code"],
+            &["hook", "claude-code", "execute", "SessionStart"],
             payload,
             &vars,
         )
@@ -713,7 +692,7 @@ fn test_a_second_bind_with_a_new_session_rotates_the_binding() {
 fn test_binding_a_harp_nobody_recorded_still_emits_the_marker_and_exits_0() {
     let home = Home::new();
     let ran = home.env.run_hook(
-        &["hook", "session-bind", "--engine", "claude-code"],
+        &["hook", "claude-code", "execute", "SessionStart"],
         SESSION_START,
         &[("CTXLOOM_SESSION_HARP", "no-such-harp")],
     );

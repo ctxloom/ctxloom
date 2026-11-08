@@ -7,7 +7,7 @@
 Feature: The PostToolUse callback — a nudge after the tool call that earns one, and silence after every other
 
   A hidden command rides the host engine's PostToolUse hook, invoked after a
-  tool call rather than by a person: `hook skill-mates` names the linked
+  tool call rather than by a person: `hook claude-code execute PostToolUse` names the linked
   skills a just-completed skill leaves uninvoked this session.
 
   It shares session_hooks.feature's contract: a hook that fails interrupts
@@ -20,7 +20,7 @@ Feature: The PostToolUse callback — a nudge after the tool call that earns one
   Background:
     Given an initialized ctxloom project
 
-  Rule: skill-mates names a completed skill's uninvoked link-group mates, and nothing else
+  Rule: the PostToolUse hook names a completed skill's uninvoked link-group mates, and nothing else
 
     # THE EFFECT END TO END: the delivered skill set is resolved the way the
     # session's own assembly resolved it (the default agent's profile over
@@ -64,7 +64,7 @@ Feature: The PostToolUse callback — a nudge after the tool call that earns one
         """
         The queue is admitted.
         """
-      When I run "ctxloom hook skill-mates --engine claude-code" with input:
+      When I run "ctxloom hook claude-code execute PostToolUse" with input:
         """
         {"session_id":"s","hook_event_name":"PostToolUse","transcript_path":"$PROJECT_DIR/turn.jsonl","cwd":"/repo","tool_name":"Skill","tool_input":{"skill":"admit","args":""},"tool_response":"ok"}
         """
@@ -74,7 +74,7 @@ Feature: The PostToolUse callback — a nudge after the tool call that earns one
     # Every other tool is answered before any session, transcript or config
     # is touched — and answered with silence, not with an error.
     Scenario: A tool call that is not a skill is passed over in silence
-      When I run "ctxloom hook skill-mates --engine claude-code" with input:
+      When I run "ctxloom hook claude-code execute PostToolUse" with input:
         """
         {"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"ls"},"tool_response":"ok"}
         """

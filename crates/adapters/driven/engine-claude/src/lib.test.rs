@@ -210,7 +210,7 @@ fn test_the_wiring_is_read_off_the_files_not_the_record() {
     assert!(wiring.settings_exists && !wiring.statusline && !wiring.hooks_present);
 }
 
-// RED (port/run-one-shot): the statusline callback is the engine's `statusline`
+// the statusline callback is the engine's `statusline`
 // hook; the old `hook hud` is stale and is not ctxloom's wiring any more.
 #[test]
 fn test_the_statusline_is_the_engines_statusline_hook() {

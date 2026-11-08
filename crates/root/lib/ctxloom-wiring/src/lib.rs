@@ -242,6 +242,16 @@ impl Wiring {
         }
     }
 
+    /// The project directory: the one holding the app dir found (the home
+    /// where there is no project). A session's directory is
+    /// `<project>/.ctxloom/sessions/<harp>`.
+    pub(crate) fn project_dir(&self) -> PathBuf {
+        let app = self.locate().1;
+        app.path
+            .parent()
+            .map_or_else(|| self.home.clone(), std::path::Path::to_path_buf)
+    }
+
     /// The surroundings, and the app dir found in them.
     pub(crate) fn locate(&self) -> (Surroundings, AppDir) {
         let around = self.surroundings();
@@ -272,12 +282,13 @@ impl Wiring {
         let registry =
             || ProjectRegistry::new(Arc::clone(&self.fs), environment.clone(), HarpNames);
         let stores = || SqliteStores::new(Arc::clone(&self.fs), self.home.clone());
+        let project = self.project_dir();
         Sessions {
             use_cases: Service::new(
                 registry(),
                 stores(),
-                SessionDirs::new(Arc::clone(&self.fs), self.home.clone()),
-                LockFiles::new(Arc::clone(&self.fs), self.home.clone()),
+                SessionDirs::new(Arc::clone(&self.fs), project.clone()),
+                LockFiles::new(Arc::clone(&self.fs), project.clone()),
                 System,
                 System,
             ),
@@ -289,12 +300,8 @@ impl Wiring {
                 System,
             ),
             worktrees: Worktrees::new(
-                GitWorkspaces::new(
-                    Arc::clone(&self.fs),
-                    self.home.clone(),
-                    Arc::clone(&self.env),
-                ),
-                LockFiles::new(Arc::clone(&self.fs), self.home.clone()),
+                GitWorkspaces::new(Arc::clone(&self.fs), project.clone(), Arc::clone(&self.env)),
+                LockFiles::new(Arc::clone(&self.fs), project.clone()),
             ),
             settings: SweepSettings::new(
                 Arc::new(ConfigFilesFs::new(

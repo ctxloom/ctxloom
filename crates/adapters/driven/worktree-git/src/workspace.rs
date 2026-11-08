@@ -63,7 +63,7 @@ pub fn branch_of(checkout: &str) -> String {
     format!("{BRANCH_PREFIX}{rest}")
 }
 
-/// Workspaces under one home's sessions.
+/// Workspaces under one project's sessions.
 pub struct GitWorkspaces {
     fs: Arc<dyn Fs>,
     sessions: PathBuf,
@@ -71,11 +71,15 @@ pub struct GitWorkspaces {
 }
 
 impl GitWorkspaces {
-    /// The sessions under `home` (`<home>/.ctxloom/sessions`), over the git
+    /// The sessions of the project directory `project` (`<project>/.ctxloom/sessions`), over the git
     /// run in `env`'s environment.
-    pub fn new(fs: Arc<dyn Fs>, home: impl Into<PathBuf>, env: Arc<EnvSnapshot>) -> GitWorkspaces {
+    pub fn new(
+        fs: Arc<dyn Fs>,
+        project: impl Into<PathBuf>,
+        env: Arc<EnvSnapshot>,
+    ) -> GitWorkspaces {
         GitWorkspaces {
-            sessions: home.into().join(".ctxloom").join("sessions"),
+            sessions: project.into().join(".ctxloom").join("sessions"),
             git: Git::on(Arc::clone(&fs), env),
             fs,
         }

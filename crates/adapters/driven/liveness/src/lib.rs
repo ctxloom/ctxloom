@@ -2,7 +2,7 @@
 //! (release/0.7).
 //!
 //! The signal is an EXCLUSIVE FILE LOCK that the session-owning process holds
-//! on `~/.ctxloom/sessions/<harp>.lock` for as long as it runs, BESIDE the
+//! on `<project>/.ctxloom/sessions/<harp>.lock` for as long as it runs, BESIDE the
 //! session directory and never inside it. A probe tries the lock:
 //!
 //! - it acquires it: the owner is DEAD, the kernel having released the lock
@@ -21,24 +21,24 @@ use file_system::{Fs, Kind, Open};
 use os::LockKind;
 use session_ports::{Liveness, LockState};
 
-/// Liveness over the lock files under one home.
+/// Liveness over the lock files under one project.
 pub struct LockFiles {
     fs: Arc<dyn Fs>,
-    home: PathBuf,
+    project: PathBuf,
 }
 
 impl LockFiles {
-    /// The locks under `home`, read through `fs`.
-    pub fn new(fs: Arc<dyn Fs>, home: impl Into<PathBuf>) -> LockFiles {
+    /// The locks under the project directory `project`, read through `fs`.
+    pub fn new(fs: Arc<dyn Fs>, project: impl Into<PathBuf>) -> LockFiles {
         LockFiles {
             fs,
-            home: home.into(),
+            project: project.into(),
         }
     }
 
-    /// Where `harp`'s lock is: `<home>/.ctxloom/sessions/<harp>.lock`.
+    /// Where `harp`'s lock is: `<project>/.ctxloom/sessions/<harp>.lock`.
     pub fn path(&self, harp: &str) -> PathBuf {
-        self.home
+        self.project
             .join(".ctxloom")
             .join("sessions")
             .join(format!("{harp}.lock"))

@@ -3,8 +3,8 @@
 //!
 //! The workspace axis: a run asking for a worktree gets a checkout on its own
 //! named branch (`ctxloom/<agent>`), in the session's work directory
-//! (`~/.ctxloom/sessions/<harp>/work/ctxloom-wt-<agent>`), never under the
-//! project. The checkout's path is a pure function of the agent, so a resume
+//! (`<project>/.ctxloom/sessions/<harp>/work/ctxloom-wt-<agent>`), inside the
+//! project's own `.ctxloom`, never in its working tree. The checkout's path is a pure function of the agent, so a resume
 //! finds an earlier run's own checkout and re-enters it; anything else at
 //! that path is a refusal. The ctxloom-written config the run puts in the
 //! checkout is hidden from the project's git status by the repository's

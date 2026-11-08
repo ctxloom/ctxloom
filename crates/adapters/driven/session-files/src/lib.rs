@@ -1,6 +1,6 @@
 //! A session's files, through the file-system seam (D27: the canonical
 //! transcript stays a content file in Go's format and place,
-//! `~/.ctxloom/sessions/<harp>/transcripts/transcript.jsonl`).
+//! `<project>/.ctxloom/sessions/<harp>/transcripts/transcript.jsonl`).
 //!
 //! - the transcript is a regular file that stats: a stat that fails for any
 //!   reason is absence, "never an invented size";
@@ -39,24 +39,25 @@ const SIDECAR: &str = "session.yaml";
 /// The members that hold the conversation.
 const CONVERSATION: [&str; 2] = ["transcripts", "native"];
 
-/// The sessions' files under one home.
+/// The sessions' files under one project.
 pub struct SessionDirs {
     fs: Arc<dyn Fs>,
-    home: PathBuf,
+    project: PathBuf,
 }
 
 impl SessionDirs {
-    /// The session directories under `home`, read through `fs`.
-    pub fn new(fs: Arc<dyn Fs>, home: impl Into<PathBuf>) -> SessionDirs {
+    /// The session directories of the project directory `project`, read
+    /// through `fs`.
+    pub fn new(fs: Arc<dyn Fs>, project: impl Into<PathBuf>) -> SessionDirs {
         SessionDirs {
             fs,
-            home: home.into(),
+            project: project.into(),
         }
     }
 
-    /// `<home>/.ctxloom/sessions/<harp>`.
+    /// `<project>/.ctxloom/sessions/<harp>`.
     pub fn dir(&self, harp: &str) -> PathBuf {
-        self.home.join(".ctxloom").join("sessions").join(harp)
+        self.project.join(".ctxloom").join("sessions").join(harp)
     }
 
     /// `<dir>/transcripts/transcript.jsonl`.

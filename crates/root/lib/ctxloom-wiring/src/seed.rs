@@ -171,7 +171,7 @@ impl Wiring {
     /// Go's `backdateSessionDir` does, so a session that ENDED then looks
     /// untouched since.
     fn plant_files(&self, seed: &Seed) -> Result<(), TestError> {
-        let sessions_dir = self.home.join(".ctxloom/sessions");
+        let sessions_dir = self.project_dir().join(".ctxloom/sessions");
         let dir = sessions_dir.join(&seed.harp);
         let mut written = Vec::new();
         let mut write = |path: &Path, body: &str| -> Result<(), TestError> {

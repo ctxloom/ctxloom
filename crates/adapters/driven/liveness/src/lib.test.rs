@@ -11,12 +11,12 @@ use session_ports::{Liveness, LockState};
 
 use super::LockFiles;
 
-const HOME: &str = "/home/u";
+const PROJECT: &str = "/work/proj";
 const HARP: &str = "amber-swift-owl";
 
 fn locks() -> (Arc<Rooted>, LockFiles) {
     let fs = Arc::new(Rooted::temp().unwrap());
-    (fs.clone(), LockFiles::new(fs, HOME))
+    (fs.clone(), LockFiles::new(fs, PROJECT))
 }
 
 /// The lock file of `harp`, made (as a session that ran once made it).
@@ -37,7 +37,7 @@ fn the_lock_sits_beside_the_session_directory() {
     let (_, locks) = locks();
     assert_eq!(
         locks.path(HARP),
-        Path::new("/home/u/.ctxloom/sessions/amber-swift-owl.lock")
+        Path::new("/work/proj/.ctxloom/sessions/amber-swift-owl.lock")
     );
 }
 

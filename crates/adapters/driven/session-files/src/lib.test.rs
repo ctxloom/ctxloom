@@ -13,11 +13,13 @@ use session_ports::{SessionFiles, Timestamp};
 use super::SessionDirs;
 
 const HOME: &str = "/home/u";
+/// A project directory: its sessions are `<project>/.ctxloom/sessions`.
+const PROJECT: &str = "/work/proj";
 const HARP: &str = "amber-swift-owl";
 
 fn dirs() -> (Arc<Rooted>, SessionDirs) {
     let fs = Arc::new(Rooted::temp().unwrap());
-    (fs.clone(), SessionDirs::new(fs, HOME))
+    (fs.clone(), SessionDirs::new(fs, PROJECT))
 }
 
 /// Write `body` at `rel` under `harp`'s directory.
@@ -53,7 +55,7 @@ fn the_transcript_is_where_go_put_it() {
     let (_, dirs) = dirs();
     assert_eq!(
         dirs.transcript_path(HARP),
-        Path::new("/home/u/.ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl")
+        Path::new("/work/proj/.ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl")
     );
 }
 
@@ -188,11 +190,11 @@ fn a_file_already_gone_is_not_a_failure() {
 fn destroy_never_leaves_the_session_directory() {
     let (fs, mut dirs) = dirs();
     let outside = fs.create_dir_all(
-        Path::new("/home/u/.ctxloom/sessions/other"),
+        Path::new("/work/proj/.ctxloom/sessions/other"),
         Mode::from_bits(0o755),
     );
     outside.unwrap();
-    let other = Path::new("/home/u/.ctxloom/sessions/other/precious");
+    let other = Path::new("/work/proj/.ctxloom/sessions/other/precious");
     fs.write_atomic(
         other,
         b"keep",
@@ -201,7 +203,7 @@ fn destroy_never_leaves_the_session_directory() {
     .unwrap();
     for rel in [
         "../other/precious",
-        "/home/u/.ctxloom/sessions/other/precious",
+        "/work/proj/.ctxloom/sessions/other/precious",
         "a/../../other/precious",
     ] {
         let error = dirs.destroy(HARP, &[rel.to_string()]).unwrap_err();

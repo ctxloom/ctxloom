@@ -253,6 +253,20 @@ fn test_locating_walks_up_from_the_cwd_to_the_nearest_app_dir() {
     assert_eq!(canonical(&app.path), canonical(env.work().join(".ctxloom")));
 }
 
+// A session's directory is the project's, `<project>/.ctxloom/sessions/<harp>`;
+// with no project it falls back to the home's.
+#[test]
+fn test_the_project_dir_holds_the_app_dir_found_and_is_the_home_without_one() {
+    let env = Env::new("project-dir");
+    let wiring = from_process().ok().unwrap();
+    assert_eq!(wiring.project_dir(), env.home());
+    mkdirs(env.work().join(".ctxloom"));
+    mkdirs(env.work().join("a/b"));
+    std::env::set_current_dir(env.work().join("a/b")).unwrap();
+    let wiring = from_process().ok().unwrap();
+    assert_eq!(canonical(wiring.project_dir()), canonical(env.work()));
+}
+
 #[test]
 fn test_locating_stops_at_the_temp_dir_the_variable_names() {
     let mut env = Env::new("locate-tmp");

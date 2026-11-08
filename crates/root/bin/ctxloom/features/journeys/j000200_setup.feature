@@ -1,7 +1,8 @@
 # Ported from journeys/j000200_setup.feature (rev f36e8dfb2)
-# NOT ported: the scenarios tagged @pending: the first has no steps yet, and
-#   `ctxloom init` of a new project is not built; the others need the setup
-#   interview to launch an engine.
+# NOT ported: the scenarios tagged @pending: the first has no steps yet (`init`
+#   of a new project, `remote create`, `deps pull` and `profile edit` are built;
+#   what is missing is its Given/When/Then steps and an interactive `run`), and
+#   the others need the setup interview to launch an engine.
 @doc
 @pending
 Feature: Setting up ctxloom on a project

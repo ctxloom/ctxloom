@@ -1,4 +1,5 @@
 use super::*;
+use surface_ports::MessageDisplay;
 
 fn decode(payload: &str) -> HookEvent {
     Codec.decode("session_start", payload).unwrap()
@@ -139,4 +140,131 @@ fn test_the_skills_a_transcript_invoked_are_its_main_threads() {
     let user = r#"{"type":"user","message":{"content":[{"type":"tool_use","name":"Skill","input":{"skill":"three"}}]}}"#;
     let transcript = format!("{main}\nnot json\n{side}\n{again}\n{user}\n");
     assert_eq!(Codec.invoked_skills(&transcript), vec!["one".to_string()]);
+}
+
+// ---------------------------------------------------------------------------
+// RED (port/run-one-shot). Real payloads from a live claude 2.1.319 run, in
+// `fixtures/` (paths stripped): what the primary agent's hooks carry, which the
+// codec must decode into the neutral event (plan sultry-coauthor, Q10).
+
+const STOP: &str = include_str!("fixtures/stop.json");
+const MESSAGE_DISPLAY: &str = include_str!("fixtures/message_display.json");
+const POST_TOOL_BATCH: &str = include_str!("fixtures/post_tool_batch.json");
+const USER_PROMPT_SUBMIT: &str = include_str!("fixtures/user_prompt_submit.json");
+const SESSION_START: &str = include_str!("fixtures/session_start.json");
+const SESSION_END: &str = include_str!("fixtures/session_end.json");
+
+const SESSION: &str = "9d764b45-a56a-48d7-ac9d-c2a16c5669f1";
+const PROMPT: &str = "6f73c98d-c5b4-4d59-b470-6bfaa2590443";
+
+#[test]
+fn test_a_stop_carries_the_final_answer_and_the_turn_it_ends() {
+    let ev = decode(STOP);
+    assert_eq!(ev.event, "turn_end");
+    assert_eq!(ev.native_session, SESSION);
+    assert_eq!(ev.prompt_id, PROMPT);
+    assert_eq!(
+        ev.last_assistant_message,
+        "The command `echo hi` ran and printed `hi`."
+    );
+}
+
+#[test]
+fn test_a_user_prompt_starts_the_turn_it_names() {
+    let ev = decode(USER_PROMPT_SUBMIT);
+    assert_eq!(ev.event, "turn_start");
+    assert_eq!(ev.prompt, "Run the shell command: echo hi");
+    assert_eq!(ev.prompt_id, PROMPT);
+}
+
+#[test]
+fn test_a_message_display_is_a_piece_of_the_assistants_text() {
+    let ev = decode(MESSAGE_DISPLAY);
+    assert_eq!(ev.event, "message_display");
+    assert_eq!(ev.prompt_id, PROMPT);
+    assert_eq!(
+        ev.message,
+        Some(MessageDisplay {
+            turn_id: "55fb29f8-a419-4eeb-b58c-a00f05529c4e".into(),
+            message_id: "546d2185-586c-49b2-b43d-d7b9cd4caa8b".into(),
+            index: 0,
+            is_final: true,
+            delta: "The command `echo hi` ran and printed `hi`.".into(),
+        })
+    );
+}
+
+#[test]
+fn test_a_post_tool_batch_lists_its_tool_calls_in_order() {
+    let ev = decode(POST_TOOL_BATCH);
+    assert_eq!(ev.event, "post_tool_batch");
+    assert_eq!(ev.prompt_id, PROMPT);
+    assert_eq!(ev.tool_calls.len(), 1);
+    let call = &ev.tool_calls[0];
+    assert_eq!(call.tool, "Bash");
+    assert_eq!(call.tool_use_id, "toolu_014cEcZFXQnJtuEC6ZURCHLD");
+    assert_eq!(call.response, "hi");
+    // The input is carried as compact JSON, whole.
+    let input = Json::parse(&call.input).unwrap();
+    assert_eq!(input.get("command").and_then(Json::as_str), Some("echo hi"));
+}
+
+#[test]
+fn test_a_session_end_says_why_it_ended() {
+    let ev = decode(SESSION_END);
+    assert_eq!(ev.event, "session_end");
+    assert_eq!(ev.reason, "prompt_input_exit");
+    assert_eq!(ev.native_session, SESSION);
+}
+
+// Not red: pins that the new fields do not disturb what the bind reads.
+#[test]
+fn test_a_session_start_still_carries_its_source_and_session() {
+    let ev = decode(SESSION_START);
+    assert_eq!(ev.event, "session_start");
+    assert_eq!(ev.native_session, SESSION);
+    assert_eq!(ev.source, "startup");
+    assert_eq!(ev.last_assistant_message, "");
+    assert_eq!(ev.message, None);
+    assert!(ev.tool_calls.is_empty());
+}
+
+// The seam the hook command dispatches through: the native hook name to the
+// unified event, with no payload in hand (`hook claude-code execute Stop`).
+#[test]
+fn test_a_native_hook_name_maps_to_its_unified_event() {
+    for (native, unified) in [
+        ("SessionStart", "session_start"),
+        ("SessionEnd", "session_end"),
+        ("UserPromptSubmit", "turn_start"),
+        ("Stop", "turn_end"),
+        ("PreToolUse", "pre_tool"),
+        ("PostToolUse", "post_tool"),
+        ("PostToolBatch", "post_tool_batch"),
+        ("MessageDisplay", "message_display"),
+        ("PermissionRequest", "permission_ask"),
+        ("Unlisted", "Unlisted"),
+    ] {
+        assert_eq!(Codec.unified_event(native), unified, "{native}");
+    }
+}
+
+// The two tables agree: decoding the payload of a native event and mapping
+// its bare name give the same unified event.
+#[test]
+fn test_decode_and_the_name_mapping_agree() {
+    for native in [
+        "SessionStart",
+        "Stop",
+        "UserPromptSubmit",
+        "PostToolBatch",
+        "MessageDisplay",
+    ] {
+        let payload = format!(r#"{{"hook_event_name":"{native}"}}"#);
+        assert_eq!(
+            decode(&payload).event,
+            Codec.unified_event(native),
+            "{native}"
+        );
+    }
 }

@@ -29,31 +29,75 @@ fn matcher_of_op(op: &JsonOp) -> Option<String> {
     }
 }
 
+// RED (port/run-one-shot): a callback is installed as `hook <engine> execute
+// <native event>`, whatever verb its author wrote; the native event is the one
+// the unified event routes to.
 #[test]
-fn test_a_ctxloom_callback_is_told_which_engine_fires_it() {
-    let op = one("session_start", callback("session-start"));
-    let JsonOp::HookEntry { event, value, .. } = op else {
-        panic!()
-    };
-    assert_eq!(event, "SessionStart");
-    assert_eq!(
-        value.pretty(),
-        Json::parse(
-            r#"{"type":"command","command":"ctxloom","args":["hook","session-start","--engine","claude-code"],"timeout":15}"#
-        )
-        .unwrap()
-        .pretty()
-    );
+fn test_a_ctxloom_callback_executes_the_native_hook_of_its_event() {
+    for (unified, native) in [
+        ("session_start", "SessionStart"),
+        ("turn_end", "Stop"),
+        ("post_tool", "PostToolUse"),
+    ] {
+        let JsonOp::HookEntry { event, value, .. } = one(unified, callback("any-verb")) else {
+            panic!()
+        };
+        assert_eq!(event, native);
+        assert_eq!(
+            value.pretty(),
+            Json::parse(&format!(
+                r#"{{"type":"command","command":"ctxloom","args":["hook","claude-code","execute","{native}"],"timeout":15}}"#
+            ))
+            .unwrap()
+            .pretty(),
+            "{unified}"
+        );
+    }
 }
 
+// RED: the two events the primary agent's data comes from have a hook file
+// form, and the route and the codec's name mapping are reverses.
 #[test]
-fn test_a_callback_already_naming_an_engine_keeps_it() {
-    let mut h = callback("x");
-    h.args.extend(["--engine".to_string(), "other".to_string()]);
-    let JsonOp::HookEntry { value, .. } = one("session_start", h) else {
-        panic!()
+fn test_every_unified_event_routes_to_the_native_one_the_codec_maps_back() {
+    use surface_ports::HookCodec;
+    for unified in [
+        "pre_tool",
+        "post_tool",
+        "session_start",
+        "session_end",
+        "turn_end",
+        "turn_start",
+        "permission_ask",
+        "post_tool_batch",
+        "message_display",
+    ] {
+        let (native, _, _) = route(unified).unwrap_or_else(|| panic!("{unified} has no route"));
+        assert_eq!(crate::Codec.unified_event(native), unified, "{native}");
+    }
+}
+
+// RED: has_callback keeps its first word and reads the engine and `execute`.
+#[test]
+fn test_a_callback_is_found_by_its_execute_form_only() {
+    let settings = |args: &str| {
+        Json::parse(&format!(
+            r#"{{"hooks":{{"Stop":[{{"hooks":[{{"command":"ctxloom","args":{args}}}]}}]}}}}"#
+        ))
+        .unwrap()
     };
-    assert!(!value.pretty().contains("claude-code"));
+    assert!(has_callback(&settings(
+        r#"["hook","claude-code","execute","Stop"]"#
+    )));
+    // The earlier forms are stale: the next surface apply rewrites them.
+    assert!(!has_callback(&settings(r#"["hook","skill-mates"]"#)));
+    assert!(!has_callback(&settings(
+        r#"["hook","session-start","--engine","claude-code"]"#
+    )));
+    // Another command, or another verb of ours, is not a callback.
+    assert!(!has_callback(&settings(
+        r#"["hook","claude-code","other","Stop"]"#
+    )));
+    assert!(!has_callback(&settings(r#"["profile","list"]"#)));
 }
 
 #[test]

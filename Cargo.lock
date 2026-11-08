@@ -1641,6 +1641,7 @@ dependencies = [
  "mutants",
  "serde",
  "serde_json",
+ "setup-application",
 ]
 
 [[package]]

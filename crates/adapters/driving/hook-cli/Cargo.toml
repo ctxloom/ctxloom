@@ -12,6 +12,7 @@ angzarr-diagnostic.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+setup-application.workspace = true
 
 [dev-dependencies]
 mutants.workspace = true

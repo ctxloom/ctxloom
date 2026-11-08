@@ -36,6 +36,7 @@ impl HookCodec for Codec {
             tool: text(&doc, "tool"),
             skill: String::new(),
             path: String::new(),
+            ..HookEvent::default()
         })
     }
 

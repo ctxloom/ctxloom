@@ -91,6 +91,7 @@ impl HookCodec for Codec {
             skill: skill_of(&tool, input),
             tool,
             path,
+            ..HookEvent::default()
         })
     }
 

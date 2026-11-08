@@ -98,6 +98,16 @@ impl Hook {
         self.command == "ctxloom" && self.args.first().is_some_and(|a| a == "hook")
     }
 
+    /// The arguments a ctxloom callback is installed with, for `engine`
+    /// firing its `native` hook: `hook <engine> execute <native>`. The one
+    /// spelling every engine writes (the owner's ruling, 2026-11-08): the
+    /// verb is the engine's own event, not a ctxloom verb.
+    // Red-test stub (port/run-one-shot): the green step writes it.
+    pub fn callback_args(engine: &str, native: &str) -> Vec<String> {
+        let _ = (engine, native);
+        todo!("callback_args")
+    }
+
     /// The members an engine's native hook file shares: `type` (defaulting
     /// to `command`), then `command`, `args`, `prompt` and `timeout` where
     /// set. A ctxloom callback's args end `--engine <engine>`. The engine adds
@@ -346,6 +356,40 @@ pub struct HookEvent {
     pub skill: String,
     /// The file the tool call edited, if it edited one.
     pub path: String,
+    /// The assistant's final text of the turn (a turn_end's).
+    pub last_assistant_message: String,
+    /// The turn the event belongs to (the engine's prompt id).
+    pub prompt_id: String,
+    /// Why a session ended (a session_end's).
+    pub reason: String,
+    /// The piece of text shown (a message_display's).
+    pub message: Option<MessageDisplay>,
+    /// The tool calls of a batch (a post_tool_batch's), in order.
+    pub tool_calls: Vec<ToolCall>,
+}
+
+/// One MessageDisplay event: a piece of the assistant's text as it is shown.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct MessageDisplay {
+    /// The turn the message belongs to.
+    pub turn_id: String,
+    pub message_id: String,
+    /// The piece's place among the message's.
+    pub index: u32,
+    /// The message's last piece.
+    pub is_final: bool,
+    pub delta: String,
+}
+
+/// One tool call of a PostToolBatch event.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct ToolCall {
+    pub tool: String,
+    pub tool_use_id: String,
+    /// The call's input, as compact JSON.
+    pub input: String,
+    /// The call's response text.
+    pub response: String,
 }
 
 /// What a hook answers, in the neutral shape.
@@ -368,6 +412,15 @@ pub trait HookCodec {
 
     /// The stdout (one JSON line) answering a hook registered under `event`.
     fn encode(&self, event: &str, response: &HookResponse) -> Result<String, SurfaceError>;
+
+    /// The unified event the engine's `native` hook name is (`SessionStart`
+    /// is `session_start`); a name the engine has no unified form for is
+    /// carried verbatim. The reverse of the engine's hook-file routing.
+    // Red-test stub (port/run-one-shot): the green step makes it required.
+    fn unified_event(&self, native: &str) -> String {
+        let _ = native;
+        todo!("unified_event")
+    }
 
     /// The skills a transcript's main thread has invoked.
     fn invoked_skills(&self, transcript: &str) -> Vec<String>;

@@ -126,3 +126,110 @@ fn test_the_hooks_answer_from_a_config_that_a_strict_load_would_refuse() {
         "{out}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// RED (port/run-one-shot): `hook <engine> execute <native hook name>`.
+
+const MARKER: &str = r#"<ctxloom name="brisk-copper-moth" kind="harp" />"#;
+
+#[test]
+fn test_executing_a_hook_of_an_unknown_engine_is_refused_listing_the_known_ones() {
+    let w = world(CONFIG);
+    let err = w
+        .setup
+        .execute_hook("nosuch", "Stop", "{}", "brisk-copper-moth")
+        .unwrap_err();
+    let SetupError::UnknownHookEngine { engine, known } = err else {
+        panic!()
+    };
+    assert_eq!(
+        (engine.as_str(), known.as_str()),
+        ("nosuch", "claude-code, mock")
+    );
+}
+
+#[test]
+fn test_a_session_start_answers_the_marker_and_the_notice_and_asks_for_the_bind() {
+    let w = world("schema_version: 8\n");
+    let answer = w
+        .setup
+        .execute_hook(
+            "claude-code",
+            "SessionStart",
+            r#"{"session":"vendor-42","transcript":"/t/a.jsonl"}"#,
+            "brisk-copper-moth",
+        )
+        .unwrap();
+    // The fake wire spells an answer `context=..;notice=..`.
+    assert!(
+        answer.stdout.starts_with(&format!(
+            "context={MARKER};notice=ctxloom: this project has profiles but no agents"
+        )),
+        "{}",
+        answer.stdout
+    );
+    assert_eq!(
+        answer.bind,
+        Some(SessionBind {
+            harp: "brisk-copper-moth".into(),
+            native_id: "vendor-42".into(),
+            transcript: "/t/a.jsonl".into(),
+        })
+    );
+    assert!(!answer.harp_missing);
+}
+
+#[test]
+fn test_a_session_start_with_no_usable_harp_says_nothing_and_binds_nothing() {
+    let w = world(CONFIG);
+    for harp in ["", "has\"quote", "has>angle"] {
+        let answer = w
+            .setup
+            .execute_hook("claude-code", "SessionStart", "{}", harp)
+            .unwrap();
+        assert!(!answer.stdout.contains("kind=\"harp\""), "{harp:?}");
+        assert_eq!(answer.bind, None, "{harp:?}");
+        assert!(answer.harp_missing, "{harp:?}");
+    }
+}
+
+#[test]
+fn test_a_post_tool_call_answers_what_skill_mates_does() {
+    let w = world(CONFIG);
+    let answer = w
+        .setup
+        .execute_hook("claude-code", "PostToolUse", r#"{"skill":"admit"}"#, "")
+        .unwrap();
+    assert_eq!(
+        answer.stdout,
+        w.setup
+            .skill_mates("claude-code", r#"{"skill":"admit"}"#)
+            .unwrap()
+    );
+    assert_eq!(answer.bind, None);
+}
+
+// The primary agent's data events are recorded elsewhere (M2); here they are
+// silence on the wire and no bind.
+#[test]
+fn test_the_events_that_carry_data_answer_silence() {
+    let w = world(CONFIG);
+    for native in ["Stop", "MessageDisplay", "PostToolBatch", "SessionEnd"] {
+        let answer = w
+            .setup
+            .execute_hook("claude-code", native, "{}", "brisk-copper-moth")
+            .unwrap();
+        assert_eq!(answer.stdout, "context=;notice=\n", "{native}");
+        assert_eq!(answer.bind, None, "{native}");
+        assert!(!answer.harp_missing, "{native}");
+    }
+}
+
+#[test]
+fn test_a_payload_that_does_not_read_fails_the_executed_hook() {
+    let w = world(CONFIG);
+    assert!(w
+        .setup
+        .execute_hook("claude-code", "Stop", "not json", "brisk-copper-moth")
+        .is_err());
+}

@@ -16,7 +16,49 @@ const AGENT_SETUP_NUDGE: &str = "ctxloom: this project has profiles but no agent
 /// The tag that links skills into a group: `ctxloom:link_id=<id>`.
 const LINK_TAG: &str = "ctxloom:link_id=";
 
+/// What `hook <engine> execute <name>` answers: the engine's stdout, and what
+/// else the caller is to do with the event (the driving edge records the bind,
+/// and warns of a session with no harp).
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct HookAnswer {
+    /// The engine's wire answer, one JSON line (empty for silence).
+    pub stdout: String,
+    /// A session start to bind: the harp, and the engine's session.
+    pub bind: Option<SessionBind>,
+    /// A session start fired with no usable harp: nothing truthful to emit.
+    pub harp_missing: bool,
+}
+
+/// The binding a session start asks for.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct SessionBind {
+    pub harp: String,
+    pub native_id: String,
+    pub transcript: String,
+}
+
 impl Setup {
+    /// `hook <engine> execute <native>`: the one entry every engine callback
+    /// reaches (the owner's ruling, 2026-11-08). The engine is resolved through
+    /// the registry (an unknown one is `UnknownHookEngine`, naming the known
+    /// ones), the native name is mapped to the unified event by the engine's
+    /// codec, and the payload decoded by it. A session start answers the
+    /// harp's marker as context plus the session-start notice, and asks for the
+    /// bind; a post-tool call answers what `skill_mates` does; every other
+    /// event (turn_end, message_display, post_tool_batch, ...) answers
+    /// silence. `harp` is the session the hook runs in (may be empty).
+    // Red-test stub (port/run-one-shot): the green step writes it.
+    pub fn execute_hook(
+        &self,
+        engine: &str,
+        native: &str,
+        payload: &str,
+        harp: &str,
+    ) -> Result<HookAnswer, SetupError> {
+        let _ = (engine, native, payload, harp);
+        todo!("execute_hook")
+    }
+
     fn firing(&self, engine: &str) -> Result<&dyn EngineSurfaces, SetupError> {
         self.engines
             .get(engine)

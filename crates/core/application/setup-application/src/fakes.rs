@@ -154,12 +154,23 @@ impl HookCodec for Wire {
             event: event.to_string(),
             skill: text("skill"),
             transcript: text("transcript"),
+            native_session: text("session"),
             ..HookEvent::default()
         })
     }
 
     fn encode(&self, _event: &str, r: &HookResponse) -> Result<String, SurfaceError> {
         Ok(format!("context={};notice={}\n", r.context, r.notice))
+    }
+
+    fn unified_event(&self, native: &str) -> String {
+        match native {
+            "SessionStart" => "session_start",
+            "PostToolUse" => "post_tool",
+            "Stop" => "turn_end",
+            other => other,
+        }
+        .to_string()
     }
 
     fn invoked_skills(&self, transcript: &str) -> Vec<String> {

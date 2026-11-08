@@ -1,0 +1,1 @@
+{"session_id":"9d764b45-a56a-48d7-ac9d-c2a16c5669f1","prompt_id":"6f73c98d-c5b4-4d59-b470-6bfaa2590443","permission_mode":"auto","effort":{"level":"medium"},"hook_event_name":"Stop","stop_hook_active":false,"last_assistant_message":"The command `echo hi` ran and printed `hi`.","background_tasks":[],"session_crons":[]}

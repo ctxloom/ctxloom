@@ -90,7 +90,7 @@ fn test_the_statusline_and_each_denied_tool_once_are_the_settings() {
     let ops = ops(&plan(Kind::Settings, &inputs));
     assert_eq!(ops.len(), 3);
     assert!(matches!(&ops[0], JsonOp::SetCommand { path, value }
-        if path == &["statusLine"] && value.get("command").and_then(Json::as_str) == Some("ctxloom hook hud")));
+        if path == &["statusLine"] && value.get("command").and_then(Json::as_str) == Some("ctxloom hook claude-code execute statusline")));
     assert!(matches!(&ops[1], JsonOp::Push { path, .. } if path == &["permissions", "deny"]));
 }
 
@@ -184,7 +184,7 @@ impl SurfaceStore for Files {
 fn test_the_wiring_is_read_off_the_files_not_the_record() {
     let none = Claude::new().wiring(&Files(BTreeMap::new()), "t").unwrap();
     assert_eq!(none, Wiring::default());
-    let settings = r#"{"statusLine":{"type":"command","command":"ctxloom hook hud"},"hooks":{"SessionStart":[{"hooks":[{"command":"ctxloom","args":["hook","session-start"]}]}]}}"#;
+    let settings = r#"{"statusLine":{"type":"command","command":"ctxloom hook claude-code execute statusline"},"hooks":{"SessionStart":[{"hooks":[{"command":"ctxloom","args":["hook","claude-code","execute","SessionStart"]}]}]}}"#;
     let mcp = r#"{"mcpServers":{"ctxloom":{"command":"x"}}}"#;
     let files = Files(BTreeMap::from([
         (
@@ -208,6 +208,18 @@ fn test_the_wiring_is_read_off_the_files_not_the_record() {
     )]));
     let wiring = Claude::new().wiring(&theirs, "t").unwrap();
     assert!(wiring.settings_exists && !wiring.statusline && !wiring.hooks_present);
+}
+
+// RED (port/run-one-shot): the statusline callback is the engine's `statusline`
+// hook; the old `hook hud` is stale and is not ctxloom's wiring any more.
+#[test]
+fn test_the_statusline_is_the_engines_statusline_hook() {
+    assert_eq!(STATUSLINE, "ctxloom hook claude-code execute statusline");
+    let old = Files(BTreeMap::from([(
+        ".claude/settings.json".to_string(),
+        br#"{"statusLine":{"type":"command","command":"ctxloom hook hud"}}"#.to_vec(),
+    )]));
+    assert!(!Claude::new().wiring(&old, "t").unwrap().statusline);
 }
 
 #[test]

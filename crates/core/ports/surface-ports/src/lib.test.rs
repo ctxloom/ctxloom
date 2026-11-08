@@ -149,6 +149,20 @@ fn test_a_hook_spells_its_shared_members_in_order() {
     assert_eq!(bare, vec![("type", Json::text("command"))]);
 }
 
+// RED (port/run-one-shot): a callback is installed as `hook <engine> execute
+// <native event>`; the authored verb and the `--engine` suffix are gone.
+#[test]
+fn test_a_callback_executes_the_engines_native_hook() {
+    assert_eq!(
+        Hook::callback_args("claude-code", "Stop"),
+        ["hook", "claude-code", "execute", "Stop"]
+    );
+    assert_eq!(
+        Hook::callback_args("claude-code", "statusline"),
+        ["hook", "claude-code", "execute", "statusline"]
+    );
+}
+
 #[test]
 fn test_an_engine_declares_no_hook_losses_unless_it_says_so() {
     assert!(Plain.hook_losses().is_empty());

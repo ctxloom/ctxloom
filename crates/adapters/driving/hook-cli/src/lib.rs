@@ -22,6 +22,7 @@
 
 mod bind;
 mod error;
+mod execute;
 mod hud;
 
 use angzarr_diagnostic::Diagnostic;
@@ -31,6 +32,7 @@ pub use bind::{marker, session_bind, session_start_reply, Binding, Outcome, CLAU
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{HookError, HookWarning, EN_US};
+pub use execute::execute;
 pub use hud::{
     bar_color, context_bar, hud, render, StatusPayload, CYAN, DIM, GREEN, RED, RESET, YELLOW,
 };
@@ -73,6 +75,21 @@ pub trait HookService {
 
     /// The answer to a PostToolUse payload read by `engine`'s codec.
     fn skill_mates(&self, engine: &str, payload: &str) -> Result<String, Box<dyn Diagnostic>>;
+
+    /// The answer to `hook <engine> execute <native>`: the application's
+    /// (`Setup::execute_hook`), for any engine the registry names.
+    // Red-test stub (port/run-one-shot): the green step makes it required and
+    // retires the two methods above.
+    fn execute(
+        &self,
+        engine: &str,
+        native: &str,
+        payload: &str,
+        harp: &str,
+    ) -> Result<setup_application::HookAnswer, Box<dyn Diagnostic>> {
+        let _ = (engine, native, payload, harp);
+        todo!("HookService::execute")
+    }
 }
 
 #[cfg(test)]

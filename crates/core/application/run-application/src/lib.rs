@@ -13,4 +13,4 @@ mod one_shot;
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{RunError, EN_US};
-pub use one_shot::{Answer, Core, Done, OneShot, Parts, Place, Planner, Runs};
+pub use one_shot::{Answer, Core, Done, OneShot, Parts, Place, Planner, RunService, Runs};

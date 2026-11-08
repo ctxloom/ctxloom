@@ -89,6 +89,7 @@ liveness = { path = "crates/adapters/driven/liveness" }
 session-files = { path = "crates/adapters/driven/session-files" }
 session-cli = { path = "crates/adapters/driving/session-cli" }
 hook-cli = { path = "crates/adapters/driving/hook-cli" }
+run-cli = { path = "crates/adapters/driving/run-cli" }
 ctxloom-cli = { path = "crates/adapters/driving/ctxloom-cli" }
 config-files = { path = "crates/adapters/driven/config-files" }
 content-fs = { path = "crates/adapters/driven/content-fs" }

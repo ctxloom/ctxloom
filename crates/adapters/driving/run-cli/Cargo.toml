@@ -1,0 +1,28 @@
+[package]
+name = "run-cli"
+version = "0.1.0"
+description = "run --one-shot: arguments in, the engine's reply out, no logic"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-diagnostic.workspace = true
+angzarr-presentation.workspace = true
+cli-support.workspace = true
+clap.workspace = true
+library-application.workspace = true
+run-application.workspace = true
+serde.workspace = true
+
+[features]
+# `diagnostic_samples`, for other crates' catalog tests.
+test-support = []
+
+[dev-dependencies]
+angzarr-presentation = { workspace = true, features = ["test-support"] }
+serde_json.workspace = true
+
+[lints]
+workspace = true

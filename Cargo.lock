@@ -3044,6 +3044,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "run-cli"
+version = "0.1.0"
+dependencies = [
+ "angzarr-diagnostic",
+ "angzarr-presentation",
+ "clap",
+ "cli-support",
+ "library-application",
+ "run-application",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "run-launcher"
 version = "0.1.0"
 dependencies = [

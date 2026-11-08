@@ -48,7 +48,7 @@ library-application-no-fragments = no fragments loaded: { $detail }
 library-application-agent-exclusive = if any flags in the group [agent { $other }] are set none of the others can be; [agent { $other }] were all set
 library-application-saved-command = failed to load command: command not found: { $name }
 library-application-workspace = invalid workspace "{ $value }": workspace is one of none or worktree
-library-application-run-needs-dry-run = run launches the engine, which this build does not do yet: run it with --dry-run to see what a launch would carry
+library-application-run-needs-dry-run = run launches the engine for a session, which this build does not do yet: run it with --one-shot for one turn, or with --dry-run to see what a launch would carry
 library-application-startup-aborted = aborting startup: { $count } fatal finding(s); fix them, or rerun with --degraded (env CTXLOOM_DEGRADED=1) to launch anyway:{ $findings }
 
 # The remedy is the fix's; the message names it so that it is an arg of both.

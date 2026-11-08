@@ -68,6 +68,12 @@ impl Planner for library_application::Library {
     }
 }
 
+/// What a driving adapter calls: the run use cases behind one trait, blocking.
+pub trait RunService {
+    /// `run --one-shot`.
+    fn one_shot(&mut self, flags: &Flags, request: &OneShot) -> Done<Answer>;
+}
+
 /// The core the run is served by: its edge, and the store and catalog the
 /// launcher and the recorder catch up from.
 pub trait Core {

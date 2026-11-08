@@ -668,7 +668,7 @@ fn context() -> Command {
 
 fn run() -> Command {
     Command::new("run")
-        .about("Assemble context and run AI (this build previews with --dry-run)")
+        .about("Assemble context and run AI (this build takes one turn with --one-shot, or previews with --dry-run)")
         .arg(Arg::new("prompt_words").value_name("PROMPT").num_args(0..))
         .arg(
             Arg::new("llm")

@@ -110,7 +110,7 @@ fn test_a_name_that_climbs_is_skipped_and_said() {
 }
 
 #[test]
-fn test_hooks_are_written_by_event_and_a_callback_names_the_engine() {
+fn test_hooks_are_written_by_event_and_a_callback_executes_it() {
     let mut hooks = Hooks::new();
     hooks.insert(
         "session_start".into(),
@@ -134,7 +134,9 @@ fn test_hooks_are_written_by_event_and_a_callback_names_the_engine() {
     };
     let text = String::from_utf8(bytes.clone()).unwrap();
     assert!(
-        text.contains("\"--engine\"") && text.contains("\"mock\""),
+        text.contains("\"execute\"")
+            && text.contains("\"session_start\"")
+            && !text.contains("--engine"),
         "{text}"
     );
 }
@@ -189,7 +191,7 @@ fn test_the_wiring_is_read_off_the_mock_files() {
         ),
         (
             ".mock/hooks.json".to_string(),
-            br#"{"session_start": [{"command": "ctxloom", "args": ["hook", "x"]}]}"#.to_vec(),
+            br#"{"session_start": [{"command": "ctxloom", "args": ["hook", "mock", "execute", "session_start"]}]}"#.to_vec(),
         ),
         (
             ".mock/mcp.json".to_string(),
@@ -222,7 +224,7 @@ fn test_only_a_name_that_stays_inside_is_safe_to_make_a_path_of() {
 #[test]
 fn test_a_bare_hook_is_written_as_a_command_hook_with_nothing_else() {
     assert_eq!(
-        hook_json("mock", &Hook::default()),
+        hook_json("mock", "session_start", &Hook::default()),
         Json::object([("type", Json::text("command"))])
     );
     // A zero or negative timeout is no timeout.
@@ -232,7 +234,7 @@ fn test_a_bare_hook_is_written_as_a_command_hook_with_nothing_else() {
             ..Hook::default()
         };
         assert_eq!(
-            hook_json("mock", &hook),
+            hook_json("mock", "session_start", &hook),
             Json::object([("type", Json::text("command"))])
         );
     }
@@ -251,7 +253,7 @@ fn test_every_field_of_a_hook_is_written_where_it_is_set() {
         ..Hook::default()
     };
     assert_eq!(
-        hook_json("mock", &hook),
+        hook_json("mock", "session_start", &hook),
         Json::object([
             ("type", Json::text("prompt")),
             ("command", Json::text("run")),
@@ -292,31 +294,23 @@ fn test_every_field_of_a_hook_is_written_where_it_is_set() {
             },
         ),
     ] {
-        let doc = hook_json("mock", &hook);
+        let doc = hook_json("mock", "session_start", &hook);
         let Json::Object(members) = doc else { panic!() };
         assert_eq!(members.len(), 2, "{field}");
     }
 }
 
 #[test]
-fn test_only_a_callback_is_given_the_engine_and_never_twice() {
+fn test_only_a_callback_is_rewritten_to_execute_its_event() {
     let args = |doc: Json| doc.get("args").cloned();
     let callback = Hook {
         command: "ctxloom".into(),
-        args: vec!["hook".into(), "x".into()],
+        args: vec!["hook".into(), "x".into(), "--engine".into(), "other".into()],
         ..Hook::default()
     };
     assert_eq!(
-        args(hook_json("mock", &callback)),
-        Some(Json::strings(["hook", "x", "--engine", "mock"]))
-    );
-    let named = Hook {
-        args: vec!["hook".into(), "--engine".into(), "other".into()],
-        ..callback.clone()
-    };
-    assert_eq!(
-        args(hook_json("mock", &named)),
-        Some(Json::strings(["hook", "--engine", "other"]))
+        args(hook_json("mock", "turn_end", &callback)),
+        Some(Json::strings(["hook", "mock", "execute", "turn_end"]))
     );
     let foreign = Hook {
         command: "other".into(),
@@ -324,14 +318,14 @@ fn test_only_a_callback_is_given_the_engine_and_never_twice() {
         ..Hook::default()
     };
     assert_eq!(
-        args(hook_json("mock", &foreign)),
+        args(hook_json("mock", "turn_end", &foreign)),
         Some(Json::strings(["hook"]))
     );
     let bare = Hook {
         command: "ctxloom".into(),
         ..Hook::default()
     };
-    assert_eq!(args(hook_json("mock", &bare)), None);
+    assert_eq!(args(hook_json("mock", "turn_end", &bare)), None);
 }
 
 #[test]
@@ -397,7 +391,11 @@ fn test_a_hook_file_is_ctxloom_wiring_only_for_the_bare_ctxloom_hook_command() {
             .hooks_present
     };
     assert!(wired(
-        r#"{"e": [{"command": "ctxloom", "args": ["hook"]}]}"#
+        r#"{"e": [{"command": "ctxloom", "args": ["hook", "mock", "execute", "e"]}]}"#
+    ));
+    // The earlier form is stale: the next surface apply rewrites it.
+    assert!(!wired(
+        r#"{"e": [{"command": "ctxloom", "args": ["hook", "x", "--engine", "mock"]}]}"#
     ));
     assert!(!wired(
         r#"{"e": [{"command": "ctxloom", "args": ["other"]}]}"#

@@ -105,8 +105,11 @@ fn safe(name: &str) -> bool {
 }
 
 /// The hook as the mock's native hook file spells it.
-fn hook_json(engine: &str, hook: &Hook) -> Json {
-    let mut members = hook.json_members(engine);
+/// The mock's native events are the unified ones, so a callback executes the
+/// event it is filed under.
+fn hook_json(engine: &str, event: &str, hook: &Hook) -> Json {
+    let hook = &hook.installed_as(engine, event);
+    let mut members = hook.json_members();
     if !hook.tool.is_empty() {
         members.push(("tool", Json::text(hook.tool.as_str())));
     }
@@ -184,7 +187,11 @@ impl EngineSurfaces for Mock {
                     .map(|(event, list)| {
                         (
                             event.clone(),
-                            Json::Array(list.iter().map(|h| hook_json(self.name, h)).collect()),
+                            Json::Array(
+                                list.iter()
+                                    .map(|h| hook_json(self.name, event, h))
+                                    .collect(),
+                            ),
                         )
                     });
                 planned
@@ -250,6 +257,11 @@ impl EngineSurfaces for Mock {
                                 .and_then(|a| a.first())
                                 .and_then(Json::as_str)
                                 == Some("hook")
+                            && h.get("args")
+                                .and_then(Json::as_array)
+                                .and_then(|a| a.get(2))
+                                .and_then(Json::as_str)
+                                == Some("execute")
                     })
                 })
             }),

@@ -23,6 +23,9 @@ fn route(unified: &str) -> Option<(&'static str, Option<&'static str>, bool)> {
         "pre_shell" => ("PreToolUse", Some(SHELL), true),
         "post_file_edit" => ("PostToolUse", Some(FILE_EDIT), true),
         "permission_ask" => ("PermissionRequest", None, true),
+        // Neither carries a tool matcher: the whole batch, the whole message.
+        "post_tool_batch" => ("PostToolBatch", None, false),
+        "message_display" => ("MessageDisplay", None, false),
         _ => return None,
     })
 }
@@ -43,7 +46,7 @@ fn matcher_of(class: &str) -> Option<&'static str> {
 
 /// The hook as `settings.json` spells it; the type defaults to `command`.
 fn value(hook: &Hook) -> Json {
-    let mut members = hook.json_members(ENGINE);
+    let mut members = hook.json_members();
     if hook.is_async {
         members.push(("async", Json::Bool(true)));
     }
@@ -79,7 +82,7 @@ pub(crate) fn ops(hooks: &BTreeMap<String, Vec<Hook>>) -> Result<Vec<JsonOp>, Su
             let op = JsonOp::HookEntry {
                 event: event.to_string(),
                 matcher: matcher.filter(|_| takes_matcher),
-                value: value(hook),
+                value: value(&hook.installed_as(ENGINE, event)),
             };
             // A hook routed twice is claimed once.
             if !ops.contains(&op) {
@@ -88,6 +91,15 @@ pub(crate) fn ops(hooks: &BTreeMap<String, Vec<Hook>>) -> Result<Vec<JsonOp>, Su
         }
     }
     Ok(ops)
+}
+
+/// Whether the args are `hook <this engine> execute <event>`.
+fn is_execute_form(args: Option<&Json>) -> bool {
+    let args: Vec<&str> = args
+        .and_then(Json::as_array)
+        .map(|a| a.iter().filter_map(Json::as_str).collect())
+        .unwrap_or_default();
+    matches!(args.as_slice(), ["hook", engine, "execute", _] if *engine == ENGINE)
 }
 
 /// Whether the settings document registers a ctxloom callback in any event.
@@ -104,12 +116,7 @@ pub(crate) fn has_callback(doc: &Json) -> bool {
                     .is_some_and(|hooks| {
                         hooks.iter().any(|hook| {
                             hook.get("command").and_then(Json::as_str) == Some("ctxloom")
-                                && hook
-                                    .get("args")
-                                    .and_then(Json::as_array)
-                                    .and_then(|a| a.first())
-                                    .and_then(Json::as_str)
-                                    == Some("hook")
+                                && is_execute_form(hook.get("args"))
                         })
                     })
             })

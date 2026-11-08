@@ -61,6 +61,11 @@ impl HookCodec for Codec {
         Ok(format!("{{{}}}\n", parts.join(",")))
     }
 
+    /// The mock's native events are the unified ones.
+    fn unified_event(&self, native: &str) -> String {
+        native.to_string()
+    }
+
     // `Vec::new()` and `vec![]` are the same value.
     #[cfg_attr(test, mutants::skip)]
     fn invoked_skills(&self, _transcript: &str) -> Vec<String> {

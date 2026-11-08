@@ -102,22 +102,29 @@ impl Hook {
     /// firing its `native` hook: `hook <engine> execute <native>`. The one
     /// spelling every engine writes (the owner's ruling, 2026-11-08): the
     /// verb is the engine's own event, not a ctxloom verb.
-    // Red-test stub (port/run-one-shot): the green step writes it.
     pub fn callback_args(engine: &str, native: &str) -> Vec<String> {
-        let _ = (engine, native);
-        todo!("callback_args")
+        ["hook", engine, "execute", native]
+            .map(str::to_string)
+            .to_vec()
+    }
+
+    /// This hook as the engine `engine` firing its `native` event installs
+    /// it: a ctxloom callback is rewritten to [`Hook::callback_args`] whatever
+    /// verb its author wrote; any other hook is unchanged.
+    pub fn installed_as(&self, engine: &str, native: &str) -> Hook {
+        let mut hook = self.clone();
+        if self.is_callback() {
+            hook.args = Hook::callback_args(engine, native);
+        }
+        hook
     }
 
     /// The members an engine's native hook file shares: `type` (defaulting
     /// to `command`), then `command`, `args`, `prompt` and `timeout` where
-    /// set. A ctxloom callback's args end `--engine <engine>`. The engine adds
-    /// what only it spells (`async`, `tool`, `matcher`).
-    pub fn json_members(&self, engine: &str) -> Vec<(&'static str, Json)> {
-        let mut args = self.args.clone();
-        if self.is_callback() && !args.iter().any(|a| a == "--engine") {
-            args.push("--engine".to_string());
-            args.push(engine.to_string());
-        }
+    /// set. The engine adds what only it spells (`async`, `tool`, `matcher`),
+    /// and has a callback rewritten with [`Hook::installed_as`] first.
+    pub fn json_members(&self) -> Vec<(&'static str, Json)> {
+        let args = &self.args;
         let kind = if self.kind.is_empty() {
             "command"
         } else {
@@ -128,7 +135,7 @@ impl Hook {
             members.push(("command", Json::text(self.command.as_str())));
         }
         if !args.is_empty() {
-            members.push(("args", Json::strings(&args)));
+            members.push(("args", Json::strings(args)));
         }
         if !self.prompt.is_empty() {
             members.push(("prompt", Json::text(self.prompt.as_str())));
@@ -416,11 +423,7 @@ pub trait HookCodec {
     /// The unified event the engine's `native` hook name is (`SessionStart`
     /// is `session_start`); a name the engine has no unified form for is
     /// carried verbatim. The reverse of the engine's hook-file routing.
-    // Red-test stub (port/run-one-shot): the green step makes it required.
-    fn unified_event(&self, native: &str) -> String {
-        let _ = native;
-        todo!("unified_event")
-    }
+    fn unified_event(&self, native: &str) -> String;
 
     /// The skills a transcript's main thread has invoked.
     fn invoked_skills(&self, transcript: &str) -> Vec<String>;

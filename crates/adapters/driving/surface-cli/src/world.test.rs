@@ -155,6 +155,10 @@ impl HookCodec for Wire {
         Ok(format!("context={};notice={}\n", r.context, r.notice))
     }
 
+    fn unified_event(&self, native: &str) -> String {
+        native.to_string()
+    }
+
     fn invoked_skills(&self, transcript: &str) -> Vec<String> {
         transcript.lines().map(str::to_string).collect()
     }

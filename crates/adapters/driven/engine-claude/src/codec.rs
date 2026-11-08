@@ -2,7 +2,9 @@
 //! claude writes to a hook's stdin, decoded, and the JSON it reads back from
 //! stdout, encoded.
 
-use surface_ports::{HookCodec, HookEvent, HookResponse, Json, SurfaceError};
+use surface_ports::{
+    HookCodec, HookEvent, HookResponse, Json, MessageDisplay, SurfaceError, ToolCall,
+};
 
 use crate::NAME;
 
@@ -20,6 +22,8 @@ fn unified(native: &str) -> String {
         "Stop" => "turn_end",
         "UserPromptSubmit" => "turn_start",
         "PermissionRequest" => "permission_ask",
+        "PostToolBatch" => "post_tool_batch",
+        "MessageDisplay" => "message_display",
         other => other,
     }
     .to_string()
@@ -64,7 +68,59 @@ fn skill_of(tool: &str, input: Option<&Json>) -> String {
         .to_string()
 }
 
+/// The compact JSON of an optional document (empty when absent).
+fn compact_of(doc: Option<&Json>) -> String {
+    doc.map(compact).unwrap_or_default()
+}
+
+/// A tool response as text: claude spells it a string, or a document.
+fn response_text(doc: Option<&Json>) -> String {
+    match doc {
+        None => String::new(),
+        Some(d) => d.as_str().map_or_else(|| compact(d), str::to_string),
+    }
+}
+
+/// The calls of a PostToolBatch, in order.
+fn tool_calls(doc: &Json) -> Vec<ToolCall> {
+    doc.get("tool_calls")
+        .and_then(Json::as_array)
+        .map(|calls| {
+            calls
+                .iter()
+                .map(|c| ToolCall {
+                    tool: text(c, "tool_name"),
+                    tool_use_id: text(c, "tool_use_id"),
+                    input: compact_of(c.get("tool_input")),
+                    response: response_text(c.get("tool_response")),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The piece of text a MessageDisplay shows; none for any other event.
+fn message_display(native: &str, doc: &Json) -> Option<MessageDisplay> {
+    if native != "MessageDisplay" {
+        return None;
+    }
+    Some(MessageDisplay {
+        turn_id: text(doc, "turn_id"),
+        message_id: text(doc, "message_id"),
+        index: doc
+            .get("index")
+            .and_then(|i| i.pretty().parse().ok())
+            .unwrap_or_default(),
+        is_final: matches!(doc.get("final"), Some(Json::Bool(true))),
+        delta: text(doc, "delta"),
+    })
+}
+
 impl HookCodec for Codec {
+    fn unified_event(&self, native: &str) -> String {
+        unified(native)
+    }
+
     fn decode(&self, event: &str, payload: &str) -> Result<HookEvent, SurfaceError> {
         let doc = Json::parse(payload).map_err(|detail| SurfaceError::Payload {
             engine: NAME.to_string(),
@@ -91,7 +147,11 @@ impl HookCodec for Codec {
             skill: skill_of(&tool, input),
             tool,
             path,
-            ..HookEvent::default()
+            last_assistant_message: text(&doc, "last_assistant_message"),
+            prompt_id: text(&doc, "prompt_id"),
+            reason: text(&doc, "reason"),
+            message: message_display(&native, &doc),
+            tool_calls: tool_calls(&doc),
         })
     }
 

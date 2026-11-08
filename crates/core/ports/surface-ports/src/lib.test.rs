@@ -136,16 +136,13 @@ fn test_a_hook_spells_its_shared_members_in_order() {
         matcher: "m".into(),
         ..Hook::default()
     };
-    let members = hook.json_members("eng");
+    let members = hook.json_members();
     let keys: Vec<_> = members.iter().map(|(k, _)| *k).collect();
     assert_eq!(keys, ["type", "command", "args", "prompt", "timeout"]);
     assert_eq!(members[0].1, Json::text("command"));
-    assert_eq!(
-        members[2].1,
-        Json::strings(["hook", "stop", "--engine", "eng"])
-    );
+    assert_eq!(members[2].1, Json::strings(["hook", "stop"]));
     assert_eq!(members[4].1, Json::Number("5".into()));
-    let bare = Hook::default().json_members("eng");
+    let bare = Hook::default().json_members();
     assert_eq!(bare, vec![("type", Json::text("command"))]);
 }
 
@@ -161,6 +158,30 @@ fn test_a_callback_executes_the_engines_native_hook() {
         Hook::callback_args("claude-code", "statusline"),
         ["hook", "claude-code", "execute", "statusline"]
     );
+}
+
+#[test]
+fn test_only_a_callback_is_rewritten_to_the_execute_form_when_installed() {
+    let callback = Hook {
+        command: "ctxloom".into(),
+        args: vec![
+            "hook".into(),
+            "any-verb".into(),
+            "--engine".into(),
+            "x".into(),
+        ],
+        timeout: 15,
+        ..Hook::default()
+    };
+    let installed = callback.installed_as("eng", "Stop");
+    assert_eq!(installed.args, ["hook", "eng", "execute", "Stop"]);
+    assert_eq!(installed.timeout, 15);
+    let foreign = Hook {
+        command: "mine".into(),
+        args: vec!["hook".into(), "x".into()],
+        ..Hook::default()
+    };
+    assert_eq!(foreign.installed_as("eng", "Stop"), foreign);
 }
 
 #[test]

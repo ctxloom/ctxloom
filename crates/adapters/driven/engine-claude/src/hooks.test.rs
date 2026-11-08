@@ -210,7 +210,7 @@ fn test_the_optional_fields_are_written_only_when_set() {
 #[test]
 fn test_a_settings_document_with_a_ctxloom_callback_is_wired() {
     let wired = Json::parse(
-        r#"{"hooks":{"Stop":[{"hooks":[{"command":"ctxloom","args":["hook","x"]}]}]}}"#,
+        r#"{"hooks":{"Stop":[{"hooks":[{"command":"ctxloom","args":["hook","claude-code","execute","Stop"]}]}]}}"#,
     )
     .unwrap();
     assert!(has_callback(&wired));

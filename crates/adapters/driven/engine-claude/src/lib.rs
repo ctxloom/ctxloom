@@ -33,7 +33,7 @@ pub const MCP_FILE: &str = ".mcp.json";
 pub const SETTINGS_FILE: &str = ".claude/settings.json";
 /// The statusline command ctxloom installs: the bare executable, which
 /// resolves on `PATH` wherever the file is read.
-pub const STATUSLINE: &str = "ctxloom hook hud";
+pub const STATUSLINE: &str = "ctxloom hook claude-code execute statusline";
 
 /// Claude Code.
 #[derive(Default)]

@@ -182,7 +182,10 @@ fn test_taking_hooks_out_leaves_the_users_groups_and_removes_empty_ones() {
 fn test_a_command_entry_of_the_users_is_left_and_one_it_cannot_read_is_refused() {
     let value = Json::object([
         ("type", Json::text("command")),
-        ("command", Json::text("ctxloom hook hud")),
+        (
+            "command",
+            Json::text("ctxloom hook claude-code execute statusline"),
+        ),
     ]);
     let claim = json_claim(vec![JsonOp::SetCommand {
         path: vec!["statusLine".into()],
@@ -192,7 +195,7 @@ fn test_a_command_entry_of_the_users_is_left_and_one_it_cannot_read_is_refused()
     let mine = br#"{"statusLine": {"type": "command", "command": "ccusage"}}"#;
     let out = text_of(render("settings.json", Some(mine), &[&claim], &mut left).unwrap());
     assert!(
-        out.contains("ccusage") && !out.contains("hook hud"),
+        out.contains("ccusage") && !out.contains("execute statusline"),
         "{out}"
     );
     assert_eq!(left.len(), 1);
@@ -206,7 +209,10 @@ fn test_a_command_entry_of_the_users_is_left_and_one_it_cannot_read_is_refused()
 fn test_a_command_entry_already_ours_is_replaced() {
     let value = Json::object([
         ("type", Json::text("command")),
-        ("command", Json::text("ctxloom hook hud")),
+        (
+            "command",
+            Json::text("ctxloom hook claude-code execute statusline"),
+        ),
     ]);
     let claim = json_claim(vec![JsonOp::SetCommand {
         path: vec!["statusLine".into()],
@@ -214,7 +220,7 @@ fn test_a_command_entry_already_ours_is_replaced() {
     }]);
     let mut left = Vec::new();
     let held =
-        br#"{"statusLine": {"type": "command", "command": "ctxloom hook hud", "padding": 0}}"#;
+        br#"{"statusLine": {"type": "command", "command": "ctxloom hook claude-code execute statusline", "padding": 0}}"#;
     let out = text_of(render("settings.json", Some(held), &[&claim], &mut left).unwrap());
     assert!(!out.contains("padding") && left.is_empty(), "{out}");
 }

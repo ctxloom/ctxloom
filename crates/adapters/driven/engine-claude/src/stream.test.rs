@@ -153,3 +153,15 @@ fn a_stderr_detail_is_bounded() {
     };
     assert!(detail.len() < 600, "{}", detail.len());
 }
+
+// The cut falls back to the character boundary below the limit: 400 bytes of
+// three-byte characters ends mid-character, so 133 whole characters are kept.
+#[test]
+fn a_stderr_detail_is_cut_at_a_character_boundary_below_the_limit() {
+    let mut out = output("", Some(1));
+    out.stderr = "\u{20ac}".repeat(200).into_bytes();
+    let TurnOutcome::Failed { detail, .. } = read_turn(&out) else {
+        panic!()
+    };
+    assert_eq!(detail, format!("exit 1: {}", "\u{20ac}".repeat(133)));
+}

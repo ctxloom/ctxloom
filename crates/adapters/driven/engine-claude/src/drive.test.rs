@@ -147,3 +147,9 @@ fn an_interactive_run_given_a_prompt_opens_on_it() {
         Some("what does this project expect of me?")
     );
 }
+
+// The launcher picks an engine by this name.
+#[test]
+fn the_run_engine_is_named_claude_code() {
+    assert_eq!(Engine::name(&Claude::new()), "claude-code");
+}

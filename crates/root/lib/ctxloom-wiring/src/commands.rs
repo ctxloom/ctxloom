@@ -74,7 +74,6 @@ fn one_shot(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> Result<u8, Failure> {
-    use std::io::IsTerminal;
     let wiring = Wiring::new(Arc::clone(env)).map_err(|e| Failure::new(e, 1))?;
     let remotes: Rc<dyn deps_ports::RemoteLibrary> = deps.clone();
     let library = crate::library::build(&wiring, Some(remotes)).map_err(|e| Failure::new(e, 1))?;
@@ -82,11 +81,16 @@ fn one_shot(
     if !run_cli::is_one_shot(run) {
         return run_cli::session(&mut uses, run, call, catalog, out, err);
     }
-    let mut piped = || {
-        let stdin = std::io::stdin();
-        (!stdin.is_terminal()).then(|| std::io::read_to_string(stdin).unwrap_or_default())
-    };
-    run_cli::run(&mut uses, run, call, catalog, &mut piped, out, err)
+    run_cli::run(&mut uses, run, call, catalog, &mut piped_prompt, out, err)
+}
+
+/// The text piped on standard input, none where it is a terminal.
+// Reads the process's own stdin, which a unit test cannot feed or make a terminal.
+#[cfg_attr(test, mutants::skip)]
+fn piped_prompt() -> Option<String> {
+    use std::io::IsTerminal;
+    let stdin = std::io::stdin();
+    (!stdin.is_terminal()).then(|| std::io::read_to_string(stdin).unwrap_or_default())
 }
 
 /// The nouns the surface commands own outright.

@@ -124,3 +124,36 @@ mod told {
         assert_eq!(project.id, "fresh-name-here");
     }
 }
+
+// A turn has half an hour: the limit the launcher is given.
+#[test]
+fn a_turn_has_half_an_hour() {
+    assert_eq!(super::TURN_DEADLINE, std::time::Duration::from_secs(1800));
+}
+
+// The place the run is told is the path as it is spelled, whole.
+#[test]
+fn a_path_is_told_as_it_is_spelled() {
+    assert_eq!(super::path_text(std::path::Path::new("/a/b c")), "/a/b c");
+}
+
+// The core the run use cases take serves its own catalog: the registered
+// domains, which the sessions are among (a default catalog holds none).
+#[tokio::test]
+async fn the_core_serves_the_catalog_of_its_domains() {
+    use run_application::Core;
+    use std::sync::Arc;
+
+    let fs = Arc::new(file_system::Rooted::temp().unwrap());
+    let store = ctxloom_store_sqlite::Stores::new(fs, "/home/u")
+        .open("calm-otter")
+        .await
+        .unwrap();
+    let core = crate::InProcessCore::start(store).await;
+    assert!(
+        Core::catalog(&core)
+            .domains()
+            .any(|d| d == sessions::SESSION_DOMAIN),
+        "the sessions domain is registered"
+    );
+}

@@ -376,3 +376,15 @@ async fn the_pending_launches_catch_up_over_the_cores_store_and_catalog() {
         .unwrap();
     assert!(pending.projector().pending().launches().is_empty());
 }
+
+// The core's catalog is its registry's: the domains it registered, which the
+// sessions are among (a default catalog holds none).
+#[tokio::test]
+async fn the_core_serves_the_catalog_of_its_registered_domains() {
+    let world = World::new().await;
+    assert!(world
+        .core
+        .catalog()
+        .domains()
+        .any(|d| d == sessions::SESSION_DOMAIN));
+}

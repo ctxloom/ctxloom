@@ -448,3 +448,78 @@ fn test_a_bundle_publishing_verb_is_run_by_the_dependency_commands() {
         failure.cause
     );
 }
+
+/// A world in which no engine's program can be found, so nothing is launched.
+fn world_without_programs(name: &str) -> World {
+    let mut world = World::new(name);
+    let empty = world.dir.join("no-programs");
+    crate::fixtures::mkdirs(empty.clone());
+    world.set("PATH", empty);
+    crate::fixtures::mkdirs(world.dir.join("work/.ctxloom"));
+    crate::fixtures::put_mode(
+        world.dir.join("work/.ctxloom/config.yaml"),
+        "schema_version: 9\nagents:\n  dev:\n    llm: claude-code\n    profiles: [dev]\n    runtime: host\ndefault_agent: dev\n",
+        0o644,
+    );
+    let bundles = world.dir.join("work/.ctxloom/content/bundles/v2");
+    for (rel, text) in [
+        ("demo/bundle.yaml", "schema_version: 4\nversion: 1.0.0\n"),
+        ("demo/fragments/rules.md", "RULES"),
+        ("project/bundle.yaml", "schema_version: 4\nversion: 1.0.0\n"),
+        ("project/profiles/dev.yaml", "bundles: [demo]\n"),
+    ] {
+        let path = bundles.join(rel);
+        crate::fixtures::mkdirs(path.parent().unwrap());
+        crate::fixtures::put_mode(path, text, 0o644);
+    }
+    world
+}
+
+// `run --one-shot` is the run use case's: an engine nobody drives is refused
+// by it (exit 2), before anything is launched.
+#[test]
+fn test_a_one_shot_is_run_by_the_run_use_case() {
+    let world = world_without_programs("one-shot");
+    let failure = try_line(
+        &mut world.commands(),
+        Format::Json,
+        &["run", "--one-shot", "--engine", "nope", "hello"],
+    )
+    .unwrap_err();
+    assert_eq!(failure.cause.code(), "run-application-unknown-engine");
+    assert_eq!(failure.exit, 2);
+}
+
+// A one-shot with no prompt, argued or piped, is refused as that, not
+// started as a session.
+#[test]
+fn test_a_one_shot_with_no_prompt_is_not_a_session() {
+    let world = world_without_programs("one-shot-bare");
+    let failure =
+        try_line(&mut world.commands(), Format::Json, &["run", "--one-shot"]).unwrap_err();
+    assert_eq!(failure.cause.code(), "run-application-no-prompt");
+    assert_eq!(failure.exit, 2);
+}
+
+// Without `--one-shot` it is the human's session, which is started on the
+// engine asked for, prompt or none.
+#[test]
+fn test_run_without_one_shot_is_the_session() {
+    let world = world_without_programs("session");
+    let failure = try_line(
+        &mut world.commands(),
+        Format::Json,
+        &["run", "--engine", "nope"],
+    )
+    .unwrap_err();
+    assert_eq!(failure.cause.code(), "run-application-unknown-engine");
+}
+
+// `--dry-run` stays the library's: the plan is printed, nothing is run.
+#[test]
+fn test_a_dry_run_is_the_librarys_plan_and_runs_nothing() {
+    let world = world_without_programs("dry-run");
+    let (code, out, _) = run_line(&mut world.commands(), &["run", "--dry-run", "hello"]);
+    assert_eq!(code, 0);
+    assert!(out.contains("hello"), "{out}");
+}

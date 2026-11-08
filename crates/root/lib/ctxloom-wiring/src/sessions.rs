@@ -147,6 +147,8 @@ impl Commands {
 struct NoService;
 
 impl hook_cli::HookService for NoService {
+    // Unreachable by design (the body is `unreachable!`): no test can call it.
+    #[cfg_attr(test, mutants::skip)]
     fn execute(
         &self,
         _: &str,

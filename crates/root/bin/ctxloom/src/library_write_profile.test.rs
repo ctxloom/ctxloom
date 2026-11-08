@@ -312,6 +312,23 @@ fn test_a_parent_profiles_content_is_inherited_and_detaching_the_parent_takes_it
     }
 }
 
+// vocabulary review 2026-11-06: `edit` patches by flag and replaces `modify`
+#[test]
+fn test_edit_with_flags_patches_the_profile_without_an_editor() {
+    let project = Project::initialized();
+    project.bundle("house-style");
+    project.fragment("house-style", "house-rules");
+    project.bundle("demo");
+    project.profile("dev", "demo");
+    let ran = project.run(&["profile", "edit", "dev", "--add-bundle", "house-style"]);
+    ran.succeeds();
+    assert_eq!(
+        ran.stdout,
+        "added bundle: house-style\nModified profile \"dev\"\n"
+    );
+    assert!(assembled(&project, "dev").contains("FRAGMENT-BODY-house-rules"));
+}
+
 // profile.feature: Scenario: A modify that was told to change nothing says so
 #[test]
 fn test_a_modify_that_was_told_to_change_nothing_says_so() {

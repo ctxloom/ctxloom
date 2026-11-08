@@ -364,35 +364,12 @@ fn profile() -> Command {
                     "Local bundle to create the profile in (default: the project bundle)",
                 )),
         )
-        .subcommand(
-            Command::new("modify")
-                .about("Modify an existing profile by adding or removing items")
-                .arg(one("name", "The profile"))
-                .arg(list_flag("add-parent", "Parent profile(s) to add"))
-                .arg(list_flag("remove-parent", "Parent profile(s) to remove"))
-                .arg(list_flag("add-bundle", "Bundle(s) to add"))
-                .arg(list_flag("remove-bundle", "Bundle(s) to remove"))
-                .arg(description("New description for the profile"))
-                .arg(named(
-                    "llm",
-                    "Set the preferred LLM config label/backend (empty clears it)",
-                ))
-                .arg(list_flag("exclude-fragment", "Fragment name(s) to exclude"))
-                .arg(list_flag(
-                    "include-fragment",
-                    "Fragment name(s) to stop excluding",
-                ))
-                .arg(list_flag("exclude-mcp", "MCP server name(s) to exclude"))
-                .arg(list_flag(
-                    "include-mcp",
-                    "MCP server name(s) to stop excluding",
-                )),
-        )
-        .subcommand(
-            Command::new("edit")
-                .about("Edit a profile in your editor")
-                .arg(one("name", "The profile")),
-        )
+        .subcommand(profile_patch(
+            Command::new("modify").about("Modify an existing profile (use `edit`)"),
+        ))
+        .subcommand(profile_patch(Command::new("edit").about(
+            "Edit a profile: flags patch it, none opens it in your editor",
+        )))
         .subcommand(
             Command::new("export")
                 .about("Export a profile to a directory")
@@ -410,6 +387,31 @@ fn profile() -> Command {
                 )),
         )
         .subcommand(remove("Remove a profile").arg(one("name", "The profile")))
+}
+
+/// The profile and the flags that patch it.
+fn profile_patch(command: Command) -> Command {
+    command
+        .arg(one("name", "The profile"))
+        .arg(list_flag("add-parent", "Parent profile(s) to add"))
+        .arg(list_flag("remove-parent", "Parent profile(s) to remove"))
+        .arg(list_flag("add-bundle", "Bundle(s) to add"))
+        .arg(list_flag("remove-bundle", "Bundle(s) to remove"))
+        .arg(description("New description for the profile"))
+        .arg(named(
+            "llm",
+            "Set the preferred LLM config label/backend (empty clears it)",
+        ))
+        .arg(list_flag("exclude-fragment", "Fragment name(s) to exclude"))
+        .arg(list_flag(
+            "include-fragment",
+            "Fragment name(s) to stop excluding",
+        ))
+        .arg(list_flag("exclude-mcp", "MCP server name(s) to exclude"))
+        .arg(list_flag(
+            "include-mcp",
+            "MCP server name(s) to stop excluding",
+        ))
 }
 
 fn agent() -> Command {

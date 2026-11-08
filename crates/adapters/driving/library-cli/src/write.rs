@@ -431,6 +431,25 @@ pub(crate) fn mcp_bare(cx: &Context<'_>) -> Failure {
     AppError::from(WriteError::McpBare {}).into_failure()
 }
 
+/// Whether `profile edit` was given a flag to patch with (else it opens the
+/// editor).
+fn patch_asked(sub: &ArgMatches) -> bool {
+    [
+        "description",
+        "llm",
+        "add-parent",
+        "remove-parent",
+        "add-bundle",
+        "remove-bundle",
+        "exclude-fragment",
+        "include-fragment",
+        "exclude-mcp",
+        "include-mcp",
+    ]
+    .iter()
+    .any(|name| sub.value_source(name) == Some(clap::parser::ValueSource::CommandLine))
+}
+
 pub(crate) fn profile(
     cx: &Context<'_>,
     (verb, sub): (&str, &ArgMatches),
@@ -467,8 +486,8 @@ pub(crate) fn profile(
                 writeln!(out, "Saved to: {}", made.path)
             })?
         }
-        "modify" => {
-            text_only(cx, "profile modify")?;
+        "modify" | "edit" if verb == "modify" || patch_asked(sub) => {
+            text_only(cx, "profile edit")?;
             let edit = ProfileEdit {
                 description: given(sub, "description"),
                 llm: given(sub, "llm"),

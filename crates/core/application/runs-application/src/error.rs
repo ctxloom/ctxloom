@@ -51,7 +51,7 @@ impl AppError {
     }
 
     /// A domain's refusal as its code and args; any other failure as its text.
-    pub(crate) fn from_failure(failure: Failure<Rejected>) -> AppError {
+    pub fn from_failure(failure: Failure<Rejected>) -> AppError {
         match failure {
             Failure::Rejected(rejected) => {
                 let report = domain_report(&rejected);

@@ -326,6 +326,37 @@ impl<E: Edge> Facts<E> {
     }
 }
 
+impl<E: Edge> Facts<E> {
+    /// The launch of `run` that never started, as the core's own launcher
+    /// observed it: `deterministic` says a retry would fail the same way. It
+    /// is not an agent's fact (no runner existed to send it), so it is not on
+    /// the runner's allowlist and goes the unexposed path, keyed by the run.
+    pub async fn launch_failed(
+        &self,
+        run: &Uuid,
+        deterministic: bool,
+        detail: &str,
+    ) -> Result<Recorded, AppError> {
+        let cover = Cover {
+            domain: runs::RUN_DOMAIN.to_string(),
+            root: Some(run.clone()),
+            edition: None,
+        };
+        let fact = runs::LaunchFailed {
+            deterministic,
+            detail: detail.to_string(),
+        };
+        let book = book_of(cover, any_of(&fact), format!("launch-failed:{}", text(run)));
+        match self.edge.handle(book).await {
+            Ok(answered) => Recorded::of(&answered).ok_or_else(|| AppError::Failed {
+                reason: "the kernel gave no delivery outcome".to_string(),
+            }),
+            Err(Failure::Kernel(KernelError::FactDeadLettered { .. })) => Ok(Recorded::Parked),
+            Err(failure) => Err(AppError::from_failure(failure)),
+        }
+    }
+}
+
 impl Recorded {
     /// The spec's delivery outcome of `answered`, if it names one.
     pub(crate) fn of(answered: &Answered) -> Option<Recorded> {

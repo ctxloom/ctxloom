@@ -471,3 +471,41 @@ fn recorded_is_the_specs_delivery_outcome() {
     );
     assert_eq!(Recorded::of(&answered(DeliveryOutcome::Unspecified)), None);
 }
+
+// Step 1b-ii: the launcher is the core's own, not the agent's runner, so the
+// launch that never started is a fact of its own kind: recorded on the run it
+// was for through the unexposed path, keyed by the run (once), and it ends the
+// run with the cause the aggregate gives a failed launch.
+#[tokio::test]
+async fn a_launch_that_never_started_ends_the_run_once() {
+    use angzarr_embedded::Payload;
+    let world = World::new().await;
+    let facts = Facts::new(Arc::clone(&world.edge));
+    let who = &world.me.identity;
+    assert_eq!(
+        facts.launch_failed(&who.run, true, "no claude").await,
+        Ok(Recorded::Applied)
+    );
+    let pages = world.edge.pages(&who.run_cover()).await;
+    let ended: Vec<runs::RunEnded> = pages
+        .iter()
+        .filter_map(|page| match &page.body {
+            Some(angzarr_embedded::v1::event_page::Body::Event(any)) => {
+                match runs::RunEvent::from_any(any) {
+                    Ok(runs::RunEvent::RunEnded(ended)) => Some(ended),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ended.len(), 1);
+    assert_eq!(ended[0].cause, runs::EndCause::LaunchFailed);
+    assert_eq!(ended[0].detail, "no claude");
+    // The same launch, redelivered, is the one fact.
+    assert_eq!(
+        facts.launch_failed(&who.run, true, "no claude").await,
+        Ok(Recorded::Duplicate)
+    );
+    assert_eq!(world.edge.pages(&who.run_cover()).await.len(), pages.len());
+}

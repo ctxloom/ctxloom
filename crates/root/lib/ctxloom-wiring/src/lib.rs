@@ -13,6 +13,7 @@ mod core_link;
 mod error;
 mod isolation;
 mod library;
+mod oneshot;
 mod process_env;
 #[cfg(feature = "test-support")]
 mod seed;
@@ -184,6 +185,7 @@ pub fn catalog_sources() -> Vec<angzarr_presentation::Source> {
     sources.extend([worktree_git::EN_US, container_cli::EN_US]);
     sources.push(tasks_ports::EN_US);
     sources.extend([scheduler::EN_US, scheduler_loop::EN_US]);
+    sources.extend([run_application::EN_US, run_launcher::EN_US, run_cli::EN_US]);
     sources
 }
 

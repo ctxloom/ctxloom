@@ -346,3 +346,33 @@ mod the_edge_over_trees {
         assert!(edge.events(&tree(), 2).await.unwrap().is_empty());
     }
 }
+
+// Step 1b-ii: the launcher and the recorder catch up from the core's own
+// store, through its own catalog: a run enqueued through the real App is owed
+// a runner, and then (its sign of life recorded through the same App) is not.
+#[tokio::test]
+async fn the_pending_launches_catch_up_over_the_cores_store_and_catalog() {
+    let world = World::new().await;
+    let mut pending = pending_launches::catch_up();
+    let caught = pending
+        .step(world.core.store(), world.core.catalog())
+        .await
+        .unwrap();
+    assert!(caught.failures().is_empty());
+    let owed = pending.projector().pending().launches();
+    assert_eq!(owed.len(), 1);
+    assert_eq!(owed[0].session, SESSION);
+    assert_eq!(owed[0].incarnation, 1);
+    Facts::new(world.edge())
+        .record(
+            &world.identity,
+            RunnerFact::TurnStarted(runs::TurnStarted { turn: 1 }),
+        )
+        .await
+        .unwrap();
+    pending
+        .step(world.core.store(), world.core.catalog())
+        .await
+        .unwrap();
+    assert!(pending.projector().pending().launches().is_empty());
+}

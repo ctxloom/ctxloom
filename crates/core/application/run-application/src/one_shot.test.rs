@@ -329,7 +329,7 @@ async fn a_plan_that_is_refused_starts_nothing_and_keeps_its_error() {
     let error = done.result.unwrap_err();
     assert!(matches!(
         &error,
-        RunError::Plan(PlanError::AgentExclusive { .. })
+        RunError::Plan(plan) if matches!(**plan, PlanError::AgentExclusive { .. })
     ));
     assert_eq!(error.exit_code(), 2);
     assert_eq!(done.notices.len(), 1, "what the plan noticed is still said");
@@ -355,8 +355,8 @@ async fn a_fatal_startup_finding_refuses_the_run_before_any_session() {
         .unwrap_err();
     assert_eq!(error.exit_code(), 3);
     assert!(matches!(
-        error,
-        RunError::Plan(PlanError::StartupAborted { .. })
+        &error,
+        RunError::Plan(plan) if matches!(**plan, PlanError::StartupAborted { .. })
     ));
     assert!(rig.runner.seen.lock().unwrap().is_empty());
 }

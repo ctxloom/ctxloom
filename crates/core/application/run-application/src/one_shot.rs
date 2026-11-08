@@ -169,7 +169,7 @@ where
         let planned = self.planner.plan(flags, &request.run);
         let mut notices = planned.notices;
         let result = match planned.result {
-            Err(error) => Err(RunError::Plan(error)),
+            Err(error) => Err(RunError::Plan(Box::new(error))),
             Ok(previewed) => self.run(previewed, request).await,
         };
         Done {
@@ -180,7 +180,9 @@ where
 
     async fn run(&mut self, previewed: Previewed, request: &OneShot) -> Result<Answer, RunError> {
         if !previewed.fatal.is_empty() {
-            return Err(RunError::Plan(PlanError::aborted(&previewed.fatal)));
+            return Err(RunError::Plan(Box::new(PlanError::aborted(
+                &previewed.fatal,
+            ))));
         }
         let plan = previewed.plan;
         if plan.prompt.trim().is_empty() {

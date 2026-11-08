@@ -268,9 +268,9 @@ fn a_refusal_ends_the_command_with_its_code_and_exit_and_writes_no_reply() {
 
 #[test]
 fn a_plan_the_library_refused_keeps_its_exit() {
-    let mut service = Double::failing(RunError::Plan(AppError::AgentExclusive {
+    let mut service = Double::failing(RunError::Plan(Box::new(AppError::AgentExclusive {
         other: "profile".to_string(),
-    }));
+    })));
     let ran = go(
         &["--one-shot", "hi"],
         Some(Format::Text),

@@ -62,6 +62,29 @@ fn build_deps(wiring: &Wiring) -> Result<Deps, LibError> {
     }))))
 }
 
+/// `run --one-shot`: the library plans it, the run use cases do it. A prompt
+/// piped on standard input is read only where nothing else gave one.
+fn one_shot(
+    env: &Arc<EnvSnapshot>,
+    deps: &Rc<Deps>,
+    run: &clap::ArgMatches,
+    call: &Call<'_>,
+    catalog: &Catalog,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Result<u8, Failure> {
+    use std::io::IsTerminal;
+    let wiring = Wiring::new(Arc::clone(env)).map_err(|e| Failure::new(e, 1))?;
+    let remotes: Rc<dyn deps_ports::RemoteLibrary> = deps.clone();
+    let library = crate::library::build(&wiring, Some(remotes)).map_err(|e| Failure::new(e, 1))?;
+    let mut uses = crate::oneshot::OneShots::new(&wiring, library);
+    let mut piped = || {
+        let stdin = std::io::stdin();
+        (!stdin.is_terminal()).then(|| std::io::read_to_string(stdin).unwrap_or_default())
+    };
+    run_cli::run(&mut uses, run, call, catalog, &mut piped, out, err)
+}
+
 /// The nouns the surface commands own outright.
 const SURFACE_NOUNS: [&str; 3] = ["manage", "materialize", "util"];
 
@@ -301,6 +324,9 @@ impl Extension for Commands {
         let mut nouns: Vec<Command> = library_cli::nouns()
             .into_iter()
             .map(|noun| {
+                if noun.get_name() == "run" {
+                    return run_cli::with_one_shot(noun);
+                }
                 if noun.get_name() != "bundle" {
                     return noun;
                 }
@@ -359,7 +385,16 @@ impl Extension for Commands {
             .and_then(|m| m.subcommand_name())
             .unwrap_or_default()
             .to_string();
+        let env = Arc::clone(&self.env);
         let wired = self.wired().map_err(|e| Failure::new(e, 1))?;
+        if noun == "run" {
+            let run = call.matches.subcommand_matches("run");
+            if let Some(run) =
+                run.filter(|m| run_cli::is_one_shot(m) && !cli_support::flag(m, "dry-run"))
+            {
+                return one_shot(&env, &wired.deps, run, call, catalog, out, err);
+            }
+        }
         if SURFACE_NOUNS.contains(&noun) {
             return surface_cli::run(&wired.surface, noun, call, catalog, out, err);
         }

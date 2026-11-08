@@ -13,7 +13,7 @@ pub enum RunError {
     /// The library would not plan the run: a conflict of flags, an unreadable
     /// configuration, a startup finding that is fatal. Its own error, code
     /// and exit.
-    Plan(PlanError),
+    Plan(Box<PlanError>),
     /// A one-shot with no prompt from any door asks nothing.
     NoPrompt,
     /// No engine of that name can be driven.

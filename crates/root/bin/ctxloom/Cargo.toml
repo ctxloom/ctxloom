@@ -31,6 +31,9 @@ init-application.workspace = true
 reclaim-application.workspace = true
 setup-cli.workspace = true
 hook-cli.workspace = true
+run-application.workspace = true
+run-launcher.workspace = true
+run-cli.workspace = true
 setup-application.workspace = true
 surface-ports.workspace = true
 session-cli.workspace = true
@@ -77,6 +80,9 @@ test-support = [
     "tasks-ports/test-support",
     "scheduler/test-support",
     "scheduler-loop/test-support",
+    "run-application/test-support",
+    "run-launcher/test-support",
+    "run-cli/test-support",
 ]
 
 [dev-dependencies]

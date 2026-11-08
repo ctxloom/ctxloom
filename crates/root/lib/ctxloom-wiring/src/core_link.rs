@@ -10,7 +10,9 @@ use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use angzarr_embedded::v1::Uuid as WireUuid;
-use angzarr_embedded::{ListStreams, OnRetryable, Processed, Registry, Sampled, Store, Timestamp};
+use angzarr_embedded::{
+    Catalog, ListStreams, OnRetryable, Processed, Registry, Sampled, Store, Timestamp,
+};
 use angzarr_embedded_host::config::Expose;
 use angzarr_embedded_host::stores::OneStore;
 use angzarr_embedded_host::App;
@@ -50,6 +52,7 @@ pub struct InProcessCore<S>
 where
     S: Store + Processed + ListStreams + Send + Sync,
 {
+    app: Arc<App<OneStore<S>>>,
     edge: Arc<EmbeddedEdge<OneStore<S>>>,
 }
 
@@ -95,14 +98,27 @@ where
             .on_retryable(retries)
             .start()
             .await;
+        let app = Arc::new(app);
         InProcessCore {
-            edge: Arc::new(EmbeddedEdge::new(Arc::new(app), sample)),
+            edge: Arc::new(EmbeddedEdge::new(Arc::clone(&app), sample)),
+            app,
         }
     }
 
     /// The edge the use cases take.
     pub fn edge(&self) -> Arc<EmbeddedEdge<OneStore<S>>> {
         Arc::clone(&self.edge)
+    }
+
+    /// The store the application keeps its streams in: what a projector
+    /// catches up from.
+    pub fn store(&self) -> &S {
+        self.app.store()
+    }
+
+    /// The catalog of the registered domains, which a catch-up upcasts by.
+    pub fn catalog(&self) -> &Catalog {
+        self.app.registry().catalog()
     }
 }
 

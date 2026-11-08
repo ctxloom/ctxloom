@@ -37,9 +37,9 @@ fn every_diagnostic_has_a_message_using_exactly_its_args() {
 // the startup abort its exit 3.
 #[test]
 fn a_plan_error_keeps_its_own_code_and_exit() {
-    let conflict = RunError::Plan(PlanError::AgentExclusive {
+    let conflict = RunError::Plan(Box::new(PlanError::AgentExclusive {
         other: "profile".to_string(),
-    });
+    }));
     assert_eq!(
         conflict.code(),
         PlanError::AgentExclusive {
@@ -48,10 +48,10 @@ fn a_plan_error_keeps_its_own_code_and_exit() {
         .code()
     );
     assert_eq!(conflict.exit_code(), 2);
-    let aborted = RunError::Plan(PlanError::StartupAborted {
+    let aborted = RunError::Plan(Box::new(PlanError::StartupAborted {
         count: 1,
         findings: "x".to_string(),
-    });
+    }));
     assert_eq!(aborted.exit_code(), 3);
 }
 

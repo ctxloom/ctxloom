@@ -1,9 +1,6 @@
 # world: base
 # Ported from journeys/j000100_adopt_and_back_out.feature
 # NOT ported: the wiring scenarios; cli/manage.feature covers wiring.
-#   The scenarios tagged @pending: `ctxloom run` is not built past its red
-#   tests (port/run-one-shot: no launcher, host-launcher or session directory
-#   writer yet); the scenario that backs out after a session waits on it.
 
 Feature: Adopting ctxloom without regret — the first hour, and the exit verified before committing
 
@@ -67,7 +64,6 @@ Feature: Adopting ctxloom without regret — the first hour, and the exit verifi
       """
     Then she is shown a health check for every part of the harness
 
-  @pending
   Scenario: Alice verifies she can leave before she commits
     # substitution: she leaves by deleting .ctxloom and ~/.ctxloom.
     Given Alice has set ctxloom up in her project

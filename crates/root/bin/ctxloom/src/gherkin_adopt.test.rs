@@ -36,7 +36,9 @@ const PUBLISHED_DEFAULT: &str = "https://github.com/ctxloom/ctxloom-default";
 /// What the published default's fragment says.
 const PUBLISHED_MARKER: &str = "J000100-PUBLISHED-DEFAULT-MARKER";
 
-/// The stub engine: records its launch beside itself, and replies.
+/// The stub engine: records its launch beside itself, and replies as claude
+/// does under `--output-format stream-json`: its session's `init` and a
+/// `result` carrying the answer.
 const CLAUDE_STUB: &str = r#"rec="$(dirname "$0")/claude-launch"
 for a in "$@"; do
   printf '%s\n' "$a" >> "$rec"
@@ -46,7 +48,8 @@ if [ -n "${CLAUDE_CONFIG_DIR:-}" ] && [ -d "$CLAUDE_CONFIG_DIR" ]; then
   find "$CLAUDE_CONFIG_DIR" -type f -exec cat {} + >> "$rec" 2>/dev/null
 fi
 [ -t 0 ] || cat >> "$rec"
-echo J000100-ASSISTANT-REPLY
+echo '{"type":"system","subtype":"init","session_id":"00000000-0000-4000-8000-0000000000aa"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"J000100-ASSISTANT-REPLY","session_id":"00000000-0000-4000-8000-0000000000aa"}'
 "#;
 
 /// Where Alice's own assistant keeps its configuration, in her home.

@@ -112,6 +112,7 @@ setup-application = { path = "crates/core/application/setup-application" }
 surface-files = { path = "crates/adapters/driven/surface-files" }
 engine-claude = { path = "crates/adapters/driven/engine-claude" }
 engine-mock = { path = "crates/adapters/driven/engine-mock" }
+host-launcher = { path = "crates/adapters/driven/host-launcher" }
 surface-cli = { path = "crates/adapters/driving/surface-cli" }
 cache-files = { path = "crates/adapters/driven/cache-files" }
 auth-application = { path = "crates/core/application/auth-application" }

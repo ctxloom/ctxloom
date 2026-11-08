@@ -1,0 +1,21 @@
+[package]
+name = "host-launcher"
+version = "0.1.0"
+description = "The RunnerLauncher port on the host: one turn's command run to its end under a deadline, its whole process tree killed when the deadline passes (step 1b-i)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+run-ports.workspace = true
+run-within.workspace = true
+
+[dev-dependencies]
+fixture-program.workspace = true
+file-system = { workspace = true, features = ["test-support"] }
+os = { workspace = true, features = ["test-support"] }
+run-within = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true

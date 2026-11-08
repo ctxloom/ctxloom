@@ -19,12 +19,6 @@ struct Service {
 }
 
 impl HookService for Service {
-    fn session_start(&self, _: &str, _: &str) -> Result<String, Box<dyn Diagnostic>> {
-        unreachable!("folded into execute")
-    }
-    fn skill_mates(&self, _: &str, _: &str) -> Result<String, Box<dyn Diagnostic>> {
-        unreachable!("folded into execute")
-    }
     fn execute(
         &self,
         engine: &str,

@@ -179,23 +179,15 @@ fn build_setup(wiring: &Wiring, deps: Rc<Deps>) -> Result<Setup, LibError> {
 pub struct Hooks<'a>(&'a Setup);
 
 impl hook_cli::HookService for Hooks<'_> {
-    fn session_start(
+    fn execute(
         &self,
         engine: &str,
+        native: &str,
         payload: &str,
-    ) -> Result<String, Box<dyn angzarr_diagnostic::Diagnostic>> {
+        harp: &str,
+    ) -> Result<setup_application::HookAnswer, Box<dyn angzarr_diagnostic::Diagnostic>> {
         self.0
-            .session_start(engine, payload)
-            .map_err(|e| Box::new(e) as _)
-    }
-
-    fn skill_mates(
-        &self,
-        engine: &str,
-        payload: &str,
-    ) -> Result<String, Box<dyn angzarr_diagnostic::Diagnostic>> {
-        self.0
-            .skill_mates(engine, payload)
+            .execute_hook(engine, native, payload, harp)
             .map_err(|e| Box::new(e) as _)
     }
 }

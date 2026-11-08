@@ -285,19 +285,19 @@ fn test_the_hooks_answer_through_the_engines_codec() {
     let world = World::new("hooks");
     let mut commands = world.commands();
     let hooks = commands.hooks().ok().unwrap();
-    assert_eq!(
-        hooks.session_start("claude-code", "{}").ok().unwrap(),
-        "{}\n"
-    );
+    for native in ["SessionStart", "PostToolUse", "Stop"] {
+        let answer = hooks.execute("claude-code", native, "{}", "").ok().unwrap();
+        assert_eq!(answer.bind, None, "{native}");
+    }
     assert_eq!(
         hooks
-            .skill_mates("claude-code", r#"{"skill":"x"}"#)
+            .execute("claude-code", "Stop", "{}", "x")
             .ok()
-            .unwrap(),
+            .unwrap()
+            .stdout,
         "{}\n"
     );
-    assert!(hooks.session_start("nosuch", "{}").is_err());
-    assert!(hooks.skill_mates("nosuch", "{}").is_err());
+    assert!(hooks.execute("nosuch", "Stop", "{}", "x").is_err());
 }
 
 /// What a refresh preview names: each engine, what it would write and release.

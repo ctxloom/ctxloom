@@ -93,16 +93,22 @@ fn test_an_unknown_session_verb_is_refused_by_the_parser_with_a_suggestion() {
     assert_eq!(refused.kind(), clap::error::ErrorKind::InvalidSubcommand);
     let hook = Command::new("ctxloom")
         .subcommands(commands().nouns())
-        .try_get_matches_from(["ctxloom", "hook", "nosuch"])
+        .try_get_matches_from(["ctxloom", "hook", "claude-code", "nosuch"])
         .unwrap_err();
-    assert_eq!(hook.kind(), clap::error::ErrorKind::InvalidSubcommand);
+    // `execute` is the only verb of an engine's hook.
+    assert_eq!(hook.kind(), clap::error::ErrorKind::UnknownArgument);
 }
 
 #[test]
 fn test_the_hud_hook_writes_its_statusline_to_stdout_only() {
     // The payload is read from stdin, which is not a document here: the
     // statusline hook answers with the bare name.
-    let (code, out, err) = run(&mut commands(), &["hook", "hud"]).ok().unwrap();
+    let (code, out, err) = run(
+        &mut commands(),
+        &["hook", "claude-code", "execute", "statusline"],
+    )
+    .ok()
+    .unwrap();
     assert_eq!(code, 0);
     assert!(out.contains("ctxloom"), "{out}");
     assert!(err.is_empty());
@@ -110,23 +116,35 @@ fn test_the_hud_hook_writes_its_statusline_to_stdout_only() {
 
 #[test]
 fn test_each_session_hook_answers_through_the_engines_codec() {
-    for verb in ["session-start", "skill-mates"] {
-        let line = ["hook", verb, "--engine", "claude-code"];
+    for native in ["PostToolUse", "Stop"] {
+        let line = ["hook", "claude-code", "execute", native];
         let (code, out, _) = run_with(&mut commands(), r#"{"skill":"x"}"#, &line)
             .ok()
             .unwrap();
-        assert_eq!((code, out.as_str()), (0, "{}\n"), "{verb}");
+        assert_eq!((code, out.as_str()), (0, "{}\n"), "{native}");
     }
+}
+
+// A session start in a process with no harp binds nothing and says nothing.
+#[test]
+fn test_a_session_start_with_no_harp_is_silent() {
+    let mut world = World::new("session-start-no-harp");
+    world.set("CTXLOOM_SESSION_HARP", "");
+    let (code, out, _) = run_with(
+        &mut world.commands(),
+        "{}",
+        &["hook", "claude-code", "execute", "SessionStart"],
+    )
+    .ok()
+    .unwrap();
+    assert_eq!((code, out.as_str()), (0, ""));
 }
 
 #[test]
 fn test_a_hook_for_an_engine_nobody_knows_fails_with_exit_1() {
-    let failure = run(
-        &mut commands(),
-        &["hook", "session-start", "--engine", "nosuch"],
-    )
-    .err()
-    .unwrap();
+    let failure = run(&mut commands(), &["hook", "nosuch", "execute", "Stop"])
+        .err()
+        .unwrap();
     assert_eq!(failure.exit, 1);
 }
 
@@ -153,7 +171,7 @@ fn test_the_bind_hook_answers_with_the_harp_the_environment_names() {
     let (code, out, err) = run_with(
         &mut world.commands(),
         payload,
-        &["hook", "session-bind", "--engine", "claude-code"],
+        &["hook", "claude-code", "execute", "SessionStart"],
     )
     .ok()
     .unwrap();
@@ -170,7 +188,7 @@ fn test_the_hud_hook_shows_the_harp_the_environment_names() {
     let (_, out, _) = run_with(
         &mut world.commands(),
         r#"{"model":{"display_name":"M"}}"#,
-        &["hook", "hud"],
+        &["hook", "claude-code", "execute", "statusline"],
     )
     .ok()
     .unwrap();

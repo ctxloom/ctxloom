@@ -6,13 +6,10 @@ use angzarr_diagnostic::{code, Arg, Diagnostic};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum HookError {
-    /// A `--engine` naming no engine whose hooks are read (Go's
+    /// An engine the registry does not know (Go's
     /// `UnknownHookEngineError`): guessing would decode one engine's wire
     /// with another's codec.
     UnknownEngine { engine: String, known: String },
-    /// A session_start payload the engine's codec could not read: the bind
-    /// did not happen.
-    Payload { harp: String, detail: String },
 }
 
 impl fmt::Display for HookError {
@@ -25,7 +22,6 @@ impl Diagnostic for HookError {
     fn code(&self) -> &str {
         match self {
             HookError::UnknownEngine { .. } => code!("unknown-engine"),
-            HookError::Payload { .. } => code!("payload"),
         }
     }
 
@@ -34,10 +30,6 @@ impl Diagnostic for HookError {
             HookError::UnknownEngine { engine, known } => vec![
                 ("engine", engine.as_str().into()),
                 ("known", known.as_str().into()),
-            ],
-            HookError::Payload { harp, detail } => vec![
-                ("harp", harp.as_str().into()),
-                ("detail", detail.as_str().into()),
             ],
         }
     }
@@ -84,10 +76,6 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(HookError::UnknownEngine {
             engine: "nope".to_string(),
             known: "claude-code".to_string(),
-        }),
-        Box::new(HookError::Payload {
-            harp: "amber-swift-owl".to_string(),
-            detail: "expected value".to_string(),
         }),
         Box::new(HookWarning::NoUsableHarp {
             harp: String::new(),

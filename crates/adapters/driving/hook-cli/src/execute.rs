@@ -6,7 +6,10 @@
 
 use angzarr_diagnostic::Diagnostic;
 
-use crate::{Binding, HookService, Outcome};
+use crate::{hud, Binding, HookService, HookWarning, Outcome};
+
+/// The hook name every engine's statusline command is installed as.
+pub const STATUSLINE: &str = "statusline";
 
 /// Run the callback. `input` is stdin, `harp` the session the hook runs in
 /// (may be empty).
@@ -18,7 +21,6 @@ use crate::{Binding, HookService, Outcome};
 ///   `NoUsableHarp` warning and empty stdout;
 /// - the service's refusal (an engine the registry does not know, a payload
 ///   the codec cannot read) is returned as it is.
-// Red-test stub (port/run-one-shot): the green step writes it.
 pub fn execute(
     engine: &str,
     hook_name: &str,
@@ -27,8 +29,28 @@ pub fn execute(
     service: &dyn HookService,
     binding: &mut impl Binding,
 ) -> Result<Outcome, Box<dyn Diagnostic>> {
-    let _ = (engine, hook_name, input, harp, service, binding);
-    todo!("execute")
+    if hook_name == STATUSLINE {
+        return Ok(Outcome {
+            stdout: hud(input, harp, 0),
+            warnings: Vec::new(),
+        });
+    }
+    let answer = service.execute(engine, hook_name, input, harp)?;
+    if answer.harp_missing {
+        return Ok(Outcome {
+            stdout: String::new(),
+            warnings: vec![HookWarning::NoUsableHarp {
+                harp: harp.to_string(),
+            }],
+        });
+    }
+    if let Some(bind) = &answer.bind {
+        binding.bind(&bind.harp, &bind.native_id, &bind.transcript)?;
+    }
+    Ok(Outcome {
+        stdout: answer.stdout,
+        warnings: Vec::new(),
+    })
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-//! The statusline hook (`ctxloom hook hud`): the active agent's statusline
+//! The statusline hook (`ctxloom hook <engine> execute statusline`): the active agent's statusline
 //! JSON on stdin, one formatted line out. Rendering only, and it records
 //! nothing: the context-occupancy sample Go also wrote here is out of the
 //! port (D5, 2026-11-02). Go: `hook_hud.go` (release/0.7).

@@ -168,7 +168,7 @@ fn the_bind_hook_binds_the_session_it_names() {
     let mut commands = world.commands();
     let program = clap::Command::new("ctxloom").subcommands(commands.nouns());
     let matches = program
-        .try_get_matches_from(["ctxloom", "hook", "session-bind", "--engine", "claude-code"])
+        .try_get_matches_from(["ctxloom", "hook", "claude-code", "execute", "SessionStart"])
         .unwrap();
     let call = ctxloom_cli::Call::with_globals(
         &matches,

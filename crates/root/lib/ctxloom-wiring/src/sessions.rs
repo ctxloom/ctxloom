@@ -10,7 +10,7 @@ use angzarr_presentation::{Catalog, Format};
 use clap::{ArgMatches, Command, FromArgMatches};
 use cli_support::say_warning;
 use ctxloom_cli::{shaped, Call, CliError, Failure, PROG};
-use hook_cli::HookService;
+use hook_cli::Binding;
 use sessions_application::{BindRequest, SessionService};
 
 use crate::{Commands, Sessions};
@@ -103,30 +103,34 @@ impl Commands {
             .unwrap_or_else(|e| unreachable!("clap parsed it: {e}"));
         let format: Format = call.format();
         let harp = self.env.utf8(SESSION_HARP).unwrap_or_default().to_string();
-        let written = match hook.verb {
-            hook_cli::HookVerb::Hud => out.write_all(hook_cli::hud(input, &harp, 0).as_bytes()),
-            hook_cli::HookVerb::SessionBind => {
-                let outcome =
-                    hook_cli::session_bind(hook.engine.as_deref(), input, &harp, &mut Bind(self))
-                        .map_err(failed)?;
-                for warning in &outcome.warnings {
-                    say_warning(warning, PROG, format, catalog, err);
-                }
-                out.write_all(outcome.stdout.as_bytes())
-            }
-            hook_cli::HookVerb::SessionStart => {
-                let engine = hook.engine.as_deref().unwrap_or(hook_cli::CLAUDE_CODE);
-                let hooks = self.hooks().map_err(|e| failed(Box::new(e)))?;
-                let answer = hooks.session_start(engine, input).map_err(failed)?;
-                out.write_all(answer.as_bytes())
-            }
-            hook_cli::HookVerb::SkillMates => {
-                let engine = hook.engine.as_deref().unwrap_or(hook_cli::CLAUDE_CODE);
-                let hooks = self.hooks().map_err(|e| failed(Box::new(e)))?;
-                let answer = hooks.skill_mates(engine, input).map_err(failed)?;
-                out.write_all(answer.as_bytes())
-            }
-        };
+        let hook_cli::HookVerb::Execute { hook_name } = &hook.verb;
+        // The bind is asked for while the setup use cases are borrowed, and
+        // made once they are let go (both live on this command's state).
+        let mut asked = Asked::default();
+        let outcome = if hook_name == hook_cli::STATUSLINE {
+            // Rendering only: it needs neither the application nor a home.
+            hook_cli::execute(
+                &hook.engine,
+                hook_name,
+                input,
+                &harp,
+                &NoService,
+                &mut asked,
+            )
+        } else {
+            let setup = self.hooks().map_err(|e| failed(Box::new(e)))?;
+            hook_cli::execute(&hook.engine, hook_name, input, &harp, &setup, &mut asked)
+        }
+        .map_err(failed)?;
+        if let Some((harp, native_id, transcript)) = asked.0 {
+            Bind(self)
+                .bind(&harp, &native_id, &transcript)
+                .map_err(failed)?;
+        }
+        for warning in &outcome.warnings {
+            say_warning(warning, PROG, format, catalog, err);
+        }
+        let written = out.write_all(outcome.stdout.as_bytes());
         written.map_err(|e| {
             Failure::new(
                 CliError::Output {
@@ -136,6 +140,37 @@ impl Commands {
             )
         })?;
         Ok(0)
+    }
+}
+
+/// The hook service of a callback that never asks the application.
+struct NoService;
+
+impl hook_cli::HookService for NoService {
+    fn execute(
+        &self,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &str,
+    ) -> Result<setup_application::HookAnswer, Box<dyn Diagnostic>> {
+        unreachable!("the statusline renders in hook-cli and asks nothing")
+    }
+}
+
+/// The bind a callback asked for: harp, the engine's session, its transcript.
+#[derive(Default)]
+struct Asked(Option<(String, String, String)>);
+
+impl hook_cli::Binding for Asked {
+    fn bind(
+        &mut self,
+        harp: &str,
+        native_id: &str,
+        transcript: &str,
+    ) -> Result<(), Box<dyn Diagnostic>> {
+        self.0 = Some((harp.into(), native_id.into(), transcript.into()));
+        Ok(())
     }
 }
 

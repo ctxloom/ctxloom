@@ -848,3 +848,12 @@ fn test_loadout_is_the_one_yaml_document() {
     assert!(ran.refused().contains("loadout-format"));
     assert_eq!(ran.out, "");
 }
+
+// vocabulary review 2026-11-06: `profile edit` given a flag patches the file
+// and never opens the editor (without one it opens it, above).
+#[test]
+fn test_profile_edit_given_a_flag_patches_instead_of_opening_the_editor() {
+    let (library, _mem) = world();
+    let said = text(&library, &["profile", "edit", "dev", "-d", "words"]);
+    assert!(said.ends_with("Modified profile \"dev\"\n"), "{said}");
+}

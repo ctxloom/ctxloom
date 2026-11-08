@@ -61,6 +61,8 @@ impl TestEdge {
         }
     }
 
+    // A test double shipped for tests only; its tests are the callers', not its own.
+    #[cfg_attr(test, mutants::skip)]
     pub fn catalog(&self) -> &angzarr_embedded::Catalog {
         self.registry.catalog()
     }
@@ -71,6 +73,8 @@ impl Edge for TestEdge {
         self.handle(book).await.map_err(Unserved::Failed)
     }
 
+    // A test double shipped for tests only; its tests are the callers', not its own.
+    #[cfg_attr(test, mutants::skip)]
     async fn handle(&self, book: CommandBook) -> Result<Answered, Failure<Rejected>> {
         let sampled: Sampled = self.samples.lock().unwrap().next_sample();
         let kernel = Kernel::new(&self.registry).on_retryable(OnRetryable {
@@ -335,6 +339,8 @@ impl MemoryRecords {
             .map(|bytes| String::from_utf8(bytes.clone()).unwrap())
     }
 
+    // A test double shipped for tests only; its tests are the callers', not its own.
+    #[cfg_attr(test, mutants::skip)]
     pub fn names(&self, harp: &str) -> Vec<String> {
         self.files
             .lock()
@@ -345,6 +351,8 @@ impl MemoryRecords {
             .collect()
     }
 
+    // A test double shipped for tests only; its tests are the callers', not its own.
+    #[cfg_attr(test, mutants::skip)]
     fn denied(&self, harp: &str, rel: &str) -> Result<(), RecordsError> {
         match self.refuses.lock().unwrap().as_deref() {
             Some(prefix) if rel.starts_with(prefix) => Err(RecordsError::Io {

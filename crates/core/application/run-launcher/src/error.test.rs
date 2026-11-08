@@ -27,3 +27,21 @@ fn every_diagnostic_has_a_message_using_exactly_its_args() {
         assert_eq!(args, used, "{code}");
     }
 }
+
+// Every code of the catalog has a sample, and a displayed error is its code
+// and args.
+#[test]
+fn the_samples_hold_a_value_of_every_code_and_each_displays_as_its_code() {
+    let samples = diagnostic_samples();
+    let codes: Vec<&str> = samples.iter().map(|s| s.code()).collect();
+    for want in ["catch-up", "record", "fact", "bad-session"] {
+        assert!(
+            codes.contains(&format!("run-launcher-{want}").as_str()),
+            "{want}"
+        );
+    }
+    assert_eq!(
+        crate::LaunchError::Fact { reason: "r".into() }.to_string(),
+        "run-launcher-fact reason=r"
+    );
+}

@@ -13,6 +13,11 @@ use crate::{LaunchError, Launcher, Recorder, METADATA, RUNS_RECORD, SESSION_RECO
 /// A one-shot that ran to its end, in a store, and the directory it left in
 /// `records` once `recorder` has stepped.
 async fn ran(recorder: &mut Recorder<MemoryRecords>) -> Arc<TestEdge> {
+    ran_with(recorder, ScriptedEngine::answering("A", Some("native-7"))).await
+}
+
+/// The same, the engine as scripted.
+async fn ran_with(recorder: &mut Recorder<MemoryRecords>, engine: ScriptedEngine) -> Arc<TestEdge> {
     let edge = Arc::new(TestEdge::new());
     enqueued(&edge, SESSION, HARP).await;
     let mut launcher = Launcher::new(
@@ -20,7 +25,7 @@ async fn ran(recorder: &mut Recorder<MemoryRecords>) -> Arc<TestEdge> {
         ScriptedRunner::exits(0),
         MemoryRecords::default(),
         FixedClock(0),
-        vec![Arc::new(ScriptedEngine::answering("A", Some("native-7")))],
+        vec![Arc::new(engine)],
         orders_with(order("fake")),
         Limits::new(std::time::Duration::from_secs(5)),
     );
@@ -156,4 +161,64 @@ async fn a_record_that_cannot_be_written_is_the_error_and_is_tried_again() {
     recorder.step(&edge.store, edge.catalog()).await.unwrap();
     assert_eq!(lines(&records, SESSION_RECORD).len(), 2);
     assert_eq!(lines(&records, RUNS_RECORD).len(), 1);
+}
+
+// The projector is named for what it writes.
+#[test]
+fn the_projector_is_named_session_records() {
+    use angzarr_embedded::ProjectorHandler;
+    let recorder = Recorder::new(MemoryRecords::default());
+    assert_eq!(recorder.catch.projector().name(), "session-records");
+}
+
+// Each event's line carries the fields that name what happened, beside its
+// name: the session's, and the run's.
+#[tokio::test]
+async fn an_event_line_carries_what_the_event_says() {
+    let records = MemoryRecords::default();
+    let mut recorder = Recorder::new(records.clone());
+    recorder.watch(SESSION);
+    ran(&mut recorder).await;
+    let session = lines(&records, SESSION_RECORD);
+    assert_eq!(session[0]["harp"], HARP);
+    assert_eq!(session[1]["incarnation"], 1);
+    assert_eq!(session[2]["native_id"], "native-7");
+    assert!(
+        session[2].get("transcript_path").is_some(),
+        "{}",
+        session[2]
+    );
+    let runs = lines(&records, RUNS_RECORD);
+    assert_eq!(runs[0]["session"], SESSION);
+    assert_eq!(runs[0]["incarnation"], 1);
+    assert_eq!(runs[0]["mode"], "OneShot");
+    assert!(runs[1]["runner_id"].is_string() && runs[1]["protocol"].is_string());
+    assert_eq!(runs[2]["turn"], 1);
+}
+
+#[tokio::test]
+async fn a_failed_turns_line_carries_its_class_and_detail() {
+    let records = MemoryRecords::default();
+    let mut recorder = Recorder::new(records.clone());
+    recorder.watch(SESSION);
+    let engine = ScriptedEngine {
+        outcome: run_ports::TurnOutcome::Failed {
+            class: run_ports::FailureClass::RateLimited,
+            detail: "slow down".to_string(),
+            native_id: None,
+        },
+        refuses_to_drive: false,
+    };
+    ran_with(&mut recorder, engine).await;
+    let runs = lines(&records, RUNS_RECORD);
+    let failed = runs
+        .iter()
+        .find(|l| l["event"] == "TurnFailedRecorded")
+        .expect("a failed turn is a line");
+    assert_eq!(failed["turn"], 1);
+    assert_eq!(failed["detail"], "slow down");
+    assert!(
+        failed["class"].as_str().unwrap().contains("RateLimited"),
+        "{failed}"
+    );
 }

@@ -54,3 +54,13 @@ fn the_next_sequence_is_the_lines_already_there() {
     // A blank line is no entry; a last line without its newline is one.
     assert_eq!(next_seq(b"{}\n\n  \n{}"), 2);
 }
+
+// Centuries that are not leap years (the era arithmetic's century term), and
+// the one that is.
+#[test]
+fn a_century_year_that_is_not_a_leap_year_has_no_february_29() {
+    assert_eq!(rfc3339(4_107_542_399), "2100-02-28T23:59:59Z");
+    assert_eq!(rfc3339(4_107_542_400), "2100-03-01T00:00:00Z");
+    assert_eq!(rfc3339(7_289_611_200), "2200-12-31T12:00:00Z");
+    assert_eq!(rfc3339(13_574_563_200), "2400-02-29T00:00:00Z");
+}

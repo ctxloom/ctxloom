@@ -3403,6 +3403,7 @@ dependencies = [
  "file-system",
  "mutants",
  "os",
+ "run-ports",
  "session-ports",
 ]
 

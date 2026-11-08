@@ -455,3 +455,95 @@ fn a_directory_named_to_destroy_is_left_alone() {
     assert_eq!(dirs.destroy(HARP, &["transcripts".to_string()]).unwrap(), 0);
     assert!(fs.exists(&dirs.transcript_path(HARP)).unwrap());
 }
+
+// ------------------------------------------------------- the records port
+// Step 1b-ii: the driver writes the session's directory from the events,
+// through this port.
+
+#[test]
+fn a_records_write_makes_the_directories_above_it() {
+    use run_ports::SessionRecords;
+    let (fs, mut dirs) = dirs();
+    SessionRecords::write(&mut dirs, HARP, "home/ctxloom-context.md", b"CTX").unwrap();
+    assert_eq!(
+        fs.read(&dirs.dir(HARP).join("home/ctxloom-context.md"))
+            .unwrap(),
+        b"CTX"
+    );
+    assert_eq!(
+        SessionRecords::dir(&dirs, HARP),
+        "/work/proj/.ctxloom/sessions/amber-swift-owl"
+    );
+}
+
+#[test]
+fn a_records_write_replaces_what_was_there() {
+    use run_ports::SessionRecords;
+    let (_, mut dirs) = dirs();
+    SessionRecords::write(&mut dirs, HARP, "metadata.json", b"first").unwrap();
+    SessionRecords::write(&mut dirs, HARP, "metadata.json", b"2nd").unwrap();
+    assert_eq!(
+        SessionRecords::read(&mut dirs, HARP, "metadata.json").unwrap(),
+        Some(b"2nd".to_vec())
+    );
+}
+
+#[test]
+fn a_records_append_creates_the_file_then_adds_to_its_end() {
+    use run_ports::SessionRecords;
+    let (_, mut dirs) = dirs();
+    SessionRecords::append(&mut dirs, HARP, "records/runs.jsonl", b"a\n").unwrap();
+    SessionRecords::append(&mut dirs, HARP, "records/runs.jsonl", b"b\n").unwrap();
+    assert_eq!(
+        SessionRecords::read(&mut dirs, HARP, "records/runs.jsonl").unwrap(),
+        Some(b"a\nb\n".to_vec())
+    );
+}
+
+#[test]
+fn a_records_read_of_a_file_that_is_not_there_is_none() {
+    use run_ports::SessionRecords;
+    let (_, mut dirs) = dirs();
+    assert_eq!(
+        SessionRecords::read(&mut dirs, HARP, "metadata.json").unwrap(),
+        None
+    );
+}
+
+#[test]
+fn a_records_path_that_leaves_the_directory_writes_nothing() {
+    use run_ports::{RecordsError, SessionRecords};
+    let (fs, mut dirs) = dirs();
+    for rel in ["../escape", "/abs", "a//b", ""] {
+        let bad = SessionRecords::write(&mut dirs, HARP, rel, b"x");
+        assert!(matches!(bad, Err(RecordsError::BadPath { .. })), "{rel}");
+        let bad = SessionRecords::append(&mut dirs, HARP, rel, b"x");
+        assert!(matches!(bad, Err(RecordsError::BadPath { .. })), "{rel}");
+        let bad = SessionRecords::read(&mut dirs, HARP, rel);
+        assert!(matches!(bad, Err(RecordsError::BadPath { .. })), "{rel}");
+    }
+    assert!(!fs.exists(&dirs.dir("..").join("escape")).unwrap_or(false));
+}
+
+#[test]
+fn a_harp_that_is_not_one_name_is_refused_too() {
+    use run_ports::{RecordsError, SessionRecords};
+    let (_, mut dirs) = dirs();
+    let bad = SessionRecords::write(&mut dirs, "../other", "a", b"x");
+    assert!(matches!(bad, Err(RecordsError::BadPath { .. })));
+}
+
+#[test]
+fn a_records_failure_names_the_file_and_the_systems_own_text() {
+    use run_ports::{RecordsError, SessionRecords};
+    let (fs, mut dirs) = dirs();
+    // A file where a directory must go.
+    write(&fs, &dirs, "home", "in the way");
+    let bad = SessionRecords::write(&mut dirs, HARP, "home/x", b"x").unwrap_err();
+    match bad {
+        RecordsError::Io { harp, rel, .. } => {
+            assert_eq!((harp.as_str(), rel.as_str()), (HARP, "home/x"));
+        }
+        other => panic!("{other:?}"),
+    }
+}

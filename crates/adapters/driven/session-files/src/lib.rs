@@ -21,8 +21,11 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use angzarr_diagnostic::Report;
-use file_system::{Fs, Kind};
+use std::io::Write;
+
+use file_system::{Fs, Kind, Open, Perms};
 use os::Mode;
+use run_ports::{check_rel, RecordsError, SessionRecords};
 use session_ports::{FileItem, GoSession, GoSessions, SessionFiles, Timestamp, TranscriptFile};
 
 #[cfg(any(test, feature = "test-support"))]
@@ -225,6 +228,78 @@ impl SessionFiles for SessionDirs {
             .rename(from, to)
             .map_err(|e| Report::of(&FilesError::io("move", from, &e)))?;
         Ok(true)
+    }
+}
+
+/// The session directory as the run core writes it from the events: the
+/// session home, the metadata, the records and the transcript, as bytes at a
+/// relative path.
+impl SessionRecords for SessionDirs {
+    fn dir(&self, harp: &str) -> String {
+        SessionDirs::dir(self, harp).display().to_string()
+    }
+
+    fn write(&mut self, harp: &str, rel: &str, bytes: &[u8]) -> Result<(), RecordsError> {
+        let path = self.record_path(harp, rel)?;
+        let io = |e: std::io::Error| RecordsError::Io {
+            harp: harp.to_string(),
+            rel: rel.to_string(),
+            ext_err_txt: e.to_string(),
+        };
+        if let Some(parent) = path.parent() {
+            self.fs
+                .create_dir_all(parent, Mode::from_bits(0o755))
+                .map_err(io)?;
+        }
+        self.fs
+            .write_atomic(&path, bytes, Perms::Exact(Mode::from_bits(0o600)))
+            .map_err(io)
+    }
+
+    fn append(&mut self, harp: &str, rel: &str, bytes: &[u8]) -> Result<(), RecordsError> {
+        let path = self.record_path(harp, rel)?;
+        let io = |e: std::io::Error| RecordsError::Io {
+            harp: harp.to_string(),
+            rel: rel.to_string(),
+            ext_err_txt: e.to_string(),
+        };
+        if let Some(parent) = path.parent() {
+            self.fs
+                .create_dir_all(parent, Mode::from_bits(0o755))
+                .map_err(io)?;
+        }
+        let mut file = self
+            .fs
+            .open(&path, Open::Append(Mode::from_bits(0o600)))
+            .map_err(io)?;
+        file.write_all(bytes).map_err(io)
+    }
+
+    fn read(&mut self, harp: &str, rel: &str) -> Result<Option<Vec<u8>>, RecordsError> {
+        let path = self.record_path(harp, rel)?;
+        match self.fs.read(&path) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(RecordsError::Io {
+                harp: harp.to_string(),
+                rel: rel.to_string(),
+                ext_err_txt: e.to_string(),
+            }),
+        }
+    }
+}
+
+impl SessionDirs {
+    /// `rel` under `harp`'s directory, both checked: neither may leave it.
+    fn record_path(&self, harp: &str, rel: &str) -> Result<PathBuf, RecordsError> {
+        check_rel(harp)?;
+        if harp.contains('/') {
+            return Err(RecordsError::BadPath {
+                rel: harp.to_string(),
+            });
+        }
+        check_rel(rel)?;
+        Ok(self.dir(harp).join(rel))
     }
 }
 

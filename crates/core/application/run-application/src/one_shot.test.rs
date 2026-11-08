@@ -2,12 +2,13 @@
 //! plan, the project, the names and the engine scripted.
 
 use std::collections::{BTreeMap, VecDeque};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use angzarr_diagnostic::{Diagnostic, Report};
 use angzarr_embedded::testing::MemoryStore;
-use angzarr_embedded::v1::Uuid;
-use angzarr_embedded::Catalog;
+use angzarr_embedded::v1::{event_page, CommandBook, Cover, EventPage, Uuid};
+use angzarr_embedded::{Answered, Catalog, CommandBookExt, Failure, Rejected, StoreError};
 use library_application::{
     AppError as PlanError, DryRun, FindingRow, Flags, Notice, Outcome, Previewed, RunRequest,
 };
@@ -17,25 +18,78 @@ use run_launcher::fakes::{
     ScriptedRunner, TestEdge,
 };
 use run_launcher::{Launcher, Orders, Recorder};
-use run_ports::{FailureClass, Limits, Token, TokenSource, TurnOutcome};
+use run_ports::{Arrival, Edge, FailureClass, Limits, Token, TokenSource, TurnOutcome, Unserved};
 use runs_application::{AppError as CoreError, Enqueuer};
 
 use crate::{Core, OneShot, Parts, Place, Planner, RunError, Runs};
 
-struct TestCore(Arc<TestEdge>);
+/// The edge the use cases see, over the test edge, with two ways to be
+/// unfaithful that a test turns on: a run stream shown without its end, and a
+/// claim of a name answered as the release of a name nobody holds (a refusal
+/// that is not the name being taken).
+#[derive(Default)]
+struct Seen {
+    edge: Arc<TestEdge>,
+    hide_end: AtomicBool,
+    claims_refused: AtomicBool,
+    /// The claims of a name that were made.
+    claims: AtomicUsize,
+}
+
+impl Edge for Seen {
+    async fn serve(&self, book: CommandBook, arrival: Arrival) -> Result<Answered, Unserved> {
+        self.edge.serve(book, arrival).await
+    }
+
+    async fn handle(&self, book: CommandBook) -> Result<Answered, Failure<Rejected>> {
+        let names = book
+            .cover
+            .as_ref()
+            .is_some_and(|c| c.domain == sessions::NAMES_DOMAIN);
+        if names {
+            self.claims.fetch_add(1, Ordering::SeqCst);
+        }
+        if names && self.claims_refused.load(Ordering::SeqCst) {
+            let release = sessions::NameClaimCommand::from(sessions::ReleaseName {
+                session: "none".to_string(),
+            });
+            return self
+                .edge
+                .handle(CommandBook::command_of(
+                    book.cover.unwrap_or_default(),
+                    &release,
+                ))
+                .await;
+        }
+        self.edge.handle(book).await
+    }
+
+    async fn events(&self, cover: &Cover, from: u64) -> Result<Vec<EventPage>, StoreError> {
+        let mut pages = self.edge.events(cover, from).await?;
+        if self.hide_end.load(Ordering::SeqCst) {
+            pages.retain(|page| {
+                !matches!(&page.body, Some(event_page::Body::Event(any))
+                    if any.type_url.ends_with(".RunEnded"))
+            });
+        }
+        Ok(pages)
+    }
+}
+
+struct TestCore(Arc<Seen>);
 
 impl Core for TestCore {
-    type Edge = TestEdge;
+    type Edge = Seen;
     type Store = MemoryStore;
 
-    fn edge(&self) -> Arc<TestEdge> {
+    fn edge(&self) -> Arc<Seen> {
         Arc::clone(&self.0)
     }
     fn store(&self) -> &MemoryStore {
-        &self.0.store
+        &self.0.edge.store
     }
     fn catalog(&self) -> &Catalog {
-        self.0.catalog()
+        self.0.edge.catalog()
     }
 }
 
@@ -180,8 +234,12 @@ fn rig(script: Script) -> Rig {
     let records = MemoryRecords::default();
     let orders = Arc::new(Orders::new());
     let asked = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::new(Seen {
+        edge: Arc::clone(&edge),
+        ..Seen::default()
+    });
     let launcher = Launcher::new(
-        Arc::clone(&edge),
+        Arc::clone(&seen),
         script.runner.clone(),
         records.clone(),
         FixedClock(1_700_000_000),
@@ -190,7 +248,7 @@ fn rig(script: Script) -> Rig {
         Limits::new(std::time::Duration::from_secs(5)),
     );
     let runs = Runs::new(Parts {
-        core: TestCore(Arc::clone(&edge)),
+        core: TestCore(Arc::clone(&seen)),
         planner: Box::new(ScriptedPlan {
             prompt: script.prompt.to_string(),
             backend: script.backend.to_string(),
@@ -203,7 +261,7 @@ fn rig(script: Script) -> Rig {
             script.names.iter().map(|n| n.to_string()).collect(),
         )),
         ids: Box::new(FixedIds),
-        enqueuer: Enqueuer::new(Arc::clone(&edge), Arc::new(CountingSource::default())),
+        enqueuer: Enqueuer::new(Arc::clone(&seen), Arc::new(CountingSource::default())),
         launcher,
         recorder: Recorder::new(records.clone()),
         orders,
@@ -651,4 +709,57 @@ async fn an_interactive_run_that_cannot_start_its_engine_says_so() {
     let mut rig = rig(script);
     let done = rig.runs.interactive(&Flags::default(), &ask()).await;
     assert!(matches!(done.result, Err(RunError::NotStarted { .. })));
+}
+
+// A refusal of the claim that is not the name being taken is the run's error
+// at once: another name would be refused the same way.
+#[tokio::test]
+async fn a_claim_refused_for_another_reason_is_not_tried_again_with_another_name() {
+    let mut rig = rig(Script::answering());
+    rig.runs.core.0.claims_refused.store(true, Ordering::SeqCst);
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap_err();
+    assert!(
+        matches!(&error, RunError::Session(CoreError::Refused { code, .. }) if code == "sessions-no-claim"),
+        "{error:?}"
+    );
+    assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 1);
+    assert!(rig.runner.seen.lock().unwrap().is_empty());
+}
+
+// A launch that left no end to the run in its stream is an error naming the
+// run, even though the engine answered.
+#[tokio::test]
+async fn a_run_whose_stream_holds_no_end_is_an_error_naming_it() {
+    let mut rig = rig(Script::answering());
+    rig.runs.core.0.hide_end.store(true, Ordering::SeqCst);
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap_err();
+    let RunError::NotEnded { run } = &error else {
+        panic!("{error:?}")
+    };
+    assert!(uuid::Uuid::parse_str(run).is_ok(), "{run:?} names a run");
+    let mut rig = rig_again();
+    rig.runs.core.0.hide_end.store(true, Ordering::SeqCst);
+    let error = rig
+        .runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap_err();
+    assert!(matches!(error, RunError::NotEnded { .. }), "{error:?}");
+}
+
+fn rig_again() -> Rig {
+    let mut script = Script::answering();
+    script.prompt = "";
+    rig(script)
 }

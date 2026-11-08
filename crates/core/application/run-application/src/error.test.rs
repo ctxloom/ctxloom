@@ -107,3 +107,34 @@ fn each_turn_failure_class_has_a_code_of_its_own() {
     unique.dedup();
     assert_eq!(unique.len(), 4, "{codes:?}");
 }
+
+// The samples are the catalog test's only input: one of every code, none empty.
+#[test]
+fn the_samples_hold_a_value_of_every_code() {
+    let codes: Vec<String> = diagnostic_samples()
+        .iter()
+        .map(|s| s.code().to_string())
+        .collect();
+    for want in [
+        "no-prompt",
+        "unknown-engine",
+        "not-started",
+        "empty-answer",
+        "not-ended",
+    ] {
+        assert!(
+            codes.contains(&format!("run-application-{want}")),
+            "{want} in {codes:?}"
+        );
+    }
+}
+
+// An error displays as its code and its args.
+#[test]
+fn an_error_displays_as_its_code_and_args() {
+    assert_eq!(RunError::NoPrompt.to_string(), "run-application-no-prompt");
+    assert_eq!(
+        RunError::NotEnded { run: "r1".into() }.to_string(),
+        "run-application-not-ended run=r1"
+    );
+}

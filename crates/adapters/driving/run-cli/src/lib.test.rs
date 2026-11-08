@@ -391,3 +391,60 @@ fn a_session_that_could_not_start_fails_with_the_errors_exit() {
         Err(("run-application-not-started".to_string(), 1))
     );
 }
+
+/// A standard output that refuses every write.
+struct Broken;
+
+impl std::io::Write for Broken {
+    fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::other("pipe closed"))
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+// A reply that cannot be written ends the command: exit 1, the code, and the
+// system's words as `ext_err_txt`.
+#[test]
+fn a_reply_that_cannot_be_written_is_that_failure() {
+    let program = Command::new("ctxloom").subcommand(with_one_shot(library_run()));
+    let matches = program
+        .try_get_matches_from(["ctxloom", "run", "--one-shot", "hi"])
+        .unwrap();
+    let call = Call {
+        matches: &matches,
+        explicit_format: Some(Format::Json),
+        default_format: Format::Json,
+        stdout_is_terminal: false,
+        globals: Flags::default(),
+    };
+    let catalog = Catalog::en_us(&[library_application::EN_US, crate::EN_US]).unwrap();
+    let mut err = Vec::new();
+    let failure = run(
+        &mut Double::answering("A"),
+        matches.subcommand_matches("run").unwrap(),
+        &call,
+        &catalog,
+        &mut || None,
+        &mut Broken,
+        &mut err,
+    )
+    .unwrap_err();
+    assert_eq!(failure.exit, 1);
+    assert_eq!(failure.cause.code(), "run-cli-output");
+    assert_eq!(
+        failure.cause.to_string(),
+        "run-cli-output ext_err_txt=\"pipe closed\""
+    );
+    let args: Vec<_> = failure.cause.args().into_iter().map(|(n, _)| n).collect();
+    assert_eq!(args, ["ext_err_txt"]);
+}
+
+// The samples hold the one code this crate has.
+#[test]
+fn the_samples_hold_the_output_failure() {
+    let samples = super::diagnostic_samples();
+    assert_eq!(samples.len(), 1);
+    assert_eq!(samples[0].code(), "run-cli-output");
+}

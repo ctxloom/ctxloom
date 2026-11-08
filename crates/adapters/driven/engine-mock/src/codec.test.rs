@@ -39,3 +39,9 @@ fn test_an_answer_names_only_what_it_carries() {
     assert_eq!(Codec.encode("x", &HookResponse::default()).unwrap(), "{}\n");
     assert!(Codec.invoked_skills("anything").is_empty());
 }
+
+#[test]
+fn test_the_mocks_native_events_are_the_unified_ones() {
+    assert_eq!(Codec.unified_event("pre_tool"), "pre_tool");
+    assert_eq!(Codec.unified_event("turn_start"), "turn_start");
+}

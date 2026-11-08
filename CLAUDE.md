@@ -139,6 +139,33 @@ frees the old one; a removed session's name stays claimed. The refusal code is
 Deliberate divergence from Go: `session remove` takes `--even-if-live`, as its
 own refusal text already told the user to use.
 
+Slice M1 (run) adds `ctxloom run`: `--one-shot <prompt>` and the bare interactive
+session. A turn is a command. A child agent on claude runs one `claude -p
+--output-format stream-json` command per turn (`--resume <native id>` on later
+ones); the primary agent keeps the human's terminal, handed to the engine by
+inheritance, and its data is meant to come from hooks. Crates:
+
+- `core/ports/run-ports` (`RunnerLauncher`, `Engine`, `SessionRecords`) and
+  `core/read-model/pending-launches` (the runs still owed a runner);
+- `core/application/{run-launcher, run-application}`: the launcher is a
+  `CatchUp` over `pending-launches` that drives the engine for one turn and
+  records the outcome as facts, and a recorder that writes the session
+  directory (`metadata.json`, `records/*.jsonl`) from the events; `Runs` plans
+  the run through the library's dry-run, mints, enqueues, launches, returns the
+  reply;
+- `adapters/driven/host-launcher` (a turn's command through `run-within`; the
+  interactive launch alone uses inherited stdio, because `run-within` pipes the
+  streams and groups the program apart from the terminal) and the drive half of
+  `engine-claude`; `adapters/driving/run-cli`.
+
+An engine's hooks are its adapter's: `ctxloom hook <engine> execute
+<NativeHookName>` (hidden) resolves the engine through `surface_ports::Registry`
+and its `HookCodec` decodes the payload. The settings an older ctxloom wrote
+(`hook <verb> --engine`) are stale and rewritten on the next surface apply.
+Not built: the hidden runner subcommand and listener, hooks in the interactive
+session home (the engine env has no `HOME`), the hook-fed record, session end,
+`RunnerStarted`.
+
 `crates/core/clippy.toml` holds the core's purity rules (no I/O, clock, env,
 threads or hash-ordered collections) and reaches every core crate, because
 clippy reads the nearest `clippy.toml`. A crate's own `clippy.toml` would

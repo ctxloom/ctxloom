@@ -264,3 +264,39 @@ fn an_unreadable_event_fails_the_projector_with_a_code_and_the_type_url() {
         error.extras
     );
 }
+
+// Only a book from sequence 0 starts a stream afresh: a later page of a stream
+// leaves what the model already holds of it, run and session alike.
+#[test]
+fn a_book_after_the_first_page_does_not_start_its_stream_afresh() {
+    let failed = RunEvent::TurnFailedRecorded(runs::TurnFailedRecorded {
+        turn: 1,
+        class: runs::TurnFailureClass::RateLimited,
+        detail: String::new(),
+    });
+    let model = fold(&[enqueued(1, 1, RunMode::OneShot), later(1, 1, 1, failed)]);
+    assert_eq!(
+        pending(&model),
+        vec![(1, 1, RunMode::OneShot)],
+        "the run is still owed its runner"
+    );
+    let (root, _) = session_root(3);
+    let second = {
+        let event = SessionEvent::IncarnationOwed(IncarnationOwed {
+            incarnation: 2,
+            reason: "again".to_string(),
+        });
+        book(SESSION_DOMAIN, root, vec![page(1, event.to_any())])
+    };
+    let model = fold(&[owed(3, 1), second]);
+    assert_eq!(model.owed().len(), 2);
+}
+
+// And a book from sequence 0 replaces what the model held of the stream.
+#[test]
+fn a_book_from_the_first_page_replaces_what_the_session_owed() {
+    let mut model = fold(&[owed(3, 1)]);
+    model.project(&owed(3, 2)).unwrap();
+    let incarnations: Vec<u32> = model.owed().iter().map(|o| o.incarnation).collect();
+    assert_eq!(incarnations, vec![2]);
+}

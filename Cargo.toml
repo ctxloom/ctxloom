@@ -73,6 +73,7 @@ scheduler-ports = { path = "crates/core/ports/scheduler-ports" }
 scheduler-loop = { path = "crates/core/application/scheduler-loop" }
 scheduler-fixture = { path = "crates/core/domain/scheduler-fixture" }
 scheduler-due = { path = "crates/core/read-model/scheduler-due" }
+pending-launches = { path = "crates/core/read-model/pending-launches" }
 trees = { path = "crates/core/domain/trees" }
 run-ports = { path = "crates/core/ports/run-ports" }
 runs-application = { path = "crates/core/application/runs-application" }

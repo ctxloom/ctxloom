@@ -2528,6 +2528,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pending-launches"
+version = "0.1.0"
+dependencies = [
+ "angzarr-embedded",
+ "mutants",
+ "runs",
+ "sessions",
+ "uuid",
+]
+
+[[package]]
 name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

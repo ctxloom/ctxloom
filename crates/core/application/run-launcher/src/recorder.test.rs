@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use run_ports::Limits;
 
-use crate::fixtures::{
+use crate::fakes::{
     enqueued, order, orders_with, FixedClock, MemoryRecords, ScriptedEngine, ScriptedRunner,
     TestEdge, HARP, SESSION,
 };

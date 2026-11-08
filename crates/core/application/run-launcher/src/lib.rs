@@ -26,6 +26,7 @@ pub use orders::{Order, Orders};
 pub use recorder::{Recorder, METADATA, RUNS_RECORD, SESSION_RECORD};
 pub use transcript::{entry_line, next_seq, rfc3339, Speaker, TRANSCRIPT};
 
-#[cfg(test)]
-#[path = "fixtures.test.rs"]
-mod fixtures;
+/// In-memory ports and a world of the real aggregates, for this crate's tests
+/// and the use cases' above it.
+#[cfg(any(test, feature = "test-support"))]
+pub mod fakes;

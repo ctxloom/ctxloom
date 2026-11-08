@@ -78,6 +78,7 @@ trees = { path = "crates/core/domain/trees" }
 run-ports = { path = "crates/core/ports/run-ports" }
 runs-application = { path = "crates/core/application/runs-application" }
 run-launcher = { path = "crates/core/application/run-launcher" }
+run-application = { path = "crates/core/application/run-application" }
 credentials = { path = "crates/adapters/driven/credentials" }
 embedded-edge = { path = "crates/adapters/driven/embedded-edge" }
 session-ports = { path = "crates/core/ports/session-ports" }

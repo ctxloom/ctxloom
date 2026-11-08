@@ -26,8 +26,9 @@ mutants.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }
 
 [features]
-# `diagnostic_samples`, for other crates' catalog tests.
-test-support = []
+# `diagnostic_samples`, for other crates' catalog tests, and `fakes`: the
+# doubles over the kernel's in-memory store.
+test-support = ["angzarr-embedded/test-support"]
 
 [lints]
 workspace = true

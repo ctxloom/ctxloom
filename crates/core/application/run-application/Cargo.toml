@@ -1,0 +1,33 @@
+[package]
+name = "run-application"
+version = "0.1.0"
+description = "The run use case: a one-shot resolves its context, mints its session, enqueues its run, launches its one turn and answers"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-diagnostic.workspace = true
+angzarr-embedded.workspace = true
+library-application.workspace = true
+ports.workspace = true
+run-launcher.workspace = true
+run-ports.workspace = true
+runs.workspace = true
+runs-application.workspace = true
+sessions.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+angzarr-embedded = { workspace = true, features = ["test-support"] }
+run-launcher = { workspace = true, features = ["test-support"] }
+mutants.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[features]
+# `diagnostic_samples`, for other crates' catalog tests.
+test-support = []
+
+[lints]
+workspace = true

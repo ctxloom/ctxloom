@@ -7,7 +7,7 @@ use run_ports::{FailureClass, Launch, LaunchFailure, Limits, TurnOutcome};
 use runs::{EndCause, RunEvent};
 use sessions::SessionEvent;
 
-use crate::fixtures::{
+use crate::fakes::{
     enqueued, names, order, orders_with, run_events, session_events, FixedClock, MemoryRecords,
     ScriptedEngine, ScriptedRunner, TestEdge, HARP, SESSION,
 };

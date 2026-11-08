@@ -3026,6 +3026,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "run-application"
+version = "0.1.0"
+dependencies = [
+ "angzarr-diagnostic",
+ "angzarr-embedded",
+ "library-application",
+ "mutants",
+ "ports",
+ "run-launcher",
+ "run-ports",
+ "runs",
+ "runs-application",
+ "sessions",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "run-launcher"
 version = "0.1.0"
 dependencies = [

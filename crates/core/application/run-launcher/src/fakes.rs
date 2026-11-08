@@ -1,4 +1,5 @@
-//! The doubles and the world the launcher's and the recorder's tests share: an
+//! The doubles and the world the launcher's and the recorder's tests share (and
+//! the use cases above them): an
 //! edge over the kernel and an in-memory store (so a fact is applied by the
 //! real run and session aggregates), a scripted way to run a command, a
 //! scripted engine, and a session directory held in memory.
@@ -25,21 +26,30 @@ use sessions::{Origin, SessionEvent};
 
 use crate::{Order, Orders};
 
-pub(crate) const SESSION: &str = "5f0c7a52-1111-5111-8111-000000000001";
-pub(crate) const HARP: &str = "amber-swift-owl";
+pub const SESSION: &str = "5f0c7a52-1111-5111-8111-000000000001";
+pub const HARP: &str = "amber-swift-owl";
 
 /// An edge over the kernel and an in-memory store: the real aggregates.
-pub(crate) struct TestEdge {
+pub struct TestEdge {
     registry: Registry,
-    pub(crate) store: MemoryStore,
+    pub store: MemoryStore,
     samples: Mutex<Samples>,
 }
 
+impl Default for TestEdge {
+    fn default() -> TestEdge {
+        TestEdge::new()
+    }
+}
+
 impl TestEdge {
-    pub(crate) fn new() -> TestEdge {
+    pub fn new() -> TestEdge {
         let mut registry = Registry::new();
         registry
             .aggregate::<sessions::SessionAggregate>(sessions::SessionAggregate::default)
+            .unwrap();
+        registry
+            .aggregate::<sessions::NameClaimAggregate>(sessions::NameClaimAggregate::default)
             .unwrap();
         registry
             .aggregate::<runs::RunAggregate>(runs::RunAggregate::default)
@@ -51,7 +61,7 @@ impl TestEdge {
         }
     }
 
-    pub(crate) fn catalog(&self) -> &angzarr_embedded::Catalog {
+    pub fn catalog(&self) -> &angzarr_embedded::Catalog {
         self.registry.catalog()
     }
 }
@@ -92,11 +102,11 @@ impl Edge for TestEdge {
     }
 }
 
-pub(crate) fn uuid(text: &str) -> Uuid {
+pub fn uuid(text: &str) -> Uuid {
     Uuid::from_bytes(*uuid::Uuid::parse_str(text).unwrap().as_bytes())
 }
 
-pub(crate) fn session_cover(session: &str) -> Cover {
+pub fn session_cover(session: &str) -> Cover {
     Cover {
         domain: sessions::SESSION_DOMAIN.to_string(),
         root: Some(uuid(session)),
@@ -104,7 +114,7 @@ pub(crate) fn session_cover(session: &str) -> Cover {
     }
 }
 
-pub(crate) fn run_cover(session: &str) -> Cover {
+pub fn run_cover(session: &str) -> Cover {
     Cover {
         domain: runs::RUN_DOMAIN.to_string(),
         root: Some(runs::run_root(session, 1)),
@@ -126,7 +136,7 @@ fn command_book(cover: Cover, payload: angzarr_embedded::Any) -> CommandBook {
 }
 
 /// Mint `session` as `harp` and enqueue its first run, as a one-shot is.
-pub(crate) async fn enqueued(edge: &TestEdge, session: &str, harp: &str) {
+pub async fn enqueued(edge: &TestEdge, session: &str, harp: &str) {
     let mint: sessions::SessionCommand = sessions::MintSession {
         harp: harp.to_string(),
         project_id: "calm-otter".to_string(),
@@ -155,7 +165,7 @@ pub(crate) async fn enqueued(edge: &TestEdge, session: &str, harp: &str) {
 }
 
 /// The run stream's events, decoded.
-pub(crate) async fn run_events(edge: &TestEdge, session: &str) -> Vec<RunEvent> {
+pub async fn run_events(edge: &TestEdge, session: &str) -> Vec<RunEvent> {
     events_of(edge.events(&run_cover(session), 0).await.unwrap())
         .iter()
         .map(|any| RunEvent::from_any(any).unwrap())
@@ -163,7 +173,7 @@ pub(crate) async fn run_events(edge: &TestEdge, session: &str) -> Vec<RunEvent> 
 }
 
 /// The session stream's events, decoded.
-pub(crate) async fn session_events(edge: &TestEdge, session: &str) -> Vec<SessionEvent> {
+pub async fn session_events(edge: &TestEdge, session: &str) -> Vec<SessionEvent> {
     events_of(edge.events(&session_cover(session), 0).await.unwrap())
         .iter()
         .map(|any| SessionEvent::from_any(any).unwrap())
@@ -181,7 +191,7 @@ fn events_of(pages: Vec<EventPage>) -> Vec<angzarr_embedded::Any> {
 }
 
 /// The names of the run's events, in order.
-pub(crate) fn names(events: &[RunEvent]) -> Vec<&'static str> {
+pub fn names(events: &[RunEvent]) -> Vec<&'static str> {
     events
         .iter()
         .map(|event| match event {
@@ -198,13 +208,13 @@ pub(crate) fn names(events: &[RunEvent]) -> Vec<&'static str> {
 
 /// A command run that answers as scripted, and remembers what it was given.
 #[derive(Clone)]
-pub(crate) struct ScriptedRunner {
-    pub(crate) answer: Launch,
-    pub(crate) seen: Arc<Mutex<Vec<TurnCommand>>>,
+pub struct ScriptedRunner {
+    pub answer: Launch,
+    pub seen: Arc<Mutex<Vec<TurnCommand>>>,
 }
 
 impl ScriptedRunner {
-    pub(crate) fn exits(code: i32) -> ScriptedRunner {
+    pub fn exits(code: i32) -> ScriptedRunner {
         ScriptedRunner::answering(Launch::Over(TurnOutput {
             exit: Exit {
                 code: Some(code),
@@ -218,7 +228,7 @@ impl ScriptedRunner {
         }))
     }
 
-    pub(crate) fn answering(answer: Launch) -> ScriptedRunner {
+    pub fn answering(answer: Launch) -> ScriptedRunner {
         ScriptedRunner {
             answer,
             seen: Arc::default(),
@@ -236,13 +246,13 @@ impl RunnerLauncher for ScriptedRunner {
 /// An engine that puts the context in its home, drives a command that names
 /// it, and reads any output as it was scripted to.
 #[derive(Clone)]
-pub(crate) struct ScriptedEngine {
-    pub(crate) outcome: TurnOutcome,
-    pub(crate) refuses_to_drive: bool,
+pub struct ScriptedEngine {
+    pub outcome: TurnOutcome,
+    pub refuses_to_drive: bool,
 }
 
 impl ScriptedEngine {
-    pub(crate) fn answering(answer: &str, native_id: Option<&str>) -> ScriptedEngine {
+    pub fn answering(answer: &str, native_id: Option<&str>) -> ScriptedEngine {
         ScriptedEngine {
             outcome: TurnOutcome::Answered {
                 answer: answer.to_string(),
@@ -301,14 +311,14 @@ type Files = BTreeMap<(String, String), Vec<u8>>;
 
 /// A session directory held in memory, shared by every clone.
 #[derive(Clone, Default)]
-pub(crate) struct MemoryRecords {
+pub struct MemoryRecords {
     files: Arc<Mutex<Files>>,
     /// A path prefix whose writes the system refuses.
-    pub(crate) refuses: Arc<Mutex<Option<String>>>,
+    pub refuses: Arc<Mutex<Option<String>>>,
 }
 
 impl MemoryRecords {
-    pub(crate) fn text(&self, harp: &str, rel: &str) -> Option<String> {
+    pub fn text(&self, harp: &str, rel: &str) -> Option<String> {
         self.files
             .lock()
             .unwrap()
@@ -316,7 +326,7 @@ impl MemoryRecords {
             .map(|bytes| String::from_utf8(bytes.clone()).unwrap())
     }
 
-    pub(crate) fn names(&self, harp: &str) -> Vec<String> {
+    pub fn names(&self, harp: &str) -> Vec<String> {
         self.files
             .lock()
             .unwrap()
@@ -377,7 +387,7 @@ impl SessionRecords for MemoryRecords {
 }
 
 /// An instant that does not move.
-pub(crate) struct FixedClock(pub(crate) i64);
+pub struct FixedClock(pub i64);
 
 impl Clock for FixedClock {
     fn now(&mut self) -> ports::Timestamp {
@@ -389,7 +399,7 @@ impl Clock for FixedClock {
 }
 
 /// The order a one-shot places.
-pub(crate) fn order(engine: &str) -> Order {
+pub fn order(engine: &str) -> Order {
     Order {
         harp: HARP.to_string(),
         engine: engine.to_string(),
@@ -400,7 +410,7 @@ pub(crate) fn order(engine: &str) -> Order {
     }
 }
 
-pub(crate) fn orders_with(order: Order) -> Arc<Orders> {
+pub fn orders_with(order: Order) -> Arc<Orders> {
     let orders = Arc::new(Orders::new());
     orders.place(SESSION, 1, order);
     orders

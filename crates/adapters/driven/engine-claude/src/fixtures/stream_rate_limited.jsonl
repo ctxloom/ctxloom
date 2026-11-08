@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","cwd":"/work","session_id":"00000000-0000-4000-8000-000000000002","tools":["Bash"],"mcp_servers":[],"model":"claude-haiku-5-5","permissionMode":"default","apiKeySource":"none","claude_code_version":"2.1.319"}
+{"type":"result","subtype":"success","is_error":true,"api_error_status":429,"duration_ms":300,"num_turns":1,"result":"API Error: 429 rate limited","stop_reason":null,"session_id":"00000000-0000-4000-8000-000000000002","terminal_reason":"completed","uuid":"00000000-0000-4000-8000-0000000000c2"}

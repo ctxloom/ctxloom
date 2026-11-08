@@ -1,5 +1,8 @@
-//! Claude Code's surface half (S9; Go's `internal/engines/claude`
-//! `definition.go`, `surfaces.go`, `commandfiles.go`, `hookcodec.go`).
+//! Claude Code's two halves. The drive half (`drive`, step 1b-i) is a child
+//! agent's turn-as-command: what one `claude -p` turn is handed and how its
+//! stream is read. The surface half (S9; Go's `internal/engines/claude`
+//! `definition.go`, `surfaces.go`, `commandfiles.go`, `hookcodec.go`) is
+//! below.
 //!
 //! At a directory's root claude reads `CLAUDE.md` (context), `.mcp.json`
 //! (MCP servers), `.claude/settings.json` (settings and hooks),
@@ -13,8 +16,10 @@
 
 mod codec;
 mod commands;
+mod drive;
 mod hooks;
 mod skills;
+mod stream;
 
 use surface_ports::{
     Claim, EngineSurfaces, HookCodec, Inputs, Json, JsonOp, Kind, McpServer, Planned, SurfaceError,
@@ -22,6 +27,7 @@ use surface_ports::{
 };
 
 pub use codec::Codec;
+pub use drive::{CONTEXT_PROMPT_FILE, COPY_IN_ALLOWLIST, ENV_ALLOWLIST};
 
 /// The engine's name.
 pub const NAME: &str = "claude-code";

@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 ctxloom-ports.workspace = true
+run-ports.workspace = true
 surface-ports.workspace = true
 
 [dev-dependencies]

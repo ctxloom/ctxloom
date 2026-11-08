@@ -223,3 +223,138 @@ fn test_hook_is_hidden_from_the_root_help_and_answers_help() {
     assert!(hook.stdout.contains("session-bind"), "{}", hook.stdout);
     assert!(hook.stdout.contains("hud"), "{}", hook.stdout);
 }
+
+// ---------------------------------------------------------------------------
+// RED (port/run-one-shot): `hook <engine> execute <hook-name>`, the one form
+// (owner, 2026-11-08). The engine is validated by the registry, the hook name
+// is the engine's native event; `session-bind` and `hud` are folded in as
+// `hook claude-code execute SessionStart` and `... statusline`.
+
+#[test]
+fn test_execute_statusline_renders_the_engines_half_and_ctxloom_s_own() {
+    let env = Env::new();
+    let ran = env.run_hook(
+        &["hook", "claude-code", "execute", "statusline"],
+        HUD_PAYLOAD,
+        &[("CTXLOOM_SESSION_HARP", "brisk-copper-moth")],
+    );
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    for want in ["Opus 5", "42%", "brisk-copper-moth"] {
+        assert!(ran.stdout.contains(want), "{want:?} in {}", ran.said());
+    }
+    assert_eq!(ran.stderr, "", "a diagnostic would corrupt the bar");
+    assert!(!ran.stdout.ends_with('\n'));
+}
+
+#[test]
+fn test_execute_statusline_on_garbage_is_the_sentinel_and_exit_0() {
+    let env = Env::new();
+    let ran = env.run_hook(
+        &["hook", "claude-code", "execute", "statusline"],
+        "not json",
+        &[],
+    );
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    assert_eq!(ran.stdout, "ctxloom");
+}
+
+// The typed refusal lists the registry's names; nothing is guessed.
+#[test]
+fn test_execute_under_an_unknown_engine_is_refused_listing_the_known_ones() {
+    let env = Env::new();
+    let ran = env.run_hook(
+        &[
+            "--format",
+            "json",
+            "hook",
+            "no-such-engine",
+            "execute",
+            "Stop",
+        ],
+        "{}",
+        &[],
+    );
+    assert_eq!(ran.code, 1, "{}", ran.said());
+    assert_eq!(ran.stdout, "");
+    let err = ran.err_json();
+    assert_eq!(err["code"], "setup-application-unknown-hook-engine");
+    assert_eq!(err["args"]["engine"], "no-such-engine");
+    assert!(
+        err["args"]["known"]
+            .as_str()
+            .unwrap()
+            .contains("claude-code"),
+        "{err}"
+    );
+}
+
+// The events that carry the primary agent's data are accepted and silent (M2
+// records them as facts).
+#[test]
+fn test_execute_of_the_data_events_succeeds_silently() {
+    let env = Env::new();
+    let fixtures = [
+        (
+            "Stop",
+            r#"{"session_id":"s","prompt_id":"p","hook_event_name":"Stop","last_assistant_message":"done"}"#,
+        ),
+        (
+            "MessageDisplay",
+            r#"{"session_id":"s","prompt_id":"p","hook_event_name":"MessageDisplay","turn_id":"t","message_id":"m","index":0,"final":true,"delta":"done"}"#,
+        ),
+        (
+            "PostToolBatch",
+            r#"{"session_id":"s","prompt_id":"p","hook_event_name":"PostToolBatch","tool_calls":[]}"#,
+        ),
+    ];
+    for (native, payload) in fixtures {
+        let ran = env.run_hook(
+            &["hook", "claude-code", "execute", native],
+            payload,
+            &[("CTXLOOM_SESSION_HARP", "brisk-copper-moth")],
+        );
+        assert_eq!(ran.code, 0, "{native}: {}", ran.said());
+        assert_eq!(ran.stdout.trim(), "{}", "{native}");
+        assert_eq!(ran.stderr, "", "{native}");
+    }
+}
+
+// session_hooks.feature: "With no active harp the hook stays silent on stdout
+// and warns instead", now as SessionStart.
+#[test]
+fn test_execute_session_start_with_no_harp_is_silent_on_stdout_and_warns() {
+    let env = Env::new();
+    let ran = env.run_hook(
+        &["hook", "claude-code", "execute", "SessionStart"],
+        r#"{"session_id":"vendor-session-42","hook_event_name":"SessionStart"}"#,
+        &[],
+    );
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    assert_eq!(ran.stdout, "", "nothing truthful to emit");
+    assert!(ran.stderr.contains("no usable harp"), "{}", ran.said());
+}
+
+// The hook name is a verb of the engine, not of ctxloom: the old verbs and the
+// `--engine` flag are not commands.
+#[test]
+fn test_the_old_hook_verbs_are_not_commands() {
+    let env = Env::new();
+    for line in [
+        vec!["hook", "hud"],
+        vec!["hook", "session-bind", "--engine", "claude-code"],
+        vec!["hook", "session-start", "--engine", "claude-code"],
+        vec!["hook", "skill-mates", "--engine", "claude-code"],
+    ] {
+        let ran = env.run_hook(&line, "{}", &[]);
+        assert_eq!(ran.code, 2, "{line:?}: {}", ran.said());
+    }
+}
+
+#[test]
+fn test_hook_help_names_execute() {
+    let env = Env::new();
+    let hook = env.run(&["hook", "-h"]);
+    assert_eq!(hook.code, 0, "{}", hook.said());
+    assert!(hook.stdout.contains("execute"), "{}", hook.stdout);
+    assert!(!hook.stdout.contains("session-bind"), "{}", hook.stdout);
+}

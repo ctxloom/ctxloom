@@ -646,6 +646,41 @@ fn test_binding_a_session_records_the_harp_in_the_transcript_and_in_the_index() 
     assert_eq!(shown.json()["native_session"], "vendor-session-42");
 }
 
+// RED (port/run-one-shot): the same bind through the one callback form,
+// `hook claude-code execute SessionStart`: the marker on stdout (as context)
+// and the binding in the index.
+#[test]
+fn test_executing_session_start_binds_the_session_and_emits_the_marker() {
+    let home = Home::new();
+    home.seed("brisk-copper-moth", &[]);
+    let vars = [("CTXLOOM_SESSION_HARP", "brisk-copper-moth")];
+    let ran = home.env.run_hook(
+        &["hook", "claude-code", "execute", "SessionStart"],
+        SESSION_START,
+        &vars,
+    );
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    assert!(ran.json()["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap()
+        .contains(r#"<ctxloom name="brisk-copper-moth" kind="harp" />"#));
+    let shown = home.run(&["session", "show", "brisk-copper-moth", "--format", "json"]);
+    assert_eq!(shown.json()["native_session"], "vendor-session-42");
+    // /clear fires SessionStart again with a new session: the binding rotates.
+    let second = r#"{"session_id":"vendor-session-43","transcript_path":"/tmp/vendor/second.jsonl","hook_event_name":"SessionStart"}"#;
+    let again = home.env.run_hook(
+        &["hook", "claude-code", "execute", "SessionStart"],
+        second,
+        &vars,
+    );
+    assert_eq!(again.code, 0, "{}", again.said());
+    let shown = home
+        .run(&["session", "show", "brisk-copper-moth", "--format", "json"])
+        .json();
+    assert_eq!(shown["native_session"], "vendor-session-43");
+    assert_eq!(shown["rotations"].as_array().unwrap().len(), 1);
+}
+
 // Go: TestBindSession_RotationRepointsTheBinding, through the hook: /clear
 // fires SessionStart again with a new session.
 #[test]

@@ -154,7 +154,7 @@ fn the_version_row_says_the_version() {
 fn registered_hooks_are_ok_and_none_is_info() {
     let on = files(
         ".claude/settings.json",
-        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"ctxloom hook session-start"}]}]}}"#,
+        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"ctxloom hook claude-code execute SessionStart"}]}]}}"#,
     );
     assert_eq!(checks::hooks(&on).status, Status::Ok);
     assert_eq!(checks::hooks(&[]).status, Status::Info);

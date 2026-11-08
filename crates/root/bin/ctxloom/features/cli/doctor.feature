@@ -260,7 +260,7 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
             "SessionStart": [
               {"matcher": "", "hooks": [
                 {"type": "command", "command": "'ctxloom' hook inject-context --part 1 --of 2 abc123"},
-                {"type": "command", "command": "ctxloom hook session-start"}
+                {"type": "command", "command": "ctxloom hook claude-code execute SessionStart"}
               ]}
             ],
             "Stop": [
@@ -284,7 +284,7 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
       When I run "ctxloom doctor --fix"
       Then the command succeeds
       And the file ".claude/settings.json" registers no SessionStart hook whose command contains "inject-context"
-      And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook session-start"
+      And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook claude-code execute SessionStart"
       And the file ".claude/settings.json" contains "my-tool hook inject-context" exactly 1 times
       And the file ".claude/settings.json" contains "Bash(ls)" exactly 1 times
       And the home file ".claude/settings.json" does not contain "inject-context"
@@ -299,7 +299,7 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
       And the project already has the file ".claude/settings.json":
         """
         {"hooks": {"SessionStart": [{"hooks": [
-          {"type": "command", "command": "ctxloom hook session-start"},
+          {"type": "command", "command": "ctxloom hook claude-code execute SessionStart"},
           {"type": "command", "command": "my-tool hook inject-context"}
         ]}]}}
         """

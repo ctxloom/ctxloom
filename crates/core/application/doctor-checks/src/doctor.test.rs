@@ -175,7 +175,7 @@ fn deps_narrows_to_the_capability_probes() {
 #[test]
 fn fix_removes_the_stale_entries_of_the_project_and_the_user_and_then_the_row_is_ok() {
     let mem = project();
-    let stale = r#"{"hooks":{"SessionStart":[{"hooks":[{"command":"ctxloom hook inject-context abc"},{"command":"ctxloom hook session-start"}]}]}}"#;
+    let stale = r#"{"hooks":{"SessionStart":[{"hooks":[{"command":"ctxloom hook inject-context abc"},{"command":"ctxloom hook claude-code execute SessionStart"}]}]}}"#;
     mem.files
         .lock()
         .unwrap()
@@ -196,7 +196,10 @@ fn fix_removes_the_stale_entries_of_the_project_and_the_user_and_then_the_row_is
         Status::Ok
     );
     let kept = mem.files.lock().unwrap()["/work/.claude/settings.json"].clone();
-    assert!(kept.contains("ctxloom hook session-start") && !kept.contains("inject-context"));
+    assert!(
+        kept.contains("ctxloom hook claude-code execute SessionStart")
+            && !kept.contains("inject-context")
+    );
 }
 
 #[test]

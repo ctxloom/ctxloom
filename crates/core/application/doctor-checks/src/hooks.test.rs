@@ -9,7 +9,7 @@ const SETTINGS: &str = r#"{
     "SessionStart": [
       {"matcher": "", "hooks": [
         {"type": "command", "command": "'ctxloom' hook inject-context --part 1 --of 2 abc123"},
-        {"type": "command", "command": "ctxloom hook session-start"}
+        {"type": "command", "command": "ctxloom hook claude-code execute SessionStart"}
       ]}
     ],
     "Stop": [
@@ -31,9 +31,9 @@ fn only_ctxloom_hooks_that_are_gone_are_stale() {
 #[test]
 fn a_live_hook_and_a_foreign_program_are_not_stale() {
     let live = r#"{"hooks":{"SessionStart":[{"hooks":[
-        {"type":"command","command":"ctxloom hook session-start"},
+        {"type":"command","command":"ctxloom hook claude-code execute SessionStart"},
         {"type":"command","command":"my-tool hook inject-context"},
-        {"type":"command","command":"/usr/bin/ctxloom hook hud"}]}]}}"#;
+        {"type":"command","command":"/usr/bin/ctxloom hook claude-code execute statusline"}]}]}}"#;
     assert!(stale(live).is_empty());
     assert!(strip(live).is_none());
 }
@@ -45,7 +45,7 @@ fn strip_takes_exactly_the_stale_entry() {
     assert!(!fixed.contains("inject-context --part"));
     assert_eq!(fixed.matches("my-tool hook inject-context").count(), 1);
     assert_eq!(fixed.matches("Bash(ls)").count(), 1);
-    assert!(fixed.contains("ctxloom hook session-start"));
+    assert!(fixed.contains("ctxloom hook claude-code execute SessionStart"));
     assert!(fixed.ends_with('\n'));
 }
 
@@ -78,4 +78,16 @@ fn only_a_launched_ctxloom_mcp_is_a_launch() {
     assert!(!launches_ctxloom_mcp(
         r#"{"mcpServers":{"other":{"command":"ctxloom","args":["mcp"]}}}"#
     ));
+}
+
+// The engine-neutral verbs became `hook <engine> execute <name>`: an entry
+// still running one of them fails at every event.
+#[test]
+fn the_retired_neutral_verbs_are_stale() {
+    let old = r#"{"hooks":{"SessionStart":[{"hooks":[
+        {"type":"command","command":"ctxloom hook session-start"},
+        {"type":"command","command":"ctxloom hook skill-mates --engine claude-code"},
+        {"type":"command","command":"ctxloom hook hud"}]}]}}"#;
+    let subs: Vec<String> = stale(old).into_iter().map(|s| s.sub).collect();
+    assert_eq!(subs, ["session-start", "skill-mates", "hud"]);
 }

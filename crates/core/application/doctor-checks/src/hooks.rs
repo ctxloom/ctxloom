@@ -4,18 +4,11 @@
 
 use serde_json::Value;
 
-/// The `ctxloom hook` subcommands this ctxloom has (plan 8.4; `stamp-plan` is
-/// taskloom's). Any other `ctxloom hook <name>` is a leftover of an older
-/// release: the rule is general, not a list of retired names.
-pub const LIVE_HOOKS: [&str; 7] = [
-    "session-start",
-    "session-bind",
-    "hud",
-    "mail-drain",
-    "mail-peek",
-    "skill-mates",
-    "permission",
-];
+/// What `ctxloom hook` takes: `hook <engine> execute <hook-name>` (the owner's
+/// ruling, 2026-11-08). Any other `ctxloom hook <name> ...` (`session-start`,
+/// `hud`, `inject-context`, ...) is a leftover of an older release: the rule is
+/// general, not a list of retired names.
+const LIVE_VERB: &str = "execute";
 
 /// A hook entry running a `ctxloom hook` subcommand that is gone.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -62,14 +55,15 @@ fn is_ctxloom(program: &str) -> bool {
     name == "ctxloom" || name == "ctxloom.exe"
 }
 
-/// `ctxloom hook <sub>`: the subcommand, when `command` runs one.
-fn hook_sub(command: &str) -> Option<String> {
+/// `ctxloom hook <sub> ...`: the subcommand and whether the line is the live
+/// `hook <engine> execute ...` form, when `command` runs one.
+fn hook_sub(command: &str) -> Option<(String, bool)> {
     let words = words(command);
     match words.as_slice() {
-        [program, hook, sub, ..]
+        [program, hook, sub, rest @ ..]
             if is_ctxloom(program) && hook == "hook" && !sub.starts_with('-') =>
         {
-            Some(sub.clone())
+            Some((sub.clone(), rest.first().is_some_and(|v| v == LIVE_VERB)))
         }
         _ => None,
     }
@@ -103,8 +97,8 @@ fn entries(doc: &Value) -> Vec<(String, String)> {
 }
 
 fn stale_of(event: &str, command: &str) -> Option<Stale> {
-    let sub = hook_sub(command)?;
-    (!LIVE_HOOKS.contains(&sub.as_str())).then(|| Stale {
+    let (sub, live) = hook_sub(command)?;
+    (!live).then(|| Stale {
         event: event.to_string(),
         sub,
     })

@@ -34,7 +34,6 @@ pub use ctxloom_ports::{
     ConfigFiles, Executables, Failure, LayerText, Put, Scope, Source, UserFiles,
 };
 pub use doctor::{Doctor, Removed, Report};
-pub use hooks::LIVE_HOOKS;
 
 #[cfg(test)]
 #[path = "checks.test.rs"]

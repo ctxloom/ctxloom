@@ -43,3 +43,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
     }));
     samples
 }
+
+#[cfg(test)]
+#[path = "lib.test.rs"]
+mod tests;

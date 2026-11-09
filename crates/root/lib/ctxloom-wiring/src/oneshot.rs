@@ -133,7 +133,10 @@ impl<'a> OneShots<'a> {
             Arc::clone(&orders),
             Limits::new(TURN_DEADLINE),
         );
-        let hooks = Box::new(Hooks { edge: core.edge() });
+        let hooks = Box::new(Hooks {
+            edge: core.edge(),
+            fs: wiring.fs(),
+        });
         let recorder = Recorder::new(SessionDirs::new(wiring.fs(), project_dir.clone()));
         let enqueuer = Enqueuer::new(core.edge(), Arc::new(OsTokenSource));
         let output_root = wiring
@@ -171,11 +174,15 @@ impl<'a> OneShots<'a> {
 /// engine launches and stopped after it exits.
 struct Hooks<E> {
     edge: Arc<E>,
+    fs: Arc<dyn Fs>,
 }
 
 impl<E: Edge + 'static> HookServer for Hooks<E> {
     fn serve<'a>(&'a self, endpoint: &'a str) -> BoxFuture<'a, Result<Box<dyn Serving>, Report>> {
         Box::pin(async move {
+            // Sockets a killed run left are cleared first; failing to clear
+            // them is no reason not to serve.
+            let _ = crate::stale_socket::clear_stale(&*self.fs, Path::new(endpoint)).await;
             let listener = HookListener::serve(Arc::clone(&self.edge), Path::new(endpoint))
                 .await
                 .map_err(|e| Report::of(&e))?;

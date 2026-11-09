@@ -264,7 +264,10 @@ mod hooks {
                 .unwrap()
         };
         let core = crate::InProcessCore::start(store).await;
-        let hooks = Hooks { edge: core.edge() };
+        let hooks = Hooks {
+            edge: core.edge(),
+            fs: Arc::new(fs.clone()),
+        };
         let serving = hooks.serve(&socket).await.expect("serves");
         assert!(
             fs.exists(Path::new(&socket)).unwrap(),
@@ -278,6 +281,39 @@ mod hooks {
         assert_eq!(refused.code(), "hook-listener-bind");
         serving.stop().await;
         assert!(!fs.exists(Path::new(&socket)).unwrap(), "removed on stop");
+        fs.remove_dir_all(Path::new(&root)).unwrap();
+    }
+
+    // A run killed by SIGHUP leaves its socket, and the next run serves
+    // anyway and clears what was left (a live one is still refused, above).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_run_serves_over_leftover_sockets_and_clears_them() {
+        let fs = file_system::Os::new(os::host(), Path::new("/")).unwrap();
+        let root = format!("/tmp/ctxloom-wh-stale-{}", std::process::id());
+        fs.create_dir_all(Path::new(&root), os::Mode::from_bits(0o700))
+            .unwrap();
+        let socket = format!("{root}/h.sock");
+        drop(tokio::net::UnixListener::bind(&socket).unwrap());
+        let store = {
+            let home = Arc::new(file_system::Rooted::temp().unwrap());
+            ctxloom_store_sqlite::Stores::new(home, "/home/u")
+                .open("calm-otter")
+                .await
+                .unwrap()
+        };
+        let core = crate::InProcessCore::start(store).await;
+        let hooks = Hooks {
+            edge: core.edge(),
+            fs: Arc::new(fs.clone()),
+        };
+        let left = format!("{root}/left.sock");
+        drop(tokio::net::UnixListener::bind(&left).unwrap());
+        let serving = hooks.serve(&socket).await.expect("serves over a stale one");
+        assert!(
+            !fs.exists(Path::new(&left)).unwrap(),
+            "the leftover is gone"
+        );
+        serving.stop().await;
         fs.remove_dir_all(Path::new(&root)).unwrap();
     }
 }

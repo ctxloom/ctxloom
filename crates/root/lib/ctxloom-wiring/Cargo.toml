@@ -65,7 +65,7 @@ process-env.workspace = true
 duration-text.workspace = true
 project-dir.workspace = true
 ports.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "net"] }
 uuid.workspace = true
 sessions.workspace = true
 runs.workspace = true

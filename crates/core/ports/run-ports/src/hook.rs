@@ -79,8 +79,10 @@ pub fn endpoint_path(
 /// `http://<host>:<port>` (it will be `https://` when the listener has a
 /// certificate). An IPv6 literal is bracketed.
 pub fn endpoint_url(host: &str, port: u16) -> String {
-    let _ = (host, port);
-    todo!("endpoint_url")
+    match host.contains(':') {
+        true => format!("http://[{host}]:{port}"),
+        false => format!("http://{host}:{port}"),
+    }
 }
 
 /// Where an endpoint URL says to dial.
@@ -96,15 +98,57 @@ pub struct Dial {
 impl Dial {
     /// The URL a client channel is built from.
     pub fn url(&self) -> String {
-        todo!("Dial::url")
+        let scheme = if self.secure { "https" } else { "http" };
+        let host = &self.host;
+        match host.contains(':') {
+            true => format!("{scheme}://[{host}]:{}", self.port),
+            false => format!("{scheme}://{host}:{}", self.port),
+        }
     }
 }
 
 /// The dial an endpoint URL names: `http://` or `https://`, a host, a port
 /// (not 0) and nothing else.
 pub fn parse_endpoint(text: &str) -> Result<Dial, EndpointError> {
-    let _ = text;
-    todo!("parse_endpoint")
+    let malformed = || EndpointError::Malformed {
+        endpoint: text.to_string(),
+    };
+    let (scheme, rest) = text.split_once("://").ok_or_else(malformed)?;
+    let secure = match scheme {
+        "http" => false,
+        "https" => true,
+        "" => return Err(malformed()),
+        other
+            if other
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c)) =>
+        {
+            return Err(EndpointError::Scheme {
+                scheme: other.to_string(),
+            })
+        }
+        _ => return Err(malformed()),
+    };
+    let (host, port) = match rest.strip_prefix('[') {
+        Some(bracketed) => {
+            let (host, after) = bracketed.split_once(']').ok_or_else(malformed)?;
+            (host, after.strip_prefix(':').ok_or_else(malformed)?)
+        }
+        None => rest.rsplit_once(':').ok_or_else(malformed)?,
+    };
+    let host_ok = !host.is_empty()
+        && host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-._:".contains(c));
+    let port: u16 = port.parse().map_err(|_| malformed())?;
+    match host_ok && port != 0 {
+        true => Ok(Dial {
+            secure,
+            host: host.to_string(),
+            port,
+        }),
+        false => Err(malformed()),
+    }
 }
 
 /// Why an endpoint text is not a listener's URL.

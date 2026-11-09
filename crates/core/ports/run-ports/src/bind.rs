@@ -116,16 +116,65 @@ fn loopback() -> IpAddr {
 
 /// The plan for `runtime` on a platform with `facts`.
 pub fn bind_for(runtime: Runtime, facts: &PlatformFacts) -> Result<BindPlan, BindRefusal> {
-    let _ = (runtime, facts, loopback());
-    todo!("bind_for")
+    let container = match runtime {
+        Runtime::Host => return Ok(on_loopback("127.0.0.1", false)),
+        Runtime::Container(container) => container,
+    };
+    let name = container.name();
+    match (container, facts.bridge_gateway) {
+        (ContainerRuntime::DockerRootful, gateway) => {
+            let gateway = gateway.ok_or(BindRefusal::NoBridgeGateway { runtime: name })?;
+            let plan = BindPlan {
+                bind_addr: gateway,
+                told_host: "host.docker.internal".to_string(),
+                arrival: arrival_of(gateway),
+                forward_port: false,
+            };
+            plan.check().map(|()| plan)
+        }
+        _ if facts.loopback_probe == Probe::Unreachable => {
+            Err(BindRefusal::LoopbackUnreachable { runtime: name })
+        }
+        (ContainerRuntime::PodmanRootless, _) => Ok(on_loopback("host.containers.internal", true)),
+        (ContainerRuntime::DockerDesktop, _) => Ok(on_loopback("host.docker.internal", false)),
+        (ContainerRuntime::Colima | ContainerRuntime::Lima, _) => {
+            Ok(on_loopback("host.lima.internal", false))
+        }
+    }
+}
+
+fn arrival_of(addr: IpAddr) -> Arrival {
+    match addr.is_loopback() {
+        true => Arrival::Loopback,
+        false => Arrival::Ip,
+    }
+}
+
+fn on_loopback(told: &str, forward_port: bool) -> BindPlan {
+    BindPlan {
+        bind_addr: loopback(),
+        told_host: told.to_string(),
+        arrival: Arrival::Loopback,
+        forward_port,
+    }
 }
 
 impl BindPlan {
     /// The invariants of every plan: nothing unspecified, and an IP told is
     /// the IP bound.
     pub fn check(&self) -> Result<(), BindRefusal> {
-        let _ = self;
-        todo!("check")
+        if self.bind_addr.is_unspecified() {
+            return Err(BindRefusal::UnspecifiedBind {
+                addr: self.bind_addr,
+            });
+        }
+        match self.told_host.parse::<IpAddr>() {
+            Ok(told) if told != self.bind_addr => Err(BindRefusal::ToldOtherThanBound {
+                bind: self.bind_addr,
+                told: self.told_host.clone(),
+            }),
+            _ => Ok(()),
+        }
     }
 }
 

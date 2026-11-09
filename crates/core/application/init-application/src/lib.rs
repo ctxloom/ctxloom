@@ -15,8 +15,9 @@
 //!
 //! NOT BUILT: handing the project to the engine for the setup session on a
 //! terminal (S9's launch), the interview's questions, minting the project
-//! identity (taskloom's registry owns it; a re-run only reads it), and the
-//! agent-token check (S5's credentials).
+//! identity (taskloom's registry owns it; a re-run only reads it). The
+//! agent-token guide (a notice that init prints when no token is exported)
+//! is the driving adapter's, from `auth-application`.
 
 mod error;
 

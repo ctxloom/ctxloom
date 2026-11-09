@@ -512,18 +512,50 @@ Feature: run — assembling a project's context and handing it to an engine
       When Alice runs the isolated "claude-code" agent under workspace "none"
       Then the run is refused without any isolation finding, naming "auth: token"
 
-    # A token session authenticates with a token the human mints with `claude
-    # setup-token` and exports; ctxloom never captures or stores one. With
-    # none exported the run is refused before any engine is spawned, naming
-    # how to mint and export it. An exported API key does not stand in.
-    Scenario: A token session with no exported token is refused, naming claude setup-token
-      # substitution: the agent declares session_home where Go's step says engine_home (vocabulary ruling, 2026-11-06)
-      Given Alice has a git-backed project
-      And Alice has no "claude-code" credentials or API key on the host
-      And Alice has set the "claude-code" API key in the environment
-      And Alice's agent declares session_home "session"
-      When Alice runs the isolated "claude-code" agent under workspace "none"
-      Then the run is refused without any isolation finding, naming "claude setup-token"
+  # A CHILD agent (a one-shot is one) authenticates only with a credential in
+  # its environment: the token the human mints with `claude setup-token` and
+  # exports, or an API key. ctxloom never captures or stores one, and a child
+  # is never given a shared login file. With none exported the run is refused
+  # before any engine is spawned, naming how to mint and export one. (Owner
+  # ruling 2026-11-08, credentials: an exported API key IS accepted; Go's
+  # scenario here, "an exported API key does not stand in", is superseded.)
+  Rule: A child run needs a credential in its environment, and either the token or an API key is one
+
+    Scenario: A child run with no credential at all is refused, naming claude setup-token
+      # substitution: Go refused with "auth: token" for a token session; the refusal is the typed `runs-no-credential` and its fix names the token flow.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And Alice has exported no credential
+      When Alice runs a child agent with no credential:
+        """
+        ctxloom run --one-shot "hello"
+        """
+      Then the command exits with code 2
+      And the refusal is "runs-no-credential"
+      When Alice asks again in text, which carries the fix:
+        """
+        ctxloom run --one-shot "hello" --format text
+        """
+      Then the command exits with code 2
+      And the output contains "claude setup-token"
+      And no assistant was launched
+
+    Scenario Outline: A child run with <variable> exported, and no other credential, runs
+      # new: the owner's credentials ruling accepts an exported API key as a child's credential.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And Alice has exported only the credential "<variable>"
+      When Alice runs a child agent on that credential:
+        """
+        ctxloom run --one-shot "hello"
+        """
+      Then the command succeeds
+      And an assistant was launched
+
+      Examples:
+        | variable                |
+        | CLAUDE_CODE_OAUTH_TOKEN |
+        | ANTHROPIC_API_KEY       |
 
   @pending
   Rule: --engine runs the engine it names, with that engine's defaults

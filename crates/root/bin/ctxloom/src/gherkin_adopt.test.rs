@@ -204,6 +204,25 @@ pub(super) fn token(w: &mut World) {
     );
 }
 
+/// The variables a child agent of claude is given a credential by.
+const CHILD_CREDENTIALS: [&str; 2] = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"];
+
+/// The host exports no credential at all (the fixture token is withdrawn).
+#[given("Alice has exported no credential")]
+fn no_credential(w: &mut World) {
+    w.common
+        .env
+        .retain(|(name, _)| !CHILD_CREDENTIALS.contains(&name.as_str()));
+}
+
+/// The host exports this one credential and no other.
+#[given(expr = "Alice has exported only the credential {string}")]
+fn only_credential(w: &mut World, variable: String) {
+    no_credential(w);
+    w.common
+        .set_env(&variable, "sk-ant-fixture-not-real".to_string()); // gitleaks:allow
+}
+
 #[given("Alice has set ctxloom up in her project")]
 fn set_up(w: &mut World) {
     w.before_run();
@@ -228,6 +247,24 @@ fn handed_published_default(w: &mut World) {
         record.contains(PUBLISHED_MARKER),
         "the session's launch carried no published default content: {record}"
     );
+}
+
+#[then("no assistant was launched")]
+fn no_assistant(w: &mut World) {
+    assert_eq!(w.launch_record(), "", "an assistant was launched");
+}
+
+#[then("an assistant was launched")]
+fn an_assistant(w: &mut World) {
+    assert_ne!(w.launch_record(), "", "no assistant was launched");
+}
+
+/// A refusal is a typed message: its code is the envelope's `code`.
+#[then(expr = "the refusal is {string}")]
+fn refusal_is(w: &mut World, code: String) {
+    let envelope: serde_json::Value =
+        serde_json::from_str(&w.ran().stderr).expect("a json envelope on the error stream");
+    assert_eq!(envelope["code"], code, "{}", w.ran().said());
 }
 
 /// Her assistant's own configuration, in her home and in her project, as it

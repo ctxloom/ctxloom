@@ -1,9 +1,8 @@
-//! The sink against a fake `CommandHandlerCoordinatorService` on a unix
-//! socket in a short temporary directory. Each test forces the outcome it
+//! The sink against a fake `CommandHandlerCoordinatorService` on a loopback
+//! TCP port (port 0, the URL read back from the bound listener). Each test forces the outcome it
 //! concerns (a server that never answers, one stopped by the test while the
 //! call is in flight); none waits for an interleaving.
 
-use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -15,7 +14,6 @@ use angzarr_proto_transport_distributed::v1::command_handler_coordinator_service
 use angzarr_proto_transport_distributed::v1::{
     CommandResult, CommandSyncResult, HandleSyncRequest,
 };
-use file_system::{Fs, Rooted};
 use run_ports::{Bearer, Delivery, FactSink, Token};
 use tonic::{Request, Response, Status};
 
@@ -27,25 +25,12 @@ fn bearer() -> Bearer {
     Bearer::compose(SECRET_RUN, &Token::from_bytes([0xab; 32]))
 }
 
-/// A temporary directory of the file-system seam; its socket path must fit
-/// `sun_path` (107 bytes).
-struct Dir(Rooted);
-
-impl Dir {
-    fn new() -> Dir {
-        let dir = Rooted::temp().expect("a temporary directory");
-        assert!(dir.root().join("s").as_os_str().len() <= 107);
-        Dir(dir)
-    }
-
-    fn socket(&self) -> PathBuf {
-        self.0.root().join("s")
-    }
-
-    fn socket_exists(&self) -> bool {
-        let caller = Path::new("/s");
-        self.0.exists(caller).unwrap()
-    }
+/// A loopback URL nobody listens on: a port that was bound, then released.
+fn closed_url() -> String {
+    let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = probe.local_addr().unwrap().port();
+    drop(probe);
+    run_ports::endpoint_url("127.0.0.1", port)
 }
 
 #[derive(Clone)]
@@ -108,6 +93,7 @@ impl CommandHandlerCoordinatorService for Fake {
 /// A running fake; stopping it (or dropping it) drops its runtime, which
 /// closes every connection at once, even one with a call in flight.
 struct Running {
+    url: String,
     stop: Option<mpsc::Sender<()>>,
     thread: Option<std::thread::JoinHandle<()>>,
     seen: Arc<Mutex<Vec<Option<String>>>>,
@@ -129,17 +115,17 @@ impl Drop for Running {
     }
 }
 
-fn serve(socket: &Path, answer: Answer) -> Running {
+fn serve(answer: Answer) -> Running {
     let seen = Arc::new(Mutex::new(Vec::new()));
     let (arrived_tx, arrived) = mpsc::channel();
     let (stop, stopped) = mpsc::channel::<()>();
     let (ready_tx, ready) = mpsc::channel();
+    let (url_tx, url_rx) = mpsc::channel();
     let fake = Fake {
         answer,
         seen: Arc::clone(&seen),
         arrived: arrived_tx,
     };
-    let socket = socket.to_path_buf();
     let thread = std::thread::spawn(move || {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -147,10 +133,16 @@ fn serve(socket: &Path, answer: Answer) -> Running {
             .unwrap();
         let listener = {
             let _guard = runtime.enter();
-            tokio::net::UnixListener::bind(&socket).expect("binds the socket")
+            let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("binds a port");
+            std_listener.set_nonblocking(true).unwrap();
+            let port = std_listener.local_addr().unwrap().port();
+            url_tx
+                .send(run_ports::endpoint_url("127.0.0.1", port))
+                .unwrap();
+            tokio::net::TcpListener::from_std(std_listener).unwrap()
         };
         ready_tx.send(()).unwrap();
-        let incoming = tokio_stream::wrappers::UnixListenerStream::new(listener);
+        let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
         runtime.block_on(async {
             let server = tonic::transport::Server::builder()
                 .add_service(CommandHandlerCoordinatorServiceServer::new(fake))
@@ -167,6 +159,7 @@ fn serve(socket: &Path, answer: Answer) -> Running {
     });
     ready.recv().expect("the fake server is listening");
     Running {
+        url: url_rx.recv().unwrap(),
         stop: Some(stop),
         thread: Some(thread),
         seen,
@@ -178,9 +171,8 @@ const BUDGET: Duration = Duration::from_secs(5);
 
 #[test]
 fn an_applied_fact_is_applied_and_carries_the_bearer() {
-    let dir = Dir::new();
-    let server = serve(&dir.socket(), Answer::Result(DeliveryOutcome::Applied));
-    let sink = GrpcSink::new(dir.socket(), bearer());
+    let server = serve(Answer::Result(DeliveryOutcome::Applied));
+    let sink = GrpcSink::new(server.url.clone(), bearer());
     let started = Instant::now();
     assert_eq!(
         sink.deliver(CommandBook::default(), BUDGET),
@@ -196,9 +188,8 @@ fn an_applied_fact_is_applied_and_carries_the_bearer() {
 
 #[test]
 fn a_duplicate_is_an_answer_not_an_error() {
-    let dir = Dir::new();
-    let _server = serve(&dir.socket(), Answer::Result(DeliveryOutcome::Duplicate));
-    let sink = GrpcSink::new(dir.socket(), bearer());
+    let server = serve(Answer::Result(DeliveryOutcome::Duplicate));
+    let sink = GrpcSink::new(server.url.clone(), bearer());
     assert_eq!(
         sink.deliver(CommandBook::default(), BUDGET),
         Delivery::Duplicate
@@ -207,9 +198,8 @@ fn a_duplicate_is_an_answer_not_an_error() {
 
 #[test]
 fn a_result_with_no_outcome_is_refused() {
-    let dir = Dir::new();
-    let _server = serve(&dir.socket(), Answer::Result(DeliveryOutcome::Unspecified));
-    let sink = GrpcSink::new(dir.socket(), bearer());
+    let server = serve(Answer::Result(DeliveryOutcome::Unspecified));
+    let sink = GrpcSink::new(server.url.clone(), bearer());
     assert!(matches!(
         sink.deliver(CommandBook::default(), BUDGET),
         Delivery::Refused { .. }
@@ -218,12 +208,11 @@ fn a_result_with_no_outcome_is_refused() {
 
 #[test]
 fn an_unauthenticated_call_is_refused_and_says_why() {
-    let dir = Dir::new();
-    let _server = serve(
-        &dir.socket(),
-        Answer::Fail(Code::Unauthenticated, "angzarr-coordinator-unauthenticated"),
-    );
-    let sink = GrpcSink::new(dir.socket(), bearer());
+    let server = serve(Answer::Fail(
+        Code::Unauthenticated,
+        "angzarr-coordinator-unauthenticated",
+    ));
+    let sink = GrpcSink::new(server.url.clone(), bearer());
     match sink.deliver(CommandBook::default(), BUDGET) {
         Delivery::Refused { detail } => {
             assert!(
@@ -283,9 +272,8 @@ fn a_dead_lettered_fact_is_parked_by_message_or_by_reason() {
 
 #[test]
 fn a_dead_lettered_fact_over_the_wire_is_parked() {
-    let dir = Dir::new();
-    let _server = serve(&dir.socket(), Answer::Fail(Code::Internal, DEAD_LETTERED));
-    let sink = GrpcSink::new(dir.socket(), bearer());
+    let server = serve(Answer::Fail(Code::Internal, DEAD_LETTERED));
+    let sink = GrpcSink::new(server.url.clone(), bearer());
     assert_eq!(
         sink.deliver(CommandBook::default(), BUDGET),
         Delivery::Parked
@@ -312,9 +300,8 @@ fn the_reason_of_an_error_info_detail_is_read() {
 
 #[test]
 fn a_server_deadline_status_is_timed_out() {
-    let dir = Dir::new();
-    let _server = serve(&dir.socket(), Answer::Fail(Code::DeadlineExceeded, "slow"));
-    let sink = GrpcSink::new(dir.socket(), bearer());
+    let server = serve(Answer::Fail(Code::DeadlineExceeded, "slow"));
+    let sink = GrpcSink::new(server.url.clone(), bearer());
     assert_eq!(
         sink.deliver(CommandBook::default(), BUDGET),
         Delivery::TimedOut
@@ -323,9 +310,8 @@ fn a_server_deadline_status_is_timed_out() {
 
 #[test]
 fn a_server_that_never_answers_times_out_within_the_budget() {
-    let dir = Dir::new();
-    let server = serve(&dir.socket(), Answer::Never);
-    let sink = GrpcSink::new(dir.socket(), bearer());
+    let server = serve(Answer::Never);
+    let sink = GrpcSink::new(server.url.clone(), bearer());
     let budget = Duration::from_millis(300);
     let started = Instant::now();
     assert_eq!(
@@ -340,9 +326,8 @@ fn a_server_that_never_answers_times_out_within_the_budget() {
 }
 
 #[test]
-fn a_missing_socket_is_unavailable_at_once() {
-    let dir = Dir::new();
-    let sink = GrpcSink::new(dir.socket(), bearer());
+fn a_port_nobody_listens_on_is_unavailable_at_once() {
+    let sink = GrpcSink::new(closed_url(), bearer());
     let started = Instant::now();
     match sink.deliver(CommandBook::default(), BUDGET) {
         Delivery::Unavailable { detail } => assert!(detail.contains("cannot reach"), "{detail}"),
@@ -352,12 +337,11 @@ fn a_missing_socket_is_unavailable_at_once() {
 }
 
 #[test]
-fn a_socket_nobody_listens_on_is_unavailable() {
-    let dir = Dir::new();
-    // Served, then stopped: the socket file stays, the connection is refused.
-    serve(&dir.socket(), Answer::Never).stop();
-    assert!(dir.socket_exists());
-    let sink = GrpcSink::new(dir.socket(), bearer());
+fn a_stopped_server_is_unavailable() {
+    let mut server = serve(Answer::Never);
+    let url = server.url.clone();
+    server.stop();
+    let sink = GrpcSink::new(url, bearer());
     assert!(matches!(
         sink.deliver(CommandBook::default(), BUDGET),
         Delivery::Unavailable { .. }
@@ -365,10 +349,31 @@ fn a_socket_nobody_listens_on_is_unavailable() {
 }
 
 #[test]
+fn what_is_not_a_listener_url_is_unavailable_and_says_so() {
+    for endpoint in ["/run/user/1000/ctxloom/a.sock", "", "http://h", "ftp://h:9"] {
+        let sink = GrpcSink::new(endpoint, bearer());
+        match sink.deliver(CommandBook::default(), BUDGET) {
+            Delivery::Unavailable { detail } => {
+                assert!(detail.contains("endpoint"), "{endpoint}: {detail}")
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+}
+
+#[test]
+fn an_https_endpoint_is_unavailable_until_the_sink_has_a_certificate() {
+    let sink = GrpcSink::new("https://127.0.0.1:9", bearer());
+    match sink.deliver(CommandBook::default(), BUDGET) {
+        Delivery::Unavailable { detail } => assert!(detail.contains("https"), "{detail}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
 fn a_server_that_closes_mid_call_is_unavailable_not_timed_out() {
-    let dir = Dir::new();
-    let mut server = serve(&dir.socket(), Answer::Never);
-    let sink = GrpcSink::new(dir.socket(), bearer());
+    let mut server = serve(Answer::Never);
+    let sink = GrpcSink::new(server.url.clone(), bearer());
     let budget = Duration::from_secs(20);
     let started = Instant::now();
     let delivered = std::thread::scope(|scope| {
@@ -391,16 +396,15 @@ fn a_server_that_closes_mid_call_is_unavailable_not_timed_out() {
 #[test]
 fn the_bearer_never_appears_in_a_debug_or_a_detail() {
     let secret = bearer().expose().to_string();
-    let sink = GrpcSink::new("/nonexistent/s", bearer());
+    let sink = GrpcSink::new(closed_url(), bearer());
     assert!(!format!("{sink:?}").contains(&secret));
     // Down: a transport failure.
     let down = sink.deliver(CommandBook::default(), BUDGET);
     assert!(!format!("{down:?}").contains(&secret));
     // A server that echoes the bearer in its refusal: scrubbed.
-    let dir = Dir::new();
     let echoed: &'static str = Box::leak(format!("bad bearer {secret}").into_boxed_str());
-    let _server = serve(&dir.socket(), Answer::Fail(Code::Unauthenticated, echoed));
-    let sink = GrpcSink::new(dir.socket(), bearer());
+    let server = serve(Answer::Fail(Code::Unauthenticated, echoed));
+    let sink = GrpcSink::new(server.url.clone(), bearer());
     let refused = sink.deliver(CommandBook::default(), BUDGET);
     let Delivery::Refused { detail } = &refused else {
         panic!("{refused:?}");
@@ -413,9 +417,8 @@ fn the_bearer_never_appears_in_a_debug_or_a_detail() {
 
 #[test]
 fn delivery_may_be_called_from_inside_a_runtime() {
-    let dir = Dir::new();
-    let _server = serve(&dir.socket(), Answer::Result(DeliveryOutcome::Applied));
-    let sink = GrpcSink::new(dir.socket(), bearer());
+    let server = serve(Answer::Result(DeliveryOutcome::Applied));
+    let sink = GrpcSink::new(server.url.clone(), bearer());
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -426,11 +429,11 @@ fn delivery_may_be_called_from_inside_a_runtime() {
 
 #[test]
 fn a_sink_debugs_as_its_endpoint_with_the_bearer_redacted() {
-    let sink = GrpcSink::new("/run/x.sock", bearer());
+    let sink = GrpcSink::new("http://127.0.0.1:9", bearer());
     let shown = format!("{sink:?}");
     assert_eq!(
         shown,
-        r#"GrpcSink { socket: "/run/x.sock", bearer: Bearer(redacted) }"#
+        r#"GrpcSink { endpoint: "http://127.0.0.1:9", bearer: Bearer(redacted) }"#
     );
     assert!(!shown.contains(bearer().expose()));
 }

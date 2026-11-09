@@ -22,7 +22,6 @@ tokio = { workspace = true, features = ["rt", "time", "net"] }
 
 [dev-dependencies]
 mutants.workspace = true
-file-system = { workspace = true, features = ["test-support"] }
 # The fake server of the tests: the generated service trait, served on a unix socket.
 tonic = { version = "0.14", default-features = false, features = ["channel", "codegen", "router", "server"] }
 tokio-stream = { version = "0.1", features = ["net"] }

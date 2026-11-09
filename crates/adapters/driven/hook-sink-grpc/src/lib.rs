@@ -82,9 +82,9 @@ pub struct GrpcSink {
 impl GrpcSink {
     /// A sink delivering to the listener on the unix socket at `socket`,
     /// authenticated by `bearer`.
-    pub fn new(socket: impl Into<PathBuf>, bearer: Bearer) -> GrpcSink {
+    pub fn new(endpoint: impl Into<String>, bearer: Bearer) -> GrpcSink {
         GrpcSink {
-            socket: socket.into(),
+            socket: PathBuf::from(endpoint.into()),
             bearer,
         }
     }

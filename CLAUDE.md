@@ -243,7 +243,7 @@ a full commit. The angzarr pins are one line (angzarr-embedded e3e22db on
 angzarr-router d2b019f, core 44143e6, angzarr-build ea9f15d (the markup
 generator, `angzarr-build` and `angzarr-codegen`, its own repository),
 angzarr-platform b25486d); taskloom's crates (ec7f8eb) and ctxloom-lib's
-(72a4dd4) are built on it, so moving one
+(86fe8a8) are built on it, so moving one
 moves all. The lock holds one of every angzarr crate. The platform crates (`os`, `file-system`, `file-lock`) are
 angzarr-platform's, and `angzarr-presentation` and `angzarr-diagnostic` are
 angzarr core's, all `Apache-2.0 OR BSD-3-Clause`; this workspace is

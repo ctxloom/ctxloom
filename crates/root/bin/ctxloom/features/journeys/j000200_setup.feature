@@ -1,7 +1,7 @@
 # world: base
 # Ported from journeys/j000200_setup.feature (rev f36e8dfb2)
-# NOT ported: the scenarios tagged @pending: they need the setup interview to
-#   launch an engine.
+# NOT ported: the scenarios tagged @pending: the @live outline needs a real
+#   engine.
 @doc
 Feature: Setting up ctxloom on a project
 
@@ -35,7 +35,6 @@ Feature: Setting up ctxloom on a project
   # On a terminal, setup interviews her. The interview runs in a session that
   # cannot see what it has just configured, so ctxloom offers to restart her
   # into the configured one.
-  @pending
   Scenario: Setup configures the agents, then a restart delivers their context
     # substitution: one engine, no Outline; the Thens say what her restarted assistant receives.
     Given Alice has a personal ctxloom repository

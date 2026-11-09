@@ -123,6 +123,14 @@ pub(crate) trait CommonWorld {
     /// What a World does before each command (plants its sessions).
     fn before_run(&mut self) {}
 
+    /// An `Alice ...:` step: its docstring's commands, run. A World whose
+    /// step is told in stages (it needs the rest of the scenario before it
+    /// can run) takes the step over.
+    fn alice_runs(&mut self, step: &Step) {
+        self.before_run();
+        self.common_mut().run_lines(&doc(step), "");
+    }
+
     fn ran(&self) -> &Ran {
         self.common().ran()
     }
@@ -214,8 +222,7 @@ macro_rules! common_steps {
             /// Every `Alice ...:` step carries its commands in a docstring.
             #[when(regex = r"^Alice .*:$")]
             fn alice_runs(w: &mut World, step: &Step) {
-                w.before_run();
-                w.common_mut().run_lines(&doc(step), "");
+                w.alice_runs(step);
             }
 
             #[then("the command succeeds")]

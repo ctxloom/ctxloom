@@ -60,6 +60,8 @@ struct World {
     lock_free_dead: Vec<String>,
     /// What the j000100 scenarios keep.
     adopt: adopt::State,
+    /// What j000200's scenario 2 keeps.
+    setup: setup::State,
 }
 
 impl fmt::Debug for World {
@@ -75,6 +77,14 @@ impl CommonWorld for World {
 
     fn common_mut(&mut self) -> &mut Common {
         &mut self.common
+    }
+
+    fn alice_runs(&mut self, step: &Step) {
+        if setup::stages(self, step) {
+            return;
+        }
+        self.before_run();
+        self.common.run_lines(&doc(step), "");
     }
 
     fn before_run(&mut self) {
@@ -98,6 +108,7 @@ impl World {
             planted_foreign: Vec::new(),
             lock_free_dead: Vec::new(),
             adopt: adopt::State::default(),
+            setup: setup::State::default(),
         }
     }
 

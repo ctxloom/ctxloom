@@ -11,6 +11,16 @@
 //!
 //! A session "was handed" a repository's content when the assistant stub's
 //! launch record carries the marker of its fragment.
+//!
+//! Scenario 2 (setup at a terminal) is told as the user's flow, but it is one
+//! process: `ctxloom init` run with a terminal stood in by the test-only
+//! variable `CTXLOOM_TEST_TERMINAL` (the binary's own seam, compiled only with
+//! `test-support`; no pty), the restart answered on its standard input. The
+//! steps before the answer stage what the interview stub will do; the step
+//! that accepts the restart runs the command and says what the process did.
+//! The stub acts out the interview by running, as the assistant would, the
+//! ctxloom commands the steps staged; it records the interview and the
+//! restarted session apart.
 
 use cucumber::{given, then, when};
 
@@ -84,11 +94,13 @@ fn never_used(w: &mut World) {
 
 #[given("Alice has a personal ctxloom repository")]
 fn personal(w: &mut World) {
+    w.machine();
     w.serve_repository("personal", PERSONAL_URL, PERSONAL_BUNDLE, PERSONAL_MARKER);
 }
 
 #[given("her company has a ctxloom repository")]
 fn company(w: &mut World) {
+    w.machine();
     w.serve_repository("company", COMPANY_URL, COMPANY_BUNDLE, COMPANY_MARKER);
 }
 
@@ -117,4 +129,143 @@ fn receives_personal(w: &mut World) {
 #[then("her assistant receives her company repository's content")]
 fn receives_company(w: &mut World) {
     handed(w, COMPANY_MARKER);
+}
+
+/// The marker the interview's opening prompt carries, and so the stub knows
+/// it is the interview: a heading from the end of the setup interview body.
+const INTERVIEW_MARK: &str = "Phase 5 \u{2014} Close";
+
+/// What scenario 2 keeps between steps.
+#[derive(Default)]
+pub(super) struct State {
+    /// The command Alice typed.
+    init: String,
+    /// The commands the interview does (the assistant's part), in order.
+    interview: Vec<String>,
+}
+
+/// The assistant stub of scenario 2: as j000100's, but the interview (a
+/// launch whose arguments carry the interview's opening) is recorded apart,
+/// reads no standard input (it is Alice's answer) and runs `script` first.
+fn assistant(script: &str) -> String {
+    format!(
+        r#"here="$(dirname "$0")"
+case "$*" in
+  *"{INTERVIEW_MARK}"*) rec="$here/claude-interview"; interview=1 ;;
+  *) rec="$here/claude-launch"; interview= ;;
+esac
+for a in "$@"; do
+  printf '%s\n' "$a" >> "$rec"
+  [ -f "$a" ] && cat "$a" >> "$rec"
+done
+if [ -n "${{CLAUDE_CONFIG_DIR:-}}" ] && [ -d "$CLAUDE_CONFIG_DIR" ]; then
+  find "$CLAUDE_CONFIG_DIR" -type f -exec cat {{}} + >> "$rec" 2>/dev/null
+fi
+if [ -n "$interview" ]; then
+{script}
+else
+  [ -t 0 ] || cat >> "$rec"
+fi
+"#
+    )
+}
+
+impl World {
+    /// Alice's machine as j000200 scenario 1 begins it, unless a Given has
+    /// already made it so.
+    fn machine(&mut self) {
+        if !files::exists(self.adopt_scratch().join("bin/claude")) {
+            never_used(self);
+        }
+    }
+
+    fn interview_record(&self) -> String {
+        files::read(self.adopt_scratch().join("bin/claude-interview")).unwrap_or_default()
+    }
+}
+
+/// The `Alice ...:` step that stages scenario 2 rather than running at once:
+/// whether it is that step.
+pub(super) fn stages(w: &mut World, step: &cucumber::gherkin::Step) -> bool {
+    if !step.value.contains("sets ctxloom up at a terminal") {
+        return false;
+    }
+    w.machine();
+    w.setup.init = crate::tests::gherkin_common::doc(step);
+    true
+}
+
+#[when("in the setup interview she adds her company's repository as a remote")]
+fn interview_adds_remote(w: &mut World) {
+    w.setup
+        .interview
+        .push(format!("remote create acme {COMPANY_URL}"));
+}
+
+#[when("the setup interview composes her agents' profiles from the sources' fragments")]
+fn interview_composes(w: &mut World) {
+    w.setup.interview.push(format!(
+        "profile edit default --add-bundle personal/{PERSONAL_BUNDLE} --add-bundle acme/{COMPANY_BUNDLE}"
+    ));
+    w.setup.interview.push("deps pull".to_string());
+}
+
+/// Said by the run that follows; nothing to stage.
+#[when("ctxloom offers to restart into her newly configured session")]
+fn offers_restart(_: &mut World) {}
+
+#[when("Alice accepts the restart")]
+fn accepts_restart(w: &mut World) {
+    let bin = w.adopt_scratch().join("bin");
+    let ctxloom = crate::tests::binary().display().to_string();
+    let home = w.common.project.home().display().to_string();
+    let project = w.common.project.dir().display().to_string();
+    let script: String = w
+        .setup
+        .interview
+        .iter()
+        .map(|args| {
+            format!(
+                "  HOME='{home}' CTXLOOM_ROOT='{project}' '{ctxloom}' {args} >> \"$rec\" 2>&1 || exit 1\n"
+            )
+        })
+        .collect();
+    files::put_program(bin.join("claude"), &assistant(&script));
+    w.common.set_env("CTXLOOM_TEST_TERMINAL", "1".to_string());
+    w.before_run();
+    let init = w.setup.init.clone();
+    w.common_mut().run_lines(&init, "y\n");
+}
+
+#[then("her restarted assistant receives her personal repository's content")]
+fn restarted_receives_personal(w: &mut World) {
+    w.ran().succeeds();
+    interviewed_then_restarted(w);
+    handed(w, PERSONAL_MARKER);
+}
+
+#[then("her restarted assistant receives her company repository's content")]
+fn restarted_receives_company(w: &mut World) {
+    handed(w, COMPANY_MARKER);
+}
+
+/// The interview was launched with its opening and could not see what it
+/// configured; ctxloom offered the restart; a second assistant followed.
+fn interviewed_then_restarted(w: &World) {
+    let interview = w.interview_record();
+    assert!(
+        interview.contains(INTERVIEW_MARK),
+        "no interview was launched: {interview}"
+    );
+    for marker in [PERSONAL_MARKER, COMPANY_MARKER] {
+        assert!(
+            !interview.contains(marker),
+            "the interview could see {marker}, which it had not yet configured"
+        );
+    }
+    w.ran().contains("estart");
+    assert!(
+        !w.launch_record().contains(INTERVIEW_MARK),
+        "the restarted session was given the interview's opening"
+    );
 }

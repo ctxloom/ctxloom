@@ -216,6 +216,9 @@ fn run_detail(event: &RunEvent) -> serde_json::Map<String, Value> {
         RunEvent::RunnerAttachedRecorded(e) => {
             json!({"runner_id": e.runner_id, "protocol": e.protocol})
         }
+        RunEvent::RunnerStartedRecorded(e) => {
+            json!({"runtime": e.runtime, "workspace": e.workspace, "pid": e.pid})
+        }
         RunEvent::TurnStartedRecorded(e) => json!({"turn": e.turn}),
         RunEvent::TurnCompletedRecorded(e) => json!({
             "turn": e.turn,

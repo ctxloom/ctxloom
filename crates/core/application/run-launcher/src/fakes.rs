@@ -176,6 +176,11 @@ pub async fn run_events(edge: &TestEdge, session: &str) -> Vec<RunEvent> {
         .collect()
 }
 
+/// The run stream's pages, as a store holds them.
+pub async fn run_pages(edge: &TestEdge, session: &str) -> Vec<EventPage> {
+    edge.events(&run_cover(session), 0).await.unwrap()
+}
+
 /// The session stream's events, decoded.
 pub async fn session_events(edge: &TestEdge, session: &str) -> Vec<SessionEvent> {
     events_of(edge.events(&session_cover(session), 0).await.unwrap())
@@ -201,6 +206,7 @@ pub fn names(events: &[RunEvent]) -> Vec<&'static str> {
         .map(|event| match event {
             RunEvent::RunEnqueued(_) => "RunEnqueued",
             RunEvent::RunnerAttachedRecorded(_) => "RunnerAttached",
+            RunEvent::RunnerStartedRecorded(_) => "RunnerStarted",
             RunEvent::TurnStartedRecorded(_) => "TurnStarted",
             RunEvent::TurnCompletedRecorded(_) => "TurnCompleted",
             RunEvent::TurnFailedRecorded(_) => "TurnFailed",
@@ -210,6 +216,9 @@ pub fn names(events: &[RunEvent]) -> Vec<&'static str> {
         .collect()
 }
 
+/// What a spawned command does while it runs.
+pub type Window = Arc<dyn Fn() + Send + Sync>;
+
 /// A command run that answers as scripted, and remembers what it was given.
 #[derive(Clone)]
 pub struct ScriptedRunner {
@@ -217,6 +226,9 @@ pub struct ScriptedRunner {
     pub seen: Arc<Mutex<Vec<TurnCommand>>>,
     /// The commands given a terminal.
     pub seen_terminal: Arc<Mutex<Vec<TurnCommand>>>,
+    /// What the command's process does while it runs, silent: a test's
+    /// window onto the store at the moment of a spawn.
+    pub during: Arc<Mutex<Option<Window>>>,
 }
 
 impl ScriptedRunner {
@@ -239,6 +251,14 @@ impl ScriptedRunner {
             answer,
             seen: Arc::default(),
             seen_terminal: Arc::default(),
+            during: Arc::default(),
+        }
+    }
+
+    fn silent_while_running(&self) {
+        let during = self.during.lock().unwrap().clone();
+        if let Some(during) = during {
+            during();
         }
     }
 }
@@ -246,11 +266,13 @@ impl ScriptedRunner {
 impl RunnerLauncher for ScriptedRunner {
     fn launch(&self, command: &TurnCommand, _: &Limits) -> Launch {
         self.seen.lock().unwrap().push(command.clone());
+        self.silent_while_running();
         self.answer.clone()
     }
 
     fn launch_terminal(&self, command: &TurnCommand) -> Launch {
         self.seen_terminal.lock().unwrap().push(command.clone());
+        self.silent_while_running();
         self.answer.clone()
     }
 }

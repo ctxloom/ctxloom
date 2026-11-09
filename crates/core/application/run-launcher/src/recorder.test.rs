@@ -87,14 +87,19 @@ async fn every_event_of_the_session_and_its_run_is_a_line_of_its_record() {
         [
             "RunEnqueued",
             "RunnerAttachedRecorded",
+            "RunnerStartedRecorded",
             "TurnStartedRecorded",
             "TurnCompletedRecorded",
             "RunEnded"
         ]
     );
-    assert_eq!(runs[3]["answer_ref"], "transcripts/transcript.jsonl");
-    assert_eq!(runs[3]["native_key"], "native-7");
-    assert_eq!(runs[4]["cause"], "RunnerExit");
+    assert_eq!(
+        (runs[2]["runtime"].as_str(), runs[2]["pid"].as_u64()),
+        (Some("fake"), Some(0))
+    );
+    assert_eq!(runs[4]["answer_ref"], "transcripts/transcript.jsonl");
+    assert_eq!(runs[4]["native_key"], "native-7");
+    assert_eq!(runs[5]["cause"], "RunnerExit");
     assert!(runs.iter().all(|l| l["run"].as_str().is_some()));
 }
 
@@ -193,7 +198,7 @@ async fn an_event_line_carries_what_the_event_says() {
     assert_eq!(runs[0]["incarnation"], 1);
     assert_eq!(runs[0]["mode"], "OneShot");
     assert!(runs[1]["runner_id"].is_string() && runs[1]["protocol"].is_string());
-    assert_eq!(runs[2]["turn"], 1);
+    assert_eq!(runs[3]["turn"], 1);
 }
 
 #[tokio::test]

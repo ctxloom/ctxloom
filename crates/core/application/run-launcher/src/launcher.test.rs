@@ -1,7 +1,7 @@
 //! The launcher over the real run and session aggregates in an in-memory
 //! store: what it records, in what order, and what it writes.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use run_ports::{FailureClass, Launch, LaunchFailure, Limits, TurnOutcome};
 use runs::{EndCause, RunEvent};
@@ -82,6 +82,7 @@ async fn an_owed_run_is_launched_once_and_its_turn_recorded_in_order() {
         [
             "RunEnqueued",
             "RunnerAttached",
+            "RunnerStarted",
             "TurnStarted",
             "TurnCompleted",
             "RunEnded"
@@ -90,6 +91,87 @@ async fn an_owed_run_is_launched_once_and_its_turn_recorded_in_order() {
     // Not again: the run is past, and its order was taken.
     assert!(rig.step().await.is_empty());
     assert_eq!(rig.runner.seen.lock().unwrap().len(), 1);
+}
+
+/// What the store held while the command ran: the run's events, and how many
+/// runs the pending launches still owed.
+type Glimpse = (Vec<&'static str>, usize);
+
+/// Drive a store-reading future to its end on the spot: the in-memory store
+/// never waits on anything, so one poll finishes it.
+fn now<T>(future: impl std::future::Future<Output = T>) -> T {
+    let mut future = std::pin::pin!(future);
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    match future.as_mut().poll(&mut cx) {
+        std::task::Poll::Ready(value) => value,
+        std::task::Poll::Pending => panic!("the in-memory store waited"),
+    }
+}
+
+// The double launch, forced and not waited for: the instant the command is
+// spawned (here: while it runs, silent, with no word of its own), the store
+// already holds the launcher's RunnerStarted, and a catch-up that reads the
+// streams THEN does not owe the run a runner again.
+#[tokio::test]
+async fn a_spawned_silent_turn_is_already_started_when_a_catch_up_reads_it() {
+    let mut rig = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    );
+    let seen: Arc<Mutex<Vec<Glimpse>>> = Arc::default();
+    let (edge, record) = (Arc::clone(&rig.edge), Arc::clone(&seen));
+    *rig.runner.during.lock().unwrap() = Some(Arc::new(move || {
+        let events = now(run_events(&edge, SESSION));
+        let mut model = pending_launches::Pending::new();
+        let book = now(crate::fakes::run_pages(&edge, SESSION));
+        model
+            .project(&angzarr_embedded::v1::EventBook {
+                cover: Some(crate::fakes::run_cover(SESSION)),
+                pages: book,
+                ..Default::default()
+            })
+            .unwrap();
+        record
+            .lock()
+            .unwrap()
+            .push((names(&events), model.launches().len()));
+    }));
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    let (events, owed) = &seen[0];
+    assert!(events.contains(&"RunnerStarted"), "{events:?}");
+    assert!(!events.contains(&"TurnCompleted"), "{events:?}");
+    assert_eq!(*owed, 0, "the run is not owed a runner while it runs");
+}
+
+#[tokio::test]
+async fn the_runner_start_says_the_engine_the_directory_and_no_pid() {
+    let mut rig = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    );
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    let started = run_events(&rig.edge, SESSION)
+        .await
+        .into_iter()
+        .find_map(|e| match e {
+            RunEvent::RunnerStartedRecorded(s) => Some(s),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        (
+            started.runtime.as_str(),
+            started.workspace.as_str(),
+            started.pid
+        ),
+        ("fake", "/work/proj", 0)
+    );
 }
 
 #[tokio::test]
@@ -274,6 +356,7 @@ async fn a_failed_turn_is_recorded_with_its_class_and_says_nothing_in_the_transc
         [
             "RunEnqueued",
             "RunnerAttached",
+            "RunnerStarted",
             "TurnStarted",
             "TurnFailed",
             "RunEnded"
@@ -468,7 +551,7 @@ async fn an_interactive_launch_gives_the_terminal_to_the_engines_command_and_end
     }
     assert_eq!(
         names(&run_events(&rig.edge, SESSION).await),
-        ["RunEnqueued", "RunnerAttached", "RunEnded"]
+        ["RunEnqueued", "RunnerAttached", "RunnerStarted", "RunEnded"]
     );
     // She has said nothing yet: the transcript holds no line.
     assert_eq!(rig.records.text(HARP, "transcripts/transcript.jsonl"), None);

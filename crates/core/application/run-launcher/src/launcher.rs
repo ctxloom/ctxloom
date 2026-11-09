@@ -6,10 +6,14 @@
 //! 1. the session home and the user's line of the transcript are written, and
 //!    the turn's command is built; a launch that fails here has started
 //!    nothing, and is a `LaunchFailed`;
-//! 2. `RunnerAttached` then `TurnStarted` are recorded BEFORE the command
-//!    runs: the pending launches clear on the first sign of life (the runs
-//!    protos have no `RunnerStarted` yet, an open decision), so a second
-//!    catch-up in the same process does not launch the run again;
+//! 2. `RunnerAttached`, `RunnerStarted` and `TurnStarted` are recorded BEFORE
+//!    the command runs: the pending launches clear on `RunnerStarted` (not on a
+//!    runner's first word, which a spawned and silent turn never says), so a
+//!    catch-up that reads the streams while the command runs does not launch
+//!    the run again. The port blocks until the command is over and learns no
+//!    pid, so the fact is the launcher's word that it is about to spawn, with
+//!    pid 0 (unknown); a command that then cannot start is a `LaunchFailed`,
+//!    which ends the run;
 //! 3. the command runs to its end; a command that could not be started is a
 //!    `LaunchFailed`; one that ran is read by the engine
 //!    ([`Engine::finish_turn`]): the assistant's line is written to the
@@ -184,6 +188,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
             }
         };
         self.record(&who, attached()).await?;
+        self.record(&who, runner_started(&order)).await?;
         if order.interactive {
             return self.terminal(&who, &command, done).await;
         }
@@ -386,6 +391,16 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
                 reason: e.to_string(),
             })
     }
+}
+
+/// The launcher's word that it spawns the runner: the engine it runs under,
+/// where, and no pid (the port learns none).
+fn runner_started(order: &Order) -> RunnerFact {
+    RunnerFact::RunnerStarted(runs::RunnerStarted {
+        runtime: order.engine.clone(),
+        workspace: order.cwd.clone().unwrap_or_default(),
+        pid: 0,
+    })
 }
 
 fn attached() -> RunnerFact {

@@ -2,17 +2,15 @@
 //! run streams. It answers which runs are still owed a runner, in a stable
 //! order, and which incarnations are owed a run.
 //!
-//! A run is owed a runner from its `RunEnqueued` until a sign that a runner
-//! exists (`RunnerAttachedRecorded`, `TurnStartedRecorded`) or its end
-//! (`RunEnded`, whatever the cause). An incarnation a session owes
-//! (`IncarnationOwed`) is listed until its run is enqueued: the policy
+//! A run is owed a runner from its `RunEnqueued` until the launcher says it
+//! made the runner (`RunnerStartedRecorded`) or its end (`RunEnded`, whatever
+//! the cause). The runner's own signs of life (`RunnerAttachedRecorded`,
+//! `TurnStartedRecorded`) are not the launch: a runner spawned and silent has
+//! been started, and one never started has not, whatever else is recorded.
+//!
+//! An incarnation a session owes (`IncarnationOwed`) is listed until its run is enqueued: the policy
 //! session to run does that, so the launcher acts on [`Pending::launches`]
 //! only.
-//!
-//! Known gap: the plan names a `RunnerStarted` fact of the launcher as the
-//! sign that a launch was made. The runs protos do not have it yet, so the
-//! first sign of life from the runner stands for it; a launcher that has
-//! started a turn's command and not yet heard from it would launch again.
 //!
 //! It is HELD in memory ([`catch_up`] is a `CatchUp::new`), rebuilt from each
 //! stream's start by a process's first step. No clock, no soft ceiling.
@@ -133,9 +131,7 @@ impl Pending {
                 self.keys.insert(root.to_vec(), key.clone());
                 self.runs.insert(key, Stage::Waiting(enqueued.mode));
             }
-            RunEvent::RunnerAttachedRecorded(_)
-            | RunEvent::TurnStartedRecorded(_)
-            | RunEvent::RunEnded(_) => {
+            RunEvent::RunnerStartedRecorded(_) | RunEvent::RunEnded(_) => {
                 if let Some(key) = self.keys.get(root) {
                     self.runs.insert(key.clone(), Stage::Past);
                 }

@@ -308,6 +308,7 @@ async fn a_one_shot_answers_with_the_engines_reply_on_a_session_of_its_own() {
         [
             "RunEnqueued",
             "RunnerAttached",
+            "RunnerStarted",
             "TurnStarted",
             "TurnCompleted",
             "RunEnded"
@@ -694,7 +695,7 @@ async fn an_interactive_run_gives_her_terminal_to_the_engine_and_ends_by_its_exi
         if m.origin == sessions::Origin::Session)));
     assert_eq!(
         event_names(&run_events(&rig.edge, &ended.session).await),
-        ["RunEnqueued", "RunnerAttached", "RunEnded"]
+        ["RunEnqueued", "RunnerAttached", "RunnerStarted", "RunEnded"]
     );
 }
 

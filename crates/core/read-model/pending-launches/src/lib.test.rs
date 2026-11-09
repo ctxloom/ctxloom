@@ -4,7 +4,7 @@ use angzarr_embedded::v1::{event_page, Cover, EventBook, EventPage, Uuid};
 use angzarr_embedded::{Any, Payload, ProjectorHandler};
 use runs::{
     run_root, EndCause, RunEnded, RunEnqueued, RunEvent, RunMode, RunnerAttachedRecorded,
-    TurnStartedRecorded, RUN_DOMAIN,
+    RunnerStartedRecorded, TurnStartedRecorded, RUN_DOMAIN,
 };
 use sessions::{IncarnationOwed, SessionEvent, SESSION_DOMAIN};
 
@@ -143,12 +143,39 @@ fn an_incarnation_owed_after_its_run_was_enqueued_is_not_owed_again() {
     assert_eq!(model.launches().len(), 1);
 }
 
+fn started() -> RunEvent {
+    RunEvent::RunnerStartedRecorded(RunnerStartedRecorded {
+        runtime: "claude-code".to_string(),
+        workspace: "/w".to_string(),
+        pid: 7,
+    })
+}
+
 #[test]
-fn a_run_whose_runner_attached_or_turn_started_is_no_longer_owed() {
+fn a_run_whose_runner_was_started_is_no_longer_owed() {
     let model = fold(&[
         enqueued(1, 1, RunMode::OneShot),
         enqueued(2, 1, RunMode::Structured),
-        enqueued(3, 1, RunMode::Structured),
+        later(1, 1, 1, started()),
+    ]);
+    assert_eq!(pending(&model), vec![(2, 1, RunMode::Structured)]);
+}
+
+// The double launch this closes: a turn spawned and silent has recorded only
+// its start. A runner's first sign of life is not what a launch waits for, and
+// a run with only signs of life (an attach, a turn started) but no start was
+// never launched by this model's reckoning, so it is still owed.
+#[test]
+fn a_started_runner_that_says_nothing_is_not_owed_again() {
+    let silent = fold(&[enqueued(1, 1, RunMode::OneShot), later(1, 1, 1, started())]);
+    assert!(silent.launches().is_empty());
+}
+
+#[test]
+fn a_sign_of_life_without_a_start_does_not_clear_the_launch() {
+    let model = fold(&[
+        enqueued(1, 1, RunMode::OneShot),
+        enqueued(2, 1, RunMode::Structured),
         later(1, 1, 1, attached()),
         later(
             2,
@@ -157,7 +184,10 @@ fn a_run_whose_runner_attached_or_turn_started_is_no_longer_owed() {
             RunEvent::TurnStartedRecorded(TurnStartedRecorded { turn: 1 }),
         ),
     ]);
-    assert_eq!(pending(&model), vec![(3, 1, RunMode::Structured)]);
+    assert_eq!(
+        pending(&model),
+        vec![(1, 1, RunMode::OneShot), (2, 1, RunMode::Structured)]
+    );
 }
 
 #[test]
@@ -188,7 +218,7 @@ fn launches_are_ordered_by_session_then_incarnation() {
 
 #[test]
 fn a_stream_projected_again_from_its_start_is_folded_afresh() {
-    let mut model = fold(&[enqueued(1, 1, RunMode::OneShot), later(1, 1, 1, attached())]);
+    let mut model = fold(&[enqueued(1, 1, RunMode::OneShot), later(1, 1, 1, started())]);
     assert!(model.launches().is_empty());
     // The same stream replayed from sequence 0, as a rebuild hands it.
     model.project(&enqueued(1, 1, RunMode::OneShot)).unwrap();

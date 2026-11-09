@@ -1,8 +1,10 @@
+# world: base
 # Ported from journeys/j001000_transcript_capture.feature (rev f36e8dfb2)
-# NOT ported: any of it yet (the Feature is @pending).
+# NOT ported: the @live scenario (it needs a real engine); the scenario that
+#   follows it is new, and proves the same capture with a stub engine that
+#   fires the hooks the session registered.
 
 @doc
-@pending
 Feature: Cross-engine transcript capture — every engine's conversation becomes one record you own
 
   Alice drives whichever engine she likes, through its own native screen, and
@@ -24,7 +26,7 @@ Feature: Cross-engine transcript capture — every engine's conversation becomes
 
   # Only a real engine, driven through its own screen, can show this end to
   # end.
-  @live
+  @live @pending
   Scenario Outline: An interactive engine run's own log is captured when it exits
     # substitution: Alice reads the session back through ctxloom, as she would, instead of the record's lines being inspected.
     Given a real <agent> agent is available
@@ -38,3 +40,21 @@ Feature: Cross-engine transcript capture — every engine's conversation becomes
     Examples:
       | agent       | engine      |
       | claude      | claude-code |
+
+  # The interactive engine reports what happens through the hooks its session
+  # home registers; the stub engine fires them as separate processes, with the
+  # environment a real engine gives its hooks, and each one twice.
+  Scenario: The hooks an interactive engine fires become the session's transcript
+    # new: the end-to-end proof of hook capture, with a stub engine on PATH.
+    # The project is hers, never used before: the scenario starts from setup.
+    Given Alice has a project that has never used ctxloom
+    And Alice has set ctxloom up in her project
+    When Alice runs her assistant interactively, and it fires its session's hooks twice each:
+      """
+      ctxloom run
+      """
+    Then the assistant's environment held what its hooks need to reach ctxloom
+    And every hook it fired answered, said nothing was left unrecorded, and exited 0
+    And the session's transcript holds her prompt, the assistant's words in order, the tool call as a digest, the turn's end and the session's end, each once
+    And the transcript was written when the run ended, not while the engine ran
+    And a hook fired after the run has ended is refused without failing, and adds nothing to the transcript

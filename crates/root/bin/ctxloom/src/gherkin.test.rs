@@ -62,6 +62,8 @@ struct World {
     adopt: adopt::State,
     /// What j000200's scenario 2 keeps.
     setup: setup::State,
+    /// What j001000's stub-engine scenario keeps.
+    capture: capture::State,
 }
 
 impl fmt::Debug for World {
@@ -80,7 +82,7 @@ impl CommonWorld for World {
     }
 
     fn alice_runs(&mut self, step: &Step) {
-        if setup::stages(self, step) {
+        if setup::stages(self, step) || capture::fires(self, step) {
             return;
         }
         self.before_run();
@@ -109,6 +111,7 @@ impl World {
             lock_free_dead: Vec::new(),
             adopt: adopt::State::default(),
             setup: setup::State::default(),
+            capture: capture::State::default(),
         }
     }
 
@@ -309,6 +312,9 @@ mod adopt;
 
 #[path = "gherkin_setup.test.rs"]
 mod setup;
+
+#[path = "gherkin_capture.test.rs"]
+mod capture;
 
 // ------------------------------------------------------------------ given
 

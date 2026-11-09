@@ -145,6 +145,9 @@ pub trait Engine: Send + Sync {
     fn finish_turn(&self, output: &TurnOutput) -> TurnOutcome;
 
     /// How this engine is handed a credential.
+    // `Default::default()` is the same value as `Credentials::default()`:
+    // the mutant is equivalent.
+    #[cfg_attr(test, mutants::skip)]
     fn credentials(&self) -> Credentials {
         Credentials::default()
     }

@@ -344,10 +344,10 @@ impl Engine for ScriptedEngine {
 }
 
 /// An engine that asks for credentials as `1` says, and is otherwise `0`.
-// A test double shipped for tests only; its tests are the callers' own.
-#[cfg_attr(test, mutants::skip)]
 pub struct Credentialed(pub ScriptedEngine, pub run_ports::Credentials);
 
+// A test double shipped for tests only; its tests are the callers' own.
+#[cfg_attr(test, mutants::skip)]
 impl Engine for Credentialed {
     fn name(&self) -> &str {
         self.0.name()

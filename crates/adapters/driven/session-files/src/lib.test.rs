@@ -662,3 +662,23 @@ fn removing_a_session_whose_home_holds_the_link_leaves_the_login_intact() {
         .unwrap();
     assert_eq!(fs.read_to_string(Path::new(LOGIN)).unwrap(), SECRET);
 }
+
+#[test]
+fn a_directory_at_the_link_path_is_other_and_a_failed_look_is_not_absent() {
+    let (fs, dirs) = dirs();
+    fs.create_dir_all(
+        &dirs.dir(HARP).join("home/.credentials.json"),
+        Mode::from_bits(0o755),
+    )
+    .unwrap();
+    assert_eq!(dirs.state(HARP, "home/.credentials.json"), LinkState::Other);
+    // `home` is a file, so nothing under it can be looked at: that is a
+    // failure to find out (not a directory), never "absent".
+    write(&fs, &dirs, "blocked", "x");
+    assert_eq!(
+        dirs.state(HARP, "blocked/.credentials.json"),
+        LinkState::Other
+    );
+    // And a gap really is absent.
+    assert_eq!(dirs.state(HARP, "home/never"), LinkState::Absent);
+}

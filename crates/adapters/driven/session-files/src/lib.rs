@@ -318,11 +318,13 @@ impl LoginLinks for SessionDirs {
         };
         match self.fs.symlink_metadata(&path) {
             Err(e) if e.kind() == ErrorKind::NotFound => LinkState::Absent,
-            Ok(meta) if meta.kind == Kind::Symlink => match self.fs.read_link(&path) {
+            // Whatever is there is a link when it can be read as one; a
+            // plain file, a directory or an unreadable entry is not.
+            Ok(_) => match self.fs.read_link(&path) {
                 Ok(target) => LinkState::LinkTo(target.display().to_string()),
                 Err(_) => LinkState::Other,
             },
-            _ => LinkState::Other,
+            Err(_) => LinkState::Other,
         }
     }
 

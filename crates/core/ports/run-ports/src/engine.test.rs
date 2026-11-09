@@ -37,3 +37,31 @@ fn an_engine_that_cannot_yet_says_so_with_its_code() {
         "run-ports-engine-not-yet engine=claude-code operation=drive_interactive"
     );
 }
+
+/// An engine that says nothing of credentials.
+struct Plain;
+
+impl Engine for Plain {
+    fn name(&self) -> &str {
+        "plain"
+    }
+    fn prepare(&self, _: &PrepareRequest) -> Result<Prepared, EngineError> {
+        unreachable!()
+    }
+    fn drive_turn(&self, _: &TurnRequest) -> Result<crate::TurnCommand, EngineError> {
+        unreachable!()
+    }
+    fn finish_turn(&self, _: &crate::TurnOutput) -> TurnOutcome {
+        unreachable!()
+    }
+    fn drive_interactive(&self, _: &TurnRequest) -> Result<crate::TurnCommand, EngineError> {
+        unreachable!()
+    }
+}
+
+#[test]
+fn an_engine_that_says_nothing_asks_for_no_credential() {
+    let none = Plain.credentials();
+    assert!(none.child_env.is_empty() && none.primary_env.is_empty());
+    assert_eq!((none.user_dir, none.login_file), ("", None));
+}

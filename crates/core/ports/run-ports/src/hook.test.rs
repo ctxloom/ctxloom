@@ -184,3 +184,34 @@ fn with_nowhere_to_put_the_socket_it_is_refused() {
         assert_eq!(error.code(), "run-ports-endpoint-no-directory");
     }
 }
+
+// The exact text of each error (code, then its args) and the args each reports.
+#[test]
+fn the_endpoint_errors_display_and_report_their_args_exactly() {
+    let too_long = EndpointError::TooLong {
+        path: "/p/x.sock".to_string(),
+        limit: 107,
+    };
+    assert_eq!(
+        too_long.to_string(),
+        "run-ports-endpoint-too-long length=9 limit=107 path=/p/x.sock"
+    );
+    assert_eq!(too_long.args().len(), 3);
+    assert_eq!(
+        EndpointError::RunTooShort { length: 3 }.to_string(),
+        "run-ports-endpoint-run-too-short length=3"
+    );
+    assert_eq!(
+        EndpointError::NoDirectory.to_string(),
+        "run-ports-endpoint-no-directory"
+    );
+}
+
+#[test]
+fn the_bearer_error_displays_and_reports_its_length_exactly() {
+    let error = BearerError::Malformed { length: 7 };
+    assert_eq!(error.to_string(), "run-ports-bearer-malformed length=7");
+    let args = error.args();
+    assert_eq!(args.len(), 1);
+    assert_eq!(args[0].0, "length");
+}

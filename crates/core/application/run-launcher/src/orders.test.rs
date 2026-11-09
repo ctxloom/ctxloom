@@ -38,3 +38,24 @@ fn placing_again_replaces_the_order() {
     orders.place("s1", 1, order("second"));
     assert_eq!(orders.take("s1", 1), Some(order("second")));
 }
+
+// An order is logged without the bearer's value: the exact rendering.
+#[test]
+fn an_order_renders_its_env_keys_and_never_the_bearer() {
+    let order = Order {
+        harp: "h".to_string(),
+        engine: "e".to_string(),
+        context: "c".to_string(),
+        prompt: "p".to_string(),
+        env: BTreeMap::from([
+            ("CTXLOOM_BEARER".to_string(), "run.TOPSECRET".to_string()),
+            ("PATH".to_string(), "/bin".to_string()),
+        ]),
+        cwd: None,
+        interactive: true,
+    };
+    assert_eq!(
+        format!("{order:?}"),
+        r#"Order { harp: "h", engine: "e", context: "c", prompt: "p", env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "/bin"}, cwd: None, interactive: true }"#
+    );
+}

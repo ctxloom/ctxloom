@@ -274,20 +274,48 @@ struct Links {
     login: bool,
     held: Arc<Mutex<Option<LinkState>>>,
     made: Arc<Mutex<Vec<(String, String, String)>>>,
+    /// What the session's `home/bin/ctxloom` holds, and what was done to it.
+    shim_held: Arc<Mutex<Option<LinkState>>>,
+    shim_ops: Arc<Mutex<Vec<String>>>,
 }
+
+const SHIM: &str = "home/bin/ctxloom";
 
 impl LoginLinks for Links {
     fn present(&self, path: &str) -> bool {
         self.login && path == "/home/u/.claude/.credentials.json"
     }
-    fn state(&self, _: &str, _: &str) -> LinkState {
+    fn state(&self, _: &str, rel: &str) -> LinkState {
+        if rel == SHIM {
+            return self
+                .shim_held
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or(LinkState::Absent);
+        }
         self.held
             .lock()
             .unwrap()
             .clone()
             .unwrap_or(LinkState::Absent)
     }
+    fn unlink(&mut self, _: &str, rel: &str) -> Result<(), RecordsError> {
+        self.shim_ops.lock().unwrap().push(format!("unlink {rel}"));
+        *self.shim_held.lock().unwrap() = None;
+        Ok(())
+    }
+    fn dir(&self, harp: &str) -> String {
+        format!("/work/proj/.ctxloom/sessions/{harp}")
+    }
     fn link(&mut self, harp: &str, rel: &str, target: &str) -> Result<(), RecordsError> {
+        if rel == SHIM {
+            self.shim_ops
+                .lock()
+                .unwrap()
+                .push(format!("link {rel} -> {target}"));
+            return Ok(());
+        }
         self.made
             .lock()
             .unwrap()
@@ -314,6 +342,8 @@ struct Script {
     /// Whether the user's login file is there.
     login: bool,
     os: &'static str,
+    /// The running binary the session's `ctxloom` link names.
+    program: &'static str,
     /// A reason the hook server refuses to serve, if it does.
     hooks_refuse: Option<&'static str>,
 }
@@ -334,6 +364,7 @@ impl Script {
             env: vec![("PATH", "/bin"), ("HOME", "/home/u")],
             login: true,
             os: "linux",
+            program: "/opt/ctxloom/bin/ctxloom",
             hooks_refuse: None,
         }
     }
@@ -388,6 +419,7 @@ fn rig(script: Script) -> Rig {
         place: Place {
             project_dir: "/work/proj".to_string(),
             output_root: "/home/u/Documents/ctxloom/proj".to_string(),
+            program: script.program.to_string(),
         },
         env: script
             .env
@@ -1349,4 +1381,97 @@ async fn the_plans_model_is_handed_to_the_engine_for_a_turn_and_for_the_terminal
 
 fn rig_again_with(script: Script) -> Rig {
     rig(script)
+}
+
+// Live probe (2026-11-09), owner ruling: a different `ctxloom` (the Go binary)
+// can come first on PATH, so the hook's bare `ctxloom` ran the wrong program.
+// The terminal session's own `home/bin/ctxloom` is a link to the RUNNING
+// binary, and that directory leads the engine's PATH.
+const SHIM_DIR: &str = "/work/proj/.ctxloom/sessions/amber-swift-owl/home/bin";
+
+async fn interactive_env(
+    script: Script,
+) -> (Rig, std::collections::BTreeMap<String, String>, Vec<Notice>) {
+    let mut rig = rig_again_with(script);
+    let done = rig.runs.interactive(&Flags::default(), &ask()).await;
+    let notices = done.notices;
+    done.result.unwrap();
+    let env = rig.runner.seen_terminal.lock().unwrap()[0].env.clone();
+    (rig, env, notices)
+}
+
+#[tokio::test]
+async fn an_interactive_run_links_its_ctxloom_to_the_running_binary() {
+    let (rig, _, _) = interactive_env(Script::answering()).await;
+    assert_eq!(
+        *rig.links.shim_ops.lock().unwrap(),
+        ["link home/bin/ctxloom -> /opt/ctxloom/bin/ctxloom"]
+    );
+}
+
+#[tokio::test]
+async fn the_sessions_bin_leads_the_interactive_path_and_the_inherited_path_follows() {
+    let (_, env, _) = interactive_env(Script::answering()).await;
+    assert_eq!(env["PATH"], format!("{SHIM_DIR}:/bin"));
+    let mut bare = Script::answering();
+    bare.env = vec![("HOME", "/home/u")];
+    let (_, env, _) = interactive_env(bare).await;
+    assert_eq!(env["PATH"], SHIM_DIR);
+}
+
+#[tokio::test]
+async fn a_link_already_right_is_left_and_a_stale_one_is_replaced() {
+    let right = Script::answering();
+    let rig = rig_again_with(right);
+    *rig.links.shim_held.lock().unwrap() =
+        Some(LinkState::LinkTo("/opt/ctxloom/bin/ctxloom".to_string()));
+    let mut rig = rig;
+    rig.runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    assert!(rig.links.shim_ops.lock().unwrap().is_empty());
+
+    let mut rig = rig_again_with(Script::answering());
+    *rig.links.shim_held.lock().unwrap() = Some(LinkState::LinkTo("/old/ctxloom".to_string()));
+    rig.runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    assert_eq!(
+        *rig.links.shim_ops.lock().unwrap(),
+        [
+            "unlink home/bin/ctxloom",
+            "link home/bin/ctxloom -> /opt/ctxloom/bin/ctxloom"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn something_else_at_the_link_is_left_and_said_and_the_path_is_not_touched() {
+    let mut rig = rig_again_with(Script::answering());
+    *rig.links.shim_held.lock().unwrap() = Some(LinkState::Other);
+    let done = rig.runs.interactive(&Flags::default(), &ask()).await;
+    assert!(done.result.is_ok());
+    assert!(rig.links.shim_ops.lock().unwrap().is_empty());
+    assert_eq!(
+        rig.runner.seen_terminal.lock().unwrap()[0].env["PATH"],
+        "/bin"
+    );
+    assert!(done.notices.iter().any(|n| matches!(n,
+        Notice::Finding { text, .. } if text.contains("home/bin/ctxloom"))));
+}
+
+#[tokio::test]
+async fn a_childs_turn_gets_no_link_and_its_path_as_it_was() {
+    let mut rig = rig_again_with(Script::answering());
+    rig.runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    assert!(rig.links.shim_ops.lock().unwrap().is_empty());
+    assert_eq!(rig.runner.seen.lock().unwrap()[0].env["PATH"], "/bin");
 }

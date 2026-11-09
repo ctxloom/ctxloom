@@ -30,4 +30,11 @@ pub trait LoginLinks: Send {
     /// Make `rel` of `harp`'s directory a link to the absolute `target`,
     /// creating the directories above it. It replaces nothing.
     fn link(&mut self, harp: &str, rel: &str, target: &str) -> Result<(), RecordsError>;
+
+    /// Remove the link at `rel` of `harp`'s directory, itself and never what
+    /// it points at. Anything there that is not a link is refused.
+    fn unlink(&mut self, harp: &str, rel: &str) -> Result<(), RecordsError>;
+
+    /// The absolute path of `harp`'s directory.
+    fn dir(&self, harp: &str) -> String;
 }

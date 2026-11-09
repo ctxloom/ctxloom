@@ -343,6 +343,16 @@ impl LoginLinks for SessionDirs {
         // The seam's link is a symlink on unix, and fails where one exists.
         self.fs.symlink_dir(Path::new(target), &path).map_err(io)
     }
+
+    fn unlink(&mut self, harp: &str, rel: &str) -> Result<(), RecordsError> {
+        Err(RecordsError::BadPath {
+            rel: format!("{harp}/{rel}"),
+        })
+    }
+
+    fn dir(&self, harp: &str) -> String {
+        SessionDirs::dir(self, harp).display().to_string()
+    }
 }
 
 /// `at` as an instant; `None` for one before the epoch.

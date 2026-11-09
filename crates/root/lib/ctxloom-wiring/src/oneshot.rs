@@ -153,6 +153,7 @@ impl<'a> OneShots<'a> {
             place: Place {
                 project_dir: path_text(&project_dir),
                 output_root: path_text(&output_root),
+                program: String::new(),
             },
             env: run_env(env, wiring.home()),
             links: Box::new(SessionDirs::new(wiring.fs(), project_dir.clone())),

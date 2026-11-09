@@ -641,6 +641,34 @@ fn a_path_out_of_the_session_directory_is_refused() {
     assert_eq!(dirs.state(HARP, "../escape"), LinkState::Other);
 }
 
+// A stale link is replaced: the link is removed, never what it points at.
+#[test]
+fn unlinking_removes_the_link_and_not_its_target_and_refuses_what_is_no_link() {
+    let (fs, mut dirs) = dirs();
+    login(&fs);
+    dirs.link(HARP, "home/bin/ctxloom", LOGIN).unwrap();
+    dirs.unlink(HARP, "home/bin/ctxloom").unwrap();
+    assert_eq!(dirs.state(HARP, "home/bin/ctxloom"), LinkState::Absent);
+    assert!(
+        fs.metadata(Path::new(LOGIN)).is_ok(),
+        "the target is intact"
+    );
+    // Nothing there is not a failure to replace; a file of its own is not a link.
+    run_ports::SessionRecords::write(&mut dirs, HARP, "home/plain", b"x").unwrap();
+    assert!(dirs.unlink(HARP, "home/plain").is_err());
+    assert_eq!(dirs.state(HARP, "home/plain"), LinkState::Other);
+    assert!(dirs.unlink(HARP, "../escape").is_err());
+}
+
+#[test]
+fn the_links_directory_is_the_sessions_own() {
+    let (_, dirs) = dirs();
+    assert_eq!(
+        LoginLinks::dir(&dirs, HARP),
+        SessionDirs::dir(&dirs, HARP).display().to_string()
+    );
+}
+
 // Removing a session must never follow the link: the user's login is not the
 // session's to destroy. The survey never walks the home, and a destroy that
 // names the link itself, or the whole home, removes no file through it.

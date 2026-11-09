@@ -119,6 +119,9 @@ pub trait Core {
 pub struct Place {
     pub project_dir: String,
     pub output_root: String,
+    /// The absolute path of the running ctxloom binary, which the session's
+    /// own `bin/ctxloom` link names; empty when it could not be found.
+    pub program: String,
 }
 
 /// The run use cases over their ports.

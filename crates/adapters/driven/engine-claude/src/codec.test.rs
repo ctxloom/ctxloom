@@ -268,3 +268,22 @@ fn test_decode_and_the_name_mapping_agree() {
         );
     }
 }
+
+// Live probe (2026-11-09): the payloads of the compaction hooks, as claude
+// sent them.
+#[test]
+fn test_a_compaction_names_its_trigger_and_post_compact_carries_the_summary() {
+    let pre = decode(
+        r#"{"session_id":"s1","prompt_id":"08f6beb1","hook_event_name":"PreCompact","trigger":"manual","custom_instructions":null}"#,
+    );
+    assert_eq!(pre.event, "PreCompact");
+    assert_eq!(pre.prompt_id, "08f6beb1");
+    assert_eq!(pre.trigger, "manual");
+    assert_eq!(pre.compact_summary, "");
+    let post = decode(
+        r#"{"session_id":"s1","prompt_id":"08f6beb1","hook_event_name":"PostCompact","trigger":"auto","compact_summary":"The user asked."}"#,
+    );
+    assert_eq!(post.event, "PostCompact");
+    assert_eq!(post.trigger, "auto");
+    assert_eq!(post.compact_summary, "The user asked.");
+}

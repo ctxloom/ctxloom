@@ -373,6 +373,11 @@ pub struct HookEvent {
     pub message: Option<MessageDisplay>,
     /// The tool calls of a batch (a post_tool_batch's), in order.
     pub tool_calls: Vec<ToolCall>,
+    /// What started a compaction, `manual` or `auto` (a compaction's).
+    pub trigger: String,
+    /// The summary the engine wrote of the context (a PostCompact's): the
+    /// capture records its size and digest, never this text.
+    pub compact_summary: String,
 }
 
 /// One MessageDisplay event: a piece of the assistant's text as it is shown.

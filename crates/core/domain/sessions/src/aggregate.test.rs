@@ -926,12 +926,18 @@ fn every_observation_records_its_event_on_a_live_session() {
             RecordCompaction {
                 prompt_id: "p1".to_string(),
                 phase: CompactionPhase::Before,
+                trigger: "manual".to_string(),
+                summary_bytes: 12,
+                summary_sha256: "ab".to_string(),
             },
-            "hook:compact:s:p1:before"
+            "hook:compact:s:p1:manual:before"
         ),
         [SessionEvent::Compacted(Compacted {
             prompt_id: "p1".to_string(),
             phase: CompactionPhase::Before,
+            trigger: "manual".to_string(),
+            summary_bytes: 12,
+            summary_sha256: "ab".to_string(),
         })]
     );
     assert_eq!(

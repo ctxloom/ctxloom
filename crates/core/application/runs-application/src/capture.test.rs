@@ -84,6 +84,7 @@ fn compaction(native: &str, prompt_id: &str) -> HookEvent {
         event: native.to_string(),
         native_session: "n1".to_string(),
         prompt_id: prompt_id.to_string(),
+        trigger: "manual".to_string(),
         ..HookEvent::default()
     }
 }
@@ -210,14 +211,56 @@ fn a_compaction_is_before_or_after_by_the_event() {
         [Observation::Compaction(sessions::RecordCompaction {
             prompt_id: "p1".to_string(),
             phase: sessions::CompactionPhase::Before,
+            trigger: "manual".to_string(),
+            summary_bytes: 0,
+            summary_sha256: String::new(),
         })]
     );
+    // PostCompact carries the summary: its size and digest are recorded and
+    // its text is not (ruling B). sha256("abc") is the well-known digest.
+    let mut after = compaction("PostCompact", "p1");
+    after.compact_summary = "abc".to_string();
+    let observed = observe(&after);
     assert_eq!(
-        observe(&compaction("PostCompact", "p1")),
+        observed,
         [Observation::Compaction(sessions::RecordCompaction {
             prompt_id: "p1".to_string(),
             phase: sessions::CompactionPhase::After,
+            trigger: "manual".to_string(),
+            summary_bytes: 3,
+            summary_sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+                .to_string(),
         })]
+    );
+    assert!(!format!("{observed:?}").contains("abc"));
+}
+
+// Live probe (2026-11-09): two compactions of one turn used to share an id.
+// The trigger and the phase tell them apart, as does the prompt.
+#[test]
+fn two_compactions_of_one_turn_have_two_ids() {
+    let with = |native: &str, prompt: &str, trigger: &str| HookEvent {
+        trigger: trigger.to_string(),
+        ..compaction(native, prompt)
+    };
+    let all = [
+        with("PreCompact", "p1", "manual"),
+        with("PostCompact", "p1", "manual"),
+        with("PreCompact", "p1", "auto"),
+        with("PostCompact", "p1", "auto"),
+        with("PreCompact", "p2", "manual"),
+        with("PreCompact", "p3", ""),
+    ];
+    assert_eq!(
+        ids(&all),
+        [
+            format!("hook:compact:{S}:p1:manual:before"),
+            format!("hook:compact:{S}:p1:manual:after"),
+            format!("hook:compact:{S}:p1:auto:before"),
+            format!("hook:compact:{S}:p1:auto:after"),
+            format!("hook:compact:{S}:p2:manual:before"),
+            format!("hook:compact:{S}:p3:unknown:before"),
+        ]
     );
 }
 
@@ -263,8 +306,8 @@ fn an_external_id_spells_its_kind_session_and_cause() {
             format!("hook:tool:{S}:toolu_a"),
             format!("hook:turn-end:{S}:p1"),
             format!("hook:session-end:{S}:n1"),
-            format!("hook:compact:{S}:p1:before"),
-            format!("hook:compact:{S}:p1:after"),
+            format!("hook:compact:{S}:p1:manual:before"),
+            format!("hook:compact:{S}:p1:manual:after"),
         ]
     );
 }

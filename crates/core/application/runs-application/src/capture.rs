@@ -96,6 +96,9 @@ fn compaction(event: &HookEvent, phase: sessions::CompactionPhase) -> Observatio
     Observation::Compaction(sessions::RecordCompaction {
         prompt_id: event.prompt_id.clone(),
         phase,
+        trigger: String::new(),
+        summary_bytes: 0,
+        summary_sha256: String::new(),
     })
 }
 

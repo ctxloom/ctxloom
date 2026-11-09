@@ -92,8 +92,12 @@ enum CompactionPhase {
   COMPACTION_PHASE_AFTER = 2;
 }
 
-// The engine compacted its context. external_id
-// `hook:compact:<session>:<prompt_id>:<before|after>`.
+// The engine compacted its context. Of the summary the engine wrote only its
+// size and SHA-256 (lowercase hex) are recorded, never its text (ruling B: it
+// is conversation content). external_id
+// `hook:compact:<session>:<prompt_id>:<trigger>:<before|after>`: the trigger
+// (`manual` or `auto`; `unknown` when the engine named none) tells two
+// compactions of one turn apart.
 message RecordCompaction {
   option (io.angzarr.v1.fact) = {
     component: "ctxloom.sessions.v1.SessionState"
@@ -102,6 +106,9 @@ message RecordCompaction {
 
   string prompt_id = 1;
   CompactionPhase phase = 2;
+  string trigger = 3;
+  uint64 summary_bytes = 4;
+  string summary_sha256 = 5;
 }
 
 message PromptSubmitted {
@@ -151,4 +158,7 @@ message Compacted {
 
   string prompt_id = 1;
   CompactionPhase phase = 2;
+  string trigger = 3;
+  uint64 summary_bytes = 4;
+  string summary_sha256 = 5;
 }

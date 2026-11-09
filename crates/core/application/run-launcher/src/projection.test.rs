@@ -144,10 +144,17 @@ fn the_other_observations_have_their_own_kinds() {
         &SessionEvent::Compacted(sessions::Compacted {
             prompt_id: "p1".to_string(),
             phase: CompactionPhase::After,
+            trigger: "auto".to_string(),
+            summary_bytes: 12,
+            summary_sha256: "ab".to_string(),
         }),
     ));
     assert_eq!(compaction[0]["kind"], "compaction");
     assert_eq!(compaction[0]["phase"], "after");
+    // Of the summary, its size and digest and nothing of its text.
+    assert_eq!(compaction[0]["trigger"], "auto");
+    assert_eq!(compaction[0]["summary_bytes"], 12);
+    assert_eq!(compaction[0]["summary_sha256"], "ab");
 }
 
 // seq is the projector's: the order lines were made in, by the stream's order,

@@ -211,6 +211,8 @@ fn an_interactive_home_gets_settings_whose_hooks_call_ctxloom_execute() {
         "PostToolBatch",
         "Stop",
         "SessionEnd",
+        "PreCompact",
+        "PostCompact",
     ] {
         let group = hooks
             .get(event)

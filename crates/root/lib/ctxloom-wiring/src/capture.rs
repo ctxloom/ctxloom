@@ -125,7 +125,12 @@ impl HookSink {
     pub fn from_environment(endpoint: Option<&str>, bearer: Option<&str>) -> HookSink {
         let made = endpoint.filter(|e| !e.is_empty()).and_then(|endpoint| {
             let (run, token) = Bearer::parse(bearer?).ok()?;
-            Some(GrpcSink::new(endpoint, Bearer::compose(&run, &token)))
+            Some(GrpcSink::new(
+                endpoint,
+                Bearer::compose(&run, &token),
+                // Interim: the environment's certificate replaces this (unit 4).
+                run_ports::PublicCert::from_der(vec![0x30]).ok()?,
+            ))
         });
         match made {
             Some(sink) => HookSink::Listener(sink),

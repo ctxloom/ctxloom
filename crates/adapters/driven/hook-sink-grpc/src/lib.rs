@@ -31,7 +31,7 @@ use angzarr_embedded::v1::{CommandBook, DeliveryOutcome};
 use angzarr_proto_transport_distributed::v1::command_handler_coordinator_service_client::CommandHandlerCoordinatorServiceClient;
 use angzarr_proto_transport_distributed::v1::CommandResult;
 use prost::Message;
-use run_ports::{parse_endpoint, Bearer, Delivery, FactSink};
+use run_ports::{parse_endpoint, Bearer, Delivery, FactSink, PublicCert};
 use tonic::metadata::MetadataValue;
 use tonic::transport::Endpoint;
 use tonic::{Code, Request, Status};
@@ -69,15 +69,17 @@ enum Failed {
 pub struct GrpcSink {
     endpoint: String,
     bearer: Bearer,
+    cert: PublicCert,
 }
 
 impl GrpcSink {
     /// A sink delivering to the listener at the URL `endpoint`
     /// (`http://<host>:<port>`), authenticated by `bearer`.
-    pub fn new(endpoint: impl Into<String>, bearer: Bearer) -> GrpcSink {
+    pub fn new(endpoint: impl Into<String>, bearer: Bearer, cert: PublicCert) -> GrpcSink {
         GrpcSink {
             endpoint: endpoint.into(),
             bearer,
+            cert,
         }
     }
 
@@ -152,6 +154,7 @@ impl fmt::Debug for GrpcSink {
         f.debug_struct("GrpcSink")
             .field("endpoint", &self.endpoint)
             .field("bearer", &self.bearer)
+            .field("cert", &self.cert)
             .finish()
     }
 }

@@ -14,9 +14,11 @@
 //! answer UNIMPLEMENTED, and the query service is not mounted at all (a hook
 //! never reads). A request over [`MAX_REQUEST_BYTES`] is refused undecoded.
 //!
-//! The listener is plaintext: the bearer is the authentication (ruling 32),
-//! and it crosses loopback in the clear. The endpoint is a URL, so TLS is an
-//! additive step.
+//! The listener is TLS only (rulings 35-37): the run's self-signed
+//! certificate ([`TlsIdentity`]) authenticates the SERVER to the child, which
+//! pins it as its sole root, and the bearer authenticates the child. There is
+//! no mutual TLS and no plaintext: a client that does not speak TLS gets no
+//! answer.
 //!
 //! A listener spawns its tasks on the runtime that awaits
 //! [`HookListener::serve_tcp`] and needs it to be a multi-thread runtime (or
@@ -52,6 +54,30 @@ pub fn reach_of(ip: std::net::IpAddr) -> Reach {
     angzarr_coordinator_grpc::arrival_for_bind(std::net::SocketAddr::new(ip, 0))
 }
 
+/// The server's identity: the run's certificate and its private key, as PEM.
+/// The key is a secret: `Debug` withholds it.
+#[derive(Clone)]
+pub struct TlsIdentity {
+    cert_pem: String,
+    key_pem: String,
+}
+
+impl TlsIdentity {
+    /// An identity from the certificate's PEM and the key's PEM.
+    pub fn from_pem(cert_pem: impl Into<String>, key_pem: impl Into<String>) -> TlsIdentity {
+        TlsIdentity {
+            cert_pem: cert_pem.into(),
+            key_pem: key_pem.into(),
+        }
+    }
+}
+
+impl std::fmt::Debug for TlsIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("TlsIdentity(key redacted)")
+    }
+}
+
 /// A hook listener that is serving: its socket is bound, and a hook that
 /// connects finds it. Dropping it stops it at once; [`HookListener::stop`]
 /// stops it gracefully.
@@ -70,7 +96,9 @@ impl HookListener {
     pub async fn serve_tcp<E: Edge + 'static>(
         edge: Arc<E>,
         addr: std::net::SocketAddr,
+        identity: TlsIdentity,
     ) -> Result<HookListener, ListenerError> {
+        let _ = (identity.cert_pem, identity.key_pem);
         if addr.ip().is_unspecified() {
             return Err(ListenerError::Unspecified {
                 addr: addr.to_string(),

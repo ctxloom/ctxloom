@@ -180,10 +180,14 @@ impl<E: Edge + 'static> HookServer for Hooks<E> {
     ) -> BoxFuture<'a, Result<Box<dyn Serving>, Report>> {
         Box::pin(async move {
             // Port 0: each run gets a port of the system's choosing.
-            let listener =
-                HookListener::serve_tcp(Arc::clone(&self.edge), std::net::SocketAddr::new(bind, 0))
-                    .await
-                    .map_err(|e| Report::of(&e))?;
+            let listener = HookListener::serve_tcp(
+                Arc::clone(&self.edge),
+                std::net::SocketAddr::new(bind, 0),
+                // Interim: the minted identity replaces this (unit 4).
+                hook_listener::TlsIdentity::from_pem("", ""),
+            )
+            .await
+            .map_err(|e| Report::of(&e))?;
             Ok(Box::new(Live(listener)) as Box<dyn Serving>)
         })
     }

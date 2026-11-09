@@ -13,12 +13,30 @@ use serde_json::Value;
 
 use super::library::Project;
 
-const TERMINAL: [(&str, &str); 1] = [("CTXLOOM_TEST_TERMINAL", "1")];
+/// The terminal stood in, and the credential `init` looks for exported as a
+/// fixture, so its token guide (a warning line on stderr) is not said
+/// whatever the host exports: the test run's child gets exactly this
+/// environment.
+const TERMINAL: [(&str, &str); 2] = [
+    ("CTXLOOM_TEST_TERMINAL", "1"),
+    ("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-fixture-not-real"), // gitleaks:allow
+];
 
 fn project(config: &str) -> Project {
     let project = Project::initialized();
     project.write(".ctxloom/config.yaml", config);
     project
+}
+
+/// The error envelope on `stderr`: the json document that has `code` and
+/// `message`, whatever warnings are said beside it.
+fn envelope(stderr: &str) -> Value {
+    let mut documents = serde_json::Deserializer::from_str(stderr).into_iter::<Value>();
+    documents
+        .by_ref()
+        .map_while(Result::ok)
+        .find(|v| v.get("code").is_some() && v.get("message").is_some())
+        .unwrap_or_else(|| panic!("an envelope on stderr: {stderr}"))
 }
 
 /// `run` and `init` at a terminal on `config`: their exit codes, and the
@@ -27,11 +45,7 @@ fn both(config: &str) -> [(i32, Value); 2] {
     let project = project(config);
     let run = project.run_with(&TERMINAL, &["run"]);
     let init = project.run_input(&["init"], "y\n", &TERMINAL);
-    [run, init].map(|ran| {
-        let said = serde_json::from_str(&ran.stderr)
-            .unwrap_or_else(|_| panic!("an envelope on stderr: {}", ran.said()));
-        (ran.code, said)
-    })
+    [run, init].map(|ran| (ran.code, envelope(&ran.stderr)))
 }
 
 #[test]

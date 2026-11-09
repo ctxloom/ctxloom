@@ -723,6 +723,10 @@ fn init_whose_launch_is_refused_exits_with_the_launchs_own_code() {
             &person,
             &sessions,
         );
-        assert_eq!(run.exit.expect("ran"), exit, "{session}");
+        // A launch that failed is the command's Failure, carrying the
+        // launch's own code: not an Ok exit status.
+        let failure = run.exit.expect_err("the launch failed");
+        assert_eq!(failure.exit, exit, "{session}");
+        assert_eq!(failure.cause.code(), "deps-application-default-needs-name");
     }
 }

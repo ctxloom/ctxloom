@@ -648,7 +648,7 @@ fn the_listener_serves_while_the_thread_that_drives_the_run_is_blocked() {
 /// test, so the wait is forced, never hoped for: the stop must end past its
 /// grace ([`crate::STOP_GRACE`], three seconds, really elapsed) with the typed timeout, the socket must be gone, and the
 /// listener must be aborted (nobody listens).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "current_thread")]
 async fn a_client_that_holds_a_connection_open_cannot_hold_the_stop() {
     let world = World::new().await;
     let listener = world.serve().await;

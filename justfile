@@ -15,6 +15,7 @@ import 'gates/gates.just'
 import 'gates/os-gates.just'
 import 'gates/fixture-gates.just'
 import 'gates/arch-gates.just'
+import 'gates/dev-local.just'
 
 # What gates/arch-gates.just takes from this justfile: the arch-lint binary, built
 # from the same ctxloom-lib commit the workspace pins (arch_lint_rev, kept
@@ -167,6 +168,7 @@ selftest:
     @{{TOP}}/scripts/ltk-rules-check.sh
     @{{TOP}}/scripts/output-budget.selftest.sh
     @{{TOP}}/scripts/exec-mode-check.selftest.sh
+    @{{TOP}}/scripts/dev-local.selftest.sh
 
 # Run the ctxloom binary (cargo run, quiet) with the given arguments.
 [group('dev')]

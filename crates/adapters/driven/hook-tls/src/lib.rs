@@ -14,12 +14,17 @@
 use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
-use run_ports::{CertMint, CertNames, HookCertificate};
+use rcgen::{
+    CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, Ia5String, IsCa,
+    KeyPair, KeyUsagePurpose, SanType,
+};
+use run_ports::{CertMint, CertNames, HookCertificate, PublicCert};
+use time::OffsetDateTime;
 
 /// The seconds before now a certificate is valid from.
-pub const BACKDATE_SECONDS: i64 = 0;
+pub const BACKDATE_SECONDS: i64 = 300;
 /// The seconds after now a certificate is valid until.
-pub const LIFETIME_SECONDS: i64 = 0;
+pub const LIFETIME_SECONDS: i64 = 86_400;
 
 /// What the mint reads the time from.
 pub trait Clock: Send + Sync {
@@ -51,9 +56,38 @@ pub struct Validity {
 /// The window of a certificate minted at `now`.
 pub fn validity(now: i64) -> Validity {
     Validity {
-        not_before: now,
-        not_after: now,
+        not_before: now.saturating_sub(BACKDATE_SECONDS),
+        not_after: now.saturating_add(LIFETIME_SECONDS),
     }
+}
+
+/// A date for rcgen, or the clock's refusal.
+fn date(seconds: i64, clock: i64) -> Result<OffsetDateTime, MintError> {
+    OffsetDateTime::from_unix_timestamp(seconds).map_err(|_| MintError::Clock { seconds: clock })
+}
+
+/// The parameters of a certificate for `names` valid in `window`.
+fn parameters(names: &CertNames, now: i64) -> Result<CertificateParams, MintError> {
+    let window = validity(now);
+    let mut params = CertificateParams::default();
+    params.not_before = date(window.not_before, now)?;
+    params.not_after = date(window.not_after, now)?;
+    params.distinguished_name = DistinguishedName::new();
+    params
+        .distinguished_name
+        .push(DnType::CommonName, "ctxloom run");
+    params.is_ca = IsCa::ExplicitNoCa;
+    params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
+    params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
+    params.subject_alt_names = names.ips().into_iter().map(SanType::IpAddress).collect();
+    for name in names.dns() {
+        let dns = Ia5String::try_from(name.clone()).map_err(|e| MintError::Name {
+            name: name.clone(),
+            ext_err_txt: e.to_string(),
+        })?;
+        params.subject_alt_names.push(SanType::DnsName(dns));
+    }
+    Ok(params)
 }
 
 /// The mint: a [`CertMint`] over a [`Clock`].
@@ -70,10 +104,16 @@ impl<C: Clock> Minter<C> {
 
 impl<C: Clock> CertMint for Minter<C> {
     fn mint(&self, names: &CertNames) -> Result<HookCertificate, Report> {
-        let _ = (names, self.clock.unix_seconds());
-        Err(Report::of(&MintError::Generate {
-            ext_err_txt: "not built".to_string(),
-        }))
+        let generate = |e: rcgen::Error| MintError::Generate {
+            ext_err_txt: e.to_string(),
+        };
+        let params = parameters(names, self.clock.unix_seconds()).map_err(|e| Report::of(&e))?;
+        let key = KeyPair::generate().map_err(|e| Report::of(&generate(e)))?;
+        let cert = params
+            .self_signed(&key)
+            .map_err(|e| Report::of(&generate(e)))?;
+        let public = PublicCert::from_der(cert.der().to_vec()).map_err(|e| Report::of(&e))?;
+        Ok(HookCertificate::new(public, key.serialize_pem()))
     }
 }
 

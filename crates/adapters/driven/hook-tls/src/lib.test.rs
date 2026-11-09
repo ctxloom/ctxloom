@@ -37,7 +37,7 @@ fn times(der: &[u8]) -> Vec<String> {
     let mut found = Vec::new();
     let mut at = 0;
     while at + 15 <= der.len() {
-        if der[at] == 0x17 && der[at + 1] == 13 && der[at + 14 - 1] == b'Z' {
+        if der[at] == 0x17 && der[at + 1] == 13 && der[at + 14] == b'Z' {
             let text = &der[at + 2..at + 15];
             if text.iter().take(12).all(u8::is_ascii_digit) {
                 found.push(String::from_utf8_lossy(text).into_owned());

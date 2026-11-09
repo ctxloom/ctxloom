@@ -52,7 +52,16 @@ pub struct Scope {
 impl Scope {
     /// The hook role's scope: the six capture facts and nothing else.
     pub fn capture() -> Scope {
-        Scope::default().with_fact(url::<sessions::RecordPromptSubmitted>())
+        [
+            url::<sessions::RecordPromptSubmitted>(),
+            url::<sessions::RecordAssistantText>(),
+            url::<sessions::RecordToolCall>(),
+            url::<sessions::RecordTurnEnded>(),
+            url::<sessions::RecordSessionEnded>(),
+            url::<sessions::RecordCompaction>(),
+        ]
+        .into_iter()
+        .fold(Scope::default(), Scope::with_fact)
     }
 
     /// This scope and `type_url` as a fact.
@@ -71,13 +80,21 @@ impl Scope {
     #[cfg_attr(not(test), allow(dead_code))] // the allowlist is what the coordinator enforces
     /// Whether a body of `kind` and `type_url` is within the scope.
     pub fn permits(&self, kind: BodyKind, type_url: &str) -> bool {
-        let _ = (kind, type_url);
-        false
+        match kind {
+            BodyKind::Fact => self.facts.contains(type_url),
+            BodyKind::Command => self.commands.contains(type_url),
+        }
     }
 
     /// The allowlist the coordinator enforces for this scope.
     pub fn allowlist(&self) -> Allowlist {
-        Allowlist::none()
+        let facts = self.facts.iter().map(|u| (BodyKind::Fact, u));
+        let commands = self.commands.iter().map(|u| (BodyKind::Command, u));
+        facts
+            .chain(commands)
+            .fold(Allowlist::none(), |list, (kind, type_url)| {
+                list.send(kind, type_url.clone())
+            })
     }
 }
 

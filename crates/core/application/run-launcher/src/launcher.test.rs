@@ -165,6 +165,11 @@ async fn the_transcript_holds_the_prompt_then_the_answer_and_the_event_names_it(
     );
     assert_eq!(lines[1]["ts"], "2023-11-14T22:13:20Z");
     assert_eq!(lines[1]["harp"], HARP);
+    // D27's envelope carries the session's id, on every line.
+    assert!(
+        lines.iter().all(|l| l["session_id"] == SESSION),
+        "{lines:?}"
+    );
     let completed = run_events(&rig.edge, SESSION)
         .await
         .into_iter()

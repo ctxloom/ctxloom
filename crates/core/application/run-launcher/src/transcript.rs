@@ -1,5 +1,5 @@
-//! The canonical transcript's lines (D27): Go's envelope, `v, harp, engine,
-//! seq, ts, kind` and the entry, one JSON object per line in
+//! The canonical transcript's lines (D27): the envelope `v, harp, session_id,
+//! engine, seq, ts, kind` and the entry, one JSON object per line in
 //! `transcripts/transcript.jsonl`. Pure: the instant and the sequence enter as
 //! arguments.
 
@@ -25,6 +25,7 @@ impl Speaker {
 /// One entry's line, newline included. `seq` is per transcript.
 pub fn entry_line(
     harp: &str,
+    session_id: &str,
     engine: &str,
     seq: u64,
     seconds: i64,
@@ -34,6 +35,7 @@ pub fn entry_line(
     let line = serde_json::json!({
         "v": 1,
         "harp": harp,
+        "session_id": session_id,
         "engine": engine,
         "seq": seq,
         "ts": rfc3339(seconds),

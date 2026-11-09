@@ -150,7 +150,9 @@ inheritance, and its data is meant to come from hooks. Crates:
 - `core/application/{run-launcher, run-application}`: the launcher is a
   `CatchUp` over `pending-launches` that drives the engine for one turn and
   records the outcome as facts, and a recorder that writes the session
-  directory (`metadata.json`, `records/*.jsonl`) from the events; `Runs` plans
+  directory (`metadata.json`, `records/*.jsonl`: the events, not the conversation)
+  from the events and writes the conversation to `transcripts/transcript.jsonl`
+  (D27 envelope `v, harp, session_id, engine, seq, ts, kind`); `Runs` plans
   the run through the library's dry-run, mints, enqueues, launches, returns the
   reply;
 - `adapters/driven/host-launcher` (a turn's command through `run-within`; the

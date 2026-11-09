@@ -176,7 +176,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
             engine: order.engine.clone(),
             outcome,
         };
-        let (engine, command) = match self.prepare(&order) {
+        let (engine, command) = match self.prepare(&launch.session, &order) {
             Ok(prepared) => prepared,
             Err(detail) => {
                 self.not_started(&who, true, &detail).await?;
@@ -206,7 +206,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
         let code = output.exit.code.unwrap_or(0);
         let outcome = match outcome {
             TurnOutcome::Answered { answer, native_id } => {
-                self.speak(&order, Speaker::Assistant, &answer)?;
+                self.speak(&launch.session, &order, Speaker::Assistant, &answer)?;
                 if let Some(native) = &native_id {
                     self.record(&who, bound(native, self.records.dir(&order.harp)))
                         .await?;
@@ -289,7 +289,11 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
     /// Everything a launch does before it records a sign of life: the engine,
     /// the session home, the user's line, the command. Its error is why
     /// nothing was started.
-    fn prepare(&mut self, order: &Order) -> Result<(Arc<dyn Engine>, TurnCommand), String> {
+    fn prepare(
+        &mut self,
+        session: &str,
+        order: &Order,
+    ) -> Result<(Arc<dyn Engine>, TurnCommand), String> {
         let engine = self
             .engine(&order.engine)
             .ok_or_else(|| format!("no engine named {}", order.engine))?;
@@ -308,7 +312,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
                 .map_err(|e| e.to_string())?;
         }
         if !order.prompt.trim().is_empty() {
-            self.speak(order, Speaker::User, &order.prompt)
+            self.speak(session, order, Speaker::User, &order.prompt)
                 .map_err(|e| e.to_string())?;
         }
         let request = TurnRequest {
@@ -329,7 +333,13 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
     }
 
     /// Add `content` to the session's transcript.
-    fn speak(&mut self, order: &Order, speaker: Speaker, content: &str) -> Result<(), LaunchError> {
+    fn speak(
+        &mut self,
+        session: &str,
+        order: &Order,
+        speaker: Speaker,
+        content: &str,
+    ) -> Result<(), LaunchError> {
         let record = |e: run_ports::RecordsError| LaunchError::Record {
             ext_err_txt: e.to_string(),
         };
@@ -340,6 +350,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
             .map_or(0, |held| next_seq(&held));
         let line = entry_line(
             &order.harp,
+            session,
             &order.engine,
             seq,
             self.clock.now().seconds,

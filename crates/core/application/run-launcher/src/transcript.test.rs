@@ -14,9 +14,10 @@ fn an_instant_is_spelled_as_rfc_3339_in_utc() {
 }
 
 #[test]
-fn an_entry_is_one_line_in_gos_envelope() {
+fn an_entry_is_one_line_in_d27s_envelope() {
     let line = entry_line(
         "amber-swift-owl",
+        "0b2c9a52-1111-4222-8333-444455556666",
         "claude-code",
         3,
         0,
@@ -31,6 +32,7 @@ fn an_entry_is_one_line_in_gos_envelope() {
         serde_json::json!({
             "v": 1,
             "harp": "amber-swift-owl",
+            "session_id": "0b2c9a52-1111-4222-8333-444455556666",
             "engine": "claude-code",
             "seq": 3,
             "ts": "1970-01-01T00:00:00Z",
@@ -42,7 +44,7 @@ fn an_entry_is_one_line_in_gos_envelope() {
 
 #[test]
 fn the_user_speaks_as_user() {
-    let line = entry_line("h", "e", 0, 0, Speaker::User, "hi");
+    let line = entry_line("h", "s", "e", 0, 0, Speaker::User, "hi");
     assert!(line.contains(r#""type":"user""#), "{line}");
 }
 

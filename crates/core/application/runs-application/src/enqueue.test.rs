@@ -137,3 +137,60 @@ async fn each_enqueue_mints_its_own_token_and_a_repeat_changes_nothing() {
     assert!(repeat.is_err(), "runs-already-enqueued");
     assert_ne!(first.runner_token, run_ports::Token::from_bytes([0; 32]));
 }
+
+// NEW-DESIGN, owner ruling 2026-11-09 (item 16): the enqueue mints a THIRD
+// token for the hook principal, journals only its digest, and the other two
+// principals' gate does not take it for theirs (the hook's allowlist is the
+// gate track's).
+#[tokio::test]
+async fn the_enqueue_mints_a_third_hook_token_journaled_as_a_digest_only() {
+    let edge = Arc::new(KernelEdge::new());
+    minted(&edge).await;
+    let enqueuer = Enqueuer::new(Arc::clone(&edge), Arc::new(CountingSource::default()));
+    let enqueued = enqueuer.enqueue(request()).await.unwrap();
+    assert_ne!(enqueued.hook_token, enqueued.runner_token);
+    assert_ne!(enqueued.hook_token, enqueued.model_token);
+    let cover = angzarr_embedded::v1::Cover {
+        domain: runs::RUN_DOMAIN.to_string(),
+        root: Some(enqueued.run.clone()),
+        edition: None,
+    };
+    let stored: Vec<u8> = edge
+        .pages(&cover)
+        .await
+        .into_iter()
+        .flat_map(|page| match page.body {
+            Some(angzarr_embedded::v1::event_page::Body::Event(any)) => any.value,
+            _ => Vec::new(),
+        })
+        .collect();
+    let contains = |needle: &[u8]| stored.windows(needle.len()).any(|w| w == needle);
+    assert!(contains(enqueued.hook_token.hash().as_bytes()));
+    assert!(!contains(enqueued.hook_token.as_bytes()));
+    assert!(!contains(enqueued.hook_token.to_text().as_bytes()));
+    let credential = Credential {
+        token: enqueued.hook_token.clone(),
+        run: enqueued.run.clone(),
+    };
+    let gate = RunsGate::new(Arc::clone(&edge));
+    assert!(gate.identify(&credential).await.is_err());
+}
+
+// NEW-DESIGN: the tokens' text never appears in how the enqueue renders
+// itself (Debug), the one place the secret could leak from the launching
+// code's value.
+#[tokio::test]
+async fn the_enqueued_value_never_renders_a_secret() {
+    let edge = Arc::new(KernelEdge::new());
+    minted(&edge).await;
+    let enqueuer = Enqueuer::new(Arc::clone(&edge), Arc::new(CountingSource::default()));
+    let enqueued = enqueuer.enqueue(request()).await.unwrap();
+    let shown = format!("{enqueued:?}");
+    for token in [
+        &enqueued.runner_token,
+        &enqueued.model_token,
+        &enqueued.hook_token,
+    ] {
+        assert!(!shown.contains(&token.to_text()));
+    }
+}

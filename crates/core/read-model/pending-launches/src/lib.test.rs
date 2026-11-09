@@ -56,6 +56,7 @@ fn enqueued(n: u8, incarnation: u32, mode: RunMode) -> EventBook {
         mode,
         runner_credential_hash: vec![1; 32],
         model_credential_hash: vec![2; 32],
+        hook_credential_hash: vec![3; 32],
     });
     book(RUN_DOMAIN, root, vec![page(0, event.to_any())])
 }

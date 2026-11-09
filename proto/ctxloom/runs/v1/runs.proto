@@ -59,10 +59,11 @@ enum TurnFailureClass {
 // region commands
 
 // Enqueue the run for `session`'s `incarnation`, with the SHA-256 of each of
-// the TWO tokens the application minted (D29; owner ruling 2026-11-04, item
-// 16): one for the runner principal, one for the model principal, so the
-// model's credential cannot forge a runner fact. Only the hashes are ever
-// journaled, and they must differ. The policy session to run sends it on
+// the THREE tokens the application minted (D29; owner rulings 2026-11-04 item
+// 16 and 2026-11-09 item 16): one for the runner principal, one for the model
+// principal, one for the hook principal, so the model's credential cannot
+// forge a runner fact and a hook's can sign capture facts alone. Only the
+// hashes are ever journaled, and they must differ. The policy session to run sends it on
 // `IncarnationOwed`.
 message EnqueueRun {
   option (io.angzarr.v1.command) = {
@@ -80,6 +81,10 @@ message EnqueueRun {
   RunMode mode = 3;
   bytes runner_credential_hash = 4;
   bytes model_credential_hash = 5;
+  // SHA-256 of the HOOK principal's token: the third credential, which the
+  // interactive engine's hook processes present for the capture facts alone.
+  // Required: a SHA-256 digest distinct from the other two.
+  bytes hook_credential_hash = 6;
 }
 
 // Queue the next turn. Refused while one is in flight and after the run's
@@ -236,6 +241,10 @@ message RunEnqueued {
   RunMode mode = 3;
   bytes runner_credential_hash = 4;
   bytes model_credential_hash = 5;
+  // SHA-256 of the HOOK principal's token: the third credential, which the
+  // interactive engine's hook processes present for the capture facts alone.
+  // Empty on a run enqueued before it existed.
+  bytes hook_credential_hash = 6;
 }
 
 message RunnerAttachedRecorded {

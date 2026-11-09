@@ -161,6 +161,7 @@ pub async fn enqueued(edge: &TestEdge, session: &str, harp: &str) {
         mode: RunMode::OneShot,
         runner_credential_hash: vec![1; 32],
         model_credential_hash: vec![2; 32],
+        hook_credential_hash: vec![3; 32],
     }
     .into();
     edge.handle(command_book(run_cover(session), enqueue.to_any()))

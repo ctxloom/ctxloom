@@ -95,7 +95,13 @@ fn decide_enqueue(ctx: &Context, cmd: EnqueueRun) -> Result<RunEnqueued, RunReje
     }
     digest(&cmd.runner_credential_hash)?;
     digest(&cmd.model_credential_hash)?;
-    if cmd.runner_credential_hash == cmd.model_credential_hash {
+    digest(&cmd.hook_credential_hash)?;
+    let (runner, model, hook) = (
+        &cmd.runner_credential_hash,
+        &cmd.model_credential_hash,
+        &cmd.hook_credential_hash,
+    );
+    if runner == model || runner == hook || model == hook {
         return Err(RunRejection::CredentialsNotDistinct);
     }
     if ctx.root() != Some(&run_root(&cmd.session, cmd.incarnation)) {
@@ -107,6 +113,7 @@ fn decide_enqueue(ctx: &Context, cmd: EnqueueRun) -> Result<RunEnqueued, RunReje
         mode: cmd.mode,
         runner_credential_hash: cmd.runner_credential_hash,
         model_credential_hash: cmd.model_credential_hash,
+        hook_credential_hash: cmd.hook_credential_hash,
     })
 }
 

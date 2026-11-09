@@ -22,6 +22,7 @@ const SESSION: &str = "5f0c7a52-1111-5111-8111-000000000001";
 // Two principals per run (owner ruling 2026-11-04, item 16): a hash each.
 const RUNNER_HASH: [u8; 32] = [0xab; 32];
 const MODEL_HASH: [u8; 32] = [0xcd; 32];
+const HOOK_HASH: [u8; 32] = [0xef; 32];
 
 type Said = (String, BTreeMap<String, String>);
 
@@ -131,6 +132,7 @@ fn enqueue() -> EnqueueRun {
         mode: RunMode::Interactive,
         runner_credential_hash: RUNNER_HASH.to_vec(),
         model_credential_hash: MODEL_HASH.to_vec(),
+        hook_credential_hash: HOOK_HASH.to_vec(),
     }
 }
 
@@ -159,9 +161,11 @@ fn enqueue_records_the_session_incarnation_mode_and_the_hash_of_the_token() {
     assert_eq!(enqueued.incarnation, 1);
     assert_eq!(enqueued.runner_credential_hash, RUNNER_HASH.to_vec());
     assert_eq!(enqueued.model_credential_hash, MODEL_HASH.to_vec());
+    assert_eq!(enqueued.hook_credential_hash, HOOK_HASH.to_vec());
     let state = run.state();
     assert_eq!(state.runner_credential_hash, RUNNER_HASH.to_vec());
     assert_eq!(state.model_credential_hash, MODEL_HASH.to_vec());
+    assert_eq!(state.hook_credential_hash, HOOK_HASH.to_vec());
     assert!(!state.credential_revoked);
 }
 
@@ -178,8 +182,12 @@ fn enqueue_refuses_a_credential_hash_that_is_not_a_sha256_digest() {
             model_credential_hash: vec![1, 2, 3, 4],
             ..enqueue()
         },
+        EnqueueRun {
+            hook_credential_hash: vec![1, 2, 3, 4, 5],
+            ..enqueue()
+        },
     ];
-    for (short, length) in shorts.into_iter().zip(["3", "4"]) {
+    for (short, length) in shorts.into_iter().zip(["3", "4", "5"]) {
         let mut run = Run::new();
         let (code, args) = run.command(short).unwrap_err();
         assert_eq!(code, "runs-credential-hash-invalid");
@@ -201,6 +209,23 @@ fn enqueue_refuses_one_hash_for_both_principals() {
     let (code, _) = run.command(same).unwrap_err();
     assert_eq!(code, "runs-credentials-not-distinct");
     assert_eq!(run.event_count(), 0);
+}
+
+// NEW-DESIGN, owner ruling 2026-11-09 (item 16): the hook principal's token
+// names exactly one principal too, so a hook hash equal to either of the others
+// is refused and journals nothing.
+#[test]
+fn enqueue_refuses_a_hook_hash_equal_to_another_principals() {
+    for same in [RUNNER_HASH, MODEL_HASH] {
+        let mut run = Run::new();
+        let cmd = EnqueueRun {
+            hook_credential_hash: same.to_vec(),
+            ..enqueue()
+        };
+        let (code, _) = run.command(cmd).unwrap_err();
+        assert_eq!(code, "runs-credentials-not-distinct");
+        assert_eq!(run.event_count(), 0);
+    }
 }
 
 // NEW-DESIGN (plan 3.3: a run is enqueued once).

@@ -18,6 +18,11 @@ pub struct RunState {
     /// runner's, so a token names exactly one principal (owner ruling
     /// 2026-11-04, item 16).
     pub model_credential_hash: Vec<u8>,
+    /// SHA-256 of the HOOK principal's token (owner ruling 2026-11-09): the
+    /// interactive engine's hook processes present it, and its allowlist is
+    /// the capture facts alone. Empty on a run enqueued before it existed,
+    /// which no token matches.
+    pub hook_credential_hash: Vec<u8>,
     /// Set by the fold of `RunEnded`, for every token, the owner's included,
     /// whatever the cause (D29).
     pub credential_revoked: bool,
@@ -49,6 +54,7 @@ pub fn apply(state: &mut RunState, event: &RunEvent, sequence: u64) {
             state.mode = Some(enqueued.mode);
             state.runner_credential_hash = enqueued.runner_credential_hash.clone();
             state.model_credential_hash = enqueued.model_credential_hash.clone();
+            state.hook_credential_hash = enqueued.hook_credential_hash.clone();
         }
         RunEvent::RunnerAttachedRecorded(_) => state.runner_attached = true,
         RunEvent::RunnerStartedRecorded(started) => state.runner_started = Some(started.clone()),

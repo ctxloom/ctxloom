@@ -162,6 +162,8 @@ impl<'a> OneShots<'a> {
                 output_root: path_text(&output_root),
             },
             env: run_env(env, wiring.home()),
+            links: Box::new(SessionDirs::new(wiring.fs(), project_dir.clone())),
+            os: std::env::consts::OS.to_string(),
         }))
     }
 }

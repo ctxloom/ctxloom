@@ -14,8 +14,8 @@
 use std::collections::BTreeMap;
 
 use run_ports::{
-    copy_in, Engine, EngineError, HomeFile, PrepareRequest, Prepared, TurnCommand, TurnOutcome,
-    TurnOutput, TurnRequest,
+    copy_in, Credentials, Engine, EngineError, HomeFile, PrepareRequest, Prepared, TurnCommand,
+    TurnOutcome, TurnOutput, TurnRequest,
 };
 
 use crate::{stream, Claude, NAME};
@@ -70,8 +70,25 @@ pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = &[
     "NODE_EXTRA_CA_CERTS",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
     run_ports::HOME_VARIABLE,
 ];
+
+/// The variables any one of which authenticates a child agent's run: the
+/// only credential a child is given (never a shared credentials file).
+pub const CHILD_CREDENTIAL_ENV: &[&str] = &["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"];
+
+/// The variables any one of which authenticates the human's primary session;
+/// with one set it shares no login file. (`ANTHROPIC_AUTH_TOKEN` is the
+/// primary's alone: it is in the interactive allowlist, not the turn's.)
+pub const PRIMARY_CREDENTIAL_ENV: &[&str] = &[
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+];
+
+/// claude's login file, in its configuration directory.
+pub const LOGIN_FILE: &str = ".credentials.json";
 
 /// The files of the user's own claude configuration that are copied into a
 /// session home. None yet: which of them a child may see is the owner's to
@@ -118,6 +135,15 @@ impl Engine for Claude {
         command.stdin = request.prompt.clone().into_bytes();
         command.cwd = request.cwd.clone();
         Ok(command)
+    }
+
+    fn credentials(&self) -> Credentials {
+        Credentials {
+            child_env: CHILD_CREDENTIAL_ENV,
+            primary_env: PRIMARY_CREDENTIAL_ENV,
+            user_dir: ".claude",
+            login_file: Some(LOGIN_FILE),
+        }
     }
 
     fn finish_turn(&self, output: &TurnOutput) -> TurnOutcome {

@@ -11,17 +11,19 @@
 mod edge;
 mod engine;
 mod launcher;
+mod login;
 mod records;
 mod token;
 
 pub use edge::{Arrival, Edge, Unserved};
 pub use engine::{
-    copy_in, Engine, EngineError, FailureClass, HomeFile, PrepareRequest, Prepared, TurnOutcome,
-    TurnRequest, HOME_VARIABLE,
+    copy_in, Credentials, Engine, EngineError, FailureClass, HomeFile, PrepareRequest, Prepared,
+    TurnOutcome, TurnRequest, HOME_VARIABLE,
 };
 pub use launcher::{
     Exit, Launch, LaunchEvent, LaunchFailure, Limits, RunnerLauncher, TurnCommand, TurnOutput,
 };
+pub use login::{LinkState, LoginLinks};
 pub use records::{check_rel, RecordsError, SessionRecords};
 pub use token::{Token, TokenError, TokenHash, TokenSource, EN_US};
 

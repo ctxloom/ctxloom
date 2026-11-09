@@ -121,6 +121,12 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
         self.engines.iter().any(|e| e.name() == engine)
     }
 
+    /// How the engine of this name is handed a credential; none for an
+    /// engine that cannot be driven.
+    pub fn credentials(&self, engine: &str) -> Option<run_ports::Credentials> {
+        self.engine(engine).map(|e| e.credentials())
+    }
+
     /// The names of the engines that can be driven.
     pub fn engines(&self) -> Vec<String> {
         self.engines.iter().map(|e| e.name().to_string()).collect()

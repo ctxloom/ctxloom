@@ -25,7 +25,7 @@ use std::io::Write;
 
 use file_system::{Fs, Kind, Open, Perms};
 use os::Mode;
-use run_ports::{check_rel, RecordsError, SessionRecords};
+use run_ports::{check_rel, LinkState, LoginLinks, RecordsError, SessionRecords};
 use session_ports::{FileItem, GoSession, GoSessions, SessionFiles, Timestamp, TranscriptFile};
 
 #[cfg(any(test, feature = "test-support"))]
@@ -300,6 +300,46 @@ impl SessionDirs {
         }
         check_rel(rel)?;
         Ok(self.dir(harp).join(rel))
+    }
+}
+
+/// The login link of a session home, through the file-system seam. The file
+/// linked to is never opened: it is asked about by its metadata alone.
+impl LoginLinks for SessionDirs {
+    fn present(&self, path: &str) -> bool {
+        self.fs
+            .metadata(Path::new(path))
+            .is_ok_and(|meta| meta.kind == Kind::File)
+    }
+
+    fn state(&self, harp: &str, rel: &str) -> LinkState {
+        let Ok(path) = self.record_path(harp, rel) else {
+            return LinkState::Other;
+        };
+        match self.fs.symlink_metadata(&path) {
+            Err(e) if e.kind() == ErrorKind::NotFound => LinkState::Absent,
+            Ok(meta) if meta.kind == Kind::Symlink => match self.fs.read_link(&path) {
+                Ok(target) => LinkState::LinkTo(target.display().to_string()),
+                Err(_) => LinkState::Other,
+            },
+            _ => LinkState::Other,
+        }
+    }
+
+    fn link(&mut self, harp: &str, rel: &str, target: &str) -> Result<(), RecordsError> {
+        let path = self.record_path(harp, rel)?;
+        let io = |e: std::io::Error| RecordsError::Io {
+            harp: harp.to_string(),
+            rel: rel.to_string(),
+            ext_err_txt: e.to_string(),
+        };
+        if let Some(parent) = path.parent() {
+            self.fs
+                .create_dir_all(parent, Mode::from_bits(0o755))
+                .map_err(io)?;
+        }
+        // The seam's link is a symlink on unix, and fails where one exists.
+        self.fs.symlink_dir(Path::new(target), &path).map_err(io)
     }
 }
 

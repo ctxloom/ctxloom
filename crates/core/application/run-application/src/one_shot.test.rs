@@ -1,7 +1,7 @@
 //! The one-shot over the real aggregates in an in-memory store, with the
 //! plan, the project, the names and the engine scripted.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -14,11 +14,14 @@ use library_application::{
 };
 use ports::{CommandIds, Names, Project, ProjectIdentity};
 use run_launcher::fakes::{
-    names as event_names, run_events, session_events, FixedClock, MemoryRecords, ScriptedEngine,
-    ScriptedRunner, TestEdge,
+    names as event_names, run_events, session_events, Credentialed, FixedClock, MemoryRecords,
+    ScriptedEngine, ScriptedRunner, TestEdge,
 };
 use run_launcher::{Launcher, Orders, Recorder};
-use run_ports::{Arrival, Edge, FailureClass, Limits, Token, TokenSource, TurnOutcome, Unserved};
+use run_ports::{
+    Arrival, Credentials, Edge, FailureClass, Limits, LinkState, LoginLinks, RecordsError, Token,
+    TokenSource, TurnOutcome, Unserved,
+};
 use runs_application::{AppError as CoreError, Enqueuer};
 
 use crate::{Core, OneShot, Parts, Place, Planner, RunError, Runs};
@@ -201,6 +204,35 @@ struct Rig {
     runner: ScriptedRunner,
     records: MemoryRecords,
     asked: Arc<Mutex<Vec<RunRequest>>>,
+    links: Links,
+}
+
+/// The session directory's link, in memory, shared by every clone.
+#[derive(Clone, Default)]
+struct Links {
+    login: bool,
+    held: Arc<Mutex<Option<LinkState>>>,
+    made: Arc<Mutex<Vec<(String, String, String)>>>,
+}
+
+impl LoginLinks for Links {
+    fn present(&self, path: &str) -> bool {
+        self.login && path == "/home/u/.claude/.credentials.json"
+    }
+    fn state(&self, _: &str, _: &str) -> LinkState {
+        self.held
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or(LinkState::Absent)
+    }
+    fn link(&mut self, harp: &str, rel: &str, target: &str) -> Result<(), RecordsError> {
+        self.made
+            .lock()
+            .unwrap()
+            .push((harp.to_string(), rel.to_string(), target.to_string()));
+        Ok(())
+    }
 }
 
 struct Script {
@@ -212,6 +244,13 @@ struct Script {
     plan_error: Option<fn() -> PlanError>,
     project_error: Option<Report>,
     names: Vec<&'static str>,
+    /// What the engine asks for as a credential; none by default.
+    credentials: Credentials,
+    /// The caller's environment.
+    env: Vec<(&'static str, &'static str)>,
+    /// Whether the user's login file is there.
+    login: bool,
+    os: &'static str,
 }
 
 impl Script {
@@ -225,6 +264,10 @@ impl Script {
             plan_error: None,
             project_error: None,
             names: vec!["amber-swift-owl", "calm-quiet-fox", "wild-brave-elk"],
+            credentials: Credentials::default(),
+            env: vec![("PATH", "/bin"), ("HOME", "/home/u")],
+            login: true,
+            os: "linux",
         }
     }
 }
@@ -238,12 +281,16 @@ fn rig(script: Script) -> Rig {
         edge: Arc::clone(&edge),
         ..Seen::default()
     });
+    let links = Links {
+        login: script.login,
+        ..Links::default()
+    };
     let launcher = Launcher::new(
         Arc::clone(&seen),
         script.runner.clone(),
         records.clone(),
         FixedClock(1_700_000_000),
-        vec![Arc::new(script.engine)],
+        vec![Arc::new(Credentialed(script.engine, script.credentials))],
         Arc::clone(&orders),
         Limits::new(std::time::Duration::from_secs(5)),
     );
@@ -269,10 +316,13 @@ fn rig(script: Script) -> Rig {
             project_dir: "/work/proj".to_string(),
             output_root: "/home/u/Documents/ctxloom/proj".to_string(),
         },
-        env: BTreeMap::from([
-            ("PATH".to_string(), "/bin".to_string()),
-            ("HOME".to_string(), "/home/u".to_string()),
-        ]),
+        env: script
+            .env
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+        links: Box::new(links.clone()),
+        os: script.os.to_string(),
     });
     Rig {
         runs,
@@ -280,6 +330,7 @@ fn rig(script: Script) -> Rig {
         runner: script.runner,
         records,
         asked,
+        links,
     }
 }
 
@@ -763,4 +814,123 @@ fn rig_again() -> Rig {
     let mut script = Script::answering();
     script.prompt = "";
     rig(script)
+}
+
+const NEEDS_A_TOKEN: Credentials = Credentials {
+    child_env: &["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
+    primary_env: &[
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+    ],
+    user_dir: ".claude",
+    login_file: Some(".credentials.json"),
+};
+
+fn needing_a_token() -> Script {
+    Script {
+        credentials: NEEDS_A_TOKEN,
+        ..Script::answering()
+    }
+}
+
+// A child agent is given an environment credential and nothing else: without
+// one it is refused, before a name is claimed, a session made or an engine
+// started.
+#[tokio::test]
+async fn a_one_shot_with_no_env_credential_is_refused_before_anything_is_made() {
+    let mut rig = rig(needing_a_token());
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap_err();
+    assert!(
+        matches!(&error, RunError::Refused(runs::RunRejection::NoCredential { engine, .. }) if engine == "fake"),
+        "{error:?}"
+    );
+    assert_eq!(error.code(), "runs-no-credential");
+    assert_eq!(error.exit_code(), 2);
+    assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 0);
+    assert!(rig.runner.seen.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_one_shot_with_an_env_credential_runs() {
+    let mut script = needing_a_token();
+    script.env = vec![("HOME", "/home/u"), ("ANTHROPIC_API_KEY", "k")]; // gitleaks:allow
+    let mut rig = rig(script);
+    let answer = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    assert_eq!(answer.answer, "THE-ANSWER");
+    // A child is never handed the login, whatever the host holds.
+    assert!(rig.links.made.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn the_primary_with_no_env_credential_is_linked_to_her_login_and_runs() {
+    let mut script = needing_a_token();
+    script.prompt = "";
+    let mut rig = rig(script);
+    let done = rig.runs.interactive(&Flags::default(), &ask()).await;
+    assert!(done.result.is_ok());
+    assert_eq!(
+        *rig.links.made.lock().unwrap(),
+        vec![(
+            "amber-swift-owl".to_string(),
+            "home/.credentials.json".to_string(),
+            "/home/u/.claude/.credentials.json".to_string()
+        )]
+    );
+}
+
+#[tokio::test]
+async fn the_primary_with_a_token_exported_is_not_linked() {
+    let mut script = needing_a_token();
+    script.env = vec![("HOME", "/home/u"), ("CLAUDE_CODE_OAUTH_TOKEN", "t")]; // gitleaks:allow
+    let mut rig = rig(script);
+    let done = rig.runs.interactive(&Flags::default(), &ask()).await;
+    assert!(done.result.is_ok());
+    assert!(rig.links.made.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn the_primary_with_no_login_to_link_runs_and_the_notice_says_what_to_do() {
+    let mut script = needing_a_token();
+    script.login = false;
+    let mut rig = rig(script);
+    let done = rig.runs.interactive(&Flags::default(), &ask()).await;
+    assert!(done.result.is_ok());
+    assert!(rig.links.made.lock().unwrap().is_empty());
+    assert!(done.notices.iter().any(|n| matches!(n,
+        Notice::Finding { text, remedy }
+        if text.contains("no login at ~/.claude/.credentials.json") && remedy.contains("claude setup-token"))));
+}
+
+#[tokio::test]
+async fn the_primary_on_macos_is_not_linked_and_is_told_to_set_a_token() {
+    let mut script = needing_a_token();
+    script.os = "macos";
+    let mut rig = rig(script);
+    let done = rig.runs.interactive(&Flags::default(), &ask()).await;
+    assert!(done.result.is_ok());
+    assert!(rig.links.made.lock().unwrap().is_empty());
+    assert!(done.notices.iter().any(|n| matches!(n,
+        Notice::Finding { remedy, .. } if remedy.contains("CLAUDE_CODE_OAUTH_TOKEN"))));
+}
+
+#[tokio::test]
+async fn an_engine_that_asks_for_nothing_shares_nothing_and_notices_nothing_of_it() {
+    let mut script = Script::answering();
+    script.prompt = "";
+    let mut rig = rig(script);
+    let done = rig.runs.interactive(&Flags::default(), &ask()).await;
+    assert!(done.result.is_ok());
+    assert!(rig.links.made.lock().unwrap().is_empty());
+    assert_eq!(done.notices.len(), 1, "only the plan's own");
 }

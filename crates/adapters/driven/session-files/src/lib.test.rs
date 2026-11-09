@@ -564,3 +564,101 @@ fn a_records_read_that_fails_otherwise_than_by_absence_is_the_error() {
         other => panic!("{other:?}"),
     }
 }
+
+// ------------------------------------------------------------ the login link
+
+use run_ports::{LinkState, LoginLinks};
+
+const LOGIN: &str = "/home/u/.claude/.credentials.json";
+const SECRET: &str = "not-a-real-credential";
+
+/// The user's login file, with a body that must survive everything.
+fn login(fs: &Rooted) {
+    fs.create_dir_all(Path::new("/home/u/.claude"), Mode::from_bits(0o755))
+        .unwrap();
+    fs.write_atomic(
+        Path::new(LOGIN),
+        SECRET.as_bytes(),
+        file_system::Perms::Exact(Mode::from_bits(0o600)),
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_login_file_is_present_by_its_metadata_and_a_directory_or_gap_is_not() {
+    let (fs, dirs) = dirs();
+    assert!(!dirs.present(LOGIN));
+    login(&fs);
+    assert!(dirs.present(LOGIN));
+    assert!(!dirs.present("/home/u/.claude"));
+}
+
+#[test]
+fn linking_makes_the_homes_file_a_link_to_the_login_and_says_so() {
+    let (fs, mut dirs) = dirs();
+    login(&fs);
+    assert_eq!(
+        dirs.state(HARP, "home/.credentials.json"),
+        LinkState::Absent
+    );
+    dirs.link(HARP, "home/.credentials.json", LOGIN).unwrap();
+    assert_eq!(
+        dirs.state(HARP, "home/.credentials.json"),
+        LinkState::LinkTo(LOGIN.to_string())
+    );
+    // Read through the link it is the login; ctxloom read nothing to say so.
+    let linked = dirs.dir(HARP).join("home/.credentials.json");
+    assert_eq!(fs.read_to_string(&linked).unwrap(), SECRET);
+}
+
+#[test]
+fn a_plain_file_is_other_and_a_dangling_link_is_still_a_link() {
+    let (fs, mut dirs) = dirs();
+    write(&fs, &dirs, "home/.credentials.json", "mine");
+    assert_eq!(dirs.state(HARP, "home/.credentials.json"), LinkState::Other);
+    dirs.link(HARP, "home/other.json", "/nowhere").unwrap();
+    assert_eq!(
+        dirs.state(HARP, "home/other.json"),
+        LinkState::LinkTo("/nowhere".to_string())
+    );
+}
+
+#[test]
+fn linking_replaces_nothing() {
+    let (fs, mut dirs) = dirs();
+    login(&fs);
+    write(&fs, &dirs, "home/.credentials.json", "mine");
+    assert!(dirs.link(HARP, "home/.credentials.json", LOGIN).is_err());
+    let path = dirs.dir(HARP).join("home/.credentials.json");
+    assert_eq!(fs.read_to_string(&path).unwrap(), "mine");
+}
+
+#[test]
+fn a_path_out_of_the_session_directory_is_refused() {
+    let (fs, mut dirs) = dirs();
+    login(&fs);
+    assert!(dirs.link(HARP, "../escape", LOGIN).is_err());
+    assert_eq!(dirs.state(HARP, "../escape"), LinkState::Other);
+}
+
+// Removing a session must never follow the link: the user's login is not the
+// session's to destroy. The survey never walks the home, and a destroy that
+// names the link itself, or the whole home, removes no file through it.
+#[test]
+fn removing_a_session_whose_home_holds_the_link_leaves_the_login_intact() {
+    let (fs, mut dirs) = dirs();
+    login(&fs);
+    write(&fs, &dirs, "transcripts/transcript.jsonl", "hello");
+    dirs.link(HARP, "home/.credentials.json", LOGIN).unwrap();
+    let surveyed = dirs.survey(HARP).unwrap();
+    assert!(
+        surveyed.iter().all(|item| !item.rel.starts_with("home")),
+        "{surveyed:?}"
+    );
+    let rels: Vec<String> = surveyed.iter().map(|item| item.rel.clone()).collect();
+    dirs.destroy(HARP, &rels).unwrap();
+    // Even a destroy that names the link is not a removal of its target.
+    dirs.destroy(HARP, &["home/.credentials.json".to_string()])
+        .unwrap();
+    assert_eq!(fs.read_to_string(Path::new(LOGIN)).unwrap(), SECRET);
+}

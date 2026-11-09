@@ -21,6 +21,9 @@ pub enum RunRejection {
     /// The runner's and the model's credential hashes are the same, so a
     /// token would not name one principal (fail closed).
     CredentialsNotDistinct,
+    /// A child agent's run asked for with none of the environment
+    /// credentials its engine authenticates with.
+    NoCredential { engine: String, variables: String },
 }
 
 impl fmt::Display for RunRejection {
@@ -39,6 +42,7 @@ impl Diagnostic for RunRejection {
             RunRejection::CredentialHashInvalid { .. } => code!("credential-hash-invalid"),
             RunRejection::NotItsStream => code!("not-its-stream"),
             RunRejection::CredentialsNotDistinct => code!("credentials-not-distinct"),
+            RunRejection::NoCredential { .. } => code!("no-credential"),
         }
     }
 
@@ -46,6 +50,10 @@ impl Diagnostic for RunRejection {
         match self {
             RunRejection::TurnInFlight { turn } => vec![("turn", (*turn).into())],
             RunRejection::CredentialHashInvalid { length } => vec![("length", (*length).into())],
+            RunRejection::NoCredential { engine, variables } => vec![
+                ("engine", engine.as_str().into()),
+                ("variables", variables.as_str().into()),
+            ],
             RunRejection::AlreadyEnqueued
             | RunRejection::NoRun
             | RunRejection::Ended
@@ -72,5 +80,9 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(RunRejection::CredentialHashInvalid { length: 7 }),
         Box::new(RunRejection::NotItsStream),
         Box::new(RunRejection::CredentialsNotDistinct),
+        Box::new(RunRejection::NoCredential {
+            engine: "claude-code".to_string(),
+            variables: "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY".to_string(),
+        }),
     ]
 }

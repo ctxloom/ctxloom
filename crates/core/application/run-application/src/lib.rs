@@ -8,9 +8,11 @@
 //! given to the engine. A saved session's resume and the dry run are not here:
 //! the library answers the last, and the other arrives with its step.
 
+mod credential;
 mod error;
 mod one_shot;
 
+pub use credential::{can_link, refuse_child, share_login};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{RunError, EN_US};

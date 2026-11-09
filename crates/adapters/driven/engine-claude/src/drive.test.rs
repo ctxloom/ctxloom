@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use run_ports::{Engine, PrepareRequest, TurnRequest};
 
+use crate::drive::{COPY_IN_ALLOWLIST, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST};
 use crate::{Claude, CONTEXT_PROMPT_FILE};
 
 fn request() -> TurnRequest {
@@ -235,4 +236,44 @@ fn a_childs_home_has_no_settings() {
     let prepared = prepared(false);
     assert!(prepared.files.iter().all(|f| f.rel != "settings.json"));
     assert_eq!(prepared.files.len(), 1);
+}
+
+#[test]
+fn a_child_is_given_only_an_env_credential_and_never_the_login_file() {
+    let mut asked = request();
+    asked.env = env(&[
+        ("CLAUDE_CODE_OAUTH_TOKEN", "tok"),       // gitleaks:allow
+        ("ANTHROPIC_AUTH_TOKEN", "primary-only"), // gitleaks:allow
+    ]);
+    let command = Claude::new().drive_turn(&asked).unwrap();
+    assert!(command.env.contains_key("CLAUDE_CODE_OAUTH_TOKEN"));
+    assert!(!command.env.contains_key("ANTHROPIC_AUTH_TOKEN"));
+    // The login file is none of a child's home: nothing is offered to copy.
+    assert!(COPY_IN_ALLOWLIST.is_empty());
+    let credentials = Claude::new().credentials();
+    assert_eq!(
+        credentials.child_env,
+        ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"]
+    );
+    for var in credentials.child_env {
+        assert!(ENV_ALLOWLIST.contains(var), "{var} reaches a child");
+    }
+}
+
+#[test]
+fn the_primary_may_be_authenticated_by_any_of_three_variables_and_is_passed_each() {
+    let credentials = Claude::new().credentials();
+    assert_eq!(
+        credentials.primary_env,
+        [
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN"
+        ]
+    );
+    assert_eq!(credentials.user_dir, ".claude");
+    assert_eq!(credentials.login_file, Some(".credentials.json"));
+    for var in credentials.primary_env {
+        assert!(INTERACTIVE_ENV_ALLOWLIST.contains(var), "{var} reaches it");
+    }
 }

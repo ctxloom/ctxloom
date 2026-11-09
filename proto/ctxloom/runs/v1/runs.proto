@@ -72,6 +72,7 @@ message EnqueueRun {
     refuses: "ctxloom.runs.v1.CredentialHashInvalid"
     refuses: "ctxloom.runs.v1.CredentialsNotDistinct"
     refuses: "ctxloom.runs.v1.NotItsStream"
+    refuses: "ctxloom.runs.v1.NoCredential"
   };
 
   string session = 1;
@@ -363,6 +364,22 @@ message NotItsStream {
 // would not name one principal (fail closed).
 message CredentialsNotDistinct {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+}
+
+// A child agent's run asked for with none of the environment credentials its
+// engine authenticates with (owner ruling 2026-11-08, item 8: a child gets
+// only an env credential, never a shared credentials file). It is refused
+// before any session is made or any engine started. The run application raises
+// it from its pre-launch check of the environment (an environment variable is
+// no state of the run, so `decide` cannot see it); EnqueueRun lists it as the
+// command the check stands before.
+message NoCredential {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  // The engine that would have been run.
+  string engine = 1;
+  // The variables any one of which would have served, comma separated.
+  string variables = 2;
 }
 
 // endregion refusals

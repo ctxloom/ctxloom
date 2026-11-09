@@ -97,7 +97,7 @@ fn command_of_type(
 }
 
 async fn connect(addr: SocketAddr) -> Channel {
-    let url = run_ports::endpoint_url(&addr.ip().to_string(), addr.port());
+    let url = format!("http://{addr}");
     Endpoint::from_shared(url).unwrap().connect().await.unwrap()
 }
 

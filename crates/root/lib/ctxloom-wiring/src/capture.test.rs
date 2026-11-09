@@ -393,5 +393,5 @@ fn closed_url() -> String {
     let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = probe.local_addr().unwrap().port();
     drop(probe);
-    run_ports::endpoint_url("127.0.0.1", port)
+    format!("http://127.0.0.1:{port}")
 }

@@ -3243,6 +3243,7 @@ version = "0.1.0"
 dependencies = [
  "angzarr-diagnostic",
  "angzarr-embedded",
+ "base64 0.22.1",
  "mutants",
  "sha2",
  "subtle",

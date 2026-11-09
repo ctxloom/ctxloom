@@ -254,7 +254,13 @@ where
             .serve_tcp(plan.bind_addr)
             .await
             .map_err(RunError::Listener)?;
-        let endpoint = run_ports::endpoint_url(&plan.told_host, serving.port());
+        let endpoint = match run_ports::endpoint_url(&plan.told_host, serving.port()) {
+            Ok(endpoint) => endpoint,
+            Err(error) => {
+                serving.stop().await;
+                return Err(RunError::Listener(angzarr_diagnostic::Report::of(&error)));
+            }
+        };
         let started = self.start(previewed, request, Some(&endpoint)).await;
         let (session, harp, engine, run) = match started {
             Ok(started) => started,
@@ -387,6 +393,8 @@ where
                 endpoint.unwrap_or_default(),
                 &run_text,
                 &enqueued.hook_token,
+                // Interim: the minted certificate replaces this (unit 4).
+                &run_ports::PublicCert::from_der(vec![0x30]).unwrap_or_else(|_| unreachable!()),
             ));
         }
         self.orders.place(

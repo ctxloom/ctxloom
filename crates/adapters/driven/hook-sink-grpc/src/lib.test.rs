@@ -30,7 +30,7 @@ fn closed_url() -> String {
     let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = probe.local_addr().unwrap().port();
     drop(probe);
-    run_ports::endpoint_url("127.0.0.1", port)
+    format!("http://127.0.0.1:{port}")
 }
 
 #[derive(Clone)]
@@ -136,9 +136,7 @@ fn serve(answer: Answer) -> Running {
             let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("binds a port");
             std_listener.set_nonblocking(true).unwrap();
             let port = std_listener.local_addr().unwrap().port();
-            url_tx
-                .send(run_ports::endpoint_url("127.0.0.1", port))
-                .unwrap();
+            url_tx.send(format!("http://127.0.0.1:{port}")).unwrap();
             tokio::net::TcpListener::from_std(std_listener).unwrap()
         };
         ready_tx.send(()).unwrap();

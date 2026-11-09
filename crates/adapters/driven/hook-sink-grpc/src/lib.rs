@@ -84,11 +84,6 @@ impl GrpcSink {
     async fn call(&self, book: CommandBook) -> Result<CommandResult, Failed> {
         let dial = parse_endpoint(&self.endpoint)
             .map_err(|e| Failed::Transport(format!("the endpoint is not usable: {e}")))?;
-        if dial.secure {
-            return Err(Failed::Transport(
-                "the endpoint is https and this sink has no certificate to trust yet".to_string(),
-            ));
-        }
         let channel = Endpoint::from_shared(dial.url())
             .map_err(|e| Failed::Transport(format!("the endpoint is not usable: {e}")))?
             .connect()

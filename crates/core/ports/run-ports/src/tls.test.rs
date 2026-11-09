@@ -36,7 +36,7 @@ fn a_bridge_run_names_the_gateway_and_the_hosts_alias() {
     )
     .unwrap();
     let names = CertNames::for_plan(&plan);
-    assert_eq!(names.ips(), vec![loopback4(), loopback6(), gateway]);
+    assert_eq!(names.ips(), vec![loopback4(), gateway, loopback6()]);
     assert_eq!(names.dns(), vec!["host.docker.internal".to_string()]);
 }
 

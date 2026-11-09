@@ -8,8 +8,12 @@
 //! process that serves the listener, is never journaled, logged or put in an
 //! environment, and [`HookCertificate`]'s `Debug` does not render it.
 
+use std::collections::BTreeSet;
 use std::fmt;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 
@@ -23,13 +27,29 @@ pub struct CertNames {
     dns: Vec<String>,
 }
 
+/// A DER certificate is a SEQUENCE.
+const DER_SEQUENCE: u8 = 0x30;
+/// PEM's line width.
+const PEM_COLUMNS: usize = 64;
+const PEM_BEGIN: &str = "-----BEGIN CERTIFICATE-----";
+const PEM_END: &str = "-----END CERTIFICATE-----";
+
 impl CertNames {
     /// The loopback addresses, the bind and the told host of `plan`.
     pub fn for_plan(plan: &BindPlan) -> CertNames {
-        let _ = plan;
+        let mut ips = BTreeSet::from([
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            IpAddr::V6(Ipv6Addr::LOCALHOST),
+            plan.bind_addr,
+        ]);
+        let mut dns = BTreeSet::new();
+        match plan.told_host.parse::<IpAddr>() {
+            Ok(told) => ips.insert(told),
+            Err(_) => dns.insert(plan.told_host.clone()),
+        };
         CertNames {
-            ips: Vec::new(),
-            dns: Vec::new(),
+            ips: ips.into_iter().collect(),
+            dns: dns.into_iter().collect(),
         }
     }
 
@@ -51,7 +71,12 @@ pub struct PublicCert(Vec<u8>);
 impl PublicCert {
     /// A certificate from its DER (an X.509 certificate is a DER SEQUENCE).
     pub fn from_der(der: Vec<u8>) -> Result<PublicCert, CertError> {
-        Ok(PublicCert(der))
+        match der.first() {
+            Some(&DER_SEQUENCE) => Ok(PublicCert(der)),
+            _ => Err(CertError::Malformed {
+                length: der.len() as u64,
+            }),
+        }
     }
 
     /// The DER.
@@ -61,24 +86,41 @@ impl PublicCert {
 
     /// The value of the environment variable: base64, one line.
     pub fn to_env_value(&self) -> String {
-        String::new()
+        STANDARD.encode(&self.0)
     }
 
     /// The certificate of an environment value.
     pub fn from_env_value(text: &str) -> Result<PublicCert, CertError> {
-        Ok(PublicCert(text.as_bytes().to_vec()))
+        STANDARD
+            .decode(text)
+            .ok()
+            .and_then(|der| PublicCert::from_der(der).ok())
+            .ok_or(CertError::Malformed {
+                length: text.len() as u64,
+            })
     }
 
     /// The certificate of an optional environment value: none or empty is
     /// [`CertError::Missing`].
     pub fn from_environment(value: Option<&str>) -> Result<PublicCert, CertError> {
-        let _ = value;
-        Ok(PublicCert(Vec::new()))
+        match value {
+            None | Some("") => Err(CertError::Missing),
+            Some(text) => PublicCert::from_env_value(text),
+        }
     }
 
     /// The PEM, 64 columns.
     pub fn to_pem(&self) -> String {
-        String::new()
+        let body = self.to_env_value();
+        let mut pem = format!("{PEM_BEGIN}\n");
+        // Base64 is ASCII, so a byte chunk is a character chunk.
+        for line in body.as_bytes().chunks(PEM_COLUMNS) {
+            pem.push_str(&String::from_utf8_lossy(line));
+            pem.push('\n');
+        }
+        pem.push_str(PEM_END);
+        pem.push('\n');
+        pem
     }
 }
 
@@ -114,7 +156,7 @@ impl HookCertificate {
 
 impl fmt::Debug for HookCertificate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?} {}", self.public, self.key_pem)
+        write!(f, "HookCertificate({:?}, key redacted)", self.public)
     }
 }
 

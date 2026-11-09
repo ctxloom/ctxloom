@@ -47,9 +47,13 @@ pub const HOOK_VARIABLES: [&str; 4] = [
 /// `https://<host>:<port>`. An IPv6 literal is bracketed. Port 0 is a request
 /// to bind, never a place to dial: it is refused.
 pub fn endpoint_url(host: &str, port: u16) -> Result<String, EndpointError> {
-    match host.contains(':') {
-        true => Ok(format!("http://[{host}]:{port}")),
-        false => Ok(format!("http://{host}:{port}")),
+    let url = match host.contains(':') {
+        true => format!("https://[{host}]:{port}"),
+        false => format!("https://{host}:{port}"),
+    };
+    match port {
+        0 => Err(EndpointError::PortZero { endpoint: url }),
+        _ => Ok(url),
     }
 }
 
@@ -66,21 +70,23 @@ impl Dial {
     pub fn url(&self) -> String {
         let host = &self.host;
         match host.contains(':') {
-            true => format!("http://[{host}]:{}", self.port),
-            false => format!("http://{host}:{}", self.port),
+            true => format!("https://[{host}]:{}", self.port),
+            false => format!("https://{host}:{}", self.port),
         }
     }
 }
 
-/// The dial an endpoint URL names: `http://` or `https://`, a host, a port
-/// (not 0) and nothing else.
+/// The dial an endpoint URL names: `https://`, a host, a port (not 0) and
+/// nothing else. `http://` is [`EndpointError::Plaintext`]: there is no
+/// downgrade.
 pub fn parse_endpoint(text: &str) -> Result<Dial, EndpointError> {
     let malformed = || EndpointError::Malformed {
         endpoint: text.to_string(),
     };
     let (scheme, rest) = text.split_once("://").ok_or_else(malformed)?;
-    match scheme {
-        "http" | "https" => {}
+    let secure = match scheme {
+        "http" => false,
+        "https" => true,
         "" => return Err(malformed()),
         other
             if other
@@ -92,7 +98,7 @@ pub fn parse_endpoint(text: &str) -> Result<Dial, EndpointError> {
             })
         }
         _ => return Err(malformed()),
-    }
+    };
     let (host, port) = match rest.strip_prefix('[') {
         Some(bracketed) => {
             let (host, after) = bracketed.split_once(']').ok_or_else(malformed)?;
@@ -105,12 +111,20 @@ pub fn parse_endpoint(text: &str) -> Result<Dial, EndpointError> {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || "-._:".contains(c));
     let port: u16 = port.parse().map_err(|_| malformed())?;
-    match host_ok && port != 0 {
-        true => Ok(Dial {
+    if !host_ok {
+        return Err(malformed());
+    }
+    match (port, secure) {
+        (0, _) => Err(EndpointError::PortZero {
+            endpoint: text.to_string(),
+        }),
+        (_, false) => Err(EndpointError::Plaintext {
+            endpoint: text.to_string(),
+        }),
+        (port, true) => Ok(Dial {
             host: host.to_string(),
             port,
         }),
-        false => Err(malformed()),
     }
 }
 

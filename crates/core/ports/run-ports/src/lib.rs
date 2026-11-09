@@ -21,7 +21,8 @@ pub use engine::{
     TurnOutcome, TurnRequest, HOME_VARIABLE,
 };
 pub use launcher::{
-    Exit, Launch, LaunchEvent, LaunchFailure, Limits, RunnerLauncher, TurnCommand, TurnOutput,
+    Exit, Launch, LaunchEvent, LaunchFailure, Limits, RunnerLauncher, Running, TurnCommand,
+    TurnOutput,
 };
 pub use login::{LinkState, LoginLinks};
 pub use records::{check_rel, RecordsError, SessionRecords};

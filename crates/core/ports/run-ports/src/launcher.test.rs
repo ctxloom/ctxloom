@@ -30,16 +30,13 @@ fn limits_default_to_a_deadline_and_a_bound() {
 }
 
 #[test]
-fn a_started_command_that_exits_reports_started_then_exited() {
+fn a_started_command_that_exits_reports_its_exit() {
     assert_eq!(
         over(Some(3), None, false).events(),
-        vec![
-            LaunchEvent::RunnerStarted,
-            LaunchEvent::RunExited {
-                code: Some(3),
-                signal: None
-            }
-        ]
+        vec![LaunchEvent::RunExited {
+            code: Some(3),
+            signal: None
+        }]
     );
 }
 
@@ -53,7 +50,7 @@ fn a_command_killed_at_its_deadline_exits_by_the_kill() {
             signal: None
         })
     );
-    assert_eq!(events.len(), 2);
+    assert_eq!(events.len(), 1);
 }
 
 #[test]

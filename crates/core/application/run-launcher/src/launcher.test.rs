@@ -96,6 +96,7 @@ async fn an_owed_run_is_launched_once_and_its_turn_recorded_in_order() {
 /// What the store held while the command ran: the run's events, and how many
 /// runs the pending launches still owed.
 type Glimpse = (Vec<&'static str>, usize);
+type Glimpses = Arc<Mutex<Vec<Glimpse>>>;
 
 /// Drive a store-reading future to its end on the spot: the in-memory store
 /// never waits on anything, so one poll finishes it.
@@ -148,7 +149,7 @@ async fn a_spawned_silent_turn_is_already_started_when_a_catch_up_reads_it() {
 }
 
 #[tokio::test]
-async fn the_runner_start_says_the_engine_the_directory_and_no_pid() {
+async fn the_runner_start_says_the_engine_the_directory_and_the_pid_of_the_spawn() {
     let mut rig = rig(
         ScriptedEngine::answering("A", None),
         ScriptedRunner::exits(0),
@@ -170,7 +171,7 @@ async fn the_runner_start_says_the_engine_the_directory_and_no_pid() {
             started.workspace.as_str(),
             started.pid
         ),
-        ("fake", "/work/proj", 0)
+        ("fake", "/work/proj", crate::fakes::SCRIPTED_PID)
     );
 }
 
@@ -451,6 +452,93 @@ async fn a_command_that_could_not_start_ends_the_run_as_a_failed_launch() {
     let ended = ended.unwrap();
     assert_eq!(ended.cause, EndCause::LaunchFailed);
     assert_eq!(ended.detail, "claude: not found");
+    // Nothing was spawned, so nothing says a runner started.
+    assert_eq!(
+        names(&events),
+        ["RunEnqueued", "RunnerAttached", "RunEnded"]
+    );
+}
+
+// The ordering the truthful RunnerStarted rests on, forced and not waited
+// for: INSIDE the spawn (the pid not yet given to the launcher) the store
+// holds no RunnerStarted, and the moment the command runs it holds one with
+// the spawn's pid.
+#[tokio::test]
+async fn the_runner_start_is_recorded_after_the_spawn_and_not_before() {
+    let mut rig = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    );
+    let at_spawn: Glimpses = Arc::default();
+    let running: Glimpses = Arc::default();
+    for (window, seen) in [
+        (&rig.runner.at_spawn, &at_spawn),
+        (&rig.runner.during, &running),
+    ] {
+        let (edge, seen) = (Arc::clone(&rig.edge), Arc::clone(seen));
+        *window.lock().unwrap() = Some(Arc::new(move || {
+            seen.lock()
+                .unwrap()
+                .push((names(&now(run_events(&edge, SESSION))), 0));
+        }));
+    }
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    let at_spawn = at_spawn.lock().unwrap();
+    assert_eq!(at_spawn.len(), 1);
+    assert!(
+        !at_spawn[0].0.contains(&"RunnerStarted"),
+        "{:?}",
+        at_spawn[0]
+    );
+    let running = running.lock().unwrap();
+    assert!(running[0].0.contains(&"RunnerStarted"), "{:?}", running[0]);
+}
+
+// A command that cannot be spawned leaves the interactive run the same way.
+#[tokio::test]
+async fn an_interactive_command_that_could_not_start_records_no_runner_start() {
+    let mut interactive = order("fake");
+    interactive.interactive = true;
+    let mut rig = rig(
+        ScriptedEngine::answering("", None),
+        ScriptedRunner::answering(Launch::NotStarted(LaunchFailure {
+            deterministic: true,
+            detail: "no claude".to_string(),
+        })),
+        orders_with(interactive),
+    );
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    assert_eq!(
+        names(&run_events(&rig.edge, SESSION).await),
+        ["RunEnqueued", "RunnerAttached", "RunEnded"]
+    );
+}
+
+// The interactive launch records the pid of its spawn too.
+#[tokio::test]
+async fn an_interactive_runner_start_carries_the_pid_of_the_spawn() {
+    let mut interactive = order("fake");
+    interactive.interactive = true;
+    let mut runner = ScriptedRunner::exits(0);
+    runner.pid = 777;
+    let mut rig = rig(
+        ScriptedEngine::answering("", None),
+        runner,
+        orders_with(interactive),
+    );
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    let pid = run_events(&rig.edge, SESSION)
+        .await
+        .into_iter()
+        .find_map(|e| match e {
+            RunEvent::RunnerStartedRecorded(s) => Some(s.pid),
+            _ => None,
+        });
+    assert_eq!(pid, Some(777));
 }
 
 // Nothing was started when there is no engine of that name, or it will not

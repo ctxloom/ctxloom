@@ -188,3 +188,27 @@ fn the_run_environment_names_the_resolved_home() {
     assert_eq!(env.get("HOME").map(String::as_str), Some("/home/u"));
     assert_eq!(env.get("PATH").map(String::as_str), Some("/bin"));
 }
+
+// The process is asked to stop: the stop of the terminal session is requested.
+// Forced, not waited for: the bridge's thread is joined.
+#[test]
+fn a_stop_signal_requests_the_stop() {
+    let (stop, thread) = super::bridge(|| Ok(Box::pin(async {})));
+    thread.join().unwrap();
+    assert!(stop.is_requested());
+}
+
+// And no signal, no stop.
+#[test]
+fn no_stop_signal_leaves_the_stop_unrequested() {
+    let (stop, _thread) = super::bridge(|| Ok(Box::pin(std::future::pending())));
+    assert!(!stop.is_requested());
+}
+
+// A signal that cannot be listened for ends the thread and requests nothing.
+#[test]
+fn a_stop_signal_that_cannot_be_made_requests_nothing() {
+    let (stop, thread) = super::bridge(|| Err(std::io::Error::other("no signals")));
+    thread.join().unwrap();
+    assert!(!stop.is_requested());
+}

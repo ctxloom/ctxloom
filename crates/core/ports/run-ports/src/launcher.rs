@@ -7,9 +7,17 @@
 //! launcher's facts. This module is pure: a driven adapter (`host-launcher`)
 //! does the running.
 //!
+//! A launch is two steps, so that the caller learns the pid at the real
+//! spawn and not before: [`RunnerLauncher::launch`] spawns the command and
+//! answers a [`Running`] (or why it could not start, and then nothing
+//! started), the caller records what it must about a started runner, and
+//! [`Running::finish`] waits for the command's end. The core has no thread of
+//! its own to hear the pid from inside a blocking call, which is why the port
+//! is not one call with a callback.
+//!
 //! Stopping a turn from outside, before its deadline, is not in this port yet:
-//! the deadline is the only stop. The human's terminal session has none: she
-//! ends it.
+//! the deadline is the only stop. The human's terminal session is ended by
+//! her, or by a stop the adapter was given when it was made.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -107,7 +115,6 @@ pub enum Launch {
 /// The launcher's facts: what happened to the command, in order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LaunchEvent {
-    RunnerStarted,
     LaunchFailed {
         deterministic: bool,
         detail: String,
@@ -119,35 +126,49 @@ pub enum LaunchEvent {
 }
 
 impl Launch {
-    /// The facts, in order: a command that started is `RunnerStarted` then
-    /// `RunExited`; one that did not is `LaunchFailed` alone.
+    /// The facts the answer itself makes, in order: a command that started
+    /// and is over is `RunExited`; one that did not start is `LaunchFailed`.
+    /// (`RunnerStarted`, with the pid, is the caller's to record between
+    /// [`RunnerLauncher::launch`] and [`Running::finish`].)
     pub fn events(&self) -> Vec<LaunchEvent> {
         match self {
             Launch::NotStarted(failure) => vec![LaunchEvent::LaunchFailed {
                 deterministic: failure.deterministic,
                 detail: failure.detail.clone(),
             }],
-            Launch::Over(output) => vec![
-                LaunchEvent::RunnerStarted,
-                LaunchEvent::RunExited {
-                    code: output.exit.code,
-                    signal: output.exit.signal,
-                },
-            ],
+            Launch::Over(output) => vec![LaunchEvent::RunExited {
+                code: output.exit.code,
+                signal: output.exit.signal,
+            }],
         }
     }
 }
 
-/// Runs one turn's command. Blocking: it returns when the command is over
-/// (or killed at its deadline).
-pub trait RunnerLauncher: Send + Sync {
-    fn launch(&self, command: &TurnCommand, limits: &Limits) -> Launch;
+/// A command that was spawned and is running.
+pub trait Running: Send {
+    /// The process id of the command, from the spawn.
+    fn pid(&self) -> u32;
 
-    /// Run the human's terminal session: the command is given this process's
-    /// terminal (its standard input, output and error) and the foreground,
-    /// with no deadline and nothing captured; the answer is how it ended
-    /// (`TurnOutput`'s streams are empty).
-    fn launch_terminal(&self, command: &TurnCommand) -> Launch;
+    /// Wait until the command is over (or killed at its deadline). A failure
+    /// here is a wait that broke after the command started.
+    fn finish(self: Box<Self>) -> Result<TurnOutput, LaunchFailure>;
+}
+
+/// Starts one turn's command. [`Running::finish`] blocks until it is over.
+pub trait RunnerLauncher: Send + Sync {
+    /// Spawn the command under `limits`. An `Err` started nothing.
+    fn launch(
+        &self,
+        command: &TurnCommand,
+        limits: &Limits,
+    ) -> Result<Box<dyn Running>, LaunchFailure>;
+
+    /// Spawn the human's terminal session: the command is given this
+    /// process's terminal (its standard input, output and error) and its
+    /// process group, with no deadline and nothing captured; the answer of
+    /// [`Running::finish`] is how it ended (`TurnOutput`'s streams are empty).
+    /// An `Err` started nothing.
+    fn launch_terminal(&self, command: &TurnCommand) -> Result<Box<dyn Running>, LaunchFailure>;
 }
 
 #[cfg(test)]

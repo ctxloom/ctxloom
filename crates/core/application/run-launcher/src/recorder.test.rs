@@ -95,7 +95,7 @@ async fn every_event_of_the_session_and_its_run_is_a_line_of_its_record() {
     );
     assert_eq!(
         (runs[2]["runtime"].as_str(), runs[2]["pid"].as_u64()),
-        (Some("fake"), Some(0))
+        (Some("fake"), Some(u64::from(crate::fakes::SCRIPTED_PID)))
     );
     assert_eq!(runs[4]["answer_ref"], "transcripts/transcript.jsonl");
     assert_eq!(runs[4]["native_key"], "native-7");

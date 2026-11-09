@@ -6,16 +6,16 @@
 //! 1. the session home and the user's line of the transcript are written, and
 //!    the turn's command is built; a launch that fails here has started
 //!    nothing, and is a `LaunchFailed`;
-//! 2. `RunnerAttached`, `RunnerStarted` and `TurnStarted` are recorded BEFORE
-//!    the command runs: the pending launches clear on `RunnerStarted` (not on a
-//!    runner's first word, which a spawned and silent turn never says), so a
-//!    catch-up that reads the streams while the command runs does not launch
-//!    the run again. The port blocks until the command is over and learns no
-//!    pid, so the fact is the launcher's word that it is about to spawn, with
-//!    pid 0 (unknown); a command that then cannot start is a `LaunchFailed`,
-//!    which ends the run;
-//! 3. the command runs to its end; a command that could not be started is a
-//!    `LaunchFailed`; one that ran is read by the engine
+//! 2. `RunnerAttached` is recorded, then the command is SPAWNED
+//!    ([`RunnerLauncher::launch`]), and only then are `RunnerStarted` (with the
+//!    pid the spawn gave) and `TurnStarted` recorded, while the command runs:
+//!    the pending launches clear on `RunnerStarted` (not on a runner's first
+//!    word, which a spawned and silent turn never says), so a catch-up that
+//!    reads the streams while the command runs does not launch the run
+//!    again. A command that cannot be spawned is a `LaunchFailed`, which ends
+//!    the run, and never a `RunnerStarted`;
+//! 3. the command runs to its end ([`Running::finish`]; a wait that breaks
+//!    after the spawn is a `LaunchFailed` too); one that ran is read by the engine
 //!    ([`Engine::finish_turn`]): the assistant's line is written to the
 //!    transcript, the engine's own session id is bound to the session, and the
 //!    turn is `TurnCompleted` or `TurnFailed`;
@@ -31,7 +31,7 @@ use angzarr_embedded::{Catalog, CatchUp, Processed, ReadStore, Store};
 use pending_launches::{catch_up, PendingLaunch, PendingModel};
 use ports::Clock;
 use run_ports::{
-    Edge, Engine, FailureClass, Launch, Limits, PrepareRequest, RunnerLauncher, SessionRecords,
+    Edge, Engine, FailureClass, Limits, PrepareRequest, RunnerLauncher, SessionRecords,
     TurnCommand, TurnOutcome, TurnRequest,
 };
 use runs_application::{Facts, Identity, Principal, RunnerFact};
@@ -194,24 +194,23 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
             }
         };
         self.record(&who, attached()).await?;
-        self.record(&who, runner_started(&order)).await?;
         if order.interactive {
-            return self.terminal(&who, &command, done).await;
+            return self.terminal(&who, &order, &command, done).await;
         }
+        let running = match self.runner.launch(&command, &self.limits) {
+            Ok(running) => running,
+            Err(failure) => return self.never_started(&who, failure, done).await,
+        };
+        self.record(&who, runner_started(&order, running.pid()))
+            .await?;
         self.record(
             &who,
             RunnerFact::TurnStarted(runs::TurnStarted { turn: TURN }),
         )
         .await?;
-        let output = match self.runner.launch(&command, &self.limits) {
-            Launch::NotStarted(failure) => {
-                self.not_started(&who, failure.deterministic, &failure.detail)
-                    .await?;
-                return Ok(done(Outcome::NotStarted {
-                    detail: failure.detail,
-                }));
-            }
-            Launch::Over(output) => output,
+        let output = match running.finish() {
+            Ok(output) => output,
+            Err(failure) => return self.never_started(&who, failure, done).await,
         };
         let outcome = engine.finish_turn(&output);
         let code = output.exit.code.unwrap_or(0);
@@ -267,18 +266,19 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
     async fn terminal(
         &self,
         who: &Identity,
+        order: &Order,
         command: &TurnCommand,
         done: impl Fn(Outcome) -> Launched,
     ) -> Result<Launched, LaunchError> {
-        let output = match self.runner.launch_terminal(command) {
-            Launch::NotStarted(failure) => {
-                self.not_started(who, failure.deterministic, &failure.detail)
-                    .await?;
-                return Ok(done(Outcome::NotStarted {
-                    detail: failure.detail,
-                }));
-            }
-            Launch::Over(output) => output,
+        let running = match self.runner.launch_terminal(command) {
+            Ok(running) => running,
+            Err(failure) => return self.never_started(who, failure, done).await,
+        };
+        self.record(who, runner_started(order, running.pid()))
+            .await?;
+        let output = match running.finish() {
+            Ok(output) => output,
+            Err(failure) => return self.never_started(who, failure, done).await,
         };
         self.record(
             who,
@@ -290,6 +290,20 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
         .await?;
         Ok(done(Outcome::Ended {
             code: output.exit.code,
+        }))
+    }
+
+    /// The command did not run: record why, and end the launch.
+    async fn never_started(
+        &self,
+        who: &Identity,
+        failure: run_ports::LaunchFailure,
+        done: impl Fn(Outcome) -> Launched,
+    ) -> Result<Launched, LaunchError> {
+        self.not_started(who, failure.deterministic, &failure.detail)
+            .await?;
+        Ok(done(Outcome::NotStarted {
+            detail: failure.detail,
         }))
     }
 
@@ -400,13 +414,13 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
     }
 }
 
-/// The launcher's word that it spawns the runner: the engine it runs under,
-/// where, and no pid (the port learns none).
-fn runner_started(order: &Order) -> RunnerFact {
+/// The launcher's word that the runner is spawned: the engine it runs under,
+/// where, and the pid the spawn gave.
+fn runner_started(order: &Order, pid: u32) -> RunnerFact {
     RunnerFact::RunnerStarted(runs::RunnerStarted {
         runtime: order.engine.clone(),
         workspace: order.cwd.clone().unwrap_or_default(),
-        pid: 0,
+        pid,
     })
 }
 

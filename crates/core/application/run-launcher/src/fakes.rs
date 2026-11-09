@@ -17,9 +17,9 @@ use angzarr_embedded::{
 };
 use ports::Clock;
 use run_ports::{
-    check_rel, Edge, Engine, EngineError, Exit, HomeFile, Launch, Limits, PrepareRequest, Prepared,
-    RecordsError, RunnerLauncher, SessionRecords, TurnCommand, TurnOutcome, TurnOutput,
-    TurnRequest, Unserved,
+    check_rel, Edge, Engine, EngineError, Exit, HomeFile, Launch, LaunchFailure, Limits,
+    PrepareRequest, Prepared, RecordsError, RunnerLauncher, Running, SessionRecords, TurnCommand,
+    TurnOutcome, TurnOutput, TurnRequest, Unserved,
 };
 use runs::{RunEvent, RunMode};
 use sessions::{Origin, SessionEvent};
@@ -231,6 +231,37 @@ pub struct ScriptedRunner {
     /// What the command's process does while it runs, silent: a test's
     /// window onto the store at the moment of a spawn.
     pub during: Arc<Mutex<Option<Window>>>,
+    /// A window onto the store INSIDE the spawn, before the pid is known to
+    /// the caller.
+    pub at_spawn: Arc<Mutex<Option<Window>>>,
+    /// The pid of the spawned command.
+    pub pid: u32,
+}
+
+/// The pid a scripted command has.
+pub const SCRIPTED_PID: u32 = 4242;
+
+/// A scripted command, spawned and running.
+struct ScriptedRunning {
+    pid: u32,
+    answer: Launch,
+    during: Option<Window>,
+}
+
+impl Running for ScriptedRunning {
+    fn pid(&self) -> u32 {
+        self.pid
+    }
+
+    fn finish(self: Box<Self>) -> Result<TurnOutput, LaunchFailure> {
+        if let Some(during) = &self.during {
+            during();
+        }
+        match self.answer {
+            Launch::Over(output) => Ok(output),
+            Launch::NotStarted(failure) => Err(failure),
+        }
+    }
 }
 
 impl ScriptedRunner {
@@ -254,28 +285,37 @@ impl ScriptedRunner {
             seen: Arc::default(),
             seen_terminal: Arc::default(),
             during: Arc::default(),
+            at_spawn: Arc::default(),
+            pid: SCRIPTED_PID,
         }
     }
 
-    fn silent_while_running(&self) {
-        let during = self.during.lock().unwrap().clone();
-        if let Some(during) = during {
-            during();
+    /// The spawn: a scripted refusal is a command that never started.
+    fn spawn(&self) -> Result<Box<dyn Running>, LaunchFailure> {
+        let at_spawn = self.at_spawn.lock().unwrap().clone();
+        if let Some(at_spawn) = at_spawn {
+            at_spawn();
         }
+        if let Launch::NotStarted(failure) = &self.answer {
+            return Err(failure.clone());
+        }
+        Ok(Box::new(ScriptedRunning {
+            pid: self.pid,
+            answer: self.answer.clone(),
+            during: self.during.lock().unwrap().clone(),
+        }))
     }
 }
 
 impl RunnerLauncher for ScriptedRunner {
-    fn launch(&self, command: &TurnCommand, _: &Limits) -> Launch {
+    fn launch(&self, command: &TurnCommand, _: &Limits) -> Result<Box<dyn Running>, LaunchFailure> {
         self.seen.lock().unwrap().push(command.clone());
-        self.silent_while_running();
-        self.answer.clone()
+        self.spawn()
     }
 
-    fn launch_terminal(&self, command: &TurnCommand) -> Launch {
+    fn launch_terminal(&self, command: &TurnCommand) -> Result<Box<dyn Running>, LaunchFailure> {
         self.seen_terminal.lock().unwrap().push(command.clone());
-        self.silent_while_running();
-        self.answer.clone()
+        self.spawn()
     }
 }
 

@@ -579,3 +579,28 @@ async fn an_interactive_command_that_cannot_start_is_not_started() {
         }
     );
 }
+
+#[test]
+fn the_launcher_hands_on_the_credentials_of_the_engine_it_holds() {
+    use crate::fakes::Credentialed;
+    let asks = run_ports::Credentials {
+        child_env: &["A_TOKEN"],
+        primary_env: &["A_TOKEN", "B_TOKEN"],
+        user_dir: ".fake",
+        login_file: Some("login.json"),
+    };
+    let launcher = Launcher::new(
+        Arc::new(TestEdge::new()),
+        ScriptedRunner::exits(0),
+        MemoryRecords::default(),
+        FixedClock(1),
+        vec![Arc::new(Credentialed(
+            ScriptedEngine::answering("a", None),
+            asks,
+        ))],
+        Arc::new(Orders::new()),
+        limits(),
+    );
+    assert_eq!(launcher.credentials("fake"), Some(asks));
+    assert_eq!(launcher.credentials("other"), None);
+}

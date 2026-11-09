@@ -111,6 +111,25 @@ pub enum TurnOutcome {
     },
 }
 
+/// How an engine is handed a credential (owner ruling 2026-11-08, item 8).
+/// What the engine does not authenticate with is left empty, which is the
+/// default: an engine that needs none (the mock) asks for none.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Credentials {
+    /// The environment variables any one of which authenticates a CHILD
+    /// agent's run. A child is given nothing else: no shared file.
+    pub child_env: &'static [&'static str],
+    /// The environment variables any one of which authenticates the human's
+    /// PRIMARY session; with one set, it shares no login file.
+    pub primary_env: &'static [&'static str],
+    /// The user's own configuration directory for this engine, relative to
+    /// their home (claude: `.claude`), where its login file is.
+    pub user_dir: &'static str,
+    /// The name of the login file, in the user's directory and in a session
+    /// home alike, that the primary may share by a link. Never read.
+    pub login_file: Option<&'static str>,
+}
+
 /// An agent engine's contribution to running a child.
 pub trait Engine: Send + Sync {
     /// The engine's name.
@@ -124,6 +143,14 @@ pub trait Engine: Send + Sync {
 
     /// What a turn's finished command meant.
     fn finish_turn(&self, output: &TurnOutput) -> TurnOutcome;
+
+    /// How this engine is handed a credential.
+    // `Default::default()` is the same value as `Credentials::default()`:
+    // the mutant is equivalent.
+    #[cfg_attr(test, mutants::skip)]
+    fn credentials(&self) -> Credentials {
+        Credentials::default()
+    }
 
     /// The command of the human's terminal run.
     fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError>;

@@ -21,6 +21,11 @@ const TOKEN: &str = "token";
 /// no ctxloom command takes one.
 const CLAUDE_REMEDY: &str = "run `claude setup-token` and export CLAUDE_CODE_OAUTH_TOKEN (or store it in your secret manager)";
 
+/// The variables any one of which authenticates the agents ctxloom delegates
+/// to (a child's run is given nothing else). The same two the claude engine
+/// passes a turn; this crate cannot see the adapter that holds them.
+const AGENT_TOKEN_VARS: [&str; 2] = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"];
+
 /// One engine's credential in token mode.
 struct Rule {
     engine: &'static str,
@@ -102,6 +107,12 @@ impl Auth {
                 })
             })
             .collect()
+    }
+
+    /// Whether a credential a delegated agent can authenticate with is
+    /// exported: a token or an API key. Never its value.
+    pub fn agent_token_exported(&self) -> bool {
+        AGENT_TOKEN_VARS.iter().any(|var| self.env.is_exported(var))
     }
 
     /// For each of `engines` that reads a credential from the environment

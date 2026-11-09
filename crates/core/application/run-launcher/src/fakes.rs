@@ -343,6 +343,32 @@ impl Engine for ScriptedEngine {
     }
 }
 
+/// An engine that asks for credentials as `1` says, and is otherwise `0`.
+pub struct Credentialed(pub ScriptedEngine, pub run_ports::Credentials);
+
+// A test double shipped for tests only; its tests are the callers' own.
+#[cfg_attr(test, mutants::skip)]
+impl Engine for Credentialed {
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+    fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
+        self.0.prepare(request)
+    }
+    fn drive_turn(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
+        self.0.drive_turn(request)
+    }
+    fn finish_turn(&self, output: &TurnOutput) -> TurnOutcome {
+        self.0.finish_turn(output)
+    }
+    fn credentials(&self) -> run_ports::Credentials {
+        self.1
+    }
+    fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
+        self.0.drive_interactive(request)
+    }
+}
+
 /// A file of a session directory, by its harp and relative path.
 type Files = BTreeMap<(String, String), Vec<u8>>;
 

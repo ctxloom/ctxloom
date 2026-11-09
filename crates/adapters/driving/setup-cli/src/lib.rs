@@ -26,7 +26,7 @@ use angzarr_diagnostic::Diagnostic;
 use angzarr_presentation::{write_json, Catalog, Format};
 use auth_application::Auth;
 use clap::ArgMatches;
-use cli_support::say_warning;
+use cli_support::{say_notices, say_warning};
 use deps_application::Notice;
 use doctor_checks::Doctor;
 use init_application::{Init, InitRequest};
@@ -88,7 +88,7 @@ pub fn run<G>(
         "auth" => auth(uses, format, out),
         "clean" => clean(uses, sub, format, catalog, out, err),
         "doctor" => doctor(uses, sub, format, out, err),
-        _ => init(uses, sub, catalog, out, err),
+        _ => init(uses, sub, format, catalog, out, err),
     }
 }
 
@@ -172,9 +172,21 @@ fn exit_of(report: &doctor_checks::Report) -> u8 {
     }
 }
 
+/// What init says when no token is exported, from claude's own docs:
+/// `claude setup-token` makes a one-year token for a Pro, Max, Team or
+/// Enterprise plan.
+fn token_guide() -> Notice {
+    Notice::with_fix(
+        "delegated agents need a token, and none is exported (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)",
+        "run `claude setup-token` (it needs a Pro, Max, Team or Enterprise plan, and the token lasts a year), \
+         then export CLAUDE_CODE_OAUTH_TOKEN with it, or store it in your secret manager",
+    )
+}
+
 fn init(
     uses: &UseCases<'_>,
     sub: &ArgMatches,
+    format: Format,
     catalog: &Catalog,
     out: &mut dyn Write,
     err: &mut dyn Write,
@@ -203,6 +215,11 @@ fn init(
     let notices: &[Notice] = &done.notices;
     for notice in notices {
         say_warning(notice, PROG, Format::Text, catalog, err);
+    }
+    // Delegated agents authenticate with a token the human mints and
+    // exports; init guides her to it, and never blocks on it or asks for it.
+    if !uses.auth.agent_token_exported() {
+        say_notices(&[token_guide()], PROG, format, catalog, err);
     }
     Ok(0)
 }

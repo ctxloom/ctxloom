@@ -17,13 +17,14 @@ use angzarr_embedded::{Catalog, CommandBookExt, Processed, ReadStore, Store};
 use library_application::{AppError as PlanError, Flags, Notice, Outcome, Previewed, RunRequest};
 use ports::{CommandIds, Names, Project, ProjectIdentity};
 use run_launcher::{Launched, Launcher, Order, Orders, Outcome as Turn, Recorder};
-use run_ports::{Edge, RunnerLauncher, SessionRecords};
+use run_ports::{Edge, LoginLinks, RunnerLauncher, SessionRecords};
 use runs_application::{AppError as CoreError, EnqueueRequest, Enqueuer};
 use sessions::{
     claim_root, ClaimName, MintSession, NameClaimCommand, Origin, SessionCommand, NAMES_DOMAIN,
     SESSION_DOMAIN,
 };
 
+use crate::credential::{refuse_child, share_login};
 use crate::error::RunError;
 
 /// How many names are tried for a session before a taken one is the error.
@@ -126,6 +127,8 @@ pub struct Runs<
     pub(crate) orders: Arc<Orders>,
     pub(crate) place: Place,
     pub(crate) env: BTreeMap<String, String>,
+    pub(crate) links: Box<dyn LoginLinks>,
+    pub(crate) os: String,
 }
 
 /// Everything [`Runs`] is made of.
@@ -150,6 +153,11 @@ pub struct Parts<
     pub place: Place,
     /// The caller's environment, of which an engine passes on what it allows.
     pub env: BTreeMap<String, String>,
+    /// The session directory's one link: the login the primary shares.
+    pub links: Box<dyn LoginLinks>,
+    /// The operating system's name (`std::env::consts::OS`), which says
+    /// whether a login can be shared by a link at all.
+    pub os: String,
 }
 
 impl<K, T, L, R, C, W> Runs<K, T, L, R, C, W>
@@ -174,6 +182,8 @@ where
             orders: parts.orders,
             place: parts.place,
             env: parts.env,
+            links: parts.links,
+            os: parts.os,
         }
     }
 
@@ -199,7 +209,7 @@ where
         let mut notices = planned.notices;
         let result = match planned.result {
             Err(error) => Err(RunError::Plan(Box::new(error))),
-            Ok(previewed) => self.session(previewed, request).await,
+            Ok(previewed) => self.session(previewed, request, &mut notices).await,
         };
         Done {
             result,
@@ -211,8 +221,19 @@ where
         &mut self,
         previewed: Previewed,
         request: &OneShot,
+        notices: &mut Vec<Notice>,
     ) -> Result<Ended, RunError> {
         let (session, harp, engine, run) = self.start(previewed, request, true).await?;
+        // The primary is handed her login before her engine starts.
+        if let Some(credentials) = self.launcher.credentials(&engine) {
+            notices.extend(share_login(
+                &mut *self.links,
+                &credentials,
+                &self.env,
+                &self.os,
+                &harp,
+            ));
+        }
         let launched = self.launched(&session).await?;
         self.ended(&run).await?;
         match launched.outcome {
@@ -257,6 +278,13 @@ where
                 name: engine,
                 known: self.launcher.engines().join(", "),
             });
+        }
+        // A child agent is given an environment credential and nothing else.
+        if !interactive {
+            let credentials = self.launcher.credentials(&engine).unwrap_or_default();
+            if let Some(refusal) = refuse_child(&engine, &credentials, &self.env) {
+                return Err(RunError::Refused(refusal));
+            }
         }
         let project = self.identity.for_write(None).map_err(RunError::Project)?;
         let (session, harp) = self.mint(&project, &engine, interactive).await?;

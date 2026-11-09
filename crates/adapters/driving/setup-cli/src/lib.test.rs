@@ -330,9 +330,49 @@ fn the_exit_of_a_report_is_three_only_when_a_row_failed() {
 
 #[test]
 fn init_says_the_directory_exists_and_exits_zero() {
-    let r = go(&["init"], Format::Text, none);
+    let r = go(&["init"], Format::Text, token);
     assert_eq!(r.exit.unwrap(), 0);
     assert_eq!(r.out, "ctxloom directory already exists: /work/.ctxloom\n");
+    assert_eq!(r.err, "");
+}
+
+// Owner ruling 2026-11-08: init guides the human to the token delegated
+// agents need. It is a notice: exit 0, stdout unchanged, in any format.
+#[test]
+fn init_with_no_token_guides_to_claude_setup_token_and_still_exits_zero() {
+    for format in [Format::Text, Format::Json] {
+        let r = go(&["init"], format, none);
+        assert_eq!(r.exit.unwrap(), 0);
+        assert_eq!(r.out, "ctxloom directory already exists: /work/.ctxloom\n");
+        assert!(r.err.contains("delegated agents need a token"), "{}", r.err);
+        assert!(r.err.contains("claude setup-token"), "{}", r.err);
+        assert!(
+            r.err.contains("export CLAUDE_CODE_OAUTH_TOKEN"),
+            "{}",
+            r.err
+        );
+        assert!(r.err.contains("Pro, Max, Team or Enterprise"), "{}", r.err);
+        assert!(r.err.contains("lasts a year"), "{}", r.err);
+        assert!(r.err.contains("secret manager"), "{}", r.err);
+    }
+}
+
+#[test]
+fn init_with_an_api_key_exported_needs_no_guide() {
+    let r = go(&["init"], Format::Text, |world, _| {
+        world
+            .exported
+            .lock()
+            .unwrap()
+            .push("ANTHROPIC_API_KEY".to_string());
+    });
+    assert_eq!(r.exit.unwrap(), 0);
+    assert_eq!(r.err, "");
+}
+
+#[test]
+fn init_prompt_does_not_guide() {
+    let r = go(&["init", "prompt"], Format::Text, none);
     assert_eq!(r.err, "");
 }
 

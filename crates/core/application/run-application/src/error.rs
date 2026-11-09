@@ -6,6 +6,7 @@ use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 use library_application::AppError as PlanError;
 use run_launcher::LaunchError;
 use run_ports::FailureClass;
+use runs::RunRejection;
 use runs_application::AppError as CoreError;
 
 #[derive(Debug)]
@@ -18,6 +19,9 @@ pub enum RunError {
     NoPrompt,
     /// No engine of that name can be driven.
     UnknownEngine { name: String, known: String },
+    /// The run's domain refused it before anything was made: its own typed
+    /// refusal, with the code, args and message of the domain's rejection.
+    Refused(RunRejection),
     /// The project could not be told.
     Project(Report),
     /// The kernel refused, or failed, to make the session or enqueue its run.
@@ -41,7 +45,7 @@ impl RunError {
     pub fn exit_code(&self) -> u8 {
         match self {
             RunError::Plan(error) => error.exit_code(),
-            RunError::NoPrompt | RunError::UnknownEngine { .. } => 2,
+            RunError::NoPrompt | RunError::UnknownEngine { .. } | RunError::Refused(_) => 2,
             RunError::Session(CoreError::Refused { .. }) => 2,
             _ => 1,
         }
@@ -70,6 +74,7 @@ impl Diagnostic for RunError {
             RunError::Plan(error) => error.code(),
             RunError::NoPrompt => code!("no-prompt"),
             RunError::UnknownEngine { .. } => code!("unknown-engine"),
+            RunError::Refused(rejection) => rejection.code(),
             RunError::Project(_) => code!("project"),
             RunError::Session(_) => code!("session"),
             RunError::Launch(_) => code!("launch"),
@@ -93,6 +98,7 @@ impl Diagnostic for RunError {
                 ("name", name.as_str().into()),
                 ("known", known.as_str().into()),
             ],
+            RunError::Refused(rejection) => rejection.args(),
             RunError::Project(report) => vec![("reason", report.code().into())],
             RunError::Session(error) => vec![("reason", why(error).into())],
             RunError::Launch(error) => vec![("reason", error.code().into())],

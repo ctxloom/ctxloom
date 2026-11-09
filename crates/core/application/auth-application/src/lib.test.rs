@@ -162,3 +162,11 @@ fn each_engine_is_reported_once_whatever_its_labels() {
 fn a_mode_that_is_not_login_is_the_default_token() {
     assert_eq!(auth(&[]).needed(&["claude-code".to_string()], "").len(), 1);
 }
+
+#[test]
+fn a_token_or_an_api_key_is_an_agent_token_and_nothing_else_is() {
+    assert!(auth(&["CLAUDE_CODE_OAUTH_TOKEN"]).agent_token_exported());
+    assert!(auth(&["ANTHROPIC_API_KEY"]).agent_token_exported());
+    assert!(!auth(&["ANTHROPIC_AUTH_TOKEN", "CTXLOOM_OPENCODE_API_KEY"]).agent_token_exported());
+    assert!(!auth(&[]).agent_token_exported());
+}

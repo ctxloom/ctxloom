@@ -1174,23 +1174,3 @@ fn test_the_config_sections_are_the_schemas() {
     assert!(sections.len() > 10);
     assert!(sections.iter().all(|s| !s.is_empty() && *s != "xyzzy"));
 }
-
-// A live probe (2026-11-09): the model of the resolved `llm.configs` entry
-// never reached the engine. The plan names it; an entry with none names none.
-#[test]
-fn test_a_dry_run_carries_the_resolved_llm_configs_model() {
-    let layers = ["schema_version: 9\nagents:\n  dev:\n    llm: fancy\n  bare:\n    llm: plain\nllm:\n  configs:\n    fancy:\n      type: claude-code\n      model: haiku\n    plain:\n      type: claude-code\n"];
-    let library = with(&[], &layers).library();
-    let plan = |agent: &str| {
-        ok(library.dry_run(
-            &plain(),
-            &crate::RunRequest {
-                agent: agent.to_string(),
-                ..crate::RunRequest::default()
-            },
-        ))
-        .plan
-    };
-    assert_eq!(plan("dev").model, "haiku");
-    assert_eq!(plan("bare").model, "");
-}

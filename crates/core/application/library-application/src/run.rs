@@ -272,7 +272,6 @@ impl Project {
             prompt,
             findings: rows,
             axes: self.axes(request, selection.agent.as_ref()),
-            model: String::new(),
         };
         Ok(Previewed { plan, fatal })
     }

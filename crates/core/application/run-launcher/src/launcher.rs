@@ -347,7 +347,6 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             resume: None,
             env: order.env.clone(),
             cwd: order.cwd.clone(),
-            model: String::new(),
         };
         let command = if order.interactive {
             engine.drive_interactive(&request)

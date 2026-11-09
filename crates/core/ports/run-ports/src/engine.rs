@@ -73,8 +73,6 @@ pub struct TurnRequest {
     /// The caller's environment: the engine passes on only what it allows.
     pub env: BTreeMap<String, String>,
     pub cwd: Option<String>,
-    /// The model to run; empty names none, and the engine passes no flag.
-    pub model: String,
 }
 
 impl fmt::Debug for TurnRequest {
@@ -87,7 +85,6 @@ impl fmt::Debug for TurnRequest {
             .field("resume", &self.resume)
             .field("env", &crate::hook::RedactedEnv(&self.env))
             .field("cwd", &self.cwd)
-            .field("model", &self.model)
             .finish()
     }
 }

@@ -252,3 +252,39 @@ fn test_a_harp_the_marker_cannot_carry_has_no_marker() {
     assert_eq!(harp_marker("a\"b"), None);
     assert_eq!(harp_marker("a>b"), None);
 }
+
+// Hook capture (PROPOSAL, design/hook-capture): the answer carries the event
+// the codec decoded, so the caller that records it decodes nothing itself.
+#[test]
+fn test_the_answer_carries_the_decoded_event() {
+    let w = world(CONFIG);
+    let answer = w
+        .setup
+        .execute_hook(
+            "claude-code",
+            "Stop",
+            r#"{"session":"native-1"}"#,
+            "brisk-copper-moth",
+        )
+        .unwrap();
+    assert_eq!(
+        answer.event,
+        Some(HookEvent {
+            event: "turn_end".to_string(),
+            native_session: "native-1".to_string(),
+            ..HookEvent::default()
+        })
+    );
+}
+
+#[test]
+fn test_the_decoded_event_rides_every_answer_kind() {
+    let w = world(CONFIG);
+    for native in ["SessionStart", "PostToolUse", "Stop", "UserPromptSubmit"] {
+        let answer = w
+            .setup
+            .execute_hook("claude-code", native, "{}", "brisk-copper-moth")
+            .unwrap();
+        assert!(answer.event.is_some(), "{native}");
+    }
+}

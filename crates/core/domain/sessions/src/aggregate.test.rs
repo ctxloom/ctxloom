@@ -819,3 +819,175 @@ fn event_any(page: &angzarr_embedded::v1::EventPage) -> &angzarr_embedded::Any {
         other => panic!("not a domain event: {other:?}"),
     }
 }
+
+// ------------------------------------------------------------ hook capture
+//
+// PROPOSAL (design/hook-capture): the session aggregate decides the engine's
+// observations. Each is a FACT (it already happened): never refused, recorded
+// as its event on a live session, nothing on a stream with no live session,
+// and a redelivery (the same external id) is DUPLICATE. The events' order in
+// the stream is the transcript's order.
+
+use crate::{
+    AssistantTextShown, Compacted, CompactionPhase, PromptSubmitted, RecordAssistantText,
+    RecordCompaction, RecordPromptSubmitted, RecordSessionEnded, RecordToolCall, RecordTurnEnded,
+    SessionEnded, ToolCalled, TurnEnded,
+};
+
+fn prompt_fact() -> RecordPromptSubmitted {
+    RecordPromptSubmitted {
+        prompt_id: "p1".to_string(),
+        prompt: "Run the shell command: echo hi".to_string(),
+    }
+}
+
+fn text_fact(index: u32, is_final: bool, text: &str) -> RecordAssistantText {
+    RecordAssistantText {
+        prompt_id: "p1".to_string(),
+        turn_id: "t1".to_string(),
+        message_id: "m1".to_string(),
+        index,
+        is_final,
+        text: text.to_string(),
+    }
+}
+
+fn tool_fact() -> RecordToolCall {
+    RecordToolCall {
+        prompt_id: "p1".to_string(),
+        tool_use_id: "toolu_1".to_string(),
+        tool: "Bash".to_string(),
+        input: r#"{"command":"echo hi"}"#.to_string(),
+        response_bytes: 2,
+        response_sha256: "00".repeat(32),
+    }
+}
+
+#[test]
+fn every_observation_records_its_event_on_a_live_session() {
+    let mut session = Session::minted();
+    assert_eq!(
+        session.fact(prompt_fact(), "hook:prompt:s:p1"),
+        [SessionEvent::PromptSubmitted(PromptSubmitted {
+            prompt_id: "p1".to_string(),
+            prompt: "Run the shell command: echo hi".to_string(),
+        })]
+    );
+    assert_eq!(
+        session.fact(text_fact(0, true, "done"), "hook:text:s:m1:0"),
+        [SessionEvent::AssistantTextShown(AssistantTextShown {
+            prompt_id: "p1".to_string(),
+            turn_id: "t1".to_string(),
+            message_id: "m1".to_string(),
+            index: 0,
+            is_final: true,
+            text: "done".to_string(),
+        })]
+    );
+    assert_eq!(
+        session.fact(tool_fact(), "hook:tool:s:toolu_1"),
+        [SessionEvent::ToolCalled(ToolCalled {
+            prompt_id: "p1".to_string(),
+            tool_use_id: "toolu_1".to_string(),
+            tool: "Bash".to_string(),
+            input: r#"{"command":"echo hi"}"#.to_string(),
+            response_bytes: 2,
+            response_sha256: "00".repeat(32),
+        })]
+    );
+    assert_eq!(
+        session.fact(
+            RecordTurnEnded {
+                prompt_id: "p1".to_string()
+            },
+            "hook:turn-end:s:p1"
+        ),
+        [SessionEvent::TurnEnded(TurnEnded {
+            prompt_id: "p1".to_string()
+        })]
+    );
+    assert_eq!(
+        session.fact(
+            RecordCompaction {
+                prompt_id: "p1".to_string(),
+                phase: CompactionPhase::Before,
+            },
+            "hook:compact:s:p1:before"
+        ),
+        [SessionEvent::Compacted(Compacted {
+            prompt_id: "p1".to_string(),
+            phase: CompactionPhase::Before,
+        })]
+    );
+    assert_eq!(
+        session.fact(
+            RecordSessionEnded {
+                native_session: "n1".to_string(),
+                reason: "prompt_input_exit".to_string(),
+            },
+            "hook:session-end:s:n1"
+        ),
+        [SessionEvent::SessionEnded(SessionEnded {
+            native_session: "n1".to_string(),
+            reason: "prompt_input_exit".to_string(),
+        })]
+    );
+}
+
+#[test]
+fn a_redelivered_observation_records_nothing_the_second_time() {
+    let mut session = Session::minted();
+    assert_eq!(session.fact(prompt_fact(), "hook:prompt:s:p1").len(), 1);
+    let pages = session.pages().len();
+    assert!(session.fact(prompt_fact(), "hook:prompt:s:p1").is_empty());
+    assert_eq!(session.pages().len(), pages, "DUPLICATE writes no page");
+}
+
+#[test]
+fn observations_on_a_stream_with_no_session_record_nothing() {
+    let mut session = Session::new();
+    assert!(session.fact(prompt_fact(), "hook:prompt:s:p1").is_empty());
+    assert!(session.pages().is_empty(), "a fact is never refused");
+}
+
+#[test]
+fn observations_on_a_forgotten_session_record_nothing() {
+    let mut session = Session::minted();
+    session.run(ForgetSession {}).unwrap();
+    let pages = session.pages().len();
+    assert!(session.fact(prompt_fact(), "hook:prompt:s:p1").is_empty());
+    assert_eq!(session.pages().len(), pages);
+}
+
+#[test]
+fn the_stream_order_of_the_events_is_the_order_they_were_delivered_in() {
+    let mut session = Session::minted();
+    let before = session.pages().len();
+    session.fact(prompt_fact(), "hook:prompt:s:p1");
+    session.fact(text_fact(0, false, "a"), "hook:text:s:m1:0");
+    session.fact(text_fact(1, true, "b"), "hook:text:s:m1:1");
+    session.fact(tool_fact(), "hook:tool:s:toolu_1");
+    let recorded: Vec<SessionEvent> = session.pages()[before..]
+        .iter()
+        .map(|page| SessionEvent::from_any(event_any(page)).unwrap())
+        .collect();
+    let kinds: Vec<&str> = recorded
+        .iter()
+        .map(|event| match event {
+            SessionEvent::PromptSubmitted(_) => "prompt",
+            SessionEvent::AssistantTextShown(_) => "text",
+            SessionEvent::ToolCalled(_) => "tool",
+            other => panic!("unexpected {other:?}"),
+        })
+        .collect();
+    assert_eq!(kinds, ["prompt", "text", "text", "tool"]);
+}
+
+#[test]
+fn an_observation_changes_nothing_the_session_holds() {
+    let mut session = Session::minted();
+    let before = session.state();
+    session.fact(prompt_fact(), "hook:prompt:s:p1");
+    session.fact(tool_fact(), "hook:tool:s:toolu_1");
+    assert_eq!(session.state(), before, "the transcript is the read side's");
+}

@@ -821,6 +821,7 @@ fn plan() -> DryRun {
         prompt: st("go"),
         findings: Vec::new(),
         axes: (st("worktree"), st("host")),
+        model: String::new(),
     }
 }
 

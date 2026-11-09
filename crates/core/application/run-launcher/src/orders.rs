@@ -25,6 +25,8 @@ pub struct Order {
     /// The human's terminal session, not a turn: the engine's command is
     /// given her terminal and the prompt may be empty.
     pub interactive: bool,
+    /// The model the plan's `llm.configs` entry names; empty names none.
+    pub model: String,
 }
 
 impl fmt::Debug for Order {
@@ -38,6 +40,7 @@ impl fmt::Debug for Order {
             .field("env", &run_ports::RedactedEnv(&self.env))
             .field("cwd", &self.cwd)
             .field("interactive", &self.interactive)
+            .field("model", &self.model)
             .finish()
     }
 }

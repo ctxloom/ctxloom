@@ -101,6 +101,7 @@ struct ScriptedPlan {
     prompt: String,
     backend: String,
     fatal: Vec<FindingRow>,
+    model: String,
     error: Option<fn() -> PlanError>,
     asked: Arc<Mutex<Vec<RunRequest>>>,
 }
@@ -130,6 +131,7 @@ impl Planner for ScriptedPlan {
             prompt: self.prompt.clone(),
             findings: Vec::new(),
             axes: (String::new(), String::new()),
+            model: self.model.clone(),
         };
         Outcome {
             result: Ok(Previewed {
@@ -300,6 +302,8 @@ struct Script {
     engine: ScriptedEngine,
     runner: ScriptedRunner,
     fatal: Vec<FindingRow>,
+    /// The model the plan resolved.
+    model: &'static str,
     plan_error: Option<fn() -> PlanError>,
     project_error: Option<Report>,
     names: Vec<&'static str>,
@@ -322,6 +326,7 @@ impl Script {
             engine: ScriptedEngine::answering("THE-ANSWER", Some("native-7")),
             runner: ScriptedRunner::exits(0),
             fatal: Vec::new(),
+            model: "",
             plan_error: None,
             project_error: None,
             names: vec!["amber-swift-owl", "calm-quiet-fox", "wild-brave-elk"],
@@ -367,6 +372,7 @@ fn rig(script: Script) -> Rig {
             prompt: script.prompt.to_string(),
             backend: script.backend.to_string(),
             fatal: script.fatal,
+            model: script.model.to_string(),
             error: script.plan_error,
             asked: Arc::clone(&asked),
         }),
@@ -1168,6 +1174,7 @@ async fn the_bearer_is_in_no_debug_or_error_rendering() {
                 env: command.env.clone(),
                 cwd: None,
                 interactive: true,
+                model: String::new(),
             }
         ),
     ] {
@@ -1309,4 +1316,37 @@ async fn the_listener_is_stopped_before_the_run_is_last_recorded() {
         .text("amber-swift-owl", "records/runs.jsonl")
         .unwrap()
         .contains("RunEnded"));
+}
+
+// A live probe (2026-11-09): `llm.configs.<label>.model` never reached claude.
+// The plan's model is the order's, for the turn and for the terminal session.
+#[tokio::test]
+async fn the_plans_model_is_handed_to_the_engine_for_a_turn_and_for_the_terminal() {
+    let mut script = Script::answering();
+    script.model = "haiku";
+    let mut rig = rig(script);
+    rig.runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    assert!(rig.runner.seen.lock().unwrap()[0]
+        .args
+        .contains(&"--model=haiku".to_string()));
+
+    let mut script = Script::answering();
+    script.model = "haiku";
+    let mut rig = rig_again_with(script);
+    rig.runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    assert!(rig.runner.seen_terminal.lock().unwrap()[0]
+        .args
+        .contains(&"--model=haiku".to_string()));
+}
+
+fn rig_again_with(script: Script) -> Rig {
+    rig(script)
 }

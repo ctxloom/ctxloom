@@ -308,14 +308,14 @@ The lock holds ONE `angzarr-embedded`, `angzarr-proto`, `angzarr-ports` and
 `angzarr-diagnostic` (a test reads Cargo.lock). Every pin in `Cargo.toml` is
 a full commit. The angzarr pins are one line, one per family member:
 
-- angzarr core `3311a3ae` (`angzarr-diagnostic`, `angzarr-yaml`,
+- angzarr core `35b29dea` (`angzarr-diagnostic`, `angzarr-yaml`,
   `angzarr-presentation`; the listener work upstream, coord/grpc-listener,
   is at this rev, and ctxloom does not use it yet);
-- angzarr-embedded `ecfaaf65` on angzarr-router `9d22e8b7`;
-- angzarr-build `e84092c2` (the markup generator, `angzarr-build` and
+- angzarr-embedded `ba73fabe` on angzarr-router `bc729edc`;
+- angzarr-build `9e9eff01` (the markup generator, `angzarr-build` and
   `angzarr-codegen`, its own repository);
-- angzarr-platform `3e05f5d9`;
-- taskloom's crates `a31eb22a` and ctxloom-lib's `3043ef1f`, built on the
+- angzarr-platform `dfae6726`;
+- taskloom's crates `efc28291` and ctxloom-lib's `5f173d32`, built on the
   same line,
 
 so moving one moves all. The lock holds one of every angzarr crate. The platform crates (`os`, `file-system`, `file-lock`) are

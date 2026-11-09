@@ -236,3 +236,48 @@ mod runtime_shape {
         ));
     }
 }
+
+// The run's hook listener, wired over the real in-process core: served through
+// the port the run use case holds, on a socket that exists while it serves and
+// is gone once it is stopped; a second listener on the same socket is refused
+// with the listener's own code, which the run reports.
+mod hooks {
+    use std::path::Path;
+    use std::sync::Arc;
+
+    use angzarr_diagnostic::Diagnostic;
+    use file_system::Fs;
+    use run_ports::HookServer;
+
+    use super::super::Hooks;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_run_use_case_serves_and_stops_the_listener_through_the_port() {
+        let fs = file_system::Os::new(os::host(), Path::new("/")).unwrap();
+        let root = format!("/tmp/ctxloom-wh-{}", std::process::id());
+        let socket = format!("{root}/h.sock");
+        let store = {
+            let home = Arc::new(file_system::Rooted::temp().unwrap());
+            ctxloom_store_sqlite::Stores::new(home, "/home/u")
+                .open("calm-otter")
+                .await
+                .unwrap()
+        };
+        let core = crate::InProcessCore::start(store).await;
+        let hooks = Hooks { edge: core.edge() };
+        let serving = hooks.serve(&socket).await.expect("serves");
+        assert!(
+            fs.exists(Path::new(&socket)).unwrap(),
+            "bound when serve returns"
+        );
+        let refused = hooks
+            .serve(&socket)
+            .await
+            .err()
+            .expect("a live socket is refused");
+        assert_eq!(refused.code(), "hook-listener-bind");
+        serving.stop().await;
+        assert!(!fs.exists(Path::new(&socket)).unwrap(), "removed on stop");
+        fs.remove_dir_all(Path::new(&root)).unwrap();
+    }
+}

@@ -48,6 +48,9 @@ pub use hook_commands::{EdgeCommands, EdgeFailure};
 pub use hook_gate::{hook_allowlist, HookGate, HookIdentity};
 pub use identity::{Identity, Principal, Role};
 pub use requests::{AgentRequest, AgentRequests, Requested};
+/// The edge port the listener serves the kernel through, for the driving adapter
+/// that holds one without depending on the ports.
+pub use run_ports::Edge;
 
 #[cfg(test)]
 #[path = "fakes.test.rs"]

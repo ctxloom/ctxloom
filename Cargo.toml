@@ -47,11 +47,12 @@ angzarr-presentation = { git = "https://github.com/angzarr-io/angzarr", rev = "3
 # Credential), the Commands half and the gRPC server that serves them on a
 # unix socket. Transport-free except angzarr-coordinator-grpc.
 angzarr-coordinator = { default-features = false, git = "https://github.com/angzarr-io/angzarr", rev = "3311a3ae4f42d70c498581ea738449534048dad5" }
-angzarr-coordinator-grpc = { git = "https://github.com/angzarr-io/angzarr", rev = "3311a3ae4f42d70c498581ea738449534048dad5" }
-angzarr-reads = { git = "https://github.com/angzarr-io/angzarr", rev = "3311a3ae4f42d70c498581ea738449534048dad5" }
-# The generated Handle client and server (a dev-dependency here: the hook's own
-# client is another crate's).
+angzarr-coordinator-grpc = { default-features = false, git = "https://github.com/angzarr-io/angzarr", rev = "3311a3ae4f42d70c498581ea738449534048dad5" }
+# The generated Handle service: the listener serves its server stub; the tests
+# call it with the generated client.
 angzarr-proto-transport-distributed = { git = "https://github.com/angzarr-io/angzarr", rev = "3311a3ae4f42d70c498581ea738449534048dad5" }
+# Each test's scratch directory (a short path, for a socket): a dev-dependency.
+angzarr-test-dir = { git = "https://github.com/angzarr-io/angzarr", rev = "3311a3ae4f42d70c498581ea738449534048dad5" }
 # The platform crates: os, the file-system seam, advisory locks.
 os = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "3e05f5d9fbab1c01590da440a98848b1f86cf0fb" }
 file-system = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "3e05f5d9fbab1c01590da440a98848b1f86cf0fb" }
@@ -98,6 +99,7 @@ liveness = { path = "crates/adapters/driven/liveness" }
 session-files = { path = "crates/adapters/driven/session-files" }
 session-cli = { path = "crates/adapters/driving/session-cli" }
 hook-cli = { path = "crates/adapters/driving/hook-cli" }
+hook-listener = { path = "crates/adapters/driving/hook-listener" }
 run-cli = { path = "crates/adapters/driving/run-cli" }
 ctxloom-cli = { path = "crates/adapters/driving/ctxloom-cli" }
 config-files = { path = "crates/adapters/driven/config-files" }

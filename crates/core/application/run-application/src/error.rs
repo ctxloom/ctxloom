@@ -27,6 +27,9 @@ pub enum RunError {
     Endpoint(Box<EndpointError>),
     /// The project could not be told.
     Project(Report),
+    /// The run's hook listener could not be started: no hook could reach the
+    /// run, so the engine is not launched.
+    Listener(Report),
     /// The kernel refused, or failed, to make the session or enqueue its run.
     Session(CoreError),
     /// The launch itself failed: the store, the files, the facts.
@@ -83,6 +86,7 @@ impl Diagnostic for RunError {
             RunError::Refused(rejection) => rejection.code(),
             RunError::Endpoint(error) => error.code(),
             RunError::Project(_) => code!("project"),
+            RunError::Listener(_) => code!("listener"),
             RunError::Session(_) => code!("session"),
             RunError::Launch(_) => code!("launch"),
             RunError::NotStarted { .. } => code!("not-started"),
@@ -108,6 +112,7 @@ impl Diagnostic for RunError {
             RunError::Refused(rejection) => rejection.args(),
             RunError::Endpoint(error) => error.args(),
             RunError::Project(report) => vec![("reason", report.code().into())],
+            RunError::Listener(report) => vec![("reason", report.code().into())],
             RunError::Session(error) => vec![("reason", why(error).into())],
             RunError::Launch(error) => vec![("reason", error.code().into())],
             RunError::NotStarted { detail } | RunError::Turn { detail, .. } => {
@@ -138,6 +143,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             known: "claude-code".to_string(),
         }),
         Box::new(RunError::Project(Report::new("ports-registry"))),
+        Box::new(RunError::Listener(Report::new("hook-listener-bind"))),
         Box::new(RunError::Session(CoreError::Failed {
             reason: "unavailable".to_string(),
         })),

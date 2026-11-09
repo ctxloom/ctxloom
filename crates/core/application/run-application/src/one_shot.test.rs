@@ -19,8 +19,8 @@ use run_launcher::fakes::{
 };
 use run_launcher::{Launcher, Orders, Recorder};
 use run_ports::{
-    Arrival, Credentials, Edge, FailureClass, Limits, LinkState, LoginLinks, RecordsError, Token,
-    TokenSource, TurnOutcome, Unserved,
+    Arrival, BoxFuture, Credentials, Edge, FailureClass, HookServer, Limits, LinkState, LoginLinks,
+    RecordsError, Serving, Token, TokenSource, TurnOutcome, Unserved,
 };
 use runs_application::{AppError as CoreError, Enqueuer};
 
@@ -198,7 +198,50 @@ impl TokenSource for CountingSource {
     }
 }
 
+/// What the hook server saw, in order, each with how many terminal launches
+/// the runner had seen by then (the engine's starts), so the order is read off
+/// the run and never waited for.
+#[derive(Clone, Default)]
+struct Hooks {
+    log: Arc<Mutex<Vec<(String, usize)>>>,
+    /// The runner whose launches are counted.
+    runner: Option<ScriptedRunner>,
+    /// A reason to refuse to serve, if any.
+    refuse: Option<&'static str>,
+}
+
+impl Hooks {
+    fn note(&self, what: String) {
+        let launched = self
+            .runner
+            .as_ref()
+            .map_or(0, |r| r.seen_terminal.lock().unwrap().len());
+        self.log.lock().unwrap().push((what, launched));
+    }
+}
+
+struct Listening(Hooks);
+
+impl Serving for Listening {
+    fn stop(self: Box<Self>) -> BoxFuture<'static, ()> {
+        Box::pin(async move { self.0.note("stop".to_string()) })
+    }
+}
+
+impl HookServer for Hooks {
+    fn serve<'a>(&'a self, endpoint: &'a str) -> BoxFuture<'a, Result<Box<dyn Serving>, Report>> {
+        Box::pin(async move {
+            if let Some(reason) = self.refuse {
+                return Err(Report::new(reason));
+            }
+            self.note(format!("serve {endpoint}"));
+            Ok(Box::new(Listening(self.clone())) as Box<dyn Serving>)
+        })
+    }
+}
+
 struct Rig {
+    hooks: Hooks,
     runs: Runs<TestCore, CountingSource, ScriptedRunner, MemoryRecords, MemoryRecords>,
     edge: Arc<TestEdge>,
     runner: ScriptedRunner,
@@ -251,6 +294,8 @@ struct Script {
     /// Whether the user's login file is there.
     login: bool,
     os: &'static str,
+    /// A reason the hook server refuses to serve, if it does.
+    hooks_refuse: Option<&'static str>,
 }
 
 impl Script {
@@ -268,6 +313,7 @@ impl Script {
             env: vec![("PATH", "/bin"), ("HOME", "/home/u")],
             login: true,
             os: "linux",
+            hooks_refuse: None,
         }
     }
 }
@@ -293,6 +339,11 @@ fn rig(script: Script) -> Rig {
         Arc::clone(&orders),
         Limits::new(std::time::Duration::from_secs(5)),
     );
+    let hooks = Hooks {
+        runner: Some(script.runner.clone()),
+        refuse: script.hooks_refuse,
+        ..Hooks::default()
+    };
     let runs = Runs::new(Parts {
         core: TestCore(Arc::clone(&seen)),
         planner: Box::new(ScriptedPlan {
@@ -322,8 +373,10 @@ fn rig(script: Script) -> Rig {
             .collect(),
         links: Box::new(links.clone()),
         os: script.os.to_string(),
+        hooks: Box::new(hooks.clone()),
     });
     Rig {
+        hooks,
         runs,
         edge,
         runner: script.runner,
@@ -1099,4 +1152,84 @@ async fn the_bearer_is_in_no_debug_or_error_rendering() {
     ] {
         assert!(!shown.contains(&secret), "{shown}");
     }
+}
+
+// NEW-DESIGN (owner ruling 2026-11-09, item 17): the interactive run's hook
+// listener is serving on the run's own socket before the engine starts, and is
+// stopped once it has exited. The runner counts the engine's starts, so the
+// order is the data, not a wait.
+#[tokio::test]
+async fn an_interactive_runs_listener_serves_before_the_engine_starts_and_stops_after_it_exits() {
+    let mut script = Script::answering();
+    script.env = vec![
+        ("PATH", "/bin"),
+        ("CTXLOOM_HOME", "/home/u"),
+        ("XDG_RUNTIME_DIR", "/run/user/1000"),
+    ];
+    let mut rig = rig(script);
+    let ended = rig
+        .runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let env = rig.runner.seen_terminal.lock().unwrap()[0].env.clone();
+    let log = rig.hooks.log.lock().unwrap().clone();
+    assert_eq!(
+        log,
+        [
+            (format!("serve {}", env["CTXLOOM_ENDPOINT"]), 0),
+            ("stop".to_string(), 1)
+        ],
+        "served at the endpoint the engine is told, with no launch yet; stopped after the one launch ({})",
+        ended.session
+    );
+}
+
+// A launch that fails stops the listener too: no socket outlives the run.
+#[tokio::test]
+async fn a_launch_that_fails_still_stops_the_listener() {
+    let mut script = Script::answering();
+    script.runner =
+        ScriptedRunner::answering(run_ports::Launch::NotStarted(run_ports::LaunchFailure {
+            deterministic: true,
+            detail: "no claude".to_string(),
+        }));
+    let mut rig = rig(script);
+    let done = rig.runs.interactive(&Flags::default(), &ask()).await;
+    assert!(matches!(done.result, Err(RunError::NotStarted { .. })));
+    let log = rig.hooks.log.lock().unwrap().clone();
+    let what: Vec<&str> = log.iter().map(|(what, _)| what.as_str()).collect();
+    assert_eq!(what.len(), 2, "{what:?}");
+    assert!(what[0].starts_with("serve "), "{what:?}");
+    assert_eq!(what[1], "stop");
+}
+
+// A listener that cannot be started means no hook could reach the run: the
+// engine is not launched, and the error says why.
+#[tokio::test]
+async fn a_listener_that_cannot_start_stops_the_run_before_its_engine() {
+    let mut script = Script::answering();
+    script.hooks_refuse = Some("hook-listener-bind");
+    let mut rig = rig(script);
+    let done = rig.runs.interactive(&Flags::default(), &ask()).await;
+    let error = done.result.unwrap_err();
+    assert!(
+        matches!(&error, RunError::Listener(report) if report.code() == "hook-listener-bind"),
+        "{error:?}"
+    );
+    assert_eq!(error.exit_code(), 1);
+    assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
+}
+
+// A one-shot's child has no hooks and no listener.
+#[tokio::test]
+async fn a_one_shot_serves_no_listener() {
+    let mut rig = rig(Script::answering());
+    rig.runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    assert!(rig.hooks.log.lock().unwrap().is_empty());
 }

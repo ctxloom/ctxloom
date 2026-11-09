@@ -17,7 +17,7 @@ use angzarr_embedded::{Catalog, CommandBookExt, Processed, ReadStore, Store};
 use library_application::{AppError as PlanError, Flags, Notice, Outcome, Previewed, RunRequest};
 use ports::{CommandIds, Names, Project, ProjectIdentity};
 use run_launcher::{Launched, Launcher, Order, Orders, Outcome as Turn, Recorder};
-use run_ports::{Edge, LoginLinks, RunnerLauncher, SessionRecords};
+use run_ports::{Edge, HookServer, LoginLinks, RunnerLauncher, SessionRecords};
 use runs_application::{AppError as CoreError, EnqueueRequest, Enqueuer};
 use sessions::{
     claim_root, ClaimName, MintSession, NameClaimCommand, Origin, SessionCommand, NAMES_DOMAIN,
@@ -128,6 +128,7 @@ pub struct Runs<
     pub(crate) env: BTreeMap<String, String>,
     pub(crate) links: Box<dyn LoginLinks>,
     pub(crate) os: String,
+    pub(crate) hooks: Box<dyn HookServer>,
 }
 
 /// Everything [`Runs`] is made of.
@@ -156,6 +157,9 @@ pub struct Parts<
     /// The operating system's name (`std::env::consts::OS`), which says
     /// whether a login can be shared by a link at all.
     pub os: String,
+    /// Where an interactive run's hook processes are served (the run's
+    /// socket); a one-shot's child is given none.
+    pub hooks: Box<dyn HookServer>,
 }
 
 impl<K, T, L, R, W> Runs<K, T, L, R, W>
@@ -181,6 +185,7 @@ where
             env: parts.env,
             links: parts.links,
             os: parts.os,
+            hooks: parts.hooks,
         }
     }
 
@@ -231,7 +236,20 @@ where
                 &harp,
             ));
         }
-        let launched = self.launched(&session).await?;
+        // The run's hooks are served from before the engine starts until it
+        // has exited, and the socket goes with the run either way: a launch
+        // that failed stops the listener before its error is returned.
+        let endpoint = self
+            .endpoint(&run.value)
+            .map_err(|e| RunError::Endpoint(Box::new(e)))?;
+        let serving = self
+            .hooks
+            .serve(&endpoint)
+            .await
+            .map_err(RunError::Listener)?;
+        let launched = self.launched(&session).await;
+        serving.stop().await;
+        let launched = launched?;
         self.ended(&run).await?;
         match launched.outcome {
             Turn::Ended { code } => Ok(Ended {

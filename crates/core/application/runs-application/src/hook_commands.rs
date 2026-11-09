@@ -66,7 +66,7 @@ impl Refusal for EdgeFailure {
 
 /// A kernel failure as its key, args and status: a refusal under its own
 /// (the status the domain's refusal declared); a failure the kernel codes under a
-/// spec key as that key; a malformed book INVALID_ARGUMENT; anything else
+/// spec key as that key; a malformed book an invalid-argument status; anything else
 /// INTERNAL under its own code.
 fn coded_of(failure: &Failure<Rejected>) -> Coded {
     let from_router = |coded: CodedError| {

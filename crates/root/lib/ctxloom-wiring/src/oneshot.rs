@@ -19,6 +19,7 @@ use ctxloom_store_sqlite::Stores;
 use embedded_edge::EmbeddedEdge;
 use file_system::Fs;
 use harp_names::HarpNames;
+use hook_listener::HookListener;
 use host_launcher::HostLauncher;
 use library_application::{Flags, Library};
 use ports::{Names, Project, ProjectIdentity};
@@ -28,7 +29,7 @@ use run_application::{
     Answer, Core, Done, Ended, OneShot, Parts, Place, RunError, RunService, Runs,
 };
 use run_launcher::{Launcher, Orders, Recorder};
-use run_ports::{Engine, Limits};
+use run_ports::{BoxFuture, Edge, Engine, HookServer, Limits, Serving};
 use runs_application::{AppError as CoreError, Enqueuer};
 use session_files::SessionDirs;
 use system::System;
@@ -132,6 +133,7 @@ impl<'a> OneShots<'a> {
             Arc::clone(&orders),
             Limits::new(TURN_DEADLINE),
         );
+        let hooks = Box::new(Hooks { edge: core.edge() });
         let recorder = Recorder::new(SessionDirs::new(wiring.fs(), project_dir.clone()));
         let enqueuer = Enqueuer::new(core.edge(), Arc::new(OsTokenSource));
         let output_root = wiring
@@ -155,7 +157,39 @@ impl<'a> OneShots<'a> {
             env: run_env(env, wiring.home()),
             links: Box::new(SessionDirs::new(wiring.fs(), project_dir.clone())),
             os: std::env::consts::OS.to_string(),
+            hooks,
         }))
+    }
+}
+
+/// The run's hook listener over the core's edge: `Handle` on the run's socket
+/// behind the hook gate ([`hook_listener`]), started before an interactive
+/// engine launches and stopped after it exits.
+struct Hooks<E> {
+    edge: Arc<E>,
+}
+
+impl<E: Edge + 'static> HookServer for Hooks<E> {
+    fn serve<'a>(&'a self, endpoint: &'a str) -> BoxFuture<'a, Result<Box<dyn Serving>, Report>> {
+        Box::pin(async move {
+            let listener = HookListener::serve(Arc::clone(&self.edge), Path::new(endpoint))
+                .await
+                .map_err(|e| Report::of(&e))?;
+            Ok(Box::new(Live(listener)) as Box<dyn Serving>)
+        })
+    }
+}
+
+/// A listener that is serving.
+struct Live(HookListener);
+
+impl Serving for Live {
+    fn stop(self: Box<Self>) -> BoxFuture<'static, ()> {
+        // A stop that failed has nothing to tell a run that is over; the
+        // socket's guard removes the file as the listener drops either way.
+        Box::pin(async move {
+            let _ = self.0.stop().await;
+        })
     }
 }
 

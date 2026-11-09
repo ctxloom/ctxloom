@@ -82,3 +82,33 @@ from = "surface-cli"
 to = "surface-ports"
 kind = "dev"
 reason = "test-only: builds a type only the port defines; re-exporting it just for tests would add public API for nobody"
+
+# hook-listener's end-to-end test serves the real kernel on a real socket: it
+# builds the application behind the edge (the kernel's registry of the two
+# domains the hook reaches and its `embedded-edge` adapter) and the commands and
+# facts the domains define, and asks the ports for the bearer and the socket
+# path the run names. Test-only; none of it is in the crate's own build.
+
+[[exception]]
+from = "hook-listener"
+to = "embedded-edge"
+kind = "dev"
+reason = "test-only: the end-to-end test serves the real kernel through the edge adapter"
+
+[[exception]]
+from = "hook-listener"
+to = "run-ports"
+kind = "dev"
+reason = "test-only: builds the bearer, the token source and the socket path the run's ports define"
+
+[[exception]]
+from = "hook-listener"
+to = "runs"
+kind = "dev"
+reason = "test-only: registers the runs aggregate and builds the facts its domain defines"
+
+[[exception]]
+from = "hook-listener"
+to = "sessions"
+kind = "dev"
+reason = "test-only: registers the sessions aggregate and builds the facts and commands its domain defines"

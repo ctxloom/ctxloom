@@ -48,14 +48,31 @@ impl Ended {
     }
 }
 
+/// A session that could not be launched: why, and the exit code that reason
+/// carries (a refusal 2 or 3, any other failure 1), the same as the command
+/// that launches such a session by itself, `ctxloom run`. A session that ran
+/// is not this: it is [`Ended`], and its code is the engine's own.
+#[derive(Debug)]
+pub struct LaunchFailure {
+    pub cause: Failure,
+    pub exit: u8,
+}
+
+impl LaunchFailure {
+    /// A launch that failed in the ordinary way: exit 1.
+    pub fn failed(cause: Failure) -> LaunchFailure {
+        LaunchFailure { cause, exit: 1 }
+    }
+}
+
 /// The interactive sessions `init` launches, each on the project as it is
 /// when the session starts.
 pub trait Sessions {
     /// The interview: a session of the default agent opened with `opening`.
-    fn interview(&self, opening: &str) -> Result<Ended, Failure>;
+    fn interview(&self, opening: &str) -> Result<Ended, LaunchFailure>;
 
     /// The configured session: the same as `ctxloom run`, with no prompt.
-    fn configured(&self) -> Result<Ended, Failure>;
+    fn configured(&self) -> Result<Ended, LaunchFailure>;
 }
 
 /// What the interview came to.
@@ -81,7 +98,10 @@ pub struct Interviewed {
 }
 
 /// Interview her if there is a terminal, then offer the restart.
-pub fn interview(terminal: &dyn Terminal, sessions: &dyn Sessions) -> Result<Interviewed, Failure> {
+pub fn interview(
+    terminal: &dyn Terminal,
+    sessions: &dyn Sessions,
+) -> Result<Interviewed, LaunchFailure> {
     if !terminal.is_terminal() {
         return Ok(Interviewed {
             outcome: Outcome::NotATerminal,

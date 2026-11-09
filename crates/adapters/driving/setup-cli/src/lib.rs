@@ -227,8 +227,10 @@ fn init(
     }
     // On a terminal, the setup interview, and the offer to restart into the
     // session it configured. Off one, nothing is launched and nothing asked.
-    let interviewed =
-        interview(uses.terminal, uses.sessions).map_err(|cause| Failure { cause, exit: 1 })?;
+    let interviewed = interview(uses.terminal, uses.sessions).map_err(|launch| Failure {
+        cause: launch.cause,
+        exit: launch.exit,
+    })?;
     for notice in &interviewed.notices {
         say_warning(notice.as_ref(), PROG, Format::Text, catalog, err);
     }

@@ -13,7 +13,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use deps_application::Deps;
-use init_application::{Ended, Failure, Sessions, Terminal};
+use init_application::{Ended, LaunchFailure, Sessions, Terminal};
 use library_application::{Flags, RunRequest};
 use process_env::EnvSnapshot;
 use run_application::{OneShot, RunService};
@@ -90,11 +90,12 @@ pub(crate) struct SetupSessions<'a> {
 impl SetupSessions<'_> {
     /// One interactive session of the default agent, opened with `prompt`
     /// (none: nothing), over the project as it is now.
-    fn launch(&self, prompt: &str) -> Result<Ended, Failure> {
-        let wiring = Wiring::new(Arc::clone(self.env)).map_err(|e| Box::new(e) as Failure)?;
+    fn launch(&self, prompt: &str) -> Result<Ended, LaunchFailure> {
+        let wiring =
+            Wiring::new(Arc::clone(self.env)).map_err(|e| LaunchFailure::failed(Box::new(e)))?;
         let remotes: Rc<dyn deps_ports::RemoteLibrary> = self.deps.clone();
-        let library =
-            crate::library::build(&wiring, Some(remotes)).map_err(|e| Box::new(e) as Failure)?;
+        let library = crate::library::build(&wiring, Some(remotes))
+            .map_err(|e| LaunchFailure::failed(Box::new(e)))?;
         let mut sessions = OneShots::new(&wiring, library);
         let request = OneShot {
             run: RunRequest {
@@ -107,9 +108,16 @@ impl SetupSessions<'_> {
         let notices = done
             .notices
             .into_iter()
-            .map(|n| Box::new(n) as Failure)
+            .map(|n| Box::new(n) as init_application::Failure)
             .collect();
-        let ended = done.result.map_err(|e| Box::new(e) as Failure)?;
+        // The launch's own exit code, as `ctxloom run` ends with it.
+        let ended = done.result.map_err(|e| {
+            let exit = e.exit_code();
+            LaunchFailure {
+                cause: Box::new(e),
+                exit,
+            }
+        })?;
         Ok(Ended {
             code: ended.code,
             notices,
@@ -118,11 +126,11 @@ impl SetupSessions<'_> {
 }
 
 impl Sessions for SetupSessions<'_> {
-    fn interview(&self, opening: &str) -> Result<Ended, Failure> {
+    fn interview(&self, opening: &str) -> Result<Ended, LaunchFailure> {
         self.launch(opening)
     }
 
-    fn configured(&self) -> Result<Ended, Failure> {
+    fn configured(&self) -> Result<Ended, LaunchFailure> {
         self.launch("")
     }
 }

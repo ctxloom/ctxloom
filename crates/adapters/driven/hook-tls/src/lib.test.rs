@@ -194,3 +194,52 @@ fn the_errors_display_and_report_their_args_exactly() {
     assert_eq!(generate.to_string(), "hook-tls-generate ext_err_txt=e");
     assert_eq!(generate.args().len(), 1);
 }
+
+#[test]
+fn every_diagnostic_has_a_message_using_exactly_its_args() {
+    let (name, catalog) = crate::EN_US;
+    assert_eq!(name, "hook-tls");
+    let samples = crate::diagnostic_samples();
+    assert_eq!(samples.len(), 3, "one value of every error");
+    for sample in samples {
+        let code = sample.code();
+        assert!(code.starts_with("hook-tls-"), "{code} is prefixed");
+        let line = catalog
+            .lines()
+            .find(|l| l.starts_with(&format!("{code} =")))
+            .unwrap_or_else(|| panic!("{code} has no message"));
+        let mut args: Vec<&str> = sample.args().into_iter().map(|(n, _)| n).collect();
+        args.sort_unstable();
+        let mut used: Vec<&str> = line
+            .split('$')
+            .skip(1)
+            .map(|rest| {
+                rest.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+                    .next()
+                    .unwrap()
+            })
+            .collect();
+        used.sort_unstable();
+        used.dedup();
+        assert_eq!(args, used, "{code}");
+    }
+}
+
+// A real-clock sanity bound: the value lies between the time read before and
+// the time read after, so a constant (0, 1, -1) cannot pass.
+#[test]
+fn the_system_clock_reads_the_real_time() {
+    let read = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+    };
+    let before = read();
+    let value = crate::SystemClock.unix_seconds();
+    let after = read();
+    assert!(
+        before <= value && value <= after,
+        "{before} {value} {after}"
+    );
+}

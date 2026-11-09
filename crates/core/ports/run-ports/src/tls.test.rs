@@ -166,3 +166,14 @@ fn names_are_sorted_and_none_is_twice() {
     assert_eq!(names.ips(), vec![loopback4(), loopback6()]);
     assert_eq!(names.dns(), vec!["a".to_string(), "b".to_string()]);
 }
+
+#[test]
+fn the_public_cert_debugs_as_its_size_alone() {
+    let cert = PublicCert::from_der(SEQUENCE_DER.to_vec()).unwrap();
+    assert_eq!(format!("{cert:?}"), "PublicCert(5 bytes)");
+    let hook = HookCertificate::new(cert, "KEY-SECRET".to_string());
+    assert_eq!(
+        format!("{hook:?}"),
+        "HookCertificate(PublicCert(5 bytes), key redacted)"
+    );
+}

@@ -155,9 +155,10 @@ inheritance, and its data is meant to come from hooks. Crates:
   (D27 envelope `v, harp, session_id, engine, seq, ts, kind`); `Runs` plans
   the run through the library's dry-run, mints, enqueues, launches, returns the
   reply;
-- `adapters/driven/host-launcher` (a turn's command through `run-within`; the
-  interactive launch alone uses inherited stdio, because `run-within` pipes the
-  streams and groups the program apart from the terminal) and the drive half of
+- `adapters/driven/host-launcher` (a turn's command through `run_within_started`,
+  the interactive launch through `run_terminal`: inherited stdio, the caller's
+  process group, no deadline; each on a thread of its own, returning at the
+  spawn) and the drive half of
   `engine-claude`; `adapters/driving/run-cli`.
 
 An engine's hooks are its adapter's: `ctxloom hook <engine> execute
@@ -170,9 +171,13 @@ the home when `HOME` is absent, and names the resolved home in a run's env; only
 the interactive allowlist passes it on), and the interactive session home's
 `settings.json` calls `ctxloom hook claude-code execute <Event>` for the
 session, turn, message and tool-batch events (a child's home gets no hooks).
-The launcher records `RunnerStarted{runtime, workspace, pid}` (pid 0: the
-blocking port learns none) before it spawns, and the pending launches clear on
-it, not on the runner's first word.
+The launcher records `RunnerStarted{runtime, workspace, pid}` AFTER the spawn,
+with the pid the spawn gave (`RunnerLauncher::launch` answers a `Running`, the
+launcher records, `Running::finish` waits), and the pending launches clear on
+it, not on the runner's first word; a command that cannot spawn is a
+`LaunchFailed` and never a `RunnerStarted`. An interactive run's terminal
+session ends on SIGINT/SIGTERM (wiring bridges `Os::stop_signal`, heard on a
+runtime and thread of its own, to `HostLauncher::stopped_by`'s `Stop`).
 Not built: the hidden runner subcommand and listener, the hook-fed record
 (hooks answer, they record no fact yet), session end.
 
@@ -270,6 +275,13 @@ out ETXTBSY. Limits (os::process's): a descendant that calls `setsid` or
 `setpgid` escapes the kill, and the program runs in a process group of its
 own, so a Ctrl-C at the terminal does not reach it: a caller that must stop
 a run on Ctrl-C hears `Os::stop_signal` and ends the tree itself.
+`run_within_started` also calls a `started(pid)` once after a successful spawn
+(never on a spawn failure). `run_terminal(spec, &Stop, started)` is the mode
+for a program that owns the terminal: inherited stdio, NOT a process group of
+its own (a Ctrl-C reaches it), no deadline, and a `Stop` (a cloneable flag the
+caller sets, e.g. from `Os::stop_signal`) that kills only the DIRECT child, not
+its descendants. Tested on unix; macOS and Windows are not. No adapter bypasses
+`run-within` any more.
 All of ctxloom-lib's crates are pinned at one rev (`cli-support`,
 `process-env`, `project-dir`, `run-within`), and so is each family above.
 

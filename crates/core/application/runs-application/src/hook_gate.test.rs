@@ -8,7 +8,7 @@ use run_ports::{Bearer, Token};
 
 use crate::fakes::World;
 use crate::gate::url;
-use crate::hook_gate::{hook_allowlist, HookGate, HookIdentity};
+use crate::hook_gate::{hook_allowlist, HookGate, HookIdentity, Scope};
 
 const ARRIVAL: angzarr_coordinator::Arrival = angzarr_coordinator::Arrival::Loopback;
 
@@ -238,4 +238,120 @@ async fn the_hook_owns_its_own_sessions_stream_and_no_other() {
     let mut cover = session_cover(&world.me.identity.session);
     cover.root = None;
     assert!(!gate.owns(&identity, &cover));
+}
+
+fn capture_urls() -> [String; 6] {
+    [
+        url::<sessions::RecordPromptSubmitted>(),
+        url::<sessions::RecordAssistantText>(),
+        url::<sessions::RecordToolCall>(),
+        url::<sessions::RecordTurnEnded>(),
+        url::<sessions::RecordSessionEnded>(),
+        url::<sessions::RecordCompaction>(),
+    ]
+}
+
+// Owner ruling 38: the gate's allowed types are a scope VALUE, checked by one
+// function; today's hook scope is the six capture facts.
+#[test]
+fn the_capture_scope_is_the_six_facts_and_no_command() {
+    let scope = Scope::capture();
+    for type_url in capture_urls() {
+        assert!(scope.permits(BodyKind::Fact, &type_url), "{type_url}");
+        assert!(!scope.permits(BodyKind::Command, &type_url), "{type_url}");
+    }
+    assert!(!scope.permits(BodyKind::Fact, &url::<runs::RunExited>()));
+    assert!(!scope.permits(BodyKind::Fact, "type.googleapis.com/nothing"));
+}
+
+#[test]
+fn widening_a_scope_is_adding_to_it_and_the_allowlist_follows() {
+    let extra = url::<runs::RunExited>();
+    let wider = Scope::capture()
+        .with_fact(extra.clone())
+        .with_command(url::<sessions::RecordTurnEnded>());
+    assert!(wider.permits(BodyKind::Fact, &extra));
+    assert!(wider.permits(BodyKind::Command, &url::<sessions::RecordTurnEnded>()));
+    assert!(!Scope::capture().permits(BodyKind::Fact, &extra));
+    // The allowlist agrees with `permits` for every probe.
+    let probes = [
+        (BodyKind::Fact, extra),
+        (BodyKind::Command, url::<sessions::RecordTurnEnded>()),
+        (BodyKind::Command, url::<runs::RunExited>()),
+        (BodyKind::Fact, url::<sessions::RecordCompaction>()),
+    ];
+    for scope in [Scope::capture(), wider] {
+        let allowlist = scope.allowlist();
+        for (kind, type_url) in &probes {
+            assert_eq!(
+                allowlist.permits_body(*kind, type_url).is_ok(),
+                scope.permits(*kind, type_url),
+                "{type_url}"
+            );
+        }
+    }
+}
+
+// Owner additions (1): each run has its own hook token, and one run's token
+// is nothing on another run's stream, whichever run stays live.
+#[test]
+fn two_runs_hook_tokens_are_distinct_from_each_other_and_from_the_runs_other_tokens() {
+    let world = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(World::new());
+    let all = [
+        world.me.hook_token.to_text(),
+        world.other.hook_token.to_text(),
+        world.me.token.to_text(),
+        world.other.token.to_text(),
+        world.me.model_token.to_text(),
+        world.other.model_token.to_text(),
+    ];
+    let distinct: std::collections::BTreeSet<_> = all.iter().collect();
+    assert_eq!(distinct.len(), all.len());
+}
+
+#[tokio::test]
+async fn run_as_token_names_run_as_session_stream_only() {
+    let world = World::new().await;
+    let gate = gate(&world);
+    let a = gate
+        .identify(
+            ARRIVAL,
+            Some(&bearer(&world.me.identity.run, &world.me.hook_token)),
+        )
+        .await
+        .unwrap();
+    let b = gate
+        .identify(
+            ARRIVAL,
+            Some(&bearer(&world.other.identity.run, &world.other.hook_token)),
+        )
+        .await
+        .unwrap();
+    assert!(gate.owns(a.identity(), &session_cover(&world.me.identity.session)));
+    assert!(!gate.owns(a.identity(), &session_cover(&world.other.identity.session)));
+    assert!(gate.owns(b.identity(), &session_cover(&world.other.identity.session)));
+    assert!(!gate.owns(b.identity(), &session_cover(&world.me.identity.session)));
+}
+
+#[tokio::test]
+async fn a_token_dies_with_its_run_while_the_other_run_stays_live_in_both_orders() {
+    for ended_first_is_me in [true, false] {
+        let world = World::new().await;
+        let gate = gate(&world);
+        let (ended, live) = match ended_first_is_me {
+            true => (&world.me, &world.other),
+            false => (&world.other, &world.me),
+        };
+        let dead = bearer(&ended.identity.run, &ended.hook_token);
+        let alive = bearer(&live.identity.run, &live.hook_token);
+        let held = gate.identify(ARRIVAL, Some(&dead)).await.unwrap();
+        world.end(ended).await;
+        assert!(gate.identify(ARRIVAL, Some(&dead)).await.is_err());
+        assert!(!gate.still_valid(held.identity()).await);
+        let kept = gate.identify(ARRIVAL, Some(&alive)).await.unwrap();
+        assert!(gate.still_valid(kept.identity()).await);
+    }
 }

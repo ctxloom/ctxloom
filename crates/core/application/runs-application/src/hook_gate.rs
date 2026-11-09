@@ -38,21 +38,53 @@ pub struct HookIdentity {
     pub session: Uuid,
 }
 
+/// What a credential may send: the message types it is scoped to, as FACTS
+/// and as COMMANDS. One value, checked by one function ([`Scope::permits`]);
+/// widening a credential later is adding to its scope, not changing the check.
+/// Today the hook credential's scope is derived from its role in code
+/// ([`Scope::capture`]); nothing of it is journaled.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Scope {
+    facts: std::collections::BTreeSet<String>,
+    commands: std::collections::BTreeSet<String>,
+}
+
+impl Scope {
+    /// The hook role's scope: the six capture facts and nothing else.
+    pub fn capture() -> Scope {
+        Scope::default().with_fact(url::<sessions::RecordPromptSubmitted>())
+    }
+
+    /// This scope and `type_url` as a fact.
+    pub fn with_fact(mut self, type_url: String) -> Scope {
+        self.facts.insert(type_url);
+        self
+    }
+
+    /// This scope and `type_url` as a command.
+    #[cfg_attr(not(test), allow(dead_code))] // widening is a later landing's
+    pub fn with_command(mut self, type_url: String) -> Scope {
+        self.commands.insert(type_url);
+        self
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))] // the allowlist is what the coordinator enforces
+    /// Whether a body of `kind` and `type_url` is within the scope.
+    pub fn permits(&self, kind: BodyKind, type_url: &str) -> bool {
+        let _ = (kind, type_url);
+        false
+    }
+
+    /// The allowlist the coordinator enforces for this scope.
+    pub fn allowlist(&self) -> Allowlist {
+        Allowlist::none()
+    }
+}
+
 /// What the hook principal may send: the six capture facts, as FACTS, and
 /// nothing else (no command, no other fact, no read).
 pub fn hook_allowlist() -> Allowlist {
-    [
-        url::<sessions::RecordPromptSubmitted>(),
-        url::<sessions::RecordAssistantText>(),
-        url::<sessions::RecordToolCall>(),
-        url::<sessions::RecordTurnEnded>(),
-        url::<sessions::RecordSessionEnded>(),
-        url::<sessions::RecordCompaction>(),
-    ]
-    .into_iter()
-    .fold(Allowlist::none(), |list, type_url| {
-        list.send(BodyKind::Fact, type_url)
-    })
+    Scope::capture().allowlist()
 }
 
 /// The run's hook credential, gated: reads the run's stream through the edge
@@ -108,7 +140,7 @@ impl<E: Edge> Gate for HookGate<E> {
         Box::pin(async move {
             let credential = credential.ok_or(Unauthenticated)?;
             let identity = self.resolve(credential).await.ok_or(Unauthenticated)?;
-            Ok(Principal::new(identity, hook_allowlist()))
+            Ok(Principal::new(identity, Scope::capture().allowlist()))
         })
     }
 

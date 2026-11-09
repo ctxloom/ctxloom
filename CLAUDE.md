@@ -176,8 +176,10 @@ with the pid the spawn gave (`RunnerLauncher::launch` answers a `Running`, the
 launcher records, `Running::finish` waits), and the pending launches clear on
 it, not on the runner's first word; a command that cannot spawn is a
 `LaunchFailed` and never a `RunnerStarted`. An interactive run's terminal
-session ends on SIGINT/SIGTERM (wiring bridges `Os::stop_signal`, heard on a
-runtime and thread of its own, to `HostLauncher::stopped_by`'s `Stop`).
+session is ended by the human (the terminal delivers Ctrl-C to the shared
+process group, so it cancels a generation inside claude); ctxloom does not
+forward SIGINT/SIGTERM yet, since a SIGTERM-only stop needs a platform signal
+`Os` does not offer (`HostLauncher::stopped_by(Stop)` is there for it).
 Not built: the hidden runner subcommand and listener, the hook-fed record
 (hooks answer, they record no fact yet), session end.
 

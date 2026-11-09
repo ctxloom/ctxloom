@@ -19,7 +19,7 @@ use ctxloom_store_sqlite::Stores;
 use embedded_edge::EmbeddedEdge;
 use file_system::Fs;
 use harp_names::HarpNames;
-use host_launcher::{HostLauncher, Stop};
+use host_launcher::HostLauncher;
 use library_application::{Flags, Library};
 use ports::{Names, Project, ProjectIdentity};
 use process_env::EnvSnapshot;
@@ -82,50 +82,6 @@ impl ProjectIdentity for Told {
 pub(crate) struct OneShots<'a> {
     wiring: &'a Wiring,
     library: Option<Library>,
-    /// What ends the human's terminal session when this process is asked to
-    /// stop; set for an interactive run only (a one-shot's turn is killed at
-    /// its deadline, and a stop signal must still end the process).
-    stop: Option<Stop>,
-}
-
-/// A [`Stop`] requested when the process is asked to stop (SIGINT or
-/// SIGTERM on unix), as `os` hears it. The signal is heard on a runtime of
-/// its own, on a thread of its own, because the runtime of the run is blocked
-/// while the command runs. Returns once the signal is being listened for, so
-/// one sent from then on is not lost.
-fn stop_on_signal(os: Arc<dyn os::Os>) -> Stop {
-    let (stop, _heard) = bridge(move || os.stop_signal());
-    stop
-}
-
-/// [`stop_on_signal`] over any signal: `made` is called inside the thread's
-/// runtime; the thread ends when the signal resolves and the stop is
-/// requested.
-fn bridge(
-    made: impl FnOnce() -> std::io::Result<os::StopSignal> + Send + 'static,
-) -> (Stop, std::thread::JoinHandle<()>) {
-    let stop = Stop::new();
-    let (ready, listening) = std::sync::mpsc::channel();
-    let request = stop.clone();
-    let thread = std::thread::spawn(move || {
-        let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        else {
-            let _ = ready.send(());
-            return;
-        };
-        runtime.block_on(async {
-            let signal = made();
-            let _ = ready.send(());
-            if let Ok(signal) = signal {
-                signal.await;
-                request.request();
-            }
-        });
-    });
-    let _ = listening.recv();
-    (stop, thread)
 }
 
 impl<'a> OneShots<'a> {
@@ -133,7 +89,6 @@ impl<'a> OneShots<'a> {
         OneShots {
             wiring,
             library: Some(library),
-            stop: None,
         }
     }
 
@@ -178,9 +133,7 @@ impl<'a> OneShots<'a> {
         let claude: Arc<dyn Engine> = Arc::new(engine_claude::Claude::new());
         let launcher = Launcher::new(
             core.edge(),
-            self.stop
-                .clone()
-                .map_or_else(HostLauncher::default, HostLauncher::stopped_by),
+            HostLauncher::default(),
             SessionDirs::new(wiring.fs(), project_dir.clone()),
             System,
             vec![claude],
@@ -290,7 +243,6 @@ impl RunService for OneShots<'_> {
     }
 
     fn interactive(&mut self, flags: &Flags, request: &OneShot) -> Done<Ended> {
-        self.stop = Some(stop_on_signal(os::host()));
         self.with_runs(async |runs| runs.interactive(flags, request).await)
     }
 }

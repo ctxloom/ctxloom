@@ -153,8 +153,9 @@ impl<'a> OneShots<'a> {
             place: Place {
                 project_dir: path_text(&project_dir),
                 output_root: path_text(&output_root),
-                program: std::env::current_exe()
-                    .map(|exe| path_text(&exe))
+                program_dir: std::env::current_exe()
+                    .ok()
+                    .and_then(|exe| exe.parent().map(path_text))
                     .unwrap_or_default(),
             },
             env: run_env(env, wiring.home()),

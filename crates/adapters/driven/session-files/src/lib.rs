@@ -343,25 +343,6 @@ impl LoginLinks for SessionDirs {
         // The seam's link is a symlink on unix, and fails where one exists.
         self.fs.symlink_dir(Path::new(target), &path).map_err(io)
     }
-
-    fn unlink(&mut self, harp: &str, rel: &str) -> Result<(), RecordsError> {
-        let path = self.record_path(harp, rel)?;
-        let io = |text: String| RecordsError::Io {
-            harp: harp.to_string(),
-            rel: rel.to_string(),
-            ext_err_txt: text,
-        };
-        match LoginLinks::state(self, harp, rel) {
-            LinkState::Absent => Ok(()),
-            // The seam's remove_file on a link removes the link itself.
-            LinkState::LinkTo(_) => self.fs.remove_file(&path).map_err(|e| io(e.to_string())),
-            LinkState::Other => Err(io("it is not a link, and is left as it is".to_string())),
-        }
-    }
-
-    fn dir(&self, harp: &str) -> String {
-        SessionDirs::dir(self, harp).display().to_string()
-    }
 }
 
 /// `at` as an instant; `None` for one before the epoch.

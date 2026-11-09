@@ -11,7 +11,6 @@
 mod credential;
 mod error;
 mod one_shot;
-mod shim;
 
 pub use credential::{can_link, refuse_child, share_login};
 #[cfg(any(test, feature = "test-support"))]

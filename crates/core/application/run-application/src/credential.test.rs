@@ -54,12 +54,6 @@ impl LoginLinks for Links {
         assert_eq!(rel, "home/.credentials.json");
         self.state.clone()
     }
-    fn unlink(&mut self, _: &str, _: &str) -> Result<(), RecordsError> {
-        unreachable!("a login link is never replaced")
-    }
-    fn dir(&self, harp: &str) -> String {
-        format!("/p/.ctxloom/sessions/{harp}")
-    }
     fn link(&mut self, harp: &str, rel: &str, target: &str) -> Result<(), RecordsError> {
         if self.fails {
             return Err(RecordsError::Io {

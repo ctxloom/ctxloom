@@ -26,7 +26,6 @@ use sessions::{
 
 use crate::credential::{refuse_child, share_login};
 use crate::error::RunError;
-use crate::shim::{ensure_shim, path_with, SHIM_DIR_REL};
 
 /// How many names are tried for a session before a taken one is the error.
 const NAME_TRIES: usize = 3;
@@ -120,9 +119,10 @@ pub trait Core {
 pub struct Place {
     pub project_dir: String,
     pub output_root: String,
-    /// The absolute path of the running ctxloom binary, which the session's
-    /// own `bin/ctxloom` link names; empty when it could not be found.
-    pub program: String,
+    /// The directory of the running ctxloom binary, which leads an
+    /// interactive engine's `PATH` so a hook's bare `ctxloom` is it; empty
+    /// when it could not be found.
+    pub program_dir: String,
 }
 
 /// The run use cases over their ports.
@@ -243,7 +243,7 @@ where
         request: &OneShot,
         notices: &mut Vec<Notice>,
     ) -> Result<Ended, RunError> {
-        let (session, harp, engine, run) = self.start(previewed, request, true, notices).await?;
+        let (session, harp, engine, run) = self.start(previewed, request, true).await?;
         // The primary is handed her login before her engine starts.
         if let Some(credentials) = self.launcher.credentials(&engine) {
             notices.extend(share_login(
@@ -302,7 +302,6 @@ where
         previewed: Previewed,
         request: &OneShot,
         interactive: bool,
-        notices: &mut Vec<Notice>,
     ) -> Result<(String, String, String, Uuid), RunError> {
         if !previewed.fatal.is_empty() {
             return Err(RunError::Plan(Box::new(PlanError::aborted(
@@ -368,17 +367,6 @@ where
             // A hook finds its session by the harp, and the engine's
             // environment is the only thing a hook process is given.
             env.insert(run_ports::HARP_VARIABLE.to_string(), harp.clone());
-            // The session's own ctxloom leads its PATH, so a hook's bare
-            // `ctxloom` is this binary and not another one the user has.
-            match ensure_shim(&mut *self.links, &harp, &self.place.program) {
-                Ok(()) => {
-                    let dir = format!("{}/{SHIM_DIR_REL}", self.links.dir(&harp));
-                    let inherited = env.get("PATH").map(String::as_str);
-                    let path = path_with(&dir, inherited);
-                    env.insert("PATH".to_string(), path);
-                }
-                Err(notice) => notices.push(*notice),
-            }
             let endpoint = self
                 .endpoint(&enqueued.run.value)
                 .map_err(|e| RunError::Endpoint(Box::new(e)))?;
@@ -443,9 +431,7 @@ where
     }
 
     async fn run(&mut self, previewed: Previewed, request: &OneShot) -> Result<Answer, RunError> {
-        let (session, harp, engine, run) = self
-            .start(previewed, request, false, &mut Vec::new())
-            .await?;
+        let (session, harp, engine, run) = self.start(previewed, request, false).await?;
         let ours = self.launched(&session).await?;
         self.ended(&run).await?;
         match ours.outcome {

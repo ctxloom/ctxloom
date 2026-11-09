@@ -181,3 +181,33 @@ fn the_bearer_error_displays_and_reports_its_length_exactly() {
     assert_eq!(args.len(), 1);
     assert_eq!(args[0].0, "length");
 }
+
+// An empty scheme and a scheme with an illegal character are malformed, not an
+// unsupported scheme; only a well-formed other scheme is `Scheme`.
+#[test]
+fn an_empty_or_illegal_scheme_is_malformed_and_a_legal_other_one_is_a_scheme_error() {
+    for text in [
+        "://h:9",
+        "ht tp://h:9",
+        "ht_tp://h:9",
+        "ht/tp://h:9",
+        "h\ttp://h:9",
+    ] {
+        assert_eq!(
+            parse_endpoint(text).unwrap_err(),
+            EndpointError::Malformed {
+                endpoint: text.to_string()
+            },
+            "{text:?}"
+        );
+    }
+    for scheme in ["ftp", "ws+x", "a-b", "a.b", "h2"] {
+        assert_eq!(
+            parse_endpoint(&format!("{scheme}://h:9")).unwrap_err(),
+            EndpointError::Scheme {
+                scheme: scheme.to_string()
+            },
+            "{scheme}"
+        );
+    }
+}

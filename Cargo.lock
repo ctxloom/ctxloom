@@ -1769,6 +1769,7 @@ dependencies = [
  "angzarr-proto-transport-distributed",
  "embedded-edge",
  "mutants",
+ "prost",
  "run-ports",
  "runs",
  "runs-application",

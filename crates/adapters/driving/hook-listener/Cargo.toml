@@ -20,6 +20,7 @@ angzarr-embedded = { workspace = true, features = ["test-support"] }
 angzarr-embedded-host.workspace = true
 embedded-edge.workspace = true
 mutants.workspace = true
+prost.workspace = true
 run-ports.workspace = true
 runs.workspace = true
 sessions.workspace = true

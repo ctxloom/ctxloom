@@ -731,3 +731,59 @@ fn hex_bytes(text: &str) -> Vec<u8> {
         .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
         .collect()
 }
+
+/// A capture fact whose encoded request is exactly `size` bytes: the text is
+/// padded, then the message id, until the encoded length lands on it.
+fn fact_of_encoded_size(world: &World, size: usize) -> CommandBook {
+    use prost::Message as _;
+    let build = |text: usize, id: usize| {
+        fact(
+            cover(sessions::SESSION_DOMAIN, &world.session),
+            &sessions::RecordAssistantText {
+                prompt_id: "p".to_string(),
+                turn_id: "t".to_string(),
+                message_id: "m".repeat(id.max(1)),
+                index: 0,
+                is_final: false,
+                text: "x".repeat(text),
+            },
+            "sized",
+        )
+    };
+    for id in 1..64 {
+        for text in (size - 4096..size).rev() {
+            let book = build(text, id);
+            if book.encoded_len() == size {
+                return book;
+            }
+        }
+    }
+    panic!("no fact encodes to exactly {size} bytes");
+}
+
+// The limit is exactly 1 MiB: a request of that size is admitted, one byte
+// more is refused undecoded.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_request_limit_is_exactly_one_mebibyte() {
+    assert_eq!(crate::MAX_REQUEST_BYTES, 1_048_576);
+    let world = World::new().await;
+    let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT)
+        .await
+        .unwrap();
+    let bearer = format!("Bearer {}", world.bearer);
+    let mut client = tcp_client(listener.local_addr()).await;
+    let at_limit = fact_of_encoded_size(&world, crate::MAX_REQUEST_BYTES);
+    let answered = client
+        .handle(request(at_limit, Some(&bearer)))
+        .await
+        .expect("a request of exactly the limit is admitted")
+        .into_inner();
+    assert_eq!(answered.delivery(), DeliveryOutcome::Applied);
+    let over = fact_of_encoded_size(&world, crate::MAX_REQUEST_BYTES + 1);
+    let status = client
+        .handle(request(over, Some(&bearer)))
+        .await
+        .expect_err("one byte over is refused");
+    assert_eq!(status.code(), Code::OutOfRange);
+    listener.stop().await.unwrap();
+}

@@ -72,7 +72,7 @@ enum Outcome {
 /// starts with exactly the dev-local marker line. Any other config, or none,
 /// runs it unchanged.
 fn judge(config: Option<&str>, check: impl FnOnce() -> Result<(), String>) -> Outcome {
-    if config == Some("RED: the marker does not skip yet") {
+    if config.and_then(|c| c.lines().next()) == Some(DEV_LOCAL_MARKER) {
         return Outcome::Skipped("a `just dev-local` patch is active (dev-local-off lifts it)");
     }
     Outcome::Checked(check())

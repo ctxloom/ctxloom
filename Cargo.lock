@@ -1565,7 +1565,7 @@ dependencies = [
 [[package]]
 name = "harp-names"
 version = "0.1.0"
-source = "git+https://github.com/ctxloom/taskloom?rev=f1954cc00ecf1b8df3844ed6ac7cd129f8411ac6#f1954cc00ecf1b8df3844ed6ac7cd129f8411ac6"
+source = "git+https://github.com/ctxloom/taskloom?rev=ec7f8eba5341b8026201222f3480c3e40e2e1c44#ec7f8eba5341b8026201222f3480c3e40e2e1c44"
 dependencies = [
  "harp-core",
  "ports",
@@ -2648,7 +2648,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 [[package]]
 name = "ports"
 version = "0.1.0"
-source = "git+https://github.com/ctxloom/taskloom?rev=f1954cc00ecf1b8df3844ed6ac7cd129f8411ac6#f1954cc00ecf1b8df3844ed6ac7cd129f8411ac6"
+source = "git+https://github.com/ctxloom/taskloom?rev=ec7f8eba5341b8026201222f3480c3e40e2e1c44#ec7f8eba5341b8026201222f3480c3e40e2e1c44"
 dependencies = [
  "angzarr-diagnostic",
  "angzarr-ports",
@@ -2741,7 +2741,7 @@ dependencies = [
 [[package]]
 name = "project-registry"
 version = "0.1.0"
-source = "git+https://github.com/ctxloom/taskloom?rev=f1954cc00ecf1b8df3844ed6ac7cd129f8411ac6#f1954cc00ecf1b8df3844ed6ac7cd129f8411ac6"
+source = "git+https://github.com/ctxloom/taskloom?rev=ec7f8eba5341b8026201222f3480c3e40e2e1c44#ec7f8eba5341b8026201222f3480c3e40e2e1c44"
 dependencies = [
  "angzarr-diagnostic",
  "angzarr-yaml",
@@ -4032,7 +4032,7 @@ dependencies = [
 [[package]]
 name = "system"
 version = "0.1.0"
-source = "git+https://github.com/ctxloom/taskloom?rev=f1954cc00ecf1b8df3844ed6ac7cd129f8411ac6#f1954cc00ecf1b8df3844ed6ac7cd129f8411ac6"
+source = "git+https://github.com/ctxloom/taskloom?rev=ec7f8eba5341b8026201222f3480c3e40e2e1c44#ec7f8eba5341b8026201222f3480c3e40e2e1c44"
 dependencies = [
  "ports",
  "prost-types",

@@ -15,7 +15,7 @@ publish = false
 # angzarr-ports and angzarr-diagnostic (and one of every angzarr crate). The
 # pins agree: angzarr-embedded e3e22db (angzarr-router d2b019f), angzarr core
 # 44143e6, angzarr-build ea9f15d and angzarr-platform b25486d are one line of
-# revs, taskloom's crates (f1954cc) and ctxloom-lib's (72a4dd4) are built on the
+# revs, taskloom's crates (ec7f8eb) and ctxloom-lib's (72a4dd4) are built on the
 # same ones, and moving any of them moves the others with it.
 #
 # angzarr-proto, angzarr-ports and angzarr-store-sqlite are reached through
@@ -49,14 +49,14 @@ file-system = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "b
 file-lock = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "b25486d4d169c00876998cb3fdfd2825dd9589a2" }
 
 # taskloom, by commit (D3 (b), D2 (a)): harp-names and the ports it implements.
-# f1954cc is taskloom's pin on the same angzarr family; only these crates are consumed.
-harp-names = { git = "https://github.com/ctxloom/taskloom", rev = "f1954cc00ecf1b8df3844ed6ac7cd129f8411ac6" }
-ports = { git = "https://github.com/ctxloom/taskloom", rev = "f1954cc00ecf1b8df3844ed6ac7cd129f8411ac6" }
+# ec7f8eb is taskloom's pin on the same angzarr family; only these crates are consumed.
+harp-names = { git = "https://github.com/ctxloom/taskloom", rev = "ec7f8eba5341b8026201222f3480c3e40e2e1c44" }
+ports = { git = "https://github.com/ctxloom/taskloom", rev = "ec7f8eba5341b8026201222f3480c3e40e2e1c44" }
 # taskloom's system adapter: the clock, command ids, delay and jitter ports.
-system = { git = "https://github.com/ctxloom/taskloom", rev = "f1954cc00ecf1b8df3844ed6ac7cd129f8411ac6" }
+system = { git = "https://github.com/ctxloom/taskloom", rev = "ec7f8eba5341b8026201222f3480c3e40e2e1c44" }
 # taskloom's project identity (the work root, the `.project-id` marker and the
 # home registry of projects), read through, not copied (D2 (a)).
-project-registry = { git = "https://github.com/ctxloom/taskloom", rev = "f1954cc00ecf1b8df3844ed6ac7cd129f8411ac6" }
+project-registry = { git = "https://github.com/ctxloom/taskloom", rev = "ec7f8eba5341b8026201222f3480c3e40e2e1c44" }
 # Harp's word lists, at taskloom's rev, so the lock holds one.
 harp-core = { git = "https://github.com/benjaminabbitt/harp", rev = "e27196f5a425ffcf8e443aab95d2bf085cd2b134" }
 

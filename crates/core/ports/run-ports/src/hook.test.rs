@@ -1,96 +1,84 @@
-use std::collections::BTreeMap;
-
 use angzarr_diagnostic::Diagnostic;
 
 use crate::hook::{
-    endpoint_path, hook_environment, Bearer, BearerError, EndpointError, RedactedEnv,
-    BEARER_VARIABLE, ENDPOINT_VARIABLE, HOOK_VARIABLES, RUN_VARIABLE, SOCKET_PATH_LIMIT,
+    endpoint_url, hook_environment, parse_endpoint, Bearer, BearerError, Dial, EndpointError,
+    RedactedEnv, BEARER_VARIABLE, ENDPOINT_VARIABLE, HOOK_VARIABLES, RUN_VARIABLE,
 };
 use crate::Token;
 
-const RUN: [u8; 16] = [
-    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x10, 0x11,
-];
 const RUN_TEXT: &str = "00010203-0405-5607-8aaa-bbccddeeff10";
 
 fn token() -> Token {
     Token::from_bytes([0x5e; 32])
 }
 
-// NEW-DESIGN (owner ruling 2026-11-09, item 16): the socket is
-// `$XDG_RUNTIME_DIR/ctxloom/<short>.sock`, the short token the first 8 bytes of
-// the run's root.
 #[test]
-fn the_socket_is_under_the_runtime_directory_named_by_the_run() {
-    let path = endpoint_path(Some("/run/user/1000"), "/home/u", &RUN).unwrap();
-    assert_eq!(path, "/run/user/1000/ctxloom/0001020304050607.sock");
+fn the_told_endpoint_is_an_http_url_of_host_and_port() {
+    assert_eq!(endpoint_url("127.0.0.1", 40123), "http://127.0.0.1:40123");
+    assert_eq!(
+        endpoint_url("host.docker.internal", 7),
+        "http://host.docker.internal:7"
+    );
+    assert_eq!(endpoint_url("::1", 9), "http://[::1]:9");
 }
 
-// NEW-DESIGN: with no usable runtime directory (unset, empty, or relative,
-// which the XDG rules forbid) the socket falls back to a short path under
-// ctxloom's home.
 #[test]
-fn without_a_runtime_directory_the_socket_is_under_ctxloom_home() {
-    for unusable in [None, Some(""), Some("run/user")] {
-        let path = endpoint_path(unusable, "/home/u", &RUN).unwrap();
-        assert_eq!(path, "/home/u/.ctxloom/run/0001020304050607.sock");
+fn a_told_url_parses_back_to_the_dial() {
+    for (host, port) in [
+        ("127.0.0.1", 40123),
+        ("host.containers.internal", 65535),
+        ("::1", 1),
+    ] {
+        let dial = parse_endpoint(&endpoint_url(host, port)).unwrap();
+        assert_eq!(
+            dial,
+            Dial {
+                secure: false,
+                host: host.to_string(),
+                port
+            }
+        );
+        assert_eq!(dial.url(), endpoint_url(host, port));
     }
 }
 
-// NEW-DESIGN: two runs never share a socket (the run's root is unique, and the
-// short token is a prefix of it).
 #[test]
-fn different_runs_have_different_sockets() {
-    let mut other = RUN;
-    other[0] = 0xff;
-    assert_ne!(
-        endpoint_path(Some("/run/u"), "/h", &RUN).unwrap(),
-        endpoint_path(Some("/run/u"), "/h", &other).unwrap()
+fn the_scheme_drives_the_dial_so_tls_is_additive() {
+    let dial = parse_endpoint("https://127.0.0.1:9").unwrap();
+    assert!(dial.secure);
+    assert_eq!(dial.url(), "https://127.0.0.1:9");
+}
+
+#[test]
+fn what_is_not_a_listener_url_is_refused() {
+    for text in [
+        "",
+        "127.0.0.1:9",
+        "http://",
+        "http://:9",
+        "http://h",
+        "http://h:0",
+        "http://h:65536",
+        "http://h:x",
+        "http://h:9/path",
+        "http://u@h:9",
+        "http://[::1:9",
+        "/run/user/1000/ctxloom/a.sock",
+    ] {
+        assert_eq!(
+            parse_endpoint(text).unwrap_err(),
+            EndpointError::Malformed {
+                endpoint: text.to_string()
+            },
+            "{text}"
+        );
+    }
+    assert_eq!(
+        parse_endpoint("ftp://h:9").unwrap_err(),
+        EndpointError::Scheme {
+            scheme: "ftp".to_string()
+        }
     );
-}
-
-// NEW-DESIGN (sun_path is 108 bytes with its terminator): a path of exactly the
-// limit is taken, one byte more is a typed error that carries the path and the
-// limit, whichever way the directory was found.
-#[test]
-fn a_path_over_the_socket_limit_is_a_typed_error_at_the_boundary() {
-    // dir + "/ctxloom/" (9) + 16 digits + ".sock" (5)
-    let fits = "/".to_string() + &"d".repeat(SOCKET_PATH_LIMIT - 30 - 1);
-    let path = endpoint_path(Some(&fits), "/h", &RUN).unwrap();
-    assert_eq!(path.len(), SOCKET_PATH_LIMIT);
-    let over = format!("{fits}d");
-    let EndpointError::TooLong { path, limit } =
-        endpoint_path(Some(&over), "/h", &RUN).unwrap_err()
-    else {
-        panic!("not too long");
-    };
-    assert_eq!(path.len(), SOCKET_PATH_LIMIT + 1);
-    assert_eq!(limit, SOCKET_PATH_LIMIT as u64);
-    let long_home = format!("/{}", "h".repeat(120));
-    let error = endpoint_path(None, &long_home, &RUN).unwrap_err();
-    assert_eq!(error.code(), "run-ports-endpoint-too-long");
-}
-
-// NEW-DESIGN: the diagnostic names the length and the limit.
-#[test]
-fn the_too_long_error_says_how_long_and_how_long_it_may_be() {
-    let error = endpoint_path(Some(&format!("/{}", "d".repeat(100))), "/h", &RUN).unwrap_err();
-    let args: BTreeMap<String, String> = error
-        .args()
-        .into_iter()
-        .map(|(name, value)| (name.to_string(), format!("{value:?}")))
-        .collect();
-    assert!(args.contains_key("length"));
-    assert!(args.contains_key("limit"));
-    assert!(args.contains_key("path"));
-}
-
-#[test]
-fn a_run_root_too_short_to_name_a_socket_is_refused() {
-    let error = endpoint_path(Some("/r"), "/h", &RUN[..7]).unwrap_err();
-    assert_eq!(error, EndpointError::RunTooShort { length: 7 });
-    assert_eq!(error.code(), "run-ports-endpoint-run-too-short");
-    assert!(endpoint_path(Some("/r"), "/h", &RUN[..8]).is_ok());
 }
 
 // NEW-DESIGN: the composite bearer is `<run>.<token hex>` and parses back.
@@ -135,34 +123,25 @@ fn the_secret_is_in_no_debug_display_or_error_rendering() {
     let bearer = Bearer::compose(RUN_TEXT, &token());
     assert_eq!(format!("{bearer:?}"), "Bearer(redacted)");
     assert!(!format!("{:?}", token()).contains(&secret));
-    let env = hook_environment("/r/ctxloom/a.sock", RUN_TEXT, &token());
+    let env = hook_environment("http://127.0.0.1:9", RUN_TEXT, &token());
     let shown = format!("{:?}", RedactedEnv(&env));
     assert!(!shown.contains(&secret), "{shown}");
     assert!(shown.contains(BEARER_VARIABLE));
     assert!(
-        shown.contains("/r/ctxloom/a.sock"),
+        shown.contains("http://127.0.0.1:9"),
         "the endpoint is not secret"
     );
-    for error in [
-        format!(
-            "{}",
-            EndpointError::TooLong {
-                path: "/p".into(),
-                limit: 107
-            }
-        ),
-        format!("{}", BearerError::Malformed { length: 3 }),
-    ] {
-        assert!(!error.contains(&secret));
-    }
+    assert!(!BearerError::Malformed { length: 3 }
+        .to_string()
+        .contains(&secret));
 }
 
 // NEW-DESIGN: the three variables the interactive engine is given.
 #[test]
 fn the_hook_environment_is_the_endpoint_the_bearer_and_the_run() {
-    let env = hook_environment("/r/ctxloom/a.sock", RUN_TEXT, &token());
+    let env = hook_environment("http://127.0.0.1:9", RUN_TEXT, &token());
     assert_eq!(env.len(), 3);
-    assert_eq!(env[ENDPOINT_VARIABLE], "/r/ctxloom/a.sock");
+    assert_eq!(env[ENDPOINT_VARIABLE], "http://127.0.0.1:9");
     assert_eq!(env[RUN_VARIABLE], RUN_TEXT);
     assert_eq!(
         env[BEARER_VARIABLE],
@@ -174,36 +153,23 @@ fn the_hook_environment_is_the_endpoint_the_bearer_and_the_run() {
     );
 }
 
-// NEW-DESIGN: no usable runtime directory and no absolute home leaves nowhere to
-// put the socket: a typed error, never a relative path.
-#[test]
-fn with_nowhere_to_put_the_socket_it_is_refused() {
-    for home in ["", "relative/home"] {
-        let error = endpoint_path(None, home, &RUN).unwrap_err();
-        assert_eq!(error, EndpointError::NoDirectory);
-        assert_eq!(error.code(), "run-ports-endpoint-no-directory");
-    }
-}
-
-// The exact text of each error (code, then its args) and the args each reports.
+// The exact text of each error (code, then its args).
 #[test]
 fn the_endpoint_errors_display_and_report_their_args_exactly() {
-    let too_long = EndpointError::TooLong {
-        path: "/p/x.sock".to_string(),
-        limit: 107,
+    let malformed = EndpointError::Malformed {
+        endpoint: "x".to_string(),
     };
     assert_eq!(
-        too_long.to_string(),
-        "run-ports-endpoint-too-long length=9 limit=107 path=/p/x.sock"
+        malformed.to_string(),
+        "run-ports-endpoint-malformed endpoint=x"
     );
-    assert_eq!(too_long.args().len(), 3);
+    assert_eq!(malformed.args().len(), 1);
     assert_eq!(
-        EndpointError::RunTooShort { length: 3 }.to_string(),
-        "run-ports-endpoint-run-too-short length=3"
-    );
-    assert_eq!(
-        EndpointError::NoDirectory.to_string(),
-        "run-ports-endpoint-no-directory"
+        EndpointError::Scheme {
+            scheme: "ftp".to_string()
+        }
+        .to_string(),
+        "run-ports-endpoint-scheme scheme=ftp"
     );
 }
 

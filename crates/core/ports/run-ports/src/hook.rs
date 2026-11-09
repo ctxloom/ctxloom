@@ -1,8 +1,8 @@
 //! What a hook process of the interactive engine is told (owner rulings
-//! 2026-11-08 item 9 and 2026-11-09 item 16): where the run's listener is and
+//! 2026-11-08 item 9 and 2026-11-09 item 16): where the run's listener is (a URL) and
 //! the bearer that is its hook-only credential, in three environment
-//! variables. Pure: the socket path and the variables are computed from what
-//! they are given (the runtime directory is injected, never read here).
+//! variables. Pure: the endpoint URL and the variables are computed from what
+//! they are given (the bound port is injected, never read here).
 //!
 //! The bearer is a SECRET. It is a composite `<run-id>.<64 hex>`, so the gate
 //! can look the run up without upstream metadata support; it never reaches a
@@ -12,13 +12,12 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::path::Path;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
 
 use crate::token::{Token, TokenError};
 
-/// The variable that names the run's listener: a unix socket path.
+/// The variable that names the run's listener: the listener's URL (`http://<host>:<port>`).
 pub const ENDPOINT_VARIABLE: &str = "CTXLOOM_ENDPOINT";
 /// The variable that holds the hook principal's bearer: the secret.
 pub const BEARER_VARIABLE: &str = "CTXLOOM_BEARER";
@@ -34,6 +33,8 @@ pub const HARP_VARIABLE: &str = "CTXLOOM_SESSION_HARP";
 /// no other.
 pub const HOOK_VARIABLES: [&str; 3] = [ENDPOINT_VARIABLE, BEARER_VARIABLE, RUN_VARIABLE];
 
+// LEGACY (removed in the green commit of this unit)
+use std::path::Path;
 /// The longest socket path the kernel takes: `sun_path` is 108 bytes on Linux,
 /// one of them the terminator.
 pub const SOCKET_PATH_LIMIT: usize = 107;
@@ -74,15 +75,57 @@ pub fn endpoint_path(
     }
 }
 
-/// Why a run has no socket path.
+/// The URL a hook process dials for the listener at `host` and `port`:
+/// `http://<host>:<port>` (it will be `https://` when the listener has a
+/// certificate). An IPv6 literal is bracketed.
+pub fn endpoint_url(host: &str, port: u16) -> String {
+    let _ = (host, port);
+    todo!("endpoint_url")
+}
+
+/// Where an endpoint URL says to dial.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Dial {
+    /// `https` (true) or `http` (false).
+    pub secure: bool,
+    /// The host, an IPv6 literal without its brackets.
+    pub host: String,
+    pub port: u16,
+}
+
+impl Dial {
+    /// The URL a client channel is built from.
+    pub fn url(&self) -> String {
+        todo!("Dial::url")
+    }
+}
+
+/// The dial an endpoint URL names: `http://` or `https://`, a host, a port
+/// (not 0) and nothing else.
+pub fn parse_endpoint(text: &str) -> Result<Dial, EndpointError> {
+    let _ = text;
+    todo!("parse_endpoint")
+}
+
+/// Why an endpoint text is not a listener's URL.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EndpointError {
-    /// The path would not fit `sun_path`.
-    TooLong { path: String, limit: u64 },
-    /// The run's root is too short to name a socket.
-    RunTooShort { length: u64 },
-    /// No runtime directory and no ctxloom home to put the socket under.
+    TooLong {
+        path: String,
+        limit: u64,
+    },
+    RunTooShort {
+        length: u64,
+    },
     NoDirectory,
+    /// Not `<scheme>://<host>:<port>`.
+    Malformed {
+        endpoint: String,
+    },
+    /// A scheme other than `http` and `https`.
+    Scheme {
+        scheme: String,
+    },
 }
 
 impl fmt::Display for EndpointError {
@@ -97,18 +140,18 @@ impl Diagnostic for EndpointError {
             EndpointError::TooLong { .. } => code!("endpoint-too-long"),
             EndpointError::RunTooShort { .. } => code!("endpoint-run-too-short"),
             EndpointError::NoDirectory => code!("endpoint-no-directory"),
+            EndpointError::Malformed { .. } => code!("endpoint-malformed"),
+            EndpointError::Scheme { .. } => code!("endpoint-scheme"),
         }
     }
 
     fn args(&self) -> Vec<(&str, Arg)> {
         match self {
-            EndpointError::TooLong { path, limit } => vec![
-                ("length", (path.len() as u64).into()),
-                ("limit", (*limit).into()),
-                ("path", path.as_str().into()),
-            ],
-            EndpointError::RunTooShort { length } => vec![("length", (*length).into())],
-            EndpointError::NoDirectory => Vec::new(),
+            EndpointError::TooLong { .. }
+            | EndpointError::RunTooShort { .. }
+            | EndpointError::NoDirectory => Vec::new(),
+            EndpointError::Malformed { endpoint } => vec![("endpoint", endpoint.as_str().into())],
+            EndpointError::Scheme { scheme } => vec![("scheme", scheme.as_str().into())],
         }
     }
 }
@@ -208,12 +251,12 @@ impl fmt::Debug for RedactedEnv<'_> {
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     vec![
-        Box::new(EndpointError::TooLong {
-            path: "/run/user/1000/ctxloom/0011223344556677.sock".to_string(),
-            limit: SOCKET_PATH_LIMIT as u64,
+        Box::new(EndpointError::Malformed {
+            endpoint: "127.0.0.1".to_string(),
         }),
-        Box::new(EndpointError::RunTooShort { length: 3 }),
-        Box::new(EndpointError::NoDirectory),
+        Box::new(EndpointError::Scheme {
+            scheme: "ftp".to_string(),
+        }),
         Box::new(BearerError::Malformed { length: 3 }),
     ]
 }

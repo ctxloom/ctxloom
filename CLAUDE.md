@@ -170,7 +170,18 @@ processes as `CTXLOOM_HOME` (`run_ports::HOME_VARIABLE`; the wiring takes it as
 the home when `HOME` is absent, and names the resolved home in a run's env; only
 the interactive allowlist passes it on), and the interactive session home's
 `settings.json` calls `ctxloom hook claude-code execute <Event>` for the
-session, turn, message and tool-batch events (a child's home gets no hooks).
+session, turn, message, tool-batch and compaction (`PreCompact`, `PostCompact`)
+events (a child's home gets no hooks). The hook command is the bare `ctxloom`,
+so the INTERACTIVE engine's `PATH` is the directory of the running binary
+(`Place::program_dir`, the wiring's `current_exe` parent), then the inherited
+`PATH`; a child's turn env is unchanged. Two consequences: the session's own
+shell also sees that directory first, so a sibling program in it shadows the
+user's others (intended); and the binary must be named `ctxloom` for the hooks
+to resolve it (a renamed binary still leads `PATH` but the bare name finds
+nothing there: a known limit, not worked around). The resolved
+`llm.configs.<label>.model` (`DryRun::model`, then `Order::model` and
+`TurnRequest::model`) is passed as `--model <m>` for a child's turn and for the
+interactive launch; none configured is no flag.
 The launcher records `RunnerStarted{runtime, workspace, pid}` AFTER the spawn,
 with the pid the spawn gave (`RunnerLauncher::launch` answers a `Running`, the
 launcher records, `Running::finish` waits), and the pending launches clear on
@@ -430,14 +441,32 @@ redelivery is DUPLICATE. `run-launcher`'s `Recorder` is the ONLY writer of
 `transcripts/transcript.jsonl` (a `Projection` over the stream's pages, `seq`
 counting lines, the last page projected kept in `records/transcript-position.
 json`); the launcher records its own prompt and answer as the same facts. A
-reader coalesces deltas by `message_id` and `index`. Not captured: thinking
+reader coalesces deltas by `message_id` and `index`. ARRIVAL ORDER IS NOT
+TURN ORDER: Stop and MessageDisplay are separate hook processes, and Stop
+fires first (a live probe saw `turn_end` before the turn's words, and the
+words can follow the next prompt), so a reader never assumes a turn's words
+precede its `turn_end` or the next entry. `session transcript show` places an
+assistant message by its `prompt_id` (the user entries are the prompts in
+order, the prompt ids in order of first appearance are the same prompts; an
+`entry` line carries no `prompt_id` of its own, which an additive field would
+make exact). The listener cannot treat `turn_end` as "the words are in".
+Compaction (`PreCompact`, `PostCompact`) is registered and recorded: the fact
+holds the prompt, the phase, the `trigger` (`manual`/`auto`) and the summary's
+size and SHA-256 (never its text, ruling B). Not captured: thinking
 blocks, a tool's status (Claude's payload carries none) and a result's body.
 A hook is a separate process and has no listener to deliver through yet:
 `ctxloom-wiring`'s `Unreachable` sink is what it holds, so it answers the
 engine as usual and warns `hook-cli-not-recorded` for each observation; the
 in-process `EdgeSink` is the sink the listener's transport replaces it with.
-Known gap: two compactions of one turn share an external id (the payload
-offers no discriminator), so the second is a DUPLICATE and is not recorded.
+A compaction's external id is `hook:compact:<session>:<prompt_id>:<trigger>:
+<phase>`, so two compactions of one turn (a manual and an auto) are two facts;
+two of the SAME trigger in one turn would still collide (the payload offers no
+further discriminator). A run killed by SIGHUP or a timeout leaves its socket;
+the next interactive run clears, from the socket directory, every `*.sock`
+nothing accepts on (`ctxloom-wiring`'s `stale_socket`; a live one is never
+removed, and ctxloom does not forward or handle SIGINT, SIGHUP or SIGTERM
+itself). A residual race: a socket another run has bound but not yet begun
+listening on refuses connections for an instant and could be cleared.
 
 ## Use `just`
 

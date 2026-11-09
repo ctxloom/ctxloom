@@ -34,6 +34,7 @@ use angzarr_coordinator::Coordinator;
 use angzarr_coordinator_grpc::{BoundEndpoint, Edge as Served, Listener, Running, Server};
 use angzarr_proto_transport_distributed::v1::command_handler_coordinator_service_server::CommandHandlerCoordinatorServiceServer;
 use runs_application::{Edge, EdgeCommands, HookGate};
+use tonic::transport::{Identity, ServerTlsConfig};
 
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
@@ -98,7 +99,6 @@ impl HookListener {
         addr: std::net::SocketAddr,
         identity: TlsIdentity,
     ) -> Result<HookListener, ListenerError> {
-        let _ = (identity.cert_pem, identity.key_pem);
         if addr.ip().is_unspecified() {
             return Err(ListenerError::Unspecified {
                 addr: addr.to_string(),
@@ -112,7 +112,9 @@ impl HookListener {
         let service =
             CommandHandlerCoordinatorServiceServer::new(Served::new(Arc::new(coordinator)))
                 .max_decoding_message_size(MAX_REQUEST_BYTES);
-        let listener = Listener::tcp(addr).declare(reach_of(addr.ip()));
+        let tls = ServerTlsConfig::new()
+            .identity(Identity::from_pem(identity.cert_pem, identity.key_pem));
+        let listener = Listener::tcp(addr).declare(reach_of(addr.ip())).tls(tls);
         let running = Server::builder()
             .add_service(service)
             .listen(listener)

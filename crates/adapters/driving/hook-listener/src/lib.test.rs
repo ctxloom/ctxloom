@@ -575,27 +575,68 @@ fn the_listener_serves_while_the_thread_that_drives_the_run_is_blocked() {
     assert!(pages >= 2, "the mint and the fact");
 }
 
-/// A client that connects and never completes its handshake holds a connection
-/// open, which a graceful shutdown waits for. The connection is held by the
-/// test, so the wait is forced, never hoped for: the stop must end past its
-/// grace ([`crate::STOP_GRACE`], three seconds, really elapsed) with the typed
-/// timeout, and the listener must be aborted (nobody listens).
+/// An edge whose commands are admitted and then never finish: a call held in
+/// the handler, with the test told that it arrived.
+struct Stalling {
+    inner: Arc<TheEdge>,
+    arrived: tokio::sync::mpsc::UnboundedSender<()>,
+}
+
+impl run_ports::Edge for Stalling {
+    async fn serve(
+        &self,
+        _: CommandBook,
+        _: run_ports::Arrival,
+    ) -> Result<angzarr_embedded::Answered, run_ports::Unserved> {
+        let _ = self.arrived.send(());
+        std::future::pending().await
+    }
+
+    async fn handle(
+        &self,
+        _: CommandBook,
+    ) -> Result<angzarr_embedded::Answered, angzarr_embedded::Failure<angzarr_embedded::Rejected>>
+    {
+        let _ = self.arrived.send(());
+        std::future::pending().await
+    }
+
+    async fn events(
+        &self,
+        cover: &Cover,
+        from: u64,
+    ) -> Result<Vec<angzarr_embedded::v1::EventPage>, angzarr_embedded::StoreError> {
+        self.inner.events(cover, from).await
+    }
+}
+
+/// A call that is held in the handler holds a connection open, which a
+/// graceful shutdown waits for. The call is held by the test (the edge never
+/// answers) and the test is told when it is in the handler over the TLS
+/// connection, so the wait is forced, never hoped for: the stop must end past
+/// its grace ([`crate::STOP_GRACE`], three seconds, really elapsed) with the
+/// typed timeout, and the listener must be aborted (nobody listens).
 #[tokio::test(flavor = "current_thread")]
 async fn a_client_that_holds_a_connection_open_cannot_hold_the_stop() {
     let world = World::new().await;
-    let listener = world.serve().await;
-    let mut held = tokio::net::TcpStream::connect(world.addr()).await.unwrap();
-    tokio::io::AsyncWriteExt::write_all(&mut held, b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+    let (arrived, mut in_handler) = tokio::sync::mpsc::unbounded_channel();
+    let edge = Arc::new(Stalling {
+        inner: Arc::clone(&world.edge),
+        arrived,
+    });
+    let listener = HookListener::serve_tcp(edge, LOOPBACK_ANY_PORT, identity())
         .await
-        .unwrap();
-    // The server speaks first once it has accepted: its HTTP/2 frame header
-    // (nine bytes, the SETTINGS frame) is the proof that the connection is
-    // open server side, so the stop below meets a connection held, never one
-    // still waiting in the backlog (which a graceful shutdown never sees).
-    let mut frame = [0_u8; 9];
-    tokio::io::AsyncReadExt::read_exact(&mut held, &mut frame)
-        .await
-        .expect("the server accepted the connection");
+        .expect("the listener starts");
+    let addr = listener.local_addr();
+    *world.addr.lock().unwrap() = Some(addr);
+    let book = world.turn_ended("held");
+    let bearer = format!("Bearer {}", world.bearer);
+    let held = tokio::spawn(async move {
+        CommandHandlerCoordinatorServiceClient::new(connect(addr).await)
+            .handle(request(book, Some(&bearer)))
+            .await
+    });
+    in_handler.recv().await.expect("the call is in the handler");
     let error = listener
         .stop()
         .await
@@ -607,7 +648,7 @@ async fn a_client_that_holds_a_connection_open_cannot_hold_the_stop() {
             grace_ms: 3_000,
         }
     );
-    drop(held);
+    held.abort();
     assert!(
         tokio::net::TcpStream::connect(world.addr()).await.is_err(),
         "nobody listens"

@@ -343,7 +343,10 @@ binary's `catalog()` lists every crate's `EN_US`.
 `--format` is `json` or `text` (json off a terminal); yaml, toml and markdown
 are refused like any unknown format, exit 2. Errors are `ctxloom: <message>`
 with an optional `  fix:` line in text, and the envelope `{code, args,
-message}` on stderr in json. Exit codes: 0, 1 failed, 2 refused, 3 fatal
+message}` on stderr in json, plus `fix` (the same text as the `  fix:` line)
+when the catalog has the error's `<code>-fix` id, the key omitted otherwise
+(`ctxloom-cli`'s `report` adds it; angzarr-presentation's `Envelope` has no
+such field yet, so taskloom's envelope stays three-field until it does). Exit codes: 0, 1 failed, 2 refused, 3 fatal
 findings. `-h` works at every depth, there is no `help` command, an unknown
 verb says "Did you mean" and lists the verbs, `-v` is accepted everywhere
 and changes no output.

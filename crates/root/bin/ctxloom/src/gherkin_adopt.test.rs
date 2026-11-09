@@ -267,6 +267,15 @@ fn refusal_is(w: &mut World, code: String) {
     assert_eq!(envelope["code"], code, "{}", w.ran().said());
 }
 
+/// The json envelope carries the remedy as `fix` (owner ruling).
+#[then(expr = "the refusal's fix says {string}")]
+fn refusal_fix_says(w: &mut World, text: String) {
+    let envelope: serde_json::Value =
+        serde_json::from_str(&w.ran().stderr).expect("a json envelope on the error stream");
+    let fix = envelope["fix"].as_str().expect("a fix in the envelope");
+    assert!(fix.contains(&text), "{fix:?} does not say {text:?}");
+}
+
 /// Her assistant's own configuration, in her home and in her project, as it
 /// was before ctxloom first ran.
 #[then("her assistant, started on its own, is exactly as it was before she set ctxloom up")]

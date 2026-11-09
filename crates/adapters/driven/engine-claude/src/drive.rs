@@ -133,6 +133,7 @@ impl Engine for Claude {
             .to_vec();
         command.args.push("--append-system-prompt-file".to_string());
         command.args.push(request.context_path.clone());
+        push_model(&mut command.args, &request.model);
         if let Some(native_id) = &request.resume {
             command.args.push("--resume".to_string());
             command.args.push(native_id.clone());
@@ -163,6 +164,7 @@ impl Engine for Claude {
         let mut command = TurnCommand::new(PROGRAM);
         command.args.push("--append-system-prompt-file".to_string());
         command.args.push(request.context_path.clone());
+        push_model(&mut command.args, &request.model);
         if let Some(native_id) = &request.resume {
             command.args.push("--resume".to_string());
             command.args.push(native_id.clone());
@@ -173,6 +175,14 @@ impl Engine for Claude {
         command.env = environment(INTERACTIVE_ENV_ALLOWLIST, &request.env, &request.home);
         command.cwd = request.cwd.clone();
         Ok(command)
+    }
+}
+
+/// `--model <model>` when one is configured; none configured is no flag.
+fn push_model(args: &mut Vec<String>, model: &str) {
+    if !model.is_empty() {
+        args.push("--model".to_string());
+        args.push(model.to_string());
     }
 }
 

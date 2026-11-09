@@ -387,7 +387,7 @@ where
                 env,
                 cwd: Some(self.place.project_dir.clone()),
                 interactive,
-                model: String::new(),
+                model: plan.model,
             },
         );
         Ok((session, harp, engine, enqueued.run))

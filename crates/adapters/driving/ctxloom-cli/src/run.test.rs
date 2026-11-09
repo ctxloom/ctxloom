@@ -350,3 +350,77 @@ fn test_a_mounted_noun_is_shaped_like_the_command_lines_own() {
     assert!(other.is_arg_required_else_help_set());
     assert!(other.is_disable_help_subcommand_set());
 }
+
+/// `error` reported under `format`: its exit code and what was said.
+fn reported(error: &CliError, format: Format) -> (u8, String) {
+    let catalog = Catalog::en_us(&[crate::EN_US]).unwrap();
+    let mut err = Vec::new();
+    let code = crate::run::report(error, format, &catalog, &mut err);
+    (code, String::from_utf8(err).unwrap())
+}
+
+// Owner ruling: the json envelope carries the remedy. An error whose catalog
+// has the `<code>-fix` id gains a `fix`, the text of the `  fix:` line.
+#[test]
+fn test_a_json_error_with_a_fix_id_carries_the_fix() {
+    let error = CliError::Usage {
+        detail: "bad".to_string(),
+    };
+    let (_, json) = reported(&error, Format::Json);
+    let envelope: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        envelope["fix"],
+        "run ctxloom -h, or the command with -h, for its usage"
+    );
+    let keys: Vec<&str> = envelope
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(keys.len(), 4, "{json}");
+    let (_, text) = reported(&error, Format::Text);
+    assert!(
+        text.ends_with(&format!("  fix: {}\n", envelope["fix"].as_str().unwrap())),
+        "{text}"
+    );
+}
+
+// The fix's args are the error's: the unknown verb's remedy names its command.
+#[test]
+fn test_the_fix_in_json_is_rendered_with_the_errors_args() {
+    let error = CliError::UnknownVerb {
+        verb: "frob".to_string(),
+        command: "ctxloom".to_string(),
+        choices: "a, b".to_string(),
+    };
+    let (_, json) = reported(&error, Format::Json);
+    let envelope: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(envelope["fix"], "run ctxloom -h for its commands");
+}
+
+// No `<code>-fix` id: the key is omitted, not null.
+#[test]
+fn test_a_json_error_without_a_fix_id_omits_the_key() {
+    let error = CliError::Output {
+        detail: "disk".to_string(),
+    };
+    let (code, json) = reported(&error, Format::Json);
+    assert_eq!(code, 1);
+    let envelope: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert!(envelope.get("fix").is_none(), "{json}");
+    assert!(envelope["code"] == "ctxloom-cli-output", "{json}");
+}
+
+// The envelope's key order stays code, args, message, then the fix.
+#[test]
+fn test_the_envelope_keeps_its_order_and_the_fix_comes_last() {
+    let (_, json) = reported(
+        &CliError::Format {
+            value: "x".to_string(),
+        },
+        Format::Json,
+    );
+    let at = |key: &str| json.find(&format!("\"{key}\"")).unwrap();
+    assert!(at("code") < at("args") && at("args") < at("message") && at("message") < at("fix"));
+}

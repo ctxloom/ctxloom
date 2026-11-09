@@ -11,7 +11,7 @@ use deps_application::fakes::Fixture;
 use doctor_checks::{
     ConfigFiles, Executables, Failure as PortFailure, LayerText, Put, Scope, Source, UserFiles,
 };
-use init_application::{Ended, Scaffold};
+use init_application::{Ended, LaunchFailure, Scaffold};
 use reclaim_application::ProjectCache;
 
 use super::*;
@@ -49,22 +49,39 @@ impl Terminal for Person {
 /// The sessions init launches: what they were launched with, and how they end.
 #[derive(Default)]
 struct Launches {
+    /// The launch of this session (`interview`, `configured`) fails with
+    /// this exit code.
+    refuses: Option<(&'static str, u8)>,
     interview_code: Option<i32>,
     restart_code: Option<i32>,
     launched: Mutex<Vec<&'static str>>,
 }
 
+impl Launches {
+    fn refusal(&self, session: &str) -> Result<(), LaunchFailure> {
+        match self.refuses {
+            Some((which, exit)) if which == session => Err(LaunchFailure {
+                cause: Box::new(deps_application::AppError::DefaultNeedsName),
+                exit,
+            }),
+            _ => Ok(()),
+        }
+    }
+}
+
 impl Sessions for Launches {
-    fn interview(&self, _: &str) -> Result<Ended, PortFailure> {
+    fn interview(&self, _: &str) -> Result<Ended, LaunchFailure> {
         self.launched.lock().unwrap().push("interview");
+        self.refusal("interview")?;
         Ok(Ended {
             code: self.interview_code,
             notices: Vec::new(),
         })
     }
 
-    fn configured(&self) -> Result<Ended, PortFailure> {
+    fn configured(&self) -> Result<Ended, LaunchFailure> {
         self.launched.lock().unwrap().push("configured");
+        self.refusal("configured")?;
         Ok(Ended {
             code: self.restart_code,
             notices: Vec::new(),
@@ -674,4 +691,42 @@ fn init_off_a_terminal_launches_nothing() {
     assert_eq!(run.exit.expect("ran"), 0);
     assert!(sessions.launched.lock().unwrap().is_empty());
     assert!(person.asked.lock().unwrap().is_empty());
+}
+
+// A session that could not be LAUNCHED ends init with that failure's own exit
+// code, as `ctxloom run` does (a refusal 2, another failure 1), not a
+// flattened 1. A session that ran keeps the engine's code (above).
+#[test]
+fn init_whose_launch_is_refused_exits_with_the_launchs_own_code() {
+    for (session, exit) in [
+        ("interview", 2),
+        ("interview", 3),
+        ("interview", 1),
+        ("configured", 2),
+    ] {
+        let person = Person {
+            terminal: true,
+            yes: true,
+            ..Person::default()
+        };
+        let sessions = Launches {
+            refuses: Some((session, exit)),
+            interview_code: Some(0),
+            restart_code: Some(0),
+            ..Launches::default()
+        };
+        let run = go_with(
+            &["init"],
+            Format::Text,
+            token,
+            &mut Vec::new(),
+            &person,
+            &sessions,
+        );
+        // A launch that failed is the command's Failure, carrying the
+        // launch's own code: not an Ok exit status.
+        let failure = run.exit.expect_err("the launch failed");
+        assert_eq!(failure.exit, exit, "{session}");
+        assert_eq!(failure.cause.code(), "deps-application-default-needs-name");
+    }
 }

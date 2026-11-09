@@ -188,3 +188,51 @@ fn the_run_environment_names_the_resolved_home() {
     assert_eq!(env.get("HOME").map(String::as_str), Some("/home/u"));
     assert_eq!(env.get("PATH").map(String::as_str), Some("/bin"));
 }
+
+// The second gap of the listener spike: the run waits for its engine in a
+// BLOCKING call, so a task spawned on the run's runtime (the listener) must
+// make progress while it waits. The test forces the interleaving: the
+// "engine wait" is a blocking receive that only the spawned task can satisfy.
+mod runtime_shape {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    use super::super::run_runtime;
+
+    /// Spawn a task that signals, then block the driving thread on a std
+    /// channel, as `Running::finish` blocks on a process: whether the signal
+    /// arrived while blocked.
+    fn signalled_while_blocked(runtime: &tokio::runtime::Runtime, wait: Duration) -> bool {
+        let (tx, rx) = mpsc::channel();
+        runtime.block_on(async move {
+            tokio::spawn(async move {
+                let _ = tx.send(());
+            });
+            // Blocking, on the thread that drives the use case.
+            rx.recv_timeout(wait).is_ok()
+        })
+    }
+
+    #[test]
+    fn a_task_on_the_run_runtime_progresses_while_the_blocking_wait_holds_the_driver() {
+        let runtime = run_runtime().unwrap();
+        // A generous bound: the task is runnable at once, so this passes as
+        // soon as a worker runs it; it fails (never hangs) if none can.
+        assert!(signalled_while_blocked(&runtime, Duration::from_secs(30)));
+    }
+
+    // The control that makes the test above mean something: on a
+    // current-thread runtime the same interleaving starves, and for certain,
+    // since the only thread is the blocked one.
+    #[test]
+    fn a_current_thread_runtime_starves_the_same_task() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        assert!(!signalled_while_blocked(
+            &runtime,
+            Duration::from_millis(200)
+        ));
+    }
+}

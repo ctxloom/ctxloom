@@ -532,6 +532,7 @@ Feature: run — assembling a project's context and handing it to an engine
         """
       Then the command exits with code 2
       And the refusal is "runs-no-credential"
+      And the refusal's fix says "claude setup-token"
       When Alice asks again in text, which carries the fix:
         """
         ctxloom run --one-shot "hello" --format text

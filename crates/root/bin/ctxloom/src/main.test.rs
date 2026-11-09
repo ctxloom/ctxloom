@@ -236,6 +236,9 @@ mod hook;
 #[path = "ids.test.rs"]
 mod ids;
 
+#[path = "launch_exit.test.rs"]
+mod launch_exit;
+
 #[path = "library.test.rs"]
 mod library;
 

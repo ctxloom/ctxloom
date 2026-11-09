@@ -6,9 +6,11 @@ use crate::diagnostic_samples;
 fn the_samples_hold_a_value_of_every_error() {
     let samples = diagnostic_samples();
     let codes: Vec<&str> = samples.iter().map(|s| s.code()).collect();
-    assert_eq!(samples.len(), 4, "{codes:?}");
+    assert_eq!(samples.len(), 8, "{codes:?}");
     for prefix in [
         "run-ports-token-",
+        "run-ports-endpoint-",
+        "run-ports-bearer-",
         "run-ports-engine-",
         "run-ports-records-",
     ] {

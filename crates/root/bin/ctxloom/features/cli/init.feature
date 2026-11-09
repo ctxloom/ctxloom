@@ -17,6 +17,10 @@ Feature: init — the setup interview, and what it does to a project that alread
   with exactly one thing under it, `init prompt`, which re-emits that
   interview body for a shell or a script.
 
+  After the interview ends cleanly, init offers to restart her into the configured
+  session, as `[Y/n]`: a bare Enter accepts; n or no (any case) declines; a
+  closed input (end of input, no one to answer) declines, as does anything else.
+
   WHAT THIS FILE COVERS, AND WHAT IT DELIBERATELY DOES NOT. A first-time init
   on a NEW `.ctxloom` clones the seeded default remote and pulls its
   dependencies, so it reaches the NETWORK. The one fresh-project scenario here

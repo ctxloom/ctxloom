@@ -1,4 +1,4 @@
-//! The run's enqueue, which mints its two credentials (D29; owner ruling
+//! The run's enqueue, which mints its three credentials (D29; owner ruling
 //! 2026-11-04, item 16): each token is returned once, only its SHA-256 is
 //! journaled.
 
@@ -18,15 +18,19 @@ pub struct EnqueueRequest {
     pub mode: runs::RunMode,
 }
 
-/// What the enqueue gives back: the run's root and its two tokens, shown once.
+/// What the enqueue gives back: the run's root and its three tokens, shown once.
 /// The runner's goes to the runner's 0600 file (launcher, S6); the model's to a
 /// separate file only the model-side adapter reads (S6, S10). Owner ruling
-/// 2026-11-04, item 16: two principals per run.
+/// 2026-11-04, item 16: two principals per run. The hook's goes into the
+/// interactive engine's environment and nowhere else (owner ruling
+/// 2026-11-09, item 16); like the others it is held by the launching code
+/// alone, and `Token`'s `Debug` is redacted.
 #[derive(Debug)]
 pub struct Enqueued {
     pub run: Uuid,
     pub runner_token: Token,
     pub model_token: Token,
+    pub hook_token: Token,
 }
 
 pub struct Enqueuer<E: Edge, T: TokenSource> {
@@ -42,6 +46,7 @@ impl<E: Edge, T: TokenSource> Enqueuer<E, T> {
     pub async fn enqueue(&self, request: EnqueueRequest) -> Result<Enqueued, AppError> {
         let runner_token = self.source.mint();
         let model_token = self.source.mint();
+        let hook_token = self.source.mint();
         let run = runs::run_root(&request.session, request.incarnation);
         let cover = Cover {
             domain: runs::RUN_DOMAIN.to_string(),
@@ -55,6 +60,7 @@ impl<E: Edge, T: TokenSource> Enqueuer<E, T> {
             mode: request.mode,
             runner_credential_hash: runner_token.hash().as_bytes().to_vec(),
             model_credential_hash: model_token.hash().as_bytes().to_vec(),
+            hook_credential_hash: hook_token.hash().as_bytes().to_vec(),
         };
         let book = CommandBook::command_of(cover, &runs::RunCommand::from(enqueue));
         self.edge
@@ -65,6 +71,7 @@ impl<E: Edge, T: TokenSource> Enqueuer<E, T> {
             run,
             runner_token,
             model_token,
+            hook_token,
         })
     }
 }

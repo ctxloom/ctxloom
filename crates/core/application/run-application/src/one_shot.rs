@@ -283,21 +283,15 @@ where
                 return Err(RunError::Refused(refusal));
             }
         }
+        // The interactive run's listener socket must fit before anything is
+        // made, so a path no socket can take refuses the run with nothing to
+        // undo. Every run's path is the same width, so any root tells.
+        if interactive {
+            self.endpoint(&[0; 16])
+                .map_err(|e| RunError::Endpoint(Box::new(e)))?;
+        }
         let project = self.identity.for_write(None).map_err(RunError::Project)?;
         let (session, harp) = self.mint(&project, &engine, interactive).await?;
-        self.orders.place(
-            &session,
-            1,
-            Order {
-                harp: harp.clone(),
-                engine: engine.clone(),
-                context: plan.context,
-                prompt: plan.prompt,
-                env: self.env.clone(),
-                cwd: Some(self.place.project_dir.clone()),
-                interactive,
-            },
-        );
         self.recorder.watch(&session);
         let mode = if interactive {
             runs::RunMode::Interactive
@@ -313,7 +307,52 @@ where
             })
             .await
             .map_err(RunError::Session)?;
+        // The order is placed once the run's tokens exist: the hook bearer
+        // reaches the interactive engine's environment through it, and a
+        // child's turn is given none of the listener's variables (the caller's
+        // own, from a session it was started inside, are dropped).
+        let mut env = self.env.clone();
+        for name in run_ports::HOOK_VARIABLES {
+            env.remove(name);
+        }
+        if interactive {
+            let endpoint = self
+                .endpoint(&enqueued.run.value)
+                .map_err(|e| RunError::Endpoint(Box::new(e)))?;
+            let run_text = uuid::Uuid::from_slice(&enqueued.run.value)
+                .unwrap_or_default()
+                .hyphenated()
+                .to_string();
+            env.extend(run_ports::hook_environment(
+                &endpoint,
+                &run_text,
+                &enqueued.hook_token,
+            ));
+        }
+        self.orders.place(
+            &session,
+            1,
+            Order {
+                harp: harp.clone(),
+                engine: engine.clone(),
+                context: plan.context,
+                prompt: plan.prompt,
+                env,
+                cwd: Some(self.place.project_dir.clone()),
+                interactive,
+            },
+        );
         Ok((session, harp, engine, enqueued.run))
+    }
+
+    /// The socket path of the run rooted at `run`: under the caller's
+    /// `XDG_RUNTIME_DIR`, else under ctxloom's home.
+    fn endpoint(&self, run: &[u8]) -> Result<String, run_ports::EndpointError> {
+        let var = |name: &str| self.env.get(name).map(String::as_str);
+        let home = var(run_ports::HOME_VARIABLE)
+            .or_else(|| var("HOME"))
+            .unwrap_or_default();
+        run_ports::endpoint_path(var("XDG_RUNTIME_DIR"), home, run)
     }
 
     /// Launch what is owed and record it: this session's launch.

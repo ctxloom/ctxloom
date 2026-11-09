@@ -5,9 +5,9 @@
 //! interactive session whose opening prompt is the interview. That session
 //! was made before the interview configured anything, so it cannot see what
 //! it has just set up: when it ends cleanly, `init` offers to restart the
-//! human into a session on the configured project, and does so only on her
-//! explicit yes. Whether there is a terminal, the answer she types, and the
-//! sessions themselves are ports: nothing here reads the process.
+//! human into a session on the configured project; the offer is `[Y/n]`, so
+//! a bare Enter accepts it and a closed input declines it. Whether there is a
+//! terminal, the answer she types, and the sessions themselves are ports: nothing here reads the process.
 
 use ctxloom_ports::Failure;
 
@@ -26,8 +26,9 @@ pub trait Terminal {
     /// terminal. Off one, `init` interviews nobody and asks nothing.
     fn is_terminal(&self) -> bool;
 
-    /// Ask a yes/no `question`. The answer is a yes only when she typed one;
-    /// anything else, a bare Enter or a closed input, is a no.
+    /// Ask a yes/no `question`, offered as `[Y/n]`: a bare Enter is a yes, and
+    /// so are `y` and `yes`; `n`, `no` and anything else are a no. A closed
+    /// input (end of input, no terminal to read) is a no: nobody answered.
     fn confirm(&self, question: &str) -> bool;
 }
 
@@ -47,14 +48,31 @@ impl Ended {
     }
 }
 
+/// A session that could not be launched: why, and the exit code that reason
+/// carries (a refusal 2 or 3, any other failure 1), the same as the command
+/// that launches such a session by itself, `ctxloom run`. A session that ran
+/// is not this: it is [`Ended`], and its code is the engine's own.
+#[derive(Debug)]
+pub struct LaunchFailure {
+    pub cause: Failure,
+    pub exit: u8,
+}
+
+impl LaunchFailure {
+    /// A launch that failed in the ordinary way: exit 1.
+    pub fn failed(cause: Failure) -> LaunchFailure {
+        LaunchFailure { cause, exit: 1 }
+    }
+}
+
 /// The interactive sessions `init` launches, each on the project as it is
 /// when the session starts.
 pub trait Sessions {
     /// The interview: a session of the default agent opened with `opening`.
-    fn interview(&self, opening: &str) -> Result<Ended, Failure>;
+    fn interview(&self, opening: &str) -> Result<Ended, LaunchFailure>;
 
     /// The configured session: the same as `ctxloom run`, with no prompt.
-    fn configured(&self) -> Result<Ended, Failure>;
+    fn configured(&self) -> Result<Ended, LaunchFailure>;
 }
 
 /// What the interview came to.
@@ -80,7 +98,10 @@ pub struct Interviewed {
 }
 
 /// Interview her if there is a terminal, then offer the restart.
-pub fn interview(terminal: &dyn Terminal, sessions: &dyn Sessions) -> Result<Interviewed, Failure> {
+pub fn interview(
+    terminal: &dyn Terminal,
+    sessions: &dyn Sessions,
+) -> Result<Interviewed, LaunchFailure> {
     if !terminal.is_terminal() {
         return Ok(Interviewed {
             outcome: Outcome::NotATerminal,

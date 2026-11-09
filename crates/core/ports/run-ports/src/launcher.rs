@@ -20,18 +20,34 @@
 //! her, or by a stop the adapter was given when it was made.
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::time::Duration;
+
+use crate::hook::RedactedEnv;
 
 /// The command of one turn: the program, its arguments, its WHOLE
 /// environment (the launcher adds none), what it is fed on stdin, and where
 /// it runs.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct TurnCommand {
     pub program: String,
     pub args: Vec<String>,
     pub env: BTreeMap<String, String>,
     pub stdin: Vec<u8>,
     pub cwd: Option<String>,
+}
+
+impl fmt::Debug for TurnCommand {
+    /// Without the bearer's value: a command is logged, the secret is not.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TurnCommand")
+            .field("program", &self.program)
+            .field("args", &self.args)
+            .field("env", &RedactedEnv(&self.env))
+            .field("stdin", &self.stdin)
+            .field("cwd", &self.cwd)
+            .finish()
+    }
 }
 
 impl TurnCommand {

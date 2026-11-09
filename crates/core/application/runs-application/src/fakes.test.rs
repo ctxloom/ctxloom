@@ -308,6 +308,7 @@ impl World {
                 mode: runs::RunMode::Interactive,
                 runner_credential_hash: Sha256::digest(token.as_bytes()).to_vec(),
                 model_credential_hash: Sha256::digest(model_token.as_bytes()).to_vec(),
+                hook_credential_hash: Sha256::digest([n + 200; 32]).to_vec(),
             },
         ))
         .await

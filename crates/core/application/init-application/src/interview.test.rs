@@ -3,9 +3,7 @@
 
 use std::cell::RefCell;
 
-use ctxloom_ports::Failure;
-
-use super::{interview, Ended, Outcome, Sessions, Terminal, RESTART_QUESTION};
+use super::{interview, Ended, LaunchFailure, Outcome, Sessions, Terminal, RESTART_QUESTION};
 use crate::SETUP_INTERVIEW;
 
 struct Person {
@@ -34,12 +32,15 @@ struct Launches {
 }
 
 impl Sessions for Launches {
-    fn interview(&self, opening: &str) -> Result<Ended, Failure> {
+    fn interview(&self, opening: &str) -> Result<Ended, LaunchFailure> {
         self.launched
             .borrow_mut()
             .push(format!("interview:{opening}"));
         if self.refuses {
-            return Err(Box::new(deps_application::AppError::DefaultNeedsName));
+            return Err(LaunchFailure {
+                cause: Box::new(deps_application::AppError::DefaultNeedsName),
+                exit: 2,
+            });
         }
         Ok(Ended {
             code: self.interview_code,
@@ -47,7 +48,7 @@ impl Sessions for Launches {
         })
     }
 
-    fn configured(&self) -> Result<Ended, Failure> {
+    fn configured(&self) -> Result<Ended, LaunchFailure> {
         self.launched.borrow_mut().push("configured".to_string());
         Ok(Ended {
             code: Some(7),
@@ -130,6 +131,7 @@ fn an_interview_that_cannot_start_fails() {
         refuses: true,
         ..launches(Some(0))
     };
-    assert!(interview(&who, &sessions).is_err());
+    let failure = interview(&who, &sessions).expect_err("cannot start");
+    assert_eq!(failure.exit, 2, "the launch's own code is kept");
     assert!(who.asked.borrow().is_empty());
 }

@@ -67,3 +67,20 @@ fn a_command_that_never_started_reports_only_the_failure() {
         }]
     );
 }
+
+// A command is logged without the bearer's value: the exact rendering.
+#[test]
+fn a_command_renders_its_env_keys_and_never_the_bearer() {
+    let mut command = TurnCommand::new("claude");
+    command.args = vec!["-p".to_string()];
+    command.env = BTreeMap::from([
+        ("CTXLOOM_BEARER".to_string(), "run.TOPSECRET".to_string()),
+        ("PATH".to_string(), "/bin".to_string()),
+    ]);
+    command.stdin = vec![104, 105];
+    command.cwd = Some("/w".to_string());
+    assert_eq!(
+        format!("{command:?}"),
+        r#"TurnCommand { program: "claude", args: ["-p"], env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "/bin"}, stdin: [104, 105], cwd: Some("/w") }"#
+    );
+}

@@ -187,6 +187,19 @@ fn path_text(path: &Path) -> String {
     path.display().to_string()
 }
 
+/// The runtime a run is driven on: multi-thread, so a task spawned on it (the
+/// run's listener, which serves a unix socket) keeps making progress while
+/// the use case's own future blocks the thread that drives it. The run waits
+/// for its engine in a blocking call ([`run_ports::Running::finish`]); on a
+/// current-thread runtime that wait would starve every other task. One worker
+/// is enough for the listener beside the thread that drives the run.
+fn run_runtime() -> std::io::Result<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+}
+
 impl OneShots<'_> {
     /// The run use cases over the project, on a runtime of their own, for
     /// `use_case` to drive.
@@ -209,10 +222,7 @@ impl OneShots<'_> {
         let Some(library) = self.library.take() else {
             return refused("the run use cases are made for one run".to_string());
         };
-        let runtime = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
+        let runtime = match run_runtime() {
             Ok(runtime) => runtime,
             Err(e) => return refused(e.to_string()),
         };

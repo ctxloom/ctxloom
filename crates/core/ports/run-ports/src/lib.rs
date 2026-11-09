@@ -10,6 +10,7 @@
 
 mod edge;
 mod engine;
+mod hook;
 mod launcher;
 mod login;
 mod records;
@@ -20,6 +21,10 @@ pub use edge::{Arrival, Edge, Unserved};
 pub use engine::{
     copy_in, Credentials, Engine, EngineError, FailureClass, HomeFile, PrepareRequest, Prepared,
     TurnOutcome, TurnRequest, HOME_VARIABLE,
+};
+pub use hook::{
+    endpoint_path, hook_environment, Bearer, BearerError, EndpointError, RedactedEnv,
+    BEARER_VARIABLE, ENDPOINT_VARIABLE, HOOK_VARIABLES, RUN_VARIABLE, SOCKET_PATH_LIMIT,
 };
 pub use launcher::{
     Exit, Launch, LaunchEvent, LaunchFailure, Limits, RunnerLauncher, Running, TurnCommand,
@@ -34,6 +39,7 @@ pub use token::{Token, TokenError, TokenHash, TokenSource, EN_US};
 #[cfg(any(test, feature = "test-support"))]
 pub fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
     let mut samples = token::diagnostic_samples();
+    samples.extend(hook::diagnostic_samples());
     samples.push(Box::new(EngineError::NotYet {
         engine: "claude-code".to_string(),
         operation: "drive_interactive".to_string(),

@@ -180,8 +180,37 @@ session is ended by the human (the terminal delivers Ctrl-C to the shared
 process group, so it cancels a generation inside claude); ctxloom does not
 forward SIGINT/SIGTERM yet, since a SIGTERM-only stop needs a platform signal
 `Os` does not offer (`HostLauncher::stopped_by(Stop)` is there for it).
-Not built: the hidden runner subcommand and listener, the hook-fed record
-(hooks answer, they record no fact yet), session end.
+A run has THREE credentials, minted at enqueue with the same machinery, each
+a 256-bit token whose SHA-256 alone is journaled in `RunEnqueued`
+(`runner_`, `model_` and `hook_credential_hash`; the aggregate requires three
+distinct digests, and `RunEnded` revokes all three in the fold). The hook
+credential exists so the interactive engine's hook processes can call back
+over the listener without holding the runner's or the model's token: its
+allowlist is to be the capture facts alone (the gate is another track's). What
+a hook process receives, through the INTERACTIVE engine env only (like
+`CTXLOOM_HOME`; `engine-claude`'s `INTERACTIVE_ENV_ALLOWLIST`, never a child's
+turn env, whose allowlist is unchanged, and an inherited value from an
+enclosing session is dropped): `CTXLOOM_ENDPOINT`, the run's unix socket,
+`$XDG_RUNTIME_DIR/ctxloom/<short>.sock` or, with that unset or not absolute,
+`<ctxloom home>/.ctxloom/run/<short>.sock` (`<short>` is the first 8 bytes of
+the run's root in hex; a path over `sun_path`'s 107 bytes is the typed
+`run-ports-endpoint-too-long`, refused before the session is minted);
+`CTXLOOM_BEARER`, the composite `<run-id>.<64 hex>` (the gate splits it to look
+the run up, no upstream metadata needed); `CTXLOOM_RUN`, the run id. The path
+rule and the variables are pure functions in `run-ports` (`hook.rs`). The
+secret is returned once by `Enqueuer::enqueue` to the launching code, which
+puts it in the launch order's env; `Bearer`, `Token` and the `Debug` of
+`TurnCommand`, `TurnRequest` and `Order` never render it, and no error carries
+it. Residual, same-user: the model runs as the user and can read its own
+engine's environment, so it can forge CAPTURE facts as the hook principal; it
+can never forge runner lifecycle facts (the runner and model tokens are not in
+that env), and the capture allowlist is why the hook credential is a third one.
+The run is driven on a multi-thread runtime (`ctxloom-wiring`'s `run_runtime`,
+one worker), because `Running::finish` blocks the driving thread and a task
+spawned on a current-thread runtime (the listener) would starve meanwhile.
+Not built: the hidden runner subcommand, the listener and its gate (nothing
+yet binds the endpoint), the hook-fed record (hooks answer, they record no
+fact yet), session end.
 
 `crates/core/clippy.toml` holds the core's purity rules (no I/O, clock, env,
 threads or hash-ordered collections) and reaches every core crate, because
@@ -343,7 +372,10 @@ binary's `catalog()` lists every crate's `EN_US`.
 `--format` is `json` or `text` (json off a terminal); yaml, toml and markdown
 are refused like any unknown format, exit 2. Errors are `ctxloom: <message>`
 with an optional `  fix:` line in text, and the envelope `{code, args,
-message}` on stderr in json. Exit codes: 0, 1 failed, 2 refused, 3 fatal
+message}` on stderr in json, plus `fix` (the same text as the `  fix:` line)
+when the catalog has the error's `<code>-fix` id, the key omitted otherwise
+(`ctxloom-cli`'s `report` adds it; angzarr-presentation's `Envelope` has no
+such field yet, so taskloom's envelope stays three-field until it does). Exit codes: 0, 1 failed, 2 refused, 3 fatal
 findings. `-h` works at every depth, there is no `help` command, an unknown
 verb says "Did you mean" and lists the verbs, `-v` is accepted everywhere
 and changes no output.

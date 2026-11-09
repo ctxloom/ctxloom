@@ -257,6 +257,18 @@ fn locate<'a>(root: &'a Command, args: &[OsString]) -> (&'a Command, String) {
     (at, path)
 }
 
+/// The json envelope of an error, `{code, args, message}`, and the remedy as
+/// `fix` where the catalog has one (the `<code>-fix` id, the text format's
+/// `  fix:` line); without one the key is left out. The envelope itself is
+/// angzarr-presentation's, shared with taskloom, which has no `fix` yet.
+#[derive(Serialize)]
+struct WithFix<E: Serialize> {
+    #[serde(flatten)]
+    envelope: E,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fix: Option<String>,
+}
+
 /// Say `error` on `err` in `format`; its exit code.
 pub(crate) fn report(
     error: &CliError,
@@ -265,7 +277,13 @@ pub(crate) fn report(
     err: &mut dyn Write,
 ) -> u8 {
     let _ = match format {
-        Format::Json => write_json(err, &catalog.envelope(error)),
+        Format::Json => write_json(
+            err,
+            &WithFix {
+                envelope: catalog.envelope(error),
+                fix: catalog.render(&error.fix()).ok(),
+            },
+        ),
         Format::Text => text_error(error, catalog, err),
     };
     error.exit_code()

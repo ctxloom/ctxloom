@@ -5,10 +5,11 @@
 //! another process's, and is left.
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::sync::{Mutex, PoisonError};
 
 /// One launch's inputs.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Order {
     /// The session's name, the directory it is recorded in.
     pub harp: String,
@@ -24,6 +25,21 @@ pub struct Order {
     /// The human's terminal session, not a turn: the engine's command is
     /// given her terminal and the prompt may be empty.
     pub interactive: bool,
+}
+
+impl fmt::Debug for Order {
+    /// Without the bearer's value: an order is logged, the secret is not.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Order")
+            .field("harp", &self.harp)
+            .field("engine", &self.engine)
+            .field("context", &self.context)
+            .field("prompt", &self.prompt)
+            .field("env", &run_ports::RedactedEnv(&self.env))
+            .field("cwd", &self.cwd)
+            .field("interactive", &self.interactive)
+            .finish()
+    }
 }
 
 /// The orders placed and not yet taken, by session id text and incarnation.

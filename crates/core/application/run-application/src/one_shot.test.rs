@@ -934,3 +934,170 @@ async fn an_engine_that_asks_for_nothing_shares_nothing_and_notices_nothing_of_i
     assert!(rig.links.made.lock().unwrap().is_empty());
     assert_eq!(done.notices.len(), 1, "only the plan's own");
 }
+
+// NEW-DESIGN (owner ruling 2026-11-09, item 16; ruling 9): the interactive
+// engine's environment holds the endpoint, the run and the hook bearer: the
+// bearer's token is the one whose digest the run journaled as the HOOK's, and
+// no other principal's.
+#[tokio::test]
+async fn an_interactive_run_is_handed_the_listener_endpoint_and_the_hook_bearer() {
+    let mut script = Script::answering();
+    script.env = vec![
+        ("PATH", "/bin"),
+        ("HOME", "/home/u"),
+        ("CTXLOOM_HOME", "/home/u"),
+        ("XDG_RUNTIME_DIR", "/run/user/1000"),
+    ];
+    let mut rig = rig(script);
+    let ended = rig
+        .runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let env = rig.runner.seen_terminal.lock().unwrap()[0].env.clone();
+    let run = runs::run_root(&ended.session, 1);
+    let run_text = uuid::Uuid::from_slice(&run.value)
+        .unwrap()
+        .hyphenated()
+        .to_string();
+    assert_eq!(env["CTXLOOM_RUN"], run_text);
+    let short: String = run.value[..8].iter().map(|b| format!("{b:02x}")).collect();
+    assert_eq!(
+        env["CTXLOOM_ENDPOINT"],
+        format!("/run/user/1000/ctxloom/{short}.sock")
+    );
+    let (bearer_run, token) = run_ports::Bearer::parse(&env["CTXLOOM_BEARER"]).unwrap();
+    assert_eq!(bearer_run, run_text);
+    let events = run_events(&rig.edge, &ended.session).await;
+    let runs::RunEvent::RunEnqueued(enqueued) = &events[0] else {
+        panic!("first event is the enqueue: {events:?}");
+    };
+    assert_eq!(enqueued.hook_credential_hash, token.hash().as_bytes());
+    assert_ne!(enqueued.runner_credential_hash, token.hash().as_bytes());
+    assert_ne!(enqueued.model_credential_hash, token.hash().as_bytes());
+}
+
+// NEW-DESIGN: with no runtime directory the endpoint is under ctxloom's home.
+#[tokio::test]
+async fn without_a_runtime_directory_the_endpoint_is_under_ctxloom_home() {
+    let mut script = Script::answering();
+    script.env = vec![("PATH", "/bin"), ("CTXLOOM_HOME", "/home/u")];
+    let mut rig = rig(script);
+    rig.runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let env = rig.runner.seen_terminal.lock().unwrap()[0].env.clone();
+    assert!(
+        env["CTXLOOM_ENDPOINT"].starts_with("/home/u/.ctxloom/run/"),
+        "{env:?}"
+    );
+}
+
+// NEW-DESIGN: a CHILD's turn never gets them, even when the caller's own
+// environment (a run started from inside an interactive session) holds some.
+#[tokio::test]
+async fn a_childs_turn_never_gets_the_listener_variables() {
+    let mut script = Script::answering();
+    script.env = vec![
+        ("PATH", "/bin"),
+        ("CTXLOOM_ENDPOINT", "/inherited.sock"),
+        ("CTXLOOM_BEARER", "inherited.secret"),
+        ("CTXLOOM_RUN", "inherited"),
+    ];
+    let mut rig = rig(script);
+    rig.runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let env = rig.runner.seen.lock().unwrap()[0].env.clone();
+    for name in run_ports::HOOK_VARIABLES {
+        assert!(!env.contains_key(name), "{name} in {env:?}");
+    }
+}
+
+// NEW-DESIGN: a primary run launched from inside another interactive session
+// gets its OWN bearer, never the inherited one.
+#[tokio::test]
+async fn an_inherited_bearer_is_replaced_by_the_runs_own() {
+    let mut script = Script::answering();
+    script.env = vec![
+        ("CTXLOOM_HOME", "/home/u"),
+        ("CTXLOOM_BEARER", "inherited.secret"),
+    ];
+    let mut rig = rig(script);
+    rig.runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let env = rig.runner.seen_terminal.lock().unwrap()[0].env.clone();
+    assert_ne!(env["CTXLOOM_BEARER"], "inherited.secret");
+}
+
+// NEW-DESIGN (sun_path is about 108 bytes): a runtime directory so long that the
+// socket path cannot fit is a typed, refusal-class error before anything is
+// made: no name claimed, no run enqueued.
+#[tokio::test]
+async fn an_endpoint_too_long_for_a_socket_refuses_the_run_before_anything_is_made() {
+    let long: &'static str = Box::leak(format!("/{}", "d".repeat(120)).into_boxed_str());
+    let mut script = Script::answering();
+    script.env = vec![("CTXLOOM_HOME", "/home/u"), ("XDG_RUNTIME_DIR", long)];
+    let mut rig = rig(script);
+    let error = rig
+        .runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(error.code(), "run-ports-endpoint-too-long");
+    assert_eq!(error.exit_code(), 2);
+    assert!(matches!(error, RunError::Endpoint(_)));
+    assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 0);
+    assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
+}
+
+// NEW-DESIGN (no secret in a log line or an error): the bearer is in no Debug of
+// what carries it from the launching code to the engine, nor in the error of a
+// launch that failed to start.
+#[tokio::test]
+async fn the_bearer_is_in_no_debug_or_error_rendering() {
+    let mut script = Script::answering();
+    script.env = vec![("CTXLOOM_HOME", "/home/u")];
+    script.runner =
+        ScriptedRunner::answering(run_ports::Launch::NotStarted(run_ports::LaunchFailure {
+            deterministic: true,
+            detail: "no claude".to_string(),
+        }));
+    let mut rig = rig(script);
+    let error = rig
+        .runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap_err();
+    let command = rig.runner.seen_terminal.lock().unwrap()[0].clone();
+    let bearer = command.env["CTXLOOM_BEARER"].clone();
+    let secret = bearer.rsplit_once('.').unwrap().1.to_string();
+    for shown in [
+        format!("{error} {error:?}"),
+        format!("{command:?}"),
+        format!(
+            "{:?}",
+            run_launcher::Order {
+                harp: "h".into(),
+                engine: "e".into(),
+                context: String::new(),
+                prompt: String::new(),
+                env: command.env.clone(),
+                cwd: None,
+                interactive: true,
+            }
+        ),
+    ] {
+        assert!(!shown.contains(&secret), "{shown}");
+    }
+}

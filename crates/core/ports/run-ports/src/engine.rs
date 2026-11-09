@@ -61,7 +61,7 @@ pub struct Prepared {
 }
 
 /// One turn to drive.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct TurnRequest {
     pub prompt: String,
     /// The session home's absolute path.
@@ -73,6 +73,20 @@ pub struct TurnRequest {
     /// The caller's environment: the engine passes on only what it allows.
     pub env: BTreeMap<String, String>,
     pub cwd: Option<String>,
+}
+
+impl fmt::Debug for TurnRequest {
+    /// Without the bearer's value: a request is logged, the secret is not.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TurnRequest")
+            .field("prompt", &self.prompt)
+            .field("home", &self.home)
+            .field("context_path", &self.context_path)
+            .field("resume", &self.resume)
+            .field("env", &crate::hook::RedactedEnv(&self.env))
+            .field("cwd", &self.cwd)
+            .finish()
+    }
 }
 
 /// Why a turn failed.

@@ -5,7 +5,7 @@ use std::fmt;
 use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 use library_application::AppError as PlanError;
 use run_launcher::LaunchError;
-use run_ports::FailureClass;
+use run_ports::{EndpointError, FailureClass};
 use runs::RunRejection;
 use runs_application::AppError as CoreError;
 
@@ -22,6 +22,9 @@ pub enum RunError {
     /// The run's domain refused it before anything was made: its own typed
     /// refusal, with the code, args and message of the domain's rejection.
     Refused(RunRejection),
+    /// The run's listener has no socket path: nowhere to put it, or too long
+    /// for a unix socket. Refused before anything is made.
+    Endpoint(Box<EndpointError>),
     /// The project could not be told.
     Project(Report),
     /// The kernel refused, or failed, to make the session or enqueue its run.
@@ -45,7 +48,10 @@ impl RunError {
     pub fn exit_code(&self) -> u8 {
         match self {
             RunError::Plan(error) => error.exit_code(),
-            RunError::NoPrompt | RunError::UnknownEngine { .. } | RunError::Refused(_) => 2,
+            RunError::NoPrompt
+            | RunError::UnknownEngine { .. }
+            | RunError::Refused(_)
+            | RunError::Endpoint(_) => 2,
             RunError::Session(CoreError::Refused { .. }) => 2,
             _ => 1,
         }
@@ -75,6 +81,7 @@ impl Diagnostic for RunError {
             RunError::NoPrompt => code!("no-prompt"),
             RunError::UnknownEngine { .. } => code!("unknown-engine"),
             RunError::Refused(rejection) => rejection.code(),
+            RunError::Endpoint(error) => error.code(),
             RunError::Project(_) => code!("project"),
             RunError::Session(_) => code!("session"),
             RunError::Launch(_) => code!("launch"),
@@ -99,6 +106,7 @@ impl Diagnostic for RunError {
                 ("known", known.as_str().into()),
             ],
             RunError::Refused(rejection) => rejection.args(),
+            RunError::Endpoint(error) => error.args(),
             RunError::Project(report) => vec![("reason", report.code().into())],
             RunError::Session(error) => vec![("reason", why(error).into())],
             RunError::Launch(error) => vec![("reason", error.code().into())],

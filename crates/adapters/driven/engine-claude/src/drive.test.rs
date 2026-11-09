@@ -277,3 +277,40 @@ fn the_primary_may_be_authenticated_by_any_of_three_variables_and_is_passed_each
         assert!(INTERACTIVE_ENV_ALLOWLIST.contains(var), "{var} reaches it");
     }
 }
+
+// Owner rulings 2026-11-08 item 9 and 2026-11-09 item 16: the terminal session's
+// hook processes find the listener through the engine's environment, so the
+// interactive command is passed the endpoint, the bearer and the run; a child's
+// turn is passed none of them, whatever the caller's environment holds.
+#[test]
+fn only_the_interactive_run_is_passed_the_listener_variables() {
+    let mut asked = request();
+    asked.env = env(&[
+        ("PATH", "/usr/bin"),
+        ("CTXLOOM_ENDPOINT", "/run/user/1/ctxloom/a.sock"),
+        ("CTXLOOM_BEARER", "run.secret"),
+        ("CTXLOOM_RUN", "run"),
+    ]);
+    let interactive = Claude::new().drive_interactive(&asked).unwrap();
+    for name in run_ports::HOOK_VARIABLES {
+        assert!(interactive.env.contains_key(name), "{name}");
+        assert!(INTERACTIVE_ENV_ALLOWLIST.contains(&name));
+        assert!(
+            !ENV_ALLOWLIST.contains(&name),
+            "{name} must not reach a turn"
+        );
+    }
+    let turn = Claude::new().drive_turn(&asked).unwrap();
+    for name in run_ports::HOOK_VARIABLES {
+        assert!(!turn.env.contains_key(name), "{name} in {:?}", turn.env);
+    }
+}
+
+// The command carrying the bearer renders without it.
+#[test]
+fn the_interactive_command_never_renders_the_bearer() {
+    let mut asked = request();
+    asked.env = env(&[("CTXLOOM_BEARER", "run.TOPSECRET")]);
+    let command = Claude::new().drive_interactive(&asked).unwrap();
+    assert!(!format!("{command:?} {asked:?}").contains("TOPSECRET"));
+}

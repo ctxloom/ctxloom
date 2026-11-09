@@ -53,7 +53,9 @@ pub const ENV_ALLOWLIST: &[&str] = &[
 
 /// The variables of the caller's environment the human's terminal session is
 /// given: a turn's, and ctxloom's home by name. Its hook processes run
-/// without `HOME`, and find ctxloom's home through this one explicit variable.
+/// without `HOME`, and find ctxloom's home through this one explicit variable;
+/// they reach the run's listener through the endpoint and the bearer (the hook
+/// principal's secret) and the run, which a child's turn is never given.
 pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = &[
     "PATH",
     "LANG",
@@ -72,6 +74,9 @@ pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = &[
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
     run_ports::HOME_VARIABLE,
+    run_ports::ENDPOINT_VARIABLE,
+    run_ports::BEARER_VARIABLE,
+    run_ports::RUN_VARIABLE,
 ];
 
 /// The variables any one of which authenticates a child agent's run: the

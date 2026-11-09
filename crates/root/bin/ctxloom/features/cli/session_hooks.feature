@@ -18,6 +18,17 @@ Feature: The machine callbacks every session fires — do they deliver, and do t
   `hook claude-code execute statusline` renders the statusline.
   Nobody types any of them, so nobody notices when one stops working.
 
+  A hook also RECORDS what its event observed (a prompt, a piece of the
+  assistant's text, a tool call, a turn's end, a session's end, a compaction)
+  as facts of its session. Recording never changes the answer: stdout is the
+  engine's own answer and the exit is 0 whether or not a fact was delivered.
+  A fact that cannot be delivered (until the listener exists, none can be) is
+  dropped, and the hook says so on stderr: one `hook-cli-not-recorded`
+  warning for each observation the event holds. An event that observes
+  nothing (a PostToolUse, a PostToolBatch with no calls), and a hook with no
+  harp (there is no session to address), say nothing. This is tested in
+  hook.test.rs.
+
   They share a contract that makes them unusually easy to break quietly. A
   hook must NEVER fail the host engine's startup, so every one of them warns
   and exits 0 on any failure it can foresee — an unparseable payload, an

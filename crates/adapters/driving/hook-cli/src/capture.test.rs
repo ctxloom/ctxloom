@@ -267,3 +267,26 @@ fn a_hook_with_no_usable_harp_records_nothing() {
         }]
     );
 }
+
+// With no harp there is no session to address: the recording is not asked, and
+// nothing is warned (the answer is still the engine's).
+#[test]
+fn a_hook_with_an_empty_harp_is_not_recorded_and_warns_of_nothing() {
+    let recorder = Recorder {
+        fails: vec![not_recorded("x")],
+        ..Recorder::default()
+    };
+    let out = execute_recording(
+        "claude-code",
+        "Stop",
+        "{}",
+        "",
+        &answering("{}\n"),
+        &mut Bound::default(),
+        &recorder,
+    )
+    .unwrap();
+    assert!(recorder.asked.borrow().is_empty());
+    assert!(out.warnings.is_empty());
+    assert_eq!(out.stdout, "{}\n");
+}

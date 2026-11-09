@@ -252,26 +252,51 @@ fn test_execute_under_an_unknown_engine_is_refused_listing_the_known_ones() {
     );
 }
 
-// The events that carry the primary agent's data are accepted and silent (M2
-// records them as facts).
+/// The warnings a hook said on stderr: one JSON document each.
+fn warnings(stderr: &str) -> Vec<serde_json::Value> {
+    serde_json::Deserializer::from_str(stderr)
+        .into_iter::<serde_json::Value>()
+        .map(|w| w.expect("stderr holds JSON warnings only"))
+        .collect()
+}
+
+/// `stderr` is exactly `expected` not-recorded warnings.
+fn assert_not_recorded(stderr: &str, expected: usize, what: &str) {
+    let said = warnings(stderr);
+    assert_eq!(said.len(), expected, "{what}: {stderr}");
+    for warning in &said {
+        assert_eq!(
+            warning["code"], "hook-cli-not-recorded",
+            "{what}: {warning}"
+        );
+    }
+}
+
+// The events that carry the primary agent's data are answered as silence, and
+// each observation they hold that cannot be delivered (no listener yet) is
+// dropped with a stderr note: owner ruling C. An event that observes nothing
+// says nothing.
 #[test]
-fn test_execute_of_the_data_events_succeeds_silently() {
+fn test_execute_of_the_data_events_answers_silence_and_notes_what_it_did_not_record() {
     let env = Env::new();
     let fixtures = [
         (
             "Stop",
             r#"{"session_id":"s","prompt_id":"p","hook_event_name":"Stop","last_assistant_message":"done"}"#,
+            1,
         ),
         (
             "MessageDisplay",
             r#"{"session_id":"s","prompt_id":"p","hook_event_name":"MessageDisplay","turn_id":"t","message_id":"m","index":0,"final":true,"delta":"done"}"#,
+            1,
         ),
         (
             "PostToolBatch",
             r#"{"session_id":"s","prompt_id":"p","hook_event_name":"PostToolBatch","tool_calls":[]}"#,
+            0,
         ),
     ];
-    for (native, payload) in fixtures {
+    for (native, payload, observations) in fixtures {
         let ran = env.run_hook(
             &["hook", "claude-code", "execute", native],
             payload,
@@ -279,8 +304,23 @@ fn test_execute_of_the_data_events_succeeds_silently() {
         );
         assert_eq!(ran.code, 0, "{native}: {}", ran.said());
         assert_eq!(ran.stdout.trim(), "{}", "{native}");
-        assert_eq!(ran.stderr, "", "{native}");
+        assert_not_recorded(&ran.stderr, observations, native);
     }
+}
+
+// A hook with no harp has no session to address: it attempts no observation
+// and warns of none (not a warning with an empty name).
+#[test]
+fn test_a_hook_with_no_harp_attempts_no_recording() {
+    let env = Env::new();
+    let ran = env.run_hook(
+        &["hook", "claude-code", "execute", "Stop"],
+        r#"{"session_id":"s","prompt_id":"p","hook_event_name":"Stop"}"#,
+        &[],
+    );
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    assert_eq!(ran.stdout.trim(), "{}");
+    assert_eq!(ran.stderr, "", "{}", ran.said());
 }
 
 // session_hooks.feature: "With no active harp the hook stays silent on stdout
@@ -334,7 +374,10 @@ fn test_a_hook_process_without_home_finds_the_home_through_ctxloom_home() {
     let ran = env.run_hook_without_home(
         &["hook", "claude-code", "execute", "Stop"],
         payload,
-        &[("CTXLOOM_HOME", &home)],
+        &[
+            ("CTXLOOM_HOME", &home),
+            ("CTXLOOM_SESSION_HARP", "brisk-copper-moth"),
+        ],
     );
     assert_eq!(ran.code, 0, "{}", ran.said());
     assert_eq!(
@@ -342,7 +385,9 @@ fn test_a_hook_process_without_home_finds_the_home_through_ctxloom_home() {
         "{}",
         "a data event answers the empty response"
     );
-    assert_eq!(ran.stderr, "", "no error: the home was found");
+    // The home was found (no no-home refusal); the one observation of a turn
+    // end could not be delivered, and is said so.
+    assert_not_recorded(&ran.stderr, 1, "Stop");
     let start = env.run_hook_without_home(
         &["hook", "claude-code", "execute", "SessionStart"],
         "{}",

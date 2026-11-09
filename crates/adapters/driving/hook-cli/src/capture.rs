@@ -42,7 +42,8 @@ pub fn execute_recording(
 ) -> Result<Outcome, Box<dyn Diagnostic>> {
     let (mut outcome, answered) =
         crate::execute::answer(engine, hook_name, input, harp, service, binding)?;
-    if let Some(answered) = answered {
+    // With no harp there is no session to address: nothing is attempted.
+    if let Some(answered) = answered.filter(|_| !harp.is_empty()) {
         outcome.warnings.extend(
             recording
                 .record(hook_name, harp, &answered)

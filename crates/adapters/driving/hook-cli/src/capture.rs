@@ -11,7 +11,7 @@
 use angzarr_diagnostic::Diagnostic;
 use setup_application::HookAnswer;
 
-use crate::{Binding, HookService, Outcome};
+use crate::{Binding, HookService, HookWarning, Outcome};
 
 /// One observation that was not recorded.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -40,8 +40,17 @@ pub fn execute_recording(
     binding: &mut impl Binding,
     recording: &dyn Recording,
 ) -> Result<Outcome, Box<dyn Diagnostic>> {
-    let _ = (engine, hook_name, input, harp, service, binding, recording);
-    todo!("design/hook-capture")
+    let (mut outcome, answered) =
+        crate::execute::answer(engine, hook_name, input, harp, service, binding)?;
+    if let Some(answered) = answered {
+        outcome.warnings.extend(
+            recording
+                .record(hook_name, harp, &answered)
+                .into_iter()
+                .map(|NotRecorded { what, why }| HookWarning::NotRecorded { what, why }),
+        );
+    }
+    Ok(outcome)
 }
 
 #[cfg(test)]

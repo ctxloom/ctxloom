@@ -87,19 +87,21 @@ impl Setup {
                     stdout,
                     bind: usable.then(|| SessionBind {
                         harp: harp.to_string(),
-                        native_id: event.native_session,
-                        transcript: event.transcript,
+                        native_id: event.native_session.clone(),
+                        transcript: event.transcript.clone(),
                     }),
                     harp_missing: !usable,
-                    event: None,
+                    event: Some(event),
                 })
             }
             "post_tool" => Ok(HookAnswer {
                 stdout: encode(&self.mates_response(codec, &event))?,
+                event: Some(event),
                 ..HookAnswer::default()
             }),
             _ => Ok(HookAnswer {
                 stdout: encode(&HookResponse::default())?,
+                event: Some(event),
                 ..HookAnswer::default()
             }),
         }

@@ -5,6 +5,7 @@
 //! the registry's engine codec.
 
 use angzarr_diagnostic::Diagnostic;
+use setup_application::HookAnswer;
 
 use crate::{hud, Binding, HookService, HookWarning, Outcome};
 
@@ -29,28 +30,48 @@ pub fn execute(
     service: &dyn HookService,
     binding: &mut impl Binding,
 ) -> Result<Outcome, Box<dyn Diagnostic>> {
+    answer(engine, hook_name, input, harp, service, binding).map(|(outcome, _)| outcome)
+}
+
+/// [`execute`], and with the outcome the application's answer when there is
+/// one to act on further (not for the statusline, nor a harp-less session).
+pub(crate) fn answer(
+    engine: &str,
+    hook_name: &str,
+    input: &str,
+    harp: &str,
+    service: &dyn HookService,
+    binding: &mut impl Binding,
+) -> Result<(Outcome, Option<HookAnswer>), Box<dyn Diagnostic>> {
     if hook_name == STATUSLINE {
-        return Ok(Outcome {
-            stdout: hud(input, harp, 0),
-            warnings: Vec::new(),
-        });
+        return Ok((
+            Outcome {
+                stdout: hud(input, harp, 0),
+                warnings: Vec::new(),
+            },
+            None,
+        ));
     }
     let answer = service.execute(engine, hook_name, input, harp)?;
     if answer.harp_missing {
-        return Ok(Outcome {
-            stdout: String::new(),
-            warnings: vec![HookWarning::NoUsableHarp {
-                harp: harp.to_string(),
-            }],
-        });
+        return Ok((
+            Outcome {
+                stdout: String::new(),
+                warnings: vec![HookWarning::NoUsableHarp {
+                    harp: harp.to_string(),
+                }],
+            },
+            None,
+        ));
     }
     if let Some(bind) = &answer.bind {
         binding.bind(&bind.harp, &bind.native_id, &bind.transcript)?;
     }
-    Ok(Outcome {
-        stdout: answer.stdout,
+    let outcome = Outcome {
+        stdout: answer.stdout.clone(),
         warnings: Vec::new(),
-    })
+    };
+    Ok((outcome, Some(answer)))
 }
 
 #[cfg(test)]

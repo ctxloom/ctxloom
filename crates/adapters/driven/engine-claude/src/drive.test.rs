@@ -321,7 +321,8 @@ fn the_interactive_command_never_renders_the_bearer() {
     assert!(!format!("{command:?} {asked:?}").contains("TOPSECRET"));
 }
 
-// A live probe (2026-11-09): the configured model never reached claude. A configured model is `--model <m>`, for a turn and for the terminal
+// A live probe (2026-11-09): `llm.configs.claude-code.model` never reached
+// claude. A configured model is `--model <m>`, for a turn and for the terminal
 // session, and the prompt stays the interactive command's last word; none
 // configured is no flag at all.
 #[test]

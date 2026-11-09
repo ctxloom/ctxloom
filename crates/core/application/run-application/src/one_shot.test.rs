@@ -1322,7 +1322,7 @@ async fn the_listener_is_stopped_before_the_run_is_last_recorded() {
         .contains("RunEnded"));
 }
 
-// A live probe (2026-11-09): the configured model never reached claude.
+// A live probe (2026-11-09): `llm.configs.<label>.model` never reached claude.
 // The plan's model is the order's, for the turn and for the terminal session.
 #[tokio::test]
 async fn the_plans_model_is_handed_to_the_engine_for_a_turn_and_for_the_terminal() {

@@ -25,8 +25,7 @@ pub struct Order {
     /// The human's terminal session, not a turn: the engine's command is
     /// given her terminal and the prompt may be empty.
     pub interactive: bool,
-    /// The model the plan resolved; empty names none. (Its source is the engine
-    /// defaults and the agent's own; see CLAUDE.md for what is built.)
+    /// The model the plan's `llm.configs` entry names; empty names none.
     pub model: String,
 }
 

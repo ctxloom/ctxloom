@@ -525,7 +525,8 @@ pub struct DryRun {
     /// The workspace and runtime a launch settles on (shown beside an agent).
     #[serde(skip)]
     pub axes: (String, String),
-    /// The model the plan resolved, empty when none: handed to the engine, not shown by a dry run.
+    /// The model the resolved `llm.configs` entry names, empty when it names
+    /// none: handed to the engine, not shown by a dry run.
     #[serde(skip)]
     pub model: String,
 }

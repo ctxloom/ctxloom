@@ -240,7 +240,13 @@ fn every_fact_variant_is_on_its_authors_allowlist() {
     }
     assert_eq!(runner.len(), 10, "one sample per runner variant");
     assert_eq!(model.len(), 2, "one sample per model variant");
-    assert_eq!(Allowlist::runner().facts().len(), runner.len());
+    // The runner's list is its facts and the six observations its hooks record
+    // (`capture::Observation`, which `capture.test.rs` holds to the list).
+    const OBSERVATIONS: usize = 6;
+    assert_eq!(
+        Allowlist::runner().facts().len(),
+        runner.len() + OBSERVATIONS
+    );
     assert_eq!(Allowlist::model().facts().len(), model.len());
 }
 

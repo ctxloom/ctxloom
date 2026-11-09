@@ -33,7 +33,7 @@ impl Delivery {
     /// handler has it, or has finally refused or parked it. `Unavailable` and
     /// `TimedOut` are not settled (a later delivery may succeed).
     pub fn settled(&self) -> bool {
-        todo!("design/hook-capture: Applied, Duplicate, Parked, Refused are settled")
+        !matches!(self, Delivery::Unavailable { .. } | Delivery::TimedOut)
     }
 }
 

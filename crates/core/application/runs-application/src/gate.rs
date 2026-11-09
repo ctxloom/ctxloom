@@ -69,6 +69,12 @@ impl Allowlist {
                 url::<sessions::DeliverMessage>(),
                 url::<sessions::FailMessage>(),
                 url::<sessions::BindEngineSession>(),
+                url::<sessions::RecordPromptSubmitted>(),
+                url::<sessions::RecordAssistantText>(),
+                url::<sessions::RecordToolCall>(),
+                url::<sessions::RecordTurnEnded>(),
+                url::<sessions::RecordSessionEnded>(),
+                url::<sessions::RecordCompaction>(),
             ],
         }
     }

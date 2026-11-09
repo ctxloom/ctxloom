@@ -1794,7 +1794,6 @@ version = "0.1.0"
 dependencies = [
  "angzarr-embedded",
  "angzarr-proto-transport-distributed",
- "hyper-util",
  "mutants",
  "prost",
  "prost-types",

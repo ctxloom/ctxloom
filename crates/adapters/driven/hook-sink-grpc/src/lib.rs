@@ -1,6 +1,6 @@
 //! The [`FactSink`] a hook process delivers through: a gRPC client of the run
-//! process's `CommandHandlerCoordinatorService.Handle` over a unix socket
-//! (`CTXLOOM_ENDPOINT`), the bearer (`CTXLOOM_BEARER`) in the `authorization`
+//! process's `CommandHandlerCoordinatorService.Handle` over TCP
+//! (`CTXLOOM_ENDPOINT`, a URL), the bearer (`CTXLOOM_BEARER`) in the `authorization`
 //! metadata (owner rulings 2026-11-08 item 9, 2026-11-09 items 16 and 17).
 //!
 //! `deliver` is synchronous, so the sink owns a small current-thread runtime
@@ -25,21 +25,13 @@
 //! it produces has the bearer's text scrubbed out.
 
 use std::fmt;
-use std::future::Future;
-use std::io;
-use std::path::PathBuf;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 use std::time::Duration;
 
 use angzarr_embedded::v1::{CommandBook, DeliveryOutcome};
 use angzarr_proto_transport_distributed::v1::command_handler_coordinator_service_client::CommandHandlerCoordinatorServiceClient;
 use angzarr_proto_transport_distributed::v1::CommandResult;
-use hyper_util::rt::TokioIo;
 use prost::Message;
-use run_ports::{Bearer, Delivery, FactSink};
-use tonic::codegen::http::Uri;
-use tonic::codegen::Service;
+use run_ports::{parse_endpoint, Bearer, Delivery, FactSink};
 use tonic::metadata::MetadataValue;
 use tonic::transport::Endpoint;
 use tonic::{Code, Request, Status};
@@ -75,23 +67,31 @@ enum Failed {
 
 /// The sink: where the run's listener is, and the credential it is given.
 pub struct GrpcSink {
-    socket: PathBuf,
+    endpoint: String,
     bearer: Bearer,
 }
 
 impl GrpcSink {
-    /// A sink delivering to the listener on the unix socket at `socket`,
-    /// authenticated by `bearer`.
+    /// A sink delivering to the listener at the URL `endpoint`
+    /// (`http://<host>:<port>`), authenticated by `bearer`.
     pub fn new(endpoint: impl Into<String>, bearer: Bearer) -> GrpcSink {
         GrpcSink {
-            socket: PathBuf::from(endpoint.into()),
+            endpoint: endpoint.into(),
             bearer,
         }
     }
 
     async fn call(&self, book: CommandBook) -> Result<CommandResult, Failed> {
-        let channel = Endpoint::from_static("http://uds.invalid")
-            .connect_with_connector(Unix(self.socket.clone()))
+        let dial = parse_endpoint(&self.endpoint)
+            .map_err(|e| Failed::Transport(format!("the endpoint is not usable: {e}")))?;
+        if dial.secure {
+            return Err(Failed::Transport(
+                "the endpoint is https and this sink has no certificate to trust yet".to_string(),
+            ));
+        }
+        let channel = Endpoint::from_shared(dial.url())
+            .map_err(|e| Failed::Transport(format!("the endpoint is not usable: {e}")))?
+            .connect()
             .await
             .map_err(|e| Failed::Transport(format!("cannot reach the listener: {}", chain(&e))))?;
         let mut request = Request::new(book);
@@ -155,7 +155,7 @@ impl GrpcSink {
 impl fmt::Debug for GrpcSink {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("GrpcSink")
-            .field("socket", &self.socket)
+            .field("endpoint", &self.endpoint)
             .field("bearer", &self.bearer)
             .finish()
     }
@@ -226,30 +226,6 @@ fn chain(error: &dyn std::error::Error) -> String {
         source = cause.source();
     }
     text
-}
-
-/// Connects to the unix socket, whatever URI it is given.
-#[derive(Clone)]
-struct Unix(PathBuf);
-
-type Connecting = Pin<Box<dyn Future<Output = io::Result<TokioIo<tokio::net::UnixStream>>> + Send>>;
-
-impl Service<Uri> for Unix {
-    type Response = TokioIo<tokio::net::UnixStream>;
-    type Error = io::Error;
-    type Future = Connecting;
-
-    // Equivalent mutant: a connector is always ready, and this body is already
-    // `Poll::Ready(Ok(()))`, which is what `Poll::from(Ok(()))` builds.
-    #[cfg_attr(test, mutants::skip)]
-    fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn call(&mut self, _: Uri) -> Connecting {
-        let path = self.0.clone();
-        Box::pin(async move { Ok(TokioIo::new(tokio::net::UnixStream::connect(path).await?)) })
-    }
 }
 
 #[cfg(test)]

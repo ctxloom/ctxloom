@@ -367,6 +367,16 @@ where
             // A hook finds its session by the harp, and the engine's
             // environment is the only thing a hook process is given.
             env.insert(run_ports::HARP_VARIABLE.to_string(), harp.clone());
+            // The running binary's directory leads the engine's PATH, so a
+            // hook's bare `ctxloom` is this binary and not another one the
+            // user has (the Go one); the inherited PATH follows it.
+            if !self.place.program_dir.is_empty() {
+                let path = match env.get("PATH").filter(|path| !path.is_empty()) {
+                    Some(inherited) => format!("{}:{inherited}", self.place.program_dir),
+                    None => self.place.program_dir.clone(),
+                };
+                env.insert("PATH".to_string(), path);
+            }
             let endpoint = self
                 .endpoint(&enqueued.run.value)
                 .map_err(|e| RunError::Endpoint(Box::new(e)))?;

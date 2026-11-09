@@ -235,7 +235,7 @@ fn path_text(path: &Path) -> String {
 }
 
 /// The runtime a run is driven on: multi-thread, so a task spawned on it (the
-/// run's listener, which serves a unix socket) keeps making progress while
+/// run's listener, which serves TCP) keeps making progress while
 /// the use case's own future blocks the thread that drives it. The run waits
 /// for its engine in a blocking call ([`run_ports::Running::finish`]); on a
 /// current-thread runtime that wait would starve every other task. One worker

@@ -22,8 +22,8 @@ pub enum RunError {
     /// The run's domain refused it before anything was made: its own typed
     /// refusal, with the code, args and message of the domain's rejection.
     Refused(RunRejection),
-    /// The run's listener has no socket path: nowhere to put it, or too long
-    /// for a unix socket. Refused before anything is made.
+    /// The run's listener has no address to bind (the bind table refused).
+    /// Refused before anything is made.
     Bind(Box<BindRefusal>),
     /// The project could not be told.
     Project(Report),

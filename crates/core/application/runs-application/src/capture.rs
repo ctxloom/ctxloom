@@ -96,9 +96,14 @@ fn compaction(event: &HookEvent, phase: sessions::CompactionPhase) -> Observatio
     Observation::Compaction(sessions::RecordCompaction {
         prompt_id: event.prompt_id.clone(),
         phase,
-        trigger: String::new(),
-        summary_bytes: 0,
-        summary_sha256: String::new(),
+        trigger: event.trigger.clone(),
+        // The summary is conversation content: its size and digest only.
+        summary_bytes: event.compact_summary.len() as u64,
+        summary_sha256: if event.compact_summary.is_empty() {
+            String::new()
+        } else {
+            format!("{:x}", Sha256::digest(event.compact_summary.as_bytes()))
+        },
     })
 }
 
@@ -124,7 +129,12 @@ impl Observation {
                     sessions::CompactionPhase::After => "after",
                     _ => "before",
                 };
-                format!("hook:compact:{session}:{}:{phase}", f.prompt_id)
+                let trigger = if f.trigger.is_empty() {
+                    "unknown"
+                } else {
+                    f.trigger.as_str()
+                };
+                format!("hook:compact:{session}:{}:{trigger}:{phase}", f.prompt_id)
             }
         }
     }

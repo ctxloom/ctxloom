@@ -361,9 +361,9 @@ impl SessionAggregate {
         record(live(&self.session).ok().map(|_| Compacted {
             prompt_id: fact.prompt_id,
             phase: fact.phase,
-            trigger: String::new(),
-            summary_bytes: 0,
-            summary_sha256: String::new(),
+            trigger: fact.trigger,
+            summary_bytes: fact.summary_bytes,
+            summary_sha256: fact.summary_sha256,
         }))
     }
 

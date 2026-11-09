@@ -152,7 +152,8 @@ impl HookCodec for Codec {
             reason: text(&doc, "reason"),
             message: message_display(&native, &doc),
             tool_calls: tool_calls(&doc),
-            ..HookEvent::default()
+            trigger: text(&doc, "trigger"),
+            compact_summary: text(&doc, "compact_summary"),
         })
     }
 

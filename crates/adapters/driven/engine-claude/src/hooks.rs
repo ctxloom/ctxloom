@@ -26,6 +26,9 @@ fn route(unified: &str) -> Option<(&'static str, Option<&'static str>, bool)> {
         // Neither carries a tool matcher: the whole batch, the whole message.
         "post_tool_batch" => ("PostToolBatch", None, false),
         "message_display" => ("MessageDisplay", None, false),
+        // A compaction's hooks, under the engine's own names: no matcher.
+        "PreCompact" => ("PreCompact", None, false),
+        "PostCompact" => ("PostCompact", None, false),
         _ => return None,
     })
 }
@@ -102,6 +105,8 @@ const HOME_EVENTS: &[&str] = &[
     "post_tool_batch",
     "turn_end",
     "session_end",
+    "PreCompact",
+    "PostCompact",
 ];
 
 /// The `settings.json` of a terminal session's home: every one of

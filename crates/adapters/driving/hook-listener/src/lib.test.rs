@@ -821,7 +821,11 @@ async fn a_request_over_the_size_limit_is_refused_and_writes_nothing() {
         .handle(request(huge, Some(&format!("Bearer {}", world.bearer))))
         .await
         .expect_err("over the limit");
-    assert_eq!(status.code(), Code::ResourceExhausted);
+    assert_eq!(
+        status.code(),
+        Code::OutOfRange,
+        "tonic answers an over-limit message as out of range"
+    );
     assert_eq!(world.watched().await, held);
     listener.stop().await.unwrap();
 }

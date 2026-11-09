@@ -37,6 +37,13 @@ impl ListenerError {
         }
     }
 
+    pub(crate) fn bind_addr(addr: std::net::SocketAddr, cause: &ListenError) -> ListenerError {
+        ListenerError::Bind {
+            endpoint: addr.to_string(),
+            cause: cause.clone(),
+        }
+    }
+
     pub(crate) fn timed_out(endpoint: &str, grace: std::time::Duration) -> ListenerError {
         ListenerError::StopTimedOut {
             endpoint: endpoint.to_string(),

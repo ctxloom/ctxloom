@@ -27,7 +27,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use angzarr_coordinator::Coordinator;
-use angzarr_coordinator_grpc::{Edge as Served, Listener, Running, Server};
+use angzarr_coordinator_grpc::{BoundEndpoint, Edge as Served, Listener, Running, Server};
 use angzarr_proto_transport_distributed::v1::command_handler_coordinator_service_server::CommandHandlerCoordinatorServiceServer;
 use runs_application::{Edge, EdgeCommands, HookGate};
 
@@ -47,8 +47,7 @@ pub use angzarr_coordinator::Arrival as Reach;
 
 /// The reach a bind at `ip` declares: loopback for a loopback address, else an IP's.
 pub fn reach_of(ip: std::net::IpAddr) -> Reach {
-    let _ = ip;
-    Reach::Ip
+    angzarr_coordinator_grpc::arrival_for_bind(std::net::SocketAddr::new(ip, 0))
 }
 
 /// A hook listener that is serving: its socket is bound, and a hook that
@@ -57,6 +56,7 @@ pub fn reach_of(ip: std::net::IpAddr) -> Reach {
 pub struct HookListener {
     running: Running,
     endpoint: String,
+    tcp: Option<(std::net::SocketAddr, Reach)>,
 }
 
 impl HookListener {
@@ -83,6 +83,7 @@ impl HookListener {
         Ok(HookListener {
             running,
             endpoint: endpoint.display().to_string(),
+            tcp: None,
         })
     }
 
@@ -94,18 +95,45 @@ impl HookListener {
         edge: Arc<E>,
         addr: std::net::SocketAddr,
     ) -> Result<HookListener, ListenerError> {
-        let _ = (edge, addr);
-        todo!("serve_tcp")
+        if addr.ip().is_unspecified() {
+            return Err(ListenerError::Unspecified {
+                addr: addr.to_string(),
+            });
+        }
+        let coordinator = Coordinator::new(
+            EdgeCommands::new(Arc::clone(&edge)),
+            (),
+            HookGate::new(edge),
+        );
+        let service =
+            CommandHandlerCoordinatorServiceServer::new(Served::new(Arc::new(coordinator)))
+                .max_decoding_message_size(MAX_REQUEST_BYTES);
+        let listener = Listener::tcp(addr).declare(reach_of(addr.ip()));
+        let running = Server::builder()
+            .add_service(service)
+            .listen(listener)
+            .bind()
+            .await
+            .map_err(|cause| ListenerError::bind_addr(addr, &cause))?;
+        let bound = running.bound().endpoints().iter().find_map(|e| match e {
+            BoundEndpoint::Tcp { addr, arrival } => Some((*addr, *arrival)),
+            _ => None,
+        });
+        Ok(HookListener {
+            running,
+            endpoint: bound.map(|(a, _)| a.to_string()).unwrap_or_default(),
+            tcp: bound,
+        })
     }
 
     /// The address a TCP listener is bound to.
     pub fn local_addr(&self) -> Option<std::net::SocketAddr> {
-        None
+        self.tcp.map(|(addr, _)| addr)
     }
 
     /// What the TCP listener declares of its requests.
     pub fn reach(&self) -> Option<Reach> {
-        None
+        self.tcp.map(|(_, reach)| reach)
     }
 
     /// The socket's path, as served.

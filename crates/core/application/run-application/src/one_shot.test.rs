@@ -226,7 +226,14 @@ impl Hooks {
 
 struct Listening(Hooks);
 
+/// The port the fake listener reports.
+const FAKE_PORT: u16 = 40123;
+
 impl Serving for Listening {
+    fn port(&self) -> u16 {
+        FAKE_PORT
+    }
+
     fn stop(self: Box<Self>) -> BoxFuture<'static, ()> {
         Box::pin(async move {
             if let Some(records) = &self.0.records {
@@ -245,6 +252,19 @@ impl Serving for Listening {
 }
 
 impl HookServer for Hooks {
+    fn serve_tcp<'a>(
+        &'a self,
+        bind: std::net::IpAddr,
+    ) -> BoxFuture<'a, Result<Box<dyn Serving>, Report>> {
+        Box::pin(async move {
+            if let Some(reason) = self.refuse {
+                return Err(Report::new(reason));
+            }
+            self.note(format!("serve_tcp {bind}"));
+            Ok(Box::new(Listening(self.clone())) as Box<dyn Serving>)
+        })
+    }
+
     fn serve<'a>(&'a self, endpoint: &'a str) -> BoxFuture<'a, Result<Box<dyn Serving>, Report>> {
         Box::pin(async move {
             if let Some(reason) = self.refuse {
@@ -1365,4 +1385,69 @@ async fn a_childs_turn_gets_its_path_as_it_was() {
         .result
         .unwrap();
     assert_eq!(rig.runner.seen.lock().unwrap()[0].env["PATH"], "/bin");
+}
+
+// Owner rulings 2026-11-09, items 31-33: the interactive run's hook listener
+// binds loopback on a port of the system's choosing, serves before the engine
+// starts, and the engine is told the URL of that port.
+#[tokio::test]
+async fn an_interactive_runs_engine_is_told_the_loopback_url_of_the_port_served() {
+    let mut script = Script::answering();
+    script.env = vec![("PATH", "/bin"), ("CTXLOOM_HOME", "/home/u")];
+    let mut rig = rig(script);
+    rig.runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let env = rig.runner.seen_terminal.lock().unwrap()[0].env.clone();
+    assert_eq!(env["CTXLOOM_ENDPOINT"], "http://127.0.0.1:40123");
+    let log = rig.hooks.log.lock().unwrap().clone();
+    assert_eq!(
+        log,
+        [
+            ("serve_tcp 127.0.0.1".to_string(), 0),
+            ("stop".to_string(), 1)
+        ],
+        "served on loopback before the engine starts, stopped after it exits"
+    );
+}
+
+// A run that is refused after its listener was bound (an engine nobody drives)
+// stops the listener: no port outlives a run that never started.
+#[tokio::test]
+async fn a_run_refused_after_the_listener_was_bound_stops_it() {
+    let mut rig = rig(Script::answering());
+    let bogus = OneShot {
+        engine: "bogus-engine".to_string(),
+        ..ask()
+    };
+    let error = rig
+        .runs
+        .interactive(&Flags::default(), &bogus)
+        .await
+        .result
+        .unwrap_err();
+    assert!(matches!(error, RunError::UnknownEngine { .. }), "{error:?}");
+    let log = rig.hooks.log.lock().unwrap().clone();
+    let what: Vec<&str> = log.iter().map(|(what, _)| what.as_str()).collect();
+    assert_eq!(what, ["serve_tcp 127.0.0.1", "stop"]);
+}
+
+// A listener that cannot be bound is the run's refusal, with nothing made.
+#[tokio::test]
+async fn a_listener_that_cannot_bind_refuses_the_run_before_anything_is_made() {
+    let mut rig = rig(Script {
+        hooks_refuse: Some("hook-listener-bind"),
+        ..Script::answering()
+    });
+    let error = rig
+        .runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(error.code(), "hook-listener-bind");
+    assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 0);
+    assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
 }

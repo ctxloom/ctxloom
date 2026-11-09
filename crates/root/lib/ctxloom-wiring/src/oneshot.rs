@@ -178,6 +178,14 @@ struct Hooks<E> {
 }
 
 impl<E: Edge + 'static> HookServer for Hooks<E> {
+    fn serve_tcp<'a>(
+        &'a self,
+        bind: std::net::IpAddr,
+    ) -> BoxFuture<'a, Result<Box<dyn Serving>, Report>> {
+        let _ = bind;
+        todo!("serve_tcp")
+    }
+
     fn serve<'a>(&'a self, endpoint: &'a str) -> BoxFuture<'a, Result<Box<dyn Serving>, Report>> {
         Box::pin(async move {
             // Sockets a killed run left are cleared first; failing to clear
@@ -195,6 +203,10 @@ impl<E: Edge + 'static> HookServer for Hooks<E> {
 struct Live(HookListener);
 
 impl Serving for Live {
+    fn port(&self) -> u16 {
+        0
+    }
+
     fn stop(self: Box<Self>) -> BoxFuture<'static, ()> {
         // A stop that failed has nothing to tell a run that is over; the
         // socket's guard removes the file as the listener drops either way.

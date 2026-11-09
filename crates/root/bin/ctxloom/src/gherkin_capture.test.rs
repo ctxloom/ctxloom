@@ -287,6 +287,15 @@ fn late_hook(w: &mut World) {
     // The environment the engine had, the run's bearer included, as a hook
     // that outlived its engine would still have it.
     let engine_env = files::read(w.engine_dir().join("engine-env")).expect("the engine's env");
+    let endpoint = engine_env
+        .lines()
+        .find_map(|l| l.strip_prefix("CTXLOOM_ENDPOINT="))
+        .expect("the engine was told an endpoint");
+    assert!(
+        endpoint.starts_with("http://127.0.0.1:")
+            && endpoint["http://127.0.0.1:".len()..].parse::<u16>().is_ok(),
+        "the endpoint is the loopback URL of the listener's port: {endpoint}"
+    );
     let mut command = Command::new(crate::tests::binary());
     command
         .args(["hook", "claude-code", "execute", "Stop"])

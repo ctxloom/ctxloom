@@ -1,8 +1,7 @@
 # world: base
 # Ported from cli/init.feature (rev f36e8dfb2)
-# NOT ported: the Rules tagged @pending: the token rule (S5's credentials),
-#   and the first-init rule (it clones the seeded remote over the network and
-#   launches the engine: S9's launch).
+# NOT ported: the Rules tagged @pending: the first-init rule (it clones the
+#   seeded remote over the network and asks its questions over a pty).
 @doc
 Feature: init — the setup interview, and what it does to a project that already has one
 
@@ -97,33 +96,32 @@ Feature: init — the setup interview, and what it does to a project that alread
       Then the command succeeds
       And the output contains "personal"
 
-  @pending
-  Rule: Init never takes the agent token; without one it fails, saying how to create and export it
+  Rule: Init never takes the agent token; without one it says how to create and export it, and carries on
 
     Every agent ctxloom launches authenticates with a long-lived token the
     human creates with the engine's own flow (claude: `claude setup-token`)
-    and exports. ctxloom instructs; it never captures or stores the token. On
-    a terminal with none exported, init runs that flow on the human's own
-    terminal and prints the line to export it. Off a terminal there is nobody
-    to run it for, so init names the steps — in the engine's own wording, the
-    one `ctxloom auth` and `ctxloom run` show — and exits non-zero, as it does
-    under --skip-launch and after the terminal flow too: a project whose
-    agents cannot authenticate is not ready, whatever the mode. The config IS
-    written and stays written, and init says so. Once the token is exported,
-    re-running init launches the interview.
+    and exports. ctxloom instructs; it never captures or stores the token.
+    With none exported, init says so as a NOTICE and goes on: a `fix:` line in
+    text, a notice in json, naming the steps in the engine's own wording, the
+    one `ctxloom auth` and `ctxloom run` show. It never blocks, never asks for
+    the token and never fails: init exits 0, off a terminal and on one, and
+    the config is written whatever the token. Nobody is prompted off a
+    terminal. (Owner ruling 2026-11-08, credentials: init guides her toward
+    the token; the run is what refuses without one.)
 
-    Scenario: Off a terminal with no token exported, init names how to create and export it
+    Scenario: Off a terminal with no token exported, init names how to create and export it and exits 0
+      # substitution: Go exits 1 here; the owner's credentials ruling (2026-11-08) makes it a notice and exit 0.
       Given an initialized ctxloom project
       And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to ""
       When Alice re-runs setup with no agent token exported:
         """
         ctxloom init
         """
-      Then the command exits with code 1
-      And the output contains "config is written"
+      Then the command succeeds
       And the output contains "claude setup-token"
       And the output contains "export CLAUDE_CODE_OAUTH_TOKEN"
       And the output contains "or store it in your secret manager"
+      And the file ".ctxloom/config.yaml" exists
 
   Rule: A mistyped subcommand must not be mistaken for a bare init
 

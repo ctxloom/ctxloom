@@ -238,24 +238,19 @@ mod runtime_shape {
 }
 
 // The run's hook listener, wired over the real in-process core: served through
-// the port the run use case holds, on a socket that exists while it serves and
-// is gone once it is stopped; a second listener on the same socket is refused
-// with the listener's own code, which the run reports.
+// the port the run use case holds, on a loopback port of the system's choosing
+// that is open while it serves and closed once it is stopped; an unspecified
+// address is refused with the listener's own code, which the run reports.
 mod hooks {
-    use std::path::Path;
+    use std::net::{IpAddr, Ipv4Addr};
     use std::sync::Arc;
 
     use angzarr_diagnostic::Diagnostic;
-    use file_system::Fs;
     use run_ports::HookServer;
 
     use super::super::Hooks;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_run_use_case_serves_and_stops_the_listener_through_the_port() {
-        let fs = file_system::Os::new(os::host(), Path::new("/")).unwrap();
-        let root = format!("/tmp/ctxloom-wh-{}", std::process::id());
-        let socket = format!("{root}/h.sock");
+    async fn hooks() -> Hooks<impl run_ports::Edge + 'static> {
         let store = {
             let home = Arc::new(file_system::Rooted::temp().unwrap());
             ctxloom_store_sqlite::Stores::new(home, "/home/u")
@@ -264,56 +259,57 @@ mod hooks {
                 .unwrap()
         };
         let core = crate::InProcessCore::start(store).await;
-        let hooks = Hooks {
-            edge: core.edge(),
-            fs: Arc::new(fs.clone()),
-        };
-        let serving = hooks.serve(&socket).await.expect("serves");
-        assert!(
-            fs.exists(Path::new(&socket)).unwrap(),
-            "bound when serve returns"
-        );
-        let refused = hooks
-            .serve(&socket)
-            .await
-            .err()
-            .expect("a live socket is refused");
-        assert_eq!(refused.code(), "hook-listener-bind");
-        serving.stop().await;
-        assert!(!fs.exists(Path::new(&socket)).unwrap(), "removed on stop");
-        fs.remove_dir_all(Path::new(&root)).unwrap();
+        Hooks { edge: core.edge() }
     }
 
-    // A run killed by SIGHUP leaves its socket, and the next run serves
-    // anyway and clears what was left (a live one is still refused, above).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_run_serves_over_leftover_sockets_and_clears_them() {
-        let fs = file_system::Os::new(os::host(), Path::new("/")).unwrap();
-        let root = format!("/tmp/ctxloom-wh-stale-{}", std::process::id());
-        fs.create_dir_all(Path::new(&root), os::Mode::from_bits(0o700))
-            .unwrap();
-        let socket = format!("{root}/h.sock");
-        drop(tokio::net::UnixListener::bind(&socket).unwrap());
-        let store = {
-            let home = Arc::new(file_system::Rooted::temp().unwrap());
-            ctxloom_store_sqlite::Stores::new(home, "/home/u")
-                .open("calm-otter")
-                .await
-                .unwrap()
-        };
-        let core = crate::InProcessCore::start(store).await;
-        let hooks = Hooks {
-            edge: core.edge(),
-            fs: Arc::new(fs.clone()),
-        };
-        let left = format!("{root}/left.sock");
-        drop(tokio::net::UnixListener::bind(&left).unwrap());
-        let serving = hooks.serve(&socket).await.expect("serves over a stale one");
+    async fn the_run_use_case_serves_and_stops_the_listener_through_the_port() {
+        let hooks = hooks().await;
+        let serving = hooks
+            .serve_tcp(IpAddr::V4(Ipv4Addr::LOCALHOST))
+            .await
+            .expect("serves");
+        let port = serving.port();
+        assert_ne!(port, 0, "the port the system gave is reported");
         assert!(
-            !fs.exists(Path::new(&left)).unwrap(),
-            "the leftover is gone"
+            tokio::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port))
+                .await
+                .is_ok(),
+            "bound when serve_tcp returns"
         );
         serving.stop().await;
-        fs.remove_dir_all(Path::new(&root)).unwrap();
+        assert!(
+            tokio::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port))
+                .await
+                .is_err(),
+            "closed on stop"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn two_runs_get_two_ports() {
+        let hooks = hooks().await;
+        let a = hooks
+            .serve_tcp(IpAddr::V4(Ipv4Addr::LOCALHOST))
+            .await
+            .unwrap();
+        let b = hooks
+            .serve_tcp(IpAddr::V4(Ipv4Addr::LOCALHOST))
+            .await
+            .unwrap();
+        assert_ne!(a.port(), b.port());
+        a.stop().await;
+        b.stop().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_unspecified_address_is_refused_with_the_listeners_code() {
+        let hooks = hooks().await;
+        let refused = hooks
+            .serve_tcp(IpAddr::V4(Ipv4Addr::UNSPECIFIED))
+            .await
+            .err()
+            .expect("refused");
+        assert_eq!(refused.code(), "hook-listener-bind-unspecified");
     }
 }

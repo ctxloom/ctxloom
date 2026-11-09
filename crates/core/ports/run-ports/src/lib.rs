@@ -26,9 +26,8 @@ pub use engine::{
     TurnOutcome, TurnRequest, HOME_VARIABLE,
 };
 pub use hook::{
-    endpoint_path, endpoint_url, hook_environment, parse_endpoint, Bearer, BearerError, Dial,
-    EndpointError, RedactedEnv, BEARER_VARIABLE, ENDPOINT_VARIABLE, HARP_VARIABLE, HOOK_VARIABLES,
-    RUN_VARIABLE, SOCKET_PATH_LIMIT,
+    endpoint_url, hook_environment, parse_endpoint, Bearer, BearerError, Dial, EndpointError,
+    RedactedEnv, BEARER_VARIABLE, ENDPOINT_VARIABLE, HARP_VARIABLE, HOOK_VARIABLES, RUN_VARIABLE,
 };
 pub use launcher::{
     Exit, Launch, LaunchEvent, LaunchFailure, Limits, RunnerLauncher, Running, TurnCommand,

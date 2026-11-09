@@ -176,7 +176,7 @@ pub struct Parts<
     /// whether a login can be shared by a link at all.
     pub os: String,
     /// Where an interactive run's hook processes are served (the run's
-    /// socket); a one-shot's child is given none.
+    /// loopback port); a one-shot's child is given none.
     pub hooks: Box<dyn HookServer>,
 }
 
@@ -243,7 +243,26 @@ where
         request: &OneShot,
         notices: &mut Vec<Notice>,
     ) -> Result<Ended, RunError> {
-        let (session, harp, engine, run) = self.start(previewed, request, true).await?;
+        // The hooks' listener is bound before the run is minted: the port it
+        // was given is part of what the engine is told. It binds loopback (the
+        // host row of the bind table) and is stopped if the run does not start.
+        let plan = run_ports::bind_for(run_ports::Runtime::Host, &run_ports::PlatformFacts::NONE)
+            .and_then(|plan| plan.check().map(|()| plan))
+            .map_err(|e| RunError::Bind(Box::new(e)))?;
+        let serving = self
+            .hooks
+            .serve_tcp(plan.bind_addr)
+            .await
+            .map_err(RunError::Listener)?;
+        let endpoint = run_ports::endpoint_url(&plan.told_host, serving.port());
+        let started = self.start(previewed, request, Some(&endpoint)).await;
+        let (session, harp, engine, run) = match started {
+            Ok(started) => started,
+            Err(error) => {
+                serving.stop().await;
+                return Err(error);
+            }
+        };
         // The primary is handed her login before her engine starts.
         if let Some(credentials) = self.launcher.credentials(&engine) {
             notices.extend(share_login(
@@ -254,17 +273,6 @@ where
                 &harp,
             ));
         }
-        // The run's hooks are served from before the engine starts until it
-        // has exited, and the socket goes with the run either way: a launch
-        // that failed stops the listener before its error is returned.
-        let endpoint = self
-            .endpoint(&run.value)
-            .map_err(|e| RunError::Endpoint(Box::new(e)))?;
-        let serving = self
-            .hooks
-            .serve(&endpoint)
-            .await
-            .map_err(RunError::Listener)?;
         // The session's directory names it before the engine runs: its hooks
         // (processes of their own) find the session by that file.
         if let Err(error) = self.catch_up().await {
@@ -301,8 +309,9 @@ where
         &mut self,
         previewed: Previewed,
         request: &OneShot,
-        interactive: bool,
+        endpoint: Option<&str>,
     ) -> Result<(String, String, String, Uuid), RunError> {
+        let interactive = endpoint.is_some();
         if !previewed.fatal.is_empty() {
             return Err(RunError::Plan(Box::new(PlanError::aborted(
                 &previewed.fatal,
@@ -329,13 +338,6 @@ where
             if let Some(refusal) = refuse_child(&engine, &credentials, &self.env) {
                 return Err(RunError::Refused(refusal));
             }
-        }
-        // The interactive run's listener socket must fit before anything is
-        // made, so a path no socket can take refuses the run with nothing to
-        // undo. Every run's path is the same width, so any root tells.
-        if interactive {
-            self.endpoint(&[0; 16])
-                .map_err(|e| RunError::Endpoint(Box::new(e)))?;
         }
         let project = self.identity.for_write(None).map_err(RunError::Project)?;
         let (session, harp) = self.mint(&project, &engine, interactive).await?;
@@ -377,15 +379,12 @@ where
                 };
                 env.insert("PATH".to_string(), path);
             }
-            let endpoint = self
-                .endpoint(&enqueued.run.value)
-                .map_err(|e| RunError::Endpoint(Box::new(e)))?;
             let run_text = uuid::Uuid::from_slice(&enqueued.run.value)
                 .unwrap_or_default()
                 .hyphenated()
                 .to_string();
             env.extend(run_ports::hook_environment(
-                &endpoint,
+                endpoint.unwrap_or_default(),
                 &run_text,
                 &enqueued.hook_token,
             ));
@@ -404,16 +403,6 @@ where
             },
         );
         Ok((session, harp, engine, enqueued.run))
-    }
-
-    /// The socket path of the run rooted at `run`: under the caller's
-    /// `XDG_RUNTIME_DIR`, else under ctxloom's home.
-    fn endpoint(&self, run: &[u8]) -> Result<String, run_ports::EndpointError> {
-        let var = |name: &str| self.env.get(name).map(String::as_str);
-        let home = var(run_ports::HOME_VARIABLE)
-            .or_else(|| var("HOME"))
-            .unwrap_or_default();
-        run_ports::endpoint_path(var("XDG_RUNTIME_DIR"), home, run)
     }
 
     /// The recorder caught up with everything the core holds so far.
@@ -440,7 +429,7 @@ where
     }
 
     async fn run(&mut self, previewed: Previewed, request: &OneShot) -> Result<Answer, RunError> {
-        let (session, harp, engine, run) = self.start(previewed, request, false).await?;
+        let (session, harp, engine, run) = self.start(previewed, request, None).await?;
         let ours = self.launched(&session).await?;
         self.ended(&run).await?;
         match ours.outcome {

@@ -16,6 +16,3 @@ run-ports-bind-no-bridge-gateway = the { $runtime } child's bridge network has n
 run-ports-bind-no-bridge-gateway-fix = create the run's user-defined bridge network first, then retry
 run-ports-bind-unspecified = the hook listener would bind { $addr }, an address on every interface
 run-ports-bind-told-other-than-bound = the child would be told to dial { $told }, which is not the listener's address { $bind }, so its token would go to an interface the listener is not on
-run-ports-endpoint-too-long = the run's listener socket path is { $length } bytes, over the { $limit } a unix socket takes: { $path }
-run-ports-endpoint-run-too-short = a run's root of { $length } bytes is too short to name its listener socket
-run-ports-endpoint-no-directory = the run's listener socket has nowhere to live

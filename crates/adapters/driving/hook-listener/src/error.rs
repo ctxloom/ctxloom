@@ -1,7 +1,6 @@
 //! Why the run's hook listener could not be started or stopped.
 
 use std::fmt;
-use std::path::Path;
 
 use angzarr_coordinator_grpc::ListenError;
 use angzarr_diagnostic::{code, Arg, Diagnostic};
@@ -9,9 +8,8 @@ use angzarr_diagnostic::{code, Arg, Diagnostic};
 /// A listener that could not be bound, or did not stop cleanly.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ListenerError {
-    /// The socket could not be bound: its directory is not ours at mode 0700,
-    /// another run serves it, the path is not a socket, or a system call
-    /// failed. `cause` is the listener's own account.
+    /// The address could not be bound: it is in use, not ours, or a system
+    /// call failed. `cause` is the listener's own account.
     Bind {
         endpoint: String,
         cause: ListenError,
@@ -19,6 +17,8 @@ pub enum ListenerError {
     /// The address to bind is unspecified (0.0.0.0, ::): on every interface.
     /// A hook listener never binds one.
     Unspecified { addr: String },
+    /// The server bound, and reported no TCP address.
+    NotBound { addr: String },
     /// The open calls did not finish within the grace: the listener was
     /// aborted and its socket removed.
     StopTimedOut { endpoint: String, grace_ms: u64 },
@@ -30,13 +30,6 @@ pub enum ListenerError {
 }
 
 impl ListenerError {
-    pub(crate) fn bind(endpoint: &Path, cause: &ListenError) -> ListenerError {
-        ListenerError::Bind {
-            endpoint: endpoint.display().to_string(),
-            cause: cause.clone(),
-        }
-    }
-
     pub(crate) fn bind_addr(addr: std::net::SocketAddr, cause: &ListenError) -> ListenerError {
         ListenerError::Bind {
             endpoint: addr.to_string(),
@@ -71,13 +64,16 @@ impl Diagnostic for ListenerError {
             ListenerError::Bind { .. } => code!("bind"),
             ListenerError::Stop { .. } => code!("stop"),
             ListenerError::Unspecified { .. } => code!("bind-unspecified"),
+            ListenerError::NotBound { .. } => code!("bind-not-reported"),
             ListenerError::StopTimedOut { .. } => code!("stop-timed-out"),
         }
     }
 
     fn args(&self) -> Vec<(&str, Arg)> {
         match self {
-            ListenerError::Unspecified { addr } => vec![("addr", addr.as_str().into())],
+            ListenerError::Unspecified { addr } | ListenerError::NotBound { addr } => {
+                vec![("addr", addr.as_str().into())]
+            }
             ListenerError::StopTimedOut { endpoint, grace_ms } => vec![
                 ("endpoint", endpoint.as_str().into()),
                 ("grace_ms", (*grace_ms).into()),
@@ -107,25 +103,25 @@ pub const CATALOGS: [(&str, &str); 2] = [EN_US, angzarr_coordinator_grpc::EN_US]
 /// One value of every error, for the catalog test.
 #[cfg(any(test, feature = "test-support"))]
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
-    let cause = ListenError::SocketInUse {
-        path: "/run/user/1000/ctxloom/0011223344556677.sock".to_string(),
+    let cause = ListenError::Io {
+        op: "bind",
+        target: "127.0.0.1:0".to_string(),
+        error: "Address already in use".to_string(),
     };
+    let addr: std::net::SocketAddr = "127.0.0.1:40123".parse().unwrap();
     vec![
-        Box::new(ListenerError::bind(
-            Path::new("/run/user/1000/ctxloom/0011223344556677.sock"),
-            &cause,
-        )),
+        Box::new(ListenerError::bind_addr(addr, &cause)),
         Box::new(ListenerError::Unspecified {
             addr: "0.0.0.0:0".to_string(),
         }),
+        Box::new(ListenerError::NotBound {
+            addr: "127.0.0.1:0".to_string(),
+        }),
         Box::new(ListenerError::timed_out(
-            "/run/user/1000/ctxloom/0011223344556677.sock",
+            "127.0.0.1:40123",
             std::time::Duration::from_secs(3),
         )),
-        Box::new(ListenerError::stop(
-            "/run/user/1000/ctxloom/0011223344556677.sock",
-            &cause,
-        )),
+        Box::new(ListenerError::stop("127.0.0.1:40123", &cause)),
     ]
 }
 

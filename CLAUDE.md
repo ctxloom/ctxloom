@@ -194,32 +194,51 @@ a 256-bit token whose SHA-256 alone is journaled in `RunEnqueued`
 distinct digests, and `RunEnded` revokes all three in the fold). The hook
 credential exists so the interactive engine's hook processes can call back
 over the listener without holding the runner's or the model's token: its
-allowlist is to be the capture facts alone (the gate is another track's). What
+scope (`runs-application`'s `Scope`, one value checked in one place, derived
+from the run's role in code and journaled nowhere) is today the six capture
+facts alone, so widening it later is adding to the scope. What
 a hook process receives, through the INTERACTIVE engine env only (like
 `CTXLOOM_HOME`; `engine-claude`'s `INTERACTIVE_ENV_ALLOWLIST`, never a child's
 turn env, whose allowlist is unchanged, and an inherited value from an
-enclosing session is dropped): `CTXLOOM_ENDPOINT`, the run's unix socket,
-`$XDG_RUNTIME_DIR/ctxloom/<short>.sock` or, with that unset or not absolute,
-`<ctxloom home>/.ctxloom/run/<short>.sock` (`<short>` is the first 8 bytes of
-the run's root in hex; a path over `sun_path`'s 107 bytes is the typed
-`run-ports-endpoint-too-long`, refused before the session is minted);
+enclosing session is dropped): `CTXLOOM_ENDPOINT`, the URL of the run's TCP
+listener, `http://<host>:<port>` (`https://` when the listener has a
+certificate; the scheme drives the dial, so TLS is additive; the sink refuses
+`https` until it has one to trust); the port is the system's (the listener
+binds port 0 before the run is minted and the bound port is told);
 `CTXLOOM_BEARER`, the composite `<run-id>.<64 hex>` (the gate splits it to look
-the run up, no upstream metadata needed); `CTXLOOM_RUN`, the run id. The path
-rule and the variables are pure functions in `run-ports` (`hook.rs`). The
+the run up, no upstream metadata needed); `CTXLOOM_RUN`, the run id. The
+URL's build and parse, the variables and the bind table are pure functions in
+`run-ports` (`hook.rs`, `bind.rs`). The
 secret is returned once by `Enqueuer::enqueue` to the launching code, which
 puts it in the launch order's env; `Bearer`, `Token` and the `Debug` of
 `TurnCommand`, `TurnRequest` and `Order` never render it, and no error carries
 it. Residual, same-user: the model runs as the user and can read its own
 engine's environment, so it can forge CAPTURE facts as the hook principal; it
 can never forge runner lifecycle facts (the runner and model tokens are not in
-that env), and the capture allowlist is why the hook credential is a third one.
+that env), and the capture scope is why the hook credential is a third one.
+The token now crosses loopback TCP in plaintext (ruling 32, accepted cost):
+anyone on the host who can connect to the port can try the token (it is a
+256-bit secret, valid until the run ends, scoped to the run's own session
+stream, and a failed attempt says nothing of the token or its digest), and
+anyone who can sniff loopback can read it. The listener has no connection
+limit, idle or handshake timeout of its own (angzarr's `Listener` offers none:
+an escalation); a request is capped at `hook-listener`'s `MAX_REQUEST_BYTES`.
+Revisit trigger: any listener reachable beyond the host, a remote or
+multi-host child, or an authority wider than capture on this credential: add
+TLS (a per-run certificate the client pins) and its pin to the bearer's
+transport.
 The run is driven on a multi-thread runtime (`ctxloom-wiring`'s `run_runtime`,
 one worker), because `Running::finish` blocks the driving thread and a task
 spawned on a current-thread runtime (the listener) would starve meanwhile.
 An interactive run serves its endpoint: `hook-listener`'s `HookListener` (angzarr's
-coordinator `Handle` on the run's unix socket, mode 0600, behind
-`runs-application`'s `HookGate`) is started before the engine launches and
-stopped, with a bounded grace, before the run's end is last recorded
+coordinator `Handle` on a TCP port, port 0, never an unspecified address, the
+arrival declared from the bind (the bind table, `run_ports::bind_for`: the host
+runtime binds 127.0.0.1 and is told 127.0.0.1; the container rows of ruling 33
+are the tested table and its typed refusals, not yet wired to a container
+launch), behind `runs-application`'s `HookGate`) is started before the run is
+minted (the port is part of what the engine is told) and stopped if the run
+does not start; otherwise it is stopped, with a bounded grace, after the
+engine exits and before the run's end is last recorded
 (`ctxloom-wiring`'s `Hooks`). Not built: the hidden runner subcommand, and the
 engine's model (`llm.configs.<label>.model` and any per-agent model are not
 passed to the engine yet; they travel with the engines schema).
@@ -465,12 +484,9 @@ facts. The session's end (`SessionEnd`) is captured like the rest.
 A compaction's external id is `hook:compact:<session>:<prompt_id>:<trigger>:
 <phase>`, so two compactions of one turn (a manual and an auto) are two facts;
 two of the SAME trigger in one turn would still collide (the payload offers no
-further discriminator). A run killed by SIGHUP or a timeout leaves its socket;
-the next interactive run clears, from the socket directory, every `*.sock`
-nothing accepts on (`ctxloom-wiring`'s `stale_socket`; a live one is never
-removed, and ctxloom does not forward or handle SIGINT, SIGHUP or SIGTERM
-itself). A residual race: a socket another run has bound but not yet begun
-listening on refuses connections for an instant and could be cleared.
+further discriminator). The listener is a port, not a file: a run
+killed by SIGHUP or a timeout leaves nothing behind (ctxloom does not forward
+or handle SIGINT, SIGHUP or SIGTERM itself).
 
 ## Use `just`
 

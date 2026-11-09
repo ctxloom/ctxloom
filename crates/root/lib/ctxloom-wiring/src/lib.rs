@@ -21,7 +21,6 @@ mod process_env;
 mod seed;
 mod sessions;
 mod setup;
-mod stale_socket;
 mod sweep_config;
 #[cfg(feature = "test-support")]
 mod test_commands;

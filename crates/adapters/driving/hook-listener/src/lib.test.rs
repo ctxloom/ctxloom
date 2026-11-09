@@ -1,17 +1,12 @@
-//! The hook listener end to end: a real unix socket in a short temporary path,
-//! the generated `Handle` client with the hook bearer in `authorization`, the
+//! The hook listener end to end: a real loopback TCP port (port 0), the
+//! generated `Handle` client with the hook bearer in `authorization`, the
 //! real kernel (`App` over an in-memory store) behind the real gate. Each test
 //! forces the interleaving it concerns: a run ends between two calls, a stop
 //! is awaited, a client call is made from a thread while the one that drives
 //! the runtime is blocked; none waits for a time.
 
-use std::future::Future;
-use std::io;
-use std::path::{Path, PathBuf};
-use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll};
 
 use angzarr_embedded::testing::{MemoryStore, Samples};
 use angzarr_embedded::v1::{
@@ -22,22 +17,19 @@ use angzarr_embedded_host::config::Expose;
 use angzarr_embedded_host::stores::OneStore;
 use angzarr_embedded_host::App;
 use angzarr_proto_transport_distributed::v1::command_handler_coordinator_service_client::CommandHandlerCoordinatorServiceClient;
-use angzarr_test_dir::{OnPanic, TestDir};
 use embedded_edge::EmbeddedEdge;
-use file_system::Fs;
-use hyper_util::rt::TokioIo;
-use os::Mode;
 use run_ports::{Bearer, Edge as _, Token, TokenSource};
 use runs_application::{EnqueueRequest, Enqueuer, Observation};
-use tonic::codegen::http::Uri;
-use tonic::codegen::Service;
 use tonic::transport::{Channel, Endpoint};
 use tonic::Code;
 
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
 use crate::HookListener;
 
+const LOOPBACK_ANY_PORT: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
+
 type TheEdge = EmbeddedEdge<OneStore<MemoryStore>>;
-type Boxed<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
 const SESSION: &str = "5f0c7a52-1111-5111-8111-000000000001";
 const OTHER_SESSION: &str = "5f0c7a52-2222-5222-8222-000000000002";
@@ -104,29 +96,9 @@ fn command_of_type(
     }
 }
 
-/// Connects to a unix socket, whatever URI it is given.
-#[derive(Clone)]
-struct Uds(PathBuf);
-
-impl Service<Uri> for Uds {
-    type Response = TokioIo<tokio::net::UnixStream>;
-    type Error = io::Error;
-    type Future = Boxed<io::Result<Self::Response>>;
-
-    fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn call(&mut self, _: Uri) -> Self::Future {
-        let path = self.0.clone();
-        Box::pin(async move { Ok(TokioIo::new(tokio::net::UnixStream::connect(path).await?)) })
-    }
-}
-
-async fn connect(path: &Path) -> Result<Channel, tonic::transport::Error> {
-    Endpoint::from_static("http://uds.invalid")
-        .connect_with_connector(Uds(path.to_path_buf()))
-        .await
+async fn connect(addr: SocketAddr) -> Channel {
+    let url = run_ports::endpoint_url(&addr.ip().to_string(), addr.port());
+    Endpoint::from_shared(url).unwrap().connect().await.unwrap()
 }
 
 /// `book`, presenting `authorization` as given (none when `None`).
@@ -143,8 +115,6 @@ fn request(book: CommandBook, authorization: Option<&str>) -> tonic::Request<Com
 /// What the world holds: the kernel, two sessions each with a live run, the
 /// hook's bearer for the first, and the socket path the first's run names.
 struct World {
-    /// The runtime directory the socket goes under; removed on drop.
-    dir: TestDir,
     edge: Arc<TheEdge>,
     run: Uuid,
     session: Uuid,
@@ -152,13 +122,12 @@ struct World {
     other_run: Uuid,
     bearer: String,
     runner_bearer: String,
-    endpoint: PathBuf,
+    /// Where the listener last served.
+    addr: Mutex<Option<SocketAddr>>,
 }
 
 impl World {
     async fn new() -> World {
-        let dir = TestDir::under(Path::new("/tmp"), "hl", OnPanic::Remove);
-        fs().set_permissions(dir.path(), Mode::PRIVATE_DIR).unwrap();
         let mut registry = Registry::new();
         registry
             .aggregate::<sessions::SessionAggregate>(sessions::SessionAggregate::default)
@@ -233,16 +202,7 @@ impl World {
         let runner_bearer = Bearer::compose(&run_text(&mine.run), &mine.runner_token)
             .expose()
             .to_string();
-        // The socket is where the run names it: under the runtime directory
-        // the use case is given, at the short path run-ports computes.
-        let endpoint = run_ports::endpoint_path(
-            Some(dir.path().to_str().unwrap()),
-            "/nonexistent",
-            &mine.run.value,
-        )
-        .unwrap();
         World {
-            dir,
             edge,
             run: mine.run,
             session: uuid(SESSION),
@@ -250,18 +210,24 @@ impl World {
             other_run: other.run,
             bearer,
             runner_bearer,
-            endpoint: PathBuf::from(endpoint),
+            addr: Mutex::new(None),
         }
     }
 
     async fn serve(&self) -> HookListener {
-        HookListener::serve(Arc::clone(&self.edge), &self.endpoint)
+        let listener = HookListener::serve_tcp(Arc::clone(&self.edge), LOOPBACK_ANY_PORT)
             .await
-            .expect("the listener starts")
+            .expect("the listener starts");
+        *self.addr.lock().unwrap() = Some(listener.local_addr());
+        listener
+    }
+
+    fn addr(&self) -> SocketAddr {
+        self.addr.lock().unwrap().expect("served")
     }
 
     async fn client(&self) -> CommandHandlerCoordinatorServiceClient<Channel> {
-        CommandHandlerCoordinatorServiceClient::new(connect(&self.endpoint).await.unwrap())
+        CommandHandlerCoordinatorServiceClient::new(connect(self.addr()).await)
     }
 
     fn turn_ended(&self, id: &str) -> CommandBook {
@@ -289,20 +255,6 @@ impl World {
             self.pages(runs::RUN_DOMAIN, &self.other_run).await,
         ]
     }
-}
-
-/// The filesystem the tests read modes through (the platform seam, not std's
-/// unix extensions).
-fn fs() -> file_system::Os {
-    file_system::Os::new(os::host(), Path::new("/")).unwrap()
-}
-
-fn present(path: &Path) -> bool {
-    fs().exists(path).unwrap()
-}
-
-fn mode(path: &Path) -> u32 {
-    fs().metadata(path).unwrap().mode.unwrap().bits()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -525,79 +477,6 @@ fn world_fact(session: &Uuid, id: &str) -> CommandBook {
     .book(session)
 }
 
-/// The socket policy is the shared listener's, asserted where this listener's
-/// users rely on it: 0600 in a 0700 directory, removed on stop.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_socket_is_private_and_is_removed_when_the_listener_stops() {
-    let world = World::new().await;
-    // The socket's own directory does not exist yet: the listener makes it.
-    let directory = world.endpoint.parent().unwrap().to_path_buf();
-    assert!(!present(&directory));
-    let listener = world.serve().await;
-    assert_eq!(listener.endpoint(), world.endpoint.to_str().unwrap());
-    assert_eq!(mode(&world.endpoint), 0o600);
-    assert_eq!(mode(&directory), 0o700);
-    let mut client = world.client().await;
-    client
-        .handle(request(
-            world.turn_ended("p1"),
-            Some(&format!("Bearer {}", world.bearer)),
-        ))
-        .await
-        .unwrap();
-    listener.stop().await.unwrap();
-    assert!(!present(&world.endpoint), "the socket is removed");
-    assert!(connect(&world.endpoint).await.is_err(), "nobody listens");
-    assert!(present(world.dir.path()));
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn dropping_the_listener_removes_the_socket_too() {
-    let world = World::new().await;
-    let listener = world.serve().await;
-    assert!(present(&world.endpoint));
-    drop(listener);
-    assert!(!present(&world.endpoint));
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_socket_another_listener_holds_is_refused_and_the_first_keeps_serving() {
-    let world = World::new().await;
-    let first = world.serve().await;
-    let error = HookListener::serve(Arc::clone(&world.edge), &world.endpoint)
-        .await
-        .err()
-        .expect("refused");
-    assert_eq!(
-        angzarr_diagnostic::Diagnostic::code(&error),
-        "hook-listener-bind"
-    );
-    let mut client = world.client().await;
-    client
-        .handle(request(
-            world.turn_ended("p1"),
-            Some(&format!("Bearer {}", world.bearer)),
-        ))
-        .await
-        .expect("the first listener still serves");
-    first.stop().await.unwrap();
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_directory_that_is_not_private_is_refused() {
-    let world = World::new().await;
-    let directory = world.endpoint.parent().unwrap();
-    fs().create_dir_all(directory, Mode::DIR).unwrap();
-    fs().set_permissions(directory, Mode::DIR).unwrap();
-    let error = HookListener::serve(Arc::clone(&world.edge), &world.endpoint)
-        .await
-        .err()
-        .expect("refused");
-    let rendered = error.to_string();
-    assert!(rendered.contains(directory.to_str().unwrap()), "{rendered}");
-    assert!(!present(&world.endpoint));
-}
-
 /// The run waits for its engine in a blocking call on the thread that drives
 /// it. Here that thread blocks until a hook's client, on a thread of its own,
 /// has delivered a fact: the answer exists only if the listener's tasks run
@@ -614,7 +493,7 @@ fn the_listener_serves_while_the_thread_that_drives_the_run_is_blocked() {
     let (delivery, pages) = runtime.block_on(async {
         let world = World::new().await;
         let listener = world.serve().await;
-        let endpoint = world.endpoint.clone();
+        let addr = world.addr();
         let book = world.turn_ended("p1");
         let bearer = format!("Bearer {}", world.bearer);
         let hook = std::thread::spawn(move || {
@@ -623,8 +502,7 @@ fn the_listener_serves_while_the_thread_that_drives_the_run_is_blocked() {
                 .build()
                 .unwrap();
             client_runtime.block_on(async {
-                let mut client =
-                    CommandHandlerCoordinatorServiceClient::new(connect(&endpoint).await.unwrap());
+                let mut client = CommandHandlerCoordinatorServiceClient::new(connect(addr).await);
                 client
                     .handle(request(book, Some(&bearer)))
                     .await
@@ -646,15 +524,13 @@ fn the_listener_serves_while_the_thread_that_drives_the_run_is_blocked() {
 /// A client that connects and never completes its handshake holds a connection
 /// open, which a graceful shutdown waits for. The connection is held by the
 /// test, so the wait is forced, never hoped for: the stop must end past its
-/// grace ([`crate::STOP_GRACE`], three seconds, really elapsed) with the typed timeout, the socket must be gone, and the
-/// listener must be aborted (nobody listens).
+/// grace ([`crate::STOP_GRACE`], three seconds, really elapsed) with the typed
+/// timeout, and the listener must be aborted (nobody listens).
 #[tokio::test(flavor = "current_thread")]
 async fn a_client_that_holds_a_connection_open_cannot_hold_the_stop() {
     let world = World::new().await;
     let listener = world.serve().await;
-    let mut held = tokio::net::UnixStream::connect(&world.endpoint)
-        .await
-        .unwrap();
+    let mut held = tokio::net::TcpStream::connect(world.addr()).await.unwrap();
     tokio::io::AsyncWriteExt::write_all(&mut held, b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
         .await
         .unwrap();
@@ -673,17 +549,19 @@ async fn a_client_that_holds_a_connection_open_cannot_hold_the_stop() {
     assert_eq!(
         error,
         crate::ListenerError::StopTimedOut {
-            endpoint: world.endpoint.display().to_string(),
+            endpoint: world.addr().to_string(),
             grace_ms: 3_000,
         }
     );
-    assert!(!present(&world.endpoint), "the socket is removed");
-    assert!(connect(&world.endpoint).await.is_err(), "nobody listens");
     drop(held);
+    assert!(
+        tokio::net::TcpStream::connect(world.addr()).await.is_err(),
+        "nobody listens"
+    );
 }
 
-/// A stop with nothing open ends within the grace with Ok, and leaves no
-/// socket: the success the timeout path must differ from.
+/// A stop with nothing open ends within the grace with Ok: the success the
+/// timeout path must differ from.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_stop_with_nothing_open_is_ok_within_the_grace() {
     let world = World::new().await;
@@ -692,20 +570,12 @@ async fn a_stop_with_nothing_open_is_ok_within_the_grace() {
         .stop_within(std::time::Duration::from_secs(30))
         .await
         .expect("stops");
-    assert!(!present(&world.endpoint));
 }
 
 // ---- TCP (owner rulings 2026-11-09, items 31-33) ----
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-
-const LOOPBACK_ANY_PORT: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
-
 async fn tcp_client(addr: SocketAddr) -> CommandHandlerCoordinatorServiceClient<Channel> {
-    let url = run_ports::endpoint_url(&addr.ip().to_string(), addr.port());
-    CommandHandlerCoordinatorServiceClient::new(
-        Endpoint::from_shared(url).unwrap().connect().await.unwrap(),
-    )
+    CommandHandlerCoordinatorServiceClient::new(connect(addr).await)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -714,9 +584,7 @@ async fn a_capture_fact_over_tcp_is_applied_to_the_session_stream() {
     let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT)
         .await
         .expect("serves");
-    let addr = listener
-        .local_addr()
-        .expect("a TCP listener reports its address");
+    let addr = listener.local_addr();
     assert!(addr.ip().is_loopback());
     assert_ne!(addr.port(), 0, "port 0 is replaced by the port given");
     let before = world.watched().await;
@@ -748,10 +616,7 @@ async fn two_listeners_on_port_zero_get_two_ports() {
     let b = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT)
         .await
         .unwrap();
-    assert_ne!(
-        a.local_addr().unwrap().port(),
-        b.local_addr().unwrap().port()
-    );
+    assert_ne!(a.local_addr().port(), b.local_addr().port());
     a.stop().await.unwrap();
     b.stop().await.unwrap();
 }
@@ -791,7 +656,7 @@ async fn the_declared_arrival_follows_the_bind() {
     let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT)
         .await
         .unwrap();
-    assert_eq!(listener.reach(), Some(Reach::Loopback));
+    assert_eq!(listener.reach(), Reach::Loopback);
     listener.stop().await.unwrap();
 }
 
@@ -816,7 +681,7 @@ async fn a_request_over_the_size_limit_is_refused_and_writes_nothing() {
         },
         "big",
     );
-    let status = tcp_client(listener.local_addr().unwrap())
+    let status = tcp_client(listener.local_addr())
         .await
         .handle(request(huge, Some(&format!("Bearer {}", world.bearer))))
         .await
@@ -844,7 +709,7 @@ async fn an_authentication_failure_says_nothing_of_the_token_or_its_digest() {
         .collect();
     let run_text = world.bearer.rsplit_once('.').unwrap().0.to_string();
     let attempted = format!("{run_text}.{}", "ee".repeat(32));
-    let status = tcp_client(listener.local_addr().unwrap())
+    let status = tcp_client(listener.local_addr())
         .await
         .handle(request(
             world.turn_ended("p1"),

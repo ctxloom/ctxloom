@@ -264,16 +264,6 @@ impl HookServer for Hooks {
             Ok(Box::new(Listening(self.clone())) as Box<dyn Serving>)
         })
     }
-
-    fn serve<'a>(&'a self, endpoint: &'a str) -> BoxFuture<'a, Result<Box<dyn Serving>, Report>> {
-        Box::pin(async move {
-            if let Some(reason) = self.refuse {
-                return Err(Report::new(reason));
-            }
-            self.note(format!("serve {endpoint}"));
-            Ok(Box::new(Listening(self.clone())) as Box<dyn Serving>)
-        })
-    }
 }
 
 struct Rig {
@@ -1039,7 +1029,6 @@ async fn an_interactive_run_is_handed_the_listener_endpoint_and_the_hook_bearer(
         ("PATH", "/bin"),
         ("HOME", "/home/u"),
         ("CTXLOOM_HOME", "/home/u"),
-        ("XDG_RUNTIME_DIR", "/run/user/1000"),
     ];
     let mut rig = rig(script);
     let ended = rig
@@ -1057,11 +1046,7 @@ async fn an_interactive_run_is_handed_the_listener_endpoint_and_the_hook_bearer(
     assert_eq!(env["CTXLOOM_RUN"], run_text);
     // The hook finds its session by the harp: the engine's environment names it.
     assert_eq!(env["CTXLOOM_SESSION_HARP"], ended.harp);
-    let short: String = run.value[..8].iter().map(|b| format!("{b:02x}")).collect();
-    assert_eq!(
-        env["CTXLOOM_ENDPOINT"],
-        format!("/run/user/1000/ctxloom/{short}.sock")
-    );
+    assert_eq!(env["CTXLOOM_ENDPOINT"], "http://127.0.0.1:40123");
     let (bearer_run, token) = run_ports::Bearer::parse(&env["CTXLOOM_BEARER"]).unwrap();
     assert_eq!(bearer_run, run_text);
     let events = run_events(&rig.edge, &ended.session).await;
@@ -1071,24 +1056,6 @@ async fn an_interactive_run_is_handed_the_listener_endpoint_and_the_hook_bearer(
     assert_eq!(enqueued.hook_credential_hash, token.hash().as_bytes());
     assert_ne!(enqueued.runner_credential_hash, token.hash().as_bytes());
     assert_ne!(enqueued.model_credential_hash, token.hash().as_bytes());
-}
-
-// NEW-DESIGN: with no runtime directory the endpoint is under ctxloom's home.
-#[tokio::test]
-async fn without_a_runtime_directory_the_endpoint_is_under_ctxloom_home() {
-    let mut script = Script::answering();
-    script.env = vec![("PATH", "/bin"), ("CTXLOOM_HOME", "/home/u")];
-    let mut rig = rig(script);
-    rig.runs
-        .interactive(&Flags::default(), &ask())
-        .await
-        .result
-        .unwrap();
-    let env = rig.runner.seen_terminal.lock().unwrap()[0].env.clone();
-    assert!(
-        env["CTXLOOM_ENDPOINT"].starts_with("/home/u/.ctxloom/run/"),
-        "{env:?}"
-    );
 }
 
 // NEW-DESIGN: a CHILD's turn never gets them, even when the caller's own
@@ -1135,28 +1102,6 @@ async fn an_inherited_bearer_is_replaced_by_the_runs_own() {
     assert_ne!(env["CTXLOOM_BEARER"], "inherited.secret");
 }
 
-// NEW-DESIGN (sun_path is about 108 bytes): a runtime directory so long that the
-// socket path cannot fit is a typed, refusal-class error before anything is
-// made: no name claimed, no run enqueued.
-#[tokio::test]
-async fn an_endpoint_too_long_for_a_socket_refuses_the_run_before_anything_is_made() {
-    let long: &'static str = Box::leak(format!("/{}", "d".repeat(120)).into_boxed_str());
-    let mut script = Script::answering();
-    script.env = vec![("CTXLOOM_HOME", "/home/u"), ("XDG_RUNTIME_DIR", long)];
-    let mut rig = rig(script);
-    let error = rig
-        .runs
-        .interactive(&Flags::default(), &ask())
-        .await
-        .result
-        .unwrap_err();
-    assert_eq!(error.code(), "run-ports-endpoint-too-long");
-    assert_eq!(error.exit_code(), 2);
-    assert!(matches!(error, RunError::Endpoint(_)));
-    assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 0);
-    assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
-}
-
 // NEW-DESIGN (no secret in a log line or an error): the bearer is in no Debug of
 // what carries it from the launching code to the engine, nor in the error of a
 // launch that failed to start.
@@ -1199,38 +1144,6 @@ async fn the_bearer_is_in_no_debug_or_error_rendering() {
     }
 }
 
-// NEW-DESIGN (owner ruling 2026-11-09, item 17): the interactive run's hook
-// listener is serving on the run's own socket before the engine starts, and is
-// stopped once it has exited. The runner counts the engine's starts, so the
-// order is the data, not a wait.
-#[tokio::test]
-async fn an_interactive_runs_listener_serves_before_the_engine_starts_and_stops_after_it_exits() {
-    let mut script = Script::answering();
-    script.env = vec![
-        ("PATH", "/bin"),
-        ("CTXLOOM_HOME", "/home/u"),
-        ("XDG_RUNTIME_DIR", "/run/user/1000"),
-    ];
-    let mut rig = rig(script);
-    let ended = rig
-        .runs
-        .interactive(&Flags::default(), &ask())
-        .await
-        .result
-        .unwrap();
-    let env = rig.runner.seen_terminal.lock().unwrap()[0].env.clone();
-    let log = rig.hooks.log.lock().unwrap().clone();
-    assert_eq!(
-        log,
-        [
-            (format!("serve {}", env["CTXLOOM_ENDPOINT"]), 0),
-            ("stop".to_string(), 1)
-        ],
-        "served at the endpoint the engine is told, with no launch yet; stopped after the one launch ({})",
-        ended.session
-    );
-}
-
 // A launch that fails stops the listener too: no socket outlives the run.
 #[tokio::test]
 async fn a_launch_that_fails_still_stops_the_listener() {
@@ -1246,7 +1159,7 @@ async fn a_launch_that_fails_still_stops_the_listener() {
     let log = rig.hooks.log.lock().unwrap().clone();
     let what: Vec<&str> = log.iter().map(|(what, _)| what.as_str()).collect();
     assert_eq!(what.len(), 2, "{what:?}");
-    assert!(what[0].starts_with("serve "), "{what:?}");
+    assert!(what[0].starts_with("serve_tcp "), "{what:?}");
     assert_eq!(what[1], "stop");
 }
 
@@ -1447,7 +1360,7 @@ async fn a_listener_that_cannot_bind_refuses_the_run_before_anything_is_made() {
         .await
         .result
         .unwrap_err();
-    assert_eq!(error.code(), "hook-listener-bind");
+    assert_eq!(error.code(), "run-application-listener");
     assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 0);
     assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
 }

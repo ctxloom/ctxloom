@@ -133,10 +133,7 @@ impl<'a> OneShots<'a> {
             Arc::clone(&orders),
             Limits::new(TURN_DEADLINE),
         );
-        let hooks = Box::new(Hooks {
-            edge: core.edge(),
-            fs: wiring.fs(),
-        });
+        let hooks = Box::new(Hooks { edge: core.edge() });
         let recorder = Recorder::new(SessionDirs::new(wiring.fs(), project_dir.clone()));
         let enqueuer = Enqueuer::new(core.edge(), Arc::new(OsTokenSource));
         let output_root = wiring
@@ -169,12 +166,11 @@ impl<'a> OneShots<'a> {
     }
 }
 
-/// The run's hook listener over the core's edge: `Handle` on the run's socket
+/// The run's hook listener over the core's edge: `Handle` on the run's loopback port
 /// behind the hook gate ([`hook_listener`]), started before an interactive
 /// engine launches and stopped after it exits.
 struct Hooks<E> {
     edge: Arc<E>,
-    fs: Arc<dyn Fs>,
 }
 
 impl<E: Edge + 'static> HookServer for Hooks<E> {
@@ -182,18 +178,12 @@ impl<E: Edge + 'static> HookServer for Hooks<E> {
         &'a self,
         bind: std::net::IpAddr,
     ) -> BoxFuture<'a, Result<Box<dyn Serving>, Report>> {
-        let _ = bind;
-        todo!("serve_tcp")
-    }
-
-    fn serve<'a>(&'a self, endpoint: &'a str) -> BoxFuture<'a, Result<Box<dyn Serving>, Report>> {
         Box::pin(async move {
-            // Sockets a killed run left are cleared first; failing to clear
-            // them is no reason not to serve.
-            let _ = crate::stale_socket::clear_stale(&*self.fs, Path::new(endpoint)).await;
-            let listener = HookListener::serve(Arc::clone(&self.edge), Path::new(endpoint))
-                .await
-                .map_err(|e| Report::of(&e))?;
+            // Port 0: each run gets a port of the system's choosing.
+            let listener =
+                HookListener::serve_tcp(Arc::clone(&self.edge), std::net::SocketAddr::new(bind, 0))
+                    .await
+                    .map_err(|e| Report::of(&e))?;
             Ok(Box::new(Live(listener)) as Box<dyn Serving>)
         })
     }
@@ -204,12 +194,12 @@ struct Live(HookListener);
 
 impl Serving for Live {
     fn port(&self) -> u16 {
-        0
+        self.0.local_addr().port()
     }
 
     fn stop(self: Box<Self>) -> BoxFuture<'static, ()> {
         // A stop that failed has nothing to tell a run that is over; the
-        // socket's guard removes the file as the listener drops either way.
+        // listener is aborted as it drops either way.
         Box::pin(async move {
             let _ = self.0.stop().await;
         })

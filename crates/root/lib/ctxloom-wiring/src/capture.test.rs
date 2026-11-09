@@ -341,7 +341,7 @@ fn a_book() -> angzarr_embedded::v1::CommandBook {
 
 #[test]
 fn the_hook_environment_makes_the_listener_sink_only_when_it_is_whole() {
-    let whole = HookSink::from_environment(Some("/run/x.sock"), Some(A_BEARER));
+    let whole = HookSink::from_environment(Some("http://127.0.0.1:9"), Some(A_BEARER));
     assert!(matches!(whole, HookSink::Listener(_)));
     let unreachable = |endpoint, bearer| {
         matches!(
@@ -351,10 +351,10 @@ fn the_hook_environment_makes_the_listener_sink_only_when_it_is_whole() {
     };
     assert!(unreachable(None, Some(A_BEARER)));
     assert!(unreachable(Some(""), Some(A_BEARER)));
-    assert!(unreachable(Some("/run/x.sock"), None));
-    assert!(unreachable(Some("/run/x.sock"), Some("")));
-    assert!(unreachable(Some("/run/x.sock"), Some("no-dot")));
-    assert!(unreachable(Some("/run/x.sock"), Some("run.nothex")));
+    assert!(unreachable(Some("http://127.0.0.1:9"), None));
+    assert!(unreachable(Some("http://127.0.0.1:9"), Some("")));
+    assert!(unreachable(Some("http://127.0.0.1:9"), Some("no-dot")));
+    assert!(unreachable(Some("http://127.0.0.1:9"), Some("run.nothex")));
 }
 
 #[test]
@@ -367,8 +367,8 @@ fn an_unreachable_hook_sink_says_the_listener_is_not_running() {
 }
 
 #[test]
-fn a_listener_hook_sink_at_a_dead_path_is_unavailable_and_keeps_the_bearer_out() {
-    let sink = HookSink::from_environment(Some("/nonexistent/ctxloom.sock"), Some(A_BEARER));
+fn a_listener_hook_sink_at_a_dead_port_is_unavailable_and_keeps_the_bearer_out() {
+    let sink = HookSink::from_environment(Some(&closed_url()), Some(A_BEARER));
     match sink.deliver(a_book(), Duration::from_secs(5)) {
         Delivery::Unavailable { detail } => {
             assert!(detail.contains("cannot reach"), "{detail}");
@@ -380,10 +380,18 @@ fn a_listener_hook_sink_at_a_dead_path_is_unavailable_and_keeps_the_bearer_out()
 
 #[test]
 fn a_hook_recording_over_a_dead_listener_says_unavailable_once_and_stops_trying() {
-    let sink = HookSink::from_environment(Some("/nonexistent/ctxloom.sock"), Some(A_BEARER));
+    let sink = HookSink::from_environment(Some(&closed_url()), Some(A_BEARER));
     let recording = HookRecording::new(sink, DirIds::new(Some(dir_with_metadata())));
     let missed = recording.record("PostToolBatch", HARP, &answer(batch()));
     assert_eq!(missed.len(), 2);
     assert!(missed[0].why.contains("cannot reach"), "{missed:?}");
     assert!(missed[1].why.contains("not tried"), "{missed:?}");
+}
+
+/// A loopback URL nobody listens on: a port that was bound, then released.
+fn closed_url() -> String {
+    let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = probe.local_addr().unwrap().port();
+    drop(probe);
+    run_ports::endpoint_url("127.0.0.1", port)
 }

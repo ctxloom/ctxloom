@@ -1,28 +1,30 @@
-//! The run's hook listener (owner rulings 2026-11-09, items 7, 9, 16 and 17):
-//! while an interactive run is live, this process serves the standard angzarr
-//! `CommandHandlerCoordinatorService.Handle` on a unix socket, so the hook
+//! The run's hook listener (owner rulings 2026-11-09, items 7, 9, 16, 17 and
+//! 31-33): while an interactive run is live, this process serves the standard
+//! angzarr `CommandHandlerCoordinatorService.Handle` on TCP, so the hook
 //! processes of the run's engine can deliver capture facts.
 //!
 //! Nothing here is ctxloom's own ingress service: the wire is angzarr's
-//! generic coordinator (`angzarr-coordinator-grpc`'s server on a `Listener::uds`,
-//! a socket of mode 0600 in a directory of mode 0700 that is created if need
-//! be, a stale socket replaced, a live one refused, the socket removed when
-//! the listener stops). What is ctxloom's is the admission gate in front of it
-//! ([`runs_application::HookGate`]: who the bearer is, the six capture-fact
-//! types, the caller's own session stream, validity until the run ends) and the
+//! generic coordinator (`angzarr-coordinator-grpc`'s server on a
+//! `Listener::tcp`, port 0, never an unspecified address, the arrival declared
+//! from the bind). What is ctxloom's is the admission gate in front of it
+//! ([`runs_application::HookGate`]: who the bearer is, the credential's scope,
+//! the caller's own session stream, validity until the run ends) and the
 //! command half behind it ([`runs_application::EdgeCommands`]: the kernel).
 //! `Handle` is the only operation served: the other operations of the service
 //! answer UNIMPLEMENTED, and the query service is not mounted at all (a hook
-//! never reads).
+//! never reads). A request over [`MAX_REQUEST_BYTES`] is refused undecoded.
 //!
-//! A listener spawns its tasks on the runtime that awaits [`HookListener::serve`]
-//! and needs it to be a multi-thread runtime (or its own): the run's engine is
-//! waited for in a blocking call, and a current-thread runtime blocked in it
-//! would serve nothing.
+//! The listener is plaintext: the bearer is the authentication (ruling 32),
+//! and it crosses loopback in the clear. The endpoint is a URL, so TLS is an
+//! additive step.
+//!
+//! A listener spawns its tasks on the runtime that awaits
+//! [`HookListener::serve_tcp`] and needs it to be a multi-thread runtime (or
+//! its own): the run's engine is waited for in a blocking call, and a
+//! current-thread runtime blocked in it would serve nothing.
 
 mod error;
 
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -56,37 +58,11 @@ pub fn reach_of(ip: std::net::IpAddr) -> Reach {
 pub struct HookListener {
     running: Running,
     endpoint: String,
-    tcp: Option<(std::net::SocketAddr, Reach)>,
+    addr: std::net::SocketAddr,
+    reach: Reach,
 }
 
 impl HookListener {
-    /// Serve the hooks of one run on the unix socket at `endpoint`, through
-    /// `edge` (the kernel). The socket's directory is created (mode 0700)
-    /// when it does not exist, and must be ours with that mode when it does.
-    pub async fn serve<E: Edge + 'static>(
-        edge: Arc<E>,
-        endpoint: &Path,
-    ) -> Result<HookListener, ListenerError> {
-        let coordinator = Coordinator::new(
-            EdgeCommands::new(Arc::clone(&edge)),
-            (),
-            HookGate::new(edge),
-        );
-        let running = Server::builder()
-            .add_service(CommandHandlerCoordinatorServiceServer::new(Served::new(
-                Arc::new(coordinator),
-            )))
-            .listen(Listener::uds(endpoint))
-            .bind()
-            .await
-            .map_err(|cause| ListenerError::bind(endpoint, &cause))?;
-        Ok(HookListener {
-            running,
-            endpoint: endpoint.display().to_string(),
-            tcp: None,
-        })
-    }
-
     /// Serve the hooks of one run on TCP at `addr` (port 0: the system gives
     /// a free one, [`HookListener::local_addr`] says which), through `edge`.
     /// An unspecified address is refused. The listener declares the arrival of
@@ -115,34 +91,37 @@ impl HookListener {
             .bind()
             .await
             .map_err(|cause| ListenerError::bind_addr(addr, &cause))?;
-        let bound = running.bound().endpoints().iter().find_map(|e| match e {
-            BoundEndpoint::Tcp { addr, arrival } => Some((*addr, *arrival)),
-            _ => None,
-        });
+        let (addr, reach) = running
+            .bound()
+            .endpoints()
+            .iter()
+            .find_map(|e| match e {
+                BoundEndpoint::Tcp { addr, arrival } => Some((*addr, *arrival)),
+                BoundEndpoint::Uds { .. } => None,
+            })
+            .ok_or_else(|| ListenerError::NotBound {
+                addr: addr.to_string(),
+            })?;
         Ok(HookListener {
             running,
-            endpoint: bound.map(|(a, _)| a.to_string()).unwrap_or_default(),
-            tcp: bound,
+            endpoint: addr.to_string(),
+            addr,
+            reach,
         })
     }
 
     /// The address a TCP listener is bound to.
-    pub fn local_addr(&self) -> Option<std::net::SocketAddr> {
-        self.tcp.map(|(addr, _)| addr)
+    pub fn local_addr(&self) -> std::net::SocketAddr {
+        self.addr
     }
 
     /// What the TCP listener declares of its requests.
-    pub fn reach(&self) -> Option<Reach> {
-        self.tcp.map(|(_, reach)| reach)
-    }
-
-    /// The socket's path, as served.
-    pub fn endpoint(&self) -> &str {
-        &self.endpoint
+    pub fn reach(&self) -> Reach {
+        self.reach
     }
 
     /// Stop serving: the calls open get [`STOP_GRACE`] to finish, then the
-    /// listener is aborted; the socket is removed either way.
+    /// listener is aborted either way.
     pub async fn stop(self) -> Result<(), ListenerError> {
         self.stop_within(STOP_GRACE).await
     }

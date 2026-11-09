@@ -118,7 +118,7 @@ pub enum HookSink {
 }
 
 impl HookSink {
-    /// The sink the hook environment makes: the endpoint (a unix socket path)
+    /// The sink the hook environment makes: the endpoint (a URL, `http://<host>:<port>`)
     /// and the bearer (`<run>.<token>`). A missing, empty or malformed one
     /// gives [`Unreachable`]: the hook fails open, as it did before there
     /// was a listener.

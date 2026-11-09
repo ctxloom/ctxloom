@@ -5,7 +5,7 @@ use std::fmt;
 use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 use library_application::AppError as PlanError;
 use run_launcher::LaunchError;
-use run_ports::{EndpointError, FailureClass};
+use run_ports::{BindRefusal, FailureClass};
 use runs::RunRejection;
 use runs_application::AppError as CoreError;
 
@@ -24,7 +24,7 @@ pub enum RunError {
     Refused(RunRejection),
     /// The run's listener has no socket path: nowhere to put it, or too long
     /// for a unix socket. Refused before anything is made.
-    Endpoint(Box<EndpointError>),
+    Bind(Box<BindRefusal>),
     /// The project could not be told.
     Project(Report),
     /// The run's hook listener could not be started: no hook could reach the
@@ -54,7 +54,7 @@ impl RunError {
             RunError::NoPrompt
             | RunError::UnknownEngine { .. }
             | RunError::Refused(_)
-            | RunError::Endpoint(_) => 2,
+            | RunError::Bind(_) => 2,
             RunError::Session(CoreError::Refused { .. }) => 2,
             _ => 1,
         }
@@ -84,7 +84,7 @@ impl Diagnostic for RunError {
             RunError::NoPrompt => code!("no-prompt"),
             RunError::UnknownEngine { .. } => code!("unknown-engine"),
             RunError::Refused(rejection) => rejection.code(),
-            RunError::Endpoint(error) => error.code(),
+            RunError::Bind(error) => error.code(),
             RunError::Project(_) => code!("project"),
             RunError::Listener(_) => code!("listener"),
             RunError::Session(_) => code!("session"),
@@ -110,7 +110,7 @@ impl Diagnostic for RunError {
                 ("known", known.as_str().into()),
             ],
             RunError::Refused(rejection) => rejection.args(),
-            RunError::Endpoint(error) => error.args(),
+            RunError::Bind(error) => error.args(),
             RunError::Project(report) => vec![("reason", report.code().into())],
             RunError::Listener(report) => vec![("reason", report.code().into())],
             RunError::Session(error) => vec![("reason", why(error).into())],

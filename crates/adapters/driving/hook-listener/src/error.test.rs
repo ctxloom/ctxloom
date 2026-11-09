@@ -32,14 +32,16 @@ fn every_diagnostic_has_a_message_using_exactly_its_args() {
 }
 
 #[test]
-fn a_bind_failure_names_the_socket_and_carries_the_listeners_cause() {
-    let cause = ListenError::DirectoryNotPrivate {
-        path: "/run/x".to_string(),
+fn a_bind_failure_names_the_address_and_carries_the_listeners_cause() {
+    let cause = ListenError::Io {
+        op: "bind",
+        target: "127.0.0.1:9".to_string(),
+        error: "in use".to_string(),
     };
-    let error = ListenerError::bind(std::path::Path::new("/run/x/a.sock"), &cause);
+    let error = ListenerError::bind_addr("127.0.0.1:9".parse().unwrap(), &cause);
     assert_eq!(error.code(), "hook-listener-bind");
     let rendered = error.to_string();
-    assert!(rendered.contains("/run/x/a.sock"), "{rendered}");
+    assert!(rendered.contains("127.0.0.1:9"), "{rendered}");
 }
 
 // The samples hold a value of every code of the crate: a catalog test that
@@ -55,6 +57,7 @@ fn the_samples_hold_a_value_of_every_code() {
         codes,
         [
             "hook-listener-bind",
+            "hook-listener-bind-not-reported",
             "hook-listener-bind-unspecified",
             "hook-listener-stop",
             "hook-listener-stop-timed-out"

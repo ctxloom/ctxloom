@@ -33,48 +33,6 @@ pub const HARP_VARIABLE: &str = "CTXLOOM_SESSION_HARP";
 /// no other.
 pub const HOOK_VARIABLES: [&str; 3] = [ENDPOINT_VARIABLE, BEARER_VARIABLE, RUN_VARIABLE];
 
-// LEGACY (removed in the green commit of this unit)
-use std::path::Path;
-/// The longest socket path the kernel takes: `sun_path` is 108 bytes on Linux,
-/// one of them the terminator.
-pub const SOCKET_PATH_LIMIT: usize = 107;
-
-/// How many bytes of the run's root name its socket: 16 hexadecimal digits.
-const SHORT_BYTES: usize = 8;
-
-/// The run's listener socket: `<runtime_dir>/ctxloom/<short>.sock` when the
-/// runtime directory (`XDG_RUNTIME_DIR`) is set and absolute, else
-/// `<home>/.ctxloom/run/<short>.sock` under ctxloom's home. `<short>` is the
-/// first 8 bytes of the run's root in hex: a run's root is unique, so two runs
-/// never share a socket. A path longer than [`SOCKET_PATH_LIMIT`] is refused,
-/// not truncated.
-pub fn endpoint_path(
-    runtime_dir: Option<&str>,
-    home: &str,
-    run: &[u8],
-) -> Result<String, EndpointError> {
-    let Some(root) = run.get(..SHORT_BYTES) else {
-        return Err(EndpointError::RunTooShort {
-            length: run.len() as u64,
-        });
-    };
-    let short: String = root.iter().map(|b| format!("{b:02x}")).collect();
-    let file = format!("{short}.sock");
-    let dir = match runtime_dir.filter(|dir| Path::new(dir).is_absolute()) {
-        Some(runtime) => Path::new(runtime).join("ctxloom"),
-        None if Path::new(home).is_absolute() => Path::new(home).join(".ctxloom").join("run"),
-        None => return Err(EndpointError::NoDirectory),
-    };
-    let path = dir.join(file).to_string_lossy().into_owned();
-    match path.len() > SOCKET_PATH_LIMIT {
-        true => Err(EndpointError::TooLong {
-            path,
-            limit: SOCKET_PATH_LIMIT as u64,
-        }),
-        false => Ok(path),
-    }
-}
-
 /// The URL a hook process dials for the listener at `host` and `port`:
 /// `http://<host>:<port>` (it will be `https://` when the listener has a
 /// certificate). An IPv6 literal is bracketed.
@@ -154,22 +112,10 @@ pub fn parse_endpoint(text: &str) -> Result<Dial, EndpointError> {
 /// Why an endpoint text is not a listener's URL.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EndpointError {
-    TooLong {
-        path: String,
-        limit: u64,
-    },
-    RunTooShort {
-        length: u64,
-    },
-    NoDirectory,
     /// Not `<scheme>://<host>:<port>`.
-    Malformed {
-        endpoint: String,
-    },
+    Malformed { endpoint: String },
     /// A scheme other than `http` and `https`.
-    Scheme {
-        scheme: String,
-    },
+    Scheme { scheme: String },
 }
 
 impl fmt::Display for EndpointError {
@@ -181,9 +127,6 @@ impl fmt::Display for EndpointError {
 impl Diagnostic for EndpointError {
     fn code(&self) -> &str {
         match self {
-            EndpointError::TooLong { .. } => code!("endpoint-too-long"),
-            EndpointError::RunTooShort { .. } => code!("endpoint-run-too-short"),
-            EndpointError::NoDirectory => code!("endpoint-no-directory"),
             EndpointError::Malformed { .. } => code!("endpoint-malformed"),
             EndpointError::Scheme { .. } => code!("endpoint-scheme"),
         }
@@ -191,9 +134,6 @@ impl Diagnostic for EndpointError {
 
     fn args(&self) -> Vec<(&str, Arg)> {
         match self {
-            EndpointError::TooLong { .. }
-            | EndpointError::RunTooShort { .. }
-            | EndpointError::NoDirectory => Vec::new(),
             EndpointError::Malformed { endpoint } => vec![("endpoint", endpoint.as_str().into())],
             EndpointError::Scheme { scheme } => vec![("scheme", scheme.as_str().into())],
         }

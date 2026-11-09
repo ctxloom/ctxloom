@@ -349,6 +349,14 @@ fn test_a_hook_with_no_endpoint_says_the_listener_is_not_running() {
     );
 }
 
+/// A loopback URL nobody listens on: a port that was bound, then released.
+fn closed_endpoint() -> String {
+    let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = probe.local_addr().unwrap().port();
+    drop(probe);
+    format!("http://127.0.0.1:{port}")
+}
+
 // A malformed bearer is no credential: the same fail-open, and the bearer text
 // is never echoed.
 #[test]
@@ -360,7 +368,7 @@ fn test_a_hook_with_a_malformed_bearer_fails_open_without_echoing_it() {
         STOP,
         &[
             ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
-            ("CTXLOOM_ENDPOINT", "/nonexistent/ctxloom.sock"),
+            ("CTXLOOM_ENDPOINT", &closed_endpoint()),
             ("CTXLOOM_BEARER", "not-a-bearer-zzz"),
         ],
     );
@@ -380,7 +388,7 @@ fn test_a_hook_whose_endpoint_is_dead_says_it_could_not_reach_the_listener() {
         STOP,
         &[
             ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
-            ("CTXLOOM_ENDPOINT", "/nonexistent/ctxloom.sock"),
+            ("CTXLOOM_ENDPOINT", &closed_endpoint()),
             ("CTXLOOM_BEARER", A_BEARER),
         ],
     );

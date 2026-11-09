@@ -285,11 +285,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "angzarr-test-dir"
-version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr?rev=3311a3ae4f42d70c498581ea738449534048dad5#3311a3ae4f42d70c498581ea738449534048dad5"
-
-[[package]]
 name = "angzarr-yaml"
 version = "0.1.0"
 source = "git+https://github.com/angzarr-io/angzarr?rev=3311a3ae4f42d70c498581ea738449534048dad5#3311a3ae4f42d70c498581ea738449534048dad5"
@@ -1772,12 +1767,8 @@ dependencies = [
  "angzarr-embedded",
  "angzarr-embedded-host",
  "angzarr-proto-transport-distributed",
- "angzarr-test-dir",
  "embedded-edge",
- "file-system",
- "hyper-util",
  "mutants",
- "os",
  "run-ports",
  "runs",
  "runs-application",

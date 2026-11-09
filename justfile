@@ -169,7 +169,7 @@ clean-target:
 
 # The self-tests of this repository's scripts against fixture trees.
 [group('check')]
-[doc("Self-tests of the scripts: mutants-batch, closeout, ltk rules, output budget, exec-mode check")]
+[doc("Self-tests of the scripts: mutants-batch, closeout, ltk rules, output budget, exec-mode check, path deps")]
 [no-exit-message]
 selftest:
     @{{TOP}}/scripts/mutants-batch.selftest.sh
@@ -177,6 +177,7 @@ selftest:
     @{{TOP}}/scripts/ltk-rules-check.sh
     @{{TOP}}/scripts/output-budget.selftest.sh
     @{{TOP}}/scripts/exec-mode-check.selftest.sh
+    @{{TOP}}/scripts/path-deps-check.selftest.sh
 
 # Run the ctxloom binary (cargo run, quiet) with the given arguments.
 [group('dev')]

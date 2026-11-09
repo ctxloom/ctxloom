@@ -1,0 +1,257 @@
+//! The [`FactSink`] a hook process delivers through: a gRPC client of the run
+//! process's `CommandHandlerCoordinatorService.Handle` over a unix socket
+//! (`CTXLOOM_ENDPOINT`), the bearer (`CTXLOOM_BEARER`) in the `authorization`
+//! metadata (owner rulings 2026-11-08 item 9, 2026-11-09 items 16 and 17).
+//!
+//! `deliver` is synchronous, so the sink owns a small current-thread runtime
+//! (on a thread of its own, so it may be called from inside another runtime)
+//! and blocks on the call. The deadline `within` bounds the WHOLE call, the
+//! connect included: a dead or stuck listener costs a hook at most its budget
+//! and the hook fails open.
+//!
+//! How the outcome maps to a [`Delivery`]:
+//!
+//! | outcome                                                | delivery      |
+//! |--------------------------------------------------------|---------------|
+//! | `CommandResult` APPLIED                                | `Applied`     |
+//! | `CommandResult` DUPLICATE (an answer, not an error)    | `Duplicate`   |
+//! | `CommandResult` with no outcome                        | `Refused`     |
+//! | INTERNAL `ANGZARR_REASON_FACT_DEAD_LETTERED`           | `Parked`      |
+//! | DEADLINE_EXCEEDED, or the deadline passing             | `TimedOut`    |
+//! | connect or transport failure, UNAVAILABLE, ABORTED, RESOURCE_EXHAUSTED, UNKNOWN, INTERNAL, DATA_LOSS | `Unavailable` |
+//! | any other status (unauthenticated, permission denied, not found, ...) | `Refused` |
+//!
+//! The bearer is a secret: the sink's `Debug` withholds it, and every detail
+//! it produces has the bearer's text scrubbed out.
+
+use std::fmt;
+use std::future::Future;
+use std::io;
+use std::path::PathBuf;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use std::time::Duration;
+
+use angzarr_embedded::v1::{CommandBook, DeliveryOutcome};
+use angzarr_proto_transport_distributed::v1::command_handler_coordinator_service_client::CommandHandlerCoordinatorServiceClient;
+use angzarr_proto_transport_distributed::v1::CommandResult;
+use hyper_util::rt::TokioIo;
+use prost::Message;
+use run_ports::{Bearer, Delivery, FactSink};
+use tonic::codegen::http::Uri;
+use tonic::codegen::Service;
+use tonic::metadata::MetadataValue;
+use tonic::transport::Endpoint;
+use tonic::{Code, Request, Status};
+
+/// The reason key of a fact the kernel dead-lettered.
+const DEAD_LETTERED: &str = "ANGZARR_REASON_FACT_DEAD_LETTERED";
+
+/// `google.rpc.Status`, the message a status's details travel in.
+#[derive(Clone, PartialEq, Message)]
+struct RpcStatus {
+    #[prost(int32, tag = "1")]
+    code: i32,
+    #[prost(string, tag = "2")]
+    message: String,
+    #[prost(message, repeated, tag = "3")]
+    details: Vec<prost_types::Any>,
+}
+
+/// `google.rpc.ErrorInfo`: the reason is the key a refusal is answered under.
+#[derive(Clone, PartialEq, Message)]
+struct ErrorInfo {
+    #[prost(string, tag = "1")]
+    reason: String,
+}
+
+/// Why a call did not answer.
+enum Failed {
+    /// No connection, or a broken one: said as text.
+    Transport(String),
+    /// The listener answered with a status.
+    Status(Status),
+}
+
+/// The sink: where the run's listener is, and the credential it is given.
+pub struct GrpcSink {
+    socket: PathBuf,
+    bearer: Bearer,
+}
+
+impl GrpcSink {
+    /// A sink delivering to the listener on the unix socket at `socket`,
+    /// authenticated by `bearer`.
+    pub fn new(socket: impl Into<PathBuf>, bearer: Bearer) -> GrpcSink {
+        GrpcSink {
+            socket: socket.into(),
+            bearer,
+        }
+    }
+
+    async fn call(&self, book: CommandBook) -> Result<CommandResult, Failed> {
+        let channel = Endpoint::from_static("http://uds.invalid")
+            .connect_with_connector(Unix(self.socket.clone()))
+            .await
+            .map_err(|e| Failed::Transport(format!("cannot reach the listener: {}", chain(&e))))?;
+        let mut request = Request::new(book);
+        let mut value = MetadataValue::try_from(format!("Bearer {}", self.bearer.expose()))
+            .map_err(|_| Failed::Transport("the bearer is not valid header text".to_string()))?;
+        value.set_sensitive(true);
+        request.metadata_mut().insert("authorization", value);
+        CommandHandlerCoordinatorServiceClient::new(channel)
+            .handle(request)
+            .await
+            .map(tonic::Response::into_inner)
+            .map_err(Failed::Status)
+    }
+
+    fn scrub(&self, text: String) -> String {
+        match self.bearer.expose() {
+            "" => text,
+            secret => text.replace(secret, "<redacted>"),
+        }
+    }
+
+    fn block_on(&self, book: CommandBook, within: Duration) -> Delivery {
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .enable_io()
+            .build()
+        {
+            Ok(runtime) => runtime,
+            Err(e) => {
+                return Delivery::Unavailable {
+                    detail: self.scrub(format!("no runtime to deliver on: {e}")),
+                }
+            }
+        };
+        runtime.block_on(async {
+            match tokio::time::timeout(within, self.call(book)).await {
+                Err(_) => Delivery::TimedOut,
+                Ok(Ok(result)) => delivery_of_result(&result),
+                Ok(Err(Failed::Status(status))) => self.delivery_of_status(&status),
+                Ok(Err(Failed::Transport(text))) => Delivery::Unavailable {
+                    detail: self.scrub(text),
+                },
+            }
+        })
+    }
+
+    fn delivery_of_status(&self, status: &Status) -> Delivery {
+        let reason = reason_of(status);
+        match delivery_of_code(status.code(), status.message(), &reason) {
+            Delivery::Unavailable { detail } => Delivery::Unavailable {
+                detail: self.scrub(detail),
+            },
+            Delivery::Refused { detail } => Delivery::Refused {
+                detail: self.scrub(detail),
+            },
+            other => other,
+        }
+    }
+}
+
+impl fmt::Debug for GrpcSink {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GrpcSink")
+            .field("socket", &self.socket)
+            .field("bearer", &self.bearer)
+            .finish()
+    }
+}
+
+impl FactSink for GrpcSink {
+    fn deliver(&self, book: CommandBook, within: Duration) -> Delivery {
+        // A thread of its own: this may be called from inside another
+        // runtime's thread, which cannot block on one.
+        std::thread::scope(
+            |scope| match scope.spawn(move || self.block_on(book, within)).join() {
+                Ok(delivery) => delivery,
+                Err(_) => Delivery::Unavailable {
+                    detail: "the delivery panicked".to_string(),
+                },
+            },
+        )
+    }
+}
+
+/// What a `CommandResult` means to its sender.
+fn delivery_of_result(result: &CommandResult) -> Delivery {
+    match DeliveryOutcome::try_from(result.delivery) {
+        Ok(DeliveryOutcome::Applied) => Delivery::Applied,
+        Ok(DeliveryOutcome::Duplicate) => Delivery::Duplicate,
+        _ => Delivery::Refused {
+            detail: "the listener gave no delivery outcome".to_string(),
+        },
+    }
+}
+
+/// What a failed call's status means to its sender.
+fn delivery_of_code(code: Code, message: &str, reason: &str) -> Delivery {
+    let detail = format!("{code:?}: {message}");
+    match code {
+        Code::DeadlineExceeded => Delivery::TimedOut,
+        Code::Internal if message == DEAD_LETTERED || reason == DEAD_LETTERED => Delivery::Parked,
+        Code::Unavailable
+        | Code::Aborted
+        | Code::ResourceExhausted
+        | Code::Unknown
+        | Code::Internal
+        | Code::DataLoss => Delivery::Unavailable { detail },
+        _ => Delivery::Refused { detail },
+    }
+}
+
+/// The reason key a status carries in its `google.rpc.ErrorInfo` detail.
+fn reason_of(status: &Status) -> String {
+    RpcStatus::decode(status.details())
+        .ok()
+        .and_then(|rpc| {
+            rpc.details
+                .iter()
+                .find_map(|any| ErrorInfo::decode(any.value.as_slice()).ok())
+        })
+        .map(|info| info.reason)
+        .unwrap_or_default()
+}
+
+/// An error with its sources, as one line.
+fn chain(error: &dyn std::error::Error) -> String {
+    let mut text = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        text.push_str(": ");
+        text.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    text
+}
+
+/// Connects to the unix socket, whatever URI it is given.
+#[derive(Clone)]
+struct Unix(PathBuf);
+
+type Connecting = Pin<Box<dyn Future<Output = io::Result<TokioIo<tokio::net::UnixStream>>> + Send>>;
+
+impl Service<Uri> for Unix {
+    type Response = TokioIo<tokio::net::UnixStream>;
+    type Error = io::Error;
+    type Future = Connecting;
+
+    // Equivalent mutant: a connector is always ready, and this body is already
+    // `Poll::Ready(Ok(()))`, which is what `Poll::from(Ok(()))` builds.
+    #[cfg_attr(test, mutants::skip)]
+    fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, _: Uri) -> Connecting {
+        let path = self.0.clone();
+        Box::pin(async move { Ok(TokioIo::new(tokio::net::UnixStream::connect(path).await?)) })
+    }
+}
+
+#[cfg(test)]
+#[path = "lib.test.rs"]
+mod tests;

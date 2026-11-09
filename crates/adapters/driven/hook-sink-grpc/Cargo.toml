@@ -1,0 +1,32 @@
+[package]
+name = "hook-sink-grpc"
+version = "0.1.0"
+description = "run-ports' FactSink over gRPC: a hook process delivers a fact book to the run process's CommandHandlerCoordinatorService.Handle on a unix socket, the bearer in the authorization metadata"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-embedded.workspace = true
+angzarr-proto-transport-distributed.workspace = true
+run-ports.workspace = true
+prost.workspace = true
+prost-types.workspace = true
+# The client channel over a connector of our own; no router, no server, no TLS.
+tonic = { version = "0.14", default-features = false, features = ["channel", "codegen"] }
+# A unix stream as the IO hyper reads (the connector's response).
+hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
+# One current-thread runtime for the call: time for the deadline, net for the socket.
+tokio = { workspace = true, features = ["rt", "time", "net"] }
+
+[dev-dependencies]
+mutants.workspace = true
+file-system = { workspace = true, features = ["test-support"] }
+# The fake server of the tests: the generated service trait, served on a unix socket.
+tonic = { version = "0.14", default-features = false, features = ["channel", "codegen", "router", "server"] }
+tokio-stream = { version = "0.1", features = ["net"] }
+tokio = { workspace = true, features = ["rt", "time", "net", "sync"] }
+
+[lints]
+workspace = true

@@ -10,6 +10,9 @@
 //!   Every delivery is `Unavailable`, so a hook fails open: the engine is
 //!   answered as usual and each observation is said, on stderr, to be not
 //!   recorded.
+//! - [`HookSink`]: what a hook process delivers through: [`GrpcSink`] to the
+//!   run's listener when `CTXLOOM_ENDPOINT` and `CTXLOOM_BEARER` are set and
+//!   well formed, else [`Unreachable`].
 //! - [`SessionIds`] / [`DirIds`]: a harp to its session's id. A session's id
 //!   is minted at random (it is not derived from the harp), and its directory
 //!   records it in `metadata.json`, so that is where a hook reads it.
@@ -22,8 +25,9 @@ use std::time::Duration;
 use angzarr_embedded::v1::{DeliveryOutcome, Uuid};
 use angzarr_embedded::{Failure, KernelError};
 use hook_cli::{NotRecorded, Recording};
+use hook_sink_grpc::GrpcSink;
 use run_launcher::METADATA;
-use run_ports::{Arrival, Delivery, Edge, FactSink, SessionRecords, Unserved};
+use run_ports::{Arrival, Bearer, Delivery, Edge, FactSink, SessionRecords, Unserved};
 use runs_application::{delivery_budget, Capture};
 use setup_application::HookAnswer;
 use surface_ports::Json;
@@ -102,6 +106,39 @@ impl FactSink for Unreachable {
     fn deliver(&self, _: angzarr_embedded::v1::CommandBook, _: Duration) -> Delivery {
         Delivery::Unavailable {
             detail: "the listener is not running".to_string(),
+        }
+    }
+}
+
+/// The sink of a hook process: the run's listener when the environment names
+/// one, else [`Unreachable`].
+pub enum HookSink {
+    Listener(GrpcSink),
+    Unreachable(Unreachable),
+}
+
+impl HookSink {
+    /// The sink the hook environment makes: the endpoint (a unix socket path)
+    /// and the bearer (`<run>.<token>`). A missing, empty or malformed one
+    /// gives [`Unreachable`]: the hook fails open, as it did before there
+    /// was a listener.
+    pub fn from_environment(endpoint: Option<&str>, bearer: Option<&str>) -> HookSink {
+        let made = endpoint.filter(|e| !e.is_empty()).and_then(|endpoint| {
+            let (run, token) = Bearer::parse(bearer?).ok()?;
+            Some(GrpcSink::new(endpoint, Bearer::compose(&run, &token)))
+        });
+        match made {
+            Some(sink) => HookSink::Listener(sink),
+            None => HookSink::Unreachable(Unreachable),
+        }
+    }
+}
+
+impl FactSink for HookSink {
+    fn deliver(&self, book: angzarr_embedded::v1::CommandBook, within: Duration) -> Delivery {
+        match self {
+            HookSink::Listener(sink) => sink.deliver(book, within),
+            HookSink::Unreachable(sink) => sink.deliver(book, within),
         }
     }
 }

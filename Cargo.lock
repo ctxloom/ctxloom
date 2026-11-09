@@ -919,6 +919,7 @@ dependencies = [
  "harp-names",
  "hook-cli",
  "hook-listener",
+ "hook-sink-grpc",
  "host-launcher",
  "init-application",
  "isolation-application",
@@ -1784,6 +1785,23 @@ dependencies = [
  "tokio",
  "tonic",
  "uuid",
+]
+
+[[package]]
+name = "hook-sink-grpc"
+version = "0.1.0"
+dependencies = [
+ "angzarr-embedded",
+ "angzarr-proto-transport-distributed",
+ "file-system",
+ "hyper-util",
+ "mutants",
+ "prost",
+ "prost-types",
+ "run-ports",
+ "tokio",
+ "tokio-stream",
+ "tonic",
 ]
 
 [[package]]

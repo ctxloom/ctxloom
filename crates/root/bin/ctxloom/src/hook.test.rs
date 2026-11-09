@@ -308,6 +308,93 @@ fn test_execute_of_the_data_events_answers_silence_and_notes_what_it_did_not_rec
     }
 }
 
+const RECORDED_HARP: &str = "brisk-copper-moth";
+const STOP: &str = r#"{"session_id":"s","prompt_id":"p","hook_event_name":"Stop","last_assistant_message":"done"}"#;
+/// A well formed bearer: `<run>.<64 hex>`.
+const A_BEARER: &str = "0a1b2c3d-0000-4000-8000-000000000001.\
+    abababababababababababababababababababababababababababababababab"; // gitleaks:allow
+
+impl Env {
+    /// The session directory a harp's hook finds its session in.
+    fn with_session_directory(&self, harp: &str) {
+        files::put(
+            self.home()
+                .join(".ctxloom/sessions")
+                .join(harp)
+                .join("metadata.json"),
+            format!("{{\"v\": 1, \"id\": \"0a1b2c3d-0000-4000-8000-0000000000aa\", \"harp\": \"{harp}\"}}\n"),
+        );
+    }
+}
+
+// The hook's delivery with no endpoint in its environment is as it was before
+// the listener: the observation is not recorded, said once, and the hook
+// answers and exits 0.
+#[test]
+fn test_a_hook_with_no_endpoint_says_the_listener_is_not_running() {
+    let env = Env::new();
+    env.with_session_directory(RECORDED_HARP);
+    let ran = env.run_hook(
+        &["hook", "claude-code", "execute", "Stop"],
+        STOP,
+        &[("CTXLOOM_SESSION_HARP", RECORDED_HARP)],
+    );
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    assert_eq!(ran.stdout.trim(), "{}");
+    assert_not_recorded(&ran.stderr, 1, "no endpoint");
+    assert!(
+        ran.stderr.contains("listener is not running"),
+        "{}",
+        ran.stderr
+    );
+}
+
+// A malformed bearer is no credential: the same fail-open, and the bearer text
+// is never echoed.
+#[test]
+fn test_a_hook_with_a_malformed_bearer_fails_open_without_echoing_it() {
+    let env = Env::new();
+    env.with_session_directory(RECORDED_HARP);
+    let ran = env.run_hook(
+        &["hook", "claude-code", "execute", "Stop"],
+        STOP,
+        &[
+            ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
+            ("CTXLOOM_ENDPOINT", "/nonexistent/ctxloom.sock"),
+            ("CTXLOOM_BEARER", "not-a-bearer-zzz"),
+        ],
+    );
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    assert_not_recorded(&ran.stderr, 1, "malformed bearer");
+    assert!(!ran.stderr.contains("not-a-bearer-zzz"), "{}", ran.stderr);
+}
+
+// An endpoint nobody listens on: the delivery is unavailable, said once per
+// observation, and the hook still answers and exits 0.
+#[test]
+fn test_a_hook_whose_endpoint_is_dead_says_it_could_not_reach_the_listener() {
+    let env = Env::new();
+    env.with_session_directory(RECORDED_HARP);
+    let ran = env.run_hook(
+        &["hook", "claude-code", "execute", "Stop"],
+        STOP,
+        &[
+            ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
+            ("CTXLOOM_ENDPOINT", "/nonexistent/ctxloom.sock"),
+            ("CTXLOOM_BEARER", A_BEARER),
+        ],
+    );
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    assert_eq!(ran.stdout.trim(), "{}");
+    assert_not_recorded(&ran.stderr, 1, "dead endpoint");
+    assert!(
+        ran.stderr.contains("cannot reach the listener"),
+        "{}",
+        ran.stderr
+    );
+    assert!(!ran.stderr.contains(A_BEARER), "{}", ran.stderr);
+}
+
 // A hook with no harp has no session to address: it attempts no observation
 // and warns of none (not a warning with an empty name).
 #[test]

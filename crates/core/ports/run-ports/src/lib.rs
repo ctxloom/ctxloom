@@ -17,7 +17,7 @@ mod token;
 pub use edge::{Arrival, Edge, Unserved};
 pub use engine::{
     copy_in, Engine, EngineError, FailureClass, HomeFile, PrepareRequest, Prepared, TurnOutcome,
-    TurnRequest,
+    TurnRequest, HOME_VARIABLE,
 };
 pub use launcher::{
     Exit, Launch, LaunchEvent, LaunchFailure, Limits, RunnerLauncher, TurnCommand, TurnOutput,

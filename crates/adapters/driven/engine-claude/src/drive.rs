@@ -20,6 +20,9 @@ use run_ports::{
 
 use crate::{stream, Claude, NAME};
 
+/// The settings file of a session home (claude's config dir).
+const SETTINGS_FILE: &str = "settings.json";
+
 /// The context file's name in the session home.
 pub const CONTEXT_PROMPT_FILE: &str = "ctxloom-context.md";
 
@@ -48,6 +51,28 @@ pub const ENV_ALLOWLIST: &[&str] = &[
     "ANTHROPIC_API_KEY",
 ];
 
+/// The variables of the caller's environment the human's terminal session is
+/// given: a turn's, and ctxloom's home by name. Its hook processes run
+/// without `HOME`, and find ctxloom's home through this one explicit variable.
+pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = &[
+    "PATH",
+    "LANG",
+    "LC_ALL",
+    "TMPDIR",
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "NO_PROXY",
+    "https_proxy",
+    "http_proxy",
+    "no_proxy",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "NODE_EXTRA_CA_CERTS",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "ANTHROPIC_API_KEY",
+    run_ports::HOME_VARIABLE,
+];
+
 /// The files of the user's own claude configuration that are copied into a
 /// session home. None yet: which of them a child may see is the owner's to
 /// rule, and until then nothing of `~/.claude` crosses.
@@ -59,11 +84,20 @@ impl Engine for Claude {
     }
 
     fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
+        let mut files = vec![HomeFile {
+            rel: CONTEXT_PROMPT_FILE.to_string(),
+            bytes: request.context.clone().into_bytes(),
+        }];
+        // Hooks are the terminal session's way to be heard; a child's turn is
+        // one command, whose end is its exit.
+        if request.interactive {
+            files.push(HomeFile {
+                rel: SETTINGS_FILE.to_string(),
+                bytes: crate::hooks::home_settings().into_bytes(),
+            });
+        }
         Ok(Prepared {
-            files: vec![HomeFile {
-                rel: CONTEXT_PROMPT_FILE.to_string(),
-                bytes: request.context.clone().into_bytes(),
-            }],
+            files,
             copy_in: copy_in(COPY_IN_ALLOWLIST, &request.offered),
             context_path: format!("{}/{CONTEXT_PROMPT_FILE}", request.home),
         })
@@ -80,7 +114,7 @@ impl Engine for Claude {
             command.args.push("--resume".to_string());
             command.args.push(native_id.clone());
         }
-        command.env = environment(&request.env, &request.home);
+        command.env = environment(ENV_ALLOWLIST, &request.env, &request.home);
         command.stdin = request.prompt.clone().into_bytes();
         command.cwd = request.cwd.clone();
         Ok(command)
@@ -104,18 +138,22 @@ impl Engine for Claude {
         if !request.prompt.trim().is_empty() {
             command.args.push(request.prompt.clone());
         }
-        command.env = environment(&request.env, &request.home);
+        command.env = environment(INTERACTIVE_ENV_ALLOWLIST, &request.env, &request.home);
         command.cwd = request.cwd.clone();
         Ok(command)
     }
 }
 
-/// The turn's whole environment: `caller`'s allowlisted variables and
+/// The command's whole environment: `caller`'s variables on `allowed` and
 /// `CLAUDE_CONFIG_DIR` set to `home`.
-fn environment(caller: &BTreeMap<String, String>, home: &str) -> BTreeMap<String, String> {
+fn environment(
+    allowed: &[&str],
+    caller: &BTreeMap<String, String>,
+    home: &str,
+) -> BTreeMap<String, String> {
     let mut env: BTreeMap<String, String> = caller
         .iter()
-        .filter(|(name, _)| ENV_ALLOWLIST.contains(&name.as_str()))
+        .filter(|(name, _)| allowed.contains(&name.as_str()))
         .map(|(name, value)| (name.clone(), value.clone()))
         .collect();
     env.insert("CLAUDE_CONFIG_DIR".to_string(), home.to_string());

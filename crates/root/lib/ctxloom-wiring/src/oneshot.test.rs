@@ -1,6 +1,8 @@
 use ports::{Project, ProjectIdentity};
 
-use super::Told;
+use super::{run_env, Told};
+use process_env::EnvSnapshot;
+use std::path::Path;
 
 fn project() -> Project {
     Project {
@@ -156,4 +158,20 @@ async fn the_core_serves_the_catalog_of_its_domains() {
             .any(|d| d == sessions::SESSION_DOMAIN),
         "the sessions domain is registered"
     );
+}
+
+// Owner ruling 2026-11-08: the engine is given ctxloom's home by name. The
+// run's environment carries the home the wiring resolved under the variable,
+// whatever the caller had (or had not) set, beside everything the caller had.
+#[test]
+fn the_run_environment_names_the_resolved_home() {
+    let caller = EnvSnapshot::of([
+        ("HOME", "/home/u"),
+        ("PATH", "/bin"),
+        ("CTXLOOM_HOME", "/old"),
+    ]);
+    let env = run_env(&caller, Path::new("/home/u"));
+    assert_eq!(env.get("CTXLOOM_HOME").map(String::as_str), Some("/home/u"));
+    assert_eq!(env.get("HOME").map(String::as_str), Some("/home/u"));
+    assert_eq!(env.get("PATH").map(String::as_str), Some("/bin"));
 }

@@ -41,6 +41,38 @@ impl Env {
     }
 }
 
+impl Env {
+    /// Run `ctxloom args` as the interactive engine's hook process runs it:
+    /// no `HOME` (nor `USERPROFILE`), `vars` and the engine's `PATH` only.
+    pub(crate) fn run_hook_without_home(
+        &self,
+        args: &[&str],
+        stdin: &str,
+        vars: &[(&str, &str)],
+    ) -> Ran {
+        let mut command = Command::new(binary());
+        command
+            .args(args)
+            .env_clear()
+            .env("TMPDIR", crate::tests::temp_root())
+            .current_dir(self.home())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        for name in ["PATH", "SystemRoot"] {
+            if let Some(value) = crate::tests::host_var(name) {
+                command.env(name, value);
+            }
+        }
+        for (name, value) in vars {
+            command.env(name, value);
+        }
+        let mut child = command.spawn().expect("ctxloom runs");
+        crate::tests::feed(child.stdin.take().expect("stdin"), stdin);
+        Ran::of(child.wait_with_output().expect("ctxloom finishes"))
+    }
+}
+
 /// Every path under `dir`, relative to it, sorted.
 fn tree(dir: &Path) -> Vec<PathBuf> {
     fn walk(dir: &Path, root: &Path, found: &mut Vec<PathBuf>) {
@@ -289,4 +321,52 @@ fn test_hook_help_names_execute() {
     assert_eq!(hook.code, 0, "{}", hook.said());
     assert!(hook.stdout.contains("execute"), "{}", hook.stdout);
     assert!(!hook.stdout.contains("session-bind"), "{}", hook.stdout);
+}
+
+// Owner ruling 2026-11-08: the interactive engine's env carries no HOME, so a
+// hook process finds ctxloom's home through CTXLOOM_HOME, and answers as it
+// does with a HOME.
+#[test]
+fn test_a_hook_process_without_home_finds_the_home_through_ctxloom_home() {
+    let env = Env::new();
+    let home = env.home().to_string_lossy().to_string();
+    let payload = r#"{"session_id":"s","prompt_id":"p","hook_event_name":"Stop","last_assistant_message":"done"}"#;
+    let ran = env.run_hook_without_home(
+        &["hook", "claude-code", "execute", "Stop"],
+        payload,
+        &[("CTXLOOM_HOME", &home)],
+    );
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    assert_eq!(
+        ran.stdout.trim(),
+        "{}",
+        "a data event answers the empty response"
+    );
+    assert_eq!(ran.stderr, "", "no error: the home was found");
+    let start = env.run_hook_without_home(
+        &["hook", "claude-code", "execute", "SessionStart"],
+        "{}",
+        &[("CTXLOOM_HOME", &home)],
+    );
+    assert_eq!(start.code, 0, "{}", start.said());
+    assert!(!start.stderr.contains("no home"), "{}", start.said());
+}
+
+// Without HOME and without the variable there is no home to find, and the
+// refusal says which variables were looked for.
+#[test]
+fn test_a_hook_process_with_no_home_at_all_is_refused_naming_both_variables() {
+    let env = Env::new();
+    let ran = env.run_hook_without_home(
+        &["--format", "json", "hook", "claude-code", "execute", "Stop"],
+        "{}",
+        &[],
+    );
+    assert_eq!(ran.code, 1, "{}", ran.said());
+    let err = ran.err_json();
+    assert_eq!(err["code"], "ctxloom-wiring-no-home");
+    assert!(
+        err["message"].as_str().unwrap().contains("CTXLOOM_HOME"),
+        "{err}"
+    );
 }

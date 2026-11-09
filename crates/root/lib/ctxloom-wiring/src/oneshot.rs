@@ -23,6 +23,7 @@ use host_launcher::HostLauncher;
 use library_application::{Flags, Library};
 use os::Mode;
 use ports::{Names, Project, ProjectIdentity};
+use process_env::EnvSnapshot;
 use project_registry::{Environment, ProjectRegistry};
 use run_application::{
     Answer, Core, Done, Ended, OneShot, Parts, Place, RunError, RunService, Runs,
@@ -160,9 +161,22 @@ impl<'a> OneShots<'a> {
                 project_dir: path_text(&project_dir),
                 output_root: path_text(&output_root),
             },
-            env: env.vars_utf8().into_iter().collect::<BTreeMap<_, _>>(),
+            env: run_env(env, wiring.home()),
         }))
     }
+}
+
+/// The environment a run is given: the caller's, and ctxloom's home named by
+/// [`run_ports::HOME_VARIABLE`], so an engine that is given it (the
+/// interactive one) can pass it on to its hook processes, which run without
+/// `HOME`.
+fn run_env(env: &EnvSnapshot, home: &Path) -> BTreeMap<String, String> {
+    let mut vars: BTreeMap<String, String> = env.vars_utf8().into_iter().collect();
+    vars.insert(
+        run_ports::HOME_VARIABLE.to_string(),
+        home.to_string_lossy().into_owned(),
+    );
+    vars
 }
 
 /// The project the process is in: the one the registry already holds, else a

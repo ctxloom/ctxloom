@@ -19,6 +19,12 @@ use angzarr_diagnostic::{code, Arg, Diagnostic};
 
 use crate::launcher::{TurnCommand, TurnOutput};
 
+/// The variable that names ctxloom's home (the directory ctxloom keeps
+/// `.ctxloom` under) in an interactive engine's environment. The engine's own
+/// children, hook processes among them, run without `HOME`, so they find
+/// ctxloom's home through this one explicit variable.
+pub const HOME_VARIABLE: &str = "CTXLOOM_HOME";
+
 /// A file to write under a session home.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HomeFile {
@@ -37,6 +43,9 @@ pub struct PrepareRequest {
     /// The names found in the user's own engine configuration directory: the
     /// only ones an engine may copy in are those on its allowlist.
     pub offered: Vec<String>,
+    /// The home is the human's terminal session's, not a child's turn: the
+    /// engine installs its hooks in it.
+    pub interactive: bool,
 }
 
 /// What [`Engine::prepare`] answers: the session home's surfaces.

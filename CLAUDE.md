@@ -164,9 +164,17 @@ An engine's hooks are its adapter's: `ctxloom hook <engine> execute
 <NativeHookName>` (hidden) resolves the engine through `surface_ports::Registry`
 and its `HookCodec` decodes the payload. The settings an older ctxloom wrote
 (`hook <verb> --engine`) are stale and rewritten on the next surface apply.
-Not built: the hidden runner subcommand and listener, hooks in the interactive
-session home (the engine env has no `HOME`), the hook-fed record, session end,
-`RunnerStarted`.
+The interactive engine env has no `HOME`: ctxloom's home reaches its hook
+processes as `CTXLOOM_HOME` (`run_ports::HOME_VARIABLE`; the wiring takes it as
+the home when `HOME` is absent, and names the resolved home in a run's env; only
+the interactive allowlist passes it on), and the interactive session home's
+`settings.json` calls `ctxloom hook claude-code execute <Event>` for the
+session, turn, message and tool-batch events (a child's home gets no hooks).
+The launcher records `RunnerStarted{runtime, workspace, pid}` (pid 0: the
+blocking port learns none) before it spawns, and the pending launches clear on
+it, not on the runner's first word.
+Not built: the hidden runner subcommand and listener, the hook-fed record
+(hooks answer, they record no fact yet), session end.
 
 `crates/core/clippy.toml` holds the core's purity rules (no I/O, clock, env,
 threads or hash-ordered collections) and reaches every core crate, because

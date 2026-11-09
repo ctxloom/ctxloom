@@ -309,6 +309,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
                 context: order.context.clone(),
                 // Nothing of the user's own engine configuration is offered.
                 offered: Vec::new(),
+                interactive: order.interactive,
             })
             .map_err(|e| e.to_string())?;
         for file in &prepared.files {

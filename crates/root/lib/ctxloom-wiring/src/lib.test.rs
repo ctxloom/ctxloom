@@ -82,6 +82,7 @@ impl Env {
         };
         env.set("HOME", env.dir.join("home"));
         for var in [
+            "CTXLOOM_HOME",
             "CTXLOOM_ROOT",
             "CTXLOOM_PROJECT_ID",
             "CTXLOOM_DEGRADED",
@@ -150,6 +151,35 @@ fn test_the_home_is_the_home_variable_as_given() {
     let env = Env::new("home");
     let wiring = from_process().ok().unwrap();
     assert_eq!(wiring.home(), env.home());
+}
+
+// Owner ruling 2026-11-08: an interactive engine's hook processes run without
+// HOME, and find the home through CTXLOOM_HOME.
+#[test]
+fn test_without_home_the_home_is_the_ctxloom_home_variable() {
+    let mut env = Env::new("ctxloomhome");
+    let variable = os::host().flavor().home_var().to_string();
+    env.unset(&variable);
+    env.set("CTXLOOM_HOME", env.dir.join("elsewhere"));
+    let wiring = from_process().ok().unwrap();
+    assert_eq!(wiring.home(), env.dir.join("elsewhere"));
+}
+
+#[test]
+fn test_the_home_variable_wins_over_the_ctxloom_one() {
+    let mut env = Env::new("homewins");
+    env.set("CTXLOOM_HOME", env.dir.join("elsewhere"));
+    let wiring = from_process().ok().unwrap();
+    assert_eq!(wiring.home(), env.home());
+}
+
+#[test]
+fn test_an_empty_ctxloom_home_is_none() {
+    let mut env = Env::new("emptyctxloomhome");
+    let variable = os::host().flavor().home_var().to_string();
+    env.unset(&variable);
+    env.set("CTXLOOM_HOME", "");
+    assert_eq!(from_process().err(), Some(LibError::NoHome { variable }));
 }
 
 #[test]

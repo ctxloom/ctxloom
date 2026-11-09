@@ -93,6 +93,42 @@ pub(crate) fn ops(hooks: &BTreeMap<String, Vec<Hook>>) -> Result<Vec<JsonOp>, Su
     Ok(ops)
 }
 
+/// The unified events the terminal session's home is installed to call
+/// ctxloom for: the primary agent's data comes from them.
+const HOME_EVENTS: &[&str] = &[
+    "session_start",
+    "turn_start",
+    "message_display",
+    "post_tool_batch",
+    "turn_end",
+    "session_end",
+];
+
+/// The `settings.json` of a terminal session's home: every one of
+/// [`HOME_EVENTS`] calls ctxloom's `hook <engine> execute <Event>`.
+pub(crate) fn home_settings() -> String {
+    let callback = Hook {
+        command: "ctxloom".to_string(),
+        args: vec!["hook".to_string()],
+        ..Hook::default()
+    };
+    let hooks: BTreeMap<String, Vec<Hook>> = HOME_EVENTS
+        .iter()
+        .map(|event| (event.to_string(), vec![callback.clone()]))
+        .collect();
+    let mut events: Vec<(String, Json)> = Vec::new();
+    for op in ops(&hooks).unwrap_or_default() {
+        if let JsonOp::HookEntry { event, value, .. } = op {
+            events.push((
+                event,
+                Json::Array(vec![Json::object([("hooks", Json::Array(vec![value]))])]),
+            ));
+        }
+    }
+    let doc = Json::object([("hooks", Json::object(events))]);
+    format!("{}\n", doc.pretty())
+}
+
 /// Whether the args are `hook <this engine> execute <event>`.
 fn is_execute_form(args: Option<&Json>) -> bool {
     let args: Vec<&str> = args

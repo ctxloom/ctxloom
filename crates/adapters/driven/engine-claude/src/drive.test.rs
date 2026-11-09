@@ -105,6 +105,7 @@ fn preparing_a_home_writes_the_context_file_it_names() {
             home: "/h".to_string(),
             context: "the context".to_string(),
             offered: vec!["settings.json".to_string(), ".credentials.json".to_string()],
+            interactive: false,
         })
         .unwrap();
     assert_eq!(prepared.context_path, format!("/h/{CONTEXT_PROMPT_FILE}"));
@@ -152,4 +153,86 @@ fn an_interactive_run_given_a_prompt_opens_on_it() {
 #[test]
 fn the_run_engine_is_named_claude_code() {
     assert_eq!(Engine::name(&Claude::new()), "claude-code");
+}
+
+// Owner ruling 2026-11-08: the terminal session's hook processes run without
+// HOME, so it is given ctxloom's home by name; a child's turn is not, and
+// neither is given HOME.
+#[test]
+fn the_interactive_run_is_given_ctxloom_home_and_still_no_home() {
+    let mut asked = request();
+    asked.env = env(&[
+        ("PATH", "/usr/bin"),
+        ("HOME", "/home/alice"),
+        ("CTXLOOM_HOME", "/home/alice"),
+    ]);
+    let command = Claude::new().drive_interactive(&asked).unwrap();
+    let names: Vec<&str> = command.env.keys().map(String::as_str).collect();
+    assert_eq!(names, vec!["CLAUDE_CONFIG_DIR", "CTXLOOM_HOME", "PATH"]);
+    assert_eq!(
+        command.env.get("CTXLOOM_HOME").map(String::as_str),
+        Some("/home/alice")
+    );
+    let turn = Claude::new().drive_turn(&asked).unwrap();
+    assert!(!turn.env.contains_key("CTXLOOM_HOME"), "{:?}", turn.env);
+    assert!(!turn.env.contains_key("HOME"));
+}
+
+fn prepared(interactive: bool) -> run_ports::Prepared {
+    Claude::new()
+        .prepare(&PrepareRequest {
+            home: "/h".to_string(),
+            context: "the context".to_string(),
+            offered: Vec::new(),
+            interactive,
+        })
+        .unwrap()
+}
+
+// The terminal session's hooks are installed in its home's settings through
+// the engine's own spelling: `ctxloom hook claude-code execute <Event>`.
+#[test]
+fn an_interactive_home_gets_settings_whose_hooks_call_ctxloom_execute() {
+    let prepared = prepared(true);
+    let settings = prepared
+        .files
+        .iter()
+        .find(|f| f.rel == "settings.json")
+        .expect("settings.json in the home");
+    let doc = surface_ports::Json::parse(std::str::from_utf8(&settings.bytes).unwrap()).unwrap();
+    assert!(crate::hooks::has_callback(&doc), "{doc:?}");
+    let hooks = doc.get("hooks").unwrap();
+    for event in [
+        "SessionStart",
+        "UserPromptSubmit",
+        "MessageDisplay",
+        "PostToolBatch",
+        "Stop",
+        "SessionEnd",
+    ] {
+        let group = hooks
+            .get(event)
+            .and_then(|g| g.as_array())
+            .unwrap_or_else(|| panic!("{event}"));
+        let hook = group[0].get("hooks").and_then(|h| h.as_array()).unwrap()[0].clone();
+        assert_eq!(
+            hook.get("command").and_then(|c| c.as_str()),
+            Some("ctxloom")
+        );
+        let args: Vec<&str> = hook
+            .get("args")
+            .and_then(|a| a.as_array())
+            .unwrap()
+            .iter()
+            .filter_map(|a| a.as_str())
+            .collect();
+        assert_eq!(args, ["hook", "claude-code", "execute", event]);
+    }
+}
+
+#[test]
+fn a_childs_home_has_no_settings() {
+    let prepared = prepared(false);
+    assert!(prepared.files.iter().all(|f| f.rel != "settings.json"));
+    assert_eq!(prepared.files.len(), 1);
 }

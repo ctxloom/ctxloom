@@ -488,6 +488,16 @@ further discriminator). The listener is a port, not a file: a run
 killed by SIGHUP or a timeout leaves nothing behind (ctxloom does not forward
 or handle SIGINT, SIGHUP or SIGTERM itself).
 
+## No path dependency leaves the repository
+
+A tracked `Cargo.toml` or `.cargo/*.toml` never holds a dependency, `[patch]`
+or `[replace]` `path` that is absolute or climbs out of the repository root,
+and `.cargo/config.toml` is never tracked: local sibling checkouts live only
+in the gitignored `.cargo/config.toml`. `scripts/path-deps-check.sh` (`just
+lint-path-deps`, part of `just lint`, and lefthook's pre-commit `path-deps`
+gate, third in order) judges the staged index; its self-test is in `just
+selftest`.
+
 ## Use `just`
 
 `just --list` shows the public recipes by group. The checks are `just build`,

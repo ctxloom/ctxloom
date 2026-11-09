@@ -6,7 +6,10 @@
 #
 # Cargo reads only .cargo/config.toml, which .gitignore keeps out of every
 # commit, so CI, a fresh clone and the pre-commit gates build the pinned git
-# revisions in Cargo.toml. Add a [patch."<git url>"] table per sibling, with
+# revisions in Cargo.toml. A path to a sibling checkout is NEVER committed:
+# the path-deps gate (scripts/path-deps-check.sh) refuses one in a tracked
+# manifest or cargo config; this sample is exempt only because it is never read.
+# Add a [patch."<git url>"] table per sibling, with
 # paths relative to the checkout's root. Restore Cargo.lock
 # (`git checkout Cargo.lock`) before committing, and once the sibling's change
 # is pushed, bump the rev in Cargo.toml instead.

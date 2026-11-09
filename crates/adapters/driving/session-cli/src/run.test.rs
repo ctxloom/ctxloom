@@ -1719,3 +1719,64 @@ fn transcript_show_in_text_keeps_two_messages_apart() {
     let ran = go(&mut fake, Format::Text, &["transcript", "show", "h"]);
     assert_eq!(ran.out, "assistant: One again\nassistant: Two too\n");
 }
+
+// Live probe (2026-11-09): the engine's Stop hook can fire before (or within
+// milliseconds of) the MessageDisplay hook of the same turn, so a turn's words
+// may reach the transcript after its turn_end and even after the NEXT prompt.
+// The reader places an assistant message by its prompt_id, not by position.
+#[test]
+fn transcript_show_in_text_places_a_message_under_its_own_prompt_whatever_arrived_first() {
+    let user = |seq: u32, content: &str| {
+        format!(
+            r#"{{"v":1,"harp":"h","engine":"claude-code","seq":{seq},"ts":"2026-01-01T00:00:00Z","kind":"entry","entry":{{"type":"user","content":"{content}"}}}}"#
+        )
+    };
+    let tool = |seq: u32, prompt: &str| {
+        format!(
+            r#"{{"v":1,"harp":"h","engine":"claude-code","seq":{seq},"ts":"2026-01-01T00:00:00Z","kind":"tool","prompt_id":"{prompt}","tool":{{"id":"t","name":"Bash","input":"{{}}","response_bytes":1,"response_sha256":"00"}}}}"#
+        )
+    };
+    let end = |seq: u32, prompt: &str| {
+        format!(
+            r#"{{"v":1,"harp":"h","engine":"claude-code","seq":{seq},"ts":"2026-01-01T00:00:00Z","kind":"turn_end","prompt_id":"{prompt}"}}"#
+        )
+    };
+    let said = |seq: u32, prompt: &str, text: &str| {
+        format!(
+            r#"{{"v":1,"harp":"h","engine":"claude-code","seq":{seq},"ts":"2026-01-01T00:00:00Z","kind":"assistant_delta","prompt_id":"{prompt}","turn_id":"{prompt}","delta":{{"message_id":"m-{prompt}","index":0,"final":true,"text":"{text}"}}}}"#
+        )
+    };
+    // The probe's own order (Stop first), then the worst case: turn 1's words
+    // after turn 2's prompt.
+    let orders = [
+        vec![
+            user(0, "q1"),
+            tool(1, "p1"),
+            end(2, "p1"),
+            said(3, "p1", "a1"),
+            user(4, "q2"),
+            end(5, "p2"),
+            said(6, "p2", "a2"),
+        ],
+        vec![
+            user(0, "q1"),
+            tool(1, "p1"),
+            end(2, "p1"),
+            user(3, "q2"),
+            said(4, "p1", "a1"),
+            end(5, "p2"),
+            said(6, "p2", "a2"),
+        ],
+    ];
+    for lines in orders {
+        let mut fake = Fake {
+            transcript: format!("{}\n", lines.join("\n")),
+            ..Fake::default()
+        };
+        let ran = go(&mut fake, Format::Text, &["transcript", "show", "h"]);
+        assert_eq!(
+            ran.out, "user: q1\nassistant: a1\nuser: q2\nassistant: a2\n",
+            "{lines:?}"
+        );
+    }
+}

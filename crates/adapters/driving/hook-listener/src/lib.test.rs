@@ -658,6 +658,14 @@ async fn a_client_that_holds_a_connection_open_cannot_hold_the_stop() {
     tokio::io::AsyncWriteExt::write_all(&mut held, b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
         .await
         .unwrap();
+    // The server speaks first once it has accepted: its HTTP/2 frame header
+    // (nine bytes, the SETTINGS frame) is the proof that the connection is
+    // open server side, so the stop below meets a connection held, never one
+    // still waiting in the backlog (which a graceful shutdown never sees).
+    let mut frame = [0_u8; 9];
+    tokio::io::AsyncReadExt::read_exact(&mut held, &mut frame)
+        .await
+        .expect("the server accepted the connection");
     let error = listener
         .stop()
         .await

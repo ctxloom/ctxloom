@@ -1175,10 +1175,13 @@ fn test_the_config_sections_are_the_schemas() {
     assert!(sections.iter().all(|s| !s.is_empty() && *s != "xyzzy"));
 }
 
-// A live probe (2026-11-09): the model of the resolved `llm.configs` entry
-// never reached the engine. The plan names it; an entry with none names none.
+// A live probe (2026-11-09): the configured model never reached the engine.
+// The plan names it; none configured names none. INTERIM: the fixture uses the
+// only model source the config schema has today (the retired `llm` entry);
+// the vocabulary's `engines.<engine>.model` and a per-agent model are not
+// built, and this test moves to them when they are.
 #[test]
-fn test_a_dry_run_carries_the_resolved_llm_configs_model() {
+fn test_a_dry_run_carries_the_resolved_model() {
     let layers = ["schema_version: 9\nagents:\n  dev:\n    llm: fancy\n  bare:\n    llm: plain\nllm:\n  configs:\n    fancy:\n      type: claude-code\n      model: haiku\n    plain:\n      type: claude-code\n"];
     let library = with(&[], &layers).library();
     let plan = |agent: &str| {

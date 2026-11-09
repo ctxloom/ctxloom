@@ -179,9 +179,13 @@ shell also sees that directory first, so a sibling program in it shadows the
 user's others (intended); and the binary must be named `ctxloom` for the hooks
 to resolve it (a renamed binary still leads `PATH` but the bare name finds
 nothing there: a known limit, not worked around). The resolved
-`llm.configs.<label>.model` (`DryRun::model`, then `Order::model` and
+model (`DryRun::model`, then `Order::model` and
 `TurnRequest::model`) is passed as `--model <m>` for a child's turn and for the
-interactive launch; none configured is no flag.
+interactive launch; none configured is no flag. Its only source today is the
+retired `llm` entry the config schema still has: the vocabulary's
+`engines.<engine>.model` defaults and a per-agent model are NOT built (the
+schema has no `engines` section and an `agents.<name>` binding has no model),
+and the source moves to them when they are.
 The launcher records `RunnerStarted{runtime, workspace, pid}` AFTER the spawn,
 with the pid the spawn gave (`RunnerLauncher::launch` answers a `Running`, the
 launcher records, `Running::finish` waits), and the pending launches clear on

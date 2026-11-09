@@ -42,6 +42,7 @@ surface-ports.workspace = true
 engine-claude.workspace = true
 hook-cli.workspace = true
 hook-listener.workspace = true
+hook-tls.workspace = true
 session-cli.workspace = true
 cli-support.workspace = true
 engine-mock.workspace = true

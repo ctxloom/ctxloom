@@ -10,6 +10,8 @@ use std::pin::Pin;
 
 use angzarr_diagnostic::Report;
 
+use crate::HookCertificate;
+
 /// A boxed future, `Send`: what a use case holding a `dyn` server awaits.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -18,10 +20,12 @@ pub trait HookServer: Send + Sync {
     /// Start serving the run's hooks on TCP at `bind` (port 0: the system
     /// gives a free one, [`Serving::port`] says which), until the returned
     /// [`Serving`] is stopped or dropped. Bound when this returns. An
-    /// unspecified address is refused.
+    /// unspecified address is refused. The listener speaks TLS only, with
+    /// `identity` (the run's minted certificate and its private key).
     fn serve_tcp<'a>(
         &'a self,
         bind: std::net::IpAddr,
+        identity: &'a HookCertificate,
     ) -> BoxFuture<'a, Result<Box<dyn Serving>, Report>>;
 }
 

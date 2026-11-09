@@ -292,9 +292,25 @@ fn late_hook(w: &mut World) {
         .find_map(|l| l.strip_prefix("CTXLOOM_ENDPOINT="))
         .expect("the engine was told an endpoint");
     assert!(
-        endpoint.starts_with("http://127.0.0.1:")
-            && endpoint["http://127.0.0.1:".len()..].parse::<u16>().is_ok(),
-        "the endpoint is the loopback URL of the listener's port: {endpoint}"
+        endpoint.starts_with("https://127.0.0.1:")
+            && endpoint["https://127.0.0.1:".len()..]
+                .parse::<u16>()
+                .is_ok(),
+        "the endpoint is the loopback https URL of the listener's port: {endpoint}"
+    );
+    // The engine was told the listener's certificate (public, one line of
+    // base64 of a DER SEQUENCE) and nothing of its key.
+    let cert = engine_env
+        .lines()
+        .find_map(|l| l.strip_prefix("CTXLOOM_TLS_CERT="))
+        .expect("the engine was told the listener's certificate");
+    assert!(
+        cert.len() > 100 && cert.starts_with("MI") && !cert.contains(char::is_whitespace),
+        "a base64 DER certificate: {cert}"
+    );
+    assert!(
+        !engine_env.contains("PRIVATE KEY"),
+        "no key in the environment"
     );
     let mut command = Command::new(crate::tests::binary());
     command

@@ -354,7 +354,7 @@ fn closed_endpoint() -> String {
     let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = probe.local_addr().unwrap().port();
     drop(probe);
-    format!("http://127.0.0.1:{port}")
+    format!("https://127.0.0.1:{port}")
 }
 
 // A malformed bearer is no credential: the same fail-open, and the bearer text
@@ -390,6 +390,7 @@ fn test_a_hook_whose_endpoint_is_dead_says_it_could_not_reach_the_listener() {
             ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
             ("CTXLOOM_ENDPOINT", &closed_endpoint()),
             ("CTXLOOM_BEARER", A_BEARER),
+            ("CTXLOOM_TLS_CERT", A_CERT),
         ],
     );
     assert_eq!(ran.code, 0, "{}", ran.said());
@@ -400,6 +401,60 @@ fn test_a_hook_whose_endpoint_is_dead_says_it_could_not_reach_the_listener() {
         "{}",
         ran.stderr
     );
+    assert!(!ran.stderr.contains(A_BEARER), "{}", ran.stderr);
+}
+
+/// A certificate in the form the run sets (base64 of a DER SEQUENCE); a hook
+/// that reaches no handshake needs no real one.
+const A_CERT: &str = "MAMBAgM=";
+
+// No fallback: a listener named with no usable certificate in the environment
+// is refused by type, the hook still answers and exits 0, and the bearer is
+// never echoed.
+#[test]
+fn test_a_hook_without_a_usable_certificate_is_refused_and_says_so() {
+    for (cert, said) in [
+        (None, "CTXLOOM_TLS_CERT is not set"),
+        (Some("!!!!"), "CTXLOOM_TLS_CERT is not a certificate"),
+    ] {
+        let env = Env::new();
+        env.with_session_directory(RECORDED_HARP);
+        let endpoint = closed_endpoint();
+        let mut vars = vec![
+            ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
+            ("CTXLOOM_ENDPOINT", endpoint.as_str()),
+            ("CTXLOOM_BEARER", A_BEARER),
+        ];
+        if let Some(cert) = cert {
+            vars.push(("CTXLOOM_TLS_CERT", cert));
+        }
+        let ran = env.run_hook(&["hook", "claude-code", "execute", "Stop"], STOP, &vars);
+        assert_eq!(ran.code, 0, "{}", ran.said());
+        assert_eq!(ran.stdout.trim(), "{}");
+        assert_not_recorded(&ran.stderr, 1, "no certificate");
+        assert!(ran.stderr.contains(said), "{}", ran.stderr);
+        assert!(!ran.stderr.contains(A_BEARER), "{}", ran.stderr);
+    }
+}
+
+// No downgrade: an http endpoint is never dialed.
+#[test]
+fn test_a_hook_with_a_plaintext_endpoint_is_refused_and_says_so() {
+    let env = Env::new();
+    env.with_session_directory(RECORDED_HARP);
+    let ran = env.run_hook(
+        &["hook", "claude-code", "execute", "Stop"],
+        STOP,
+        &[
+            ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
+            ("CTXLOOM_ENDPOINT", "http://127.0.0.1:9"),
+            ("CTXLOOM_BEARER", A_BEARER),
+            ("CTXLOOM_TLS_CERT", A_CERT),
+        ],
+    );
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    assert_not_recorded(&ran.stderr, 1, "plaintext");
+    assert!(ran.stderr.contains("plaintext"), "{}", ran.stderr);
     assert!(!ran.stderr.contains(A_BEARER), "{}", ran.stderr);
 }
 

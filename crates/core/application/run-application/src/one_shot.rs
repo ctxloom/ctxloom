@@ -17,7 +17,7 @@ use angzarr_embedded::{Catalog, CommandBookExt, Processed, ReadStore, Store};
 use library_application::{AppError as PlanError, Flags, Notice, Outcome, Previewed, RunRequest};
 use ports::{CommandIds, Names, Project, ProjectIdentity};
 use run_launcher::{Launched, Launcher, Order, Orders, Outcome as Turn, Recorder};
-use run_ports::{Edge, HookServer, LoginLinks, RunnerLauncher, SessionRecords};
+use run_ports::{CertMint, Edge, HookServer, LoginLinks, RunnerLauncher, SessionRecords};
 use runs_application::{AppError as CoreError, EnqueueRequest, Enqueuer};
 use sessions::{
     claim_root, ClaimName, MintSession, NameClaimCommand, Origin, SessionCommand, NAMES_DOMAIN,
@@ -147,6 +147,7 @@ pub struct Runs<
     pub(crate) links: Box<dyn LoginLinks>,
     pub(crate) os: String,
     pub(crate) hooks: Box<dyn HookServer>,
+    pub(crate) certs: Box<dyn CertMint>,
 }
 
 /// Everything [`Runs`] is made of.
@@ -178,6 +179,8 @@ pub struct Parts<
     /// Where an interactive run's hook processes are served (the run's
     /// loopback port); a one-shot's child is given none.
     pub hooks: Box<dyn HookServer>,
+    /// What mints an interactive run's listener certificate (a child is given none).
+    pub certs: Box<dyn CertMint>,
 }
 
 impl<K, T, L, R, W> Runs<K, T, L, R, W>
@@ -204,6 +207,7 @@ where
             links: parts.links,
             os: parts.os,
             hooks: parts.hooks,
+            certs: parts.certs,
         }
     }
 
@@ -249,9 +253,15 @@ where
         let plan = run_ports::bind_for(run_ports::Runtime::Host, &run_ports::PlatformFacts::NONE)
             .and_then(|plan| plan.check().map(|()| plan))
             .map_err(|e| RunError::Bind(Box::new(e)))?;
+        // Interim stub: the minted certificate replaces this.
+        let _ = &self.certs;
+        let identity = run_ports::HookCertificate::new(
+            run_ports::PublicCert::from_der(vec![0x30]).unwrap_or_else(|_| unreachable!()),
+            String::new(),
+        );
         let serving = self
             .hooks
-            .serve_tcp(plan.bind_addr)
+            .serve_tcp(plan.bind_addr, &identity)
             .await
             .map_err(RunError::Listener)?;
         let endpoint = match run_ports::endpoint_url(&plan.told_host, serving.port()) {

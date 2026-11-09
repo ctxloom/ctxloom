@@ -128,6 +128,7 @@ impl Commands {
             let sink = HookSink::from_environment(
                 self.env.utf8(run_ports::ENDPOINT_VARIABLE),
                 self.env.utf8(run_ports::BEARER_VARIABLE),
+                self.env.utf8(run_ports::TLS_CERT_VARIABLE),
             );
             let recording = HookRecording::new(sink, DirIds::new(dirs));
             let setup = self.hooks().map_err(|e| failed(Box::new(e)))?;

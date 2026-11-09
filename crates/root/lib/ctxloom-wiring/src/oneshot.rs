@@ -29,7 +29,7 @@ use run_application::{
     Answer, Core, Done, Ended, OneShot, Parts, Place, RunError, RunService, Runs,
 };
 use run_launcher::{Launcher, Orders, Recorder};
-use run_ports::{BoxFuture, Edge, Engine, HookServer, Limits, Serving};
+use run_ports::{BoxFuture, Edge, Engine, HookCertificate, HookServer, Limits, Serving};
 use runs_application::{AppError as CoreError, Enqueuer};
 use session_files::SessionDirs;
 use system::System;
@@ -162,6 +162,7 @@ impl<'a> OneShots<'a> {
             links: Box::new(SessionDirs::new(wiring.fs(), project_dir.clone())),
             os: std::env::consts::OS.to_string(),
             hooks,
+            certs: Box::new(hook_tls::Minter::new(hook_tls::SystemClock)),
         }))
     }
 }
@@ -177,14 +178,17 @@ impl<E: Edge + 'static> HookServer for Hooks<E> {
     fn serve_tcp<'a>(
         &'a self,
         bind: std::net::IpAddr,
+        identity: &'a HookCertificate,
     ) -> BoxFuture<'a, Result<Box<dyn Serving>, Report>> {
         Box::pin(async move {
             // Port 0: each run gets a port of the system's choosing.
             let listener = HookListener::serve_tcp(
                 Arc::clone(&self.edge),
                 std::net::SocketAddr::new(bind, 0),
-                // Interim: the minted identity replaces this (unit 4).
-                hook_listener::TlsIdentity::from_pem("", ""),
+                hook_listener::TlsIdentity::from_pem(
+                    identity.public().to_pem(),
+                    identity.key_pem(),
+                ),
             )
             .await
             .map_err(|e| Report::of(&e))?;

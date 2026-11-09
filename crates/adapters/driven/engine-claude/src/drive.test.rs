@@ -282,16 +282,18 @@ fn the_primary_may_be_authenticated_by_any_of_three_variables_and_is_passed_each
 
 // Owner rulings 2026-11-08 item 9 and 2026-11-09 item 16: the terminal session's
 // hook processes find the listener through the engine's environment, so the
-// interactive command is passed the endpoint, the bearer and the run; a child's
+// interactive command is passed the endpoint, the bearer, the run and the
+// listener's certificate (public); a child's
 // turn is passed none of them, whatever the caller's environment holds.
 #[test]
 fn only_the_interactive_run_is_passed_the_listener_variables() {
     let mut asked = request();
     asked.env = env(&[
         ("PATH", "/usr/bin"),
-        ("CTXLOOM_ENDPOINT", "/run/user/1/ctxloom/a.sock"),
+        ("CTXLOOM_ENDPOINT", "https://127.0.0.1:9"),
         ("CTXLOOM_BEARER", "run.secret"),
         ("CTXLOOM_RUN", "run"),
+        ("CTXLOOM_TLS_CERT", "MAMBAgM="),
         ("CTXLOOM_SESSION_HARP", "brisk-copper-moth"),
     ]);
     let interactive = Claude::new().drive_interactive(&asked).unwrap();

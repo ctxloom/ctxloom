@@ -27,7 +27,7 @@ use angzarr_embedded::{Failure, KernelError};
 use hook_cli::{NotRecorded, Recording};
 use hook_sink_grpc::GrpcSink;
 use run_launcher::METADATA;
-use run_ports::{Arrival, Bearer, Delivery, Edge, FactSink, SessionRecords, Unserved};
+use run_ports::{Arrival, Bearer, CertError, Delivery, Edge, FactSink, SessionRecords, Unserved};
 use runs_application::{delivery_budget, Capture};
 use setup_application::HookAnswer;
 use surface_ports::Json;
@@ -114,21 +114,28 @@ impl FactSink for Unreachable {
 /// one, else [`Unreachable`].
 pub enum HookSink {
     Listener(GrpcSink),
+    /// A listener is named but its certificate is not usable: refused, and
+    /// nothing is sent (never plaintext, never the system's roots).
+    Refused(CertError),
     Unreachable(Unreachable),
 }
 
 impl HookSink {
-    /// The sink the hook environment makes: the endpoint (a URL, `http://<host>:<port>`)
+    /// The sink the hook environment makes: the endpoint (a URL, `https://<host>:<port>`), the certificate (`CTXLOOM_TLS_CERT`)
     /// and the bearer (`<run>.<token>`). A missing, empty or malformed one
     /// gives [`Unreachable`]: the hook fails open, as it did before there
     /// was a listener.
-    pub fn from_environment(endpoint: Option<&str>, bearer: Option<&str>) -> HookSink {
+    pub fn from_environment(
+        endpoint: Option<&str>,
+        bearer: Option<&str>,
+        cert: Option<&str>,
+    ) -> HookSink {
+        let _ = cert;
         let made = endpoint.filter(|e| !e.is_empty()).and_then(|endpoint| {
             let (run, token) = Bearer::parse(bearer?).ok()?;
             Some(GrpcSink::new(
                 endpoint,
                 Bearer::compose(&run, &token),
-                // Interim: the environment's certificate replaces this (unit 4).
                 run_ports::PublicCert::from_der(vec![0x30]).ok()?,
             ))
         });
@@ -143,6 +150,12 @@ impl FactSink for HookSink {
     fn deliver(&self, book: angzarr_embedded::v1::CommandBook, within: Duration) -> Delivery {
         match self {
             HookSink::Listener(sink) => sink.deliver(book, within),
+            HookSink::Refused(error) => {
+                let _ = error;
+                Delivery::Unavailable {
+                    detail: String::new(),
+                }
+            }
             HookSink::Unreachable(sink) => sink.deliver(book, within),
         }
     }

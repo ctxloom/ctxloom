@@ -5,9 +5,9 @@
 //! interactive session whose opening prompt is the interview. That session
 //! was made before the interview configured anything, so it cannot see what
 //! it has just set up: when it ends cleanly, `init` offers to restart the
-//! human into a session on the configured project, and does so only on her
-//! explicit yes. Whether there is a terminal, the answer she types, and the
-//! sessions themselves are ports: nothing here reads the process.
+//! human into a session on the configured project; the offer is `[Y/n]`, so
+//! a bare Enter accepts it and a closed input declines it. Whether there is a
+//! terminal, the answer she types, and the sessions themselves are ports: nothing here reads the process.
 
 use ctxloom_ports::Failure;
 
@@ -26,8 +26,9 @@ pub trait Terminal {
     /// terminal. Off one, `init` interviews nobody and asks nothing.
     fn is_terminal(&self) -> bool;
 
-    /// Ask a yes/no `question`. The answer is a yes only when she typed one;
-    /// anything else, a bare Enter or a closed input, is a no.
+    /// Ask a yes/no `question`, offered as `[Y/n]`: a bare Enter is a yes, and
+    /// so are `y` and `yes`; `n`, `no` and anything else are a no. A closed
+    /// input (end of input, no terminal to read) is a no: nobody answered.
     fn confirm(&self, question: &str) -> bool;
 }
 

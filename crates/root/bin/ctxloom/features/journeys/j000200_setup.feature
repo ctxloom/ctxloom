@@ -34,7 +34,8 @@ Feature: Setting up ctxloom on a project
 
   # On a terminal, setup interviews her. The interview runs in a session that
   # cannot see what it has just configured, so ctxloom offers to restart her
-  # into the configured one.
+  # into the configured one. The offer is [Y/n]: a bare Enter accepts it; n or no
+  # declines it, and so does a closed input (no one answered).
   Scenario: Setup configures the agents, then a restart delivers their context
     # substitution: one engine, no Outline; the Thens say what her restarted assistant receives.
     Given Alice has a personal ctxloom repository

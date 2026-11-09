@@ -59,19 +59,25 @@ impl Terminal for StdTerminal {
     #[cfg_attr(test, mutants::skip)]
     fn confirm(&self, question: &str) -> bool {
         let mut err = std::io::stderr();
-        let _ = write!(err, "{question} [y/N] ");
+        let _ = write!(err, "{question} [Y/n] ");
         let _ = err.flush();
         let mut line = String::new();
-        if std::io::stdin().lock().read_line(&mut line).is_err() {
-            return false;
+        match std::io::stdin().lock().read_line(&mut line) {
+            Ok(0) | Err(_) => answered(None),
+            Ok(_) => answered(Some(&line)),
         }
-        is_yes(&line)
     }
 }
 
-/// Whether an answer is a yes: `y` or `yes`, in any case.
-fn is_yes(answer: &str) -> bool {
-    matches!(answer.trim().to_lowercase().as_str(), "y" | "yes")
+/// Whether the answer to a `[Y/n]` question is a yes. `line` is what she
+/// typed, none where the input was closed (end of input, or unreadable):
+/// that is a no, though a bare Enter is a yes. `y` and `yes`, in any case,
+/// are a yes too; `n`, `no` and anything else are a no.
+fn answered(line: Option<&str>) -> bool {
+    match line.map(|l| l.trim().to_lowercase()) {
+        Some(answer) => matches!(answer.as_str(), "" | "y" | "yes"),
+        None => false,
+    }
 }
 
 /// The interactive sessions of `init`.

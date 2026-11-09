@@ -24,15 +24,15 @@ fn a_project_already_told_is_told_again_as_it_was() {
 }
 
 // Step 1b-ii, and the journey's promise: Alice leaves by deleting `.ctxloom`
-// and `~/.ctxloom`, so a project that is told for a run is not marked at its
-// root (the registry's `.project-id` marker is a write outside `.ctxloom`).
-// The older marker, inside `.ctxloom`, is what a ctxloom-only project keeps.
+// and `~/.ctxloom`, so a project that is told for a run is marked inside
+// `.ctxloom` (the registry's marker setting), never at the work root.
 mod told {
     use std::collections::VecDeque;
     use std::path::Path;
     use std::sync::Arc;
 
-    use file_system::{Fs, Rooted};
+    use angzarr_diagnostic::Diagnostic;
+    use file_system::{Fs, Perms, Rooted};
     use os::Mode;
     use ports::Names;
     use project_registry::Environment;
@@ -73,11 +73,22 @@ mod told {
         fs.read_to_string(Path::new(path)).ok()
     }
 
+    fn mark(fs: &Rooted, path: &str, id: &str) {
+        if let Some(dir) = Path::new(path).parent() {
+            fs.create_dir_all(dir, Mode::from_bits(0o755)).unwrap();
+        }
+        fs.write_atomic(
+            Path::new(path),
+            format!("{id}\n").as_bytes(),
+            Perms::Exact(Mode::from_bits(0o644)),
+        )
+        .unwrap();
+    }
+
     #[test]
     fn a_new_project_is_named_and_marked_inside_ctxloom_alone() {
         let (fs, env) = world();
-        let mut names = Scripted(["jolly-mute-magma"].into());
-        let project = tell_project(fs.clone(), env, &mut names).unwrap();
+        let project = tell_project(fs.clone(), env, Scripted(["jolly-mute-magma"].into())).unwrap();
         assert_eq!(project.id, "jolly-mute-magma");
         assert_eq!(project.root.as_deref(), Some(PROJECT));
         assert_eq!(
@@ -90,40 +101,42 @@ mod told {
     #[test]
     fn the_same_project_is_told_again_as_it_was() {
         let (fs, env) = world();
-        let mut names = Scripted(["jolly-mute-magma"].into());
-        tell_project(fs.clone(), env.clone(), &mut names).unwrap();
+        tell_project(
+            fs.clone(),
+            env.clone(),
+            Scripted(["jolly-mute-magma"].into()),
+        )
+        .unwrap();
         // No second name is scripted: none may be drawn.
-        let again = tell_project(fs.clone(), env, &mut names).unwrap();
+        let again = tell_project(fs.clone(), env, Scripted(VecDeque::new())).unwrap();
         assert_eq!(again.id, "jolly-mute-magma");
         assert!(!fs.exists(Path::new("/work/proj/.project-id")).unwrap());
     }
 
     #[test]
-    fn a_project_the_registry_already_marks_is_used_and_nothing_is_written() {
+    fn a_legacy_root_marker_keeps_its_id_and_is_adopted_into_ctxloom() {
         let (fs, env) = world();
-        fs.write_atomic(
-            Path::new("/work/proj/.project-id"),
-            b"calm-otter\n",
-            file_system::Perms::Exact(Mode::from_bits(0o644)),
-        )
-        .unwrap();
-        let mut names = Scripted(VecDeque::new());
-        let project = tell_project(fs.clone(), env, &mut names).unwrap();
+        mark(&fs, "/work/proj/.project-id", "calm-otter");
+        let project = tell_project(fs.clone(), env, Scripted(VecDeque::new())).unwrap();
         assert_eq!(project.id, "calm-otter");
-        assert!(!fs.exists(Path::new("/work/proj/.ctxloom")).unwrap());
+        assert_eq!(
+            text(&fs, "/work/proj/.ctxloom/project-id").as_deref(),
+            Some("calm-otter\n")
+        );
+        // The root marker is left where it is.
+        assert_eq!(
+            text(&fs, "/work/proj/.project-id").as_deref(),
+            Some("calm-otter\n")
+        );
     }
 
     #[test]
-    fn a_name_a_project_already_has_a_directory_for_is_passed_over() {
+    fn markers_that_disagree_are_refused_with_the_registrys_code() {
         let (fs, env) = world();
-        fs.create_dir_all(
-            Path::new("/home/u/.ctxloom/projects/taken-name-here"),
-            Mode::from_bits(0o755),
-        )
-        .unwrap();
-        let mut names = Scripted(["taken-name-here", "fresh-name-here"].into());
-        let project = tell_project(fs, env, &mut names).unwrap();
-        assert_eq!(project.id, "fresh-name-here");
+        mark(&fs, "/work/proj/.project-id", "calm-otter");
+        mark(&fs, "/work/proj/.ctxloom/project-id", "bold-heron");
+        let refused = tell_project(fs, env, Scripted(VecDeque::new())).unwrap_err();
+        assert_eq!(refused.code(), "project-registry-marker-conflict");
     }
 }
 

@@ -17,14 +17,13 @@ use angzarr_embedded_host::stores::OneStore;
 use credentials::OsTokenSource;
 use ctxloom_store_sqlite::Stores;
 use embedded_edge::EmbeddedEdge;
-use file_system::{Fs, Perms};
+use file_system::Fs;
 use harp_names::HarpNames;
 use host_launcher::HostLauncher;
 use library_application::{Flags, Library};
-use os::Mode;
 use ports::{Names, Project, ProjectIdentity};
 use process_env::EnvSnapshot;
-use project_registry::{Environment, ProjectRegistry};
+use project_registry::Environment;
 use run_application::{
     Answer, Core, Done, Ended, OneShot, Parts, Place, RunError, RunService, Runs,
 };
@@ -118,7 +117,7 @@ impl<'a> OneShots<'a> {
                 .and_then(|v| v.to_str().map(String::from)),
         };
         let project =
-            tell_project(wiring.fs(), environment, &mut HarpNames).map_err(RunError::Project)?;
+            tell_project(wiring.fs(), environment, HarpNames).map_err(RunError::Project)?;
         let unmade = |cause: &dyn std::fmt::Display| {
             RunError::Session(CoreError::Failed {
                 reason: cause.to_string(),
@@ -179,48 +178,15 @@ fn run_env(env: &EnvSnapshot, home: &Path) -> BTreeMap<String, String> {
     vars
 }
 
-/// The project the process is in: the one the registry already holds, else a
-/// new one named and kept in the project's `.ctxloom/project-id`. The
-/// registry's own write marks the work root (`.project-id`), which a run must
-/// not: leaving is deleting `.ctxloom`.
-fn tell_project(
+/// The project the process is in: the one the registry already holds, else
+/// a new one named by `names` and marked in the project's `.ctxloom`
+/// ([`crate::PROJECT_MARKER`]), so a run writes nothing outside it.
+fn tell_project<N: Names>(
     fs: Arc<dyn Fs>,
     environment: Environment,
-    names: &mut dyn Names,
+    names: N,
 ) -> Result<Project, Report> {
-    let mut registry = ProjectRegistry::new(Arc::clone(&fs), environment.clone(), HarpNames);
-    if let Some(project) = registry.for_read(None)? {
-        return Ok(project);
-    }
-    let home = environment.home.clone().unwrap_or_default();
-    let root = registry.identity_root().map_err(|e| Report::of(&e))?;
-    let projects = home.join(".ctxloom").join("projects");
-    let id = loop {
-        let id = names.project_id();
-        if !fs.exists(&projects.join(&id)).unwrap_or(false) {
-            break id;
-        }
-    };
-    let marker = root.join(".ctxloom").join("project-id");
-    let written = marker
-        .parent()
-        .map_or(Ok(()), |dir| fs.create_dir_all(dir, Mode::from_bits(0o755)))
-        .and_then(|()| {
-            fs.write_atomic(
-                &marker,
-                format!("{id}\n").as_bytes(),
-                Perms::Exact(Mode::from_bits(0o644)),
-            )
-        });
-    written.map_err(|e| {
-        Report::new("ctxloom-wiring-project-marker").arg("ext_err_txt", e.to_string())
-    })?;
-    registry.for_read(None)?.ok_or_else(|| {
-        Report::new("ctxloom-wiring-project-marker").arg(
-            "ext_err_txt",
-            "the marker was not found after it was written",
-        )
-    })
+    crate::registry(fs, environment, names).for_write(None)
 }
 
 fn path_text(path: &Path) -> String {

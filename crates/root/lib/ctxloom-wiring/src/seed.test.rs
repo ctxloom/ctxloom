@@ -106,7 +106,9 @@ fn the_transcripts_listed_and_read_are_the_one_the_seed_captured() {
 fn the_seed_plants_the_sessions_files_backdated_to_its_end() {
     let world = World::new("seed-files");
     world.wiring().seed_session(&seed()).unwrap();
-    let sessions = world.home().join(".ctxloom/sessions");
+    // The seed marks the project in the work directory's `.ctxloom`, which
+    // is then the project's directory.
+    let sessions = world.work().join(".ctxloom/sessions");
     let dir = sessions.join(HARP);
     let transcript = dir.join("transcripts/transcript.jsonl");
     let text = fs().read_to_string(&transcript).unwrap();
@@ -130,7 +132,7 @@ fn a_session_that_never_ended_keeps_its_files_as_they_were_written() {
     };
     world.wiring().seed_session(&live).unwrap();
     let transcript = world
-        .home()
+        .work()
         .join(".ctxloom/sessions")
         .join(HARP)
         .join("transcripts/transcript.jsonl");

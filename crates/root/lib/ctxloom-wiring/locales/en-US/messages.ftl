@@ -9,4 +9,3 @@ ctxloom-wiring-seed = the test seed could not plant the session: { $ext_err_txt 
 ctxloom-wiring-test-refused = the test command { $verb } refused, as it always does
 ctxloom-wiring-test-refused-fix = nothing to fix: ask for the other test command
 ctxloom-wiring-test-findings = { $count } fatal findings
-ctxloom-wiring-project-marker = the project could not be marked in .ctxloom: { $ext_err_txt }

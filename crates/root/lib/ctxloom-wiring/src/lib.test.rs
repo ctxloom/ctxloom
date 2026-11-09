@@ -465,7 +465,11 @@ fn test_the_root_variable_makes_the_work_root_and_the_project_is_marked_there() 
         project.root.as_deref().map(Path::new),
         Some(canonical(&root).as_path())
     );
-    assert!(exists(root.join(".project-id")), "marked at the root");
+    assert!(
+        exists(root.join(".ctxloom/project-id")),
+        "marked inside the root's .ctxloom"
+    );
+    assert!(!exists(root.join(".project-id")), "not at the root");
     assert!(
         !exists(env.work().join(".project-id")),
         "not in the working directory"

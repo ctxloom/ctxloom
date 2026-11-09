@@ -66,6 +66,25 @@ pub use test_commands::Samples;
 #[cfg(feature = "test-support")]
 pub use test_error::TestError;
 
+/// Where ctxloom keeps a project's id marker, under the work root.
+///
+/// Invariant: it lives under `.ctxloom`, so a ctxloom session writes nothing
+/// outside `.ctxloom` and `~/.ctxloom` (leaving is deleting them). A project
+/// that already has taskloom's root `.project-id` is read and adopted into
+/// this marker; markers that disagree are refused (`marker-conflict`).
+pub(crate) const PROJECT_MARKER: &str = ".ctxloom/project-id";
+
+/// The project registry, its marker at [`PROJECT_MARKER`].
+pub(crate) fn registry<N>(
+    fs: Arc<dyn Fs>,
+    environment: Environment,
+    names: N,
+) -> ProjectRegistry<N> {
+    ProjectRegistry::new(fs, environment, names)
+        .with_marker(PROJECT_MARKER)
+        .expect("PROJECT_MARKER is a relative path of plain names")
+}
+
 /// A newly minted session's harp: two adjectives and a noun.
 pub fn session_name() -> String {
     HarpNames.project_id()
@@ -284,8 +303,7 @@ impl Wiring {
                 .non_empty("CTXLOOM_PROJECT_ID")
                 .and_then(|v| v.to_str().map(String::from)),
         };
-        let registry =
-            || ProjectRegistry::new(Arc::clone(&self.fs), environment.clone(), HarpNames);
+        let registry = || registry(Arc::clone(&self.fs), environment.clone(), HarpNames);
         let stores = || SqliteStores::new(Arc::clone(&self.fs), self.home.clone());
         let project = self.project_dir();
         Sessions {

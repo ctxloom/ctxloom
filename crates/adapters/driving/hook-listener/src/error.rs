@@ -16,6 +16,9 @@ pub enum ListenerError {
         endpoint: String,
         cause: ListenError,
     },
+    /// The address to bind is unspecified (0.0.0.0, ::): on every interface.
+    /// A hook listener never binds one.
+    Unspecified { addr: String },
     /// The open calls did not finish within the grace: the listener was
     /// aborted and its socket removed.
     StopTimedOut { endpoint: String, grace_ms: u64 },
@@ -60,12 +63,14 @@ impl Diagnostic for ListenerError {
         match self {
             ListenerError::Bind { .. } => code!("bind"),
             ListenerError::Stop { .. } => code!("stop"),
+            ListenerError::Unspecified { .. } => code!("bind-unspecified"),
             ListenerError::StopTimedOut { .. } => code!("stop-timed-out"),
         }
     }
 
     fn args(&self) -> Vec<(&str, Arg)> {
         match self {
+            ListenerError::Unspecified { addr } => vec![("addr", addr.as_str().into())],
             ListenerError::StopTimedOut { endpoint, grace_ms } => vec![
                 ("endpoint", endpoint.as_str().into()),
                 ("grace_ms", (*grace_ms).into()),
@@ -103,6 +108,9 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             Path::new("/run/user/1000/ctxloom/0011223344556677.sock"),
             &cause,
         )),
+        Box::new(ListenerError::Unspecified {
+            addr: "0.0.0.0:0".to_string(),
+        }),
         Box::new(ListenerError::timed_out(
             "/run/user/1000/ctxloom/0011223344556677.sock",
             std::time::Duration::from_secs(3),

@@ -27,6 +27,7 @@ os = { workspace = true, features = ["test-support"] }
 run-ports.workspace = true
 runs.workspace = true
 sessions.workspace = true
+sha2.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util"] }
 tonic = { version = "0.14", default-features = false, features = ["channel", "codegen"] }
 uuid.workspace = true

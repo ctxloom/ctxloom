@@ -38,6 +38,19 @@ pub use error::{ListenerError, CATALOGS, EN_US};
 /// How long the open calls have to finish when the listener is stopped.
 pub const STOP_GRACE: Duration = Duration::from_secs(3);
 
+/// The most bytes a request to the hook listener may hold. Past it a request
+/// is refused before it is decoded.
+pub const MAX_REQUEST_BYTES: usize = 1024 * 1024;
+
+/// What a listener declares of the requests it admits.
+pub use angzarr_coordinator::Arrival as Reach;
+
+/// The reach a bind at `ip` declares: loopback for a loopback address, else an IP's.
+pub fn reach_of(ip: std::net::IpAddr) -> Reach {
+    let _ = ip;
+    Reach::Ip
+}
+
 /// A hook listener that is serving: its socket is bound, and a hook that
 /// connects finds it. Dropping it stops it at once; [`HookListener::stop`]
 /// stops it gracefully.
@@ -71,6 +84,28 @@ impl HookListener {
             running,
             endpoint: endpoint.display().to_string(),
         })
+    }
+
+    /// Serve the hooks of one run on TCP at `addr` (port 0: the system gives
+    /// a free one, [`HookListener::local_addr`] says which), through `edge`.
+    /// An unspecified address is refused. The listener declares the arrival of
+    /// its bind: loopback for a loopback address, otherwise an IP's.
+    pub async fn serve_tcp<E: Edge + 'static>(
+        edge: Arc<E>,
+        addr: std::net::SocketAddr,
+    ) -> Result<HookListener, ListenerError> {
+        let _ = (edge, addr);
+        todo!("serve_tcp")
+    }
+
+    /// The address a TCP listener is bound to.
+    pub fn local_addr(&self) -> Option<std::net::SocketAddr> {
+        None
+    }
+
+    /// What the TCP listener declares of its requests.
+    pub fn reach(&self) -> Option<Reach> {
+        None
     }
 
     /// The socket's path, as served.

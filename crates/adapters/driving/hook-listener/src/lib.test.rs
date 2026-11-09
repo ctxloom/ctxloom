@@ -694,3 +694,171 @@ async fn a_stop_with_nothing_open_is_ok_within_the_grace() {
         .expect("stops");
     assert!(!present(&world.endpoint));
 }
+
+// ---- TCP (owner rulings 2026-11-09, items 31-33) ----
+
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+const LOOPBACK_ANY_PORT: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
+
+async fn tcp_client(addr: SocketAddr) -> CommandHandlerCoordinatorServiceClient<Channel> {
+    let url = run_ports::endpoint_url(&addr.ip().to_string(), addr.port());
+    CommandHandlerCoordinatorServiceClient::new(
+        Endpoint::from_shared(url).unwrap().connect().await.unwrap(),
+    )
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_capture_fact_over_tcp_is_applied_to_the_session_stream() {
+    let world = World::new().await;
+    let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT)
+        .await
+        .expect("serves");
+    let addr = listener
+        .local_addr()
+        .expect("a TCP listener reports its address");
+    assert!(addr.ip().is_loopback());
+    assert_ne!(addr.port(), 0, "port 0 is replaced by the port given");
+    let before = world.watched().await;
+    let answered = tcp_client(addr)
+        .await
+        .handle(request(
+            world.turn_ended("p1"),
+            Some(&format!("Bearer {}", world.bearer)),
+        ))
+        .await
+        .expect("applied")
+        .into_inner();
+    assert_eq!(answered.delivery(), DeliveryOutcome::Applied);
+    let after = world.watched().await;
+    assert_eq!(after, [before[0] + 1, before[1], before[2], before[3]]);
+    listener.stop().await.unwrap();
+    assert!(
+        tokio::net::TcpStream::connect(addr).await.is_err(),
+        "nobody listens after the stop"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_listeners_on_port_zero_get_two_ports() {
+    let world = World::new().await;
+    let a = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT)
+        .await
+        .unwrap();
+    let b = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT)
+        .await
+        .unwrap();
+    assert_ne!(
+        a.local_addr().unwrap().port(),
+        b.local_addr().unwrap().port()
+    );
+    a.stop().await.unwrap();
+    b.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unspecified_address_is_never_bound() {
+    let world = World::new().await;
+    for addr in ["0.0.0.0:0", "[::]:0"] {
+        let error = HookListener::serve_tcp(Arc::clone(&world.edge), addr.parse().unwrap())
+            .await
+            .err()
+            .expect("refused");
+        assert_eq!(
+            error,
+            crate::ListenerError::Unspecified {
+                addr: addr.to_string()
+            }
+        );
+        assert_eq!(
+            angzarr_diagnostic::Diagnostic::code(&error),
+            "hook-listener-bind-unspecified"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_declared_arrival_follows_the_bind() {
+    use crate::Reach;
+    assert_eq!(
+        crate::reach_of("127.0.0.1".parse().unwrap()),
+        Reach::Loopback
+    );
+    assert_eq!(crate::reach_of("::1".parse().unwrap()), Reach::Loopback);
+    assert_eq!(crate::reach_of("172.18.0.1".parse().unwrap()), Reach::Ip);
+    assert_eq!(crate::reach_of("192.168.1.9".parse().unwrap()), Reach::Ip);
+    let world = World::new().await;
+    let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT)
+        .await
+        .unwrap();
+    assert_eq!(listener.reach(), Some(Reach::Loopback));
+    listener.stop().await.unwrap();
+}
+
+// Owner additions (3): a request over the limit is refused before it is
+// decoded and writes nothing; the refusal says nothing of the token.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_request_over_the_size_limit_is_refused_and_writes_nothing() {
+    let world = World::new().await;
+    let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT)
+        .await
+        .unwrap();
+    let held = world.watched().await;
+    let huge = fact(
+        cover(sessions::SESSION_DOMAIN, &world.session),
+        &sessions::RecordAssistantText {
+            prompt_id: "p".to_string(),
+            turn_id: "t".to_string(),
+            message_id: "m".to_string(),
+            index: 0,
+            is_final: false,
+            text: "x".repeat(crate::MAX_REQUEST_BYTES + 1024),
+        },
+        "big",
+    );
+    let status = tcp_client(listener.local_addr().unwrap())
+        .await
+        .handle(request(huge, Some(&format!("Bearer {}", world.bearer))))
+        .await
+        .expect_err("over the limit");
+    assert_eq!(status.code(), Code::ResourceExhausted);
+    assert_eq!(world.watched().await, held);
+    listener.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_authentication_failure_says_nothing_of_the_token_or_its_digest() {
+    use sha2::{Digest, Sha256};
+    let world = World::new().await;
+    let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT)
+        .await
+        .unwrap();
+    let secret = world.bearer.rsplit_once('.').unwrap().1.to_string();
+    let digest: String = Sha256::digest(hex_bytes(&secret))
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let run_text = world.bearer.rsplit_once('.').unwrap().0.to_string();
+    let attempted = format!("{run_text}.{}", "ee".repeat(32));
+    let status = tcp_client(listener.local_addr().unwrap())
+        .await
+        .handle(request(
+            world.turn_ended("p1"),
+            Some(&format!("Bearer {attempted}")),
+        ))
+        .await
+        .expect_err("unauthenticated");
+    assert_eq!(status.code(), Code::Unauthenticated);
+    let shown = format!("{status:?}");
+    for hidden in [&secret, &digest, &"ee".repeat(32)] {
+        assert!(!shown.contains(hidden.as_str()), "{shown}");
+    }
+    listener.stop().await.unwrap();
+}
+
+fn hex_bytes(text: &str) -> Vec<u8> {
+    (0..text.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
+        .collect()
+}

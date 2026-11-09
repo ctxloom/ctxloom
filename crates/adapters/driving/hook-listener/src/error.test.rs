@@ -55,6 +55,7 @@ fn the_samples_hold_a_value_of_every_code() {
         codes,
         [
             "hook-listener-bind",
+            "hook-listener-bind-unspecified",
             "hook-listener-stop",
             "hook-listener-stop-timed-out"
         ]

@@ -94,7 +94,7 @@ _arch-lint-ready:
 [group('check')]
 [doc("Clippy, warnings denied, with the core's purity rules and the OS-cfg check")]
 [no-exit-message]
-lint: lint-arch
+lint: lint-arch lint-path-deps
     #!/usr/bin/env bash
     set -euo pipefail
     root=$(grep '^excessive-nesting-threshold' {{TOP}}/clippy.toml)
@@ -115,6 +115,16 @@ lint: lint-arch
     [ "${VERBOSE:-}" = 1 ] && terse=()
     exec just --justfile {{TOP}}/justfile _run lint workspace cargo \
         cargo clippy "${terse[@]}" --manifest-path {{TOP}}/Cargo.toml --workspace --all-targets -- -D warnings
+
+# No dependency, [patch] or [replace] entry reaches outside the repository by
+# path, and no .cargo/config.toml is tracked (scripts/path-deps-check.sh): it
+# judges the staged index. Local sibling checkouts go in the gitignored
+# .cargo/config.toml. Lefthook's pre-commit `path-deps` runs this.
+[group('check')]
+[doc("No dependency path reaches outside the repository")]
+[no-exit-message]
+lint-path-deps:
+    @just --justfile {{TOP}}/justfile _run path-deps staged path-deps {{TOP}}/scripts/path-deps-check.sh {{TOP}}
 
 # Wire lefthook's git hooks into the repository's .git/hooks. Worktrees share
 # .git/hooks, so this is once per clone, and again whenever lefthook.yml or
@@ -160,7 +170,7 @@ clean-target:
 
 # The self-tests of this repository's scripts against fixture trees.
 [group('check')]
-[doc("Self-tests of the scripts: mutants-batch, closeout, ltk rules, output budget, exec-mode check")]
+[doc("Self-tests of the scripts: mutants-batch, closeout, ltk rules, output budget, exec-mode check, path deps")]
 [no-exit-message]
 selftest:
     @{{TOP}}/scripts/mutants-batch.selftest.sh
@@ -169,6 +179,7 @@ selftest:
     @{{TOP}}/scripts/output-budget.selftest.sh
     @{{TOP}}/scripts/exec-mode-check.selftest.sh
     @{{TOP}}/scripts/dev-local.selftest.sh
+    @{{TOP}}/scripts/path-deps-check.selftest.sh
 
 # Run the ctxloom binary (cargo run, quiet) with the given arguments.
 [group('dev')]

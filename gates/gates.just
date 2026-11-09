@@ -829,6 +829,13 @@ _extract-cargo log rc:
     total=$(grep -c '' <<< "$diag")
     [ "$total" -le 20 ] || echo "+$((total - 20)) more, see the log"
 
+# path-deps-check.sh prints its own summary line, then a line per finding.
+[positional-arguments]
+_extract-path-deps log rc:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cat "$1"
+
 # rustfmt -l: a line per file it would change.
 [positional-arguments]
 _extract-fmt log rc:

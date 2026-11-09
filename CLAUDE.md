@@ -159,7 +159,8 @@ inheritance, and its data is meant to come from hooks. Crates:
   the interactive launch through `run_terminal`: inherited stdio, the caller's
   process group, no deadline; each on a thread of its own, returning at the
   spawn) and the drive half of
-  `engine-claude`; `adapters/driving/run-cli`.
+  `engine-claude`; `adapters/driving/run-cli`; and `adapters/driven/hook-tls` (the
+per-run listener certificate's mint, see the credentials paragraph below).
 
 An engine's hooks are its adapter's: `ctxloom hook <engine> execute
 <NativeHookName>` (hidden) resolves the engine through `surface_ports::Registry`
@@ -201,42 +202,64 @@ a hook process receives, through the INTERACTIVE engine env only (like
 `CTXLOOM_HOME`; `engine-claude`'s `INTERACTIVE_ENV_ALLOWLIST`, never a child's
 turn env, whose allowlist is unchanged, and an inherited value from an
 enclosing session is dropped): `CTXLOOM_ENDPOINT`, the URL of the run's TCP
-listener, `http://<host>:<port>` (`https://` when the listener has a
-certificate; the scheme drives the dial, so TLS is additive; the sink refuses
-`https` until it has one to trust); the port is the system's (the listener
+listener, `https://<host>:<port>` (TLS only: `http://` is the typed
+`run-ports-endpoint-plaintext` and is never dialed, and port 0, a request to
+bind and never a place to dial, is `run-ports-endpoint-port-zero`, for the
+builder and the parser both); the port is the system's (the listener
 binds port 0 before the run is minted and the bound port is told);
 `CTXLOOM_BEARER`, the composite `<run-id>.<64 hex>` (the gate splits it to look
-the run up, no upstream metadata needed); `CTXLOOM_RUN`, the run id. The
-URL's build and parse, the variables and the bind table are pure functions in
-`run-ports` (`hook.rs`, `bind.rs`). The
+the run up, no upstream metadata needed); `CTXLOOM_RUN`, the run id;
+`CTXLOOM_TLS_CERT`, the run's listener certificate, PUBLIC (base64 of the DER on
+one line, safe in an environment and in `docker -e`; `run_ports::PublicCert`
+encodes, decodes and wraps it as PEM). The URL's build and parse, the
+variables, the certificate's codec and the bind table are pure functions in
+`run-ports` (`hook.rs`, `tls.rs`, `bind.rs`). The
 secret is returned once by `Enqueuer::enqueue` to the launching code, which
 puts it in the launch order's env; `Bearer`, `Token` and the `Debug` of
 `TurnCommand`, `TurnRequest` and `Order` never render it, and no error carries
-it. Residual, same-user: the model runs as the user and can read its own
-engine's environment, so it can forge CAPTURE facts as the hook principal; it
-can never forge runner lifecycle facts (the runner and model tokens are not in
-that env), and the capture scope is why the hook credential is a third one.
-The token now crosses loopback TCP in plaintext (ruling 32, accepted cost):
-anyone on the host who can connect to the port can try the token (it is a
-256-bit secret, valid until the run ends, scoped to the run's own session
-stream, and a failed attempt says nothing of the token or its digest), and
-anyone who can sniff loopback can read it. The listener has no connection
+it. Residual, same-user (ruling 37, ACCEPTED: the user boundary is the trust
+boundary): the model runs as the user and can read its own engine's
+environment, so it holds the bearer and the public certificate and can forge
+CAPTURE facts as the hook principal; it can never forge runner lifecycle facts
+(the runner and model tokens are not in that env), and the capture scope is why
+the hook credential is a third one. The callback is TLS, server-auth only, no
+mutual TLS (ruling 36): the per-run certificate authenticates the SERVER to the
+child, which pins it as its SOLE trust root (no system roots, no fallback to
+plaintext), and the bearer authenticates the child. So the token no longer
+crosses loopback in the clear; what reaches the port can still try the token
+(a 256-bit secret, valid until the run ends, scoped to the run's own session
+stream; a failed attempt says nothing of the token or its digest), and a
+process that can bind the port first cannot present the certificate (the key
+never leaves the listener's process). The certificate is minted per run
+BEFORE the listener is served and the engine spawned, by `hook-tls`'s `Minter`
+behind `run_ports::CertMint` (rcgen on ring, ECDSA P-256, a non-CA
+`serverAuth` leaf); its window is explicit (rcgen's default starts in 1975):
+valid from five minutes before the clock (skew) to 24 hours after it, a cap
+that outlasts any run and bounds a leak; its names are every address the
+child may dial for the run (`CertNames::for_plan`: 127.0.0.1, ::1, the bind
+and the told host, so a runtime's host alias is a DNS name), and the client's
+`domain_name` is the URL's host. The private key lives in memory in
+`run_ports::HookCertificate` (whose `Debug` withholds it) and goes to
+`hook-listener`'s `TlsIdentity` and nowhere else: never journaled, logged, in
+an environment or in an error. A hook that finds the listener named but the
+certificate missing or garbled refuses (`HookSink::Refused`, `hook-cli-not-recorded`
+naming `CTXLOOM_TLS_CERT`) and sends nothing. The listener has no connection
 limit, idle or handshake timeout of its own (angzarr's `Listener` offers none:
 an escalation); a request is capped at `hook-listener`'s `MAX_REQUEST_BYTES`.
-Revisit trigger: any listener reachable beyond the host, a remote or
-multi-host child, or an authority wider than capture on this credential: add
-TLS (a per-run certificate the client pins) and its pin to the bearer's
-transport.
+Revisit trigger (ruling 37): ctxloom on a multi-user host with a shared uid,
+or an authority wider than capture on this credential (ruling 38).
 The run is driven on a multi-thread runtime (`ctxloom-wiring`'s `run_runtime`,
 one worker), because `Running::finish` blocks the driving thread and a task
 spawned on a current-thread runtime (the listener) would starve meanwhile.
 An interactive run serves its endpoint: `hook-listener`'s `HookListener` (angzarr's
-coordinator `Handle` on a TCP port, port 0, never an unspecified address, the
+coordinator `Handle` on a TCP port, TLS only (`Listener::tls`, angzarr's `tls`
+feature: tonic's `tls-ring`, never aws-lc), port 0, never an unspecified address, the
 arrival declared from the bind (the bind table, `run_ports::bind_for`: the host
 runtime binds 127.0.0.1 and is told 127.0.0.1; the container rows of ruling 33
 are the tested table and its typed refusals, not yet wired to a container
-launch), behind `runs-application`'s `HookGate`) is started before the run is
-minted (the port is part of what the engine is told) and stopped if the run
+launch), behind `runs-application`'s `HookGate`) is started, with the run's freshly
+minted certificate, before the run is
+minted (the port and the certificate are part of what the engine is told) and stopped if the run
 does not start; otherwise it is stopped, with a bounded grace, after the
 engine exits and before the run's end is last recorded
 (`ctxloom-wiring`'s `Hooks`). Not built: the hidden runner subcommand, and the
@@ -309,8 +332,8 @@ The lock holds ONE `angzarr-embedded`, `angzarr-proto`, `angzarr-ports` and
 a full commit. The angzarr pins are one line, one per family member:
 
 - angzarr core `35b29dea` (`angzarr-diagnostic`, `angzarr-yaml`,
-  `angzarr-presentation`; the listener work upstream, coord/grpc-listener,
-  is at this rev, and ctxloom does not use it yet);
+  `angzarr-presentation`; `angzarr-coordinator-grpc`'s `tls` feature, which
+  `hook-listener` enables, is `Listener::tls`);
 - angzarr-embedded `ba73fabe` on angzarr-router `bc729edc`;
 - angzarr-build `9e9eff01` (the markup generator, `angzarr-build` and
   `angzarr-codegen`, its own repository);
@@ -322,6 +345,15 @@ so moving one moves all. The lock holds one of every angzarr crate. The platform
 angzarr-platform's, and `angzarr-presentation` and `angzarr-diagnostic` are
 angzarr core's, all `Apache-2.0 OR BSD-3-Clause`; this workspace is
 `AGPL-3.0-only`.
+
+The callback's TLS stack is one crypto provider, ring (owner, ruling 35):
+tonic's `tls-ring` (never `tls-aws-lc`; `hook-listener` and `hook-sink-grpc`
+enable it, and `hook-listener` turns on `angzarr-coordinator-grpc`'s `tls`
+feature) and `rcgen` (production dependency of `hook-tls`, default features
+off: `crypto`, `pem`, `ring`). They bring rustls, ring, rustls-webpki and
+their small dependencies; `ISC` (ring, untrusted, rustls-webpki) is in
+`deny.toml`'s allow list for them, as MIT and BSD are. No aws-lc is to enter
+the lock: rustls with two providers and none installed panics at config build.
 
 The driving edge's shared shims (`cli-support`: `Call<G>`, `Failure`, the
 notices printers, `report_failure`, the argument readers) are
@@ -476,7 +508,9 @@ size and SHA-256 (never its text, ruling B). Not captured: thinking
 blocks, a tool's status (Claude's payload carries none) and a result's body.
 A hook is a separate process and delivers through the run's listener:
 `ctxloom-wiring`'s `HookSink` is `hook-sink-grpc`'s `GrpcSink` to
-`CTXLOOM_ENDPOINT` with `CTXLOOM_BEARER` when both are set and well formed, and
+`CTXLOOM_ENDPOINT` with `CTXLOOM_BEARER`, pinning `CTXLOOM_TLS_CERT` as its only
+root, when the endpoint and bearer are set and well formed (a missing or
+garbled certificate is `HookSink::Refused`, never plaintext), and
 fails open otherwise (and on any undelivered fact): it answers the engine as
 usual and warns `hook-cli-not-recorded` for each observation. The `Unreachable`
 sink is that fallback; the in-process `EdgeSink` is for tests and the run's own

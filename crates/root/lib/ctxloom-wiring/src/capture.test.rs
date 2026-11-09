@@ -367,7 +367,7 @@ fn the_hook_environment_makes_the_listener_sink_only_when_it_is_whole() {
 }
 
 // No fallback: an endpoint and a bearer with no usable certificate are a typed
-// refusal that sends nothing (not plaintext, not the system's roots).
+// refusal (said as not recorded) that sends nothing (not plaintext, not the system's roots).
 #[test]
 fn a_missing_or_garbled_certificate_is_refused_and_nothing_is_sent() {
     for (cert, why) in [
@@ -379,7 +379,7 @@ fn a_missing_or_garbled_certificate_is_refused_and_nothing_is_sent() {
         let sink = HookSink::from_environment(Some(&closed_url()), Some(A_BEARER), cert);
         assert!(matches!(sink, HookSink::Refused(_)), "{cert:?}");
         match sink.deliver(a_book(), Duration::from_secs(5)) {
-            Delivery::Refused { detail } => {
+            Delivery::Unavailable { detail } => {
                 assert!(detail.contains("CTXLOOM_TLS_CERT"), "{detail}");
                 assert!(detail.contains(why), "{detail}");
                 assert!(!detail.contains(A_BEARER), "{detail}");
@@ -394,7 +394,7 @@ fn a_missing_or_garbled_certificate_is_refused_and_nothing_is_sent() {
 fn a_plaintext_endpoint_is_refused_not_dialed() {
     let sink = HookSink::from_environment(Some("http://127.0.0.1:9"), Some(A_BEARER), Some(A_CERT));
     match sink.deliver(a_book(), Duration::from_secs(5)) {
-        Delivery::Refused { detail } => assert!(detail.contains("plaintext"), "{detail}"),
+        Delivery::Unavailable { detail } => assert!(detail.contains("plaintext"), "{detail}"),
         other => panic!("{other:?}"),
     }
 }

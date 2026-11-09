@@ -150,6 +150,13 @@ pub struct Runs<
     pub(crate) certs: Box<dyn CertMint>,
 }
 
+/// What an interactive engine is told of the run's listener: its URL and the
+/// public part of its certificate.
+struct Told<'a> {
+    endpoint: &'a str,
+    cert: &'a run_ports::PublicCert,
+}
+
 /// Everything [`Runs`] is made of.
 pub struct Parts<
     K: Core,
@@ -253,12 +260,13 @@ where
         let plan = run_ports::bind_for(run_ports::Runtime::Host, &run_ports::PlatformFacts::NONE)
             .and_then(|plan| plan.check().map(|()| plan))
             .map_err(|e| RunError::Bind(Box::new(e)))?;
-        // Interim stub: the minted certificate replaces this.
-        let _ = &self.certs;
-        let identity = run_ports::HookCertificate::new(
-            run_ports::PublicCert::from_der(vec![0x30]).unwrap_or_else(|_| unreachable!()),
-            String::new(),
-        );
+        // The run's certificate is minted for every address the child may
+        // dial, before anything is served or made; its private key goes to the
+        // listener alone, and the child is told the public part.
+        let identity = self
+            .certs
+            .mint(&run_ports::CertNames::for_plan(&plan))
+            .map_err(RunError::Listener)?;
         let serving = self
             .hooks
             .serve_tcp(plan.bind_addr, &identity)
@@ -271,7 +279,11 @@ where
                 return Err(RunError::Listener(angzarr_diagnostic::Report::of(&error)));
             }
         };
-        let started = self.start(previewed, request, Some(&endpoint)).await;
+        let told = Told {
+            endpoint: &endpoint,
+            cert: identity.public(),
+        };
+        let started = self.start(previewed, request, Some(&told)).await;
         let (session, harp, engine, run) = match started {
             Ok(started) => started,
             Err(error) => {
@@ -325,9 +337,9 @@ where
         &mut self,
         previewed: Previewed,
         request: &OneShot,
-        endpoint: Option<&str>,
+        told: Option<&Told<'_>>,
     ) -> Result<(String, String, String, Uuid), RunError> {
-        let interactive = endpoint.is_some();
+        let interactive = told.is_some();
         if !previewed.fatal.is_empty() {
             return Err(RunError::Plan(Box::new(PlanError::aborted(
                 &previewed.fatal,
@@ -399,13 +411,14 @@ where
                 .unwrap_or_default()
                 .hyphenated()
                 .to_string();
-            env.extend(run_ports::hook_environment(
-                endpoint.unwrap_or_default(),
-                &run_text,
-                &enqueued.hook_token,
-                // Interim: the minted certificate replaces this (unit 4).
-                &run_ports::PublicCert::from_der(vec![0x30]).unwrap_or_else(|_| unreachable!()),
-            ));
+            if let Some(told) = told {
+                env.extend(run_ports::hook_environment(
+                    told.endpoint,
+                    &run_text,
+                    &enqueued.hook_token,
+                    told.cert,
+                ));
+            }
         }
         self.orders.place(
             &session,

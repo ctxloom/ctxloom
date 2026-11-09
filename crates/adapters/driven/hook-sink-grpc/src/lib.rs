@@ -6,7 +6,8 @@
 //! The endpoint is `https://` only (rulings 35-37): TLS authenticates the
 //! SERVER, the run's self-signed certificate (`CTXLOOM_TLS_CERT`, public) is
 //! the channel's sole root, and the bearer authenticates the child. A
-//! plaintext endpoint is refused and nothing is sent; a listener that does not
+//! plaintext endpoint is never dialed and nothing is sent (`Unavailable`, so
+//! the hook says it did not record, never a silent refusal); a listener that does not
 //! speak TLS, or whose certificate is not the pinned one, expired, or does not
 //! name the host dialed, is unavailable, never retried in the clear.
 //!
@@ -26,7 +27,7 @@
 //! | INTERNAL `ANGZARR_REASON_FACT_DEAD_LETTERED`           | `Parked`      |
 //! | DEADLINE_EXCEEDED, or the deadline passing             | `TimedOut`    |
 //! | connect or transport failure, UNAVAILABLE, ABORTED, RESOURCE_EXHAUSTED, UNKNOWN, INTERNAL, DATA_LOSS | `Unavailable` |
-//! | a plaintext (`http://`) endpoint                       | `Refused`     |
+//! | a plaintext (`http://`) endpoint, never dialed           | `Unavailable` |
 //! | any other status (unauthenticated, permission denied, not found, ...) | `Refused` |
 //!
 //! The bearer is a secret: the sink's `Debug` withholds it, and every detail
@@ -39,7 +40,7 @@ use angzarr_embedded::v1::{CommandBook, DeliveryOutcome};
 use angzarr_proto_transport_distributed::v1::command_handler_coordinator_service_client::CommandHandlerCoordinatorServiceClient;
 use angzarr_proto_transport_distributed::v1::CommandResult;
 use prost::Message;
-use run_ports::{parse_endpoint, Bearer, Delivery, EndpointError, FactSink, PublicCert};
+use run_ports::{parse_endpoint, Bearer, Delivery, FactSink, PublicCert};
 use tonic::metadata::MetadataValue;
 use tonic::transport::{Certificate, ClientTlsConfig, Endpoint};
 use tonic::{Code, Request, Status};
@@ -69,8 +70,6 @@ struct ErrorInfo {
 enum Failed {
     /// No connection, or a broken one: said as text.
     Transport(String),
-    /// An endpoint that is never dialed (plaintext): refused, nothing sent.
-    Refused(String),
     /// The listener answered with a status.
     Status(Status),
 }
@@ -94,13 +93,8 @@ impl GrpcSink {
     }
 
     async fn call(&self, book: CommandBook) -> Result<CommandResult, Failed> {
-        let dial = parse_endpoint(&self.endpoint).map_err(|e| {
-            let text = format!("the endpoint is not usable: {e}");
-            match e {
-                EndpointError::Plaintext { .. } => Failed::Refused(text),
-                _ => Failed::Transport(text),
-            }
-        })?;
+        let dial = parse_endpoint(&self.endpoint)
+            .map_err(|e| Failed::Transport(format!("the endpoint is not usable: {e}")))?;
         let channel = Endpoint::from_shared(dial.url())
             .map_err(|e| Failed::Transport(format!("the endpoint is not usable: {e}")))?
             .tls_config(tls_for(&dial.host, &self.cert))
@@ -148,9 +142,6 @@ impl GrpcSink {
                 Ok(Ok(result)) => delivery_of_result(&result),
                 Ok(Err(Failed::Status(status))) => self.delivery_of_status(&status),
                 Ok(Err(Failed::Transport(text))) => Delivery::Unavailable {
-                    detail: self.scrub(text),
-                },
-                Ok(Err(Failed::Refused(text))) => Delivery::Refused {
                     detail: self.scrub(text),
                 },
             }

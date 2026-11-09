@@ -428,14 +428,15 @@ fn what_is_not_a_listener_url_is_unavailable_and_says_so() {
     }
 }
 
-// No downgrade: an http endpoint is refused by type and nothing is sent, even
-// to a listener that would answer it.
+// No downgrade: an http endpoint is never dialed and nothing is sent, even to
+// a listener that would answer it. It is unavailable, not a refusal, so the
+// hook says it did not record.
 #[test]
-fn a_plaintext_endpoint_is_refused_and_nothing_is_sent() {
+fn a_plaintext_endpoint_is_never_dialed_and_nothing_is_sent() {
     let server = serve_as(Answer::Result(DeliveryOutcome::Applied), Serving::Plain);
     assert!(server.url.starts_with("http://"));
     match server.sink().deliver(CommandBook::default(), BUDGET) {
-        Delivery::Refused { detail } => assert!(detail.contains("plaintext"), "{detail}"),
+        Delivery::Unavailable { detail } => assert!(detail.contains("plaintext"), "{detail}"),
         other => panic!("{other:?}"),
     }
     assert!(server.seen.lock().unwrap().is_empty());

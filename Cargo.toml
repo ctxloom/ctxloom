@@ -41,6 +41,9 @@ angzarr-diagnostic = { git = "https://github.com/angzarr-io/angzarr", rev = "331
 # angzarr-yaml, the one reader for every config and Go-written file (owner
 # ruling, 2026-10-31): versioned documents migrated on read, strict decode.
 angzarr-yaml = { git = "https://github.com/angzarr-io/angzarr", rev = "3311a3ae4f42d70c498581ea738449534048dad5" }
+# The distributed transport's generated gRPC client (and, for a test's fake
+# server, its service trait): the hook process's way to the run's listener.
+angzarr-proto-transport-distributed = { git = "https://github.com/angzarr-io/angzarr", rev = "3311a3ae4f42d70c498581ea738449534048dad5" }
 # Presentation at the driving edge (json or text, catalogs, envelopes).
 angzarr-presentation = { git = "https://github.com/angzarr-io/angzarr", rev = "3311a3ae4f42d70c498581ea738449534048dad5" }
 # The platform crates: os, the file-system seam, advisory locks.
@@ -80,6 +83,7 @@ runs-application = { path = "crates/core/application/runs-application" }
 run-launcher = { path = "crates/core/application/run-launcher" }
 run-application = { path = "crates/core/application/run-application" }
 credentials = { path = "crates/adapters/driven/credentials" }
+hook-sink-grpc = { path = "crates/adapters/driven/hook-sink-grpc" }
 embedded-edge = { path = "crates/adapters/driven/embedded-edge" }
 session-ports = { path = "crates/core/ports/session-ports" }
 sessions-proto = { path = "crates/core/wire/sessions-proto" }

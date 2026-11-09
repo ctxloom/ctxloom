@@ -306,7 +306,7 @@ fn end_recorded(held: &SessionState, end: &RecordEnd) -> Result<EndRecorded, Ses
 }
 
 /// The session, if the stream holds one that was not forgotten.
-fn live(state: &SessionState) -> Result<&SessionState, SessionRejection> {
+pub(crate) fn live(state: &SessionState) -> Result<&SessionState, SessionRejection> {
     if state.harp.is_empty() {
         return Err(SessionRejection::NoSession);
     }

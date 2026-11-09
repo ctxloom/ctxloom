@@ -18,15 +18,15 @@ use angzarr_embedded_macros::{aggregate, applies, handles_cmd, handles_fact};
 
 use crate::refusal::refuse;
 use crate::{
-    adopted, end_recorded, engine_bound, forgotten, inbox, kept_changed, lifeline, purged, record,
-    renamed, session_minted, AdoptRotations, AlreadyDelivered, BindEngineSession, ChildCannotStop,
-    ClaimMessage, DeliverMessage, EndRecorded, EngineSessionBound, FailMessage, ForgetSession,
-    Forgotten, HarpInvalid, HarpTooLong, IncarnationEnded, IncarnationOwed, KeptChanged,
-    MessageArrived, MessageClaimed, MessageDelivered, MessageFailed, MintSession, NoSession,
-    RecordEnd, RecordIncarnationEnded, RecordMessageArrived, RecordPurge, RenameSession, RenamedTo,
-    SessionAdopted, SessionCommand, SessionEvent, SessionExists, SessionForgotten, SessionMinted,
-    SessionPurged, SessionRejection, SessionState, SetKept, SteerWithdrawn, StopOrdered,
-    StopSession, UnknownMessage, WithdrawSteer,
+    adopted, end_recorded, engine_bound, forgotten, inbox, kept_changed, lifeline, live, purged,
+    record, renamed, session_minted, AdoptRotations, AlreadyDelivered, BindEngineSession,
+    ChildCannotStop, ClaimMessage, DeliverMessage, EndRecorded, EngineSessionBound, FailMessage,
+    ForgetSession, Forgotten, HarpInvalid, HarpTooLong, IncarnationEnded, IncarnationOwed,
+    KeptChanged, MessageArrived, MessageClaimed, MessageDelivered, MessageFailed, MintSession,
+    NoSession, RecordEnd, RecordIncarnationEnded, RecordMessageArrived, RecordPurge, RenameSession,
+    RenamedTo, SessionAdopted, SessionCommand, SessionEvent, SessionExists, SessionForgotten,
+    SessionMinted, SessionPurged, SessionRejection, SessionState, SetKept, SteerWithdrawn,
+    StopOrdered, StopSession, UnknownMessage, WithdrawSteer,
 };
 use crate::{
     AssistantTextShown, Compacted, PromptSubmitted, RecordAssistantText, RecordCompaction,
@@ -275,62 +275,93 @@ impl SessionAggregate {
         inbox::failed(&self.session, &fact)
     }
 
-    /// PROPOSAL stub (design/hook-capture): decided by `capture::decide`.
+    /// RecordPromptSubmitted: a FACT (it already happened in the engine), so never refused;
+    /// recorded as its event on a live session, nothing on a stream with none.
     #[handles_fact(RecordPromptSubmitted)]
     fn hook_prompt_submitted(
         &self,
         fact: RecordPromptSubmitted,
         ctx: &Context,
     ) -> Result<FactEmit<Self>, Bug> {
-        let _ = (fact, ctx);
-        todo!("design/hook-capture: a live session records the observation, anything else records nothing")
+        let _ = ctx;
+        record(live(&self.session).ok().map(|_| PromptSubmitted {
+            prompt_id: fact.prompt_id,
+            prompt: fact.prompt,
+        }))
     }
 
-    /// PROPOSAL stub (design/hook-capture): decided by `capture::decide`.
+    /// RecordAssistantText: a FACT (it already happened in the engine), so never refused;
+    /// recorded as its event on a live session, nothing on a stream with none.
     #[handles_fact(RecordAssistantText)]
     fn hook_assistant_text(
         &self,
         fact: RecordAssistantText,
         ctx: &Context,
     ) -> Result<FactEmit<Self>, Bug> {
-        let _ = (fact, ctx);
-        todo!("design/hook-capture: a live session records the observation, anything else records nothing")
+        let _ = ctx;
+        record(live(&self.session).ok().map(|_| AssistantTextShown {
+            prompt_id: fact.prompt_id,
+            turn_id: fact.turn_id,
+            message_id: fact.message_id,
+            index: fact.index,
+            is_final: fact.is_final,
+            text: fact.text,
+        }))
     }
 
-    /// PROPOSAL stub (design/hook-capture): decided by `capture::decide`.
+    /// RecordToolCall: a FACT (it already happened in the engine), so never refused;
+    /// recorded as its event on a live session, nothing on a stream with none.
     #[handles_fact(RecordToolCall)]
     fn hook_tool_call(&self, fact: RecordToolCall, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
-        let _ = (fact, ctx);
-        todo!("design/hook-capture: a live session records the observation, anything else records nothing")
+        let _ = ctx;
+        record(live(&self.session).ok().map(|_| ToolCalled {
+            prompt_id: fact.prompt_id,
+            tool_use_id: fact.tool_use_id,
+            tool: fact.tool,
+            input: fact.input,
+            response_bytes: fact.response_bytes,
+            response_sha256: fact.response_sha256.clone(),
+        }))
     }
 
-    /// PROPOSAL stub (design/hook-capture): decided by `capture::decide`.
+    /// RecordTurnEnded: a FACT (it already happened in the engine), so never refused;
+    /// recorded as its event on a live session, nothing on a stream with none.
     #[handles_fact(RecordTurnEnded)]
     fn hook_turn_ended(&self, fact: RecordTurnEnded, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
-        let _ = (fact, ctx);
-        todo!("design/hook-capture: a live session records the observation, anything else records nothing")
+        let _ = ctx;
+        record(live(&self.session).ok().map(|_| TurnEnded {
+            prompt_id: fact.prompt_id,
+        }))
     }
 
-    /// PROPOSAL stub (design/hook-capture): decided by `capture::decide`.
+    /// RecordSessionEnded: a FACT (it already happened in the engine), so never refused;
+    /// recorded as its event on a live session, nothing on a stream with none.
     #[handles_fact(RecordSessionEnded)]
     fn hook_session_ended(
         &self,
         fact: RecordSessionEnded,
         ctx: &Context,
     ) -> Result<FactEmit<Self>, Bug> {
-        let _ = (fact, ctx);
-        todo!("design/hook-capture: a live session records the observation, anything else records nothing")
+        let _ = ctx;
+        record(live(&self.session).ok().map(|_| SessionEnded {
+            native_session: fact.native_session,
+            reason: fact.reason,
+        }))
     }
 
-    /// PROPOSAL stub (design/hook-capture): decided by `capture::decide`.
+    /// RecordCompaction: a FACT (it already happened in the engine), so never refused;
+    /// recorded as its event on a live session, nothing on a stream with none.
     #[handles_fact(RecordCompaction)]
     fn hook_compaction(
         &self,
         fact: RecordCompaction,
         ctx: &Context,
     ) -> Result<FactEmit<Self>, Bug> {
-        let _ = (fact, ctx);
-        todo!("design/hook-capture: a live session records the observation, anything else records nothing")
+        let _ = ctx;
+        record(live(&self.session).ok().map(|_| Compacted {
+            prompt_id: fact.prompt_id,
+            phase: fact.phase,
+        }))
     }
 
     #[applies(PromptSubmitted)]

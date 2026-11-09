@@ -147,7 +147,22 @@ impl Session {
                 ..CommandPage::default()
             }),
         };
-        self.harness.when_book(book).events()
+        // A redelivery is answered DUPLICATE: nothing new recorded.
+        match self
+            .harness
+            .when_book(book)
+            .handled()
+            .expect("a fact is never refused")
+        {
+            angzarr_embedded::Handled::Applied(recorded) => recorded
+                .books()
+                .iter()
+                .filter(|book| book.cover.as_ref() == Some(&cover()))
+                .flat_map(|book| &book.pages)
+                .map(|page| SessionEvent::from_any(event_any(page)).unwrap())
+                .collect(),
+            _ => Vec::new(),
+        }
     }
 
     /// The pages stored, oldest first.

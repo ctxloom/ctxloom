@@ -238,7 +238,7 @@ impl Project {
         } else {
             request.llm.clone()
         };
-        let (label, backend, model) = self.backend_of(&wanted, &package.selection.llm);
+        let (label, backend, _) = self.backend_of(&wanted, &package.selection.llm);
         self.check_llm(&label)?;
         let degraded = self.flags.degraded;
         for finding in &findings {
@@ -272,7 +272,7 @@ impl Project {
             prompt,
             findings: rows,
             axes: self.axes(request, selection.agent.as_ref()),
-            model,
+            model: String::new(),
         };
         Ok(Previewed { plan, fatal })
     }

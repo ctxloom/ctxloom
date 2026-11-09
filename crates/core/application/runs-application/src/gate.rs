@@ -25,7 +25,7 @@ pub struct Credential {
 }
 
 /// The type URL of a domain message's wire form.
-fn url<M: DomainMessage>() -> String {
+pub(crate) fn url<M: DomainMessage>() -> String {
     <M::Wire as prost::Name>::type_url()
 }
 
@@ -35,6 +35,24 @@ fn decode<E: Payload>(page: &EventPage) -> Option<E> {
         event_page::Body::Event(event) => E::from_any(event).ok(),
         event_page::Body::MetaEvent(_) => None,
     }
+}
+
+/// The run rooted at `run`, folded from its stream as the aggregate folds it:
+/// the default (no mode) when the stream holds none.
+pub(crate) async fn run_state<E: Edge>(edge: &E, run: &Uuid) -> Result<runs::RunState, AppError> {
+    let cover = Cover {
+        domain: runs::RUN_DOMAIN.to_string(),
+        root: Some(run.clone()),
+        edition: None,
+    };
+    let pages = edge.events(&cover, 0).await.map_err(failed)?;
+    let mut state = runs::RunState::default();
+    for page in &pages {
+        if let Some(event) = decode::<runs::RunEvent>(page) {
+            runs::apply(&mut state, &event, page.sequence);
+        }
+    }
+    Ok(state)
 }
 
 /// A store that could not be read.
@@ -140,19 +158,7 @@ impl<E: Edge> RunsGate<E> {
 
 impl<E: Edge> Gate for RunsGate<E> {
     async fn identify(&self, credential: &Credential) -> Result<Identity, AppError> {
-        // The run: its stream, folded as the aggregate folds it.
-        let run_cover = Cover {
-            domain: runs::RUN_DOMAIN.to_string(),
-            root: Some(credential.run.clone()),
-            edition: None,
-        };
-        let pages = self.edge.events(&run_cover, 0).await.map_err(failed)?;
-        let mut run = runs::RunState::default();
-        for page in &pages {
-            if let Some(event) = decode::<runs::RunEvent>(page) {
-                runs::apply(&mut run, &event, page.sequence);
-            }
-        }
+        let run = run_state(&*self.edge, &credential.run).await?;
         if run.mode.is_none() {
             return Err(AppError::Unauthenticated(Why::UnknownRun));
         }

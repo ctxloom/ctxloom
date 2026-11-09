@@ -240,6 +240,8 @@ pub(crate) struct Party {
     pub(crate) model_identity: Identity,
     pub(crate) model_credential: Credential,
     pub(crate) model_token: Token,
+    /// The hook principal's secret (journaled as a hash, like the others).
+    pub(crate) hook_token: Token,
 }
 
 pub(crate) struct World {
@@ -294,6 +296,7 @@ impl World {
         .unwrap();
         let token = Token::from_bytes([n; 32]);
         let model_token = Token::from_bytes([n + 100; 32]);
+        let hook_token = Token::from_bytes([n + 200; 32]);
         let run_root = runs::run_root(session, 1);
         let run_cover = Cover {
             domain: runs::RUN_DOMAIN.to_string(),
@@ -308,7 +311,7 @@ impl World {
                 mode: runs::RunMode::Interactive,
                 runner_credential_hash: Sha256::digest(token.as_bytes()).to_vec(),
                 model_credential_hash: Sha256::digest(model_token.as_bytes()).to_vec(),
-                hook_credential_hash: Sha256::digest([n + 200; 32]).to_vec(),
+                hook_credential_hash: Sha256::digest(hook_token.as_bytes()).to_vec(),
             },
         ))
         .await
@@ -337,6 +340,7 @@ impl World {
                 run: run_root,
             },
             model_token,
+            hook_token,
         }
     }
 

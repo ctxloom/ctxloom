@@ -30,6 +30,8 @@ mod error;
 mod facts;
 mod feeds;
 mod gate;
+mod hook_commands;
+mod hook_gate;
 mod identity;
 mod requests;
 
@@ -42,6 +44,8 @@ pub use error::{AppError, Why, EN_US};
 pub use facts::{Fact, Facts, ModelFact, Recorded, RunnerFact};
 pub use feeds::{Cursor, Feeds, Follow};
 pub use gate::{owns, Allowlist, Credential, Gate, RunsGate};
+pub use hook_commands::{EdgeCommands, EdgeFailure};
+pub use hook_gate::{hook_allowlist, HookGate, HookIdentity};
 pub use identity::{Identity, Principal, Role};
 pub use requests::{AgentRequest, AgentRequests, Requested};
 

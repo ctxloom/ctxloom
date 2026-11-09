@@ -43,6 +43,15 @@ angzarr-diagnostic = { git = "https://github.com/angzarr-io/angzarr", rev = "331
 angzarr-yaml = { git = "https://github.com/angzarr-io/angzarr", rev = "3311a3ae4f42d70c498581ea738449534048dad5" }
 # Presentation at the driving edge (json or text, catalogs, envelopes).
 angzarr-presentation = { git = "https://github.com/angzarr-io/angzarr", rev = "3311a3ae4f42d70c498581ea738449534048dad5" }
+# The coordinator edge (core 3311a3a): the gate (Gate, Principal, Allowlist,
+# Credential), the Commands half and the gRPC server that serves them on a
+# unix socket. Transport-free except angzarr-coordinator-grpc.
+angzarr-coordinator = { default-features = false, git = "https://github.com/angzarr-io/angzarr", rev = "3311a3ae4f42d70c498581ea738449534048dad5" }
+angzarr-coordinator-grpc = { git = "https://github.com/angzarr-io/angzarr", rev = "3311a3ae4f42d70c498581ea738449534048dad5" }
+angzarr-reads = { git = "https://github.com/angzarr-io/angzarr", rev = "3311a3ae4f42d70c498581ea738449534048dad5" }
+# The generated Handle client and server (a dev-dependency here: the hook's own
+# client is another crate's).
+angzarr-proto-transport-distributed = { git = "https://github.com/angzarr-io/angzarr", rev = "3311a3ae4f42d70c498581ea738449534048dad5" }
 # The platform crates: os, the file-system seam, advisory locks.
 os = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "3e05f5d9fbab1c01590da440a98848b1f86cf0fb" }
 file-system = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "3e05f5d9fbab1c01590da440a98848b1f86cf0fb" }

@@ -8,6 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+angzarr-coordinator = { workspace = true, features = ["commands"] }
 angzarr-diagnostic.workspace = true
 angzarr-embedded.workspace = true
 prost.workspace = true

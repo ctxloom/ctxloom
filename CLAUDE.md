@@ -378,6 +378,28 @@ library's `bundle` noun and owns `remote` and `deps`.
   withheld red tests for them are `#[ignore]`d in `bundle_remote.test.rs`.
   angzarr-yaml cannot read Go's `? key` form for lock keys over 128 bytes.
 
+## Hook capture: the transcript has one writer
+
+What the engine's hooks observe (a prompt, each MessageDisplay delta, a tool
+call as size and SHA-256 only, a turn's end without text, a session's end, a
+compaction) is a typed fact of the SESSION stream (`proto/ctxloom/sessions/v1/
+capture.proto`; `runs-application::observe` makes them from the unified
+`HookEvent`, `Capture` delivers them through a `run-ports::FactSink`, failing
+open: a delivery that did not happen is dropped and said on stderr). The
+session aggregate records each on a live session, nothing on any other, and a
+redelivery is DUPLICATE. `run-launcher`'s `Recorder` is the ONLY writer of
+`transcripts/transcript.jsonl` (a `Projection` over the stream's pages, `seq`
+counting lines, the last page projected kept in `records/transcript-position.
+json`); the launcher records its own prompt and answer as the same facts. A
+reader coalesces deltas by `message_id` and `index`. Not captured: thinking
+blocks, a tool's status (Claude's payload carries none) and a result's body.
+A hook is a separate process and has no listener to deliver through yet:
+`ctxloom-wiring`'s `Unreachable` sink is what it holds, so it answers the
+engine as usual and warns `hook-cli-not-recorded` for each observation; the
+in-process `EdgeSink` is the sink the listener's transport replaces it with.
+Known gap: two compactions of one turn share an external id (the payload
+offers no discriminator), so the second is a DUPLICATE and is not recorded.
+
 ## Use `just`
 
 `just --list` shows the public recipes by group. The checks are `just build`,

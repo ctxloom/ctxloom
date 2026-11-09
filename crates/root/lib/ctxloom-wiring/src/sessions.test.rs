@@ -194,3 +194,42 @@ fn test_the_hud_hook_shows_the_harp_the_environment_names() {
     .unwrap();
     assert!(out.contains("jolly-mute-magma"), "{out}");
 }
+
+// Hook capture, fail open: a hook that observes something it cannot deliver
+// (no listener yet) answers the engine exactly as before, exits 0, and says
+// on stderr, once per observation, what it did not record.
+#[test]
+fn test_a_hook_that_cannot_record_still_answers_and_says_so_on_stderr() {
+    let mut world = World::new("hook-not-recorded");
+    world.set("CTXLOOM_SESSION_HARP", "jolly-mute-magma");
+    let payload = r#"{"session_id":"s1","prompt_id":"p1","prompt":"echo hi"}"#;
+    let (code, out, err) = run_with(
+        &mut world.commands(),
+        payload,
+        &["hook", "claude-code", "execute", "UserPromptSubmit"],
+    )
+    .ok()
+    .unwrap();
+    assert_eq!((code, out.as_str()), (0, "{}\n"));
+    assert_eq!(err.matches("hook-cli-not-recorded").count(), 1, "{err}");
+    assert!(
+        err.contains("no session directory for jolly-mute-magma"),
+        "{err}"
+    );
+}
+
+// What observes nothing records nothing and says nothing.
+#[test]
+fn test_a_hook_that_observes_nothing_says_nothing_on_stderr() {
+    let mut world = World::new("hook-observes-nothing");
+    world.set("CTXLOOM_SESSION_HARP", "jolly-mute-magma");
+    let (code, out, err) = run_with(
+        &mut world.commands(),
+        r#"{"skill":"x"}"#,
+        &["hook", "claude-code", "execute", "PostToolUse"],
+    )
+    .ok()
+    .unwrap();
+    assert_eq!((code, out.as_str()), (0, "{}\n"));
+    assert!(err.is_empty(), "{err}");
+}

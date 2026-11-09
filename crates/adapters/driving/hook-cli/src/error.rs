@@ -41,7 +41,7 @@ impl Diagnostic for HookError {
 pub enum HookWarning {
     /// There is no harp to name: nothing truthful to emit on stdout.
     NoUsableHarp { harp: String },
-    /// PROPOSAL (design/hook-capture): an observation the hook could not
+    /// An observation the hook could not
     /// record. The engine's answer is unaffected; `what` is the fact's
     /// external id and `why` the delivery's text.
     NotRecorded { what: String, why: String },

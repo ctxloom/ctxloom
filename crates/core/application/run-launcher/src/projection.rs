@@ -1,4 +1,4 @@
-//! PROPOSAL (design/hook-capture): the canonical transcript folded from the
+//! The canonical transcript folded from the
 //! session stream's capture events.
 //!
 //! Invariants: pure (the instant enters as an argument, from the event page's

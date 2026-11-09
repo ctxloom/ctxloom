@@ -1,4 +1,4 @@
-//! PROPOSAL (design/hook-capture): the hook records what it observed, and
+//! The hook records what it observed, and
 //! that never changes what it answers.
 //!
 //! [`execute_recording`] is [`crate::execute`] plus a [`Recording`] the

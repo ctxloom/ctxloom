@@ -1,4 +1,4 @@
-//! PROPOSAL (design/hook-capture): the engine's hooks as facts of the
+//! The engine's hooks as facts of the
 //! session.
 //!
 //! - [`observe`]: a unified [`HookEvent`] to the typed observations it holds,

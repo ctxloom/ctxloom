@@ -1,4 +1,4 @@
-//! PROPOSAL (design/hook-capture): the port a hook process delivers a fact
+//! The port a hook process delivers a fact
 //! book through. One method, no transport: the in-process `Edge` is one
 //! implementation, a gRPC client of `CommandHandlerCoordinatorService.Handle`
 //! (a `CommandBook` whose page body is a `Fact` carrying

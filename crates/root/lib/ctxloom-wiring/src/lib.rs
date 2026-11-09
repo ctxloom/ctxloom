@@ -8,6 +8,7 @@
 //! - [`Wiring`]: the process's home and filesystem, and the project stores
 //!   opened over them.
 
+mod capture;
 mod commands;
 mod core_link;
 mod error;
@@ -52,6 +53,7 @@ use crate::library::PathSearch;
 use uuid::Uuid;
 use worktree_git::GitWorkspaces;
 
+pub use capture::{DirIds, EdgeSink, HookRecording, SessionIds, Unreachable};
 pub use commands::{engines, Commands, Hooks};
 pub use core_link::InProcessCore;
 #[cfg(any(test, feature = "test-support"))]

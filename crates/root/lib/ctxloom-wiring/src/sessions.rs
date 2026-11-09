@@ -13,7 +13,7 @@ use ctxloom_cli::{shaped, Call, CliError, Failure, PROG};
 use hook_cli::Binding;
 use sessions_application::{BindRequest, SessionService};
 
-use crate::{Commands, Sessions};
+use crate::{Commands, DirIds, HookRecording, Sessions, Unreachable};
 
 /// The nouns these commands own.
 pub(crate) const NOUNS: [&str; 2] = ["session", "hook"];
@@ -118,8 +118,23 @@ impl Commands {
                 &mut asked,
             )
         } else {
+            let wiring = crate::Wiring::new(Arc::clone(&self.env)).ok();
+            let dirs = wiring
+                .as_ref()
+                .map(|w| session_files::SessionDirs::new(w.fs(), w.project_dir()));
+            // A hook is a process of its own: until the listener exists it has
+            // nothing to deliver through, so it fails open (stderr says so).
+            let recording = HookRecording::new(Unreachable, DirIds::new(dirs));
             let setup = self.hooks().map_err(|e| failed(Box::new(e)))?;
-            hook_cli::execute(&hook.engine, hook_name, input, &harp, &setup, &mut asked)
+            hook_cli::execute_recording(
+                &hook.engine,
+                hook_name,
+                input,
+                &harp,
+                &setup,
+                &mut asked,
+                &recording,
+            )
         }
         .map_err(failed)?;
         if let Some((harp, native_id, transcript)) = asked.0 {

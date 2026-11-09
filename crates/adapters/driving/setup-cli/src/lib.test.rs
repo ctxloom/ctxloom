@@ -11,7 +11,7 @@ use deps_application::fakes::Fixture;
 use doctor_checks::{
     ConfigFiles, Executables, Failure as PortFailure, LayerText, Put, Scope, Source, UserFiles,
 };
-use init_application::Scaffold;
+use init_application::{Ended, Scaffold};
 use reclaim_application::ProjectCache;
 
 use super::*;
@@ -25,6 +25,51 @@ struct World {
     exported: Mutex<Vec<String>>,
     /// The project has no `.ctxloom` yet.
     fresh: std::sync::atomic::AtomicBool,
+}
+
+/// Her terminal: there or not, and what she answers.
+#[derive(Default)]
+struct Person {
+    terminal: bool,
+    yes: bool,
+    asked: Mutex<Vec<String>>,
+}
+
+impl Terminal for Person {
+    fn is_terminal(&self) -> bool {
+        self.terminal
+    }
+
+    fn confirm(&self, question: &str) -> bool {
+        self.asked.lock().unwrap().push(question.to_string());
+        self.yes
+    }
+}
+
+/// The sessions init launches: what they were launched with, and how they end.
+#[derive(Default)]
+struct Launches {
+    interview_code: Option<i32>,
+    restart_code: Option<i32>,
+    launched: Mutex<Vec<&'static str>>,
+}
+
+impl Sessions for Launches {
+    fn interview(&self, _: &str) -> Result<Ended, PortFailure> {
+        self.launched.lock().unwrap().push("interview");
+        Ok(Ended {
+            code: self.interview_code,
+            notices: Vec::new(),
+        })
+    }
+
+    fn configured(&self) -> Result<Ended, PortFailure> {
+        self.launched.lock().unwrap().push("configured");
+        Ok(Ended {
+            code: self.restart_code,
+            notices: Vec::new(),
+        })
+    }
 }
 
 /// The scaffold, which lands.
@@ -141,6 +186,24 @@ fn go_to(
     configure: impl FnOnce(&World, &Fixture),
     out: &mut dyn Write,
 ) -> Run {
+    go_with(
+        line,
+        format,
+        configure,
+        out,
+        &Person::default(),
+        &Launches::default(),
+    )
+}
+
+fn go_with(
+    line: &[&str],
+    format: Format,
+    configure: impl FnOnce(&World, &Fixture),
+    out: &mut dyn Write,
+    person: &Person,
+    sessions: &Launches,
+) -> Run {
     let world = Arc::new(World::default());
     let fixture = Fixture::new();
     configure(&world, &fixture);
@@ -165,6 +228,8 @@ fn go_to(
         cleaner: &cleaner,
         doctor: &doctor,
         init: &init,
+        terminal: person,
+        sessions,
     };
     let mut full = vec!["ctxloom"];
     full.extend(line);
@@ -447,6 +512,8 @@ fn a_noun_the_line_does_not_carry_is_a_usage_failure() {
         cleaner: &cleaner,
         doctor: &doctor,
         init: &init,
+        terminal: &Person::default(),
+        sessions: &Launches::default(),
     };
     let matches = nouns()
         .into_iter()
@@ -531,4 +598,80 @@ fn a_bare_auth_is_auth_status() {
     let status = go(&["auth", "status"], Format::Text, token);
     assert_eq!(bare.exit.unwrap(), 0);
     assert_eq!(bare.out, status.out);
+}
+
+fn at_a_terminal(
+    yes: bool,
+    interview: Option<i32>,
+    restart: Option<i32>,
+) -> (Person, Launches, Run) {
+    let person = Person {
+        terminal: true,
+        yes,
+        ..Person::default()
+    };
+    let sessions = Launches {
+        interview_code: interview,
+        restart_code: restart,
+        ..Launches::default()
+    };
+    let mut out = Vec::new();
+    let mut run = go_with(&["init"], Format::Text, token, &mut out, &person, &sessions);
+    run.out = String::from_utf8(out).unwrap();
+    (person, sessions, run)
+}
+
+// j000200 scenario 2: on a terminal init interviews her, offers the restart
+// and, on her yes, launches the configured session; the command exits as the
+// restarted session did.
+#[test]
+fn init_at_a_terminal_interviews_then_restarts_on_a_yes_and_exits_as_the_session_did() {
+    let (person, sessions, run) = at_a_terminal(true, Some(0), Some(3));
+    assert_eq!(run.exit.expect("ran"), 3);
+    assert_eq!(
+        *sessions.launched.lock().unwrap(),
+        ["interview", "configured"]
+    );
+    assert_eq!(person.asked.lock().unwrap().len(), 1);
+}
+
+// A no ends init with the command that starts the configured session later.
+#[test]
+fn init_at_a_terminal_names_the_command_to_run_later_on_a_no() {
+    let (_, sessions, run) = at_a_terminal(false, Some(0), Some(3));
+    assert_eq!(run.exit.expect("ran"), 0);
+    assert_eq!(*sessions.launched.lock().unwrap(), ["interview"]);
+    assert!(run.out.contains("ctxloom run"), "{}", run.out);
+}
+
+// An interview that was cut short exits with its status and offers nothing.
+#[test]
+fn init_at_a_terminal_whose_interview_failed_exits_so_and_asks_nothing() {
+    let (person, sessions, run) = at_a_terminal(true, Some(4), Some(0));
+    assert_eq!(run.exit.expect("ran"), 4);
+    assert!(person.asked.lock().unwrap().is_empty());
+    assert_eq!(*sessions.launched.lock().unwrap(), ["interview"]);
+    let (_, _, run) = at_a_terminal(true, None, Some(0));
+    assert_eq!(run.exit.expect("ran"), 1);
+}
+
+// Off a terminal init is what it was: no session, no question.
+#[test]
+fn init_off_a_terminal_launches_nothing() {
+    let person = Person {
+        yes: true,
+        ..Person::default()
+    };
+    let sessions = Launches::default();
+    let run = go_with(
+        &["init"],
+        Format::Text,
+        token,
+        &mut Vec::new(),
+        &person,
+        &sessions,
+    );
+    assert_eq!(run.exit.expect("ran"), 0);
+    assert!(sessions.launched.lock().unwrap().is_empty());
+    assert!(person.asked.lock().unwrap().is_empty());
 }

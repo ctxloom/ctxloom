@@ -11,6 +11,7 @@
 mod commands;
 mod core_link;
 mod error;
+mod interview;
 mod isolation;
 mod library;
 mod oneshot;

@@ -316,12 +316,21 @@ impl Commands {
         out: &mut dyn Write,
         err: &mut dyn Write,
     ) -> Result<u8, Failure> {
+        let env = Arc::clone(&self.env);
         let wired = self.wired().map_err(|e| Failure::new(e, 1))?;
+        let terminal = crate::interview::StdTerminal::new(&env);
+        let sessions = crate::interview::SetupSessions {
+            env: &env,
+            deps: &wired.deps,
+            flags: &call.globals,
+        };
         let uses = setup_cli::UseCases {
             auth: &wired.setup.auth,
             cleaner: &wired.setup.cleaner,
             doctor: &wired.setup.doctor,
             init: &wired.setup.init,
+            terminal: &terminal,
+            sessions: &sessions,
         };
         setup_cli::run(&uses, noun, call, catalog, out, err)
     }

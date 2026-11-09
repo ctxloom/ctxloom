@@ -29,7 +29,7 @@ use clap::ArgMatches;
 use cli_support::{say_notices, say_warning};
 use deps_application::Notice;
 use doctor_checks::Doctor;
-use init_application::{Init, InitRequest};
+use init_application::{interview, Init, InitRequest, Outcome, Sessions, Terminal};
 use reclaim_application::Cleaner;
 use sessions_application::RemovedNothing;
 
@@ -46,6 +46,10 @@ pub struct UseCases<'a> {
     pub cleaner: &'a Cleaner,
     pub doctor: &'a Doctor,
     pub init: &'a Init,
+    /// Whether a person is there, and her answer.
+    pub terminal: &'a dyn Terminal,
+    /// The interactive sessions the interview launches.
+    pub sessions: &'a dyn Sessions,
 }
 
 fn failure(cause: impl Diagnostic + 'static, exit: u8) -> Failure {
@@ -221,7 +225,32 @@ fn init(
     if !uses.auth.agent_token_exported() {
         say_notices(&[token_guide()], PROG, format, catalog, err);
     }
-    Ok(0)
+    // On a terminal, the setup interview, and the offer to restart into the
+    // session it configured. Off one, nothing is launched and nothing asked.
+    let interviewed =
+        interview(uses.terminal, uses.sessions).map_err(|cause| Failure { cause, exit: 1 })?;
+    for notice in &interviewed.notices {
+        say_warning(notice.as_ref(), PROG, Format::Text, catalog, err);
+    }
+    Ok(match interviewed.outcome {
+        Outcome::NotATerminal => 0,
+        Outcome::Declined => {
+            writeln!(
+                out,
+                "Start your configured session when you are ready: {}",
+                init_application::RESTART_COMMAND
+            )
+            .map_err(output)?;
+            0
+        }
+        Outcome::Interrupted { code } | Outcome::Restarted { code } => exit_of_session(code),
+    })
+}
+
+/// The exit status a session ended with: the engine's, 1 where a signal
+/// ended it or it is not a status.
+fn exit_of_session(code: Option<i32>) -> u8 {
+    code.and_then(|code| u8::try_from(code).ok()).unwrap_or(1)
 }
 
 #[cfg(test)]

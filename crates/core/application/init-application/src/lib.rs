@@ -13,13 +13,17 @@
 //! is said and does not undo the scaffold. It writes nothing outside
 //! `.ctxloom`: the engine files wait for a session home.
 //!
-//! NOT BUILT: handing the project to the engine for the setup session on a
-//! terminal (S9's launch), the interview's questions, minting the project
+//! On a terminal, the setup interview and the offer to restart into the
+//! configured session ([`interview`]; the mechanism, with the interview's
+//! text as it is).
+//!
+//! NOT BUILT: the interview's own questions (the engine asks them), minting the project
 //! identity (taskloom's registry owns it; a re-run only reads it). The
 //! agent-token guide (a notice that init prints when no token is exported)
 //! is the driving adapter's, from `auth-application`.
 
 mod error;
+mod interview;
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -29,6 +33,9 @@ use deps_application::{CreateRequest, Deps, Notice};
 use serde::Serialize;
 
 pub use error::InitError;
+pub use interview::{
+    interview, Ended, Interviewed, Outcome, Sessions, Terminal, RESTART_COMMAND, RESTART_QUESTION,
+};
 
 /// The setup interview's body: ctxloom's own words, copied byte for byte
 /// from Go ctxloom's `resources/commands/ctxloom-init.md` (release/0.7,

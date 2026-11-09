@@ -13,7 +13,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use deps_application::Deps;
-use init_application::{Ended, Failure, Sessions, Terminal};
+use init_application::{Ended, LaunchFailure, Sessions, Terminal};
 use library_application::{Flags, RunRequest};
 use process_env::EnvSnapshot;
 use run_application::{OneShot, RunService};
@@ -59,19 +59,25 @@ impl Terminal for StdTerminal {
     #[cfg_attr(test, mutants::skip)]
     fn confirm(&self, question: &str) -> bool {
         let mut err = std::io::stderr();
-        let _ = write!(err, "{question} [y/N] ");
+        let _ = write!(err, "{question} [Y/n] ");
         let _ = err.flush();
         let mut line = String::new();
-        if std::io::stdin().lock().read_line(&mut line).is_err() {
-            return false;
+        match std::io::stdin().lock().read_line(&mut line) {
+            Ok(0) | Err(_) => answered(None),
+            Ok(_) => answered(Some(&line)),
         }
-        is_yes(&line)
     }
 }
 
-/// Whether an answer is a yes: `y` or `yes`, in any case.
-fn is_yes(answer: &str) -> bool {
-    matches!(answer.trim().to_lowercase().as_str(), "y" | "yes")
+/// Whether the answer to a `[Y/n]` question is a yes. `line` is what she
+/// typed, none where the input was closed (end of input, or unreadable):
+/// that is a no, though a bare Enter is a yes. `y` and `yes`, in any case,
+/// are a yes too; `n`, `no` and anything else are a no.
+fn answered(line: Option<&str>) -> bool {
+    match line.map(|l| l.trim().to_lowercase()) {
+        Some(answer) => matches!(answer.as_str(), "" | "y" | "yes"),
+        None => false,
+    }
 }
 
 /// The interactive sessions of `init`.
@@ -84,11 +90,12 @@ pub(crate) struct SetupSessions<'a> {
 impl SetupSessions<'_> {
     /// One interactive session of the default agent, opened with `prompt`
     /// (none: nothing), over the project as it is now.
-    fn launch(&self, prompt: &str) -> Result<Ended, Failure> {
-        let wiring = Wiring::new(Arc::clone(self.env)).map_err(|e| Box::new(e) as Failure)?;
+    fn launch(&self, prompt: &str) -> Result<Ended, LaunchFailure> {
+        let wiring =
+            Wiring::new(Arc::clone(self.env)).map_err(|e| LaunchFailure::failed(Box::new(e)))?;
         let remotes: Rc<dyn deps_ports::RemoteLibrary> = self.deps.clone();
-        let library =
-            crate::library::build(&wiring, Some(remotes)).map_err(|e| Box::new(e) as Failure)?;
+        let library = crate::library::build(&wiring, Some(remotes))
+            .map_err(|e| LaunchFailure::failed(Box::new(e)))?;
         let mut sessions = OneShots::new(&wiring, library);
         let request = OneShot {
             run: RunRequest {
@@ -101,9 +108,16 @@ impl SetupSessions<'_> {
         let notices = done
             .notices
             .into_iter()
-            .map(|n| Box::new(n) as Failure)
+            .map(|n| Box::new(n) as init_application::Failure)
             .collect();
-        let ended = done.result.map_err(|e| Box::new(e) as Failure)?;
+        // The launch's own exit code, as `ctxloom run` ends with it.
+        let ended = done.result.map_err(|e| {
+            let exit = e.exit_code();
+            LaunchFailure {
+                cause: Box::new(e),
+                exit,
+            }
+        })?;
         Ok(Ended {
             code: ended.code,
             notices,
@@ -112,11 +126,11 @@ impl SetupSessions<'_> {
 }
 
 impl Sessions for SetupSessions<'_> {
-    fn interview(&self, opening: &str) -> Result<Ended, Failure> {
+    fn interview(&self, opening: &str) -> Result<Ended, LaunchFailure> {
         self.launch(opening)
     }
 
-    fn configured(&self) -> Result<Ended, Failure> {
+    fn configured(&self) -> Result<Ended, LaunchFailure> {
         self.launch("")
     }
 }

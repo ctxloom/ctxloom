@@ -6,14 +6,25 @@ use serde_json::Value;
 
 use super::run;
 
-/// `value` is an envelope: exactly `code`, `args` and `message`.
+/// `value` is an envelope: exactly `code`, `args` and `message`, and `fix`
+/// where the error has a remedy (the key is absent otherwise, never null).
 fn assert_envelope(value: &Value, what: &str) {
     let object = value
         .as_object()
         .unwrap_or_else(|| panic!("{what}: {value}"));
     let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
     keys.sort_unstable();
-    assert_eq!(keys, ["args", "code", "message"], "{what}: {value}");
+    let with_fix = keys.contains(&"fix");
+    let expected: &[&str] = if with_fix {
+        &["args", "code", "fix", "message"]
+    } else {
+        &["args", "code", "message"]
+    };
+    assert_eq!(keys, expected, "{what}: {value}");
+    assert!(
+        !with_fix || value["fix"].as_str().is_some_and(|f| !f.is_empty()),
+        "{what}: {value}"
+    );
     assert!(
         value["code"].as_str().is_some_and(|c| !c.is_empty()),
         "{what}"
@@ -73,6 +84,32 @@ fn test_a_refusal_under_text_is_the_message_then_its_fix() {
         ran.said()
     );
     assert!(serde_json::from_str::<Value>(&ran.stderr).is_err());
+}
+
+// Owner ruling: the json envelope carries the remedy, the same text as the
+// `  fix:` line of the text format.
+#[test]
+fn test_the_envelope_s_fix_is_the_text_error_s_fix_line() {
+    let json = run(&["--format", "json", "test", "refuse"]);
+    let text = run(&["--format", "text", "test", "refuse"]);
+    let fix = json.err_json()["fix"]
+        .as_str()
+        .expect("a fix in the envelope")
+        .to_string();
+    assert!(
+        text.stderr.lines().any(|l| l == format!("  fix: {fix}")),
+        "{}",
+        text.said()
+    );
+}
+
+// An error with no remedy in the catalog has no `fix` key at all.
+#[test]
+fn test_an_error_without_a_remedy_has_no_fix_key() {
+    let ran = run(&["--format", "json", "test", "findings"]);
+    let envelope = ran.err_json();
+    assert_envelope(&envelope, "an error without a remedy");
+    assert!(envelope.get("fix").is_none(), "{}", ran.said());
 }
 
 #[test]

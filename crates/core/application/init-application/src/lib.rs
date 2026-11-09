@@ -34,7 +34,8 @@ use serde::Serialize;
 
 pub use error::InitError;
 pub use interview::{
-    interview, Ended, Interviewed, Outcome, Sessions, Terminal, RESTART_COMMAND, RESTART_QUESTION,
+    interview, Ended, Interviewed, LaunchFailure, Outcome, Sessions, Terminal, RESTART_COMMAND,
+    RESTART_QUESTION,
 };
 
 /// The setup interview's body: ctxloom's own words, copied byte for byte

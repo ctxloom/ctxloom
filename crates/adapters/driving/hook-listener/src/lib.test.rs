@@ -642,3 +642,47 @@ fn the_listener_serves_while_the_thread_that_drives_the_run_is_blocked() {
     assert_eq!(delivery, DeliveryOutcome::Applied);
     assert!(pages >= 2, "the mint and the fact");
 }
+
+/// A client that connects and never completes its handshake holds a connection
+/// open, which a graceful shutdown waits for. The connection is held by the
+/// test, so the wait is forced, never hoped for: the stop must end past its
+/// grace ([`crate::STOP_GRACE`], three seconds, really elapsed) with the typed timeout, the socket must be gone, and the
+/// listener must be aborted (nobody listens).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_client_that_holds_a_connection_open_cannot_hold_the_stop() {
+    let world = World::new().await;
+    let listener = world.serve().await;
+    let mut held = tokio::net::UnixStream::connect(&world.endpoint)
+        .await
+        .unwrap();
+    tokio::io::AsyncWriteExt::write_all(&mut held, b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+        .await
+        .unwrap();
+    let error = listener
+        .stop()
+        .await
+        .expect_err("the held connection outlasts the grace");
+    assert_eq!(
+        error,
+        crate::ListenerError::StopTimedOut {
+            endpoint: world.endpoint.display().to_string(),
+            grace_ms: 3_000,
+        }
+    );
+    assert!(!present(&world.endpoint), "the socket is removed");
+    assert!(connect(&world.endpoint).await.is_err(), "nobody listens");
+    drop(held);
+}
+
+/// A stop with nothing open ends within the grace with Ok, and leaves no
+/// socket: the success the timeout path must differ from.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stop_with_nothing_open_is_ok_within_the_grace() {
+    let world = World::new().await;
+    let listener = world.serve().await;
+    listener
+        .stop_within(std::time::Duration::from_secs(30))
+        .await
+        .expect("stops");
+    assert!(!present(&world.endpoint));
+}

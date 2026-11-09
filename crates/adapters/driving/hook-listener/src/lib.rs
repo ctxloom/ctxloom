@@ -24,6 +24,7 @@ mod error;
 
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use angzarr_coordinator::Coordinator;
 use angzarr_coordinator_grpc::{Edge as Served, Listener, Running, Server};
@@ -33,6 +34,9 @@ use runs_application::{Edge, EdgeCommands, HookGate};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{ListenerError, CATALOGS, EN_US};
+
+/// How long the open calls have to finish when the listener is stopped.
+pub const STOP_GRACE: Duration = Duration::from_secs(3);
 
 /// A hook listener that is serving: its socket is bound, and a hook that
 /// connects finds it. Dropping it stops it at once; [`HookListener::stop`]
@@ -74,13 +78,22 @@ impl HookListener {
         &self.endpoint
     }
 
-    /// Stop serving: the calls open finish, and the socket is removed.
+    /// Stop serving: the calls open get [`STOP_GRACE`] to finish, then the
+    /// listener is aborted; the socket is removed either way.
     pub async fn stop(self) -> Result<(), ListenerError> {
+        self.stop_within(STOP_GRACE).await
+    }
+
+    /// [`HookListener::stop`] with `grace` for the open calls. A client that
+    /// holds a connection open must never hold the run's end: past `grace`
+    /// the shutdown is dropped, which aborts the listener and removes the
+    /// socket, and the stop is [`ListenerError::StopTimedOut`].
+    pub async fn stop_within(self, grace: Duration) -> Result<(), ListenerError> {
         let endpoint = self.endpoint;
-        self.running
-            .shutdown()
-            .await
-            .map_err(|cause| ListenerError::stop(&endpoint, &cause))
+        match tokio::time::timeout(grace, self.running.shutdown()).await {
+            Ok(stopped) => stopped.map_err(|cause| ListenerError::stop(&endpoint, &cause)),
+            Err(_elapsed) => Err(ListenerError::timed_out(&endpoint, grace)),
+        }
     }
 }
 

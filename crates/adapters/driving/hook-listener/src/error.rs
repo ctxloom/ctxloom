@@ -16,6 +16,9 @@ pub enum ListenerError {
         endpoint: String,
         cause: ListenError,
     },
+    /// The open calls did not finish within the grace: the listener was
+    /// aborted and its socket removed.
+    StopTimedOut { endpoint: String, grace_ms: u64 },
     /// The listener did not stop cleanly.
     Stop {
         endpoint: String,
@@ -28,6 +31,13 @@ impl ListenerError {
         ListenerError::Bind {
             endpoint: endpoint.display().to_string(),
             cause: cause.clone(),
+        }
+    }
+
+    pub(crate) fn timed_out(endpoint: &str, grace: std::time::Duration) -> ListenerError {
+        ListenerError::StopTimedOut {
+            endpoint: endpoint.to_string(),
+            grace_ms: u64::try_from(grace.as_millis()).unwrap_or(u64::MAX),
         }
     }
 
@@ -50,16 +60,23 @@ impl Diagnostic for ListenerError {
         match self {
             ListenerError::Bind { .. } => code!("bind"),
             ListenerError::Stop { .. } => code!("stop"),
+            ListenerError::StopTimedOut { .. } => code!("stop-timed-out"),
         }
     }
 
     fn args(&self) -> Vec<(&str, Arg)> {
-        let (ListenerError::Bind { endpoint, cause } | ListenerError::Stop { endpoint, cause }) =
-            self;
-        vec![
-            ("endpoint", endpoint.as_str().into()),
-            ("cause", Arg::nested(cause)),
-        ]
+        match self {
+            ListenerError::StopTimedOut { endpoint, grace_ms } => vec![
+                ("endpoint", endpoint.as_str().into()),
+                ("grace_ms", (*grace_ms).into()),
+            ],
+            ListenerError::Bind { endpoint, cause } | ListenerError::Stop { endpoint, cause } => {
+                vec![
+                    ("endpoint", endpoint.as_str().into()),
+                    ("cause", Arg::nested(cause)),
+                ]
+            }
+        }
     }
 }
 
@@ -85,6 +102,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(ListenerError::bind(
             Path::new("/run/user/1000/ctxloom/0011223344556677.sock"),
             &cause,
+        )),
+        Box::new(ListenerError::timed_out(
+            "/run/user/1000/ctxloom/0011223344556677.sock",
+            std::time::Duration::from_secs(3),
         )),
         Box::new(ListenerError::stop(
             "/run/user/1000/ctxloom/0011223344556677.sock",

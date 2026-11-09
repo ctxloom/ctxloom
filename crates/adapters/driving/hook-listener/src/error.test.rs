@@ -41,3 +41,30 @@ fn a_bind_failure_names_the_socket_and_carries_the_listeners_cause() {
     let rendered = error.to_string();
     assert!(rendered.contains("/run/x/a.sock"), "{rendered}");
 }
+
+// The samples hold a value of every code of the crate: a catalog test that
+// reads none would pass without checking anything.
+#[test]
+fn the_samples_hold_a_value_of_every_code() {
+    let mut codes: Vec<String> = diagnostic_samples()
+        .iter()
+        .map(|s| s.code().to_string())
+        .collect();
+    codes.sort();
+    assert_eq!(
+        codes,
+        [
+            "hook-listener-bind",
+            "hook-listener-stop",
+            "hook-listener-stop-timed-out"
+        ]
+    );
+}
+
+#[test]
+fn a_timeout_names_its_grace_in_milliseconds() {
+    let error = ListenerError::timed_out("/s", std::time::Duration::from_millis(1500));
+    assert_eq!(error.code(), "hook-listener-stop-timed-out");
+    let rendered = error.to_string();
+    assert!(rendered.contains("1500"), "{rendered}");
+}

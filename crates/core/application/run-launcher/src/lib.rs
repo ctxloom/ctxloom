@@ -9,8 +9,10 @@
 //! - [`Recorder`]: a `CatchUp` over the session and run streams that writes
 //!   the session's directory, `.ctxloom/sessions/<harp>/`, from the events.
 //!
-//! The session home and the transcript are the launcher's (the runner writes
-//! the conversation, D27); the metadata and the records are the recorder's.
+//! The session home is the launcher's. The transcript (D27) is the recorder's
+//! alone, projected from the session stream's capture events: the launcher
+//! records its prompt and answer as the same facts an engine's hooks record.
+//! The metadata and the records are the recorder's too.
 
 mod error;
 mod launcher;
@@ -25,7 +27,7 @@ pub use error::{LaunchError, EN_US};
 pub use launcher::{Launched, Launcher, Outcome};
 pub use orders::{Order, Orders};
 pub use projection::Projection;
-pub use recorder::{Recorder, METADATA, RUNS_RECORD, SESSION_RECORD};
+pub use recorder::{Recorder, METADATA, RUNS_RECORD, SESSION_RECORD, TRANSCRIPT_POSITION};
 pub use transcript::{entry_line, next_seq, rfc3339, Speaker, TRANSCRIPT};
 
 /// In-memory ports and a world of the real aggregates, for this crate's tests

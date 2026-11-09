@@ -337,6 +337,30 @@ impl<E: Edge> Facts<E> {
 }
 
 impl<E: Edge> Facts<E> {
+    /// Record what the engine's hooks observed (or the launcher, standing in
+    /// for them on a run it drives itself) on `who`'s own session stream. The
+    /// observation is the RUNNER's: another principal's is `Denied`.
+    pub async fn observe(
+        &self,
+        who: &Identity,
+        observation: &crate::Observation,
+    ) -> Result<Recorded, AppError> {
+        let book = observation.book(&who.session);
+        if who.principal != Principal::Runner {
+            let domain = book.cover.map(|c| c.domain).unwrap_or_default();
+            return Err(AppError::Denied(Unserved::Hidden { domain }));
+        }
+        match self.edge.serve(book, Arrival::Loopback).await {
+            Ok(answered) => Recorded::of(&answered).ok_or_else(|| AppError::Failed {
+                reason: "the kernel gave no delivery outcome".to_string(),
+            }),
+            Err(Unserved::Failed(Failure::Kernel(KernelError::FactDeadLettered { .. }))) => {
+                Ok(Recorded::Parked)
+            }
+            Err(unserved) => Err(AppError::from_unserved(unserved)),
+        }
+    }
+
     /// The launch of `run` that never started, as the core's own launcher
     /// observed it: `deterministic` says a retry would fail the same way. It
     /// is not an agent's fact (no runner existed to send it), so it is not on

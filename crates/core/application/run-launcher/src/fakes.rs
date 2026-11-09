@@ -15,7 +15,6 @@ use angzarr_embedded::{
     Answered, Failure, Handled, Kernel, OnRetryable, Payload, Registry, Rejected, Sampled,
     StoreError, StreamRef,
 };
-use ports::Clock;
 use run_ports::{
     check_rel, Edge, Engine, EngineError, Exit, HomeFile, Launch, LaunchFailure, Limits,
     PrepareRequest, Prepared, RecordsError, RunnerLauncher, Running, SessionRecords, TurnCommand,
@@ -490,18 +489,6 @@ impl SessionRecords for MemoryRecords {
             .unwrap()
             .get(&(harp.to_string(), rel.to_string()))
             .cloned())
-    }
-}
-
-/// An instant that does not move.
-pub struct FixedClock(pub i64);
-
-impl Clock for FixedClock {
-    fn now(&mut self) -> ports::Timestamp {
-        ports::Timestamp {
-            seconds: self.0,
-            nanos: 0,
-        }
     }
 }
 

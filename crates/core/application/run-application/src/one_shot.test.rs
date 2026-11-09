@@ -14,8 +14,8 @@ use library_application::{
 };
 use ports::{CommandIds, Names, Project, ProjectIdentity};
 use run_launcher::fakes::{
-    names as event_names, run_events, session_events, Credentialed, FixedClock, MemoryRecords,
-    ScriptedEngine, ScriptedRunner, TestEdge,
+    names as event_names, run_events, session_events, Credentialed, MemoryRecords, ScriptedEngine,
+    ScriptedRunner, TestEdge,
 };
 use run_launcher::{Launcher, Orders, Recorder};
 use run_ports::{
@@ -199,7 +199,7 @@ impl TokenSource for CountingSource {
 }
 
 struct Rig {
-    runs: Runs<TestCore, CountingSource, ScriptedRunner, MemoryRecords, FixedClock, MemoryRecords>,
+    runs: Runs<TestCore, CountingSource, ScriptedRunner, MemoryRecords, MemoryRecords>,
     edge: Arc<TestEdge>,
     runner: ScriptedRunner,
     records: MemoryRecords,
@@ -289,7 +289,6 @@ fn rig(script: Script) -> Rig {
         Arc::clone(&seen),
         script.runner.clone(),
         records.clone(),
-        FixedClock(1_700_000_000),
         vec![Arc::new(Credentialed(script.engine, script.credentials))],
         Arc::clone(&orders),
         Limits::new(std::time::Duration::from_secs(5)),

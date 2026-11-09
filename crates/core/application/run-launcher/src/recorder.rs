@@ -24,6 +24,8 @@ use serde_json::{json, Value};
 use sessions::{SessionEvent, SESSION_DOMAIN};
 
 use crate::error::LaunchError;
+use crate::projection::Projection;
+use crate::transcript::{next_seq, TRANSCRIPT};
 
 /// The session's identity and where it came from.
 pub const METADATA: &str = "metadata.json";
@@ -31,6 +33,10 @@ pub const METADATA: &str = "metadata.json";
 pub const SESSION_RECORD: &str = "records/session.jsonl";
 /// Every event of the session's runs, a line each.
 pub const RUNS_RECORD: &str = "records/runs.jsonl";
+/// How far the transcript is projected: the last session-stream page whose
+/// lines it holds. The projector owns this file, so a projector that starts
+/// again writes no line twice.
+pub const TRANSCRIPT_POSITION: &str = "records/transcript-position.json";
 
 /// What the projector holds: where to write, whom to write for, and the names
 /// it has learned.
@@ -42,6 +48,10 @@ struct State<R> {
     harps: BTreeMap<String, String>,
     /// A run stream's session, by root text, once its enqueue was seen.
     runs: BTreeMap<String, String>,
+    /// A session's engine, by id text, once its mint was seen.
+    engines: BTreeMap<String, String>,
+    /// The transcript of each session being written, by id text.
+    transcripts: BTreeMap<String, Projection>,
 }
 
 /// The projector on angzarr-embedded's projector port.
@@ -70,6 +80,14 @@ impl<R: SessionRecords + 'static> ProjectorHandler for RecordingModel<R> {
     }
 }
 
+/// The seconds the page was recorded at; 0 for a page that says none.
+fn recorded_at(page: &angzarr_embedded::v1::EventPage) -> i64 {
+    page.meta
+        .as_ref()
+        .and_then(|meta| meta.recorded_at.as_ref())
+        .map_or(0, |at| at.seconds)
+}
+
 fn root_text(book: &EventBook) -> String {
     book.cover
         .as_ref()
@@ -91,17 +109,17 @@ impl<R: SessionRecords> State<R> {
         let domain = book.cover.as_ref().map_or("", |c| c.domain.as_str());
         let root = root_text(book);
         let events = book.pages.iter().filter_map(|page| match &page.body {
-            Some(event_page::Body::Event(any)) => Some((page.sequence, any)),
+            Some(event_page::Body::Event(any)) => Some((page.sequence, recorded_at(page), any)),
             _ => None,
         });
         match domain {
             SESSION_DOMAIN if self.watched.contains(&root) => {
-                for (sequence, any) in events {
-                    self.session_event(&root, sequence, any)?;
+                for (sequence, seconds, any) in events {
+                    self.session_event(&root, sequence, seconds, any)?;
                 }
             }
             RUN_DOMAIN => {
-                for (sequence, any) in events {
+                for (sequence, _, any) in events {
                     self.run_event(&root, sequence, any)?;
                 }
             }
@@ -110,10 +128,17 @@ impl<R: SessionRecords> State<R> {
         Ok(())
     }
 
-    fn session_event(&mut self, root: &str, sequence: u64, any: &Any) -> Result<(), CodedError> {
+    fn session_event(
+        &mut self,
+        root: &str,
+        sequence: u64,
+        seconds: i64,
+        any: &Any,
+    ) -> Result<(), CodedError> {
         let event = SessionEvent::from_any(any).map_err(|e| bug(&e))?;
         if let SessionEvent::SessionMinted(minted) = &event {
             self.harps.insert(root.to_string(), minted.harp.clone());
+            self.engines.insert(root.to_string(), minted.engine.clone());
             let metadata = json!({
                 "v": 1,
                 "id": root,
@@ -135,7 +160,75 @@ impl<R: SessionRecords> State<R> {
         line.as_object_mut()
             .into_iter()
             .for_each(|o| o.extend(session_detail(&event)));
-        self.line(&harp, SESSION_RECORD, root, sequence, line)
+        self.line(&harp, SESSION_RECORD, root, sequence, line)?;
+        self.transcribe(root, &harp, sequence, seconds, &event)
+    }
+
+    /// Fold `event` into the session's transcript and write the lines it adds
+    /// (the one writer of `transcripts/transcript.jsonl`), then the position.
+    /// A projector that starts again resumes from the transcript's line count
+    /// and the position file.
+    fn transcribe(
+        &mut self,
+        root: &str,
+        harp: &str,
+        sequence: u64,
+        seconds: i64,
+        event: &SessionEvent,
+    ) -> Result<(), CodedError> {
+        if !self.transcripts.contains_key(root) {
+            let engine = self.engines.get(root).cloned().unwrap_or_default();
+            let lines = self
+                .records
+                .read(harp, TRANSCRIPT)
+                .map_err(failed)?
+                .map_or(0, |held| next_seq(&held));
+            let position = self
+                .records
+                .read(harp, TRANSCRIPT_POSITION)
+                .map_err(failed)?
+                .and_then(|held| serde_json::from_slice::<Value>(&held).ok())
+                .and_then(|held| held["page"].as_u64());
+            self.transcripts.insert(
+                root.to_string(),
+                Projection::resume(harp, root, &engine, lines, position),
+            );
+        }
+        let Some(projection) = self.transcripts.get_mut(root) else {
+            return Ok(());
+        };
+        let before = projection.high_water();
+        let lines = projection.fold(sequence, seconds, event);
+        if projection.high_water() == before {
+            return Ok(());
+        }
+        let page = projection.high_water();
+        let written = self.write_transcript(harp, &lines, page);
+        if written.is_err() {
+            // Held where it was: the next attempt reloads from the files.
+            self.transcripts.remove(root);
+        }
+        written
+    }
+
+    fn write_transcript(
+        &mut self,
+        harp: &str,
+        lines: &[String],
+        page: Option<u64>,
+    ) -> Result<(), CodedError> {
+        if !lines.is_empty() {
+            self.records
+                .append(harp, TRANSCRIPT, lines.concat().as_bytes())
+                .map_err(failed)?;
+        }
+        self.records
+            .write(
+                harp,
+                TRANSCRIPT_POSITION,
+                format!("{}\n", json!({"page": page})).as_bytes(),
+            )
+            .map_err(failed)
     }
 
     fn run_event(&mut self, root: &str, sequence: u64, any: &Any) -> Result<(), CodedError> {
@@ -254,6 +347,8 @@ impl<R: SessionRecords + 'static> Recorder<R> {
             watched: BTreeSet::new(),
             harps: BTreeMap::new(),
             runs: BTreeMap::new(),
+            engines: BTreeMap::new(),
+            transcripts: BTreeMap::new(),
         }));
         Recorder {
             catch: CatchUp::new(&[SESSION_DOMAIN, RUN_DOMAIN], model)

@@ -8,10 +8,10 @@ use runs::{EndCause, RunEvent};
 use sessions::SessionEvent;
 
 use crate::fakes::{
-    enqueued, names, order, orders_with, run_events, session_events, FixedClock, MemoryRecords,
-    ScriptedEngine, ScriptedRunner, TestEdge, HARP, SESSION,
+    enqueued, names, order, orders_with, run_events, session_events, MemoryRecords, ScriptedEngine,
+    ScriptedRunner, TestEdge, HARP, SESSION,
 };
-use crate::{Launched, Launcher, Orders, Outcome};
+use crate::{Launched, Launcher, Orders, Outcome, Recorder};
 
 fn limits() -> Limits {
     Limits::new(std::time::Duration::from_secs(5))
@@ -19,9 +19,11 @@ fn limits() -> Limits {
 
 struct Rig {
     edge: Arc<TestEdge>,
-    launcher: Launcher<TestEdge, ScriptedRunner, MemoryRecords, FixedClock>,
+    launcher: Launcher<TestEdge, ScriptedRunner, MemoryRecords>,
     runner: ScriptedRunner,
     records: MemoryRecords,
+    /// The projector, the transcript's only writer.
+    recorder: Recorder<MemoryRecords>,
 }
 
 fn rig(engine: ScriptedEngine, runner: ScriptedRunner, orders: Arc<Orders>) -> Rig {
@@ -31,25 +33,33 @@ fn rig(engine: ScriptedEngine, runner: ScriptedRunner, orders: Arc<Orders>) -> R
         Arc::clone(&edge),
         runner.clone(),
         records.clone(),
-        FixedClock(1_700_000_000),
         vec![Arc::new(engine)],
         orders,
         limits(),
     );
+    let recorder = Recorder::new(records.clone());
+    recorder.watch(SESSION);
     Rig {
         edge,
         launcher,
         runner,
         records,
+        recorder,
     }
 }
 
 impl Rig {
     async fn step(&mut self) -> Vec<Launched> {
-        self.launcher
+        let launched = self
+            .launcher
             .step(&self.edge.store, self.edge.catalog())
             .await
-            .unwrap()
+            .unwrap();
+        self.recorder
+            .step(&self.edge.store, self.edge.catalog())
+            .await
+            .unwrap();
+        launched
     }
 }
 
@@ -238,15 +248,29 @@ async fn the_transcript_holds_the_prompt_then_the_answer_and_the_event_names_it(
         ),
         (Some(0), Some("user"), Some("THE-PROMPT"))
     );
+    // The answer is the assistant's one delta, marked final: a reader
+    // coalesces it (the launcher records it as a hook would).
     assert_eq!(
         (
             lines[1]["seq"].as_u64(),
-            lines[1]["entry"]["type"].as_str(),
-            lines[1]["entry"]["content"].as_str()
+            lines[1]["kind"].as_str(),
+            lines[1]["delta"]["text"].as_str(),
+            lines[1]["delta"]["final"].as_bool(),
+            lines[1]["delta"]["index"].as_u64()
         ),
-        (Some(1), Some("assistant"), Some("THE-ANSWER"))
+        (
+            Some(1),
+            Some("assistant_delta"),
+            Some("THE-ANSWER"),
+            Some(true),
+            Some(0)
+        )
     );
-    assert_eq!(lines[1]["ts"], "2023-11-14T22:13:20Z");
+    // The instant is the page's: when the store recorded the fact.
+    assert_eq!(
+        lines[1]["ts"].as_str().map(|ts| &ts[..11]),
+        Some("1970-01-01T")
+    );
     assert_eq!(lines[1]["harp"], HARP);
     // D27's envelope carries the session's id, on every line.
     assert!(
@@ -328,7 +352,15 @@ async fn a_run_with_no_order_here_is_left_for_its_owner() {
         ["RunEnqueued"]
     );
     assert!(rig.runner.seen.lock().unwrap().is_empty());
-    assert!(rig.records.names(HARP).is_empty());
+    // The launcher wrote nothing of its own (no home, no transcript); what the
+    // watching recorder wrote is the session's record.
+    let written = rig.records.names(HARP);
+    assert!(
+        written
+            .iter()
+            .all(|rel| !rel.starts_with("home/") && !rel.starts_with("transcripts/")),
+        "{written:?}"
+    );
 }
 
 #[tokio::test]
@@ -681,7 +713,6 @@ fn the_launcher_hands_on_the_credentials_of_the_engine_it_holds() {
         Arc::new(TestEdge::new()),
         ScriptedRunner::exits(0),
         MemoryRecords::default(),
-        FixedClock(1),
         vec![Arc::new(Credentialed(
             ScriptedEngine::answering("a", None),
             asks,

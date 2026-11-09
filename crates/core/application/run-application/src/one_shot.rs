@@ -113,7 +113,6 @@ pub struct Runs<
     T: run_ports::TokenSource,
     L: RunnerLauncher,
     R: SessionRecords,
-    C: ports::Clock,
     W: SessionRecords + 'static,
 > {
     pub(crate) core: K,
@@ -122,7 +121,7 @@ pub struct Runs<
     pub(crate) names: Box<dyn Names>,
     pub(crate) ids: Box<dyn CommandIds>,
     pub(crate) enqueuer: Enqueuer<K::Edge, T>,
-    pub(crate) launcher: Launcher<K::Edge, L, R, C>,
+    pub(crate) launcher: Launcher<K::Edge, L, R>,
     pub(crate) recorder: Recorder<W>,
     pub(crate) orders: Arc<Orders>,
     pub(crate) place: Place,
@@ -137,7 +136,6 @@ pub struct Parts<
     T: run_ports::TokenSource,
     L: RunnerLauncher,
     R: SessionRecords,
-    C: ports::Clock,
     W: SessionRecords + 'static,
 > {
     pub core: K,
@@ -146,7 +144,7 @@ pub struct Parts<
     pub names: Box<dyn Names>,
     pub ids: Box<dyn CommandIds>,
     pub enqueuer: Enqueuer<K::Edge, T>,
-    pub launcher: Launcher<K::Edge, L, R, C>,
+    pub launcher: Launcher<K::Edge, L, R>,
     pub recorder: Recorder<W>,
     /// The orders the launcher takes: the same the launcher holds.
     pub orders: Arc<Orders>,
@@ -160,16 +158,15 @@ pub struct Parts<
     pub os: String,
 }
 
-impl<K, T, L, R, C, W> Runs<K, T, L, R, C, W>
+impl<K, T, L, R, W> Runs<K, T, L, R, W>
 where
     K: Core,
     T: run_ports::TokenSource,
     L: RunnerLauncher,
     R: SessionRecords,
-    C: ports::Clock,
     W: SessionRecords + 'static,
 {
-    pub fn new(parts: Parts<K, T, L, R, C, W>) -> Runs<K, T, L, R, C, W> {
+    pub fn new(parts: Parts<K, T, L, R, W>) -> Runs<K, T, L, R, W> {
         Runs {
             core: parts.core,
             planner: parts.planner,

@@ -465,20 +465,52 @@ pub(crate) fn worktrees_text(
 }
 
 /// A transcript read as a conversation: `user: ...`, `assistant: ...`, for
-/// each entry; the records that are not entries (the session's id, a
-/// completion) say nothing a reader wants.
+/// each entry; the records that are not the conversation (the session's id, a
+/// completion, a tool call) say nothing a reader wants. The assistant's words
+/// are coalesced here: a message's `assistant_delta` lines are joined by their
+/// `index`, and the message is one `assistant:` line where its first piece
+/// stood.
 pub(crate) fn conversation_text(transcript: &str, out: &mut dyn Write) -> io::Result<()> {
-    for line in transcript.lines().filter(|l| !l.trim().is_empty()) {
-        let Ok(record) = serde_json::from_str::<serde_json::Value>(line) else {
-            continue;
-        };
-        if record["kind"] != "entry" {
-            continue;
+    let records: Vec<serde_json::Value> = transcript
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+    let mut said: Vec<String> = Vec::new();
+    for (at, record) in records.iter().enumerate() {
+        match record["kind"].as_str() {
+            Some("entry") => {
+                let entry = &record["entry"];
+                let kind = entry["type"].as_str().unwrap_or_default();
+                let content = entry["content"].as_str().unwrap_or_default();
+                writeln!(out, "{kind}: {content}")?;
+            }
+            Some("assistant_delta") => {
+                let message = record["delta"]["message_id"].as_str().unwrap_or_default();
+                if said.iter().any(|m| m == message) {
+                    continue;
+                }
+                said.push(message.to_string());
+                let mut pieces: Vec<(u64, &str)> = records[at..]
+                    .iter()
+                    .filter(|r| {
+                        r["kind"] == "assistant_delta"
+                            && r["delta"]["message_id"].as_str() == Some(message)
+                    })
+                    .map(|r| {
+                        (
+                            r["delta"]["index"].as_u64().unwrap_or_default(),
+                            r["delta"]["text"].as_str().unwrap_or_default(),
+                        )
+                    })
+                    .collect();
+                pieces.sort_by_key(|(index, _)| *index);
+                pieces.dedup_by_key(|(index, _)| *index);
+                let text: String = pieces.iter().map(|(_, text)| *text).collect();
+                writeln!(out, "assistant: {text}")?;
+            }
+            _ => {}
         }
-        let entry = &record["entry"];
-        let kind = entry["type"].as_str().unwrap_or_default();
-        let content = entry["content"].as_str().unwrap_or_default();
-        writeln!(out, "{kind}: {content}")?;
     }
     Ok(())
 }

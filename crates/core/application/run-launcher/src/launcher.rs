@@ -21,24 +21,27 @@
 //!    turn is `TurnCompleted` or `TurnFailed`;
 //! 4. `RunExited` ends the run.
 //!
-//! The transcript is the runner's to write (D27): the events carry its path
-//! (`answer_ref`) and never its bytes.
+//! The transcript is the PROJECTOR's to write (D27; [`crate::Recorder`], the
+//! one writer): the launcher records the prompt and the answer as the same
+//! capture facts the engine's hooks record (a prompt submitted; the answer as
+//! one assistant text, its only delta marked final) on the session's stream,
+//! and the events carry the transcript's path (`answer_ref`) and never its
+//! bytes.
 
 use std::sync::Arc;
 
 use angzarr_embedded::v1::Uuid;
 use angzarr_embedded::{Catalog, CatchUp, Processed, ReadStore, Store};
 use pending_launches::{catch_up, PendingLaunch, PendingModel};
-use ports::Clock;
 use run_ports::{
     Edge, Engine, FailureClass, Limits, PrepareRequest, RunnerLauncher, SessionRecords,
     TurnCommand, TurnOutcome, TurnRequest,
 };
-use runs_application::{Facts, Identity, Principal, RunnerFact};
+use runs_application::{Facts, Identity, Observation, Principal, RunnerFact};
 
 use crate::error::LaunchError;
 use crate::orders::{Order, Orders};
-use crate::transcript::{entry_line, next_seq, Speaker, TRANSCRIPT};
+use crate::transcript::TRANSCRIPT;
 
 /// The turn a one-shot takes.
 const TURN: u64 = 1;
@@ -83,32 +86,29 @@ pub struct Launched {
 
 /// The launcher: the engines it can drive, the way a command is run, the
 /// session directory it writes, and the pending launches it catches up on.
-pub struct Launcher<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> {
+pub struct Launcher<E: Edge, L: RunnerLauncher, R: SessionRecords> {
     facts: Facts<E>,
     runner: L,
     records: R,
-    clock: C,
     engines: Vec<Arc<dyn Engine>>,
     orders: Arc<Orders>,
     limits: Limits,
     pending: CatchUp<PendingModel>,
 }
 
-impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, C> {
+impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
     pub fn new(
         edge: Arc<E>,
         runner: L,
         records: R,
-        clock: C,
         engines: Vec<Arc<dyn Engine>>,
         orders: Arc<Orders>,
         limits: Limits,
-    ) -> Launcher<E, L, R, C> {
+    ) -> Launcher<E, L, R> {
         Launcher {
             facts: Facts::new(edge),
             runner,
             records,
-            clock,
             engines,
             orders,
             limits,
@@ -186,7 +186,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
             engine: order.engine.clone(),
             outcome,
         };
-        let (engine, command) = match self.prepare(&launch.session, &order) {
+        let (engine, command) = match self.prepare(&order) {
             Ok(prepared) => prepared,
             Err(detail) => {
                 self.not_started(&who, true, &detail).await?;
@@ -194,6 +194,12 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
             }
         };
         self.record(&who, attached()).await?;
+        // The user's line of the transcript: the prompt, as a hook records one.
+        let turn = turn_id(&launch.run);
+        if !order.prompt.trim().is_empty() {
+            self.observe(&who, prompt_submitted(&turn, &order.prompt))
+                .await?;
+        }
         if order.interactive {
             return self.terminal(&who, &order, &command, done).await;
         }
@@ -216,7 +222,8 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
         let code = output.exit.code.unwrap_or(0);
         let outcome = match outcome {
             TurnOutcome::Answered { answer, native_id } => {
-                self.speak(&launch.session, &order, Speaker::Assistant, &answer)?;
+                // The assistant's line: one text, its only delta, the last.
+                self.observe(&who, answered(&turn, &answer)).await?;
                 if let Some(native) = &native_id {
                     self.record(&who, bound(native, self.records.dir(&order.harp)))
                         .await?;
@@ -314,11 +321,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
     /// Everything a launch does before it records a sign of life: the engine,
     /// the session home, the user's line, the command. Its error is why
     /// nothing was started.
-    fn prepare(
-        &mut self,
-        session: &str,
-        order: &Order,
-    ) -> Result<(Arc<dyn Engine>, TurnCommand), String> {
+    fn prepare(&mut self, order: &Order) -> Result<(Arc<dyn Engine>, TurnCommand), String> {
         let engine = self
             .engine(&order.engine)
             .ok_or_else(|| format!("no engine named {}", order.engine))?;
@@ -335,10 +338,6 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
         for file in &prepared.files {
             self.records
                 .write(&order.harp, &format!("home/{}", file.rel), &file.bytes)
-                .map_err(|e| e.to_string())?;
-        }
-        if !order.prompt.trim().is_empty() {
-            self.speak(session, order, Speaker::User, &order.prompt)
                 .map_err(|e| e.to_string())?;
         }
         let request = TurnRequest {
@@ -358,34 +357,15 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
         Ok((engine, command))
     }
 
-    /// Add `content` to the session's transcript.
-    fn speak(
-        &mut self,
-        session: &str,
-        order: &Order,
-        speaker: Speaker,
-        content: &str,
-    ) -> Result<(), LaunchError> {
-        let record = |e: run_ports::RecordsError| LaunchError::Record {
-            ext_err_txt: e.to_string(),
-        };
-        let seq = self
-            .records
-            .read(&order.harp, TRANSCRIPT)
-            .map_err(record)?
-            .map_or(0, |held| next_seq(&held));
-        let line = entry_line(
-            &order.harp,
-            session,
-            &order.engine,
-            seq,
-            self.clock.now().seconds,
-            speaker,
-            content,
-        );
-        self.records
-            .append(&order.harp, TRANSCRIPT, line.as_bytes())
-            .map_err(record)
+    /// Record `observation` on the session's stream.
+    async fn observe(&self, who: &Identity, observation: Observation) -> Result<(), LaunchError> {
+        self.facts
+            .observe(who, &observation)
+            .await
+            .map(drop)
+            .map_err(|e| LaunchError::Fact {
+                reason: e.to_string(),
+            })
     }
 
     async fn record(&self, who: &Identity, fact: RunnerFact) -> Result<(), LaunchError> {
@@ -412,6 +392,33 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords, C: Clock> Launcher<E, L, R, 
                 reason: e.to_string(),
             })
     }
+}
+
+/// The id of the turn a run takes, which the observations of its prompt and
+/// its answer name as their prompt, turn and message.
+fn turn_id(run: &Uuid) -> String {
+    let run = uuid::Uuid::from_slice(&run.value).unwrap_or_default();
+    format!("{}:{TURN}", run.hyphenated())
+}
+
+/// The prompt of turn `turn`, as a hook records a submitted one.
+fn prompt_submitted(turn: &str, prompt: &str) -> Observation {
+    Observation::PromptSubmitted(sessions::RecordPromptSubmitted {
+        prompt_id: turn.to_string(),
+        prompt: prompt.to_string(),
+    })
+}
+
+/// The answer of turn `turn`: one text, its only delta, the last.
+fn answered(turn: &str, answer: &str) -> Observation {
+    Observation::AssistantText(sessions::RecordAssistantText {
+        prompt_id: turn.to_string(),
+        turn_id: turn.to_string(),
+        message_id: turn.to_string(),
+        index: 0,
+        is_final: true,
+        text: answer.to_string(),
+    })
 }
 
 /// The launcher's word that the runner is spawned: the engine it runs under,

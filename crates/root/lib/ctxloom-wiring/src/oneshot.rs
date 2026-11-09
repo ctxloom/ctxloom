@@ -97,14 +97,7 @@ impl<'a> OneShots<'a> {
         &self,
         library: Library,
     ) -> Result<
-        Runs<
-            InProcessCore<SqliteStore>,
-            OsTokenSource,
-            HostLauncher,
-            SessionDirs,
-            System,
-            SessionDirs,
-        >,
+        Runs<InProcessCore<SqliteStore>, OsTokenSource, HostLauncher, SessionDirs, SessionDirs>,
         RunError,
     > {
         let wiring = self.wiring;
@@ -135,7 +128,6 @@ impl<'a> OneShots<'a> {
             core.edge(),
             HostLauncher::default(),
             SessionDirs::new(wiring.fs(), project_dir.clone()),
-            System,
             vec![claude],
             Arc::clone(&orders),
             Limits::new(TURN_DEADLINE),
@@ -206,7 +198,6 @@ impl OneShots<'_> {
                 OsTokenSource,
                 HostLauncher,
                 SessionDirs,
-                System,
                 SessionDirs,
             >,
         ) -> Done<T>,

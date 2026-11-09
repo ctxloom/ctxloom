@@ -523,3 +523,47 @@ async fn a_launch_that_never_started_ends_the_run_once() {
     );
     assert_eq!(world.edge.pages(&who.run_cover()).await.len(), pages.len());
 }
+
+// Hook capture: the runner's observation lands on its own session's stream,
+// once; the model's credential cannot record one and nothing is sent.
+#[tokio::test]
+async fn an_observation_lands_on_the_sessions_stream_once_and_only_for_the_runner() {
+    let world = World::new().await;
+    let facts = Facts::new(Arc::clone(&world.edge));
+    let who = &world.me.identity;
+    let observation = crate::observe(&surface_ports::HookEvent {
+        event: "turn_start".to_string(),
+        prompt_id: "p1".to_string(),
+        prompt: "echo hi".to_string(),
+        ..surface_ports::HookEvent::default()
+    })
+    .remove(0);
+    let before = world.edge.pages(&who.session_cover()).await.len();
+    assert_eq!(
+        facts.observe(who, &observation).await,
+        Ok(Recorded::Applied)
+    );
+    assert_eq!(
+        world.edge.pages(&who.session_cover()).await.len(),
+        before + 1
+    );
+    assert_eq!(
+        facts.observe(who, &observation).await,
+        Ok(Recorded::Duplicate)
+    );
+    assert_eq!(
+        world.edge.pages(&who.session_cover()).await.len(),
+        before + 1
+    );
+
+    let served = world.edge.served();
+    let denied = facts
+        .observe(&world.me.model_identity, &observation)
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        denied,
+        AppError::Denied(run_ports::Unserved::Hidden { .. })
+    ));
+    assert_eq!(world.edge.served(), served, "nothing was sent");
+}

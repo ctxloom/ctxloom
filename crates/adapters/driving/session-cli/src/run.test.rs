@@ -902,6 +902,30 @@ fn transcript_show_in_text_reads_as_a_conversation() {
     assert_eq!(ran.out, "user: What now?\nassistant: This.\n");
 }
 
+// The assistant's words are one line per delta in the transcript; the reader
+// joins a message's pieces by index, wherever the pieces came in the stream.
+#[test]
+fn transcript_show_in_text_joins_a_messages_deltas() {
+    let line = |seq: u32, index: u32, text: &str| {
+        format!(
+            r#"{{"v":1,"harp":"h","engine":"claude-code","seq":{seq},"ts":"2026-01-01T00:00:00Z","kind":"assistant_delta","delta":{{"message_id":"m1","index":{index},"final":false,"text":"{text}"}}}}"#
+        )
+    };
+    let user = r#"{"v":1,"harp":"h","engine":"claude-code","seq":0,"ts":"2026-01-01T00:00:00Z","kind":"entry","entry":{"type":"user","content":"Hi"}}"#;
+    let tool = r#"{"v":1,"harp":"h","engine":"claude-code","seq":2,"ts":"2026-01-01T00:00:00Z","kind":"tool","tool":{"id":"t","name":"Bash","input":"{}","response_bytes":1,"response_sha256":"00"}}"#;
+    let mut fake = Fake {
+        transcript: format!(
+            "{user}\n{}\n{tool}\n{}\n{}\n",
+            line(1, 1, "world"),
+            line(3, 0, "Hello "),
+            line(4, 1, "world")
+        ),
+        ..Fake::default()
+    };
+    let ran = go(&mut fake, Format::Text, &["transcript", "show", "h"]);
+    assert_eq!(ran.out, "user: Hi\nassistant: Hello world\n");
+}
+
 // ----------------------------------------------------------------------- shape
 
 // session.feature: "The old rename verb is gone, not hidden" and "Watching

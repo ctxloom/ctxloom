@@ -177,6 +177,8 @@ pub async fn run_events(edge: &TestEdge, session: &str) -> Vec<RunEvent> {
 }
 
 /// The run stream's pages, as a store holds them.
+// A test double shipped for tests only; its tests are the callers', not its own.
+#[cfg_attr(test, mutants::skip)]
 pub async fn run_pages(edge: &TestEdge, session: &str) -> Vec<EventPage> {
     edge.events(&run_cover(session), 0).await.unwrap()
 }

@@ -468,46 +468,102 @@ pub(crate) fn worktrees_text(
 /// each entry; the records that are not the conversation (the session's id, a
 /// completion, a tool call) say nothing a reader wants. The assistant's words
 /// are coalesced here: a message's `assistant_delta` lines are joined by their
-/// `index`, and the message is one `assistant:` line where its first piece
-/// stood.
+/// `index`, and the message is one `assistant:` line.
+///
+/// Arrival order is not turn order: the engine's Stop and MessageDisplay hooks
+/// are separate processes, so a turn's words can follow its `turn_end` and
+/// even the next prompt. A message is placed by its `prompt_id`: the user
+/// entries are the prompts in order, and the prompt ids, in the order each
+/// first appears on any record, are the same prompts, so a message follows
+/// the entry of its own prompt. (The entry line carries no `prompt_id` of its
+/// own.) A message whose prompt is not matched to an entry stands where its
+/// first piece arrived.
 pub(crate) fn conversation_text(transcript: &str, out: &mut dyn Write) -> io::Result<()> {
     let records: Vec<serde_json::Value> = transcript
         .lines()
         .filter(|l| !l.trim().is_empty())
         .filter_map(|line| serde_json::from_str(line).ok())
         .collect();
-    let mut said: Vec<String> = Vec::new();
+    let prompt_of = |record: &serde_json::Value| -> String {
+        record["prompt_id"].as_str().unwrap_or_default().to_string()
+    };
+    // The prompts, in the order each first appears.
+    let mut prompts: Vec<String> = Vec::new();
+    for record in &records {
+        let prompt = prompt_of(record);
+        if record["kind"] != "entry" && !prompt.is_empty() && !prompts.contains(&prompt) {
+            prompts.push(prompt);
+        }
+    }
+    let users = records
+        .iter()
+        .filter(|r| r["kind"] == "entry" && r["entry"]["type"] == "user")
+        .count();
+    // The prompts an entry stands for: a message of one is printed after it.
+    let matched = &prompts[..users.min(prompts.len())];
+    // The messages, in order of first arrival: (message id, prompt id, text).
+    let mut messages: Vec<(String, String, String)> = Vec::new();
     for (at, record) in records.iter().enumerate() {
+        if record["kind"] != "assistant_delta" {
+            continue;
+        }
+        let message = record["delta"]["message_id"].as_str().unwrap_or_default();
+        if messages.iter().any(|(m, _, _)| m == message) {
+            continue;
+        }
+        let mut pieces: Vec<(u64, &str)> = records[at..]
+            .iter()
+            .filter(|r| {
+                r["kind"] == "assistant_delta" && r["delta"]["message_id"].as_str() == Some(message)
+            })
+            .map(|r| {
+                (
+                    r["delta"]["index"].as_u64().unwrap_or_default(),
+                    r["delta"]["text"].as_str().unwrap_or_default(),
+                )
+            })
+            .collect();
+        pieces.sort_by_key(|(index, _)| *index);
+        pieces.dedup_by_key(|(index, _)| *index);
+        let text: String = pieces.iter().map(|(_, text)| *text).collect();
+        messages.push((message.to_string(), prompt_of(record), text));
+    }
+    let mut said: Vec<&str> = Vec::new();
+    let mut user = 0;
+    for record in &records {
         match record["kind"].as_str() {
             Some("entry") => {
                 let entry = &record["entry"];
                 let kind = entry["type"].as_str().unwrap_or_default();
                 let content = entry["content"].as_str().unwrap_or_default();
                 writeln!(out, "{kind}: {content}")?;
+                if kind == "user" {
+                    let own = matched.get(user);
+                    user += 1;
+                    for (message, prompt, text) in &messages {
+                        if own == Some(prompt) && !said.contains(&message.as_str()) {
+                            said.push(message);
+                            writeln!(out, "assistant: {text}")?;
+                        }
+                    }
+                }
             }
             Some("assistant_delta") => {
                 let message = record["delta"]["message_id"].as_str().unwrap_or_default();
-                if said.iter().any(|m| m == message) {
+                if said.contains(&message) {
                     continue;
                 }
-                said.push(message.to_string());
-                let mut pieces: Vec<(u64, &str)> = records[at..]
+                let held = messages
                     .iter()
-                    .filter(|r| {
-                        r["kind"] == "assistant_delta"
-                            && r["delta"]["message_id"].as_str() == Some(message)
-                    })
-                    .map(|r| {
-                        (
-                            r["delta"]["index"].as_u64().unwrap_or_default(),
-                            r["delta"]["text"].as_str().unwrap_or_default(),
-                        )
-                    })
-                    .collect();
-                pieces.sort_by_key(|(index, _)| *index);
-                pieces.dedup_by_key(|(index, _)| *index);
-                let text: String = pieces.iter().map(|(_, text)| *text).collect();
-                writeln!(out, "assistant: {text}")?;
+                    .find(|(m, prompt, _)| m == message && matched.contains(prompt));
+                if held.is_some() {
+                    // It is printed under its own prompt's entry.
+                    continue;
+                }
+                if let Some((_, _, text)) = messages.iter().find(|(m, _, _)| m == message) {
+                    said.push(message);
+                    writeln!(out, "assistant: {text}")?;
+                }
             }
             _ => {}
         }

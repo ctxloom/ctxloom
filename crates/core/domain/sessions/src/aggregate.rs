@@ -364,31 +364,49 @@ impl SessionAggregate {
         }))
     }
 
+    // Equivalent: the capture events carry no aggregate state; projectors fold them
+    // (`crate::apply` has no arm that changes the state for them).
+    #[cfg_attr(test, mutants::skip)]
     #[applies(PromptSubmitted)]
     fn applied_promptsubmitted(&mut self, event: PromptSubmitted, page: &PageContext) {
         fold(&mut self.session, event.into(), page);
     }
 
+    // Equivalent: the capture events carry no aggregate state; projectors fold them
+    // (`crate::apply` has no arm that changes the state for them).
+    #[cfg_attr(test, mutants::skip)]
     #[applies(AssistantTextShown)]
     fn applied_assistanttextshown(&mut self, event: AssistantTextShown, page: &PageContext) {
         fold(&mut self.session, event.into(), page);
     }
 
+    // Equivalent: the capture events carry no aggregate state; projectors fold them
+    // (`crate::apply` has no arm that changes the state for them).
+    #[cfg_attr(test, mutants::skip)]
     #[applies(ToolCalled)]
     fn applied_toolcalled(&mut self, event: ToolCalled, page: &PageContext) {
         fold(&mut self.session, event.into(), page);
     }
 
+    // Equivalent: the capture events carry no aggregate state; projectors fold them
+    // (`crate::apply` has no arm that changes the state for them).
+    #[cfg_attr(test, mutants::skip)]
     #[applies(TurnEnded)]
     fn applied_turnended(&mut self, event: TurnEnded, page: &PageContext) {
         fold(&mut self.session, event.into(), page);
     }
 
+    // Equivalent: the capture events carry no aggregate state; projectors fold them
+    // (`crate::apply` has no arm that changes the state for them).
+    #[cfg_attr(test, mutants::skip)]
     #[applies(SessionEnded)]
     fn applied_sessionended(&mut self, event: SessionEnded, page: &PageContext) {
         fold(&mut self.session, event.into(), page);
     }
 
+    // Equivalent: the capture events carry no aggregate state; projectors fold them
+    // (`crate::apply` has no arm that changes the state for them).
+    #[cfg_attr(test, mutants::skip)]
     #[applies(Compacted)]
     fn applied_compacted(&mut self, event: Compacted, page: &PageContext) {
         fold(&mut self.session, event.into(), page);

@@ -371,3 +371,47 @@ async fn a_transcript_that_cannot_be_written_is_tried_again_and_written_once() {
         .collect();
     assert_eq!(seqs, [0, 1]);
 }
+
+// A transcript line's instant is the instant its page was recorded at,
+// exactly: each line's `ts` is its own page's, and the pages differ.
+#[tokio::test]
+async fn a_transcript_lines_instant_is_its_pages_recorded_instant() {
+    use angzarr_embedded::v1::event_page::Body;
+    use angzarr_embedded::Payload;
+    use run_ports::Edge;
+    let records = MemoryRecords::default();
+    let mut recorder = Recorder::new(records.clone());
+    recorder.watch(SESSION);
+    let edge = ran(&mut recorder).await;
+    let pages = edge
+        .events(&crate::fakes::session_cover(SESSION), 0)
+        .await
+        .unwrap();
+    let instants: Vec<String> = pages
+        .iter()
+        .filter_map(|page| {
+            let Some(Body::Event(any)) = &page.body else {
+                return None;
+            };
+            matches!(
+                sessions::SessionEvent::from_any(any).unwrap(),
+                sessions::SessionEvent::PromptSubmitted(_)
+                    | sessions::SessionEvent::AssistantTextShown(_)
+            )
+            .then(|| {
+                let at = page.meta.as_ref().unwrap().recorded_at.as_ref().unwrap();
+                crate::rfc3339(at.seconds)
+            })
+        })
+        .collect();
+    let written: Vec<String> = lines(&records, TRANSCRIPT)
+        .iter()
+        .map(|l| l["ts"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(instants.len(), 2);
+    assert_ne!(
+        instants[0], instants[1],
+        "the pages were recorded at two instants"
+    );
+    assert_eq!(written, instants);
+}

@@ -1695,3 +1695,27 @@ fn a_configured_age_that_is_none_is_a_usage_error_naming_the_key() {
         .iter()
         .any(|(k, a)| *k == "flag" && format!("{a:?}").contains("session_purge_age")));
 }
+
+// Two messages whose pieces interleave in the stream are two `assistant:`
+// lines, each of its own pieces only (a piece of another message, or a line of
+// another kind, is not joined in).
+#[test]
+fn transcript_show_in_text_keeps_two_messages_apart() {
+    let delta = |seq: u32, message: &str, index: u32, text: &str| {
+        format!(
+            r#"{{"v":1,"harp":"h","engine":"claude-code","seq":{seq},"ts":"2026-01-01T00:00:00Z","kind":"assistant_delta","delta":{{"message_id":"{message}","index":{index},"final":false,"text":"{text}"}}}}"#
+        )
+    };
+    let mut fake = Fake {
+        transcript: format!(
+            "{}\n{}\n{}\n{}\n",
+            delta(0, "m1", 0, "One "),
+            delta(1, "m2", 0, "Two "),
+            delta(2, "m1", 1, "again"),
+            delta(3, "m2", 1, "too")
+        ),
+        ..Fake::default()
+    };
+    let ran = go(&mut fake, Format::Text, &["transcript", "show", "h"]);
+    assert_eq!(ran.out, "assistant: One again\nassistant: Two too\n");
+}

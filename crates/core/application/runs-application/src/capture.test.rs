@@ -583,3 +583,25 @@ async fn delivered_to_the_kernel_the_observations_become_events_and_a_redelivery
     }
     assert_eq!(world.edge.pages(&cover).await.len(), before + 2);
 }
+
+// Each native event's budget is exact: the long one the engine gives a prompt,
+// the short one it gives a session end, the middle one a streamed piece, and
+// the default for the rest.
+#[test]
+fn each_native_events_delivery_budget_is_exact() {
+    for (native, seconds) in [
+        ("UserPromptSubmit", 20),
+        ("SessionEnd", 1),
+        ("MessageDisplay", 5),
+        ("Stop", 8),
+        ("PostToolBatch", 8),
+        ("PreCompact", 8),
+        ("something-new", 8),
+    ] {
+        assert_eq!(
+            delivery_budget(native),
+            Duration::from_secs(seconds),
+            "{native}"
+        );
+    }
+}

@@ -723,3 +723,37 @@ fn the_launcher_hands_on_the_credentials_of_the_engine_it_holds() {
     assert_eq!(launcher.credentials("fake"), Some(asks));
     assert_eq!(launcher.credentials("other"), None);
 }
+
+// The turn's id names the prompt, the turn and the message of what the
+// launcher records, and the kernel dedupes by it: it is the run's root and the
+// turn, exactly, so the same turn of another run is another id.
+#[tokio::test]
+async fn the_facts_the_launcher_records_carry_the_runs_turn_id() {
+    let mut rig = rig(
+        ScriptedEngine::answering("THE-ANSWER", None),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    );
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    let root = runs::run_root(SESSION, 1);
+    let turn = format!(
+        "{}:1",
+        uuid::Uuid::from_slice(&root.value).unwrap().hyphenated()
+    );
+    let events = session_events(&rig.edge, SESSION).await;
+    let prompt = events.iter().find_map(|e| match e {
+        SessionEvent::PromptSubmitted(p) => Some(p),
+        _ => None,
+    });
+    assert_eq!(prompt.unwrap().prompt_id, turn);
+    let text = events.iter().find_map(|e| match e {
+        SessionEvent::AssistantTextShown(t) => Some(t),
+        _ => None,
+    });
+    let text = text.unwrap();
+    assert_eq!(
+        (&text.prompt_id, &text.turn_id, &text.message_id),
+        (&turn, &turn, &turn)
+    );
+}

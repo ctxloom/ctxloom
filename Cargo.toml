@@ -101,6 +101,7 @@ session-files = { path = "crates/adapters/driven/session-files" }
 session-cli = { path = "crates/adapters/driving/session-cli" }
 hook-cli = { path = "crates/adapters/driving/hook-cli" }
 hook-listener = { path = "crates/adapters/driving/hook-listener" }
+hook-tls = { path = "crates/adapters/driven/hook-tls" }
 run-cli = { path = "crates/adapters/driving/run-cli" }
 ctxloom-cli = { path = "crates/adapters/driving/ctxloom-cli" }
 config-files = { path = "crates/adapters/driven/config-files" }
@@ -186,6 +187,9 @@ hex = "0.4"
 # .feature text with new Rust steps.
 cucumber = "0.21"
 time = { version = "0.3", features = ["formatting", "parsing"] }
+# The run's listener certificate (owner, 2026-11-09, ruling 35): rcgen with the
+# ring backend, which tonic's `tls-ring` already makes the one crypto provider.
+rcgen = { version = "0.13", default-features = false, features = ["crypto", "pem", "ring"] }
 tokio = { version = "1", features = ["rt", "time"] }
 uuid = { version = "1", features = ["v5", "v7"] }
 

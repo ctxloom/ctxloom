@@ -35,6 +35,22 @@ const PEM_BEGIN: &str = "-----BEGIN CERTIFICATE-----";
 const PEM_END: &str = "-----END CERTIFICATE-----";
 
 impl CertNames {
+    /// These names, sorted, none twice.
+    pub fn new(ips: Vec<IpAddr>, dns: Vec<String>) -> CertNames {
+        CertNames {
+            ips: ips
+                .into_iter()
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect(),
+            dns: dns
+                .into_iter()
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect(),
+        }
+    }
+
     /// The loopback addresses, the bind and the told host of `plan`.
     pub fn for_plan(plan: &BindPlan) -> CertNames {
         let mut ips = BTreeSet::from([

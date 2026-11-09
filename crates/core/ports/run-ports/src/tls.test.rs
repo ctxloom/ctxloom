@@ -156,3 +156,13 @@ fn the_cert_errors_display_and_report_their_args_exactly() {
     assert_eq!(malformed.code(), "run-ports-cert-malformed");
     assert_eq!(CertError::Missing.code(), "run-ports-cert-missing");
 }
+
+#[test]
+fn names_are_sorted_and_none_is_twice() {
+    let names = CertNames::new(
+        vec![loopback6(), loopback4(), loopback6()],
+        vec!["b".to_string(), "a".to_string(), "b".to_string()],
+    );
+    assert_eq!(names.ips(), vec![loopback4(), loopback6()]);
+    assert_eq!(names.dns(), vec!["a".to_string(), "b".to_string()]);
+}

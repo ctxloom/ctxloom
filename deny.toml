@@ -24,6 +24,10 @@ allow = [
   "AGPL-3.0-only",
   "Apache-2.0",
   "BSD-3-Clause",
+  # ring (`Apache-2.0 AND ISC`), untrusted and rustls-webpki, the crypto
+  # provider of the callback's TLS (owner, 2026-11-09, ruling 35); ISC is a
+  # permissive licence, as MIT and BSD are.
+  "ISC",
   "MIT",
   "Unicode-3.0",
   "Zlib",

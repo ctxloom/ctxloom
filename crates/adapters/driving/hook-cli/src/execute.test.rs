@@ -137,6 +137,7 @@ fn a_bind_the_application_asks_for_is_made() {
                 transcript: "/t/a.jsonl".into(),
             }),
             harp_missing: false,
+            event: None,
         },
         ..Service::default()
     };
@@ -168,6 +169,7 @@ fn a_session_with_no_usable_harp_warns_and_emits_nothing() {
             stdout: "{\"notice\":1}\n".into(),
             bind: None,
             harp_missing: true,
+            event: None,
         },
         ..Service::default()
     };

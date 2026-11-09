@@ -41,6 +41,10 @@ impl Diagnostic for HookError {
 pub enum HookWarning {
     /// There is no harp to name: nothing truthful to emit on stdout.
     NoUsableHarp { harp: String },
+    /// PROPOSAL (design/hook-capture): an observation the hook could not
+    /// record. The engine's answer is unaffected; `what` is the fact's
+    /// external id and `why` the delivery's text.
+    NotRecorded { what: String, why: String },
 }
 
 impl fmt::Display for HookWarning {
@@ -53,12 +57,16 @@ impl Diagnostic for HookWarning {
     fn code(&self) -> &str {
         match self {
             HookWarning::NoUsableHarp { .. } => code!("no-usable-harp"),
+            HookWarning::NotRecorded { .. } => code!("not-recorded"),
         }
     }
 
     fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             HookWarning::NoUsableHarp { harp } => vec![("harp", harp.as_str().into())],
+            HookWarning::NotRecorded { what, why } => {
+                vec![("what", what.as_str().into()), ("why", why.as_str().into())]
+            }
         }
     }
 }
@@ -79,6 +87,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         }),
         Box::new(HookWarning::NoUsableHarp {
             harp: String::new(),
+        }),
+        Box::new(HookWarning::NotRecorded {
+            what: "hook:prompt:s:p".to_string(),
+            why: "the listener is not running".to_string(),
         }),
     ]
 }

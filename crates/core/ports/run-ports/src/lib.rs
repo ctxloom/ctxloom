@@ -12,6 +12,7 @@ mod edge;
 mod engine;
 mod launcher;
 mod records;
+mod sink;
 mod token;
 
 pub use edge::{Arrival, Edge, Unserved};
@@ -23,6 +24,7 @@ pub use launcher::{
     Exit, Launch, LaunchEvent, LaunchFailure, Limits, RunnerLauncher, TurnCommand, TurnOutput,
 };
 pub use records::{check_rel, RecordsError, SessionRecords};
+pub use sink::{Delivery, FactSink};
 pub use token::{Token, TokenError, TokenHash, TokenSource, EN_US};
 
 /// One value of every error, for the catalog test.

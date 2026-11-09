@@ -28,6 +28,11 @@ use crate::{
     SessionPurged, SessionRejection, SessionState, SetKept, SteerWithdrawn, StopOrdered,
     StopSession, UnknownMessage, WithdrawSteer,
 };
+use crate::{
+    AssistantTextShown, Compacted, PromptSubmitted, RecordAssistantText, RecordCompaction,
+    RecordPromptSubmitted, RecordSessionEnded, RecordToolCall, RecordTurnEnded, SessionEnded,
+    ToolCalled, TurnEnded,
+};
 
 /// The session aggregate: one session, folded from its stream.
 #[derive(Clone, Debug, Default)]
@@ -268,6 +273,94 @@ impl SessionAggregate {
     fn fail_message(&self, fact: FailMessage, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
         inbox::failed(&self.session, &fact)
+    }
+
+    /// PROPOSAL stub (design/hook-capture): decided by `capture::decide`.
+    #[handles_fact(RecordPromptSubmitted)]
+    fn hook_prompt_submitted(
+        &self,
+        fact: RecordPromptSubmitted,
+        ctx: &Context,
+    ) -> Result<FactEmit<Self>, Bug> {
+        let _ = (fact, ctx);
+        todo!("design/hook-capture: a live session records the observation, anything else records nothing")
+    }
+
+    /// PROPOSAL stub (design/hook-capture): decided by `capture::decide`.
+    #[handles_fact(RecordAssistantText)]
+    fn hook_assistant_text(
+        &self,
+        fact: RecordAssistantText,
+        ctx: &Context,
+    ) -> Result<FactEmit<Self>, Bug> {
+        let _ = (fact, ctx);
+        todo!("design/hook-capture: a live session records the observation, anything else records nothing")
+    }
+
+    /// PROPOSAL stub (design/hook-capture): decided by `capture::decide`.
+    #[handles_fact(RecordToolCall)]
+    fn hook_tool_call(&self, fact: RecordToolCall, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
+        let _ = (fact, ctx);
+        todo!("design/hook-capture: a live session records the observation, anything else records nothing")
+    }
+
+    /// PROPOSAL stub (design/hook-capture): decided by `capture::decide`.
+    #[handles_fact(RecordTurnEnded)]
+    fn hook_turn_ended(&self, fact: RecordTurnEnded, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
+        let _ = (fact, ctx);
+        todo!("design/hook-capture: a live session records the observation, anything else records nothing")
+    }
+
+    /// PROPOSAL stub (design/hook-capture): decided by `capture::decide`.
+    #[handles_fact(RecordSessionEnded)]
+    fn hook_session_ended(
+        &self,
+        fact: RecordSessionEnded,
+        ctx: &Context,
+    ) -> Result<FactEmit<Self>, Bug> {
+        let _ = (fact, ctx);
+        todo!("design/hook-capture: a live session records the observation, anything else records nothing")
+    }
+
+    /// PROPOSAL stub (design/hook-capture): decided by `capture::decide`.
+    #[handles_fact(RecordCompaction)]
+    fn hook_compaction(
+        &self,
+        fact: RecordCompaction,
+        ctx: &Context,
+    ) -> Result<FactEmit<Self>, Bug> {
+        let _ = (fact, ctx);
+        todo!("design/hook-capture: a live session records the observation, anything else records nothing")
+    }
+
+    #[applies(PromptSubmitted)]
+    fn applied_promptsubmitted(&mut self, event: PromptSubmitted, page: &PageContext) {
+        fold(&mut self.session, event.into(), page);
+    }
+
+    #[applies(AssistantTextShown)]
+    fn applied_assistanttextshown(&mut self, event: AssistantTextShown, page: &PageContext) {
+        fold(&mut self.session, event.into(), page);
+    }
+
+    #[applies(ToolCalled)]
+    fn applied_toolcalled(&mut self, event: ToolCalled, page: &PageContext) {
+        fold(&mut self.session, event.into(), page);
+    }
+
+    #[applies(TurnEnded)]
+    fn applied_turnended(&mut self, event: TurnEnded, page: &PageContext) {
+        fold(&mut self.session, event.into(), page);
+    }
+
+    #[applies(SessionEnded)]
+    fn applied_sessionended(&mut self, event: SessionEnded, page: &PageContext) {
+        fold(&mut self.session, event.into(), page);
+    }
+
+    #[applies(Compacted)]
+    fn applied_compacted(&mut self, event: Compacted, page: &PageContext) {
+        fold(&mut self.session, event.into(), page);
     }
 
     #[applies(SessionMinted)]

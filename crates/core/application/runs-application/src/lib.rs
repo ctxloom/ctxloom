@@ -24,6 +24,7 @@
 //! signatures and the behaviour.
 
 mod admission;
+mod capture;
 mod enqueue;
 mod error;
 mod facts;
@@ -33,6 +34,7 @@ mod identity;
 mod requests;
 
 pub use admission::Admission;
+pub use capture::{delivery_budget, observe, Attempt, Capture, Observation, Report};
 pub use enqueue::{EnqueueRequest, Enqueued, Enqueuer};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;

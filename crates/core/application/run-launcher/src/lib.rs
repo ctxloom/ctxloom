@@ -15,6 +15,7 @@
 mod error;
 mod launcher;
 mod orders;
+mod projection;
 mod recorder;
 mod transcript;
 
@@ -23,6 +24,7 @@ pub use error::diagnostic_samples;
 pub use error::{LaunchError, EN_US};
 pub use launcher::{Launched, Launcher, Outcome};
 pub use orders::{Order, Orders};
+pub use projection::Projection;
 pub use recorder::{Recorder, METADATA, RUNS_RECORD, SESSION_RECORD};
 pub use transcript::{entry_line, next_seq, rfc3339, Speaker, TRANSCRIPT};
 

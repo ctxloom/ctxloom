@@ -17,6 +17,7 @@
 //! taskloom's (D17).
 
 mod bind;
+mod capture;
 mod error;
 mod execute;
 mod hud;
@@ -25,6 +26,7 @@ use angzarr_diagnostic::Diagnostic;
 use clap::{Args, Command, Subcommand};
 
 pub use bind::{Binding, Outcome};
+pub use capture::{execute_recording, NotRecorded, Recording};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{HookError, HookWarning, EN_US};

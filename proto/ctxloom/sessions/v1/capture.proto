@@ -6,6 +6,8 @@ syntax = "proto3";
 //  - each fact is something that ALREADY HAPPENED in the engine, so it is
 //    never refused: a stream holding no live session records nothing, and a
 //    redelivery (same Fact.origin.external_id) is DUPLICATE;
+//  - a fact that could not be delivered is dropped: nothing queues or spools
+//    it, and the hook says so on stderr;
 //  - the stream order of the events is the transcript's order: no field here
 //    is a sequence, and the hook process assigns none.
 package ctxloom.sessions.v1;
@@ -24,10 +26,10 @@ message RecordPromptSubmitted {
   string prompt = 2;
 }
 
-// A piece of the assistant's text was shown. external_id
-// `hook:text:<session>:<message_id>:<index>`. Whether every piece is recorded
-// or only the last is open (the owner's question A); the fact can carry
-// either.
+// One piece (delta) of the assistant's text was shown. Every piece is
+// recorded, the last flagged `is_final`; a turn's closing text (Stop's) is
+// not a second record of it. external_id
+// `hook:text:<session>:<message_id>:<index>`.
 message RecordAssistantText {
   option (io.angzarr.v1.fact) = {
     component: "ctxloom.sessions.v1.SessionState"
@@ -42,9 +44,10 @@ message RecordAssistantText {
   string text = 6;
 }
 
-// One tool call and its result. external_id
-// `hook:tool:<session>:<tool_use_id>`. `response` is the whole result until
-// the owner rules on payload privacy (question B).
+// One tool call and what became of it. The result's body is never recorded:
+// only its size and the SHA-256 (lowercase hex) of its bytes. The input is
+// recorded whole. Thinking blocks are not observable and not recorded.
+// external_id `hook:tool:<session>:<tool_use_id>`.
 message RecordToolCall {
   option (io.angzarr.v1.fact) = {
     component: "ctxloom.sessions.v1.SessionState"
@@ -55,7 +58,8 @@ message RecordToolCall {
   string tool_use_id = 2;
   string tool = 3;
   string input = 4;
-  string response = 5;
+  uint64 response_bytes = 5;
+  string response_sha256 = 6;
 }
 
 // The assistant's turn ended (Stop). external_id
@@ -125,7 +129,8 @@ message ToolCalled {
   string tool_use_id = 2;
   string tool = 3;
   string input = 4;
-  string response = 5;
+  uint64 response_bytes = 5;
+  string response_sha256 = 6;
 }
 
 message TurnEnded {

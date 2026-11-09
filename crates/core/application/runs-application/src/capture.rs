@@ -31,6 +31,13 @@ pub enum Observation {
 }
 
 /// The observations `event` holds, in the order they happened. Pure.
+///
+/// Invariants: every MessageDisplay piece is one observation (none is
+/// dropped or merged); a PostToolBatch is one observation per call, in call
+/// order, carrying the call's input whole and its result as size and digest
+/// only; a turn's end is one observation without text; only PostToolBatch
+/// reports tool calls (a single PostToolUse reports none, so a call is never
+/// recorded twice); an event of no observable kind holds none.
 pub fn observe(event: &HookEvent) -> Vec<Observation> {
     let _ = event;
     todo!("design/hook-capture")
@@ -65,7 +72,8 @@ pub fn delivery_budget(native: &str) -> Duration {
     todo!("design/hook-capture")
 }
 
-/// One delivery tried (or skipped).
+/// One delivery tried (or skipped). A delivery that did not happen is dropped,
+/// never kept for later: the report is its only trace.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Attempt {
     pub external_id: String,

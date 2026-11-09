@@ -275,12 +275,19 @@ stream is a DUPLICATE; the event it produces records the origin on its
 
 The lock holds ONE `angzarr-embedded`, `angzarr-proto`, `angzarr-ports` and
 `angzarr-diagnostic` (a test reads Cargo.lock). Every pin in `Cargo.toml` is
-a full commit. The angzarr pins are one line (angzarr-embedded e3e22db on
-angzarr-router d2b019f, core 44143e6, angzarr-build ea9f15d (the markup
-generator, `angzarr-build` and `angzarr-codegen`, its own repository),
-angzarr-platform b25486d); taskloom's crates (ec7f8eb) and ctxloom-lib's
-(86fe8a8) are built on it, so moving one
-moves all. The lock holds one of every angzarr crate. The platform crates (`os`, `file-system`, `file-lock`) are
+a full commit. The angzarr pins are one line, one per family member:
+
+- angzarr core `3311a3ae` (`angzarr-diagnostic`, `angzarr-yaml`,
+  `angzarr-presentation`; the listener work upstream, coord/grpc-listener,
+  is at this rev, and ctxloom does not use it yet);
+- angzarr-embedded `ecfaaf65` on angzarr-router `9d22e8b7`;
+- angzarr-build `e84092c2` (the markup generator, `angzarr-build` and
+  `angzarr-codegen`, its own repository);
+- angzarr-platform `3e05f5d9`;
+- taskloom's crates `a31eb22a` and ctxloom-lib's `3043ef1f`, built on the
+  same line,
+
+so moving one moves all. The lock holds one of every angzarr crate. The platform crates (`os`, `file-system`, `file-lock`) are
 angzarr-platform's, and `angzarr-presentation` and `angzarr-diagnostic` are
 angzarr core's, all `Apache-2.0 OR BSD-3-Clause`; this workspace is
 `AGPL-3.0-only`.

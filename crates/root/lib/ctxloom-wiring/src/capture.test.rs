@@ -332,3 +332,58 @@ fn an_answer_without_an_event_or_an_observable_one_records_nothing() {
         .record("PreToolUse", HARP, &answer(silent))
         .is_empty());
 }
+
+const A_BEARER: &str = "0a1b2c3d-0000-4000-8000-000000000001.abababababababababababababababababababababababababababababababab"; // gitleaks:allow
+
+fn a_book() -> angzarr_embedded::v1::CommandBook {
+    angzarr_embedded::v1::CommandBook::default()
+}
+
+#[test]
+fn the_hook_environment_makes_the_listener_sink_only_when_it_is_whole() {
+    let whole = HookSink::from_environment(Some("/run/x.sock"), Some(A_BEARER));
+    assert!(matches!(whole, HookSink::Listener(_)));
+    let unreachable = |endpoint, bearer| {
+        matches!(
+            HookSink::from_environment(endpoint, bearer),
+            HookSink::Unreachable(_)
+        )
+    };
+    assert!(unreachable(None, Some(A_BEARER)));
+    assert!(unreachable(Some(""), Some(A_BEARER)));
+    assert!(unreachable(Some("/run/x.sock"), None));
+    assert!(unreachable(Some("/run/x.sock"), Some("")));
+    assert!(unreachable(Some("/run/x.sock"), Some("no-dot")));
+    assert!(unreachable(Some("/run/x.sock"), Some("run.nothex")));
+}
+
+#[test]
+fn an_unreachable_hook_sink_says_the_listener_is_not_running() {
+    let sink = HookSink::from_environment(None, None);
+    match sink.deliver(a_book(), Duration::from_secs(1)) {
+        Delivery::Unavailable { detail } => assert!(detail.contains("not running"), "{detail}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_listener_hook_sink_at_a_dead_path_is_unavailable_and_keeps_the_bearer_out() {
+    let sink = HookSink::from_environment(Some("/nonexistent/ctxloom.sock"), Some(A_BEARER));
+    match sink.deliver(a_book(), Duration::from_secs(5)) {
+        Delivery::Unavailable { detail } => {
+            assert!(detail.contains("cannot reach"), "{detail}");
+            assert!(!detail.contains(A_BEARER), "{detail}");
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_hook_recording_over_a_dead_listener_says_unavailable_once_and_stops_trying() {
+    let sink = HookSink::from_environment(Some("/nonexistent/ctxloom.sock"), Some(A_BEARER));
+    let recording = HookRecording::new(sink, DirIds::new(Some(dir_with_metadata())));
+    let missed = recording.record("PostToolBatch", HARP, &answer(batch()));
+    assert_eq!(missed.len(), 2);
+    assert!(missed[0].why.contains("cannot reach"), "{missed:?}");
+    assert!(missed[1].why.contains("not tried"), "{missed:?}");
+}

@@ -13,7 +13,7 @@ use ctxloom_cli::{shaped, Call, CliError, Failure, PROG};
 use hook_cli::Binding;
 use sessions_application::{BindRequest, SessionService};
 
-use crate::{Commands, DirIds, HookRecording, Sessions, Unreachable};
+use crate::{Commands, DirIds, HookRecording, HookSink, Sessions};
 
 /// The nouns these commands own.
 pub(crate) const NOUNS: [&str; 2] = ["session", "hook"];
@@ -122,9 +122,14 @@ impl Commands {
             let dirs = wiring
                 .as_ref()
                 .map(|w| session_files::SessionDirs::new(w.fs(), w.project_dir()));
-            // A hook is a process of its own: until the listener exists it has
-            // nothing to deliver through, so it fails open (stderr says so).
-            let recording = HookRecording::new(Unreachable, DirIds::new(dirs));
+            // A hook is a process of its own: it delivers to the run's
+            // listener, named by its environment. With none to reach it fails
+            // open (stderr says each observation was not recorded).
+            let sink = HookSink::from_environment(
+                self.env.utf8(run_ports::ENDPOINT_VARIABLE),
+                self.env.utf8(run_ports::BEARER_VARIABLE),
+            );
+            let recording = HookRecording::new(sink, DirIds::new(dirs));
             let setup = self.hooks().map_err(|e| failed(Box::new(e)))?;
             hook_cli::execute_recording(
                 &hook.engine,

@@ -871,6 +871,7 @@ dependencies = [
  "harp-core",
  "harp-names",
  "hook-cli",
+ "hook-sink-grpc",
  "host-launcher",
  "init-application",
  "isolation-application",

@@ -19,7 +19,7 @@
 //! | INTERNAL `ANGZARR_REASON_FACT_DEAD_LETTERED`           | `Parked`      |
 //! | DEADLINE_EXCEEDED, or the deadline passing             | `TimedOut`    |
 //! | connect or transport failure, UNAVAILABLE, ABORTED, RESOURCE_EXHAUSTED, UNKNOWN, INTERNAL, DATA_LOSS | `Unavailable` |
-//! | UNAUTHENTICATED, PERMISSION_DENIED, NOT_FOUND, ...     | `Refused`     |
+//! | any other status (unauthenticated, permission denied, not found, ...) | `Refused` |
 //!
 //! The bearer is a secret: the sink's `Debug` withholds it, and every detail
 //! it produces has the bearer's text scrubbed out.

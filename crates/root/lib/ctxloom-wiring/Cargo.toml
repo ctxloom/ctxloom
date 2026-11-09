@@ -80,6 +80,7 @@ host-launcher.workspace = true
 credentials.workspace = true
 pending-launches.workspace = true
 embedded-edge.workspace = true
+hook-sink-grpc.workspace = true
 angzarr-embedded-host.workspace = true
 # Only the seed uses the session-ports directly.
 session-ports = { workspace = true, optional = true }

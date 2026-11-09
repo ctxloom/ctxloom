@@ -14,8 +14,8 @@ use angzarr_embedded::{Any, Failure, Handled, Payload, Registry};
 use crate::{
     run_root, EndCause, EnqueueRun, FinalReported, LaunchFailed, QueueTurn, RequestStop,
     RunAggregate, RunCommand, RunEnded, RunEvent, RunExited, RunMode, RunRejection, RunState,
-    RunnerAttached, SummaryReported, TurnCompleted, TurnFailed, TurnFailureClass, TurnStarted,
-    RUN_DOMAIN,
+    RunnerAttached, RunnerStarted, SummaryReported, TurnCompleted, TurnFailed, TurnFailureClass,
+    TurnStarted, RUN_DOMAIN,
 };
 
 const SESSION: &str = "5f0c7a52-1111-5111-8111-000000000001";
@@ -537,6 +537,17 @@ fn every_fact_applies_in_every_state() {
                 ),
                 "attach",
             ),
+            (
+                fact_book(
+                    RunnerStarted {
+                        runtime: "claude-code".to_string(),
+                        workspace: "/w".to_string(),
+                        pid: 7,
+                    },
+                    "runner-started",
+                ),
+                "runner-started",
+            ),
             (fact_book(TurnStarted { turn: 1 }, "started"), "started"),
             (
                 fact_book(
@@ -578,7 +589,7 @@ fn every_fact_applies_in_every_state() {
     }
     // The domain's facts are not an enum the compiler can match on; the count
     // is the guard: a new fact in runs.proto fails here until it is added above.
-    assert_eq!(facts().len(), 8, "one case per fact of the runs proto");
+    assert_eq!(facts().len(), 9, "one case per fact of the runs proto");
     let states: [State; 5] = [
         ("never enqueued", Run::new),
         ("enqueued", Run::enqueued),
@@ -627,6 +638,32 @@ fn a_runner_attaching_is_recorded_on_the_run() {
     );
     assert_eq!(events.len(), 1);
     assert!(run.state().runner_attached);
+}
+
+// Owner ruling 2026-11-08: the launcher's start of the runner is a fact, and
+// the fold keeps what it said.
+#[test]
+fn a_runner_starting_is_recorded_on_the_run_and_only_while_it_is_live() {
+    let started = || RunnerStarted {
+        runtime: "claude-code".to_string(),
+        workspace: "/w".to_string(),
+        pid: 7,
+    };
+    let mut run = Run::enqueued();
+    assert!(run.state().runner_started.is_none());
+    let events = run.fact(started(), "started:r");
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        run.state().runner_started,
+        Some(crate::RunnerStartedRecorded {
+            runtime: "claude-code".to_string(),
+            workspace: "/w".to_string(),
+            pid: 7,
+        })
+    );
+    // Never enqueued: nothing to record it on.
+    let mut none = Run::new();
+    assert!(none.fact(started(), "started:r").is_empty());
 }
 
 // NEW-DESIGN: a command to a stream holding no run is refused, not decided on

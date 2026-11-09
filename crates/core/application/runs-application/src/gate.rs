@@ -60,6 +60,7 @@ impl Allowlist {
         Allowlist {
             facts: vec![
                 url::<runs::RunnerAttached>(),
+                url::<runs::RunnerStarted>(),
                 url::<runs::TurnStarted>(),
                 url::<runs::TurnCompleted>(),
                 url::<runs::TurnFailed>(),

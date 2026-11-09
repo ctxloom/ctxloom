@@ -1,6 +1,6 @@
 //! The inbound fact port (plan 4.2): narrow by construction.
 //!
-//! S5 carries the facts whose aggregates exist: the run's (attached, turn
+//! S5 carries the facts whose aggregates exist: the run's (attached, started, turn
 //! started / completed / failed, exited) and the session inbox's (claimed,
 //! delivered, failed). The plan's other variants (`RunPaused`, `RunResumed`,
 //! `ArtifactPublished`, `ApprovalAsked`) arrive with their aggregates (S6, S9,
@@ -36,6 +36,8 @@ pub trait Fact: Clone + std::fmt::Debug + Send + Sync {
 #[derive(Clone, Debug, PartialEq)]
 pub enum RunnerFact {
     RunnerAttached(runs::RunnerAttached),
+    /// The launcher made the runner's process: `started:<run>`.
+    RunnerStarted(runs::RunnerStarted),
     TurnStarted(runs::TurnStarted),
     TurnCompleted(runs::TurnCompleted),
     TurnFailed(runs::TurnFailed),
@@ -110,6 +112,7 @@ impl RunnerFact {
     fn payload(&self) -> Any {
         match self {
             RunnerFact::RunnerAttached(m) => any_of(m),
+            RunnerFact::RunnerStarted(m) => any_of(m),
             RunnerFact::TurnStarted(m) => any_of(m),
             RunnerFact::TurnCompleted(m) => any_of(m),
             RunnerFact::TurnFailed(m) => any_of(m),
@@ -132,6 +135,7 @@ impl RunnerFact {
         let (run, session) = (text(&who.run), text(&who.session));
         match self {
             RunnerFact::RunnerAttached(m) => format!("attach:{run}:{}", m.runner_id),
+            RunnerFact::RunnerStarted(_) => format!("started:{run}"),
             RunnerFact::TurnStarted(m) => format!("turn:{run}:{}:started", m.turn),
             RunnerFact::TurnCompleted(m) => format!("turn:{run}:{}:completed", m.turn),
             RunnerFact::TurnFailed(m) => format!("turn:{run}:{}:failed", m.turn),
@@ -150,6 +154,7 @@ impl RunnerFact {
         cover_of(
             match self {
                 RunnerFact::RunnerAttached(_)
+                | RunnerFact::RunnerStarted(_)
                 | RunnerFact::TurnStarted(_)
                 | RunnerFact::TurnCompleted(_)
                 | RunnerFact::TurnFailed(_)
@@ -176,6 +181,11 @@ impl RunnerFact {
             RunnerFact::RunnerAttached(runs::RunnerAttached {
                 runner_id: "runner-1".to_string(),
                 protocol: "v1".to_string(),
+            }),
+            RunnerFact::RunnerStarted(runs::RunnerStarted {
+                runtime: "claude-code".to_string(),
+                workspace: "/w".to_string(),
+                pid: 7,
             }),
             RunnerFact::TurnStarted(runs::TurnStarted { turn: 1 }),
             RunnerFact::TurnCompleted(runs::TurnCompleted {

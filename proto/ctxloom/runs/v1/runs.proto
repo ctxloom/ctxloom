@@ -121,6 +121,22 @@ message RunnerAttached {
   string protocol = 2;
 }
 
+// The launcher made the runner's process: where (`runtime`: the engine or
+// container runtime it ran under; `workspace`: its working directory) and
+// which (`pid`, 0 when the launcher could not learn it). The sign that a
+// launch was made, so a run owed a runner stops being owed on it and not on
+// the runner's first word. Keyed `started:<run>`.
+message RunnerStarted {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.runs.v1.RunState"
+    emits: ["ctxloom.runs.v1.RunnerStartedRecorded"]
+  };
+
+  string runtime = 1;
+  string workspace = 2;
+  uint32 pid = 3;
+}
+
 // `turn` is the sequence of the TurnQueued event it answers (plan 4.3).
 message TurnStarted {
   option (io.angzarr.v1.fact) = {
@@ -226,6 +242,14 @@ message RunnerAttachedRecorded {
 
   string runner_id = 1;
   string protocol = 2;
+}
+
+message RunnerStartedRecorded {
+  option (io.angzarr.v1.event) = {component: "ctxloom.runs.v1.RunState"};
+
+  string runtime = 1;
+  string workspace = 2;
+  uint32 pid = 3;
 }
 
 message TurnQueued {

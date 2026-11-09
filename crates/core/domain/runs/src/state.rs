@@ -1,6 +1,6 @@
 //! The run, folded from its events.
 
-use crate::{EndCause, RunEvent, RunMode};
+use crate::{EndCause, RunEvent, RunMode, RunnerStartedRecorded};
 
 /// The runs domain's name: every run stream's `Cover.domain`.
 pub const RUN_DOMAIN: &str = "runs";
@@ -22,6 +22,9 @@ pub struct RunState {
     /// whatever the cause (D29).
     pub credential_revoked: bool,
     pub runner_attached: bool,
+    /// What the launcher said of the runner it started (runtime, workspace,
+    /// pid), once it did.
+    pub runner_started: Option<RunnerStartedRecorded>,
     /// The sequence of the `TurnQueued` event of the turn in flight (plan
     /// 4.3: the turn number is a per-stream position, the cause).
     pub turn_in_flight: Option<u64>,
@@ -48,6 +51,7 @@ pub fn apply(state: &mut RunState, event: &RunEvent, sequence: u64) {
             state.model_credential_hash = enqueued.model_credential_hash.clone();
         }
         RunEvent::RunnerAttachedRecorded(_) => state.runner_attached = true,
+        RunEvent::RunnerStartedRecorded(started) => state.runner_started = Some(started.clone()),
         // The turn in flight is the sequence of its `TurnQueued` event (plan 4.3).
         RunEvent::TurnQueued(_) => state.turn_in_flight = Some(sequence),
         RunEvent::TurnStartedRecorded(_) => {}

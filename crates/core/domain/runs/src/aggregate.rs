@@ -14,9 +14,9 @@ use crate::refusal::refuse;
 use crate::{
     apply, run_root, EndCause, EnqueueRun, FinalReported, FinalReportedRecorded, LaunchFailed,
     QueueTurn, RequestStop, RunCommand, RunEnded, RunEnqueued, RunEvent, RunExited, RunRejection,
-    RunState, RunnerAttached, RunnerAttachedRecorded, StopRequested, SummaryReported,
-    SummaryReportedRecorded, TurnCompleted, TurnCompletedRecorded, TurnFailed, TurnFailedRecorded,
-    TurnQueued, TurnStarted, TurnStartedRecorded,
+    RunState, RunnerAttached, RunnerAttachedRecorded, RunnerStarted, RunnerStartedRecorded,
+    StopRequested, SummaryReported, SummaryReportedRecorded, TurnCompleted, TurnCompletedRecorded,
+    TurnFailed, TurnFailedRecorded, TurnQueued, TurnStarted, TurnStartedRecorded,
 };
 use crate::{
     AlreadyEnqueued, CredentialHashInvalid, CredentialsNotDistinct, Ended, NoRun, NotItsStream,
@@ -198,6 +198,17 @@ impl RunAggregate {
         }))
     }
 
+    /// The launcher made the runner's process: recorded while the run is live.
+    #[handles_fact(RunnerStarted)]
+    fn runner_started(&self, fact: RunnerStarted, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
+        let _ = ctx;
+        recorded(self.live().then_some(RunnerStartedRecorded {
+            runtime: fact.runtime,
+            workspace: fact.workspace,
+            pid: fact.pid,
+        }))
+    }
+
     #[handles_fact(TurnStarted)]
     fn turn_started(&self, fact: TurnStarted, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
@@ -275,6 +286,11 @@ impl RunAggregate {
 
     #[applies(RunnerAttachedRecorded)]
     fn runner_attached_recorded(&mut self, event: RunnerAttachedRecorded, page: &PageContext) {
+        apply(&mut self.run, &event.into(), page.sequence);
+    }
+
+    #[applies(RunnerStartedRecorded)]
+    fn runner_started_recorded(&mut self, event: RunnerStartedRecorded, page: &PageContext) {
         apply(&mut self.run, &event.into(), page.sequence);
     }
 

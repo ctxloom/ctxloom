@@ -211,6 +211,7 @@ fn every_fact_variant_is_on_its_authors_allowlist() {
     for fact in &runner {
         match fact {
             RunnerFact::RunnerAttached(_)
+            | RunnerFact::RunnerStarted(_)
             | RunnerFact::TurnStarted(_)
             | RunnerFact::TurnCompleted(_)
             | RunnerFact::TurnFailed(_)
@@ -237,7 +238,7 @@ fn every_fact_variant_is_on_its_authors_allowlist() {
             fact.type_url()
         );
     }
-    assert_eq!(runner.len(), 9, "one sample per runner variant");
+    assert_eq!(runner.len(), 10, "one sample per runner variant");
     assert_eq!(model.len(), 2, "one sample per model variant");
     assert_eq!(Allowlist::runner().facts().len(), runner.len());
     assert_eq!(Allowlist::model().facts().len(), model.len());

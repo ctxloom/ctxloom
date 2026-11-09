@@ -82,6 +82,20 @@ fn the_exit_and_the_attach_are_identified_by_the_run() {
     assert_eq!(attached.external_id(&who), format!("attach:{RUN}:r1"));
 }
 
+// Owner ruling 2026-11-08: the launcher's start of a runner is keyed by the
+// run alone, `started:<run>`, and is on the run's stream.
+#[test]
+fn the_runner_start_is_identified_by_the_run() {
+    let who = identity();
+    let started = RunnerFact::RunnerStarted(runs::RunnerStarted {
+        runtime: "claude-code".to_string(),
+        workspace: "/w".to_string(),
+        pid: 7,
+    });
+    assert_eq!(started.external_id(&who), format!("started:{RUN}"));
+    assert_eq!(started.cover(&who), who.run_cover());
+}
+
 // NEW-DESIGN, owner ruling 2026-11-04 (S5 review item 8; plan 4.3 table
 // `bind:<session>:<native_id>`): the engine session bind is an AgentFact on the
 // caller's own session. The hook-cli `session-bind` hook reaches it through

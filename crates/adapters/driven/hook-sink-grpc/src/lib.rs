@@ -239,6 +239,9 @@ impl Service<Uri> for Unix {
     type Error = io::Error;
     type Future = Connecting;
 
+    // Equivalent mutant: a connector is always ready, and this body is already
+    // `Poll::Ready(Ok(()))`, which is what `Poll::from(Ok(()))` builds.
+    #[cfg_attr(test, mutants::skip)]
     fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<io::Result<()>> {
         Poll::Ready(Ok(()))
     }

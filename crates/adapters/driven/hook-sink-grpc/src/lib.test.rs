@@ -423,3 +423,47 @@ fn delivery_may_be_called_from_inside_a_runtime() {
     let delivery = runtime.block_on(async { sink.deliver(CommandBook::default(), BUDGET) });
     assert_eq!(delivery, Delivery::Applied);
 }
+
+#[test]
+fn a_sink_debugs_as_its_endpoint_with_the_bearer_redacted() {
+    let sink = GrpcSink::new("/run/x.sock", bearer());
+    let shown = format!("{sink:?}");
+    assert_eq!(
+        shown,
+        r#"GrpcSink { socket: "/run/x.sock", bearer: Bearer(redacted) }"#
+    );
+    assert!(!shown.contains(bearer().expose()));
+}
+
+#[derive(Debug)]
+struct Layer(&'static str, Option<Box<Layer>>);
+
+impl std::fmt::Display for Layer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl std::error::Error for Layer {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.1
+            .as_deref()
+            .map(|e| e as &(dyn std::error::Error + 'static))
+    }
+}
+
+#[test]
+fn an_error_chain_is_one_line_of_its_causes_outermost_first() {
+    let error = Layer(
+        "transport error",
+        Some(Box::new(Layer(
+            "connection failed",
+            Some(Box::new(Layer("No such file", None))),
+        ))),
+    );
+    assert_eq!(
+        chain(&error),
+        "transport error: connection failed: No such file"
+    );
+    assert_eq!(chain(&Layer("alone", None)), "alone");
+}

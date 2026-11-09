@@ -208,6 +208,10 @@ struct Hooks {
     runner: Option<ScriptedRunner>,
     /// A reason to refuse to serve, if any.
     refuse: Option<&'static str>,
+    /// The session directories: at the stop, whether the run's end had
+    /// already been projected into them.
+    records: Option<MemoryRecords>,
+    end_projected_at_stop: Arc<Mutex<Option<bool>>>,
 }
 
 impl Hooks {
@@ -224,7 +228,19 @@ struct Listening(Hooks);
 
 impl Serving for Listening {
     fn stop(self: Box<Self>) -> BoxFuture<'static, ()> {
-        Box::pin(async move { self.0.note("stop".to_string()) })
+        Box::pin(async move {
+            if let Some(records) = &self.0.records {
+                let projected = records
+                    .names("amber-swift-owl")
+                    .iter()
+                    .any(|rel| rel == "records/runs.jsonl")
+                    && records
+                        .text("amber-swift-owl", "records/runs.jsonl")
+                        .is_some_and(|runs| runs.contains("RunEnded"));
+                *self.0.end_projected_at_stop.lock().unwrap() = Some(projected);
+            }
+            self.0.note("stop".to_string())
+        })
     }
 }
 
@@ -342,6 +358,7 @@ fn rig(script: Script) -> Rig {
     let hooks = Hooks {
         runner: Some(script.runner.clone()),
         refuse: script.hooks_refuse,
+        records: Some(records.clone()),
         ..Hooks::default()
     };
     let runs = Runs::new(Parts {
@@ -1014,6 +1031,8 @@ async fn an_interactive_run_is_handed_the_listener_endpoint_and_the_hook_bearer(
         .hyphenated()
         .to_string();
     assert_eq!(env["CTXLOOM_RUN"], run_text);
+    // The hook finds its session by the harp: the engine's environment names it.
+    assert_eq!(env["CTXLOOM_SESSION_HARP"], ended.harp);
     let short: String = run.value[..8].iter().map(|b| format!("{b:02x}")).collect();
     assert_eq!(
         env["CTXLOOM_ENDPOINT"],
@@ -1058,6 +1077,7 @@ async fn a_childs_turn_never_gets_the_listener_variables() {
         ("CTXLOOM_ENDPOINT", "/inherited.sock"),
         ("CTXLOOM_BEARER", "inherited.secret"),
         ("CTXLOOM_RUN", "inherited"),
+        ("CTXLOOM_SESSION_HARP", "inherited-harp"),
     ];
     let mut rig = rig(script);
     rig.runs
@@ -1069,6 +1089,7 @@ async fn a_childs_turn_never_gets_the_listener_variables() {
     for name in run_ports::HOOK_VARIABLES {
         assert!(!env.contains_key(name), "{name} in {env:?}");
     }
+    assert!(!env.contains_key("CTXLOOM_SESSION_HARP"), "{env:?}");
 }
 
 // NEW-DESIGN: a primary run launched from inside another interactive session
@@ -1232,4 +1253,60 @@ async fn a_one_shot_serves_no_listener() {
         .result
         .unwrap();
     assert!(rig.hooks.log.lock().unwrap().is_empty());
+}
+
+// A hook is a process of its own that finds its session by reading the
+// session directory's `metadata.json`, so the directory must name the session
+// before the engine is launched, not only after it ends (found by the capture
+// end-to-end scenario: the hooks of the running engine saw no directory).
+#[tokio::test]
+async fn an_interactive_runs_session_directory_names_its_session_while_the_engine_runs() {
+    let script = Script::answering();
+    let rig = rig(script);
+    let during = Arc::new(Mutex::new(None::<(Option<String>, Option<String>)>));
+    let window = {
+        let (records, during) = (rig.records.clone(), Arc::clone(&during));
+        Arc::new(move || {
+            *during.lock().unwrap() = Some((
+                records.text("amber-swift-owl", "metadata.json"),
+                records.text("amber-swift-owl", "transcripts/transcript.jsonl"),
+            ));
+        })
+    };
+    *rig.runner.during.lock().unwrap() = Some(window);
+    let mut rig = rig;
+    let ended = rig
+        .runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let (metadata, _) = during.lock().unwrap().clone().expect("the engine ran");
+    let metadata = metadata.expect("metadata.json was written before the engine ran");
+    assert!(metadata.contains(&ended.session), "{metadata}");
+}
+
+// A hook still in flight as the engine exits is delivered while the listener
+// still serves, so the run's last catch-up (the transcript's writer) must come
+// AFTER the listener has stopped and drained, or a fact delivered between the
+// two is in the stream but never in the transcript. Forced here by reading,
+// at the stop, whether the run's end was projected yet.
+#[tokio::test]
+async fn the_listener_is_stopped_before_the_run_is_last_recorded() {
+    let mut rig = rig(Script::answering());
+    rig.runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    assert_eq!(
+        *rig.hooks.end_projected_at_stop.lock().unwrap(),
+        Some(false),
+        "the run's end was recorded before the listener stopped"
+    );
+    assert!(rig
+        .records
+        .text("amber-swift-owl", "records/runs.jsonl")
+        .unwrap()
+        .contains("RunEnded"));
 }

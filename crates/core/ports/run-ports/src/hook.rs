@@ -25,6 +25,11 @@ pub const BEARER_VARIABLE: &str = "CTXLOOM_BEARER";
 /// The variable that names the run (UUID text): not a secret.
 pub const RUN_VARIABLE: &str = "CTXLOOM_RUN";
 
+/// The variable that names the session's harp: the address a hook finds its
+/// session by. The interactive engine's environment carries it (a child's
+/// never does).
+pub const HARP_VARIABLE: &str = "CTXLOOM_SESSION_HARP";
+
 /// The three variables, which reach the INTERACTIVE engine's environment and
 /// no other.
 pub const HOOK_VARIABLES: [&str; 3] = [ENDPOINT_VARIABLE, BEARER_VARIABLE, RUN_VARIABLE];

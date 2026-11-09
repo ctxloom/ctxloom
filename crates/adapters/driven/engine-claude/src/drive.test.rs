@@ -290,6 +290,7 @@ fn only_the_interactive_run_is_passed_the_listener_variables() {
         ("CTXLOOM_ENDPOINT", "/run/user/1/ctxloom/a.sock"),
         ("CTXLOOM_BEARER", "run.secret"),
         ("CTXLOOM_RUN", "run"),
+        ("CTXLOOM_SESSION_HARP", "brisk-copper-moth"),
     ]);
     let interactive = Claude::new().drive_interactive(&asked).unwrap();
     for name in run_ports::HOOK_VARIABLES {
@@ -300,10 +301,12 @@ fn only_the_interactive_run_is_passed_the_listener_variables() {
             "{name} must not reach a turn"
         );
     }
+    assert_eq!(interactive.env["CTXLOOM_SESSION_HARP"], "brisk-copper-moth");
     let turn = Claude::new().drive_turn(&asked).unwrap();
     for name in run_ports::HOOK_VARIABLES {
         assert!(!turn.env.contains_key(name), "{name} in {:?}", turn.env);
     }
+    assert!(!turn.env.contains_key("CTXLOOM_SESSION_HARP"));
 }
 
 // The command carrying the bearer renders without it.

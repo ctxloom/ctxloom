@@ -62,6 +62,20 @@ pub struct Ended {
     pub code: Option<i32>,
 }
 
+/// This session's launch among those a step made.
+fn ours(launched: Vec<Launched>, session: &str) -> Option<Launched> {
+    launched
+        .into_iter()
+        .find(|l: &Launched| l.session == session)
+}
+
+/// The error of a session whose launch a step did not make.
+fn not_ended(session: &str) -> RunError {
+    RunError::NotEnded {
+        run: session.to_string(),
+    }
+}
+
 /// What a command came to: its answer or its error, and what it noticed.
 pub struct Done<T> {
     pub result: Result<T, RunError>,
@@ -247,9 +261,20 @@ where
             .serve(&endpoint)
             .await
             .map_err(RunError::Listener)?;
-        let launched = self.launched(&session).await;
+        // The session's directory names it before the engine runs: its hooks
+        // (processes of their own) find the session by that file.
+        if let Err(error) = self.catch_up().await {
+            serving.stop().await;
+            return Err(error);
+        }
+        let launched = self.launch().await;
+        // A hook still in flight as the engine exits is delivered before the
+        // listener has drained; the last catch-up (the transcript's writer)
+        // follows it, so nothing delivered is left out of the transcript.
         serving.stop().await;
         let launched = launched?;
+        self.catch_up().await?;
+        let launched = ours(launched, &session).ok_or_else(|| not_ended(&session))?;
         self.ended(&run).await?;
         match launched.outcome {
             Turn::Ended { code } => Ok(Ended {
@@ -333,7 +358,11 @@ where
         for name in run_ports::HOOK_VARIABLES {
             env.remove(name);
         }
+        env.remove(run_ports::HARP_VARIABLE);
         if interactive {
+            // A hook finds its session by the harp, and the engine's
+            // environment is the only thing a hook process is given.
+            env.insert(run_ports::HARP_VARIABLE.to_string(), harp.clone());
             let endpoint = self
                 .endpoint(&enqueued.run.value)
                 .map_err(|e| RunError::Endpoint(Box::new(e)))?;
@@ -373,23 +402,27 @@ where
         run_ports::endpoint_path(var("XDG_RUNTIME_DIR"), home, run)
     }
 
-    /// Launch what is owed and record it: this session's launch.
-    async fn launched(&mut self, session: &str) -> Result<Launched, RunError> {
-        let launched = self
-            .launcher
-            .step(self.core.store(), self.core.catalog())
-            .await
-            .map_err(RunError::Launch)?;
+    /// The recorder caught up with everything the core holds so far.
+    async fn catch_up(&mut self) -> Result<(), RunError> {
         self.recorder
             .step(self.core.store(), self.core.catalog())
             .await
-            .map_err(RunError::Launch)?;
-        launched
-            .into_iter()
-            .find(|l: &Launched| l.session == session)
-            .ok_or_else(|| RunError::NotEnded {
-                run: session.to_string(),
-            })
+            .map_err(RunError::Launch)
+    }
+
+    /// Launch what is owed and record it: this session's launch.
+    async fn launched(&mut self, session: &str) -> Result<Launched, RunError> {
+        let launched = self.launch().await?;
+        self.catch_up().await?;
+        ours(launched, session).ok_or_else(|| not_ended(session))
+    }
+
+    /// Launch what is owed, not yet recorded.
+    async fn launch(&mut self) -> Result<Vec<Launched>, RunError> {
+        self.launcher
+            .step(self.core.store(), self.core.catalog())
+            .await
+            .map_err(RunError::Launch)
     }
 
     async fn run(&mut self, previewed: Previewed, request: &OneShot) -> Result<Answer, RunError> {

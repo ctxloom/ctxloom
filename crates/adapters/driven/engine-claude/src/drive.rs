@@ -77,6 +77,7 @@ pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = &[
     run_ports::ENDPOINT_VARIABLE,
     run_ports::BEARER_VARIABLE,
     run_ports::RUN_VARIABLE,
+    run_ports::HARP_VARIABLE,
 ];
 
 /// The variables any one of which authenticates a child agent's run: the

@@ -19,7 +19,7 @@ use crate::{Commands, DirIds, HookRecording, HookSink, Sessions};
 pub(crate) const NOUNS: [&str; 2] = ["session", "hook"];
 
 /// The environment variable naming the session the hooks run in.
-const SESSION_HARP: &str = "CTXLOOM_SESSION_HARP";
+const SESSION_HARP: &str = run_ports::HARP_VARIABLE;
 
 /// The two nouns, shaped like the command line's own.
 pub(crate) fn nouns() -> Vec<Command> {

@@ -25,7 +25,8 @@ pub use engine::{
 };
 pub use hook::{
     endpoint_path, hook_environment, Bearer, BearerError, EndpointError, RedactedEnv,
-    BEARER_VARIABLE, ENDPOINT_VARIABLE, HOOK_VARIABLES, RUN_VARIABLE, SOCKET_PATH_LIMIT,
+    BEARER_VARIABLE, ENDPOINT_VARIABLE, HARP_VARIABLE, HOOK_VARIABLES, RUN_VARIABLE,
+    SOCKET_PATH_LIMIT,
 };
 pub use launcher::{
     Exit, Launch, LaunchEvent, LaunchFailure, Limits, RunnerLauncher, Running, TurnCommand,

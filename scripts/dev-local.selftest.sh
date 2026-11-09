@@ -42,6 +42,7 @@ crate angzarr/core/main/crates/yaml angzarr-yaml
 crate angzarr/core/main/worktrees/old/crates/diag angzarr-diagnostic
 crate angzarr/core/main/target/x angzarr-yaml
 crate ctxloom/ctxloom-lib/crates/cs cli-support
+for r in angzarr/core/main ctxloom/ctxloom-lib; do printf '[workspace]\n' > "$work/root/$r/Cargo.toml"; done
 project p1
 
 out=$(python3 -I "$on" --project "$work/p1" "$work/root" 2>&1) || fail "generate: $out"

@@ -356,15 +356,21 @@ All of ctxloom-lib's crates are pinned at one rev (`cli-support`,
 
 ## Co-developing a sibling or ctxloom-lib
 
-To change a sibling (angzarr, angzarr-platform, ...) or ctxloom-lib and this
-workspace together, `cp .cargo/local-deps.toml .cargo/config.toml`: a
-gitignored `[patch]` that CI, a fresh clone and the pre-commit gates never
-read. For ctxloom-lib it is
-`[patch."https://github.com/ctxloom/ctxloom-lib"]` with
-`cli-support = { path = "../ctxloom-lib/crates/adapters/driving/cli-support" }`
-(one line per ctxloom-lib crate used; the sample is in local-deps.toml).
-Restore Cargo.lock before committing, and land the change by pushing the
-sibling (ctxloom-lib's gates and mutation first) and bumping its rev.
+In development the whole git dependency family (angzarr, -router, -embedded,
+-platform, -build, harp, taskloom, ctxloom-lib) is used by path. `just
+dev-local [root]` generates the gitignored `.cargo/config.toml`: a `[patch]`
+per git source in Cargo.lock, every crate it takes from there mapped to its
+absolute path in the sibling checkout under `root` (default `~/workspace`;
+`DEV_LOCAL_<REPO>`, e.g. `DEV_LOCAL_ANGZARR`, `DEV_LOCAL_CTXLOOM_LIB`, names a
+checkout; one at the lock's rev is preferred; a crate not found fails and
+names it). `just dev-local-off` removes it (only a file it generated) and
+restores Cargo.lock. Nothing path-based is ever committed: the pre-commit
+gate refuses an outside-repo path dependency and a tracked
+`.cargo/config.toml`, and the gates build the staged tree without the patch.
+Under the patch Cargo.lock loses its git sources, so the lock tests in
+`workspace.test.rs` that read sources fail locally; they are checked at the
+commit. Re-pin once per landing: push the sibling (ctxloom-lib's gates and
+mutation first), bump the revs in Cargo.toml, `just dev-local-off`.
 
 ## Storage is angzarr-store-sqlite
 

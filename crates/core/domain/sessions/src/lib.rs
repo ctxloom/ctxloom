@@ -16,7 +16,8 @@
 //! without never displaces), `AppendRotations`, `SetKeep`, `Rename`,
 //! `Forget` and `harp.Validate`.
 
-#[allow(dead_code)]
+// Generated code: the event enum's conversions grow a line per event.
+#[allow(dead_code, clippy::too_many_lines)]
 mod generated {
     include!(concat!(env!("OUT_DIR"), "/ctxloom.sessions.v1.domain.rs"));
 }
@@ -114,6 +115,13 @@ pub fn apply(state: &mut SessionState, event: &SessionEvent, recorded_at: Timest
             });
         }
         SessionEvent::EndRecorded(ended) => state.ended_at = Some(ended.at),
+        // The transcript's observations are the read side's: no state of the session.
+        SessionEvent::PromptSubmitted(_)
+        | SessionEvent::AssistantTextShown(_)
+        | SessionEvent::ToolCalled(_)
+        | SessionEvent::TurnEnded(_)
+        | SessionEvent::SessionEnded(_)
+        | SessionEvent::Compacted(_) => {}
         SessionEvent::IncarnationOwed(_)
         | SessionEvent::IncarnationEnded(_)
         | SessionEvent::StopOrdered(_) => lifeline::apply(state, event),

@@ -1,0 +1,154 @@
+syntax = "proto3";
+
+// PROPOSAL (design/hook-capture): what the engine's hooks observe of a
+// session, as typed, engine-neutral facts and their events. Invariants:
+//  - a field is a unified HookEvent field, never a native payload shape;
+//  - each fact is something that ALREADY HAPPENED in the engine, so it is
+//    never refused: a stream holding no live session records nothing, and a
+//    redelivery (same Fact.origin.external_id) is DUPLICATE;
+//  - a fact that could not be delivered is dropped: nothing queues or spools
+//    it, and the hook says so on stderr;
+//  - the stream order of the events is the transcript's order: no field here
+//    is a sequence, and the hook process assigns none.
+package ctxloom.sessions.v1;
+
+import "io/angzarr/v1/options.proto";
+
+// The user submitted a prompt. external_id
+// `hook:prompt:<session>:<prompt_id>`.
+message RecordPromptSubmitted {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.PromptSubmitted"]
+  };
+
+  string prompt_id = 1;
+  string prompt = 2;
+}
+
+// One piece (delta) of the assistant's text was shown. Every piece is
+// recorded, the last flagged `is_final`; a turn's closing text (Stop's) is
+// not a second record of it. external_id
+// `hook:text:<session>:<message_id>:<index>`.
+message RecordAssistantText {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.AssistantTextShown"]
+  };
+
+  string prompt_id = 1;
+  string turn_id = 2;
+  string message_id = 3;
+  uint32 index = 4;
+  bool is_final = 5;
+  string text = 6;
+}
+
+// One tool call and what became of it. The result's body is never recorded:
+// only its size and the SHA-256 (lowercase hex) of its bytes. The input is
+// recorded whole. Thinking blocks are not observable and not recorded.
+// external_id `hook:tool:<session>:<tool_use_id>`.
+message RecordToolCall {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.ToolCalled"]
+  };
+
+  string prompt_id = 1;
+  string tool_use_id = 2;
+  string tool = 3;
+  string input = 4;
+  uint64 response_bytes = 5;
+  string response_sha256 = 6;
+}
+
+// The assistant's turn ended (Stop). external_id
+// `hook:turn-end:<session>:<prompt_id>`. It carries no text: the assistant's
+// words are RecordAssistantText's.
+message RecordTurnEnded {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.TurnEnded"]
+  };
+
+  string prompt_id = 1;
+}
+
+// The engine's session ended. external_id
+// `hook:session-end:<session>:<native_session>`.
+message RecordSessionEnded {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.SessionEnded"]
+  };
+
+  string native_session = 1;
+  string reason = 2;
+}
+
+enum CompactionPhase {
+  COMPACTION_PHASE_UNSPECIFIED = 0;
+  COMPACTION_PHASE_BEFORE = 1;
+  COMPACTION_PHASE_AFTER = 2;
+}
+
+// The engine compacted its context. external_id
+// `hook:compact:<session>:<prompt_id>:<before|after>`.
+message RecordCompaction {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.Compacted"]
+  };
+
+  string prompt_id = 1;
+  CompactionPhase phase = 2;
+}
+
+message PromptSubmitted {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  string prompt_id = 1;
+  string prompt = 2;
+}
+
+message AssistantTextShown {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  string prompt_id = 1;
+  string turn_id = 2;
+  string message_id = 3;
+  uint32 index = 4;
+  bool is_final = 5;
+  string text = 6;
+}
+
+message ToolCalled {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  string prompt_id = 1;
+  string tool_use_id = 2;
+  string tool = 3;
+  string input = 4;
+  uint64 response_bytes = 5;
+  string response_sha256 = 6;
+}
+
+message TurnEnded {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  string prompt_id = 1;
+}
+
+message SessionEnded {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  string native_session = 1;
+  string reason = 2;
+}
+
+message Compacted {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  string prompt_id = 1;
+  CompactionPhase phase = 2;
+}

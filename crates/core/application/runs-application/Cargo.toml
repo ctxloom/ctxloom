@@ -14,6 +14,7 @@ prost.workspace = true
 run-ports.workspace = true
 runs.workspace = true
 sessions.workspace = true
+surface-ports.workspace = true
 trees.workspace = true
 uuid.workspace = true
 

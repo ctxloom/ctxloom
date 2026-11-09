@@ -28,6 +28,9 @@ pub struct HookAnswer {
     pub bind: Option<SessionBind>,
     /// A session start fired with no usable harp: nothing truthful to emit.
     pub harp_missing: bool,
+    /// PROPOSAL (design/hook-capture): the event the codec decoded, for the
+    /// caller that records it. `None` for an answer made without one.
+    pub event: Option<HookEvent>,
 }
 
 /// The binding a session start asks for.
@@ -88,6 +91,7 @@ impl Setup {
                         transcript: event.transcript,
                     }),
                     harp_missing: !usable,
+                    event: None,
                 })
             }
             "post_tool" => Ok(HookAnswer {

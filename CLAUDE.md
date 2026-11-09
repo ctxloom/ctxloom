@@ -178,10 +178,7 @@ so the INTERACTIVE engine's `PATH` is the directory of the running binary
 shell also sees that directory first, so a sibling program in it shadows the
 user's others (intended); and the binary must be named `ctxloom` for the hooks
 to resolve it (a renamed binary still leads `PATH` but the bare name finds
-nothing there: a known limit, not worked around). The resolved
-`llm.configs.<label>.model` (`DryRun::model`, then `Order::model` and
-`TurnRequest::model`) is passed as `--model <m>` for a child's turn and for the
-interactive launch; none configured is no flag.
+nothing there: a known limit, not worked around).
 The launcher records `RunnerStarted{runtime, workspace, pid}` AFTER the spawn,
 with the pid the spawn gave (`RunnerLauncher::launch` answers a `Running`, the
 launcher records, `Running::finish` waits), and the pending launches clear on
@@ -219,9 +216,13 @@ that env), and the capture allowlist is why the hook credential is a third one.
 The run is driven on a multi-thread runtime (`ctxloom-wiring`'s `run_runtime`,
 one worker), because `Running::finish` blocks the driving thread and a task
 spawned on a current-thread runtime (the listener) would starve meanwhile.
-Not built: the hidden runner subcommand, the listener and its gate (nothing
-yet binds the endpoint), the hook-fed record (hooks answer, they record no
-fact yet), session end.
+An interactive run serves its endpoint: `hook-listener`'s `HookListener` (angzarr's
+coordinator `Handle` on the run's unix socket, mode 0600, behind
+`runs-application`'s `HookGate`) is started before the engine launches and
+stopped, with a bounded grace, before the run's end is last recorded
+(`ctxloom-wiring`'s `Hooks`). Not built: the hidden runner subcommand, and the
+engine's model (`llm.configs.<label>.model` and any per-agent model are not
+passed to the engine yet; they travel with the engines schema).
 
 `crates/core/clippy.toml` holds the core's purity rules (no I/O, clock, env,
 threads or hash-ordered collections) and reaches every core crate, because
@@ -454,10 +455,13 @@ Compaction (`PreCompact`, `PostCompact`) is registered and recorded: the fact
 holds the prompt, the phase, the `trigger` (`manual`/`auto`) and the summary's
 size and SHA-256 (never its text, ruling B). Not captured: thinking
 blocks, a tool's status (Claude's payload carries none) and a result's body.
-A hook is a separate process and has no listener to deliver through yet:
-`ctxloom-wiring`'s `Unreachable` sink is what it holds, so it answers the
-engine as usual and warns `hook-cli-not-recorded` for each observation; the
-in-process `EdgeSink` is the sink the listener's transport replaces it with.
+A hook is a separate process and delivers through the run's listener:
+`ctxloom-wiring`'s `HookSink` is `hook-sink-grpc`'s `GrpcSink` to
+`CTXLOOM_ENDPOINT` with `CTXLOOM_BEARER` when both are set and well formed, and
+fails open otherwise (and on any undelivered fact): it answers the engine as
+usual and warns `hook-cli-not-recorded` for each observation. The `Unreachable`
+sink is that fallback; the in-process `EdgeSink` is for tests and the run's own
+facts. The session's end (`SessionEnd`) is captured like the rest.
 A compaction's external id is `hook:compact:<session>:<prompt_id>:<trigger>:
 <phase>`, so two compactions of one turn (a manual and an auto) are two facts;
 two of the SAME trigger in one turn would still collide (the payload offers no

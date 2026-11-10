@@ -282,7 +282,7 @@ impl Project {
             .into());
         }
         let mut written = None;
-        let mut said = None;
+        let mut said = Vec::new();
         let layer_held = |agents: &Option<Value>| {
             agents
                 .as_ref()
@@ -298,8 +298,9 @@ impl Project {
             let entry = self.agent_entry(name, request, held, mode)?;
             written = Some(Agent::of(name, &entry).row());
             if request.runtime.as_deref().is_some_and(|r| !r.is_empty()) {
-                said = self.runtime_notice(name, &entry);
+                said.extend(self.runtime_notice(name, &entry));
             }
+            said.extend(self.default_block_notice(name, request));
             let mut agents = match current {
                 Some(map @ Value::Map(_)) => map,
                 _ => Value::Map(Vec::new()),
@@ -335,6 +336,37 @@ impl Project {
         })
     }
 
+    /// The engine whose block model and effort are written into: the engine
+    /// named, else the one the agent binds, else the default one (ruling 57),
+    /// and whether it is the default because nothing named one (an engine
+    /// taken out, `--engine ''`, leaves the default one).
+    fn block_of(&self, name: &str, request: &AgentRequest) -> (String, bool) {
+        let named = match request.engine.as_deref() {
+            Some(engine) => engine.to_string(),
+            None => self
+                .config
+                .agent(name)
+                .map(|a| a.engine)
+                .unwrap_or_default(),
+        };
+        if named.is_empty() {
+            (config_engines::DEFAULT_ENGINE.to_string(), true)
+        } else {
+            (named, false)
+        }
+    }
+
+    /// Owner ruling 68: a model or effort written for an agent that names no
+    /// engine lands in the default engine's block, and the write says which.
+    fn default_block_notice(&self, name: &str, request: &AgentRequest) -> Option<Notice> {
+        let settings = request.model.is_some() || request.effort.is_some();
+        let (engine, defaulted) = self.block_of(name, request);
+        (settings && defaulted).then(|| Notice::DefaultEngineBlock {
+            agent: name.to_string(),
+            block: format!("engines.{engine}"),
+        })
+    }
+
     /// The entry a request leaves: the flags named change their keys.
     fn agent_entry(
         &self,
@@ -349,19 +381,7 @@ impl Project {
         if let Some(engine) = &request.engine {
             put(&mut entry, "engine", some_text(engine));
         }
-        // Model and effort are in the block of the engine named, else of
-        // the engine the agent binds, else of the default one (ruling 57).
-        // An engine taken out (`--engine ''`) leaves the default one.
-        let runs_on = match request.engine.as_deref() {
-            Some(engine) if !engine.is_empty() => engine.to_string(),
-            Some(_) => config_engines::DEFAULT_ENGINE.to_string(),
-            None => self
-                .config
-                .agent(name)
-                .map(|a| a.engine)
-                .filter(|e| !e.is_empty())
-                .unwrap_or_else(|| config_engines::DEFAULT_ENGINE.to_string()),
-        };
+        let (runs_on, _) = self.block_of(name, request);
         if let Some(model) = &request.model {
             put_in_block(&mut entry, &runs_on, "model", some_text(model));
         }

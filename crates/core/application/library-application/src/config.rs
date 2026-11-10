@@ -258,9 +258,12 @@ pub struct Agent {
     pub effort: String,
     pub profiles: Vec<String>,
     pub runtime: String,
+    /// The engine-neutral posture (`agents.<n>.permissions`).
     pub permissions: Value,
     pub driving: String,
     pub env: Vec<String>,
+    /// The per-engine blocks (`agents.<n>.engines`, ruling 57).
+    pub engines: Value,
 }
 
 fn text_at(value: &Value, key: &str) -> String {
@@ -376,46 +379,50 @@ impl Agent {
             engine,
             profiles: list_at(body, "profiles"),
             runtime: text_at(body, "runtime"),
-            permissions: permissions_view(body),
+            permissions: match body.get("permissions") {
+                Some(neutral @ Value::Map(_)) => neutral.clone(),
+                _ => Value::Map(Vec::new()),
+            },
+            engines: match body.get("engines") {
+                Some(blocks @ Value::Map(_)) => blocks.clone(),
+                _ => Value::Map(Vec::new()),
+            },
             driving: text_at(body, "driving"),
             env: list_at(body, "env"),
         }
     }
 
-    /// The binding as the listing shows it.
+    /// The binding as the listing shows it, in the config's shape (owner
+    /// ruling 67): the neutral posture as `permissions`, each engine's block
+    /// under `engines`, as the binding holds them.
     pub fn row(&self) -> AgentRow {
+        // Sorted by engine, as the config writer writes them.
+        let mut blocks: Vec<&(String, Value)> = match &self.engines {
+            Value::Map(blocks) => blocks.iter().collect(),
+            _ => Vec::new(),
+        };
+        blocks.sort_by(|a, b| a.0.cmp(&b.0));
+        let engine_lines = blocks
+            .iter()
+            .map(|(engine, block)| format!("engines.{engine}: {}", crate::json::flow(block)))
+            .collect();
+        let permissions_line = match &self.permissions {
+            Value::Map(entries) if !entries.is_empty() => crate::json::flow(&self.permissions),
+            _ => String::new(),
+        };
         AgentRow {
             name: self.name.clone(),
             engine: self.engine.clone(),
-            model: self.model.clone(),
-            effort: self.effort.clone(),
             profiles: self.profiles.clone(),
             runtime: self.runtime.clone(),
             permissions: crate::json::permissions(&self.permissions),
             driving: self.driving.clone(),
             env: self.env.clone(),
-            permissions_line: crate::json::permissions_line(&self.permissions),
+            engines: crate::json::permissions(&self.engines),
+            permissions_line,
+            engine_lines,
         }
     }
-}
-
-/// An agent's permissions as the listing shows them: the engine-neutral
-/// posture (`permissions`), and each engine block's permission block under
-/// the engine's name (`agents.<n>.engines.<e>.permissions`, ruling 57), as
-/// the binding held them before the blocks.
-fn permissions_view(body: &Value) -> Value {
-    let mut view = match body.get("permissions") {
-        Some(neutral @ Value::Map(_)) => neutral.clone(),
-        _ => Value::Map(Vec::new()),
-    };
-    if let Some(Value::Map(blocks)) = body.get("engines") {
-        for (engine, block) in blocks {
-            if let Some(permissions) = block.get("permissions") {
-                *view.entry(engine) = permissions.clone();
-            }
-        }
-    }
-    view
 }
 
 /// An MCP server of a bundle, as a row.

@@ -1286,12 +1286,12 @@ fn test_a_dry_run_carries_the_engine_block_and_the_agent_s_passthrough() {
         }
     );
     assert_eq!(dev.env, vec!["E1".to_string()]);
-    // an agent's own env replaces the engine's
+    // ruling 66: an agent's own env is added to the engine's
     let own = drive_of(crate::RunRequest {
         agent: "own".to_string(),
         ..crate::RunRequest::default()
     });
-    assert_eq!(own.env, vec!["E2".to_string()]);
+    assert_eq!(own.env, vec!["E1".to_string(), "E2".to_string()]);
 }
 
 #[test]

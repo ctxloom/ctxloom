@@ -655,7 +655,7 @@ fn test_agent_verbs() {
                 "--env", "A", "--env", "B", "--surface", "context=system-prompt", "--root", "mcp=project-root",
             ]
         ),
-        "Updated agent \"dev\" (engine: claude-code, profiles: dev, dev, runtime: host, permissions: claude-code={mode=plan}, env: A, B)\n"
+        "Updated agent \"dev\" (engine: claude-code, profiles: dev, dev, runtime: host, engines.claude-code: {permissions: {mode: plan}}, env: A, B)\n"
     );
     let doc = json(&library, &["agent", "edit", "dev", "--env", ""]);
     assert_eq!(doc["name"], "dev");

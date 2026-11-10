@@ -65,7 +65,24 @@ pub struct AgentSettings {
     pub effort: SourcedValue<Option<String>>,
     pub permissions: SourcedValue<String>,
     pub runtime: RuntimeSetting,
-    pub env: SourcedValue<Vec<String>>,
+    pub env: EnvSetting,
+}
+
+/// The names a launch passes through (owner ruling 66: the engine block's,
+/// merged with the agent's own key by key): the list, the highest layer that
+/// said any of it, and each name with the layer that said it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct EnvSetting {
+    pub value: Vec<String>,
+    pub source: &'static str,
+    pub keys: Vec<EnvKey>,
+}
+
+/// One name of an agent's env and the layer that said it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct EnvKey {
+    pub name: String,
+    pub source: &'static str,
 }
 
 /// One agent bound to an engine, with its settings.
@@ -248,7 +265,18 @@ pub(crate) fn settings_of(effective: &Effective) -> AgentSettings {
         effort: optional(&effective.effort),
         permissions: sourced(&effective.permissions),
         runtime,
-        env: sourced(&effective.env),
+        env: EnvSetting {
+            value: effective.env.value.clone(),
+            source: effective.env.source.word(),
+            keys: effective
+                .env_keys
+                .iter()
+                .map(|key| EnvKey {
+                    name: key.value.clone(),
+                    source: key.source.word(),
+                })
+                .collect(),
+        },
     }
 }
 

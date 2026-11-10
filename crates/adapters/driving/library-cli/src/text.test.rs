@@ -185,15 +185,58 @@ fn agent_row(engine: &str) -> AgentRow {
     AgentRow {
         name: "dev".to_string(),
         engine: engine.to_string(),
-        model: String::new(),
-        effort: String::new(),
         profiles: vec!["p1".to_string(), "p2".to_string()],
         runtime: "host".to_string(),
         permissions: serde_json::json!({}),
         driving: String::new(),
         env: Vec::new(),
+        engines: serde_json::json!({}),
         permissions_line: String::new(),
+        engine_lines: Vec::new(),
     }
+}
+
+// Ruling 67: the listing shows each engine block as the config holds it,
+// `engines.<e>: {...}`, and the neutral posture as `permissions: {...}`.
+#[test]
+fn test_an_agent_listing_shows_the_engine_blocks_in_the_config_s_shape() {
+    let row = AgentRow {
+        permissions_line: "{approver: human}".to_string(),
+        engine_lines: vec![
+            "engines.claude-code: {model: haiku, permissions: {mode: plan}}".to_string(),
+            "engines.opencode: {effort: high}".to_string(),
+        ],
+        ..agent_row("claude-code")
+    };
+    assert_eq!(
+        shown(|out| agent_list(out, &[row])),
+        "Agents (1):\n  dev (engine: claude-code)\n    profiles: p1, p2\n    runtime: host\n    permissions: {approver: human}\n    engines.claude-code: {model: haiku, permissions: {mode: plan}}\n    engines.opencode: {effort: high}\n"
+    );
+}
+
+// Ruling 66: an env one layer said whole is said once; a merged one names
+// each name's layer.
+#[test]
+fn test_an_agent_s_env_line_names_each_layer_when_they_differ() {
+    use library_application::{EnvKey, EnvSetting};
+    let key = |name: &str, source: &'static str| EnvKey {
+        name: name.to_string(),
+        source,
+    };
+    let env = |keys: Vec<EnvKey>, source: &'static str| EnvSetting {
+        value: keys.iter().map(|k| k.name.clone()).collect(),
+        source,
+        keys,
+    };
+    assert_eq!(env_line(&env(Vec::new(), "default")), "env: none (default)");
+    assert_eq!(
+        env_line(&env(vec![key("A", "engine"), key("B", "engine")], "engine")),
+        "env: A, B (engine)"
+    );
+    assert_eq!(
+        env_line(&env(vec![key("A", "engine"), key("B", "agent")], "agent")),
+        "env: A (engine), B (agent)"
+    );
 }
 
 // agent.go renderAgentList: an agent with no engine says the project default.
@@ -816,6 +859,102 @@ fn test_a_dry_run_prints_its_sections_and_names_the_empty_ones() {
     );
 }
 
+// Ruling 72: a dry run's text shows each setting the run takes with the
+// place in the config that said it, as the JSON's `settings` does (by word):
+// an agent's block, the agent, the engine block, the top level, or nothing.
+#[test]
+fn test_a_dry_run_shows_each_setting_with_the_place_that_said_it() {
+    use library_application::{EnvKey, EnvSetting, RuntimeSetting, SourcedValue};
+    let settings = library_application::AgentSettings {
+        model: SourcedValue {
+            value: Some(st("sonnet")),
+            source: "agent",
+        },
+        effort: SourcedValue {
+            value: None,
+            source: "default",
+        },
+        permissions: SourcedValue {
+            value: st("acceptEdits"),
+            source: "default",
+        },
+        runtime: RuntimeSetting {
+            value: st("host"),
+            source: "agent",
+            overrides: Some(st("container-rootless")),
+            overrides_source: Some("engine"),
+            change: Some("weakens"),
+        },
+        env: EnvSetting {
+            value: sv(&["HTTPS_PROXY", "ALPHA"]),
+            source: "agent",
+            keys: vec![
+                EnvKey {
+                    name: st("HTTPS_PROXY"),
+                    source: "engine",
+                },
+                EnvKey {
+                    name: st("ALPHA"),
+                    source: "agent",
+                },
+            ],
+        },
+    };
+    let shown_plan = shown(|out| {
+        dry_run(
+            out,
+            &DryRun {
+                settings: Some(settings.clone()),
+                ..plan()
+            },
+        )
+    });
+    assert!(
+        shown_plan.starts_with(concat!(
+            "=== Agent ===\ndev (workspace: worktree, runtime: host)\n=== Engine ===\nclaude-code\n",
+            "\n=== Settings ===\n",
+            "  model        sonnet  (agents.dev.engines.claude-code)\n",
+            "  effort       engine default, no flag passed  (default)\n",
+            "  permissions  acceptEdits  (default)\n",
+            "  runtime      host  (agents.dev; replaces engines.claude-code container-rootless: weakens isolation)\n",
+            "  env          HTTPS_PROXY  (engines.claude-code), ALPHA  (agents.dev)\n",
+            "\n=== Profiles ===\n",
+        )),
+        "{shown_plan}"
+    );
+    // the top level and an empty env
+    let project = library_application::AgentSettings {
+        runtime: RuntimeSetting {
+            value: st("container-rootless"),
+            source: "project",
+            overrides: None,
+            overrides_source: None,
+            change: None,
+        },
+        env: EnvSetting {
+            value: Vec::new(),
+            source: "default",
+            keys: Vec::new(),
+        },
+        ..settings
+    };
+    let shown_plan = shown(|out| {
+        dry_run(
+            out,
+            &DryRun {
+                settings: Some(project),
+                ..plan()
+            },
+        )
+    });
+    assert!(
+        shown_plan.contains(
+            "  runtime      container-rootless  (runtime)\n  env          none  (default)\n"
+        ),
+        "{shown_plan}"
+    );
+}
+
 fn found(remote: &str, name: &str, tags: &[&str]) -> library_application::RemoteFound {
     library_application::RemoteFound {
         remote: remote.to_string(),
@@ -917,9 +1056,10 @@ fn settings(model: Option<&str>) -> library_application::AgentSettings {
             overrides_source: None,
             change: None,
         },
-        env: SourcedValue {
+        env: library_application::EnvSetting {
             value: Vec::new(),
             source: "default",
+            keys: Vec::new(),
         },
     }
 }

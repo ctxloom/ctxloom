@@ -397,6 +397,9 @@ pub enum Notice {
         replaced: String,
         change: library::config::engines::Change,
     },
+    /// An agent that names no engine had settings written into the default
+    /// engine's block (owner ruling 68): `block` is `engines.<engine>`.
+    DefaultEngineBlock { agent: String, block: String },
 }
 
 impl Notice {
@@ -434,6 +437,7 @@ impl Diagnostic for Notice {
             Notice::CompanionNotOnPath { .. } => code!("companion-not-on-path"),
             Notice::LoadoutProbeFailed { .. } => code!("loadout-probe-failed"),
             Notice::LoadoutUnparseable { .. } => code!("loadout-unparseable"),
+            Notice::DefaultEngineBlock { .. } => code!("notice-default-engine-block"),
             Notice::RuntimeOverride { change, .. } => match change {
                 library::config::engines::Change::Weakens => code!("notice-runtime-weakens"),
                 library::config::engines::Change::Strengthens => {
@@ -486,6 +490,10 @@ impl Diagnostic for Notice {
                 ("runtime", runtime.as_str().into()),
                 ("key", replaced_key.as_str().into()),
                 ("replaced", replaced.as_str().into()),
+            ],
+            Notice::DefaultEngineBlock { agent, block } => vec![
+                ("agent", agent.as_str().into()),
+                ("block", block.as_str().into()),
             ],
         }
     }
@@ -664,6 +672,10 @@ fn notice_samples() -> Vec<Box<dyn Diagnostic>> {
             cause: angzarr_diagnostic::Report::of(&BundleError::NoManifest { bundle: s("demo") }),
         }),
         Box::new(Notice::CompanionNotOnPath { name: s("reprise") }),
+        Box::new(Notice::DefaultEngineBlock {
+            agent: s("p"),
+            block: s("engines.claude-code"),
+        }),
         Box::new(runtime_override(library::config::engines::Change::Weakens)),
         Box::new(runtime_override(
             library::config::engines::Change::Strengthens,

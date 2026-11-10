@@ -217,3 +217,28 @@ fn test_an_auth_source_is_shown_as_its_word_or_its_names() {
         serde_json::json!({"env": ["A"], "file": "~/f"})
     );
 }
+
+// Ruling 66: an agent's env is the engine's merged with its own, and each
+// name says the layer it came from (engine show, agent show, the dry run).
+#[test]
+fn test_an_agent_s_env_is_merged_and_each_name_says_its_layer() {
+    let row = show(
+        "schema_version: 9\nengines:\n  claude-code:\n    env: [HTTPS_PROXY]\nagents:\n  dev:\n    engine: claude-code\n    env: [ALPHA]\n",
+        "claude-code",
+    );
+    let env = &row
+        .agents
+        .iter()
+        .find(|a| a.name == "dev")
+        .unwrap()
+        .settings
+        .env;
+    assert_eq!(env.value, ["HTTPS_PROXY", "ALPHA"]);
+    assert_eq!(env.source, "agent");
+    let keys: Vec<(&str, &str)> = env
+        .keys
+        .iter()
+        .map(|k| (k.name.as_str(), k.source))
+        .collect();
+    assert_eq!(keys, [("HTTPS_PROXY", "engine"), ("ALPHA", "agent")]);
+}

@@ -1,4 +1,4 @@
-//! Values of the configuration as JSON and as the lines Go prints them in.
+//! Values of the configuration as JSON and on one line in YAML's flow form.
 
 use angzarr_yaml::Value;
 use serde_json::{Map, Number};
@@ -40,55 +40,26 @@ pub fn permissions(block: &Value) -> serde_json::Value {
     }
 }
 
-/// A value on one line as Go's `fmt.Sprint` of a decoded document.
-fn inline(value: &Value) -> String {
+/// A value on one line in YAML's flow form (`{k: v, ...}`, `[a, b]`), keys
+/// sorted in every map, as the config writer writes them.
+pub fn flow(value: &Value) -> String {
     match value {
-        Value::Null => String::new(),
+        Value::Null => "null".to_string(),
         Value::Scalar(text) => text.clone(),
         Value::Seq(items) => format!(
             "[{}]",
-            items.iter().map(inline).collect::<Vec<_>>().join(", ")
+            items.iter().map(flow).collect::<Vec<_>>().join(", ")
         ),
         Value::Map(entries) => {
             let mut sorted: Vec<&(String, Value)> = entries.iter().collect();
             sorted.sort_by(|a, b| a.0.cmp(&b.0));
-            sorted
+            let inner: Vec<String> = sorted
                 .iter()
-                .map(|(k, v)| format!("{k}={}", inline(v)))
-                .collect::<Vec<_>>()
-                .join(", ")
+                .map(|(k, v)| format!("{k}: {}", flow(v)))
+                .collect();
+            format!("{{{}}}", inner.join(", "))
         }
     }
-}
-
-/// The block on one line, for a listing: the neutral fields, then each
-/// engine's block, sorted.
-pub fn permissions_line(block: &Value) -> String {
-    let Value::Map(entries) = block else {
-        return String::new();
-    };
-    let mut parts = Vec::new();
-    for key in ["approver", "approval_timeout", "sandbox", "network"] {
-        if let Some(text) = block.get(key).and_then(Value::as_str) {
-            if !text.is_empty() {
-                parts.push(format!("{key}={text}"));
-            }
-        }
-    }
-    let mut engines: Vec<&(String, Value)> = entries
-        .iter()
-        .filter(|(k, _)| {
-            !matches!(
-                k.as_str(),
-                "approver" | "approval_timeout" | "sandbox" | "network"
-            )
-        })
-        .collect();
-    engines.sort_by(|a, b| a.0.cmp(&b.0));
-    for (name, doc) in engines {
-        parts.push(format!("{name}={{{}}}", inline(doc)));
-    }
-    parts.join(", ")
 }
 
 #[cfg(test)]

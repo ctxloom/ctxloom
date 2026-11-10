@@ -1,0 +1,18 @@
+[package]
+name = "engine-opencode"
+version = "0.1.0"
+description = "opencode's two halves: the drive (`opencode run --format json` per child turn, the TUI for the human's session) and the hook wire of the per-session plugin that forwards opencode's bus events to `ctxloom hook opencode execute`"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+run-ports.workspace = true
+surface-ports.workspace = true
+
+[dev-dependencies]
+mutants.workspace = true
+
+[lints]
+workspace = true

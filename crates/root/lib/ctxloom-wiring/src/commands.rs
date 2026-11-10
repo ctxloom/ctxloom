@@ -77,7 +77,8 @@ fn one_shot(
     let wiring = Wiring::new(Arc::clone(env)).map_err(|e| Failure::new(e, 1))?;
     let remotes: Rc<dyn deps_ports::RemoteLibrary> = deps.clone();
     let library = crate::library::build(&wiring, Some(remotes)).map_err(|e| Failure::new(e, 1))?;
-    let mut uses = crate::oneshot::OneShots::new(&wiring, library);
+    let mut uses = crate::oneshot::OneShots::new(&wiring, library)
+        .with_puller(Rc::new(DepsPuller(Rc::clone(deps))));
     if !run_cli::is_one_shot(run) {
         return run_cli::session(&mut uses, run, call, catalog, out, err);
     }
@@ -97,7 +98,7 @@ fn piped_prompt() -> Option<String> {
 const SURFACE_NOUNS: [&str; 3] = ["manage", "materialize", "util"];
 
 /// The dependency pull `manage install` ends with.
-struct DepsPuller(Rc<Deps>);
+pub(crate) struct DepsPuller(pub(crate) Rc<Deps>);
 
 impl Puller for DepsPuller {
     fn pull(&self) -> Result<u64, String> {

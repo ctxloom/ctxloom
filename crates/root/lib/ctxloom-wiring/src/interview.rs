@@ -96,7 +96,8 @@ impl SetupSessions<'_> {
         let remotes: Rc<dyn deps_ports::RemoteLibrary> = self.deps.clone();
         let library = crate::library::build(&wiring, Some(remotes))
             .map_err(|e| LaunchFailure::failed(Box::new(e)))?;
-        let mut sessions = OneShots::new(&wiring, library);
+        let mut sessions = OneShots::new(&wiring, library)
+            .with_puller(Rc::new(crate::commands::DepsPuller(Rc::clone(self.deps))));
         let request = OneShot {
             run: RunRequest {
                 prompt: prompt.to_string(),

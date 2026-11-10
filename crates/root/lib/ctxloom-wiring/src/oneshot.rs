@@ -83,6 +83,9 @@ impl ProjectIdentity for Told {
 pub(crate) struct OneShots<'a> {
     wiring: &'a Wiring,
     library: Option<Library>,
+    /// The pull a run's start makes when `sync.on_run` asks (rulings 59, 60);
+    /// none, nothing is pulled.
+    puller: Option<std::rc::Rc<dyn setup_application::Puller>>,
 }
 
 impl<'a> OneShots<'a> {
@@ -90,7 +93,18 @@ impl<'a> OneShots<'a> {
         OneShots {
             wiring,
             library: Some(library),
+            puller: None,
         }
+    }
+
+    /// The same, pulling the missing dependencies at a run's start through
+    /// `puller` when `sync.on_run` asks.
+    pub(crate) fn with_puller(
+        mut self,
+        puller: std::rc::Rc<dyn setup_application::Puller>,
+    ) -> OneShots<'a> {
+        self.puller = Some(puller);
+        self
     }
 
     /// The use case over the project the process is in.
@@ -252,13 +266,32 @@ pub(crate) fn output_root(project_dir: &Path, written: &str) -> std::path::PathB
     )
 }
 
-/// RED stub: what a run does with the dependencies at its start.
-#[allow(dead_code)]
+/// What a run does with the dependencies at its start (`sync.on_run`, owner
+/// rulings 59, 60): with `missing` it `pull`s what the profiles reference and
+/// is not installed; with `none` nothing. A pull that fails (offline, a
+/// remote unreachable) is said and the run goes on with what is installed:
+/// the plan judges what is still missing. What it installed is said; nothing
+/// installed, nothing said.
 pub(crate) fn sync_at_start(
-    _on_run: library_application::OnRun,
-    _pull: impl FnOnce() -> Result<u64, String>,
+    on_run: library_application::OnRun,
+    pull: impl FnOnce() -> Result<u64, String>,
 ) -> Vec<library_application::Notice> {
-    Vec::new()
+    use library_application::{Notice, OnRun};
+    if on_run == OnRun::None {
+        return Vec::new();
+    }
+    match pull() {
+        Ok(0) => Vec::new(),
+        Ok(installed) => vec![Notice::text(format!(
+            "installed {installed} missing dependencies at the start of the run (sync.on_run: missing)"
+        ))],
+        Err(why) => vec![Notice::Finding {
+            text: format!(
+                "could not install the missing dependencies at the start of the run: {why}; the run goes on with what is installed"
+            ),
+            remedy: "run `ctxloom deps pull` once the remotes are reachable, or set `sync.on_run: none` to skip this".to_string(),
+        }],
+    }
 }
 
 fn path_text(path: &Path) -> String {
@@ -295,21 +328,31 @@ impl OneShots<'_> {
         let Some(library) = self.library.take() else {
             return refused("the run use cases are made for one run".to_string());
         };
-        let output_dir = library
-            .run_settings(flags)
-            .map_or_else(|| OUTPUT_DIR_DEFAULT.to_string(), |s| s.output_dir);
+        let settings = library.run_settings(flags);
+        let output_dir = settings
+            .as_ref()
+            .map_or_else(|| OUTPUT_DIR_DEFAULT.to_string(), |s| s.output_dir.clone());
+        // Before the run is planned, so the plan sees what was installed.
+        let synced = match (&settings, &self.puller) {
+            (Some(settings), Some(puller)) => sync_at_start(settings.on_run, || puller.pull()),
+            _ => Vec::new(),
+        };
         let runtime = match run_runtime() {
             Ok(runtime) => runtime,
             Err(e) => return refused(e.to_string()),
         };
         runtime.block_on(async {
-            match self.assemble(library, &output_dir).await {
+            let mut done = match self.assemble(library, &output_dir).await {
                 Ok(mut runs) => use_case(&mut runs).await,
                 Err(error) => Done {
                     result: Err(error),
                     notices: Vec::new(),
                 },
-            }
+            };
+            let mut notices = synced;
+            notices.append(&mut done.notices);
+            done.notices = notices;
+            done
         })
     }
 }

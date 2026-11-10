@@ -30,6 +30,11 @@ impl Create for ConfigCreate {
             .map(|_| ())
             .map_err(|e| Box::new(e) as Failure)
     }
+
+    // RED stub.
+    fn set_output_dir(&self, _: &str) -> Result<(), Failure> {
+        Ok(())
+    }
 }
 
 /// The setup use cases, built together.

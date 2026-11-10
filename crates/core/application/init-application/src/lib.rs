@@ -49,7 +49,16 @@ pub const SETUP_INTERVIEW: &str = include_str!("../resources/setup-interview.md"
 /// seeded default profile; it refuses a directory that has a config.
 pub trait Create {
     fn create(&self) -> Result<(), Failure>;
+
+    /// Write `dir` as the new project's `output.dir`.
+    fn set_output_dir(&self, dir: &str) -> Result<(), Failure>;
 }
+
+/// RED stub.
+pub const OUTPUT_DIR_SUGGESTED: &str = "";
+
+/// RED stub.
+pub const OUTPUT_DIR_QUESTION: &str = "";
 
 /// What `init` is asked.
 #[derive(Clone, Debug, Default)]
@@ -153,6 +162,13 @@ impl Init {
             }
         }
         Ok(done)
+    }
+}
+
+impl Init {
+    /// RED stub.
+    pub fn choose_output_dir(&self, _terminal: &dyn Terminal) -> Result<Option<String>, InitError> {
+        Ok(None)
     }
 }
 

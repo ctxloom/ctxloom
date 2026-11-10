@@ -28,20 +28,25 @@ fn the_remotes_are_named_personal_then_numbered() {
 }
 
 mod init {
-    use std::cell::Cell;
+    use std::cell::{Cell, RefCell};
     use std::rc::Rc;
     use std::sync::Arc;
 
     use ctxloom_ports::{Failure, Put, Scaffold, UserFiles};
     use deps_application::fakes::Fixture;
 
-    use crate::{Create, Init, InitError, InitRequest};
+    use crate::{
+        Create, Init, InitError, InitRequest, Terminal, OUTPUT_DIR_QUESTION, OUTPUT_DIR_SUGGESTED,
+    };
 
-    /// The scaffold, counting how often it was asked for.
+    /// The scaffold, counting how often it was asked for, and the output
+    /// directories written into its config.
     #[derive(Default)]
     struct Creator {
         made: Cell<u32>,
         refuses: bool,
+        outputs: RefCell<Vec<String>>,
+        refuses_output: bool,
     }
 
     impl Create for Rc<Creator> {
@@ -52,6 +57,106 @@ mod init {
             }
             Ok(())
         }
+
+        fn set_output_dir(&self, dir: &str) -> Result<(), Failure> {
+            if self.refuses_output {
+                return Err(Box::new(deps_application::AppError::DefaultNeedsName));
+            }
+            self.outputs.borrow_mut().push(dir.to_string());
+            Ok(())
+        }
+    }
+
+    /// Her terminal: there or not, and the line she types (none: the input
+    /// closed).
+    struct Typed {
+        terminal: bool,
+        line: Option<&'static str>,
+        asked: RefCell<Vec<(String, String)>>,
+    }
+
+    impl Typed {
+        fn new(terminal: bool, line: Option<&'static str>) -> Typed {
+            Typed {
+                terminal,
+                line,
+                asked: RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    impl Terminal for Typed {
+        fn is_terminal(&self) -> bool {
+            self.terminal
+        }
+        fn confirm(&self, _: &str) -> bool {
+            unreachable!("the output directory is asked, not confirmed")
+        }
+        fn ask(&self, question: &str, suggested: &str) -> Option<String> {
+            self.asked
+                .borrow_mut()
+                .push((question.to_string(), suggested.to_string()));
+            self.line.map(String::from)
+        }
+    }
+
+    // Rulings 89, 106: a first init at a terminal asks where a session's
+    // outputs go, suggesting `ctxloom/`, and writes the answer as
+    // `output.dir`; a bare Enter or a closed input takes the suggestion, and
+    // the answer is trimmed.
+    #[test]
+    fn a_first_init_at_a_terminal_asks_for_the_output_directory_and_writes_it() {
+        for (line, want) in [
+            (Some("notes/sessions\n"), "notes/sessions"),
+            (Some("  /var/out  \n"), "/var/out"),
+            (Some("\n"), OUTPUT_DIR_SUGGESTED),
+            (None, OUTPUT_DIR_SUGGESTED),
+        ] {
+            let creator = Rc::new(Creator::default());
+            let terminal = Typed::new(true, line);
+            let chosen = init_with(Ok(false), creator.clone(), Fixture::new())
+                .choose_output_dir(&terminal)
+                .expect("written");
+            assert_eq!(chosen.as_deref(), Some(want), "{line:?}");
+            assert_eq!(*creator.outputs.borrow(), [want.to_string()]);
+            assert_eq!(
+                *terminal.asked.borrow(),
+                [(
+                    OUTPUT_DIR_QUESTION.to_string(),
+                    OUTPUT_DIR_SUGGESTED.to_string()
+                )]
+            );
+        }
+        assert_eq!(OUTPUT_DIR_SUGGESTED, "ctxloom/");
+        assert!(OUTPUT_DIR_QUESTION.contains("not gitignored"), "it says so");
+        assert!(OUTPUT_DIR_QUESTION.contains("committed"), "it says so");
+    }
+
+    // Off a terminal nobody is asked and nothing is written: the default
+    // stands without a line in the config.
+    #[test]
+    fn off_a_terminal_the_output_directory_is_not_asked() {
+        let creator = Rc::new(Creator::default());
+        let terminal = Typed::new(false, Some("notes\n"));
+        let chosen = init_with(Ok(false), creator.clone(), Fixture::new())
+            .choose_output_dir(&terminal)
+            .expect("ok");
+        assert_eq!(chosen, None);
+        assert!(terminal.asked.borrow().is_empty());
+        assert!(creator.outputs.borrow().is_empty());
+    }
+
+    // A write of the answer that is refused ends init with its reason.
+    #[test]
+    fn an_output_directory_that_cannot_be_written_ends_init() {
+        let creator = Rc::new(Creator {
+            refuses_output: true,
+            ..Creator::default()
+        });
+        let error = init_with(Ok(false), creator, Fixture::new())
+            .choose_output_dir(&Typed::new(true, Some("x\n")))
+            .expect_err("refused");
+        assert!(matches!(error, InitError::Create(_)));
     }
 
     struct Dir {

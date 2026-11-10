@@ -393,6 +393,30 @@ fn test_the_statusline_choice_keeps_the_other_config_entries() {
     assert!(!config.contains("statusline: ctxloom"), "{config}");
 }
 
+// Rulings 89, 106: init writes the output directory she chose into the
+// project's config as `output.dir`, keeping what else the config holds.
+#[test]
+fn test_the_output_directory_is_written_to_the_projects_config() {
+    let (library, mem) = setup().fixture();
+    library
+        .set_output_dir(&plain(), "docs/sessions")
+        .result
+        .expect("written");
+    let config = mem.config(ctxloom_ports::Scope::Project).unwrap();
+    assert!(
+        config.contains("output:\n  dir: docs/sessions\n"),
+        "{config}"
+    );
+    assert!(
+        config.contains("schema_version: 9"),
+        "the rest is kept: {config}"
+    );
+    assert_eq!(
+        library.run_settings(&plain()).map(|s| s.output_dir),
+        Some("docs/sessions".to_string())
+    );
+}
+
 // ---- companion loadouts in the package (virtuous-word, companions slice 2) ----
 
 mod companions {

@@ -67,6 +67,11 @@ impl Terminal for StdTerminal {
             Ok(_) => answered(Some(&line)),
         }
     }
+
+    // RED stub.
+    fn ask(&self, _: &str, _: &str) -> Option<String> {
+        None
+    }
 }
 
 /// Whether the answer to a `[Y/n]` question is a yes. `line` is what she

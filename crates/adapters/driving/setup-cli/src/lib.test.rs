@@ -34,6 +34,8 @@ struct World {
 struct Person {
     terminal: bool,
     yes: bool,
+    /// The line she types when asked (none: the input closed).
+    line: Option<&'static str>,
     asked: Mutex<Vec<String>>,
 }
 
@@ -45,6 +47,11 @@ impl Terminal for Person {
     fn confirm(&self, question: &str) -> bool {
         self.asked.lock().unwrap().push(question.to_string());
         self.yes
+    }
+
+    fn ask(&self, question: &str, _: &str) -> Option<String> {
+        self.asked.lock().unwrap().push(question.to_string());
+        self.line.map(String::from)
     }
 }
 
@@ -96,6 +103,10 @@ struct Made;
 
 impl init_application::Create for Made {
     fn create(&self) -> Result<(), PortFailure> {
+        Ok(())
+    }
+
+    fn set_output_dir(&self, _: &str) -> Result<(), PortFailure> {
         Ok(())
     }
 }
@@ -543,6 +554,63 @@ fn init_of_a_new_project_says_what_it_made_and_pulled() {
         r.out,
         "Created ctxloom directory: /work/.ctxloom\nPulled 1 dependencies\n"
     );
+}
+
+// Rulings 89, 106: a first init at a terminal asks where a session's outputs
+// go, before the interview, and says where they will go and that they can be
+// committed.
+#[test]
+fn a_first_init_at_a_terminal_asks_for_the_output_directory_and_says_where_outputs_go() {
+    let person = Person {
+        terminal: true,
+        line: Some("docs/sessions\n"),
+        ..Person::default()
+    };
+    let mut out = Vec::new();
+    let r = go_with(
+        &["init"],
+        Format::Text,
+        |world, _| world.fresh.store(true, std::sync::atomic::Ordering::SeqCst),
+        &mut out,
+        &person,
+        &Launches {
+            interview_code: Some(1),
+            ..Launches::default()
+        },
+    );
+    let out = String::from_utf8(out).unwrap();
+    assert_eq!(r.exit.unwrap(), 1, "the interview's own exit");
+    assert!(
+        out.contains("Session outputs go to docs/sessions (not gitignored: they can be committed)"),
+        "{out}"
+    );
+    let asked = person.asked.lock().unwrap().clone();
+    assert_eq!(asked, [init_application::OUTPUT_DIR_QUESTION.to_string()]);
+}
+
+// A re-run on a project that has one asks nothing about it.
+#[test]
+fn a_second_init_does_not_ask_for_the_output_directory() {
+    let person = Person {
+        terminal: true,
+        line: Some("docs/sessions\n"),
+        ..Person::default()
+    };
+    let mut out = Vec::new();
+    go_with(
+        &["init"],
+        Format::Text,
+        none,
+        &mut out,
+        &person,
+        &Launches {
+            interview_code: Some(1),
+            ..Launches::default()
+        },
+    );
+    let out = String::from_utf8(out).unwrap();
+    assert!(!out.contains("Session outputs"), "{out}");
+    assert!(person.asked.lock().unwrap().is_empty());
 }
 
 #[test]

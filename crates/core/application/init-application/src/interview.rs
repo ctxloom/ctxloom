@@ -30,6 +30,10 @@ pub trait Terminal {
     /// so are `y` and `yes`; `n`, `no` and anything else are a no. A closed
     /// input (end of input, no terminal to read) is a no: nobody answered.
     fn confirm(&self, question: &str) -> bool;
+
+    /// Ask `question`, offering `suggested`: the line she typed, as typed;
+    /// none where the input closed (end of input, nothing to read).
+    fn ask(&self, question: &str, suggested: &str) -> Option<String>;
 }
 
 /// How a session the human was given ended.

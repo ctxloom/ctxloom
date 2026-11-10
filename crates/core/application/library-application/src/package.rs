@@ -132,6 +132,11 @@ impl Library {
         self.run(flags, |p| p.package(request))
     }
 
+    /// RED stub.
+    pub fn set_output_dir(&self, flags: &Flags, _dir: &str) -> Outcome<String> {
+        self.run(flags, |_| Ok(String::new()))
+    }
+
     /// `manage statusline install|uninstall`: whether ctxloom manages the
     /// HUD statusline, written to the project's config. The path written.
     pub fn set_statusline(&self, flags: &Flags, enabled: bool) -> Outcome<String> {

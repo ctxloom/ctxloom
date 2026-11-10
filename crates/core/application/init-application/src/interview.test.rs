@@ -21,6 +21,10 @@ impl Terminal for Person {
         self.asked.borrow_mut().push(question.to_string());
         self.yes
     }
+
+    fn ask(&self, _: &str, _: &str) -> Option<String> {
+        unreachable!("the interview confirms, it asks nothing")
+    }
 }
 
 /// The sessions, recording what was launched; the interview ends with

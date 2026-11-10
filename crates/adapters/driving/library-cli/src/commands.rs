@@ -722,3 +722,7 @@ fn run() -> Command {
                 .help("Show what a launch would carry, without launching"),
         )
 }
+
+#[cfg(test)]
+#[path = "commands.test.rs"]
+mod tests;

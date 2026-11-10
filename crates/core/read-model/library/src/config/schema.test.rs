@@ -395,3 +395,103 @@ fn test_a_companion_is_registered_with_a_command_list() {
         ["config.yaml: `companions` holds a array, expected object"]
     );
 }
+
+// ---- RED (awaiting review): the engines schema, owner rulings 40-44 ----
+
+const ENGINES_DOC: &str = "schema_version: 9\nengines:\n  claude-code:\n    command: claude\n    session_home: session\n    auth:\n      env: [CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY]\n    runtime: container-rootless\n    env_host: false\n    env: [HTTPS_PROXY]\n  opencode:\n    auth: none\nagents:\n  dev:\n    engine: claude-code\n    model: haiku\n    effort: low\n    profiles: [p1]\n    runtime: host\n    env_host: true\n    env: [ALPHA]\n    permissions:\n      claude-code:\n        mode: plan\n";
+
+#[test]
+fn test_the_engines_block_and_an_agent_s_engine_model_and_effort_are_legal() {
+    assert_eq!(texts(ENGINES_DOC), Vec::<String>::new());
+}
+
+#[test]
+fn test_every_auth_form_is_legal_and_no_other_is() {
+    for auth in [
+        "none",
+        "{env: A_TOKEN}",
+        "{env: [A, B]}",
+        "{file: /x}",
+        "{env: [A], file: /x}",
+    ] {
+        let doc = format!("schema_version: 9\nengines:\n  claude-code:\n    auth: {auth}\n");
+        assert_eq!(texts(&doc), Vec::<String>::new(), "{auth}");
+    }
+    for auth in ["login", "{token: x}", "[A]", "{env: 7}"] {
+        let doc = format!("schema_version: 9\nengines:\n  claude-code:\n    auth: {auth}\n");
+        assert!(!texts(&doc).is_empty(), "{auth} was accepted");
+    }
+}
+
+// the engines are a fixed set: a name outside it is refused, naming the set
+#[test]
+fn test_an_engine_nobody_built_is_refused_under_engines() {
+    let said = texts("schema_version: 9\nengines:\n  gpt-9:\n    command: x\n");
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].starts_with("unknown key `engines.gpt-9`"),
+        "{said:?}"
+    );
+    assert!(
+        said[0].contains("claude-code") && said[0].contains("opencode"),
+        "{said:?}"
+    );
+}
+
+#[test]
+fn test_the_engine_block_refuses_values_the_schema_does_not_give() {
+    for (key, value) in [
+        ("session_home", "elsewhere"),
+        ("runtime", "vm"),
+        ("env_host", "maybe"),
+        ("command", "''"),
+    ] {
+        let doc = format!("schema_version: 9\nengines:\n  claude-code:\n    {key}: {value}\n");
+        assert_eq!(texts(&doc).len(), 1, "{key}: {value}: {:?}", texts(&doc));
+    }
+    let said = texts("schema_version: 9\nengines:\n  claude-code:\n    env: [\"A=b\"]\n");
+    assert_eq!(said.len(), 1, "{said:?}");
+}
+
+// ruling 40: model, effort and permissions are the agent's, not the engine's
+#[test]
+fn test_model_effort_and_permissions_are_not_engine_block_keys() {
+    for key in ["model", "effort", "permissions"] {
+        let said = texts(&format!(
+            "schema_version: 9\nengines:\n  claude-code:\n    {key}: x\n"
+        ));
+        assert!(
+            said.iter()
+                .any(|s| s.starts_with(&format!("unknown key `engines.claude-code.{key}`"))),
+            "{key}: {said:?}"
+        );
+    }
+}
+
+// ruling 41: no versioning, no migration: the retired keys are unknown keys
+#[test]
+fn test_the_retired_llm_block_and_label_and_engine_home_are_unknown_keys() {
+    let said = texts("schema_version: 9\nllm:\n  configs:\n    big:\n      type: claude-code\n");
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].starts_with("unknown key `llm` in config.yaml"),
+        "{said:?}"
+    );
+    let said = texts("schema_version: 9\nagents:\n  dev:\n    llm: big\n");
+    assert!(
+        said[0].starts_with("unknown key `agents.dev.llm`"),
+        "{said:?}"
+    );
+    let said = texts("schema_version: 9\nagents:\n  dev:\n    engine_home: session\n");
+    assert!(
+        said[0].starts_with("unknown key `agents.dev.engine_home`"),
+        "{said:?}"
+    );
+}
+
+#[test]
+fn test_the_top_level_keys_gain_engines_and_lose_llm() {
+    let said = texts("schema_version: 9\nzzz: 1\n");
+    assert!(said[0].contains("engines"), "{said:?}");
+    assert!(!said[0].contains(" llm,"), "{said:?}");
+}

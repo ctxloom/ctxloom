@@ -1,22 +1,6 @@
-# Build against local sibling checkouts while changing one of them and this
-# workspace together:
-#
-#     cp .cargo/local-deps.toml .cargo/config.toml     # on
-#     rm .cargo/config.toml                            # off
-#
-# Cargo reads only .cargo/config.toml, which .gitignore keeps out of every
-# commit, so CI, a fresh clone and the pre-commit gates build the pinned git
-# revisions in Cargo.toml. A path to a sibling checkout is NEVER committed:
-# the path-deps gate (scripts/path-deps-check.sh) refuses one in a tracked
-# manifest or cargo config; this sample is exempt only because it is never read.
-# Add a [patch."<git url>"] table per sibling, with
-# paths relative to the checkout's root. Restore Cargo.lock
-# (`git checkout Cargo.lock`) before committing, and once the sibling's change
-# is pushed, bump the rev in Cargo.toml instead.
-
-# ctxloom-lib (cli-support, process-env, project-dir), the shared substrate: uncomment to build against
-# the sibling checkout (../ctxloom-lib from this checkout's parent).
-# [patch."https://github.com/ctxloom/ctxloom-lib"]
-# cli-support = { path = "../ctxloom-lib/crates/adapters/driving/cli-support" }
-# process-env = { path = "../ctxloom-lib/crates/root/lib/process-env" }
-# project-dir = { path = "../ctxloom-lib/crates/adapters/driven/project-dir" }
+# Superseded by `just dev-local` (scripts/dev-local.py), which generates
+# .cargo/config.toml with a [patch."<git url>"] for every git source in
+# Cargo.lock, each crate mapped to its path in the sibling checkout, and
+# `just dev-local-off`, which removes it and restores Cargo.lock. See
+# CLAUDE.md, "Co-developing a sibling or ctxloom-lib". Nothing path-based is
+# ever committed.

@@ -694,7 +694,7 @@ fn listed_live(w: &mut World) {
 fn rename_refused_live(w: &mut World) {
     let said = w.watched("live-rename");
     assert_ne!(w.watched("live-rename.code").trim(), "0", "{said}");
-    // PROPOSAL: the typed refusal `SessionLive` (FAILED_PRECONDITION), code
+    // PROPOSAL: the typed refusal `SessionLive` (its status is the proto's), code
     // `sessions-session-live`, its fix saying to wait for the session's end.
     assert!(said.contains("sessions-session-live"), "{said}");
     assert!(

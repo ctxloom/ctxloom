@@ -213,13 +213,119 @@ fn a_helper_a_runtime_started_is_killed_with_it() {
     let pid = fs.read_to_string(&bin.join("helper")).unwrap();
     let stat = Path::new("/proc").join(pid.trim()).join("stat");
     let host = file_system::Os::new(os::host(), Path::new(os::host().flavor().top())).unwrap();
+    let helper = match host.read_to_string(&stat) {
+        Ok(line) => Helper::Alive(
+            ProcessState::of_stat(&line).unwrap_or_else(|| panic!("unreadable stat: {line:?}")),
+        ),
+        // The stat file went with the process (perhaps between the two calls).
+        Err(_) if !host.exists(&stat).unwrap() => Helper::Gone,
+        Err(e) => panic!("{}: {e}", stat.display()),
+    };
     // Gone, or a zombie nobody has reaped yet (an orphan waits for init), or
-    // `X` (EXIT_DEAD): dead, caught at the instant it is being reaped.
-    let state = host.read_to_string(&stat).unwrap_or_default();
+    // dead and caught at the instant it is being reaped.
     assert!(
-        state.is_empty() || state.contains(") Z ") || state.contains(") X "),
-        "{state}"
+        matches!(
+            helper,
+            Helper::Gone
+                | Helper::Alive(ProcessState::Zombie)
+                | Helper::Alive(ProcessState::Reaping)
+        ),
+        "{helper:?}"
     );
+}
+
+/// What became of a process the test started.
+#[derive(Debug)]
+enum Helper {
+    /// Its `/proc/<pid>` is absent: reaped.
+    Gone,
+    /// It still has a `/proc/<pid>`, in this state.
+    Alive(ProcessState),
+}
+
+/// A process's state as the Linux kernel reports it in `/proc/<pid>/stat`
+/// (proc(5)); the kernel's one-letter codes are read here and nowhere else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProcessState {
+    /// `R`: running or runnable.
+    Running,
+    /// `S`: interruptible sleep.
+    Sleeping,
+    /// `D`: uninterruptible (disk) sleep.
+    DiskSleep,
+    /// `T`: stopped by a signal.
+    Stopped,
+    /// `t`: stopped by a tracer.
+    TracingStop,
+    /// `I`: an idle kernel thread.
+    Idle,
+    /// `Z`: exited, not yet waited for by its parent.
+    Zombie,
+    /// `X` (`x` before Linux 3.13), the kernel's EXIT_DEAD: being reaped,
+    /// the instant between its parent's wait and its `/proc` entry going.
+    Reaping,
+    /// A letter this test has no name for.
+    Other(char),
+}
+
+impl ProcessState {
+    /// The state in a stat line `pid (comm) state ...`. The command name may
+    /// hold spaces and `)`, so the state is the first field after the LAST
+    /// `)`. `None` when the line has no such field.
+    fn of_stat(line: &str) -> Option<Self> {
+        let (_, rest) = line.rsplit_once(')')?;
+        let mut fields = rest.split_ascii_whitespace();
+        let field = fields.next()?;
+        let mut letters = field.chars();
+        let letter = letters.next()?;
+        if letters.next().is_some() || !letter.is_ascii_alphabetic() {
+            return None;
+        }
+        Some(match letter {
+            'R' => Self::Running,
+            'S' => Self::Sleeping,
+            'D' => Self::DiskSleep,
+            'T' => Self::Stopped,
+            't' => Self::TracingStop,
+            'I' => Self::Idle,
+            'Z' => Self::Zombie,
+            'X' | 'x' => Self::Reaping,
+            other => Self::Other(other),
+        })
+    }
+}
+
+// The state is read after the last `)`, by its name, and garbage is none.
+#[test]
+fn a_stat_line_s_state_is_read_by_name() {
+    let tricky = "4242 (a ) Z odd) R 1 4242 4242 0 -1 4194560";
+    assert_eq!(ProcessState::of_stat(tricky), Some(ProcessState::Running));
+    for (letter, state) in [
+        ('R', ProcessState::Running),
+        ('S', ProcessState::Sleeping),
+        ('D', ProcessState::DiskSleep),
+        ('T', ProcessState::Stopped),
+        ('t', ProcessState::TracingStop),
+        ('I', ProcessState::Idle),
+        ('Z', ProcessState::Zombie),
+        ('X', ProcessState::Reaping),
+        ('x', ProcessState::Reaping),
+        ('W', ProcessState::Other('W')),
+    ] {
+        let line = format!("7 (sleep 30) {letter} 1 7 7 0 -1\n");
+        assert_eq!(ProcessState::of_stat(&line), Some(state), "{line}");
+    }
+    for garbage in [
+        "",
+        "7 sleep Z 1",
+        "7 (sleep)",
+        "7 (sleep)   ",
+        "7 (sleep) ZZ 1",
+        "7 (sleep) 9 1",
+        "7 (sleep) - 1",
+    ] {
+        assert_eq!(ProcessState::of_stat(garbage), None, "{garbage:?}");
+    }
 }
 
 // A helper that outlives an answering runtime does not hold the caller.

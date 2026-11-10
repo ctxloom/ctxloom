@@ -221,61 +221,42 @@ async fn the_session_home_holds_what_the_engine_prepared() {
     );
 }
 
-// D27: the runner writes the conversation; the events carry its path.
+// Owner rulings 26 and 51: a child's hooks are the ONLY source of its prompt
+// and its words. The launcher records neither (it would be a second copy, under
+// other ids), so a turn whose hooks never fire has no conversation in its
+// transcript (the accepted cost); the reply its stream gave is still the
+// launch's answer, and the turn's completion still names the transcript.
 #[tokio::test]
-async fn the_transcript_holds_the_prompt_then_the_answer_and_the_event_names_it() {
+async fn a_childs_turn_records_neither_its_prompt_nor_its_answer_and_still_answers() {
     let mut rig = rig(
         ScriptedEngine::answering("THE-ANSWER", None),
         ScriptedRunner::exits(0),
         orders_with(order("fake")),
     );
     enqueued(&rig.edge, SESSION, HARP).await;
-    rig.step().await;
-    let transcript = rig
-        .records
-        .text(HARP, "transcripts/transcript.jsonl")
-        .unwrap();
-    let lines: Vec<serde_json::Value> = transcript
-        .lines()
-        .map(|l| serde_json::from_str(l).unwrap())
+    let launched = rig.step().await;
+    assert_eq!(
+        launched[0].outcome,
+        Outcome::Answered {
+            answer: "THE-ANSWER".to_string(),
+            native_id: None
+        }
+    );
+    let observed: Vec<SessionEvent> = session_events(&rig.edge, SESSION)
+        .await
+        .into_iter()
+        .filter(|e| {
+            matches!(
+                e,
+                SessionEvent::PromptSubmitted(_) | SessionEvent::AssistantTextShown(_)
+            )
+        })
         .collect();
-    assert_eq!(lines.len(), 2);
+    assert!(observed.is_empty(), "{observed:?}");
     assert_eq!(
-        (
-            lines[0]["seq"].as_u64(),
-            lines[0]["entry"]["type"].as_str(),
-            lines[0]["entry"]["content"].as_str()
-        ),
-        (Some(0), Some("user"), Some("THE-PROMPT"))
-    );
-    // The answer is the assistant's one delta, marked final: a reader
-    // coalesces it (the launcher records it as a hook would).
-    assert_eq!(
-        (
-            lines[1]["seq"].as_u64(),
-            lines[1]["kind"].as_str(),
-            lines[1]["delta"]["text"].as_str(),
-            lines[1]["delta"]["final"].as_bool(),
-            lines[1]["delta"]["index"].as_u64()
-        ),
-        (
-            Some(1),
-            Some("assistant_delta"),
-            Some("THE-ANSWER"),
-            Some(true),
-            Some(0)
-        )
-    );
-    // The instant is the page's: when the store recorded the fact.
-    assert_eq!(
-        lines[1]["ts"].as_str().map(|ts| &ts[..11]),
-        Some("1970-01-01T")
-    );
-    assert_eq!(lines[1]["harp"], HARP);
-    // D27's envelope carries the session's id, on every line.
-    assert!(
-        lines.iter().all(|l| l["session_id"] == SESSION),
-        "{lines:?}"
+        rig.records.text(HARP, "transcripts/transcript.jsonl"),
+        None,
+        "no conversation the hooks did not report"
     );
     let completed = run_events(&rig.edge, SESSION)
         .await
@@ -402,15 +383,8 @@ async fn a_failed_turn_is_recorded_with_its_class_and_says_nothing_in_the_transc
     let failed = failed.unwrap();
     assert_eq!(failed.class, runs::TurnFailureClass::RateLimited);
     assert_eq!(failed.detail, "slow down");
-    let transcript = rig
-        .records
-        .text(HARP, "transcripts/transcript.jsonl")
-        .unwrap();
-    assert_eq!(
-        transcript.lines().count(),
-        1,
-        "only the prompt: {transcript}"
-    );
+    // The prompt is the hooks' to report (ruling 26): the launcher wrote none.
+    assert_eq!(rig.records.text(HARP, "transcripts/transcript.jsonl"), None);
 }
 
 #[tokio::test]
@@ -724,15 +698,18 @@ fn the_launcher_hands_on_the_credentials_of_the_engine_it_holds() {
     assert_eq!(launcher.credentials("other"), None);
 }
 
-// The turn's id names the prompt, the turn and the message of what the
-// launcher records, and the kernel dedupes by it: it is the run's root and the
-// turn, exactly, so the same turn of another run is another id.
+// The terminal session's opening prompt is still the launcher's to record (a
+// child's is not, above), under the run's turn id: the run's root and the
+// turn, exactly, so the same turn of another run is another id. It records no
+// words of the assistant's.
 #[tokio::test]
-async fn the_facts_the_launcher_records_carry_the_runs_turn_id() {
+async fn the_terminal_sessions_opening_prompt_carries_the_runs_turn_id() {
+    let mut interactive = order("fake");
+    interactive.interactive = true;
     let mut rig = rig(
-        ScriptedEngine::answering("THE-ANSWER", None),
+        ScriptedEngine::answering("never read", None),
         ScriptedRunner::exits(0),
-        orders_with(order("fake")),
+        orders_with(interactive),
     );
     enqueued(&rig.edge, SESSION, HARP).await;
     rig.step().await;
@@ -746,16 +723,14 @@ async fn the_facts_the_launcher_records_carry_the_runs_turn_id() {
         SessionEvent::PromptSubmitted(p) => Some(p),
         _ => None,
     });
-    assert_eq!(prompt.unwrap().prompt_id, turn);
-    let text = events.iter().find_map(|e| match e {
-        SessionEvent::AssistantTextShown(t) => Some(t),
-        _ => None,
-    });
-    let text = text.unwrap();
+    let prompt = prompt.unwrap();
     assert_eq!(
-        (&text.prompt_id, &text.turn_id, &text.message_id),
-        (&turn, &turn, &turn)
+        (prompt.prompt_id.as_str(), prompt.prompt.as_str()),
+        (turn.as_str(), "THE-PROMPT")
     );
+    assert!(!events
+        .iter()
+        .any(|e| matches!(e, SessionEvent::AssistantTextShown(_))));
 }
 
 // A live probe (2026-11-09): the model the plan resolved never reached the

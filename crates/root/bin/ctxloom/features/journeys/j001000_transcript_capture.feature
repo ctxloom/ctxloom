@@ -58,3 +58,36 @@ Feature: Cross-engine transcript capture — every engine's conversation becomes
     And the session's transcript holds her prompt, the assistant's words in order, the tool call as a digest, the turn's end and the session's end, each once
     And the transcript was written when the run ended, not while the engine ran
     And a hook fired after the run has ended is refused without failing, and adds nothing to the transcript
+
+  # A one-shot's assistant is a child turn (`claude -p`), heard through the
+  # same hooks (owner ruling 51): its session home registers the per-turn
+  # events, and the one-shot serves the listener they call back to. The stub
+  # engine fires them as the interactive one does, each twice.
+  Scenario: The hooks a one-shot's assistant fires become the session's transcript
+    # new: hook capture of a child turn, with a stub engine on PATH.
+    Given Alice has a project that has never used ctxloom
+    And Alice has exported her assistant's token
+    And Alice has set ctxloom up in her project
+    When Alice asks her assistant one thing, and it fires its turn's hooks twice each:
+      """
+      ctxloom run --one-shot "Run the shell command: echo hi"
+      """
+    Then the assistant's reply is printed
+    And the assistant's turn held what its hooks need to reach ctxloom, and not the primary's token
+    And the assistant's turn registered the hooks of a turn and not those of a session
+    And every hook it fired answered, said nothing was left unrecorded, and exited 0
+    And the session's transcript holds her prompt, the assistant's words in order, the tool call as a digest and the turn's end, each once
+
+  # Hooks are the only source of a one-shot's conversation: one whose hooks
+  # never fire keeps none (the accepted cost), and still answers.
+  Scenario: A one-shot whose hooks never fire still answers, and keeps no conversation
+    # new: the cost of ruling 26, stated.
+    Given Alice has a project that has never used ctxloom
+    And Alice has exported her assistant's token
+    And Alice has set ctxloom up in her project
+    When Alice asks her assistant one thing, and it fires no hooks:
+      """
+      ctxloom run --one-shot "Run the shell command: echo hi"
+      """
+    Then the assistant's reply is printed
+    And the session's transcript holds no prompt and no words of the assistant's

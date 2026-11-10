@@ -73,11 +73,58 @@ done
 [ ! -e "$CLAUDE_CONFIG_DIR/../transcripts/transcript.jsonl" ] || echo present > "$here/engine-saw-transcript"
 "#;
 
+/// The stub child: a `claude -p` turn. It reads the ONE `--settings` file its
+/// command line names (the session dir's, as claude does), records what it
+/// registers, reads the prompt from stdin, runs each registered hook command
+/// for its payloads (the prompt the one it was given) as a separate process
+/// with its own environment, twice, and answers as claude's stream-json does.
+const CHILD_STUB: &str = r#"here="$(dirname "$0")"
+fired="$here/fired"
+mkdir -p "$fired"
+settings=""
+seen=0
+while [ $# -gt 0 ]; do
+  if [ "$1" = "--settings" ]; then settings="$2"; seen=$((seen + 1)); shift; fi
+  shift
+done
+echo "$seen" > "$here/settings-flags"
+jq -r '.hooks | keys[]' "$settings" > "$here/registered"
+prompt="$(cat)"
+for v in CTXLOOM_ENDPOINT CTXLOOM_BEARER CTXLOOM_RUN CTXLOOM_HOME CTXLOOM_SESSION_HARP CTXLOOM_TLS_CERT CLAUDE_CONFIG_DIR; do
+  eval "[ -n \"\${$v:-}\" ]" || echo "$v" >> "$here/engine-missing"
+done
+[ -z "${HOME:-}" ] || echo "HOME" >> "$here/engine-had"
+[ -z "${ANTHROPIC_AUTH_TOKEN:-}" ] || echo "ANTHROPIC_AUTH_TOKEN" >> "$here/engine-had"
+env | grep -E '^(CTXLOOM_|CLAUDE_CONFIG_DIR=|PATH=)' > "$here/engine-env"
+n=0
+for payload in "$here"/payloads/*.json; do
+  [ -e "$payload" ] || continue
+  event="$(basename "$payload" .json)"
+  event="${event#*-}"
+  cmd="$(jq -r --arg e "$event" '.hooks[$e][0].hooks[0] | ([.command] + .args) | join(" ")' "$settings")"
+  for again in 1 2; do
+    n=$((n + 1))
+    id="$(printf %03d "$n")"
+    echo "$event" > "$fired/$id.event"
+    echo "$cmd" > "$fired/$id.cmd"
+    jq -c --arg p "$prompt" 'if .hook_event_name == "UserPromptSubmit" then .prompt = $p else . end' "$payload"       | sh -c "$cmd" > "$fired/$id.out" 2> "$fired/$id.err"
+    echo "$?" > "$fired/$id.code"
+  done
+done
+echo '{"type":"system","subtype":"init","session_id":"9d764b45-a56a-48d7-ac9d-c2a16c5669f1"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"J001000-CHILD-REPLY","session_id":"9d764b45-a56a-48d7-ac9d-c2a16c5669f1"}'
+"#;
+
+/// The reply the stub child's stream gives.
+const CHILD_REPLY: &str = "J001000-CHILD-REPLY";
+
 /// What the scenario keeps.
 #[derive(Default)]
 pub(super) struct State {
     /// The transcript's lines as they stood when the run ended.
     ended: Vec<Value>,
+    /// How many hook processes the stub was to fire.
+    firings: usize,
 }
 
 impl World {
@@ -150,11 +197,172 @@ fn payload(template: &str, edit: impl FnOnce(&mut Value)) -> String {
 /// step is the World's `alice_runs`, which hands it here): whether it is
 /// that step.
 pub(super) fn fires(w: &mut World, step: &cucumber::gherkin::Step) -> bool {
-    if !step.value.contains("fires its session's hooks") {
+    if step.value.contains("fires its session's hooks") {
+        run_firing_hooks(w, step);
+    } else if step.value.contains("fires its turn's hooks") {
+        run_child(w, step, true);
+    } else if step.value.contains("fires no hooks") {
+        run_child(w, step, false);
+    } else {
         return false;
     }
-    run_firing_hooks(w, step);
     true
+}
+
+/// A one-shot whose stub child fires the turn's hooks (`fire`), or none.
+fn run_child(w: &mut World, step: &cucumber::gherkin::Step, fire: bool) {
+    let bin = w.engine_dir();
+    let ctxloom = crate::tests::binary().display().to_string();
+    files::put_program(bin.join("ctxloom"), &format!("exec '{ctxloom}' \"$@\"\n"));
+    if fire {
+        // The prompt is the one the turn was given on stdin (the stub sets it).
+        let mut payloads = vec![(USER_PROMPT_SUBMIT.to_string(), "UserPromptSubmit")];
+        for (index, delta) in DELTAS.iter().enumerate() {
+            payloads.push((
+                payload(MESSAGE_DISPLAY, |v| {
+                    v["index"] = json!(index);
+                    v["final"] = json!(index == DELTAS.len() - 1);
+                    v["delta"] = json!(delta);
+                }),
+                "MessageDisplay",
+            ));
+        }
+        payloads.push((
+            payload(POST_TOOL_BATCH, |v| {
+                v["tool_calls"][0]["tool_response"] = json!(TOOL_BODY);
+            }),
+            "PostToolBatch",
+        ));
+        payloads.push((
+            payload(STOP, |v| {
+                v["last_assistant_message"] = json!(DELTAS.concat());
+            }),
+            "Stop",
+        ));
+        for (n, (text, event)) in payloads.iter().enumerate() {
+            files::put(bin.join(format!("payloads/{n:02}-{event}.json")), text);
+        }
+        w.capture.firings = 2 * payloads.len();
+    }
+    files::put_program(bin.join("claude"), CHILD_STUB);
+    // The primary's own token is set, and must not reach the child.
+    w.common
+        .set_env("ANTHROPIC_AUTH_TOKEN", "primary-only-not-real".to_string()); // gitleaks:allow
+    w.before_run();
+    let lines = crate::tests::gherkin_common::doc(step);
+    w.common_mut().run_lines(&lines, "");
+}
+
+#[then("the assistant's reply is printed")]
+fn reply_printed(w: &mut World) {
+    w.ran().succeeds().contains(CHILD_REPLY);
+}
+
+#[then(
+    "the assistant's turn held what its hooks need to reach ctxloom, and not the primary's token"
+)]
+fn child_environment(w: &mut World) {
+    let dir = w.engine_dir();
+    assert_eq!(
+        files::read(dir.join("engine-missing")).unwrap_or_default(),
+        "",
+        "the turn's environment lacked variables"
+    );
+    assert_eq!(
+        files::read(dir.join("engine-had")).unwrap_or_default(),
+        "",
+        "the turn's environment held what it must not"
+    );
+    let engine_env = files::read(dir.join("engine-env")).expect("the turn ran");
+    assert!(
+        engine_env.contains("CTXLOOM_ENDPOINT=https://127.0.0.1:"),
+        "{engine_env}"
+    );
+    assert!(
+        !engine_env.contains("PRIVATE KEY"),
+        "no key in the environment"
+    );
+}
+
+#[then("the assistant's turn registered the hooks of a turn and not those of a session")]
+fn child_registered(w: &mut World) {
+    let dir = w.engine_dir();
+    assert_eq!(
+        files::read(dir.join("settings-flags"))
+            .unwrap_or_default()
+            .trim(),
+        "1",
+        "one --settings"
+    );
+    let mut registered: Vec<String> = files::read(dir.join("registered"))
+        .expect("the settings were read")
+        .lines()
+        .map(String::from)
+        .collect();
+    registered.sort();
+    assert_eq!(
+        registered,
+        [
+            "MessageDisplay",
+            "PostCompact",
+            "PostToolBatch",
+            "PreCompact",
+            "Stop",
+            "UserPromptSubmit"
+        ]
+    );
+}
+
+#[then("the session's transcript holds her prompt, the assistant's words in order, the tool call as a digest and the turn's end, each once")]
+fn child_transcript(w: &mut World) {
+    let lines = w.transcript();
+    let kinds: Vec<&str> = lines.iter().map(|l| l["kind"].as_str().unwrap()).collect();
+    assert_eq!(
+        kinds,
+        [
+            "entry",
+            "assistant_delta",
+            "assistant_delta",
+            "assistant_delta",
+            "tool",
+            "turn_end"
+        ],
+        "each observation once, from the hooks alone: {lines:#?}"
+    );
+    assert_eq!(lines[0]["entry"]["type"], "user");
+    assert_eq!(lines[0]["entry"]["content"], PROMPT);
+    for (n, delta) in DELTAS.iter().enumerate() {
+        assert_eq!(lines[1 + n]["delta"]["text"], *delta, "{n}");
+    }
+    let whole = serde_json::to_string(&lines).unwrap();
+    assert!(
+        !whole.contains(TOOL_BODY),
+        "the tool's response body was kept"
+    );
+    assert!(
+        !whole.contains(CHILD_REPLY),
+        "the stream's reply is not a second copy of the words"
+    );
+    for (n, line) in lines.iter().enumerate() {
+        assert_eq!(line["seq"], n, "{line}");
+    }
+}
+
+#[then("the session's transcript holds no prompt and no words of the assistant's")]
+fn no_conversation(w: &mut World) {
+    let path = w
+        .common
+        .project
+        .dir()
+        .join(".ctxloom/sessions")
+        .join(w.harp())
+        .join("transcripts/transcript.jsonl");
+    let text = files::read(&path).unwrap_or_default();
+    assert!(
+        !text.contains("\"entry\"") && !text.contains("assistant_delta"),
+        "{text}"
+    );
+    assert!(!text.contains(CHILD_REPLY), "{text}");
 }
 
 fn run_firing_hooks(w: &mut World, step: &cucumber::gherkin::Step) {
@@ -213,7 +421,11 @@ fn environment_reached(w: &mut World) {
 #[then("every hook it fired answered, said nothing was left unrecorded, and exited 0")]
 fn hooks_delivered(w: &mut World) {
     let fired = w.fired();
-    assert_eq!(fired.len(), 14, "seven hooks, twice each: {fired:?}");
+    let firings = match w.capture.firings {
+        0 => 14,
+        n => n,
+    };
+    assert_eq!(fired.len(), firings, "each hook twice: {fired:?}");
     for (event, cmd, out, err, code) in &fired {
         assert!(
             cmd.contains(event),

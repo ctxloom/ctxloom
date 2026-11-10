@@ -133,7 +133,9 @@ fn the_interactive_run_is_the_terminal_command_with_the_context_and_no_print_mod
         command.args,
         vec![
             "--append-system-prompt-file",
-            "/p/.ctxloom/sessions/h/home/ctxloom-context.md"
+            "/p/.ctxloom/sessions/h/home/ctxloom-context.md",
+            "--settings",
+            "/p/.ctxloom/sessions/h/home/settings.json"
         ]
     );
     assert!(command.stdin.is_empty());
@@ -557,4 +559,63 @@ fn a_host_session_home_with_no_home_in_the_environment_is_refused() {
         Claude::new().drive_interactive(&asked).unwrap_err(),
         expected
     );
+}
+
+// Owner: hooks work under session_home: host too. claude reads ONE --settings
+// file (the last wins) and ADDS its hooks to the config dir's own settings, so
+// the terminal session is always handed the ctxloom-owned file `prepare`
+// writes in the session dir, never a file in the user's ~/.claude. A child's
+// turn is unchanged (child hooks are ruling 24's, separate).
+#[test]
+fn the_terminal_session_reads_the_session_dirs_settings_in_both_home_modes() {
+    for host in [false, true] {
+        let mut asked = request();
+        asked.env = env(&[("HOME", "/home/alice"), ("PATH", "/usr/bin")]);
+        asked.settings = settings(|s| {
+            if host {
+                s.session_home = SessionHome::Host
+            }
+        });
+        let command = Claude::new().drive_interactive(&asked).unwrap();
+        let flags: Vec<usize> = command
+            .args
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| *a == "--settings")
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(flags.len(), 1, "host={host}: {:?}", command.args);
+        assert_eq!(
+            command.args[flags[0] + 1],
+            "/p/.ctxloom/sessions/h/home/settings.json",
+            "host={host}"
+        );
+        // the prompt stays the last word
+        assert_eq!(
+            command.args.last().map(String::as_str),
+            Some(asked.prompt.as_str())
+        );
+        if host {
+            assert_eq!(command.env["CLAUDE_CONFIG_DIR"], "/home/alice/.claude");
+        }
+    }
+}
+
+#[test]
+fn a_childs_turn_is_given_no_settings_flag() {
+    for host in [false, true] {
+        let mut asked = request();
+        asked.env = env(&[("HOME", "/home/alice")]);
+        asked.settings = settings(|s| {
+            if host {
+                s.session_home = SessionHome::Host
+            }
+        });
+        let command = Claude::new().drive_turn(&asked).unwrap();
+        assert!(
+            !command.args.contains(&"--settings".to_string()),
+            "{:?}",
+            command.args
+        );
+    }
 }

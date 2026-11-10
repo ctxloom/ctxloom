@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 angzarr-diagnostic.workspace = true
+file-lock.workspace = true
 file-system.workspace = true
 os.workspace = true
 run-ports.workspace = true

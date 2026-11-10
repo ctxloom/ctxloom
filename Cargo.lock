@@ -2413,6 +2413,7 @@ name = "liveness"
 version = "0.1.0"
 dependencies = [
  "angzarr-diagnostic",
+ "file-lock",
  "file-system",
  "mutants",
  "os",
@@ -3306,7 +3307,6 @@ dependencies = [
  "run-ports",
  "runs",
  "runs-application",
- "serde_json",
  "sessions",
  "tokio",
  "uuid",

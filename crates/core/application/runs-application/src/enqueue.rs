@@ -130,8 +130,7 @@ impl<E: Edge, T: TokenSource> Enqueuer<E, T> {
             drivable_engines: request.evidence.drivable_engines,
             credential: credential(request.evidence.credential.unwrap_or_default()),
             fatal_findings: request.evidence.fatal_findings,
-            // RED (rulings 86, 92): the launcher's lock is not yet sent.
-            launcher_lock: String::new(),
+            launcher_lock: request.launcher_lock,
         };
         let book = CommandBook::command_of(cover, &runs::RunCommand::from(enqueue));
         self.edge.handle(book).await.map_err(refused)?;

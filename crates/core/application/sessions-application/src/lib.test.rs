@@ -55,6 +55,16 @@ impl Svc {
     fn seed(&mut self, project: &str, id: u8, harp: &str, started: i64, lock: Option<LockState>) {
         let store = self.stores.stores.entry(project.to_string()).or_default();
         minted(store, id, harp, "/work/proj", started);
+        // Its hooks delivered its first prompt (ruling 87a: the transcript is
+        // the session's events); an older ctxloom's transcript file is left
+        // on disk too, for a removal to name.
+        captured(
+            store,
+            id,
+            started + 1,
+            "p0",
+            &format!("Seeded prompt for {harp}."),
+        );
         self.files
             .transcripts
             .insert(harp.to_string(), transcript_of(harp));
@@ -241,8 +251,7 @@ fn a_session_is_titled_by_the_first_prompt_of_its_transcript() {
         Some("Seeded prompt for amber-swift-owl.")
     );
     assert_eq!(views[0].summary(), "Seeded prompt for amber-swift-owl.");
-    let captured = views[0].captured.as_ref().expect("a transcript");
-    assert!(captured.path.ends_with("transcripts/transcript.jsonl"));
+    assert!(views[0].captured.is_some(), "a transcript");
 }
 
 // j001200: a session with no captured transcript has no title and no
@@ -250,8 +259,7 @@ fn a_session_is_titled_by_the_first_prompt_of_its_transcript() {
 #[test]
 fn a_session_with_no_transcript_is_listed_with_no_title() {
     let mut svc = service();
-    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
-    svc.files.transcripts.clear();
+    svc.seed_captured(1, "amber-swift-owl", NOW - DAY, &[]);
     let views = ready(svc.list(all())).unwrap();
     assert_eq!(views[0].title, None);
     assert_eq!(views[0].captured, None);
@@ -263,15 +271,13 @@ fn a_session_with_no_transcript_is_listed_with_no_title() {
 #[test]
 fn a_search_finds_the_session_whose_title_has_the_words() {
     let mut svc = service();
-    svc.seed(HERE, 1, "amber-quiet-heron", NOW - 3 * DAY, None);
-    svc.seed(HERE, 2, "brisk-copper-moth", NOW - 2 * DAY, None);
-    svc.files.transcripts.insert(
-        "amber-quiet-heron".to_string(),
-        transcript_of("amber-quiet-heron").replace(
-            "Seeded prompt for amber-quiet-heron.",
-            "J001200-TITLE-WORKTREE-QUESTION why this layout",
-        ),
+    svc.seed_captured(
+        1,
+        "amber-quiet-heron",
+        NOW - 3 * DAY,
+        &["J001200-TITLE-WORKTREE-QUESTION why this layout"],
     );
+    svc.seed(HERE, 2, "brisk-copper-moth", NOW - 2 * DAY, None);
     let found = ready(svc.search(SearchQuery {
         list: all(),
         words: vec!["J001200-TITLE-WORKTREE-QUESTION".to_string()],
@@ -381,42 +387,6 @@ fn an_unknown_harp_is_an_error_naming_it() {
 
 // ---------------------------------------------------------------- transcripts
 
-// session.feature: "The bare sub-noun lists which sessions have a transcript"
-// and "A session with no captured transcript is still named": absence is a row.
-#[test]
-fn the_transcript_listing_names_every_session_captured_or_not() {
-    let mut svc = service();
-    svc.seed(HERE, 1, "amber-swift-owl", NOW - 2 * DAY, None);
-    svc.seed(HERE, 2, "brisk-copper-moth", NOW - DAY, None);
-    svc.files.transcripts.remove("brisk-copper-moth");
-    let rows = ready(svc.transcripts(TranscriptQuery {
-        all: true,
-        ..TranscriptQuery::default()
-    }))
-    .unwrap();
-    let got: Vec<(&str, bool, u64)> = rows
-        .iter()
-        .map(|r| (r.harp.as_str(), r.captured, r.bytes))
-        .collect();
-    assert_eq!(
-        got,
-        [
-            ("brisk-copper-moth", false, 0),
-            (
-                "amber-swift-owl",
-                true,
-                transcript_of("amber-swift-owl").len() as u64
-            )
-        ]
-    );
-    assert_eq!(rows[0].path, None);
-    assert!(rows[1]
-        .path
-        .as_deref()
-        .unwrap()
-        .ends_with("transcript.jsonl"));
-}
-
 #[test]
 fn the_transcript_listing_of_one_session_is_that_session() {
     let mut svc = service();
@@ -444,23 +414,11 @@ fn the_transcript_listing_of_an_unknown_session_fails() {
     assert!(matches!(error, AppError::NoSession { .. }));
 }
 
-// session.feature: "Show prints the whole transcript and exits".
-#[test]
-fn a_transcript_is_shown_whole() {
-    let mut svc = service();
-    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
-    assert_eq!(
-        ready(svc.transcript("amber-swift-owl")).unwrap(),
-        transcript_of("amber-swift-owl")
-    );
-}
-
 // Go: errNoCapturedTranscript.
 #[test]
 fn a_transcript_never_captured_is_an_error_not_an_empty_text() {
     let mut svc = service();
-    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
-    svc.files.transcripts.clear();
+    svc.seed_captured(1, "amber-swift-owl", NOW - DAY, &[]);
     assert_eq!(
         ready(svc.transcript("amber-swift-owl")).unwrap_err(),
         AppError::NoCapturedTranscript {
@@ -714,32 +672,6 @@ fn a_destroy_reported_and_not_applied_changes_nothing() {
     assert!(svc.files.destroyed_sessions.is_empty());
 }
 
-// session.feature: "--yes destroys the transcript and leaves the output dir"
-// (session transcript purge): the transcripts alone, never native history.
-#[test]
-fn a_transcript_purge_takes_the_transcripts_and_names_the_native_history_it_leaves() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    svc.files.others.insert(
-        "amber-swift-owl".to_string(),
-        vec![("native/history.jsonl".to_string(), 12)],
-    );
-    let request = RemoveRequest {
-        scope: crate::Scope::Transcript,
-        ..remove("amber-swift-owl", false)
-    };
-    let plan = ready(svc.remove(request)).unwrap();
-    let destroy: Vec<&str> = plan.files.destroy.iter().map(|i| i.rel.as_str()).collect();
-    assert_eq!(destroy, ["transcripts/transcript.jsonl"]);
-    assert_eq!(plan.files.keep.len(), 1);
-    assert_eq!(plan.files.keep[0].rel, "native/history.jsonl");
-    assert!(plan.files.keep[0]
-        .reason
-        .as_deref()
-        .unwrap()
-        .contains("not a transcript"));
-}
-
 // session.feature: "A session running again is refused by the transcript's own
 // destroyer": the refusal names the command that was run.
 #[test]
@@ -755,7 +687,6 @@ fn the_refusal_names_the_destroyer_that_was_run() {
     for (scope, verb) in [
         (crate::Scope::Remove, "session remove"),
         (crate::Scope::Purge, "session purge"),
-        (crate::Scope::Transcript, "session transcript purge"),
     ] {
         let request = RemoveRequest {
             scope,
@@ -1339,7 +1270,6 @@ fn a_listing_is_titled_and_sized_from_the_sessions_events() {
     let text = ready(svc.transcript("amber-swift-owl")).unwrap();
     let captured = views[0].captured.as_ref().expect("captured");
     assert_eq!(captured.bytes, text.len() as u64);
-    assert_eq!(captured.path, "", "PROPOSAL: no file, so no path");
     let found = ready(svc.search(SearchQuery {
         list: all(),
         words: vec!["build".to_string()],
@@ -1361,15 +1291,15 @@ fn the_transcript_listing_reads_the_events_and_names_no_file() {
         ..TranscriptQuery::default()
     }))
     .unwrap();
-    let got: Vec<(&str, bool, u64, Option<&str>)> = rows
+    let got: Vec<(&str, bool, u64)> = rows
         .iter()
-        .map(|r| (r.harp.as_str(), r.captured, r.bytes, r.path.as_deref()))
+        .map(|r| (r.harp.as_str(), r.captured, r.bytes))
         .collect();
     assert_eq!(
         got,
         [
-            ("brisk-copper-moth", false, 0, None),
-            ("amber-swift-owl", true, text.len() as u64, None),
+            ("brisk-copper-moth", false, 0),
+            ("amber-swift-owl", true, text.len() as u64),
         ]
     );
 }

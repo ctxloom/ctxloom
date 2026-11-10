@@ -13,12 +13,12 @@
 //! - [`HookSink`]: what a hook process delivers through: [`GrpcSink`] to the
 //!   run's listener when `CTXLOOM_ENDPOINT` and `CTXLOOM_BEARER` are set and
 //!   well formed, else [`Unreachable`].
-//! - [`SessionIds`] / [`DirIds`]: a harp to its session's id. A session's id
-//!   is minted at random (it is not derived from the harp), and its directory
-//!   records it in `metadata.json`, so that is where a hook reads it.
+//! - [`SessionIds`] / [`RunIds`]: a hook's session's id. A session's id is
+//!   minted at random (it is not derived from the harp); the run tells its
+//!   engine it, `CTXLOOM_SESSION` (review finding 6, ruling 87), so a hook
+//!   addresses its facts to its run's session and reads nothing on disk.
 //! - [`HookRecording`]: [`hook_cli::Recording`] over a sink and the ids.
 
-use std::cell::RefCell;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -27,13 +27,9 @@ use angzarr_embedded::v1::{DeliveryOutcome, Uuid};
 use angzarr_embedded::{Failure, KernelError};
 use hook_cli::{NotRecorded, Recording};
 use hook_sink_grpc::GrpcSink;
-use run_launcher::METADATA;
-use run_ports::{
-    Arrival, Bearer, CertError, Delivery, Edge, FactSink, PublicCert, SessionRecords, Unserved,
-};
+use run_ports::{Arrival, Bearer, CertError, Delivery, Edge, FactSink, PublicCert, Unserved};
 use runs_application::{delivery_budget, Capture};
 use setup_application::HookAnswer;
-use surface_ports::Json;
 
 /// A sink over an in-process edge.
 pub struct EdgeSink<E: Edge + 'static> {
@@ -172,37 +168,16 @@ impl FactSink for HookSink {
     }
 }
 
-/// A harp's session.
+/// A hook's session.
 pub trait SessionIds {
-    /// The id of the session named `harp`, if its directory says one.
+    /// The id of the session the hook's `harp` names, if it can be told.
     fn session_of(&self, harp: &str) -> Option<Uuid>;
-}
-
-/// Ids read from the session directories' `metadata.json`; none where there
-/// are no directories to read (no home).
-pub struct DirIds<R: SessionRecords>(RefCell<Option<R>>);
-
-impl<R: SessionRecords> DirIds<R> {
-    /// Ids read through `records`, if there are any.
-    pub fn new(records: Option<R>) -> DirIds<R> {
-        DirIds(RefCell::new(records))
-    }
-}
-
-impl<R: SessionRecords> SessionIds for DirIds<R> {
-    fn session_of(&self, harp: &str) -> Option<Uuid> {
-        let held = self.0.borrow_mut().as_mut()?.read(harp, METADATA).ok()??;
-        let metadata = Json::parse(std::str::from_utf8(&held).ok()?).ok()?;
-        let id = uuid::Uuid::parse_str(metadata.get("id")?.as_str()?).ok()?;
-        Some(Uuid::from_bytes(*id.as_bytes()))
-    }
 }
 
 /// The run's session, as the hook environment names it (`CTXLOOM_SESSION`,
 /// review finding 6): the one session a hook's facts are addressed to,
-/// whatever its harp says; none where the variable is unset or not an id.
-///
-/// RED (finding 6): a stub that names none.
+/// whatever its harp says (a rename does not lose it); none where the
+/// variable is unset or not an id.
 pub struct RunIds(Option<String>);
 
 impl RunIds {
@@ -213,9 +188,9 @@ impl RunIds {
 }
 
 impl SessionIds for RunIds {
-    fn session_of(&self, harp: &str) -> Option<Uuid> {
-        let _ = (harp, &self.0);
-        None
+    fn session_of(&self, _: &str) -> Option<Uuid> {
+        let id = uuid::Uuid::parse_str(self.0.as_deref()?).ok()?;
+        Some(Uuid::from_bytes(*id.as_bytes()))
     }
 }
 
@@ -249,7 +224,10 @@ impl<S: FactSink, I: SessionIds> Recording for HookRecording<S, I> {
                 .iter()
                 .map(|observation| NotRecorded {
                     what: observation.type_url(),
-                    why: format!("no session directory for {harp}"),
+                    why: format!(
+                        "no session for {harp}: {} names none",
+                        run_ports::SESSION_VARIABLE
+                    ),
                 })
                 .collect();
         };

@@ -73,6 +73,8 @@ impl Home {
                 "6048000",
                 "--ended-ago",
                 "5184000",
+                "--other-file",
+                "native/history.jsonl",
             ],
         );
     }
@@ -81,8 +83,11 @@ impl Home {
         self.env.home().join(".ctxloom/sessions").join(harp)
     }
 
-    fn transcript_file(&self, harp: &str) -> PathBuf {
-        self.session_dir(harp).join("transcripts/transcript.jsonl")
+    /// The engine's native history a finished session holds: the
+    /// machine-written conversation a removal destroys (ruling 87a: no
+    /// transcript file; the transcript is the session's events).
+    fn native_file(&self, harp: &str) -> PathBuf {
+        self.session_dir(harp).join("native/history.jsonl")
     }
 
     /// `<home>/Documents/ctxloom/<project>/<harp>`: where a seeded session's
@@ -389,13 +394,13 @@ fn test_keep_marks_the_listing_and_undo_releases_it() {
         "{}",
         removal.said()
     );
-    assert!(files::exists(home.transcript_file(HARP)));
+    assert!(files::exists(home.native_file(HARP)));
     assert_eq!(home.run(&["session", "keep", HARP, "--undo"]).code, 0);
     let listed = rows(&home.run(&["session", "list", "--all", "--format", "json"]));
     assert!(row(&listed, HARP).get("kept").is_none());
     let removal = home.run(&["session", "remove", HARP, "--yes"]);
     assert_eq!(removal.code, 0, "{}", removal.said());
-    assert!(!files::exists(home.transcript_file(HARP)));
+    assert!(!files::exists(home.native_file(HARP)));
 }
 
 #[test]
@@ -421,7 +426,7 @@ fn test_remove_reports_before_it_removes() {
         all.contains("ctxloom session remove amber-swift-owl --yes"),
         "{all}"
     );
-    assert!(files::exists(home.transcript_file(HARP)));
+    assert!(files::exists(home.native_file(HARP)));
     let listed = home.run(&["session", "list", "--all"]);
     assert!(said(&listed).contains(HARP), "{}", listed.said());
 }
@@ -435,7 +440,7 @@ fn test_remove_yes_takes_the_index_entry_and_the_transcript_and_leaves_the_outpu
     let essence = home.leave_summary(HARP);
     let ran = home.run(&["session", "remove", HARP, "--yes"]);
     assert_eq!(ran.code, 0, "{}", ran.said());
-    assert!(!files::exists(home.transcript_file(HARP)));
+    assert!(!files::exists(home.native_file(HARP)));
     assert!(files::exists(&essence), "the output dir is the human's");
     let listed = home.run(&["session", "list", "--all"]);
     assert!(!said(&listed).contains(HARP), "{}", listed.said());
@@ -448,12 +453,20 @@ fn test_remove_within_the_retention_is_refused() {
     let home = Home::new();
     home.seed(
         "brisk-copper-moth",
-        &["--lock", "free", "--transcript", "--ended-ago", "3600"],
+        &[
+            "--lock",
+            "free",
+            "--transcript",
+            "--ended-ago",
+            "3600",
+            "--other-file",
+            "native/history.jsonl",
+        ],
     );
     let ran = home.run(&["session", "remove", "brisk-copper-moth", "--yes"]);
     assert_ne!(ran.code, 0, "{}", ran.said());
     assert!(said(&ran).contains("retention"), "{}", ran.said());
-    assert!(files::exists(home.transcript_file("brisk-copper-moth")));
+    assert!(files::exists(home.native_file("brisk-copper-moth")));
 }
 
 // session.feature: "A session the lock cannot prove finished is refused, and
@@ -469,6 +482,8 @@ fn test_remove_of_a_session_the_lock_cannot_prove_dead_is_refused_and_the_escape
             "6048000",
             "--ended-ago",
             "5184000",
+            "--other-file",
+            "native/history.jsonl",
         ],
     );
     let ran = home.run(&["session", "remove", HARP, "--yes"]);
@@ -483,10 +498,10 @@ fn test_remove_of_a_session_the_lock_cannot_prove_dead_is_refused_and_the_escape
         "{}",
         ran.said()
     );
-    assert!(files::exists(home.transcript_file(HARP)));
+    assert!(files::exists(home.native_file(HARP)));
     let anyway = home.run(&["session", "remove", HARP, "--yes", "--even-if-live"]);
     assert_eq!(anyway.code, 0, "{}", anyway.said());
-    assert!(!files::exists(home.transcript_file(HARP)));
+    assert!(!files::exists(home.native_file(HARP)));
 }
 
 // --------------------------------------------------------------- transcript

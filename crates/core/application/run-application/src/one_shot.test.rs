@@ -17,7 +17,7 @@ use run_launcher::fakes::{
     names as event_names, run_events, session_events, Credentialed, MemoryRecords, ScriptedEngine,
     ScriptedRunner, TestEdge,
 };
-use run_launcher::{Launcher, Orders, Recorder};
+use run_launcher::{Launcher, Orders};
 use run_ports::{
     Arrival, BoxFuture, CertMint, CertNames, Credentials, Edge, FailureClass, HookCertificate,
     HookServer, Limits, LinkState, LoginLinks, PublicCert, RecordsError, Serving, Token,
@@ -46,8 +46,21 @@ struct Seen {
 }
 
 /// What happened, in order, across the edge, the certificate's mint and the
-/// listener: `EnqueueRun refused`, `MintSession`, `certificate`, `serve`.
+/// listener: `EnqueueRun refused`, `MintSession`, `certificate`, `serve`; and
+/// the locks taken and let go (`run-lock`, `lock <harp>`, ...).
 type Timeline = Arc<Mutex<Vec<String>>>;
+
+/// The timeline without the locks: what crossed the edge, the mint and the
+/// listener.
+fn edge_timeline(rig: &Rig) -> Vec<String> {
+    rig.timeline
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|t| !(t.starts_with("lock ") || t.starts_with("unlock ") || t.starts_with("run-")))
+        .cloned()
+        .collect()
+}
 
 /// The payload type a book carries, by its short name.
 fn sent(book: &CommandBook) -> String {
@@ -260,10 +273,6 @@ struct Hooks {
     runner: Option<ScriptedRunner>,
     /// A reason to refuse to serve, if any.
     refuse: Option<&'static str>,
-    /// The session directories: at the stop, whether the run's end had
-    /// already been projected into them.
-    records: Option<MemoryRecords>,
-    end_projected_at_stop: Arc<Mutex<Option<bool>>>,
     /// The private key of the identity each serve was given.
     identities: Arc<Mutex<Vec<String>>>,
     timeline: Timeline,
@@ -323,19 +332,7 @@ impl Serving for Listening {
     }
 
     fn stop(self: Box<Self>) -> BoxFuture<'static, ()> {
-        Box::pin(async move {
-            if let Some(records) = &self.0.records {
-                let projected = records
-                    .names("amber-swift-owl")
-                    .iter()
-                    .any(|rel| rel == "records/runs.jsonl")
-                    && records
-                        .text("amber-swift-owl", "records/runs.jsonl")
-                        .is_some_and(|runs| runs.contains("RunEnded"));
-                *self.0.end_projected_at_stop.lock().unwrap() = Some(projected);
-            }
-            self.0.note("stop".to_string())
-        })
+        Box::pin(async move { self.0.note("stop".to_string()) })
     }
 }
 
@@ -479,7 +476,7 @@ struct Rig {
     timeline: Timeline,
     hooks: Hooks,
     certs: Certs,
-    runs: Runs<TestCore, CountingSource, ScriptedRunner, MemoryRecords, MemoryRecords>,
+    runs: Runs<TestCore, CountingSource, ScriptedRunner, MemoryRecords>,
     edge: Arc<TestEdge>,
     runner: ScriptedRunner,
     records: MemoryRecords,
@@ -599,7 +596,6 @@ fn rig(script: Script) -> Rig {
     let hooks = Hooks {
         runner: Some(script.runner.clone()),
         refuse: script.hooks_refuse,
-        records: Some(records.clone()),
         timeline: Arc::clone(&timeline),
         ..Hooks::default()
     };
@@ -638,7 +634,7 @@ fn rig(script: Script) -> Rig {
         ids: Box::new(FixedIds),
         enqueuer: Enqueuer::new(Arc::clone(&seen), Arc::new(CountingSource::default())),
         launcher,
-        recorder: Recorder::new(records.clone()),
+        dirs: Box::new(records.clone()),
         orders,
         place: Place {
             project_dir: "/work/proj".to_string(),
@@ -819,7 +815,7 @@ async fn a_fatal_startup_finding_refuses_the_run_before_any_session() {
     assert!(rig.runner.seen.lock().unwrap().is_empty());
     // Rulings 73e, 73f: the enqueue judged it, and refused it before a name was
     // claimed, a session minted, a certificate minted or a listener served.
-    assert_eq!(*rig.timeline.lock().unwrap(), ["EnqueueRun refused"]);
+    assert_eq!(edge_timeline(&rig), ["EnqueueRun refused"]);
 }
 
 // A one-shot gets exactly one turn: an empty prompt asks nothing.
@@ -954,10 +950,7 @@ async fn a_project_that_cannot_be_told_starts_nothing() {
     // The proposal for ruling 73f: the project is told once the run is
     // enqueued, and a project that cannot be told ends the run it enqueued, so
     // no run is left owed a runner; no name was claimed and nothing served.
-    assert_eq!(
-        *rig.timeline.lock().unwrap(),
-        ["EnqueueRun", "LaunchFailed"]
-    );
+    assert_eq!(edge_timeline(&rig), ["EnqueueRun", "LaunchFailed"]);
 }
 
 // The mint is the first thing that can fail, and the name is claimed first: a
@@ -1009,7 +1002,7 @@ async fn names_that_are_all_taken_refuse_the_run_with_the_kernels_refusal() {
     assert!(rig.runner.seen.lock().unwrap().is_empty());
     // The run was enqueued before the names were tried, so it is ended; nothing
     // was served.
-    let timeline = rig.timeline.lock().unwrap().clone();
+    let timeline = edge_timeline(&rig);
     assert_eq!(timeline.first().map(String::as_str), Some("EnqueueRun"));
     assert_eq!(timeline.last().map(String::as_str), Some("LaunchFailed"));
     assert!(
@@ -1190,7 +1183,7 @@ async fn a_claim_refused_for_another_reason_is_not_tried_again_with_another_name
     assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 1);
     assert!(rig.runner.seen.lock().unwrap().is_empty());
     assert_eq!(
-        *rig.timeline.lock().unwrap(),
+        edge_timeline(&rig),
         ["EnqueueRun", "LaunchFailed"],
         "the enqueued run is ended"
     );
@@ -1632,29 +1625,6 @@ async fn a_one_shot_serves_its_listener_on_loopback_before_the_child_and_stops_i
     );
 }
 
-// The child's hooks are delivered while the listener serves, so a one-shot's
-// last catch-up (the transcript's writer) follows the listener's stop, as the
-// terminal session's does.
-#[tokio::test]
-async fn a_one_shots_listener_is_stopped_before_the_run_is_last_recorded() {
-    let mut rig = rig(Script::answering());
-    rig.runs
-        .one_shot(&Flags::default(), &ask())
-        .await
-        .result
-        .unwrap();
-    assert_eq!(
-        *rig.hooks.end_projected_at_stop.lock().unwrap(),
-        Some(false),
-        "the run's end was recorded before the listener stopped"
-    );
-    assert!(rig
-        .records
-        .text("amber-swift-owl", "records/runs.jsonl")
-        .unwrap()
-        .contains("RunEnded"));
-}
-
 // No listener, no child: a hook could not be heard, so nothing is made and no
 // engine started, and the error says why.
 #[tokio::test]
@@ -1701,93 +1671,6 @@ async fn a_one_shot_that_does_not_run_still_stops_its_listener() {
         let what: Vec<&str> = log.iter().map(|(what, _)| what.as_str()).collect();
         assert_eq!(what, served);
     }
-}
-
-// A child's hook finds its session by the directory's `metadata.json` too, so
-// the directory names the session before the child is launched; and nothing of
-// the conversation is written while it runs (the transcript is the projector's,
-// at the run's end).
-#[tokio::test]
-async fn a_one_shots_session_directory_names_its_session_while_the_child_runs() {
-    let rig = rig(Script::answering());
-    let during = Arc::new(Mutex::new(None::<(Option<String>, Option<String>)>));
-    let window = {
-        let (records, during) = (rig.records.clone(), Arc::clone(&during));
-        Arc::new(move || {
-            *during.lock().unwrap() = Some((
-                records.text("amber-swift-owl", "metadata.json"),
-                records.text("amber-swift-owl", "transcripts/transcript.jsonl"),
-            ));
-        })
-    };
-    *rig.runner.during.lock().unwrap() = Some(window);
-    let mut rig = rig;
-    let answer = rig
-        .runs
-        .one_shot(&Flags::default(), &ask())
-        .await
-        .result
-        .unwrap();
-    let (metadata, transcript) = during.lock().unwrap().clone().expect("the child ran");
-    let metadata = metadata.expect("metadata.json was written before the child ran");
-    assert!(metadata.contains(&answer.session), "{metadata}");
-    assert_eq!(transcript, None, "no conversation is written while it runs");
-}
-
-// A hook is a process of its own that finds its session by reading the
-// session directory's `metadata.json`, so the directory must name the session
-// before the engine is launched, not only after it ends (found by the capture
-// end-to-end scenario: the hooks of the running engine saw no directory).
-#[tokio::test]
-async fn an_interactive_runs_session_directory_names_its_session_while_the_engine_runs() {
-    let script = Script::answering();
-    let rig = rig(script);
-    let during = Arc::new(Mutex::new(None::<(Option<String>, Option<String>)>));
-    let window = {
-        let (records, during) = (rig.records.clone(), Arc::clone(&during));
-        Arc::new(move || {
-            *during.lock().unwrap() = Some((
-                records.text("amber-swift-owl", "metadata.json"),
-                records.text("amber-swift-owl", "transcripts/transcript.jsonl"),
-            ));
-        })
-    };
-    *rig.runner.during.lock().unwrap() = Some(window);
-    let mut rig = rig;
-    let ended = rig
-        .runs
-        .interactive(&Flags::default(), &ask())
-        .await
-        .result
-        .unwrap();
-    let (metadata, _) = during.lock().unwrap().clone().expect("the engine ran");
-    let metadata = metadata.expect("metadata.json was written before the engine ran");
-    assert!(metadata.contains(&ended.session), "{metadata}");
-}
-
-// A hook still in flight as the engine exits is delivered while the listener
-// still serves, so the run's last catch-up (the transcript's writer) must come
-// AFTER the listener has stopped and drained, or a fact delivered between the
-// two is in the stream but never in the transcript. Forced here by reading,
-// at the stop, whether the run's end was projected yet.
-#[tokio::test]
-async fn the_listener_is_stopped_before_the_run_is_last_recorded() {
-    let mut rig = rig(Script::answering());
-    rig.runs
-        .interactive(&Flags::default(), &ask())
-        .await
-        .result
-        .unwrap();
-    assert_eq!(
-        *rig.hooks.end_projected_at_stop.lock().unwrap(),
-        Some(false),
-        "the run's end was recorded before the listener stopped"
-    );
-    assert!(rig
-        .records
-        .text("amber-swift-owl", "records/runs.jsonl")
-        .unwrap()
-        .contains("RunEnded"));
 }
 
 fn rig_again_with(script: Script) -> Rig {
@@ -2298,20 +2181,15 @@ async fn a_permit_for_the_path_the_run_builds_or_for_home_is_ignored() {
 // ---- every pre-launch check, decided by the run's enqueue (owner rulings 73, 73a-f) ----
 
 /// A run that failed after its session was made: the enqueued run is ended
-/// (a `LaunchFailed`), the session's directory is written, and its run record
-/// holds the end (ruling 73f, the proposal for what a failed run leaves).
+/// (a `LaunchFailed`), and nothing is written into its directory (ruling
+/// 87a: the run's end is its stream's).
 fn after_its_session_the_run_ended(rig: &Rig) {
-    let timeline = rig.timeline.lock().unwrap().clone();
+    let timeline = edge_timeline(rig);
     let at = |what: &str| timeline.iter().position(|t| t == what);
     assert!(at("EnqueueRun") < at("MintSession"), "{timeline:?}");
     assert!(at("LaunchFailed").is_some(), "{timeline:?}");
     let names = rig.records.names("amber-swift-owl");
-    assert!(names.iter().any(|n| n == "metadata.json"), "{names:?}");
-    let runs = rig
-        .records
-        .text("amber-swift-owl", "records/runs.jsonl")
-        .unwrap_or_default();
-    assert!(runs.contains("RunEnded"), "{runs}");
+    assert!(names.iter().all(|n| n.starts_with("home/")), "{names:?}");
 }
 
 /// The fatal finding the plan gives in these tests.
@@ -2483,7 +2361,7 @@ async fn a_refused_run_claims_no_name_mints_no_session_and_serves_nothing() {
         };
         assert!(failed);
         assert_eq!(
-            *rig.timeline.lock().unwrap(),
+            edge_timeline(&rig),
             ["EnqueueRun refused"],
             "interactive {interactive}"
         );
@@ -2519,7 +2397,7 @@ async fn a_run_is_enqueued_then_named_and_minted_then_certified_and_served() {
                 .result
                 .unwrap();
         }
-        let timeline = rig.timeline.lock().unwrap().clone();
+        let timeline = edge_timeline(&rig);
         let first: Vec<&str> = timeline.iter().take(5).map(String::as_str).collect();
         assert_eq!(
             first,
@@ -2676,7 +2554,7 @@ async fn a_name_whose_directory_exists_is_passed_over_unclaimed() {
         .result
         .unwrap();
     assert_eq!(answer.harp, "calm-quiet-fox");
-    let timeline = rig.timeline.lock().unwrap().clone();
+    let timeline = edge_timeline(&rig);
     assert_eq!(
         timeline
             .iter()
@@ -2710,7 +2588,7 @@ async fn names_whose_directories_all_exist_refuse_the_run_as_taken() {
         matches!(&error, RunError::Session(CoreError::Refused { code, .. }) if code == "sessions-names-taken"),
         "{error:?}"
     );
-    let timeline = rig.timeline.lock().unwrap().clone();
+    let timeline = edge_timeline(&rig);
     assert!(
         !timeline
             .iter()

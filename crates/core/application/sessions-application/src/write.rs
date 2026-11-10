@@ -1,10 +1,14 @@
-//! Writing sessions: keep, bind and remove. A write finds its session as a
-//! read does, then runs one command through angzarr-embedded's kernel
-//! (angzarr-embedded-runner's `Runner`), which retries it.
+//! Writing sessions: keep, bind, rename, remove and destroy. A write finds its
+//! session as a read does, then runs one command through angzarr-embedded's
+//! kernel (angzarr-embedded-runner's `Runner`), which retries it. A destroy
+//! (owner rulings 94, 94b) runs no command: it purges the session's streams
+//! from the store, head-guarded, and removes its directory.
 
 use angzarr_diagnostic::{Diagnostic, Report};
 use angzarr_embedded::v1::{CommandBook, Cover, Uuid};
-use angzarr_embedded::{CommandBookExt, Handled, OnRetryable};
+use angzarr_embedded::{
+    CommandBookExt, EventStore, Handled, OnRetryable, Purge, StoreError, StreamRef,
+};
 use angzarr_embedded_runner::Runner;
 
 use crate::bridge::Port;
@@ -203,10 +207,12 @@ where
         }
     }
 
-    /// Rename a session (plan 3.1): claim the new name, move the output
-    /// folder beside itself, record the name, free the old one; each step
-    /// undone if a later one fails, so a refusal leaves everything where it
-    /// was.
+    /// Rename a session (plan 3.1): the session judges it on what its lock
+    /// says (owner ruling 91: a live one is refused before anything is
+    /// claimed); then claim the new name, move the output folder beside
+    /// itself and the session's directory and lock to the new name (defect
+    /// 2), record the name, free the old one; each step undone if a later one
+    /// fails, so a refusal leaves everything where it was.
     pub(crate) async fn rename(&mut self, request: RenameRequest) -> Result<Renamed, AppError> {
         let (project, record) = self
             .read
@@ -218,6 +224,25 @@ where
             return Err(AppError::Rejected(Report::of(
                 &SessionRejection::NamesTaken { harp: to },
             )));
+        }
+        let lock = match self.read.liveness.lock_state(&record.harp) {
+            LockState::Held => sessions::LockEvidence::Held,
+            LockState::Free => sessions::LockEvidence::Free,
+            LockState::Unproven => sessions::LockEvidence::Unproven,
+        };
+        if lock == sessions::LockEvidence::Held {
+            // Asked of the session itself, so the refusal is its own, and
+            // nothing is claimed or moved for a rename it refuses.
+            self.commit(
+                &project,
+                &record,
+                RenameSession {
+                    harp: to.clone(),
+                    output_dir: record.output_dir.clone(),
+                    lock,
+                },
+            )
+            .await?;
         }
         self.claim_command(
             &project,
@@ -237,6 +262,19 @@ where
                 return Err(error);
             }
         };
+        let undo_output = |files: &mut F| {
+            if moved {
+                let _ = files.move_output(&new_output, &record.output_dir);
+            }
+        };
+        let moved_dir = match self.read.files.move_session(&record.harp, &to) {
+            Ok(moved_dir) => moved_dir,
+            Err(error) => {
+                undo_output(self.read.files);
+                self.release(&project, &to, &record.id).await?;
+                return Err(AppError::Files(error));
+            }
+        };
         let recorded = self
             .commit(
                 &project,
@@ -244,15 +282,15 @@ where
                 RenameSession {
                     harp: to.clone(),
                     output_dir: new_output.clone(),
-                    // RED (ruling 91): the lock is not yet asked.
-                    lock: sessions::LockEvidence::Unproven,
+                    lock,
                 },
             )
             .await;
         if let Err(error) = recorded {
-            if moved {
-                let _ = self.read.files.move_output(&new_output, &record.output_dir);
+            if moved_dir {
+                let _ = self.read.files.move_session(&to, &record.harp);
             }
+            undo_output(self.read.files);
             self.release(&project, &to, &record.id).await?;
             return Err(error);
         }
@@ -292,11 +330,15 @@ where
                 bytes_freed: 0,
                 ..plan
             },
+            events_destroyed: 0,
             refusal,
             dead_letters: Vec::new(),
         };
         if removal.refusal.is_some() || !request.yes {
             return Ok(removal);
+        }
+        if request.scope == Scope::Purge {
+            return self.destroy(&project, &record, removal).await;
         }
         // The purge is recorded BEFORE any file is unlinked: if this dies
         // between the two, the index already reads "purged" over its
@@ -327,40 +369,71 @@ where
             removal.files.bytes_freed = freed;
         }
         removal.applied = true;
-        if request.scope == Scope::Remove {
-            self.commit(&project, &record, ForgetSession {}).await?;
-            removal.index_entry_removed = true;
-        }
+        self.commit(&project, &record, ForgetSession {}).await?;
+        removal.index_entry_removed = true;
         removal.dead_letters = std::mem::take(self.dead_letters);
         Ok(removal)
     }
 
+    /// Destroy `record` (owner rulings 94, 94b): purge its stream and the
+    /// stream of each of its runs (UUIDv5(session, 1..=n)), each guarded by
+    /// the head just read, then remove its directory and lock. The name's
+    /// claim is kept (94c). The streams go first: a directory left by a
+    /// failure after them names a session nothing lists (and the mint never
+    /// reuses its harp).
+    async fn destroy(
+        &mut self,
+        project: &Project,
+        record: &SessionRecord,
+        mut removal: Removal,
+    ) -> Result<Removal, AppError> {
+        let session = uuid::Uuid::parse_str(&record.id).map_err(|e| {
+            AppError::Failed(
+                Report::new("sessions-application-bad-id").arg("ext_err_txt", e.to_string()),
+            )
+        })?;
+        let mut roots = vec![(SESSION_DOMAIN, session)];
+        for incarnation in 1..=record.incarnation.max(1) {
+            let run = runs::run_root(&record.id, incarnation);
+            if let Ok(run) = uuid::Uuid::from_slice(&run.value) {
+                roots.push((runs::RUN_DOMAIN, run));
+            }
+        }
+        let store = self.read.stores.open(project).await.map_err(failed)?;
+        for (domain, root) in roots {
+            removal.events_destroyed += purge(store, StreamRef::main(domain, root)).await?;
+        }
+        removal.files.bytes_freed = self
+            .read
+            .files
+            .destroy_session(&record.harp)
+            .map_err(AppError::Files)?;
+        removal.applied = true;
+        removal.index_entry_removed = true;
+        Ok(removal)
+    }
+
     /// What removing `harp` would do to its files: the machine-written
-    /// conversation destroyed, everything else named and left.
+    /// conversation (the engine's native history, and a transcript an older
+    /// ctxloom left) destroyed, everything else named and left; a destroy
+    /// takes the whole directory.
     fn plan(&mut self, harp: &str, scope: Scope) -> Result<FilePlan, AppError> {
         let survey = self.read.files.survey(harp).map_err(AppError::Files)?;
         let mut plan = FilePlan::default();
         for file in survey {
-            let transcript = file.rel.starts_with("transcripts/");
-            let machine = transcript || file.rel.starts_with("native/");
-            let (class, action, reason, into) =
-                if machine && (transcript || scope != Scope::Transcript) {
-                    (Class::Machine, "destroy", None, &mut plan.destroy)
-                } else if machine {
-                    (
-                        Class::Machine,
-                        "keep",
-                        Some("not a transcript: `session purge` takes it".to_string()),
-                        &mut plan.keep,
-                    )
-                } else {
-                    (
-                        Class::Authored,
-                        "keep",
-                        Some("authored: never destroyed".to_string()),
-                        &mut plan.keep,
-                    )
-                };
+            let machine = file.rel.starts_with("transcripts/") || file.rel.starts_with("native/");
+            let (class, action, reason, into) = if machine {
+                (Class::Machine, "destroy", None, &mut plan.destroy)
+            } else if scope == Scope::Purge {
+                (Class::Authored, "destroy", None, &mut plan.destroy)
+            } else {
+                (
+                    Class::Authored,
+                    "keep",
+                    Some("authored: never destroyed".to_string()),
+                    &mut plan.keep,
+                )
+            };
             into.push(PlanItem {
                 path: file.path,
                 rel: file.rel,
@@ -395,11 +468,17 @@ where
                 verb: scope.verb().to_string(),
             }));
         }
-        let last_active = self
+        // The newest of its engine's native history and its own capture
+        // (ruling 87a: the transcript is the session's events).
+        let native = self
             .read
             .files
             .last_active(&harp)
             .map_err(AppError::Files)?;
+        let last_active = [native, record.last_captured]
+            .into_iter()
+            .flatten()
+            .max_by_key(|at| (at.seconds, at.nanos));
         let now = self.clock.now();
         let retention = Retention {
             cutoff: Some(session_index::stamp::days_before(now, self.retention_days)),
@@ -429,6 +508,20 @@ fn recorded(handled: &Handled) -> bool {
     // review item 8) recorded nothing new, though it re-reads its events.
     matches!(handled, Handled::Applied(_))
         && handled.books().iter().any(|book| !book.pages.is_empty())
+}
+
+/// Purge `stream` at the head just read, re-read and tried again when another
+/// writer moved it in between (head-guarded, angzarr's 14.43); how many
+/// events it removed.
+async fn purge<S: EventStore + Purge>(store: &S, stream: StreamRef<'_>) -> Result<u64, AppError> {
+    let mut tries = 0;
+    loop {
+        let head = store.head(stream).await.map_err(failed)?.next_sequence;
+        match store.purge(stream, head).await {
+            Err(StoreError::Conflict { .. }) if tries < 3 => tries += 1,
+            other => return other.map_err(failed),
+        }
+    }
 }
 
 /// Where a session's output folder goes under the name `to`: beside itself.

@@ -73,7 +73,7 @@ struct SeedArgs {
     /// `free` makes its lock file with nothing holding it; `none` makes none
     #[arg(long, default_value = "none")]
     lock: String,
-    /// Record the canonical transcript Go's fixture records
+    /// Record the first prompt Go's fixture's transcript holds, as a hook would
     #[arg(long)]
     transcript: bool,
     /// Mark its transcript kept

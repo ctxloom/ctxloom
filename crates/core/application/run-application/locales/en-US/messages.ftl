@@ -5,6 +5,7 @@ run-application-session = the session could not be made: { $reason }
 run-application-project = the project could not be identified: { $reason }
 run-application-listener = the run's hook listener could not be started: { $reason }
 run-application-listener-fix = free the loopback address, or let the run choose a port
+run-application-lock = the run's lock could not be taken: { $reason }
 run-application-launch = the run could not be launched: { $reason }
 run-application-not-started = the engine was not started: { $detail }
 run-application-rate-limited = the engine is rate limited: { $detail }

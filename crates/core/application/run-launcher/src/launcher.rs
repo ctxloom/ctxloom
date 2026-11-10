@@ -20,20 +20,29 @@
 //!    `TurnCompleted` or `TurnFailed`;
 //! 4. `RunExited` ends the run.
 //!
-//! The transcript is the PROJECTOR's to write (D27; [`crate::Recorder`], the
-//! one writer), from the capture facts on the session's stream. A child's
-//! turn's facts are its hooks' alone (owner rulings 26 and 51): the launcher
-//! records none of its prompt or its words, so a turn whose hooks never reach
-//! the listener has no conversation in its transcript, though its reply is
-//! still the launch's answer. The terminal session's opening prompt is its
-//! hooks' to record too, like every other of its prompts. The events carry the
-//! transcript's path (`answer_ref`) and never its bytes.
+//! The transcript is read from the capture facts on the session's stream (no
+//! file, owner ruling 87a). A child's turn's facts are its hooks' alone (owner
+//! rulings 26 and 51): the launcher records none of its prompt or its words,
+//! so a turn whose hooks never reach the listener has no conversation in its
+//! transcript, though its reply is still the launch's answer. The terminal
+//! session's opening prompt is its hooks' to record too, like every other of
+//! its prompts. The events carry no file reference (`answer_ref` is empty).
+//!
+//! The run's own lock (rulings 86, 92), which its enqueuer holds through the
+//! [`Orders`], is let go once `RunnerStarted` is recorded (or the launch
+//! failed); from then on the session's lock is the run's evidence (ruling
+//! 93). A step also sweeps the runs other processes left: one still owed a
+//! runner whose own lock is free, and one started whose session's lock is
+//! free, have lost their owner. The sweep probes the lock, THEN re-reads the
+//! run's stream (an owner records its start or end before it lets its lock
+//! go), and records `LaunchFailed` (`orphaned`, keyed by the run, so a second
+//! sweeper's is a DUPLICATE) and the end of the session's incarnation.
 
 use std::sync::Arc;
 
 use angzarr_embedded::v1::Uuid;
 use angzarr_embedded::{Catalog, CatchUp, Processed, ReadStore, Store};
-use pending_launches::{catch_up, PendingLaunch, PendingModel};
+use pending_launches::{catch_up, PendingLaunch, PendingModel, StartedRun};
 use run_ports::{
     Edge, Engine, FailureClass, Limits, PrepareRequest, RunnerLauncher, SessionRecords,
     TurnCommand, TurnOutcome, TurnRequest,
@@ -42,7 +51,9 @@ use runs_application::{Facts, Identity, Observation, Principal, RunnerFact};
 
 use crate::error::LaunchError;
 use crate::orders::{Order, Orders};
-use crate::transcript::TRANSCRIPT;
+
+/// The detail and cause a run ended for its lost owner records.
+const ORPHANED: &str = "orphaned";
 
 /// The turn a one-shot takes.
 const TURN: u64 = 1;
@@ -91,6 +102,7 @@ pub struct Launched {
 /// The launcher: the engines it can drive, the way a command is run, the
 /// session directory it writes, and the pending launches it catches up on.
 pub struct Launcher<E: Edge, L: RunnerLauncher, R: SessionRecords> {
+    edge: Arc<E>,
     facts: Facts<E>,
     runner: L,
     records: R,
@@ -98,8 +110,7 @@ pub struct Launcher<E: Edge, L: RunnerLauncher, R: SessionRecords> {
     orders: Arc<Orders>,
     limits: Limits,
     pending: CatchUp<PendingModel>,
-    /// RED (rulings 86, 92, 93): held, not yet asked.
-    #[allow(dead_code)]
+    /// The locks other processes' runs are judged by; none: no sweep.
     locks: Option<Arc<dyn run_ports::RunLocks>>,
 }
 
@@ -113,7 +124,8 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         limits: Limits,
     ) -> Launcher<E, L, R> {
         Launcher {
-            facts: Facts::new(edge),
+            facts: Facts::new(Arc::clone(&edge)),
+            edge,
             runner,
             records,
             engines,
@@ -170,14 +182,93 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
                 ext_err_txt: failure.to_string(),
             });
         }
-        let owed = self.pending.projector().pending().launches();
+        let (owed, started) = {
+            let pending = self.pending.projector().pending();
+            (pending.launches(), pending.started())
+        };
         let mut launched = Vec::new();
         for launch in owed {
             if let Some(order) = self.orders.take(&launch.session, launch.incarnation) {
                 launched.push(self.launch(launch, order).await?);
+            } else if self.launcher_lost(&launch) {
+                self.orphaned(&launch.run, &launch.session, launch.incarnation, false)
+                    .await?;
+            }
+        }
+        for run in started {
+            if self.owner_lost(&run) {
+                self.orphaned(&run.run, &run.session, run.incarnation, true)
+                    .await?;
             }
         }
         Ok(launched)
+    }
+
+    /// Whether the launcher of `launch` (another process's: this one holds no
+    /// order for it) has died: its run lock, journaled, is free.
+    fn launcher_lost(&self, launch: &PendingLaunch) -> bool {
+        let Some(locks) = &self.locks else {
+            return false;
+        };
+        !launch.launcher_lock.is_empty()
+            && locks.probe(&launch.launcher_lock) == run_ports::LockProbe::Free
+    }
+
+    /// Whether the owner of the started `run` has died: its session's lock is
+    /// free (ruling 93).
+    fn owner_lost(&self, run: &StartedRun) -> bool {
+        let Some(locks) = &self.locks else {
+            return false;
+        };
+        !run.harp.is_empty()
+            && locks.session(&run.project_dir, &run.harp) == run_ports::LockProbe::Free
+    }
+
+    /// End the run `run` of `session`'s `incarnation`, whose owner was found
+    /// gone, unless its stream, read again after the probe, shows its owner
+    /// got there first: its start (for a run owed a runner, unless `started`)
+    /// or its end.
+    async fn orphaned(
+        &self,
+        run: &Uuid,
+        session: &str,
+        incarnation: u32,
+        started: bool,
+    ) -> Result<(), LaunchError> {
+        let cover = angzarr_embedded::v1::Cover {
+            domain: runs::RUN_DOMAIN.to_string(),
+            root: Some(run.clone()),
+            edition: None,
+        };
+        let pages = self
+            .edge
+            .events(&cover, 0)
+            .await
+            .map_err(|e| LaunchError::Fact {
+                reason: e.to_string(),
+            })?;
+        let since = pages.iter().any(|page| match &page.body {
+            Some(angzarr_embedded::v1::event_page::Body::Event(any)) => {
+                any.type_url.ends_with(".RunEnded")
+                    || (!started && any.type_url.ends_with(".RunnerStartedRecorded"))
+            }
+            _ => false,
+        });
+        if since {
+            return Ok(());
+        }
+        let failed = |e: runs_application::AppError| LaunchError::Fact {
+            reason: e.to_string(),
+        };
+        self.facts
+            .launch_failed(run, false, ORPHANED)
+            .await
+            .map_err(failed)?;
+        self.facts
+            .incarnation_ended(session, incarnation, ORPHANED)
+            .await
+            .map(drop)
+            .map_err(failed)
     }
 
     async fn launch(
@@ -211,6 +302,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             Ok(prepared) => prepared,
             Err(detail) => {
                 self.not_started(&who, true, &detail).await?;
+                self.orders.release(&launch.session, launch.incarnation);
                 return Ok(done(Outcome::NotStarted { detail }));
             }
         };
@@ -230,6 +322,8 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         };
         self.record(&who, runner_started(&order, running.pid()))
             .await?;
+        // Started: the run's own lock has done its work (ruling 92).
+        self.orders.release(&launch.session, launch.incarnation);
         self.record(
             &who,
             RunnerFact::TurnStarted(runs::TurnStarted { turn: TURN }),
@@ -244,15 +338,15 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         let outcome = match outcome {
             TurnOutcome::Answered { answer, native_id } => {
                 if let Some(native) = &native_id {
-                    self.record(&who, bound(native, self.records.dir(&order.harp)))
-                        .await?;
+                    self.record(&who, bound(native)).await?;
                 }
                 self.record(
                     &who,
                     RunnerFact::TurnCompleted(runs::TurnCompleted {
                         turn: TURN,
                         native_key: native_id.clone().unwrap_or_default(),
-                        answer_ref: TRANSCRIPT.to_string(),
+                        // No file holds the answer (ruling 87a).
+                        answer_ref: String::new(),
                         exit_code: code,
                     }),
                 )
@@ -302,6 +396,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         };
         self.record(who, runner_started(order, running.pid()))
             .await?;
+        self.orders.release(&who_session(who), who.incarnation);
         let output = match running.finish() {
             Ok(output) => output,
             Err(failure) => return self.never_started(who, failure, done).await,
@@ -336,6 +431,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
     ) -> Result<Launched, LaunchError> {
         self.not_started(who, failure.deterministic, &failure.detail)
             .await?;
+        self.orders.release(&who_session(who), who.incarnation);
         Ok(done(Outcome::NotStarted {
             detail: failure.detail,
         }))
@@ -451,14 +547,21 @@ fn attached() -> RunnerFact {
     })
 }
 
-/// The bind of the engine's own session id, with the session directory as
-/// the place its record is.
-fn bound(native_id: &str, transcript_dir: String) -> RunnerFact {
+/// The bind of the engine's own session id. No ctxloom file is named: the
+/// session's record is its events (ruling 87a).
+fn bound(native_id: &str) -> RunnerFact {
     RunnerFact::EngineSessionBound(sessions::BindEngineSession {
         native_id: native_id.to_string(),
-        transcript_path: format!("{transcript_dir}/{TRANSCRIPT}"),
+        transcript_path: String::new(),
         engine_version: None,
     })
+}
+
+/// The session `who` acts for, as its id's text.
+fn who_session(who: &Identity) -> String {
+    uuid::Uuid::from_slice(&who.session.value)
+        .map(|id| id.hyphenated().to_string())
+        .unwrap_or_default()
 }
 
 /// The end of a terminal session whose engine has no hook for it: at its

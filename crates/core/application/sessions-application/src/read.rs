@@ -1,13 +1,21 @@
 //! Reading sessions: the listing, the search, one session, and the
 //! transcripts. A read opens a project's store only if it exists
 //! ([`ProjectStores::open_existing`]) and creates nothing: reading the record
-//! touches nothing (session.feature).
+//! touches nothing (session.feature). A transcript is the session's events
+//! (owner ruling 87a): caught up fresh, a read sees what the hooks of a
+//! session still running have delivered so far.
 
 use angzarr_diagnostic::Report;
 use angzarr_embedded::Registry;
 use ports::{Project, ProjectIdentity};
 use session_index::{only_state, title_of, Captured, SessionIndex, SessionRecord, State, View};
 use session_ports::{Liveness, LockState, ProjectStores, SessionFiles};
+
+/// A session as its store records it, and its transcript.
+pub(crate) struct Held {
+    pub record: SessionRecord,
+    pub transcript: Option<String>,
+}
 
 use crate::{failed, AppError, ListQuery, SearchQuery, ShowQuery, TranscriptQuery, TranscriptRow};
 
@@ -44,10 +52,7 @@ where
 
     /// `project`'s sessions as its store holds them now, most recently
     /// started first; none where it has no store yet.
-    pub(crate) async fn records(
-        &mut self,
-        project: &Project,
-    ) -> Result<Vec<SessionRecord>, AppError> {
+    pub(crate) async fn records(&mut self, project: &Project) -> Result<Vec<Held>, AppError> {
         let Some(store) = self.stores.open_existing(project).await.map_err(failed)? else {
             return Ok(Vec::new());
         };
@@ -60,8 +65,15 @@ where
         if let Some((_, error)) = caught.failures().first() {
             return Err(AppError::Failed(Report::of(error)));
         }
-        let records = catch_up.projector().index().records();
-        Ok(records)
+        let index = catch_up.projector().index();
+        Ok(index
+            .records()
+            .into_iter()
+            .map(|record| Held {
+                transcript: index.transcript(&record.id),
+                record,
+            })
+            .collect())
     }
 
     /// The session named `harp`, and the project holding it: the one
@@ -72,6 +84,16 @@ where
         pinned: Option<&str>,
         harp: &str,
     ) -> Result<(Project, SessionRecord), AppError> {
+        let (project, held) = self.find_held(pinned, harp).await?;
+        Ok((project, held.record))
+    }
+
+    /// [`Reading::find`], with the session's transcript.
+    pub(crate) async fn find_held(
+        &mut self,
+        pinned: Option<&str>,
+        harp: &str,
+    ) -> Result<(Project, Held), AppError> {
         let here = self.scope(pinned, false)?;
         let mut searched = Vec::new();
         for project in here {
@@ -93,42 +115,28 @@ where
         })
     }
 
-    async fn find_in(
-        &mut self,
-        project: &Project,
-        harp: &str,
-    ) -> Result<Option<SessionRecord>, AppError> {
+    async fn find_in(&mut self, project: &Project, harp: &str) -> Result<Option<Held>, AppError> {
         Ok(self
             .records(project)
             .await?
             .into_iter()
-            .find(|record| record.harp == harp))
+            .find(|held| held.record.harp == harp))
     }
 
-    /// `record` as a listing shows it: its state from its lock (never its end
-    /// stamp), its title from its transcript, its transcript on disk. A
-    /// transcript that cannot be read is no title, as in Go.
-    pub(crate) fn view(&mut self, record: SessionRecord) -> View {
+    /// A session as a listing shows it: its state from its lock (never its
+    /// end stamp), its title and its size from its transcript, as its events
+    /// hold it.
+    pub(crate) fn view(&mut self, held: Held) -> View {
+        let Held { record, transcript } = held;
         let state = match self.liveness.lock_state(&record.harp) {
             LockState::Held => State::Live,
             LockState::Free => State::Ended,
             LockState::Unproven => State::Unknown,
         };
-        let title = self
-            .files
-            .read_transcript(&record.harp)
-            .ok()
-            .flatten()
-            .and_then(|text| title_of(&text));
-        let captured = self
-            .files
-            .transcript(&record.harp)
-            .ok()
-            .flatten()
-            .map(|t| Captured {
-                path: t.path,
-                bytes: t.bytes,
-            });
+        let title = transcript.as_deref().and_then(title_of);
+        let captured = transcript.as_ref().map(|text| Captured {
+            bytes: text.len() as u64,
+        });
         View {
             record,
             state,
@@ -145,9 +153,9 @@ where
         }
         records.sort_by(|a, b| {
             let started = |r: &SessionRecord| (r.started_at.seconds, r.started_at.nanos);
-            started(b)
-                .cmp(&started(a))
-                .then_with(|| a.harp.cmp(&b.harp))
+            started(&b.record)
+                .cmp(&started(&a.record))
+                .then_with(|| a.record.harp.cmp(&b.record.harp))
         });
         let views = records
             .into_iter()
@@ -169,47 +177,44 @@ where
     }
 
     pub(crate) async fn show(&mut self, query: ShowQuery) -> Result<View, AppError> {
-        let (_, record) = self.find(query.project.as_deref(), &query.harp).await?;
-        Ok(self.view(record))
+        let (_, held) = self
+            .find_held(query.project.as_deref(), &query.harp)
+            .await?;
+        Ok(self.view(held))
     }
 
     pub(crate) async fn transcripts(
         &mut self,
         query: TranscriptQuery,
     ) -> Result<Vec<TranscriptRow>, AppError> {
-        let records = match &query.harp {
-            Some(harp) => vec![self.find(query.project.as_deref(), harp).await?.1],
+        let views = match &query.harp {
+            Some(harp) => {
+                let (_, held) = self.find_held(query.project.as_deref(), harp).await?;
+                vec![self.view(held)]
+            }
             None => {
                 let list = ListQuery {
                     project: query.project.clone(),
                     all: query.all,
                     state: None,
                 };
-                self.sessions(&list)
-                    .await?
-                    .into_iter()
-                    .map(|view| view.record)
-                    .collect()
+                self.sessions(&list).await?
             }
         };
-        let mut rows = Vec::with_capacity(records.len());
-        for record in records {
-            let captured = self.files.transcript(&record.harp).ok().flatten();
-            rows.push(TranscriptRow {
-                harp: record.harp,
-                captured: captured.is_some(),
-                bytes: captured.as_ref().map_or(0, |t| t.bytes),
-                path: captured.map(|t| t.path),
-            });
-        }
-        Ok(rows)
+        Ok(views
+            .into_iter()
+            .map(|view| TranscriptRow {
+                harp: view.record.harp,
+                captured: view.captured.is_some(),
+                bytes: view.captured.map_or(0, |c| c.bytes),
+            })
+            .collect())
     }
 
     pub(crate) async fn transcript(&mut self, harp: &str) -> Result<String, AppError> {
-        let (_, record) = self.find(None, harp).await?;
-        self.files
-            .read_transcript(&record.harp)
-            .map_err(AppError::Files)?
-            .ok_or(AppError::NoCapturedTranscript { harp: record.harp })
+        let (_, held) = self.find_held(None, harp).await?;
+        held.transcript.ok_or(AppError::NoCapturedTranscript {
+            harp: held.record.harp,
+        })
     }
 }

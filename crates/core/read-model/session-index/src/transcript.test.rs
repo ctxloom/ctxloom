@@ -48,15 +48,6 @@ fn the_user_speaks_as_user() {
     assert!(line.contains(r#""type":"user""#), "{line}");
 }
 
-#[test]
-fn the_next_sequence_is_the_lines_already_there() {
-    assert_eq!(next_seq(b""), 0);
-    assert_eq!(next_seq(b"{}\n"), 1);
-    assert_eq!(next_seq(b"{}\n{}\n"), 2);
-    // A blank line is no entry; a last line without its newline is one.
-    assert_eq!(next_seq(b"{}\n\n  \n{}"), 2);
-}
-
 // Centuries that are not leap years (the era arithmetic's century term), and
 // the one that is.
 #[test]

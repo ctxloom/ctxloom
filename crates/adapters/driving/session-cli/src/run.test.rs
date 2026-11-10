@@ -238,10 +238,7 @@ fn end_purged_kept_and_the_transcript_ride_the_row_once_set() {
     v.record.ended_at = Some(ts(STARTED + 3600));
     v.record.purged_at = Some(ts(STARTED + 7200));
     v.record.kept = true;
-    v.captured = Some(Captured {
-        path: "/home/.ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl".to_string(),
-        bytes: 9,
-    });
+    v.captured = Some(Captured { bytes: 9 });
     let mut fake = Fake {
         views: vec![v],
         ..Fake::default()
@@ -251,10 +248,8 @@ fn end_purged_kept_and_the_transcript_ride_the_row_once_set() {
     assert_eq!(row["end"], "2026-07-17T13:00:00Z");
     assert_eq!(row["purged"], true);
     assert_eq!(row["kept"], true);
-    assert_eq!(
-        row["transcript_path"],
-        "/home/.ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl"
-    );
+    // Ruling 87a: no file holds the transcript, so the row names none.
+    assert_eq!(row["transcript_path"], serde_json::Value::Null);
     assert!(row["summary"].as_str().unwrap().contains("kept"));
     assert!(row["summary"].as_str().unwrap().contains("purged"));
 }
@@ -653,6 +648,7 @@ fn plan(applied: bool) -> Removal {
             }],
             bytes_freed: if applied { 9 } else { 0 },
         },
+        events_destroyed: 0,
         refusal: None,
         dead_letters: Vec::new(),
     }
@@ -790,13 +786,11 @@ fn rows() -> Vec<TranscriptRow> {
             harp: "amber-swift-owl".to_string(),
             captured: true,
             bytes: 9,
-            path: Some("/h/t.jsonl".to_string()),
         },
         TranscriptRow {
             harp: "brisk-copper-moth".to_string(),
             captured: false,
             bytes: 0,
-            path: None,
         },
     ]
 }
@@ -816,7 +810,7 @@ fn the_transcript_listing_names_every_session_captured_or_not() {
     assert_eq!(
         doc,
         json!({"transcripts": [
-            {"harp": "amber-swift-owl", "captured": true, "bytes": 9, "path": "/h/t.jsonl"},
+            {"harp": "amber-swift-owl", "captured": true, "bytes": 9},
             {"harp": "brisk-copper-moth", "captured": false, "bytes": 0},
         ]})
     );
@@ -833,7 +827,7 @@ fn the_transcript_table_says_false_for_an_uncaptured_one() {
     };
     let ran = go(&mut fake, Format::Text, &["transcript", "list"]);
     let lines: Vec<&str> = ran.out.lines().collect();
-    for header in ["HARP", "CAPTURED", "BYTES", "PATH"] {
+    for header in ["HARP", "CAPTURED", "BYTES"] {
         assert!(lines[0].contains(header), "{header}: {}", lines[0]);
     }
     let moth = lines
@@ -1607,19 +1601,15 @@ fn a_refused_purge_reaps_nothing() {
 }
 
 #[test]
-fn only_purge_empties_the_worktrees_not_remove_or_transcript_purge() {
-    for words in [
-        vec!["remove", "amber-swift-owl", "--yes"],
-        vec!["transcript", "purge", "amber-swift-owl", "--yes"],
-    ] {
-        let mut fake = Fake {
-            removal: Some(plan(true)),
-            wt_report: Some(wt_report(Vec::new(), true)),
-            ..Fake::default()
-        };
-        let _ = go(&mut fake, Format::Json, &words);
-        assert!(fake.wt_asked.is_empty(), "{words:?}: {:?}", fake.wt_asked);
-    }
+fn only_purge_empties_the_worktrees_not_remove() {
+    let words = ["remove", "amber-swift-owl", "--yes"];
+    let mut fake = Fake {
+        removal: Some(plan(true)),
+        wt_report: Some(wt_report(Vec::new(), true)),
+        ..Fake::default()
+    };
+    let _ = go(&mut fake, Format::Json, &words);
+    assert!(fake.wt_asked.is_empty(), "{:?}", fake.wt_asked);
 }
 
 #[test]
@@ -1779,4 +1769,13 @@ fn transcript_show_in_text_places_a_message_under_its_own_prompt_whatever_arrive
             "{lines:?}"
         );
     }
+}
+
+// Ruling 87a, 94b: the transcript has no destroyer of its own (no file holds
+// it; the session's events are destroyed whole, by `session purge`).
+#[test]
+fn there_is_no_transcript_purge() {
+    let command = Session::augment_args(Command::new("session")).no_binary_name(true);
+    let refused = command.try_get_matches_from(["transcript", "purge", "amber-swift-owl"]);
+    assert!(refused.is_err());
 }

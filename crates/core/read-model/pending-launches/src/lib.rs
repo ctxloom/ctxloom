@@ -65,10 +65,19 @@ pub struct Owed {
 /// Where one run stands.
 #[derive(Clone, Debug)]
 enum Stage {
-    /// Enqueued, no sign of a runner.
-    Waiting(RunMode),
-    /// A runner exists, or the run ended.
+    /// Enqueued, no sign of a runner: its mode and its launcher's lock.
+    Waiting(RunMode, String),
+    /// Its runner was started, and it has not ended.
+    Started,
+    /// It ended.
     Past,
+}
+
+/// Where a session's lock is: its project directory and current harp.
+#[derive(Clone, Debug, Default)]
+struct Place {
+    project_dir: String,
+    harp: String,
 }
 
 /// (session text, incarnation): what a run and an owed incarnation share.
@@ -83,6 +92,8 @@ pub struct Pending {
     keys: BTreeMap<Vec<u8>, Key>,
     /// The incarnations owed, by key, with the session stream that owes it.
     owed: BTreeMap<Key, Vec<u8>>,
+    /// Each session's place, by its id text.
+    places: BTreeMap<String, Place>,
 }
 
 fn root_of(book: &EventBook) -> Vec<u8> {
@@ -126,6 +137,7 @@ impl Pending {
             SESSION_DOMAIN => {
                 if fresh {
                     self.owed.retain(|_, owner| *owner != root);
+                    self.places.remove(&text_of(&root));
                 }
                 for event in events(book) {
                     self.fold_session(&root, SessionEvent::from_any(event)?);
@@ -148,9 +160,17 @@ impl Pending {
                 let key = (enqueued.session, enqueued.incarnation);
                 self.owed.remove(&key);
                 self.keys.insert(root.to_vec(), key.clone());
-                self.runs.insert(key, Stage::Waiting(enqueued.mode));
+                self.runs
+                    .insert(key, Stage::Waiting(enqueued.mode, enqueued.launcher_lock));
             }
-            RunEvent::RunnerStartedRecorded(_) | RunEvent::RunEnded(_) => {
+            RunEvent::RunnerStartedRecorded(_) => {
+                if let Some(key) = self.keys.get(root) {
+                    if let Some(stage @ Stage::Waiting(..)) = self.runs.get_mut(key) {
+                        *stage = Stage::Started;
+                    }
+                }
+            }
+            RunEvent::RunEnded(_) => {
                 if let Some(key) = self.keys.get(root) {
                     self.runs.insert(key.clone(), Stage::Past);
                 }
@@ -160,11 +180,26 @@ impl Pending {
     }
 
     fn fold_session(&mut self, root: &[u8], event: SessionEvent) {
-        if let SessionEvent::IncarnationOwed(owed) = event {
-            let key = (text_of(root), owed.incarnation);
-            if !self.runs.contains_key(&key) {
-                self.owed.insert(key, root.to_vec());
+        match event {
+            SessionEvent::IncarnationOwed(owed) => {
+                let key = (text_of(root), owed.incarnation);
+                if !self.runs.contains_key(&key) {
+                    self.owed.insert(key, root.to_vec());
+                }
             }
+            SessionEvent::SessionMinted(minted) => {
+                self.places.insert(
+                    text_of(root),
+                    Place {
+                        project_dir: minted.project_dir,
+                        harp: minted.harp,
+                    },
+                );
+            }
+            SessionEvent::RenamedTo(renamed) => {
+                self.places.entry(text_of(root)).or_default().harp = renamed.harp;
+            }
+            _ => {}
         }
     }
 
@@ -173,15 +208,14 @@ impl Pending {
         self.runs
             .iter()
             .filter_map(|((session, incarnation), stage)| match stage {
-                Stage::Waiting(mode) => Some(PendingLaunch {
+                Stage::Waiting(mode, lock) => Some(PendingLaunch {
                     run: runs::run_root(session, *incarnation),
                     session: session.clone(),
                     incarnation: *incarnation,
                     mode: *mode,
-                    // RED (rulings 86, 92): the lock is not yet folded.
-                    launcher_lock: String::new(),
+                    launcher_lock: lock.clone(),
                 }),
-                Stage::Past => None,
+                Stage::Started | Stage::Past => None,
             })
             .collect()
     }
@@ -189,9 +223,21 @@ impl Pending {
     /// The runs started and not ended, by session then incarnation (ruling
     /// 93).
     ///
-    /// RED (ruling 93): a stub that lists none.
     pub fn started(&self) -> Vec<StartedRun> {
-        Vec::new()
+        self.runs
+            .iter()
+            .filter(|(_, stage)| matches!(stage, Stage::Started))
+            .map(|((session, incarnation), _)| {
+                let place = self.places.get(session).cloned().unwrap_or_default();
+                StartedRun {
+                    run: runs::run_root(session, *incarnation),
+                    session: session.clone(),
+                    incarnation: *incarnation,
+                    project_dir: place.project_dir,
+                    harp: place.harp,
+                }
+            })
+            .collect()
     }
 
     /// The incarnations owed a run that is not yet enqueued, by session then

@@ -84,6 +84,7 @@ pub const ENV_ALLOWLIST: &[&str] = &[
     run_ports::BEARER_VARIABLE,
     run_ports::RUN_VARIABLE,
     run_ports::TLS_CERT_VARIABLE,
+    run_ports::SESSION_VARIABLE,
     run_ports::HARP_VARIABLE,
 ];
 

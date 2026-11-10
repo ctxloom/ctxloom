@@ -47,17 +47,18 @@ pub struct Kept {
     pub dead_letters: Vec<DeadLetter>,
 }
 
-/// What a destroyer takes of a session (Go: `session remove`, `session
-/// purge` and `session transcript purge`).
+/// What a destroyer takes of a session.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Scope {
-    /// The machine-written conversation and the index entry.
+    /// The engine's native history and the index entry (`session remove`):
+    /// the session's events stay in the store, forgotten.
     #[default]
     Remove,
-    /// The machine-written conversation; the session stays listed.
+    /// The whole session, DESTROYED (owner rulings 94, 94b; `session purge`,
+    /// the session-destroy feature's): every event of its stream and of each
+    /// of its runs' purged from the store, its directory and lock removed.
+    /// Its name stays claimed (94c).
     Purge,
-    /// The canonical transcripts alone; the session stays listed.
-    Transcript,
 }
 
 impl Scope {
@@ -66,7 +67,6 @@ impl Scope {
         match self {
             Scope::Remove => "session remove",
             Scope::Purge => "session purge",
-            Scope::Transcript => "session transcript purge",
         }
     }
 }
@@ -125,6 +125,9 @@ pub struct Removal {
     pub applied: bool,
     pub index_entry_removed: bool,
     pub files: FilePlan,
+    /// How many events a destroy purged from the store (its session's and
+    /// its runs'); zero for any other removal, and on a report.
+    pub events_destroyed: u64,
     pub refusal: Option<Refusal>,
     pub dead_letters: Vec<DeadLetter>,
 }
@@ -160,9 +163,10 @@ pub struct TranscriptQuery {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct TranscriptRow {
     pub harp: String,
+    /// Whether the session's events hold any line of a transcript.
     pub captured: bool,
+    /// Its transcript's size, as `session transcript show` prints it.
     pub bytes: u64,
-    pub path: Option<String>,
 }
 
 /// The engine's session and transcript a harp is bound to (the SessionStart

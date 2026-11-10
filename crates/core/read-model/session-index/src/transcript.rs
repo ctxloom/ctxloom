@@ -1,10 +1,7 @@
 //! The canonical transcript's lines (D27): the envelope `v, harp, session_id,
-//! engine, seq, ts, kind` and the entry, one JSON object per line in
-//! `transcripts/transcript.jsonl`. Pure: the instant and the sequence enter as
-//! arguments.
-
-/// The transcript's path in a session's directory.
-pub const TRANSCRIPT: &str = "transcripts/transcript.jsonl";
+//! engine, seq, ts, kind` and the entry, one JSON object per line. No file
+//! holds them (owner ruling 87a): they are read from the session's events.
+//! Pure: the instant and the sequence enter as arguments.
 
 /// Who spoke an entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,14 +40,6 @@ pub fn entry_line(
         "entry": {"type": speaker.name(), "content": content},
     });
     format!("{line}\n")
-}
-
-/// The sequence the next line of `transcript` takes: how many lines it holds.
-pub fn next_seq(transcript: &[u8]) -> u64 {
-    transcript
-        .split(|byte| *byte == b'\n')
-        .filter(|line| !line.iter().all(u8::is_ascii_whitespace))
-        .count() as u64
 }
 
 /// `seconds` since the epoch as an RFC 3339 instant in UTC (Hinnant's civil

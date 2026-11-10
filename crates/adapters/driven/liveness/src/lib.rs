@@ -13,8 +13,14 @@
 //!
 //! A probe never creates a lock file (one it minted would be unlocked and
 //! read as free on the next probe), and holds nothing past its answer.
+//!
+//! The run holds its session's lock for its life ([`SessionLock`], defect 1),
+//! taken with the platform's `file-lock`, at once or not at all. A run's own
+//! lock, `<home>/.ctxloom/runs/<run>.lock` ([`RunLockFiles`], rulings 86, 92,
+//! 93), is held by its enqueuer until its runner is started; its file is
+//! removed when it is let go, so it is a dead holder's alone that reads free.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use angzarr_diagnostic::Report;
@@ -48,36 +54,47 @@ impl LockFiles {
 
 impl Liveness for LockFiles {
     fn lock_state(&mut self, harp: &str) -> LockState {
-        let path = self.path(harp);
-        // Only a regular file is a lock; one a probe cannot see is no proof.
-        if !self
-            .fs
-            .metadata(&path)
-            .is_ok_and(|meta| meta.kind == Kind::File)
-        {
-            return LockState::Unproven;
-        }
-        // Read-only: a lock needs no write access, and the open never creates.
-        let Ok(file) = self.fs.open(&path, Open::Read) else {
-            return LockState::Unproven;
-        };
-        // The lock taken is let go when `file` is dropped, with this answer.
-        match self.fs.os().try_lock(&file, LockKind::Exclusive) {
-            Ok(true) => LockState::Free,
-            Ok(false) => LockState::Held,
-            Err(_) => LockState::Unproven,
-        }
+        probe(&*self.fs, &self.path(harp))
     }
+}
+
+/// What the lock at `path` says, asked without holding it.
+fn probe(fs: &dyn Fs, path: &Path) -> LockState {
+    // Only a regular file is a lock; one a probe cannot see is no proof.
+    if !fs.metadata(path).is_ok_and(|meta| meta.kind == Kind::File) {
+        return LockState::Unproven;
+    }
+    // Read-only: a lock needs no write access, and the open never creates.
+    let Ok(file) = fs.open(path, Open::Read) else {
+        return LockState::Unproven;
+    };
+    // The lock taken is let go when `file` is dropped, with this answer.
+    match fs.os().try_lock(&file, LockKind::Exclusive) {
+        Ok(true) => LockState::Free,
+        Ok(false) => LockState::Held,
+        Err(_) => LockState::Unproven,
+    }
+}
+
+/// Take the lock at `path`, at once or not at all: one another holds is
+/// refused, never waited for.
+fn take(fs: &dyn Fs, path: &Path) -> Result<file_lock::Locked, Report> {
+    let path_text = path.display().to_string();
+    let mut once = move || -> Result<(), file_lock::LockError> {
+        Err(file_lock::LockError::Timeout {
+            path: path_text.clone(),
+            waited_ms: 0,
+        })
+    };
+    file_lock::lock(fs, path, &mut once).map_err(|e| Report::of(&e))
 }
 
 /// The lock a run holds for its life (defect 1), taken with the platform's
 /// `file-lock` (the one way every ctxloom binary takes a lock).
 ///
-/// RED (defect 1): a stub that holds nothing.
 impl SessionLock for LockFiles {
     fn hold(&mut self, harp: &str) -> Result<Held, Report> {
-        let _ = self.path(harp);
-        Ok(Held::new(()))
+        take(&*self.fs, &self.path(harp)).map(Held::new)
     }
 }
 
@@ -86,7 +103,6 @@ impl SessionLock for LockFiles {
 /// stores, so a refused run leaves nothing in the project), and a session's
 /// lock as [`LockFiles`] has it.
 ///
-/// RED (ruling 92): a stub that holds and proves nothing.
 pub struct RunLockFiles {
     fs: Arc<dyn Fs>,
     home: PathBuf,
@@ -110,23 +126,52 @@ impl RunLockFiles {
     }
 }
 
+/// A run's lock held: its file is removed, then the lock let go, when it is
+/// dropped (so it is only a dead holder's lock file that is ever left).
+struct RunHeld {
+    fs: Arc<dyn Fs>,
+    path: PathBuf,
+    locked: Option<file_lock::Locked>,
+}
+
+impl Drop for RunHeld {
+    fn drop(&mut self) {
+        // Removed while still held: no other taker can lock the file between
+        // the two (a taker re-checks the file is still at its path).
+        let _ = self.fs.remove_file(&self.path);
+        drop(self.locked.take());
+    }
+}
+
+fn probe_of(state: LockState) -> run_ports::LockProbe {
+    match state {
+        LockState::Held => run_ports::LockProbe::Held,
+        LockState::Free => run_ports::LockProbe::Free,
+        LockState::Unproven => run_ports::LockProbe::Unproven,
+    }
+}
+
 impl run_ports::RunLocks for RunLockFiles {
     fn hold_run(&self, run: &str) -> Result<run_ports::HeldLock, Report> {
-        let _ = &self.fs;
+        let path = self.path(run);
+        let locked = take(&*self.fs, &path)?;
         Ok(run_ports::HeldLock::new(
-            self.path(run).display().to_string(),
-            (),
+            path.display().to_string(),
+            RunHeld {
+                fs: Arc::clone(&self.fs),
+                path,
+                locked: Some(locked),
+            },
         ))
     }
 
     fn probe(&self, path: &str) -> run_ports::LockProbe {
-        let _ = path;
-        run_ports::LockProbe::Unproven
+        probe_of(probe(&*self.fs, Path::new(path)))
     }
 
     fn session(&self, project_dir: &str, harp: &str) -> run_ports::LockProbe {
-        let _ = (project_dir, harp);
-        run_ports::LockProbe::Unproven
+        let locks = LockFiles::new(Arc::clone(&self.fs), project_dir);
+        probe_of(probe(&*self.fs, &locks.path(harp)))
     }
 }
 

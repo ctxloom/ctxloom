@@ -1,5 +1,5 @@
-//! The canonical transcript folded from the
-//! session stream's capture events.
+//! The canonical transcript folded from the session stream's capture events
+//! (owner ruling 87a: no file; the index folds it, each read afresh).
 //!
 //! Invariants: pure (the instant enters as an argument, from the event page's
 //! `recorded_at`); `seq` is assigned HERE, from the order this model is fed
@@ -25,25 +25,18 @@ pub struct Projection {
 impl Projection {
     /// A transcript that holds no line yet.
     pub fn new(harp: &str, session_id: &str, engine: &str) -> Projection {
-        Projection::resume(harp, session_id, engine, 0, None)
-    }
-
-    /// A transcript that already holds `lines` lines, made from the stream
-    /// up to page `high_water`: a projector that starts again continues it.
-    pub fn resume(
-        harp: &str,
-        session_id: &str,
-        engine: &str,
-        lines: u64,
-        high_water: Option<u64>,
-    ) -> Projection {
         Projection {
             harp: harp.to_string(),
             session_id: session_id.to_string(),
             engine: engine.to_string(),
-            lines,
-            high_water,
+            lines: 0,
+            high_water: None,
         }
+    }
+
+    /// The lines folded after this carry `harp` (a rename).
+    pub fn rename(&mut self, harp: &str) {
+        self.harp = harp.to_string();
     }
 
     /// The lines (newline included) `event`, the stream's page

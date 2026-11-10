@@ -100,8 +100,9 @@ fn the_transcripts_listed_and_read_are_the_one_the_seed_captured() {
     );
 }
 
-// The seed writes beside the session what Go's fixture writes: the
-// transcript, the authored files and the lock, each backdated to the end.
+// The seed writes beside the session what Go's fixture writes: the authored
+// files and the lock, each backdated to the end; no transcript file (ruling
+// 87a: its transcript is its events).
 #[test]
 fn the_seed_plants_the_sessions_files_backdated_to_its_end() {
     let world = World::new("seed-files");
@@ -110,15 +111,13 @@ fn the_seed_plants_the_sessions_files_backdated_to_its_end() {
     // is then the project's directory.
     let sessions = world.work().join(".ctxloom/sessions");
     let dir = sessions.join(HARP);
-    let transcript = dir.join("transcripts/transcript.jsonl");
-    let text = fs().read_to_string(&transcript).unwrap();
-    assert!(text.contains(r#""harp":"jolly-mute-magma""#), "{text}");
+    assert!(!fs().exists(&dir.join("transcripts")).unwrap());
     assert_eq!(
         fs().read_to_string(&dir.join("notes/plan.md")).unwrap(),
         "authored\n"
     );
     let lock = sessions.join(format!("{HARP}.lock"));
-    for path in [transcript, dir.join("notes/plan.md"), lock] {
+    for path in [dir.join("notes/plan.md"), lock] {
         near(fs().metadata(&path).unwrap().modified, ago(3600));
     }
 }
@@ -131,13 +130,13 @@ fn a_session_that_never_ended_keeps_its_files_as_they_were_written() {
         ..seed()
     };
     world.wiring().seed_session(&live).unwrap();
-    let transcript = world
+    let authored = world
         .work()
         .join(".ctxloom/sessions")
         .join(HARP)
-        .join("transcripts/transcript.jsonl");
+        .join("notes/plan.md");
     near(
-        fs().metadata(&transcript).unwrap().modified,
+        fs().metadata(&authored).unwrap().modified,
         SystemTime::now(),
     );
 }

@@ -2,8 +2,7 @@
 //! mapping of the edge's answers, and a hook's recording to the session its
 //! harp names.
 
-use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use angzarr_embedded::testing::{Fault, FaultyStore, MemoryStore};
@@ -11,7 +10,7 @@ use angzarr_embedded::v1::{Cover, EventPage, Uuid};
 use angzarr_embedded::{Answered, CommandBookExt, Failure, Rejected, StoreError};
 use embedded_edge::EmbeddedEdge;
 use hook_cli::Recording;
-use run_ports::{Arrival, Delivery, Edge, FactSink, RecordsError, SessionRecords, Unserved};
+use run_ports::{Arrival, Delivery, Edge, FactSink, Unserved};
 use runs_application::observe;
 use setup_application::HookAnswer;
 use surface_ports::{HookEvent, ToolCall};
@@ -170,82 +169,6 @@ fn the_sink_of_a_hook_process_without_a_listener_is_unavailable() {
     ));
 }
 
-// ------------------------------------------------------------------ DirIds
-
-/// The files of a session directory, by harp and relative path.
-type Files = BTreeMap<(String, String), Vec<u8>>;
-
-#[derive(Clone, Default)]
-struct Dir(Arc<Mutex<Files>>);
-
-impl SessionRecords for Dir {
-    fn dir(&self, harp: &str) -> String {
-        format!("/w/.ctxloom/sessions/{harp}")
-    }
-
-    fn write(&mut self, harp: &str, rel: &str, bytes: &[u8]) -> Result<(), RecordsError> {
-        self.0
-            .lock()
-            .unwrap()
-            .insert((harp.to_string(), rel.to_string()), bytes.to_vec());
-        Ok(())
-    }
-
-    fn append(&mut self, harp: &str, rel: &str, bytes: &[u8]) -> Result<(), RecordsError> {
-        self.0
-            .lock()
-            .unwrap()
-            .entry((harp.to_string(), rel.to_string()))
-            .or_default()
-            .extend_from_slice(bytes);
-        Ok(())
-    }
-
-    fn read(&mut self, harp: &str, rel: &str) -> Result<Option<Vec<u8>>, RecordsError> {
-        Ok(self
-            .0
-            .lock()
-            .unwrap()
-            .get(&(harp.to_string(), rel.to_string()))
-            .cloned())
-    }
-}
-
-fn dir_with_metadata() -> Dir {
-    let mut dir = Dir::default();
-    dir.write(
-        HARP,
-        run_launcher::METADATA,
-        format!("{{\n  \"v\": 1,\n  \"id\": \"{SESSION}\",\n  \"harp\": \"{HARP}\"\n}}\n")
-            .as_bytes(),
-    )
-    .unwrap();
-    dir
-}
-
-#[test]
-fn a_harp_is_the_session_its_directory_names() {
-    let ids = DirIds::new(Some(dir_with_metadata()));
-    assert_eq!(ids.session_of(HARP), Some(session_id()));
-    assert_eq!(ids.session_of("no-such-harp"), None);
-}
-
-#[test]
-fn a_directory_that_names_no_usable_id_is_no_session() {
-    for held in [
-        "",
-        "not json",
-        r#"{"id": "not-a-uuid"}"#,
-        r#"{"harp": "x"}"#,
-    ] {
-        let mut dir = Dir::default();
-        dir.write(HARP, run_launcher::METADATA, held.as_bytes())
-            .unwrap();
-        assert_eq!(DirIds::new(Some(dir)).session_of(HARP), None, "{held:?}");
-    }
-    assert_eq!(DirIds::<Dir>::new(None).session_of(HARP), None);
-}
-
 // ------------------------------------------------------------- HookRecording
 
 fn answer(event: HookEvent) -> HookAnswer {
@@ -278,7 +201,7 @@ async fn a_hook_records_its_observations_on_the_session_its_harp_names() {
     let (_, edge) = world().await;
     let recording = HookRecording::new(
         EdgeSink::new(Arc::clone(&edge)),
-        DirIds::new(Some(dir_with_metadata())),
+        RunIds::from_environment(Some(SESSION)),
     );
     let before = pages(&edge).await.len();
     assert!(recording
@@ -294,7 +217,7 @@ async fn a_hook_records_its_observations_on_the_session_its_harp_names() {
 
 #[test]
 fn a_hook_with_no_listener_names_each_observation_it_could_not_record() {
-    let recording = HookRecording::new(Unreachable, DirIds::new(Some(dir_with_metadata())));
+    let recording = HookRecording::new(Unreachable, RunIds::from_environment(Some(SESSION)));
     let missed = recording.record("PostToolBatch", HARP, &answer(batch()));
     let what: Vec<&str> = missed.iter().map(|m| m.what.as_str()).collect();
     assert_eq!(
@@ -312,8 +235,8 @@ fn a_hook_with_no_listener_names_each_observation_it_could_not_record() {
 }
 
 #[test]
-fn a_harp_with_no_session_directory_records_nothing_and_says_so() {
-    let recording = HookRecording::new(Unreachable, DirIds::<Dir>::new(None));
+fn a_hook_whose_run_names_no_session_records_nothing_and_says_so() {
+    let recording = HookRecording::new(Unreachable, RunIds::from_environment(None));
     let missed = recording.record("UserPromptSubmit", HARP, &answer(prompt("p1")));
     assert_eq!(missed.len(), 1);
     assert!(missed[0].why.contains(HARP), "{missed:?}");
@@ -321,7 +244,7 @@ fn a_harp_with_no_session_directory_records_nothing_and_says_so() {
 
 #[test]
 fn an_answer_without_an_event_or_an_observable_one_records_nothing() {
-    let recording = HookRecording::new(Unreachable, DirIds::new(Some(dir_with_metadata())));
+    let recording = HookRecording::new(Unreachable, RunIds::from_environment(Some(SESSION)));
     assert!(recording
         .record("Stop", HARP, &HookAnswer::default())
         .is_empty());
@@ -424,7 +347,7 @@ fn a_listener_hook_sink_at_a_dead_port_is_unavailable_and_keeps_the_bearer_out()
 #[test]
 fn a_hook_recording_over_a_dead_listener_says_unavailable_once_and_stops_trying() {
     let sink = HookSink::from_environment(Some(&closed_url()), Some(A_BEARER), Some(A_CERT));
-    let recording = HookRecording::new(sink, DirIds::new(Some(dir_with_metadata())));
+    let recording = HookRecording::new(sink, RunIds::from_environment(Some(SESSION)));
     let missed = recording.record("PostToolBatch", HARP, &answer(batch()));
     assert_eq!(missed.len(), 2);
     assert!(missed[0].why.contains("cannot reach"), "{missed:?}");

@@ -47,59 +47,31 @@ fn at(seconds: i64) -> Option<Timestamp> {
     Some(Timestamp { seconds, nanos: 0 })
 }
 
-// ------------------------------------------------------------- the transcript
+// ------------------------------------------------------------------- places
 
-// Go: "transcripts/transcript.jsonl", D27.
+// The lock is beside the session directory, never inside it.
 #[test]
-fn the_transcript_is_where_go_put_it() {
+fn the_lock_is_beside_the_session_directory() {
     let (_, dirs) = dirs();
     assert_eq!(
-        dirs.transcript_path(HARP),
-        Path::new("/work/proj/.ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl")
+        dirs.lock_path(HARP),
+        Path::new("/work/proj/.ctxloom/sessions/amber-swift-owl.lock")
     );
-}
-
-// session.feature: "A session with no captured transcript is still named":
-// absence is a row, not an omission.
-#[test]
-fn a_session_with_no_transcript_has_none_and_no_error() {
-    let (_, mut dirs) = dirs();
-    assert_eq!(dirs.transcript(HARP).unwrap(), None);
-    assert_eq!(dirs.read_transcript(HARP).unwrap(), None);
-}
-
-#[test]
-fn a_captured_transcript_has_its_path_and_its_size() {
-    let (fs, mut dirs) = dirs();
-    let path = write(&fs, &dirs, "transcripts/transcript.jsonl", "{\"v\":1}\n");
-    let got = dirs.transcript(HARP).unwrap().expect("captured");
-    assert_eq!(Path::new(&got.path), path);
-    assert_eq!(got.bytes, 8);
-    assert_eq!(
-        dirs.read_transcript(HARP).unwrap().as_deref(),
-        Some("{\"v\":1}\n")
-    );
-}
-
-// Go: "only a regular file that stats counts as present".
-#[test]
-fn a_directory_where_the_transcript_should_be_is_no_transcript() {
-    let (fs, mut dirs) = dirs();
-    fs.create_dir_all(&dirs.transcript_path(HARP), Mode::from_bits(0o755))
-        .unwrap();
-    assert_eq!(dirs.transcript(HARP).unwrap(), None);
-    assert_eq!(dirs.read_transcript(HARP).unwrap(), None);
 }
 
 // ----------------------------------------------------------- last activity
 
 // Go: TestTranscriptActivity_IsTheNewestFileNotADirOrLink, and ..._IsTheConversationNotTheRecord:
-// the record's write is not the session being worked on.
+// the record's write is not the session being worked on. A transcript file
+// an older ctxloom left is not the conversation either (ruling 87a: the
+// session's capture is in its events).
 #[test]
-fn the_last_activity_is_the_newest_file_of_the_conversation() {
+fn the_last_activity_is_the_newest_file_of_the_native_history() {
     let (fs, mut dirs) = dirs();
-    let old = write(&fs, &dirs, "transcripts/transcript.jsonl", "a\n");
+    let old = write(&fs, &dirs, "native/old.jsonl", "a\n");
     let newer = write(&fs, &dirs, "native/history.jsonl", "b\n");
+    let stale = write(&fs, &dirs, "transcripts/transcript.jsonl", "c\n");
+    touch(&fs, &stale, 8_000);
     let record = write(&fs, &dirs, "keep", "");
     touch(&fs, &old, 1_000);
     touch(&fs, &newer, 2_000);
@@ -112,11 +84,7 @@ fn a_session_with_no_conversation_has_no_activity() {
     let (fs, mut dirs) = dirs();
     assert_eq!(dirs.last_active(HARP).unwrap(), None, "no directory at all");
     write(&fs, &dirs, "keep", "");
-    assert_eq!(
-        dirs.last_active(HARP).unwrap(),
-        None,
-        "no transcript, no native history"
-    );
+    assert_eq!(dirs.last_active(HARP).unwrap(), None, "no native history");
 }
 
 // ------------------------------------------------------------------ survey
@@ -453,7 +421,9 @@ fn a_directory_named_to_destroy_is_left_alone() {
     let (fs, mut dirs) = dirs();
     write(&fs, &dirs, "transcripts/transcript.jsonl", "abc");
     assert_eq!(dirs.destroy(HARP, &["transcripts".to_string()]).unwrap(), 0);
-    assert!(fs.exists(&dirs.transcript_path(HARP)).unwrap());
+    assert!(fs
+        .exists(&dirs.dir(HARP).join("transcripts/transcript.jsonl"))
+        .unwrap());
 }
 
 // ------------------------------------------------------- the records port
@@ -768,4 +738,27 @@ fn a_records_harp_exists_once_its_directory_does() {
         .unwrap();
     assert!(SessionRecords::exists(&mut dirs, HARP));
     assert!(!SessionRecords::exists(&mut dirs, "brisk-copper-moth"));
+}
+
+// Ruling 94b: a destroy removes the session's directory whole (the home too)
+// and its lock, and counts what it freed; a session with none is no failure.
+#[test]
+fn a_destroy_removes_the_whole_directory_and_its_lock() {
+    let (fs, mut dirs) = dirs();
+    write(&fs, &dirs, "home/settings.json", "{}");
+    write(&fs, &dirs, "native/history.jsonl", "abc");
+    fs.write_atomic(
+        &dirs.lock_path(HARP),
+        b"",
+        file_system::Perms::Exact(Mode::from_bits(0o600)),
+    )
+    .unwrap();
+    assert_eq!(dirs.destroy_session(HARP).unwrap(), 5);
+    assert!(!fs.exists(&dirs.dir(HARP)).unwrap());
+    assert!(!fs.exists(&dirs.lock_path(HARP)).unwrap());
+    assert_eq!(
+        dirs.destroy_session(HARP).unwrap(),
+        0,
+        "again: nothing there"
+    );
 }

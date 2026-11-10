@@ -1,16 +1,20 @@
 //! The one-shot run: a prompt, one turn, the answer.
 //!
 //! In one process, in order: the library plans the run (the agent or profile,
-//! the assembled context, the engine, the startup findings); the project is
-//! told; the run's hook listener is served (a one-shot is its own owner: its
-//! child's hooks call back to it); a name is claimed and the session minted;
-//! the run is enqueued; the session's directory is written so a hook can find
-//! it; the launcher, caught up on the store, finds it owed a runner and drives
-//! the engine for one turn; the listener is stopped; the recorder writes the
-//! session's directory from the events (the transcript from the hooks'
-//! facts); the run is checked to have ended, and the answer is returned. A
-//! plan that is refused, or a session that cannot be made, has started no
-//! engine.
+//! the assembled context, the engine, the startup findings); the run's own
+//! lock is taken (rulings 86, 92) and the run enqueued, its pre-launch checks
+//! judged by the run itself; the project is told, a name claimed (never one
+//! whose directory exists, defect 3) and the session minted; the session's
+//! lock is taken for the run's life (defect 1); the run's hook listener is
+//! served (a one-shot is its own owner: its child's hooks call back to it, to
+//! the session the engine is told by id, `CTXLOOM_SESSION`); the launcher,
+//! caught up on the store, finds it owed a runner, drives the engine for one
+//! turn and lets the run's lock go once the runner is started; the listener
+//! is stopped; the session is told its incarnation ended (ruling 85); the run
+//! is checked to have ended, and the answer is returned. Nothing is written
+//! into the session's directory but its home (ruling 87a: the events are the
+//! record). A plan that is refused, or a session that cannot be made, has
+//! started no engine.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -21,7 +25,7 @@ use angzarr_embedded::v1::{Cover, Uuid};
 use angzarr_embedded::{Catalog, CommandBookExt, Processed, ReadStore, Store};
 use library_application::{AppError as PlanError, Flags, Notice, Outcome, Previewed, RunRequest};
 use ports::{CommandIds, Names, Project, ProjectIdentity};
-use run_launcher::{Launched, Launcher, Order, Orders, Outcome as Turn, Recorder};
+use run_launcher::{Launched, Launcher, Order, Orders, Outcome as Turn};
 use run_ports::{CertMint, Edge, HookServer, LoginLinks, RunnerLauncher, SessionRecords};
 use runs_application::{
     AppError as CoreError, EnqueueError, EnqueueRequest, Enqueued, Enqueuer, Evidence,
@@ -39,6 +43,11 @@ const NAME_TRIES: usize = 3;
 
 /// The refusal a name already claimed is answered with.
 const NAMES_TAKEN: &str = "sessions-names-taken";
+
+/// Why an incarnation ended (ruling 85, Go's causes): its engine ran and
+/// exited, or its launch failed before that.
+const RUNNER_EXIT: &str = "runner-exit";
+const LAUNCH_FAILED: &str = "launch-failed";
 
 /// What a one-shot is asked.
 #[derive(Clone, Debug, Default)]
@@ -145,13 +154,7 @@ pub struct Place {
 }
 
 /// The run use cases over their ports.
-pub struct Runs<
-    K: Core,
-    T: run_ports::TokenSource,
-    L: RunnerLauncher,
-    R: SessionRecords,
-    W: SessionRecords + 'static,
-> {
+pub struct Runs<K: Core, T: run_ports::TokenSource, L: RunnerLauncher, R: SessionRecords> {
     pub(crate) core: K,
     pub(crate) planner: Box<dyn Planner>,
     pub(crate) identity: Box<dyn ProjectIdentity>,
@@ -159,7 +162,7 @@ pub struct Runs<
     pub(crate) ids: Box<dyn CommandIds>,
     pub(crate) enqueuer: Enqueuer<K::Edge, T>,
     pub(crate) launcher: Launcher<K::Edge, L, R>,
-    pub(crate) recorder: Recorder<W>,
+    pub(crate) dirs: Box<dyn SessionRecords>,
     pub(crate) orders: Arc<Orders>,
     pub(crate) place: Place,
     pub(crate) env: BTreeMap<String, String>,
@@ -167,11 +170,7 @@ pub struct Runs<
     pub(crate) os: String,
     pub(crate) hooks: Box<dyn HookServer>,
     pub(crate) certs: Box<dyn CertMint>,
-    /// RED (defect 1): placed, not yet taken.
-    #[allow(dead_code)]
     pub(crate) locks: Box<dyn session_ports::SessionLock>,
-    /// RED (rulings 86, 92): placed, not yet taken.
-    #[allow(dead_code)]
     pub(crate) run_locks: Arc<dyn run_ports::RunLocks>,
 }
 
@@ -189,12 +188,13 @@ struct Listening {
 }
 
 /// A run made and enqueued, its order placed: the session, its name, the
-/// engine and the run.
+/// engine and the run, and the session's lock, held for the run's life.
 struct Started {
     session: String,
     harp: String,
     engine: String,
     run: Uuid,
+    lock: session_ports::Held,
 }
 
 /// The engine a run is on: the one asked for, else the plan's.
@@ -240,13 +240,7 @@ fn settings_of(plan: &library_application::DryRun, engine: &str) -> run_ports::E
 }
 
 /// Everything [`Runs`] is made of.
-pub struct Parts<
-    K: Core,
-    T: run_ports::TokenSource,
-    L: RunnerLauncher,
-    R: SessionRecords,
-    W: SessionRecords + 'static,
-> {
+pub struct Parts<K: Core, T: run_ports::TokenSource, L: RunnerLauncher, R: SessionRecords> {
     pub core: K,
     pub planner: Box<dyn Planner>,
     pub identity: Box<dyn ProjectIdentity>,
@@ -254,7 +248,8 @@ pub struct Parts<
     pub ids: Box<dyn CommandIds>,
     pub enqueuer: Enqueuer<K::Edge, T>,
     pub launcher: Launcher<K::Edge, L, R>,
-    pub recorder: Recorder<W>,
+    /// The session directories, asked whether a harp's exists (defect 3).
+    pub dirs: Box<dyn SessionRecords>,
     /// The orders the launcher takes: the same the launcher holds.
     pub orders: Arc<Orders>,
     pub place: Place,
@@ -278,15 +273,14 @@ pub struct Parts<
     pub run_locks: Arc<dyn run_ports::RunLocks>,
 }
 
-impl<K, T, L, R, W> Runs<K, T, L, R, W>
+impl<K, T, L, R> Runs<K, T, L, R>
 where
     K: Core,
     T: run_ports::TokenSource,
     L: RunnerLauncher,
     R: SessionRecords,
-    W: SessionRecords + 'static,
 {
-    pub fn new(parts: Parts<K, T, L, R, W>) -> Runs<K, T, L, R, W> {
+    pub fn new(parts: Parts<K, T, L, R>) -> Runs<K, T, L, R> {
         Runs {
             core: parts.core,
             planner: parts.planner,
@@ -295,7 +289,7 @@ where
             ids: parts.ids,
             enqueuer: parts.enqueuer,
             launcher: parts.launcher,
-            recorder: parts.recorder,
+            dirs: parts.dirs,
             orders: parts.orders,
             place: parts.place,
             env: parts.env,
@@ -390,14 +384,13 @@ where
     }
 
     /// Everything a run does before its engine is launched (owner rulings
-    /// 73f, 73g, in this order): the run enqueued, its pre-launch checks
-    /// judged by the run itself; the project told, a name claimed and the
-    /// session minted; the certificate minted and the listener served; the
-    /// order placed, the primary handed her login, and the session's
-    /// directory naming it (its hooks, processes of their own, find the
-    /// session by that file). A refused run has made nothing; a failure after
-    /// the enqueue ends the run it enqueued, and the listener is stopped if it
-    /// was served.
+    /// 73f, 73g, in this order): the run's lock taken and the run enqueued,
+    /// its pre-launch checks judged by the run itself; the project told, a
+    /// name claimed, the session minted and its lock taken; the certificate
+    /// minted and the listener served; the order placed and the primary
+    /// handed her login. A refused run has made nothing (its run lock let
+    /// go); a failure after the enqueue ends the run it enqueued and its
+    /// session's incarnation, and the listener is stopped if it was served.
     async fn ready(
         &mut self,
         previewed: Previewed,
@@ -415,11 +408,18 @@ where
         let made = self.make(&session, &engine, interactive).await;
         let harp = match made {
             Ok(harp) => harp,
-            Err(error) => return Err(self.abandon(&enqueued.run, None, error).await),
+            Err(error) => return Err(self.abandon(&enqueued.run, &session, false, error).await),
+        };
+        let lock = match self.locks.hold(&harp) {
+            Ok(lock) => lock,
+            Err(report) => {
+                let error = RunError::Lock(report);
+                return Err(self.abandon(&enqueued.run, &session, true, error).await);
+            }
         };
         let Listening { serving, told } = match self.serve().await {
             Ok(listening) => listening,
-            Err(error) => return Err(self.abandon(&enqueued.run, Some(&session), error).await),
+            Err(error) => return Err(self.abandon(&enqueued.run, &session, true, error).await),
         };
         let started = self.start(
             previewed,
@@ -429,6 +429,7 @@ where
             session,
             harp,
             &enqueued,
+            lock,
         );
         // The primary is handed her login before her engine starts.
         if interactive {
@@ -442,19 +443,13 @@ where
                 ));
             }
         }
-        if let Err(error) = self.catch_up().await {
-            serving.stop().await;
-            let run = started.run.clone();
-            return Err(self.abandon(&run, Some(&started.session), error).await);
-        }
         Ok((serving, started))
     }
 
-    /// Launch what is owed, stop the listener, then record: a hook still in
-    /// flight as the engine exits is delivered before the listener has
-    /// drained, and the last catch-up (the transcript's writer) follows it, so
-    /// nothing delivered is left out of the transcript. This run's launch, its
-    /// run's end checked.
+    /// Launch what is owed, stop the listener (a hook still in flight as
+    /// the engine exits is delivered before it has drained), then tell the
+    /// session its incarnation ended (ruling 85). This run's launch, its
+    /// run's end checked. The session's lock is let go by the caller, after.
     async fn drive(
         &mut self,
         serving: Box<dyn run_ports::Serving>,
@@ -463,10 +458,21 @@ where
         let launched = self.launch().await;
         serving.stop().await;
         let launched = launched?;
-        self.catch_up().await?;
         let ours = ours(launched, &started.session).ok_or_else(|| not_ended(&started.session))?;
+        let cause = match ours.outcome {
+            Turn::NotStarted { .. } => LAUNCH_FAILED,
+            _ => RUNNER_EXIT,
+        };
+        self.incarnation_ended(&started.session, cause).await;
         self.ended(&started.run).await?;
         Ok(ours)
+    }
+
+    /// Tell `session` its incarnation ended, for `cause`; a telling that
+    /// fails leaves it to a sweep (ruling 93), and is not the run's failure.
+    async fn incarnation_ended(&self, session: &str, cause: &str) {
+        let facts = runs_application::Facts::new(self.core.edge());
+        let _ = facts.incarnation_ended(session, 1, cause).await;
     }
 
     async fn session(
@@ -482,8 +488,10 @@ where
             session,
             harp,
             engine,
+            lock,
             ..
         } = started;
+        drop(lock);
         match launched.outcome {
             Turn::Ended { code } => Ok(Ended {
                 harp,
@@ -524,26 +532,31 @@ where
             credential: self.credential(engine, settings, interactive),
             fatal_findings: u32::try_from(previewed.fatal.len()).unwrap_or(u32::MAX),
         };
+        // The run's own lock, taken before its enqueue is visible (ruling 92):
+        // no other process ever sees it owed a runner with its lock free.
+        let run = text(&runs::run_root(session, 1));
+        let lock = self.run_locks.hold_run(&run).map_err(RunError::Lock)?;
         let request = EnqueueRequest {
             session: session.to_string(),
             incarnation: 1,
             mode,
             evidence,
-            // RED (rulings 86, 92): no run lock is taken yet.
-            launcher_lock: String::new(),
+            launcher_lock: lock.path().to_string(),
         };
-        self.enqueuer
-            .enqueue(request)
-            .await
-            .map_err(|error| match error {
-                EnqueueError::Refused(runs::RunRejection::LaunchRefused { refusals, .. })
-                    if refusals.is_empty() =>
-                {
-                    RunError::Plan(Box::new(PlanError::aborted(&previewed.fatal)))
-                }
-                EnqueueError::Refused(rejection) => RunError::Refused(rejection),
-                EnqueueError::Failed(error) => RunError::Session(error),
-            })
+        let enqueued = self.enqueuer.enqueue(request).await;
+        if enqueued.is_ok() {
+            // Held until the launcher has started the runner.
+            self.orders.hold(session, 1, lock);
+        }
+        enqueued.map_err(|error| match error {
+            EnqueueError::Refused(runs::RunRejection::LaunchRefused { refusals, .. })
+                if refusals.is_empty() =>
+            {
+                RunError::Plan(Box::new(PlanError::aborted(&previewed.fatal)))
+            }
+            EnqueueError::Refused(rejection) => RunError::Refused(rejection),
+            EnqueueError::Failed(error) => RunError::Session(error),
+        })
     }
 
     /// What a child's run authenticates with (ruling 53): none for the
@@ -570,8 +583,7 @@ where
     }
 
     /// The project told, a name claimed and the session minted on it, for
-    /// the run already enqueued; the session's directory is watched from
-    /// then on. The session's harp.
+    /// the run already enqueued. The session's harp.
     async fn make(
         &mut self,
         session: &str,
@@ -579,20 +591,26 @@ where
         interactive: bool,
     ) -> Result<String, RunError> {
         let project = self.identity.for_write(None).map_err(RunError::Project)?;
-        let harp = self.mint(&project, session, engine, interactive).await?;
-        self.recorder.watch(session);
-        Ok(harp)
+        self.mint(&project, session, engine, interactive).await
     }
 
-    /// End the enqueued `run` that `error` stopped before its engine was
-    /// launched (owner ruling 73g): a `LaunchFailed`, so no run is left owed a
-    /// runner; a session already minted has its directory written, its run's
-    /// end in it. The error is the run's, whatever recording its end met.
-    async fn abandon(&mut self, run: &Uuid, session: Option<&str>, error: RunError) -> RunError {
+    /// End the enqueued `run` of `session` that `error` stopped before its
+    /// engine was launched (owner ruling 73g): a `LaunchFailed`, so no run is
+    /// left owed a runner, its run lock let go, and, for a session already
+    /// `minted`, its incarnation ended (ruling 85). The error is the run's,
+    /// whatever recording its end met.
+    async fn abandon(
+        &mut self,
+        run: &Uuid,
+        session: &str,
+        minted: bool,
+        error: RunError,
+    ) -> RunError {
         let facts = runs_application::Facts::new(self.core.edge());
         let _ = facts.launch_failed(run, false, error.code()).await;
-        if session.is_some() {
-            let _ = self.catch_up().await;
+        self.orders.release(session, 1);
+        if minted {
+            self.incarnation_ended(session, LAUNCH_FAILED).await;
         }
         error
     }
@@ -609,6 +627,7 @@ where
         session: String,
         harp: String,
         enqueued: &Enqueued,
+        lock: session_ports::Held,
     ) -> Started {
         let plan = previewed.plan;
         let engine = chosen_engine(&plan, request);
@@ -627,8 +646,9 @@ where
         for name in run_ports::HOOK_VARIABLES {
             env.remove(name);
         }
-        // A hook finds its session by the harp, and the engine's environment
-        // is the only thing a hook process is given.
+        // The engine's environment is the only thing a hook process is
+        // given: the session's harp (for its statusline) and, below, the
+        // session's id it addresses its facts to.
         env.insert(run_ports::HARP_VARIABLE.to_string(), harp.clone());
         // The running binary's directory leads the engine's PATH, so a hook's
         // bare `ctxloom` is this binary and not another one the user has (the
@@ -645,6 +665,7 @@ where
         env.extend(run_ports::hook_environment(
             &told.endpoint,
             &run_text,
+            &session,
             &enqueued.hook_token,
             &told.cert,
         ));
@@ -670,15 +691,8 @@ where
             harp,
             engine,
             run: enqueued.run.clone(),
+            lock,
         }
-    }
-
-    /// The recorder caught up with everything the core holds so far.
-    async fn catch_up(&mut self) -> Result<(), RunError> {
-        self.recorder
-            .step(self.core.store(), self.core.catalog())
-            .await
-            .map_err(RunError::Launch)
     }
 
     /// Launch what is owed, not yet recorded.
@@ -705,8 +719,10 @@ where
             session,
             harp,
             engine,
+            lock,
             ..
         } = started;
+        drop(lock);
         match ours.outcome {
             Turn::Answered { answer, .. } if answer.trim().is_empty() => Err(RunError::EmptyAnswer),
             Turn::Answered { answer, .. } => Ok(Answer {
@@ -725,7 +741,9 @@ where
     }
 
     /// Claim a name and mint the session on it: the session's id text and its
-    /// harp. A name already claimed is tried again with another.
+    /// harp. A name already claimed is tried again with another, and so is
+    /// one whose directory exists (defect 3: however the store came to have
+    /// no claim on it), without claiming it.
     async fn mint(
         &mut self,
         project: &Project,
@@ -738,6 +756,13 @@ where
         let mut taken = None;
         for _ in 0..NAME_TRIES {
             let harp = self.names.project_id();
+            if self.dirs.exists(&harp) {
+                taken = Some(CoreError::Refused {
+                    code: NAMES_TAKEN.to_string(),
+                    args: BTreeMap::new(),
+                });
+                continue;
+            }
             let claim = NameClaimCommand::from(ClaimName {
                 project_id: project.id.clone(),
                 harp: harp.clone(),

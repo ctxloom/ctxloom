@@ -580,37 +580,41 @@ fn the_transcript_holds_what_was_delivered_so_far_and_a_redelivery_adds_nothing(
     );
 }
 
-// PROPOSAL (87a): a purge destroys the transcript a person reads (the events
-// stay: ruling 90 accepts the growth), so the lines before the purge are no
-// longer shown, and what is captured after it is.
+// Owner ruling 94b: a destroyed session's stream is purged whole, and with it
+// its transcript: nothing of it is read again.
 #[test]
-fn a_purged_session_shows_only_what_was_captured_after_its_purge() {
+fn a_destroyed_sessions_transcript_is_gone_with_its_stream() {
     let mut project = Project::new();
     let mut index = SessionIndex::catch_up();
     project.run(&mut index, FIRST, mint("amber-swift-owl"));
-    project.run_book(&mut index, prompt(FIRST, "p1", "before the purge"));
-    project.run(
-        &mut index,
-        FIRST,
-        RecordPurge {
-            files: 1,
-            bytes: 2,
-            at: None,
-        },
-    );
-    assert_eq!(
-        index.projector().index().transcript(&id_text(FIRST)),
-        None,
-        "purged: nothing to show"
-    );
-    project.run_book(&mut index, prompt(FIRST, "p2", "after the purge"));
-    let text = index
+    project.run_book(&mut index, prompt(FIRST, "p1", "to be destroyed"));
+    assert!(index
         .projector()
         .index()
         .transcript(&id_text(FIRST))
-        .unwrap();
-    let got = lines(&text);
-    assert_eq!(got.len(), 1);
-    assert_eq!(got[0]["entry"]["content"], "after the purge");
-    assert_eq!(got[0]["seq"], 0);
+        .is_some());
+    project.purge(FIRST);
+    project.catch_up(&mut index);
+    assert_eq!(index.projector().index().transcript(&id_text(FIRST)), None);
+    assert_eq!(
+        project
+            .rebuilt()
+            .projector()
+            .index()
+            .transcript(&id_text(FIRST)),
+        None
+    );
+}
+
+// Ruling 87a: a session's last activity is its newest capture's instant.
+#[test]
+fn a_records_last_capture_is_its_newest_capture_events_instant() {
+    let mut project = Project::new();
+    let mut index = SessionIndex::catch_up();
+    project.run(&mut index, FIRST, mint("amber-swift-owl"));
+    assert_eq!(records(&index)[0].last_captured, None);
+    project.run_book(&mut index, prompt(FIRST, "p1", "first"));
+    project.run_book(&mut index, words(FIRST, "p1", 0, "then"));
+    let last = records(&index)[0].last_captured.expect("captured");
+    assert_eq!(last.seconds, project.seconds);
 }

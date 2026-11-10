@@ -15,7 +15,6 @@ ports.workspace = true
 run-ports.workspace = true
 runs.workspace = true
 runs-application.workspace = true
-serde_json.workspace = true
 sessions.workspace = true
 uuid.workspace = true
 

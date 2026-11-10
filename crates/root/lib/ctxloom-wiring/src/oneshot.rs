@@ -28,7 +28,7 @@ use project_registry::Environment;
 use run_application::{
     Answer, Core, Done, Ended, OneShot, Parts, Place, RunError, RunService, Runs,
 };
-use run_launcher::{Launcher, Orders, Recorder};
+use run_launcher::{Launcher, Orders};
 use run_ports::{BoxFuture, Edge, Engine, HookCertificate, HookServer, Limits, Serving};
 use runs_application::{AppError as CoreError, Enqueuer};
 use session_files::SessionDirs;
@@ -97,10 +97,8 @@ impl<'a> OneShots<'a> {
     async fn assemble(
         &self,
         library: Library,
-    ) -> Result<
-        Runs<InProcessCore<SqliteStore>, OsTokenSource, HostLauncher, SessionDirs, SessionDirs>,
-        RunError,
-    > {
+    ) -> Result<Runs<InProcessCore<SqliteStore>, OsTokenSource, HostLauncher, SessionDirs>, RunError>
+    {
         let wiring = self.wiring;
         let env = wiring.env();
         let environment = Environment {
@@ -126,6 +124,10 @@ impl<'a> OneShots<'a> {
         let orders = Arc::new(Orders::new());
         let claude: Arc<dyn Engine> = Arc::new(engine_claude::Claude::new());
         let opencode: Arc<dyn Engine> = Arc::new(engine_opencode::Opencode::new());
+        // The run locks: this run's own, and those another process's runs
+        // are judged by (rulings 86, 92, 93).
+        let run_locks: Arc<dyn run_ports::RunLocks> =
+            Arc::new(liveness::RunLockFiles::new(wiring.fs(), wiring.home()));
         let launcher = Launcher::new(
             core.edge(),
             HostLauncher::default(),
@@ -133,9 +135,9 @@ impl<'a> OneShots<'a> {
             vec![claude, opencode],
             Arc::clone(&orders),
             Limits::new(TURN_DEADLINE),
-        );
+        )
+        .with_locks(Arc::clone(&run_locks));
         let hooks = Box::new(Hooks { edge: core.edge() });
-        let recorder = Recorder::new(SessionDirs::new(wiring.fs(), project_dir.clone()));
         let enqueuer = Enqueuer::new(core.edge(), Arc::new(OsTokenSource));
         let output_root = wiring
             .home()
@@ -149,7 +151,7 @@ impl<'a> OneShots<'a> {
             ids: Box::new(System),
             enqueuer,
             launcher,
-            recorder,
+            dirs: Box::new(SessionDirs::new(wiring.fs(), project_dir.clone())),
             orders,
             place: Place {
                 project_dir: path_text(&project_dir),
@@ -165,7 +167,7 @@ impl<'a> OneShots<'a> {
             hooks,
             certs: Box::new(hook_tls::Minter::new(hook_tls::SystemClock)),
             locks: Box::new(liveness::LockFiles::new(wiring.fs(), project_dir.clone())),
-            run_locks: Arc::new(liveness::RunLockFiles::new(wiring.fs(), wiring.home())),
+            run_locks,
         }))
     }
 }
@@ -264,13 +266,7 @@ impl OneShots<'_> {
     fn with_runs<T>(
         &mut self,
         use_case: impl AsyncFnOnce(
-            &mut Runs<
-                InProcessCore<SqliteStore>,
-                OsTokenSource,
-                HostLauncher,
-                SessionDirs,
-                SessionDirs,
-            >,
+            &mut Runs<InProcessCore<SqliteStore>, OsTokenSource, HostLauncher, SessionDirs>,
         ) -> Done<T>,
     ) -> Done<T> {
         let refused = |reason: String| Done {

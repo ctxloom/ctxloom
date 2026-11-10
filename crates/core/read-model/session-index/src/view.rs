@@ -47,14 +47,14 @@ pub struct View {
     /// The first thing its user asked ([`crate::title_of`]); `None` when its
     /// transcript holds none.
     pub title: Option<String>,
-    /// The canonical transcript on disk, when one was captured.
+    /// Its transcript, when its events hold one (owner ruling 87a: no file).
     pub captured: Option<Captured>,
 }
 
-/// A captured canonical transcript.
+/// A captured transcript, as the session's events hold it.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Captured {
-    pub path: String,
+    /// Its size, as `session transcript show` prints it.
     pub bytes: u64,
 }
 

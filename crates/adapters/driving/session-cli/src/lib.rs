@@ -10,6 +10,8 @@
 //! ctxloom session edit <harp> --name <new>
 //! ctxloom session keep <harp> [--undo]
 //! ctxloom session remove <harp> [--yes] [--even-if-live]
+//! ctxloom session purge <harp> [--yes] [--even-if-live]   (session-destroy)
+//! ctxloom session sweep [--purge-older-than <age>] [--yes] (session-destroy)
 //! ctxloom session transcript               (bare: lists)
 //! ctxloom session transcript list [<harp>] [--all]
 //! ctxloom session transcript show <harp>
@@ -80,12 +82,14 @@ pub enum SessionVerb {
     /// Remove a session entirely: its index entry and its transcript
     #[command(after_help = "Examples:\n  ctxloom session remove amber-swift-owl --yes")]
     Remove(RemoveArgs),
-    /// Empty a session of its recorded conversation; it stays listed
+    /// Destroy a session: every event of it and of its runs, its directory and its lock; its name stays taken
+    #[cfg(feature = "session-destroy")]
     #[command(
         after_help = "Examples:\n  ctxloom session purge amber-swift-owl\n  ctxloom session purge amber-swift-owl --yes"
     )]
     Purge(RemoveArgs),
-    /// Tidy every ended session of this project by rule: purge what it can prove is safe, report the rest
+    /// Tidy every ended session of this project by rule: destroy what it can prove is safe, report the rest
+    #[cfg(feature = "session-destroy")]
     #[command(
         after_help = "Examples:\n  ctxloom session sweep\n  ctxloom session sweep --purge-older-than 90d --yes"
     )]
@@ -175,9 +179,6 @@ pub enum TranscriptVerb {
     List(TranscriptListArgs),
     /// Print a session's whole transcript, then exit
     Show(HarpArgs),
-    /// Destroy a session's recorded transcripts; the session stays listed
-    #[command(after_help = "Examples:\n  ctxloom session transcript purge amber-swift-owl --yes")]
-    Purge(RemoveArgs),
 }
 
 #[derive(Args, Debug)]

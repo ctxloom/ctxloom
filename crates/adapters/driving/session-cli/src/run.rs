@@ -3,26 +3,32 @@
 use std::io::{self, Write};
 
 use angzarr_diagnostic::Diagnostic;
+#[cfg(feature = "session-destroy")]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use angzarr_presentation::{write_json, Format};
 use cli_support::EXIT_REFUSED;
 use isolation_application::{IsolationError, WorktreeUse};
-use reclaim_application::{purge_cutoff, ReclaimError, SweepConfig, SweepRequest};
+use reclaim_application::SweepConfig;
+#[cfg(feature = "session-destroy")]
+use reclaim_application::{purge_cutoff, ReclaimError, SweepRequest};
+#[cfg(feature = "session-destroy")]
+use sessions_application::Timestamp;
 use sessions_application::{
     dead_letter_line, AppError, DeadLetter, ImportRequest, ImportService, KeepRequest, ListQuery,
     RemoveRequest, RemovedNothing, RenameRequest, Scope, SearchQuery, SessionService, ShowQuery,
-    State, Timestamp, TranscriptQuery, View, STATES,
+    State, TranscriptQuery, View, STATES,
 };
 
 use crate::render::{
-    conversation_text, import_text, removal_text, rows_text, show_text, sweep_text,
-    transcripts_text, worktrees_text, EditDoc, ImportDoc, KeepDoc, RemovalDoc, Row, ShowDoc,
-    TranscriptsDoc,
+    conversation_text, import_text, removal_text, rows_text, show_text, transcripts_text,
+    worktrees_text, EditDoc, ImportDoc, KeepDoc, RemovalDoc, Row, ShowDoc, TranscriptsDoc,
 };
+#[cfg(feature = "session-destroy")]
+use crate::{render::sweep_text, SweepArgs};
 use crate::{
-    CliFault, EditArgs, ListArgs, RemoveArgs, Session, SessionVerb, SweepArgs, Transcript,
-    TranscriptListArgs, TranscriptVerb, Worktrees, WorktreesVerb,
+    CliFault, EditArgs, ListArgs, RemoveArgs, Session, SessionVerb, Transcript, TranscriptListArgs,
+    TranscriptVerb, Worktrees, WorktreesVerb,
 };
 
 /// A command that completed: what it says on the diagnostic channel besides
@@ -201,7 +207,9 @@ async fn execute<S: SessionService + ImportService + WorktreeUse + SweepConfig>(
             Ok(dead_letters(&kept.dead_letters))
         }
         Some(SessionVerb::Remove(args)) => remove(service, args, Scope::Remove, format, out).await,
+        #[cfg(feature = "session-destroy")]
         Some(SessionVerb::Purge(args)) => remove(service, args, Scope::Purge, format, out).await,
+        #[cfg(feature = "session-destroy")]
         Some(SessionVerb::Sweep(args)) => sweep(service, args, format, out).await,
         Some(SessionVerb::Import) => {
             let report = service.import(ImportRequest {}).await.map_err(failure)?;
@@ -360,7 +368,8 @@ async fn remove<S: SessionService + WorktreeUse>(
 }
 
 /// `session sweep`: report every session's fate, and with `--yes` act on
-/// exactly that.
+/// exactly that (a destroy: the session-destroy feature's).
+#[cfg(feature = "session-destroy")]
 async fn sweep<S: SessionService + WorktreeUse + SweepConfig>(
     service: &mut S,
     args: &SweepArgs,
@@ -414,6 +423,7 @@ async fn sweep<S: SessionService + WorktreeUse + SweepConfig>(
 }
 
 /// A reclaim use case's failure: its diagnostic and exit code.
+#[cfg(feature = "session-destroy")]
 fn reclaim_failure(error: ReclaimError) -> Failure {
     let exit = error.exit_code();
     Failure::new(error, exit, Vec::new())
@@ -428,9 +438,6 @@ async fn transcripts<S: SessionService + WorktreeUse>(
     match &transcript.verb {
         None => transcript_list(service, &TranscriptListArgs::default(), format, out).await,
         Some(TranscriptVerb::List(args)) => transcript_list(service, args, format, out).await,
-        Some(TranscriptVerb::Purge(args)) => {
-            remove(service, args, Scope::Transcript, format, out).await
-        }
         Some(TranscriptVerb::Show(args)) => {
             let text = service.transcript(&args.harp).await.map_err(failure)?;
             wrote(match format {

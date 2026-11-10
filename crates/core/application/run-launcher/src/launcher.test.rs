@@ -11,7 +11,7 @@ use crate::fakes::{
     enqueued, enqueued_by, names, order, orders_with, run_events, session_events, MemoryRecords,
     ScriptedEngine, ScriptedRunner, TestEdge, HARP, SESSION,
 };
-use crate::{Launched, Launcher, Orders, Outcome, Recorder};
+use crate::{Launched, Launcher, Orders, Outcome};
 
 fn limits() -> Limits {
     Limits::new(std::time::Duration::from_secs(5))
@@ -22,8 +22,6 @@ struct Rig {
     launcher: Launcher<TestEdge, ScriptedRunner, MemoryRecords>,
     runner: ScriptedRunner,
     records: MemoryRecords,
-    /// The projector, the transcript's only writer.
-    recorder: Recorder<MemoryRecords>,
 }
 
 fn rig(
@@ -41,14 +39,11 @@ fn rig(
         orders,
         limits(),
     );
-    let recorder = Recorder::new(records.clone());
-    recorder.watch(SESSION);
     Rig {
         edge,
         launcher,
         runner,
         records,
-        recorder,
     }
 }
 
@@ -56,10 +51,6 @@ impl Rig {
     async fn step(&mut self) -> Vec<Launched> {
         let launched = self
             .launcher
-            .step(&self.edge.store, self.edge.catalog())
-            .await
-            .unwrap();
-        self.recorder
             .step(&self.edge.store, self.edge.catalog())
             .await
             .unwrap();
@@ -347,15 +338,8 @@ async fn a_run_with_no_order_here_is_left_for_its_owner() {
         ["RunEnqueued"]
     );
     assert!(rig.runner.seen.lock().unwrap().is_empty());
-    // The launcher wrote nothing of its own (no home, no transcript); what the
-    // watching recorder wrote is the session's record.
-    let written = rig.records.names(HARP);
-    assert!(
-        written
-            .iter()
-            .all(|rel| !rel.starts_with("home/") && !rel.starts_with("transcripts/")),
-        "{written:?}"
-    );
+    // The launcher wrote nothing of its own (no home).
+    assert!(rig.records.names(HARP).is_empty());
 }
 
 #[tokio::test]
@@ -863,11 +847,8 @@ async fn an_engine_whose_session_ends_with_its_exit_has_the_end_recorded_at_the_
         (edge, launcher, records)
     };
     let (edge, mut launcher, records) = launch(true, ScriptedRunner::exits(0));
-    let mut recorder = Recorder::new(records.clone());
-    recorder.watch(SESSION);
     enqueued(&edge, SESSION, HARP).await;
     launcher.step(&edge.store, edge.catalog()).await.unwrap();
-    recorder.step(&edge.store, edge.catalog()).await.unwrap();
     let ended: Vec<_> = session_events(&edge, SESSION)
         .await
         .into_iter()
@@ -883,14 +864,7 @@ async fn an_engine_whose_session_ends_with_its_exit_has_the_end_recorded_at_the_
             reason: "exit".to_string(),
         }]
     );
-    let transcript = records
-        .text(HARP, "transcripts/transcript.jsonl")
-        .expect("the end is a line");
-    assert_eq!(transcript.lines().count(), 1, "{transcript}");
-    assert!(
-        transcript.contains(r#""kind":"session_end""#),
-        "{transcript}"
-    );
+    assert!(records.text(HARP, "transcripts/transcript.jsonl").is_none());
     assert_eq!(
         names(&run_events(&edge, SESSION).await),
         ["RunEnqueued", "RunnerAttached", "RunnerStarted", "RunEnded"]

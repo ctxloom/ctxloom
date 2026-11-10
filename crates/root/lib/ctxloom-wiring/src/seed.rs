@@ -2,8 +2,9 @@
 //! seed-session`, built with `test-support` only). Go's fixtures write a
 //! session's sidecar; the Rust store has no sidecar to write, so the seed
 //! mints the session in the cwd's project store through the domain and writes
-//! beside it what a fixture writes: the session's lock, its canonical
-//! transcript, authored files.
+//! beside it what a fixture writes: the session's lock and authored files.
+//! Its transcript is what its hooks would deliver, a capture fact on its
+//! stream (owner ruling 87a: no transcript file).
 //!
 //! It mints WITHOUT the session-name claim: the claim is the owner's design
 //! (D5 Q1) and its tests await review. When it lands, the real mint (S6)
@@ -38,7 +39,8 @@ pub struct Seed {
     pub ended_ago: Option<u64>,
     /// Make its lock file, nothing holding it.
     pub lock_free: bool,
-    /// Record the canonical transcript Go's fixture records.
+    /// Record the first prompt Go's fixture's transcript holds, as its hooks
+    /// would (a capture fact).
     pub transcript: bool,
     pub keep: bool,
     pub oneshot: bool,
@@ -73,11 +75,7 @@ impl Wiring {
             .map_err(seed_error_of)?;
         let store = stores.open(&project).await.map_err(seed_error)?;
         let cwd = self.fs.cwd().map_err(seed_error)?.to_path_buf();
-        let output_dir = self
-            .home
-            .join("Documents/ctxloom")
-            .join(cwd.file_name().unwrap_or_default())
-            .join(&seed.harp);
+        let output_dir = self.seed_output_dir(&cwd, &seed.harp);
 
         let mut system = System;
         let now = system.now();
@@ -156,6 +154,10 @@ impl Wiring {
             )
             .await?;
         }
+        if seed.transcript {
+            let book = first_prompt(&session_cover, id, &seed.harp)?;
+            run_book(before(seed.started_ago.saturating_sub(1)), book).await?;
+        }
         if seed.keep {
             run(now, SetKept { kept: true }.into()).await?;
         }
@@ -166,8 +168,16 @@ impl Wiring {
         Ok(uuid::Uuid::from_bytes(id).to_string())
     }
 
-    /// The files a fixture writes beside a session: its lock, its canonical
-    /// transcript, authored files; each backdated to the session's end, as
+    /// Where a seeded session's output goes (Go: `defaultOutputDirIn`).
+    fn seed_output_dir(&self, cwd: &Path, harp: &str) -> std::path::PathBuf {
+        self.home
+            .join("Documents/ctxloom")
+            .join(cwd.file_name().unwrap_or_default())
+            .join(harp)
+    }
+
+    /// The files a fixture writes beside a session: its lock and authored
+    /// files; each backdated to the session's end, as
     /// Go's `backdateSessionDir` does, so a session that ENDED then looks
     /// untouched since.
     fn plant_files(&self, seed: &Seed) -> Result<(), TestError> {
@@ -186,16 +196,6 @@ impl Wiring {
             written.push(path.to_path_buf());
             Ok(())
         };
-        if seed.transcript {
-            let line = format!(
-                r#"{{"v":1,"harp":"{h}","engine":"claude-code","seq":0,"ts":"2026-01-01T00:00:00Z","kind":"entry","entry":{{"type":"user","content":"Seeded prompt for {h}."}}}}"#,
-                h = seed.harp
-            );
-            write(
-                &dir.join("transcripts/transcript.jsonl"),
-                &format!("{line}\n"),
-            )?;
-        }
         for rel in &seed.other_files {
             write(&dir.join(rel), "authored\n")?;
         }
@@ -222,6 +222,32 @@ impl Wiring {
         }
         Ok(())
     }
+}
+
+/// The fact its hooks would deliver for the session's first prompt, Go's
+/// fixture's: keyed as a hook keys it.
+fn first_prompt(cover: &Cover, id: [u8; 16], harp: &str) -> Result<CommandBook, TestError> {
+    use angzarr_embedded::markup::DomainMessage;
+    use angzarr_embedded::v1::{Fact, FactOrigin};
+    let prompt = sessions::RecordPromptSubmitted {
+        prompt_id: "seed".to_string(),
+        prompt: format!("Seeded prompt for {harp}."),
+    };
+    Ok(CommandBook {
+        cover: Some(cover.clone()),
+        page: Some(CommandPage {
+            body: Some(command_page::Body::Fact(Fact {
+                payload: Some(
+                    angzarr_embedded::Any::from_msg(&prompt.to_wire()).map_err(seed_error)?,
+                ),
+                origin: Some(FactOrigin {
+                    external_id: format!("hook:prompt:{}:seed", uuid::Uuid::from_bytes(id)),
+                    description: String::new(),
+                }),
+            })),
+            ..CommandPage::default()
+        }),
+    })
 }
 
 /// A report from a port, as a seed error.

@@ -52,13 +52,12 @@ fn view(harp: &str, state: State, ended_days_ago: i64, kept: bool) -> View {
             started_at: at(NOW - (ended_days_ago + 1) * DAY),
             ended_at: Some(at(NOW - ended_days_ago * DAY)),
             purged_at: None,
+            incarnation: 1,
+            last_captured: None,
         },
         state,
         title: None,
-        captured: Some(Captured {
-            path: String::new(),
-            bytes: 10,
-        }),
+        captured: Some(Captured { bytes: 10 }),
     }
 }
 
@@ -144,6 +143,7 @@ impl SessionService for Fake {
             applied: request.yes && self.refusal.is_none(),
             index_entry_removed: false,
             files,
+            events_destroyed: 0,
             refusal: self.refusal.clone(),
             dead_letters: Vec::new(),
         })

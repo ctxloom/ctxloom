@@ -11,7 +11,6 @@ use angzarr_embedded::{Kernel, OnRetryable, Payload, Sampled, StoreError, Timest
 use ports::{Project, ProjectIdentity};
 use session_ports::{
     FileItem, GoSession, GoSessions, Liveness, LockState, ProjectStores, SessionFiles,
-    TranscriptFile,
 };
 use sessions::{
     BindEngineSession, MintSession, Origin, RecordEnd, SessionAggregate, SessionCommand,
@@ -114,6 +113,8 @@ impl Liveness for FakeLiveness {
 /// A session's files, in memory. `fail_destroy` makes a removal fail.
 #[derive(Default)]
 pub struct FakeFiles {
+    /// A transcript FILE an older ctxloom left, per harp (ruling 87a: never
+    /// read; a remove still names and destroys it).
     pub transcripts: BTreeMap<String, String>,
     pub last_active: BTreeMap<String, Timestamp>,
     /// Other files per harp: (rel, bytes).
@@ -171,17 +172,6 @@ impl SessionFiles for FakeFiles {
             self.sessions.insert(to.to_string());
         }
         Ok(moved)
-    }
-
-    fn transcript(&mut self, harp: &str) -> Result<Option<TranscriptFile>, Report> {
-        Ok(self.transcripts.get(harp).map(|text| TranscriptFile {
-            path: format!("{DIR}/{harp}/transcripts/transcript.jsonl"),
-            bytes: text.len() as u64,
-        }))
-    }
-
-    fn read_transcript(&mut self, harp: &str) -> Result<Option<String>, Report> {
-        Ok(self.transcripts.get(harp).cloned())
     }
 
     fn last_active(&mut self, harp: &str) -> Result<Option<Timestamp>, Report> {

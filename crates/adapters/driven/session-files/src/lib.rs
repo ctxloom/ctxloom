@@ -1,12 +1,10 @@
-//! A session's files, through the file-system seam (D27: the canonical
-//! transcript stays a content file in Go's format and place,
-//! `<project>/.ctxloom/sessions/<harp>/transcripts/transcript.jsonl`).
+//! A session's files, through the file-system seam: its directory,
+//! `<project>/.ctxloom/sessions/<harp>/` (the session home and the engine's
+//! native history; no transcript file, owner ruling 87a), and its lock
+//! beside it.
 //!
-//! - the transcript is a regular file that stats: a stat that fails for any
-//!   reason is absence, "never an invented size";
-//! - the conversation's last activity is the newest file mtime under the
-//!   transcripts and the native history: not a directory's own, not a
-//!   symlink's, not the record's (Go: `TranscriptActivity`);
+//! - the native history's last activity is its newest file mtime: not a
+//!   directory's own, not a symlink's (Go: `TranscriptActivity`);
 //! - the survey names every file under the persisted members, never the
 //!   ephemeral ones (the engine homes, the locks, the worktrees, the
 //!   scratch): a purge runs no git, so a worktree is untouched by
@@ -26,7 +24,7 @@ use std::io::Write;
 use file_system::{Fs, Kind, Open, Perms};
 use os::Mode;
 use run_ports::{check_rel, LinkState, LoginLinks, RecordsError, SessionRecords};
-use session_ports::{FileItem, GoSession, GoSessions, SessionFiles, Timestamp, TranscriptFile};
+use session_ports::{FileItem, GoSession, GoSessions, SessionFiles, Timestamp};
 
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
@@ -39,8 +37,8 @@ const EPHEMERAL: [&str; 4] = ["home", "locks", "work", "scratch"];
 /// Go's sidecar, the identity member: not a file a purge could name.
 const SIDECAR: &str = "session.yaml";
 
-/// The members that hold the conversation.
-const CONVERSATION: [&str; 2] = ["transcripts", "native"];
+/// The members that hold the engine's own record of the conversation.
+const CONVERSATION: [&str; 1] = ["native"];
 
 /// The sessions' files under one project.
 pub struct SessionDirs {
@@ -63,9 +61,12 @@ impl SessionDirs {
         self.project.join(".ctxloom").join("sessions").join(harp)
     }
 
-    /// `<dir>/transcripts/transcript.jsonl`.
-    pub fn transcript_path(&self, harp: &str) -> PathBuf {
-        self.dir(harp).join("transcripts").join("transcript.jsonl")
+    /// `<project>/.ctxloom/sessions/<harp>.lock`, beside the directory.
+    pub fn lock_path(&self, harp: &str) -> PathBuf {
+        self.project
+            .join(".ctxloom")
+            .join("sessions")
+            .join(format!("{harp}.lock"))
     }
 }
 
@@ -138,28 +139,6 @@ impl SessionDirs {
 }
 
 impl SessionFiles for SessionDirs {
-    fn transcript(&mut self, harp: &str) -> Result<Option<TranscriptFile>, Report> {
-        let path = self.transcript_path(harp);
-        Ok(match self.fs.metadata(&path) {
-            Ok(meta) if meta.kind == Kind::File => Some(TranscriptFile {
-                path: path.display().to_string(),
-                bytes: meta.len,
-            }),
-            _ => None,
-        })
-    }
-
-    fn read_transcript(&mut self, harp: &str) -> Result<Option<String>, Report> {
-        if self.transcript(harp)?.is_none() {
-            return Ok(None);
-        }
-        let path = self.transcript_path(harp);
-        self.fs
-            .read_to_string(&path)
-            .map(Some)
-            .map_err(|e| Report::of(&FilesError::io("read", &path, &e)))
-    }
-
     fn last_active(&mut self, harp: &str) -> Result<Option<Timestamp>, Report> {
         let mut newest = None;
         for member in CONVERSATION {
@@ -229,14 +208,87 @@ impl SessionFiles for SessionDirs {
             .map_err(|e| Report::of(&FilesError::io("move", from, &e)))?;
         Ok(true)
     }
+
+    fn move_session(&mut self, from: &str, to: &str) -> Result<bool, Report> {
+        let (old, new) = (self.dir(from), self.dir(to));
+        match self.fs.symlink_metadata(&old) {
+            Ok(_) => {}
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(false),
+            Err(e) => return Err(Report::of(&FilesError::io("stat", &old, &e))),
+        }
+        if self.fs.symlink_metadata(&new).is_ok() {
+            return Err(Report::of(&FilesError::SessionExists {
+                path: new.display().to_string(),
+            }));
+        }
+        self.fs
+            .rename(&old, &new)
+            .map_err(|e| Report::of(&FilesError::io("move", &old, &e)))?;
+        // The lock moves with the name, so an ended session still reads ended.
+        let (old_lock, new_lock) = (self.lock_path(from), self.lock_path(to));
+        if self.fs.symlink_metadata(&old_lock).is_ok() {
+            self.fs
+                .rename(&old_lock, &new_lock)
+                .map_err(|e| Report::of(&FilesError::io("move", &old_lock, &e)))?;
+        }
+        Ok(true)
+    }
+
+    fn destroy_session(&mut self, harp: &str) -> Result<u64, Report> {
+        let root = self.dir(harp);
+        let mut found = Vec::new();
+        let mut freed = 0;
+        if self.fs.symlink_metadata(&root).is_ok() {
+            self.every_file(&root, &mut found);
+            freed = found.iter().sum();
+            self.fs
+                .remove_dir_all(&root)
+                .map_err(|e| Report::of(&FilesError::io("remove", &root, &e)))?;
+        }
+        let lock = self.lock_path(harp);
+        match self.fs.remove_file(&lock) {
+            Ok(()) => {}
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            Err(e) => return Err(Report::of(&FilesError::io("remove", &lock, &e))),
+        }
+        Ok(freed)
+    }
 }
 
-/// The session directory as the run core writes it from the events: the
-/// session home, the metadata, the records and the transcript, as bytes at a
-/// relative path.
+impl SessionDirs {
+    /// The size of every regular file under `dir`, ephemeral members too.
+    fn every_file(&self, dir: &Path, sizes: &mut Vec<u64>) {
+        let Ok(entries) = self.fs.read_dir(dir) else {
+            return;
+        };
+        for entry in entries {
+            let path = dir.join(&entry.name);
+            match entry.kind {
+                Kind::Dir => self.every_file(&path, sizes),
+                Kind::File => {
+                    if let Ok(meta) = self.fs.symlink_metadata(&path) {
+                        sizes.push(meta.len);
+                    }
+                }
+                Kind::Symlink | Kind::Other => {}
+            }
+        }
+    }
+}
+
+/// The session directory as the launcher writes it: the session home, as
+/// bytes at a relative path.
 impl SessionRecords for SessionDirs {
     fn dir(&self, harp: &str) -> String {
         SessionDirs::dir(self, harp).display().to_string()
+    }
+
+    fn exists(&mut self, harp: &str) -> bool {
+        // One that cannot be looked at counts as there.
+        !matches!(
+            self.fs.symlink_metadata(&SessionDirs::dir(self, harp)),
+            Err(e) if e.kind() == ErrorKind::NotFound
+        )
     }
 
     fn write(&mut self, harp: &str, rel: &str, bytes: &[u8]) -> Result<(), RecordsError> {

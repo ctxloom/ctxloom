@@ -10,15 +10,20 @@
 //!   owed, from where the index is on it. The index keeps no cursor across
 //!   streams: nothing numbers across streams.
 //! - [`SessionRecord`] is what the store records of a session; [`View`]
-//!   joins it with the facts only the outside knows (its state from its
-//!   lock, its title from its transcript), and is what `session list`,
-//!   `search` and `show` render from.
+//!   joins it with what only the outside knows (its state from its lock) and
+//!   its title from its transcript, and is what `session list`, `search` and
+//!   `show` render from.
+//! - A session's transcript (D27's lines) is folded from its capture events
+//!   too ([`SessionIndex::transcript`], [`Projection`]): no file holds it
+//!   (owner ruling 87a), so a read, live or not, sees what was delivered.
 //! - [`title_of`] is a session's title, [`Retention`] the rule that keeps its
 //!   transcript, and [`stamp`] the instants as the rows show them.
 
+mod projection;
 mod retention;
 pub mod stamp;
 mod title;
+mod transcript;
 mod view;
 
 use std::collections::BTreeMap;
@@ -32,8 +37,10 @@ use angzarr_embedded::{
 };
 use sessions::{Origin, Rotation, SessionAggregate, SessionEvent, SESSION_DOMAIN};
 
+pub use projection::Projection;
 pub use retention::{ended, Retained, Retention};
 pub use title::{first_line_summary, title_of, TITLE_BYTES};
+pub use transcript::{entry_line, rfc3339, Speaker};
 pub use view::{only_state, Captured, State, View, NO_SUMMARY, STATES};
 
 /// What the store records of one session, as its events fold.
@@ -57,6 +64,12 @@ pub struct SessionRecord {
     pub started_at: Timestamp,
     pub ended_at: Option<Timestamp>,
     pub purged_at: Option<Timestamp>,
+    /// The highest incarnation the session owed: its runs are
+    /// UUIDv5(session, 1..=incarnation) (a destroy purges each, ruling 94b).
+    pub incarnation: u32,
+    /// When its hooks last delivered something to its transcript: the newest
+    /// capture event's instant (owner ruling 87a: its last activity).
+    pub last_captured: Option<Timestamp>,
 }
 
 /// One index of a project's sessions.
@@ -65,6 +78,17 @@ pub struct SessionIndex {
     /// Every session stream projected, by root: the session as its events
     /// leave it.
     streams: BTreeMap<Vec<u8>, SessionAggregate>,
+    /// Each session's transcript (owner ruling 87a), by root: its folding
+    /// and the text so far.
+    transcripts: BTreeMap<Vec<u8>, Folded>,
+}
+
+/// A session's transcript as folded so far.
+struct Folded {
+    projection: Projection,
+    text: String,
+    /// The instant of the newest line.
+    last: Option<Timestamp>,
 }
 
 impl SessionIndex {
@@ -89,11 +113,15 @@ impl SessionIndex {
         let Some(first) = book.pages.first() else {
             if book.next_sequence == 0 {
                 self.streams.remove(&root);
+                self.transcripts.remove(&root);
             }
             return Ok(());
         };
         let mut session = match first.sequence {
-            0 => SessionAggregate::default(),
+            0 => {
+                self.transcripts.remove(&root);
+                SessionAggregate::default()
+            }
             _ => self.streams.remove(&root).unwrap_or_default(),
         };
         for page in &book.pages {
@@ -107,10 +135,54 @@ impl SessionIndex {
                 sequence: page.sequence,
                 meta: page.meta.as_ref(),
             };
-            SessionAggregate::apply(&mut session, &SessionEvent::from_any(event)?, &at);
+            let event = SessionEvent::from_any(event)?;
+            SessionAggregate::apply(&mut session, &event, &at);
+            let recorded = page
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.recorded_at)
+                .unwrap_or_default();
+            self.transcribe(&root, &session, page.sequence, recorded, &event);
         }
         self.streams.insert(root, session);
         Ok(())
+    }
+
+    /// Fold `event`, page `sequence` of the stream rooted at `root` recorded
+    /// at `recorded`, into the session's transcript.
+    fn transcribe(
+        &mut self,
+        root: &[u8],
+        session: &SessionAggregate,
+        sequence: u64,
+        recorded: Timestamp,
+        event: &SessionEvent,
+    ) {
+        let state = session.state();
+        let folded = self
+            .transcripts
+            .entry(root.to_vec())
+            .or_insert_with(|| Folded {
+                projection: Projection::new(&state.harp, &uuid_text(root), &state.engine),
+                text: String::new(),
+                last: None,
+            });
+        if let SessionEvent::RenamedTo(renamed) = event {
+            folded.projection.rename(&renamed.harp);
+        }
+        let lines = folded.projection.fold(sequence, recorded.seconds, event);
+        if !lines.is_empty() {
+            folded.last = Some(recorded);
+            folded.text.extend(lines);
+        }
+    }
+
+    /// The record of the session folded from the stream rooted at `root`.
+    fn record_of(&self, root: &[u8], session: &SessionAggregate) -> SessionRecord {
+        SessionRecord {
+            last_captured: self.transcripts.get(root).and_then(|t| t.last),
+            ..record_of(root, session)
+        }
     }
 
     /// Every session not forgotten, most recently started first, a tie by
@@ -120,7 +192,7 @@ impl SessionIndex {
             .streams
             .iter()
             .filter(|(_, session)| !session.state().forgotten)
-            .map(|(root, session)| record_of(root, session))
+            .map(|(root, session)| self.record_of(root, session))
             .collect();
         records.sort_by(|a, b| {
             let started = |r: &SessionRecord| (r.started_at.seconds, r.started_at.nanos);
@@ -154,17 +226,19 @@ impl SessionIndex {
     /// far as the store held when this index caught up. `None` when the
     /// session has no capture event (or no such session).
     ///
-    /// RED (87a): a stub.
     pub fn transcript(&self, id: &str) -> Option<String> {
-        let _ = id;
-        None
+        self.transcripts
+            .iter()
+            .find(|(root, _)| uuid_text(root) == id)
+            .map(|(_, folded)| folded.text.clone())
+            .filter(|text| !text.is_empty())
     }
 
     /// The session with the stable id `id`, forgotten or not.
     pub fn find_by_id(&self, id: &str) -> Option<SessionRecord> {
         self.streams
             .iter()
-            .map(|(root, session)| record_of(root, session))
+            .map(|(root, session)| self.record_of(root, session))
             .find(|r| r.id == id)
     }
 }
@@ -226,6 +300,8 @@ fn record_of(root: &[u8], session: &SessionAggregate) -> SessionRecord {
         started_at: state.started_at,
         ended_at: state.ended_at,
         purged_at: state.purged_at,
+        incarnation: state.incarnation,
+        last_captured: None,
     }
 }
 

@@ -9,8 +9,8 @@ use angzarr_diagnostic::{Arg, Diagnostic};
 use angzarr_presentation::text;
 use serde::Serialize;
 use sessions_application::{
-    stamp, Captured, Class, FilePlan, ImportReport, PlanItem, Removal, Renamed, Scope,
-    TranscriptRow, View, NO_SUMMARY,
+    stamp, Class, FilePlan, ImportReport, PlanItem, Removal, Renamed, Scope, TranscriptRow, View,
+    NO_SUMMARY,
 };
 
 /// One session as `session list` and `search` row it.
@@ -27,8 +27,6 @@ pub(crate) struct Row {
     purged: bool,
     #[serde(skip_serializing_if = "is_false")]
     kept: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    transcript_path: Option<String>,
     engine: String,
 }
 
@@ -46,7 +44,6 @@ impl Row {
             end: view.end().map(stamp::rfc3339),
             purged: view.record.purged_at.is_some(),
             kept: view.record.kept,
-            transcript_path: view.captured.as_ref().map(|c| c.path.clone()),
             engine: view.record.engine.clone(),
         }
     }
@@ -123,8 +120,6 @@ pub(crate) struct ShowDoc {
     #[serde(skip_serializing_if = "is_false")]
     kept: bool,
     output_dir: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    transcript_path: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     rotations: Vec<RotationDoc>,
 }
@@ -153,7 +148,6 @@ impl ShowDoc {
             purged: record.purged_at.is_some(),
             kept: record.kept,
             output_dir: record.output_dir.clone(),
-            transcript_path: view.captured.as_ref().map(|c: &Captured| c.path.clone()),
             rotations: record
                 .rotations
                 .iter()
@@ -367,8 +361,6 @@ struct TranscriptDoc {
     harp: String,
     captured: bool,
     bytes: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    path: Option<String>,
 }
 
 impl TranscriptsDoc {
@@ -380,7 +372,6 @@ impl TranscriptsDoc {
                     harp: r.harp.clone(),
                     captured: r.captured,
                     bytes: r.bytes,
-                    path: r.path.clone(),
                 })
                 .collect(),
         }
@@ -393,20 +384,9 @@ pub(crate) fn transcripts_text(rows: &[TranscriptRow], out: &mut dyn Write) -> i
     }
     let cells: Vec<Vec<String>> = rows
         .iter()
-        .map(|r| {
-            vec![
-                r.harp.clone(),
-                r.captured.to_string(),
-                r.bytes.to_string(),
-                r.path.clone().unwrap_or_default(),
-            ]
-        })
+        .map(|r| vec![r.harp.clone(), r.captured.to_string(), r.bytes.to_string()])
         .collect();
-    write!(
-        out,
-        "{}",
-        table(&["HARP", "CAPTURED", "BYTES", "PATH"], &cells)
-    )
+    write!(out, "{}", table(&["HARP", "CAPTURED", "BYTES"], &cells))
 }
 
 /// Go's `renderSessionWorktrees`: a table when there is anything to show, one
@@ -647,6 +627,7 @@ pub(crate) fn import_text(report: &ImportReport, out: &mut dyn Write) -> io::Res
 }
 
 /// Go's sweep report: a line per session, the reason under it, and a count.
+#[cfg(feature = "session-destroy")]
 pub(crate) fn sweep_text(
     report: &reclaim_application::SweepReport,
     out: &mut dyn Write,

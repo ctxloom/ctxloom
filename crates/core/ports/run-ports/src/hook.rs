@@ -40,18 +40,17 @@ pub const HARP_VARIABLE: &str = "CTXLOOM_SESSION_HARP";
 /// what a hook addresses its facts to (review finding 6, ruling 87: never
 /// read from the session's directory). Not a secret; the gate still holds a
 /// hook to the session of the run its bearer names.
-///
-/// RED (finding 6): declared, not yet among [`HOOK_VARIABLES`] nor set.
 pub const SESSION_VARIABLE: &str = "CTXLOOM_SESSION";
 
-/// The four variables, which reach a run's engine's environment (the
+/// The five variables, which reach a run's engine's environment (the
 /// terminal session's and a one-shot child's, ruling 51), always the run's own:
 /// an inherited value is replaced.
-pub const HOOK_VARIABLES: [&str; 4] = [
+pub const HOOK_VARIABLES: [&str; 5] = [
     ENDPOINT_VARIABLE,
     BEARER_VARIABLE,
     RUN_VARIABLE,
     TLS_CERT_VARIABLE,
+    SESSION_VARIABLE,
 ];
 
 /// The URL a hook process dials for the listener at `host` and `port`:
@@ -239,15 +238,18 @@ impl Diagnostic for BearerError {
     }
 }
 
-/// The variables a run's engine is given for its hooks: the endpoint,
-/// the bearer and the run.
+/// The variables a run's engine is given for its hooks: the endpoint, the
+/// bearer, the run, its certificate and its session (the stable id a hook
+/// addresses its facts to).
 pub fn hook_environment(
     endpoint: &str,
     run: &str,
+    session: &str,
     token: &Token,
     cert: &PublicCert,
 ) -> BTreeMap<String, String> {
     BTreeMap::from([
+        (SESSION_VARIABLE.to_string(), session.to_string()),
         (ENDPOINT_VARIABLE.to_string(), endpoint.to_string()),
         (
             BEARER_VARIABLE.to_string(),

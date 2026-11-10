@@ -213,7 +213,7 @@ fn test_a_hook_that_cannot_record_still_answers_and_says_so_on_stderr() {
     assert_eq!((code, out.as_str()), (0, "{}\n"));
     assert_eq!(err.matches("hook-cli-not-recorded").count(), 1, "{err}");
     assert!(
-        err.contains("no session directory for jolly-mute-magma"),
+        err.contains("no session for jolly-mute-magma: CTXLOOM_SESSION names none"),
         "{err}"
     );
 }

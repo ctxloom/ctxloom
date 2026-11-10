@@ -7,6 +7,9 @@ use crate::hook::{
 };
 use crate::{PublicCert, Token};
 
+/// The run's session, as its engine is told it.
+const SESSION_TEXT: &str = "5f0c7a52-1111-5111-8111-000000000001";
+
 fn cert() -> PublicCert {
     PublicCert::from_der(vec![0x30, 0x03, 0x01, 0x02, 0x03]).unwrap()
 }
@@ -175,7 +178,13 @@ fn the_secret_is_in_no_debug_display_or_error_rendering() {
     let bearer = Bearer::compose(RUN_TEXT, &token());
     assert_eq!(format!("{bearer:?}"), "Bearer(redacted)");
     assert!(!format!("{:?}", token()).contains(&secret));
-    let env = hook_environment("https://127.0.0.1:9", RUN_TEXT, &token(), &cert());
+    let env = hook_environment(
+        "https://127.0.0.1:9",
+        RUN_TEXT,
+        SESSION_TEXT,
+        &token(),
+        &cert(),
+    );
     let shown = format!("{:?}", RedactedEnv(&env));
     assert!(!shown.contains(&secret), "{shown}");
     assert!(shown.contains(BEARER_VARIABLE));
@@ -191,8 +200,15 @@ fn the_secret_is_in_no_debug_display_or_error_rendering() {
 // The four variables the interactive engine is given.
 #[test]
 fn the_hook_environment_is_the_endpoint_the_bearer_the_run_and_the_certificate() {
-    let env = hook_environment("https://127.0.0.1:9", RUN_TEXT, &token(), &cert());
-    assert_eq!(env.len(), 4);
+    let env = hook_environment(
+        "https://127.0.0.1:9",
+        RUN_TEXT,
+        SESSION_TEXT,
+        &token(),
+        &cert(),
+    );
+    assert_eq!(env.len(), 5);
+    assert_eq!(env[crate::SESSION_VARIABLE], SESSION_TEXT);
     assert_eq!(env[ENDPOINT_VARIABLE], "https://127.0.0.1:9");
     assert_eq!(env[RUN_VARIABLE], RUN_TEXT);
     assert_eq!(
@@ -207,7 +223,8 @@ fn the_hook_environment_is_the_endpoint_the_bearer_the_run_and_the_certificate()
             "CTXLOOM_ENDPOINT",
             "CTXLOOM_BEARER",
             "CTXLOOM_RUN",
-            "CTXLOOM_TLS_CERT"
+            "CTXLOOM_TLS_CERT",
+            "CTXLOOM_SESSION"
         ]
     );
 }

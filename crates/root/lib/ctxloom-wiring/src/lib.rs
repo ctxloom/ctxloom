@@ -53,7 +53,7 @@ use crate::library::PathSearch;
 use uuid::Uuid;
 use worktree_git::GitWorkspaces;
 
-pub use capture::{DirIds, EdgeSink, HookRecording, HookSink, RunIds, SessionIds, Unreachable};
+pub use capture::{EdgeSink, HookRecording, HookSink, RunIds, SessionIds, Unreachable};
 pub use commands::{engines, Commands, Hooks};
 pub use core_link::InProcessCore;
 #[cfg(any(test, feature = "test-support"))]

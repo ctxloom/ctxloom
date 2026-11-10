@@ -56,10 +56,12 @@ impl fmt::Debug for Order {
     }
 }
 
-/// The orders placed and not yet taken, by session id text and incarnation.
+/// The orders placed and not yet taken, by session id text and incarnation,
+/// and the run locks held for them (rulings 86, 92).
 #[derive(Debug, Default)]
 pub struct Orders {
     placed: Mutex<BTreeMap<(String, u32), Order>>,
+    locks: Mutex<BTreeMap<(String, u32), run_ports::HeldLock>>,
 }
 
 impl Orders {
@@ -73,6 +75,26 @@ impl Orders {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert((session.to_string(), incarnation), order);
+    }
+
+    /// Hold `lock`, the run's own lock, for `incarnation` of `session`, until
+    /// [`Orders::release`]: the launcher lets it go once the runner is
+    /// started, or the launch failed.
+    pub fn hold(&self, session: &str, incarnation: u32, lock: run_ports::HeldLock) {
+        self.locks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert((session.to_string(), incarnation), lock);
+    }
+
+    /// Let go of the run lock held for `incarnation` of `session`, if any.
+    pub fn release(&self, session: &str, incarnation: u32) {
+        let held = self
+            .locks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&(session.to_string(), incarnation));
+        drop(held);
     }
 
     /// Take the order, once: the launch that has it is the one that runs it.

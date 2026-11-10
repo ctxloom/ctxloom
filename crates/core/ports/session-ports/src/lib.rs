@@ -6,15 +6,17 @@
 //! - [`ProjectStores`]: a project's ctxloom store, opened where its project
 //!   says (`~/.ctxloom/projects/<id>/ctxloom.db`, D26).
 //! - [`Liveness`]: whether a session's owner is running, asked of its lock.
-//! - [`SessionFiles`]: a session's files: its canonical transcript and the
-//!   directory around it.
+//! - [`SessionFiles`]: a session's directory (its session home, the engine's
+//!   native history): no transcript file is in it (owner ruling 87a: the
+//!   transcript is read from the session's events).
+//! - [`SessionLock`]: the session's liveness lock, held by its run.
 //! - [`GoSessions`]: Go's `~/.ctxloom/sessions/<harp>/session.yaml`, read by
 //!   `session import` alone.
 
 use std::future::Future;
 
 use angzarr_diagnostic::Report;
-use angzarr_embedded::{Processed, ReadStore, Store, StoreError};
+use angzarr_embedded::{Processed, Purge, ReadStore, Store, StoreError};
 use ports::Project;
 
 /// An instant, as every recorded event carries one.
@@ -22,9 +24,10 @@ pub use angzarr_embedded::Timestamp;
 
 /// A project's ctxloom store, opened where its project says.
 pub trait ProjectStores {
-    /// A project's store: the base ports, one-moment reads, and the
-    /// positions it holds, listed (what a catch-up reads when it starts).
-    type Store: Store + ReadStore + Processed + Send + Sync;
+    /// A project's store: the base ports, one-moment reads, the positions it
+    /// holds, listed (what a catch-up reads when it starts), and the purge a
+    /// session's destroy runs (owner ruling 94b).
+    type Store: Store + ReadStore + Processed + Purge + Send + Sync;
 
     /// The project's store, to write: opened (and created) on first use and
     /// held after.
@@ -89,13 +92,6 @@ pub trait SessionLock: Send {
     fn hold(&mut self, harp: &str) -> Result<Held, Report>;
 }
 
-/// A session's canonical transcript, as it is on disk.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct TranscriptFile {
-    pub path: String,
-    pub bytes: u64,
-}
-
 /// One file under a session's directory.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct FileItem {
@@ -106,28 +102,22 @@ pub struct FileItem {
     pub bytes: u64,
 }
 
-/// A session's files (D27: the canonical transcript stays a content file,
-/// `~/.ctxloom/sessions/<harp>/transcripts/transcript.jsonl`).
+/// A session's files: its directory, `<project>/.ctxloom/sessions/<harp>/`,
+/// and the lock beside it. No transcript file is among them (owner ruling
+/// 87a).
 ///
 /// Synchronous: file I/O through the file-system seam.
 pub trait SessionFiles {
-    /// The canonical transcript of `harp`, when one was captured: a regular
-    /// file that stats. A failure to stat is absence, never an invented size.
-    fn transcript(&mut self, harp: &str) -> Result<Option<TranscriptFile>, Report>;
-
-    /// The canonical transcript's text, when one was captured.
-    fn read_transcript(&mut self, harp: &str) -> Result<Option<String>, Report>;
-
-    /// When `harp`'s CONVERSATION was last written: the newest mtime of a
-    /// file under its transcripts and its native history (directories,
-    /// symlinks and the record are not the conversation). `None` when neither
-    /// holds anything.
+    /// When `harp`'s engine last wrote its native history: the newest mtime
+    /// of a file under it (directories and symlinks are not the
+    /// conversation). `None` when it holds nothing. The session's own
+    /// capture is in its events (`SessionRecord::last_captured`).
     fn last_active(&mut self, harp: &str) -> Result<Option<Timestamp>, Report>;
 
-    /// Every regular file under `harp`'s directory that a purge or remove
-    /// could name, sorted by `rel`: the persisted members (transcripts,
-    /// native history and anything authored), never the ephemeral ones (the
-    /// engine homes, the locks, the worktrees and the scratch).
+    /// Every regular file under `harp`'s directory that a remove could name,
+    /// sorted by `rel`: the persisted members (native history and anything
+    /// authored), never the ephemeral ones (the engine homes, the locks, the
+    /// worktrees and the scratch).
     fn survey(&mut self, harp: &str) -> Result<Vec<FileItem>, Report>;
 
     /// Remove the files at `rels` under `harp`'s directory; the bytes freed.
@@ -145,22 +135,12 @@ pub trait SessionFiles {
     /// for a later session to claim): `false` when there is no directory at
     /// `from`. A move, never a copy; refused whole when something is already
     /// at `to`.
-    ///
-    /// RED (defect 2): a stub that moves nothing.
-    fn move_session(&mut self, from: &str, to: &str) -> Result<bool, Report> {
-        let _ = (from, to);
-        Ok(false)
-    }
+    fn move_session(&mut self, from: &str, to: &str) -> Result<bool, Report>;
 
     /// Remove `harp`'s session directory whole, and its lock file beside it
     /// (owner ruling 94b: a destroy leaves nothing of the session); the bytes
     /// freed. Nothing there is not a failure.
-    ///
-    /// RED (ruling 94b): a stub that removes nothing.
-    fn destroy_session(&mut self, harp: &str) -> Result<u64, Report> {
-        let _ = harp;
-        Ok(0)
-    }
+    fn destroy_session(&mut self, harp: &str) -> Result<u64, Report>;
 }
 
 /// One of Go's session directories, as `session import` reads it.

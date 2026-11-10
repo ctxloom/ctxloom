@@ -314,18 +314,9 @@ const STOP: &str = r#"{"session_id":"s","prompt_id":"p","hook_event_name":"Stop"
 const A_BEARER: &str = "0a1b2c3d-0000-4000-8000-000000000001.\
     abababababababababababababababababababababababababababababababab"; // gitleaks:allow
 
-impl Env {
-    /// The session directory a harp's hook finds its session in.
-    fn with_session_directory(&self, harp: &str) {
-        files::put(
-            self.home()
-                .join(".ctxloom/sessions")
-                .join(harp)
-                .join("metadata.json"),
-            format!("{{\"v\": 1, \"id\": \"0a1b2c3d-0000-4000-8000-0000000000aa\", \"harp\": \"{harp}\"}}\n"),
-        );
-    }
-}
+/// The session a run's hook is told by id (`CTXLOOM_SESSION`, review finding
+/// 6): what it addresses its facts to, with no session directory to read.
+const RECORDED_SESSION: &str = "0a1b2c3d-0000-4000-8000-0000000000aa";
 
 // The hook's delivery with no endpoint in its environment is as it was before
 // the listener: the observation is not recorded, said once, and the hook
@@ -333,11 +324,13 @@ impl Env {
 #[test]
 fn test_a_hook_with_no_endpoint_says_the_listener_is_not_running() {
     let env = Env::new();
-    env.with_session_directory(RECORDED_HARP);
     let ran = env.run_hook(
         &["hook", "claude-code", "execute", "Stop"],
         STOP,
-        &[("CTXLOOM_SESSION_HARP", RECORDED_HARP)],
+        &[
+            ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
+            ("CTXLOOM_SESSION", RECORDED_SESSION),
+        ],
     );
     assert_eq!(ran.code, 0, "{}", ran.said());
     assert_eq!(ran.stdout.trim(), "{}");
@@ -361,6 +354,7 @@ fn test_a_hook_finds_its_session_from_the_run_with_no_session_directory() {
         STOP,
         &[
             ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
+            ("CTXLOOM_SESSION", RECORDED_SESSION),
             ("CTXLOOM_SESSION", "0a1b2c3d-0000-4000-8000-0000000000aa"),
         ],
     );
@@ -391,12 +385,12 @@ fn closed_endpoint() -> String {
 #[test]
 fn test_a_hook_with_a_malformed_bearer_fails_open_without_echoing_it() {
     let env = Env::new();
-    env.with_session_directory(RECORDED_HARP);
     let ran = env.run_hook(
         &["hook", "claude-code", "execute", "Stop"],
         STOP,
         &[
             ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
+            ("CTXLOOM_SESSION", RECORDED_SESSION),
             ("CTXLOOM_ENDPOINT", &closed_endpoint()),
             ("CTXLOOM_BEARER", "not-a-bearer-zzz"),
         ],
@@ -411,12 +405,12 @@ fn test_a_hook_with_a_malformed_bearer_fails_open_without_echoing_it() {
 #[test]
 fn test_a_hook_whose_endpoint_is_dead_says_it_could_not_reach_the_listener() {
     let env = Env::new();
-    env.with_session_directory(RECORDED_HARP);
     let ran = env.run_hook(
         &["hook", "claude-code", "execute", "Stop"],
         STOP,
         &[
             ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
+            ("CTXLOOM_SESSION", RECORDED_SESSION),
             ("CTXLOOM_ENDPOINT", &closed_endpoint()),
             ("CTXLOOM_BEARER", A_BEARER),
             ("CTXLOOM_TLS_CERT", A_CERT),
@@ -447,10 +441,10 @@ fn test_a_hook_without_a_usable_certificate_is_refused_and_says_so() {
         (Some("!!!!"), "CTXLOOM_TLS_CERT is not a certificate"),
     ] {
         let env = Env::new();
-        env.with_session_directory(RECORDED_HARP);
         let endpoint = closed_endpoint();
         let mut vars = vec![
             ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
+            ("CTXLOOM_SESSION", RECORDED_SESSION),
             ("CTXLOOM_ENDPOINT", endpoint.as_str()),
             ("CTXLOOM_BEARER", A_BEARER),
         ];
@@ -470,12 +464,12 @@ fn test_a_hook_without_a_usable_certificate_is_refused_and_says_so() {
 #[test]
 fn test_a_hook_with_a_plaintext_endpoint_is_refused_and_says_so() {
     let env = Env::new();
-    env.with_session_directory(RECORDED_HARP);
     let ran = env.run_hook(
         &["hook", "claude-code", "execute", "Stop"],
         STOP,
         &[
             ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
+            ("CTXLOOM_SESSION", RECORDED_SESSION),
             ("CTXLOOM_ENDPOINT", "http://127.0.0.1:9"),
             ("CTXLOOM_BEARER", A_BEARER),
             ("CTXLOOM_TLS_CERT", A_CERT),

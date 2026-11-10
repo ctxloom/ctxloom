@@ -247,6 +247,14 @@ fn renamed(
     rename: &RenameSession,
 ) -> Result<Option<RenamedTo>, SessionRejection> {
     let held = live(held)?;
+    // Owner ruling 91 (per 73e): what the session's lock said, judged here. A
+    // held lock is a live session: its engine works in the directory a rename
+    // moves. A free or unproven one does not refuse.
+    if rename.lock == crate::LockEvidence::Held {
+        return Err(SessionRejection::SessionLive {
+            harp: held.harp.clone(),
+        });
+    }
     validate_rename(&rename.harp)?;
     if rename.harp == held.harp {
         return Ok(None);

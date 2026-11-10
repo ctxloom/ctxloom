@@ -157,8 +157,10 @@ crate-prefix rule).
 under the cargo feature `session-destroy` (binary -> `ctxloom-wiring` ->
 `session-cli`; `session sweep`, whose apply is that destroy, too;
 `scripts/plain-destroy-check.sh`, run by `just build`, holds the plain binary
-to not knowing either; the acceptance tests build with it, and the justfile's
-`feature_rules` turns it on for `session-cli`'s tests). A destroy purges, from
+to not knowing either; the acceptance tests build with it, and `session-cli` dev-depends on
+itself with it, so its tests and `--all-targets` lint compile the destroy; no
+`feature_rules` entry, which the mutation harness would pass to every
+package it builds). A destroy purges, from
 the store, the session's stream and each run stream UUIDv5(session, 1..=n),
 each guarded by the head just read (retried on a conflict), then removes the
 session's directory and lock; the name's claim is kept. A hook fact
@@ -936,4 +938,9 @@ drives. A failing gate is a finding: fix the cause and commit again; never
    mutant's log, outcomes.json) is kept in target/logs/mutants-staged/. Red
    tests fail it on every branch (no mutant can be judged against failing
    tests), as does a run that found mutants and tested fewer: a mutation
-   run that judged nothing has shown nothing.
+   run that judged nothing has shown nothing. The verdict is
+   `scripts/mutants-judge.sh` (self-test in `just selftest`): it also fails a
+   tier whose every mutant was unviable (it judged nothing), and fails, as a
+   misconfigured gate, any unviable mutant whose build log holds no compiler
+   error (cargo refused the build before the mutant: a feature a package
+   lacks, a manifest error), never counting it unviable.

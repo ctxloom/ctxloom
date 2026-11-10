@@ -402,6 +402,18 @@ pub struct ToolCall {
     pub input: String,
     /// The call's response text.
     pub response: String,
+    /// How the call ended, when the engine says.
+    pub status: ToolStatus,
+}
+
+/// How a tool call ended: claude's hooks do not say (`Unspecified`);
+/// opencode's tool parts do.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ToolStatus {
+    #[default]
+    Unspecified,
+    Completed,
+    Error,
 }
 
 /// What a hook answers, in the neutral shape.

@@ -1,0 +1,223 @@
+//! opencode's drive half.
+//!
+//! A child's turn is one `opencode run --format json` command: the prompt on
+//! stdin, which `run` reads to its end (the live probe: an argument with a
+//! space reaches the model wrapped in literal quotes, and a stdin left open
+//! hangs `run`), the context in the session home's `AGENTS.md`, the events on
+//! stdout (read by [`crate::stream`] for the reply and the outcome alone). A
+//! later turn names the session the first turn's stream gave (`--session`).
+//! `run` waits for the plugin's `dispose` before it exits, so every delivery
+//! of the turn is made by then (probe P4). The human's session is opencode's
+//! TUI on her terminal, the prompt a flag.
+//!
+//! Either is heard through the plugin alone (owner rulings 26, 51 and 58).
+//!
+//! The command's environment is built here and is all it gets: the session
+//! home as `OPENCODE_CONFIG_DIR`, every XDG base and `HOME` relocated into it
+//! (the user's own opencode config, data, state, cache and `~/.opencode` are
+//! neither read nor written), and the caller's variables on the allowlist,
+//! the engine block's `env` and the configured credential source.
+
+use std::collections::BTreeMap;
+
+use run_ports::{
+    Credentials, Engine, EngineError, PrepareRequest, Prepared, SessionHome, TurnCommand,
+    TurnOutcome, TurnOutput, TurnRequest,
+};
+
+use crate::home::{self, CONTEXT_FILE};
+use crate::{Opencode, NAME};
+
+/// The program: found on the `PATH` of the process that runs the command.
+const PROGRAM: &str = "opencode";
+
+/// opencode's endpoint key: optional (a built-in provider's free models need
+/// none), passed on when set; it is no child's requirement.
+pub const OPTIONAL_KEY: &str = "CTXLOOM_OPENCODE_API_KEY";
+
+/// The variables of the caller's environment a child's turn is given: how to
+/// find programs, locale and temp space, the proxy and certificate settings a
+/// network needs, opencode's optional key, and what the plugin's hook
+/// processes need (ctxloom's home by name, the session's harp, the run's
+/// listener). Never `HOME`, an XDG base nor any `OPENCODE_*` variable of the
+/// caller's: `OPENCODE_PURE` would skip the plugin, and capture vanish.
+pub const ENV_ALLOWLIST: &[&str] = &[
+    "PATH",
+    "LANG",
+    "LC_ALL",
+    "TMPDIR",
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "NO_PROXY",
+    "https_proxy",
+    "http_proxy",
+    "no_proxy",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "NODE_EXTRA_CA_CERTS",
+    OPTIONAL_KEY,
+    run_ports::HOME_VARIABLE,
+    run_ports::ENDPOINT_VARIABLE,
+    run_ports::BEARER_VARIABLE,
+    run_ports::RUN_VARIABLE,
+    run_ports::TLS_CERT_VARIABLE,
+    run_ports::HARP_VARIABLE,
+];
+
+/// The variables of the caller's environment the human's session is given:
+/// a turn's (the TUI is heard through the same plugin).
+pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = ENV_ALLOWLIST;
+
+/// The variables a command is given whatever the config names: opencode's
+/// own, which the relocation sets, and `OPENCODE_PURE` above all.
+fn withheld(name: &str) -> bool {
+    name.starts_with("OPENCODE_") || name == "HOME" || name.starts_with("XDG_")
+}
+
+impl Engine for Opencode {
+    fn name(&self) -> &str {
+        NAME
+    }
+
+    fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
+        Ok(Prepared {
+            files: home::files(&request.context),
+            // Nothing of the user's own opencode configuration crosses.
+            copy_in: Vec::new(),
+            context_path: format!("{}/{CONTEXT_FILE}", request.home),
+        })
+    }
+
+    fn drive_turn(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
+        let mut command = TurnCommand::new(program(request));
+        command.args = ["run", "--format", "json"].map(String::from).to_vec();
+        if let Some(native_id) = &request.resume {
+            command.args.push("--session".to_string());
+            command.args.push(native_id.clone());
+        }
+        push_model(&mut command.args, request);
+        command.env = environment(self, request)?;
+        command.stdin = request.prompt.clone().into_bytes();
+        command.cwd = request.cwd.clone();
+        Ok(command)
+    }
+
+    /// The key is optional, so a child is never refused for want of one, and
+    /// opencode has no login file the primary could share.
+    fn credentials(&self) -> Credentials {
+        Credentials {
+            child_env: &[],
+            primary_env: &[],
+            user_dir: ".local/share/opencode",
+            login_file: None,
+        }
+    }
+
+    fn finish_turn(&self, output: &TurnOutput) -> TurnOutcome {
+        crate::stream::read_turn(output)
+    }
+
+    /// opencode has no native "session ended" event, and the plugin forwards
+    /// none: the launcher records the end at the exit (ruling 58).
+    fn session_ends_with_exit(&self) -> bool {
+        true
+    }
+
+    /// The human's session: the TUI, given her terminal; the prompt (when she
+    /// gave one) a flag.
+    fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
+        let mut command = TurnCommand::new(program(request));
+        push_model(&mut command.args, request);
+        if let Some(native_id) = &request.resume {
+            command.args.push("--session".to_string());
+            command.args.push(native_id.clone());
+        }
+        if !request.prompt.trim().is_empty() {
+            command.args.push("--prompt".to_string());
+            command.args.push(request.prompt.clone());
+        }
+        command.env = environment(self, request)?;
+        command.cwd = request.cwd.clone();
+        Ok(command)
+    }
+}
+
+/// `-m <provider/model>` when the agent names one. An effort level is not
+/// passed: no opencode flag for it is verified (it is stored and shown only).
+fn push_model(args: &mut Vec<String>, request: &TurnRequest) {
+    if !request.model.is_empty() {
+        args.push("-m".to_string());
+        args.push(request.model.clone());
+    }
+}
+
+/// The program: the engine block's `command`, else `opencode` on the `PATH`.
+fn program(request: &TurnRequest) -> &str {
+    match request.settings.command.as_str() {
+        "" => PROGRAM,
+        configured => configured,
+    }
+}
+
+/// The command's whole environment.
+fn environment(
+    engine: &Opencode,
+    request: &TurnRequest,
+) -> Result<BTreeMap<String, String>, EngineError> {
+    let settings = &request.settings;
+    let policy = settings.credentials(engine.credentials());
+    let passes = |name: &str| {
+        !withheld(name)
+            && (ENV_ALLOWLIST.contains(&name)
+                || settings.env.iter().any(|n| n == name)
+                || policy.child_env.iter().any(|n| n == name))
+    };
+    let mut env: BTreeMap<String, String> = request
+        .env
+        .iter()
+        .filter(|(name, _)| passes(name))
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect();
+    let home = request.home.clone();
+    // The session home is a config directory in both home modes: the plugin
+    // and the context are found there.
+    env.insert("OPENCODE_CONFIG_DIR".to_string(), home.clone());
+    match settings.session_home {
+        SessionHome::Session => {
+            env.insert("HOME".to_string(), home.clone());
+            for (variable, dir) in [
+                ("XDG_CONFIG_HOME", "xdg/config"),
+                ("XDG_DATA_HOME", "xdg/data"),
+                ("XDG_STATE_HOME", "xdg/state"),
+                ("XDG_CACHE_HOME", "xdg/cache"),
+            ] {
+                env.insert(variable.to_string(), format!("{home}/{dir}"));
+            }
+        }
+        SessionHome::Host => {
+            let user = request
+                .env
+                .get("HOME")
+                .filter(|h| !h.is_empty())
+                .ok_or_else(|| EngineError::NoHostHome {
+                    engine: NAME.to_string(),
+                })?;
+            env.insert("HOME".to_string(), user.clone());
+            for variable in [
+                "XDG_CONFIG_HOME",
+                "XDG_DATA_HOME",
+                "XDG_STATE_HOME",
+                "XDG_CACHE_HOME",
+            ] {
+                if let Some(value) = request.env.get(variable) {
+                    env.insert(variable.to_string(), value.clone());
+                }
+            }
+        }
+    }
+    Ok(env)
+}
+
+#[cfg(test)]
+#[path = "drive.test.rs"]
+mod tests;

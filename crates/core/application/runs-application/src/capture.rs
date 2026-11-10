@@ -21,7 +21,7 @@ use sha2::{Digest, Sha256};
 
 use angzarr_embedded::v1::{CommandBook, Uuid};
 use run_ports::{Delivery, FactSink};
-use surface_ports::HookEvent;
+use surface_ports::{HookEvent, ToolStatus};
 
 /// One thing a hook observed, as the fact that records it.
 #[derive(Clone, Debug, PartialEq)]
@@ -75,6 +75,7 @@ pub fn observe(event: &HookEvent) -> Vec<Observation> {
                     input: call.input.clone(),
                     response_bytes: call.response.len() as u64,
                     response_sha256: format!("{:x}", Sha256::digest(call.response.as_bytes())),
+                    status: tool_status(call.status),
                 })
             })
             .collect(),
@@ -85,10 +86,18 @@ pub fn observe(event: &HookEvent) -> Vec<Observation> {
             native_session: event.native_session.clone(),
             reason: event.reason.clone(),
         })],
-        // The engine's compaction events are carried by their native names.
-        "PreCompact" => vec![compaction(event, sessions::CompactionPhase::Before)],
-        "PostCompact" => vec![compaction(event, sessions::CompactionPhase::After)],
+        "compaction_before" => vec![compaction(event, sessions::CompactionPhase::Before)],
+        "compaction_after" => vec![compaction(event, sessions::CompactionPhase::After)],
         _ => Vec::new(),
+    }
+}
+
+/// How a call ended, as its fact says it: nothing when the engine said nothing.
+fn tool_status(status: ToolStatus) -> Option<sessions::ToolCallStatus> {
+    match status {
+        ToolStatus::Unspecified => None,
+        ToolStatus::Completed => Some(sessions::ToolCallStatus::Completed),
+        ToolStatus::Error => Some(sessions::ToolCallStatus::Error),
     }
 }
 

@@ -3,7 +3,7 @@
 //! stdout, encoded.
 
 use surface_ports::{
-    HookCodec, HookEvent, HookResponse, Json, MessageDisplay, SurfaceError, ToolCall,
+    HookCodec, HookEvent, HookResponse, Json, MessageDisplay, SurfaceError, ToolCall, ToolStatus,
 };
 
 use crate::NAME;
@@ -24,6 +24,8 @@ fn unified(native: &str) -> String {
         "PermissionRequest" => "permission_ask",
         "PostToolBatch" => "post_tool_batch",
         "MessageDisplay" => "message_display",
+        "PreCompact" => "compaction_before",
+        "PostCompact" => "compaction_after",
         other => other,
     }
     .to_string()
@@ -93,6 +95,8 @@ fn tool_calls(doc: &Json) -> Vec<ToolCall> {
                     tool_use_id: text(c, "tool_use_id"),
                     input: compact_of(c.get("tool_input")),
                     response: response_text(c.get("tool_response")),
+                    // Claude's hooks say nothing of how a call ended.
+                    status: ToolStatus::Unspecified,
                 })
                 .collect()
         })

@@ -70,6 +70,8 @@ fn test_every_unified_event_routes_to_the_native_one_the_codec_maps_back() {
         "permission_ask",
         "post_tool_batch",
         "message_display",
+        "compaction_before",
+        "compaction_after",
     ] {
         let (native, _, _) = route(unified).unwrap_or_else(|| panic!("{unified} has no route"));
         assert_eq!(crate::Codec.unified_event(native), unified, "{native}");

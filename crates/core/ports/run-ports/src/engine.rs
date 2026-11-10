@@ -180,6 +180,14 @@ pub trait Engine: Send + Sync {
 
     /// The command of the human's terminal run.
     fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError>;
+
+    /// Whether the human's terminal session ends when the engine's command
+    /// exits, with no hook of the engine's to say so (opencode, owner ruling
+    /// 58): the launcher then records the session's end itself, at the exit.
+    /// An engine whose hooks report it (claude's SessionEnd) leaves it to them.
+    fn session_ends_with_exit(&self) -> bool {
+        false
+    }
 }
 
 /// The names on `allowed` that `offered` holds, sorted, once each. A name that is not exactly on the

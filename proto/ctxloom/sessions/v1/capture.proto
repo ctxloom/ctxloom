@@ -44,6 +44,14 @@ message RecordAssistantText {
   string text = 6;
 }
 
+// How a tool call ended, when the engine says (opencode does; claude's hooks
+// carry none, so its calls are UNSPECIFIED).
+enum ToolCallStatus {
+  TOOL_CALL_STATUS_UNSPECIFIED = 0;
+  TOOL_CALL_STATUS_COMPLETED = 1;
+  TOOL_CALL_STATUS_ERROR = 2;
+}
+
 // One tool call and what became of it. The result's body is never recorded:
 // only its size and the SHA-256 (lowercase hex) of its bytes. The input is
 // recorded whole. Thinking blocks are not observable and not recorded.
@@ -60,6 +68,9 @@ message RecordToolCall {
   string input = 4;
   uint64 response_bytes = 5;
   string response_sha256 = 6;
+  // How the call ended; absent when the engine does not say (claude), so a
+  // fact recorded before the field existed reads the same.
+  optional ToolCallStatus status = 7;
 }
 
 // The assistant's turn ended (Stop). external_id
@@ -138,6 +149,9 @@ message ToolCalled {
   string input = 4;
   uint64 response_bytes = 5;
   string response_sha256 = 6;
+  // How the call ended; absent when the engine does not say (claude), so a
+  // fact recorded before the field existed reads the same.
+  optional ToolCallStatus status = 7;
 }
 
 message TurnEnded {

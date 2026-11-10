@@ -125,11 +125,12 @@ impl<'a> OneShots<'a> {
         let project_dir = wiring.project_dir();
         let orders = Arc::new(Orders::new());
         let claude: Arc<dyn Engine> = Arc::new(engine_claude::Claude::new());
+        let opencode: Arc<dyn Engine> = Arc::new(engine_opencode::Opencode::new());
         let launcher = Launcher::new(
             core.edge(),
             HostLauncher::default(),
             SessionDirs::new(wiring.fs(), project_dir.clone()),
-            vec![claude],
+            vec![claude, opencode],
             Arc::clone(&orders),
             Limits::new(TURN_DEADLINE),
         );

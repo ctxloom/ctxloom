@@ -909,6 +909,7 @@ dependencies = [
  "embedded-edge",
  "engine-claude",
  "engine-mock",
+ "engine-opencode",
  "file-lock",
  "file-system",
  "fixture-program",
@@ -1254,6 +1255,18 @@ version = "0.1.0"
 dependencies = [
  "ctxloom-ports",
  "mutants",
+ "surface-ports",
+]
+
+[[package]]
+name = "engine-opencode"
+version = "0.1.0"
+dependencies = [
+ "file-system",
+ "fixture-program",
+ "mutants",
+ "os",
+ "run-ports",
  "surface-ports",
 ]
 

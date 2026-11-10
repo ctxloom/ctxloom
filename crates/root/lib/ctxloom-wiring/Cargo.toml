@@ -40,6 +40,7 @@ surface-cli.workspace = true
 surface-files.workspace = true
 surface-ports.workspace = true
 engine-claude.workspace = true
+engine-opencode.workspace = true
 hook-cli.workspace = true
 hook-listener.workspace = true
 hook-tls.workspace = true

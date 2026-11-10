@@ -164,13 +164,15 @@ impl ProjectRefresh for SetupRefresh<'_> {
     }
 }
 
-/// The engines composed in: claude (the default). Under `test-support` the
-/// mock and its home-keyed, lossy and skill-less variants follow it; a build
-/// without it registers no mock (ruling 52).
+/// The engines composed in: claude (the default), then opencode. Under
+/// `test-support` the mock and its home-keyed, lossy and skill-less variants
+/// follow them; a build without it registers no mock (ruling 52).
 pub fn engines() -> Engines {
     #[cfg_attr(not(feature = "test-support"), expect(unused_mut))]
-    let mut composed: Vec<Box<dyn surface_ports::EngineSurfaces>> =
-        vec![Box::new(engine_claude::Claude::new())];
+    let mut composed: Vec<Box<dyn surface_ports::EngineSurfaces>> = vec![
+        Box::new(engine_claude::Claude::new()),
+        Box::new(engine_opencode::Opencode::new()),
+    ];
     #[cfg(feature = "test-support")]
     composed.extend([
         Box::new(engine_mock::Mock::standard()) as Box<dyn surface_ports::EngineSurfaces>,

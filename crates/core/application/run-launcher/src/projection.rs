@@ -7,7 +7,7 @@
 //! however many times it is handed again.
 
 use serde_json::{json, Value};
-use sessions::{CompactionPhase, SessionEvent};
+use sessions::{CompactionPhase, SessionEvent, ToolCallStatus};
 
 use crate::transcript::{entry_line, rfc3339, Speaker};
 
@@ -89,21 +89,31 @@ impl Projection {
                     },
                 }),
             ),
-            SessionEvent::ToolCalled(called) => self.line(
-                seq,
-                recorded_at,
-                "tool",
-                json!({
-                    "prompt_id": called.prompt_id,
-                    "tool": {
-                        "id": called.tool_use_id,
-                        "name": called.tool,
-                        "input": called.input,
-                        "response_bytes": called.response_bytes,
-                        "response_sha256": called.response_sha256,
-                    },
-                }),
-            ),
+            SessionEvent::ToolCalled(called) => {
+                let mut tool = json!({
+                    "id": called.tool_use_id,
+                    "name": called.tool,
+                    "input": called.input,
+                    "response_bytes": called.response_bytes,
+                    "response_sha256": called.response_sha256,
+                });
+                // How the call ended, only where the engine said (opencode).
+                if let (Some(status), Some(members)) = (called.status, tool.as_object_mut()) {
+                    members.insert(
+                        "status".to_string(),
+                        json!(match status {
+                            ToolCallStatus::Completed => "completed",
+                            ToolCallStatus::Error => "error",
+                        }),
+                    );
+                }
+                self.line(
+                    seq,
+                    recorded_at,
+                    "tool",
+                    json!({"prompt_id": called.prompt_id, "tool": tool}),
+                )
+            }
             SessionEvent::TurnEnded(ended) => self.line(
                 seq,
                 recorded_at,

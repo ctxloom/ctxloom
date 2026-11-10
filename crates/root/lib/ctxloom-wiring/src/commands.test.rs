@@ -178,11 +178,12 @@ fn files_under(dir: &std::path::Path) -> Vec<String> {
 }
 
 #[test]
-fn test_the_engines_composed_in_are_claude_first_then_the_mocks() {
+fn test_the_engines_composed_in_are_claude_first_then_opencode_then_the_mocks() {
     assert_eq!(
         engines().names(),
         [
             "claude-code",
+            "opencode",
             "mock",
             "mock-launch",
             "mock-lossy",
@@ -192,13 +193,12 @@ fn test_the_engines_composed_in_are_claude_first_then_the_mocks() {
 }
 
 // Go's config-schema enum test: every engine the build names (the schema's
-// `type` branches, the valid-engines list) is registered, bar the one this
-// port has not ported.
+// `type` branches, the valid-engines list) is registered, opencode with them
+// (ruling 58).
 #[test]
-fn test_every_engine_the_build_names_is_registered_but_opencode() {
+fn test_every_engine_the_build_names_is_registered() {
     let mut named: Vec<String> = library_application::ENGINES
         .iter()
-        .filter(|e| **e != "opencode")
         .map(ToString::to_string)
         .collect();
     let mut registered = engines().names();

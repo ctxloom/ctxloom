@@ -266,6 +266,7 @@ fn batch() -> HookEvent {
                 tool_use_id: (*id).to_string(),
                 input: "{}".to_string(),
                 response: "hi".to_string(),
+                ..ToolCall::default()
             })
             .collect(),
         ..HookEvent::default()

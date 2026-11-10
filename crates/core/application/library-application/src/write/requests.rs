@@ -44,7 +44,6 @@ pub struct AgentRequest {
     /// `kind=root` pairs; an empty list clears them.
     pub roots: Option<Vec<(String, String)>>,
     pub permissions: Option<String>,
-    pub env_host: Option<bool>,
     pub env: Option<Vec<String>>,
 }
 

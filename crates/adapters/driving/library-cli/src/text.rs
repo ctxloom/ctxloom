@@ -506,9 +506,6 @@ pub fn agent_show(out: &mut dyn Write, show: &AgentShow) -> io::Result<()> {
     if !def.driving.is_empty() {
         writeln!(out, "Driving: {}", def.driving)?;
     }
-    if let Some(env_host) = def.env_host {
-        writeln!(out, "Env host: {env_host}")?;
-    }
     plain_bullets(out, "Env", &def.env)?;
     plain_bullets(out, "Profiles", &def.profiles)?;
     match &show.resolved {
@@ -606,7 +603,6 @@ fn settings_lines(out: &mut dyn Write, s: &AgentSettings, indent: &str) -> io::R
         runtime_text(&s.runtime)
     )?;
     if !capital {
-        writeln!(out, "{indent}{}", sourced_line("env_host", &s.env_host))?;
         writeln!(out, "{indent}{}", names_line("env", &s.env))?;
     }
     Ok(())
@@ -650,7 +646,6 @@ fn engine_lines(out: &mut dyn Write, row: &EngineRow) -> io::Result<()> {
     writeln!(out, "  {}", sourced_line("command", &row.command))?;
     writeln!(out, "  {}", sourced_line("session_home", &row.session_home))?;
     writeln!(out, "  {}", sourced_line("runtime", &row.runtime))?;
-    writeln!(out, "  {}", sourced_line("env_host", &row.env_host))?;
     writeln!(out, "  {}", names_line("env", &row.env))?;
     let via = row
         .auth

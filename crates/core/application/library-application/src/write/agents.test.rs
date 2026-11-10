@@ -61,7 +61,6 @@ fn test_create_records_every_axis_the_config_sorted_and_answers_the_binding() {
             permissions: Some("plan".to_string()),
             surfaces: Some(vec![("context".to_string(), "system-prompt".to_string())]),
             roots: Some(vec![("mcp".to_string(), "project-root".to_string())]),
-            env_host: Some(false),
             env: Some(vec!["A".to_string(), "B".to_string()]),
             ..dev()
         },
@@ -73,7 +72,6 @@ fn test_create_records_every_axis_the_config_sorted_and_answers_the_binding() {
     assert_eq!(row.engine, "claude-code");
     assert_eq!(row.profiles, ["dev"]);
     assert_eq!(row.runtime, "container-rootless");
-    assert_eq!(row.env_host, Some(false));
     assert_eq!(row.env, ["A", "B"]);
     assert_eq!(
         row.permissions,
@@ -81,7 +79,7 @@ fn test_create_records_every_axis_the_config_sorted_and_answers_the_binding() {
     );
     assert_eq!(
         mem.config(Scope::Project).unwrap(),
-        "schema_version: 9\nagents:\n  dev2:\n    engine: claude-code\n    env:\n      - A\n      - B\n    env_host: false\n    permissions:\n      claude-code:\n        mode: plan\n    profiles:\n      - dev\n    roots:\n      mcp: project-root\n    runtime: container-rootless\n    surfaces:\n      context: system-prompt\n"
+        "schema_version: 9\nagents:\n  dev2:\n    engine: claude-code\n    env:\n      - A\n      - B\n    permissions:\n      claude-code:\n        mode: plan\n    profiles:\n      - dev\n    roots:\n      mcp: project-root\n    runtime: container-rootless\n    surfaces:\n      context: system-prompt\n"
     );
 }
 
@@ -177,7 +175,7 @@ fn test_an_edit_changes_only_the_axes_it_names() {
     assert!(text.contains("runtime: container-rootless"));
 }
 
-// agent.feature: An edit passing an empty --env clears the names and keeps env_host
+// agent.feature: An edit passing an empty --env clears the names
 #[test]
 fn test_a_flag_named_empty_clears_its_axis_and_only_that_one() {
     let (library, _mem) = world();
@@ -185,7 +183,6 @@ fn test_a_flag_named_empty_clears_its_axis_and_only_that_one() {
         &library,
         "d",
         &AgentRequest {
-            env_host: Some(false),
             env: Some(vec!["ALPHA".to_string()]),
             runtime: Some("host".to_string()),
             ..dev()
@@ -206,7 +203,6 @@ fn test_a_flag_named_empty_clears_its_axis_and_only_that_one() {
     .result
     .unwrap();
     assert!(row.env.is_empty());
-    assert_eq!(row.env_host, Some(false));
     assert_eq!(row.runtime, "host");
     let row = write(
         &library,
@@ -324,15 +320,6 @@ fn test_env_roots_and_surfaces_are_checked_before_anything_is_written() {
         (
             AgentRequest {
                 env: Some(vec!["A=1".to_string()]),
-                env_host: Some(false),
-                ..r()
-            },
-            true,
-            "BadEnv",
-        ),
-        (
-            AgentRequest {
-                env: Some(vec!["A".to_string()]),
                 ..r()
             },
             true,

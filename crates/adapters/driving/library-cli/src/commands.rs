@@ -444,9 +444,18 @@ fn agent_write(name: &'static str, about: &'static str) -> Command {
     Command::new(name)
         .about(about)
         .arg(one("name", "The agent"))
-        .arg(named("engine", "Engine to bind: claude-code, opencode (empty = the default)"))
-        .arg(named("model", "Model to pass the engine (empty = the engine's own default)"))
-        .arg(named("effort", "Effort level to pass the engine (empty = the engine's own default)"))
+        .arg(named(
+            "engine",
+            "Engine to bind: claude-code, opencode (empty = the default)",
+        ))
+        .arg(named(
+            "model",
+            "Model to pass the engine (empty = the engine's own default)",
+        ))
+        .arg(named(
+            "effort",
+            "Effort level to pass the engine (empty = the engine's own default)",
+        ))
         .arg(
             Arg::new("profiles")
                 .long("profiles")
@@ -460,24 +469,18 @@ fn agent_write(name: &'static str, about: &'static str) -> Command {
             "runtime",
             "Runtime axis: host|container-rootless|container-rootful (empty = project default)",
         ))
-        .arg(each("surface", "Delivery preference: kind=approach (repeatable)"))
+        .arg(each(
+            "surface",
+            "Delivery preference: kind=approach (repeatable)",
+        ))
         .arg(each("root", "Root selection: kind=root (repeatable)"))
         .arg(named(
             "permissions",
             "Permission mode, in the vocabulary of the engine this agent binds (empty clears it)",
         ))
-        .arg(
-            Arg::new("env-host")
-                .long("env-host")
-                .num_args(0..=1)
-                .require_equals(true)
-                .default_missing_value("true")
-                .value_parser(clap::builder::BoolishValueParser::new())
-                .help("Whether the engine inherits the host environment whole (false = a curated base plus the --env names)"),
-        )
         .arg(each(
             "env",
-            "Bare variable name passed through when --env-host=false (repeatable; '' clears the list)",
+            "Bare variable name passed through to the engine (repeatable; '' clears the list)",
         ))
 }
 

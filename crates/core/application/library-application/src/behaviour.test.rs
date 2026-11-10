@@ -1109,18 +1109,6 @@ fn test_an_agent_is_kept_when_profiles_alone_bind_it() {
     );
 }
 
-// config.feature: env_host is read as a boolean, absent when unset.
-#[test]
-fn test_an_agents_env_host_is_true_false_or_unset() {
-    let layers = ["schema_version: 9\nagents:\n  on:\n    engine: claude-code\n    env_host: true\n  off:\n    engine: claude-code\n    env_host: false\n  unset:\n    engine: claude-code\n"];
-    let rows = ok(with(&[], &layers).library().agent_list(&plain()));
-    let by = |name: &str| rows.iter().find(|r| r.name == name).unwrap().env_host;
-    assert_eq!(
-        (by("on"), by("off"), by("unset")),
-        (Some(true), Some(false), None)
-    );
-}
-
 // config.feature: the sections `config show` accepts.
 #[test]
 fn test_the_config_sections_are_the_schemas() {

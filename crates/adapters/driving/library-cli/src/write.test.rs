@@ -652,17 +652,13 @@ fn test_agent_verbs() {
             &library,
             &[
                 "agent", "edit", "dev", "--profiles", "dev,dev", "--runtime", "host",
-                "--permissions", "plan", "--env-host=false",
+                "--permissions", "plan",
                 "--env", "A", "--env", "B", "--surface", "context=system-prompt", "--root", "mcp=project-root",
             ]
         ),
-        "Updated agent \"dev\" (engine: claude-code, profiles: dev, dev, runtime: host, permissions: claude-code={mode=plan}, env_host: false, env: A, B)\n"
+        "Updated agent \"dev\" (engine: claude-code, profiles: dev, dev, runtime: host, permissions: claude-code={mode=plan}, env: A, B)\n"
     );
-    let doc = json(
-        &library,
-        &["agent", "edit", "dev", "--env-host", "--env", ""],
-    );
-    assert_eq!(doc["env_host"], true);
+    let doc = json(&library, &["agent", "edit", "dev", "--env", ""]);
     assert_eq!(doc["name"], "dev");
     let bad = refused_code(
         &library,

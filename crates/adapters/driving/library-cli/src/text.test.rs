@@ -191,7 +191,6 @@ fn agent_row(llm: &str) -> AgentRow {
         runtime: "host".to_string(),
         permissions: serde_json::json!({}),
         driving: String::new(),
-        env_host: None,
         env: Vec::new(),
         permissions_line: String::new(),
     }
@@ -943,10 +942,6 @@ fn settings(model: Option<&str>) -> library_application::AgentSettings {
             overrides: None,
             overrides_source: None,
             change: None,
-        },
-        env_host: SourcedValue {
-            value: false,
-            source: "default",
         },
         env: SourcedValue {
             value: Vec::new(),

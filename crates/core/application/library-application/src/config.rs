@@ -276,7 +276,6 @@ pub struct Agent {
     pub runtime: String,
     pub permissions: Value,
     pub driving: String,
-    pub env_host: Option<bool>,
     pub env: Vec<String>,
 }
 
@@ -423,10 +422,6 @@ impl Agent {
             runtime: text_at(body, "runtime"),
             permissions: body.get("permissions").cloned().unwrap_or(Value::Null),
             driving: text_at(body, "driving"),
-            env_host: body
-                .get("env_host")
-                .and_then(Value::as_str)
-                .map(|s| s == "true"),
             env: list_at(body, "env"),
         }
     }
@@ -442,7 +437,6 @@ impl Agent {
             runtime: self.runtime.clone(),
             permissions: crate::json::permissions(&self.permissions),
             driving: self.driving.clone(),
-            env_host: self.env_host,
             env: self.env.clone(),
             permissions_line: crate::json::permissions_line(&self.permissions),
         }

@@ -317,8 +317,6 @@ pub struct AgentRow {
     pub permissions: serde_json::Value,
     #[serde(skip_serializing_if = "no_text")]
     pub driving: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub env_host: Option<bool>,
     #[serde(skip_serializing_if = "no_items")]
     pub env: Vec<String>,
     /// The permissions block on one line, for the listing.
@@ -332,7 +330,7 @@ pub struct ResolvedAgent {
     pub name: String,
     pub profiles: Vec<String>,
     pub engine: String,
-    /// Model, effort, permissions, runtime, env_host and env, each with the
+    /// Model, effort, permissions, runtime and env, each with the
     /// layer that said it.
     #[serde(flatten)]
     pub settings: crate::AgentSettings,

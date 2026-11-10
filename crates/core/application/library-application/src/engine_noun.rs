@@ -63,7 +63,6 @@ pub struct AgentSettings {
     pub effort: SourcedValue<Option<String>>,
     pub permissions: SourcedValue<String>,
     pub runtime: RuntimeSetting,
-    pub env_host: SourcedValue<bool>,
     pub env: SourcedValue<Vec<String>>,
 }
 
@@ -96,7 +95,6 @@ pub struct EngineRow {
     pub command: SourcedValue<String>,
     pub session_home: SourcedValue<String>,
     pub runtime: SourcedValue<String>,
-    pub env_host: SourcedValue<bool>,
     pub env: SourcedValue<Vec<String>>,
     pub auth: AuthSetting,
     pub agents: Vec<EngineAgent>,
@@ -145,7 +143,6 @@ impl Project {
             command: sourced(&shared.command),
             session_home: sourced(&shared.session_home),
             runtime: sourced(&shared.runtime),
-            env_host: sourced(&shared.env_host),
             env: sourced(&shared.env),
             auth: self.auth_setting(&shared.auth),
             agents,
@@ -241,7 +238,6 @@ pub(crate) fn settings_of(effective: &Effective) -> AgentSettings {
         effort: optional(&effective.effort),
         permissions: sourced(&effective.permissions),
         runtime,
-        env_host: sourced(&effective.env_host),
         env: sourced(&effective.env),
     }
 }

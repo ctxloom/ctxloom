@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use cucumber::gherkin::{Feature, GherkinEnv, Rule, Scenario, Step};
 use serde_json::Value;
 
-use super::library::{reports_as, Project};
+use super::library::{contains_value, reports_as, Project};
 use super::Ran;
 use crate::tests::files;
 
@@ -96,12 +96,29 @@ impl Common {
     /// from cobra (plan 8.2: the command line is clap's): its usage error
     /// says "unexpected argument" where cobra said "unknown flag", and its
     /// heading is "Commands:" where cobra's was "Available Commands:".
-    pub(crate) fn clap_wording(text: &str) -> &str {
+    pub(crate) fn clap_wording(text: &str) -> String {
+        if let Some(flag) = text.strip_prefix("unknown flag: ") {
+            return format!("unexpected argument '{flag}'");
+        }
         match text {
             "unknown flag" => "unexpected argument",
             "Available Commands:" => "Commands:",
             other => other,
         }
+        .to_string()
+    }
+
+    /// `the output reports "<path>" containing "<value>"`: the list at `path`
+    /// has `value` among its entries.
+    pub(crate) fn output_reports_containing(&self, path: &str, value: &str) {
+        let ran = self.ran();
+        let doc = serde_json::from_str::<Value>(&ran.stdout)
+            .unwrap_or_else(|e| panic!("not json ({e}): {}", ran.said()));
+        assert!(
+            contains_value(&doc, path, value),
+            "{path} should contain {value}: {}",
+            ran.said()
+        );
     }
 
     pub(crate) fn output_reports(&self, path: &str, value: &str) {
@@ -140,13 +157,21 @@ pub(crate) trait CommonWorld {
     }
 }
 
-/// A command line's words: whitespace separates, double quotes group.
+/// A command line's words: whitespace separates, double quotes group, and a
+/// single quote that opens a word groups to its twin (so `''` is the empty
+/// word a flag names to clear its axis).
 pub(crate) fn split(line: &str) -> Vec<String> {
     let mut words = Vec::new();
     let mut word = String::new();
-    let (mut quoted, mut any) = (false, false);
+    let (mut quoted, mut any, mut single) = (false, false, false);
     for c in line.chars() {
         match c {
+            '\'' if single => single = false,
+            '\'' if !any && !quoted => {
+                single = true;
+                any = true;
+            }
+            c if single => word.push(c),
             '"' => {
                 quoted = !quoted;
                 any = true;
@@ -242,12 +267,12 @@ macro_rules! common_steps {
 
             #[then(expr = "the output contains {string}")]
             fn output_contains(w: &mut World, text: String) {
-                w.ran().contains(Common::clap_wording(&text));
+                w.ran().contains(&Common::clap_wording(&text));
             }
 
             #[then(expr = "the output does not contain {string}")]
             fn output_lacks(w: &mut World, text: String) {
-                w.ran().lacks(Common::clap_wording(&text));
+                w.ran().lacks(&Common::clap_wording(&text));
             }
 
             #[then("the output is valid JSON")]
@@ -258,6 +283,11 @@ macro_rules! common_steps {
             #[then(expr = "the output reports {string} as {string}")]
             fn output_reports(w: &mut World, path: String, value: String) {
                 w.common().output_reports(&path, &value);
+            }
+
+            #[then(expr = "the output reports {string} containing {string}")]
+            fn output_reports_containing(w: &mut World, path: String, value: String) {
+                w.common().output_reports_containing(&path, &value);
             }
 
             #[given(expr = "the file {string} contains {string}")]

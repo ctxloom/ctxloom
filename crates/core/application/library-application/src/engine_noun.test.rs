@@ -53,7 +53,7 @@ fn test_each_shared_setting_carries_the_layer_that_said_it() {
     // the program an engine runs is the home layer's to name (ruling 46)
     let row = layered(
         "schema_version: 9\nengines:\n  claude-code:\n    command: /opt/claude/bin/claude\n",
-        "schema_version: 9\nruntime: host\nengines:\n  claude-code:\n    env_host: false\n    env: [HTTPS_PROXY]\n",
+        "schema_version: 9\nruntime: host\nengines:\n  claude-code:\n    env: [HTTPS_PROXY]\n",
     )
     .engine_show(&plain(), "claude-code")
     .result
@@ -62,7 +62,6 @@ fn test_each_shared_setting_carries_the_layer_that_said_it() {
     assert_eq!(row.command.source, "engine");
     assert_eq!(row.session_home.source, "default");
     assert_eq!(row.runtime.source, "project");
-    assert_eq!(row.env_host.source, "engine");
     assert_eq!(row.env.value, ["HTTPS_PROXY"]);
 }
 

@@ -110,7 +110,6 @@ fn test_a_binding_is_written_with_sorted_keys_and_the_rest_of_the_file_is_kept()
             "context=system-prompt",
             "--root",
             "mcp=project-root",
-            "--env-host=false",
             "--env",
             "A",
             "--env",
@@ -125,7 +124,6 @@ fn test_a_binding_is_written_with_sorted_keys_and_the_rest_of_the_file_is_kept()
             "  dev2:\n",
             "    engine: claude-code\n",
             "    env:\n      - A\n      - B\n",
-            "    env_host: false\n",
             "    permissions:\n      claude-code:\n        mode: plan\n",
             "    profiles:\n      - dev\n      - dev-base\n",
             "    roots:\n      mcp: project-root\n",
@@ -158,7 +156,7 @@ fn test_a_binding_is_written_with_sorted_keys_and_the_rest_of_the_file_is_kept()
     ]);
     assert_eq!(
         text.stdout,
-        "Updated agent \"dev2\" (engine: claude-code, profiles: dev, dev-base, runtime: host, permissions: claude-code={mode=plan}, env_host: false, env: A, B)\n"
+        "Updated agent \"dev2\" (engine: claude-code, profiles: dev, dev-base, runtime: host, permissions: claude-code={mode=plan}, env: A, B)\n"
     );
 }
 
@@ -416,7 +414,6 @@ fn test_an_agent_write_refuses_what_it_cannot_honour_and_writes_nothing() {
         (vec!["--permissions", "bypass"], "mode \"bypass\" is declared as mode: bypassPermissions"),
         (vec!["--engine", "", "--profiles", ""], "an agent needs an engine or at least one profile"),
         (vec!["--env", "A=1"], "A=1"),
-        (vec!["--env", "A"], "env"),
         (vec!["--root", "context=bogus"], "\"bogus\" is not a root (session-home, project-root, work-dir)"),
         (vec!["--surface", "context=nosuch"], "context=nosuch"),
     ] {
@@ -459,7 +456,6 @@ fn test_create_records_the_declared_host_environment_and_show_reads_it_back() {
             "claude-code",
             "--profiles",
             "dev",
-            "--env-host=false",
             "--env",
             "ALPHA_TOKEN",
             "--env",
@@ -469,15 +465,14 @@ fn test_create_records_the_declared_host_environment_and_show_reads_it_back() {
     project
         .run(&["agent", "show", "developer", "--format", "text"])
         .succeeds()
-        .contains("Env host: false")
         .contains("ALPHA_TOKEN")
         .contains("BETA_TOKEN");
 }
 
 // agent.feature: Scenario: An edit passing an empty --env clears the names
-// and keeps env_host
+
 #[test]
-fn test_an_edit_passing_an_empty_env_clears_the_names_and_keeps_env_host() {
+fn test_an_edit_passing_an_empty_env_clears_the_names_and_clears_nothing_else_it_names() {
     let project = with_dev();
     project
         .run(&[
@@ -488,7 +483,6 @@ fn test_an_edit_passing_an_empty_env_clears_the_names_and_keeps_env_host() {
             "claude-code",
             "--profiles",
             "dev",
-            "--env-host=false",
             "--env",
             "ALPHA_TOKEN",
         ])
@@ -499,7 +493,6 @@ fn test_an_edit_passing_an_empty_env_clears_the_names_and_keeps_env_host() {
     project
         .run(&["agent", "show", "developer", "--format", "text"])
         .succeeds()
-        .contains("Env host: false")
         .lacks("ALPHA_TOKEN");
 }
 
@@ -520,7 +513,7 @@ fn test_an_agent_takes_no_engine_home() {
                 "dev",
             ])
             .fails()
-            .contains(&format!("unknown flag: {flag}"));
+            .contains(&format!("unexpected argument '{flag}'"));
     }
 }
 

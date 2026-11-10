@@ -731,3 +731,9 @@ fn a_childs_turn_reads_the_session_dirs_settings_in_both_home_modes() {
         }
     }
 }
+
+// Ruling 58: claude's SessionEnd hook says a session ended; its exit does not.
+#[test]
+fn test_its_session_end_is_its_hooks_not_its_exit() {
+    assert!(!Claude::new().session_ends_with_exit());
+}

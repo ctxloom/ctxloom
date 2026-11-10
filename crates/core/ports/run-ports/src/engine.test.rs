@@ -88,3 +88,10 @@ fn a_turn_request_renders_its_env_keys_and_never_the_bearer() {
         r#"TurnRequest { prompt: "p", home: "/h", context_path: "/h/c", resume: None, env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "/bin"}, cwd: None, model: "", effort: "", settings: EngineSettings { command: "", session_home: Session, auth: Builtin, env: [] } }"#
     );
 }
+
+// Ruling 58: an engine says its session ends with its exit only by saying so;
+// one that does not (claude, whose SessionEnd hook says it) leaves it to hooks.
+#[test]
+fn an_engine_that_says_nothing_does_not_end_its_session_by_its_exit() {
+    assert!(!Plain.session_ends_with_exit());
+}

@@ -155,3 +155,15 @@ fn test_a_killed_turn_was_interrupted() {
     assert_eq!(class, FailureClass::Interrupted);
     assert_eq!(detail, "the turn was ended by signal 9");
 }
+
+// A failure's stderr is cut at 400 bytes, back to a character boundary: a
+// two-byte character across the cut is left out whole.
+#[test]
+fn test_stderr_is_cut_at_a_character_boundary() {
+    let mut out = output("", 3);
+    out.stderr = format!("{}\u{e9}tail", "a".repeat(399)).into_bytes();
+    let TurnOutcome::Failed { detail, .. } = read_turn(&out) else {
+        panic!()
+    };
+    assert_eq!(detail, format!("exit 3: {}", "a".repeat(399)));
+}

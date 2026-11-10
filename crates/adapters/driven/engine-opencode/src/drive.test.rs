@@ -7,7 +7,8 @@
 use std::collections::BTreeMap;
 
 use run_ports::{
-    AuthSetting, Engine, EngineError, EngineSettings, SessionHome, TurnCommand, TurnRequest,
+    AuthSetting, Credentials, Engine, EngineError, EngineSettings, SessionHome, TurnCommand,
+    TurnRequest,
 };
 
 use crate::{Opencode, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST, OPTIONAL_KEY};
@@ -282,4 +283,51 @@ fn test_a_host_home_keeps_the_users_own_dirs_and_still_loads_the_plugin() {
 #[test]
 fn test_its_session_ends_with_its_exit() {
     assert!(Opencode::new().session_ends_with_exit());
+}
+
+#[test]
+fn test_its_name_as_an_engine_is_opencode() {
+    assert_eq!(Engine::name(&Opencode::new()), "opencode");
+}
+
+#[test]
+fn test_its_credentials_are_exactly_none_required_and_no_login_file() {
+    assert_eq!(
+        Opencode::new().credentials(),
+        Credentials {
+            child_env: &[],
+            primary_env: &[],
+            user_dir: ".local/share/opencode",
+            login_file: None,
+        }
+    );
+}
+
+// Every variable of opencode's own, HOME and every XDG base is withheld
+// whatever the config names: an XDG base the relocation does not set
+// (XDG_RUNTIME_DIR) never passes, and HOME is the session home.
+#[test]
+fn test_home_and_every_xdg_and_opencode_variable_are_withheld_even_when_named() {
+    let named = ["HOME", "XDG_RUNTIME_DIR", "OPENCODE_DISABLE_AUTOUPDATE"];
+    let settings = EngineSettings {
+        env: named.iter().map(ToString::to_string).collect(),
+        ..EngineSettings::default()
+    };
+    let command = turn(&TurnRequest {
+        env: env(&[
+            ("HOME", "/home/alice"),
+            ("XDG_RUNTIME_DIR", "/run/user/1000"),
+            ("OPENCODE_DISABLE_AUTOUPDATE", "1"),
+        ]),
+        settings,
+        ..request()
+    });
+    assert_eq!(command.env.get("HOME").map(String::as_str), Some(HOME));
+    assert_eq!(
+        command.env.get("XDG_RUNTIME_DIR"),
+        None,
+        "{:?}",
+        command.env
+    );
+    assert_eq!(command.env.get("OPENCODE_DISABLE_AUTOUPDATE"), None);
 }

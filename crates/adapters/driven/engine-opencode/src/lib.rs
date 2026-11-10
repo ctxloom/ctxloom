@@ -71,6 +71,9 @@ impl EngineSurfaces for Opencode {
         Ok(planned)
     }
 
+    // `Ok(Default::default())` is `Ok(Wiring::default())`: the mutant is the
+    // body itself (nothing of ctxloom's is wired at rest for opencode).
+    #[cfg_attr(test, mutants::skip)]
     fn wiring(&self, _store: &dyn SurfaceStore, _target: &str) -> Result<Wiring, SurfaceError> {
         Ok(Wiring::default())
     }

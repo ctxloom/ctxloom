@@ -281,3 +281,35 @@ fn test_the_answer_is_an_empty_object_and_nothing_more_can_be_carried() {
     }
     assert_eq!(Codec.invoked_skills("{}"), Vec::<String>::new());
 }
+
+// An event of no mapped kind keeps its own type as its event, verbatim.
+#[test]
+fn test_an_unmapped_event_is_carried_by_its_own_type() {
+    let payload = r#"{"type":"permission.asked","properties":{"sessionID":"ses_1"},"ctxloom":{}}"#;
+    assert_eq!(decode("message.updated", payload).event, "permission.asked");
+}
+
+// A text part is words only once it has ended AND says something.
+#[test]
+fn test_an_ended_empty_text_and_an_unended_text_hold_nothing() {
+    let ended_empty = fixture("text_part_end").replace(r#""text":"ok""#, r#""text":"""#);
+    let unended = fixture("text_part_end")
+        .replace(r#","time":{"start":1794283113870,"end":1794283113878}"#, "");
+    for payload in [ended_empty, unended] {
+        let event = decode("message.part.updated", &payload);
+        assert!(observes_nothing(&event), "{payload}: {event:?}");
+    }
+}
+
+// The session is the event's own sessionID, else its info's, part's or
+// message's.
+#[test]
+fn test_the_session_is_found_where_the_event_keeps_it() {
+    let nested = r#"{"type":"message.updated","properties":{"info":{"sessionID":"ses_nested"}},"ctxloom":{}}"#;
+    assert_eq!(
+        decode("message.updated", nested).native_session,
+        "ses_nested"
+    );
+    let direct = r#"{"type":"session.idle","properties":{"sessionID":"ses_direct","info":{"sessionID":"ses_other"}},"ctxloom":{}}"#;
+    assert_eq!(decode("session.idle", direct).native_session, "ses_direct");
+}

@@ -653,14 +653,10 @@ fn test_each_engine_has_its_own_builtin_source() {
         AuthSource::builtin("claude-code"),
         env(&["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"])
     );
-    // Ruling 69: opencode's provider keys, then its endpoint key.
+    // Rulings 69 and 79: opencode's provider keys alone.
     assert_eq!(
         AuthSource::builtin("opencode"),
-        env(&[
-            "ANTHROPIC_API_KEY",
-            "OPENAI_API_KEY",
-            "CTXLOOM_OPENCODE_API_KEY"
-        ])
+        env(&["ANTHROPIC_API_KEY", "OPENAI_API_KEY"])
     );
     assert_eq!(AuthSource::builtin("mock"), AuthSource::None);
 }

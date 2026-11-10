@@ -175,6 +175,11 @@ impl Engine for Claude {
             home_dir: "",
             sign_in: SIGN_IN,
             login_optional: false,
+            // macOS keeps claude's login in a keychain item per config dir
+            // (a file link is ignored); Windows grants a symlink only to a
+            // privileged user. Neither is shared by a link, nor copied.
+            no_link_on: &["macos", "windows"],
+            copy_on: &[],
         }
     }
 

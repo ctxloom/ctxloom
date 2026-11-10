@@ -171,6 +171,16 @@ pub struct Credentials {
     /// The engine runs without any login (opencode's free models): a login
     /// missing from its default place is nothing to say.
     pub login_optional: bool,
+    /// The operating systems (`std::env::consts::OS` names) where the login
+    /// is never shared by a link, and the human is told how to sign in
+    /// instead (owner ruling 80: claude's macOS keychain item, a Windows
+    /// symlink's privilege).
+    pub no_link_on: &'static [&'static str],
+    /// The operating systems where a link that cannot be made is replaced by
+    /// a COPY of the login (owner ruling 80: opencode on Windows). The cost:
+    /// a token the session refreshes is written to the copy, and the
+    /// rotation can sign the human's own login out.
+    pub copy_on: &'static [&'static str],
 }
 
 impl Credentials {
@@ -185,6 +195,8 @@ impl Credentials {
         home_dir: "",
         sign_in: "",
         login_optional: false,
+        no_link_on: &[],
+        copy_on: &[],
     };
 }
 

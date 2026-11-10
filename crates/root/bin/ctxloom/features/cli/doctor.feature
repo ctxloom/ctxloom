@@ -55,6 +55,29 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
       And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-CREDENTIALS-m5" and whose "status" is "fail"
       And the output contains "claude setup-token"
 
+    # A file alone serves her own primary session, so the row is a warning,
+    # said in the words a child's run of it is refused with: one wording
+    # everywhere (init, auth status, doctor, run).
+    Scenario: A credential source that is a file alone is a warn row in the refusal's words
+      # new: owner rulings 53 and 81 (2026-11-10).
+      Given an initialized ctxloom project
+      And the home already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        engines:
+          claude-code:
+            auth:
+              file: ~/.claude/.credentials.json
+        """
+      When Alice asks for the diagnosis in a form a script can parse:
+        """
+        ctxloom --format json doctor
+        """
+      Then the command succeeds
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-CREDENTIALS-m5" and whose "status" is "warn"
+      And the output contains "engines.claude-code.auth names only a file, which serves the primary interactive session alone"
+      And the output contains "name one of those variables in engines.claude-code.auth.env and export it"
+
   Rule: The report names every check, in one shared marker vocabulary
 
     @json-default

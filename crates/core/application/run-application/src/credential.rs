@@ -29,6 +29,13 @@ pub fn can_link(os: &str) -> bool {
     !NO_LINK.contains(&os)
 }
 
+/// Whether the engine of `credentials` may share its login by a link on `os`
+/// (`std::env::consts::OS`).
+pub fn links_on(credentials: &CredentialPolicy, os: &str) -> bool {
+    let _ = credentials;
+    can_link(os)
+}
+
 /// Whether the environment holds any of `names`, non-empty.
 fn holds(env: &BTreeMap<String, String>, names: &[String]) -> bool {
     names

@@ -347,6 +347,9 @@ impl LoginLinks for Links {
             .push((harp.to_string(), rel.to_string(), target.to_string()));
         Ok(())
     }
+    fn copy(&mut self, _: &str, _: &str, _: &str) -> Result<(), RecordsError> {
+        unreachable!("no engine of these tests copies its login")
+    }
 }
 
 struct Script {
@@ -1942,4 +1945,34 @@ async fn the_settings_of_the_planned_engine_are_not_applied_to_another() {
     let answer = rig.runs.one_shot(&Flags::default(), &asked).await.result;
     assert!(answer.is_ok(), "{answer:?}");
     assert_eq!(rig.runner.seen.lock().unwrap()[0].program, "fake");
+}
+
+// Ruling 78: a permit the run does not follow is said, by the permit's name
+// and never its value, for a child and the primary alike.
+#[tokio::test]
+async fn a_permit_of_a_run_variable_is_said_to_be_ignored_and_its_value_never_shown() {
+    for interactive in [false, true] {
+        let mut script = Script::answering();
+        script.env = vec![
+            ("PATH", "/bin"),
+            ("HOME", "/home/u"),
+            ("CTXLOOM_PERMIT_CTXLOOM_BEARER", "forged-bearer"),
+        ];
+        let mut rig = rig(script);
+        let (ok, notices) = if interactive {
+            let done = rig.runs.interactive(&Flags::default(), &ask()).await;
+            (done.result.is_ok(), done.notices)
+        } else {
+            let done = rig.runs.one_shot(&Flags::default(), &ask()).await;
+            (done.result.is_ok(), done.notices)
+        };
+        assert!(ok, "{interactive}");
+        assert!(
+            notices.iter().any(|n| matches!(n,
+                Notice::Finding { text, .. }
+                if text.contains("CTXLOOM_PERMIT_CTXLOOM_BEARER") && text.contains("never replaced"))),
+            "{notices:?}"
+        );
+        assert!(!format!("{notices:?}").contains("forged-bearer"));
+    }
 }

@@ -12,8 +12,7 @@ use run_ports::{
 };
 
 use crate::{
-    Opencode, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST, LOGIN_FILE, OPTIONAL_KEY, PROVIDER_KEYS,
-    SIGN_IN,
+    Opencode, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST, LOGIN_FILE, PROVIDER_KEYS, SIGN_IN,
 };
 
 const HOME: &str = "/p/.ctxloom/sessions/h/home";
@@ -163,7 +162,8 @@ fn test_the_engine_is_relocated_into_the_session_home() {
 fn test_only_the_curated_variables_pass_and_opencode_pure_never_does() {
     let caller = env(&[
         ("PATH", "/usr/bin"),
-        (OPTIONAL_KEY, "sk-test"), // gitleaks:allow
+        ("OPENAI_API_KEY", "sk-test"),           // gitleaks:allow
+        ("CTXLOOM_OPENCODE_API_KEY", "sk-test"), // gitleaks:allow
         ("OPENCODE_PURE", "1"),
         ("OPENCODE_CONFIG", "/home/alice/oc.json"),
         ("OPENCODE_CONFIG_CONTENT", "{}"),
@@ -191,7 +191,7 @@ fn test_only_the_curated_variables_pass_and_opencode_pure_never_does() {
         let names: Vec<&str> = command.env.keys().map(String::as_str).collect();
         for passed in [
             "PATH",
-            OPTIONAL_KEY,
+            "OPENAI_API_KEY",
             "NAMED",
             "CTXLOOM_ENDPOINT",
             "CTXLOOM_SESSION_HARP",
@@ -199,6 +199,7 @@ fn test_only_the_curated_variables_pass_and_opencode_pure_never_does() {
             assert!(names.contains(&passed), "{passed}: {names:?}");
         }
         for kept in [
+            "CTXLOOM_OPENCODE_API_KEY",
             "OPENCODE_PURE",
             "OPENCODE_CONFIG",
             "OPENCODE_CONFIG_CONTENT",
@@ -209,7 +210,8 @@ fn test_only_the_curated_variables_pass_and_opencode_pure_never_does() {
     }
     for list in [ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST] {
         assert!(!list.iter().any(|n| n.starts_with("OPENCODE_")), "{list:?}");
-        assert!(list.contains(&OPTIONAL_KEY));
+        // Ruling 79: Go's endpoint key is gone, hard migrated.
+        assert!(!list.contains(&"CTXLOOM_OPENCODE_API_KEY"));
         for hook in run_ports::HOOK_VARIABLES {
             assert!(list.contains(&hook), "{hook}");
         }
@@ -403,6 +405,8 @@ fn test_its_credentials_are_exactly_none_required_and_its_login_shared_by_the_pr
             home_dir: "xdg/data/opencode",
             sign_in: SIGN_IN,
             login_optional: true,
+            no_link_on: &[],
+            copy_on: &["windows"],
         }
     );
 }
@@ -434,4 +438,17 @@ fn test_home_and_every_xdg_and_opencode_variable_are_withheld_even_when_named() 
         command.env
     );
     assert_eq!(command.env.get("OPENCODE_DISABLE_AUTOUPDATE"), None);
+}
+
+// Ruling 80: opencode's login is a file on every platform, so it is linked
+// on macOS too; on Windows a link that cannot be made is a copy.
+#[test]
+fn test_its_login_links_everywhere_and_is_copied_on_windows_when_no_link_can_be_made() {
+    let credentials = Opencode::new().credentials();
+    assert!(
+        credentials.no_link_on.is_empty(),
+        "{:?}",
+        credentials.no_link_on
+    );
+    assert_eq!(credentials.copy_on, ["windows"]);
 }

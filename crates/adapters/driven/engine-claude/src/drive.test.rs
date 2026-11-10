@@ -381,6 +381,10 @@ fn the_login_is_the_homes_own_file_and_a_missing_one_says_how_to_sign_in() {
     assert!(credentials.sign_in.contains("/login"));
     assert!(credentials.sign_in.contains("claude setup-token"));
     assert!(credentials.sign_in.contains("CLAUDE_CODE_OAUTH_TOKEN"));
+    // Ruling 80: claude's macOS keychain and Windows' symlink privilege are
+    // claude's no-link platforms; nothing of its login is ever copied.
+    assert_eq!(credentials.no_link_on, ["macos", "windows"]);
+    assert!(credentials.copy_on.is_empty());
 }
 
 // Owner rulings 2026-11-08 item 9, 2026-11-09 item 16 and 51 (with 27): a

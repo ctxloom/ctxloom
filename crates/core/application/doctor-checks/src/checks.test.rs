@@ -260,14 +260,14 @@ fn a_file_only_source_is_a_warn_row_usable_by_the_primary_not_by_children() {
     let file = "schema_version: 9\nengines:\n  claude-code:\n    auth:\n      file: ~/.claude/.credentials.json\n";
     let check = credentials(&[file], TOKEN);
     assert_eq!(check.status, Status::Warn);
+    // Ruling 81: in the words a child's run of it is refused with.
     assert_eq!(
         check.detail,
-        "claude-code (auth file): usable by the primary session only; a child agent run is refused"
+        "claude-code (auth file): a child agent run of claude-code needs a credential in the environment (any one of: CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY), and engines.claude-code.auth names only a file, which serves the primary interactive session alone"
     );
-    assert!(
-        check.remedy.contains("engines.claude-code.auth.env"),
-        "{}",
-        check.remedy
+    assert_eq!(
+        check.remedy,
+        "name one of those variables in engines.claude-code.auth.env and export it (for claude-code, `claude setup-token` makes CLAUDE_CODE_OAUTH_TOKEN); the file keeps serving the primary session"
     );
 }
 

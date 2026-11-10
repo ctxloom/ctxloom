@@ -11,6 +11,7 @@
 //! with the environment the stub was given, so the hooks reach the run's real
 //! listener. Needs node on the host's `PATH`.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde_json::{json, Value};
@@ -182,12 +183,15 @@ if [ -L "$f" ]; then echo "link $(readlink "$f")" > "$here/opencode-login"
 elif [ -e "$f" ]; then echo "file" > "$here/opencode-login"
 else echo "none" > "$here/opencode-login"
 fi
+env > "$here/opencode-env-all"
 "#;
 
 /// The `Alice ...:` step of ruling 69's scenario: an interactive opencode
 /// that reports its login, then exits.
 pub(super) fn reports_login(w: &mut World, step: &cucumber::gherkin::Step) -> bool {
-    if !step.value.contains("and it reports its login") {
+    if !step.value.contains("and it reports its login")
+        && !step.value.contains("and it reports its environment")
+    {
         return false;
     }
     let bin = w.opencode_dir();
@@ -219,6 +223,39 @@ fn opencode_login_linked(w: &mut World) {
         "{}",
         w.ran().said()
     );
+}
+
+/// The environment the stub opencode was given, by name.
+fn opencode_env(w: &World) -> BTreeMap<String, String> {
+    files::read(w.opencode_dir().join("opencode-env-all"))
+        .expect("opencode ran")
+        .lines()
+        .filter_map(|l| l.split_once('='))
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+}
+
+#[cucumber::then(
+    expr = "opencode's environment held {string} as {string}, and no CTXLOOM_PERMIT_ variable"
+)]
+fn opencode_env_held(w: &mut World, name: String, value: String) {
+    w.ran().succeeds();
+    let env = opencode_env(w);
+    assert_eq!(env.get(&name), Some(&value), "{:?}", env.keys());
+    assert!(
+        !env.keys().any(|k| k.starts_with("CTXLOOM_PERMIT_")),
+        "{:?}",
+        env.keys()
+    );
+}
+
+#[cucumber::then(expr = "opencode's {string} was the run's own, not {string}")]
+fn opencode_env_runs_own(w: &mut World, name: String, value: String) {
+    let env = opencode_env(w);
+    let held = env
+        .get(&name)
+        .unwrap_or_else(|| panic!("{name} is the run's"));
+    assert_ne!(held, &value);
 }
 
 #[cucumber::then(

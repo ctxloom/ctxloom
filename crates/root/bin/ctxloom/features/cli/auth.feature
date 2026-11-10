@@ -119,3 +119,6 @@ Feature: auth — how ctxloom-launched engines authenticate
       # owner ruling 65 (2026-11-10): nothing looks at the file, so the row
       # says nothing of whether it is there.
       And the output does not contain "present"
+      # owner ruling 81: in the words a child's run of it is refused with.
+      And the output reports "[engine=claude-code].message" containing "engines.claude-code.auth names only a file"
+      And the output reports "[engine=claude-code].remedy" containing "name one of those variables in engines.claude-code.auth.env and export it"

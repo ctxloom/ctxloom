@@ -16,6 +16,7 @@ const CLAUDE: Credentials = Credentials {
     user_dir: ".claude",
     login_file: Some(".credentials.json"),
     sign_in: "sign in with /login in the session, or run `claude setup-token`, then export CLAUDE_CODE_OAUTH_TOKEN",
+    no_link_on: &["macos", "windows"],
     ..Credentials::NONE
 };
 
@@ -30,6 +31,7 @@ const OPENCODE: Credentials = Credentials {
     home_dir: "xdg/data/opencode",
     sign_in: "run `opencode auth login`",
     login_optional: true,
+    copy_on: &["windows"],
     ..Credentials::NONE
 };
 
@@ -50,6 +52,8 @@ struct Links {
     state: LinkState,
     fails: bool,
     made: Vec<(String, String, String)>,
+    copy_fails: bool,
+    copied: Vec<(String, String, String)>,
     /// The one path of the session directory the link may be asked about.
     rel: &'static str,
 }
@@ -61,6 +65,8 @@ impl Links {
             state: LinkState::Absent,
             fails: false,
             made: Vec::new(),
+            copy_fails: false,
+            copied: Vec::new(),
             rel: "home/.credentials.json",
         }
     }
@@ -92,6 +98,18 @@ impl LoginLinks for Links {
         }
         self.made
             .push((harp.to_string(), rel.to_string(), target.to_string()));
+        Ok(())
+    }
+    fn copy(&mut self, harp: &str, rel: &str, source: &str) -> Result<(), RecordsError> {
+        if self.copy_fails {
+            return Err(RecordsError::Io {
+                harp: harp.to_string(),
+                rel: rel.to_string(),
+                ext_err_txt: "no room".to_string(),
+            });
+        }
+        self.copied
+            .push((harp.to_string(), rel.to_string(), source.to_string()));
         Ok(())
     }
 }
@@ -171,14 +189,14 @@ fn a_child_on_a_file_only_source_is_refused_naming_the_builtin_variables() {
 }
 
 // An engine whose adapter names no child variable is told the library's
-// built-in source (opencode's provider keys and its endpoint key, ruling 69).
+// built-in source (opencode's provider keys, rulings 69 and 79).
 #[test]
 fn an_engine_with_no_adapter_variable_names_its_builtin_source() {
     assert_eq!(
         refuse_file_only("opencode", &file_only(), &Credentials::default()),
         Some(RunRejection::FileOnlyCredential {
             engine: "opencode".to_string(),
-            variables: "ANTHROPIC_API_KEY, OPENAI_API_KEY, CTXLOOM_OPENCODE_API_KEY".to_string(),
+            variables: "ANTHROPIC_API_KEY, OPENAI_API_KEY".to_string(),
         })
     );
 }
@@ -301,10 +319,11 @@ fn a_link_that_cannot_be_made_is_a_notice_not_an_error() {
     assert!(remedy.contains("claude setup-token"));
 }
 
+// Ruling 80: the platforms that never link are the engine's: claude's.
 #[test]
 fn macos_and_windows_never_link_and_are_told_to_set_a_token() {
     for os in ["macos", "windows"] {
-        assert!(!can_link(os));
+        assert!(!links_on(&CLAUDE.into(), os));
         let mut links = Links::with_login();
         let (text, remedy) = said(shared(&mut links, &[("HOME", "/home/u")], os));
         assert!(text.contains(os), "{os}");
@@ -312,13 +331,91 @@ fn macos_and_windows_never_link_and_are_told_to_set_a_token() {
         assert!(remedy.contains("CLAUDE_CODE_OAUTH_TOKEN"), "{os}");
         assert_eq!(remedy, CLAUDE.sign_in, "{os}");
         assert!(links.made.is_empty(), "{os}");
+        assert!(links.copied.is_empty(), "{os}");
     }
 }
 
 #[test]
 fn linux_and_the_other_unixes_link() {
     for os in ["linux", "freebsd", "openbsd"] {
-        assert!(can_link(os), "{os}");
+        assert!(links_on(&CLAUDE.into(), os), "{os}");
+        assert!(links_on(&OPENCODE.into(), os), "{os}");
+    }
+}
+
+fn opencode_on(links: &mut Links, os: &str) -> Option<Notice> {
+    share_login(
+        links,
+        &OPENCODE.into(),
+        &env(&[("HOME", "/home/u")]),
+        os,
+        "amber-swift-owl",
+    )
+}
+
+// Ruling 80: opencode keeps its login in a file on macOS too (no keychain),
+// so it links there as on linux.
+#[test]
+fn opencode_links_its_login_on_macos() {
+    assert!(links_on(&OPENCODE.into(), "macos"));
+    let mut links = Links::with_opencode_login(OPENCODE_TARGET);
+    assert!(opencode_on(&mut links, "macos").is_none());
+    assert_eq!(links.made.len(), 1);
+    assert!(links.copied.is_empty());
+}
+
+// Ruling 80: on Windows opencode tries a link first, and one made is all.
+#[test]
+fn opencode_on_windows_links_when_a_link_can_be_made() {
+    assert!(links_on(&OPENCODE.into(), "windows"));
+    let mut links = Links::with_opencode_login(OPENCODE_TARGET);
+    assert!(opencode_on(&mut links, "windows").is_none());
+    assert_eq!(links.made.len(), 1);
+    assert!(links.copied.is_empty());
+}
+
+// Ruling 80: on Windows a link that cannot be made is a copy of the login,
+// and the notice says the cost: a refresh in the session rotates the copy's
+// token, which can sign her own opencode out.
+#[test]
+fn opencode_on_windows_copies_its_login_when_no_link_can_be_made_and_says_the_cost() {
+    let mut links = Links::with_opencode_login(OPENCODE_TARGET);
+    links.fails = true;
+    let (text, remedy) = said(opencode_on(&mut links, "windows"));
+    assert_eq!(
+        links.copied,
+        vec![(
+            "amber-swift-owl".to_string(),
+            OPENCODE_REL.to_string(),
+            OPENCODE_TARGET.to_string()
+        )]
+    );
+    assert!(text.contains("copied"), "{text}");
+    assert!(text.contains("sign your own opencode out"), "{text}");
+    assert_eq!(remedy, "run `opencode auth login`");
+}
+
+// A copy that fails too is the link's failure, said as one.
+#[test]
+fn a_copy_that_cannot_be_made_is_said_as_a_login_not_shared() {
+    let mut links = Links::with_opencode_login(OPENCODE_TARGET);
+    links.fails = true;
+    links.copy_fails = true;
+    let (text, _) = said(opencode_on(&mut links, "windows"));
+    assert!(text.contains("could not be shared"), "{text}");
+    assert!(links.copied.is_empty());
+}
+
+// Only where the engine says so is a failed link a copy: elsewhere it is
+// said, and nothing is copied.
+#[test]
+fn a_failed_link_is_no_copy_where_the_engine_does_not_copy() {
+    for os in ["linux", "macos"] {
+        let mut links = Links::with_opencode_login(OPENCODE_TARGET);
+        links.fails = true;
+        let (text, _) = said(opencode_on(&mut links, os));
+        assert!(text.contains("could not be shared"), "{os}: {text}");
+        assert!(links.copied.is_empty(), "{os}");
     }
 }
 
@@ -421,15 +518,19 @@ fn a_configured_login_that_is_missing_is_said_even_when_logins_are_optional() {
 }
 
 // What the human is told is the engine's own way to sign in, wherever no
-// login is shared: on a platform that cannot link, and where a link fails.
+// login is shared: on a platform it never links on, and where a link fails.
 #[test]
 fn every_notice_says_the_engines_own_way_to_sign_in() {
+    let never = Credentials {
+        no_link_on: &["plan9"],
+        ..OPENCODE
+    };
     let mut links = Links::with_opencode_login(OPENCODE_TARGET);
     let notice = share_login(
         &mut links,
-        &OPENCODE.into(),
+        &never.into(),
         &env(&[("HOME", "/home/u")]),
-        "windows",
+        "plan9",
         "h",
     );
     assert_eq!(said(notice).1, "run `opencode auth login`");

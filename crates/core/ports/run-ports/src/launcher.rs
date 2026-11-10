@@ -35,6 +35,9 @@ pub struct TurnCommand {
     pub env: BTreeMap<String, String>,
     pub stdin: Vec<u8>,
     pub cwd: Option<String>,
+    /// Names in `env` whose values its `Debug` withholds besides the bearer:
+    /// the variables a permit set (owner ruling 78).
+    pub withheld: Vec<String>,
 }
 
 impl fmt::Debug for TurnCommand {
@@ -60,6 +63,7 @@ impl TurnCommand {
             env: BTreeMap::new(),
             stdin: Vec::new(),
             cwd: None,
+            withheld: Vec::new(),
         }
     }
 }

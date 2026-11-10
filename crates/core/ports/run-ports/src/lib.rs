@@ -14,6 +14,7 @@ mod engine;
 mod hook;
 mod launcher;
 mod login;
+mod permit;
 mod records;
 mod serving;
 mod settings;
@@ -37,6 +38,7 @@ pub use launcher::{
     TurnOutput,
 };
 pub use login::{LinkState, LoginLinks};
+pub use permit::{apply_permits, permits, Ignored, Permits, PERMIT_PREFIX};
 pub use records::{check_rel, RecordsError, SessionRecords};
 pub use serving::{BoxFuture, HookServer, Serving};
 pub use settings::{AuthSetting, CredentialPolicy, EngineSettings, SessionHome};

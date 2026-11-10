@@ -74,6 +74,10 @@ pub struct CredentialPolicy {
     /// A login missing from its default place is nothing to say
     /// ([`Credentials::login_optional`]).
     pub login_optional: bool,
+    /// Where the login is never linked ([`Credentials::no_link_on`]).
+    pub no_link_on: Vec<String>,
+    /// Where a link that cannot be made is a copy ([`Credentials::copy_on`]).
+    pub copy_on: Vec<String>,
     /// Where the login file the primary shares is, when the config names it
     /// (`~/` is the caller's home); none is `<home>/<user_dir>/<login_file>`.
     pub login_source: Option<String>,
@@ -92,6 +96,8 @@ impl From<Credentials> for CredentialPolicy {
             home_dir: base.home_dir.to_string(),
             sign_in: base.sign_in.to_string(),
             login_optional: base.login_optional,
+            no_link_on: base.no_link_on.iter().map(ToString::to_string).collect(),
+            copy_on: base.copy_on.iter().map(ToString::to_string).collect(),
             login_source: None,
         }
     }

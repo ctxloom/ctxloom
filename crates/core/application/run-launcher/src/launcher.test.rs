@@ -904,3 +904,39 @@ async fn an_engine_whose_session_ends_with_its_exit_has_the_end_recorded_at_the_
         );
     }
 }
+
+// Ruling 78: the caller's CTXLOOM_PERMIT_<NAME> reaches the engine's command
+// as <NAME>, a child's turn and the terminal alike, whatever the engine passed;
+// the permit itself is not passed, and the value is withheld from a Debug.
+#[tokio::test]
+async fn a_permit_reaches_the_command_under_its_own_name() {
+    for interactive in [false, true] {
+        let mut placed = order("fake");
+        placed.interactive = interactive;
+        placed.env.insert(
+            "CTXLOOM_PERMIT_SECRET_KEY".to_string(),
+            "permitted-value".to_string(),
+        );
+        let mut rig = rig(
+            ScriptedEngine::answering("A", None),
+            ScriptedRunner::exits(0),
+            orders_with(placed),
+        );
+        enqueued(&rig.edge, SESSION, HARP).await;
+        rig.step().await;
+        let seen = if interactive {
+            rig.runner.seen_terminal.lock().unwrap().clone()
+        } else {
+            rig.runner.seen.lock().unwrap().clone()
+        };
+        let command = &seen[0];
+        assert_eq!(
+            command.env.get("SECRET_KEY").map(String::as_str),
+            Some("permitted-value"),
+            "{interactive}"
+        );
+        assert!(!command.env.contains_key("CTXLOOM_PERMIT_SECRET_KEY"));
+        assert_eq!(command.withheld, ["SECRET_KEY"]);
+        assert!(!format!("{command:?}").contains("permitted-value"));
+    }
+}

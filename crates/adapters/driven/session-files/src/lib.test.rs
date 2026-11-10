@@ -633,6 +633,34 @@ fn linking_replaces_nothing() {
     assert_eq!(fs.read_to_string(&path).unwrap(), "mine");
 }
 
+// Ruling 80: where a link cannot be made (opencode on Windows), the login is
+// copied whole, readable by its owner alone, and nothing is replaced.
+#[test]
+fn copying_makes_the_homes_file_a_private_copy_of_the_login_and_replaces_nothing() {
+    let (fs, mut dirs) = dirs();
+    login(&fs);
+    dirs.copy(HARP, "home/xdg/data/opencode/auth.json", LOGIN)
+        .unwrap();
+    let copied = dirs.dir(HARP).join("home/xdg/data/opencode/auth.json");
+    assert_eq!(fs.read_to_string(&copied).unwrap(), SECRET);
+    assert_eq!(
+        dirs.state(HARP, "home/xdg/data/opencode/auth.json"),
+        LinkState::Other,
+        "a copy is no link"
+    );
+    assert_eq!(
+        fs.metadata(&copied).unwrap().mode.map(|m| m.bits() & 0o777),
+        Some(0o600)
+    );
+    assert!(dirs
+        .copy(HARP, "home/xdg/data/opencode/auth.json", LOGIN)
+        .is_err());
+    assert!(dirs.copy(HARP, "../escape", LOGIN).is_err());
+    assert!(dirs
+        .copy(HARP, "home/missing.json", "/home/u/none")
+        .is_err());
+}
+
 #[test]
 fn a_path_out_of_the_session_directory_is_refused() {
     let (fs, mut dirs) = dirs();

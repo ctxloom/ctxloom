@@ -143,6 +143,8 @@ impl Engine for Opencode {
             home_dir: SESSION_DATA_DIR,
             sign_in: SIGN_IN,
             login_optional: true,
+            no_link_on: &["macos", "windows"],
+            copy_on: &[],
         }
     }
 

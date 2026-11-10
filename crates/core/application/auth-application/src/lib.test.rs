@@ -65,16 +65,19 @@ fn a_missing_claude_token_is_reported_missing_with_how_to_mint_and_export_it() {
     );
 }
 
-// Go: opencode's endpoint key is optional, so it has a row only when exported.
+// opencode's keys are optional, so it has a row only when one is exported.
+// Ruling 79: Go's endpoint key is no credential of opencode's any more.
 #[test]
 fn opencodes_optional_key_has_a_row_only_when_it_is_exported() {
-    let rows = auth(&["CLAUDE_CODE_OAUTH_TOKEN", "CTXLOOM_OPENCODE_API_KEY"]).status(&[]);
+    let rows = auth(&["CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY"]).status(&[]);
     let names: Vec<&str> = rows.iter().map(|r| r.engine.as_str()).collect();
     assert_eq!(names, ["claude-code", "opencode"]);
     assert_eq!(rows[1].present, Some(true));
-    assert_eq!(rows[1].vars, ["CTXLOOM_OPENCODE_API_KEY"]);
+    assert_eq!(rows[1].vars, ["OPENAI_API_KEY"]);
     let rows = auth(&[]).status(&[]);
     assert!(rows.iter().all(|r| r.engine != "opencode"));
+    let rows = auth(&["CTXLOOM_OPENCODE_API_KEY"]).status(&[]);
+    assert!(rows.iter().all(|r| r.engine != "opencode"), "{rows:?}");
 }
 
 // Go's emitted shape: engine, mode, present always; vars and remedy only
@@ -113,14 +116,13 @@ fn only_the_credential_variables_are_asked_about_and_only_whether_they_are_expor
     let _ = Auth::new(env.clone()).status(&[]);
     let mut asked = env.asked.lock().unwrap().clone();
     asked.sort();
-    // opencode's built-in source is its provider keys and its endpoint key
-    // (ruling 69), none exported, so each is asked.
+    // opencode's built-in source is its provider keys (rulings 69, 79),
+    // none exported, so each is asked.
     assert_eq!(
         asked,
         [
             "ANTHROPIC_API_KEY",
             "CLAUDE_CODE_OAUTH_TOKEN",
-            "CTXLOOM_OPENCODE_API_KEY",
             "OPENAI_API_KEY"
         ]
     );
@@ -191,7 +193,7 @@ fn each_engine_is_reported_once_whatever_its_labels() {
 fn a_token_or_an_api_key_is_an_agent_token_and_nothing_else_is() {
     assert!(auth(&["CLAUDE_CODE_OAUTH_TOKEN"]).agent_token_exported(&[]));
     assert!(auth(&["ANTHROPIC_API_KEY"]).agent_token_exported(&[]));
-    assert!(!auth(&["ANTHROPIC_AUTH_TOKEN", "CTXLOOM_OPENCODE_API_KEY"]).agent_token_exported(&[]));
+    assert!(!auth(&["ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY"]).agent_token_exported(&[]));
     assert!(!auth(&[]).agent_token_exported(&[]));
 }
 
@@ -266,6 +268,10 @@ fn file_only() -> Vec<String> {
     layer("engines:\n  claude-code:\n    auth:\n      file: /h/.claude/.credentials.json\n")
 }
 
+/// `runs-file-only-credential` of claude-code, and its fix, as en-US says them.
+const FILE_ONLY_MESSAGE: &str = "a child agent run of claude-code needs a credential in the environment (any one of: CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY), and engines.claude-code.auth names only a file, which serves the primary interactive session alone";
+const FILE_ONLY_FIX: &str = "name one of those variables in engines.claude-code.auth.env and export it (for claude-code, `claude setup-token` makes CLAUDE_CODE_OAUTH_TOKEN); the file keeps serving the primary session";
+
 // Ruling 53: a file alone has a row of its own, usable by the primary and not
 // by a child, whatever is exported (the source names no variable), and the
 // fix names the variables to put in the source and export.
@@ -283,17 +289,18 @@ fn a_file_only_source_has_a_row_usable_by_the_primary_not_by_children() {
         assert_eq!(row.usable_by, "primary");
         assert_eq!(row.via, "/h/.claude/.credentials.json");
         assert!(row.vars.is_empty());
-        assert_eq!(
-            row.remedy,
-            "a child agent needs an environment credential: name one of CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY in engines.claude-code.auth.env and export it"
-        );
+        // Ruling 81: in the words a child's run of it is refused with.
+        assert_eq!(row.message, FILE_ONLY_MESSAGE);
+        assert_eq!(row.remedy, FILE_ONLY_FIX);
     }
     let doc = serde_json::to_value(auth(&[]).status(&file_only())).unwrap();
     assert_eq!(doc[0]["usable_by"], "primary");
     assert!(doc[0].get("present").is_none(), "{doc}");
-    // a token row says nothing of who may use it
+    assert_eq!(doc[0]["message"], FILE_ONLY_MESSAGE);
+    // a token row says nothing of who may use it, and has no message
     let doc = serde_json::to_value(auth(&["CLAUDE_CODE_OAUTH_TOKEN"]).status(&[])).unwrap();
     assert!(doc[0].get("usable_by").is_none());
+    assert!(doc[0].get("message").is_none());
 }
 
 // The doctor's verdict of a file alone: the primary can run, a child cannot.
@@ -305,11 +312,8 @@ fn a_file_only_source_is_a_verdict_for_the_primary_only() {
     assert_eq!(v.mode, "file");
     assert!(v.primary_only);
     assert!(v.ready, "the primary may run on it");
-    assert!(
-        v.remedy.contains("engines.claude-code.auth.env"),
-        "{}",
-        v.remedy
-    );
+    assert_eq!(v.message, FILE_ONLY_MESSAGE);
+    assert_eq!(v.remedy, FILE_ONLY_FIX);
     // a variable source is no primary-only one
     let verdicts = auth(&[]).needed(&["claude-code".to_string()], &[]);
     assert!(!verdicts[0].primary_only);
@@ -333,14 +337,15 @@ fn a_refused_source_is_skipped_and_never_repeated() {
     assert!(!format!("{rows:?}").contains("sk-ant"));
 }
 
-// An engine with no built-in variables (a test engine) is told to name one.
+// Ruling 81: an engine with no built-in variables (a test engine) is told in
+// the refusal's words too.
 #[test]
 fn a_file_only_source_of_an_engine_with_no_builtin_variable_is_told_to_name_one() {
     let file = layer("engines:\n  mock:\n    auth:\n      file: /h/creds\n");
     let verdicts = auth(&[]).needed(&["mock".to_string()], &file);
     assert_eq!(
         verdicts[0].remedy,
-        "a child agent needs an environment credential: name a variable in engines.mock.auth.env and export it"
+        "name one of those variables in engines.mock.auth.env and export it (for claude-code, `claude setup-token` makes CLAUDE_CODE_OAUTH_TOKEN); the file keeps serving the primary session"
     );
 }
 
@@ -394,8 +399,7 @@ fn an_engine_in_use_on_a_file_alone_is_warned_of_as_its_children_are_refused() {
     let opencode = auth(&[]).file_only(&file_only_in_use("opencode"));
     assert_eq!(opencode.len(), 1, "{opencode:?}");
     assert!(
-        format!("{:?}", opencode[0].args())
-            .contains("ANTHROPIC_API_KEY, OPENAI_API_KEY, CTXLOOM_OPENCODE_API_KEY"),
+        format!("{:?}", opencode[0].args()).contains("ANTHROPIC_API_KEY, OPENAI_API_KEY\""),
         "{opencode:?}"
     );
 }

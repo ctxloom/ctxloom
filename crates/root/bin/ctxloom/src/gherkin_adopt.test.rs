@@ -47,6 +47,7 @@ done
 if [ -n "${CLAUDE_CONFIG_DIR:-}" ] && [ -d "$CLAUDE_CONFIG_DIR" ]; then
   find "$CLAUDE_CONFIG_DIR" -type f -exec cat {} + >> "$rec" 2>/dev/null
 fi
+if [ -n "${ANTHROPIC_AUTH_TOKEN:-}" ]; then echo "env ANTHROPIC_AUTH_TOKEN=$ANTHROPIC_AUTH_TOKEN" >> "$rec"; fi
 [ -t 0 ] || cat >> "$rec"
 echo '{"type":"system","subtype":"init","session_id":"00000000-0000-4000-8000-0000000000aa"}'
 echo '{"type":"result","subtype":"success","is_error":false,"result":"J000100-ASSISTANT-REPLY","session_id":"00000000-0000-4000-8000-0000000000aa"}'
@@ -252,6 +253,24 @@ fn handed_published_default(w: &mut World) {
 #[then("no assistant was launched")]
 fn no_assistant(w: &mut World) {
     assert_eq!(w.launch_record(), "", "an assistant was launched");
+}
+
+#[then(expr = "the assistant's environment held {string} as {string}")]
+fn assistant_env_held(w: &mut World, name: String, value: String) {
+    assert!(
+        w.launch_record().contains(&format!("env {name}={value}\n")),
+        "{}",
+        w.launch_record()
+    );
+}
+
+#[then(expr = "the assistant's environment did not hold {string}")]
+fn assistant_env_lacks(w: &mut World, name: String) {
+    assert!(
+        !w.launch_record().contains(&format!("env {name}=")),
+        "{}",
+        w.launch_record()
+    );
 }
 
 #[then("an assistant was launched")]

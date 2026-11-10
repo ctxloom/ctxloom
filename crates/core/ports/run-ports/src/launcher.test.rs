@@ -84,3 +84,27 @@ fn a_command_renders_its_env_keys_and_never_the_bearer() {
         r#"TurnCommand { program: "claude", args: ["-p"], env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "/bin"}, stdin: [104, 105], cwd: Some("/w") }"#
     );
 }
+
+// Ruling 78: what a permit set is withheld from a command's Debug, and so is
+// any permit's own value.
+#[test]
+fn a_command_withholds_what_a_permit_set_and_any_permit() {
+    let mut command = TurnCommand::new("opencode");
+    command.env = BTreeMap::from([
+        ("OPENCODE_API_KEY".to_string(), "oc-secret".to_string()),
+        (
+            "CTXLOOM_PERMIT_OTHER".to_string(),
+            "permit-secret".to_string(),
+        ),
+        ("PATH".to_string(), "/bin".to_string()),
+    ]);
+    command.withheld = vec!["OPENCODE_API_KEY".to_string()];
+    let shown = format!("{command:?}");
+    assert!(!shown.contains("oc-secret"), "{shown}");
+    assert!(!shown.contains("permit-secret"), "{shown}");
+    assert!(
+        shown.contains(r#""OPENCODE_API_KEY": "<redacted>""#),
+        "{shown}"
+    );
+    assert!(shown.contains(r#""PATH": "/bin""#), "{shown}");
+}

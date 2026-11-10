@@ -46,6 +46,10 @@ pub struct Row {
     /// The variable the credential was found in (a name, never a value).
     #[serde(skip_serializing_if = "String::is_empty")]
     pub via: String,
+    /// What the row means, when a line of its own says it: a file alone's
+    /// is `runs-file-only-credential`'s message (owner ruling 81).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub message: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub remedy: String,
     /// Who the credential serves when it is not every run: `primary` for a
@@ -64,6 +68,9 @@ pub struct Verdict {
     pub vars: Vec<String>,
     /// False only where a required credential is not exported.
     pub ready: bool,
+    /// What the verdict means, when it says more than its mode: a file
+    /// alone's is `runs-file-only-credential`'s message (ruling 81).
+    pub message: String,
     pub remedy: String,
     /// The source is a file alone: the primary session may run on it, a
     /// child agent cannot (owner ruling 53).
@@ -152,6 +159,7 @@ impl Auth {
                     present: None,
                     vars: Vec::new(),
                     via: file.clone(),
+                    message: String::new(),
                     remedy: remedy(&need),
                     usable_by: PRIMARY,
                 });
@@ -171,6 +179,7 @@ impl Auth {
                     remedy(&need)
                 },
                 via: found.unwrap_or_default(),
+                message: String::new(),
                 usable_by: "",
             })
         })
@@ -214,6 +223,7 @@ impl Auth {
                     || !need.required
                     || need.vars.iter().any(|v| self.env.is_exported(v)),
                 mode: if need.file.is_some() { FILE } else { TOKEN },
+                message: String::new(),
                 remedy: remedy(&need),
                 primary_only: need.file.is_some(),
                 vars: need.vars,

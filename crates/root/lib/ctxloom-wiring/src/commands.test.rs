@@ -178,11 +178,12 @@ fn files_under(dir: &std::path::Path) -> Vec<String> {
 }
 
 #[test]
-fn test_the_engines_composed_in_are_claude_first_then_the_mocks() {
+fn test_the_engines_composed_in_are_claude_first_then_opencode_then_the_mocks() {
     assert_eq!(
         engines().names(),
         [
             "claude-code",
+            "opencode",
             "mock",
             "mock-launch",
             "mock-lossy",

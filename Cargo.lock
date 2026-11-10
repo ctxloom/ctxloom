@@ -909,6 +909,7 @@ dependencies = [
  "embedded-edge",
  "engine-claude",
  "engine-mock",
+ "engine-opencode",
  "file-lock",
  "file-system",
  "fixture-program",

@@ -331,8 +331,12 @@ live session reads live (and `session remove` refuses it without
 owed a runner whose own lock is free, and one started whose session's lock
 is free, have lost their owner; it probes, re-reads the run's stream (an
 owner records its start or end before it lets its lock go, so a normal end
-wins the race), then records `LaunchFailed` `orphaned` (keyed by the run: a
-second sweeper's is a DUPLICATE) and the session's incarnation ended. Every
+wins the race), then records the run's end, keyed by the run (a second
+sweeper's is a DUPLICATE): `LaunchOrphaned` (`launch-orphaned:<run>`,
+`END_CAUSE_LAUNCH_ORPHANED`) for one owed a runner, since no launch failed
+(ruling 100), and `RunnerLost` (`runner-lost:<run>`, `END_CAUSE_RUNNER_LOSS`)
+for one started (ruling 95); no orphan claims `LaunchFailed`. Then the
+session's incarnation ended (`orphaned`). Every
 run's end, or abandon after its mint, tells its session
 `RecordIncarnationEnded` (`runner-exit`, `launch-failed`; keyed
 `incarnation-ended:<session>:<n>`), so no incarnation stays open; no policy

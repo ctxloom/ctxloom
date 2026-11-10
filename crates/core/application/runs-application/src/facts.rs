@@ -371,16 +371,44 @@ impl<E: Edge> Facts<E> {
         deterministic: bool,
         detail: &str,
     ) -> Result<Recorded, AppError> {
+        let fact = runs::LaunchFailed {
+            deterministic,
+            detail: detail.to_string(),
+        };
+        self.of_the_core(run, &fact, "launch-failed").await
+    }
+
+    /// The end of the started `run` whose owner is gone (its session's lock
+    /// free, rulings 93, 95), as a sweeping process found it: runner loss.
+    /// The core's fact, the unexposed path; keyed `runner-lost:<run>`, so a
+    /// second sweeper's is a DUPLICATE.
+    pub async fn runner_lost(&self, run: &Uuid) -> Result<Recorded, AppError> {
+        self.of_the_core(run, &runs::RunnerLost {}, "runner-lost")
+            .await
+    }
+
+    /// The end of `run`, still owed a runner, whose launcher died before
+    /// starting one (its run lock free, rulings 92, 100): orphaned, no launch
+    /// failure. Keyed `launch-orphaned:<run>`.
+    pub async fn launch_orphaned(&self, run: &Uuid) -> Result<Recorded, AppError> {
+        self.of_the_core(run, &runs::LaunchOrphaned {}, "launch-orphaned")
+            .await
+    }
+
+    /// Record `fact`, the core's own (no principal's), on `run`'s stream,
+    /// keyed `<key>:<run>`.
+    async fn of_the_core<M: DomainMessage>(
+        &self,
+        run: &Uuid,
+        fact: &M,
+        key: &str,
+    ) -> Result<Recorded, AppError> {
         let cover = Cover {
             domain: runs::RUN_DOMAIN.to_string(),
             root: Some(run.clone()),
             edition: None,
         };
-        let fact = runs::LaunchFailed {
-            deterministic,
-            detail: detail.to_string(),
-        };
-        let book = book_of(cover, any_of(&fact), format!("launch-failed:{}", text(run)));
+        let book = book_of(cover, any_of(fact), format!("{key}:{}", text(run)));
         match self.edge.handle(book).await {
             Ok(answered) => Recorded::of(&answered).ok_or_else(|| AppError::Failed {
                 reason: "the kernel gave no delivery outcome".to_string(),

@@ -383,7 +383,7 @@ impl RunAggregate {
     #[handles_fact(RunnerLost)]
     fn runner_lost(&self, fact: RunnerLost, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
         let _ = (fact, ctx);
-        recorded(None::<RunEnded>)
+        recorded(self.end(EndCause::RunnerLoss, None, String::new()))
     }
 
     /// A run owed a runner whose launcher died before starting one (ruling
@@ -391,7 +391,7 @@ impl RunAggregate {
     #[handles_fact(LaunchOrphaned)]
     fn launch_orphaned(&self, fact: LaunchOrphaned, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
         let _ = (fact, ctx);
-        recorded(None::<RunEnded>)
+        recorded(self.end(EndCause::LaunchOrphaned, None, String::new()))
     }
 
     /// A model's claim: advisory evidence, recorded and nothing else (owner

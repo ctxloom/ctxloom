@@ -35,8 +35,10 @@
 //! runner whose own lock is free, and one started whose session's lock is
 //! free, have lost their owner. The sweep probes the lock, THEN re-reads the
 //! run's stream (an owner records its start or end before it lets its lock
-//! go), and records `LaunchFailed` (`orphaned`, keyed by the run, so a second
-//! sweeper's is a DUPLICATE) and the end of the session's incarnation.
+//! go), and records the run's end, keyed by the run so a second sweeper's is
+//! a DUPLICATE: `LaunchOrphaned` for one owed a runner (no launch failed,
+//! ruling 100), `RunnerLost` for one started (runner loss, ruling 95); then
+//! the end of the session's incarnation (`orphaned`).
 
 use std::sync::Arc;
 
@@ -52,7 +54,8 @@ use runs_application::{Facts, Identity, Observation, Principal, RunnerFact};
 use crate::error::LaunchError;
 use crate::orders::{Order, Orders};
 
-/// The detail and cause a run ended for its lost owner records.
+/// The cause the session's incarnation ends with when its run's owner was
+/// lost.
 const ORPHANED: &str = "orphaned";
 
 /// The turn a one-shot takes.
@@ -140,7 +143,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
     /// a run still owed a runner whose own lock is free has lost its launcher
     /// (rulings 86, 92), and a started run whose session's lock is free has
     /// lost its owner (ruling 93). Whichever process catches up on it first
-    /// records it ended, `orphaned`.
+    /// records it ended: `LaunchOrphaned` or `RunnerLost` (rulings 95, 100).
     pub fn with_locks(mut self, locks: Arc<dyn run_ports::RunLocks>) -> Self {
         self.locks = Some(locks);
         self
@@ -260,10 +263,11 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         let failed = |e: runs_application::AppError| LaunchError::Fact {
             reason: e.to_string(),
         };
-        self.facts
-            .launch_failed(run, false, ORPHANED)
-            .await
-            .map_err(failed)?;
+        let ended = match started {
+            true => self.facts.runner_lost(run).await,
+            false => self.facts.launch_orphaned(run).await,
+        };
+        ended.map_err(failed)?;
         self.facts
             .incarnation_ended(session, incarnation, ORPHANED)
             .await

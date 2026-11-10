@@ -94,22 +94,29 @@ output; its prose is withheld until the owner rules (D24, D8).
 Skill zips are written and read by `library::write::archive` over the `zip`
 crate (deflate only, default features off) and crc32fast.
 
-Slice S4 (sessions) built the following. Its store design is superseded: a
-session's state goes through angzarr-embedded with in-memory storage: the
-engine driver's I/O is event streams there, ctxloom reacts to the events, and
-the driver writes the session's directory, `.ctxloom/sessions/<harp>/` in the
-project (session home, metadata, records, worktree), from them. That directory
-is the durable record; there is no project-level session store, claim stream
-or index (list and search walk the directory; a
-name is unique because it is the directory's name), and nothing is imported
-from Go. M1 reshapes it.
+Slice S4 (sessions) built the following. The record is the project's durable
+store (owner rulings 87, 87a): a session's state goes through angzarr-embedded
+over `~/.ctxloom/projects/<id>/ctxloom.db` (machine-local), every hook's fact
+an event when it is delivered. `session list`, `search`, `show` and
+`transcript show` catch up from it on each read, so a live session shows what
+was delivered so far; nothing projects the events into a file (no
+`transcripts/transcript.jsonl`, `records/*.jsonl`, position file or
+`metadata.json`). A session's directory, `.ctxloom/sessions/<harp>/` in the
+project, holds what its engine needs (the session home, its native history,
+its worktree), and `<harp>.lock` beside it is held by its run for its life. A
+name is unique because its claim is. Accepted cost: a clone has no session
+history (the store is machine-local; `sessions/` was always gitignored), and
+the store grows without bound (ruling 90; compaction is taskloom
+`untried-slander`).
 
 - `core/wire/sessions-proto`, from `proto/ctxloom/sessions/v1`;
 - `core/domain/sessions` (hand-written markup, as taskloom's `tasks`: the
   session aggregate and the `session-names` claim aggregate);
-- `core/read-model/session-index` (the rows, state, title, search, retention);
-- `core/ports/session-ports` (a project's store, `Liveness`, a session's
-  files, Go's session directories);
+- `core/read-model/session-index` (the rows, state, title, search, retention,
+  and each session's transcript folded from its capture events: `Projection`,
+  D27's lines, `seq` counting them);
+- `core/ports/session-ports` (a project's store, with `Purge`; `Liveness` and
+  `SessionLock`; a session's files, Go's session directories);
 - `core/application/sessions-application` (list, search, show, keep, remove,
   bind, the transcripts; Go's `session.yaml` schema 1 to 3 read through
   angzarr-yaml; the importer's types);
@@ -136,9 +143,29 @@ streams are rooted on them, so they never change:
   (`sessions_application::imported_id`). Go's `run_ends[]` and `end_reason`
   are NOT imported (they return with S10).
 
-A rename claims the new name, moves the output folder, records the name and
-frees the old one; a removed session's name stays claimed. The refusal code is
-`sessions-names-taken` (the crate-prefix rule).
+A rename is judged by the session on what its lock said (`RenameSession`
+carries `LockEvidence`, owner ruling 91, per 73e): a held lock is refused
+`SessionLive` (`sessions-session-live`, its fix: wait for the session's end;
+an unproven lock does not refuse). Otherwise it claims the new name, moves the
+output folder and the session's directory and lock (`SessionFiles::
+move_session`, defect 2), records the name and frees the old one, each step
+undone if a later one fails; a removed or destroyed session's name stays
+claimed. The refusal code of a taken name is `sessions-names-taken` (the
+crate-prefix rule).
+
+`session purge` DESTROYS a session (owner rulings 94, 94a-d), and exists only
+under the cargo feature `session-destroy` (binary -> `ctxloom-wiring` ->
+`session-cli`; `session sweep`, whose apply is that destroy, too;
+`scripts/plain-destroy-check.sh`, run by `just build`, holds the plain binary
+to not knowing either; the acceptance tests build with it, and the justfile's
+`feature_rules` turns it on for `session-cli`'s tests). A destroy purges, from
+the store, the session's stream and each run stream UUIDv5(session, 1..=n),
+each guarded by the head just read (retried on a conflict), then removes the
+session's directory and lock; the name's claim is kept. A hook fact
+redelivered after it finds no session and records nothing. There is no
+transcript destroyer of its own (`session transcript purge` is gone): the
+conversation is the session's stream. `session remove` forgets the session
+(its events stay) and destroys its native history.
 
 Deliberate divergence from Go: `session remove` takes `--even-if-live`, as its
 own refusal text already told the user to use.
@@ -150,16 +177,16 @@ ones); the primary agent keeps the human's terminal, handed to the engine by
 inheritance. Both are heard through hooks (a child since owner ruling 51).
 Crates:
 
-- `core/ports/run-ports` (`RunnerLauncher`, `Engine`, `SessionRecords`) and
-  `core/read-model/pending-launches` (the runs still owed a runner);
+- `core/ports/run-ports` (`RunnerLauncher`, `Engine`, `SessionRecords`,
+  `RunLocks`) and `core/read-model/pending-launches` (the runs still owed a
+  runner, with their launcher's lock, and the runs started and not ended,
+  with their session's place);
 - `core/application/{run-launcher, run-application}`: the launcher is a
   `CatchUp` over `pending-launches` that drives the engine for one turn and
-  records the outcome as facts, and a recorder that writes the session
-  directory (`metadata.json`, `records/*.jsonl`: the events, not the conversation)
-  from the events and writes the conversation to `transcripts/transcript.jsonl`
-  (D27 envelope `v, harp, session_id, engine, seq, ts, kind`); `Runs` plans
-  the run through the library's dry-run, mints, enqueues, launches, returns the
-  reply;
+  records the outcome as facts, and sweeps what other processes left (below);
+  `Runs` plans the run through the library's dry-run, enqueues, mints,
+  launches, returns the reply. Nothing writes the session's directory but the
+  launcher's session home (ruling 87a);
 - `adapters/driven/host-launcher` (a turn's command through `run_within_started`,
   the interactive launch through `run_terminal`: inherited stdio, the caller's
   process group, no deadline; each on a thread of its own, returning at the
@@ -211,7 +238,10 @@ a hook process receives, through the engine env (like `CTXLOOM_HOME`; both of
 `engine-claude`'s allowlists, `ENV_ALLOWLIST` for a child's turn since ruling
 51 and `INTERACTIVE_ENV_ALLOWLIST`; always the run's own values: an inherited
 one from an enclosing session is replaced, never passed on), with
-`CTXLOOM_SESSION_HARP`, the session's harp: `CTXLOOM_ENDPOINT`, the URL of the run's TCP
+`CTXLOOM_SESSION_HARP`, the session's harp (for its statusline), and
+`CTXLOOM_SESSION`, the session's stable id, what a hook addresses its facts to
+(review finding 6: the wiring's `RunIds`; nothing on disk is read; the gate
+still holds a hook to its run's session): `CTXLOOM_ENDPOINT`, the URL of the run's TCP
 listener, `https://<host>:<port>` (TLS only: `http://` is the typed
 `run-ports-endpoint-plaintext` and is never dialed, and port 0, a request to
 bind and never a place to dial, is `run-ports-endpoint-port-zero`, for the
@@ -282,8 +312,30 @@ told; the hook credential's digest is journaled at the enqueue, so the gate
 already finds the run) and stopped if the run does not start; otherwise it is stopped, with a bounded grace, after the
 engine exits and before the run's end is last recorded
 (`ctxloom-wiring`'s `Hooks`; `run-application`'s `serve`, `ready` and `drive`,
-one path for both kinds of run). The session's directory names the session
-before the engine is launched, so a hook process can find it. Not built: the hidden runner subcommand. An
+one path for both kinds of run). Not built: the hidden runner subcommand.
+
+The locks a run is judged by (owner rulings 85, 86, 92, 93, defects 1 and 3;
+advisory file locks through the platform's `file-lock`, taken at once or not
+at all, never a pid). The run's OWN lock, `<home>/.ctxloom/runs/<run>.lock`
+(`liveness::RunLockFiles`), is taken before its enqueue is visible, journaled
+as `RunEnqueued.launcher_lock` (field 12, as in `EnqueueRun`), held in the
+`Orders` and let go once `RunnerStarted` is recorded (or the launch failed);
+its file is removed as it is let go, so only a dead holder's is ever left (a
+refused run leaves nothing in the project). The SESSION's lock,
+`<project>/.ctxloom/sessions/<harp>.lock`, is taken once the session is
+minted and held until after its engine exits and the listener stops, so a
+live session reads live (and `session remove` refuses it without
+`--even-if-live`). A launcher's step sweeps other processes' runs: one still
+owed a runner whose own lock is free, and one started whose session's lock
+is free, have lost their owner; it probes, re-reads the run's stream (an
+owner records its start or end before it lets its lock go, so a normal end
+wins the race), then records `LaunchFailed` `orphaned` (keyed by the run: a
+second sweeper's is a DUPLICATE) and the session's incarnation ended. Every
+run's end, or abandon after its mint, tells its session
+`RecordIncarnationEnded` (`runner-exit`, `launch-failed`; keyed
+`incarnation-ended:<session>:<n>`), so no incarnation stays open; no policy
+drives a relaunch, the budget or mail yet. A mint passes over a harp whose
+directory exists, unclaimed, within `NAME_TRIES` (then `sessions-names-taken`). An
 agent's `model` and `effort` reach the engine as the order's `model` and
 `effort` (`--model`, `--effort` for claude, a turn and the terminal alike;
 unset is no flag; claude takes `low|medium|high|xhigh|max`, any other level is
@@ -607,7 +659,7 @@ library's `bundle` noun and owns `remote` and `deps`.
   withheld red tests for them are `#[ignore]`d in `bundle_remote.test.rs`.
   angzarr-yaml cannot read Go's `? key` form for lock keys over 128 bytes.
 
-## Hook capture: the transcript has one writer
+## Hook capture: the transcript is the session's events
 
 What the engine's hooks observe (a prompt, each MessageDisplay delta, a tool
 call as size and SHA-256 only, a turn's end without text, a session's end, a
@@ -616,10 +668,11 @@ capture.proto`; `runs-application::observe` makes them from the unified
 `HookEvent`, `Capture` delivers them through a `run-ports::FactSink`, failing
 open: a delivery that did not happen is dropped and said on stderr). The
 session aggregate records each on a live session, nothing on any other, and a
-redelivery is DUPLICATE. `run-launcher`'s `Recorder` is the ONLY writer of
-`transcripts/transcript.jsonl` (a `Projection` over the stream's pages, `seq`
-counting lines, the last page projected kept in `records/transcript-position.
-json`). A one-shot child's prompt and words come from its hooks ALONE (owner
+redelivery is DUPLICATE. No file holds the transcript (owner ruling 87a):
+`session-index` folds it from the stream's pages on each read (a
+`Projection`, D27's envelope `v, harp, session_id, engine, seq, ts, kind`,
+`seq` counting lines), so it is live: a session still running shows what its
+hooks have delivered. A one-shot child's prompt and words come from its hooks ALONE (owner
 rulings 26 and 51): the launcher records none of them, and reads the child's
 stream only for the reply it returns and the run's outcome facts (RunnerStarted,
 TurnCompleted/TurnFailed, LaunchFailed, RunExited). Accepted costs: a hook

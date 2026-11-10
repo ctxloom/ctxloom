@@ -146,16 +146,20 @@ feature file; it belongs in git history.
   ctxloom used to do) and no technical detail (files, keys, harness mechanics, why an
   assertion is shaped as it is). Rationale a test still needs lives in the cli feature or
   the step definitions.
-- **A project's sessions live in its `.ctxloom`.** Each session is one git-ignored
-  directory, `.ctxloom/sessions/<harp>/`: its session home, its records and transcripts, and
-  its worktree checkout, so an agent's edits are visible in the project before they are
-  merged. A session's state goes through angzarr-embedded, configured with in-memory
-  storage: the engine driver's I/O is event streams there, ctxloom reacts to the events, and
-  the driver writes the harp directory from them, which is the durable record. There is no
-  project-level session store or index. `session list` and `search` walk `.ctxloom/sessions/`, taking each session's name
-  from its directory and the rest from the metadata inside it; a name is unique because
-  it is the directory's name. Deleting `.ctxloom` removes all of it; leaving ctxloom entirely is deleting
-  `~/.ctxloom` too, which holds what it keeps across projects (registered companions, cloned remotes). taskloom's `state.db` is taskloom's.
+- **A session's record is its events; its directory is what its engine needs.** A
+  session's state goes through angzarr-embedded over the project's durable store,
+  `~/.ctxloom/projects/<id>/ctxloom.db` (machine-local): every hook's fact is an event when
+  it is delivered, and that store is the record. `session list`, `search`, `show` and
+  `transcript show` catch up from it on each read, so a session still running shows what its
+  hooks have delivered so far; nothing projects the events into a file (no transcript file,
+  no `records/`, no `metadata.json`). Each session also has one git-ignored directory,
+  `.ctxloom/sessions/<harp>/`, holding what its engine needs (its session home, the
+  engine's own history, its worktree checkout), and a lock beside it, `<harp>.lock`, which
+  its run holds for its life: held is live, free is ended. A name is unique because its
+  claim is; a mint never takes a harp whose directory exists. Deleting `.ctxloom` removes
+  the directories; leaving ctxloom entirely is deleting `~/.ctxloom` too, which holds the
+  stores and what it keeps across projects (registered companions, cloned remotes).
+  taskloom's `state.db` is taskloom's.
 - **Materialize is an export, not a delivery path.** Sessions get their context in their
   session home; nothing a session reads is materialized. `ctxloom materialize` writes the
   team's context out as an engine's own files for someone who does not use ctxloom, and the

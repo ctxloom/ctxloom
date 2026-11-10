@@ -1,6 +1,15 @@
 //! The session's run lifeline (plan 3.1): the incarnation it owes, whether one
 //! is open, the relaunch budget (the SESSION's, per harp, not per run) and the
 //! stop flag.
+//!
+//! What drives it today (owner ruling 85): a mint owes the first
+//! incarnation, and the run application tells the session when that run
+//! ends, however it ends (`RecordIncarnationEnded`: `runner-exit`,
+//! `launch-failed`, or `orphaned` from a sweep), so no incarnation stays
+//! open. NO POLICY drives the rest yet: nothing acts on an `IncarnationOwed`
+//! after the first (no relaunch is launched), nothing spends or resets the
+//! relaunch budget, and no mail asks for an incarnation. The events and their
+//! rules stay, ready for the policy that will.
 
 use angzarr_embedded::markup::{pack_message, Bug, CommandContext, FactEmit};
 

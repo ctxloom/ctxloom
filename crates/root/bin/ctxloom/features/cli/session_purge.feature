@@ -7,6 +7,11 @@
 #   disk and from the listing (vocabulary §8). Go's "the sweep empties a
 #   session but does not unlist it" is superseded by that rule. `session
 #   adopt` is dropped.
+# Superseded in part (owner rulings 87a, 94b): no transcript file exists, so
+#   the steps below that look for `transcripts/transcript.jsonl` are to be
+#   rewritten when this Feature is taken up; `session purge` destroys the
+#   whole session (its events, its runs', its directory and lock, the name
+#   kept claimed), and is built only with the `session-destroy` feature.
 @pending
 Feature: session purge — the one destroyer, and a purged session is gone
 

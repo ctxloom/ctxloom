@@ -36,12 +36,15 @@ pub trait SessionService {
     /// Mark a session's transcript kept, or release it.
     fn keep(&mut self, request: KeepRequest)
         -> impl Future<Output = Result<Kept, AppError>> + Send;
-    /// Remove a session: report first, apply on `yes`.
+    /// Remove a session (or, `Scope::Purge`, destroy it whole: rulings 94,
+    /// 94b): report first, apply on `yes`.
     fn remove(
         &mut self,
         request: RemoveRequest,
     ) -> impl Future<Output = Result<Removal, AppError>> + Send;
-    /// Rename a session. Not built yet: it waits on the name claims.
+    /// Rename a session: refused while it is live (its lock held, owner
+    /// ruling 91); else its name claimed, its output folder, directory and
+    /// lock moved, the old name freed.
     fn rename(
         &mut self,
         request: RenameRequest,
@@ -51,7 +54,7 @@ pub trait SessionService {
         &mut self,
         query: TranscriptQuery,
     ) -> impl Future<Output = Result<Vec<TranscriptRow>, AppError>> + Send;
-    /// A session's whole canonical transcript.
+    /// A session's whole canonical transcript, read from its events.
     fn transcript(&mut self, harp: &str) -> impl Future<Output = Result<String, AppError>> + Send;
     /// Bind the engine's session to a harp.
     fn bind(

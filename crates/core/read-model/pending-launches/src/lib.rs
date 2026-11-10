@@ -8,6 +8,13 @@
 //! `TurnStartedRecorded`) are not the launch: a runner spawned and silent has
 //! been started, and one never started has not, whatever else is recorded.
 //!
+//! A run is STARTED from its `RunnerStartedRecorded` until its `RunEnded`
+//! ([`Pending::started`], ruling 93), listed with its session's project and
+//! current harp (where its session's lock is): a launcher that finds one
+//! whose session's lock is free knows its owner is gone. A run owed a runner
+//! carries its launcher's lock (`launcher_lock`, rulings 86, 92) for the same
+//! judgement.
+//!
 //! An incarnation a session owes (`IncarnationOwed`) is listed until its run is enqueued: the policy
 //! session to run does that, so the launcher acts on [`Pending::launches`]
 //! only.

@@ -1,8 +1,8 @@
 use ports::{Project, ProjectIdentity};
 
-use super::{run_env, Told};
+use super::{output_root, run_env, Told};
 use process_env::EnvSnapshot;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 fn project() -> Project {
     Project {
@@ -323,4 +323,20 @@ mod hooks {
             .expect("refused");
         assert_eq!(refused.code(), "hook-listener-bind-unspecified");
     }
+}
+
+// Owner rulings 89, 106: a session's outputs go under `output.dir`, relative
+// to the project root unless absolute; a trailing slash says nothing more.
+#[test]
+fn the_output_root_is_the_output_directory_against_the_project_root() {
+    let project = Path::new("/work/proj");
+    assert_eq!(
+        output_root(project, "ctxloom/"),
+        PathBuf::from("/work/proj/ctxloom")
+    );
+    assert_eq!(
+        output_root(project, "notes/sessions"),
+        PathBuf::from("/work/proj/notes/sessions")
+    );
+    assert_eq!(output_root(project, "/var/out/"), PathBuf::from("/var/out"));
 }

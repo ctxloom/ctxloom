@@ -90,15 +90,11 @@ impl Home {
         self.session_dir(harp).join("native/history.jsonl")
     }
 
-    /// `<home>/Documents/ctxloom/<project>/<harp>`: where a seeded session's
-    /// output goes (Go: `defaultOutputDirIn`).
+    /// `<project>/ctxloom/<harp>`: where a seeded session's output goes
+    /// (the project is the home here; `output.dir` is its default,
+    /// `ctxloom/`, owner rulings 89, 106).
     fn output_dir(&self, harp: &str) -> PathBuf {
-        let project = self.env.home().file_name().expect("a name");
-        self.env
-            .home()
-            .join("Documents/ctxloom")
-            .join(project)
-            .join(harp)
+        self.env.home().join("ctxloom").join(harp)
     }
 
     /// A summary an older ctxloom left in the session's output dir.

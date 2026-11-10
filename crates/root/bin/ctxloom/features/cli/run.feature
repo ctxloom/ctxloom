@@ -882,3 +882,33 @@ Feature: run — assembling a project's context and handing it to an engine
       And the output contains "does-not-exist"
       And no assistant was launched
       And the file ".ctxloom/sessions" does not exist
+
+  # Owner rulings 89 and 106: a session's outputs (its plans, its reports)
+  # belong to the project, not to a folder in her home. `output.dir` names
+  # where they go: relative to the project root unless absolute, `ctxloom/`
+  # when the config names nowhere. It is NOT gitignored: what a session leaves
+  # there can be committed. Each session's outputs are `<output.dir>/<harp>/`,
+  # and a rename moves that folder with the name.
+  Rule: A session's outputs go under the project's output directory
+
+    Scenario: A session's outputs go under ctxloom/ in her project
+      # new: owner rulings 89, 106.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice asks her assistant one thing:
+        """
+        ctxloom run --one-shot --format json hello
+        """
+      Then the command succeeds
+      And the session that answered keeps its outputs in "ctxloom" of her project
+
+    Scenario: output.dir names where a session's outputs go
+      # new: owner ruling 106.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice asks her assistant one thing, her outputs kept elsewhere:
+        """
+        ctxloom --config-set output.dir=notes/sessions run --one-shot --format json hello
+        """
+      Then the command succeeds
+      And the session that answered keeps its outputs in "notes/sessions" of her project

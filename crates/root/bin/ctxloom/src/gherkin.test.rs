@@ -128,14 +128,9 @@ impl World {
             .join(harp)
     }
 
+    /// `<project>/ctxloom/<harp>`: `output.dir`'s default (rulings 89, 106).
     fn output_dir(&self, harp: &str) -> PathBuf {
-        let project = self.common.project.dir().file_name().expect("a name");
-        self.common
-            .project
-            .home()
-            .join("Documents/ctxloom")
-            .join(project)
-            .join(harp)
+        self.common.project.dir().join("ctxloom").join(harp)
     }
 
     /// Plant the sessions the steps described, once.

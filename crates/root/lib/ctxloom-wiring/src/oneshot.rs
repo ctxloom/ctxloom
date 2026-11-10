@@ -243,6 +243,12 @@ fn tell_project<N: Names>(
     crate::registry(fs, environment, names).for_write(None)
 }
 
+/// RED stub: the root of a session's output folders.
+#[allow(dead_code)]
+pub(crate) fn output_root(project_dir: &Path, _written: &str) -> std::path::PathBuf {
+    project_dir.to_path_buf()
+}
+
 fn path_text(path: &Path) -> String {
     path.display().to_string()
 }

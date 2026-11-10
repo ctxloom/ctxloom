@@ -473,3 +473,32 @@ fn health_check(w: &mut World) {
         w.ran().contains(marker);
     }
 }
+
+/// The session a one-shot's json reply names records its outputs at
+/// `<project>/<rel>/<harp>` (owner rulings 89, 106).
+#[then(expr = "the session that answered keeps its outputs in {string} of her project")]
+fn outputs_kept_in(w: &mut World, rel: String) {
+    let reply = w.common.json();
+    let harp = reply["harp"]
+        .as_str()
+        .expect("the reply names its session")
+        .to_string();
+    let env: Vec<(&str, &str)> = w
+        .common
+        .env
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let shown = w
+        .common
+        .project
+        .run_with(&env, &["session", "show", &harp, "--format", "json"]);
+    assert_eq!(shown.code, 0, "{}", shown.said());
+    let doc = super::super::parse_one(&shown.stdout);
+    let want = w.common.project.dir().join(&rel).join(&harp);
+    assert_eq!(
+        doc["output_dir"].as_str(),
+        Some(want.display().to_string().as_str()),
+        "{doc}"
+    );
+}

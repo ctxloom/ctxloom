@@ -80,9 +80,9 @@ fn session_end() -> HookEvent {
     }
 }
 
-fn compaction(native: &str, prompt_id: &str) -> HookEvent {
+fn compaction(event: &str, prompt_id: &str) -> HookEvent {
     HookEvent {
-        event: native.to_string(),
+        event: event.to_string(),
         native_session: "n1".to_string(),
         prompt_id: prompt_id.to_string(),
         trigger: "manual".to_string(),
@@ -230,7 +230,7 @@ fn a_session_end_names_the_engine_session_and_the_reason() {
 #[test]
 fn a_compaction_is_before_or_after_by_the_event() {
     assert_eq!(
-        observe(&compaction("PreCompact", "p1")),
+        observe(&compaction("compaction_before", "p1")),
         [Observation::Compaction(sessions::RecordCompaction {
             prompt_id: "p1".to_string(),
             phase: sessions::CompactionPhase::Before,
@@ -241,7 +241,7 @@ fn a_compaction_is_before_or_after_by_the_event() {
     );
     // PostCompact carries the summary: its size and digest are recorded and
     // its text is not (ruling B). sha256("abc") is the well-known digest.
-    let mut after = compaction("PostCompact", "p1");
+    let mut after = compaction("compaction_after", "p1");
     after.compact_summary = "abc".to_string();
     let observed = observe(&after);
     assert_eq!(
@@ -258,6 +258,32 @@ fn a_compaction_is_before_or_after_by_the_event() {
     assert!(!format!("{observed:?}").contains("abc"));
 }
 
+// A compaction is matched on the unified event, as every other observation
+// is, so any engine's codec can produce one: an engine's native names (claude's
+// PreCompact, PostCompact) reach observe only through its codec, and alone hold
+// nothing.
+#[test]
+fn a_compaction_is_its_unified_event_and_a_native_name_holds_nothing() {
+    for native in ["PreCompact", "PostCompact"] {
+        assert_eq!(observe(&compaction(native, "p1")), [], "{native}");
+    }
+    let phases: Vec<_> = ["compaction_before", "compaction_after"]
+        .iter()
+        .flat_map(|event| observe(&compaction(event, "p1")))
+        .map(|o| match o {
+            Observation::Compaction(c) => c.phase,
+            other => panic!("not a compaction: {other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        phases,
+        [
+            sessions::CompactionPhase::Before,
+            sessions::CompactionPhase::After
+        ]
+    );
+}
+
 // Live probe (2026-11-09): two compactions of one turn used to share an id.
 // The trigger and the phase tell them apart, as does the prompt.
 #[test]
@@ -267,12 +293,12 @@ fn two_compactions_of_one_turn_have_two_ids() {
         ..compaction(native, prompt)
     };
     let all = [
-        with("PreCompact", "p1", "manual"),
-        with("PostCompact", "p1", "manual"),
-        with("PreCompact", "p1", "auto"),
-        with("PostCompact", "p1", "auto"),
-        with("PreCompact", "p2", "manual"),
-        with("PreCompact", "p3", ""),
+        with("compaction_before", "p1", "manual"),
+        with("compaction_after", "p1", "manual"),
+        with("compaction_before", "p1", "auto"),
+        with("compaction_after", "p1", "auto"),
+        with("compaction_before", "p2", "manual"),
+        with("compaction_before", "p3", ""),
     ];
     assert_eq!(
         ids(&all),
@@ -318,8 +344,8 @@ fn an_external_id_spells_its_kind_session_and_cause() {
         batch(&[("toolu_a", "Bash", "{}", "")]),
         turn_end(),
         session_end(),
-        compaction("PreCompact", "p1"),
-        compaction("PostCompact", "p1"),
+        compaction("compaction_before", "p1"),
+        compaction("compaction_after", "p1"),
     ];
     assert_eq!(
         ids(&all),
@@ -361,8 +387,8 @@ fn distinct_causes_never_share_an_id() {
     let mut events = vec![session_end()];
     for p in ["p1", "p2"] {
         events.push(turn_start(p, "x"));
-        events.push(compaction("PreCompact", p));
-        events.push(compaction("PostCompact", p));
+        events.push(compaction("compaction_before", p));
+        events.push(compaction("compaction_after", p));
         events.push(HookEvent {
             prompt_id: p.to_string(),
             ..turn_end()
@@ -423,7 +449,7 @@ fn the_runner_may_record_observations_and_the_model_may_not() {
         batch(&[("a", "Bash", "{}", "")]),
         turn_end(),
         session_end(),
-        compaction("PreCompact", "p1"),
+        compaction("compaction_before", "p1"),
     ];
     for observation in all.iter().flat_map(observe) {
         let url = observation.type_url();

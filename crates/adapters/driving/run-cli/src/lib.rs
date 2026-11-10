@@ -26,13 +26,17 @@ const PROG: &str = "ctxloom";
 
 /// `run` with the flags of a one-shot added.
 pub fn with_one_shot(run: Command) -> Command {
-    run.arg(
+    let run = run.arg(
         Arg::new("one-shot")
             .long("one-shot")
             .action(ArgAction::SetTrue)
             .help("Take one turn on the prompt, print the reply and exit"),
-    )
-    .arg(
+    );
+    // The library's `run` names its engine already (a dry run takes it too).
+    if run.get_arguments().any(|a| a.get_id() == "engine") {
+        return run;
+    }
+    run.arg(
         Arg::new("engine")
             .long("engine")
             .value_name("ENGINE")
@@ -106,6 +110,8 @@ fn request_of(run: &ArgMatches, prompt: String) -> OneShot {
             profile: one(run, "profile").unwrap_or_default(),
             fragments: many(run, "fragment"),
             tags: many(run, "tag"),
+            // The one-shot names its engine itself (below).
+            engine: String::new(),
             prompt,
             saved_command: one(run, "command").unwrap_or_default(),
             workspace: one(run, "workspace").unwrap_or_default(),

@@ -43,7 +43,7 @@ fn write(
 
 fn dev() -> AgentRequest {
     AgentRequest {
-        llm: Some("claude-code".to_string()),
+        engine: Some("claude-code".to_string()),
         profiles: Some(vec!["dev".to_string()]),
         ..AgentRequest::default()
     }
@@ -61,7 +61,6 @@ fn test_create_records_every_axis_the_config_sorted_and_answers_the_binding() {
             permissions: Some("plan".to_string()),
             surfaces: Some(vec![("context".to_string(), "system-prompt".to_string())]),
             roots: Some(vec![("mcp".to_string(), "project-root".to_string())]),
-            env_host: Some(false),
             env: Some(vec!["A".to_string(), "B".to_string()]),
             ..dev()
         },
@@ -73,7 +72,6 @@ fn test_create_records_every_axis_the_config_sorted_and_answers_the_binding() {
     assert_eq!(row.engine, "claude-code");
     assert_eq!(row.profiles, ["dev"]);
     assert_eq!(row.runtime, "container-rootless");
-    assert_eq!(row.env_host, Some(false));
     assert_eq!(row.env, ["A", "B"]);
     assert_eq!(
         row.permissions,
@@ -81,7 +79,7 @@ fn test_create_records_every_axis_the_config_sorted_and_answers_the_binding() {
     );
     assert_eq!(
         mem.config(Scope::Project).unwrap(),
-        "schema_version: 9\nagents:\n  dev2:\n    engine: claude-code\n    env:\n      - A\n      - B\n    env_host: false\n    permissions:\n      claude-code:\n        mode: plan\n    profiles:\n      - dev\n    roots:\n      mcp: project-root\n    runtime: container-rootless\n    surfaces:\n      context: system-prompt\n"
+        "schema_version: 9\nagents:\n  dev2:\n    engine: claude-code\n    env:\n      - A\n      - B\n    permissions:\n      claude-code:\n        mode: plan\n    profiles:\n      - dev\n    roots:\n      mcp: project-root\n    runtime: container-rootless\n    surfaces:\n      context: system-prompt\n"
     );
 }
 
@@ -104,7 +102,7 @@ fn test_a_permission_mode_is_written_into_the_engines_block_in_its_spelling() {
         .config(Scope::Project)
         .unwrap()
         .contains("        mode: acceptEdits\n"));
-    // The block is named for the backend the label maps to.
+    // The block is named for the engine the agent binds.
     let (library, mem) = Setup {
         layers: &["schema_version: 9\n"],
         ..Setup::default()
@@ -114,7 +112,7 @@ fn test_a_permission_mode_is_written_into_the_engines_block_in_its_spelling() {
         &library,
         "m",
         &AgentRequest {
-            llm: Some("big".to_string()),
+            engine: Some("mock".to_string()),
             permissions: Some("bypass".to_string()),
             ..AgentRequest::default()
         },
@@ -177,7 +175,7 @@ fn test_an_edit_changes_only_the_axes_it_names() {
     assert!(text.contains("runtime: container-rootless"));
 }
 
-// agent.feature: An edit passing an empty --env clears the names and keeps env_host
+// agent.feature: An edit passing an empty --env clears the names
 #[test]
 fn test_a_flag_named_empty_clears_its_axis_and_only_that_one() {
     let (library, _mem) = world();
@@ -185,7 +183,6 @@ fn test_a_flag_named_empty_clears_its_axis_and_only_that_one() {
         &library,
         "d",
         &AgentRequest {
-            env_host: Some(false),
             env: Some(vec!["ALPHA".to_string()]),
             runtime: Some("host".to_string()),
             ..dev()
@@ -206,7 +203,6 @@ fn test_a_flag_named_empty_clears_its_axis_and_only_that_one() {
     .result
     .unwrap();
     assert!(row.env.is_empty());
-    assert_eq!(row.env_host, Some(false));
     assert_eq!(row.runtime, "host");
     let row = write(
         &library,
@@ -275,7 +271,7 @@ fn test_every_scalar_axis_is_checked_before_anything_is_written() {
     refuses_all(vec![
         (
             AgentRequest {
-                llm: text("nosuch"),
+                engine: text("nosuch"),
                 ..r()
             },
             true,
@@ -288,14 +284,6 @@ fn test_every_scalar_axis_is_checked_before_anything_is_written() {
             },
             true,
             "UnknownRuntime",
-        ),
-        (
-            AgentRequest {
-                engine_home: text("weird"),
-                ..r()
-            },
-            true,
-            "UnknownEngineHome",
         ),
         (
             AgentRequest {
@@ -315,7 +303,7 @@ fn test_every_scalar_axis_is_checked_before_anything_is_written() {
         ),
         (
             AgentRequest {
-                llm: text(""),
+                engine: text(""),
                 ..r()
             },
             true,
@@ -332,15 +320,6 @@ fn test_env_roots_and_surfaces_are_checked_before_anything_is_written() {
         (
             AgentRequest {
                 env: Some(vec!["A=1".to_string()]),
-                env_host: Some(false),
-                ..r()
-            },
-            true,
-            "BadEnv",
-        ),
-        (
-            AgentRequest {
-                env: Some(vec!["A".to_string()]),
                 ..r()
             },
             true,
@@ -415,14 +394,14 @@ fn test_a_mode_a_surface_and_a_root_need_the_engine_they_are_checked_against() {
 }
 
 #[test]
-fn test_a_label_the_team_wrote_is_a_valid_engine_and_maps_to_its_backend() {
+fn test_an_engine_checks_the_mode_against_its_own_vocabulary() {
     let (library, _mem) = Setup {
         layers: &["schema_version: 9\n"],
         ..Setup::default()
     }
     .fixture();
     let request = |mode: &str| AgentRequest {
-        llm: Some("big".to_string()),
+        engine: Some("mock".to_string()),
         permissions: Some(mode.to_string()),
         ..AgentRequest::default()
     };
@@ -433,14 +412,25 @@ fn test_a_label_the_team_wrote_is_a_valid_engine_and_maps_to_its_backend() {
     assert!(write(&library, "a", &request("bypass"), false)
         .result
         .is_ok());
-    // The built-in registry's labels are engines too, where the project
-    // declares no labels of its own.
-    let (plain_library, _) = world();
-    let fast = AgentRequest {
-        llm: Some("claude-fast".to_string()),
-        ..AgentRequest::default()
-    };
-    assert!(write(&plain_library, "b", &fast, false).result.is_ok());
+}
+
+// agent.feature: Binding an unknown engine is refused with the engines named
+#[test]
+fn test_an_unknown_engine_is_refused_naming_the_engines_and_the_file_is_as_it_was() {
+    let (library, mem) = world();
+    let refused = err(write(
+        &library,
+        "a",
+        &AgentRequest {
+            engine: Some("gpt-9".to_string()),
+            ..dev()
+        },
+        false,
+    ));
+    assert!(refused.contains("gpt-9"), "{refused}");
+    assert!(refused.contains("claude-code"), "{refused}");
+    assert!(refused.contains("opencode"), "{refused}");
+    assert_eq!(mem.writes(), 0);
 }
 
 // agent.feature: With nothing bound, the report says so; naming an agent binds it
@@ -534,4 +524,100 @@ fn test_the_home_config_alone_is_never_written_by_an_agent_command() {
         "schema_version: 9\neditor:\n  command: 'true'\n"
     );
     assert!(mem.config(Scope::Project).unwrap().contains("agents:"));
+}
+
+// agent.feature: Creating an agent records engine, model, effort and permissions
+#[test]
+fn test_model_and_effort_are_the_agent_s_and_an_empty_one_clears() {
+    let (library, mem) = world();
+    let row = write(
+        &library,
+        "reviewer",
+        &AgentRequest {
+            model: text("haiku"),
+            effort: text("low"),
+            ..dev()
+        },
+        false,
+    )
+    .result
+    .unwrap();
+    assert_eq!((row.model.as_str(), row.effort.as_str()), ("haiku", "low"));
+    let written = mem.config(Scope::Project).unwrap();
+    assert!(written.contains("    model: haiku\n"), "{written}");
+    assert!(written.contains("    effort: low\n"), "{written}");
+    // agent.feature: An edit passing an empty --model returns the agent to the engine's default
+    write(
+        &library,
+        "reviewer",
+        &AgentRequest {
+            model: text(""),
+            ..AgentRequest::default()
+        },
+        true,
+    )
+    .result
+    .unwrap();
+    let written = mem.config(Scope::Project).unwrap();
+    assert!(!written.contains("model:"), "{written}");
+    assert!(written.contains("effort: low"), "{written}");
+}
+
+// agent.feature: An agent that weakens the engine's runtime says so when it is written
+#[test]
+fn test_a_runtime_that_replaces_the_engine_s_is_said_when_written() {
+    let (library, _mem) = world_with(
+        "schema_version: 9\nengines:\n  claude-code:\n    runtime: container-rootless\n",
+    );
+    let said = |runtime: &str, name: &str| {
+        let out = write(
+            &library,
+            name,
+            &AgentRequest {
+                runtime: text(runtime),
+                ..dev()
+            },
+            false,
+        );
+        out.result.unwrap();
+        out.notices
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    // (the words are the catalog's; the acceptance scenario reads them)
+    let weaker = said("host", "loose");
+    assert!(
+        weaker.contains("notice-runtime-weakens")
+            && weaker.contains("key=engines.claude-code.runtime")
+            && weaker.contains("replaced=container-rootless"),
+        "{weaker}"
+    );
+    let swapped = said("container-rootful", "swapped");
+    assert!(
+        swapped.contains("notice-runtime-ownership-swap"),
+        "{swapped}"
+    );
+    assert_eq!(said("container-rootless", "same"), "");
+}
+
+// owner ruling (env_host removed): --env names alone are enough
+#[test]
+fn test_env_names_need_no_other_setting() {
+    let (library, mem) = world();
+    write(
+        &library,
+        "narrow",
+        &AgentRequest {
+            env: Some(vec!["ALPHA_TOKEN".to_string()]),
+            ..dev()
+        },
+        false,
+    )
+    .result
+    .unwrap();
+    let written = mem.config(Scope::Project).unwrap();
+    assert!(written.contains("ALPHA_TOKEN"), "{written}");
+    assert!(!written.contains("env_host"), "{written}");
 }

@@ -24,6 +24,8 @@ pub struct RunRequest {
     pub profile: String,
     pub fragments: Vec<String>,
     pub tags: Vec<String>,
+    /// `--engine`: the engine to drive instead of the agent's.
+    pub engine: String,
     pub prompt: String,
     /// `--command <name>`: the saved command whose body is the prompt.
     pub saved_command: String,
@@ -207,13 +209,21 @@ impl Project {
                 value: request.workspace.clone(),
             });
         }
+        if !request.engine.is_empty()
+            && !crate::engine_noun::listed().contains(&request.engine.as_str())
+        {
+            return Err(AppError::UnknownEngine {
+                engine: request.engine.clone(),
+                known: crate::engine_noun::listed().join(", "),
+            });
+        }
         let prompt = self.prompt_of(request)?;
         let selection = self.selection(request)?;
         let mut findings = Vec::new();
         let package = self.compose(&selection, &mut findings)?;
         // An agent's engine, model and effort are its own; a launch with no
         // agent takes the default engine and passes no model or effort.
-        let (engine, model, effort, runtime, drive) = match selection.agent.as_ref() {
+        let (mut engine, model, effort, runtime, drive) = match selection.agent.as_ref() {
             Some(agent) => {
                 let effective = self.effective_of(agent)?;
                 // The isolation rule: an agent's runtime stands exactly, and a
@@ -240,6 +250,9 @@ impl Project {
                     .map_err(engine_error)?,
             ),
         };
+        if !request.engine.is_empty() {
+            engine = request.engine.clone();
+        }
         let degraded = self.flags.degraded;
         for finding in &findings {
             self.notices.push(Notice::finding(finding));

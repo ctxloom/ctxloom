@@ -531,3 +531,29 @@ fn test_a_drive_of_an_engine_with_no_block_is_the_built_ins() {
     );
     assert!(drive.env.is_empty());
 }
+
+// engine show: what an engine's agents share, with the layer that said each
+// (an agent that says nothing itself, so no `agent` source anywhere)
+#[test]
+fn test_an_engine_s_settings_are_the_block_then_the_project_then_the_defaults() {
+    let config = cfg(
+        "runtime: container-rootful\nengines:\n  claude-code:\n    command: /opt/claude\n    env_host: false\n    env: [HTTPS_PROXY]\n  opencode:\n    runtime: host\nagents:\n  dev:\n    engine: claude-code\n    runtime: host\n    model: haiku\n",
+    );
+    let got = engine_settings(&config, "claude-code").unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(got.command, text("/opt/claude", Source::Engine));
+    assert_eq!(got.session_home, text("session", Source::Default));
+    assert_eq!(got.runtime, text("container-rootful", Source::Project));
+    assert_eq!(got.env, sourced(names(&["HTTPS_PROXY"]), Source::Engine));
+    assert_eq!(got.model, None, "an agent's model is not the engine's");
+    let other = engine_settings(&config, "opencode").unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(other.runtime, text("host", Source::Engine));
+    assert_eq!(other.command, text("opencode", Source::Default));
+}
+
+#[test]
+fn test_an_engine_nobody_drives_has_no_settings() {
+    assert!(matches!(
+        engine_settings(&cfg("schema_version: 9\n"), "gpt-9"),
+        Err(EngineError::UnknownEngine { .. })
+    ));
+}

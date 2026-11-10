@@ -555,14 +555,14 @@ pub(crate) fn profile(
 
 fn agent_request(sub: &ArgMatches) -> Result<AgentRequest, Failure> {
     Ok(AgentRequest {
-        llm: given(sub, "llm"),
+        engine: given(sub, "engine"),
+        model: given(sub, "model"),
+        effort: given(sub, "effort"),
         profiles: given_list(sub, "profiles"),
         runtime: given(sub, "runtime"),
         surfaces: given_pairs(sub, "surface")?,
         roots: given_pairs(sub, "root")?,
         permissions: given(sub, "permissions"),
-        engine_home: given(sub, "engine-home"),
-        env_host: sub.try_get_one::<bool>("env-host").ok().flatten().copied(),
         env: given_list(sub, "env"),
     })
 }
@@ -584,6 +584,12 @@ pub(crate) fn agent(
                 if !row.engine.is_empty() {
                     parts.push(format!("engine: {}", row.engine));
                 }
+                if !row.model.is_empty() {
+                    parts.push(format!("model: {}", row.model));
+                }
+                if !row.effort.is_empty() {
+                    parts.push(format!("effort: {}", row.effort));
+                }
                 if !row.profiles.is_empty() {
                     parts.push(format!("profiles: {}", row.profiles.join(", ")));
                 }
@@ -592,9 +598,6 @@ pub(crate) fn agent(
                 }
                 if !row.permissions_line.is_empty() {
                     parts.push(format!("permissions: {}", row.permissions_line));
-                }
-                if let Some(host) = row.env_host {
-                    parts.push(format!("env_host: {host}"));
                 }
                 if !row.env.is_empty() {
                     parts.push(format!("env: {}", row.env.join(", ")));

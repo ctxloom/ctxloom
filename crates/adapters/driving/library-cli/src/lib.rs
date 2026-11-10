@@ -138,6 +138,7 @@ fn dispatch(
         "agent" => written(write::agent(cx, verb(sub, "list"), out, err), || {
             agent(cx, verb(sub, "list"), out, err)
         }),
+        "engine" => engine(cx, verb(sub, "list"), out, err),
         "llm" => written(write::llm(cx, verb(sub, "list"), out, err), || {
             llm(cx, out, err)
         }),
@@ -406,6 +407,24 @@ fn agent(
     })
 }
 
+fn engine(
+    cx: &Context<'_>,
+    (verb, sub): (&str, &ArgMatches),
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Result<u8, Failure> {
+    if verb == "show" {
+        let outcome = cx.library.engine_show(&cx.flags, &text_arg(sub, "engine"));
+        return answer(cx, outcome, out, err, |row, out, _| {
+            emit(cx.format, out, &row, |out| text::engine_show(out, &row))
+        });
+    }
+    let outcome = cx.library.engine_list(&cx.flags);
+    answer(cx, outcome, out, err, |rows, out, _| {
+        emit(cx.format, out, &rows, |out| text::engine_list(out, &rows))
+    })
+}
+
 fn llm(cx: &Context<'_>, out: &mut dyn Write, err: &mut dyn Write) -> Result<u8, Failure> {
     let outcome = cx.library.llm_list(&cx.flags);
     answer(cx, outcome, out, err, |rows, out, _| {
@@ -503,6 +522,7 @@ fn run_command(
         profile: text_arg(sub, "profile"),
         fragments: many(sub, "fragment"),
         tags: many(sub, "tag"),
+        engine: text_arg(sub, "engine"),
         prompt,
         saved_command: text_arg(sub, "command"),
         workspace: text_arg(sub, "workspace"),

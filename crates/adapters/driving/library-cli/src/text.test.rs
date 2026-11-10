@@ -191,7 +191,6 @@ fn agent_row(llm: &str) -> AgentRow {
         runtime: "host".to_string(),
         permissions: serde_json::json!({}),
         driving: String::new(),
-        env_host: None,
         env: Vec::new(),
         permissions_line: String::new(),
     }
@@ -250,12 +249,9 @@ fn test_agent_show_says_a_resolution_failed_and_carries_on() {
             name: "dev".to_string(),
             profiles: Vec::new(),
             engine: "mock".to_string(),
-            model: "o1".to_string(),
-            effort: String::new(),
+            settings: settings(Some("o1")),
             context: String::new(),
             fragments: vec!["a".to_string()],
-            runtime: String::new(),
-            permissions: serde_json::json!({}),
             effective_permissions: String::new(),
             approver: "human".to_string(),
             driving: String::new(),
@@ -663,12 +659,9 @@ fn test_an_agent_show_without_an_approver_prints_no_posture() {
             name: st("dev"),
             profiles: Vec::new(),
             engine: st("claude-code"),
-            model: String::new(),
-            effort: String::new(),
+            settings: settings(None),
             context: String::new(),
             fragments: sv(&["a", "b"]),
-            runtime: String::new(),
-            permissions: serde_json::Value::Null,
             effective_permissions: String::new(),
             approver: String::new(),
             driving: String::new(),
@@ -925,4 +918,35 @@ fn test_the_remote_table_aligns_wide_characters_by_display_width() {
         shown.contains("bundle   \u{2502} origin \u{2502} \u{65e5}\u{672c} \u{2502} \n"),
         "{shown}"
     );
+}
+
+/// An agent's settings as `agent show` resolves them: the model as given,
+/// the rest on their defaults.
+fn settings(model: Option<&str>) -> library_application::AgentSettings {
+    use library_application::{AgentSettings, RuntimeSetting, SourcedValue};
+    AgentSettings {
+        model: SourcedValue {
+            value: model.map(ToString::to_string),
+            source: if model.is_some() { "agent" } else { "default" },
+        },
+        effort: SourcedValue {
+            value: None,
+            source: "default",
+        },
+        permissions: SourcedValue {
+            value: String::new(),
+            source: "default",
+        },
+        runtime: RuntimeSetting {
+            value: "host".to_string(),
+            source: "default",
+            overrides: None,
+            overrides_source: None,
+            change: None,
+        },
+        env: SourcedValue {
+            value: Vec::new(),
+            source: "default",
+        },
+    }
 }

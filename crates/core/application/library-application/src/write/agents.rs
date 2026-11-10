@@ -9,7 +9,7 @@ use ctxloom_ports::Scope;
 
 use crate::agents::RUNTIMES;
 use crate::config::Agent;
-use crate::error::AppError;
+use crate::error::{AppError, Notice};
 use crate::project::{Library, Outcome, Project};
 use crate::views::AgentRow;
 use crate::write::engines;
@@ -17,6 +17,7 @@ use crate::write::requests::AgentRequest;
 use crate::write::views::{AgentRemoved, DefaultAgent, Preview, Removal};
 use crate::write::WriteError;
 use crate::Flags;
+use library::config::engines::{self as config_engines, Override, Source};
 
 impl Library {
     /// `agent create <name> ...` (`must_exist` false) and `agent edit <name>
@@ -87,7 +88,7 @@ impl Project {
         request: &AgentRequest,
         held: &Value,
     ) -> Option<String> {
-        let label = match &request.llm {
+        let label = match &request.engine {
             Some(label) => label.clone(),
             None => {
                 let own = held
@@ -107,7 +108,7 @@ impl Project {
         if label.is_empty() {
             return None;
         }
-        self.engine_of(&label)
+        engines::known(&label).then_some(label)
     }
 
     /// The axes of a request, judged before anything is written; the mode in
@@ -118,13 +119,12 @@ impl Project {
         request: &AgentRequest,
         held: &Value,
     ) -> Result<Option<String>, AppError> {
-        if let Some(llm) = request.llm.as_deref().filter(|l| !l.is_empty()) {
-            let valid = self.available_llms();
-            if !valid.iter().any(|v| v == llm) {
+        if let Some(engine) = request.engine.as_deref().filter(|l| !l.is_empty()) {
+            if !engines::known(engine) {
                 return Err(WriteError::UnknownEngine {
                     name: name.to_string(),
-                    engine: llm.to_string(),
-                    valid: valid.join(", "),
+                    engine: engine.to_string(),
+                    valid: crate::engine_noun::listed().join(", "),
                 }
                 .into());
             }
@@ -134,15 +134,6 @@ impl Project {
                 return Err(WriteError::UnknownRuntime {
                     name: name.to_string(),
                     value: runtime.to_string(),
-                }
-                .into());
-            }
-        }
-        if let Some(home) = request.engine_home.as_deref().filter(|h| !h.is_empty()) {
-            if !["host", "session"].contains(&home) {
-                return Err(WriteError::UnknownEngineHome {
-                    name: name.to_string(),
-                    value: home.to_string(),
                 }
                 .into());
             }
@@ -251,7 +242,7 @@ impl Project {
     }
 
     fn agent_write(
-        &self,
+        &mut self,
         name: &str,
         request: &AgentRequest,
         must_exist: bool,
@@ -271,6 +262,7 @@ impl Project {
             .into());
         }
         let mut written = None;
+        let mut said = None;
         let layer_held = |agents: &Option<Value>| {
             agents
                 .as_ref()
@@ -285,6 +277,9 @@ impl Project {
             let mode = self.check_agent(name, request, &held)?;
             let entry = self.agent_entry(name, request, held, mode)?;
             written = Some(Agent::of(name, &entry).row());
+            if request.runtime.as_deref().is_some_and(|r| !r.is_empty()) {
+                said = self.runtime_notice(name, &entry);
+            }
             let mut agents = match current {
                 Some(map @ Value::Map(_)) => map,
                 _ => Value::Map(Vec::new()),
@@ -292,7 +287,32 @@ impl Project {
             *agents.entry(name) = entry;
             Ok(Some(agents))
         })?;
+        self.notices.extend(said);
         written.ok_or_else(|| WriteError::NotWired {}.into())
+    }
+
+    /// What the runtime an entry names replaces, said where it is written: an
+    /// override is exact and never silent.
+    fn runtime_notice(&self, name: &str, entry: &Value) -> Option<Notice> {
+        let mut config = self.config.value.clone();
+        let agents = config.entry("agents");
+        if !matches!(agents, Value::Map(_)) {
+            *agents = Value::Map(Vec::new());
+        }
+        *agents.entry(name) = entry.clone();
+        let effective = config_engines::effective(&config, name).ok()?;
+        let Override::Replaced { replaced, change } = effective.runtime_override else {
+            return None;
+        };
+        Some(Notice::RuntimeOverride {
+            runtime: effective.runtime.value,
+            replaced_key: match replaced.source {
+                Source::Engine => format!("engines.{}.runtime", effective.engine.value),
+                _ => "runtime".to_string(),
+            },
+            replaced: replaced.value,
+            change,
+        })
     }
 
     /// The entry a request leaves: the flags named change their keys.
@@ -306,8 +326,14 @@ impl Project {
         if !matches!(entry, Value::Map(_)) {
             entry = Value::Map(Vec::new());
         }
-        if let Some(llm) = &request.llm {
-            put(&mut entry, "engine", some_text(llm));
+        if let Some(engine) = &request.engine {
+            put(&mut entry, "engine", some_text(engine));
+        }
+        if let Some(model) = &request.model {
+            put(&mut entry, "model", some_text(model));
+        }
+        if let Some(effort) = &request.effort {
+            put(&mut entry, "effort", some_text(effort));
         }
         if let Some(profiles) = &request.profiles {
             let list = Value::Seq(
@@ -331,13 +357,6 @@ impl Project {
         }
         if let Some(roots) = &request.roots {
             put(&mut entry, "roots", pairs_map(roots));
-        }
-        if let Some(on) = request.env_host {
-            put(
-                &mut entry,
-                "env_host",
-                Some(text(if on { "true" } else { "false" })),
-            );
         }
         if let Some(env) = &request.env {
             let names: Vec<Value> = env
@@ -363,7 +382,7 @@ impl Project {
     /// agent binds.
     fn set_mode(&self, name: &str, request: &AgentRequest, entry: &mut Value, mode: &str) {
         let label = request
-            .llm
+            .engine
             .clone()
             .or_else(|| {
                 entry
@@ -373,7 +392,7 @@ impl Project {
             })
             .or_else(|| self.config.agent(name).map(|a| a.engine))
             .unwrap_or_default();
-        let Some(backend) = self.engine_of(&label) else {
+        let Some(backend) = engines::known(&label).then_some(label) else {
             return;
         };
         let mut permissions = entry

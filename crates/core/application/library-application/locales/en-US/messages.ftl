@@ -78,6 +78,9 @@ library-application-loadout-probe-failed-fix = make the companion's `loadout --f
 library-application-loadout-unparseable = companion "{ $name }": unparseable loadout, withholding: { $cause }
 library-application-loadout-unparseable-fix = fix the loadout the companion prints for `loadout --format yaml`, or unregister it: ctxloom companion remove { $name }
 library-application-notice-config-keyless = config file { $path } defines no keys
+library-application-notice-runtime-weakens = runtime { $runtime } replaces { $key } { $replaced }: weakens isolation
+library-application-notice-runtime-strengthens = runtime { $runtime } replaces { $key } { $replaced }: strengthens isolation
+library-application-notice-runtime-ownership-swap = runtime { $runtime } replaces { $key } { $replaced }: ownership differs, not interchangeable
 library-application-notice-root-ignored = CTXLOOM_ROOT={ $root } is not a directory; ignoring it
 
 ## Writes (S2). A refused write has written nothing.
@@ -110,15 +113,14 @@ library-application-write-agent-not-defined = agent "{ $name }" is not defined
 library-application-write-agent-not-in-config = agent "{ $name }" not found in config.yaml
 library-application-write-unknown-engine = agent "{ $name }": unknown engine "{ $engine }"; valid engines: { $valid }
 library-application-write-unknown-runtime = agent "{ $name }": unknown runtime axis "{ $value }" (known: host|container-rootless|container-rootful)
-library-application-write-unknown-engine-home = agent "{ $name }": unknown engine_home "{ $value }" (known: host|session)
 library-application-write-permissions = { $subject }: { $detail }
-library-application-write-permissions-need-engine = agent "{ $name }": permissions: the mode is checked against, and written into the block of, the engine this agent binds, and this write binds none; set --llm in the same command, so the mode can be checked against the engine it binds
-library-application-write-agent-without-engine = agent "{ $name }": an agent needs an llm or at least one profile to bind an engine; neither was given
+library-application-write-permissions-need-engine = agent "{ $name }": permissions: the mode is checked against, and written into the block of, the engine this agent binds, and this write binds none; set --engine in the same command, so the mode can be checked against the engine it binds
+library-application-write-agent-without-engine = agent "{ $name }": an agent needs an engine or at least one profile to bind an engine; neither was given
 library-application-write-bad-env = agent "{ $name }": { $detail }
 library-application-write-surface-refused = agent "{ $name }": { $detail }
-library-application-write-surface-needs-engine = agent "{ $name }": a surface preference needs a known engine — set --llm in the same command, since which approaches exist is the engine's answer, not ctxloom's
+library-application-write-surface-needs-engine = agent "{ $name }": a surface preference needs a known engine — set --engine in the same command, since which approaches exist is the engine's answer, not ctxloom's
 library-application-write-root-refused = agent "{ $name }": { $detail }
-library-application-write-root-needs-engine = agent "{ $name }": a root selection needs a known engine — set --llm in the same command, since which roots an approach offers is the engine's answer, not ctxloom's
+library-application-write-root-needs-engine = agent "{ $name }": a root selection needs a known engine — set --engine in the same command, since which roots an approach offers is the engine's answer, not ctxloom's
 library-application-write-unknown-llm-type = llm "{ $label }": unknown type "{ $kind }"; known: { $known }
 library-application-write-llm-exists = llm "{ $label }" already exists — change it with `ctxloom llm edit { $label }`
 library-application-write-llm-missing = no llm named "{ $label }" — create it with `ctxloom llm create { $label }`

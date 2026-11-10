@@ -106,6 +106,7 @@ pub fn nouns() -> Vec<Command> {
         skill(),
         profile(),
         agent(),
+        engine(),
         llm(),
         mcp(),
         companion(),
@@ -443,7 +444,18 @@ fn agent_write(name: &'static str, about: &'static str) -> Command {
     Command::new(name)
         .about(about)
         .arg(one("name", "The agent"))
-        .arg(named("llm", "llm.configs label to bind (empty = project default)"))
+        .arg(named(
+            "engine",
+            "Engine to bind: claude-code, opencode (empty = the default)",
+        ))
+        .arg(named(
+            "model",
+            "Model to pass the engine (empty = the engine's own default)",
+        ))
+        .arg(named(
+            "effort",
+            "Effort level to pass the engine (empty = the engine's own default)",
+        ))
         .arg(
             Arg::new("profiles")
                 .long("profiles")
@@ -457,26 +469,34 @@ fn agent_write(name: &'static str, about: &'static str) -> Command {
             "runtime",
             "Runtime axis: host|container-rootless|container-rootful (empty = project default)",
         ))
-        .arg(each("surface", "Delivery preference: kind=approach (repeatable)"))
+        .arg(each(
+            "surface",
+            "Delivery preference: kind=approach (repeatable)",
+        ))
         .arg(each("root", "Root selection: kind=root (repeatable)"))
         .arg(named(
             "permissions",
             "Permission mode, in the vocabulary of the engine this agent binds (empty clears it)",
         ))
-        .arg(named("engine-home", "Engine-home axis: session|host (empty = session)"))
-        .arg(
-            Arg::new("env-host")
-                .long("env-host")
-                .num_args(0..=1)
-                .require_equals(true)
-                .default_missing_value("true")
-                .value_parser(clap::builder::BoolishValueParser::new())
-                .help("Whether the engine inherits the host environment whole (false = a curated base plus the --env names)"),
-        )
         .arg(each(
             "env",
-            "Bare variable name passed through when --env-host=false (repeatable; '' clears the list)",
+            "Bare variable name passed through to the engine (repeatable; '' clears the list)",
         ))
+}
+
+/// `engine list|show <engine>`: read-only; the block is written with
+/// `config edit`.
+fn engine() -> Command {
+    noun(
+        "engine",
+        "Show the engines ctxloom drives and their effective settings",
+    )
+    .subcommand(list("List the engines with the settings their agents use"))
+    .subcommand(
+        Command::new("show")
+            .about("Show one engine's settings and what each of its agents resolves to")
+            .arg(one("engine", "The engine")),
+    )
 }
 
 fn llm() -> Command {
@@ -673,11 +693,10 @@ fn run() -> Command {
         .about("Assemble context and run AI (this build takes one turn with --one-shot, or previews with --dry-run)")
         .arg(Arg::new("prompt_words").value_name("PROMPT").num_args(0..))
         .arg(
-            Arg::new("llm")
-                .short('l')
-                .long("llm")
-                .value_name("LABEL")
-                .help("Config label to use (e.g. claude-code, claude-fast); overrides the configured default"),
+            Arg::new("engine")
+                .long("engine")
+                .value_name("ENGINE")
+                .help("Drive this engine instead of the agent's"),
         )
         .arg(
             Arg::new("prompt")

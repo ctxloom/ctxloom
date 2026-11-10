@@ -6,9 +6,10 @@ use std::io::{self, Write};
 
 use angzarr_presentation::text;
 use library_application::{
-    AgentRow, AgentShow, BundleList, BundleRow, BundleShow, BundleView, CompanionRow, DryRun,
-    ItemList, ItemShow, LlmRow, McpList, McpShow, Premises, ProfileList, ProfileShow, RemoteFound,
-    SearchResults, SkillList, SkillShow,
+    AgentRow, AgentSettings, AgentShow, BundleList, BundleRow, BundleShow, BundleView,
+    CompanionRow, DryRun, EngineRow, ItemList, ItemShow, LlmRow, McpList, McpShow, Premises,
+    ProfileList, ProfileShow, RemoteFound, RuntimeSetting, SearchResults, SkillList, SkillShow,
+    SourcedValue,
 };
 
 use crate::inert::{body, field};
@@ -485,23 +486,25 @@ pub fn agent_show(out: &mut dyn Write, show: &AgentShow) -> io::Result<()> {
     } else {
         writeln!(out, "Engine (declared): {}", def.engine)?;
     }
-    if !def.model.is_empty() {
-        writeln!(out, "Model: {}", def.model)?;
-    }
-    if !def.effort.is_empty() {
-        writeln!(out, "Effort: {}", def.effort)?;
-    }
-    if !def.runtime.is_empty() {
-        writeln!(out, "Runtime: {}", def.runtime)?;
-    }
-    if !def.permissions_line.is_empty() {
-        writeln!(out, "Permissions: {}", def.permissions_line)?;
+    match show.resolved.as_ref() {
+        Some(resolved) => settings_lines(out, &resolved.settings, "")?,
+        None => {
+            if !def.model.is_empty() {
+                writeln!(out, "Model: {}", def.model)?;
+            }
+            if !def.effort.is_empty() {
+                writeln!(out, "Effort: {}", def.effort)?;
+            }
+            if !def.runtime.is_empty() {
+                writeln!(out, "Runtime: {}", def.runtime)?;
+            }
+            if !def.permissions_line.is_empty() {
+                writeln!(out, "Permissions: {}", def.permissions_line)?;
+            }
+        }
     }
     if !def.driving.is_empty() {
         writeln!(out, "Driving: {}", def.driving)?;
-    }
-    if let Some(env_host) = def.env_host {
-        writeln!(out, "Env host: {env_host}")?;
     }
     plain_bullets(out, "Env", &def.env)?;
     plain_bullets(out, "Profiles", &def.profiles)?;
@@ -513,8 +516,8 @@ pub fn agent_show(out: &mut dyn Write, show: &AgentShow) -> io::Result<()> {
         )?,
         Some(resolved) => {
             write!(out, "Resolved engine: {}", resolved.engine)?;
-            if !resolved.model.is_empty() {
-                write!(out, " (model: {})", resolved.model)?;
+            if let Some(model) = &resolved.settings.model.value {
+                write!(out, " (model: {model})")?;
             }
             writeln!(out)?;
             if !resolved.effective_permissions.is_empty() {
@@ -555,6 +558,125 @@ pub fn agent_show(out: &mut dyn Write, show: &AgentShow) -> io::Result<()> {
             .map(|s| format!("{} {}", s.kind, s.reference))
             .collect();
         writeln!(out, "  - {} ({})", requirement.command, sources.join(", "))?;
+    }
+    Ok(())
+}
+
+/// The lines of an agent's settings, each with the layer that said it. A
+/// runtime that replaces another layer's says what it replaced and how the
+/// two differ; a model or effort nobody set says no flag is passed.
+fn settings_lines(out: &mut dyn Write, s: &AgentSettings, indent: &str) -> io::Result<()> {
+    let capital = indent.is_empty();
+    let key = |word: &str| {
+        if capital {
+            let mut chars = word.chars();
+            chars
+                .next()
+                .map(|c| c.to_uppercase().chain(chars).collect::<String>())
+                .unwrap_or_default()
+        } else {
+            word.to_string()
+        }
+    };
+    for (word, setting) in [("model", &s.model), ("effort", &s.effort)] {
+        match &setting.value {
+            Some(value) => writeln!(out, "{indent}{}: {value} ({})", key(word), setting.source)?,
+            None => writeln!(
+                out,
+                "{indent}{}: engine default, no flag passed ({})",
+                key(word),
+                setting.source
+            )?,
+        }
+    }
+    writeln!(
+        out,
+        "{indent}{}: {} ({})",
+        key("permissions"),
+        s.permissions.value,
+        s.permissions.source
+    )?;
+    writeln!(
+        out,
+        "{indent}{}: {}",
+        key("runtime"),
+        runtime_text(&s.runtime)
+    )?;
+    if !capital {
+        writeln!(out, "{indent}{}", names_line("env", &s.env))?;
+    }
+    Ok(())
+}
+
+/// `host (default)`, or `host (agent; replaces engine container-rootless:
+/// weakens isolation)`.
+fn runtime_text(runtime: &RuntimeSetting) -> String {
+    let (Some(replaced), Some(change)) = (&runtime.overrides, runtime.change) else {
+        return format!("{} ({})", runtime.value, runtime.source);
+    };
+    let how = match change {
+        "weakens" => "weakens isolation",
+        "strengthens" => "strengthens isolation",
+        _ => "ownership differs, not interchangeable",
+    };
+    format!(
+        "{} ({}; replaces {} {replaced}: {how})",
+        runtime.value,
+        runtime.source,
+        runtime.overrides_source.unwrap_or("lower layer")
+    )
+}
+
+fn sourced_line<T: std::fmt::Display>(key: &str, value: &SourcedValue<T>) -> String {
+    format!("{key}: {} ({})", value.value, value.source)
+}
+
+fn names_line(key: &str, value: &SourcedValue<Vec<String>>) -> String {
+    let names = if value.value.is_empty() {
+        "none".to_string()
+    } else {
+        value.value.join(", ")
+    };
+    format!("{key}: {names} ({})", value.source)
+}
+
+/// One engine's own settings.
+fn engine_lines(out: &mut dyn Write, row: &EngineRow) -> io::Result<()> {
+    writeln!(out, "{}", row.name)?;
+    writeln!(out, "  {}", sourced_line("command", &row.command))?;
+    writeln!(out, "  {}", sourced_line("session_home", &row.session_home))?;
+    writeln!(out, "  {}", sourced_line("runtime", &row.runtime))?;
+    writeln!(out, "  {}", names_line("env", &row.env))?;
+    let via = row
+        .auth
+        .via
+        .as_ref()
+        .map_or_else(String::new, |via| format!(" via {via}"));
+    writeln!(out, "  auth: {}{via} ({})", row.auth.state, row.auth.source)
+}
+
+/// `engine list`.
+pub fn engine_list(out: &mut dyn Write, rows: &[EngineRow]) -> io::Result<()> {
+    for row in rows {
+        engine_lines(out, row)?;
+        if !row.agents.is_empty() {
+            let names: Vec<&str> = row.agents.iter().map(|a| a.name.as_str()).collect();
+            writeln!(out, "  agents: {}", names.join(", "))?;
+        }
+    }
+    Ok(())
+}
+
+/// `engine show`.
+pub fn engine_show(out: &mut dyn Write, row: &EngineRow) -> io::Result<()> {
+    engine_lines(out, row)?;
+    if row.agents.is_empty() {
+        return writeln!(out, "  agents: none");
+    }
+    writeln!(out, "  agents:")?;
+    for agent in &row.agents {
+        writeln!(out, "    {}", agent.name)?;
+        settings_lines(out, &agent.settings, "      ")?;
     }
     Ok(())
 }

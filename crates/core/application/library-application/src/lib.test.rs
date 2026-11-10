@@ -615,7 +615,10 @@ fn test_agent_show_reports_the_declaration_the_resolution_and_a_failure_to_resol
     let good = ok(library.agent_show(&plain(), "good", &say));
     let resolved = good.resolved.unwrap();
     assert_eq!(resolved.engine, "claude-code");
-    assert_eq!(resolved.model, "", "no model named is no flag");
+    assert_eq!(
+        resolved.settings.model.value, None,
+        "no model named is no flag"
+    );
     assert_eq!(resolved.command, "claude");
     assert_eq!(resolved.effective_permissions, "acceptEdits");
     assert_eq!(resolved.approver, "human");

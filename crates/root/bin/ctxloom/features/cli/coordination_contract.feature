@@ -120,8 +120,8 @@ Feature: The coordination tools advertise a closed message-kind vocabulary
       Then the tool call succeeds
 
     # agent_stop is idempotent on a real run: a second stop succeeds and says
-    # the run already ended (a stop landing on an ended run still cancels any
-    # armed relaunch). A run id that was never spawned is refused, never
+    # the run already ended (Go: a stop landing on an ended run still cancels
+    # any armed relaunch; ctxloom has no relaunch yet, owner ruling 103). A run id that was never spawned is refused, never
     # silently accepted.
     Scenario: Stopping a child is idempotent, and stopping a run that never existed is refused
       # substitution: the journey's Background is the scenario's first Givens

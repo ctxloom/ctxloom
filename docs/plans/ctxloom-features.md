@@ -32,8 +32,9 @@ feature file; it belongs in git history.
   `engine_isolation_matrix`) are pending. One description word in each Go file was lowercased
   so they parse.
 - **Sessions rewritten** to the rulings below: `cli/session_remove.feature` (was
-  `session_purge.feature`; owner ruling 98),
-  `cli/session_worktrees.feature` and `journeys/j001300_closeout.feature` (all @pending).
+  `session_purge.feature`; owner ruling 98; rewritten to the built verb and running since
+  ruling 104), `cli/session_worktrees.feature` and `journeys/j001300_closeout.feature`
+  (both @pending).
   Eleven scenarios fail against today's binary until the product follows (step 4).
 
 ## Decided
@@ -118,10 +119,12 @@ feature file; it belongs in git history.
 - **Sessions:** `session remove <harp>` or `session remove --older-than <age>` is the one
   destroyer (owner ruling 98, 2026-11-10: the verb is `remove`, built only under the
   `session-destroy` feature; `session purge` is dropped).
-  - The session is gone, from disk and the listing, all or nothing. A session holding anything
-    the human wrote is refused whole, naming each thing.
+  - The session is gone, from disk and the listing. A session holding anything the human wrote
+    is destroyed with it after a warning naming each thing (owner ruling 104: a notice, not a
+    refusal).
   - The output dir is never touched.
-  - Retention and keep refuse with no override; unprovable liveness refuses unless `--force`.
+  - Retention and keep refuse with no override; unprovable liveness refuses unless
+    `--even-if-live` (ruling 104: the one override; `--force` is dropped).
   - `session purge`, `transcript purge` and `worktrees purge` are retired (`sweep` is
     still built, behind the same feature).
     `session worktrees` stays as a listing.

@@ -217,6 +217,35 @@ impl Diagnostic for RemovedNothing {
     }
 }
 
+/// A removal that destroys files a person wrote (owner ruling 104): a
+/// notice, never a refusal, naming each, said whether the removal was
+/// applied or only reported.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct DestroysAuthored {
+    pub harp: String,
+    /// The files, relative to the session's directory, comma-separated.
+    pub files: String,
+}
+
+impl fmt::Display for DestroysAuthored {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        angzarr_diagnostic::display(self, f)
+    }
+}
+
+impl Diagnostic for DestroysAuthored {
+    fn code(&self) -> &str {
+        code!("destroys-authored")
+    }
+
+    fn args(&self) -> Vec<(&str, Arg)> {
+        vec![
+            ("harp", self.harp.as_str().into()),
+            ("files", self.files.as_str().into()),
+        ]
+    }
+}
+
 /// This crate's en-US messages, its name first.
 pub const EN_US: (&str, &str) = (
     env!("CARGO_PKG_NAME"),
@@ -258,6 +287,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         }),
         Box::new(RemovedNothing {
             command: "ctxloom session remove amber-swift-owl --yes".to_string(),
+        }),
+        Box::new(DestroysAuthored {
+            harp: harp(),
+            files: "design-notes.md, plan.md".to_string(),
         }),
     ]);
     samples

@@ -17,3 +17,4 @@ sessions-application-go-sidecar-instant = Go's session record has { $value } for
 sessions-application-go-sidecar-unreadable = Go's session record cannot be read: { $error }
 sessions-application-left-no-project = left: its project directory { $project_dir } is the work root of no project here, so there is no store to import it into
 sessions-application-left-name-taken = left: a session of the project already holds the name { $harp }
+sessions-application-destroys-authored = session { $harp } holds files a person wrote, and removing it destroys them with it: { $files }

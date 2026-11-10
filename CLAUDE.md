@@ -170,7 +170,12 @@ followed) and its lock; the name's claim is kept. The streams go first, so a
 failure removing the directory leaves a session nothing lists. A hook fact
 redelivered after it finds no session and records nothing. It is refused, as
 before, for a session whose lock does not prove it ended (held, or none)
-unless `--even-if-live`, for a kept one, and within the transcript retention.
+unless `--even-if-live` (the one override), for a kept one, and within the
+transcript retention. A removal whose session holds files a person wrote
+(anything but `transcripts/` and `native/`) warns first, naming each, as the
+notice `sessions-application-destroys-authored`, never a refusal: on
+`--yes`, in the report and with `--even-if-live` alike (owner ruling 104);
+`features/cli/session_remove.feature` runs the built verb.
 There is no forget-but-keep (`ForgetSession`, `SessionForgotten` and the
 `sessions-forgotten` refusal are gone) and no transcript destroyer of its own
 (`session transcript purge` is gone): the conversation is the session's
@@ -351,7 +356,8 @@ session's incarnation ended (`orphaned`). Every
 run's end, or abandon after its mint, tells its session
 `RecordIncarnationEnded` (`runner-exit`, `launch-failed`; keyed
 `incarnation-ended:<session>:<n>`), so no incarnation stays open; nothing
-owes a later incarnation. The session has NO inbox (owner ruling 101): its
+owes a later incarnation: there is NO relaunch (owner ruling 103: it gets a
+planning pass of its own, user-daemon.plan.md / `smashing-embargo`). The session has NO inbox (owner ruling 101): its
 mail states (`RecordMessageArrived`, `ClaimMessage`, `DeliverMessage`,
 `FailMessage` and their events), `WithdrawSteer`/`SteerWithdrawn`, the
 `sessions-unknown-message` and `sessions-already-delivered` refusals, the

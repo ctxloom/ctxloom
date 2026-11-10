@@ -663,7 +663,7 @@ fn a_removal_report_is_the_plan_and_says_nothing_was_removed() {
     assert_eq!(files["destroy"][0]["class"], "machine");
     assert_eq!(files["destroy"][1]["class"], "authored");
     assert_eq!(files["bytes_freed"], 0);
-    let notices = ran.result.unwrap().notices;
+    let notices = without_authored(ran.result.unwrap());
     assert_eq!(notices.len(), 1);
     assert_eq!(notices[0].code(), "sessions-application-removed-nothing");
     let command = notices[0]
@@ -720,8 +720,17 @@ fn an_applied_removal_says_destroyed_and_adds_no_notice() {
     assert!(ran.out.ends_with(
         "session amber-swift-owl: destroyed, 7 event(s) of it and its runs; its name stays taken\n"
     ));
-    assert!(ran.result.unwrap().notices.is_empty());
+    assert!(without_authored(ran.result.unwrap()).is_empty());
     assert!(fake.remove[0].yes);
+}
+
+/// A command's notices but the authored-files warning (owner ruling 104),
+/// which the removal tests below hold on their own.
+fn without_authored(done: crate::Done) -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
+    done.notices
+        .into_iter()
+        .filter(|n| n.code() != "sessions-application-destroys-authored")
+        .collect()
 }
 
 /// The warning a removal's notices hold, if any: the authored files it names.
@@ -804,7 +813,7 @@ fn even_if_live_reaches_the_use_case_and_the_applying_command_repeats_it() {
         &["remove", "amber-swift-owl", "--even-if-live"],
     );
     assert!(fake.remove[0].even_if_live);
-    let notices = ran.result.unwrap().notices;
+    let notices = without_authored(ran.result.unwrap());
     let command = format!("{:?}", notices[0].args());
     assert!(command.contains("--yes --even-if-live"), "{command}");
 }
@@ -1563,7 +1572,7 @@ fn remove_with_yes_reaps_the_sessions_scratch_worktrees_and_reports_them() {
         ran.out
     );
     // The removal itself succeeded; a spared checkout is not a failure of it.
-    assert!(ran.result.unwrap().notices.is_empty());
+    assert!(without_authored(ran.result.unwrap()).is_empty());
 }
 
 #[test]
@@ -1641,7 +1650,7 @@ fn remove_without_yes_only_previews_the_worktrees() {
         vec![(Some("amber-swift-owl".to_string()), false)]
     );
     assert!(ran.out.contains("reapable"), "{}", ran.out);
-    assert_eq!(ran.result.unwrap().notices.len(), 1);
+    assert_eq!(without_authored(ran.result.unwrap()).len(), 1);
 }
 
 #[test]

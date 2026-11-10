@@ -38,7 +38,7 @@ pub use angzarr_embedded::{dead_letter_line, DeadLetter};
 
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
-pub use error::{AppError, Refusal, RemovedNothing, CATALOGS, EN_US};
+pub use error::{AppError, DestroysAuthored, Refusal, RemovedNothing, CATALOGS, EN_US};
 pub use go_sidecar::{
     decode as decode_go_sidecar, GoEndReason, GoEntry, GoRotation, GoRunEnd, GoSidecarError,
 };

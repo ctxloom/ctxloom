@@ -593,6 +593,39 @@ fn a_removal_plan_names_the_machine_written_and_the_authored_files() {
     );
 }
 
+// Owner ruling 104: `Removal::authored` is what the warning names: exactly
+// the files a person wrote, in the plan's order, never the engine's native
+// history or a transcript an older ctxloom left; none when there are none.
+#[test]
+fn a_removal_names_exactly_its_authored_files() {
+    let mut svc = service();
+    finished(&mut svc, 1, "amber-swift-owl");
+    svc.files.others.insert(
+        "amber-swift-owl".to_string(),
+        vec![
+            ("design-notes.md".to_string(), 4),
+            ("native/history.jsonl".to_string(), 3),
+            ("plans/next.md".to_string(), 5),
+        ],
+    );
+    let removal = ready(svc.remove(remove("amber-swift-owl", false))).unwrap();
+    assert_eq!(removal.authored(), ["design-notes.md", "plans/next.md"]);
+
+    let mut machine_only = service();
+    finished(&mut machine_only, 1, "brisk-copper-moth");
+    machine_only.files.others.insert(
+        "brisk-copper-moth".to_string(),
+        vec![("native/history.jsonl".to_string(), 3)],
+    );
+    let removal = ready(machine_only.remove(remove("brisk-copper-moth", false))).unwrap();
+    assert_eq!(
+        removal.files.destroy.len(),
+        2,
+        "native history and transcript"
+    );
+    assert!(removal.authored().is_empty(), "{:?}", removal.authored());
+}
+
 /// The head of the stream `domain`/`root` in `project`'s store.
 fn head(svc: &mut Svc, domain: &str, root: uuid::Uuid) -> u64 {
     use angzarr_embedded::EventStore;

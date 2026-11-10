@@ -213,9 +213,13 @@ fn a_helper_a_runtime_started_is_killed_with_it() {
     let pid = fs.read_to_string(&bin.join("helper")).unwrap();
     let stat = Path::new("/proc").join(pid.trim()).join("stat");
     let host = file_system::Os::new(os::host(), Path::new(os::host().flavor().top())).unwrap();
-    // Gone, or a zombie nobody has reaped yet (an orphan waits for init).
+    // Gone, or a zombie nobody has reaped yet (an orphan waits for init), or
+    // `X` (EXIT_DEAD): dead, caught at the instant it is being reaped.
     let state = host.read_to_string(&stat).unwrap_or_default();
-    assert!(state.is_empty() || state.contains(") Z "), "{state}");
+    assert!(
+        state.is_empty() || state.contains(") Z ") || state.contains(") X "),
+        "{state}"
+    );
 }
 
 // A helper that outlives an answering runtime does not hold the caller.

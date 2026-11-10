@@ -1253,6 +1253,27 @@ fn test_a_launch_with_no_agent_takes_the_default_engine_s_block() {
     assert_eq!(by_hand.env, vec!["E1".to_string()]);
 }
 
+// `run --engine X` drives X: the plan's drive is X's own block, never the
+// agent's engine's command, home or credential (the one-shot path trusts it)
+#[test]
+fn test_an_engine_override_carries_the_overriding_engine_s_drive_not_the_agent_s() {
+    let other = drive_of(crate::RunRequest {
+        agent: "dev".to_string(),
+        engine: "opencode".to_string(),
+        ..crate::RunRequest::default()
+    });
+    assert_eq!(other.command, "opencode");
+    assert_eq!(other.session_home, "session");
+    assert!(other.env.is_empty(), "{:?}", other.env);
+    // naming the agent's own engine changes nothing
+    let same = drive_of(crate::RunRequest {
+        agent: "dev".to_string(),
+        engine: "claude-code".to_string(),
+        ..crate::RunRequest::default()
+    });
+    assert_eq!(same.command, "/h/bin/claude");
+}
+
 // the isolation rule: an agent's runtime is used exactly, and a launch that
 // weakens the one the lower layers gave says so
 fn notices_of(layers: &str, agent: &str) -> Vec<String> {

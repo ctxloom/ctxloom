@@ -82,6 +82,7 @@ fn test_a_model_is_passed_and_an_effort_is_not() {
         turn(&chosen).args,
         ["run", "--format", "json", "-m", "opencode/big-pickle"]
     );
+    chosen.prompt = String::new();
     assert_eq!(terminal(&chosen).args, ["-m", "opencode/big-pickle"]);
 }
 

@@ -461,6 +461,8 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         """
       Then the command succeeds
       And the file ".claude/settings.json" does not contain "execute statusline"
+      # Owner ruling 59: the choice is a word in the config, never a boolean.
+      And the file ".ctxloom/config.yaml" contains "statusline: none"
       When Alice turns it back on and re-applies:
         """
         ctxloom manage statusline install
@@ -468,6 +470,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         """
       Then the command succeeds
       And the file ".claude/settings.json" contains "execute statusline"
+      And the file ".ctxloom/config.yaml" contains "statusline: ctxloom"
 
   Rule: A file the user wrote by hand is never damaged
 

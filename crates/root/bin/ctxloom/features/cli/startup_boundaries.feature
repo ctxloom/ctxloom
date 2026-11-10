@@ -57,9 +57,11 @@ Feature: What a start writes, and whose pins it reads
       And no run delivered the file "MOCK_CONTEXT.md" into a session home
       # The gate guards more than the delivery: the remote sync sits behind it
       # too, and unlike the reapers it announces itself, so its suppression is
-      # observable for free. The run prints this line unconditionally once
-      # ShouldAutoSync() is true, and that is the DEFAULT — it returns true
-      # for a nil or unset sync config, which is what this fixture has.
+      # observable for free. Go printed this line unconditionally once
+      # ShouldAutoSync() was true, the DEFAULT. Here the key is
+      # `sync.on_run: none|missing` (owner rulings 59, 60), `missing` by
+      # default, and the run says only what it installed or failed to: the
+      # control below must assert that, not Go's line, when this is ported.
       # Asserted as a pair with the control below, for the usual reason: on
       # its own, "the line is absent" is also what a run that never started
       # looks like.

@@ -150,8 +150,9 @@ Feature: session — the record of what your assistant did, and the tools to pru
     the assignment that renames the harp. The backend transcript is
     unaffected: the session keeps its bound session id and its transcript,
     and only the name it answers to moves. Its output folder
-    moves with it, to the new name beside the old, and the record names
-    where it went; a rename whose folder cannot move is refused whole.
+    (`<project>/<output.dir>/<harp>`, `ctxloom/` by default, owner rulings
+    89, 106) moves with it, to the new name beside the old, and the record
+    names where it went; a rename whose folder cannot move is refused whole.
 
     @json-default
     Scenario: --name renames the harp and moves its output folder

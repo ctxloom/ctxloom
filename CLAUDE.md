@@ -885,6 +885,36 @@ warns of each engine in use on a file alone (ruling 64, `Auth::file_only`) in
 the words of the refusal itself (`runs-file-only-credential` and its fix,
 through auth-application's `FileOnly`), exit 0 as ever.
 
+## Config holds words, never booleans (rulings 59, 60, 106, 108)
+
+No key a person writes is a boolean (`schema.rs` has no `Bool` node; a
+free-form engine permission document may still read `true`). Hard migrate,
+prerelease, no `schema_version` bump: each old key is an ordinary unknown key
+(refused, exit 2), with no alias, reader, migration or warning.
+
+| old | new | default |
+|---|---|---|
+| `config.use_distilled: true\|false` | `config.content_form: distilled\|original` | `distilled` |
+| `config.statusline: true\|false` | `config.statusline: ctxloom\|none` | `ctxloom` |
+| `config.silence_unsupported` | deleted | |
+| `sync.auto_sync` | `sync.on_run: none\|missing` | `missing` |
+| `permissions.network: true\|false` (and an agent's) | `permissions.network: none\|open` | `none` |
+| `output_dir` (top level, unread) | `output.dir` | `ctxloom/` |
+
+The scaffold writes no `config:` section; `manage statusline install|
+uninstall` writes `ctxloom`/`none`. Output JSON may keep booleans for yes/no
+facts. `sync.on_run: missing` makes the run (one-shot, session, init's
+interview) pull before it is planned, the same pull `manage install` ends
+with; a failed pull is a notice and the run goes on (a dry run does not
+pull). A session's outputs are `<project root>/<output.dir>/<harp>`
+(`output.dir` relative to the project root unless absolute), no longer
+`~/Documents/ctxloom/<basename>/<harp>`; nothing gitignores them, and a
+rename moves the folder. A first init at a terminal asks for `output.dir`
+before the interview (suggesting `ctxloom/`, saying outputs are committable)
+and writes the answer. NOT BUILT (ruling 59): the launch's refusal of a
+posture it cannot enforce (`sandbox`, `network`); today nothing enforces
+either and nothing refuses them.
+
 ## Use `just`
 
 `just --list` shows the public recipes by group. The checks are `just build`,

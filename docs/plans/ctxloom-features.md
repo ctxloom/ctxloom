@@ -142,6 +142,19 @@ feature file; it belongs in git history.
 - **Deferred:** `session approvals answer` (with the coordinator), search across every kind,
   and recall searching conversation bodies.
 
+### Config
+
+- **Words, never booleans** (owner rulings 59, 60, 106, 108; hard migrate, no alias):
+  `config.content_form: distilled|original` (was `use_distilled`), `config.statusline:
+  ctxloom|none`, `sync.on_run: none|missing` (was `auto_sync`; default `missing`: a run
+  installs what its profiles reference and is not installed), `permissions.network:
+  none|open`; `config.silence_unsupported` is deleted.
+- **Outputs** (rulings 89, 106): `output.dir` (default `ctxloom/`, relative to the project
+  root, absolute allowed, not gitignored) holds each session's `<harp>/` folder; a first
+  init at a terminal asks for it.
+- **Not built:** the refusal of a `sandbox`/`network` posture the launch cannot enforce
+  (ruling 59).
+
 ### Specs
 - **Journeys are use cases; cli features are contracts.** A journey (`features/journeys/`)
   follows what a real user actually does, in the order they do it: Alice starts with

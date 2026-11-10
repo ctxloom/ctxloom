@@ -31,9 +31,10 @@ Feature: init — the setup interview, and what it does to a project that alread
   init's already-exists branch: no questions, no scaffold, no clone, no
   dependency pull. That branch is not a lesser case — it is what every re-run
   of `init` does, and it is where the flags that were once silently ignored
-  live. The setup session itself is launched over a real pty, against a mock
-  engine, in j000200_setup.feature — on an existing project, so without the
-  questions.
+  live. The setup session itself is launched with a terminal stood in, against
+  a stub engine, in j000200_setup.feature — on a new project, where init's one
+  built question (where a session's outputs go, owner rulings 89, 106) is
+  answered before the interview.
 
   The interactive interview needs a terminal too. Off one, init resolves the
   engine and returns without launching anything, which is precisely what makes
@@ -218,6 +219,12 @@ Feature: init — the setup interview, and what it does to a project that alread
     in another, which headless posture the default agent takes and how to
     change it. The project it leaves has a default agent whose headless runs
     accept file edits without asking.
+
+    Init asks where a session's outputs go (`output.dir`), suggesting
+    `ctxloom/` in the project and saying it is not gitignored, so what a
+    session leaves there can be committed; a bare Enter takes the suggestion.
+    This one question is BUILT (owner rulings 89, 106; j000200 scenario 2 and
+    setup-cli's tests hold it); the rest of this Rule is not.
 
     Init also offers to add companions, by name. It seeds the offer with the
     companions ctxloom ships whose programs are on her machine, each one she

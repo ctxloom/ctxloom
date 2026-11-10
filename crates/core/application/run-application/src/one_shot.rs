@@ -15,19 +15,23 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use angzarr_diagnostic::Diagnostic;
+
 use angzarr_embedded::v1::{Cover, Uuid};
 use angzarr_embedded::{Catalog, CommandBookExt, Processed, ReadStore, Store};
 use library_application::{AppError as PlanError, Flags, Notice, Outcome, Previewed, RunRequest};
 use ports::{CommandIds, Names, Project, ProjectIdentity};
 use run_launcher::{Launched, Launcher, Order, Orders, Outcome as Turn, Recorder};
 use run_ports::{CertMint, Edge, HookServer, LoginLinks, RunnerLauncher, SessionRecords};
-use runs_application::{AppError as CoreError, EnqueueError, EnqueueRequest, Enqueuer};
+use runs_application::{
+    AppError as CoreError, EnqueueError, EnqueueRequest, Enqueued, Enqueuer, Evidence,
+};
 use sessions::{
     claim_root, ClaimName, MintSession, NameClaimCommand, Origin, SessionCommand, NAMES_DOMAIN,
     SESSION_DOMAIN,
 };
 
-use crate::credential::{refuse_child, refuse_file_only, share_login};
+use crate::credential::{credential_evidence, share_login};
 use crate::error::RunError;
 
 /// How many names are tried for a session before a taken one is the error.
@@ -292,13 +296,7 @@ where
 
     /// `run --one-shot`: one turn on the prompt, and its answer.
     pub async fn one_shot(&mut self, flags: &Flags, request: &OneShot) -> Done<Answer> {
-        if let Some(unknown) = self.undriven(request) {
-            return Done {
-                result: Err(unknown),
-                notices: Vec::new(),
-            };
-        }
-        let planned = self.planner.plan(flags, &request.run);
+        let planned = self.plan(flags, request);
         let mut notices = planned.notices;
         let result = match planned.result {
             Err(error) => Err(RunError::Plan(Box::new(error))),
@@ -314,13 +312,7 @@ where
     /// and the run ends when she leaves it; a prompt is optional, and opens the
     /// conversation when given.
     pub async fn interactive(&mut self, flags: &Flags, request: &OneShot) -> Done<Ended> {
-        if let Some(unknown) = self.undriven(request) {
-            return Done {
-                result: Err(unknown),
-                notices: Vec::new(),
-            };
-        }
-        let planned = self.planner.plan(flags, &request.run);
+        let planned = self.plan(flags, request);
         let mut notices = planned.notices;
         let result = match planned.result {
             Err(error) => Err(RunError::Plan(Box::new(error))),
@@ -330,6 +322,21 @@ where
             result,
             notices: std::mem::take(&mut notices),
         }
+    }
+
+    /// The plan of the run asked for. An engine this build does not drive is
+    /// planned anyway (ruling 73d), on the agent's own engine, so the plan's
+    /// findings and the prompt are still judged beside it: the run's enqueue
+    /// refuses the engine itself.
+    fn plan(&self, flags: &Flags, request: &OneShot) -> Outcome<Previewed> {
+        if request.engine.is_empty() || self.launcher.drives(&request.engine) {
+            return self.planner.plan(flags, &request.run);
+        }
+        let run = RunRequest {
+            engine: String::new(),
+            ..request.run.clone()
+        };
+        self.planner.plan(flags, &run)
     }
 
     /// The run's hook listener: bound before the run is minted (the port it
@@ -368,11 +375,15 @@ where
         }
     }
 
-    /// Everything a run does before its engine is launched, with its listener
-    /// serving: the plan checked, the session minted, the run enqueued and its
-    /// order placed, the primary handed her login, and the session's directory
-    /// naming it (its hooks, processes of their own, find the session by that
-    /// file). The listener is stopped if any of it fails.
+    /// Everything a run does before its engine is launched (owner rulings
+    /// 73f, 73g, in this order): the run enqueued, its pre-launch checks
+    /// judged by the run itself; the project told, a name claimed and the
+    /// session minted; the certificate minted and the listener served; the
+    /// order placed, the primary handed her login, and the session's
+    /// directory naming it (its hooks, processes of their own, find the
+    /// session by that file). A refused run has made nothing; a failure after
+    /// the enqueue ends the run it enqueued, and the listener is stopped if it
+    /// was served.
     async fn ready(
         &mut self,
         previewed: Previewed,
@@ -380,21 +391,31 @@ where
         interactive: bool,
         notices: &mut Vec<Notice>,
     ) -> Result<(Box<dyn run_ports::Serving>, Started), RunError> {
-        // A run the plan refuses, or a child that cannot authenticate, is
-        // refused before anything of it exists: no listener, no certificate,
-        // no session (ruling 53).
-        if let Some(refused) = self.refused(&previewed, request, interactive) {
-            return Err(refused);
-        }
-        let settings = settings_of(&previewed.plan, &chosen_engine(&previewed.plan, request));
-        let Listening { serving, told } = self.serve().await?;
-        let started = match self.start(previewed, request, interactive, &told).await {
-            Ok(started) => started,
-            Err(error) => {
-                serving.stop().await;
-                return Err(error);
-            }
+        let engine = chosen_engine(&previewed.plan, request);
+        let settings = settings_of(&previewed.plan, &engine);
+        let id = uuid::Uuid::from_slice(&self.ids.command_id().value).unwrap_or_default();
+        let session = id.hyphenated().to_string();
+        let enqueued = self
+            .enqueue(&previewed, &session, &engine, &settings, interactive)
+            .await?;
+        let made = self.make(&session, &engine, interactive).await;
+        let harp = match made {
+            Ok(harp) => harp,
+            Err(error) => return Err(self.abandon(&enqueued.run, None, error).await),
         };
+        let Listening { serving, told } = match self.serve().await {
+            Ok(listening) => listening,
+            Err(error) => return Err(self.abandon(&enqueued.run, Some(&session), error).await),
+        };
+        let started = self.start(
+            previewed,
+            request,
+            interactive,
+            &told,
+            session,
+            harp,
+            &enqueued,
+        );
         // The primary is handed her login before her engine starts.
         if interactive {
             if let Some(credentials) = self.launcher.credentials(&started.engine) {
@@ -409,7 +430,8 @@ where
         }
         if let Err(error) = self.catch_up().await {
             serving.stop().await;
-            return Err(error);
+            let run = started.run.clone();
+            return Err(self.abandon(&run, Some(&started.session), error).await);
         }
         Ok((serving, started))
     }
@@ -463,40 +485,118 @@ where
         }
     }
 
-    /// The session minted, the order placed and the run enqueued (the plan
-    /// was checked before the listener was served).
-    async fn start(
+    /// The run enqueued, its pre-launch checks judged by the run (rulings
+    /// 73e, 73f) on what the ports say: the plan's prompt and fatal findings,
+    /// the engines the launcher drives, and a child's credential by the names
+    /// of its variables. A refusal the plan's fatal findings alone make is the
+    /// plan's own error, as it always was.
+    async fn enqueue(
         &mut self,
-        previewed: Previewed,
-        request: &OneShot,
+        previewed: &Previewed,
+        session: &str,
+        engine: &str,
+        settings: &run_ports::EngineSettings,
         interactive: bool,
-        told: &Told,
-    ) -> Result<Started, RunError> {
-        let plan = previewed.plan;
-        let engine = chosen_engine(&plan, request);
-        let settings = settings_of(&plan, &engine);
-        let project = self.identity.for_write(None).map_err(RunError::Project)?;
-        let (session, harp) = self.mint(&project, &engine, interactive).await?;
-        self.recorder.watch(&session);
+    ) -> Result<Enqueued, RunError> {
         let mode = if interactive {
             runs::RunMode::Interactive
         } else {
             runs::RunMode::OneShot
         };
-        let enqueued = self
-            .enqueuer
-            .enqueue(EnqueueRequest {
-                session: session.clone(),
-                incarnation: 1,
-                mode,
-                // RED (ruling 73e): the checks are still the application's.
-                evidence: runs_application::Evidence::passing(&engine),
-            })
+        let evidence = Evidence {
+            prompt_given: !previewed.plan.prompt.trim().is_empty(),
+            engine: engine.to_string(),
+            drivable_engines: self.launcher.engines(),
+            credential: self.credential(engine, settings, interactive),
+            fatal_findings: u32::try_from(previewed.fatal.len()).unwrap_or(u32::MAX),
+        };
+        let request = EnqueueRequest {
+            session: session.to_string(),
+            incarnation: 1,
+            mode,
+            evidence,
+        };
+        self.enqueuer
+            .enqueue(request)
             .await
             .map_err(|error| match error {
+                EnqueueError::Refused(runs::RunRejection::LaunchRefused { refusals, .. })
+                    if refusals.is_empty() =>
+                {
+                    RunError::Plan(Box::new(PlanError::aborted(&previewed.fatal)))
+                }
                 EnqueueError::Refused(rejection) => RunError::Refused(rejection),
                 EnqueueError::Failed(error) => RunError::Session(error),
-            })?;
+            })
+    }
+
+    /// What a child's run authenticates with (ruling 53): none for the
+    /// primary, and none for an engine nobody drives (its policy is its
+    /// launcher's, ruling 73d).
+    fn credential(
+        &self,
+        engine: &str,
+        settings: &run_ports::EngineSettings,
+        interactive: bool,
+    ) -> Option<runs_application::CredentialEvidence> {
+        if interactive {
+            return None;
+        }
+        let base = self.launcher.credentials(engine)?;
+        let policy = settings.credentials(base);
+        Some(credential_evidence(
+            engine,
+            &settings.auth,
+            &base,
+            &policy,
+            &self.env,
+        ))
+    }
+
+    /// The project told, a name claimed and the session minted on it, for
+    /// the run already enqueued; the session's directory is watched from
+    /// then on. The session's harp.
+    async fn make(
+        &mut self,
+        session: &str,
+        engine: &str,
+        interactive: bool,
+    ) -> Result<String, RunError> {
+        let project = self.identity.for_write(None).map_err(RunError::Project)?;
+        let harp = self.mint(&project, session, engine, interactive).await?;
+        self.recorder.watch(session);
+        Ok(harp)
+    }
+
+    /// End the enqueued `run` that `error` stopped before its engine was
+    /// launched (owner ruling 73g): a `LaunchFailed`, so no run is left owed a
+    /// runner; a session already minted has its directory written, its run's
+    /// end in it. The error is the run's, whatever recording its end met.
+    async fn abandon(&mut self, run: &Uuid, session: Option<&str>, error: RunError) -> RunError {
+        let facts = runs_application::Facts::new(self.core.edge());
+        let _ = facts.launch_failed(run, false, error.code()).await;
+        if session.is_some() {
+            let _ = self.catch_up().await;
+        }
+        error
+    }
+
+    /// The order placed for the run enqueued and its session minted, with
+    /// what the engine is told of the listener.
+    #[allow(clippy::too_many_arguments)]
+    fn start(
+        &mut self,
+        previewed: Previewed,
+        request: &OneShot,
+        interactive: bool,
+        told: &Told,
+        session: String,
+        harp: String,
+        enqueued: &Enqueued,
+    ) -> Started {
+        let plan = previewed.plan;
+        let engine = chosen_engine(&plan, request);
+        let settings = settings_of(&plan, &engine);
         // The order is placed once the run's tokens exist: the hook bearer
         // reaches the engine's environment through it (the terminal session's
         // and a one-shot child's alike, ruling 51), and the caller's own
@@ -549,68 +649,12 @@ where
                 owned,
             },
         );
-        Ok(Started {
+        Started {
             session,
             harp,
             engine,
-            run: enqueued.run,
-        })
-    }
-
-    /// The refusal of an engine asked for (`--engine`) that the launcher
-    /// does not drive: said before the plan is asked for it.
-    fn undriven(&self, request: &OneShot) -> Option<RunError> {
-        (!request.engine.is_empty() && !self.launcher.drives(&request.engine)).then(|| {
-            RunError::UnknownEngine {
-                name: request.engine.clone(),
-                known: self.launcher.engines().join(", "),
-            }
-        })
-    }
-
-    /// Why the run is refused before anything of it is made, if it is: a
-    /// fatal finding of the plan, a one-shot with no prompt, an engine the
-    /// launcher does not drive, a child that cannot authenticate.
-    fn refused(
-        &self,
-        previewed: &Previewed,
-        request: &OneShot,
-        interactive: bool,
-    ) -> Option<RunError> {
-        if !previewed.fatal.is_empty() {
-            return Some(RunError::Plan(Box::new(PlanError::aborted(
-                &previewed.fatal,
-            ))));
+            run: enqueued.run.clone(),
         }
-        if !interactive && previewed.plan.prompt.trim().is_empty() {
-            return Some(RunError::NoPrompt);
-        }
-        let engine = chosen_engine(&previewed.plan, request);
-        if !self.launcher.drives(&engine) {
-            return Some(RunError::UnknownEngine {
-                name: engine,
-                known: self.launcher.engines().join(", "),
-            });
-        }
-        if interactive {
-            return None;
-        }
-        let settings = settings_of(&previewed.plan, &engine);
-        self.refuse_unauthenticated(&engine, &settings)
-            .map(RunError::Refused)
-    }
-
-    /// A child agent is given an environment credential and nothing else:
-    /// one whose engine's source is a file alone, or with none of its
-    /// variables set, is refused.
-    fn refuse_unauthenticated(
-        &self,
-        engine: &str,
-        settings: &run_ports::EngineSettings,
-    ) -> Option<runs::RunRejection> {
-        let base = self.launcher.credentials(engine).unwrap_or_default();
-        refuse_file_only(engine, &settings.auth, &base)
-            .or_else(|| refuse_child(engine, &settings.credentials(base), &self.env))
     }
 
     /// The recorder caught up with everything the core holds so far.
@@ -669,12 +713,12 @@ where
     async fn mint(
         &mut self,
         project: &Project,
+        session: &str,
         engine: &str,
         interactive: bool,
-    ) -> Result<(String, String), RunError> {
+    ) -> Result<String, RunError> {
         let edge = self.core.edge();
-        let id = uuid::Uuid::from_slice(&self.ids.command_id().value).unwrap_or_default();
-        let session = id.hyphenated().to_string();
+        let session = session.to_string();
         let mut taken = None;
         for _ in 0..NAME_TRIES {
             let harp = self.names.project_id();
@@ -695,7 +739,7 @@ where
                 Ok(_) => {
                     self.mint_on(&edge, project, engine, &session, &harp, interactive)
                         .await?;
-                    return Ok((session, harp));
+                    return Ok(harp);
                 }
                 Err(failure) => match CoreError::from_failure(failure) {
                     CoreError::Refused { code, .. } if code == NAMES_TAKEN => {

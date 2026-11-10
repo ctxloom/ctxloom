@@ -15,7 +15,7 @@ publish = false
 # angzarr-ports and angzarr-diagnostic (and one of every angzarr crate). The
 # pins agree: angzarr-embedded ba73fab (angzarr-router bc729ed), angzarr core
 # 35b29de, angzarr-build 9e9eff0 and angzarr-platform dfae672 are one line of
-# revs, taskloom's crates (efc2829) and ctxloom-lib's (5f173d3) are built on the
+# revs, taskloom's crates (efc2829) and ctxloom-lib's (3b68706) are built on the
 # same ones, and moving any of them moves the others with it.
 #
 # angzarr-proto, angzarr-ports and angzarr-store-sqlite are reached through
@@ -148,22 +148,22 @@ container-cli = { path = "crates/adapters/driving/container-cli" }
 # ctxloom-lib, the shared substrate (S2): the driving edge's call, failure, notices
 # and argument shims. Pinned by full commit over https, as taskloom pins it;
 # its angzarr pins are the ones above.
-cli-support = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "5f173d32e3a896446afac848bf4e03f513ee0e6a" }
+cli-support = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "3b68706206b7b4afe1e75cb4c955e4db61f6bb6d" }
 # process-env (S3): the environment read once into a snapshot the composition root hands down.
-process-env = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "5f173d32e3a896446afac848bf4e03f513ee0e6a" }
+process-env = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "3b68706206b7b4afe1e75cb4c955e4db61f6bb6d" }
 # project-dir (S4): the ancestor walk with injected rules, and the checked project id.
-project-dir = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "5f173d32e3a896446afac848bf4e03f513ee0e6a" }
+project-dir = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "3b68706206b7b4afe1e75cb4c955e4db61f6bb6d" }
 # run-within (S6): a program run under a deadline, its tree killed, its output bounded.
-run-within = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "5f173d32e3a896446afac848bf4e03f513ee0e6a" }
+run-within = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "3b68706206b7b4afe1e75cb4c955e4db61f6bb6d" }
 # duration-text (S9): a span or date as an age, and the cutoff it makes.
-duration-text = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "5f173d32e3a896446afac848bf4e03f513ee0e6a" }
+duration-text = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "3b68706206b7b4afe1e75cb4c955e4db61f6bb6d" }
 # sqlite-store-opener (S5): places and opens a project's SQLite store under a file name the caller
 # names, refusing a store from before the embedded store; ctxloom-store-sqlite is its adapter.
-sqlite-store-opener = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "5f173d32e3a896446afac848bf4e03f513ee0e6a" }
+sqlite-store-opener = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "3b68706206b7b4afe1e75cb4c955e4db61f6bb6d" }
 
 # fixture-program: a test's fake program, linked to a committed shim that sh runs the
 # script through, so no file a test wrote is exec'd (ETXTBSY). A dev-dependency only.
-fixture-program = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "5f173d32e3a896446afac848bf4e03f513ee0e6a" }
+fixture-program = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "3b68706206b7b4afe1e75cb4c955e4db61f6bb6d" }
 
 # HTTP for forge-github (owner, 2026-11-04): the blocking client, so the
 # synchronous CLI holds no runtime of its own, and the TLS stack chosen below.

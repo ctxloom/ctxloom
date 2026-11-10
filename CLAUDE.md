@@ -216,7 +216,8 @@ listener, `https://<host>:<port>` (TLS only: `http://` is the typed
 `run-ports-endpoint-plaintext` and is never dialed, and port 0, a request to
 bind and never a place to dial, is `run-ports-endpoint-port-zero`, for the
 builder and the parser both); the port is the system's (the listener
-binds port 0 before the run is minted and the bound port is told);
+binds port 0 once the run is enqueued and its session minted, and the bound
+port is told);
 `CTXLOOM_BEARER`, the composite `<run-id>.<64 hex>` (the gate splits it to look
 the run up, no upstream metadata needed); `CTXLOOM_RUN`, the run id;
 `CTXLOOM_TLS_CERT`, the run's listener certificate, PUBLIC (base64 of the DER on
@@ -275,9 +276,10 @@ arrival declared from the bind (the bind table, `run_ports::bind_for`: the host
 runtime binds 127.0.0.1 and is told 127.0.0.1; the container rows of ruling 33
 are the tested table and its typed refusals, not yet wired to a container
 launch), behind `runs-application`'s `HookGate`) is started, with the run's freshly
-minted certificate, before the run is
-minted (the port and the certificate are part of what the engine is told) and stopped if the run
-does not start; otherwise it is stopped, with a bounded grace, after the
+minted certificate, after the run is enqueued and its session minted and before
+its order is placed (the port and the certificate are part of what the engine is
+told; the hook credential's digest is journaled at the enqueue, so the gate
+already finds the run) and stopped if the run does not start; otherwise it is stopped, with a bounded grace, after the
 engine exits and before the run's end is last recorded
 (`ctxloom-wiring`'s `Hooks`; `run-application`'s `serve`, `ready` and `drive`,
 one path for both kinds of run). The session's directory names the session
@@ -286,6 +288,35 @@ agent's `model` and `effort` reach the engine as the order's `model` and
 `effort` (`--model`, `--effort` for claude, a turn and the terminal alike;
 unset is no flag; claude takes `low|medium|high|xhigh|max`, any other level is
 refused before launch).
+
+A run's pre-launch checks are DECIDED by the runs aggregate, in `EnqueueRun`'s
+`decide` (owner rulings 73, 73a-73i), on evidence fields the run application
+gathers from its ports and puts in the command: `prompt_given` (the plan's),
+`engine` and `drivable_engines` (the launcher's), `credential`
+(`CredentialEvidence`: a file-only source, the built-in and the accepted
+variables by NAME, whether one is set; never a value) and `fatal_findings`
+(the plan's count; their text never enters the proto). `RunEnqueued` carries
+none of it. The checks, in order: a one-shot's prompt (`runs-no-prompt`), the
+engine (`runs-unknown-engine`, both INVALID_ARGUMENT), then a child's
+credential (`runs-file-only-credential`, `runs-no-credential`), which an engine
+nobody drives is not judged on (73d: such an engine is planned anyway, on the
+agent's own engine, so the findings and the prompt still report). Every check
+is run: one failure is its own refusal, unchanged; two or more, or one beside
+the plan's fatal findings, are ONE `runs-launch-refused` (`LaunchRefused`,
+FAILED_PRECONDITION) holding each in check order, said as one json envelope
+with `refusals: [{code, args, message, fix?}]`, or in text the summary line then
+each refusal's `ctxloom:` and `  fix:` lines (cli-support's `Failure::refusals`
+and `say_failure`). Fatal findings alone are the library's
+`library-application-startup-aborted`, as before; beside a refusal they are the
+plan's warnings, said beside it, and the exit is 3 (the most severe wins),
+else 2. The run is enqueued FIRST (73g): plan, evidence, `EnqueueRun`, the
+project told, a name claimed, `MintSession`, the certificate, the listener,
+the order. So a REFUSED run leaves nothing: no name, no session, no directory,
+no event, no open incarnation, no certificate, no listener. A failure after
+the enqueue (the project, the names, the mint, the certificate, the listener,
+the first catch-up) ends the run with a `LaunchFailed` fact, so no run stays
+owed a runner, and a session already minted has its directory written with
+the run's end in it.
 
 `crates/core/clippy.toml` holds the core's purity rules (no I/O, clock, env,
 threads or hash-ordered collections) and reaches every core crate, because
@@ -421,7 +452,7 @@ a full commit. The angzarr pins are one line, one per family member:
 - angzarr-build `9e9eff01` (the markup generator, `angzarr-build` and
   `angzarr-codegen`, its own repository);
 - angzarr-platform `dfae6726`;
-- taskloom's crates `efc28291` and ctxloom-lib's `5f173d32`, built on the
+- taskloom's crates `efc28291` and ctxloom-lib's `3b687062`, built on the
   same line,
 
 so moving one moves all. The lock holds one of every angzarr crate. The platform crates (`os`, `file-system`, `file-lock`) are
@@ -438,8 +469,9 @@ their small dependencies; `ISC` (ring, untrusted, rustls-webpki) is in
 `deny.toml`'s allow list for them, as MIT and BSD are. No aws-lc is to enter
 the lock: rustls with two providers and none installed panics at config build.
 
-The driving edge's shared shims (`cli-support`: `Call<G>`, `Failure`, the
-notices printers, `report_failure`, the argument readers) are
+The driving edge's shared shims (`cli-support`: `Call<G>`, `Failure` with its
+`refusals`, the notices printers, `report_failure`, `say_failure` and its json
+`Reported`, the argument readers) are
 ctxloom-lib's (`github.com/ctxloom/ctxloom-lib`), a git dependency pinned by
 full commit over https. Its angzarr pins are this workspace's, and the lock
 holds one `cli-support` (the same test). The application's own global flags
@@ -536,9 +568,11 @@ binary's `catalog()` lists every crate's `EN_US`.
 are refused like any unknown format, exit 2. Errors are `ctxloom: <message>`
 with an optional `  fix:` line in text, and the envelope `{code, args,
 message}` on stderr in json, plus `fix` (the same text as the `  fix:` line)
-when the catalog has the error's `<code>-fix` id, the key omitted otherwise
-(`ctxloom-cli`'s `report` adds it; angzarr-presentation's `Envelope` has no
-such field yet, so taskloom's envelope stays three-field until it does). Exit codes: 0, 1 failed, 2 refused, 3 fatal
+when the catalog has the error's `<code>-fix` id, the key omitted otherwise,
+and `refusals`, each refusal an aggregate refusal holds reported the same way,
+in order, the key omitted when there are none (cli-support's `Reported`, which
+`ctxloom-cli`'s `report` writes through `say_failure`; angzarr-presentation's
+`Envelope` has neither field). Exit codes: 0, 1 failed, 2 refused, 3 fatal
 findings. `-h` works at every depth, there is no `help` command, an unknown
 verb says "Did you mean" and lists the verbs, `-v` is accepted everywhere
 and changes no output.
@@ -754,8 +788,8 @@ one variable authenticates, `via` names it). A source that is a FILE alone
 (owner ruling 53) authenticates no child: a child launch (`claude -p`,
 `opencode run`) on it is the typed `runs-file-only-credential` (proto
 `FileOnlyCredential`, its fix names the built-in variables to put in
-`engines.<e>.auth.env` and export), asked before the listener is served or
-anything minted, as `runs-no-credential` now is too; `auth status` gives it a
+`engines.<e>.auth.env` and export), decided by the run's enqueue (ruling 73e)
+before a name is claimed or anything minted, as `runs-no-credential` is too; `auth status` gives it a
 `file` row (`usable_by: primary`, `via` the path, and no `present`: nothing
 looks at the file, ruling 65, so doctor cannot report a missing one) and
 doctor a `warn`, both in the refusal's words (ruling 81: the row's `message`

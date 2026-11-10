@@ -14,7 +14,8 @@ use angzarr_embedded::markup::TypedRefusal;
 
 use crate::{
     AlreadyEnqueued, CredentialHashInvalid, CredentialsNotDistinct, Ended, FileOnlyCredential,
-    NoCredential, NoRun, NotItsStream, RunRejection, TurnInFlight,
+    LaunchRefused, NoCredential, NoPrompt, NoRun, NotItsStream, RunRejection, TurnInFlight,
+    UnknownEngine,
 };
 
 /// What a command handler fails with for `rejection`: the typed refusal
@@ -76,7 +77,60 @@ impl TryFrom<&TypedRefusal> for RunRejection {
         if let Some(FileOnlyCredential { engine, variables }) = refusal.object() {
             return Ok(RunRejection::FileOnlyCredential { engine, variables });
         }
+        if refusal.object::<NoPrompt>().is_some() {
+            return Ok(RunRejection::NoPrompt);
+        }
+        if let Some(UnknownEngine { name, known }) = refusal.object() {
+            return Ok(RunRejection::UnknownEngine { name, known });
+        }
+        if let Some(aggregate) = refusal.object::<LaunchRefused>() {
+            return Ok(launch_refused(aggregate));
+        }
         Err(NotOurs)
+    }
+}
+
+/// The aggregate's rejection: each refusal its fields hold, in the fields'
+/// order, which is the checks'.
+fn launch_refused(aggregate: LaunchRefused) -> RunRejection {
+    let LaunchRefused {
+        no_prompt,
+        unknown_engine,
+        no_credential,
+        file_only_credential,
+        fatal_findings,
+    } = aggregate;
+    let refusals =
+        no_prompt
+            .into_iter()
+            .map(|NoPrompt {}| RunRejection::NoPrompt)
+            .chain(
+                unknown_engine
+                    .into_iter()
+                    .map(
+                        |UnknownEngine { name, known }| RunRejection::UnknownEngine { name, known },
+                    ),
+            )
+            .chain(
+                no_credential
+                    .into_iter()
+                    .map(
+                        |NoCredential { engine, variables }| RunRejection::NoCredential {
+                            engine,
+                            variables,
+                        },
+                    ),
+            )
+            .chain(file_only_credential.into_iter().map(
+                |FileOnlyCredential { engine, variables }| RunRejection::FileOnlyCredential {
+                    engine,
+                    variables,
+                },
+            ))
+            .collect();
+    RunRejection::LaunchRefused {
+        refusals,
+        fatal_findings,
     }
 }
 

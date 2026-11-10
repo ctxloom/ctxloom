@@ -179,10 +179,7 @@ fn answer<T>(
 }
 
 fn output_failure(error: io::Error) -> Failure {
-    Failure {
-        cause: Box::new(OutputFailure(error.to_string())),
-        exit: 1,
-    }
+    Failure::new(OutputFailure(error.to_string()), 1)
 }
 
 /// The answer could not be written.

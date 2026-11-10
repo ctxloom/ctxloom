@@ -2247,9 +2247,13 @@ async fn an_undriven_engine_is_planned_and_the_prompt_still_judged() {
     let mut script = needing_a_token();
     script.prompt = "";
     let mut rig = rig(script);
+    // The line names the engine for the plan and the run alike (run-cli).
     let bogus = OneShot {
         engine: "bogus-engine".to_string(),
-        ..ask()
+        run: RunRequest {
+            engine: "bogus-engine".to_string(),
+            ..RunRequest::default()
+        },
     };
     let error = rig
         .runs
@@ -2257,7 +2261,12 @@ async fn an_undriven_engine_is_planned_and_the_prompt_still_judged() {
         .await
         .result
         .unwrap_err();
-    assert_eq!(rig.asked.lock().unwrap().len(), 1, "the plan was asked");
+    let asked = rig.asked.lock().unwrap().clone();
+    assert_eq!(asked.len(), 1, "the plan was asked");
+    assert_eq!(
+        asked[0].engine, "",
+        "on the agent's own engine, which the library knows"
+    );
     assert_eq!(codes_of(&error), ["runs-no-prompt", "runs-unknown-engine"]);
     assert_eq!(error.exit_code(), 2);
 }

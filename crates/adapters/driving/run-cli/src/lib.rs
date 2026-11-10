@@ -16,31 +16,15 @@ use library_application::{Flags, RunRequest};
 use run_application::{Answer, OneShot, RunError, RunService};
 use serde::Serialize;
 
-/// Why a run's command did not complete: its diagnostic and exit code, and
-/// the refusals an aggregate refusal holds, in check order (owner ruling
-/// 73b), for the command line to list; none for any other error.
-#[derive(Debug)]
-pub struct Failure {
-    pub cause: Box<dyn angzarr_diagnostic::Diagnostic>,
-    pub exit: u8,
-    pub refusals: Vec<Box<dyn angzarr_diagnostic::Diagnostic>>,
-}
+pub use cli_support::Failure;
 
-impl Failure {
-    fn new(cause: impl angzarr_diagnostic::Diagnostic + 'static, exit: u8) -> Failure {
-        Failure {
-            cause: Box::new(cause),
-            exit,
-            refusals: Vec::new(),
-        }
-    }
-}
-
-/// What a run's error ends the command with.
+/// What a run's error ends the command with: its exit, and the refusals an
+/// aggregate refusal holds, in check order, for the command line to list
+/// (owner rulings 73b, 73i).
 fn failed(error: RunError) -> Failure {
     let exit = error.exit_code();
-    // RED (ruling 73b): the aggregate's refusals are not handed on yet.
-    Failure::new(error, exit)
+    let refusals = error.refusals();
+    Failure::new(error, exit).with_refusals(refusals)
 }
 
 /// One command, with the global flags the library's use cases take.

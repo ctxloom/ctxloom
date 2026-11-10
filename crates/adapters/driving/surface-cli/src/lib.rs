@@ -248,10 +248,7 @@ fn materialize(
     // A delivery that was refused leaves the file as it was, and the command
     // failed: a script gating on the exit code must not believe it landed.
     match done.value.failures.into_iter().next() {
-        Some(first) => Err(Failure {
-            cause: Box::new(first),
-            exit: 1,
-        }),
+        Some(first) => Err(Failure::new(first, 1)),
         None => Ok(0),
     }
 }

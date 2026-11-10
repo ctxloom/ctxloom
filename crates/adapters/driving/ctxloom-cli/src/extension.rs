@@ -6,43 +6,11 @@
 
 use std::io::Write;
 
-use angzarr_diagnostic::Diagnostic;
 use angzarr_presentation::Catalog;
 use clap::Command;
 use library_application::Flags;
 
-/// Why a command did not complete: its own diagnostic and exit code, and the
-/// refusals an aggregate refusal holds, in the order they were checked (owner
-/// ruling 73b: the JSON envelope's `refusals`, the text's lines after the
-/// summary). An error that is no aggregate holds none.
-#[derive(Debug)]
-pub struct Failure {
-    pub cause: Box<dyn Diagnostic>,
-    pub exit: u8,
-    pub refusals: Vec<Box<dyn Diagnostic>>,
-}
-
-impl Failure {
-    /// `cause`, ending the command with `exit`.
-    pub fn new(cause: impl Diagnostic + 'static, exit: u8) -> Failure {
-        Failure {
-            cause: Box::new(cause),
-            exit,
-            refusals: Vec::new(),
-        }
-    }
-}
-
-/// A shared shim's failure holds no refusals.
-impl From<cli_support::Failure> for Failure {
-    fn from(failure: cli_support::Failure) -> Failure {
-        Failure {
-            cause: failure.cause,
-            exit: failure.exit,
-            refusals: Vec::new(),
-        }
-    }
-}
+pub use cli_support::Failure;
 
 /// One command, with the global flags the library's use cases take.
 pub type Call<'a> = cli_support::Call<'a, Flags>;

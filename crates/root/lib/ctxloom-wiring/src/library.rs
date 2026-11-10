@@ -134,7 +134,7 @@ impl Extension for LibraryCommands {
         err: &mut dyn Write,
     ) -> Result<u8, Failure> {
         let library = self.wired().map_err(|e| Failure::new(e, 1))?;
-        library_cli::run(library, noun, call, catalog, out, err).map_err(Failure::from)
+        library_cli::run(library, noun, call, catalog, out, err)
     }
 }
 

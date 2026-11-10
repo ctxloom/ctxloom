@@ -4,8 +4,9 @@
 
 use std::sync::Arc;
 
+use angzarr_embedded::markup::TypedRefusal;
 use angzarr_embedded::v1::{CommandBook, Cover, Uuid};
-use angzarr_embedded::CommandBookExt;
+use angzarr_embedded::{CommandBookExt, Failure, Rejected};
 use run_ports::{Edge, Token, TokenSource};
 
 use runs::RunRejection;
@@ -120,30 +121,46 @@ impl<E: Edge, T: TokenSource> Enqueuer<E, T> {
             runner_credential_hash: runner_token.hash().as_bytes().to_vec(),
             model_credential_hash: model_token.hash().as_bytes().to_vec(),
             hook_credential_hash: hook_token.hash().as_bytes().to_vec(),
-            // RED (ruling 73e): the evidence does not reach the command yet.
-            prompt_given: true,
-            engine: String::new(),
-            drivable_engines: Vec::new(),
-            credential: runs::CredentialEvidence {
-                file_only: false,
-                builtin_variables: Vec::new(),
-                accepted_variables: Vec::new(),
-                accepted_set: false,
-            },
-            fatal_findings: 0,
+            prompt_given: request.evidence.prompt_given,
+            engine: request.evidence.engine,
+            drivable_engines: request.evidence.drivable_engines,
+            credential: credential(request.evidence.credential.unwrap_or_default()),
+            fatal_findings: request.evidence.fatal_findings,
         };
-        let _ = request.evidence;
         let book = CommandBook::command_of(cover, &runs::RunCommand::from(enqueue));
-        self.edge
-            .handle(book)
-            .await
-            .map_err(|failure| EnqueueError::Failed(AppError::from_failure(failure)))?;
+        self.edge.handle(book).await.map_err(refused)?;
         Ok(Enqueued {
             run,
             runner_token,
             model_token,
             hook_token,
         })
+    }
+}
+
+/// A child's credential evidence as the command carries it; a session's (none)
+/// is the default, which the run judges as nothing to authenticate.
+fn credential(evidence: CredentialEvidence) -> runs::CredentialEvidence {
+    runs::CredentialEvidence {
+        file_only: evidence.file_only,
+        builtin_variables: evidence.builtin_variables,
+        accepted_variables: evidence.accepted_variables,
+        accepted_set: evidence.accepted_set,
+    }
+}
+
+/// The run's own rejection, whole, where the kernel refused with one of the
+/// runs domain's refusals; any other failure as the use case's error.
+fn refused(failure: Failure<Rejected>) -> EnqueueError {
+    let ours = match &failure {
+        Failure::Rejected(rejected) => rejected
+            .rejection::<TypedRefusal>()
+            .and_then(|typed| RunRejection::try_from(typed).ok()),
+        _ => None,
+    };
+    match ours {
+        Some(rejection) => EnqueueError::Refused(rejection),
+        None => EnqueueError::Failed(AppError::from_failure(failure)),
     }
 }
 

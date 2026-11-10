@@ -46,15 +46,6 @@ impl CliError {
             CliError::Extension(failure) => failure.exit,
         }
     }
-
-    /// The remedy's diagnostic: `<code>-fix`, whose catalog message, where
-    /// there is one, says what to do. It takes the error's own args.
-    pub fn fix(&self) -> Fix<'_> {
-        Fix {
-            code: format!("{}-fix", self.code()),
-            of: self,
-        }
-    }
 }
 
 impl fmt::Display for CliError {
@@ -93,29 +84,6 @@ impl Diagnostic for CliError {
             CliError::Command { error, .. } => error.args(),
             CliError::Extension(failure) => failure.cause.args(),
         }
-    }
-}
-
-/// The remedy of an error: its code with `-fix`, and its args.
-#[derive(Debug)]
-pub struct Fix<'a> {
-    code: String,
-    of: &'a CliError,
-}
-
-impl fmt::Display for Fix<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
-    }
-}
-
-impl Diagnostic for Fix<'_> {
-    fn code(&self) -> &str {
-        &self.code
-    }
-
-    fn args(&self) -> Vec<(&str, Arg)> {
-        self.of.args()
     }
 }
 

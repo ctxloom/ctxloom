@@ -22,7 +22,10 @@ use crate::{
     AlreadyEnqueued, CredentialHashInvalid, CredentialsNotDistinct, Ended, NoRun, NotItsStream,
     TurnInFlight,
 };
-use crate::{FileOnlyCredential, LaunchRefused, NoCredential, NoPrompt, UnknownEngine};
+use crate::{
+    CredentialEvidence, FileOnlyCredential, LaunchRefused, NoCredential, NoPrompt, Refusal,
+    RunMode, UnknownEngine,
+};
 
 /// The run aggregate: one run, folded from its stream.
 #[derive(Clone, Debug, Default)]
@@ -108,6 +111,7 @@ fn decide_enqueue(ctx: &Context, cmd: EnqueueRun) -> Result<RunEnqueued, RunReje
     if ctx.root() != Some(&run_root(&cmd.session, cmd.incarnation)) {
         return Err(RunRejection::NotItsStream);
     }
+    launchable(&cmd)?;
     Ok(RunEnqueued {
         session: cmd.session,
         incarnation: cmd.incarnation,
@@ -115,6 +119,55 @@ fn decide_enqueue(ctx: &Context, cmd: EnqueueRun) -> Result<RunEnqueued, RunReje
         runner_credential_hash: cmd.runner_credential_hash,
         model_credential_hash: cmd.model_credential_hash,
         hook_credential_hash: cmd.hook_credential_hash,
+    })
+}
+
+/// The pre-launch checks, judged on the command's evidence (owner rulings 73,
+/// 73a-73h), in their order: the prompt (a one-shot's), the engine, then a
+/// child's credential, which an engine nobody drives has no policy for (73d).
+/// One failure is its own refusal; two or more, or one beside the plan's
+/// fatal findings, are one `LaunchRefused` holding each in that order, and
+/// the findings alone are an empty one (they are the library's to say).
+fn launchable(cmd: &EnqueueRun) -> Result<(), RunRejection> {
+    let mut refusals = Vec::new();
+    if cmd.mode == RunMode::OneShot && !cmd.prompt_given {
+        refusals.push(RunRejection::NoPrompt);
+    }
+    let driven = cmd.drivable_engines.contains(&cmd.engine);
+    if !driven {
+        refusals.push(RunRejection::UnknownEngine {
+            name: cmd.engine.clone(),
+            known: cmd.drivable_engines.join(", "),
+        });
+    }
+    if driven {
+        refusals.extend(credential(&cmd.engine, &cmd.credential));
+    }
+    match (refusals.len(), cmd.fatal_findings) {
+        (0, 0) => Ok(()),
+        (1, 0) => Err(refusals.remove(0)),
+        (_, fatal_findings) => Err(RunRejection::LaunchRefused {
+            refusals,
+            fatal_findings,
+        }),
+    }
+}
+
+/// A child's credential refusal, if it has one: a source that is a file
+/// alone serves no child (ruling 53); otherwise one of the variables it
+/// would be given one by must be set, unless its engine asks for none.
+fn credential(engine: &str, evidence: &CredentialEvidence) -> Option<RunRejection> {
+    if evidence.file_only {
+        return Some(RunRejection::FileOnlyCredential {
+            engine: engine.to_string(),
+            variables: evidence.builtin_variables.join(", "),
+        });
+    }
+    (!evidence.accepted_variables.is_empty() && !evidence.accepted_set).then(|| {
+        RunRejection::NoCredential {
+            engine: engine.to_string(),
+            variables: evidence.accepted_variables.join(", "),
+        }
     })
 }
 
@@ -138,13 +191,65 @@ fn digest(hash: &[u8]) -> Result<(), RunRejection> {
 pub(crate) fn enqueue_refusal(
     rejection: RunRejection,
 ) -> Failed<Refuses<RunAggregate, EnqueueRun>> {
-    // RED (ruling 73): the pre-launch checks' messages are not mapped yet.
+    if let RunRejection::LaunchRefused {
+        refusals,
+        fatal_findings,
+    } = rejection
+    {
+        return Failed::Rejected {
+            rejection: Refuses::<RunAggregate, EnqueueRun>::from(launch_refused(
+                refusals,
+                fatal_findings,
+            )),
+            status: <LaunchRefused as Refusal>::REFUSAL_STATUS,
+        };
+    }
     refuse!(
         RunRejection,
         rejection,
         Refuses<RunAggregate, EnqueueRun>,
-        [AlreadyEnqueued => AlreadyEnqueued, CredentialHashInvalid{length} => CredentialHashInvalid, CredentialsNotDistinct => CredentialsNotDistinct, NotItsStream => NotItsStream]
+        [
+            AlreadyEnqueued => AlreadyEnqueued,
+            CredentialHashInvalid{length} => CredentialHashInvalid,
+            CredentialsNotDistinct => CredentialsNotDistinct,
+            NotItsStream => NotItsStream,
+            NoCredential{engine, variables} => NoCredential,
+            FileOnlyCredential{engine, variables} => FileOnlyCredential,
+            NoPrompt => NoPrompt,
+            UnknownEngine{name, known} => UnknownEngine
+        ]
     )
+}
+
+/// The aggregate's message: each refusal in the field of its kind, in check
+/// order (one field per kind, so the fields' order is the checks').
+fn launch_refused(refusals: Vec<RunRejection>, fatal_findings: u32) -> LaunchRefused {
+    let mut message = LaunchRefused {
+        no_prompt: Vec::new(),
+        unknown_engine: Vec::new(),
+        no_credential: Vec::new(),
+        file_only_credential: Vec::new(),
+        fatal_findings,
+    };
+    for refusal in refusals {
+        match refusal {
+            RunRejection::NoPrompt => message.no_prompt.push(NoPrompt {}),
+            RunRejection::UnknownEngine { name, known } => {
+                message.unknown_engine.push(UnknownEngine { name, known });
+            }
+            RunRejection::NoCredential { engine, variables } => {
+                message
+                    .no_credential
+                    .push(NoCredential { engine, variables });
+            }
+            RunRejection::FileOnlyCredential { engine, variables } => message
+                .file_only_credential
+                .push(FileOnlyCredential { engine, variables }),
+            // The checks raise nothing else.
+            _ => {}
+        }
+    }
+    message
 }
 
 #[aggregate(domain = "runs", command = RunCommand, event = RunEvent)]

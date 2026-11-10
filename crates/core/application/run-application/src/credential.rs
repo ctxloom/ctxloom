@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 
 use library_application::Notice;
 use run_ports::{AuthSetting, CredentialPolicy, Credentials, Ignored, LinkState, LoginLinks};
-use runs::RunRejection;
+use runs_application::CredentialEvidence;
 
 /// Whether the engine of `credentials` may share its login by a link on `os`
 /// (`std::env::consts::OS`, which the caller gives): the engine says where it
@@ -70,49 +70,36 @@ fn holds(env: &BTreeMap<String, String>, names: &[String]) -> bool {
         .any(|name| env.get(name).is_some_and(|value| !value.is_empty()))
 }
 
-/// The refusal of a child agent's run that has no environment credential, or
-/// none when its engine needs none or one is set.
-pub fn refuse_child(
-    engine: &str,
-    credentials: &CredentialPolicy,
-    env: &BTreeMap<String, String>,
-) -> Option<RunRejection> {
-    if credentials.child_env.is_empty() || holds(env, &credentials.child_env) {
-        return None;
-    }
-    Some(RunRejection::NoCredential {
-        engine: engine.to_string(),
-        variables: credentials.child_env.join(", "),
-    })
-}
-
-/// The refusal of a child agent's run whose engine's configured source is a
-/// credentials file and no variable (owner ruling 53), naming the variables
-/// the engine's built-in source accepts; none for any other source. Asked
-/// before anything of the run is made: its listener, its session, its engine.
-pub fn refuse_file_only(
+/// What a child agent's run authenticates with, as the run's enqueue judges
+/// it (owner rulings 53, 73e): whether the engine's configured source is a
+/// credentials file and no variable, the variables the engine's built-in
+/// source accepts (an adapter that names none is told the library's built-in
+/// source), the variables the child would be given a credential by, and
+/// whether one of them is set and not empty. Names and yes-or-no only: no
+/// value of the environment leaves here.
+pub fn credential_evidence(
     engine: &str,
     auth: &AuthSetting,
     base: &Credentials,
-) -> Option<RunRejection> {
-    let AuthSetting::Source { env, file: Some(_) } = auth else {
-        return None;
-    };
-    if !env.is_empty() {
-        return None;
-    }
-    let mut variables: Vec<String> = base.child_env.iter().map(ToString::to_string).collect();
-    if variables.is_empty() {
+    policy: &CredentialPolicy,
+    env: &BTreeMap<String, String>,
+) -> CredentialEvidence {
+    let file_only = matches!(auth, AuthSetting::Source { env, file: Some(_) } if env.is_empty());
+    let mut builtin_variables: Vec<String> =
+        base.child_env.iter().map(ToString::to_string).collect();
+    if builtin_variables.is_empty() {
         if let library_application::AuthSource::Credential { env, .. } =
             library_application::AuthSource::builtin(engine)
         {
-            variables = env;
+            builtin_variables = env;
         }
     }
-    Some(RunRejection::FileOnlyCredential {
-        engine: engine.to_string(),
-        variables: variables.join(", "),
-    })
+    CredentialEvidence {
+        file_only,
+        builtin_variables,
+        accepted_variables: policy.child_env.clone(),
+        accepted_set: holds(env, &policy.child_env),
+    }
 }
 
 /// Where a configured login file is: `~/` is the caller's home, a relative

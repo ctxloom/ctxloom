@@ -78,16 +78,10 @@ fn one_shot(
     let remotes: Rc<dyn deps_ports::RemoteLibrary> = deps.clone();
     let library = crate::library::build(&wiring, Some(remotes)).map_err(|e| Failure::new(e, 1))?;
     let mut uses = crate::oneshot::OneShots::new(&wiring, library);
-    let ran = if run_cli::is_one_shot(run) {
-        run_cli::run(&mut uses, run, call, catalog, &mut piped_prompt, out, err)
-    } else {
-        run_cli::session(&mut uses, run, call, catalog, out, err)
-    };
-    ran.map_err(|failure| Failure {
-        cause: failure.cause,
-        exit: failure.exit,
-        refusals: failure.refusals,
-    })
+    if !run_cli::is_one_shot(run) {
+        return run_cli::session(&mut uses, run, call, catalog, out, err);
+    }
+    run_cli::run(&mut uses, run, call, catalog, &mut piped_prompt, out, err)
 }
 
 /// The text piped on standard input, none where it is a terminal.
@@ -345,7 +339,7 @@ impl Commands {
             terminal: &terminal,
             sessions: &sessions,
         };
-        setup_cli::run(&uses, noun, call, catalog, out, err).map_err(Failure::from)
+        setup_cli::run(&uses, noun, call, catalog, out, err)
     }
 }
 
@@ -424,8 +418,7 @@ impl Extension for Commands {
             }
         }
         if SURFACE_NOUNS.contains(&noun) {
-            return surface_cli::run(&wired.surface, noun, call, catalog, out, err)
-                .map_err(Failure::from);
+            return surface_cli::run(&wired.surface, noun, call, catalog, out, err);
         }
         let ours =
             OWN_NOUNS.contains(&noun) || (noun == "bundle" && deps_cli::is_bundle_verb(&verb));
@@ -436,7 +429,7 @@ impl Extension for Commands {
             setup: &wired.surface,
             flags: call.globals.clone(),
         };
-        deps_cli::run(&wired.deps, &refresh, noun, call, catalog, out, err).map_err(Failure::from)
+        deps_cli::run(&wired.deps, &refresh, noun, call, catalog, out, err)
     }
 }
 

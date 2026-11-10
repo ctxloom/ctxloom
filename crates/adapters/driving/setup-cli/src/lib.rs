@@ -144,10 +144,7 @@ fn doctor(
     err: &mut dyn Write,
 ) -> Result<u8, Failure> {
     if sub.get_flag("fix") {
-        let removed = uses
-            .doctor
-            .fix()
-            .map_err(|e| Failure { cause: e, exit: 1 })?;
+        let removed = uses.doctor.fix().map_err(|e| Failure::boxed(e, 1))?;
         for r in &removed {
             let _ = writeln!(
                 err,
@@ -231,10 +228,8 @@ fn init(
     say_notices(&uses.auth.file_only(&layers), PROG, format, catalog, err);
     // On a terminal, the setup interview, and the offer to restart into the
     // session it configured. Off one, nothing is launched and nothing asked.
-    let interviewed = interview(uses.terminal, uses.sessions).map_err(|launch| Failure {
-        cause: launch.cause,
-        exit: launch.exit,
-    })?;
+    let interviewed = interview(uses.terminal, uses.sessions)
+        .map_err(|launch| Failure::boxed(launch.cause, launch.exit))?;
     for notice in &interviewed.notices {
         say_warning(notice.as_ref(), PROG, Format::Text, catalog, err);
     }

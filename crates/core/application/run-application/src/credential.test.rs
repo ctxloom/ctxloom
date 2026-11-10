@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use library_application::Notice;
 use run_ports::{AuthSetting, Credentials, LinkState, LoginLinks, RecordsError};
-use runs::RunRejection;
+use runs_application::CredentialEvidence;
 
 use super::*;
 
@@ -125,47 +125,60 @@ fn said(notice: Option<Notice>) -> (String, String) {
     }
 }
 
+/// The evidence of a claude child on the built-in source, in `vars`.
+fn claude_child(vars: &[(&str, &str)]) -> CredentialEvidence {
+    credential_evidence(
+        "claude-code",
+        &AuthSetting::Builtin,
+        &CLAUDE,
+        &CLAUDE.into(),
+        &env(vars),
+    )
+}
+
+const BOTH: [&str; 2] = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"];
+
+// A child with no env credential: the variables that would serve, none set
+// (the run's enqueue refuses it, ruling 73e).
 #[test]
-fn a_child_with_no_env_credential_is_refused_naming_the_variables() {
-    let refused = refuse_child("claude-code", &CLAUDE.into(), &env(&[("HOME", "/home/u")]));
-    assert_eq!(
-        refused,
-        Some(RunRejection::NoCredential {
-            engine: "claude-code".to_string(),
-            variables: "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY".to_string(),
-        })
-    );
+fn a_child_with_no_env_credential_names_the_variables_and_none_set() {
+    let evidence = claude_child(&[("HOME", "/home/u")]);
+    assert_eq!(evidence.accepted_variables, BOTH);
+    assert!(!evidence.accepted_set);
+    assert!(!evidence.file_only);
 }
 
 #[test]
 fn an_empty_variable_is_no_credential() {
-    let refused = refuse_child(
-        "claude-code",
-        &CLAUDE.into(),
-        &env(&[("CLAUDE_CODE_OAUTH_TOKEN", "")]),
-    );
-    assert!(refused.is_some());
+    assert!(!claude_child(&[("CLAUDE_CODE_OAUTH_TOKEN", "")]).accepted_set);
 }
 
 #[test]
 fn either_variable_serves_a_child_and_the_primarys_own_does_not() {
-    for name in ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"] {
-        assert_eq!(
-            refuse_child("claude-code", &CLAUDE.into(), &env(&[(name, "x")])),
-            None
-        );
+    for name in BOTH {
+        assert!(claude_child(&[(name, "x")]).accepted_set, "{name}");
     }
     // ANTHROPIC_AUTH_TOKEN authenticates the primary only.
-    let only_primary = env(&[("ANTHROPIC_AUTH_TOKEN", "x")]);
-    assert!(refuse_child("claude-code", &CLAUDE.into(), &only_primary).is_some());
+    assert!(!claude_child(&[("ANTHROPIC_AUTH_TOKEN", "x")]).accepted_set);
 }
 
 #[test]
-fn an_engine_that_needs_no_credential_refuses_nothing() {
-    assert_eq!(
-        refuse_child("fake", &Credentials::default().into(), &BTreeMap::new()),
-        None
+fn an_engine_that_needs_no_credential_names_no_variable() {
+    let evidence = credential_evidence(
+        "fake",
+        &AuthSetting::Builtin,
+        &Credentials::default(),
+        &Credentials::default().into(),
+        &BTreeMap::new(),
     );
+    assert!(evidence.accepted_variables.is_empty());
+}
+
+// The evidence names variables, never a value of the environment.
+#[test]
+fn the_evidence_holds_no_value() {
+    let evidence = claude_child(&[("ANTHROPIC_API_KEY", "VALUE-OF-THE-KEY")]); // gitleaks:allow
+    assert!(!format!("{evidence:?}").contains("VALUE-OF-THE-KEY"));
 }
 
 fn file_only() -> AuthSetting {
@@ -175,34 +188,33 @@ fn file_only() -> AuthSetting {
     }
 }
 
-// Ruling 53: a source that is a file alone can authenticate no child, so it is
-// refused naming the engine and the variables its built-in source accepts.
+/// The evidence of a child of `engine` on `auth`, its adapter's credentials
+/// `base`.
+fn on(engine: &str, auth: &AuthSetting, base: &Credentials) -> CredentialEvidence {
+    credential_evidence(engine, auth, base, &(*base).into(), &BTreeMap::new())
+}
+
+// Ruling 53: a source that is a file alone is said as one, with the variables
+// the engine's built-in source accepts.
 #[test]
-fn a_child_on_a_file_only_source_is_refused_naming_the_builtin_variables() {
-    assert_eq!(
-        refuse_file_only("claude-code", &file_only(), &CLAUDE),
-        Some(RunRejection::FileOnlyCredential {
-            engine: "claude-code".to_string(),
-            variables: "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY".to_string(),
-        })
-    );
+fn a_file_only_source_is_said_with_the_builtin_variables() {
+    let evidence = on("claude-code", &file_only(), &CLAUDE);
+    assert!(evidence.file_only);
+    assert_eq!(evidence.builtin_variables, BOTH);
 }
 
 // An engine whose adapter names no child variable is told the library's
 // built-in source (opencode's provider keys, rulings 69 and 79).
 #[test]
 fn an_engine_with_no_adapter_variable_names_its_builtin_source() {
+    let evidence = on("opencode", &file_only(), &Credentials::default());
     assert_eq!(
-        refuse_file_only("opencode", &file_only(), &Credentials::default()),
-        Some(RunRejection::FileOnlyCredential {
-            engine: "opencode".to_string(),
-            variables: "ANTHROPIC_API_KEY, OPENAI_API_KEY".to_string(),
-        })
+        evidence.builtin_variables,
+        ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]
     );
 }
 
-// A source with any variable, or no file, is the environment check's (or
-// nobody's): the file-only refusal is for a file and nothing else.
+// A source with any variable, or no file, is not file-only.
 #[test]
 fn a_source_with_a_variable_or_without_a_file_is_not_file_only() {
     let with_env = AuthSetting::Source {
@@ -220,11 +232,7 @@ fn a_source_with_a_variable_or_without_a_file_is_not_file_only() {
         AuthSetting::None,
         AuthSetting::Login,
     ] {
-        assert_eq!(
-            refuse_file_only("claude-code", &auth, &CLAUDE),
-            None,
-            "{auth:?}"
-        );
+        assert!(!on("claude-code", &auth, &CLAUDE).file_only, "{auth:?}");
     }
 }
 

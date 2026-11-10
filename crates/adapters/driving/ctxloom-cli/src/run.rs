@@ -257,43 +257,22 @@ fn locate<'a>(root: &'a Command, args: &[OsString]) -> (&'a Command, String) {
     (at, path)
 }
 
-/// The json envelope of an error, `{code, args, message}`, and the remedy as
-/// `fix` where the catalog has one (the `<code>-fix` id, the text format's
-/// `  fix:` line); without one the key is left out. The envelope itself is
-/// angzarr-presentation's, shared with taskloom, which has no `fix` yet.
-#[derive(Serialize)]
-struct WithFix<E: Serialize> {
-    #[serde(flatten)]
-    envelope: E,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    fix: Option<String>,
-}
-
-/// Say `error` on `err` in `format`; its exit code.
+/// Say `error` on `err` in `format`; its exit code. As json, the envelope
+/// `{code, args, message}`, the remedy as `fix` where the catalog has the
+/// `<code>-fix` id (the key left out otherwise), and, for an extension's
+/// failure that holds refusals, `refusals`, each reported the same way, in
+/// order (owner rulings 73b, 73i: cli-support's `Reported`). Under text,
+/// `ctxloom: <message>` and `  fix: <remedy>`, then the same for each refusal.
 pub(crate) fn report(
     error: &CliError,
     format: Format,
     catalog: &Catalog,
     err: &mut dyn Write,
 ) -> u8 {
-    let _ = match format {
-        Format::Json => write_json(
-            err,
-            &WithFix {
-                envelope: catalog.envelope(error),
-                fix: catalog.render(&error.fix()).ok(),
-            },
-        ),
-        Format::Text => text_error(error, catalog, err),
+    let refusals: &[Box<dyn angzarr_diagnostic::Diagnostic>] = match error {
+        CliError::Extension(failure) => &failure.refusals,
+        _ => &[],
     };
+    let _ = cli_support::say_failure(PROG, format, catalog, error, refusals, err);
     error.exit_code()
-}
-
-/// `ctxloom: <message>`, then `  fix: <remedy>` where the catalog has one.
-fn text_error(error: &CliError, catalog: &Catalog, err: &mut dyn Write) -> std::io::Result<()> {
-    writeln!(err, "{PROG}: {}", catalog.message(error))?;
-    if let Ok(fix) = catalog.render(&error.fix()) {
-        writeln!(err, "  fix: {fix}")?;
-    }
-    Ok(())
 }

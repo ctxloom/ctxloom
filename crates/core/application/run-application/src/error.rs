@@ -15,12 +15,10 @@ pub enum RunError {
     /// configuration, a startup finding that is fatal. Its own error, code
     /// and exit.
     Plan(Box<PlanError>),
-    /// A one-shot with no prompt from any door asks nothing.
-    NoPrompt,
-    /// No engine of that name can be driven.
-    UnknownEngine { name: String, known: String },
     /// The run's domain refused it before anything was made: its own typed
-    /// refusal, with the code, args and message of the domain's rejection.
+    /// refusal, with the code, args and message of the domain's rejection
+    /// (a one-shot with no prompt, an engine nobody drives, a child that
+    /// cannot authenticate, or several of them at once: ruling 73).
     Refused(RunRejection),
     /// The run's listener has no address to bind (the bind table refused).
     /// Refused before anything is made.
@@ -45,16 +43,19 @@ pub enum RunError {
 }
 
 impl RunError {
-    /// The process exit code: what `PlanError` says for its own, 2 for a
-    /// refusal before anything ran (an ask that cannot be run, a refusal of
-    /// the kernel), 1 otherwise.
+    /// The process exit code: what `PlanError` says for its own, 3 for a
+    /// refusal with the plan's fatal findings among its failures (ruling 73a:
+    /// the most severe wins), 2 for a refusal before anything ran (an ask
+    /// that cannot be run, a refusal of the kernel), 1 otherwise.
     pub fn exit_code(&self) -> u8 {
         match self {
             RunError::Plan(error) => error.exit_code(),
-            RunError::NoPrompt
-            | RunError::UnknownEngine { .. }
-            | RunError::Refused(_)
-            | RunError::Bind(_) => 2,
+            RunError::Refused(RunRejection::LaunchRefused { fatal_findings, .. })
+                if *fatal_findings > 0 =>
+            {
+                3
+            }
+            RunError::Refused(_) | RunError::Bind(_) => 2,
             RunError::Session(CoreError::Refused { .. }) => 2,
             _ => 1,
         }
@@ -66,8 +67,13 @@ impl RunError {
     /// the run's single refusal would be (rulings 73, 73b); none for any other
     /// error, a single refusal included (it is its own plain envelope).
     pub fn refusals(&self) -> Vec<Box<dyn Diagnostic>> {
-        // RED (ruling 73): not said yet.
-        Vec::new()
+        match self {
+            RunError::Refused(RunRejection::LaunchRefused { refusals, .. }) => refusals
+                .iter()
+                .map(|refusal| Box::new(refusal.clone()) as Box<dyn Diagnostic>)
+                .collect(),
+            _ => Vec::new(),
+        }
     }
 }
 
@@ -91,8 +97,6 @@ impl Diagnostic for RunError {
     fn code(&self) -> &str {
         match self {
             RunError::Plan(error) => error.code(),
-            RunError::NoPrompt => code!("no-prompt"),
-            RunError::UnknownEngine { .. } => code!("unknown-engine"),
             RunError::Refused(rejection) => rejection.code(),
             RunError::Bind(error) => error.code(),
             RunError::Project(_) => code!("project"),
@@ -114,11 +118,7 @@ impl Diagnostic for RunError {
     fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             RunError::Plan(error) => error.args(),
-            RunError::NoPrompt | RunError::EmptyAnswer => Vec::new(),
-            RunError::UnknownEngine { name, known } => vec![
-                ("name", name.as_str().into()),
-                ("known", known.as_str().into()),
-            ],
+            RunError::EmptyAnswer => Vec::new(),
             RunError::Refused(rejection) => rejection.args(),
             RunError::Bind(error) => error.args(),
             RunError::Project(report) => vec![("reason", report.code().into())],
@@ -147,11 +147,6 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         detail: "d".to_string(),
     };
     vec![
-        Box::new(RunError::NoPrompt),
-        Box::new(RunError::UnknownEngine {
-            name: "bogus".to_string(),
-            known: "claude-code".to_string(),
-        }),
         Box::new(RunError::Project(Report::new("ports-registry"))),
         Box::new(RunError::Listener(Report::new("hook-listener-bind"))),
         Box::new(RunError::Session(CoreError::Failed {

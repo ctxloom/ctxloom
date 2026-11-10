@@ -12,7 +12,7 @@ mod credential;
 mod error;
 mod one_shot;
 
-pub use credential::{links_on, refuse_child, share_login};
+pub use credential::{credential_evidence, links_on, share_login};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{RunError, EN_US};

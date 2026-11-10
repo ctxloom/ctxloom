@@ -164,16 +164,21 @@ impl ProjectRefresh for SetupRefresh<'_> {
     }
 }
 
-/// The engines composed in: claude first (the default), then the mock and its
-/// home-keyed, lossy and skill-less variants.
+/// The engines composed in: claude (the default). Under `test-support` the
+/// mock and its home-keyed, lossy and skill-less variants follow it; a build
+/// without it registers no mock (ruling 52).
 pub fn engines() -> Engines {
-    Engines::new(vec![
-        Box::new(engine_claude::Claude::new()),
-        Box::new(engine_mock::Mock::standard()),
+    #[cfg_attr(not(feature = "test-support"), expect(unused_mut))]
+    let mut composed: Vec<Box<dyn surface_ports::EngineSurfaces>> =
+        vec![Box::new(engine_claude::Claude::new())];
+    #[cfg(feature = "test-support")]
+    composed.extend([
+        Box::new(engine_mock::Mock::standard()) as Box<dyn surface_ports::EngineSurfaces>,
         Box::new(engine_mock::Mock::home_keyed()),
         Box::new(engine_mock::Mock::lossy()),
         Box::new(engine_mock::Mock::no_skills()),
-    ])
+    ]);
+    Engines::new(composed)
 }
 
 /// The setup use cases over the process's home, working directory and

@@ -293,8 +293,15 @@ fn permission_props() -> Vec<(&'static str, Node)> {
 }
 
 /// The engines ctxloom drives: the keys `engines` may name, and what an
-/// agent's `engine` may be.
-pub const ENGINES: [&str; 6] = [
+/// agent's `engine` may be, in name order. A build without `test-support`
+/// (the one that ships) knows only the real engines (ruling 52).
+#[cfg(not(feature = "test-support"))]
+pub const ENGINES: &[&str] = &["claude-code", "opencode"];
+
+/// The engines ctxloom drives, the mock and the mock-* test engines included:
+/// `test-support` compiles them, for the acceptance tests.
+#[cfg(feature = "test-support")]
+pub const ENGINES: &[&str] = &[
     "claude-code",
     "mock",
     "mock-launch",
@@ -391,7 +398,7 @@ fn root() -> Node {
 fn binding() -> Node {
     Node::Object {
         props: vec![
-            ("engine", choice(&ENGINES)),
+            ("engine", choice(ENGINES)),
             ("model", non_empty()),
             ("effort", non_empty()),
             ("profiles", list(non_empty())),

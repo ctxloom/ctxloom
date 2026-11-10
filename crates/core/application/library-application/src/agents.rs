@@ -18,7 +18,7 @@ use crate::views::{
 use crate::Flags;
 
 /// The engines this build knows by name.
-pub const ENGINES: [&str; 6] = library::config::schema::ENGINES;
+pub const ENGINES: &[&str] = library::config::schema::ENGINES;
 
 /// The runtimes an engine can be given.
 pub(crate) const RUNTIMES: [&str; 3] = ["host", "container-rootless", "container-rootful"];

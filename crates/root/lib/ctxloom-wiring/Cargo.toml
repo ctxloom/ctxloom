@@ -45,7 +45,8 @@ hook-listener.workspace = true
 hook-tls.workspace = true
 session-cli.workspace = true
 cli-support.workspace = true
-engine-mock.workspace = true
+# The mock engines, registered only under `test-support` (ruling 52).
+engine-mock = { workspace = true, optional = true }
 ctxloom-store-sqlite.workspace = true
 file-lock.workspace = true
 file-system.workspace = true
@@ -112,6 +113,8 @@ test-support = [
     "ctxloom-cli/test-support",
     "dep:session-ports",
     "dep:serde",
+    "dep:engine-mock",
+    "library-application/test-support",
 ]
 
 [lints]

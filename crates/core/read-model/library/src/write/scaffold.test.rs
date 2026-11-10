@@ -41,7 +41,7 @@ fn test_the_scaffold_binds_the_default_agent_to_its_engine() {
 
 #[test]
 fn test_what_it_scaffolds_is_a_config_this_build_reads() {
-    for engine in ["claude-code", "mock"] {
+    for engine in crate::config::schema::ENGINES {
         let doc = angzarr_yaml::parse(&initial_config(engine)).unwrap();
         assert_eq!(initial_sections(engine), doc);
         assert!(crate::config::schema::validate(&doc).is_empty(), "{engine}");

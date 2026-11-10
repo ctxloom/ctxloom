@@ -432,15 +432,6 @@ fn answered(turn: &str, answer: &str) -> Observation {
     })
 }
 
-/// The end of a terminal session whose engine has no hook for it: at its
-/// exit, of no native session the launcher knows.
-fn session_ended_at_exit() -> Observation {
-    Observation::SessionEnded(sessions::RecordSessionEnded {
-        native_session: String::new(),
-        reason: "exit".to_string(),
-    })
-}
-
 /// The launcher's word that the runner is spawned: the engine it runs under,
 /// where, and the pid the spawn gave.
 fn runner_started(order: &Order, pid: u32) -> RunnerFact {
@@ -465,6 +456,15 @@ fn bound(native_id: &str, transcript_dir: String) -> RunnerFact {
         native_id: native_id.to_string(),
         transcript_path: format!("{transcript_dir}/{TRANSCRIPT}"),
         engine_version: None,
+    })
+}
+
+/// The end of a terminal session whose engine has no hook for it: at its
+/// exit, of no native session the launcher knows.
+fn session_ended_at_exit() -> Observation {
+    Observation::SessionEnded(sessions::RecordSessionEnded {
+        native_session: String::new(),
+        reason: "exit".to_string(),
     })
 }
 

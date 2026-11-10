@@ -186,7 +186,7 @@ impl Project {
         };
         let selection = compose::select(set, &self.catalog, &request, findings);
         let options = Options {
-            prefer_distilled: self.config.use_distilled(),
+            prefer_distilled: self.config.prefers_distilled(),
             static_assembly: false,
         };
         // The registered companions' fragments follow the selected ones, and

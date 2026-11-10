@@ -1,5 +1,6 @@
 //! A config as the types it holds, for output: the reader keeps every scalar
-//! as its text, and the schema says which are numbers, booleans and strings.
+//! as its text, and the schema says which are numbers and strings (no key of the schema is
+//! a boolean; a free-form position reads `true`/`false` as one).
 
 use angzarr_yaml::Value;
 
@@ -85,11 +86,6 @@ fn scalar(text: &str, path: &[String]) -> Typed {
         ScalarKind::Int => text
             .parse()
             .map_or_else(|_| Typed::Str(text.to_string()), Typed::Int),
-        ScalarKind::Bool => match text {
-            "true" => Typed::Bool(true),
-            "false" => Typed::Bool(false),
-            _ => Typed::Str(text.to_string()),
-        },
         ScalarKind::Inferred => match text {
             "true" => Typed::Bool(true),
             "false" => Typed::Bool(false),

@@ -25,6 +25,11 @@ pub struct Flags {
     pub no_companions: bool,
 }
 
+/// Where a session's outputs go when `output.dir` names nowhere: `ctxloom/`
+/// in the project root (ruling 106), not gitignored, so they can be
+/// committed.
+pub const OUTPUT_DIR_DEFAULT: &str = "ctxloom/";
+
 /// What `run` does with the project's dependencies at its start
 /// (`sync.on_run`, owner rulings 59 and 60).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -337,31 +342,37 @@ impl Config {
             .unwrap_or_default()
     }
 
-    /// Whether distilled forms are preferred (`config.use_distilled`, on
-    /// unless turned off).
-    pub fn use_distilled(&self) -> bool {
-        self.text("config.use_distilled") != "false"
-    }
-
-    /// RED stub: whether distilled forms are preferred (`config.content_form`).
+    /// Whether distilled forms are preferred: `config.content_form` is
+    /// `distilled` unless it says `original` (owner ruling 59).
     pub fn prefers_distilled(&self) -> bool {
-        self.use_distilled()
+        self.text("config.content_form") != "original"
     }
 
-    /// RED stub: what a run does with the dependencies at its start.
+    /// What a run does with the dependencies at its start: `sync.on_run`,
+    /// `missing` unless it says `none` (rulings 59, 60).
     pub fn sync_on_run(&self) -> OnRun {
-        OnRun::None
+        match self.text("sync.on_run").as_str() {
+            "none" => OnRun::None,
+            _ => OnRun::Missing,
+        }
     }
 
-    /// RED stub: the output directory as written.
+    /// Where a session's outputs go, as written: `output.dir`, else
+    /// [`OUTPUT_DIR_DEFAULT`] (rulings 89, 106). Relative to the project
+    /// root unless absolute; the caller knows the root.
     pub fn output_dir(&self) -> String {
-        String::new()
+        let dir = self.text("output.dir");
+        if dir.is_empty() {
+            OUTPUT_DIR_DEFAULT.to_string()
+        } else {
+            dir
+        }
     }
 
-    /// Whether ctxloom manages the HUD statusline (`config.statusline`, on
-    /// unless turned off).
+    /// Whether ctxloom manages the HUD statusline: `config.statusline` is
+    /// `ctxloom` unless it says `none` (ruling 59).
     pub fn statusline(&self) -> bool {
-        self.text("config.statusline") != "false"
+        self.text("config.statusline") != "none"
     }
 
     /// The engines the project's agents are bound to, each once; claude-code,

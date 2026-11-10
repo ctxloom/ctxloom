@@ -13,7 +13,7 @@
 /// ctxloom's always-on isolation guidance, in full.
 pub const ISOLATION_AXES: &str = include_str!("../resources/isolation-axes.md");
 
-/// The same, distilled (what the assembly takes while `use_distilled` is on).
+/// The same, distilled (what the assembly takes while `config.content_form` is `distilled`).
 pub const ISOLATION_AXES_DISTILLED: &str = include_str!("../resources/isolation-axes.distilled.md");
 
 /// The separator between the fragments of an assembled context.

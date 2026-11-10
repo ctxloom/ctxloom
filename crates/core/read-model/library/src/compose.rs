@@ -417,7 +417,7 @@ pub fn with_companion_asks(mut selection: Selection, catalog: &Catalog) -> Selec
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct Options {
     /// Deliver a fragment's distilled form where it has one (config
-    /// `use_distilled`, on unless turned off).
+    /// `content_form`: `distilled`, the default, unless it says `original`).
     pub prefer_distilled: bool,
     /// A static assembly (nothing behind the surface can pull a withheld
     /// fragment later) includes the premised fragments.

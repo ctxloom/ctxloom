@@ -183,7 +183,7 @@ fn test_a_config_write_is_a_section_merge_with_sorted_keys() {
     let project = Project::initialized();
     project.write(
         CONFIG,
-        "# my config\nschema_version: 9\noutput_dir: out # my own\ncompanions:\n  acme:\n    command:\n      - acme-bin\nagents:\n  zeta:\n    engine: mock\n    profiles:\n      - p\n  alpha:\n    engine: mock\n    profiles:\n      - p\n",
+        "# my config\nschema_version: 9\nworkspace: none # my own\ncompanions:\n  acme:\n    command:\n      - acme-bin\nagents:\n  zeta:\n    engine: mock\n    profiles:\n      - p\n  alpha:\n    engine: mock\n    profiles:\n      - p\n",
     );
     project
         .run(&[
@@ -198,13 +198,13 @@ fn test_a_config_write_is_a_section_merge_with_sorted_keys() {
         .succeeds();
     assert_eq!(
         project.read(CONFIG).as_deref(),
-        Some("# my config\nschema_version: 9\noutput_dir: out # my own\ncompanions:\n  acme:\n    command:\n      - acme-bin\nagents:\n  alpha:\n    engine: mock\n    profiles:\n      - p\n  mid:\n    engine: mock\n    profiles:\n      - p\n  zeta:\n    engine: mock\n    profiles:\n      - p\n")
+        Some("# my config\nschema_version: 9\nworkspace: none # my own\ncompanions:\n  acme:\n    command:\n      - acme-bin\nagents:\n  alpha:\n    engine: mock\n    profiles:\n      - p\n  mid:\n    engine: mock\n    profiles:\n      - p\n  zeta:\n    engine: mock\n    profiles:\n      - p\n")
     );
     // A key the write does not own is as the author left it.
     project.run(&["agent", "default", "ghost"]).succeeds();
     let after = project.read(CONFIG).expect("the config");
     assert!(
-        after.starts_with("# my config\nschema_version: 9\noutput_dir: out # my own\n"),
+        after.starts_with("# my config\nschema_version: 9\nworkspace: none # my own\n"),
         "{after}"
     );
     assert!(after.ends_with("default_agent: ghost\n"), "{after}");

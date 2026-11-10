@@ -95,7 +95,7 @@ pub struct EnginePackage {
     pub deny_tools: Vec<String>,
     /// Whether ctxloom manages the HUD statusline.
     pub statusline: bool,
-    /// Whether distilled forms are preferred (`config.use_distilled`).
+    /// Whether distilled forms are preferred (`config.content_form`).
     pub use_distilled: bool,
     /// The engines the project's labels name.
     pub configured_engines: Vec<String>,
@@ -165,7 +165,7 @@ impl Project {
             context: assembled.context.clone(),
             deny_tools: selection.deny_tools.clone(),
             statusline: self.config.statusline(),
-            use_distilled: self.config.use_distilled(),
+            use_distilled: self.config.prefers_distilled(),
             configured_engines: self.config.configured_engines(),
             has_agents: !self.config.agents().is_empty(),
             has_profiles: !self.config.default_agent_profiles().is_empty()
@@ -391,7 +391,8 @@ impl Project {
                 _ => Vec::new(),
             };
             entries.retain(|(key, _)| key != "statusline");
-            entries.push(("statusline".to_string(), Value::Scalar(enabled.to_string())));
+            let word = if enabled { "ctxloom" } else { "none" };
+            entries.push(("statusline".to_string(), Value::Scalar(word.to_string())));
             Ok(Some(Value::Map(entries)))
         })
     }

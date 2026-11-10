@@ -33,7 +33,7 @@ pub struct Globals {
     #[arg(long, global = true)]
     pub no_companions: bool,
     /// Override a config value for this invocation, repeatable (e.g.
-    /// --config-set config.use_distilled=false)
+    /// --config-set config.content_form=original)
     #[arg(long = "config-set", global = true, value_name = "PATH=VALUE", action = ArgAction::Append)]
     pub config_set: Vec<String>,
 }

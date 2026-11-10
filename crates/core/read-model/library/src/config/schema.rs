@@ -206,7 +206,6 @@ enum Node {
     Int {
         min: Option<i64>,
     },
-    Bool,
     Array {
         items: Box<Node>,
         unique: bool,
@@ -288,7 +287,9 @@ fn permission_props() -> Vec<(&'static str, Node)> {
         ("approver", choice(&["human", "none", "reviewer"])),
         ("approval_timeout", pattern(Pat::Approval)),
         ("sandbox", choice(&["read-only", "workspace-write", "full"])),
-        ("network", Node::Bool),
+        // Words, never a boolean (owner ruling 59): `none`, the default, or
+        // `open`.
+        ("network", choice(&["none", "open"])),
     ]
 }
 
@@ -339,12 +340,18 @@ fn root() -> Node {
             (
                 "config",
                 object(vec![
-                    ("use_distilled", Node::Bool),
-                    ("silence_unsupported", Node::Bool),
-                    ("statusline", Node::Bool),
+                    // Owner ruling 59: what a fragment delivers, and whose
+                    // statusline; words, never booleans.
+                    ("content_form", choice(&["distilled", "original"])),
+                    ("statusline", choice(&["ctxloom", "none"])),
                 ]),
             ),
-            ("sync", object(vec![("auto_sync", Node::Bool)])),
+            // Rulings 59 and 60: what `run` does with the dependencies at its
+            // start (`missing`, the default, installs what is not there).
+            (
+                "sync",
+                object(vec![("on_run", choice(&["none", "missing"]))]),
+            ),
             ("workspace", choice(&["none", "worktree"])),
             ("runtime", choice(RUNTIMES)),
             ("permissions", object(permission_props())),
@@ -368,7 +375,9 @@ fn root() -> Node {
             ("isolation_devcontainer_service", non_empty()),
             ("isolation_memory_limit", limit(Pat::MemoryLimit)),
             ("isolation_pids_limit", limit(Pat::PidsLimit)),
-            ("output_dir", non_empty()),
+            // Ruling 106: where a session's outputs go, relative to the
+            // project root unless absolute.
+            ("output", object(vec![("dir", non_empty())])),
             ("isolation_engines", list(non_empty())),
             // A registration: the name, and the command that runs it.
             (
@@ -561,10 +570,6 @@ fn check(node: &Node, value: &Value, path: &mut Vec<String>, out: &mut Vec<Viola
                 }
             }
             other => out.push(holds(path, other, "integer")),
-        },
-        Node::Bool => match value {
-            Value::Scalar(text) if text == "true" || text == "false" => {}
-            other => out.push(holds(path, other, "boolean")),
         },
         Node::Array { items, unique } => check_array(items, *unique, value, path, out),
         Node::Object { props, extra } => check_object(node, props, extra, value, path, out),
@@ -764,7 +769,6 @@ pub fn validate_at(path: &[String], value: &Value) -> Result<(), String> {
 pub(crate) fn scalar_kind(path: &[String]) -> ScalarKind {
     match node_at(path).as_deref() {
         Some(Node::Int { .. }) => ScalarKind::Int,
-        Some(Node::Bool) => ScalarKind::Bool,
         Some(Node::Free) => ScalarKind::Inferred,
         _ => ScalarKind::Str,
     }
@@ -774,7 +778,6 @@ pub(crate) fn scalar_kind(path: &[String]) -> ScalarKind {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum ScalarKind {
     Int,
-    Bool,
     Str,
     /// Not in the schema: numbers and booleans read as what they look like.
     Inferred,
@@ -811,7 +814,7 @@ pub const SECTIONS: [&str; 25] = [
     "isolation_memory_limit",
     "isolation_pids_limit",
     "companions",
-    "output_dir",
+    "output",
     "ui",
     "session_reap_age",
     "session_purge_age",

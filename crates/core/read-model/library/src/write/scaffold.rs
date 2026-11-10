@@ -45,7 +45,6 @@ pub fn initial_sections(engine: &str) -> Value {
                 ]),
             )]),
         ),
-        ("config", map(vec![("use_distilled", text("true"))])),
         ("default_agent", text(SEED_NAME)),
         ("schema_version", text(&crate::config::CURRENT.to_string())),
     ]))

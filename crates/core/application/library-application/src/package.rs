@@ -132,9 +132,10 @@ impl Library {
         self.run(flags, |p| p.package(request))
     }
 
-    /// RED stub.
-    pub fn set_output_dir(&self, flags: &Flags, _dir: &str) -> Outcome<String> {
-        self.run(flags, |_| Ok(String::new()))
+    /// `init`'s answer: where a session's outputs go, written to the
+    /// project's config as `output.dir` (rulings 89, 106). The path written.
+    pub fn set_output_dir(&self, flags: &Flags, dir: &str) -> Outcome<String> {
+        self.run(flags, |p| p.set_output_dir(dir))
     }
 
     /// `manage statusline install|uninstall`: whether ctxloom manages the
@@ -386,6 +387,19 @@ impl Project {
                 })
             })
             .collect()
+    }
+
+    fn set_output_dir(&mut self, dir: &str) -> Result<String, AppError> {
+        self.require_project()?;
+        self.update_config(Scope::Project, "output", |held| {
+            let mut entries = match held {
+                Some(Value::Map(entries)) => entries,
+                _ => Vec::new(),
+            };
+            entries.retain(|(key, _)| key != "dir");
+            entries.push(("dir".to_string(), Value::Scalar(dir.to_string())));
+            Ok(Some(Value::Map(entries)))
+        })
     }
 
     fn set_statusline(&mut self, enabled: bool) -> Result<String, AppError> {

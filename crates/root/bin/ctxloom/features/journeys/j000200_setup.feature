@@ -49,7 +49,10 @@ Feature: Setting up ctxloom on a project
       """
     Then her assistant receives her company repository's content
 
-  # On a terminal, setup interviews her. The interview runs in a session that
+  # On a terminal, a first init asks one thing itself before the interview:
+  # where her sessions' outputs go, suggesting `ctxloom/` in the project and
+  # saying it is not gitignored, so what they leave there can be committed
+  # (owner rulings 89, 106). Then setup interviews her. The interview runs in a session that
   # cannot see what it has just configured, so ctxloom offers to restart her
   # into the configured one. The offer is [Y/n]: a bare Enter accepts it; n or no
   # declines it, and so does a closed input (no one answered).
@@ -61,12 +64,14 @@ Feature: Setting up ctxloom on a project
       """
       ctxloom init --remote https://github.com/alice/ctxloom-content
       """
+    And she keeps the output directory init suggests
     And in the setup interview she adds her company's repository as a remote
     And the setup interview composes her agents' profiles from the sources' fragments
     And ctxloom offers to restart into her newly configured session
     And Alice accepts the restart
     Then her restarted assistant receives her personal repository's content
     And her restarted assistant receives her company repository's content
+    And the output contains "Session outputs go to ctxloom/ (not gitignored: they can be committed)"
 
   # With a real assistant: it can use what it was handed.
   @live @pending

@@ -68,9 +68,17 @@ impl Terminal for StdTerminal {
         }
     }
 
-    // RED stub.
-    fn ask(&self, _: &str, _: &str) -> Option<String> {
-        None
+    // Reads the process's own standard input (see above).
+    #[cfg_attr(test, mutants::skip)]
+    fn ask(&self, question: &str, suggested: &str) -> Option<String> {
+        let mut err = std::io::stderr();
+        let _ = write!(err, "{question} [{suggested}] ");
+        let _ = err.flush();
+        let mut line = String::new();
+        match std::io::stdin().lock().read_line(&mut line) {
+            Ok(0) | Err(_) => None,
+            Ok(_) => Some(line),
+        }
     }
 }
 

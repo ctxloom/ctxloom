@@ -19,8 +19,11 @@ use crate::{LibError, ProcessEnv, Wiring};
 /// The nouns these commands own.
 pub(crate) const NOUNS: [&str; 4] = ["auth", "clean", "doctor", "init"];
 
-/// `config create`, as init's scaffold of a new project.
-struct ConfigCreate(Library);
+/// `config create`, as init's scaffold of a new project, and the output
+/// directory init then writes into it. The environment builds a library over
+/// the project as it is when the directory is written: the one built for the
+/// scaffold saw no project yet.
+struct ConfigCreate(Library, Arc<process_env::EnvSnapshot>);
 
 impl Create for ConfigCreate {
     fn create(&self) -> Result<(), Failure> {
@@ -31,9 +34,14 @@ impl Create for ConfigCreate {
             .map_err(|e| Box::new(e) as Failure)
     }
 
-    // RED stub.
-    fn set_output_dir(&self, _: &str) -> Result<(), Failure> {
-        Ok(())
+    fn set_output_dir(&self, dir: &str) -> Result<(), Failure> {
+        let wiring = Wiring::new(Arc::clone(&self.1)).map_err(|e| Box::new(e) as Failure)?;
+        let library = crate::library::build(&wiring, None).map_err(|e| Box::new(e) as Failure)?;
+        library
+            .set_output_dir(&library_application::Flags::default(), dir)
+            .result
+            .map(|_| ())
+            .map_err(|e| Box::new(e) as Failure)
     }
 }
 
@@ -66,7 +74,10 @@ impl SetupUseCases {
             Arc::new(ScaffoldFs::new(Arc::clone(&fs), &around.cwd)),
             user,
             deps,
-            Box::new(ConfigCreate(crate::library::build(wiring, None)?)),
+            Box::new(ConfigCreate(
+                crate::library::build(wiring, None)?,
+                Arc::clone(wiring.env()),
+            )),
         );
         Ok(SetupUseCases {
             auth: Auth::new(Arc::new(ProcessEnv::from_snapshot(wiring.env()))),

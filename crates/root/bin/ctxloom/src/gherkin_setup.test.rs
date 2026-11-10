@@ -142,6 +142,9 @@ pub(super) struct State {
     init: String,
     /// The commands the interview does (the assistant's part), in order.
     interview: Vec<String>,
+    /// What she types before the restart's answer: her answers to init's
+    /// own questions, in order.
+    answers: String,
 }
 
 /// The assistant stub of scenario 2: as j000100's, but the interview (a
@@ -210,6 +213,13 @@ fn interview_composes(w: &mut World) {
     w.setup.interview.push("deps pull".to_string());
 }
 
+/// Init's question before the interview (owner rulings 89, 106): a bare
+/// Enter takes the suggested `ctxloom/`.
+#[when("she keeps the output directory init suggests")]
+fn keeps_output_dir(w: &mut World) {
+    w.setup.answers.push('\n');
+}
+
 /// Said by the run that follows; nothing to stage.
 #[when("ctxloom offers to restart into her newly configured session")]
 fn offers_restart(_: &mut World) {}
@@ -234,7 +244,8 @@ fn accepts_restart(w: &mut World) {
     w.common.set_env("CTXLOOM_TEST_TERMINAL", "1".to_string());
     w.before_run();
     let init = w.setup.init.clone();
-    w.common_mut().run_lines(&init, "y\n");
+    let typed = format!("{}y\n", w.setup.answers);
+    w.common_mut().run_lines(&init, &typed);
 }
 
 #[then("her restarted assistant receives her personal repository's content")]

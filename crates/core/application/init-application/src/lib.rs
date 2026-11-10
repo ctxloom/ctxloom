@@ -54,11 +54,13 @@ pub trait Create {
     fn set_output_dir(&self, dir: &str) -> Result<(), Failure>;
 }
 
-/// RED stub.
-pub const OUTPUT_DIR_SUGGESTED: &str = "";
+/// The output directory a first init suggests: `output.dir`'s default (owner
+/// ruling 106), inside the project.
+pub const OUTPUT_DIR_SUGGESTED: &str = "ctxloom/";
 
-/// RED stub.
-pub const OUTPUT_DIR_QUESTION: &str = "";
+/// What a first init asks at the terminal (rulings 89, 106), and says while
+/// asking: the directory is not gitignored, so outputs can be committed.
+pub const OUTPUT_DIR_QUESTION: &str = "Where should your sessions' outputs (plans, reports) go? A path relative to the project, or absolute. It is not gitignored, so what they leave there can be committed.";
 
 /// What `init` is asked.
 #[derive(Clone, Debug, Default)]
@@ -166,9 +168,24 @@ impl Init {
 }
 
 impl Init {
-    /// RED stub.
-    pub fn choose_output_dir(&self, _terminal: &dyn Terminal) -> Result<Option<String>, InitError> {
-        Ok(None)
+    /// A first init's question at the terminal: where a session's outputs
+    /// go (rulings 89, 106). The answer, trimmed, is written as the project's
+    /// `output.dir`; a bare Enter or a closed input takes
+    /// [`OUTPUT_DIR_SUGGESTED`]. Off a terminal nothing is asked and nothing
+    /// written: the directory chosen, if one was.
+    pub fn choose_output_dir(&self, terminal: &dyn Terminal) -> Result<Option<String>, InitError> {
+        if !terminal.is_terminal() {
+            return Ok(None);
+        }
+        let typed = terminal.ask(OUTPUT_DIR_QUESTION, OUTPUT_DIR_SUGGESTED);
+        let dir = match typed.as_deref().map(str::trim) {
+            Some(answer) if !answer.is_empty() => answer.to_string(),
+            _ => OUTPUT_DIR_SUGGESTED.to_string(),
+        };
+        self.create
+            .set_output_dir(&dir)
+            .map_err(InitError::Create)?;
+        Ok(Some(dir))
     }
 }
 

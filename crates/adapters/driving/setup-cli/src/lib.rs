@@ -209,6 +209,19 @@ fn init(
     } else {
         writeln!(out, "Created ctxloom directory: {}", done.app_dir).map_err(output)?;
         writeln!(out, "Pulled {} dependencies", done.pulled).map_err(output)?;
+        // A first init at a terminal asks where a session's outputs go
+        // (rulings 89, 106); off one, the default stands unasked.
+        if let Some(dir) = uses
+            .init
+            .choose_output_dir(uses.terminal)
+            .map_err(|e| failure(e, 1))?
+        {
+            writeln!(
+                out,
+                "Session outputs go to {dir} (not gitignored: they can be committed)"
+            )
+            .map_err(output)?;
+        }
     }
     for remote in &done.remotes {
         writeln!(out, "Added remote \"{}\": {}", remote.name, remote.url).map_err(output)?;

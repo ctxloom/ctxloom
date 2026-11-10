@@ -185,9 +185,10 @@ fn chosen_engine(plan: &library_application::DryRun, request: &OneShot) -> Strin
     }
 }
 
-/// How the plan says `engine` is run, in the launch ports' terms. The plan
-/// resolved the settings of ITS engine: another engine, forced by the caller,
-/// runs on its own built-ins.
+/// How the plan says `engine` is run, in the launch ports' terms. The plan is
+/// asked for the engine the caller forces (`run --engine`, ruling 57), so it
+/// resolved that engine's settings; a plan for another engine (a caller that
+/// did not ask it) runs on the forced engine's built-ins.
 fn settings_of(plan: &library_application::DryRun, engine: &str) -> run_ports::EngineSettings {
     if plan.engine != engine {
         return run_ports::EngineSettings::default();

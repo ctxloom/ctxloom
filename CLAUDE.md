@@ -315,8 +315,8 @@ single `--settings` (ruling 51; verified with a fake program only, not a live
 engine's `Credentials` with the source: a child is satisfied by the source's
 `env` alone, the primary may share the source's `file` (or, for the built-in
 source, `~/.claude/.credentials.json`), `none` and `login` ask a child for no
-variable. Settings apply only to the engine the plan resolved (`run --engine`
-forcing another runs on its built-ins). A launch whose agent `runtime` weakens
+variable. Settings apply to the engine the plan resolved, and `run --engine
+X` asks the plan for X (its engine block drives it). A launch whose agent `runtime` weakens
 the engine's (or swaps container ownerships) says so as a notice. `init`'s
 token guide asks the configured source.
 
@@ -665,6 +665,21 @@ An agent's `engine`, `model`, `effort` and `permissions` are its own, and
 `library::config::engines::effective` answers each value with the layer that
 said it (agent > engine > project > default; a list replaces; an agent's
 runtime is used exactly and `Override::Replaced` says what it weakened).
+Per-engine blocks (owner ruling 57): `agents.<n>.engine` is the agent's
+default engine and `agents.<n>.engines.<e>: {model, effort, permissions}`
+holds what is in engine `e`'s vocabulary (`permissions` is the block that was
+`agents.<n>.permissions.<e>`, `{mode: ...}`); `runtime`, `env`, `profiles` and
+the posture's engine-neutral keys (`permissions.approver`, ...) stay on the
+agent. Hard migrate: flat `agents.<n>.model`/`effort` and an engine-keyed
+`agents.<n>.permissions.<e>` are unknown keys. `effective_on(config, agent,
+X)` is `run --engine X`: the agent's block for X, else X's defaults (no flag),
+its runtime and env kept, X's engine block for command/home/auth.
+`agent create|edit --model/--effort/--permissions` write the block of
+`--engine` when given, else of the agent's engine (else the default engine).
+`engine show X` lists the agents bound to X and those with a block for X; a
+dry run's JSON carries `settings` (each value with its source). The listing's
+`permissions` still shows the old shape (neutral keys plus `<engine>: {mode}`
+per block), a view only.
 `engines.<e>.command`, `auth.file` and `session_home: host` in a project
 layer are taken out with a warning (`strip_project_only`, ruling 46).
 `auth status` and doctor read the effective source (`auth-application`; any

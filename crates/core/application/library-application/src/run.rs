@@ -67,6 +67,17 @@ struct Selection {
     tags: Vec<String>,
 }
 
+/// The engine a launch is on, the agent's model, effort and runtime for it,
+/// how the engine is run, and the agent's settings with their sources.
+struct Launch {
+    engine: String,
+    model: String,
+    effort: String,
+    runtime: Option<String>,
+    drive: Drive,
+    settings: Option<crate::AgentSettings>,
+}
+
 impl Project {
     /// The workspace and runtime a launch settles on: the flag or the
     /// workspace default, else none; for the runtime the agent's own, else
@@ -187,6 +198,63 @@ impl Project {
         package
     }
 
+    /// The engine a launch is on and how, with or without an agent.
+    fn launch_of(
+        &mut self,
+        request: &RunRequest,
+        agent: Option<&Agent>,
+    ) -> Result<Launch, AppError> {
+        // An agent's engine, model and effort are its own; a launch with no
+        // agent takes the default engine and passes no model or effort.
+        // `--engine` runs the agent on that engine, with its block for it
+        // (owner ruling 57); its runtime and env are kept.
+        match agent {
+            Some(agent) => {
+                let effective = if request.engine.is_empty() {
+                    self.effective_of(agent)?
+                } else {
+                    engines::effective_on(&self.config.value, &agent.name, &request.engine)
+                        .map_err(engine_error)?
+                };
+                // The isolation rule: an agent's runtime stands exactly, and a
+                // launch it makes less contained than the lower layers would
+                // have is never silent.
+                if let Some(notice) = runtime_notice(&effective) {
+                    self.notices.push(notice);
+                }
+                let drive = Drive::from(&effective);
+                let settings = crate::engine_noun::settings_of(&effective);
+                Ok(Launch {
+                    engine: effective.engine.value,
+                    model: effective.model.map(|m| m.value).unwrap_or_default(),
+                    effort: effective.effort.map(|e| e.value).unwrap_or_default(),
+                    runtime: Some(effective.runtime.value),
+                    drive,
+                    settings: Some(settings),
+                })
+            }
+            None => {
+                // A launch with no agent: the engine asked for, else the
+                // default, on its own block.
+                let engine = if request.engine.is_empty() {
+                    engines::DEFAULT_ENGINE.to_string()
+                } else {
+                    request.engine.clone()
+                };
+                let drive =
+                    engines::engine_drive(&self.config.value, &engine).map_err(engine_error)?;
+                Ok(Launch {
+                    engine,
+                    model: String::new(),
+                    effort: String::new(),
+                    runtime: None,
+                    drive,
+                    settings: None,
+                })
+            }
+        }
+    }
+
     fn dry_run(&mut self, request: &RunRequest) -> Result<Previewed, AppError> {
         if !request.agent.is_empty() {
             let other = if !request.profile.is_empty() {
@@ -221,41 +289,14 @@ impl Project {
         let selection = self.selection(request)?;
         let mut findings = Vec::new();
         let package = self.compose(&selection, &mut findings)?;
-        // An agent's engine, model and effort are its own; a launch with no
-        // agent takes the default engine and passes no model or effort.
-        let (mut engine, model, effort, runtime, mut drive) = match selection.agent.as_ref() {
-            Some(agent) => {
-                let effective = self.effective_of(agent)?;
-                // The isolation rule: an agent's runtime stands exactly, and a
-                // launch it makes less contained than the lower layers would
-                // have is never silent.
-                if let Some(notice) = runtime_notice(&effective) {
-                    self.notices.push(notice);
-                }
-                let drive = Drive::from(&effective);
-                (
-                    effective.engine.value,
-                    effective.model.map(|m| m.value).unwrap_or_default(),
-                    effective.effort.map(|e| e.value).unwrap_or_default(),
-                    Some(effective.runtime.value),
-                    drive,
-                )
-            }
-            None => (
-                engines::DEFAULT_ENGINE.to_string(),
-                String::new(),
-                String::new(),
-                None,
-                engines::engine_drive(&self.config.value, engines::DEFAULT_ENGINE)
-                    .map_err(engine_error)?,
-            ),
-        };
-        // An engine asked for runs on its own block, never on how the agent's
-        // engine is driven (its command, home, credential or passthrough).
-        if !request.engine.is_empty() && request.engine != engine {
-            engine = request.engine.clone();
-            drive = engines::engine_drive(&self.config.value, &engine).map_err(engine_error)?;
-        }
+        let Launch {
+            engine,
+            model,
+            effort,
+            runtime,
+            drive,
+            settings,
+        } = self.launch_of(request, selection.agent.as_ref())?;
         let degraded = self.flags.degraded;
         for finding in &findings {
             self.notices.push(Notice::finding(finding));
@@ -290,7 +331,7 @@ impl Project {
             model,
             effort,
             drive,
-            settings: None,
+            settings,
         };
         Ok(Previewed { plan, fatal })
     }

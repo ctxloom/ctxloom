@@ -1149,7 +1149,7 @@ fn test_a_dry_run_carries_the_agent_s_model_and_effort() {
 // kept; X's engine block drives it.
 #[test]
 fn test_a_dry_run_on_another_engine_takes_the_agent_s_block_for_it() {
-    let layers = ["schema_version: 9\nengines:\n  opencode:\n    command: /opt/opencode\nagents:\n  dev:\n    engine: claude-code\n    runtime: container-rootless\n    env: [ALPHA]\n    engines:\n      claude-code:\n        model: haiku\n        effort: low\n      opencode:\n        model: opencode/big-pickle\n  lone:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: haiku\n"];
+    let layers = ["schema_version: 9\nengines:\n  opencode:\n    auth: none\nagents:\n  dev:\n    engine: claude-code\n    runtime: container-rootless\n    env: [ALPHA]\n    engines:\n      claude-code:\n        model: haiku\n        effort: low\n      opencode:\n        model: opencode/big-pickle\n  lone:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: haiku\n"];
     let library = with(&[], &layers).library();
     let plan = |agent: &str, engine: &str| {
         ok(library.dry_run(
@@ -1172,7 +1172,12 @@ fn test_a_dry_run_on_another_engine_takes_the_agent_s_block_for_it() {
         ("opencode", "opencode/big-pickle", "")
     );
     assert_eq!(other.axes.1, "container-rootless", "the runtime is kept");
-    assert_eq!(other.drive.command, "/opt/opencode");
+    assert_eq!(other.drive.command, "opencode");
+    assert_eq!(
+        other.drive.auth.value,
+        library::config::engines::AuthSource::None,
+        "the engine's own block drives it"
+    );
     assert_eq!(other.drive.env, ["ALPHA"], "the agent's env is kept");
     // the dry run reports each value with the layer that said it
     let settings = other.settings.expect("an agent's run reports its settings");

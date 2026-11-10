@@ -131,9 +131,17 @@ impl Project {
     fn engine_row(&self, engine: &str) -> Result<EngineRow, AppError> {
         let shared = engines::engine_settings(&self.config.value, engine).map_err(engine_error)?;
         let mut agents = Vec::new();
+        // An engine's agents: those bound to it, and those with a block for
+        // it (they run on it under `run --engine`, ruling 57), each with the
+        // values of its block for THIS engine.
         for agent in self.config.agents() {
-            let effective = self.effective_of(&agent)?;
-            if effective.engine.value == engine {
+            let bound = self.effective_of(&agent)?.engine.value == engine;
+            let has_block = engines::agent_blocks(&self.config.value, &agent.name)
+                .iter()
+                .any(|e| e == engine);
+            if bound || has_block {
+                let effective = engines::effective_on(&self.config.value, &agent.name, engine)
+                    .map_err(engine_error)?;
                 agents.push(EngineAgent {
                     name: agent.name,
                     settings: settings_of(&effective),

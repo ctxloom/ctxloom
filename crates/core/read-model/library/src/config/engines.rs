@@ -274,20 +274,51 @@ pub struct Effective {
     pub auth: Sourced<AuthSource>,
 }
 
-/// The settings agent `agent` runs with, over the merged config `config`.
+/// The settings agent `agent` runs with on its own engine, over the merged
+/// config `config`.
 pub fn effective(config: &Value, agent: &str) -> Result<Effective, EngineError> {
+    resolve(config, agent, None)
+}
+
+/// The settings agent `agent` runs with on `engine` (`run --engine`, owner
+/// ruling 57): its block for that engine (else the engine's defaults: no
+/// model, no effort, the engine's permission default), its own runtime and
+/// env (engine-neutral), and that engine's block for the rest.
+pub fn effective_on(config: &Value, agent: &str, engine: &str) -> Result<Effective, EngineError> {
+    resolve(config, agent, Some(engine))
+}
+
+/// The agent's own block for `engine` (`agents.<agent>.engines.<engine>`).
+fn agent_block<'a>(binding: &'a Value, engine: &str) -> Option<&'a Value> {
+    binding.get("engines").and_then(|blocks| blocks.get(engine))
+}
+
+/// The engines agent `agent` has a block for, in the config's order.
+pub fn agent_blocks(config: &Value, agent: &str) -> Vec<String> {
+    match config
+        .get("agents")
+        .and_then(|agents| agents.get(agent))
+        .and_then(|binding| binding.get("engines"))
+    {
+        Some(Value::Map(blocks)) => blocks.iter().map(|(name, _)| name.clone()).collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn resolve(config: &Value, agent: &str, on: Option<&str>) -> Result<Effective, EngineError> {
     let binding = config
         .get("agents")
         .and_then(|agents| agents.get(agent))
         .ok_or_else(|| EngineError::AgentNotFound {
             name: agent.to_string(),
         })?;
-    let engine = match text_of(binding, "engine") {
-        Some(name) => Sourced {
-            value: name,
-            source: Source::Agent,
-        },
-        None => default(DEFAULT_ENGINE.to_string()),
+    // An engine asked for is the run's (said as the agent's); the default
+    // engine asked for by an agent that names none is still the default.
+    let engine = match (on, text_of(binding, "engine")) {
+        (Some(asked), None) if asked == DEFAULT_ENGINE => default(asked.to_string()),
+        (Some(asked), _) => agent_said(asked.to_string()),
+        (None, Some(name)) => agent_said(name),
+        (None, None) => default(DEFAULT_ENGINE.to_string()),
     };
     if !ENGINES.contains(&engine.value.as_str()) {
         return Err(EngineError::UnknownEngine {
@@ -299,9 +330,10 @@ pub fn effective(config: &Value, agent: &str) -> Result<Effective, EngineError> 
     let block = config.get("engines").and_then(|engines| engines.get(&name));
     let from_block = |key: &str| block.and_then(|b| text_of(b, key));
 
-    let permissions = match binding
-        .get("permissions")
-        .and_then(|p| p.get(&name))
+    let own = agent_block(binding, &name);
+    let from_own = |key: &str| own.and_then(|b| text_of(b, key)).map(agent_said);
+    let permissions = match own
+        .and_then(|b| b.get("permissions"))
         .and_then(|p| text_of(p, "mode"))
     {
         Some(mode) => Sourced {
@@ -332,8 +364,8 @@ pub fn effective(config: &Value, agent: &str) -> Result<Effective, EngineError> 
 
     Ok(Effective {
         agent: agent.to_string(),
-        model: text_of(binding, "model").map(agent_said),
-        effort: text_of(binding, "effort").map(agent_said),
+        model: from_own("model"),
+        effort: from_own("effort"),
         permissions,
         runtime,
         runtime_override,
@@ -355,14 +387,6 @@ pub fn effective(config: &Value, agent: &str) -> Result<Effective, EngineError> 
         auth,
         engine,
     })
-}
-
-/// The settings agent `agent` runs with on `engine` (`run --engine`, owner
-/// ruling 57): its block for that engine, its own runtime and env, and the
-/// engine's block for the rest.
-pub fn effective_on(config: &Value, agent: &str, engine: &str) -> Result<Effective, EngineError> {
-    let _ = engine;
-    effective(config, agent)
 }
 
 /// What a launch of an engine is told of how to run it: the engine block's

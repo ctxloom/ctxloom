@@ -63,6 +63,26 @@ fn put(map: &mut Value, key: &str, value: Option<Value>) {
     }
 }
 
+/// `key` of the agent's block for `engine` (`engines.<engine>.<key>`, owner
+/// ruling 57) set to `value`, or taken out where `value` is none; a block left
+/// empty is taken out, and so is an `engines` left empty.
+fn put_in_block(entry: &mut Value, engine: &str, key: &str, value: Option<Value>) {
+    let mut blocks = match entry.get("engines") {
+        Some(map @ Value::Map(_)) => map.clone(),
+        _ => Value::Map(Vec::new()),
+    };
+    let mut block = match blocks.get(engine) {
+        Some(map @ Value::Map(_)) => map.clone(),
+        _ => Value::Map(Vec::new()),
+    };
+    put(&mut block, key, value);
+    let empty = |v: &Value| matches!(v, Value::Map(m) if m.is_empty());
+    let keep = (!empty(&block)).then_some(block);
+    put(&mut blocks, engine, keep);
+    let keep = (!empty(&blocks)).then_some(blocks);
+    put(entry, "engines", keep);
+}
+
 fn some_text(value: &str) -> Option<Value> {
     (!value.is_empty()).then(|| text(value))
 }
@@ -329,11 +349,31 @@ impl Project {
         if let Some(engine) = &request.engine {
             put(&mut entry, "engine", some_text(engine));
         }
+        // Model and effort are in the block of the engine named, else of
+        // the engine the agent binds, else of the default one (ruling 57).
+        let runs_on = request
+            .engine
+            .clone()
+            .filter(|e| !e.is_empty())
+            .or_else(|| {
+                entry
+                    .get("engine")
+                    .and_then(Value::as_str)
+                    .filter(|e| !e.is_empty())
+                    .map(ToString::to_string)
+            })
+            .or_else(|| {
+                self.config
+                    .agent(name)
+                    .map(|a| a.engine)
+                    .filter(|e| !e.is_empty())
+            })
+            .unwrap_or_else(|| config_engines::DEFAULT_ENGINE.to_string());
         if let Some(model) = &request.model {
-            put(&mut entry, "model", some_text(model));
+            put_in_block(&mut entry, &runs_on, "model", some_text(model));
         }
         if let Some(effort) = &request.effort {
-            put(&mut entry, "effort", some_text(effort));
+            put_in_block(&mut entry, &runs_on, "effort", some_text(effort));
         }
         if let Some(profiles) = &request.profiles {
             let list = Value::Seq(
@@ -378,8 +418,8 @@ impl Project {
         Ok(entry)
     }
 
-    /// The mode written into (or taken out of) the block of the engine the
-    /// agent binds.
+    /// The mode written into (or taken out of) the permission block of the
+    /// engine named, else of the engine the agent binds.
     fn set_mode(&self, name: &str, request: &AgentRequest, entry: &mut Value, mode: &str) {
         let label = request
             .engine
@@ -395,25 +435,18 @@ impl Project {
         let Some(backend) = engines::known(&label).then_some(label) else {
             return;
         };
-        let mut permissions = entry
-            .get("permissions")
-            .cloned()
-            .unwrap_or(Value::Map(Vec::new()));
-        if !matches!(permissions, Value::Map(_)) {
-            permissions = Value::Map(Vec::new());
-        }
-        let mut block = permissions
-            .get(&backend)
-            .cloned()
-            .unwrap_or(Value::Map(Vec::new()));
-        if !matches!(block, Value::Map(_)) {
-            block = Value::Map(Vec::new());
-        }
+        // The permission block of the engine's own block (ruling 57).
+        let mut block = match entry
+            .get("engines")
+            .and_then(|blocks| blocks.get(&backend))
+            .and_then(|b| b.get("permissions"))
+        {
+            Some(map @ Value::Map(_)) => map.clone(),
+            _ => Value::Map(Vec::new()),
+        };
         put(&mut block, "mode", some_text(mode));
         let empty = matches!(&block, Value::Map(m) if m.is_empty());
-        put(&mut permissions, &backend, (!empty).then_some(block));
-        let none_left = matches!(&permissions, Value::Map(m) if m.is_empty());
-        put(entry, "permissions", (!none_left).then_some(permissions));
+        put_in_block(entry, &backend, "permissions", (!empty).then_some(block));
     }
 
     /// A record that cannot launch as written is refused.

@@ -394,25 +394,37 @@ fn root() -> Node {
     }
 }
 
-/// An `agents.<name>` binding.
+/// An agent's settings for one engine (`agents.<name>.engines.<engine>`,
+/// owner ruling 57): its model, effort and permission block (`mode`, and
+/// whatever else the engine's block holds), in that engine's vocabulary.
+fn agent_engine_block() -> Node {
+    object(vec![
+        ("model", non_empty()),
+        ("effort", non_empty()),
+        (
+            "permissions",
+            Node::Object {
+                props: Vec::new(),
+                extra: Extra::Any,
+            },
+        ),
+    ])
+}
+
+/// An `agents.<name>` binding. Its engine-neutral settings (profiles,
+/// runtime, env, the posture's approver, ...) are its own; what is in an
+/// engine's vocabulary is per engine, under `engines` (ruling 57).
 fn binding() -> Node {
     Node::Object {
         props: vec![
             ("engine", choice(ENGINES)),
-            ("model", non_empty()),
-            ("effort", non_empty()),
+            (
+                "engines",
+                object(ENGINES.iter().map(|e| (*e, agent_engine_block())).collect()),
+            ),
             ("profiles", list(non_empty())),
             ("runtime", choice(RUNTIMES)),
-            (
-                "permissions",
-                Node::Object {
-                    props: permission_props(),
-                    extra: Extra::Each(Box::new(Node::Object {
-                        props: Vec::new(),
-                        extra: Extra::Any,
-                    })),
-                },
-            ),
+            ("permissions", object(permission_props())),
             (
                 "may_delegate",
                 Node::Array {

@@ -362,14 +362,21 @@ impl Config {
 impl Agent {
     /// The binding `name` as its mapping declares it.
     pub fn of(name: &str, body: &Value) -> Agent {
+        let engine = text_at(body, "engine");
+        let runs_on = if engine.is_empty() {
+            library::config::engines::DEFAULT_ENGINE
+        } else {
+            engine.as_str()
+        };
+        let own = body.get("engines").and_then(|blocks| blocks.get(runs_on));
         Agent {
             name: name.to_string(),
-            engine: text_at(body, "engine"),
-            model: text_at(body, "model"),
-            effort: text_at(body, "effort"),
+            model: own.map(|b| text_at(b, "model")).unwrap_or_default(),
+            effort: own.map(|b| text_at(b, "effort")).unwrap_or_default(),
+            engine,
             profiles: list_at(body, "profiles"),
             runtime: text_at(body, "runtime"),
-            permissions: body.get("permissions").cloned().unwrap_or(Value::Null),
+            permissions: permissions_view(body),
             driving: text_at(body, "driving"),
             env: list_at(body, "env"),
         }
@@ -389,6 +396,28 @@ impl Agent {
             env: self.env.clone(),
             permissions_line: crate::json::permissions_line(&self.permissions),
         }
+    }
+}
+
+/// An agent's permissions as the listing shows them: the engine-neutral
+/// posture (`permissions`), and each engine block's permission block under
+/// the engine's name (`agents.<n>.engines.<e>.permissions`, ruling 57), as
+/// the binding held them before the blocks.
+fn permissions_view(body: &Value) -> Value {
+    let mut view = match body.get("permissions") {
+        Some(neutral @ Value::Map(_)) => neutral.clone(),
+        _ => Value::Map(Vec::new()),
+    };
+    if let Some(Value::Map(blocks)) = body.get("engines") {
+        for (engine, block) in blocks {
+            if let Some(permissions) = block.get("permissions") {
+                *view.entry(engine) = permissions.clone();
+            }
+        }
+    }
+    match &view {
+        Value::Map(entries) if entries.is_empty() => Value::Null,
+        _ => view,
     }
 }
 

@@ -321,7 +321,7 @@ impl SessionAggregate {
             input: fact.input,
             response_bytes: fact.response_bytes,
             response_sha256: fact.response_sha256.clone(),
-            status: None,
+            status: fact.status,
         }))
     }
 

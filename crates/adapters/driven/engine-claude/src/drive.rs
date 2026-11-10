@@ -233,7 +233,8 @@ fn grantable(name: &str, interactive: bool) -> bool {
 
 /// The command's whole environment: `caller`'s variables on the curated
 /// allowlist, on the engine block's `env` and on the configured credential
-/// source (or all of them, with `env_host`, but never `HOME`), and
+/// source (`env_host` is that same bounded, enumerable set and never widens
+/// it: the container runtime will read the set), and
 /// `CLAUDE_CONFIG_DIR` set to the session's home, or to the user's own
 /// directory when the engine block says `session_home: host`. A child is never
 /// given the interactive-only variables nor the primary's token.
@@ -258,8 +259,7 @@ fn environment(
         grantable(name, interactive)
             && (curated.contains(&name)
                 || settings.env.iter().any(|n| n == name)
-                || credential.iter().any(|n| n == name)
-                || (settings.env_host && name != "HOME"))
+                || credential.iter().any(|n| n == name))
     };
     let mut env: BTreeMap<String, String> = request
         .env

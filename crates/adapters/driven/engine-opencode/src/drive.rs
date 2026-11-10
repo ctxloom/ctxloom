@@ -43,15 +43,15 @@ impl Engine for Opencode {
         Err(not_yet("drive_turn"))
     }
 
-    fn finish_turn(&self, _output: &TurnOutput) -> TurnOutcome {
-        TurnOutcome::Failed {
-            class: run_ports::FailureClass::EngineError,
-            detail: "not yet".to_string(),
-            native_id: None,
-        }
+    fn finish_turn(&self, output: &TurnOutput) -> TurnOutcome {
+        crate::stream::read_turn(output)
     }
 
     fn drive_interactive(&self, _request: &TurnRequest) -> Result<TurnCommand, EngineError> {
         Err(not_yet("drive_interactive"))
     }
 }
+
+#[cfg(test)]
+#[path = "drive.test.rs"]
+mod tests;

@@ -17,6 +17,7 @@
 mod codec;
 mod drive;
 mod home;
+mod stream;
 
 use surface_ports::{
     Claim, EngineSurfaces, HookCodec, Inputs, Kind, Planned, SurfaceError, SurfaceStore, Wiring,

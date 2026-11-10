@@ -73,3 +73,21 @@ fn rejections_display_their_code_and_the_samples_are_not_empty() {
     );
     assert_eq!(diagnostic_samples().len(), 12);
 }
+
+// Closeout survivor on main f5e9f713f (`RunRejection::refusals` answered with
+// `vec![]`): a refusal stands for itself, and the aggregate for its own, in
+// check order, so a caller printing "each refusal" never prints none.
+#[test]
+fn a_refusal_stands_for_itself_and_an_aggregate_for_its_refusals_in_order() {
+    use crate::RunRejection;
+    assert_eq!(RunRejection::NoPrompt.refusals(), [RunRejection::NoPrompt]);
+    let unknown = RunRejection::UnknownEngine {
+        name: "bogus".to_string(),
+        known: "fake".to_string(),
+    };
+    let aggregate = RunRejection::LaunchRefused {
+        refusals: vec![RunRejection::NoPrompt, unknown.clone()],
+        fatal_findings: 0,
+    };
+    assert_eq!(aggregate.refusals(), [RunRejection::NoPrompt, unknown]);
+}

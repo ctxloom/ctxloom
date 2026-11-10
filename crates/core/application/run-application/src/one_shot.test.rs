@@ -774,6 +774,32 @@ async fn the_engine_flag_overrides_the_plans() {
     );
 }
 
+// Closeout survivor on main f5e9f713f (`Runs::plan`'s `||` as `&&`): an
+// engine the build drives, named on the line, is planned as the line named it;
+// only an engine nobody drives is planned on the agent's own (ruling 73d).
+#[tokio::test]
+async fn a_driven_engine_named_on_the_line_is_planned_as_named() {
+    let mut rig = rig(Script::answering());
+    let request = OneShot {
+        engine: "fake".to_string(),
+        run: RunRequest {
+            engine: "fake".to_string(),
+            ..RunRequest::default()
+        },
+    };
+    rig.runs
+        .one_shot(&Flags::default(), &request)
+        .await
+        .result
+        .unwrap();
+    let asked = rig.asked.lock().unwrap().clone();
+    assert_eq!(asked.len(), 1);
+    assert_eq!(
+        asked[0].engine, "fake",
+        "the plan is asked for the engine run"
+    );
+}
+
 #[tokio::test]
 async fn a_project_that_cannot_be_told_starts_nothing() {
     let mut rig = rig(Script {

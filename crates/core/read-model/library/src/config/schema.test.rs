@@ -470,3 +470,32 @@ fn test_only_an_index_names_an_array_s_item() {
     assert!(at("0").is_some());
     assert!(at("first").is_none());
 }
+
+// ruling 52: a build without `test-support` (the one that ships) knows only
+// the real engines; a config naming a mock is refused as an unknown engine.
+#[cfg(not(feature = "test-support"))]
+#[test]
+fn test_a_plain_build_knows_only_the_real_engines() {
+    assert_eq!(ENGINES.to_vec(), ["claude-code", "opencode"]);
+    let said = texts("schema_version: 9\nagents:\n  a:\n    engine: mock\n");
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].contains("engine"), "{said:?}");
+}
+
+// Under `test-support` the mock and the mock-* test engines are known too, in
+// name order.
+#[cfg(feature = "test-support")]
+#[test]
+fn test_a_test_build_knows_the_mock_engines_too() {
+    assert_eq!(
+        ENGINES.to_vec(),
+        [
+            "claude-code",
+            "mock",
+            "mock-launch",
+            "mock-lossy",
+            "mock-noskills",
+            "opencode"
+        ]
+    );
+}

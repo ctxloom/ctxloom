@@ -322,3 +322,14 @@ fn a_refused_source_is_skipped_and_never_repeated() {
     assert!(rows.iter().all(|r| r.engine != "claude-code"));
     assert!(!format!("{rows:?}").contains("sk-ant"));
 }
+
+// An engine with no built-in variables (a test engine) is told to name one.
+#[test]
+fn a_file_only_source_of_an_engine_with_no_builtin_variable_is_told_to_name_one() {
+    let file = layer("engines:\n  mock:\n    auth:\n      file: /h/creds\n");
+    let verdicts = auth(&[]).needed(&["mock".to_string()], &file);
+    assert_eq!(
+        verdicts[0].remedy,
+        "a child agent needs an environment credential: name a variable in engines.mock.auth.env and export it"
+    );
+}

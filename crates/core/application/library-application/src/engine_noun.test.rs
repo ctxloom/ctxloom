@@ -99,7 +99,7 @@ fn test_an_agent_s_settings_are_listed_with_sources_and_a_weaker_runtime_says_so
 // for THIS engine gives (agent), else the engine's defaults (default).
 #[test]
 fn test_an_engine_lists_the_agents_with_a_block_for_it_with_that_blocks_values() {
-    let config = "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: haiku\n      opencode:\n        model: opencode/big-pickle\n        permissions:\n          mode: plan\n  plain:\n    engine: claude-code\n";
+    let config = "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: haiku\n      opencode:\n        model: opencode/big-pickle\n        permissions:\n          mode: plan\n  plain:\n    engine: claude-code\n  own:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: sonnet\n";
     let row = show(config, "opencode");
     let names: Vec<&str> = row.agents.iter().map(|a| a.name.as_str()).collect();
     assert_eq!(names, ["dev"]);

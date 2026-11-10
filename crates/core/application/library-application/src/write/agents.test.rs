@@ -713,3 +713,49 @@ fn test_an_agent_with_no_engine_writes_its_model_into_the_default_engines_block(
         .unwrap()
         .contains("    engines:\n      claude-code:\n        model: haiku\n"));
 }
+
+// An engine taken out with the model given writes the default engine's block.
+#[test]
+fn test_an_engine_taken_out_writes_the_model_into_the_default_engines_block() {
+    let (library, mem) = world_with(
+        "schema_version: 9\nagents:\n  dev:\n    engine: opencode\n    profiles: [dev]\n",
+    );
+    write(
+        &library,
+        "dev",
+        &AgentRequest {
+            engine: text(""),
+            model: text("haiku"),
+            ..AgentRequest::default()
+        },
+        true,
+    )
+    .result
+    .unwrap();
+    assert_eq!(
+        mem.config(Scope::Project).unwrap(),
+        "schema_version: 9\nagents:\n  dev:\n    engines:\n      claude-code:\n        model: haiku\n    profiles:\n      - dev\n"
+    );
+}
+
+// A mode written into a permission block keeps what else the block holds.
+#[test]
+fn test_a_mode_written_keeps_the_rest_of_the_engines_permission_block() {
+    let (library, mem) = world_with("schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        permissions:\n          mode: plan\n          other: x\n");
+    write(
+        &library,
+        "dev",
+        &AgentRequest {
+            permissions: text("acceptEdits"),
+            ..AgentRequest::default()
+        },
+        true,
+    )
+    .result
+    .unwrap();
+    let written = mem.config(Scope::Project).unwrap();
+    assert!(
+        written.contains("        permissions:\n          mode: acceptEdits\n          other: x\n"),
+        "{written}"
+    );
+}

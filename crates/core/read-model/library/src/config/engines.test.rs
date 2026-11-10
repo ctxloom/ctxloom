@@ -689,3 +689,35 @@ fn test_with_no_agent_the_default_engine_is_in_use() {
         names(&["claude-code"])
     );
 }
+
+// The engines an agent has a block for, in the order the config holds them;
+// none for an agent with no block, or whose `engines` is not a mapping.
+#[test]
+fn test_an_agent_s_blocks_are_named_in_the_config_s_order() {
+    let config = cfg("agents:\n  dev:\n    engines:\n      opencode:\n        model: m\n      claude-code:\n        model: haiku\n  bare:\n    engine: claude-code\n  odd:\n    engines: [claude-code]\n");
+    assert_eq!(
+        agent_blocks(&config, "dev"),
+        names(&["opencode", "claude-code"])
+    );
+    assert!(agent_blocks(&config, "bare").is_empty());
+    assert!(agent_blocks(&config, "odd").is_empty());
+    assert!(agent_blocks(&config, "nobody").is_empty());
+}
+
+// The engine a run asks for is said as the agent's, except the default engine
+// asked for by an agent that names none, which is still the default's.
+#[test]
+fn test_the_engine_asked_for_is_the_agent_s_unless_it_is_the_default_it_already_had() {
+    let config = cfg("agents:\n  silent:\n    profiles: [p]\n  named:\n    engine: opencode\n");
+    let on = |agent: &str, engine: &str| effective_on(&config, agent, engine).unwrap().engine;
+    assert_eq!(
+        on("silent", "claude-code"),
+        text("claude-code", Source::Default)
+    );
+    assert_eq!(on("silent", "opencode"), text("opencode", Source::Agent));
+    assert_eq!(
+        on("named", "claude-code"),
+        text("claude-code", Source::Agent)
+    );
+    assert_eq!(on("named", "opencode"), text("opencode", Source::Agent));
+}

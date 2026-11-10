@@ -213,7 +213,8 @@ fn needs(config: &angzarr_yaml::Value, wanted: &[String]) -> Vec<Need> {
 fn remedy(need: &Need) -> String {
     if need.file.is_some() {
         let named = match engines::AuthSource::builtin(&need.engine) {
-            engines::AuthSource::Credential { env, .. } if !env.is_empty() => {
+            // Every built-in source that is a credential names a variable.
+            engines::AuthSource::Credential { env, .. } => {
                 format!("one of {}", env.join(", "))
             }
             _ => "a variable".to_string(),

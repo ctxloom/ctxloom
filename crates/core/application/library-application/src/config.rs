@@ -415,10 +415,7 @@ fn permissions_view(body: &Value) -> Value {
             }
         }
     }
-    match &view {
-        Value::Map(entries) if entries.is_empty() => Value::Null,
-        _ => view,
-    }
+    view
 }
 
 /// An MCP server of a bundle, as a row.

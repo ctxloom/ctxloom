@@ -351,24 +351,17 @@ impl Project {
         }
         // Model and effort are in the block of the engine named, else of
         // the engine the agent binds, else of the default one (ruling 57).
-        let runs_on = request
-            .engine
-            .clone()
-            .filter(|e| !e.is_empty())
-            .or_else(|| {
-                entry
-                    .get("engine")
-                    .and_then(Value::as_str)
-                    .filter(|e| !e.is_empty())
-                    .map(ToString::to_string)
-            })
-            .or_else(|| {
-                self.config
-                    .agent(name)
-                    .map(|a| a.engine)
-                    .filter(|e| !e.is_empty())
-            })
-            .unwrap_or_else(|| config_engines::DEFAULT_ENGINE.to_string());
+        // An engine taken out (`--engine ''`) leaves the default one.
+        let runs_on = match request.engine.as_deref() {
+            Some(engine) if !engine.is_empty() => engine.to_string(),
+            Some(_) => config_engines::DEFAULT_ENGINE.to_string(),
+            None => self
+                .config
+                .agent(name)
+                .map(|a| a.engine)
+                .filter(|e| !e.is_empty())
+                .unwrap_or_else(|| config_engines::DEFAULT_ENGINE.to_string()),
+        };
         if let Some(model) = &request.model {
             put_in_block(&mut entry, &runs_on, "model", some_text(model));
         }

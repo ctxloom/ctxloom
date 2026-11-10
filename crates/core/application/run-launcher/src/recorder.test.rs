@@ -304,6 +304,7 @@ async fn observe_more(edge: &Arc<TestEdge>) {
             input: "{}".to_string(),
             response_bytes: 2,
             response_sha256: "00".repeat(32),
+            status: None,
         }),
         Observation::TurnEnded(sessions::RecordTurnEnded {
             prompt_id: "p2".to_string(),

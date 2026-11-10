@@ -846,7 +846,7 @@ fn event_any(page: &angzarr_embedded::v1::EventPage) -> &angzarr_embedded::Any {
 use crate::{
     AssistantTextShown, Compacted, CompactionPhase, PromptSubmitted, RecordAssistantText,
     RecordCompaction, RecordPromptSubmitted, RecordSessionEnded, RecordToolCall, RecordTurnEnded,
-    SessionEnded, ToolCalled, TurnEnded,
+    SessionEnded, ToolCallStatus, ToolCalled, TurnEnded,
 };
 
 fn prompt_fact() -> RecordPromptSubmitted {
@@ -875,6 +875,31 @@ fn tool_fact() -> RecordToolCall {
         input: r#"{"command":"echo hi"}"#.to_string(),
         response_bytes: 2,
         response_sha256: "00".repeat(32),
+        status: None,
+    }
+}
+
+// Ruling 58: an engine that says how a call ended (opencode) has it recorded;
+// one that does not (claude) leaves it unspecified.
+#[test]
+fn a_tool_call_records_how_it_ended() {
+    for status in [
+        Some(ToolCallStatus::Completed),
+        Some(ToolCallStatus::Error),
+        None,
+    ] {
+        let mut session = Session::minted();
+        let events = session.fact(
+            RecordToolCall {
+                status,
+                ..tool_fact()
+            },
+            "hook:tool:s:toolu_1",
+        );
+        let [SessionEvent::ToolCalled(called)] = events.as_slice() else {
+            panic!("one tool call, not {events:?}");
+        };
+        assert_eq!(called.status, status);
     }
 }
 
@@ -908,6 +933,7 @@ fn every_observation_records_its_event_on_a_live_session() {
             input: r#"{"command":"echo hi"}"#.to_string(),
             response_bytes: 2,
             response_sha256: "00".repeat(32),
+            status: None,
         })]
     );
     assert_eq!(

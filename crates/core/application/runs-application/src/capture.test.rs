@@ -12,7 +12,7 @@ use angzarr_embedded::v1::{command_page, CommandBook};
 use angzarr_embedded::Payload;
 use run_ports::{Arrival, Delivery, Edge, FactSink};
 use sha2::{Digest, Sha256};
-use surface_ports::{HookEvent, MessageDisplay, ToolCall};
+use surface_ports::{HookEvent, MessageDisplay, ToolCall, ToolStatus};
 
 use crate::fakes::{uuid, World, SESSION_ME, SESSION_OTHER};
 use crate::{delivery_budget, observe, Allowlist, Capture, Observation, Recorded};
@@ -54,6 +54,7 @@ fn batch(calls: &[(&str, &str, &str, &str)]) -> HookEvent {
                 tool_use_id: id.to_string(),
                 input: input.to_string(),
                 response: response.to_string(),
+                ..ToolCall::default()
             })
             .collect(),
         ..HookEvent::default()
@@ -149,6 +150,28 @@ fn a_tool_batch_is_one_observation_per_call_in_call_order() {
         })
         .collect();
     assert_eq!(tools, ["toolu_a", "toolu_b"]);
+}
+
+// Ruling 58: how a call ended reaches its fact, whatever the engine said.
+#[test]
+fn a_tool_calls_status_is_carried_to_its_fact() {
+    let cases = [
+        (
+            ToolStatus::Completed,
+            Some(sessions::ToolCallStatus::Completed),
+        ),
+        (ToolStatus::Error, Some(sessions::ToolCallStatus::Error)),
+        (ToolStatus::Unspecified, None),
+    ];
+    for (said, recorded) in cases {
+        let mut event = batch(&[("prt_a", "bash", "{}", "denied")]);
+        event.tool_calls[0].status = said;
+        let observed = observe(&event);
+        let [Observation::ToolCall(call)] = observed.as_slice() else {
+            panic!("one tool call, not {observed:?}");
+        };
+        assert_eq!(call.status, recorded, "{said:?}");
+    }
 }
 
 // Ruling B: input whole; the result as size and digest, never its body.

@@ -75,6 +75,7 @@ pub fn observe(event: &HookEvent) -> Vec<Observation> {
                     input: call.input.clone(),
                     response_bytes: call.response.len() as u64,
                     response_sha256: format!("{:x}", Sha256::digest(call.response.as_bytes())),
+                    status: None,
                 })
             })
             .collect(),

@@ -3,7 +3,7 @@
 //! stdout, encoded.
 
 use surface_ports::{
-    HookCodec, HookEvent, HookResponse, Json, MessageDisplay, SurfaceError, ToolCall,
+    HookCodec, HookEvent, HookResponse, Json, MessageDisplay, SurfaceError, ToolCall, ToolStatus,
 };
 
 use crate::NAME;
@@ -93,6 +93,8 @@ fn tool_calls(doc: &Json) -> Vec<ToolCall> {
                     tool_use_id: text(c, "tool_use_id"),
                     input: compact_of(c.get("tool_input")),
                     response: response_text(c.get("tool_response")),
+                    // Claude's hooks say nothing of how a call ended.
+                    status: ToolStatus::Unspecified,
                 })
                 .collect()
         })

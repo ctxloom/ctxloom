@@ -41,6 +41,7 @@ fn tool() -> SessionEvent {
         input: r#"{"command":"echo hi"}"#.to_string(),
         response_bytes: 3,
         response_sha256: "ab".repeat(32),
+        status: None,
     })
 }
 
@@ -101,6 +102,29 @@ fn a_message_display_stream_is_one_line_per_delta() {
         json!({"message_id": "m1", "index": 2, "final": true, "text": "and printed hi."})
     );
     assert_eq!(lines[1]["delta"]["final"], false);
+}
+
+// Ruling 58: the line says how the call ended when the engine said, and
+// carries no status when it did not (claude's).
+#[test]
+fn a_tool_line_carries_the_calls_status_when_it_is_known() {
+    for (status, said) in [
+        (sessions::ToolCallStatus::Completed, "completed"),
+        (sessions::ToolCallStatus::Error, "error"),
+    ] {
+        let SessionEvent::ToolCalled(mut called) = tool() else {
+            unreachable!()
+        };
+        called.status = Some(status);
+        let lines = parse(&projection().fold(7, 0, &SessionEvent::ToolCalled(called)));
+        assert_eq!(lines[0]["tool"]["status"], said);
+    }
+    let unknown = parse(&projection().fold(7, 0, &tool()));
+    assert!(
+        unknown[0]["tool"].get("status").is_none(),
+        "no status where the engine said none: {}",
+        unknown[0]
+    );
 }
 
 // Ruling B: the tool's input, and its result as size and digest. No body.

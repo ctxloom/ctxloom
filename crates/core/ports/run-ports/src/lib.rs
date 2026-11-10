@@ -16,6 +16,7 @@ mod launcher;
 mod login;
 mod records;
 mod serving;
+mod settings;
 mod sink;
 mod token;
 
@@ -36,6 +37,7 @@ pub use launcher::{
 pub use login::{LinkState, LoginLinks};
 pub use records::{check_rel, RecordsError, SessionRecords};
 pub use serving::{BoxFuture, HookServer, Serving};
+pub use settings::{AuthSetting, CredentialPolicy, EngineSettings, SessionHome};
 pub use sink::{Delivery, FactSink};
 pub use token::{Token, TokenError, TokenHash, TokenSource, EN_US};
 
@@ -53,6 +55,9 @@ pub fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
         engine: "claude-code".to_string(),
         level: "extreme".to_string(),
         known: "low, medium, high".to_string(),
+    }));
+    samples.push(Box::new(EngineError::NoHostHome {
+        engine: "claude-code".to_string(),
     }));
     samples.push(Box::new(RecordsError::BadPath {
         rel: "..".to_string(),

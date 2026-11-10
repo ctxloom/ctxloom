@@ -261,6 +261,7 @@ impl Project {
             axes: self.axes(request, runtime),
             model,
             effort,
+            drive: library::config::engines::Drive::default(),
         };
         Ok(Previewed { plan, fatal })
     }

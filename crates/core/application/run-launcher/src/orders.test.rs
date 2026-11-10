@@ -13,6 +13,7 @@ fn order(harp: &str) -> Order {
         interactive: false,
         model: String::new(),
         effort: String::new(),
+        settings: Default::default(),
     }
 }
 
@@ -57,9 +58,10 @@ fn an_order_renders_its_env_keys_and_never_the_bearer() {
         interactive: true,
         model: String::new(),
         effort: String::new(),
+        settings: Default::default(),
     };
     assert_eq!(
         format!("{order:?}"),
-        r#"Order { harp: "h", engine: "e", context: "c", prompt: "p", env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "/bin"}, cwd: None, interactive: true, model: "", effort: "" }"#
+        r#"Order { harp: "h", engine: "e", context: "c", prompt: "p", env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "/bin"}, cwd: None, interactive: true, model: "", effort: "", settings: EngineSettings { command: "", session_home: Session, auth: Builtin, env_host: false, env: [] } }"#
     );
 }

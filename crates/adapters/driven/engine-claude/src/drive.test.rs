@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
-use run_ports::{Engine, EngineError, PrepareRequest, TurnRequest};
+use run_ports::{
+    AuthSetting, Engine, EngineError, EngineSettings, PrepareRequest, SessionHome, TurnRequest,
+};
 
 use crate::drive::{COPY_IN_ALLOWLIST, EFFORT_LEVELS, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST};
 use crate::{Claude, CONTEXT_PROMPT_FILE};
@@ -15,6 +17,7 @@ fn request() -> TurnRequest {
         cwd: Some("/p".to_string()),
         model: String::new(),
         effort: String::new(),
+        settings: EngineSettings::default(),
     }
 }
 
@@ -397,4 +400,158 @@ fn an_effort_claude_does_not_take_is_refused_before_launch() {
             })
         );
     }
+}
+
+// ---- engines.<claude-code>.* (owner rulings 44, 46, 48) ----
+
+fn settings(of: impl FnOnce(&mut EngineSettings)) -> EngineSettings {
+    let mut settings = EngineSettings::default();
+    of(&mut settings);
+    settings
+}
+
+fn names(of: &[&str]) -> Vec<String> {
+    of.iter().map(ToString::to_string).collect()
+}
+
+#[test]
+fn the_configured_command_is_the_program_for_a_turn_and_for_the_terminal() {
+    let mut asked = request();
+    asked.settings = settings(|s| s.command = "/opt/bin/claude-nightly".to_string());
+    assert_eq!(
+        Claude::new().drive_turn(&asked).unwrap().program,
+        "/opt/bin/claude-nightly"
+    );
+    assert_eq!(
+        Claude::new().drive_interactive(&asked).unwrap().program,
+        "/opt/bin/claude-nightly"
+    );
+    // none configured is claude on the PATH, as before
+    assert_eq!(
+        Claude::new().drive_turn(&request()).unwrap().program,
+        "claude"
+    );
+    assert_eq!(
+        Claude::new().drive_interactive(&request()).unwrap().program,
+        "claude"
+    );
+}
+
+#[test]
+fn configured_env_names_are_passed_on_besides_the_curated_ones() {
+    let mut asked = request();
+    asked.settings = settings(|s| s.env = names(&["ALPHA_TOKEN"]));
+    asked.env = env(&[
+        ("PATH", "/usr/bin"),
+        ("ALPHA_TOKEN", "a"), // gitleaks:allow
+        ("BETA", "b"),
+    ]);
+    for command in [
+        Claude::new().drive_turn(&asked).unwrap(),
+        Claude::new().drive_interactive(&asked).unwrap(),
+    ] {
+        assert_eq!(command.env["ALPHA_TOKEN"], "a");
+        assert!(!command.env.contains_key("BETA"));
+    }
+}
+
+#[test]
+fn the_interactive_only_variables_are_never_a_childs_whatever_the_config_says() {
+    let mut asked = request();
+    asked.settings = settings(|s| {
+        s.env = names(&[
+            "CTXLOOM_BEARER",
+            "CTXLOOM_HOME",
+            "CTXLOOM_SESSION_HARP",
+            "ANTHROPIC_AUTH_TOKEN",
+        ]);
+        s.env_host = true;
+    });
+    asked.env = env(&[
+        ("CTXLOOM_BEARER", "run.secret"),
+        ("CTXLOOM_ENDPOINT", "e"),
+        ("CTXLOOM_RUN", "r"),
+        ("CTXLOOM_HOME", "/h"),
+        ("CTXLOOM_SESSION_HARP", "brisk-copper-moth"),
+        ("ANTHROPIC_AUTH_TOKEN", "primary-only"), // gitleaks:allow
+    ]);
+    let turn = Claude::new().drive_turn(&asked).unwrap();
+    for name in asked.env.keys() {
+        assert!(!turn.env.contains_key(name), "{name} reached a child");
+    }
+    // The terminal session is given them, as before.
+    let terminal = Claude::new().drive_interactive(&asked).unwrap();
+    for name in asked.env.keys() {
+        assert!(terminal.env.contains_key(name), "{name} missing");
+    }
+}
+
+#[test]
+fn env_host_passes_the_whole_environment_but_never_home() {
+    let mut asked = request();
+    asked.settings = settings(|s| s.env_host = true);
+    asked.env = env(&[
+        ("PATH", "/usr/bin"),
+        ("AWS_PROFILE", "dev"),
+        ("HOME", "/home/alice"),
+    ]);
+    for command in [
+        Claude::new().drive_turn(&asked).unwrap(),
+        Claude::new().drive_interactive(&asked).unwrap(),
+    ] {
+        assert_eq!(command.env["AWS_PROFILE"], "dev");
+        assert!(!command.env.contains_key("HOME"));
+        assert_eq!(
+            command.env["CLAUDE_CONFIG_DIR"],
+            "/p/.ctxloom/sessions/h/home"
+        );
+    }
+}
+
+#[test]
+fn the_configured_auth_variables_are_passed_to_a_child_and_to_the_primary() {
+    let mut asked = request();
+    asked.settings = settings(|s| {
+        s.auth = AuthSetting::Source {
+            env: names(&["ACME_TOKEN"]),
+            file: None,
+        }
+    });
+    asked.env = env(&[("ACME_TOKEN", "t"), ("ANTHROPIC_API_KEY", "k")]); // gitleaks:allow
+    for command in [
+        Claude::new().drive_turn(&asked).unwrap(),
+        Claude::new().drive_interactive(&asked).unwrap(),
+    ] {
+        assert_eq!(command.env["ACME_TOKEN"], "t");
+    }
+}
+
+#[test]
+fn a_host_session_home_is_the_users_own_claude_directory() {
+    let mut asked = request();
+    asked.settings = settings(|s| s.session_home = SessionHome::Host);
+    asked.env = env(&[("HOME", "/home/alice"), ("PATH", "/usr/bin")]);
+    for command in [
+        Claude::new().drive_turn(&asked).unwrap(),
+        Claude::new().drive_interactive(&asked).unwrap(),
+    ] {
+        assert_eq!(command.env["CLAUDE_CONFIG_DIR"], "/home/alice/.claude");
+        // HOME itself is still not handed over.
+        assert!(!command.env.contains_key("HOME"));
+    }
+}
+
+#[test]
+fn a_host_session_home_with_no_home_in_the_environment_is_refused() {
+    let mut asked = request();
+    asked.settings = settings(|s| s.session_home = SessionHome::Host);
+    asked.env = env(&[("PATH", "/usr/bin")]);
+    let expected = EngineError::NoHostHome {
+        engine: "claude-code".to_string(),
+    };
+    assert_eq!(Claude::new().drive_turn(&asked).unwrap_err(), expected);
+    assert_eq!(
+        Claude::new().drive_interactive(&asked).unwrap_err(),
+        expected
+    );
 }

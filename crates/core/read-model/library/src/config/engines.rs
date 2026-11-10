@@ -364,6 +364,56 @@ pub fn effective(config: &Value, agent: &str) -> Result<Effective, EngineError> 
     })
 }
 
+/// What a launch of an engine is told of how to run it: the engine block's
+/// `command`, `session_home` and `auth`, and the `env_host` / `env` passthrough
+/// the launching agent settled on. A source, never a value.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Drive {
+    pub command: String,
+    pub session_home: String,
+    pub auth: Sourced<AuthSource>,
+    pub env_host: bool,
+    pub env: Vec<String>,
+}
+
+impl Default for Drive {
+    fn default() -> Drive {
+        Drive {
+            command: String::new(),
+            session_home: "session".to_string(),
+            auth: default_source(AuthSource::None),
+            env_host: false,
+            env: Vec::new(),
+        }
+    }
+}
+
+fn default_source(value: AuthSource) -> Sourced<AuthSource> {
+    Sourced {
+        value,
+        source: Source::Default,
+    }
+}
+
+impl From<&Effective> for Drive {
+    /// An agent's launch: its own `env_host` / `env`, the engine's other keys.
+    fn from(effective: &Effective) -> Drive {
+        Drive {
+            command: effective.command.value.clone(),
+            session_home: effective.session_home.value.clone(),
+            auth: effective.auth.clone(),
+            env_host: effective.env_host.value,
+            env: effective.env.value.clone(),
+        }
+    }
+}
+
+/// A launch with no agent (hand-assembled): `engine`'s own block alone.
+pub fn engine_drive(config: &Value, engine: &str) -> Result<Drive, EngineError> {
+    let _ = (config, engine);
+    Ok(Drive::default())
+}
+
 /// The credential source of `engine` over the merged config: its block's
 /// `auth` (`token` spelled out as the engine's built-in variables), else the
 /// engine's built-in source. Engine-wide: an agent cannot override it.

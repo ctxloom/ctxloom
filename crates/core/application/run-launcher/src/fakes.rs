@@ -362,7 +362,11 @@ impl Engine for ScriptedEngine {
                 operation: "drive_turn".to_string(),
             });
         }
-        let mut command = TurnCommand::new("fake");
+        let mut command = TurnCommand::new(if request.settings.command.is_empty() {
+            "fake"
+        } else {
+            request.settings.command.as_str()
+        });
         command.args = vec![request.context_path.clone()];
         if !request.model.is_empty() {
             command.args.push(format!("--model={}", request.model));
@@ -381,7 +385,11 @@ impl Engine for ScriptedEngine {
     }
 
     fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
-        let mut command = TurnCommand::new("fake-terminal");
+        let mut command = TurnCommand::new(if request.settings.command.is_empty() {
+            "fake-terminal"
+        } else {
+            request.settings.command.as_str()
+        });
         command.args = vec![request.context_path.clone(), request.prompt.clone()];
         if !request.model.is_empty() {
             command.args.push(format!("--model={}", request.model));
@@ -517,6 +525,7 @@ pub fn order(engine: &str) -> Order {
         interactive: false,
         model: String::new(),
         effort: String::new(),
+        settings: Default::default(),
     }
 }
 

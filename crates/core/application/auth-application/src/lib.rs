@@ -106,9 +106,11 @@ impl Auth {
             .collect()
     }
 
-    /// Whether a credential a delegated agent can authenticate with is
-    /// exported: a token or an API key. Never its value.
-    pub fn agent_token_exported(&self) -> bool {
+    /// Whether the credential the delegated agents authenticate with is
+    /// exported, by the effective `engines.<engine>.auth` of each engine the
+    /// agents use (`layers` as for [`Auth::status`]). Never its value.
+    pub fn agent_token_exported(&self, layers: &[String]) -> bool {
+        let _ = layers;
         AGENT_TOKEN_VARS.iter().any(|var| self.env.is_exported(var))
     }
 

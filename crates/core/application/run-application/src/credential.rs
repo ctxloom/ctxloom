@@ -10,7 +10,7 @@
 use std::collections::BTreeMap;
 
 use library_application::Notice;
-use run_ports::{Credentials, LinkState, LoginLinks};
+use run_ports::{CredentialPolicy, LinkState, LoginLinks};
 use runs::RunRejection;
 
 /// The platforms whose login cannot be shared by a link: macOS keeps claude's
@@ -30,20 +30,20 @@ pub fn can_link(os: &str) -> bool {
 const TOKEN_FIX: &str = "run `claude setup-token`, then export CLAUDE_CODE_OAUTH_TOKEN";
 
 /// Whether the environment holds any of `names`, non-empty.
-fn holds(env: &BTreeMap<String, String>, names: &[&str]) -> bool {
+fn holds(env: &BTreeMap<String, String>, names: &[String]) -> bool {
     names
         .iter()
-        .any(|name| env.get(*name).is_some_and(|value| !value.is_empty()))
+        .any(|name| env.get(name).is_some_and(|value| !value.is_empty()))
 }
 
 /// The refusal of a child agent's run that has no environment credential, or
 /// none when its engine needs none or one is set.
 pub fn refuse_child(
     engine: &str,
-    credentials: &Credentials,
+    credentials: &CredentialPolicy,
     env: &BTreeMap<String, String>,
 ) -> Option<RunRejection> {
-    if credentials.child_env.is_empty() || holds(env, credentials.child_env) {
+    if credentials.child_env.is_empty() || holds(env, &credentials.child_env) {
         return None;
     }
     Some(RunRejection::NoCredential {
@@ -52,17 +52,27 @@ pub fn refuse_child(
     })
 }
 
+/// Where a configured login file is: `~/` is the caller's home, a relative
+/// path is under it, an absolute path is itself.
+fn resolve(home: &str, path: &str) -> String {
+    match path.strip_prefix("~/") {
+        Some(rest) => format!("{home}/{rest}"),
+        None if path.starts_with('/') => path.to_string(),
+        None => format!("{home}/{path}"),
+    }
+}
+
 /// Give the primary session of `harp` her login, where she has one and
 /// nothing else authenticates it. What it noticed and did not stop for.
 pub fn share_login(
     links: &mut dyn LoginLinks,
-    credentials: &Credentials,
+    credentials: &CredentialPolicy,
     env: &BTreeMap<String, String>,
     os: &str,
     harp: &str,
 ) -> Option<Notice> {
-    let file = credentials.login_file?;
-    if holds(env, credentials.primary_env) {
+    let file = credentials.login_file.as_deref()?;
+    if holds(env, &credentials.primary_env) {
         return None;
     }
     if !can_link(os) {
@@ -74,7 +84,10 @@ pub fn share_login(
         });
     }
     let home = env.get("HOME").filter(|home| !home.is_empty());
-    let target = home.map(|home| format!("{home}/{}/{file}", credentials.user_dir));
+    let target = home.map(|home| match &credentials.login_source {
+        Some(source) => resolve(home, source),
+        None => format!("{home}/{}/{file}", credentials.user_dir),
+    });
     let target = match target {
         Some(target) if links.present(&target) => target,
         _ => {

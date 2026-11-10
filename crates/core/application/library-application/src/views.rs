@@ -539,6 +539,11 @@ pub struct DryRun {
     /// not shown by a dry run.
     #[serde(skip)]
     pub effort: String,
+    /// How the engine is run (its block's program, session home and
+    /// credential source, the passthrough the agent settled on): handed to the
+    /// engine, not shown by a dry run.
+    #[serde(skip)]
+    pub drive: library::config::engines::Drive,
 }
 
 /// What `context assemble` answers (Go's `assemble_context` result).

@@ -508,3 +508,38 @@ fn what_a_project_may_say_is_left_alone() {
     assert_eq!(layer, cfg(text));
     assert!(stripped("agents: {}\n").0.is_empty());
 }
+
+// ---- the drive: what a launch is told of how to run the engine ----
+
+#[test]
+fn test_a_drive_of_an_agent_carries_its_engine_block_and_its_own_passthrough() {
+    let config = cfg("engines:\n  claude-code:\n    command: /x/claude\n    session_home: host\n    env_host: true\n    env: [A]\nagents:\n  dev:\n    env: [B]\n");
+    let drive = Drive::from(&effective(&config, "dev").unwrap());
+    assert_eq!(drive.command, "/x/claude");
+    assert_eq!(drive.session_home, "host");
+    assert!(drive.env_host);
+    assert_eq!(drive.env, names(&["B"]));
+}
+
+#[test]
+fn test_a_drive_of_an_engine_alone_reads_its_block() {
+    let config = cfg("engines:\n  claude-code:\n    command: /x/claude\n    session_home: host\n    auth: none\n    env_host: true\n    env: [A]\n");
+    let drive = engine_drive(&config, "claude-code").unwrap();
+    assert_eq!(drive.command, "/x/claude");
+    assert_eq!(drive.session_home, "host");
+    assert_eq!(drive.auth, sourced(AuthSource::None, Source::Engine));
+    assert!(drive.env_host);
+    assert_eq!(drive.env, names(&["A"]));
+}
+
+#[test]
+fn test_a_drive_of_an_engine_with_no_block_is_the_built_ins() {
+    let drive = engine_drive(&cfg("schema_version: 9\n"), "claude-code").unwrap();
+    assert_eq!(drive.command, "claude");
+    assert_eq!(drive.session_home, "session");
+    assert_eq!(
+        drive.auth,
+        sourced(AuthSource::builtin("claude-code"), Source::Default)
+    );
+    assert!(!drive.env_host && drive.env.is_empty());
+}

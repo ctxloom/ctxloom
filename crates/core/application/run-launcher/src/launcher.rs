@@ -349,6 +349,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             cwd: order.cwd.clone(),
             model: order.model.clone(),
             effort: order.effort.clone(),
+            settings: order.settings.clone(),
         };
         let command = if order.interactive {
             engine.drive_interactive(&request)

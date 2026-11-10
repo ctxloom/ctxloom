@@ -78,6 +78,9 @@ pub struct TurnRequest {
     /// The effort level to run at; empty names none, and the engine passes no
     /// flag.
     pub effort: String,
+    /// How the config says the engine is run (program, home, credential
+    /// source, environment passthrough).
+    pub settings: crate::settings::EngineSettings,
 }
 
 impl fmt::Debug for TurnRequest {
@@ -92,6 +95,7 @@ impl fmt::Debug for TurnRequest {
             .field("cwd", &self.cwd)
             .field("model", &self.model)
             .field("effort", &self.effort)
+            .field("settings", &self.settings)
             .finish()
     }
 }
@@ -200,6 +204,9 @@ pub enum EngineError {
         level: String,
         known: String,
     },
+    /// `session_home: host` is configured but the caller's environment names
+    /// no home to use.
+    NoHostHome { engine: String },
 }
 
 impl fmt::Display for EngineError {
@@ -213,6 +220,7 @@ impl Diagnostic for EngineError {
         match self {
             EngineError::NotYet { .. } => code!("engine-not-yet"),
             EngineError::UnknownEffort { .. } => code!("engine-unknown-effort"),
+            EngineError::NoHostHome { .. } => code!("engine-no-host-home"),
         }
     }
 
@@ -231,6 +239,7 @@ impl Diagnostic for EngineError {
                 ("level", level.as_str().into()),
                 ("known", known.as_str().into()),
             ],
+            EngineError::NoHostHome { engine } => vec![("engine", engine.as_str().into())],
         }
     }
 }

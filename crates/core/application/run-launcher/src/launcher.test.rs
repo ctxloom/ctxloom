@@ -799,3 +799,33 @@ async fn an_order_with_no_model_gives_the_engine_none() {
     let seen = rig.runner.seen.lock().unwrap();
     assert!(!seen[0].args.iter().any(|a| a.contains("model")));
 }
+
+// The settings the plan resolved (`engines.<e>.command` and the rest) are in
+// the order, and reach the engine's request for a turn and for the terminal.
+#[tokio::test]
+async fn the_orders_engine_settings_reach_the_engines_request() {
+    for interactive in [false, true] {
+        let mut asked = order("fake");
+        asked.interactive = interactive;
+        asked.settings = run_ports::EngineSettings {
+            command: "/opt/bin/claude".to_string(),
+            ..run_ports::EngineSettings::default()
+        };
+        let mut rig = rig(
+            ScriptedEngine::answering("A", None),
+            ScriptedRunner::exits(0),
+            orders_with(asked),
+        );
+        enqueued(&rig.edge, SESSION, HARP).await;
+        rig.step().await;
+        let seen = if interactive {
+            rig.runner.seen_terminal.lock().unwrap()
+        } else {
+            rig.runner.seen.lock().unwrap()
+        };
+        assert_eq!(
+            seen[0].program, "/opt/bin/claude",
+            "interactive={interactive}"
+        );
+    }
+}

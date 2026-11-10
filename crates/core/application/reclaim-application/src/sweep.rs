@@ -81,6 +81,10 @@ pub struct SweepRow {
     pub command: String,
     #[serde(skip_serializing_if = "is_zero")]
     pub bytes: u64,
+    /// The files a person wrote that the row's destroy takes (planned or
+    /// done), each relative to the session's directory (owner ruling 104).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub authored: Vec<String>,
 }
 
 pub(crate) fn is_zero(n: &u64) -> bool {
@@ -111,6 +115,7 @@ fn row(
         reason: reason.to_string(),
         command,
         bytes: 0,
+        authored: Vec::new(),
     }
 }
 

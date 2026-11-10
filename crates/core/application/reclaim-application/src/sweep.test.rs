@@ -67,6 +67,8 @@ struct Fake {
     views: Vec<View>,
     refusal: Option<Refusal>,
     asked: Vec<(String, bool)>,
+    /// Files a person wrote in every session's plan.
+    authored: Vec<String>,
     /// The scratch checkouts the sessions left, with their verdicts.
     scratch: Vec<Row>,
     /// What `worktrees` was asked: the session and whether to apply.
@@ -132,6 +134,14 @@ impl SessionService for Fake {
             class: sessions_application::Class::Machine,
             bytes: 10,
         });
+        for rel in &self.authored {
+            files.destroy.push(sessions_application::PlanItem {
+                path: String::new(),
+                rel: rel.clone(),
+                class: sessions_application::Class::Authored,
+                bytes: 1,
+            });
+        }
         files.bytes_freed = if request.yes { 10 } else { 0 };
         Ok(Removal {
             harp: request.harp,
@@ -284,6 +294,32 @@ fn a_refusal_of_the_purge_holds_the_session() {
     assert_eq!(report.rows[0].verdict, Verdict::Held);
     assert!(report.rows[0].reason.contains("retention"));
     assert!(fake.asked.iter().all(|(_, yes)| !yes));
+}
+
+// Owner ruling 104: the sweep destroys through `session remove`, so a row
+// that destroys (planned or done) names the files a person wrote in it, for
+// the same warning; a row it holds names none.
+#[test]
+fn a_purge_row_names_the_authored_files_it_destroys() {
+    for yes in [false, true] {
+        let mut fake = Fake {
+            views: vec![view("amber-quiet-heron", State::Ended, 120, false)],
+            authored: vec!["design-notes.md".to_string()],
+            ..Fake::default()
+        };
+        let report = ready(sweep(&mut fake, &request(yes))).unwrap();
+        assert_eq!(report.rows[0].authored, ["design-notes.md"], "yes={yes}");
+    }
+    let mut held = Fake {
+        views: vec![view("amber-quiet-heron", State::Ended, 120, false)],
+        authored: vec!["design-notes.md".to_string()],
+        refusal: Some(Refusal::Kept {
+            harp: "amber-quiet-heron".to_string(),
+        }),
+        ..Fake::default()
+    };
+    let report = ready(sweep(&mut held, &request(true))).unwrap();
+    assert!(report.rows[0].authored.is_empty());
 }
 
 // j001300: "The sweep removes only what it can prove is safe": on yes the

@@ -1489,6 +1489,26 @@ fn a_sweep_report_in_json_is_the_report() {
     assert_eq!(doc["counts"]["planned"], 1);
 }
 
+// Owner ruling 104: each session the sweep destroys (or plans to) that holds
+// a person's files gets the same warning `session remove` gives, naming them.
+#[test]
+fn a_sweep_warns_of_the_authored_files_each_destroy_takes() {
+    for (yes, removal) in [(false, plan(false)), (true, plan(true))] {
+        let mut fake = Fake {
+            views: vec![ended("plan-one")],
+            removal: Some(removal),
+            ..Fake::default()
+        };
+        let mut words = vec!["sweep", "--purge-older-than", "1d"];
+        if yes {
+            words.push("--yes");
+        }
+        let done = go(&mut fake, Format::Text, &words).result.unwrap();
+        let warned = authored_warning(&done).unwrap_or_else(|| panic!("yes={yes}: no warning"));
+        assert!(warned.contains("notes.md"), "{warned}");
+    }
+}
+
 #[test]
 fn a_sweep_with_yes_acts_and_leaves_no_notice() {
     let mut fake = Fake {
@@ -1501,7 +1521,7 @@ fn a_sweep_with_yes_acts_and_leaves_no_notice() {
         Format::Text,
         &["sweep", "--purge-older-than", "1d", "--yes"],
     );
-    assert!(ran.result.unwrap().notices.is_empty());
+    assert!(without_authored(ran.result.unwrap()).is_empty());
     assert!(ran.out.contains("1 done"), "{}", ran.out);
     assert_eq!(fake.remove.len(), 2);
     assert!(fake.remove[1].yes);

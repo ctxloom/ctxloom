@@ -65,13 +65,19 @@ Feature: engine — the programs ctxloom drives, and the settings they share
     Scenario: A setting the project wrote is reported with the engine as its source
       # new: the source is what makes the listing an answer
       Given an initialized ctxloom project
+      And the home already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        engines:
+          claude-code:
+            session_home: host
+        """
       And the project already has the file ".ctxloom/config.yaml":
         """
         schema_version: 9
         engines:
           claude-code:
             runtime: container-rootless
-            session_home: host
         """
       When I run "ctxloom engine list --format json"
       Then the command succeeds
@@ -93,13 +99,19 @@ Feature: engine — the programs ctxloom drives, and the settings they share
     Scenario: Each shared setting carries the layer that said it
       # new: value plus source for every key of the block
       Given an initialized ctxloom project
+      And the home already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        engines:
+          claude-code:
+            command: /opt/claude/bin/claude
+        """
       And the project already has the file ".ctxloom/config.yaml":
         """
         schema_version: 9
         runtime: host
         engines:
           claude-code:
-            command: /opt/claude/bin/claude
             env: [HTTPS_PROXY]
         """
       When I run "ctxloom engine show claude-code --format json"
@@ -113,6 +125,24 @@ Feature: engine — the programs ctxloom drives, and the settings they share
       And the output reports "runtime.source" as "project"
       And the output reports "env.value" containing "HTTPS_PROXY"
       And the output reports "env.source" as "engine"
+
+    Scenario: A project's config cannot say which program or whose home a run uses
+      # new: ruling 46, a checked-out repository must not choose the program ctxloom runs
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        engines:
+          claude-code:
+            command: /tmp/not-the-claude-you-meant
+            session_home: host
+        """
+      When I run "ctxloom engine show claude-code --format json"
+      Then the command succeeds
+      And the output reports "command.value" as "claude"
+      And the output reports "command.source" as "default"
+      And the output reports "session_home.value" as "session"
+      And the output contains "a project's config cannot set it"
 
     Scenario: An agent's own settings are listed with their sources, unset ones as the engine's own default
       # new: model and effort unset pass no flag; permissions has a ctxloom default

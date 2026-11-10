@@ -314,8 +314,13 @@ single `--settings` (ruling 51; verified with a fake program only, not a live
 `claude -p`). `EngineSettings::credentials` meets the
 engine's `Credentials` with the source: a child is satisfied by the source's
 `env` alone, the primary may share the source's `file` (or, for the built-in
-source, `~/.claude/.credentials.json`), `none` and `login` ask a child for no
-variable. Settings apply to the engine the plan resolved, and `run --engine
+source, the engine's own login: claude's `~/.claude/.credentials.json`,
+opencode's `auth.json`), `none` and `login` ask a child for no variable. Where
+the login is is the engine's `Credentials` (`user_dir`, `user_dir_variable`,
+`login_file`, `home_dir`: the link is `home/<home_dir>/<login_file>` of the
+session dir), and so is what the human is told when none is shared
+(`sign_in`, the engine's own words) and whether a missing one is worth saying
+(`login_optional`). Settings apply to the engine the plan resolved, and `run --engine
 X` asks the plan for X (its engine block drives it). A launch whose agent `runtime` weakens
 the engine's (or swaps container ownerships) says so as a notice. `init`'s
 token guide asks the configured source.
@@ -640,15 +645,31 @@ every XDG base and `OPENCODE_CONFIG_DIR` in the session home, the npm pre-seed
 (`node_modules/` and a `package-lock.json` naming `@opencode-ai/plugin`) in the
 home and in `xdg/config/opencode`, no `OPENCODE_*` or XDG variable of the
 caller's (`OPENCODE_PURE` would skip the plugin); `session_home: host` keeps
-the user's dirs and still adds the session home as a config dir. The key
-`CTXLOOM_OPENCODE_API_KEY` is optional and passed when set; no child is
-refused for it. An effort level is not passed (no flag verified). At rest
+the user's dirs and still adds the session home as a config dir. Auth mirrors
+claude's (owner ruling 69): opencode's login is `auth.json` in its data
+directory (`$XDG_DATA_HOME/opencode` when that is absolute, else
+`~/.local/share/opencode`), which an OAuth provider's refresh rewrites in
+place, so the PRIMARY's relocated data directory gets a SYMLINK to the user's
+file (`home/xdg/data/opencode/auth.json`), never a copy, whatever variable is
+set (her login may hold other providers); none there is said nothing of
+(opencode runs keyless), a configured file missing is. A child is never given
+the file, only variables: its built-in source (`token`) is the provider keys
+`ANTHROPIC_API_KEY` and `OPENAI_API_KEY` and the endpoint key
+`CTXLOOM_OPENCODE_API_KEY` (Go's, for an endpoint provider block this port
+does not write yet), each optional and on both allowlists; no child is refused
+for want of one, and a file-only source refuses an opencode child as it does
+claude's. The bundle (1.18.4, read not run) writes `auth.json` with
+`writeFile` and `chmod`, no rename, so a refresh writes through the link: not
+verified live. Accepted residual: a primary and a human-run opencode
+refreshing at the same instant may race (no cross-process lock; as claude).
+An effort level is not passed (no flag verified). At rest
 opencode carries its context alone (an `AGENTS.md` section). Costs: no
 per-delta capture; one hook process per forwarded event; the plugin's own
 logic is tested under node (`home.test.rs`, j001000), so those tests need node
 on `PATH`. Not verified live: the pre-seed's `.ctxloom` marker file in
 `node_modules/`, `--prompt`/`-m` on the TUI, `AGENTS.md` read from the config
-dir, sub-agent sessions, auto compaction.
+dir, sub-agent sessions, auto compaction, opencode reading (and refreshing
+through) the linked `auth.json`.
 
 ## Engines schema (track 1 landed on `engines/core`)
 
@@ -689,9 +710,13 @@ one variable authenticates, `via` names it). A source that is a FILE alone
 `FileOnlyCredential`, its fix names the built-in variables to put in
 `engines.<e>.auth.env` and export), asked before the listener is served or
 anything minted, as `runs-no-credential` now is too; `auth status` gives it a
-`file` row (`usable_by: primary`, `via` the path, `present: false`) and doctor
-a `warn`. The primary session is unchanged. init's token guide
-(`agent_token_exported`) still counts a file alone as nothing to guide.
+`file` row (`usable_by: primary`, `via` the path, and no `present`: nothing
+looks at the file, ruling 65, so doctor cannot report a missing one) and
+doctor a `warn`. The primary session is unchanged. init's token guide
+(`agent_token_exported`) counts a file alone as nothing to guide; instead init
+warns of each engine in use on a file alone (ruling 64, `Auth::file_only`) in
+the words of the refusal itself (`runs-file-only-credential` and its fix,
+through auth-application's `FileOnly`), exit 0 as ever.
 
 ## Use `just`
 

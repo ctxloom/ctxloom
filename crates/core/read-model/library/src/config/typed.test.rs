@@ -57,15 +57,15 @@ fn test_the_schema_decides_which_scalars_are_numbers_and_booleans() {
 }
 
 // cfg-v8-section-agents-text: a section prints in the order of its record's
-// fields (llm, profiles, runtime, permissions, driving, env_host, env), the
+// fields (llm, profiles, runtime, permissions, driving, env), the
 // whole document sorted.
 #[test]
 fn test_a_section_prints_in_the_order_of_its_fields() {
-    let doc = parse("agents:\n  dev:\n    env: [ALPHA]\n    driving: oneshot\n    permissions:\n      claude-code:\n        mode: plan\n      approver: human\n    runtime: host\n    profiles: [p1]\n    engine: claude-code\n    env_host: false\n");
+    let doc = parse("agents:\n  dev:\n    env: [ALPHA]\n    driving: oneshot\n    permissions:\n      claude-code:\n        mode: plan\n      approver: human\n    runtime: host\n    profiles: [p1]\n    engine: claude-code\n");
     let section = typed(&doc, &["agents".to_string()], Order::Fields);
     assert_eq!(
         to_yaml(&section),
-        "dev:\n  engine: claude-code\n  profiles:\n    - p1\n  runtime: host\n  permissions:\n    approver: human\n    claude-code:\n      mode: plan\n  driving: oneshot\n  env_host: false\n  env:\n    - ALPHA\n"
+        "dev:\n  engine: claude-code\n  profiles:\n    - p1\n  runtime: host\n  permissions:\n    approver: human\n    claude-code:\n      mode: plan\n  driving: oneshot\n  env:\n    - ALPHA\n"
     );
     let engines = typed(
         &parse("engines:\n  claude-code:\n    env: [A]\n    runtime: host\n    command: claude\n"),

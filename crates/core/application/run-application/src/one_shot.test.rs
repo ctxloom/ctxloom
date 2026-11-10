@@ -291,7 +291,9 @@ struct Links {
 
 impl LoginLinks for Links {
     fn present(&self, path: &str) -> bool {
-        self.login && path == "/home/u/.claude/.credentials.json"
+        // the file exists wherever the configured source (or the default) puts it
+        self.login
+            && (path == "/home/u/.claude/.credentials.json" || path == "/home/u/.acme/creds.json")
     }
     fn state(&self, _: &str, _: &str) -> LinkState {
         self.held

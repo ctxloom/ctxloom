@@ -26,7 +26,11 @@ struct Rig {
     recorder: Recorder<MemoryRecords>,
 }
 
-fn rig(engine: ScriptedEngine, runner: ScriptedRunner, orders: Arc<Orders>) -> Rig {
+fn rig(
+    engine: impl run_ports::Engine + 'static,
+    runner: ScriptedRunner,
+    orders: Arc<Orders>,
+) -> Rig {
     let edge = Arc::new(TestEdge::new());
     let records = MemoryRecords::default();
     let launcher = Launcher::new(
@@ -682,6 +686,7 @@ fn the_launcher_hands_on_the_credentials_of_the_engine_it_holds() {
         primary_env: &["A_TOKEN", "B_TOKEN"],
         user_dir: ".fake",
         login_file: Some("login.json"),
+        ..run_ports::Credentials::NONE
     };
     let launcher = Launcher::new(
         Arc::new(TestEdge::new()),
@@ -902,4 +907,84 @@ async fn an_engine_whose_session_ends_with_its_exit_has_the_end_recorded_at_the_
             "interactive {interactive}: no end recorded"
         );
     }
+}
+
+// Ruling 78: the caller's CTXLOOM_PERMIT_<NAME> reaches the engine's command
+// as <NAME>, a child's turn and the terminal alike, whatever the engine passed;
+// the permit itself is not passed, and the value is withheld from a Debug.
+#[tokio::test]
+async fn a_permit_reaches_the_command_under_its_own_name() {
+    for interactive in [false, true] {
+        let mut placed = order("fake");
+        placed.interactive = interactive;
+        placed.env.insert(
+            "CTXLOOM_PERMIT_SECRET_KEY".to_string(),
+            "permitted-value".to_string(),
+        );
+        let mut rig = rig(
+            ScriptedEngine::answering("A", None),
+            ScriptedRunner::exits(0),
+            orders_with(placed),
+        );
+        enqueued(&rig.edge, SESSION, HARP).await;
+        rig.step().await;
+        let seen = if interactive {
+            rig.runner.seen_terminal.lock().unwrap().clone()
+        } else {
+            rig.runner.seen.lock().unwrap().clone()
+        };
+        let command = &seen[0];
+        assert_eq!(
+            command.env.get("SECRET_KEY").map(String::as_str),
+            Some("permitted-value"),
+            "{interactive}"
+        );
+        assert!(!command.env.contains_key("CTXLOOM_PERMIT_SECRET_KEY"));
+        assert!(!format!("{command:?}").contains("permitted-value"));
+    }
+}
+
+// Ruling 78b: a permit never replaces what the engine's adapter computed (here
+// a config dir it relocates) nor a name the run set (the order's `owned`); the
+// launch says each it ignored, and a name merely passed through stays
+// permittable.
+#[tokio::test]
+async fn a_permit_never_replaces_what_the_adapter_or_the_run_set() {
+    let mut placed = order("fake");
+    placed.env.insert(
+        "CTXLOOM_PERMIT_FAKE_CONFIG_DIR".to_string(),
+        "/x".to_string(),
+    );
+    placed
+        .env
+        .insert("CTXLOOM_PERMIT_PATH".to_string(), "/evil".to_string());
+    placed
+        .env
+        .insert("CTXLOOM_PERMIT_SECRET_KEY".to_string(), "v".to_string());
+    placed.owned = vec!["PATH".to_string()];
+    let mut rig = rig(
+        crate::fakes::Relocating(ScriptedEngine::answering("A", None)),
+        ScriptedRunner::exits(0),
+        orders_with(placed),
+    );
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    let command = rig.runner.seen.lock().unwrap()[0].clone();
+    assert_eq!(
+        command.env.get("FAKE_CONFIG_DIR").map(String::as_str),
+        Some("/session/config")
+    );
+    assert_eq!(command.env.get("PATH").map(String::as_str), Some("/bin"));
+    assert_eq!(command.env.get("SECRET_KEY").map(String::as_str), Some("v"));
+    assert_eq!(
+        launched[0].ignored,
+        vec![
+            run_ports::Ignored::Owned {
+                permit: "CTXLOOM_PERMIT_FAKE_CONFIG_DIR".to_string()
+            },
+            run_ports::Ignored::Owned {
+                permit: "CTXLOOM_PERMIT_PATH".to_string()
+            },
+        ]
+    );
 }

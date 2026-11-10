@@ -227,7 +227,10 @@ variables, the certificate's codec and the bind table are pure functions in
 secret is returned once by `Enqueuer::enqueue` to the launching code, which
 puts it in the launch order's env; `Bearer`, `Token` and the `Debug` of
 `TurnCommand`, `TurnRequest` and `Order` never render it, and no error carries
-it. Residual, same-user (ruling 37, ACCEPTED: the user boundary is the trust
+it. Credential values never render: the `Debug` of every type that carries an
+engine environment (those three, through `run_ports::RedactedEnv`; `Permits`)
+prints the variables' NAMES and withholds EVERY value, whatever the name, so
+there is no list of sensitive names to keep in sync. Residual, same-user (ruling 37, ACCEPTED: the user boundary is the trust
 boundary): the model runs as the user and can read its own engine's
 environment, so it holds the bearer and the public certificate and can forge
 CAPTURE facts as the hook principal; it can never forge runner lifecycle facts
@@ -299,9 +302,32 @@ passes the curated allowlist plus `engines.<e>.env`, the configured auth
 variables: a bounded, enumerable set the container runtime will read. There is
 no `env_host` (owner ruling: no mode passes the host environment whole, and no
 boolean config keys; `env_host` is an ordinary unknown key, no alias). The
-`ANTHROPIC_AUTH_TOKEN` stays out of a child whatever the config says (the
-`CTXLOOM_*` hook variables are a child's too since ruling 51, always the run's
-own); `session_home: host` sets `CLAUDE_CONFIG_DIR`
+`ANTHROPIC_AUTH_TOKEN` stays out of a child whatever the config says, unless
+a permit names it (the `CTXLOOM_*` hook variables are a child's too since
+ruling 51, always the run's own). The escape hatch is `CTXLOOM_PERMIT_<NAME>`
+(owner rulings 78, 78a): `CTXLOOM_PERMIT_<NAME>=v` in the caller's
+environment reaches the engine as `<NAME>=v`, every engine, a child's turn
+and the terminal alike, over whatever the allowlist, a block (opencode's
+`OPENCODE_*`) or the config said; it is applied in one place, the launcher,
+after the engine built the command (`run_ports::apply_permits`). The
+`CTXLOOM_PERMIT_*` variable is never passed on; a permit for a `CTXLOOM_*`
+name is ignored and the run says so as a notice (by the permit's name, never
+its value); no value renders in a `Debug` (every environment value is
+withheld, see the credentials paragraph). An explicit `CTXLOOM_PERMIT_ANTHROPIC_AUTH_TOKEN` does give a
+child the primary's token (78a): the cost is that such a child holds the
+primary's own token, no distinct per-child credential. A permit never
+replaces what ctxloom itself sets for the engine (ruling 78b: a DENYLIST
+DERIVED from what was set, never an allowlist): `run_ports::owned_names` is
+every name in the engine's command whose value is not the caller's as passed
+through (what the adapter computed: `HOME` and the XDG bases relocated,
+`CLAUDE_CONFIG_DIR`, `OPENCODE_CONFIG_DIR`, ...) plus the order's `owned`,
+the names the run set before the engine saw the environment (`HOME`,
+ctxloom's own home, which its hook processes' wiring reads first, and the
+`PATH` it builds with the program's directory first); a denied permit is
+ignored with the same notice (said from the launch, `Launched::ignored`). A
+name the adapter merely passes through (`LANG`) stays permittable, as does an
+XDG base under `session_home: host` (passed through, not relocated). Claude
+stays token-only on Windows (ruling 82); `session_home: host` sets `CLAUDE_CONFIG_DIR`
 to `$HOME/.claude` (no `HOME` is `run-ports-engine-no-host-home`), links no
 login there; the hooks still fire, because the launch (the terminal's and a
 child's turn) passes `--settings <session dir>/settings.json` (the ctxloom-owned file `prepare` writes,
@@ -314,8 +340,17 @@ single `--settings` (ruling 51; verified with a fake program only, not a live
 `claude -p`). `EngineSettings::credentials` meets the
 engine's `Credentials` with the source: a child is satisfied by the source's
 `env` alone, the primary may share the source's `file` (or, for the built-in
-source, `~/.claude/.credentials.json`), `none` and `login` ask a child for no
-variable. Settings apply to the engine the plan resolved, and `run --engine
+source, the engine's own login: claude's `~/.claude/.credentials.json`,
+opencode's `auth.json`), `none` and `login` ask a child for no variable. Where
+the login is is the engine's `Credentials` (`user_dir`, `user_dir_variable`,
+`login_file`, `home_dir`: the link is `home/<home_dir>/<login_file>` of the
+session dir), and so is what the human is told when none is shared
+(`sign_in`, the engine's own words), whether a missing one is worth saying
+(`login_optional`), where it is never linked (`no_link_on`: claude's macOS
+keychain and Windows' symlink privilege) and where a link that cannot be made
+is a copy (`copy_on`: opencode's Windows, ruling 80; `LoginLinks::copy`, a
+new 0600 file). The platform is the OS name the caller gives; macOS and
+Windows are unverified live. Settings apply to the engine the plan resolved, and `run --engine
 X` asks the plan for X (its engine block drives it). A launch whose agent `runtime` weakens
 the engine's (or swaps container ownerships) says so as a notice. `init`'s
 token guide asks the configured source.
@@ -640,15 +675,35 @@ every XDG base and `OPENCODE_CONFIG_DIR` in the session home, the npm pre-seed
 (`node_modules/` and a `package-lock.json` naming `@opencode-ai/plugin`) in the
 home and in `xdg/config/opencode`, no `OPENCODE_*` or XDG variable of the
 caller's (`OPENCODE_PURE` would skip the plugin); `session_home: host` keeps
-the user's dirs and still adds the session home as a config dir. The key
-`CTXLOOM_OPENCODE_API_KEY` is optional and passed when set; no child is
-refused for it. An effort level is not passed (no flag verified). At rest
+the user's dirs and still adds the session home as a config dir. Auth mirrors
+claude's (owner ruling 69): opencode's login is `auth.json` in its data
+directory (`$XDG_DATA_HOME/opencode` when that is absolute, else
+`~/.local/share/opencode`), which an OAuth provider's refresh rewrites in
+place, so the PRIMARY's relocated data directory gets a SYMLINK to the user's
+file (`home/xdg/data/opencode/auth.json`), on macOS too (ruling 80), whatever
+variable is set (her login may hold other providers); on Windows, when no
+symlink can be made, a COPY (ruling 80; the cost, said in a notice: a token
+the session refreshes is written to the copy, and the rotation can sign her
+own login out); none there is said nothing of
+(opencode runs keyless), a configured file missing is. A child is never given
+the file, only variables: its built-in source (`token`) is the provider keys
+`ANTHROPIC_API_KEY` and `OPENAI_API_KEY`, each optional and on both
+allowlists (Go's `CTXLOOM_OPENCODE_API_KEY` is removed, ruling 79, hard
+migrate; another provider's key is the config's `env`, or a permit for one
+the `OPENCODE_*` block withholds, `CTXLOOM_PERMIT_OPENCODE_API_KEY`); no child
+is refused for want of one, and a file-only source refuses an opencode child as it does
+claude's. The bundle (1.18.4, read not run) writes `auth.json` with
+`writeFile` and `chmod`, no rename, so a refresh writes through the link: not
+verified live. Accepted residual: a primary and a human-run opencode
+refreshing at the same instant may race (no cross-process lock; as claude).
+An effort level is not passed (no flag verified). At rest
 opencode carries its context alone (an `AGENTS.md` section). Costs: no
 per-delta capture; one hook process per forwarded event; the plugin's own
 logic is tested under node (`home.test.rs`, j001000), so those tests need node
 on `PATH`. Not verified live: the pre-seed's `.ctxloom` marker file in
 `node_modules/`, `--prompt`/`-m` on the TUI, `AGENTS.md` read from the config
-dir, sub-agent sessions, auto compaction.
+dir, sub-agent sessions, auto compaction, opencode reading (and refreshing
+through) the linked `auth.json`.
 
 ## Engines schema (track 1 landed on `engines/core`)
 
@@ -689,9 +744,15 @@ one variable authenticates, `via` names it). A source that is a FILE alone
 `FileOnlyCredential`, its fix names the built-in variables to put in
 `engines.<e>.auth.env` and export), asked before the listener is served or
 anything minted, as `runs-no-credential` now is too; `auth status` gives it a
-`file` row (`usable_by: primary`, `via` the path, `present: false`) and doctor
-a `warn`. The primary session is unchanged. init's token guide
-(`agent_token_exported`) still counts a file alone as nothing to guide.
+`file` row (`usable_by: primary`, `via` the path, and no `present`: nothing
+looks at the file, ruling 65, so doctor cannot report a missing one) and
+doctor a `warn`, both in the refusal's words (ruling 81: the row's `message`
+and `remedy`, doctor's detail and fix, are `runs-file-only-credential` and its
+fix rendered from the runs catalog, auth-application's `InRunsWords`). The primary session is unchanged. init's token guide
+(`agent_token_exported`) counts a file alone as nothing to guide; instead init
+warns of each engine in use on a file alone (ruling 64, `Auth::file_only`) in
+the words of the refusal itself (`runs-file-only-credential` and its fix,
+through auth-application's `FileOnly`), exit 0 as ever.
 
 ## Use `just`
 

@@ -72,6 +72,17 @@ fn ours(launched: Vec<Launched>, session: &str) -> Option<Launched> {
         .find(|l: &Launched| l.session == session)
 }
 
+/// The permits the launcher did not follow, said by the permit's name (owner
+/// rulings 78, 78b).
+fn said_permits(launched: &Launched, notices: &mut Vec<Notice>) {
+    notices.extend(
+        launched
+            .ignored
+            .iter()
+            .map(crate::credential::ignored_permit),
+    );
+}
+
 /// The error of a session whose launch a step did not make.
 fn not_ended(session: &str) -> RunError {
     RunError::NotEnded {
@@ -291,7 +302,7 @@ where
         let mut notices = planned.notices;
         let result = match planned.result {
             Err(error) => Err(RunError::Plan(Box::new(error))),
-            Ok(previewed) => self.run(previewed, request).await,
+            Ok(previewed) => self.run(previewed, request, &mut notices).await,
         };
         Done {
             result,
@@ -430,6 +441,7 @@ where
     ) -> Result<Ended, RunError> {
         let (serving, started) = self.ready(previewed, request, true, notices).await?;
         let launched = self.drive(serving, &started).await?;
+        said_permits(&launched, notices);
         let Started {
             session,
             harp,
@@ -486,6 +498,11 @@ where
         // listener variables, from a session it was started inside, are
         // replaced by this run's, never passed on.
         let mut env = self.env.clone();
+        // What the run itself sets for the engine, which no permit replaces
+        // (ruling 78b): HOME is ctxloom's own home (its hook processes' wiring
+        // reads it first), and the PATH below; the CTXLOOM_* names are the
+        // run's whatever this says.
+        let mut owned = vec!["HOME".to_string()];
         for name in run_ports::HOOK_VARIABLES {
             env.remove(name);
         }
@@ -501,6 +518,7 @@ where
                 None => self.place.program_dir.clone(),
             };
             env.insert("PATH".to_string(), path);
+            owned.push("PATH".to_string());
         }
         let run_text = text(&enqueued.run);
         env.extend(run_ports::hook_environment(
@@ -523,6 +541,7 @@ where
                 model: plan.model,
                 effort: plan.effort,
                 settings,
+                owned,
             },
         );
         Ok(Started {
@@ -608,10 +627,15 @@ where
     /// The one-shot: its listener served for its child's hooks (a one-shot is
     /// its own owner, ruling 29), one turn, and the reply the child's stream
     /// gave.
-    async fn run(&mut self, previewed: Previewed, request: &OneShot) -> Result<Answer, RunError> {
-        let mut unused = Vec::new();
-        let (serving, started) = self.ready(previewed, request, false, &mut unused).await?;
+    async fn run(
+        &mut self,
+        previewed: Previewed,
+        request: &OneShot,
+        notices: &mut Vec<Notice>,
+    ) -> Result<Answer, RunError> {
+        let (serving, started) = self.ready(previewed, request, false, notices).await?;
         let ours = self.drive(serving, &started).await?;
+        said_permits(&ours, notices);
         let Started {
             session,
             harp,

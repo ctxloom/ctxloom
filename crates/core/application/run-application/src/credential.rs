@@ -3,31 +3,65 @@
 //! A CHILD agent's run is given only an environment credential: with none
 //! set it is refused before a session is made. The human's PRIMARY session,
 //! with no environment credential set, shares her own login by a link in its
-//! session home; the platforms where that cannot work are told to set a
-//! token instead. The login file is never read: the only questions asked of
-//! it are whether it is there and what a link in the home points to.
+//! session home; the platforms where that cannot work (the engine's
+//! `no_link_on`) are told to sign in another way, and where the engine says a
+//! link that cannot be made is a copy (`copy_on`: opencode on Windows, owner
+//! ruling 80) it is copied whole. The login file is never read by ctxloom: the
+//! only questions asked of it are whether it is there and what a link in the
+//! home points to. Where
+//! the login is, in her home and in the session home, and what she is told
+//! without one, are the engine's (`run_ports::Credentials`): claude's config
+//! dir is the session home itself, opencode's data directory is relocated
+//! under it (owner ruling 69).
 
 use std::collections::BTreeMap;
 
 use library_application::Notice;
-use run_ports::{AuthSetting, CredentialPolicy, Credentials, LinkState, LoginLinks};
+use run_ports::{AuthSetting, CredentialPolicy, Credentials, Ignored, LinkState, LoginLinks};
 use runs::RunRejection;
 
-/// The platforms whose login cannot be shared by a link: macOS keeps claude's
-/// login in a keychain item per configuration directory (a file link is
-/// ignored), and Windows grants a symlink only to a privileged user. This is
-/// the one place the platform is judged; the caller gives the OS name
-/// (`std::env::consts::OS`).
-const NO_LINK: [&str; 2] = ["macos", "windows"];
-
-/// Whether `os` can share a login by a link.
-pub fn can_link(os: &str) -> bool {
-    !NO_LINK.contains(&os)
+/// Whether the engine of `credentials` may share its login by a link on `os`
+/// (`std::env::consts::OS`, which the caller gives): the engine says where it
+/// never does (owner ruling 80: claude's macOS keychain and Windows' symlink
+/// privilege are claude's; opencode links everywhere).
+pub fn links_on(credentials: &CredentialPolicy, os: &str) -> bool {
+    !credentials.no_link_on.iter().any(|never| never == os)
 }
 
-/// What to do about a missing token, on every platform that cannot link and
-/// wherever there is no login to link.
-const TOKEN_FIX: &str = "run `claude setup-token`, then export CLAUDE_CODE_OAUTH_TOKEN";
+/// Whether, on `os`, a link that cannot be made is a copy of the login
+/// (owner ruling 80: opencode on Windows).
+fn copies_on(credentials: &CredentialPolicy, os: &str) -> bool {
+    credentials.copy_on.iter().any(|copy| copy == os)
+}
+
+/// What a run says of a `CTXLOOM_PERMIT_*` it did not follow: by the permit's
+/// name, never its value (owner ruling 78).
+pub fn ignored_permit(ignored: &Ignored) -> Notice {
+    let (permit, why) = match ignored {
+        Ignored::RunsOwn { permit } => (
+            permit,
+            "the run's own CTXLOOM_* variables are never replaced by a permit".to_string(),
+        ),
+        Ignored::NoName { permit } => (
+            permit,
+            format!(
+                "what follows {} is no variable name",
+                run_ports::PERMIT_PREFIX
+            ),
+        ),
+        Ignored::Owned { permit } => (
+            permit,
+            format!(
+                "ctxloom sets {} for the engine itself",
+                permit.trim_start_matches(run_ports::PERMIT_PREFIX)
+            ),
+        ),
+    };
+    Notice::Finding {
+        text: format!("{permit} was not passed on to the agent: {why}"),
+        remedy: format!("unset {permit}"),
+    }
+}
 
 /// Whether the environment holds any of `names`, non-empty.
 fn holds(env: &BTreeMap<String, String>, names: &[String]) -> bool {
@@ -91,8 +125,32 @@ fn resolve(home: &str, path: &str) -> String {
     }
 }
 
+/// The user's own directory for the engine: where its variable moves it (an
+/// absolute path, as XDG reads one), else under her home.
+fn user_dir(credentials: &CredentialPolicy, env: &BTreeMap<String, String>, home: &str) -> String {
+    let moved = credentials
+        .user_dir_variable
+        .as_ref()
+        .and_then(|(variable, dir)| {
+            env.get(variable)
+                .filter(|value| value.starts_with('/'))
+                .map(|value| format!("{value}/{dir}"))
+        });
+    moved.unwrap_or_else(|| format!("{home}/{}", credentials.user_dir))
+}
+
+/// A finding with the engine's own way to sign in.
+fn finding(text: String, credentials: &CredentialPolicy) -> Option<Notice> {
+    Some(Notice::Finding {
+        text,
+        remedy: credentials.sign_in.clone(),
+    })
+}
+
 /// Give the primary session of `harp` her login, where she has one and
-/// nothing else authenticates it. What it noticed and did not stop for.
+/// nothing else authenticates it: a link at the engine's place in the session
+/// home (`home/<home_dir>/<login_file>`) to her own file, never a copy. What
+/// it noticed and did not stop for.
 pub fn share_login(
     links: &mut dyn LoginLinks,
     credentials: &CredentialPolicy,
@@ -104,41 +162,60 @@ pub fn share_login(
     if holds(env, &credentials.primary_env) {
         return None;
     }
-    if !can_link(os) {
-        return Some(Notice::Finding {
-            text: format!(
+    if !links_on(credentials, os) {
+        return finding(
+            format!(
                 "on {os} this session's login cannot be shared with it by a link; the primary session will not be signed in"
             ),
-            remedy: format!("{TOKEN_FIX} (it needs a Pro, Max, Team or Enterprise plan)"),
-        });
+            credentials,
+        );
     }
     let home = env.get("HOME").filter(|home| !home.is_empty());
     let target = home.map(|home| match &credentials.login_source {
         Some(source) => resolve(home, source),
-        None => format!("{home}/{}/{file}", credentials.user_dir),
+        None => format!("{}/{file}", user_dir(credentials, env, home)),
     });
     let target = match target {
         Some(target) if links.present(&target) => target,
-        _ => {
-            return Some(Notice::Finding {
-                text: format!(
-                    "there is no login at ~/{}/{file} to share, so the primary session will not be signed in",
-                    credentials.user_dir
+        // A login the engine runs without is asked for only where the config
+        // names one.
+        _ if credentials.login_optional && credentials.login_source.is_none() => return None,
+        missing => {
+            let shown = match (&credentials.login_source, missing) {
+                (Some(_), Some(target)) => target,
+                _ => format!("~/{}/{file}", credentials.user_dir),
+            };
+            return finding(
+                format!(
+                    "there is no login at {shown} to share, so the primary session will not be signed in"
                 ),
-                remedy: format!("sign in with /login in the session, or {TOKEN_FIX}"),
-            });
+                credentials,
+            );
         }
     };
-    let rel = format!("home/{file}");
+    let rel = match credentials.home_dir.as_str() {
+        "" => format!("home/{file}"),
+        dir => format!("home/{dir}/{file}"),
+    };
     match links.state(harp, &rel) {
         LinkState::LinkTo(held) if held == target => None,
-        LinkState::Absent => links
-            .link(harp, &rel, &target)
-            .err()
-            .map(|error| Notice::Finding {
-                text: format!("the login could not be shared with the session: {error}"),
-                remedy: format!("sign in with /login in the session, or {TOKEN_FIX}"),
-            }),
+        LinkState::Absent => match links.link(harp, &rel, &target) {
+            Ok(()) => None,
+            // Where the engine says so, a link that cannot be made is a copy,
+            // and its cost is said: a refresh rotates the copy's token.
+            Err(_) if copies_on(credentials, os) && links.copy(harp, &rel, &target).is_ok() => {
+                finding(
+                    format!(
+                        "on {os} no link to {target} could be made, so the login was copied into the session: a token the session refreshes is written to the copy, and the rotation can sign your own login out"
+                    ),
+                    credentials,
+                )
+            }
+            Err(error) => finding(
+                format!("the login could not be shared with the session: {error}"),
+                credentials,
+            ),
+        },
         _ => Some(Notice::Finding {
             text: format!(
                 "the session home already holds a {file} of its own, which was left as it is"

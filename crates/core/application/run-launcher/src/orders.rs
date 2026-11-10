@@ -32,10 +32,13 @@ pub struct Order {
     /// How the config says the engine is run: program, session home,
     /// credential source, environment passthrough (names and paths only).
     pub settings: run_ports::EngineSettings,
+    /// The names the run itself set in `env` for the engine (owner ruling
+    /// 78b): no permit replaces them (`run_ports::apply_permits`).
+    pub owned: Vec<String>,
 }
 
 impl fmt::Debug for Order {
-    /// Without the bearer's value: an order is logged, the secret is not.
+    /// The environment's names alone: an order is logged, no value of it is.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Order")
             .field("harp", &self.harp)
@@ -48,6 +51,7 @@ impl fmt::Debug for Order {
             .field("model", &self.model)
             .field("effort", &self.effort)
             .field("settings", &self.settings)
+            .field("owned", &self.owned)
             .finish()
     }
 }

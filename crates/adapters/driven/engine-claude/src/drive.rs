@@ -110,6 +110,11 @@ const LOGIN_DIR: &str = ".claude";
 /// claude's login file, in its configuration directory.
 pub const LOGIN_FILE: &str = ".credentials.json";
 
+/// How the human gives her primary session a credential when no login is
+/// shared with it: claude's own `/login`, or the long-lived token claude's
+/// `setup-token` makes for a Pro, Max, Team or Enterprise plan.
+pub const SIGN_IN: &str = "sign in with /login in the session, or run `claude setup-token` (it needs a Pro, Max, Team or Enterprise plan), then export CLAUDE_CODE_OAUTH_TOKEN";
+
 /// The files of the user's own claude configuration that are copied into a
 /// session home. None yet: which of them a child may see is the owner's to
 /// rule, and until then nothing of `~/.claude` crosses.
@@ -165,7 +170,16 @@ impl Engine for Claude {
             child_env: CHILD_CREDENTIAL_ENV,
             primary_env: PRIMARY_CREDENTIAL_ENV,
             user_dir: LOGIN_DIR,
+            user_dir_variable: None,
             login_file: Some(LOGIN_FILE),
+            home_dir: "",
+            sign_in: SIGN_IN,
+            login_optional: false,
+            // macOS keeps claude's login in a keychain item per config dir
+            // (a file link is ignored); Windows grants a symlink only to a
+            // privileged user. Neither is shared by a link, nor copied.
+            no_link_on: &["macos", "windows"],
+            copy_on: &[],
         }
     }
 

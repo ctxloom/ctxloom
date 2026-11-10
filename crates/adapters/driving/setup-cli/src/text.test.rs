@@ -125,21 +125,22 @@ fn the_failure_count_is_exact_and_a_row_shows_a_fix_only_where_there_is_one() {
 }
 
 // Ruling 53: a file alone serves the primary only, and the line says so with
-// what a child needs.
+// what a child needs: ruling 81, the refusal's message, then its fix.
 #[test]
 fn a_file_only_row_reads_as_the_primarys_alone() {
     let row = auth_application::Row {
         engine: "claude-code".to_string(),
         mode: "file",
-        present: false,
+        present: None,
         vars: Vec::new(),
         via: "~/.claude/.credentials.json".to_string(),
-        remedy: "a child agent needs an environment credential".to_string(),
+        message: "a child agent run of claude-code needs a credential".to_string(),
+        remedy: "name one of those variables".to_string(),
         usable_by: "primary",
     };
     let text = render(|o| crate::text::auth(&[row], o));
     assert_eq!(
         text,
-        "claude-code file: usable by the primary session only (~/.claude/.credentials.json) \u{2014} a child agent needs an environment credential\n"
+        "claude-code file: usable by the primary session only (~/.claude/.credentials.json) \u{2014} a child agent run of claude-code needs a credential\n  fix: name one of those variables\n"
     );
 }

@@ -7,8 +7,10 @@
 //! thing the [`ExportedVars`] port can say of a variable is whether it is
 //! exported, so a value cannot reach any output from here.
 
+use std::fmt;
 use std::sync::Arc;
 
+use angzarr_diagnostic::{Arg, Diagnostic};
 pub use ctxloom_ports::ExportedVars;
 use library::config::{engines, schema};
 use serde::Serialize;
@@ -35,12 +37,19 @@ const CLAUDE_REMEDY: &str = "run `claude setup-token` and export CLAUDE_CODE_OAU
 pub struct Row {
     pub engine: String,
     pub mode: &'static str,
-    pub present: bool,
+    /// Whether the credential is exported: a variable row's alone. A file
+    /// row has none (owner ruling 65): nothing here looks at a file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub present: Option<bool>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub vars: Vec<String>,
     /// The variable the credential was found in (a name, never a value).
     #[serde(skip_serializing_if = "String::is_empty")]
     pub via: String,
+    /// What the row means, when a line of its own says it: a file alone's
+    /// is `runs-file-only-credential`'s message (owner ruling 81).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub message: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub remedy: String,
     /// Who the credential serves when it is not every run: `primary` for a
@@ -59,10 +68,47 @@ pub struct Verdict {
     pub vars: Vec<String>,
     /// False only where a required credential is not exported.
     pub ready: bool,
+    /// What the verdict means, when it says more than its mode: a file
+    /// alone's is `runs-file-only-credential`'s message (ruling 81).
+    pub message: String,
     pub remedy: String,
     /// The source is a file alone: the primary session may run on it, a
     /// child agent cannot (owner ruling 53).
     pub primary_only: bool,
+}
+
+/// The catalog of the runs messages [`FileOnly`] is said in.
+pub use runs::EN_US as RUNS_EN_US;
+
+/// A warning that an engine in use authenticates no child: its source is a
+/// file alone. Said as the refusal a child's run of it meets
+/// (`runs-file-only-credential`), so the words and the fix are one.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct FileOnly(runs::RunRejection);
+
+impl FileOnly {
+    fn new(engine: &str, variables: Vec<String>) -> FileOnly {
+        FileOnly(runs::RunRejection::FileOnlyCredential {
+            engine: engine.to_string(),
+            variables: variables.join(", "),
+        })
+    }
+}
+
+impl fmt::Display for FileOnly {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl Diagnostic for FileOnly {
+    fn code(&self) -> &str {
+        self.0.code()
+    }
+
+    fn args(&self) -> Vec<(&str, Arg)> {
+        self.0.args()
+    }
 }
 
 /// An engine's credential source and whether a run is refused without it.
@@ -92,8 +138,9 @@ impl Auth {
     /// optional (opencode's built-in endpoint key) and not exported has no
     /// row (the run is keyless). A login shared in place (`login`) and `none`
     /// have no row. A source that is a file alone has a `file` row, `via` its
-    /// path, usable by the primary session and by no child (ruling 53). Engines in name order. `layers` are the config files'
-    /// texts, lowest first.
+    /// path, usable by the primary session and by no child (ruling 53), with
+    /// no `present` (ruling 65: nothing here looks at a file). Engines in
+    /// name order. `layers` are the config files' texts, lowest first.
     pub fn status(&self, layers: &[String]) -> Vec<Row> {
         let config = engines::merged(layers);
         needs(
@@ -109,9 +156,10 @@ impl Auth {
                 return Some(Row {
                     engine: need.engine.clone(),
                     mode: FILE,
-                    present: false,
+                    present: None,
                     vars: Vec::new(),
                     via: file.clone(),
+                    message: file_only_message(&need.engine),
                     remedy: remedy(&need),
                     usable_by: PRIMARY,
                 });
@@ -123,7 +171,7 @@ impl Auth {
             Some(Row {
                 engine: need.engine.clone(),
                 mode: TOKEN,
-                present: found.is_some(),
+                present: Some(found.is_some()),
                 vars: found.iter().cloned().collect(),
                 remedy: if found.is_some() {
                     String::new()
@@ -131,6 +179,7 @@ impl Auth {
                     remedy(&need)
                 },
                 via: found.unwrap_or_default(),
+                message: String::new(),
                 usable_by: "",
             })
         })
@@ -148,6 +197,20 @@ impl Auth {
             .all(|need| need.vars.iter().any(|v| self.env.is_exported(v)))
     }
 
+    /// The engines the delegated agents use whose effective `auth` is a file
+    /// alone (owner ruling 64): no child of theirs can authenticate, which
+    /// init warns of, in the words a child's run is refused with
+    /// (`runs-file-only-credential` and its fix). `layers` as for
+    /// [`Auth::status`].
+    pub fn file_only(&self, layers: &[String]) -> Vec<FileOnly> {
+        let config = engines::merged(layers);
+        needs(&config, &engines::engines_in_use(&config))
+            .into_iter()
+            .filter(|need| need.file.is_some())
+            .map(|need| file_only(&need.engine))
+            .collect()
+    }
+
     /// For each of `engines` whose effective `auth` reads the environment
     /// (each once), whether it could authenticate a run. `login` and `none`
     /// read nothing from the environment. `layers` as for [`Auth::status`].
@@ -160,6 +223,11 @@ impl Auth {
                     || !need.required
                     || need.vars.iter().any(|v| self.env.is_exported(v)),
                 mode: if need.file.is_some() { FILE } else { TOKEN },
+                message: if need.file.is_some() {
+                    file_only_message(&need.engine)
+                } else {
+                    String::new()
+                },
                 remedy: remedy(&need),
                 primary_only: need.file.is_some(),
                 vars: need.vars,
@@ -209,20 +277,63 @@ fn needs(config: &angzarr_yaml::Value, wanted: &[String]) -> Vec<Need> {
         .collect()
 }
 
+/// The variables of `engine`'s built-in source: what a source that is a file
+/// alone is told to name instead.
+fn builtin_variables(engine: &str) -> Vec<String> {
+    match engines::AuthSource::builtin(engine) {
+        engines::AuthSource::Credential { env, .. } => env,
+        _ => Vec::new(),
+    }
+}
+
+/// `d` in the runs catalog's en-US words: the wording a child's run is
+/// refused with, so doctor, `auth status` and init say what the run says
+/// (owner ruling 81).
+struct InRunsWords<'a>(&'a dyn Diagnostic);
+
+impl fmt::Display for InRunsWords<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        angzarr_diagnostic::catalog::render(RUNS_EN_US.1, self.0, f)
+    }
+}
+
+/// The fix of a diagnostic: its `<code>-fix` message, with its args.
+#[derive(Debug)]
+struct FixOf<'a>(&'a FileOnly, String);
+
+impl fmt::Display for FixOf<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        angzarr_diagnostic::display(self, f)
+    }
+}
+
+impl Diagnostic for FixOf<'_> {
+    fn code(&self) -> &str {
+        &self.1
+    }
+
+    fn args(&self) -> Vec<(&str, Arg)> {
+        self.0.args()
+    }
+}
+
+/// `runs-file-only-credential` of `engine`, naming its built-in variables.
+fn file_only(engine: &str) -> FileOnly {
+    FileOnly::new(engine, builtin_variables(engine))
+}
+
+/// What a source that is a file alone means, in the refusal's words.
+fn file_only_message(engine: &str) -> String {
+    InRunsWords(&file_only(engine)).to_string()
+}
+
 /// What to do about a credential that is not exported.
 fn remedy(need: &Need) -> String {
     if need.file.is_some() {
-        let named = match engines::AuthSource::builtin(&need.engine) {
-            // Every built-in source that is a credential names a variable.
-            engines::AuthSource::Credential { env, .. } => {
-                format!("one of {}", env.join(", "))
-            }
-            _ => "a variable".to_string(),
-        };
-        return format!(
-            "a child agent needs an environment credential: name {named} in engines.{}.auth.env and export it",
-            need.engine
-        );
+        // The refusal's own fix (ruling 81).
+        let warned = file_only(&need.engine);
+        let fix = FixOf(&warned, format!("{}-fix", warned.code()));
+        return InRunsWords(&fix).to_string();
     }
     if need.engine == "claude-code" && need.builtin {
         return CLAUDE_REMEDY.to_string();

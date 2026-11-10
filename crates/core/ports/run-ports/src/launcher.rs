@@ -38,7 +38,7 @@ pub struct TurnCommand {
 }
 
 impl fmt::Debug for TurnCommand {
-    /// Without the bearer's value: a command is logged, the secret is not.
+    /// The environment's names alone: a command is logged, no value of it is.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TurnCommand")
             .field("program", &self.program)

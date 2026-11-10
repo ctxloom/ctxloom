@@ -66,7 +66,8 @@ fn an_engine_that_says_nothing_asks_for_no_credential() {
     assert_eq!((none.user_dir, none.login_file), ("", None));
 }
 
-// A request is logged without the bearer's value: the exact rendering.
+// A request is logged by its variables' names alone: every value is withheld
+// (credential values never render). The exact rendering.
 #[test]
 fn a_turn_request_renders_its_env_keys_and_never_the_bearer() {
     let request = TurnRequest {
@@ -85,7 +86,7 @@ fn a_turn_request_renders_its_env_keys_and_never_the_bearer() {
     };
     assert_eq!(
         format!("{request:?}"),
-        r#"TurnRequest { prompt: "p", home: "/h", context_path: "/h/c", resume: None, env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "/bin"}, cwd: None, model: "", effort: "", settings: EngineSettings { command: "", session_home: Session, auth: Builtin, env: [] } }"#
+        r#"TurnRequest { prompt: "p", home: "/h", context_path: "/h/c", resume: None, env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "<redacted>"}, cwd: None, model: "", effort: "", settings: EngineSettings { command: "", session_home: Session, auth: Builtin, env: [] } }"#
     );
 }
 

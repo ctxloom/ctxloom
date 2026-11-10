@@ -31,13 +31,35 @@ use crate::{Opencode, NAME};
 /// The program: found on the `PATH` of the process that runs the command.
 const PROGRAM: &str = "opencode";
 
-/// opencode's endpoint key: optional (a built-in provider's free models need
-/// none), passed on when set; it is no child's requirement.
-pub const OPTIONAL_KEY: &str = "CTXLOOM_OPENCODE_API_KEY";
+/// The provider keys of opencode's built-in credential source (rulings 69,
+/// 79): the standard variables of its Anthropic and OpenAI providers
+/// (models.dev's `env` of each, which opencode reads). Each optional: a
+/// built-in provider's free models need none, and no child is refused for
+/// want of one. Another provider's variable is the config's `env`, or, for
+/// one an `OPENCODE_*` block withholds (`OPENCODE_API_KEY`), a
+/// `CTXLOOM_PERMIT_<NAME>` (ruling 78).
+pub const PROVIDER_KEYS: &[&str] = &["ANTHROPIC_API_KEY", "OPENAI_API_KEY"];
+
+/// opencode's login file, in its data directory.
+pub const LOGIN_FILE: &str = "auth.json";
+
+/// opencode's data directory under the user's home (XDG's default), where
+/// its login file is; `XDG_DATA_HOME`, set, moves it to `$XDG_DATA_HOME/opencode`.
+const DATA_DIR: &str = ".local/share/opencode";
+
+/// The relocated data directory under the session home: where the session's
+/// opencode looks for its login (`XDG_DATA_HOME` is `<home>/xdg/data`).
+const SESSION_DATA_DIR: &str = "xdg/data/opencode";
+
+/// How the human gives her primary session a credential when no login is
+/// shared with it: opencode's own sign-in (which writes her own login, linked
+/// into her next session), or a provider's key.
+pub const SIGN_IN: &str = "run `opencode auth login`, then start the session again, or export ANTHROPIC_API_KEY or OPENAI_API_KEY";
 
 /// The variables of the caller's environment a child's turn is given: how to
 /// find programs, locale and temp space, the proxy and certificate settings a
-/// network needs, opencode's optional key, and what the plugin's hook
+/// network needs, the optional provider keys of opencode's built-in source,
+/// and what the plugin's hook
 /// processes need (ctxloom's home by name, the session's harp, the run's
 /// listener). Never `HOME`, an XDG base nor any `OPENCODE_*` variable of the
 /// caller's: `OPENCODE_PURE` would skip the plugin, and capture vanish.
@@ -55,7 +77,8 @@ pub const ENV_ALLOWLIST: &[&str] = &[
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
     "NODE_EXTRA_CA_CERTS",
-    OPTIONAL_KEY,
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
     run_ports::HOME_VARIABLE,
     run_ports::ENDPOINT_VARIABLE,
     run_ports::BEARER_VARIABLE,
@@ -102,14 +125,29 @@ impl Engine for Opencode {
         Ok(command)
     }
 
-    /// The key is optional, so a child is never refused for want of one, and
-    /// opencode has no login file the primary could share.
+    /// Every key is optional (a built-in provider's free models need none),
+    /// so a child is never refused for want of one. opencode's login is
+    /// `auth.json` in its data directory, which an OAuth provider's refresh
+    /// rewrites in place (owner ruling 69): the primary shares it by a link
+    /// in the relocated data directory, never a copy, whatever variable is
+    /// set (the login may hold other providers than a key does); a child is
+    /// never given it.
     fn credentials(&self) -> Credentials {
         Credentials {
             child_env: &[],
             primary_env: &[],
-            user_dir: ".local/share/opencode",
-            login_file: None,
+            user_dir: DATA_DIR,
+            user_dir_variable: Some(("XDG_DATA_HOME", "opencode")),
+            login_file: Some(LOGIN_FILE),
+            home_dir: SESSION_DATA_DIR,
+            sign_in: SIGN_IN,
+            login_optional: true,
+            // A file on every platform (no keychain): linked everywhere, and
+            // on Windows, where a symlink needs a privilege, copied when no
+            // link can be made (ruling 80; the cost: a refresh rotates the
+            // copy's token, which can sign the real login out).
+            no_link_on: &[],
+            copy_on: &["windows"],
         }
     }
 

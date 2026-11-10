@@ -11,6 +11,7 @@
 //! with the environment the stub was given, so the hooks reach the run's real
 //! listener. Needs node on the host's `PATH`.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde_json::{json, Value};
@@ -171,6 +172,108 @@ pub(super) fn forwards(w: &mut World, step: &cucumber::gherkin::Step) -> bool {
     let lines = crate::tests::gherkin_common::doc(step);
     w.common_mut().run_lines(&lines, "");
     true
+}
+
+/// The stub opencode of ruling 69's scenario: says what its data directory
+/// holds where opencode reads its login (`$XDG_DATA_HOME/opencode/auth.json`):
+/// a link and where it points, a file of its own, or nothing.
+const LOGIN_STUB: &str = r#"here="$(dirname "$0")"
+f="$XDG_DATA_HOME/opencode/auth.json"
+if [ -L "$f" ]; then echo "link $(readlink "$f")" > "$here/opencode-login"
+elif [ -e "$f" ]; then echo "file" > "$here/opencode-login"
+else echo "none" > "$here/opencode-login"
+fi
+env > "$here/opencode-env-all"
+"#;
+
+/// The `Alice ...:` step of ruling 69's scenario: an interactive opencode
+/// that reports its login, then exits.
+pub(super) fn reports_login(w: &mut World, step: &cucumber::gherkin::Step) -> bool {
+    if !step.value.contains("and it reports its login")
+        && !step.value.contains("and it reports its environment")
+    {
+        return false;
+    }
+    let bin = w.opencode_dir();
+    files::put_program(bin.join("opencode"), LOGIN_STUB);
+    let host = crate::tests::host_var("PATH").unwrap_or_default();
+    w.common.set_env(
+        "PATH",
+        format!("{}:{}", bin.display(), host.to_string_lossy()),
+    );
+    w.common.set_env("CTXLOOM_TEST_TERMINAL", "1".to_string());
+    w.before_run();
+    let lines = crate::tests::gherkin_common::doc(step);
+    w.common_mut().run_lines(&lines, "");
+    true
+}
+
+#[cucumber::then("opencode's data directory held a link to her opencode login, not a copy")]
+fn opencode_login_linked(w: &mut World) {
+    let login = w
+        .common
+        .project
+        .home()
+        .join(".local/share/opencode/auth.json");
+    assert_eq!(
+        files::read(w.opencode_dir().join("opencode-login"))
+            .expect("opencode ran")
+            .trim(),
+        format!("link {}", login.display()),
+        "{}",
+        w.ran().said()
+    );
+}
+
+/// The environment the stub opencode was given, by name.
+fn opencode_env(w: &World) -> BTreeMap<String, String> {
+    files::read(w.opencode_dir().join("opencode-env-all"))
+        .expect("opencode ran")
+        .lines()
+        .filter_map(|l| l.split_once('='))
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+}
+
+#[cucumber::then(
+    expr = "opencode's environment held {string} as {string}, and no CTXLOOM_PERMIT_ variable"
+)]
+fn opencode_env_held(w: &mut World, name: String, value: String) {
+    w.ran().succeeds();
+    let env = opencode_env(w);
+    assert_eq!(env.get(&name), Some(&value), "{:?}", env.keys());
+    assert!(
+        !env.keys().any(|k| k.starts_with("CTXLOOM_PERMIT_")),
+        "{:?}",
+        env.keys()
+    );
+}
+
+#[cucumber::then(expr = "opencode's {string} was the run's own, not {string}")]
+fn opencode_env_runs_own(w: &mut World, name: String, value: String) {
+    let env = opencode_env(w);
+    let held = env
+        .get(&name)
+        .unwrap_or_else(|| panic!("{name} is the run's"));
+    assert_ne!(held, &value);
+}
+
+#[cucumber::then(
+    "opencode's HOME, XDG_DATA_HOME and OPENCODE_CONFIG_DIR were its session home's, and its PATH led with ctxloom's directory"
+)]
+fn opencode_env_relocated(w: &mut World) {
+    w.ran().succeeds();
+    let env = opencode_env(w);
+    let home = w.opencode_session_dir().join("home");
+    let home = home.to_string_lossy();
+    assert_eq!(env.get("HOME").map(String::as_str), Some(&*home));
+    assert_eq!(
+        env.get("OPENCODE_CONFIG_DIR").map(String::as_str),
+        Some(&*home)
+    );
+    assert_eq!(env.get("XDG_DATA_HOME"), Some(&format!("{home}/xdg/data")));
+    let path = env.get("PATH").expect("a PATH");
+    assert!(!path.starts_with("/evil"), "{path}");
 }
 
 #[cucumber::then(

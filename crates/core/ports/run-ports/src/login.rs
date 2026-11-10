@@ -1,9 +1,11 @@
 //! The login-link port: how the human's primary session is handed her own
 //! login (owner ruling 2026-11-08, item 8).
 //!
-//! The file an engine keeps its login in is NEVER read, copied or printed by
-//! ctxloom: the only things this port can say of it are whether it is there,
-//! and the only thing it can do is make a session home's file a link to it.
+//! The file an engine keeps its login in is never read or printed by ctxloom:
+//! the only things this port can say of it are whether it is there, and what
+//! it does is make a session home's file a link to it, or, where the engine
+//! says a link that cannot be made is a copy (owner ruling 80: opencode on
+//! Windows), copy it there whole, unread by anything but the copy.
 
 use crate::RecordsError;
 
@@ -30,4 +32,9 @@ pub trait LoginLinks: Send {
     /// Make `rel` of `harp`'s directory a link to the absolute `target`,
     /// creating the directories above it. It replaces nothing.
     fn link(&mut self, harp: &str, rel: &str, target: &str) -> Result<(), RecordsError>;
+
+    /// Make `rel` of `harp`'s directory a copy of the file at the absolute
+    /// `source`, readable by its owner alone, creating the directories above
+    /// it. It replaces nothing.
+    fn copy(&mut self, harp: &str, rel: &str, source: &str) -> Result<(), RecordsError>;
 }

@@ -11,7 +11,9 @@ use run_ports::{
     TurnRequest,
 };
 
-use crate::{Opencode, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST, OPTIONAL_KEY};
+use crate::{
+    Opencode, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST, LOGIN_FILE, PROVIDER_KEYS, SIGN_IN,
+};
 
 const HOME: &str = "/p/.ctxloom/sessions/h/home";
 
@@ -160,7 +162,8 @@ fn test_the_engine_is_relocated_into_the_session_home() {
 fn test_only_the_curated_variables_pass_and_opencode_pure_never_does() {
     let caller = env(&[
         ("PATH", "/usr/bin"),
-        (OPTIONAL_KEY, "sk-test"), // gitleaks:allow
+        ("OPENAI_API_KEY", "sk-test"),           // gitleaks:allow
+        ("CTXLOOM_OPENCODE_API_KEY", "sk-test"), // gitleaks:allow
         ("OPENCODE_PURE", "1"),
         ("OPENCODE_CONFIG", "/home/alice/oc.json"),
         ("OPENCODE_CONFIG_CONTENT", "{}"),
@@ -188,7 +191,7 @@ fn test_only_the_curated_variables_pass_and_opencode_pure_never_does() {
         let names: Vec<&str> = command.env.keys().map(String::as_str).collect();
         for passed in [
             "PATH",
-            OPTIONAL_KEY,
+            "OPENAI_API_KEY",
             "NAMED",
             "CTXLOOM_ENDPOINT",
             "CTXLOOM_SESSION_HARP",
@@ -196,6 +199,7 @@ fn test_only_the_curated_variables_pass_and_opencode_pure_never_does() {
             assert!(names.contains(&passed), "{passed}: {names:?}");
         }
         for kept in [
+            "CTXLOOM_OPENCODE_API_KEY",
             "OPENCODE_PURE",
             "OPENCODE_CONFIG",
             "OPENCODE_CONFIG_CONTENT",
@@ -206,7 +210,8 @@ fn test_only_the_curated_variables_pass_and_opencode_pure_never_does() {
     }
     for list in [ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST] {
         assert!(!list.iter().any(|n| n.starts_with("OPENCODE_")), "{list:?}");
-        assert!(list.contains(&OPTIONAL_KEY));
+        // Ruling 79: Go's endpoint key is gone, hard migrated.
+        assert!(!list.contains(&"CTXLOOM_OPENCODE_API_KEY"));
         for hook in run_ports::HOOK_VARIABLES {
             assert!(list.contains(&hook), "{hook}");
         }
@@ -236,13 +241,110 @@ fn test_a_configured_credential_source_passes_its_variables() {
 }
 
 // opencode's key is optional (a built-in provider's free models need none): a
-// child is never refused for want of it.
+// child is never refused for want of one, and the primary is never kept from
+// sharing her login by a variable (her login may hold other providers).
 #[test]
-fn test_no_credential_is_required_of_a_child_or_shared_with_the_primary() {
+fn test_no_credential_is_required_of_a_child_or_keeps_the_primary_from_her_login() {
     let credentials = Opencode::new().credentials();
     assert!(credentials.child_env.is_empty());
     assert!(credentials.primary_env.is_empty());
-    assert_eq!(credentials.login_file, None);
+    assert_eq!(credentials.login_file, Some(LOGIN_FILE));
+}
+
+// Ruling 69: opencode's login is `auth.json` in its data directory
+// (`$XDG_DATA_HOME/opencode`, else `~/.local/share/opencode`), which an OAuth
+// provider's refresh rewrites in place. The primary's session home links it
+// where the relocated data directory is: the place opencode reads.
+#[test]
+fn test_the_login_is_linked_where_the_relocated_data_directory_is() {
+    let credentials = Opencode::new().credentials();
+    assert_eq!(credentials.user_dir, ".local/share/opencode");
+    assert_eq!(
+        credentials.user_dir_variable,
+        Some(("XDG_DATA_HOME", "opencode"))
+    );
+    assert_eq!(LOGIN_FILE, "auth.json");
+    let command = terminal(&request());
+    let data = command.env.get("XDG_DATA_HOME").expect("relocated");
+    assert_eq!(
+        format!("{HOME}/{}", credentials.home_dir),
+        format!("{data}/opencode")
+    );
+}
+
+// opencode needs no login (its free models): a missing one is nothing to say,
+// and the way to sign in, when one is said, is opencode's own.
+#[test]
+fn test_a_missing_login_is_optional_and_signing_in_is_opencodes_own() {
+    let credentials = Opencode::new().credentials();
+    assert!(credentials.login_optional);
+    assert_eq!(credentials.sign_in, SIGN_IN);
+    assert!(SIGN_IN.contains("opencode auth login"), "{SIGN_IN}");
+    for key in PROVIDER_KEYS {
+        assert!(SIGN_IN.contains(key), "{key}: {SIGN_IN}");
+    }
+}
+
+// The built-in source's provider keys (ruling 69): a child and the TUI are
+// given each one exported, as claude's are its own.
+#[test]
+fn test_the_builtin_provider_keys_pass_to_a_child_and_to_the_tui() {
+    assert_eq!(PROVIDER_KEYS, ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]);
+    let caller = env(&[("ANTHROPIC_API_KEY", "a"), ("OPENAI_API_KEY", "o")]);
+    for command in [
+        turn(&TurnRequest {
+            env: caller.clone(),
+            ..request()
+        }),
+        terminal(&TurnRequest {
+            env: caller.clone(),
+            ..request()
+        }),
+    ] {
+        for key in PROVIDER_KEYS {
+            assert_eq!(
+                command.env.get(*key),
+                caller.get(*key),
+                "{key}: {:?}",
+                command.env
+            );
+        }
+    }
+    for list in [ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST] {
+        for key in PROVIDER_KEYS {
+            assert!(list.contains(key), "{key}");
+        }
+    }
+}
+
+// A child is never handed the login file: a configured file reaches no
+// variable of its turn, whose data directory is the session home's own.
+#[test]
+fn test_a_childs_turn_is_never_handed_the_login_file() {
+    let settings = EngineSettings {
+        auth: AuthSetting::Source {
+            env: vec!["MY_PROVIDER_KEY".to_string()],
+            file: Some("/home/alice/.local/share/opencode/auth.json".to_string()),
+        },
+        ..EngineSettings::default()
+    };
+    let command = turn(&TurnRequest {
+        env: env(&[("HOME", "/home/alice"), ("MY_PROVIDER_KEY", "k")]),
+        settings,
+        ..request()
+    });
+    assert!(
+        !command
+            .env
+            .values()
+            .any(|v| v.contains("auth.json") || v.starts_with("/home/alice")),
+        "{:?}",
+        command.env
+    );
+    assert_eq!(
+        command.env.get("XDG_DATA_HOME").map(String::as_str),
+        Some(format!("{HOME}/xdg/data").as_str())
+    );
 }
 
 // `session_home: host`: the user's own opencode config, data and ~/.opencode
@@ -291,14 +393,20 @@ fn test_its_name_as_an_engine_is_opencode() {
 }
 
 #[test]
-fn test_its_credentials_are_exactly_none_required_and_no_login_file() {
+fn test_its_credentials_are_exactly_none_required_and_its_login_shared_by_the_primary() {
     assert_eq!(
         Opencode::new().credentials(),
         Credentials {
             child_env: &[],
             primary_env: &[],
             user_dir: ".local/share/opencode",
-            login_file: None,
+            user_dir_variable: Some(("XDG_DATA_HOME", "opencode")),
+            login_file: Some("auth.json"),
+            home_dir: "xdg/data/opencode",
+            sign_in: SIGN_IN,
+            login_optional: true,
+            no_link_on: &[],
+            copy_on: &["windows"],
         }
     );
 }
@@ -330,4 +438,17 @@ fn test_home_and_every_xdg_and_opencode_variable_are_withheld_even_when_named() 
         command.env
     );
     assert_eq!(command.env.get("OPENCODE_DISABLE_AUTOUPDATE"), None);
+}
+
+// Ruling 80: opencode's login is a file on every platform, so it is linked
+// on macOS too; on Windows a link that cannot be made is a copy.
+#[test]
+fn test_its_login_links_everywhere_and_is_copied_on_windows_when_no_link_can_be_made() {
+    let credentials = Opencode::new().credentials();
+    assert!(
+        credentials.no_link_on.is_empty(),
+        "{:?}",
+        credentials.no_link_on
+    );
+    assert_eq!(credentials.copy_on, ["windows"]);
 }

@@ -403,6 +403,41 @@ impl Engine for ScriptedEngine {
     }
 }
 
+/// An engine that relocates a config dir of its own (`FAKE_CONFIG_DIR`, a
+/// name it computes), and is otherwise `0`.
+pub struct Relocating(pub ScriptedEngine);
+
+impl Relocating {
+    fn relocated(command: Result<TurnCommand, EngineError>) -> Result<TurnCommand, EngineError> {
+        command.map(|mut command| {
+            command
+                .env
+                .insert("FAKE_CONFIG_DIR".to_string(), "/session/config".to_string());
+            command
+        })
+    }
+}
+
+// A test double shipped for tests only; its tests are the callers' own.
+#[cfg_attr(test, mutants::skip)]
+impl Engine for Relocating {
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+    fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
+        self.0.prepare(request)
+    }
+    fn drive_turn(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
+        Relocating::relocated(self.0.drive_turn(request))
+    }
+    fn finish_turn(&self, output: &TurnOutput) -> TurnOutcome {
+        self.0.finish_turn(output)
+    }
+    fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
+        Relocating::relocated(self.0.drive_interactive(request))
+    }
+}
+
 /// An engine that asks for credentials as `1` says, and is otherwise `0`.
 pub struct Credentialed(pub ScriptedEngine, pub run_ports::Credentials);
 
@@ -553,6 +588,7 @@ pub fn order(engine: &str) -> Order {
         model: String::new(),
         effort: String::new(),
         settings: Default::default(),
+        owned: Vec::new(),
     }
 }
 

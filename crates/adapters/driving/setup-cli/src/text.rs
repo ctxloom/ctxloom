@@ -35,10 +35,10 @@ pub(crate) fn auth(rows: &[Row], out: &mut dyn Write) -> io::Result<()> {
         if !row.usable_by.is_empty() {
             writeln!(
                 out,
-                "{} {}: usable by the {} session only ({}) \u{2014} {}",
-                row.engine, row.mode, row.usable_by, row.via, row.remedy
+                "{} {}: usable by the {} session only ({}) \u{2014} {}\n  fix: {}",
+                row.engine, row.mode, row.usable_by, row.via, row.message, row.remedy
             )?;
-        } else if row.present {
+        } else if row.present == Some(true) {
             writeln!(
                 out,
                 "{} {}: present ({})",

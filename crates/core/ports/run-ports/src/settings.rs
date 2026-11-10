@@ -61,8 +61,23 @@ pub struct CredentialPolicy {
     pub primary_env: Vec<String>,
     /// The engine's configuration directory under the user's home.
     pub user_dir: String,
+    /// The variable that moves [`CredentialPolicy::user_dir`], and the
+    /// directory under its value ([`Credentials::user_dir_variable`]).
+    pub user_dir_variable: Option<(String, String)>,
     /// The login file's name in a session home, which the primary may share.
     pub login_file: Option<String>,
+    /// Where under the session home the login file is linked
+    /// ([`Credentials::home_dir`]).
+    pub home_dir: String,
+    /// How the human signs in when no login is shared ([`Credentials::sign_in`]).
+    pub sign_in: String,
+    /// A login missing from its default place is nothing to say
+    /// ([`Credentials::login_optional`]).
+    pub login_optional: bool,
+    /// Where the login is never linked ([`Credentials::no_link_on`]).
+    pub no_link_on: Vec<String>,
+    /// Where a link that cannot be made is a copy ([`Credentials::copy_on`]).
+    pub copy_on: Vec<String>,
     /// Where the login file the primary shares is, when the config names it
     /// (`~/` is the caller's home); none is `<home>/<user_dir>/<login_file>`.
     pub login_source: Option<String>,
@@ -74,7 +89,15 @@ impl From<Credentials> for CredentialPolicy {
             child_env: base.child_env.iter().map(ToString::to_string).collect(),
             primary_env: base.primary_env.iter().map(ToString::to_string).collect(),
             user_dir: base.user_dir.to_string(),
+            user_dir_variable: base
+                .user_dir_variable
+                .map(|(variable, dir)| (variable.to_string(), dir.to_string())),
             login_file: base.login_file.map(ToString::to_string),
+            home_dir: base.home_dir.to_string(),
+            sign_in: base.sign_in.to_string(),
+            login_optional: base.login_optional,
+            no_link_on: base.no_link_on.iter().map(ToString::to_string).collect(),
+            copy_on: base.copy_on.iter().map(ToString::to_string).collect(),
             login_source: None,
         }
     }

@@ -127,6 +127,29 @@ Feature: init — the setup interview, and what it does to a project that alread
       And the output contains "or store it in your secret manager"
       And the file ".ctxloom/config.yaml" exists
 
+    # A credentials file serves the human's own primary session alone, so an
+    # engine her agents use whose source is a file and no variable can
+    # authenticate none of her child agents: init warns, in the words a
+    # child's run of it is refused with, naming the variables to put in the
+    # source and export, and carries on.
+    Scenario: Init warns when the agents' engine authenticates with a file alone
+      # new: owner ruling 64 (2026-11-10).
+      Given an initialized ctxloom project
+      And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to ""
+      And the home already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        engines:
+          claude-code:
+            auth:
+              file: ~/.claude/.credentials.json
+        """
+      When I run "ctxloom init"
+      Then the command succeeds
+      And the output contains "engines.claude-code.auth names only a file"
+      And the output contains "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY"
+      And the output contains "name one of those variables in engines.claude-code.auth.env and export it"
+
   Rule: A mistyped subcommand must not be mistaken for a bare init
 
     `init` is RUNNABLE as well as a namespace, and that combination made it the

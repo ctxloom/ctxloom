@@ -347,6 +347,9 @@ impl LoginLinks for Links {
             .push((harp.to_string(), rel.to_string(), target.to_string()));
         Ok(())
     }
+    fn copy(&mut self, _: &str, _: &str, _: &str) -> Result<(), RecordsError> {
+        unreachable!("no engine of these tests copies its login")
+    }
 }
 
 struct Script {
@@ -983,6 +986,9 @@ const NEEDS_A_TOKEN: Credentials = Credentials {
     ],
     user_dir: ".claude",
     login_file: Some(".credentials.json"),
+    sign_in: "sign in with /login in the session, or run `claude setup-token`, then export CLAUDE_CODE_OAUTH_TOKEN",
+    no_link_on: &["macos", "windows"],
+    ..Credentials::NONE
 };
 
 fn needing_a_token() -> Script {
@@ -1310,6 +1316,7 @@ async fn the_bearer_is_in_no_debug_or_error_rendering() {
                 model: String::new(),
                 effort: String::new(),
                 settings: Default::default(),
+                owned: Vec::new(),
             }
         ),
     ] {
@@ -1940,4 +1947,84 @@ async fn the_settings_of_the_planned_engine_are_not_applied_to_another() {
     let answer = rig.runs.one_shot(&Flags::default(), &asked).await.result;
     assert!(answer.is_ok(), "{answer:?}");
     assert_eq!(rig.runner.seen.lock().unwrap()[0].program, "fake");
+}
+
+// Ruling 78: a permit the run does not follow is said, by the permit's name
+// and never its value, for a child and the primary alike.
+#[tokio::test]
+async fn a_permit_of_a_run_variable_is_said_to_be_ignored_and_its_value_never_shown() {
+    for interactive in [false, true] {
+        let mut script = Script::answering();
+        script.env = vec![
+            ("PATH", "/bin"),
+            ("HOME", "/home/u"),
+            ("CTXLOOM_PERMIT_CTXLOOM_BEARER", "forged-bearer"),
+        ];
+        let mut rig = rig(script);
+        let (ok, notices) = if interactive {
+            let done = rig.runs.interactive(&Flags::default(), &ask()).await;
+            (done.result.is_ok(), done.notices)
+        } else {
+            let done = rig.runs.one_shot(&Flags::default(), &ask()).await;
+            (done.result.is_ok(), done.notices)
+        };
+        assert!(ok, "{interactive}");
+        assert!(
+            notices.iter().any(|n| matches!(n,
+                Notice::Finding { text, .. }
+                if text.contains("CTXLOOM_PERMIT_CTXLOOM_BEARER") && text.contains("never replaced"))),
+            "{notices:?}"
+        );
+        assert!(!format!("{notices:?}").contains("forged-bearer"));
+    }
+}
+
+// Ruling 78b: the PATH the run builds (its program's directory first, for the
+// hooks) and HOME (ctxloom's own home, which its hook processes read) are the
+// run's: a permit for either is said to be ignored, and the engine is given
+// ctxloom's.
+#[tokio::test]
+async fn a_permit_for_the_path_the_run_builds_or_for_home_is_ignored() {
+    for interactive in [false, true] {
+        let mut script = Script::answering();
+        script.env = vec![
+            ("PATH", "/bin"),
+            ("HOME", "/home/u"),
+            ("CTXLOOM_PERMIT_PATH", "/evil"),
+            ("CTXLOOM_PERMIT_HOME", "/elsewhere"),
+            ("CTXLOOM_PERMIT_OPENCODE_API_KEY", "oc-key"),
+        ];
+        let mut rig = rig(script);
+        let notices = if interactive {
+            rig.runs
+                .interactive(&Flags::default(), &ask())
+                .await
+                .notices
+        } else {
+            rig.runs.one_shot(&Flags::default(), &ask()).await.notices
+        };
+        for name in ["PATH", "HOME"] {
+            assert!(
+                notices.iter().any(|n| matches!(n,
+                    Notice::Finding { text, .. }
+                    if text.contains(&format!("CTXLOOM_PERMIT_{name} was not passed on"))
+                        && text.contains(&format!("ctxloom sets {name}")))),
+                "{name}: {notices:?}"
+            );
+        }
+        let command = if interactive {
+            rig.runner.seen_terminal.lock().unwrap()[0].clone()
+        } else {
+            rig.runner.seen.lock().unwrap()[0].clone()
+        };
+        assert_eq!(
+            command.env.get("PATH").map(String::as_str),
+            Some("/opt/ctxloom/bin:/bin")
+        );
+        assert_eq!(command.env.get("HOME").map(String::as_str), Some("/home/u"));
+        assert_eq!(
+            command.env.get("OPENCODE_API_KEY").map(String::as_str),
+            Some("oc-key")
+        );
+    }
 }

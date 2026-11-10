@@ -214,17 +214,13 @@ pub fn credentials(layers: &[String], auth: &Auth) -> Check {
         return row(M, N, Status::Fail, &detail, &first.remedy);
     }
     // A file alone serves the primary session; every child run of that
-    // engine is refused (ruling 53).
+    // engine is refused (ruling 53), and the row says so in the refusal's
+    // words (ruling 81).
     let primary_only: Vec<_> = verdicts.iter().filter(|v| v.primary_only).collect();
     if let Some(first) = primary_only.first() {
         let detail = primary_only
             .iter()
-            .map(|v| {
-                format!(
-                    "{} (auth {}): usable by the primary session only; a child agent run is refused",
-                    v.engine, v.mode
-                )
-            })
+            .map(|v| format!("{} (auth {}): {}", v.engine, v.mode, v.message))
             .collect::<Vec<_>>()
             .join("; ");
         return row(M, N, Status::Warn, &detail, &first.remedy);

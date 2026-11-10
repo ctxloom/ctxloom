@@ -179,14 +179,10 @@ fn the_secret_is_in_no_debug_display_or_error_rendering() {
     let shown = format!("{:?}", RedactedEnv(&env));
     assert!(!shown.contains(&secret), "{shown}");
     assert!(shown.contains(BEARER_VARIABLE));
-    assert!(
-        shown.contains("https://127.0.0.1:9"),
-        "the endpoint is not secret"
-    );
-    assert!(
-        shown.contains(&cert().to_env_value()),
-        "the certificate is public"
-    );
+    // Every value is withheld, public or not: the names alone render.
+    assert!(!shown.contains("https://127.0.0.1:9"), "{shown}");
+    assert!(!shown.contains(&cert().to_env_value()), "{shown}");
+    assert!(shown.contains(ENDPOINT_VARIABLE) && shown.contains(TLS_CERT_VARIABLE));
     assert!(!BearerError::Malformed { length: 3 }
         .to_string()
         .contains(&secret));

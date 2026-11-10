@@ -587,6 +587,172 @@ Feature: run — assembling a project's context and handing it to an engine
       And the output contains "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY"
       And no assistant was launched
 
+    # opencode's login mirrors claude's: a child of an opencode source that
+    # is a file alone is refused the same way, naming opencode's built-in
+    # variables: its providers' keys (rulings 69 and 79).
+    Scenario: A child opencode run whose credential source is a file alone is refused
+      # new: owner rulings 53, 69 and 79 (2026-11-10).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And the home already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        engines:
+          opencode:
+            auth:
+              file: ~/.local/share/opencode/auth.json
+        """
+      When Alice runs a child opencode agent on a file-only credential source:
+        """
+        ctxloom run --engine opencode --one-shot "hello"
+        """
+      Then the command exits with code 2
+      And the refusal is "runs-file-only-credential"
+      And the refusal's fix says "engines.opencode.auth.env"
+      And the output contains "ANTHROPIC_API_KEY, OPENAI_API_KEY"
+      And the output does not contain "CTXLOOM_OPENCODE_API_KEY"
+
+  Rule: A CTXLOOM_PERMIT_<NAME> variable reaches the agent as <NAME>
+
+    An engine's environment is curated: its allowlist, the engine block's
+    `env`, the credential source, and blocks of its own (opencode never passes
+    an `OPENCODE_*` variable of hers). `CTXLOOM_PERMIT_<NAME>=value` in the
+    environment she runs ctxloom in is the escape hatch: the agent is given
+    `<NAME>=value`, a child's turn and her interactive session alike, whatever
+    the curation says. The permit itself is not passed on, and a value is
+    never shown. A permit can never replace one of the run's own `CTXLOOM_*`
+    variables, nor anything else ctxloom sets for the engine (the session home
+    it relocates the engine into, the PATH it builds for the hooks, her HOME,
+    which is ctxloom's own home): it is ignored, and the run says so. An explicit permit for
+    `ANTHROPIC_AUTH_TOKEN` gives a child the primary's token (without one it
+    never reaches a child): such a child holds her token, no credential of
+    its own.
+
+    Scenario: A permit gives her interactive opencode session a variable opencode's block withholds
+      # new: owner ruling 78 (2026-11-10).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And the environment variable "CTXLOOM_PERMIT_OPENCODE_API_KEY" is set to "oc-fixture-not-real"
+      When Alice runs her assistant on opencode interactively, and it reports its environment:
+        """
+        ctxloom run --engine opencode
+        """
+      Then opencode's environment held "OPENCODE_API_KEY" as "oc-fixture-not-real", and no CTXLOOM_PERMIT_ variable
+      And the output does not contain "oc-fixture-not-real"
+
+    Scenario: A permit for one of the run's own variables is ignored, and the run says so
+      # new: owner ruling 78 (2026-11-10).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And the environment variable "CTXLOOM_PERMIT_CTXLOOM_BEARER" is set to "forged-bearer-not-real"
+      When Alice runs her assistant on opencode interactively, and it reports its environment:
+        """
+        ctxloom run --engine opencode
+        """
+      Then the command succeeds
+      And the output contains "CTXLOOM_PERMIT_CTXLOOM_BEARER"
+      And the output contains "never replaced"
+      And the output does not contain "forged-bearer-not-real"
+      And opencode's "CTXLOOM_BEARER" was the run's own, not "forged-bearer-not-real"
+
+    # A permit never replaces what ctxloom itself sets for the engine: the
+    # session home it relocates the engine into, and the PATH it builds for
+    # the hooks (owner ruling 78b). Each is ignored, and said.
+    Scenario: A permit for a name ctxloom sets for opencode is ignored, and the run says so
+      # new: owner ruling 78b (2026-11-10).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And the environment variable "CTXLOOM_PERMIT_HOME" is set to "/evil-home"
+      And the environment variable "CTXLOOM_PERMIT_XDG_DATA_HOME" is set to "/evil-data"
+      And the environment variable "CTXLOOM_PERMIT_OPENCODE_CONFIG_DIR" is set to "/evil-config"
+      And the environment variable "CTXLOOM_PERMIT_PATH" is set to "/evil"
+      And the environment variable "CTXLOOM_PERMIT_OPENCODE_API_KEY" is set to "oc-fixture-not-real"
+      When Alice runs her assistant on opencode interactively, and it reports its environment:
+        """
+        ctxloom run --engine opencode
+        """
+      Then opencode's HOME, XDG_DATA_HOME and OPENCODE_CONFIG_DIR were its session home's, and its PATH led with ctxloom's directory
+      And opencode's environment held "OPENCODE_API_KEY" as "oc-fixture-not-real", and no CTXLOOM_PERMIT_ variable
+      And the output contains "CTXLOOM_PERMIT_HOME was not passed on"
+      And the output contains "CTXLOOM_PERMIT_XDG_DATA_HOME was not passed on"
+      And the output contains "CTXLOOM_PERMIT_OPENCODE_CONFIG_DIR was not passed on"
+      And the output contains "CTXLOOM_PERMIT_PATH was not passed on"
+
+    Scenario: A permit for a name ctxloom sets for claude is ignored in a child's turn
+      # new: owner ruling 78b (2026-11-10).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And Alice has exported only the credential "CLAUDE_CODE_OAUTH_TOKEN"
+      And the environment variable "CTXLOOM_PERMIT_CLAUDE_CONFIG_DIR" is set to "/evil-config"
+      And the environment variable "CTXLOOM_PERMIT_HOME" is set to "/evil-home"
+      When Alice runs a child agent with permits for what ctxloom sets:
+        """
+        ctxloom run --one-shot "hello"
+        """
+      Then the command succeeds
+      And the assistant's "CLAUDE_CONFIG_DIR" was ctxloom's, not "/evil-config"
+      And the assistant's environment did not hold "HOME"
+      And the output contains "CTXLOOM_PERMIT_CLAUDE_CONFIG_DIR was not passed on"
+      And the output contains "CTXLOOM_PERMIT_HOME was not passed on"
+
+    Scenario: An explicit permit gives a child the primary's token
+      # new: owner ruling 78a (2026-11-10).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And Alice has exported only the credential "CLAUDE_CODE_OAUTH_TOKEN"
+      And the environment variable "CTXLOOM_PERMIT_ANTHROPIC_AUTH_TOKEN" is set to "primary-token-not-real"
+      When Alice runs a child agent with a permit for the primary's token:
+        """
+        ctxloom run --one-shot "hello"
+        """
+      Then the command succeeds
+      And the assistant's environment held "ANTHROPIC_AUTH_TOKEN" as "primary-token-not-real"
+
+    Scenario: Without a permit the primary's token never reaches a child, even when the config names it
+      # new: owner rulings 15 and 78a (2026-11-10).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And Alice has exported only the credential "CLAUDE_CODE_OAUTH_TOKEN"
+      And the environment variable "ANTHROPIC_AUTH_TOKEN" is set to "primary-token-not-real"
+      And the home already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        engines:
+          claude-code:
+            env: [ANTHROPIC_AUTH_TOKEN]
+        """
+      When Alice runs a child agent with no permit for the primary's token:
+        """
+        ctxloom run --one-shot "hello"
+        """
+      Then the command succeeds
+      And the assistant's environment did not hold "ANTHROPIC_AUTH_TOKEN"
+
+  Rule: Alice's interactive opencode session shares her opencode login by a link, never a copy
+
+    opencode keeps its login in `auth.json` in its data directory
+    (`$XDG_DATA_HOME/opencode`, else `~/.local/share/opencode`), and an OAuth
+    provider's refresh writes the rotated token back to it. Her interactive
+    session's relocated data directory is given a link to her own file, so a
+    refresh there is a refresh of her login; a copy's would invalidate it. A
+    child is never given the file.
+
+    Scenario: Her interactive opencode session's data directory links her opencode login
+      # new: owner ruling 69 (2026-11-10), with a stub opencode on PATH that
+      # reports what its data directory holds.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And the home already has the file ".local/share/opencode/auth.json":
+        """
+        {"fixture": "not a real login"}
+        """
+      When Alice runs her assistant on opencode interactively, and it reports its login:
+        """
+        ctxloom run --engine opencode
+        """
+      Then the command succeeds
+      And opencode's data directory held a link to her opencode login, not a copy
+
   @pending
   Rule: --engine runs the engine it names, with that engine's defaults
 

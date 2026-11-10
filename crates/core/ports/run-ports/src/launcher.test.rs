@@ -81,6 +81,27 @@ fn a_command_renders_its_env_keys_and_never_the_bearer() {
     command.cwd = Some("/w".to_string());
     assert_eq!(
         format!("{command:?}"),
-        r#"TurnCommand { program: "claude", args: ["-p"], env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "/bin"}, stdin: [104, 105], cwd: Some("/w") }"#
+        r#"TurnCommand { program: "claude", args: ["-p"], env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "<redacted>"}, stdin: [104, 105], cwd: Some("/w") }"#
     );
+}
+
+// Credential values never render: a command's Debug names every variable and
+// shows no value, whatever the name (no list of sensitive names to keep).
+#[test]
+fn a_commands_debug_shows_no_credential_value() {
+    let mut command = TurnCommand::new("claude");
+    command.env = BTreeMap::from([
+        ("ANTHROPIC_API_KEY".to_string(), "secret".to_string()),
+        ("CLAUDE_CODE_OAUTH_TOKEN".to_string(), "secret".to_string()),
+        ("SOME_PROVIDER_KEY".to_string(), "secret".to_string()),
+    ]);
+    let shown = format!("{command:?}");
+    assert!(!shown.contains("secret"), "{shown}");
+    for name in [
+        "ANTHROPIC_API_KEY",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "SOME_PROVIDER_KEY",
+    ] {
+        assert!(shown.contains(name), "{name}: {shown}");
+    }
 }

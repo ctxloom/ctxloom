@@ -12,10 +12,10 @@ use angzarr_embedded::v1::{command_page, CommandBook, CommandPage, Cover, Fact, 
 use angzarr_embedded::{Any, Failure, Handled, Payload, Registry};
 
 use crate::{
-    run_root, CredentialEvidence, EndCause, EnqueueRun, FinalReported, LaunchFailed, QueueTurn,
-    RequestStop, RunAggregate, RunCommand, RunEnded, RunEvent, RunExited, RunMode, RunRejection,
-    RunState, RunnerAttached, RunnerStarted, SummaryReported, TurnCompleted, TurnFailed,
-    TurnFailureClass, TurnStarted, RUN_DOMAIN,
+    run_root, CredentialEvidence, EndCause, EnqueueRun, FinalReported, LaunchFailed,
+    LaunchOrphaned, QueueTurn, RequestStop, RunAggregate, RunCommand, RunEnded, RunEvent,
+    RunExited, RunMode, RunRejection, RunState, RunnerAttached, RunnerLost, RunnerStarted,
+    SummaryReported, TurnCompleted, TurnFailed, TurnFailureClass, TurnStarted, RUN_DOMAIN,
 };
 
 const SESSION: &str = "5f0c7a52-1111-5111-8111-000000000001";
@@ -466,6 +466,75 @@ fn the_first_terminal_input_ends_the_run_and_a_second_records_nothing() {
     );
     assert!(second.is_empty());
     assert_eq!(run.event_count(), before);
+}
+
+// Rulings 95, 100: an orphan's end says what it lost. A STARTED run whose
+// owner is gone ends for runner loss; a run still owed a runner whose
+// launcher died ends orphaned, never as a launch failure. Each is the run's
+// one end (a second terminal input records nothing), it revokes the
+// credentials, and a redelivery is a DUPLICATE.
+#[test]
+fn runner_lost_ends_a_started_run_for_runner_loss_once() {
+    let mut run = Run::enqueued();
+    run.fact(
+        RunnerStarted {
+            runtime: "fake".to_string(),
+            workspace: "/w".to_string(),
+            pid: 7,
+        },
+        "started:r",
+    );
+    let ended = run.fact(RunnerLost {}, "runner-lost:r");
+    assert_eq!(
+        ended,
+        [RunEvent::RunEnded(RunEnded {
+            cause: EndCause::RunnerLoss,
+            exit_code: None,
+            detail: String::new(),
+        })]
+    );
+    assert!(run.state().credential_revoked);
+    let handled = run
+        .harness
+        .when_book(fact_book(RunnerLost {}, "runner-lost:r"))
+        .handled()
+        .unwrap();
+    assert!(matches!(handled, Handled::Duplicate(..)));
+    assert!(run.fact(exited(0), "exit:r").is_empty(), "ended once");
+}
+
+#[test]
+fn launch_orphaned_ends_a_waiting_run_orphaned_and_claims_no_launch_failure() {
+    let mut run = Run::enqueued();
+    let ended = run.fact(LaunchOrphaned {}, "launch-orphaned:r");
+    assert_eq!(
+        ended,
+        [RunEvent::RunEnded(RunEnded {
+            cause: EndCause::LaunchOrphaned,
+            exit_code: None,
+            detail: String::new(),
+        })]
+    );
+    assert!(run.state().credential_revoked);
+    let handled = run
+        .harness
+        .when_book(fact_book(LaunchOrphaned {}, "launch-orphaned:r"))
+        .handled()
+        .unwrap();
+    assert!(matches!(handled, Handled::Duplicate(..)));
+}
+
+#[test]
+fn an_orphan_fact_on_an_ended_or_unenqueued_run_records_nothing() {
+    let mut ended = Run::enqueued();
+    ended.fact(exited(0), "exit:r");
+    assert!(ended.fact(RunnerLost {}, "runner-lost:r").is_empty());
+    assert!(ended
+        .fact(LaunchOrphaned {}, "launch-orphaned:r")
+        .is_empty());
+    let mut none = Run::new();
+    assert!(none.fact(RunnerLost {}, "runner-lost:r").is_empty());
+    assert!(none.fact(LaunchOrphaned {}, "launch-orphaned:r").is_empty());
 }
 
 // NEW-DESIGN (plan 4.3: a re-sent fact with the same external_id is

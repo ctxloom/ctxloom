@@ -13,10 +13,11 @@ use angzarr_embedded_macros::{aggregate, applies, handles_cmd, handles_fact};
 use crate::refusal::refuse;
 use crate::{
     apply, run_root, EndCause, EnqueueRun, FinalReported, FinalReportedRecorded, LaunchFailed,
-    QueueTurn, RequestStop, RunCommand, RunEnded, RunEnqueued, RunEvent, RunExited, RunRejection,
-    RunState, RunnerAttached, RunnerAttachedRecorded, RunnerStarted, RunnerStartedRecorded,
-    StopRequested, SummaryReported, SummaryReportedRecorded, TurnCompleted, TurnCompletedRecorded,
-    TurnFailed, TurnFailedRecorded, TurnQueued, TurnStarted, TurnStartedRecorded,
+    LaunchOrphaned, QueueTurn, RequestStop, RunCommand, RunEnded, RunEnqueued, RunEvent, RunExited,
+    RunRejection, RunState, RunnerAttached, RunnerAttachedRecorded, RunnerLost, RunnerStarted,
+    RunnerStartedRecorded, StopRequested, SummaryReported, SummaryReportedRecorded, TurnCompleted,
+    TurnCompletedRecorded, TurnFailed, TurnFailedRecorded, TurnQueued, TurnStarted,
+    TurnStartedRecorded,
 };
 use crate::{
     AlreadyEnqueued, CredentialHashInvalid, CredentialsNotDistinct, Ended, NoRun, NotItsStream,
@@ -375,6 +376,22 @@ impl RunAggregate {
     fn launch_failed(&self, fact: LaunchFailed, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
         recorded(self.end(EndCause::LaunchFailed, None, fact.detail))
+    }
+
+    /// A started run whose owner is gone (rulings 93, 95): it ends for
+    /// runner loss, once.
+    #[handles_fact(RunnerLost)]
+    fn runner_lost(&self, fact: RunnerLost, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
+        let _ = (fact, ctx);
+        recorded(None::<RunEnded>)
+    }
+
+    /// A run owed a runner whose launcher died before starting one (ruling
+    /// 100): it ends orphaned, once, and claims no launch failure.
+    #[handles_fact(LaunchOrphaned)]
+    fn launch_orphaned(&self, fact: LaunchOrphaned, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
+        let _ = (fact, ctx);
+        recorded(None::<RunEnded>)
     }
 
     /// A model's claim: advisory evidence, recorded and nothing else (owner

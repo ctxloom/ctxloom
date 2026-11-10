@@ -45,6 +45,9 @@ enum EndCause {
   // final report is a model's CLAIM, advisory, and never ends a run; the end is
   // the runner's observation (RunExited and the like).
   reserved 8;
+  // A run owed a runner whose launcher died before it started one (its run
+  // lock free, ruling 100): no launch failed, nothing was launched.
+  END_CAUSE_LAUNCH_ORPHANED = 9;
   reserved "END_CAUSE_FINAL_REPORTED";
 }
 
@@ -243,6 +246,28 @@ message LaunchFailed {
 
   bool deterministic = 1;
   string detail = 2;
+}
+
+// A STARTED run whose owner is gone (its session's lock free, rulings 93,
+// 95): a sweeping process records it, never the runner, and it ends the run
+// for runner loss. Keyed `runner-lost:<run>`, so a second sweeper's is a
+// DUPLICATE; on a run already ended it records nothing.
+message RunnerLost {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.runs.v1.RunState"
+    emits: ["ctxloom.runs.v1.RunEnded"]
+  };
+}
+
+// A run still owed a runner whose launcher died before starting one (its run
+// lock free, rulings 92, 100): no launch failed, so it is not a
+// `LaunchFailed`. A sweeping process records it; keyed
+// `launch-orphaned:<run>`, so a second sweeper's is a DUPLICATE.
+message LaunchOrphaned {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.runs.v1.RunState"
+    emits: ["ctxloom.runs.v1.RunEnded"]
+  };
 }
 
 // The model's CLAIMS (owner ruling 2026-11-04, item 16): what the model said or

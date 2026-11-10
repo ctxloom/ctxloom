@@ -1066,8 +1066,15 @@ async fn ends(edge: &TestEdge) -> Vec<(EndCause, String)> {
         .collect()
 }
 
+/// The end of a run owed a runner whose launcher died (ruling 100): orphaned,
+/// never a launch failure.
 fn orphaned() -> (EndCause, String) {
-    (EndCause::LaunchFailed, "orphaned".to_string())
+    (EndCause::LaunchOrphaned, String::new())
+}
+
+/// The end of a started run whose owner is gone (ruling 95): runner loss.
+fn lost() -> (EndCause, String) {
+    (EndCause::RunnerLoss, String::new())
 }
 
 /// The incarnations the session's stream records as ended.
@@ -1114,9 +1121,9 @@ async fn started_run(edge: &Arc<TestEdge>) {
     .await;
 }
 
-// Rulings 86, 92: a run owed a runner whose own lock is free has lost its
-// launcher, and nobody else holds its order: the next process to catch up
-// records its launch failed, `orphaned`, which ends it and closes its
+// Rulings 86, 92, 100: a run owed a runner whose own lock is free has lost
+// its launcher, and nobody else holds its order: the next process to catch up
+// records `LaunchOrphaned` (no launch failed), which ends it and closes its
 // session's incarnation (ruling 85). Nothing is launched for it.
 #[tokio::test]
 async fn a_run_whose_launchers_lock_is_free_is_recorded_as_an_orphan() {
@@ -1125,6 +1132,7 @@ async fn a_run_whose_launchers_lock_is_free_is_recorded_as_an_orphan() {
     let mut later = another_process(&edge, Locks::saying(Free, Unproven));
     let launched = later.step(&edge.store, edge.catalog()).await.unwrap();
     assert!(launched.is_empty(), "an orphan is not launched");
+    // Not `LaunchFailed`: no orphan claims a launch failure.
     assert_eq!(ends(&edge).await, [orphaned()]);
     assert_eq!(closed(&edge).await, [(1, "orphaned".to_string())]);
 }
@@ -1201,17 +1209,41 @@ async fn a_run_whose_order_this_process_holds_is_launched_not_orphaned() {
     assert!(!ends(&edge).await.contains(&orphaned()));
 }
 
-// Ruling 93: a STARTED run whose session's lock is free has lost its owner
-// (the run holds its session's lock from its mint to its end): it is ended,
-// `orphaned`, and its incarnation closed.
+// Rulings 93, 95: a STARTED run whose session's lock is free has lost its
+// owner (the run holds its session's lock from its mint to its end): it is
+// ended by `RunnerLost`, for runner loss, and its incarnation closed.
 #[tokio::test]
-async fn a_started_run_whose_sessions_lock_is_free_is_ended_as_an_orphan() {
+async fn a_started_run_whose_sessions_lock_is_free_is_ended_for_runner_loss() {
     let edge = Arc::new(TestEdge::new());
     started_run(&edge).await;
     let mut later = another_process(&edge, Locks::saying(Unproven, Free));
     later.step(&edge.store, edge.catalog()).await.unwrap();
-    assert_eq!(ends(&edge).await, [orphaned()]);
+    assert_eq!(ends(&edge).await, [lost()]);
     assert_eq!(closed(&edge).await, [(1, "orphaned".to_string())]);
+}
+
+// Ruling 95, the race forced: two processes find the same started orphan,
+// the second catching up in the gap between the first one's probe and its
+// record. `RunnerLost` is keyed by the run, so the second is a DUPLICATE: the
+// run ends once, its incarnation is closed once, and neither fails.
+#[tokio::test]
+async fn two_processes_that_find_the_same_started_orphan_end_it_once() {
+    let edge = Arc::new(TestEdge::new());
+    started_run(&edge).await;
+    let second = Arc::new(Mutex::new(another_process(
+        &edge,
+        Locks::saying(Unproven, Free),
+    )));
+    let first_locks = Locks::saying(Unproven, Free);
+    let (racer, racing_edge) = (Arc::clone(&second), Arc::clone(&edge));
+    *first_locks.before.lock().unwrap() = Some(Box::new(move || {
+        let mut second = racer.lock().unwrap();
+        now(second.step(&racing_edge.store, racing_edge.catalog())).unwrap();
+    }));
+    let mut first = another_process(&edge, first_locks);
+    first.step(&edge.store, edge.catalog()).await.unwrap();
+    assert_eq!(ends(&edge).await, [lost()], "ended once");
+    assert_eq!(closed(&edge).await.len(), 1, "closed once");
 }
 
 // Ruling 93: a session lock that is held (its owner runs) or proves nothing

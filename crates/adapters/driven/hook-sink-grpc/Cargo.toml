@@ -13,15 +13,17 @@ angzarr-proto-transport-distributed.workspace = true
 run-ports.workspace = true
 prost.workspace = true
 prost-types.workspace = true
-# The client channel; no router, no server, no TLS yet (the endpoint's scheme will drive it).
-tonic = { version = "0.14", default-features = false, features = ["channel", "codegen"] }
+# The client channel, TLS on ring (never aws-lc): the endpoint is https and the run's
+# certificate is the channel's sole root.
+tonic = { version = "0.14", default-features = false, features = ["channel", "codegen", "tls-ring"] }
 # One current-thread runtime for the call: time for the deadline, net for the connection.
 tokio = { workspace = true, features = ["rt", "time", "net"] }
 
 [dev-dependencies]
+hook-tls.workspace = true
 mutants.workspace = true
 # The fake server of the tests: the generated service trait, served on a loopback TCP port.
-tonic = { version = "0.14", default-features = false, features = ["channel", "codegen", "router", "server"] }
+tonic = { version = "0.14", default-features = false, features = ["channel", "codegen", "router", "server", "tls-ring"] }
 tokio-stream = { version = "0.1", features = ["net"] }
 tokio = { workspace = true, features = ["rt", "time", "net", "sync"] }
 

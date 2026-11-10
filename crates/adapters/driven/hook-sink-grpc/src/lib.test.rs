@@ -14,7 +14,9 @@ use angzarr_proto_transport_distributed::v1::command_handler_coordinator_service
 use angzarr_proto_transport_distributed::v1::{
     CommandResult, CommandSyncResult, HandleSyncRequest,
 };
-use run_ports::{Bearer, Delivery, FactSink, Token};
+use hook_tls::{Clock, Minter, SystemClock};
+use run_ports::{Bearer, CertMint, CertNames, Delivery, FactSink, HookCertificate, Token};
+use tonic::transport::{Identity, ServerTlsConfig};
 use tonic::{Request, Response, Status};
 
 use super::*;
@@ -25,12 +27,46 @@ fn bearer() -> Bearer {
     Bearer::compose(SECRET_RUN, &Token::from_bytes([0xab; 32]))
 }
 
+#[derive(Debug)]
+struct At(i64);
+
+impl Clock for At {
+    fn unix_seconds(&self) -> i64 {
+        self.0
+    }
+}
+
+/// 2020-01-01T00:00:00Z: a certificate minted then is long expired.
+const LONG_AGO: i64 = 1_577_836_800;
+
+/// A certificate for `ips` and `dns`, minted at `clock`.
+fn mint(clock: impl Clock + 'static, ips: &[&str], dns: &[&str]) -> HookCertificate {
+    Minter::new(clock)
+        .mint(&CertNames::new(
+            ips.iter().map(|ip| ip.parse().unwrap()).collect(),
+            dns.iter().map(|d| d.to_string()).collect(),
+        ))
+        .unwrap()
+}
+
+/// The run's certificate for the loopback, valid now: the server's and the
+/// sink's, unless a test says otherwise.
+fn cert() -> &'static HookCertificate {
+    static CERT: std::sync::OnceLock<HookCertificate> = std::sync::OnceLock::new();
+    CERT.get_or_init(|| mint(SystemClock, &["127.0.0.1", "::1"], &[]))
+}
+
+/// A sink that pins `cert` and dials `url`.
+fn sink_to(url: impl Into<String>, cert: &HookCertificate) -> GrpcSink {
+    GrpcSink::new(url, bearer(), cert.public().clone())
+}
+
 /// A loopback URL nobody listens on: a port that was bound, then released.
 fn closed_url() -> String {
     let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = probe.local_addr().unwrap().port();
     drop(probe);
-    run_ports::endpoint_url("127.0.0.1", port)
+    format!("https://127.0.0.1:{port}")
 }
 
 #[derive(Clone)]
@@ -90,6 +126,14 @@ impl CommandHandlerCoordinatorService for Fake {
     }
 }
 
+/// How a fake is served.
+enum Serving<'a> {
+    /// TLS, with this identity.
+    Tls(&'a HookCertificate),
+    /// Plaintext: what the sink must never talk to.
+    Plain,
+}
+
 /// A running fake; stopping it (or dropping it) drops its runtime, which
 /// closes every connection at once, even one with a call in flight.
 struct Running {
@@ -101,6 +145,16 @@ struct Running {
 }
 
 impl Running {
+    /// The sink of the run's certificate, to this fake.
+    fn sink(&self) -> GrpcSink {
+        sink_to(self.url.clone(), cert())
+    }
+
+    /// The URL with its host replaced.
+    fn url_at(&self, host: &str) -> String {
+        self.url.replace("127.0.0.1", host)
+    }
+
     fn stop(&mut self) {
         drop(self.stop.take());
         if let Some(thread) = self.thread.take() {
@@ -116,6 +170,15 @@ impl Drop for Running {
 }
 
 fn serve(answer: Answer) -> Running {
+    serve_as(answer, Serving::Tls(cert()))
+}
+
+fn serve_as(answer: Answer, serving: Serving<'_>) -> Running {
+    let tls = match serving {
+        Serving::Tls(cert) => Some(Identity::from_pem(cert.public().to_pem(), cert.key_pem())),
+        Serving::Plain => None,
+    };
+    let scheme = if tls.is_some() { "https" } else { "http" };
     let seen = Arc::new(Mutex::new(Vec::new()));
     let (arrived_tx, arrived) = mpsc::channel();
     let (stop, stopped) = mpsc::channel::<()>();
@@ -136,15 +199,19 @@ fn serve(answer: Answer) -> Running {
             let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("binds a port");
             std_listener.set_nonblocking(true).unwrap();
             let port = std_listener.local_addr().unwrap().port();
-            url_tx
-                .send(run_ports::endpoint_url("127.0.0.1", port))
-                .unwrap();
+            url_tx.send(format!("{scheme}://127.0.0.1:{port}")).unwrap();
             tokio::net::TcpListener::from_std(std_listener).unwrap()
         };
         ready_tx.send(()).unwrap();
         let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
         runtime.block_on(async {
-            let server = tonic::transport::Server::builder()
+            let mut builder = tonic::transport::Server::builder();
+            if let Some(identity) = tls {
+                builder = builder
+                    .tls_config(ServerTlsConfig::new().identity(identity))
+                    .unwrap();
+            }
+            let server = builder
                 .add_service(CommandHandlerCoordinatorServiceServer::new(fake))
                 .serve_with_incoming(incoming);
             let stopped = async move {
@@ -172,7 +239,7 @@ const BUDGET: Duration = Duration::from_secs(5);
 #[test]
 fn an_applied_fact_is_applied_and_carries_the_bearer() {
     let server = serve(Answer::Result(DeliveryOutcome::Applied));
-    let sink = GrpcSink::new(server.url.clone(), bearer());
+    let sink = server.sink();
     let started = Instant::now();
     assert_eq!(
         sink.deliver(CommandBook::default(), BUDGET),
@@ -189,7 +256,7 @@ fn an_applied_fact_is_applied_and_carries_the_bearer() {
 #[test]
 fn a_duplicate_is_an_answer_not_an_error() {
     let server = serve(Answer::Result(DeliveryOutcome::Duplicate));
-    let sink = GrpcSink::new(server.url.clone(), bearer());
+    let sink = server.sink();
     assert_eq!(
         sink.deliver(CommandBook::default(), BUDGET),
         Delivery::Duplicate
@@ -199,7 +266,7 @@ fn a_duplicate_is_an_answer_not_an_error() {
 #[test]
 fn a_result_with_no_outcome_is_refused() {
     let server = serve(Answer::Result(DeliveryOutcome::Unspecified));
-    let sink = GrpcSink::new(server.url.clone(), bearer());
+    let sink = server.sink();
     assert!(matches!(
         sink.deliver(CommandBook::default(), BUDGET),
         Delivery::Refused { .. }
@@ -212,7 +279,7 @@ fn an_unauthenticated_call_is_refused_and_says_why() {
         Code::Unauthenticated,
         "angzarr-coordinator-unauthenticated",
     ));
-    let sink = GrpcSink::new(server.url.clone(), bearer());
+    let sink = server.sink();
     match sink.deliver(CommandBook::default(), BUDGET) {
         Delivery::Refused { detail } => {
             assert!(
@@ -273,7 +340,7 @@ fn a_dead_lettered_fact_is_parked_by_message_or_by_reason() {
 #[test]
 fn a_dead_lettered_fact_over_the_wire_is_parked() {
     let server = serve(Answer::Fail(Code::Internal, DEAD_LETTERED));
-    let sink = GrpcSink::new(server.url.clone(), bearer());
+    let sink = server.sink();
     assert_eq!(
         sink.deliver(CommandBook::default(), BUDGET),
         Delivery::Parked
@@ -301,7 +368,7 @@ fn the_reason_of_an_error_info_detail_is_read() {
 #[test]
 fn a_server_deadline_status_is_timed_out() {
     let server = serve(Answer::Fail(Code::DeadlineExceeded, "slow"));
-    let sink = GrpcSink::new(server.url.clone(), bearer());
+    let sink = server.sink();
     assert_eq!(
         sink.deliver(CommandBook::default(), BUDGET),
         Delivery::TimedOut
@@ -311,7 +378,7 @@ fn a_server_deadline_status_is_timed_out() {
 #[test]
 fn a_server_that_never_answers_times_out_within_the_budget() {
     let server = serve(Answer::Never);
-    let sink = GrpcSink::new(server.url.clone(), bearer());
+    let sink = server.sink();
     let budget = Duration::from_millis(300);
     let started = Instant::now();
     assert_eq!(
@@ -327,7 +394,7 @@ fn a_server_that_never_answers_times_out_within_the_budget() {
 
 #[test]
 fn a_port_nobody_listens_on_is_unavailable_at_once() {
-    let sink = GrpcSink::new(closed_url(), bearer());
+    let sink = sink_to(closed_url(), cert());
     let started = Instant::now();
     match sink.deliver(CommandBook::default(), BUDGET) {
         Delivery::Unavailable { detail } => assert!(detail.contains("cannot reach"), "{detail}"),
@@ -341,7 +408,7 @@ fn a_stopped_server_is_unavailable() {
     let mut server = serve(Answer::Never);
     let url = server.url.clone();
     server.stop();
-    let sink = GrpcSink::new(url, bearer());
+    let sink = sink_to(url, cert());
     assert!(matches!(
         sink.deliver(CommandBook::default(), BUDGET),
         Delivery::Unavailable { .. }
@@ -351,7 +418,7 @@ fn a_stopped_server_is_unavailable() {
 #[test]
 fn what_is_not_a_listener_url_is_unavailable_and_says_so() {
     for endpoint in ["/run/user/1000/ctxloom/a.sock", "", "http://h", "ftp://h:9"] {
-        let sink = GrpcSink::new(endpoint, bearer());
+        let sink = sink_to(endpoint, cert());
         match sink.deliver(CommandBook::default(), BUDGET) {
             Delivery::Unavailable { detail } => {
                 assert!(detail.contains("endpoint"), "{endpoint}: {detail}")
@@ -361,19 +428,140 @@ fn what_is_not_a_listener_url_is_unavailable_and_says_so() {
     }
 }
 
+// No downgrade: an http endpoint is never dialed and nothing is sent, even to
+// a listener that would answer it. It is unavailable, not a refusal, so the
+// hook says it did not record.
 #[test]
-fn an_https_endpoint_is_unavailable_until_the_sink_has_a_certificate() {
-    let sink = GrpcSink::new("https://127.0.0.1:9", bearer());
-    match sink.deliver(CommandBook::default(), BUDGET) {
-        Delivery::Unavailable { detail } => assert!(detail.contains("https"), "{detail}"),
+fn a_plaintext_endpoint_is_never_dialed_and_nothing_is_sent() {
+    let server = serve_as(Answer::Result(DeliveryOutcome::Applied), Serving::Plain);
+    assert!(server.url.starts_with("http://"));
+    match server.sink().deliver(CommandBook::default(), BUDGET) {
+        Delivery::Unavailable { detail } => assert!(detail.contains("plaintext"), "{detail}"),
         other => panic!("{other:?}"),
     }
+    assert!(server.seen.lock().unwrap().is_empty());
+}
+
+// The sink never falls back: an https endpoint whose listener speaks no TLS is
+// unavailable, and the bearer is never sent to it.
+#[test]
+fn a_listener_that_speaks_no_tls_is_unavailable_and_sees_nothing() {
+    let server = serve_as(Answer::Result(DeliveryOutcome::Applied), Serving::Plain);
+    let url = server.url.replacen("http://", "https://", 1);
+    assert!(matches!(
+        sink_to(url, cert()).deliver(CommandBook::default(), BUDGET),
+        Delivery::Unavailable { .. }
+    ));
+    assert!(server.seen.lock().unwrap().is_empty());
+}
+
+// The certificate is the sole root: a different one, for the same address, is
+// refused and nothing is sent; the pinned one, on the same server, is applied.
+#[test]
+fn a_listener_with_another_certificate_is_refused_and_sees_nothing() {
+    let served = mint(SystemClock, &["127.0.0.1"], &[]);
+    let server = serve_as(
+        Answer::Result(DeliveryOutcome::Applied),
+        Serving::Tls(&served),
+    );
+    assert_eq!(
+        sink_to(server.url.clone(), &served).deliver(CommandBook::default(), BUDGET),
+        Delivery::Applied,
+        "the control"
+    );
+    let seen = server.seen.lock().unwrap().len();
+    let other = mint(SystemClock, &["127.0.0.1"], &[]);
+    assert!(matches!(
+        sink_to(server.url.clone(), &other).deliver(CommandBook::default(), BUDGET),
+        Delivery::Unavailable { .. }
+    ));
+    assert_eq!(server.seen.lock().unwrap().len(), seen, "nothing was sent");
+}
+
+// An expired certificate is refused even when it is the pinned root.
+#[test]
+fn an_expired_certificate_is_refused_and_sees_nothing() {
+    let expired = mint(At(LONG_AGO), &["127.0.0.1"], &[]);
+    let server = serve_as(
+        Answer::Result(DeliveryOutcome::Applied),
+        Serving::Tls(&expired),
+    );
+    assert!(matches!(
+        sink_to(server.url.clone(), &expired).deliver(CommandBook::default(), BUDGET),
+        Delivery::Unavailable { .. }
+    ));
+    assert!(server.seen.lock().unwrap().is_empty());
+    let fresh = serve(Answer::Result(DeliveryOutcome::Applied));
+    assert_eq!(
+        fresh.sink().deliver(CommandBook::default(), BUDGET),
+        Delivery::Applied,
+        "the control"
+    );
+}
+
+// An IP literal in the URL is checked against the certificate's IP names: a
+// certificate for another address does not serve this one.
+#[test]
+fn an_ip_the_certificate_does_not_name_is_refused() {
+    let wrong = mint(SystemClock, &["127.0.0.2"], &[]);
+    let server = serve_as(
+        Answer::Result(DeliveryOutcome::Applied),
+        Serving::Tls(&wrong),
+    );
+    assert!(matches!(
+        sink_to(server.url.clone(), &wrong).deliver(CommandBook::default(), BUDGET),
+        Delivery::Unavailable { .. }
+    ));
+    assert!(server.seen.lock().unwrap().is_empty());
+}
+
+// A host name in the URL (a runtime's host alias) is checked against the
+// certificate's DNS names.
+#[test]
+fn a_dns_name_is_checked_against_the_certificate() {
+    let named = mint(SystemClock, &["127.0.0.1"], &["localhost"]);
+    let server = serve_as(
+        Answer::Result(DeliveryOutcome::Applied),
+        Serving::Tls(&named),
+    );
+    assert_eq!(
+        sink_to(server.url_at("localhost"), &named).deliver(CommandBook::default(), BUDGET),
+        Delivery::Applied
+    );
+    let unnamed = mint(SystemClock, &["127.0.0.1"], &["other.example"]);
+    let server = serve_as(
+        Answer::Result(DeliveryOutcome::Applied),
+        Serving::Tls(&unnamed),
+    );
+    assert!(matches!(
+        sink_to(server.url_at("localhost"), &unnamed).deliver(CommandBook::default(), BUDGET),
+        Delivery::Unavailable { .. }
+    ));
+    assert!(server.seen.lock().unwrap().is_empty());
+}
+
+// The bearer is still required over TLS: the listener's refusal comes back as
+// the same refusal, and the sink sent the bearer it holds.
+#[test]
+fn a_wrong_bearer_over_tls_is_the_listeners_refusal() {
+    let server = serve(Answer::Fail(
+        Code::Unauthenticated,
+        "angzarr-coordinator-unauthenticated",
+    ));
+    assert!(matches!(
+        server.sink().deliver(CommandBook::default(), BUDGET),
+        Delivery::Refused { .. }
+    ));
+    assert_eq!(
+        *server.seen.lock().unwrap(),
+        vec![Some(format!("Bearer {}", bearer().expose()))]
+    );
 }
 
 #[test]
 fn a_server_that_closes_mid_call_is_unavailable_not_timed_out() {
     let mut server = serve(Answer::Never);
-    let sink = GrpcSink::new(server.url.clone(), bearer());
+    let sink = server.sink();
     let budget = Duration::from_secs(20);
     let started = Instant::now();
     let delivered = std::thread::scope(|scope| {
@@ -396,7 +584,7 @@ fn a_server_that_closes_mid_call_is_unavailable_not_timed_out() {
 #[test]
 fn the_bearer_never_appears_in_a_debug_or_a_detail() {
     let secret = bearer().expose().to_string();
-    let sink = GrpcSink::new(closed_url(), bearer());
+    let sink = sink_to(closed_url(), cert());
     assert!(!format!("{sink:?}").contains(&secret));
     // Down: a transport failure.
     let down = sink.deliver(CommandBook::default(), BUDGET);
@@ -404,7 +592,7 @@ fn the_bearer_never_appears_in_a_debug_or_a_detail() {
     // A server that echoes the bearer in its refusal: scrubbed.
     let echoed: &'static str = Box::leak(format!("bad bearer {secret}").into_boxed_str());
     let server = serve(Answer::Fail(Code::Unauthenticated, echoed));
-    let sink = GrpcSink::new(server.url.clone(), bearer());
+    let sink = server.sink();
     let refused = sink.deliver(CommandBook::default(), BUDGET);
     let Delivery::Refused { detail } = &refused else {
         panic!("{refused:?}");
@@ -418,7 +606,7 @@ fn the_bearer_never_appears_in_a_debug_or_a_detail() {
 #[test]
 fn delivery_may_be_called_from_inside_a_runtime() {
     let server = serve(Answer::Result(DeliveryOutcome::Applied));
-    let sink = GrpcSink::new(server.url.clone(), bearer());
+    let sink = server.sink();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -429,11 +617,14 @@ fn delivery_may_be_called_from_inside_a_runtime() {
 
 #[test]
 fn a_sink_debugs_as_its_endpoint_with_the_bearer_redacted() {
-    let sink = GrpcSink::new("http://127.0.0.1:9", bearer());
+    let sink = sink_to("https://127.0.0.1:9", cert());
     let shown = format!("{sink:?}");
     assert_eq!(
         shown,
-        r#"GrpcSink { endpoint: "http://127.0.0.1:9", bearer: Bearer(redacted) }"#
+        format!(
+            r#"GrpcSink {{ endpoint: "https://127.0.0.1:9", bearer: Bearer(redacted), cert: {:?} }}"#,
+            cert().public()
+        )
     );
     assert!(!shown.contains(bearer().expose()));
 }

@@ -17,6 +17,7 @@ mod login;
 mod records;
 mod serving;
 mod sink;
+mod tls;
 mod token;
 
 pub use bind::{bind_for, BindPlan, BindRefusal, ContainerRuntime, PlatformFacts, Probe, Runtime};
@@ -28,6 +29,7 @@ pub use engine::{
 pub use hook::{
     endpoint_url, hook_environment, parse_endpoint, Bearer, BearerError, Dial, EndpointError,
     RedactedEnv, BEARER_VARIABLE, ENDPOINT_VARIABLE, HARP_VARIABLE, HOOK_VARIABLES, RUN_VARIABLE,
+    TLS_CERT_VARIABLE,
 };
 pub use launcher::{
     Exit, Launch, LaunchEvent, LaunchFailure, Limits, RunnerLauncher, Running, TurnCommand,
@@ -37,6 +39,7 @@ pub use login::{LinkState, LoginLinks};
 pub use records::{check_rel, RecordsError, SessionRecords};
 pub use serving::{BoxFuture, HookServer, Serving};
 pub use sink::{Delivery, FactSink};
+pub use tls::{CertError, CertMint, CertNames, HookCertificate, PublicCert};
 pub use token::{Token, TokenError, TokenHash, TokenSource, EN_US};
 
 /// One value of every error, for the catalog test.
@@ -45,6 +48,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
     let mut samples = token::diagnostic_samples();
     samples.extend(hook::diagnostic_samples());
     samples.extend(bind::diagnostic_samples());
+    samples.extend(tls::diagnostic_samples());
     samples.push(Box::new(EngineError::NotYet {
         engine: "claude-code".to_string(),
         operation: "drive_interactive".to_string(),

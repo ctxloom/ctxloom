@@ -217,6 +217,7 @@ pub fn catalog_sources() -> Vec<angzarr_presentation::Source> {
         run_cli::EN_US,
     ]);
     sources.extend(hook_listener::CATALOGS);
+    sources.push(hook_tls::EN_US);
     sources
 }
 

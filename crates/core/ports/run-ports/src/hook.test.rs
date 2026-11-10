@@ -3,8 +3,13 @@ use angzarr_diagnostic::Diagnostic;
 use crate::hook::{
     endpoint_url, hook_environment, parse_endpoint, Bearer, BearerError, Dial, EndpointError,
     RedactedEnv, BEARER_VARIABLE, ENDPOINT_VARIABLE, HOOK_VARIABLES, RUN_VARIABLE,
+    TLS_CERT_VARIABLE,
 };
-use crate::Token;
+use crate::{PublicCert, Token};
+
+fn cert() -> PublicCert {
+    PublicCert::from_der(vec![0x30, 0x03, 0x01, 0x02, 0x03]).unwrap()
+}
 
 const RUN_TEXT: &str = "00010203-0405-5607-8aaa-bbccddeeff10";
 
@@ -13,13 +18,44 @@ fn token() -> Token {
 }
 
 #[test]
-fn the_told_endpoint_is_an_http_url_of_host_and_port() {
-    assert_eq!(endpoint_url("127.0.0.1", 40123), "http://127.0.0.1:40123");
+fn the_told_endpoint_is_an_https_url_of_host_and_port() {
     assert_eq!(
-        endpoint_url("host.docker.internal", 7),
-        "http://host.docker.internal:7"
+        endpoint_url("127.0.0.1", 40123).unwrap(),
+        "https://127.0.0.1:40123"
     );
-    assert_eq!(endpoint_url("::1", 9), "http://[::1]:9");
+    assert_eq!(
+        endpoint_url("host.docker.internal", 7).unwrap(),
+        "https://host.docker.internal:7"
+    );
+    assert_eq!(endpoint_url("::1", 9).unwrap(), "https://[::1]:9");
+}
+
+// Port 0 is a request to bind, never a place to dial.
+#[test]
+fn port_zero_is_no_endpoint() {
+    assert_eq!(
+        endpoint_url("127.0.0.1", 0).unwrap_err(),
+        EndpointError::PortZero {
+            endpoint: "https://127.0.0.1:0".to_string()
+        }
+    );
+    assert_eq!(
+        endpoint_url("::1", 0).unwrap_err(),
+        EndpointError::PortZero {
+            endpoint: "https://[::1]:0".to_string()
+        }
+    );
+    for text in ["https://h:0", "http://h:0", "https://[::1]:0"] {
+        assert_eq!(
+            parse_endpoint(text).unwrap_err(),
+            EndpointError::PortZero {
+                endpoint: text.to_string()
+            },
+            "{text}"
+        );
+    }
+    assert!(endpoint_url("h", 1).is_ok());
+    assert!(parse_endpoint("https://h:1").is_ok());
 }
 
 #[test]
@@ -29,24 +65,41 @@ fn a_told_url_parses_back_to_the_dial() {
         ("host.containers.internal", 65535),
         ("::1", 1),
     ] {
-        let dial = parse_endpoint(&endpoint_url(host, port)).unwrap();
+        let url = endpoint_url(host, port).unwrap();
+        let dial = parse_endpoint(&url).unwrap();
         assert_eq!(
             dial,
             Dial {
-                secure: false,
                 host: host.to_string(),
                 port
             }
         );
-        assert_eq!(dial.url(), endpoint_url(host, port));
+        assert_eq!(dial.url(), url);
     }
 }
 
+// No downgrade: a plaintext endpoint is a typed refusal, not a dial.
 #[test]
-fn the_scheme_drives_the_dial_so_tls_is_additive() {
-    let dial = parse_endpoint("https://127.0.0.1:9").unwrap();
-    assert!(dial.secure);
-    assert_eq!(dial.url(), "https://127.0.0.1:9");
+fn a_plaintext_endpoint_is_refused() {
+    for text in [
+        "http://127.0.0.1:9",
+        "http://[::1]:9",
+        "http://h.example:65535",
+    ] {
+        let error = parse_endpoint(text).unwrap_err();
+        assert_eq!(
+            error,
+            EndpointError::Plaintext {
+                endpoint: text.to_string()
+            },
+            "{text}"
+        );
+        assert_eq!(error.code(), "run-ports-endpoint-plaintext");
+    }
+    assert_eq!(
+        parse_endpoint("https://127.0.0.1:9").unwrap().url(),
+        "https://127.0.0.1:9"
+    );
 }
 
 #[test]
@@ -57,7 +110,6 @@ fn what_is_not_a_listener_url_is_refused() {
         "http://",
         "http://:9",
         "http://h",
-        "http://h:0",
         "http://h:65536",
         "http://h:x",
         "http://h:9/path",
@@ -123,33 +175,44 @@ fn the_secret_is_in_no_debug_display_or_error_rendering() {
     let bearer = Bearer::compose(RUN_TEXT, &token());
     assert_eq!(format!("{bearer:?}"), "Bearer(redacted)");
     assert!(!format!("{:?}", token()).contains(&secret));
-    let env = hook_environment("http://127.0.0.1:9", RUN_TEXT, &token());
+    let env = hook_environment("https://127.0.0.1:9", RUN_TEXT, &token(), &cert());
     let shown = format!("{:?}", RedactedEnv(&env));
     assert!(!shown.contains(&secret), "{shown}");
     assert!(shown.contains(BEARER_VARIABLE));
     assert!(
-        shown.contains("http://127.0.0.1:9"),
+        shown.contains("https://127.0.0.1:9"),
         "the endpoint is not secret"
+    );
+    assert!(
+        shown.contains(&cert().to_env_value()),
+        "the certificate is public"
     );
     assert!(!BearerError::Malformed { length: 3 }
         .to_string()
         .contains(&secret));
 }
 
-// NEW-DESIGN: the three variables the interactive engine is given.
+// The four variables the interactive engine is given.
 #[test]
-fn the_hook_environment_is_the_endpoint_the_bearer_and_the_run() {
-    let env = hook_environment("http://127.0.0.1:9", RUN_TEXT, &token());
-    assert_eq!(env.len(), 3);
-    assert_eq!(env[ENDPOINT_VARIABLE], "http://127.0.0.1:9");
+fn the_hook_environment_is_the_endpoint_the_bearer_the_run_and_the_certificate() {
+    let env = hook_environment("https://127.0.0.1:9", RUN_TEXT, &token(), &cert());
+    assert_eq!(env.len(), 4);
+    assert_eq!(env[ENDPOINT_VARIABLE], "https://127.0.0.1:9");
     assert_eq!(env[RUN_VARIABLE], RUN_TEXT);
     assert_eq!(
         env[BEARER_VARIABLE],
         Bearer::compose(RUN_TEXT, &token()).expose()
     );
+    assert_eq!(env[TLS_CERT_VARIABLE], cert().to_env_value());
+    assert_eq!(TLS_CERT_VARIABLE, "CTXLOOM_TLS_CERT");
     assert_eq!(
         HOOK_VARIABLES,
-        ["CTXLOOM_ENDPOINT", "CTXLOOM_BEARER", "CTXLOOM_RUN"]
+        [
+            "CTXLOOM_ENDPOINT",
+            "CTXLOOM_BEARER",
+            "CTXLOOM_RUN",
+            "CTXLOOM_TLS_CERT"
+        ]
     );
 }
 
@@ -170,6 +233,20 @@ fn the_endpoint_errors_display_and_report_their_args_exactly() {
         }
         .to_string(),
         "run-ports-endpoint-scheme scheme=ftp"
+    );
+    assert_eq!(
+        EndpointError::Plaintext {
+            endpoint: "x".to_string()
+        }
+        .to_string(),
+        "run-ports-endpoint-plaintext endpoint=x"
+    );
+    assert_eq!(
+        EndpointError::PortZero {
+            endpoint: "x".to_string()
+        }
+        .to_string(),
+        "run-ports-endpoint-port-zero endpoint=x"
     );
 }
 

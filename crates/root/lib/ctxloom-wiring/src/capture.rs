@@ -22,12 +22,15 @@ use std::cell::RefCell;
 use std::sync::Arc;
 use std::time::Duration;
 
+use angzarr_diagnostic::Diagnostic;
 use angzarr_embedded::v1::{DeliveryOutcome, Uuid};
 use angzarr_embedded::{Failure, KernelError};
 use hook_cli::{NotRecorded, Recording};
 use hook_sink_grpc::GrpcSink;
 use run_launcher::METADATA;
-use run_ports::{Arrival, Bearer, Delivery, Edge, FactSink, SessionRecords, Unserved};
+use run_ports::{
+    Arrival, Bearer, CertError, Delivery, Edge, FactSink, PublicCert, SessionRecords, Unserved,
+};
 use runs_application::{delivery_budget, Capture};
 use setup_application::HookAnswer;
 use surface_ports::Json;
@@ -114,30 +117,56 @@ impl FactSink for Unreachable {
 /// one, else [`Unreachable`].
 pub enum HookSink {
     Listener(GrpcSink),
+    /// A listener is named but its certificate is not usable: refused, and
+    /// nothing is sent (never plaintext, never the system's roots).
+    Refused(CertError),
     Unreachable(Unreachable),
 }
 
 impl HookSink {
-    /// The sink the hook environment makes: the endpoint (a URL, `http://<host>:<port>`)
+    /// The sink the hook environment makes: the endpoint (a URL, `https://<host>:<port>`), the certificate (`CTXLOOM_TLS_CERT`)
     /// and the bearer (`<run>.<token>`). A missing, empty or malformed one
     /// gives [`Unreachable`]: the hook fails open, as it did before there
     /// was a listener.
-    pub fn from_environment(endpoint: Option<&str>, bearer: Option<&str>) -> HookSink {
-        let made = endpoint.filter(|e| !e.is_empty()).and_then(|endpoint| {
+    pub fn from_environment(
+        endpoint: Option<&str>,
+        bearer: Option<&str>,
+        cert: Option<&str>,
+    ) -> HookSink {
+        let named = endpoint.filter(|e| !e.is_empty()).and_then(|endpoint| {
             let (run, token) = Bearer::parse(bearer?).ok()?;
-            Some(GrpcSink::new(endpoint, Bearer::compose(&run, &token)))
+            Some((endpoint, Bearer::compose(&run, &token)))
         });
-        match made {
-            Some(sink) => HookSink::Listener(sink),
+        match named {
             None => HookSink::Unreachable(Unreachable),
+            Some((endpoint, bearer)) => match PublicCert::from_environment(cert) {
+                Ok(cert) => HookSink::Listener(GrpcSink::new(endpoint, bearer, cert)),
+                Err(error) => HookSink::Refused(error),
+            },
         }
     }
+}
+
+/// Why nothing was delivered for want of a usable certificate, as the hook
+/// says it: the code, what is wrong, and that nothing was sent.
+fn refusal_text(error: &CertError) -> String {
+    let wrong = match error {
+        CertError::Missing => "CTXLOOM_TLS_CERT is not set",
+        CertError::Malformed { .. } => "CTXLOOM_TLS_CERT is not a certificate",
+    };
+    format!(
+        "{}: {wrong}; nothing was sent (the hook never falls back to plaintext)",
+        error.code()
+    )
 }
 
 impl FactSink for HookSink {
     fn deliver(&self, book: angzarr_embedded::v1::CommandBook, within: Duration) -> Delivery {
         match self {
             HookSink::Listener(sink) => sink.deliver(book, within),
+            HookSink::Refused(error) => Delivery::Unavailable {
+                detail: refusal_text(error),
+            },
             HookSink::Unreachable(sink) => sink.deliver(book, within),
         }
     }

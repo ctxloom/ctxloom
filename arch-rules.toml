@@ -91,6 +91,18 @@ reason = "test-only: builds a type only the port defines; re-exporting it just f
 
 [[exception]]
 from = "hook-listener"
+to = "hook-tls"
+kind = "dev"
+reason = "test-only: mints the per-run certificate the listener is served with, by the same mint the run uses"
+
+[[exception]]
+from = "hook-sink-grpc"
+to = "hook-tls"
+kind = "dev"
+reason = "test-only: mints the per-run certificates the fake TLS listener is served with, by the same mint the run uses"
+
+[[exception]]
+from = "hook-listener"
 to = "embedded-edge"
 kind = "dev"
 reason = "test-only: the end-to-end test serves the real kernel through the edge adapter"

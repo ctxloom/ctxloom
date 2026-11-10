@@ -262,11 +262,22 @@ mod hooks {
         Hooks { edge: core.edge() }
     }
 
+    /// The run's real certificate, minted by the wiring's own mint.
+    fn identity() -> run_ports::HookCertificate {
+        use run_ports::CertMint;
+        hook_tls::Minter::new(hook_tls::SystemClock)
+            .mint(&run_ports::CertNames::new(
+                vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
+                Vec::new(),
+            ))
+            .unwrap()
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn the_run_use_case_serves_and_stops_the_listener_through_the_port() {
         let hooks = hooks().await;
         let serving = hooks
-            .serve_tcp(IpAddr::V4(Ipv4Addr::LOCALHOST))
+            .serve_tcp(IpAddr::V4(Ipv4Addr::LOCALHOST), &identity())
             .await
             .expect("serves");
         let port = serving.port();
@@ -290,11 +301,11 @@ mod hooks {
     async fn two_runs_get_two_ports() {
         let hooks = hooks().await;
         let a = hooks
-            .serve_tcp(IpAddr::V4(Ipv4Addr::LOCALHOST))
+            .serve_tcp(IpAddr::V4(Ipv4Addr::LOCALHOST), &identity())
             .await
             .unwrap();
         let b = hooks
-            .serve_tcp(IpAddr::V4(Ipv4Addr::LOCALHOST))
+            .serve_tcp(IpAddr::V4(Ipv4Addr::LOCALHOST), &identity())
             .await
             .unwrap();
         assert_ne!(a.port(), b.port());
@@ -306,7 +317,7 @@ mod hooks {
     async fn an_unspecified_address_is_refused_with_the_listeners_code() {
         let hooks = hooks().await;
         let refused = hooks
-            .serve_tcp(IpAddr::V4(Ipv4Addr::UNSPECIFIED))
+            .serve_tcp(IpAddr::V4(Ipv4Addr::UNSPECIFIED), &identity())
             .await
             .err()
             .expect("refused");

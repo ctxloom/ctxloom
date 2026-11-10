@@ -17,7 +17,7 @@ use angzarr_embedded::{Catalog, CommandBookExt, Processed, ReadStore, Store};
 use library_application::{AppError as PlanError, Flags, Notice, Outcome, Previewed, RunRequest};
 use ports::{CommandIds, Names, Project, ProjectIdentity};
 use run_launcher::{Launched, Launcher, Order, Orders, Outcome as Turn, Recorder};
-use run_ports::{Edge, HookServer, LoginLinks, RunnerLauncher, SessionRecords};
+use run_ports::{CertMint, Edge, HookServer, LoginLinks, RunnerLauncher, SessionRecords};
 use runs_application::{AppError as CoreError, EnqueueRequest, Enqueuer};
 use sessions::{
     claim_root, ClaimName, MintSession, NameClaimCommand, Origin, SessionCommand, NAMES_DOMAIN,
@@ -147,6 +147,14 @@ pub struct Runs<
     pub(crate) links: Box<dyn LoginLinks>,
     pub(crate) os: String,
     pub(crate) hooks: Box<dyn HookServer>,
+    pub(crate) certs: Box<dyn CertMint>,
+}
+
+/// What an interactive engine is told of the run's listener: its URL and the
+/// public part of its certificate.
+struct Told<'a> {
+    endpoint: &'a str,
+    cert: &'a run_ports::PublicCert,
 }
 
 /// Everything [`Runs`] is made of.
@@ -178,6 +186,8 @@ pub struct Parts<
     /// Where an interactive run's hook processes are served (the run's
     /// loopback port); a one-shot's child is given none.
     pub hooks: Box<dyn HookServer>,
+    /// What mints an interactive run's listener certificate (a child is given none).
+    pub certs: Box<dyn CertMint>,
 }
 
 impl<K, T, L, R, W> Runs<K, T, L, R, W>
@@ -204,6 +214,7 @@ where
             links: parts.links,
             os: parts.os,
             hooks: parts.hooks,
+            certs: parts.certs,
         }
     }
 
@@ -249,13 +260,30 @@ where
         let plan = run_ports::bind_for(run_ports::Runtime::Host, &run_ports::PlatformFacts::NONE)
             .and_then(|plan| plan.check().map(|()| plan))
             .map_err(|e| RunError::Bind(Box::new(e)))?;
+        // The run's certificate is minted for every address the child may
+        // dial, before anything is served or made; its private key goes to the
+        // listener alone, and the child is told the public part.
+        let identity = self
+            .certs
+            .mint(&run_ports::CertNames::for_plan(&plan))
+            .map_err(RunError::Listener)?;
         let serving = self
             .hooks
-            .serve_tcp(plan.bind_addr)
+            .serve_tcp(plan.bind_addr, &identity)
             .await
             .map_err(RunError::Listener)?;
-        let endpoint = run_ports::endpoint_url(&plan.told_host, serving.port());
-        let started = self.start(previewed, request, Some(&endpoint)).await;
+        let endpoint = match run_ports::endpoint_url(&plan.told_host, serving.port()) {
+            Ok(endpoint) => endpoint,
+            Err(error) => {
+                serving.stop().await;
+                return Err(RunError::Listener(angzarr_diagnostic::Report::of(&error)));
+            }
+        };
+        let told = Told {
+            endpoint: &endpoint,
+            cert: identity.public(),
+        };
+        let started = self.start(previewed, request, Some(&told)).await;
         let (session, harp, engine, run) = match started {
             Ok(started) => started,
             Err(error) => {
@@ -309,9 +337,9 @@ where
         &mut self,
         previewed: Previewed,
         request: &OneShot,
-        endpoint: Option<&str>,
+        told: Option<&Told<'_>>,
     ) -> Result<(String, String, String, Uuid), RunError> {
-        let interactive = endpoint.is_some();
+        let interactive = told.is_some();
         if !previewed.fatal.is_empty() {
             return Err(RunError::Plan(Box::new(PlanError::aborted(
                 &previewed.fatal,
@@ -383,11 +411,14 @@ where
                 .unwrap_or_default()
                 .hyphenated()
                 .to_string();
-            env.extend(run_ports::hook_environment(
-                endpoint.unwrap_or_default(),
-                &run_text,
-                &enqueued.hook_token,
-            ));
+            if let Some(told) = told {
+                env.extend(run_ports::hook_environment(
+                    told.endpoint,
+                    &run_text,
+                    &enqueued.hook_token,
+                    told.cert,
+                ));
+            }
         }
         self.orders.place(
             &session,

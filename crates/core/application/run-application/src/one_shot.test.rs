@@ -19,8 +19,9 @@ use run_launcher::fakes::{
 };
 use run_launcher::{Launcher, Orders, Recorder};
 use run_ports::{
-    Arrival, BoxFuture, Credentials, Edge, FailureClass, HookServer, Limits, LinkState, LoginLinks,
-    RecordsError, Serving, Token, TokenSource, TurnOutcome, Unserved,
+    Arrival, BoxFuture, CertMint, CertNames, Credentials, Edge, FailureClass, HookCertificate,
+    HookServer, Limits, LinkState, LoginLinks, PublicCert, RecordsError, Serving, Token,
+    TokenSource, TurnOutcome, Unserved,
 };
 use runs_application::{AppError as CoreError, Enqueuer};
 
@@ -215,6 +216,37 @@ struct Hooks {
     /// already been projected into them.
     records: Option<MemoryRecords>,
     end_projected_at_stop: Arc<Mutex<Option<bool>>>,
+    /// The private key of the identity each serve was given.
+    identities: Arc<Mutex<Vec<String>>>,
+}
+
+/// The key the fake mint gives: a secret that must reach the listener and
+/// nothing else.
+const MINTED_KEY: &str = "MINTED-KEY-PEM-SECRET";
+
+/// The DER the fake mint gives.
+fn minted_public() -> PublicCert {
+    PublicCert::from_der(vec![0x30, 0x04, 1, 2, 3, 4]).unwrap()
+}
+
+/// What mints the run's certificate: it records the names asked for.
+#[derive(Clone, Default)]
+struct Certs {
+    asked: Arc<Mutex<Vec<CertNames>>>,
+    refuse: Option<&'static str>,
+}
+
+impl CertMint for Certs {
+    fn mint(&self, names: &CertNames) -> Result<HookCertificate, Report> {
+        self.asked.lock().unwrap().push(names.clone());
+        if let Some(reason) = self.refuse {
+            return Err(Report::new(reason));
+        }
+        Ok(HookCertificate::new(
+            minted_public(),
+            MINTED_KEY.to_string(),
+        ))
+    }
 }
 
 impl Hooks {
@@ -258,11 +290,16 @@ impl HookServer for Hooks {
     fn serve_tcp<'a>(
         &'a self,
         bind: std::net::IpAddr,
+        identity: &'a HookCertificate,
     ) -> BoxFuture<'a, Result<Box<dyn Serving>, Report>> {
         Box::pin(async move {
             if let Some(reason) = self.refuse {
                 return Err(Report::new(reason));
             }
+            self.identities
+                .lock()
+                .unwrap()
+                .push(identity.key_pem().to_string());
             self.note(format!("serve_tcp {bind}"));
             Ok(Box::new(Listening(self.clone())) as Box<dyn Serving>)
         })
@@ -271,6 +308,7 @@ impl HookServer for Hooks {
 
 struct Rig {
     hooks: Hooks,
+    certs: Certs,
     runs: Runs<TestCore, CountingSource, ScriptedRunner, MemoryRecords, MemoryRecords>,
     edge: Arc<TestEdge>,
     runner: ScriptedRunner,
@@ -330,6 +368,7 @@ struct Script {
     program_dir: &'static str,
     /// A reason the hook server refuses to serve, if it does.
     hooks_refuse: Option<&'static str>,
+    certs_refuse: Option<&'static str>,
 }
 
 impl Script {
@@ -351,6 +390,7 @@ impl Script {
             os: "linux",
             program_dir: "/opt/ctxloom/bin",
             hooks_refuse: None,
+            certs_refuse: None,
         }
     }
 }
@@ -381,6 +421,10 @@ fn rig(script: Script) -> Rig {
         refuse: script.hooks_refuse,
         records: Some(records.clone()),
         ..Hooks::default()
+    };
+    let certs = Certs {
+        refuse: script.certs_refuse,
+        ..Certs::default()
     };
     let runs = Runs::new(Parts {
         core: TestCore(Arc::clone(&seen)),
@@ -415,9 +459,11 @@ fn rig(script: Script) -> Rig {
         links: Box::new(links.clone()),
         os: script.os.to_string(),
         hooks: Box::new(hooks.clone()),
+        certs: Box::new(certs.clone()),
     });
     Rig {
         hooks,
+        certs,
         runs,
         edge,
         runner: script.runner,
@@ -1056,7 +1102,7 @@ async fn an_interactive_run_is_handed_the_listener_endpoint_and_the_hook_bearer(
     assert_eq!(env["CTXLOOM_RUN"], run_text);
     // The hook finds its session by the harp: the engine's environment names it.
     assert_eq!(env["CTXLOOM_SESSION_HARP"], ended.harp);
-    assert_eq!(env["CTXLOOM_ENDPOINT"], "http://127.0.0.1:40123");
+    assert_eq!(env["CTXLOOM_ENDPOINT"], "https://127.0.0.1:40123");
     let (bearer_run, token) = run_ports::Bearer::parse(&env["CTXLOOM_BEARER"]).unwrap();
     assert_eq!(bearer_run, run_text);
     let events = run_events(&rig.edge, &ended.session).await;
@@ -1078,6 +1124,7 @@ async fn a_childs_turn_never_gets_the_listener_variables() {
         ("CTXLOOM_ENDPOINT", "/inherited.sock"),
         ("CTXLOOM_BEARER", "inherited.secret"),
         ("CTXLOOM_RUN", "inherited"),
+        ("CTXLOOM_TLS_CERT", "inherited-cert"),
         ("CTXLOOM_SESSION_HARP", "inherited-harp"),
     ];
     let mut rig = rig(script);
@@ -1326,7 +1373,7 @@ async fn an_interactive_runs_engine_is_told_the_loopback_url_of_the_port_served(
         .result
         .unwrap();
     let env = rig.runner.seen_terminal.lock().unwrap()[0].env.clone();
-    assert_eq!(env["CTXLOOM_ENDPOINT"], "http://127.0.0.1:40123");
+    assert_eq!(env["CTXLOOM_ENDPOINT"], "https://127.0.0.1:40123");
     let log = rig.hooks.log.lock().unwrap().clone();
     assert_eq!(
         log,
@@ -1407,4 +1454,73 @@ async fn the_plans_model_and_effort_are_handed_to_the_engine_for_a_turn_and_for_
     let args = rig.runner.seen_terminal.lock().unwrap()[0].args.clone();
     assert!(args.contains(&"--model=haiku".to_string()), "{args:?}");
     assert!(args.contains(&"--effort=low".to_string()), "{args:?}");
+}
+
+// Rulings 35-37: the run's certificate is minted for every address the child
+// may dial, BEFORE the listener is served with it (the identity the listener
+// was given is the mint's), and the child is told the PUBLIC part alone.
+#[tokio::test]
+async fn the_certificate_is_minted_for_the_binds_names_and_served_and_told() {
+    let mut script = Script::answering();
+    script.env = vec![("PATH", "/bin"), ("CTXLOOM_HOME", "/home/u")];
+    let mut rig = rig(script);
+    rig.runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let asked = rig.certs.asked.lock().unwrap().clone();
+    assert_eq!(asked.len(), 1);
+    assert_eq!(
+        asked[0].ips(),
+        vec![
+            std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+            std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST)
+        ]
+    );
+    assert!(asked[0].dns().is_empty());
+    // The listener was served with the mint's identity.
+    assert_eq!(*rig.hooks.identities.lock().unwrap(), [MINTED_KEY]);
+    // The child was told the certificate, and no variable holds the key.
+    let env = rig.runner.seen_terminal.lock().unwrap()[0].env.clone();
+    assert_eq!(env["CTXLOOM_TLS_CERT"], minted_public().to_env_value());
+    for (name, value) in &env {
+        assert!(!value.contains(MINTED_KEY), "{name}");
+    }
+}
+
+// A child agent has no listener and no certificate: nothing is minted for it,
+// and its turn is told none.
+#[tokio::test]
+async fn a_one_shot_mints_no_certificate_and_tells_none() {
+    let mut rig = rig(Script::answering());
+    rig.runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    assert!(rig.certs.asked.lock().unwrap().is_empty());
+    assert!(rig.hooks.identities.lock().unwrap().is_empty());
+    let env = rig.runner.seen.lock().unwrap()[0].env.clone();
+    assert!(!env.contains_key("CTXLOOM_TLS_CERT"), "{env:?}");
+}
+
+// A certificate that cannot be minted is the run's refusal, with nothing
+// served, nothing made and no engine started.
+#[tokio::test]
+async fn a_certificate_that_cannot_be_minted_refuses_the_run_before_anything_is_made() {
+    let mut rig = rig(Script {
+        certs_refuse: Some("hook-tls-generate"),
+        ..Script::answering()
+    });
+    let error = rig
+        .runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(error.code(), "run-application-listener");
+    assert!(rig.hooks.log.lock().unwrap().is_empty(), "nothing served");
+    assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 0);
+    assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
 }

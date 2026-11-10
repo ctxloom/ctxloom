@@ -1,0 +1,26 @@
+[package]
+name = "hook-tls"
+version = "0.1.0"
+description = "The run's listener certificate: a per-run self-signed ECDSA P-256 server certificate (ring), valid from a few minutes before the clock to a day after it, covering every address the child may dial"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-diagnostic.workspace = true
+run-ports.workspace = true
+# The certificate generator (owner, 2026-11-09, ruling 35): the ring backend, the
+# one crypto provider (never aws-lc).
+rcgen.workspace = true
+time.workspace = true
+
+[dev-dependencies]
+mutants.workspace = true
+
+[features]
+# `diagnostic_samples`, for other crates' catalog tests.
+test-support = []
+
+[lints]
+workspace = true

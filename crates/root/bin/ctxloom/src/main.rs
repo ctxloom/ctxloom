@@ -91,6 +91,7 @@ fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
     all.extend(run_launcher::diagnostic_samples());
     all.extend(run_cli::diagnostic_samples());
     all.extend(hook_listener::diagnostic_samples());
+    all.extend(hook_tls::diagnostic_samples());
     all
 }
 

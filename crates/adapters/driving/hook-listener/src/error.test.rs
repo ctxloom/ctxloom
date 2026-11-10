@@ -72,3 +72,11 @@ fn a_timeout_names_its_grace_in_milliseconds() {
     let rendered = error.to_string();
     assert!(rendered.contains("1500"), "{rendered}");
 }
+
+#[test]
+fn the_identity_debugs_as_a_fixed_text_without_the_key_or_certificate() {
+    let identity = crate::TlsIdentity::from_pem("CERT-PEM-TEXT", "KEY-PEM-SECRET");
+    let shown = format!("{identity:?}");
+    assert_eq!(shown, "TlsIdentity(key redacted)");
+    assert!(!shown.contains("KEY-PEM-SECRET") && !shown.contains("CERT-PEM-TEXT"));
+}

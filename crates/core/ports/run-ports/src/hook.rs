@@ -15,39 +15,51 @@ use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
 
+use crate::tls::PublicCert;
 use crate::token::{Token, TokenError};
 
-/// The variable that names the run's listener: the listener's URL (`http://<host>:<port>`).
+/// The variable that names the run's listener: the listener's URL (`https://<host>:<port>`).
 pub const ENDPOINT_VARIABLE: &str = "CTXLOOM_ENDPOINT";
 /// The variable that holds the hook principal's bearer: the secret.
 pub const BEARER_VARIABLE: &str = "CTXLOOM_BEARER";
 /// The variable that names the run (UUID text): not a secret.
 pub const RUN_VARIABLE: &str = "CTXLOOM_RUN";
 
+/// The variable that holds the run's listener certificate, the child's sole
+/// trust root: base64 of the DER on one line. Public, not a secret.
+pub const TLS_CERT_VARIABLE: &str = "CTXLOOM_TLS_CERT";
+
 /// The variable that names the session's harp: the address a hook finds its
 /// session by. The interactive engine's environment carries it (a child's
 /// never does).
 pub const HARP_VARIABLE: &str = "CTXLOOM_SESSION_HARP";
 
-/// The three variables, which reach the INTERACTIVE engine's environment and
+/// The four variables, which reach the INTERACTIVE engine's environment and
 /// no other.
-pub const HOOK_VARIABLES: [&str; 3] = [ENDPOINT_VARIABLE, BEARER_VARIABLE, RUN_VARIABLE];
+pub const HOOK_VARIABLES: [&str; 4] = [
+    ENDPOINT_VARIABLE,
+    BEARER_VARIABLE,
+    RUN_VARIABLE,
+    TLS_CERT_VARIABLE,
+];
 
 /// The URL a hook process dials for the listener at `host` and `port`:
-/// `http://<host>:<port>` (it will be `https://` when the listener has a
-/// certificate). An IPv6 literal is bracketed.
-pub fn endpoint_url(host: &str, port: u16) -> String {
-    match host.contains(':') {
-        true => format!("http://[{host}]:{port}"),
-        false => format!("http://{host}:{port}"),
+/// `https://<host>:<port>`. An IPv6 literal is bracketed. Port 0 is a request
+/// to bind, never a place to dial: it is refused.
+pub fn endpoint_url(host: &str, port: u16) -> Result<String, EndpointError> {
+    let url = match host.contains(':') {
+        true => format!("https://[{host}]:{port}"),
+        false => format!("https://{host}:{port}"),
+    };
+    match port {
+        0 => Err(EndpointError::PortZero { endpoint: url }),
+        _ => Ok(url),
     }
 }
 
 /// Where an endpoint URL says to dial.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Dial {
-    /// `https` (true) or `http` (false).
-    pub secure: bool,
     /// The host, an IPv6 literal without its brackets.
     pub host: String,
     pub port: u16,
@@ -56,17 +68,17 @@ pub struct Dial {
 impl Dial {
     /// The URL a client channel is built from.
     pub fn url(&self) -> String {
-        let scheme = if self.secure { "https" } else { "http" };
         let host = &self.host;
         match host.contains(':') {
-            true => format!("{scheme}://[{host}]:{}", self.port),
-            false => format!("{scheme}://{host}:{}", self.port),
+            true => format!("https://[{host}]:{}", self.port),
+            false => format!("https://{host}:{}", self.port),
         }
     }
 }
 
-/// The dial an endpoint URL names: `http://` or `https://`, a host, a port
-/// (not 0) and nothing else.
+/// The dial an endpoint URL names: `https://`, a host, a port (not 0) and
+/// nothing else. `http://` is [`EndpointError::Plaintext`]: there is no
+/// downgrade.
 pub fn parse_endpoint(text: &str) -> Result<Dial, EndpointError> {
     let malformed = || EndpointError::Malformed {
         endpoint: text.to_string(),
@@ -99,13 +111,20 @@ pub fn parse_endpoint(text: &str) -> Result<Dial, EndpointError> {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || "-._:".contains(c));
     let port: u16 = port.parse().map_err(|_| malformed())?;
-    match host_ok && port != 0 {
-        true => Ok(Dial {
-            secure,
+    if !host_ok {
+        return Err(malformed());
+    }
+    match (port, secure) {
+        (0, _) => Err(EndpointError::PortZero {
+            endpoint: text.to_string(),
+        }),
+        (_, false) => Err(EndpointError::Plaintext {
+            endpoint: text.to_string(),
+        }),
+        (port, true) => Ok(Dial {
             host: host.to_string(),
             port,
         }),
-        false => Err(malformed()),
     }
 }
 
@@ -116,6 +135,10 @@ pub enum EndpointError {
     Malformed { endpoint: String },
     /// A scheme other than `http` and `https`.
     Scheme { scheme: String },
+    /// An `http://` endpoint: the callback is TLS only.
+    Plaintext { endpoint: String },
+    /// Port 0: a request to bind, never a place to dial.
+    PortZero { endpoint: String },
 }
 
 impl fmt::Display for EndpointError {
@@ -129,12 +152,16 @@ impl Diagnostic for EndpointError {
         match self {
             EndpointError::Malformed { .. } => code!("endpoint-malformed"),
             EndpointError::Scheme { .. } => code!("endpoint-scheme"),
+            EndpointError::Plaintext { .. } => code!("endpoint-plaintext"),
+            EndpointError::PortZero { .. } => code!("endpoint-port-zero"),
         }
     }
 
     fn args(&self) -> Vec<(&str, Arg)> {
         match self {
-            EndpointError::Malformed { endpoint } => vec![("endpoint", endpoint.as_str().into())],
+            EndpointError::Malformed { endpoint }
+            | EndpointError::Plaintext { endpoint }
+            | EndpointError::PortZero { endpoint } => vec![("endpoint", endpoint.as_str().into())],
             EndpointError::Scheme { scheme } => vec![("scheme", scheme.as_str().into())],
         }
     }
@@ -203,7 +230,12 @@ impl Diagnostic for BearerError {
 
 /// The variables the interactive engine is given for its hooks: the endpoint,
 /// the bearer and the run.
-pub fn hook_environment(endpoint: &str, run: &str, token: &Token) -> BTreeMap<String, String> {
+pub fn hook_environment(
+    endpoint: &str,
+    run: &str,
+    token: &Token,
+    cert: &PublicCert,
+) -> BTreeMap<String, String> {
     BTreeMap::from([
         (ENDPOINT_VARIABLE.to_string(), endpoint.to_string()),
         (
@@ -211,6 +243,7 @@ pub fn hook_environment(endpoint: &str, run: &str, token: &Token) -> BTreeMap<St
             Bearer::compose(run, token).expose().to_string(),
         ),
         (RUN_VARIABLE.to_string(), run.to_string()),
+        (TLS_CERT_VARIABLE.to_string(), cert.to_env_value()),
     ])
 }
 
@@ -240,6 +273,12 @@ pub(crate) fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         }),
         Box::new(EndpointError::Scheme {
             scheme: "ftp".to_string(),
+        }),
+        Box::new(EndpointError::Plaintext {
+            endpoint: "http://127.0.0.1:9".to_string(),
+        }),
+        Box::new(EndpointError::PortZero {
+            endpoint: "https://127.0.0.1:0".to_string(),
         }),
         Box::new(BearerError::Malformed { length: 3 }),
     ]

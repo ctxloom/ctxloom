@@ -20,12 +20,14 @@ use angzarr_proto_transport_distributed::v1::command_handler_coordinator_service
 use embedded_edge::EmbeddedEdge;
 use run_ports::{Bearer, Edge as _, Token, TokenSource};
 use runs_application::{EnqueueRequest, Enqueuer, Observation};
-use tonic::transport::{Channel, Endpoint};
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint};
 use tonic::Code;
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use crate::HookListener;
+use crate::{HookListener, ListenerError, TlsIdentity};
+use hook_tls::{Clock, Minter, SystemClock};
+use run_ports::{CertMint, CertNames, HookCertificate};
 
 const LOOPBACK_ANY_PORT: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
 
@@ -96,9 +98,60 @@ fn command_of_type(
     }
 }
 
+/// The run's certificate for the loopback, minted once for the tests that
+/// need any one: valid now.
+fn certificate() -> &'static HookCertificate {
+    static CERT: std::sync::OnceLock<HookCertificate> = std::sync::OnceLock::new();
+    CERT.get_or_init(|| mint(&SystemClock, LOOPBACK_ANY_PORT.ip()))
+}
+
+fn mint(clock: &dyn Clock, ip: IpAddr) -> HookCertificate {
+    struct Ref<'a>(&'a dyn Clock);
+    impl Clock for Ref<'_> {
+        fn unix_seconds(&self) -> i64 {
+            self.0.unix_seconds()
+        }
+    }
+    Minter::new(Ref(clock))
+        .mint(&CertNames::new(vec![ip], Vec::new()))
+        .unwrap()
+}
+
+struct At(i64);
+
+impl Clock for At {
+    fn unix_seconds(&self) -> i64 {
+        self.0
+    }
+}
+
+fn identity_of(cert: &HookCertificate) -> TlsIdentity {
+    TlsIdentity::from_pem(cert.public().to_pem(), cert.key_pem())
+}
+
+fn identity() -> TlsIdentity {
+    identity_of(certificate())
+}
+
+/// A TLS client config trusting only `cert`, naming the loopback.
+fn tls_trusting(cert: &HookCertificate) -> ClientTlsConfig {
+    ClientTlsConfig::new()
+        .ca_certificate(Certificate::from_pem(cert.public().to_pem()))
+        .domain_name("127.0.0.1")
+}
+
+async fn try_connect(addr: SocketAddr, cert: &HookCertificate) -> Result<Channel, String> {
+    Endpoint::from_shared(format!("https://{addr}"))
+        .unwrap()
+        .tls_config(tls_trusting(cert))
+        .unwrap()
+        .connect()
+        .await
+        .map_err(|e| format!("{e:?}"))
+}
+
 async fn connect(addr: SocketAddr) -> Channel {
-    let url = run_ports::endpoint_url(&addr.ip().to_string(), addr.port());
-    Endpoint::from_shared(url).unwrap().connect().await.unwrap()
+    try_connect(addr, certificate()).await.unwrap()
 }
 
 /// `book`, presenting `authorization` as given (none when `None`).
@@ -215,9 +268,10 @@ impl World {
     }
 
     async fn serve(&self) -> HookListener {
-        let listener = HookListener::serve_tcp(Arc::clone(&self.edge), LOOPBACK_ANY_PORT)
-            .await
-            .expect("the listener starts");
+        let listener =
+            HookListener::serve_tcp(Arc::clone(&self.edge), LOOPBACK_ANY_PORT, identity())
+                .await
+                .expect("the listener starts");
         *self.addr.lock().unwrap() = Some(listener.local_addr());
         listener
     }
@@ -521,27 +575,68 @@ fn the_listener_serves_while_the_thread_that_drives_the_run_is_blocked() {
     assert!(pages >= 2, "the mint and the fact");
 }
 
-/// A client that connects and never completes its handshake holds a connection
-/// open, which a graceful shutdown waits for. The connection is held by the
-/// test, so the wait is forced, never hoped for: the stop must end past its
-/// grace ([`crate::STOP_GRACE`], three seconds, really elapsed) with the typed
-/// timeout, and the listener must be aborted (nobody listens).
+/// An edge whose commands are admitted and then never finish: a call held in
+/// the handler, with the test told that it arrived.
+struct Stalling {
+    inner: Arc<TheEdge>,
+    arrived: tokio::sync::mpsc::UnboundedSender<()>,
+}
+
+impl run_ports::Edge for Stalling {
+    async fn serve(
+        &self,
+        _: CommandBook,
+        _: run_ports::Arrival,
+    ) -> Result<angzarr_embedded::Answered, run_ports::Unserved> {
+        let _ = self.arrived.send(());
+        std::future::pending().await
+    }
+
+    async fn handle(
+        &self,
+        _: CommandBook,
+    ) -> Result<angzarr_embedded::Answered, angzarr_embedded::Failure<angzarr_embedded::Rejected>>
+    {
+        let _ = self.arrived.send(());
+        std::future::pending().await
+    }
+
+    async fn events(
+        &self,
+        cover: &Cover,
+        from: u64,
+    ) -> Result<Vec<angzarr_embedded::v1::EventPage>, angzarr_embedded::StoreError> {
+        self.inner.events(cover, from).await
+    }
+}
+
+/// A call that is held in the handler holds a connection open, which a
+/// graceful shutdown waits for. The call is held by the test (the edge never
+/// answers) and the test is told when it is in the handler over the TLS
+/// connection, so the wait is forced, never hoped for: the stop must end past
+/// its grace ([`crate::STOP_GRACE`], three seconds, really elapsed) with the
+/// typed timeout, and the listener must be aborted (nobody listens).
 #[tokio::test(flavor = "current_thread")]
 async fn a_client_that_holds_a_connection_open_cannot_hold_the_stop() {
     let world = World::new().await;
-    let listener = world.serve().await;
-    let mut held = tokio::net::TcpStream::connect(world.addr()).await.unwrap();
-    tokio::io::AsyncWriteExt::write_all(&mut held, b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+    let (arrived, mut in_handler) = tokio::sync::mpsc::unbounded_channel();
+    let edge = Arc::new(Stalling {
+        inner: Arc::clone(&world.edge),
+        arrived,
+    });
+    let listener = HookListener::serve_tcp(edge, LOOPBACK_ANY_PORT, identity())
         .await
-        .unwrap();
-    // The server speaks first once it has accepted: its HTTP/2 frame header
-    // (nine bytes, the SETTINGS frame) is the proof that the connection is
-    // open server side, so the stop below meets a connection held, never one
-    // still waiting in the backlog (which a graceful shutdown never sees).
-    let mut frame = [0_u8; 9];
-    tokio::io::AsyncReadExt::read_exact(&mut held, &mut frame)
-        .await
-        .expect("the server accepted the connection");
+        .expect("the listener starts");
+    let addr = listener.local_addr();
+    *world.addr.lock().unwrap() = Some(addr);
+    let book = world.turn_ended("held");
+    let bearer = format!("Bearer {}", world.bearer);
+    let held = tokio::spawn(async move {
+        CommandHandlerCoordinatorServiceClient::new(connect(addr).await)
+            .handle(request(book, Some(&bearer)))
+            .await
+    });
+    in_handler.recv().await.expect("the call is in the handler");
     let error = listener
         .stop()
         .await
@@ -553,7 +648,7 @@ async fn a_client_that_holds_a_connection_open_cannot_hold_the_stop() {
             grace_ms: 3_000,
         }
     );
-    drop(held);
+    held.abort();
     assert!(
         tokio::net::TcpStream::connect(world.addr()).await.is_err(),
         "nobody listens"
@@ -581,7 +676,7 @@ async fn tcp_client(addr: SocketAddr) -> CommandHandlerCoordinatorServiceClient<
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_capture_fact_over_tcp_is_applied_to_the_session_stream() {
     let world = World::new().await;
-    let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT)
+    let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT, identity())
         .await
         .expect("serves");
     let addr = listener.local_addr();
@@ -610,10 +705,10 @@ async fn a_capture_fact_over_tcp_is_applied_to_the_session_stream() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn two_listeners_on_port_zero_get_two_ports() {
     let world = World::new().await;
-    let a = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT)
+    let a = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT, identity())
         .await
         .unwrap();
-    let b = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT)
+    let b = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT, identity())
         .await
         .unwrap();
     assert_ne!(a.local_addr().port(), b.local_addr().port());
@@ -625,10 +720,11 @@ async fn two_listeners_on_port_zero_get_two_ports() {
 async fn an_unspecified_address_is_never_bound() {
     let world = World::new().await;
     for addr in ["0.0.0.0:0", "[::]:0"] {
-        let error = HookListener::serve_tcp(Arc::clone(&world.edge), addr.parse().unwrap())
-            .await
-            .err()
-            .expect("refused");
+        let error =
+            HookListener::serve_tcp(Arc::clone(&world.edge), addr.parse().unwrap(), identity())
+                .await
+                .err()
+                .expect("refused");
         assert_eq!(
             error,
             crate::ListenerError::Unspecified {
@@ -653,7 +749,7 @@ async fn the_declared_arrival_follows_the_bind() {
     assert_eq!(crate::reach_of("172.18.0.1".parse().unwrap()), Reach::Ip);
     assert_eq!(crate::reach_of("192.168.1.9".parse().unwrap()), Reach::Ip);
     let world = World::new().await;
-    let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT)
+    let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT, identity())
         .await
         .unwrap();
     assert_eq!(listener.reach(), Reach::Loopback);
@@ -665,7 +761,7 @@ async fn the_declared_arrival_follows_the_bind() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_request_over_the_size_limit_is_refused_and_writes_nothing() {
     let world = World::new().await;
-    let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT)
+    let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT, identity())
         .await
         .unwrap();
     let held = world.watched().await;
@@ -699,7 +795,7 @@ async fn a_request_over_the_size_limit_is_refused_and_writes_nothing() {
 async fn an_authentication_failure_says_nothing_of_the_token_or_its_digest() {
     use sha2::{Digest, Sha256};
     let world = World::new().await;
-    let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT)
+    let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT, identity())
         .await
         .unwrap();
     let secret = world.bearer.rsplit_once('.').unwrap().1.to_string();
@@ -767,7 +863,7 @@ fn fact_of_encoded_size(world: &World, size: usize) -> CommandBook {
 async fn the_request_limit_is_exactly_one_mebibyte() {
     assert_eq!(crate::MAX_REQUEST_BYTES, 1_048_576);
     let world = World::new().await;
-    let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT)
+    let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT, identity())
         .await
         .unwrap();
     let bearer = format!("Bearer {}", world.bearer);
@@ -786,4 +882,93 @@ async fn the_request_limit_is_exactly_one_mebibyte() {
         .expect_err("one byte over is refused");
     assert_eq!(status.code(), Code::OutOfRange);
     listener.stop().await.unwrap();
+}
+
+/// No downgrade: a client that speaks plaintext gets no answer from the
+/// listener, and the bearer it sent is never read as a credential. The TLS
+/// control, on the same listener, is applied.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_plaintext_client_cannot_talk_to_the_listener() {
+    let world = World::new().await;
+    let listener = world.serve().await;
+    let before = world.watched().await;
+    let plain = Endpoint::from_shared(format!("http://{}", world.addr())).unwrap();
+    let outcome = match plain.connect().await {
+        Ok(channel) => CommandHandlerCoordinatorServiceClient::new(channel)
+            .handle(request(
+                world.turn_ended("plain"),
+                Some(&format!("Bearer {}", world.bearer)),
+            ))
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string()),
+        Err(e) => Err(e.to_string()),
+    };
+    assert!(outcome.is_err(), "{outcome:?}");
+    assert_eq!(world.watched().await, before, "nothing was written");
+    let applied = world
+        .client()
+        .await
+        .handle(request(
+            world.turn_ended("tls"),
+            Some(&format!("Bearer {}", world.bearer)),
+        ))
+        .await
+        .expect("the TLS control is applied")
+        .into_inner();
+    assert_eq!(applied.delivery(), DeliveryOutcome::Applied);
+    listener.stop().await.unwrap();
+}
+
+/// The server is authenticated by the pinned certificate alone: a client that
+/// trusts another certificate (same address, same names) refuses it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_client_that_pins_another_certificate_refuses_the_listener() {
+    let world = World::new().await;
+    let listener = world.serve().await;
+    let other = mint(&SystemClock, LOOPBACK_ANY_PORT.ip());
+    assert!(try_connect(world.addr(), certificate()).await.is_ok());
+    assert!(try_connect(world.addr(), &other).await.is_err());
+    listener.stop().await.unwrap();
+}
+
+/// An expired certificate is refused by a client that pins it; the unexpired
+/// one connects.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_expired_certificate_is_refused() {
+    let world = World::new().await;
+    let expired = mint(&At(1_577_836_800), LOOPBACK_ANY_PORT.ip());
+    let listener = HookListener::serve_tcp(
+        Arc::clone(&world.edge),
+        LOOPBACK_ANY_PORT,
+        identity_of(&expired),
+    )
+    .await
+    .unwrap();
+    assert!(try_connect(listener.local_addr(), &expired).await.is_err());
+    listener.stop().await.unwrap();
+}
+
+/// A identity the TLS layer cannot use is a typed bind error, and nothing
+/// listens.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unusable_identity_is_a_typed_bind_error() {
+    let world = World::new().await;
+    let error = HookListener::serve_tcp(
+        Arc::clone(&world.edge),
+        LOOPBACK_ANY_PORT,
+        TlsIdentity::from_pem("not a certificate", "not a key"),
+    )
+    .await
+    .err()
+    .expect("refused");
+    assert!(matches!(error, ListenerError::Bind { .. }), "{error:?}");
+}
+
+/// The private key is in no rendering of the identity.
+#[test]
+fn the_identity_does_not_render_the_key() {
+    let shown = format!("{:?}", identity());
+    assert!(!shown.contains("PRIVATE"), "{shown}");
+    assert!(!shown.contains(certificate().key_pem().lines().nth(1).unwrap()));
 }

@@ -611,3 +611,67 @@ fn test_an_answer_that_cannot_be_written_fails_with_its_cause() {
 
 #[path = "write.test.rs"]
 mod write_verbs;
+
+// ---- engine list|show, exactly as printed ----
+
+const ENGINE_HOME: &str = "schema_version: 9\nruntime: container-rootless\nengines:\n  claude-code:\n    command: /opt/claude\n    env: [HTTPS_PROXY]\n    auth: none\n  opencode:\n    session_home: host\n";
+const ENGINE_PROJECT: &str = "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    model: haiku\n    runtime: host\n    profiles: [dev]\n  strict:\n    engine: claude-code\n    runtime: container-rootful\n    profiles: [dev]\n  same:\n    engine: claude-code\n    runtime: container-rootless\n  plain:\n    engine: opencode\n";
+
+#[test]
+fn test_engine_show_prints_the_settings_their_layers_and_each_agents_resolution() {
+    let ran = go(
+        &["engine", "show", "claude-code"],
+        TEXT,
+        &[ENGINE_HOME, ENGINE_PROJECT],
+    );
+    assert_eq!(ran.code(), 0);
+    assert_eq!(
+        ran.out,
+        "claude-code\n  command: /opt/claude (engine)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: HTTPS_PROXY (engine)\n  auth: not-needed (engine)\n  agents:\n    dev\n      model: haiku (agent)\n      effort: engine default, no flag passed (default)\n      permissions: acceptEdits (default)\n      runtime: host (agent; replaces project container-rootless: weakens isolation)\n      env: HTTPS_PROXY (engine)\n    same\n      model: engine default, no flag passed (default)\n      effort: engine default, no flag passed (default)\n      permissions: acceptEdits (default)\n      runtime: container-rootless (agent)\n      env: HTTPS_PROXY (engine)\n    strict\n      model: engine default, no flag passed (default)\n      effort: engine default, no flag passed (default)\n      permissions: acceptEdits (default)\n      runtime: container-rootful (agent; replaces project container-rootless: ownership differs, not interchangeable)\n      env: HTTPS_PROXY (engine)\n"
+    );
+}
+
+#[test]
+fn test_engine_list_prints_every_engine_and_only_the_agents_it_has() {
+    let ran = go(&["engine", "list"], TEXT, &[ENGINE_HOME, ENGINE_PROJECT]);
+    assert_eq!(ran.code(), 0);
+    assert_eq!(
+        ran.out,
+        "claude-code\n  command: /opt/claude (engine)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: HTTPS_PROXY (engine)\n  auth: not-needed (engine)\n  agents: dev, same, strict\nmock\n  command: mock (default)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: none (default)\n  auth: not-needed (default)\nmock-launch\n  command: mock-launch (default)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: none (default)\n  auth: not-needed (default)\nmock-lossy\n  command: mock-lossy (default)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: none (default)\n  auth: not-needed (default)\nmock-noskills\n  command: mock-noskills (default)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: none (default)\n  auth: not-needed (default)\nopencode\n  command: opencode (default)\n  session_home: host (engine)\n  runtime: container-rootless (project)\n  env: none (default)\n  auth: missing (default)\n  agents: plain\n"
+    );
+}
+
+#[test]
+fn test_a_bare_engine_lists_and_json_carries_the_same_rows() {
+    let bare = go(&["engine"], JSON, &[ENGINE_HOME, ENGINE_PROJECT]);
+    let list = go(&["engine", "list"], JSON, &[ENGINE_HOME, ENGINE_PROJECT]);
+    assert_eq!(bare.out, list.out);
+    assert_eq!(bare.json()[0]["name"], "claude-code");
+    let show = go(
+        &["engine", "show", "opencode"],
+        JSON,
+        &[ENGINE_HOME, ENGINE_PROJECT],
+    );
+    assert_eq!(show.json()["name"], "opencode");
+    assert_eq!(show.json()["session_home"]["value"], "host");
+}
+
+// An agent that makes a launch more contained than the layers below says so; an
+// engine no agent is bound to says it has none.
+#[test]
+fn test_engine_show_says_when_an_agent_strengthens_isolation_and_when_there_is_none() {
+    let layers = [
+        "schema_version: 9\nruntime: host\n",
+        "schema_version: 9\nagents:\n  tight:\n    engine: claude-code\n    runtime: container-rootless\n    profiles: [dev]\n",
+    ];
+    let ran = go(&["engine", "show", "claude-code"], TEXT, &layers);
+    assert!(
+        ran.out.contains(
+            "      runtime: container-rootless (agent; replaces project host: strengthens isolation)\n"
+        ),
+        "{}",
+        ran.out
+    );
+    let none = go(&["engine", "show", "opencode"], TEXT, &layers);
+    assert!(none.out.ends_with("  agents: none\n"), "{}", none.out);
+}

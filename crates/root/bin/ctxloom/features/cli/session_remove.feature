@@ -1,21 +1,24 @@
 # Written for the new design; awaits product plan step 4 (docs/plans/ctxloom-features.md).
 # Ported from cli/session.feature
 # Ported from journeys/j001300_closeout.feature
-# NOT ported: Go's other session destroyers. `session remove`, `session sweep`,
-#   `session transcript purge` and `session worktrees purge` are retired:
-#   `session purge` is the one destroyer, and a purged session is gone, from
+# NOT ported: Go's other session destroyers. `session purge` (owner ruling
+#   98: one deleting verb), `session transcript purge` and `session worktrees
+#   purge` are retired: `session remove` is the one destroyer, and a removed
+#   session is gone, from
 #   disk and from the listing (vocabulary §8). Go's "the sweep empties a
 #   session but does not unlist it" is superseded by that rule. `session
 #   adopt` is dropped.
 # Superseded in part (owner rulings 87a, 94b): no transcript file exists, so
 #   the steps below that look for `transcripts/transcript.jsonl` are to be
-#   rewritten when this Feature is taken up; `session purge` destroys the
+#   rewritten when this Feature is taken up; `session remove` destroys the
 #   whole session (its events, its runs', its directory and lock, the name
-#   kept claimed), and is built only with the `session-destroy` feature.
+#   kept claimed), and is built only with the `session-destroy` feature
+#   (owner ruling 98: a plain build has no deleting verb). The built verb's
+#   escape is still `--even-if-live`; `--force` below is this pending design's.
 @pending
-Feature: session purge — the one destroyer, and a purged session is gone
+Feature: session remove — the one destroyer, and a removed session is gone
 
-  `ctxloom session purge <harp>` purges one session; `ctxloom session purge
+  `ctxloom session remove <harp>` purges one session; `ctxloom session remove
   --older-than <age>` purges every session past that age. Purging takes the
   session's index entry, its transcript and its scratch worktrees: afterwards
   it is not on disk and not in `session list`. The session's output dir (its
@@ -37,16 +40,16 @@ Feature: session purge — the one destroyer, and a purged session is gone
     Scenario: The sweep reports before it removes
       # substitution: the project Given is the Background's; the report-only run exits 4 (confirmation required off a terminal) where Go's exited 0.
       Given a finished session "amber-swift-owl" with a transcript
-      When I run "ctxloom session purge amber-swift-owl"
+      When I run "ctxloom session remove amber-swift-owl"
       Then the command exits with code 4
       And the output contains "removed nothing"
-      And the output contains "ctxloom session purge amber-swift-owl --yes"
+      And the output contains "ctxloom session remove amber-swift-owl --yes"
       And the file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" exists
 
     Scenario: --yes removes the index entry and the transcript
-      # substitution: the project Given is the Background's; the verb is `session purge` (Go's `session remove` is retired), and the session's whole directory goes with it.
+      # substitution: the project Given is the Background's; the verb is `session remove` (owner ruling 98: it destroys, as `session purge` did), and the session's whole directory goes with it.
       Given a finished session "amber-swift-owl" with a transcript and a summary an older ctxloom left
-      When I run "ctxloom session purge amber-swift-owl --yes"
+      When I run "ctxloom session remove amber-swift-owl --yes"
       Then the command succeeds
       And the file ".ctxloom/sessions/amber-swift-owl" does not exist
       And the output file "essence.md" of session "amber-swift-owl" exists
@@ -59,16 +62,16 @@ Feature: session purge — the one destroyer, and a purged session is gone
     Scenario: A session the lock cannot prove finished is refused, and the escape is named
       # substitution: the project Given is the Background's; the escape is `--force` (Go's `--even-if-live`).
       Given a finished session "amber-swift-owl" with a transcript but no session lock
-      When I run "ctxloom session purge amber-swift-owl --yes"
+      When I run "ctxloom session remove amber-swift-owl --yes"
       Then the command fails
       And the output contains "cannot be proven dead"
-      And the output contains "ctxloom session purge amber-swift-owl --yes --force"
+      And the output contains "ctxloom session remove amber-swift-owl --yes --force"
       And the file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" exists
 
     Scenario: --force purges it anyway
       # new: Go's "--even-if-live sweeps it anyway", with `--force` overriding the unprovable-liveness refusal; the session is gone from the listing too.
       Given a finished session "amber-swift-owl" with a transcript but no session lock
-      When I run "ctxloom session purge amber-swift-owl --yes --force"
+      When I run "ctxloom session remove amber-swift-owl --yes --force"
       Then the command succeeds
       And the file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" does not exist
       When I run "ctxloom session list --all"
@@ -76,9 +79,9 @@ Feature: session purge — the one destroyer, and a purged session is gone
 
     # The index says ended; the lock says running. The lock wins.
     Scenario: A session running again is refused by the transcript's own destroyer
-      # substitution: the project Given is the Background's; the destroyer is `session purge` (`session transcript purge` is retired), and the escape is `--force`.
+      # substitution: the project Given is the Background's; the destroyer is `session remove` (`session transcript purge` is retired), and the escape is `--force`.
       Given a session "amber-swift-owl" with a transcript that is running again
-      When I run "ctxloom session purge amber-swift-owl --yes"
+      When I run "ctxloom session remove amber-swift-owl --yes"
       Then the command fails
       And the output contains "owner is alive"
       And the output contains "--force"
@@ -93,27 +96,27 @@ Feature: session purge — the one destroyer, and a purged session is gone
     releases a kept one, and time releases the rest.
 
     Scenario: A transcript within its retention is refused by every destroyer
-      # substitution: the project Given is the Background's; `session purge` is the one destroyer, so Go's outline over three destroyers is this one scenario.
+      # substitution: the project Given is the Background's; `session remove` is the one destroyer, so Go's outline over three destroyers is this one scenario.
       Given a session "brisk-copper-moth" with a transcript that finished an hour ago
-      When I run "ctxloom session purge brisk-copper-moth --yes"
+      When I run "ctxloom session remove brisk-copper-moth --yes"
       Then the command fails
       And the output contains "retention"
       And the file ".ctxloom/sessions/brisk-copper-moth/transcripts/transcript.jsonl" exists
 
     Scenario: A kept transcript is refused at any age, and the listing says it is kept
-      # substitution: the project Given is the Background's; the destroyer is `session purge` (`session transcript purge` is retired).
+      # substitution: the project Given is the Background's; the destroyer is `session remove` (`session transcript purge` is retired).
       Given a finished session "amber-swift-owl" with a transcript
       When I run "ctxloom session keep amber-swift-owl"
       Then the command succeeds
       When I run "ctxloom session list --all --format json"
       Then the JSON output array "$" contains an object whose "harp" is "amber-swift-owl" and whose "kept" is "true"
-      When I run "ctxloom session purge amber-swift-owl --yes"
+      When I run "ctxloom session remove amber-swift-owl --yes"
       Then the command fails
       And the output contains "ctxloom session keep amber-swift-owl --undo"
       And the file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" exists
       When I run "ctxloom session keep amber-swift-owl --undo"
       Then the command succeeds
-      When I run "ctxloom session purge amber-swift-owl --yes"
+      When I run "ctxloom session remove amber-swift-owl --yes"
       Then the command succeeds
       And the file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" does not exist
 
@@ -127,16 +130,16 @@ Feature: session purge — the one destroyer, and a purged session is gone
     Scenario: A harp and an age together are refused
       # new: purge takes one harp or one age.
       Given a finished session "amber-swift-owl" with a transcript
-      When I run "ctxloom session purge amber-swift-owl --older-than 90d --yes"
+      When I run "ctxloom session remove amber-swift-owl --older-than 90d --yes"
       Then the command exits with code 2
       And the file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" exists
 
     Scenario: Neither a harp nor an age is refused, naming both forms
       # new: purge with nothing to select refuses rather than purging everything.
       Given a finished session "amber-swift-owl" with a transcript
-      When I run "ctxloom session purge --yes"
+      When I run "ctxloom session remove --yes"
       Then the command exits with code 2
-      And the output contains "ctxloom session purge <harp>"
+      And the output contains "ctxloom session remove <harp>"
       And the output contains "--older-than"
       And the file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" exists
 
@@ -154,7 +157,7 @@ Feature: session purge — the one destroyer, and a purged session is gone
 
     Scenario: Without an age the configured purge age is purge's
       # new: the configured age selects when no --older-than is given.
-      When I run "ctxloom session purge --yes"
+      When I run "ctxloom session remove --yes"
       Then the command succeeds
       And the machine-written bulk of "amber-quiet-heron" is gone
       When I run "ctxloom session list --all"
@@ -162,7 +165,7 @@ Feature: session purge — the one destroyer, and a purged session is gone
 
     Scenario: The flag beats the configured purge age
       # new: --older-than overrides the configured age.
-      When I run "ctxloom session purge --older-than 200d --yes"
+      When I run "ctxloom session remove --older-than 200d --yes"
       Then the command succeeds
       And the machine-written bulk of "amber-quiet-heron" is still there
 
@@ -173,7 +176,7 @@ Feature: session purge — the one destroyer, and a purged session is gone
         schema_version: 8
         session_purge_age: soon
         """
-      When I run "ctxloom session purge --yes"
+      When I run "ctxloom session remove --yes"
       Then the command fails
       And the machine-written bulk of "amber-quiet-heron" is still there
 
@@ -186,7 +189,7 @@ Feature: session purge — the one destroyer, and a purged session is gone
     Scenario: Emptying a session takes everything ctxloom wrote, and nothing Alice did
       # substitution: the project Given is the Background's; purge is all or nothing, so a session holding authored files is refused whole and keeps its index entry until she files or deletes them.
       Given a finished session "amber-quiet-heron" carrying design notes nobody filed
-      When I run "ctxloom session purge amber-quiet-heron --yes"
+      When I run "ctxloom session remove amber-quiet-heron --yes"
       Then the command fails
       And the machine-written bulk of "amber-quiet-heron" is still there
       And its output dir is untouched, and its index entry survives

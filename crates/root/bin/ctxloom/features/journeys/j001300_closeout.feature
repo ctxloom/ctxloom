@@ -10,7 +10,7 @@ Feature: The close-out — the end of a workstream
   worktrees, several holding work that was never merged; a pile of finished
   sessions; and design notes nobody filed.
 
-  Alice closes the workstream out with one command, `ctxloom session purge
+  Alice closes the workstream out with one command, `ctxloom session remove
   --older-than <age>`. First she sees what it would do: every old session's
   fate, decided the same way every time, and nothing touched. Then she lets
   it run. It takes what it can prove is safe, a purged session is gone, and
@@ -26,11 +26,11 @@ Feature: The close-out — the end of a workstream
 
   # She looks before anything is destroyed.
   Scenario: The sweep reports every session's fate before it changes anything
-    # substitution: the verb is `session purge --older-than`; without --yes off a terminal it exits 4.
+    # substitution: the verb is `session remove --older-than` (owner ruling 98); without --yes off a terminal it exits 4.
     Given a finished session "amber-quiet-heron" whose transcript retention has passed
     And a finished session "brisk-copper-moth" whose transcript retention has passed
     And every session has been idle for 120 days
-    When I run "ctxloom session purge --older-than 90d"
+    When I run "ctxloom session remove --older-than 90d"
     Then the command exits with code 4
     And the sweep report names "amber-quiet-heron" and "brisk-copper-moth"
     And every byte of every session is still on disk
@@ -40,7 +40,7 @@ Feature: The close-out — the end of a workstream
   # the work where she left it. A session she marked to keep is left, and she
   # is told how to release it. The rest are gone, and gone from the listing.
   Scenario: The sweep removes only what it can prove is safe, and says why it left the rest
-    # substitution: the verb is `session purge --older-than`; a purged session is gone from the listing, and a session holding uncommitted work keeps its clean worktree too.
+    # substitution: the verb is `session remove --older-than` (owner ruling 98); a purged session is gone from the listing, and a session holding uncommitted work keeps its clean worktree too.
     Given a finished session "amber-quiet-heron" whose transcript retention has passed
     And a finished session "brisk-copper-moth" marked keep
     And an internal one-shot session "gray-oneshot-wisp" that finished an hour ago
@@ -52,7 +52,7 @@ Feature: The close-out — the end of a workstream
     And a session "slate-unproven-vole" nothing can prove the liveness of
     And session "slate-unproven-vole" left a scratch worktree of its own
     And every session has been idle for 120 days
-    When I run "ctxloom session purge --older-than 90d --yes"
+    When I run "ctxloom session remove --older-than 90d --yes"
     Then the sweep skipped "teal-running-wren" and "slate-unproven-vole" without touching either
     And the uncommitted work is still there, spared in place
     And the report says why each spared worktree was left alone
@@ -73,10 +73,10 @@ Feature: The close-out — the end of a workstream
     And session "olive-dirty-finch" left a scratch worktree holding uncommitted work
     And a finished session "amber-quiet-heron" carrying design notes nobody filed, whose transcript retention has passed
     And every session has been idle for 120 days
-    And Alice has run "ctxloom session purge --older-than 90d --yes" and been told what it left
+    And Alice has run "ctxloom session remove --older-than 90d --yes" and been told what it left
     When Alice saves the work she wants out of the scratch worktree of "olive-dirty-finch"
     And Alice files her design notes into the output dir of "amber-quiet-heron"
-    And I run "ctxloom session purge --older-than 90d --yes"
+    And I run "ctxloom session remove --older-than 90d --yes"
     Then the command succeeds
     And the machine-written bulk of "olive-dirty-finch" is gone
     And the machine-written bulk of "amber-quiet-heron" is gone

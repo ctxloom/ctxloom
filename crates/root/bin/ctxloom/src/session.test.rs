@@ -446,6 +446,71 @@ fn test_remove_yes_takes_the_index_entry_and_the_transcript_and_leaves_the_outpu
     assert!(!said(&listed).contains(HARP), "{}", listed.said());
 }
 
+// Owner ruling 98: `session remove` DESTROYS the session (what `session
+// purge` did): its authored files and its whole directory go with its
+// native history, its lock too, and its events: nothing shows it afterwards.
+#[test]
+fn test_remove_yes_destroys_the_whole_session_its_directory_lock_and_events() {
+    let home = Home::new();
+    home.finished(HARP);
+    home.seed(
+        "brisk-copper-moth",
+        &[
+            "--lock",
+            "free",
+            "--transcript",
+            "--started-ago",
+            "6048000",
+            "--ended-ago",
+            "5184000",
+        ],
+    );
+    files::put(home.session_dir(HARP).join("notes.md"), "authored\n");
+    let ran = home.run(&["session", "remove", HARP, "--yes"]);
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    assert!(
+        !files::exists(home.session_dir(HARP)),
+        "the whole directory goes"
+    );
+    assert!(
+        !files::exists(
+            home.env
+                .home()
+                .join(".ctxloom/sessions/amber-swift-owl.lock")
+        ),
+        "its lock goes"
+    );
+    let shown = home.run(&["session", "show", HARP]);
+    assert_ne!(shown.code, 0, "its events are gone: {}", shown.said());
+    let listed = home.run(&["session", "list", "--all"]);
+    assert!(!said(&listed).contains(HARP), "{}", listed.said());
+    assert!(
+        said(&listed).contains("brisk-copper-moth"),
+        "only it: {}",
+        listed.said()
+    );
+}
+
+// Owner ruling 98: one deleting verb. `session purge` is gone: an unknown
+// verb, refused, touching nothing.
+#[test]
+fn test_there_is_no_session_purge() {
+    let home = Home::new();
+    home.finished(HARP);
+    let ran = home.run(&["session", "purge", HARP, "--yes"]);
+    assert_eq!(ran.code, 2, "{}", ran.said());
+    assert!(files::exists(home.native_file(HARP)));
+    let help = home.run(&["session", "--help"]);
+    assert!(
+        !help
+            .stdout
+            .lines()
+            .any(|l| l.trim_start().starts_with("purge")),
+        "{}",
+        help.stdout
+    );
+}
+
 // session.feature: "A transcript within its retention is refused by every
 // destroyer": a session that finished an hour ago.
 #[test]

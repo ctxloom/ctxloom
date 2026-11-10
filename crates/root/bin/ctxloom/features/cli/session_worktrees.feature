@@ -2,7 +2,7 @@
 # Ported from cli/session.feature
 # Ported from journeys/j001300_closeout.feature
 # NOT ported: `session worktrees purge` and the `--reap` switch: a session's
-#   worktrees go only with the session, through `session purge` (vocabulary
+#   worktrees go only with the session, through `session remove` (vocabulary
 #   §8). j001300's doctor rows (foreign worktrees, gitignore, harp durability)
 #   are doctor's. The listing names each owner by the state its lock proves
 #   (alive, dead, indeterminate), not by a pid.
@@ -42,14 +42,14 @@ Feature: session worktrees - the scratch checkouts a session left behind
     # A harp-scoped purge does not stray outside its harp: the running and the
     # unprovable sessions beside it keep their worktrees.
     Scenario: Purging removes only what it can prove is safe, and says why it left the rest
-      # substitution: the verb is `session purge` (`session worktrees purge` is retired); the purged session holds only a clean tree, since uncommitted work keeps its whole session (next scenario).
+      # substitution: the verb is `session remove` (`session worktrees purge` is retired); the purged session holds only a clean tree, since uncommitted work keeps its whole session (next scenario).
       Given a finished session "amber-quiet-heron" whose transcript retention has passed
       And session "amber-quiet-heron" left a clean scratch worktree
       And a session "teal-running-wren" that is still running
       And session "teal-running-wren" left a scratch worktree of its own
       And a session "slate-unproven-vole" nothing can prove the liveness of
       And session "slate-unproven-vole" left a scratch worktree of its own
-      When I run "ctxloom session purge amber-quiet-heron --yes"
+      When I run "ctxloom session remove amber-quiet-heron --yes"
       Then the command succeeds
       And the machine-written bulk of "amber-quiet-heron" is gone
       And the machine-written bulk of "teal-running-wren" is still there
@@ -64,7 +64,7 @@ Feature: session worktrees - the scratch checkouts a session left behind
       Given a finished session "amber-quiet-heron" whose transcript retention has passed
       And session "amber-quiet-heron" left a clean scratch worktree
       And session "amber-quiet-heron" left a scratch worktree holding uncommitted work
-      When I run "ctxloom session purge amber-quiet-heron --yes"
+      When I run "ctxloom session remove amber-quiet-heron --yes"
       Then the command fails
       And the output contains "ctxloom-wt-wip"
       And the uncommitted work is still there, spared in place
@@ -73,25 +73,25 @@ Feature: session worktrees - the scratch checkouts a session left behind
 
     # A clean tree survives purely because its session still holds its lock.
     Scenario: Purging a session that is still running removes nothing
-      # substitution: the verb is `session purge` (`session worktrees purge` is retired).
+      # substitution: the verb is `session remove` (`session worktrees purge` is retired).
       Given a session "teal-running-wren" that is still running
       And session "teal-running-wren" left a clean scratch worktree
-      When I run "ctxloom session purge teal-running-wren --yes"
+      When I run "ctxloom session remove teal-running-wren --yes"
       Then no worktree of "teal-running-wren" is removed, and ctxloom says it could prove nothing safe
 
     # A missing lock never reads as a free one.
     Scenario: Purging a session nothing can prove the liveness of removes nothing
-      # substitution: the verb is `session purge` (`session worktrees purge` is retired).
+      # substitution: the verb is `session remove` (`session worktrees purge` is retired).
       Given a session "slate-unproven-vole" nothing can prove the liveness of
       And session "slate-unproven-vole" left a clean scratch worktree
-      When I run "ctxloom session purge slate-unproven-vole --yes"
+      When I run "ctxloom session remove slate-unproven-vole --yes"
       Then no worktree of "slate-unproven-vole" is removed, and ctxloom says it could prove nothing safe
 
     # Worktrees outside the sessions root are never listed and never purged.
     Scenario: Her own long-lived worktrees are not this verb's business
-      # substitution: the verb is `session purge` (`session worktrees purge` is retired).
+      # substitution: the verb is `session remove` (`session worktrees purge` is retired).
       Given a finished session "amber-quiet-heron" whose transcript retention has passed
       And session "amber-quiet-heron" left a clean scratch worktree
       And a long-lived worktree "stale-feature" of her own, outside the sessions root, with unmerged work
-      When I run "ctxloom session purge amber-quiet-heron --yes"
+      When I run "ctxloom session remove amber-quiet-heron --yes"
       Then her own long-lived worktree is untouched and was never listed

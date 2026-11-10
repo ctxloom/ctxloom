@@ -1,7 +1,7 @@
 # Ported from cli/session.feature (rev f36e8dfb2)
 # NOT ported: any of it yet (the Feature is @pending).
 #   The rest of Go's file is in the files that say `Ported from cli/session.feature`.
-#   Left out: the `session remove` Rule (retired: `session purge`
+#   Left out: the `session remove` Rule (retired: `session remove`
 #   is the one destroyer, cli/session_purge.feature) and the `session adopt`
 #   Rule (dropped: it repaired transcripts a Go defect orphaned).
 # Ported from journeys/j001200_recall.feature (its empty search, the last scenario of the reading Rule)
@@ -40,7 +40,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
     ctxloom session transcript watch <harp>
     ctxloom session worktrees               (bare: lists)
     ctxloom session worktrees list [<harp>]
-    ctxloom session purge <harp> | --older-than <age> [--yes]
+    ctxloom session remove <harp> | --older-than <age> [--yes]
     ctxloom session approvals
 
   Rule: Reading the record touches nothing

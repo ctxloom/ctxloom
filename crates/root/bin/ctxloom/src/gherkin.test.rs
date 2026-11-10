@@ -605,7 +605,7 @@ fn sweep_skipped(w: &mut World, running: String, unproven: String) {
         .succeeds()
         .contains("it is running")
         .contains("its liveness cannot be proven")
-        .contains(&format!("ctxloom session purge {unproven} --even-if-live"));
+        .contains(&format!("ctxloom session remove {unproven} --even-if-live"));
     for harp in [running, unproven] {
         assert!(
             files::exists(w.session_dir(&harp).join("transcripts/transcript.jsonl")),

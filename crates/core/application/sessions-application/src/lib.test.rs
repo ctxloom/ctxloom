@@ -11,8 +11,8 @@ use crate::fakes::{
     FakeFiles, FakeIdentity, FakeLiveness, FakeStores,
 };
 use crate::{
-    AppError, BindRequest, Bound, Class, KeepRequest, ListQuery, Refusal, RemoveRequest,
-    RenameRequest, SearchQuery, Service, SessionService, ShowQuery, State, TranscriptQuery,
+    AppError, BindRequest, Bound, KeepRequest, ListQuery, Refusal, RemoveRequest, RenameRequest,
+    SearchQuery, Service, SessionService, ShowQuery, State, TranscriptQuery,
 };
 
 type Svc = Service<FakeIdentity, FakeStores, FakeFiles, FakeLiveness, FakeClock, FakeDelay>;
@@ -535,10 +535,11 @@ fn a_removal_reports_before_it_removes() {
     assert_eq!(svc.harps(all()), ["amber-swift-owl"], "still listed");
 }
 
-// session.feature: "--yes removes the index entry and the transcript", and
-// leaves what is authored, named.
+// Owner ruling 98: `session remove --yes` DESTROYS the session: its
+// authored files go with its native history (the whole directory), and it is
+// listed no more.
 #[test]
-fn a_removal_destroys_the_transcript_and_the_index_entry_and_names_what_it_keeps() {
+fn a_removal_destroys_the_whole_directory_authored_files_too() {
     let mut svc = service();
     finished(&mut svc, 1, "amber-swift-owl");
     svc.files.others.insert(
@@ -546,28 +547,19 @@ fn a_removal_destroys_the_transcript_and_the_index_entry_and_names_what_it_keeps
         vec![("design-notes.md".to_string(), 12)],
     );
     let removal = ready(svc.remove(remove("amber-swift-owl", true))).unwrap();
-    assert!(removal.applied && removal.index_entry_removed);
+    assert!(removal.applied);
     assert_eq!(removal.refusal, None);
-    assert_eq!(
-        removal.files.bytes_freed,
-        transcript_of("amber-swift-owl").len() as u64
-    );
-    assert!(!svc.files.transcripts.contains_key("amber-swift-owl"));
+    let destroyed: Vec<&str> = removal
+        .files
+        .destroy
+        .iter()
+        .map(|i| i.rel.as_str())
+        .collect();
+    assert!(destroyed.contains(&"design-notes.md"), "{destroyed:?}");
+    assert_eq!(svc.files.destroyed_sessions, ["amber-swift-owl"]);
+    let session_root = uuid::Uuid::from_bytes([1; 16]);
+    assert_eq!(head(&mut svc, sessions::SESSION_DOMAIN, session_root), 0);
     assert_eq!(svc.harps(all()), Vec::<String>::new(), "no longer listed");
-    let kept = &removal.files.keep;
-    assert_eq!(
-        kept.len(),
-        1,
-        "an authored file is named, never silently kept"
-    );
-    assert_eq!(kept[0].rel, "design-notes.md");
-    assert_eq!(kept[0].class, Class::Authored);
-    assert!(kept[0].reason.is_some());
-    assert_eq!(
-        svc.files.others["amber-swift-owl"].len(),
-        1,
-        "and left on disk"
-    );
 }
 
 /// The head of the stream `domain`/`root` in `project`'s store.
@@ -604,14 +596,12 @@ fn a_run_of(svc: &mut Svc, id: u8, incarnation: u32) -> uuid::Uuid {
     root
 }
 
+/// `session remove <harp> --yes`: the destroy (owner ruling 98).
 fn destroy(harp: &str) -> RemoveRequest {
-    RemoveRequest {
-        scope: crate::Scope::Purge,
-        ..remove(harp, true)
-    }
+    remove(harp, true)
 }
 
-// Owner rulings 94, 94a-c: `session purge` DESTROYS the session: every event
+// Owner rulings 94, 94a-c, 98: `session remove` DESTROYS the session: every event
 // of its stream and of every run of it (UUIDv5(session, 1..n)) is purged from
 // the store, and its directory and lock are removed. It is listed no more.
 // The name stays claimed, never reused.

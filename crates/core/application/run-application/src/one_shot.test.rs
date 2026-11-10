@@ -2663,3 +2663,82 @@ async fn names_whose_directories_all_exist_refuse_the_run_as_taken() {
     );
     assert_eq!(timeline.last().map(String::as_str), Some("LaunchFailed"));
 }
+
+/// The incarnations `session`'s stream records as ended: (incarnation, cause).
+async fn incarnations_ended(rig: &Rig, session: &str) -> Vec<(u32, String)> {
+    session_events(&rig.edge, session)
+        .await
+        .into_iter()
+        .filter_map(|event| match event {
+            sessions::SessionEvent::IncarnationEnded(ended) => {
+                Some((ended.incarnation, ended.cause))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The session the last enqueue named.
+fn enqueued_session(rig: &Rig) -> String {
+    let enqueued = rig.runs.core.0.enqueued.lock().unwrap().clone();
+    enqueued.expect("a run was enqueued").session
+}
+
+// Ruling 85: when a run ends, its session is told (`RecordIncarnationEnded`),
+// so no incarnation stays open. PROPOSAL: the cause is `runner-exit` (Go's
+// `CauseRunnerExit`) for a run whose engine ran and exited.
+#[tokio::test]
+async fn a_runs_end_closes_its_sessions_incarnation() {
+    for interactive in [false, true] {
+        let mut rig = rig(Script::answering());
+        if interactive {
+            rig.runs
+                .interactive(&Flags::default(), &ask())
+                .await
+                .result
+                .unwrap();
+        } else {
+            rig.runs
+                .one_shot(&Flags::default(), &ask())
+                .await
+                .result
+                .unwrap();
+        }
+        let session = enqueued_session(&rig);
+        assert_eq!(
+            incarnations_ended(&rig, &session).await,
+            [(1, "runner-exit".to_string())],
+            "interactive={interactive}"
+        );
+    }
+}
+
+// Ruling 85: a run that ends before its engine starts (here its listener
+// cannot bind, after its session was minted) closes its incarnation too.
+// PROPOSAL: the cause is `launch-failed`.
+#[tokio::test]
+async fn a_run_that_fails_after_its_mint_closes_its_incarnation() {
+    let mut rig = rig(Script {
+        hooks_refuse: Some("hook-listener-bind"),
+        ..Script::answering()
+    });
+    let _ = rig.runs.one_shot(&Flags::default(), &ask()).await;
+    let session = enqueued_session(&rig);
+    assert_eq!(
+        incarnations_ended(&rig, &session).await,
+        [(1, "launch-failed".to_string())]
+    );
+}
+
+// Ruling 85 with 73g: a refused run mints nothing, so its session has no
+// stream and no incarnation to close (this passes today, and pins it).
+#[tokio::test]
+async fn a_refused_run_has_no_incarnation_to_close() {
+    let mut rig = rig(Script {
+        prompt: "",
+        ..Script::answering()
+    });
+    let _ = rig.runs.one_shot(&Flags::default(), &ask()).await;
+    let session = enqueued_session(&rig);
+    assert!(session_events(&rig.edge, &session).await.is_empty());
+}

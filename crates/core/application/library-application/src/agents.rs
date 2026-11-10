@@ -289,20 +289,9 @@ impl Project {
             name: agent.name.clone(),
             profiles: agent.profiles.clone(),
             engine: effective.engine.value.clone(),
-            model: effective
-                .model
-                .as_ref()
-                .map(|m| m.value.clone())
-                .unwrap_or_default(),
-            effort: effective
-                .effort
-                .as_ref()
-                .map(|e| e.value.clone())
-                .unwrap_or_default(),
+            settings: crate::engine_noun::settings_of(&effective),
             context: assembled.context.clone(),
             fragments: assembled.loaded.clone(),
-            runtime: effective.runtime.value.clone(),
-            permissions: crate::json::permissions(&agent.permissions),
             effective_permissions: effective.permissions.value.clone(),
             approver,
             driving: agent.driving.clone(),

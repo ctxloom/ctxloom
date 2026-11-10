@@ -13,6 +13,15 @@ fn library(config: &'static str, environ: &'static [(&'static str, &'static str)
     .library()
 }
 
+/// The home layer's config beneath the project's.
+fn layered(home: &'static str, project: &'static str) -> Library {
+    Setup {
+        layers: &[home, project],
+        ..Setup::default()
+    }
+    .library()
+}
+
 fn show(config: &'static str, engine: &str) -> EngineRow {
     library(config, &[])
         .engine_show(&plain(), engine)
@@ -41,10 +50,14 @@ fn test_the_listing_names_the_public_engines_on_their_defaults() {
 // engine.feature: Each shared setting carries the layer that said it
 #[test]
 fn test_each_shared_setting_carries_the_layer_that_said_it() {
-    let row = show(
-        "schema_version: 9\nruntime: host\nengines:\n  claude-code:\n    command: /opt/claude/bin/claude\n    env_host: false\n    env: [HTTPS_PROXY]\n",
-        "claude-code",
-    );
+    // the program an engine runs is the home layer's to name (ruling 46)
+    let row = layered(
+        "schema_version: 9\nengines:\n  claude-code:\n    command: /opt/claude/bin/claude\n",
+        "schema_version: 9\nruntime: host\nengines:\n  claude-code:\n    env_host: false\n    env: [HTTPS_PROXY]\n",
+    )
+    .engine_show(&plain(), "claude-code")
+    .result
+    .unwrap();
     assert_eq!(row.command.value, "/opt/claude/bin/claude");
     assert_eq!(row.command.source, "engine");
     assert_eq!(row.session_home.source, "default");

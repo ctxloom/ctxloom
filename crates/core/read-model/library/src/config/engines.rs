@@ -369,11 +369,17 @@ pub fn effective(config: &Value, agent: &str) -> Result<Effective, EngineError> 
 /// the engine block, the project and the defaults speak. `model` and `effort`
 /// are then `None` and `permissions` the engine's default.
 pub fn engine_settings(config: &Value, engine: &str) -> Result<Effective, EngineError> {
-    let _ = config;
-    Err(EngineError::UnknownEngine {
-        engine: engine.to_string(),
-        known: Vec::new(),
-    })
+    const PROBE: &str = "(engine)";
+    let mut probe = config.clone();
+    let bound = Value::Map(vec![(
+        PROBE.to_string(),
+        Value::Map(vec![(
+            "engine".to_string(),
+            Value::Scalar(engine.to_string()),
+        )]),
+    )]);
+    *probe.entry("agents") = bound;
+    effective(&probe, PROBE)
 }
 
 /// The credential source of `engine` over the merged config: its block's

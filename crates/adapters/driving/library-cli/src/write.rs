@@ -585,6 +585,12 @@ pub(crate) fn agent(
                 if !row.engine.is_empty() {
                     parts.push(format!("engine: {}", row.engine));
                 }
+                if !row.model.is_empty() {
+                    parts.push(format!("model: {}", row.model));
+                }
+                if !row.effort.is_empty() {
+                    parts.push(format!("effort: {}", row.effort));
+                }
                 if !row.profiles.is_empty() {
                     parts.push(format!("profiles: {}", row.profiles.join(", ")));
                 }

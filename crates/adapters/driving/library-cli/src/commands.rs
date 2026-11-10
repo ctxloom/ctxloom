@@ -106,6 +106,7 @@ pub fn nouns() -> Vec<Command> {
         skill(),
         profile(),
         agent(),
+        engine(),
         llm(),
         mcp(),
         companion(),
@@ -480,6 +481,21 @@ fn agent_write(name: &'static str, about: &'static str) -> Command {
         ))
 }
 
+/// `engine list|show <engine>`: read-only; the block is written with
+/// `config edit`.
+fn engine() -> Command {
+    noun(
+        "engine",
+        "Show the engines ctxloom drives and their effective settings",
+    )
+    .subcommand(list("List the engines with the settings their agents use"))
+    .subcommand(
+        Command::new("show")
+            .about("Show one engine's settings and what each of its agents resolves to")
+            .arg(one("engine", "The engine")),
+    )
+}
+
 fn llm() -> Command {
     noun("llm", "List LLM backends")
         .subcommand(list("List available LLMs"))
@@ -674,11 +690,10 @@ fn run() -> Command {
         .about("Assemble context and run AI (this build takes one turn with --one-shot, or previews with --dry-run)")
         .arg(Arg::new("prompt_words").value_name("PROMPT").num_args(0..))
         .arg(
-            Arg::new("llm")
-                .short('l')
-                .long("llm")
-                .value_name("LABEL")
-                .help("Config label to use (e.g. claude-code, claude-fast); overrides the configured default"),
+            Arg::new("engine")
+                .long("engine")
+                .value_name("ENGINE")
+                .help("Drive this engine instead of the agent's"),
         )
         .arg(
             Arg::new("prompt")

@@ -332,19 +332,14 @@ pub struct ResolvedAgent {
     pub name: String,
     pub profiles: Vec<String>,
     pub engine: String,
-    /// Empty is the engine's own default: no flag is passed.
-    #[serde(skip_serializing_if = "no_text")]
-    pub model: String,
-    /// Empty is the engine's own default: no flag is passed.
-    #[serde(skip_serializing_if = "no_text")]
-    pub effort: String,
+    /// Model, effort, permissions, runtime, env_host and env, each with the
+    /// layer that said it.
+    #[serde(flatten)]
+    pub settings: crate::AgentSettings,
     #[serde(skip_serializing_if = "no_text")]
     pub context: String,
     #[serde(skip_serializing_if = "no_items")]
     pub fragments: Vec<String>,
-    #[serde(skip_serializing_if = "no_text")]
-    pub runtime: String,
-    pub permissions: serde_json::Value,
     #[serde(rename = "effectivePermissions", skip_serializing_if = "no_text")]
     pub effective_permissions: String,
     #[serde(skip_serializing_if = "no_text")]

@@ -78,6 +78,9 @@ library-application-loadout-probe-failed-fix = make the companion's `loadout --f
 library-application-loadout-unparseable = companion "{ $name }": unparseable loadout, withholding: { $cause }
 library-application-loadout-unparseable-fix = fix the loadout the companion prints for `loadout --format yaml`, or unregister it: ctxloom companion remove { $name }
 library-application-notice-config-keyless = config file { $path } defines no keys
+library-application-notice-runtime-weakens = runtime { $runtime } replaces { $key } { $replaced }: weakens isolation
+library-application-notice-runtime-strengthens = runtime { $runtime } replaces { $key } { $replaced }: strengthens isolation
+library-application-notice-runtime-ownership-swap = runtime { $runtime } replaces { $key } { $replaced }: ownership differs, not interchangeable
 library-application-notice-root-ignored = CTXLOOM_ROOT={ $root } is not a directory; ignoring it
 
 ## Writes (S2). A refused write has written nothing.

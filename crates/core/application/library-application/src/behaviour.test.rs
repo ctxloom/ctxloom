@@ -792,8 +792,8 @@ fn test_an_agent_resolves_its_engine_model_and_posture() {
     assert_eq!(
         (
             typed.engine.as_str(),
-            typed.model.as_str(),
-            typed.effort.as_str(),
+            typed.settings.model.value.as_deref().unwrap_or(""),
+            typed.settings.effort.value.as_deref().unwrap_or(""),
             typed.effective_permissions.as_str()
         ),
         ("mock", "m1", "low", "")
@@ -1183,7 +1183,7 @@ fn test_a_project_config_cannot_set_the_engine_command_and_is_warned() {
     );
     let resolved = ok(shown).resolved.unwrap();
     assert_eq!(resolved.command, "/home/u/bin/claude");
-    assert_eq!(resolved.model, "haiku");
+    assert_eq!(resolved.settings.model.value.as_deref(), Some("haiku"));
     // the home layer, alone, may say them
     let alone = with(&[], &[home, "schema_version: 9\n"]).library();
     let none = alone.agent_list(&plain());

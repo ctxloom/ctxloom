@@ -396,6 +396,14 @@ pub enum Notice {
     LoadoutProbeFailed { name: String, detail: String },
     /// A registered companion whose loadout does not parse.
     LoadoutUnparseable { name: String, cause: BundleError },
+    /// An agent's runtime that replaces another layer's: never silent.
+    /// `replaced_key` is the key that would have stood.
+    RuntimeOverride {
+        runtime: String,
+        replaced_key: String,
+        replaced: String,
+        change: library::config::engines::Change,
+    },
 }
 
 impl Notice {
@@ -433,6 +441,15 @@ impl Diagnostic for Notice {
             Notice::CompanionNotOnPath { .. } => code!("companion-not-on-path"),
             Notice::LoadoutProbeFailed { .. } => code!("loadout-probe-failed"),
             Notice::LoadoutUnparseable { .. } => code!("loadout-unparseable"),
+            Notice::RuntimeOverride { change, .. } => match change {
+                library::config::engines::Change::Weakens => code!("notice-runtime-weakens"),
+                library::config::engines::Change::Strengthens => {
+                    code!("notice-runtime-strengthens")
+                }
+                library::config::engines::Change::OwnershipSwap => {
+                    code!("notice-runtime-ownership-swap")
+                }
+            },
         }
     }
 
@@ -466,6 +483,16 @@ impl Diagnostic for Notice {
             Notice::LoadoutUnparseable { name, cause } => vec![
                 ("name", name.as_str().into()),
                 ("cause", Arg::Nested(Box::new(cause.clone()))),
+            ],
+            Notice::RuntimeOverride {
+                runtime,
+                replaced_key,
+                replaced,
+                ..
+            } => vec![
+                ("runtime", runtime.as_str().into()),
+                ("key", replaced_key.as_str().into()),
+                ("replaced", replaced.as_str().into()),
             ],
         }
     }
@@ -613,6 +640,16 @@ fn error_samples() -> Vec<Box<dyn Diagnostic>> {
     ]
 }
 
+#[cfg(any(test, feature = "test-support"))]
+fn runtime_override(change: library::config::engines::Change) -> Notice {
+    Notice::RuntimeOverride {
+        runtime: "host".to_string(),
+        replaced_key: "engines.claude-code.runtime".to_string(),
+        replaced: "container-rootless".to_string(),
+        change,
+    }
+}
+
 /// One value of every notice.
 #[cfg(any(test, feature = "test-support"))]
 fn notice_samples() -> Vec<Box<dyn Diagnostic>> {
@@ -638,6 +675,13 @@ fn notice_samples() -> Vec<Box<dyn Diagnostic>> {
             cause: angzarr_diagnostic::Report::of(&BundleError::NoManifest { bundle: s("demo") }),
         }),
         Box::new(Notice::CompanionNotOnPath { name: s("reprise") }),
+        Box::new(runtime_override(library::config::engines::Change::Weakens)),
+        Box::new(runtime_override(
+            library::config::engines::Change::Strengthens,
+        )),
+        Box::new(runtime_override(
+            library::config::engines::Change::OwnershipSwap,
+        )),
         Box::new(Notice::LoadoutProbeFailed {
             name: s("reprise"),
             detail: s("exit status: 3"),

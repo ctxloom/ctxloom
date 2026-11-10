@@ -599,16 +599,17 @@ fn test_a_runtime_that_replaces_the_engine_s_is_said_when_written() {
             .collect::<Vec<_>>()
             .join("\n")
     };
+    // (the words are the catalog's; the acceptance scenario reads them)
     let weaker = said("host", "loose");
     assert!(
-        weaker.contains(
-            "runtime host replaces engines.claude-code.runtime container-rootless: weakens isolation"
-        ),
+        weaker.contains("notice-runtime-weakens")
+            && weaker.contains("key=engines.claude-code.runtime")
+            && weaker.contains("replaced=container-rootless"),
         "{weaker}"
     );
     let swapped = said("container-rootful", "swapped");
     assert!(
-        swapped.contains("ownership differs, not interchangeable"),
+        swapped.contains("notice-runtime-ownership-swap"),
         "{swapped}"
     );
     assert_eq!(said("container-rootless", "same"), "");

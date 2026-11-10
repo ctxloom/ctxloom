@@ -79,3 +79,4 @@ if said=$(judge "$dir"); then fail "a mutant build's configuration error passed 
 grep -q "1 mutant build(s) failed before the mutant was compiled" "$dir/verdict.txt" \
     || fail "config verdict: $(cat "$dir/verdict.txt" 2>/dev/null)"
 grep -q "does not contain this feature" "$dir/verdict.txt" || fail "the config verdict names the error"
+echo "ok   mutants-judge.selftest"

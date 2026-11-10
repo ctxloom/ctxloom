@@ -508,6 +508,15 @@ lint-path-deps`, part of `just lint`, and lefthook's pre-commit `path-deps`
 gate, third in order) judges the staged index; its self-test is in `just
 selftest`.
 
+## Engines schema (red, awaiting review)
+
+`port/engines-schema` holds red tests only: the `engines:` block (command,
+session_home, auth source, default runtime/env), an agent's `engine`, `model`,
+`effort` and `permissions`, the read-only `engine` noun, and the removal of
+`llm` (its keys become ordinary unknown keys; no schema bump, no migration, no
+custom message). Stubs: `library::config::engines`. The names are not final
+until the owner has reviewed `engines-schema.proposal.md`.
+
 ## Use `just`
 
 `just --list` shows the public recipes by group. The checks are `just build`,

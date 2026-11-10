@@ -60,3 +60,39 @@ Feature: auth — how ctxloom-launched engines authenticate
       Then the command fails
       And the output does not contain "sk-ant-oat01-acceptance-fixture-not-real"
       And exactly 0 home files match ".ctxloom/auth/*"
+
+  Rule: status reads the engine's configured source (engines.<engine>.auth), not a fixed variable
+
+    # RED (awaiting review). The source is where the credential comes from, a
+    # variable NAME or a file, never a value; any one of a source's variables
+    # authenticates. This also fixes status (and doctor) requiring
+    # CLAUDE_CODE_OAUTH_TOKEN alone when an API key authenticates a run.
+    Scenario: An API key alone is reported present, naming the variable
+      # new: the built-in source for claude-code is either variable
+      Given an initialized ctxloom project
+      And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to ""
+      And the environment variable "ANTHROPIC_API_KEY" is set to "sk-ant-api03-acceptance-fixture-not-real"
+      When I run "ctxloom auth status --format json"
+      Then the command succeeds
+      And the output does not contain "sk-ant-api03-acceptance-fixture-not-real"
+      And the output reports "[engine=claude-code].present" as "true"
+      And the output reports "[engine=claude-code].via" as "ANTHROPIC_API_KEY"
+
+    Scenario: A source the project names replaces the built-in one
+      # new: engines.claude-code.auth.env
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        engines:
+          claude-code:
+            auth:
+              env: [TEAM_CLAUDE_TOKEN]
+        """
+      And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-acceptance-fixture-not-real"
+      And the environment variable "TEAM_CLAUDE_TOKEN" is set to ""
+      When I run "ctxloom auth status --format text"
+      Then the command succeeds
+      And the output contains "claude-code token: missing"
+      And the output contains "TEAM_CLAUDE_TOKEN"
+      And the output does not contain "sk-ant-oat01-acceptance-fixture-not-real"

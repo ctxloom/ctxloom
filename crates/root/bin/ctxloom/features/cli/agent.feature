@@ -405,6 +405,161 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output contains "Env host: false"
       And the output does not contain "ALPHA_TOKEN"
 
+  # RED (awaiting review): committed red on port/engines-schema. An agent is an
+  # engine with its settings; model, effort and permissions are the agent's
+  # (owner rulings 40-44), the runtime/env it may override from the engine.
+  Rule: An agent names its engine and carries its own model, effort and permissions
+
+    Scenario: Creating an agent records engine, model, effort and permissions, and show reads each back with its source
+      # new: --engine replaces --llm; the three settings are the agent's
+      Given an initialized ctxloom project
+      And a profile "dev" exists
+      When I run "ctxloom agent create reviewer --engine claude-code --model haiku --effort low --permissions plan --profiles dev"
+      Then the command succeeds
+      And the file ".ctxloom/config.yaml" contains "engine: claude-code"
+      And the file ".ctxloom/config.yaml" contains "model: haiku"
+      And the file ".ctxloom/config.yaml" contains "effort: low"
+      And the file ".ctxloom/config.yaml" does not contain "llm:"
+      When I run "ctxloom agent show reviewer --format json"
+      Then the command succeeds
+      And the output reports "definition.engine" as "claude-code"
+      And the output reports "definition.model" as "haiku"
+      And the output reports "resolved.model.value" as "haiku"
+      And the output reports "resolved.model.source" as "agent"
+      And the output reports "resolved.effort.value" as "low"
+      And the output reports "resolved.permissions.value" as "plan"
+      And the output reports "resolved.permissions.source" as "agent"
+
+    Scenario: An agent that sets neither model nor effort passes no flag, and says so
+      # new: ruling 42, unset means the engine's own default
+      Given an initialized ctxloom project
+      And a profile "dev" exists
+      And I run "ctxloom agent create plain --engine claude-code --profiles dev"
+      When I run "ctxloom agent show plain --format text"
+      Then the command succeeds
+      And the output contains "Model: engine default, no flag passed"
+      And the output contains "Effort: engine default, no flag passed"
+      And the output contains "Permissions: acceptEdits (default)"
+      When I run "ctxloom run --dry-run --agent plain hello --format json"
+      Then the command succeeds
+      And the output does not contain "--model"
+
+    Scenario: An edit passing an empty --model returns the agent to the engine's default
+      # new: empty clears, as every flag of this noun
+      Given an initialized ctxloom project
+      And a profile "dev" exists
+      And I run "ctxloom agent create reviewer --engine claude-code --model haiku --profiles dev"
+      When I run "ctxloom agent edit reviewer --model ''"
+      Then the command succeeds
+      And the file ".ctxloom/config.yaml" does not contain "model:"
+      And the file ".ctxloom/config.yaml" contains "engine: claude-code"
+
+    Scenario: A permission mode the engine does not take is refused, and the binding is left alone
+      # new: checked against the engine's vocabulary
+      Given an initialized ctxloom project
+      And a profile "dev" exists
+      And I run "ctxloom agent create reviewer --engine claude-code --profiles dev"
+      When I run "ctxloom agent edit reviewer --permissions nonsense"
+      Then the command fails
+      And the output contains "nonsense"
+      And the file ".ctxloom/config.yaml" does not contain "nonsense"
+
+    Scenario: Binding an unknown engine is refused with the engines named
+      # new: --engine is validated before the write
+      Given an initialized ctxloom project
+      And a profile "dev" exists
+      When I run "ctxloom agent create reviewer --engine gpt-9 --profiles dev"
+      Then the command fails
+      And the output contains "claude-code"
+      And the output contains "opencode"
+      And the file ".ctxloom/config.yaml" does not contain "reviewer"
+
+    Scenario: An agent silent about runtime inherits the engine's, and show says whose it is
+      # new: precedence agent > engine > project > host
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        engines:
+          claude-code:
+            runtime: container-rootless
+        agents:
+          kept:
+            engine: claude-code
+        """
+      When I run "ctxloom agent show kept --format json"
+      Then the command succeeds
+      And the output reports "resolved.runtime.value" as "container-rootless"
+      And the output reports "resolved.runtime.source" as "engine"
+      When I run "ctxloom agent show kept --format text"
+      Then the command succeeds
+      And the output contains "Runtime: container-rootless (engine)"
+
+    Scenario: An agent that weakens the engine's runtime says so when it is written and when it is shown
+      # new: the isolation guard; an override is exact and never silent
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        engines:
+          claude-code:
+            runtime: container-rootless
+        """
+      When I run "ctxloom agent create loose --engine claude-code --runtime host --format text"
+      Then the command succeeds
+      And the output contains "runtime host replaces engines.claude-code.runtime container-rootless: weakens isolation"
+      And the file ".ctxloom/config.yaml" contains "runtime: host"
+      When I run "ctxloom agent show loose --format text"
+      Then the command succeeds
+      And the output contains "Runtime: host (agent; replaces engine container-rootless: weakens isolation)"
+
+    Scenario: Rootless and rootful are never taken for one another
+      # new: ownership differs
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        engines:
+          claude-code:
+            runtime: container-rootless
+        """
+      When I run "ctxloom agent create swapped --engine claude-code --runtime container-rootful --format text"
+      Then the command succeeds
+      And the output contains "ownership differs, not interchangeable"
+      When I run "ctxloom agent show swapped --format json"
+      Then the command succeeds
+      And the output reports "resolved.runtime.value" as "container-rootful"
+      And the output reports "resolved.runtime.change" as "ownership-swap"
+
+    Scenario: An agent's env replaces the engine's list, it is not added to it
+      # new: a list replaces (the union would leak a curated list into a narrowed agent)
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        engines:
+          claude-code:
+            env_host: false
+            env: [HTTPS_PROXY, NPM_TOKEN]
+        agents:
+          narrow:
+            engine: claude-code
+            env: [ALPHA_TOKEN]
+        """
+      When I run "ctxloom agent show narrow --format json"
+      Then the command succeeds
+      And the output reports "resolved.env.value" containing "ALPHA_TOKEN"
+      And the output reports "resolved.env.source" as "agent"
+      And the output reports "resolved.env_host.source" as "engine"
+      And the output does not contain "NPM_TOKEN"
+
+    Scenario: An agent can no longer be given an engine home
+      # new: ruling 44(b), it is the engine's session_home
+      Given an initialized ctxloom project
+      When I run "ctxloom agent edit developer --session-home session"
+      Then the command fails
+      And the output contains "unknown flag: --session-home"
+
   Rule: show says where a headless run's asks go, before anything is launched
 
     A delegated child or a one-shot has nobody at its engine, so a call its
@@ -564,6 +719,6 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       Given Alice's team has standardised on one engine and is moving to another
       When Alice types an engine name that does not exist while swapping the binding:
         """
-        ctxloom agent edit dev --llm bogus-engine
+        ctxloom agent edit dev --engine bogus-engine
         """
       Then ctxloom refuses and names the engines it knows

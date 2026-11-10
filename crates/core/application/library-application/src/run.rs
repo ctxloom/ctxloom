@@ -223,7 +223,7 @@ impl Project {
         let package = self.compose(&selection, &mut findings)?;
         // An agent's engine, model and effort are its own; a launch with no
         // agent takes the default engine and passes no model or effort.
-        let (mut engine, model, effort, runtime, drive) = match selection.agent.as_ref() {
+        let (mut engine, model, effort, runtime, mut drive) = match selection.agent.as_ref() {
             Some(agent) => {
                 let effective = self.effective_of(agent)?;
                 // The isolation rule: an agent's runtime stands exactly, and a
@@ -250,8 +250,11 @@ impl Project {
                     .map_err(engine_error)?,
             ),
         };
-        if !request.engine.is_empty() {
+        // An engine asked for runs on its own block, never on how the agent's
+        // engine is driven (its command, home, credential or passthrough).
+        if !request.engine.is_empty() && request.engine != engine {
             engine = request.engine.clone();
+            drive = engines::engine_drive(&self.config.value, &engine).map_err(engine_error)?;
         }
         let degraded = self.flags.degraded;
         for finding in &findings {

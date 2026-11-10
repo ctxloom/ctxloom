@@ -192,7 +192,6 @@ impl Project {
         Ok(ProfileShow {
             name: ask_name(&key),
             description: found.description.clone(),
-            llm: found.llm.clone(),
             parents: found.parents.clone(),
             tags: found.tags.clone(),
             bundles: found.bundles.clone(),

@@ -105,8 +105,6 @@ pub enum AppError {
     LaunchNoAgents,
     /// An MCP server nobody ships.
     McpNotFound { name: String },
-    /// An LLM label nobody can use.
-    UnknownLlm { label: String, usable: String },
     /// An engine ctxloom does not drive.
     UnknownEngine { engine: String, known: String },
     /// An engine's `auth` the schema refuses (the text it holds is never
@@ -217,7 +215,6 @@ impl Diagnostic for AppError {
             AppError::LaunchNoDefault => code!("launch-no-default"),
             AppError::LaunchNoAgents => code!("launch-no-agents"),
             AppError::McpNotFound { .. } => code!("mcp-not-found"),
-            AppError::UnknownLlm { .. } => code!("unknown-llm"),
             AppError::UnknownEngine { .. } => code!("unknown-engine"),
             AppError::EngineAuth { .. } => code!("engine-auth"),
             AppError::Compose { .. } => code!("compose"),
@@ -306,10 +303,6 @@ impl Diagnostic for AppError {
             AppError::AgentNotFound { name }
             | AppError::LaunchNoAgent { name }
             | AppError::McpNotFound { name } => vec![("name", name.as_str().into())],
-            AppError::UnknownLlm { label, usable } => vec![
-                ("label", label.as_str().into()),
-                ("usable", usable.as_str().into()),
-            ],
             AppError::UnknownEngine { engine, known } => vec![
                 ("engine", engine.as_str().into()),
                 ("known", known.as_str().into()),
@@ -524,7 +517,7 @@ fn error_samples() -> Vec<Box<dyn Diagnostic>> {
         }),
         Box::new(AppError::UnknownSection {
             section: s("nonsense"),
-            available: s("llm, editor"),
+            available: s("editor, agents"),
         }),
         Box::new(AppError::BundleUnreadable {
             ask: s("demo"),
@@ -581,10 +574,6 @@ fn error_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(AppError::LaunchNoDefault),
         Box::new(AppError::LaunchNoAgents),
         Box::new(AppError::McpNotFound { name: s("x") }),
-        Box::new(AppError::UnknownLlm {
-            label: s("x"),
-            usable: s("claude-code"),
-        }),
         Box::new(AppError::UnknownEngine {
             engine: s("gpt-9"),
             known: s("claude-code, opencode"),

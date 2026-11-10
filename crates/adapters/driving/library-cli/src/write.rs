@@ -8,9 +8,9 @@ use std::io::{self, Write};
 use angzarr_presentation::Format;
 use clap::ArgMatches;
 use library_application::{
-    AgentRequest, AppError, BundleEditRequest, DefaultAgent, ItemKind, LlmDefault, LlmRequest,
-    McpEdited, McpPatch, Outcome, Preview, ProfileCreateRequest, ProfileEdit, ProfileEdited,
-    Removal, WriteError, LOADOUT,
+    AgentRequest, AppError, BundleEditRequest, DefaultAgent, ItemKind, McpEdited, McpPatch,
+    Outcome, Preview, ProfileCreateRequest, ProfileEdit, ProfileEdited, Removal, WriteError,
+    LOADOUT,
 };
 use serde::Serialize;
 
@@ -436,7 +436,6 @@ pub(crate) fn mcp_bare(cx: &Context<'_>) -> Failure {
 fn patch_asked(sub: &ArgMatches) -> bool {
     [
         "description",
-        "llm",
         "add-parent",
         "remove-parent",
         "add-bundle",
@@ -465,7 +464,6 @@ pub(crate) fn profile(
                 description: text_arg(sub, "description"),
                 parents: many(sub, "parent"),
                 bundles: many(sub, "include"),
-                llm: text_arg(sub, "llm"),
                 target: text_arg(sub, "bundle"),
             };
             let outcome = cx.library.profile_create(&cx.flags, &request);
@@ -490,7 +488,6 @@ pub(crate) fn profile(
             text_only(cx, "profile edit")?;
             let edit = ProfileEdit {
                 description: given(sub, "description"),
-                llm: given(sub, "llm"),
                 add_parents: many(sub, "add-parent"),
                 remove_parents: many(sub, "remove-parent"),
                 add_bundles: many(sub, "add-bundle"),
@@ -555,7 +552,7 @@ pub(crate) fn profile(
 
 fn agent_request(sub: &ArgMatches) -> Result<AgentRequest, Failure> {
     Ok(AgentRequest {
-        llm: given(sub, "llm"),
+        engine: given(sub, "engine"),
         profiles: given_list(sub, "profiles"),
         runtime: given(sub, "runtime"),
         surfaces: given_pairs(sub, "surface")?,
@@ -626,64 +623,6 @@ pub(crate) fn agent(
             let outcome = cx.library.agent_remove(&cx.flags, &name, flag(sub, "yes"));
             removal(cx, outcome, out, err, |gone, out| {
                 writeln!(out, "Removed agent \"{}\"", gone.name)
-            })?
-        }
-        _ => return Ok(None),
-    };
-    Ok(Some(code))
-}
-
-pub(crate) fn llm(
-    cx: &Context<'_>,
-    (verb, sub): (&str, &ArgMatches),
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> Result<Option<u8>, Failure> {
-    let label = text_arg(sub, "label");
-    let home = flag(sub, "home");
-    let code = match verb {
-        "create" | "edit" => {
-            let request = LlmRequest {
-                kind: given(sub, "type"),
-                model: given(sub, "model"),
-                permissions: given(sub, "permissions"),
-                set: many(sub, "set"),
-            };
-            let outcome = cx
-                .library
-                .llm_write(&cx.flags, &label, &request, home, verb == "edit");
-            finish(cx, outcome, out, err, |done, out, _| {
-                let verb = if done.edited { "Updated" } else { "Created" };
-                let mut parts = Vec::new();
-                if !done.kind.is_empty() {
-                    parts.push(format!("type: {}", done.kind));
-                }
-                if !done.model.is_empty() {
-                    parts.push(format!("model: {}", done.model));
-                }
-                if !done.permissions_line.is_empty() {
-                    parts.push(format!("permissions: {}", done.permissions_line));
-                }
-                writeln!(out, "{verb} llm \"{}\" ({})", done.label, parts.join(", "))
-            })?
-        }
-        "default" => {
-            let asked = given(sub, "name");
-            let outcome = cx.library.llm_default(&cx.flags, asked.as_deref());
-            finish(cx, outcome, out, err, |done, out, _| match done {
-                LlmDefault::Shown(shown) => writeln!(out, "{}", shown.default),
-                LlmDefault::Set(set) if set.status == "unchanged" => {
-                    writeln!(out, "Default LLM is already {}", set.name)
-                }
-                LlmDefault::Set(set) => writeln!(out, "Default LLM set to: {}", set.name),
-            })?
-        }
-        "remove" => {
-            let outcome = cx
-                .library
-                .llm_remove(&cx.flags, &label, home, flag(sub, "yes"));
-            removal(cx, outcome, out, err, |gone, out| {
-                writeln!(out, "Removed llm \"{}\"", gone.label)
             })?
         }
         _ => return Ok(None),

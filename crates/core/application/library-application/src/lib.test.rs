@@ -211,7 +211,7 @@ fn test_a_config_without_bare_companions_loads_from_generation_7_on() {
     }
 }
 
-// merge.go dropEnginelessAgents: an agent naming neither an llm nor a profile
+// merge.go dropEnginelessAgents: an agent naming neither an engine nor a profile
 // is dropped with a warning.
 #[test]
 fn test_an_agent_bound_to_nothing_is_dropped_with_a_warning() {
@@ -387,21 +387,6 @@ fn test_the_registered_servers_follow_the_default_agents_profiles_and_their_excl
     // With no default agent there is no scope, so no server.
     let none = ok(setup(&[CONFIG]).library().mcp_list(&plain()));
     assert!(none.servers.is_empty());
-}
-
-// llm.feature: the built-in engines, the default marked, a configured label
-// told apart from one ctxloom supplied.
-#[test]
-fn test_the_llm_listing_marks_the_default_and_who_wrote_each_label() {
-    let layers = ["schema_version: 9\n"];
-    let rows = ok(setup(&layers).library().llm_list(&plain()));
-    let by = |label: &str| rows.iter().find(|r| r.label == label).unwrap();
-    assert!(by("claude-code").default && by("claude-code").authored);
-    assert!(by("big").authored && !by("big").default);
-    assert!(!by("mock").authored);
-    let bare = ok(setup(&[CONFIG]).library().llm_list(&plain()));
-    let fast = bare.iter().find(|r| r.label == "claude-fast").unwrap();
-    assert!(!fast.authored, "the shipped registry is not the user's");
 }
 
 // companion.feature: a registered companion is listed with its command and

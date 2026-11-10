@@ -9,7 +9,6 @@ fn config(text: &str) -> Config {
     Config {
         raw: value.clone(),
         value,
-        authored_labels: Default::default(),
         source: Source::Project,
     }
 }

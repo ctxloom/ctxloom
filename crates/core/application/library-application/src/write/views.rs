@@ -250,50 +250,6 @@ pub struct AgentRemoved {
     pub name: String,
 }
 
-/// An llm entry as a write leaves it.
-#[derive(Clone, Debug, Serialize)]
-pub struct LlmWritten {
-    pub label: String,
-    #[serde(rename = "type", skip_serializing_if = "no_text")]
-    pub kind: String,
-    #[serde(skip_serializing_if = "no_text")]
-    pub model: String,
-    pub permissions: serde_json::Value,
-    /// The permissions block on one line, for the text.
-    #[serde(skip)]
-    pub permissions_line: String,
-    #[serde(skip)]
-    pub edited: bool,
-}
-
-/// `llm default` with no name.
-#[derive(Clone, Debug, Serialize)]
-pub struct LlmDefaultShown {
-    pub default: String,
-}
-
-/// `llm default <name>`: `set`, or `unchanged`.
-#[derive(Clone, Debug, Serialize)]
-pub struct LlmDefaultSet {
-    pub status: String,
-    pub name: String,
-}
-
-/// What `llm default` answers.
-#[derive(Clone, Debug, Serialize)]
-#[serde(untagged)]
-pub enum LlmDefault {
-    Shown(LlmDefaultShown),
-    Set(LlmDefaultSet),
-}
-
-/// `llm remove --yes`.
-#[derive(Clone, Debug, Serialize)]
-pub struct LlmRemoved {
-    pub status: String,
-    pub label: String,
-}
-
 /// `companion add`.
 #[derive(Clone, Debug, Serialize)]
 pub struct CompanionAdded {

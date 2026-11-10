@@ -2,7 +2,7 @@
 //! `schema_validation_test.go`, `fragment_ref_empty_test.go`,
 //! `own_repo_test.go`, `grammar_test.go`) at 860336c4e: profile resolution
 //! (parents first, depth 64, cycles refused, diamonds memoized, exclusions
-//! accumulate, variables, `llm` inheritance, cross-repo refused).
+//! accumulate, variables, cross-repo refused).
 
 use std::collections::BTreeMap;
 
@@ -81,29 +81,6 @@ fn test_curated_commands_union_with_the_parents_in_declaration_order() {
     assert_eq!(
         resolved(&src, "child").commands,
         strings(&["tools#commands/review", "tools#commands/explain"])
-    );
-}
-
-// profiles_test.go: TestLoader_ResolveProfile_LLM
-#[test]
-fn test_a_childs_llm_wins_and_a_child_without_one_inherits() {
-    let src = source(&[
-        ("parent", "llm: agy-code\nbundles:\n  - parent-bundle\n"),
-        ("overrider", "parents:\n  - parent\nllm: claude-fast\n"),
-        (
-            "inheritor",
-            "parents:\n  - parent\nbundles:\n  - child-bundle\n",
-        ),
-    ]);
-    assert_eq!(
-        resolved(&src, "overrider").llm,
-        "claude-fast",
-        "child llm should win over parent"
-    );
-    assert_eq!(
-        resolved(&src, "inheritor").llm,
-        "agy-code",
-        "child should inherit parent llm"
     );
 }
 
@@ -505,10 +482,9 @@ fn test_a_local_miss_names_the_profile_asked_for() {
 #[test]
 fn test_a_well_formed_profile_decodes() {
     let p = Profile::decode(
-        "description: fine\nllm: big\nparents: [base]\ntags: [t]\nselect_tags: [go]\nbundles: [b]\nbundle_items: [\"b#fragments/x\"]\nfragments:\n  - plain\n  - name: pri\n    priority: 3\ncommands: [\"b#commands/c\"]\nskills: [\"b#skills/s\"]\nvariables:\n  K: v\nexclude_fragments: [ef]\nexclude_mcp: [em]\ndeny_tools: [Bash]\nhooks:\n  unified:\n    pre_tool:\n      - command: x\n        type: command\n",
+        "description: fine\nparents: [base]\ntags: [t]\nselect_tags: [go]\nbundles: [b]\nbundle_items: [\"b#fragments/x\"]\nfragments:\n  - plain\n  - name: pri\n    priority: 3\ncommands: [\"b#commands/c\"]\nskills: [\"b#skills/s\"]\nvariables:\n  K: v\nexclude_fragments: [ef]\nexclude_mcp: [em]\ndeny_tools: [Bash]\nhooks:\n  unified:\n    pre_tool:\n      - command: x\n        type: command\n",
     )
     .expect("every key here is real; a gate that refuses a correct profile is worse than none");
-    assert_eq!(p.llm, "big");
     assert_eq!(
         p.fragments,
         [
@@ -757,7 +733,6 @@ fn test_a_profile_has_content_when_any_selecting_key_is_set() {
         "deny_tools: [Bash]\n",
         "variables:\n  K: v\n",
         "hooks:\n  unified:\n    pre_tool:\n      - command: x\n",
-        "llm: big\n",
     ] {
         assert!(Profile::decode(text).unwrap().has_content(), "{text:?}");
     }
@@ -886,4 +861,16 @@ fn test_a_missing_parent_offers_the_one_profile_that_answers_to_its_name() {
     let none = ask(&[]);
     assert!(none.starts_with("`ctxloom profile list`"), "{none}");
     assert!(Source(BTreeMap::new()).keys().is_empty());
+}
+
+// engines schema, ruling 48: `llm:` is no longer a profile key; it is refused
+// like any unknown key, with no alias and no fix line.
+#[test]
+fn test_a_profile_still_carrying_llm_is_refused_as_an_unknown_key() {
+    let refusal = Profile::decode("description: x\nllm: claude-fast\nbundles: [b]\n")
+        .expect_err("llm is not a key any more");
+    assert!(
+        matches!(&refusal, ProfileError::UnknownKey { key, .. } if key == "llm"),
+        "{refusal:?}"
+    );
 }

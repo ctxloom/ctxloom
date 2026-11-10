@@ -196,11 +196,22 @@ fn test_bundle_remove_previews_until_yes() {
 #[test]
 fn test_a_preview_without_detail_is_one_sentence() {
     let (library, _) = world();
-    let said = text(&library, &["llm", "create", "big", "--type", "mock"]);
-    assert!(said.starts_with("Created llm"), "{said}");
-    let said = text(&library, &["llm", "remove", "big"]);
+    let said = text(
+        &library,
+        &[
+            "agent",
+            "create",
+            "dev",
+            "--engine",
+            "claude-code",
+            "--profiles",
+            "dev",
+        ],
+    );
+    assert!(said.starts_with("Created agent"), "{said}");
+    let said = text(&library, &["agent", "remove", "dev"]);
     assert!(
-        said.starts_with("Would remove llm \"big\".\n\nNothing"),
+        said.starts_with("Would remove agent \"dev\".\n\nNothing"),
         "{said}"
     );
 }
@@ -472,17 +483,7 @@ fn test_profile_verbs_answer_in_text_and_refuse_json() {
     let (library, mem) = world();
     let said = text(
         &library,
-        &[
-            "profile",
-            "create",
-            "base",
-            "-i",
-            "demo",
-            "-d",
-            "d",
-            "--llm",
-            "claude-code",
-        ],
+        &["profile", "create", "base", "-i", "demo", "-d", "d"],
     );
     assert!(
         said.starts_with("Created profile \"base\" with bundles: demo\nSaved to: "),
@@ -516,8 +517,6 @@ fn test_profile_verbs_answer_in_text_and_refuse_json() {
             "project",
             "-d",
             "words",
-            "--llm",
-            "claude-code",
             "--exclude-fragment",
             "f",
             "--exclude-mcp",
@@ -557,7 +556,7 @@ fn test_profile_verbs_answer_in_text_and_refuse_json() {
         text(&library, &["profile", "edit", "kid"]),
         "No changes made.\n"
     );
-    mem.set_editor(|_, content| Ok(content.replace("claude-code", "mock")));
+    mem.set_editor(|_, content| Ok(content.replace("words", "other")));
     let said = text(&library, &["profile", "edit", "kid"]);
     assert!(said.starts_with("Updated profile"), "{said}");
 }
@@ -637,7 +636,7 @@ fn test_agent_verbs() {
                 "agent",
                 "create",
                 "dev",
-                "--llm",
+                "--engine",
                 "claude-code",
                 "--profiles",
                 "dev",
@@ -703,60 +702,6 @@ fn test_agent_verbs() {
 }
 
 use library_application::fakes::ConfigScope as Scope;
-
-// llm.feature
-#[test]
-fn test_llm_verbs() {
-    let (library, mem) = world();
-    assert_eq!(
-        text(
-            &library,
-            &["llm", "create", "big", "--type", "mock", "--model", "o1"]
-        ),
-        "Created llm \"big\" (type: mock, model: o1)\n"
-    );
-    assert_eq!(
-        text(
-            &library,
-            &[
-                "llm",
-                "edit",
-                "big",
-                "--model",
-                "o1-pro",
-                "--permissions",
-                "bypass"
-            ]
-        ),
-        "Updated llm \"big\" (type: mock, model: o1-pro, permissions: mode=bypass)\n"
-    );
-    let doc = json(&library, &["llm", "edit", "big", "--set", "model=o2"]);
-    assert_eq!(doc["model"], "o2");
-    // With no default named, the first label in order is the default.
-    assert_eq!(text(&library, &["llm", "default"]), "big\n");
-    assert_eq!(
-        text(&library, &["llm", "default", "big"]),
-        "Default LLM set to: big\n"
-    );
-    assert_eq!(
-        text(&library, &["llm", "default", "big"]),
-        "Default LLM is already big\n"
-    );
-    assert_eq!(json(&library, &["llm", "default"])["default"], "big");
-    assert_eq!(
-        text(&library, &["llm", "remove", "big"]),
-        "Would remove llm \"big\".\n\nNothing was removed. Re-run with --yes to apply:\n  ctxloom llm remove big --yes\n"
-    );
-    assert_eq!(
-        text(&library, &["llm", "remove", "big", "--yes"]),
-        "Removed llm \"big\"\n"
-    );
-    let _ = text(
-        &library,
-        &["llm", "create", "h", "--type", "mock", "--home"],
-    );
-    assert!(mem.config(Scope::Home).is_none() || mem.config(Scope::Home).is_some());
-}
 
 // companion.feature
 #[test]

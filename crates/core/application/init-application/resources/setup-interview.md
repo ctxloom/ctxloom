@@ -64,8 +64,8 @@ Then lead straight into the scan — don't recite the phase list mechanically.
   of "not set up yet" on a brand-new project.)
 - `ctxloom agent list` — existing agents (engine↔profile bindings)
 - `ctxloom profile list` — existing local profiles
-- `ctxloom llm list` — configured engines/models (the candidate `--llm`
-  values for anything you bind later)
+- `ctxloom engine list` — the engines this build drives (the candidate
+  `--engine` values for anything you bind later)
 - `ctxloom container check` — whether containerized agents are viable here
 - `ctxloom manage check` — hooks/MCP/statusline wiring per backend, plus
   which first-party companions (taskloom, ltk) are on PATH
@@ -228,7 +228,7 @@ question; ask it for every agent, including the ones in 4d.
 
 ### 4a. Scan
 
-Don't guess — you have this already from phase 1 (engines via `ctxloom llm
+Don't guess — you have this already from phase 1 (engines via `ctxloom engine
 list`, existing agents via `ctxloom agent list`, container viability via
 `ctxloom container check`) and phase 3 (profiles). If containers would
 degrade here, plan on `--runtime host` and say why. If they're viable, know
@@ -249,8 +249,8 @@ can ask 4b-runtime honestly:
   container check`. If not, containers are unavailable here for every engine
   — say so, and don't offer them.
 - **Can THIS engine authenticate inside a container?** Per engine, and not
-  every engine can: `ctxloom llm list` reports a `runtimes:` line per label
-  with exactly the values that engine may be given, plus a `no container
+  every engine can: `ctxloom engine show <engine>` reports the runtimes
+  that engine may be given, plus a `no container
   runtime:` line saying why when the container axes are absent. Read it; do
   not carry your own list of "engines that support containers" and do not
   guess from the engine's name. An engine with no container story is REFUSED
@@ -321,11 +321,11 @@ Rules for asking it:
 
 - **Offer 2 and 3 only when they are really available for THAT agent's
   engine**, per 4a: a reachable container runtime on this machine, AND that
-  engine's `runtimes:` line in `ctxloom llm list` listing them.
+  engine's runtimes in `ctxloom engine show <engine>` listing them.
 - **When you cannot offer them, say why — do not quietly present a shorter
   menu.** Give the reason back in the user's terms: "this engine has no way
   to authenticate inside a container, so ctxloom would refuse a containerized
-  binding for it" (the `no container runtime:` line from `ctxloom llm list`
+  binding for it" (the `no container runtime:` line from `ctxloom engine show`
   is that reason, verbatim enough to quote), or "no container runtime is
   reachable on this machine at all". A user who is never told why a boundary
   was unavailable will assume ctxloom chose not to offer one.
@@ -347,7 +347,7 @@ Rules for asking it:
 Write what's agreed:
 
 ```
-ctxloom agent create <name> --llm <engine> --profiles <p1,p2,...> --runtime host|container-rootless|container-rootful
+ctxloom agent create <name> --engine <engine> --profiles <p1,p2,...> --runtime host|container-rootless|container-rootful
 ```
 
 `--runtime` is not optional in this interview: pass the value 4b-runtime
@@ -375,7 +375,7 @@ the same as any other.
 Create a `distiller` and a `triage` agent. They take the same flags as
 anything above, and the two that matter are:
 
-- `--llm` — these run often and on cheap work, so a small fast model is
+- `--engine` — these run often and on cheap work, so a small fast model is
   usually right; the user chooses, you explain the trade-off.
 - `--runtime` — they honour the runtime axis like any agent, so ask 4b-runtime
   for each of them too rather than copying what the developer got. Say the

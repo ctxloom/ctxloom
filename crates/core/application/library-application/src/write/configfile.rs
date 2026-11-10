@@ -110,31 +110,19 @@ impl Project {
             .map_err(AppError::Cause)
     }
 
-    /// The names an engine or a label can go by: the engines of this build
-    /// and the labels of the configuration, sorted.
-    pub(crate) fn available_llms(&self) -> Vec<String> {
+    /// The engines of this build, sorted.
+    pub(crate) fn available_engines(&self) -> Vec<String> {
         let mut names: Vec<String> = crate::agents::ENGINES
             .iter()
             .map(ToString::to_string)
             .collect();
-        names.extend(self.config.label_names());
         names.sort();
-        names.dedup();
         names
     }
 
-    /// The backend a label goes by: itself where it is an engine, else the
-    /// `type` of its entry.
-    pub(crate) fn engine_of(&self, label: &str) -> Option<String> {
-        if engines::known(label) {
-            return Some(label.to_string());
-        }
-        self.config
-            .llm_entry(label)
-            .and_then(|entry| entry.get("type"))
-            .and_then(Value::as_str)
-            .filter(|kind| engines::known(kind))
-            .map(ToString::to_string)
+    /// The engine `name` is: itself where this build drives it.
+    pub(crate) fn engine_of(&self, name: &str) -> Option<String> {
+        engines::known(name).then(|| name.to_string())
     }
 }
 

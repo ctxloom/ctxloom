@@ -31,7 +31,6 @@ fn library_run() -> Command {
                 .value_delimiter(',')
                 .action(ArgAction::Append),
         )
-        .arg(Arg::new("llm").short('l').long("llm"))
         .arg(Arg::new("workspace").long("workspace"))
 }
 
@@ -243,8 +242,6 @@ fn every_selection_flag_reaches_the_request() {
             "a,b",
             "-t",
             "go",
-            "--llm",
-            "fast",
             "--workspace",
             "worktree",
             "--engine",

@@ -1,7 +1,7 @@
 [package]
 name = "library-cli"
 version = "0.1.0"
-description = "The library commands (config, bundle, fragment, command, skill, profile, agent, llm, mcp, companion, search, context, run --dry-run): arguments in, answers out, no logic"
+description = "The library commands (config, bundle, fragment, command, skill, profile, agent, mcp, companion, search, context, run --dry-run): arguments in, answers out, no logic"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

@@ -162,12 +162,12 @@ fn test_an_explicit_false_beats_an_inherited_true() {
 #[test]
 fn test_config_set_overrides_a_key_in_the_files() {
     let out = apply_with(
-        "llm:\n  default: claude\n",
+        "config:\n  default: claude\n",
         &[],
-        &["llm.default=gemini"],
-        &["llm"],
+        &["config.default=gemini"],
+        &["config"],
     );
-    assert_eq!(at(&out.value, "llm.default"), Some(&scalar("gemini")));
+    assert_eq!(at(&out.value, "config.default"), Some(&scalar("gemini")));
 }
 
 // TestConfigSetFlag_CreatesCaseSensitiveKeyAsTyped: a schema that recognizes
@@ -263,18 +263,18 @@ fn test_an_unknown_config_set_key_warns_and_is_applied() {
 }
 
 // TestResolvePath_SchemaMatchPrefersTheTypedCase: an env name's underscores
-// are ambiguous; the schema decides (LLM_DEFAULTS_PRIMARY is llm.defaults.primary)
+// are ambiguous; the schema decides (CONFIG_USE_DISTILLED is config.use_distilled)
 #[test]
 fn test_the_schema_resolves_an_environment_names_underscores() {
     let out = apply_with(
         "",
-        &[("LLM_DEFAULTS_PRIMARY", "claude-fast")],
+        &[("CONFIG_USE_DISTILLED", "false")],
         &[],
-        &["llm.defaults.primary", "llm.defaults"],
+        &["config.use_distilled", "config"],
     );
     assert_eq!(
-        at(&out.value, "llm.defaults.primary"),
-        Some(&scalar("claude-fast"))
+        at(&out.value, "config.use_distilled"),
+        Some(&scalar("false"))
     );
     assert!(out.warnings.is_empty(), "{:?}", out.warnings);
 }

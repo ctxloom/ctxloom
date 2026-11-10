@@ -22,7 +22,6 @@ fn test_a_profile_is_marshalled_in_record_order_without_its_empty_fields() {
         parents: vec!["base".to_string()],
         tags: vec!["t".to_string()],
         select_tags: vec!["s".to_string()],
-        llm: "claude-code".to_string(),
         bundles: vec!["b".to_string()],
         commands: vec!["c".to_string()],
         skills: vec!["k".to_string()],
@@ -48,7 +47,7 @@ fn test_a_profile_is_marshalled_in_record_order_without_its_empty_fields() {
     };
     assert_eq!(
         profile(&full),
-        "description: d\nparents:\n  - base\ntags:\n  - t\nselect_tags:\n  - s\nllm: claude-code\nbundles:\n  - b\ncommands:\n  - c\nskills:\n  - k\nfragments:\n  - plain\n  - name: weighted\n    priority: 5\nbundle_items:\n  - bi\nhooks:\n  unified:\n    pre_tool:\n      - tool: shell\nvariables:\n  v: \"1\"\nexclude_fragments:\n  - ef\nexclude_mcp:\n  - em\ndeny_tools:\n  - dt\n"
+        "description: d\nparents:\n  - base\ntags:\n  - t\nselect_tags:\n  - s\nbundles:\n  - b\ncommands:\n  - c\nskills:\n  - k\nfragments:\n  - plain\n  - name: weighted\n    priority: 5\nbundle_items:\n  - bi\nhooks:\n  unified:\n    pre_tool:\n      - tool: shell\nvariables:\n  v: \"1\"\nexclude_fragments:\n  - ef\nexclude_mcp:\n  - em\ndeny_tools:\n  - dt\n"
     );
     let bare = Profile {
         description: "only".to_string(),

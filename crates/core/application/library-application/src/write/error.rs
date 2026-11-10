@@ -110,18 +110,6 @@ write_errors! {
     RootRefused { name, detail } = "write-root-refused";
     /// A root selection with no engine to check it against.
     RootNeedsEngine { name } = "write-root-needs-engine";
-    /// An llm type nobody knows.
-    UnknownLlmType { label, kind, known } = "write-unknown-llm-type";
-    /// An llm label that already resolves.
-    LlmExists { label } = "write-llm-exists";
-    /// An llm label that nothing defines.
-    LlmMissing { label } = "write-llm-missing";
-    /// An llm removal preview of a label config.yaml does not hold.
-    LlmNotDefined { label } = "write-llm-not-defined";
-    /// An llm removal of a label config.yaml does not hold.
-    LlmNotInConfig { label } = "write-llm-not-in-config";
-    /// An llm field the schema refuses.
-    LlmField { label, detail } = "write-llm-field";
     /// A name that is no companion's.
     CompanionName { name } = "write-companion-name";
     /// A companion whose program does not exist.

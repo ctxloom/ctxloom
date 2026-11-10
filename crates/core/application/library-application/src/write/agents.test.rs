@@ -43,7 +43,7 @@ fn write(
 
 fn dev() -> AgentRequest {
     AgentRequest {
-        llm: Some("claude-code".to_string()),
+        engine: Some("claude-code".to_string()),
         profiles: Some(vec!["dev".to_string()]),
         ..AgentRequest::default()
     }
@@ -104,7 +104,7 @@ fn test_a_permission_mode_is_written_into_the_engines_block_in_its_spelling() {
         .config(Scope::Project)
         .unwrap()
         .contains("        mode: acceptEdits\n"));
-    // The block is named for the backend the label maps to.
+    // The block is named for the engine.
     let (library, mem) = Setup {
         layers: &["schema_version: 9\n"],
         ..Setup::default()
@@ -114,7 +114,7 @@ fn test_a_permission_mode_is_written_into_the_engines_block_in_its_spelling() {
         &library,
         "m",
         &AgentRequest {
-            llm: Some("big".to_string()),
+            engine: Some("mock".to_string()),
             permissions: Some("bypass".to_string()),
             ..AgentRequest::default()
         },
@@ -275,7 +275,7 @@ fn test_every_scalar_axis_is_checked_before_anything_is_written() {
     refuses_all(vec![
         (
             AgentRequest {
-                llm: text("nosuch"),
+                engine: text("nosuch"),
                 ..r()
             },
             true,
@@ -315,7 +315,7 @@ fn test_every_scalar_axis_is_checked_before_anything_is_written() {
         ),
         (
             AgentRequest {
-                llm: text(""),
+                engine: text(""),
                 ..r()
             },
             true,
@@ -415,14 +415,14 @@ fn test_a_mode_a_surface_and_a_root_need_the_engine_they_are_checked_against() {
 }
 
 #[test]
-fn test_a_label_the_team_wrote_is_a_valid_engine_and_maps_to_its_backend() {
+fn test_the_permission_mode_is_checked_against_the_engines_own_vocabulary() {
     let (library, _mem) = Setup {
         layers: &["schema_version: 9\n"],
         ..Setup::default()
     }
     .fixture();
     let request = |mode: &str| AgentRequest {
-        llm: Some("big".to_string()),
+        engine: Some("mock".to_string()),
         permissions: Some(mode.to_string()),
         ..AgentRequest::default()
     };
@@ -433,14 +433,6 @@ fn test_a_label_the_team_wrote_is_a_valid_engine_and_maps_to_its_backend() {
     assert!(write(&library, "a", &request("bypass"), false)
         .result
         .is_ok());
-    // The built-in registry's labels are engines too, where the project
-    // declares no labels of its own.
-    let (plain_library, _) = world();
-    let fast = AgentRequest {
-        llm: Some("claude-fast".to_string()),
-        ..AgentRequest::default()
-    };
-    assert!(write(&plain_library, "b", &fast, false).result.is_ok());
 }
 
 // agent.feature: With nothing bound, the report says so; naming an agent binds it

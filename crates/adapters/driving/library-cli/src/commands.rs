@@ -106,7 +106,6 @@ pub fn nouns() -> Vec<Command> {
         skill(),
         profile(),
         agent(),
-        llm(),
         mcp(),
         companion(),
         search(),
@@ -358,7 +357,6 @@ fn profile() -> Command {
                         .help("Bundle(s) the profile includes"),
                 )
                 .arg(description("Description of the profile"))
-                .arg(named("llm", "Preferred LLM config label/backend to launch"))
                 .arg(named(
                     "bundle",
                     "Local bundle to create the profile in (default: the project bundle)",
@@ -398,10 +396,6 @@ fn profile_patch(command: Command) -> Command {
         .arg(list_flag("add-bundle", "Bundle(s) to add"))
         .arg(list_flag("remove-bundle", "Bundle(s) to remove"))
         .arg(description("New description for the profile"))
-        .arg(named(
-            "llm",
-            "Set the preferred LLM config label/backend (empty clears it)",
-        ))
         .arg(list_flag("exclude-fragment", "Fragment name(s) to exclude"))
         .arg(list_flag(
             "include-fragment",
@@ -443,7 +437,7 @@ fn agent_write(name: &'static str, about: &'static str) -> Command {
     Command::new(name)
         .about(about)
         .arg(one("name", "The agent"))
-        .arg(named("llm", "llm.configs label to bind (empty = project default)"))
+        .arg(named("engine", "Engine to bind (empty = the default engine)"))
         .arg(
             Arg::new("profiles")
                 .long("profiles")
@@ -477,41 +471,6 @@ fn agent_write(name: &'static str, about: &'static str) -> Command {
             "env",
             "Bare variable name passed through when --env-host=false (repeatable; '' clears the list)",
         ))
-}
-
-fn llm() -> Command {
-    noun("llm", "List LLM backends")
-        .subcommand(list("List available LLMs"))
-        .subcommand(llm_write("create", "Create a new LLM engine config"))
-        .subcommand(llm_write("edit", "Edit an existing LLM engine config"))
-        .subcommand(
-            Command::new("default")
-                .about("Show or set the default LLM")
-                .arg(Arg::new("name").value_name("NAME")),
-        )
-        .subcommand(
-            remove("Remove an LLM engine config from config.yaml")
-                .arg(one("label", "The label"))
-                .arg(home_flag()),
-        )
-}
-
-fn home_flag() -> Arg {
-    Arg::new("home")
-        .long("home")
-        .action(ArgAction::SetTrue)
-        .help("Act on the user-global ~/.ctxloom/config.yaml instead of the project's")
-}
-
-fn llm_write(name: &'static str, about: &'static str) -> Command {
-    Command::new(name)
-        .about(about)
-        .arg(one("label", "The label"))
-        .arg(named("type", "Backend discriminator (empty = claude-code)"))
-        .arg(named("model", "Model string"))
-        .arg(named("permissions", "Permission mode, in the label's engine's vocabulary (empty clears it)"))
-        .arg(each("set", "Set a field by dotted key: <dotted.key>=<value>, the value read as YAML, empty removes it (repeatable)"))
-        .arg(home_flag())
 }
 
 fn mcp() -> Command {
@@ -672,13 +631,6 @@ fn run() -> Command {
     Command::new("run")
         .about("Assemble context and run AI (this build takes one turn with --one-shot, or previews with --dry-run)")
         .arg(Arg::new("prompt_words").value_name("PROMPT").num_args(0..))
-        .arg(
-            Arg::new("llm")
-                .short('l')
-                .long("llm")
-                .value_name("LABEL")
-                .help("Config label to use (e.g. claude-code, claude-fast); overrides the configured default"),
-        )
         .arg(
             Arg::new("prompt")
                 .long("prompt")

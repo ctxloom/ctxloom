@@ -23,7 +23,6 @@ pub fn profile_path(name: &str) -> String {
 pub struct NewProfile {
     pub description: String,
     pub parents: Vec<String>,
-    pub llm: String,
     pub bundles: Vec<String>,
 }
 
@@ -31,7 +30,7 @@ fn list(items: &[String]) -> Value {
     Value::Seq(items.iter().cloned().map(Value::Scalar).collect())
 }
 
-/// The document for `new`: `description`, `parents`, `llm`, `bundles`, the
+/// The document for `new`: `description`, `parents`, `bundles`, the
 /// ones it has, in that order.
 pub fn new_profile(new: &NewProfile) -> String {
     let mut entries: Vec<(String, Value)> = Vec::new();
@@ -44,9 +43,6 @@ pub fn new_profile(new: &NewProfile) -> String {
     if !new.parents.is_empty() {
         entries.push(("parents".to_string(), list(&new.parents)));
     }
-    if !new.llm.is_empty() {
-        entries.push(("llm".to_string(), Value::Scalar(new.llm.clone())));
-    }
     if !new.bundles.is_empty() {
         entries.push(("bundles".to_string(), list(&new.bundles)));
     }
@@ -57,7 +53,6 @@ pub fn new_profile(new: &NewProfile) -> String {
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
 pub struct ProfileEdit {
     pub description: Option<String>,
-    pub llm: Option<String>,
     pub add_parents: Vec<String>,
     pub remove_parents: Vec<String>,
     pub add_bundles: Vec<String>,
@@ -100,7 +95,7 @@ fn edit_one(
 }
 
 /// `text` with `edit` applied, and a line for each change made, in Go's order:
-/// the description, the llm, then for each of parents, bundles, excluded
+/// the description, then for each of parents, bundles, excluded
 /// fragments and excluded mcp the additions and then the removals. An item
 /// already there is not added again; one that is not there is not removed; a
 /// restated description is no change. A list left empty takes its key.
@@ -118,14 +113,6 @@ pub fn edit_profile(text: &str, edit: &ProfileEdit) -> Result<(String, Vec<Strin
     {
         put_scalar(&mut doc, "description", description).map_err(unwritable)?;
         changes.push("updated description".to_string());
-    }
-    if let Some(llm) = edit.llm.as_ref().filter(|l| **l != scalar_of(&doc, "llm")) {
-        put_scalar(&mut doc, "llm", llm).map_err(unwritable)?;
-        changes.push(if llm.is_empty() {
-            "cleared llm".to_string()
-        } else {
-            format!("set llm to \"{llm}\"")
-        });
     }
     let lists = [
         ("parents", "parent", &edit.add_parents, &edit.remove_parents),

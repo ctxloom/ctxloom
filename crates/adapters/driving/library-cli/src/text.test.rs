@@ -3,7 +3,7 @@
 //! `crates/root/bin/ctxloom/fixtures/golden`.
 
 use library_application::{
-    AgentRow, AgentShow, BundleList, BundleRow, ItemList, ItemRow, LlmRow, ProfileList, ProfileRow,
+    AgentRow, AgentShow, BundleList, BundleRow, ItemList, ItemRow, ProfileList, ProfileRow,
     ResolvedAgent, SkillList, SkillRow,
 };
 
@@ -181,10 +181,10 @@ fn test_a_profile_listing_summarizes_each_profile() {
     );
 }
 
-fn agent_row(llm: &str) -> AgentRow {
+fn agent_row(engine: &str) -> AgentRow {
     AgentRow {
         name: "dev".to_string(),
-        engine: llm.to_string(),
+        engine: engine.to_string(),
         model: String::new(),
         effort: String::new(),
         profiles: vec!["p1".to_string(), "p2".to_string()],
@@ -197,7 +197,7 @@ fn agent_row(llm: &str) -> AgentRow {
     }
 }
 
-// agent.go renderAgentList: an agent with no llm says the project default.
+// agent.go renderAgentList: an agent with no engine says the project default.
 #[test]
 fn test_an_agent_listing_says_project_default_for_no_engine() {
     assert_eq!(
@@ -269,32 +269,6 @@ fn test_agent_show_says_a_resolution_failed_and_carries_on() {
     assert!(text.contains("Resolved engine: mock (model: o1)\n"));
     assert!(!text.contains("Resolved permissions"));
     assert!(text.contains("Session home: session\nComposed fragments: 1\n"));
-}
-
-// llm_list.go: the default is marked, the origin bracketed, then the legend.
-#[test]
-fn test_the_llm_listing_marks_the_default_and_the_origin() {
-    let rows = vec![
-        LlmRow {
-            label: "claude-code".to_string(),
-            default: true,
-            authored: true,
-            runtimes: vec!["host".to_string()],
-        },
-        LlmRow {
-            label: "mock".to_string(),
-            default: false,
-            authored: false,
-            runtimes: Vec::new(),
-        },
-    ];
-    let text = shown(|out| llm_list(out, &rows));
-    assert!(text.starts_with(
-        "Available LLMs:\n  claude-code (default) [configured]\n      runtimes: host\n  mock [built-in]\n"
-    ));
-    assert!(text.contains(
-        "\n[configured] declared in your config.yaml   [built-in] supplied by ctxloom\n"
-    ));
 }
 
 // companion.go renderCompanionList: a command whose program is not there says
@@ -614,7 +588,6 @@ fn profile_shown() -> ProfileShow {
     ProfileShow {
         name: st("dev"),
         description: st("Dev"),
-        llm: st("claude-code"),
         parents: sv(&["base"]),
         tags: sv(&["t"]),
         bundles: sv(&["demo"]),
@@ -632,11 +605,10 @@ fn profile_shown() -> ProfileShow {
 fn test_a_profile_show_prints_every_section_it_has() {
     assert_eq!(
         shown(|out| profile_show(out, &profile_shown())),
-        "Profile: dev\nPath: /p/dev.yaml\nBundle: proj\nDefault: yes\nDescription: Dev\nLLM: claude-code\nParents:\n  - base\nBundles:\n  - demo\nTags:\n  - t\nVariables:\n  k: v\nExcluded fragments:\n  - f\nExcluded MCP servers:\n  - m\n"
+        "Profile: dev\nPath: /p/dev.yaml\nBundle: proj\nDefault: yes\nDescription: Dev\nParents:\n  - base\nBundles:\n  - demo\nTags:\n  - t\nVariables:\n  k: v\nExcluded fragments:\n  - f\nExcluded MCP servers:\n  - m\n"
     );
     let bare = ProfileShow {
         description: String::new(),
-        llm: String::new(),
         parents: Vec::new(),
         tags: Vec::new(),
         bundles: Vec::new(),

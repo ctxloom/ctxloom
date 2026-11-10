@@ -1,5 +1,5 @@
 //! The library's write side as an application (S2): create, edit and remove
-//! for bundles, items, profiles, agents, llm labels, MCP servers, skills and
+//! for bundles, items, profiles, agents, MCP servers, skills and
 //! companions; `config create` and `config edit`; export and import; the
 //! editor round trips. Files are the truth (D4): a command plans the files it
 //! leaves, checks that they read, and hands them to the ports.
@@ -26,7 +26,6 @@ mod editor;
 mod engines;
 pub(crate) mod error;
 mod items;
-mod llms;
 mod mcp;
 mod plan;
 mod profiles;

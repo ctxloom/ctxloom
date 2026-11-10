@@ -87,7 +87,7 @@ impl Project {
         request: &AgentRequest,
         held: &Value,
     ) -> Option<String> {
-        let label = match &request.llm {
+        let label = match &request.engine {
             Some(label) => label.clone(),
             None => {
                 let own = held
@@ -118,12 +118,12 @@ impl Project {
         request: &AgentRequest,
         held: &Value,
     ) -> Result<Option<String>, AppError> {
-        if let Some(llm) = request.llm.as_deref().filter(|l| !l.is_empty()) {
-            let valid = self.available_llms();
-            if !valid.iter().any(|v| v == llm) {
+        if let Some(engine) = request.engine.as_deref().filter(|l| !l.is_empty()) {
+            let valid = self.available_engines();
+            if !valid.iter().any(|v| v == engine) {
                 return Err(WriteError::UnknownEngine {
                     name: name.to_string(),
-                    engine: llm.to_string(),
+                    engine: engine.to_string(),
                     valid: valid.join(", "),
                 }
                 .into());
@@ -306,8 +306,8 @@ impl Project {
         if !matches!(entry, Value::Map(_)) {
             entry = Value::Map(Vec::new());
         }
-        if let Some(llm) = &request.llm {
-            put(&mut entry, "engine", some_text(llm));
+        if let Some(engine) = &request.engine {
+            put(&mut entry, "engine", some_text(engine));
         }
         if let Some(profiles) = &request.profiles {
             let list = Value::Seq(
@@ -363,7 +363,7 @@ impl Project {
     /// agent binds.
     fn set_mode(&self, name: &str, request: &AgentRequest, entry: &mut Value, mode: &str) {
         let label = request
-            .llm
+            .engine
             .clone()
             .or_else(|| {
                 entry

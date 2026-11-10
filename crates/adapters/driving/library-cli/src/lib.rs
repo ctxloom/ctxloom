@@ -1,7 +1,7 @@
 //! The library commands as a driving adapter (S1): arguments in, answers out,
 //! no logic. `config show`, `bundle list|show|view`, `fragment|command|skill
 //! list|show`, `fragment premises`, `profile list|show`, `agent list|show`,
-//! `llm list`, `mcp server list|show`, `companion list`, `search`, `context
+//! `mcp server list|show`, `companion list`, `search`, `context
 //! assemble` and `run --dry-run`.
 //!
 //! The whole command line is parsed by the program's own command line (one
@@ -137,9 +137,6 @@ fn dispatch(
         }),
         "agent" => written(write::agent(cx, verb(sub, "list"), out, err), || {
             agent(cx, verb(sub, "list"), out, err)
-        }),
-        "llm" => written(write::llm(cx, verb(sub, "list"), out, err), || {
-            llm(cx, out, err)
         }),
         "mcp" => mcp(cx, sub, out, err),
         "companion" => written(write::companion(cx, verb(sub, "list"), out, err), || {
@@ -403,13 +400,6 @@ fn agent(
     let outcome = cx.library.agent_list(&cx.flags);
     answer(cx, outcome, out, err, |rows, out, _| {
         emit(cx.format, out, &rows, |out| text::agent_list(out, &rows))
-    })
-}
-
-fn llm(cx: &Context<'_>, out: &mut dyn Write, err: &mut dyn Write) -> Result<u8, Failure> {
-    let outcome = cx.library.llm_list(&cx.flags);
-    answer(cx, outcome, out, err, |rows, out, _| {
-        emit(cx.format, out, &rows, |out| text::llm_list(out, &rows))
     })
 }
 

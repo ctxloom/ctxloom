@@ -473,7 +473,7 @@ fn profile_samples() -> Vec<Box<dyn Diagnostic>> {
             valid: "bundles, select_tags".to_string(),
         }),
         Box::new(ProfileError::BadValue {
-            key: "llm".to_string(),
+            key: "description".to_string(),
             detail: "expected a string".to_string(),
         }),
         Box::new(ProfileError::EmptyFragment { line: 2 }),

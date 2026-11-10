@@ -2,8 +2,6 @@
 //! schema, merged, overridden and given the shipped engine registry; and the
 //! typed reading of what it says.
 
-use std::collections::BTreeSet;
-
 use angzarr_yaml::Value;
 use ctxloom_ports::{ConfigFiles, LayerText, RegisteredCompanion, Scope, Source};
 use library::config::engines;
@@ -33,8 +31,6 @@ pub struct Config {
     pub value: Value,
     /// What the files and overrides set, without the shipped registry.
     pub raw: Value,
-    /// The labels the user's own files declare under `llm.configs`.
-    pub authored_labels: BTreeSet<String>,
     pub source: Source,
 }
 
@@ -81,12 +77,10 @@ pub fn load(
     let merged = override_with(merged, environ, flags, notices);
     let mut merged = reduced_when_unreadable(merged, shape_failure);
     stamp(&mut merged);
-    let authored_labels = labels(&merged);
     let raw = merged.clone();
     Ok(Config {
         value: merged,
         raw,
-        authored_labels,
         source: files.source(),
     })
 }
@@ -254,16 +248,6 @@ fn override_with(
     applied.value
 }
 
-/// The labels under `llm.configs`.
-fn labels(value: &Value) -> BTreeSet<String> {
-    value
-        .get("llm")
-        .and_then(|llm| llm.get("configs"))
-        .and_then(Value::as_map)
-        .map(|configs| configs.iter().map(|(label, _)| label.clone()).collect())
-        .unwrap_or_default()
-}
-
 /// An `agents.<name>` binding.
 #[derive(Clone, Debug)]
 pub struct Agent {
@@ -338,41 +322,6 @@ impl Config {
         self.agent(&self.default_agent())
             .map(|a| a.profiles)
             .unwrap_or_default()
-    }
-
-    /// The label that plays the primary role: `llm.defaults.primary`, else the
-    /// sole configured label, else none.
-    pub fn primary_label(&self) -> String {
-        let declared = self.text("llm.defaults.primary");
-        if !declared.is_empty() {
-            return declared;
-        }
-        let labels = self.label_names();
-        match labels.as_slice() {
-            [one] => one.clone(),
-            _ => String::new(),
-        }
-    }
-
-    /// Every label under `llm.configs`, sorted.
-    pub fn label_names(&self) -> Vec<String> {
-        let mut names: Vec<String> = self
-            .value
-            .get("llm")
-            .and_then(|llm| llm.get("configs"))
-            .and_then(Value::as_map)
-            .map(|configs| configs.iter().map(|(label, _)| label.clone()).collect())
-            .unwrap_or_default();
-        names.sort();
-        names
-    }
-
-    /// The `llm.configs.<label>` entry.
-    pub fn llm_entry(&self, label: &str) -> Option<&Value> {
-        self.value
-            .get("llm")
-            .and_then(|llm| llm.get("configs"))
-            .and_then(|configs| configs.get(label))
     }
 
     /// Whether distilled forms are preferred (`config.use_distilled`, on

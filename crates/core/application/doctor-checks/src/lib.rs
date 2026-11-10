@@ -7,7 +7,7 @@
 //! |---|---|
 //! | `SETUP-MARKER-e5` | the `.ctxloom` marker and the config's validity |
 //! | `DEPS-a1` | `git` on the PATH and a git identity |
-//! | `AGENTS-b2` | every configured agent names an llm |
+//! | `AGENTS-b2` | every configured agent names an engine |
 //! | `CREDENTIALS-m5` | the credential each configured engine needs is exported (presence only, never the value); a missing one is a `fail` |
 //! | `VERSION-c3` | the binary's version |
 //! | `HOOKS-TRUST-d4` | ctxloom's hooks registered with the engine (the trust store half is dead since ADR 0037) |

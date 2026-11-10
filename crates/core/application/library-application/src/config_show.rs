@@ -73,7 +73,7 @@ impl Project {
 fn empty_section(section: &str) -> Typed {
     match section {
         "isolation_engines" | "companions" => Typed::Seq(Vec::new()),
-        "llm" | "editor" | "config" | "sync" | "agents" | "permissions" | "delegation"
+        "editor" | "config" | "sync" | "agents" | "permissions" | "delegation"
         | "shell_timeout" | "isolation_images" | "ui" => Typed::Map(Vec::new()),
         _ => Typed::Str(String::new()),
     }

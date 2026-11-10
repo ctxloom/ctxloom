@@ -1,7 +1,7 @@
 //! A config write is a section merge with sorted keys, and never heals a
 //! corrupt file (plan §10 S2; Go's `config_save.go` `saveLocked`).
 //!
-//! The section a command owns (`agents`, `llm`, `companions`, `default_agent`)
+//! The section a command owns (`agents`, `companions`, `default_agent`)
 //! is replaced whole with the keys of its mappings sorted; every other key,
 //! comment and the order of the file stay exactly as the file has them. A text
 //! that does not parse is refused, never rewritten: "I could not read what is

@@ -75,7 +75,7 @@ impl Wiring {
             .map_err(seed_error_of)?;
         let store = stores.open(&project).await.map_err(seed_error)?;
         let cwd = self.fs.cwd().map_err(seed_error)?.to_path_buf();
-        let output_dir = self.seed_output_dir(&cwd, &seed.harp);
+        let output_dir = self.seed_output_dir(&seed.harp)?;
 
         let mut system = System;
         let now = system.now();
@@ -168,12 +168,17 @@ impl Wiring {
         Ok(uuid::Uuid::from_bytes(id).to_string())
     }
 
-    /// Where a seeded session's output goes (Go: `defaultOutputDirIn`).
-    fn seed_output_dir(&self, cwd: &Path, harp: &str) -> std::path::PathBuf {
-        self.home
-            .join("Documents/ctxloom")
-            .join(cwd.file_name().unwrap_or_default())
-            .join(harp)
+    /// Where a seeded session's output goes: where a run's would
+    /// (`<project>/<output.dir>/<harp>`, owner rulings 89, 106).
+    fn seed_output_dir(&self, harp: &str) -> Result<std::path::PathBuf, TestError> {
+        let library = crate::library::build(self, None).map_err(seed_error)?;
+        let written = library
+            .run_settings(&library_application::Flags::default())
+            .map_or_else(
+                || library_application::OUTPUT_DIR_DEFAULT.to_string(),
+                |s| s.output_dir,
+            );
+        Ok(crate::oneshot::output_root(&self.project_dir(), &written).join(harp))
     }
 
     /// The files a fixture writes beside a session: its lock and authored

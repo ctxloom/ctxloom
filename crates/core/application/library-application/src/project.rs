@@ -21,6 +21,15 @@ pub struct Outcome<T> {
     pub notices: Vec<Notice>,
 }
 
+/// What a run takes from the configuration before it is planned.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunSettings {
+    /// `output.dir` as written, or its default (rulings 89, 106).
+    pub output_dir: String,
+    /// `sync.on_run` (rulings 59, 60).
+    pub on_run: crate::OnRun,
+}
+
 /// The library, over its ports.
 pub struct Library {
     content: Arc<dyn ContentRepo>,
@@ -104,6 +113,19 @@ impl Library {
         self.environ
             .iter()
             .any(|(name, value)| name == "CTXLOOM_DEGRADED" && value == "1")
+    }
+
+    /// What a run takes from the configuration before it is planned: where
+    /// its session's outputs go and what it does with the dependencies at its
+    /// start. None where the configuration cannot be read: the plan that
+    /// follows reports why.
+    pub fn run_settings(&self, flags: &Flags) -> Option<RunSettings> {
+        let mut notices = Vec::new();
+        let config = config::load(self.files.as_ref(), &self.environ, flags, &mut notices).ok()?;
+        Some(RunSettings {
+            output_dir: config.output_dir(),
+            on_run: config.sync_on_run(),
+        })
     }
 
     /// The format the configuration prefers off a terminal

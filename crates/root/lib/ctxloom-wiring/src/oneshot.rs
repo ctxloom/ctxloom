@@ -21,7 +21,7 @@ use file_system::Fs;
 use harp_names::HarpNames;
 use hook_listener::HookListener;
 use host_launcher::HostLauncher;
-use library_application::{Flags, Library};
+use library_application::{Flags, Library, OUTPUT_DIR_DEFAULT};
 use ports::{Names, Project, ProjectIdentity};
 use process_env::EnvSnapshot;
 use project_registry::Environment;
@@ -97,6 +97,7 @@ impl<'a> OneShots<'a> {
     async fn assemble(
         &self,
         library: Library,
+        output_dir: &str,
     ) -> Result<Runs<InProcessCore<SqliteStore>, OsTokenSource, HostLauncher, SessionDirs>, RunError>
     {
         let wiring = self.wiring;
@@ -139,10 +140,7 @@ impl<'a> OneShots<'a> {
         .with_locks(Arc::clone(&run_locks));
         let hooks = Box::new(Hooks { edge: core.edge() });
         let enqueuer = Enqueuer::new(core.edge(), Arc::new(OsTokenSource));
-        let output_root = wiring
-            .home()
-            .join("Documents/ctxloom")
-            .join(project_dir.file_name().unwrap_or_default());
+        let output_root = output_root(&project_dir, output_dir);
         Ok(Runs::new(Parts {
             core,
             planner: Box::new(library),
@@ -243,10 +241,15 @@ fn tell_project<N: Names>(
     crate::registry(fs, environment, names).for_write(None)
 }
 
-/// RED stub: the root of a session's output folders.
-#[allow(dead_code)]
-pub(crate) fn output_root(project_dir: &Path, _written: &str) -> std::path::PathBuf {
-    project_dir.to_path_buf()
+/// The root of the session output folders (owner rulings 89, 106):
+/// `output.dir` as `written`, against the project root unless absolute; each
+/// session's folder is `<root>/<harp>`. A trailing slash says nothing more.
+pub(crate) fn output_root(project_dir: &Path, written: &str) -> std::path::PathBuf {
+    project_dir.join(
+        Path::new(written)
+            .components()
+            .collect::<std::path::PathBuf>(),
+    )
 }
 
 fn path_text(path: &Path) -> String {
@@ -271,6 +274,7 @@ impl OneShots<'_> {
     /// `use_case` to drive.
     fn with_runs<T>(
         &mut self,
+        flags: &Flags,
         use_case: impl AsyncFnOnce(
             &mut Runs<InProcessCore<SqliteStore>, OsTokenSource, HostLauncher, SessionDirs>,
         ) -> Done<T>,
@@ -282,12 +286,15 @@ impl OneShots<'_> {
         let Some(library) = self.library.take() else {
             return refused("the run use cases are made for one run".to_string());
         };
+        let output_dir = library
+            .run_settings(flags)
+            .map_or_else(|| OUTPUT_DIR_DEFAULT.to_string(), |s| s.output_dir);
         let runtime = match run_runtime() {
             Ok(runtime) => runtime,
             Err(e) => return refused(e.to_string()),
         };
         runtime.block_on(async {
-            match self.assemble(library).await {
+            match self.assemble(library, &output_dir).await {
                 Ok(mut runs) => use_case(&mut runs).await,
                 Err(error) => Done {
                     result: Err(error),
@@ -300,11 +307,11 @@ impl OneShots<'_> {
 
 impl RunService for OneShots<'_> {
     fn one_shot(&mut self, flags: &Flags, request: &OneShot) -> Done<Answer> {
-        self.with_runs(async |runs| runs.one_shot(flags, request).await)
+        self.with_runs(flags, async |runs| runs.one_shot(flags, request).await)
     }
 
     fn interactive(&mut self, flags: &Flags, request: &OneShot) -> Done<Ended> {
-        self.with_runs(async |runs| runs.interactive(flags, request).await)
+        self.with_runs(flags, async |runs| runs.interactive(flags, request).await)
     }
 }
 

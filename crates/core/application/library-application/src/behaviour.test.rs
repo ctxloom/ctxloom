@@ -1373,3 +1373,28 @@ fn test_a_launch_that_weakens_the_engine_s_runtime_says_so() {
     let up = "schema_version: 9\nagents:\n  c:\n    engine: claude-code\n    runtime: container-rootless\n";
     assert!(notices_of(up, "c").iter().all(|n| !n.contains("replaces")));
 }
+
+// Rulings 59, 60, 89, 106: a run reads where its outputs go and what it does
+// with the dependencies before it is planned; nothing where the config is
+// refused (the plan says why).
+#[test]
+fn test_a_run_reads_its_output_directory_and_start_sync_from_the_config() {
+    use crate::{OnRun, RunSettings};
+    assert_eq!(
+        with(&[], &[CONFIG]).library().run_settings(&plain()),
+        Some(RunSettings {
+            output_dir: "ctxloom/".to_string(),
+            on_run: OnRun::Missing,
+        })
+    );
+    let set = ["schema_version: 9\noutput:\n  dir: /var/out\nsync:\n  on_run: none\n"];
+    assert_eq!(
+        with(&[], &set).library().run_settings(&plain()),
+        Some(RunSettings {
+            output_dir: "/var/out".to_string(),
+            on_run: OnRun::None,
+        })
+    );
+    let bad = ["schema_version: 9\nzzz: 1\n"];
+    assert_eq!(with(&[], &bad).library().run_settings(&plain()), None);
+}

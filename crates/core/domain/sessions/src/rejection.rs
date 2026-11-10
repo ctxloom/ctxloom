@@ -10,8 +10,6 @@ pub enum SessionRejection {
     SessionExists { harp: String },
     /// A command to a stream holding no session.
     NoSession,
-    /// A command to a session that was forgotten (`session remove --yes`).
-    Forgotten { harp: String },
     /// A harp that cannot be a session's name; `reason` is one of `empty`,
     /// `directory`, `separator`, `control`, `whitespace` (Go's
     /// `harp.Validate`).
@@ -50,7 +48,6 @@ impl Diagnostic for SessionRejection {
         match self {
             SessionRejection::SessionExists { .. } => code!("session-exists"),
             SessionRejection::NoSession => code!("no-session"),
-            SessionRejection::Forgotten { .. } => code!("forgotten"),
             SessionRejection::HarpInvalid { .. } => code!("harp-invalid"),
             SessionRejection::HarpTooLong { .. } => code!("harp-too-long"),
             SessionRejection::NamesTaken { .. } => code!("names-taken"),
@@ -66,7 +63,6 @@ impl Diagnostic for SessionRejection {
     fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             SessionRejection::SessionExists { harp }
-            | SessionRejection::Forgotten { harp }
             | SessionRejection::NamesTaken { harp }
             | SessionRejection::NotHolder { harp }
             | SessionRejection::SessionLive { harp } => vec![("harp", harp.as_str().into())],
@@ -107,7 +103,6 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     vec![
         Box::new(SessionRejection::SessionExists { harp: harp() }),
         Box::new(SessionRejection::NoSession),
-        Box::new(SessionRejection::Forgotten { harp: harp() }),
         Box::new(SessionRejection::HarpInvalid {
             harp: "a/b".to_string(),
             reason: "separator".to_string(),

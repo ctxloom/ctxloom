@@ -520,7 +520,7 @@ fn a_removal_reports_before_it_removes() {
     let mut svc = service();
     finished(&mut svc, 1, "amber-swift-owl");
     let removal = ready(svc.remove(remove("amber-swift-owl", false))).unwrap();
-    assert!(!removal.applied && !removal.index_entry_removed);
+    assert!(!removal.applied);
     assert_eq!(removal.refusal, None);
     let destroy: Vec<&str> = removal
         .files
@@ -530,7 +530,7 @@ fn a_removal_reports_before_it_removes() {
         .collect();
     assert_eq!(destroy, ["transcripts/transcript.jsonl"]);
     assert_eq!(removal.files.bytes_freed, 0, "nothing freed on a report");
-    assert!(svc.files.destroyed.is_empty());
+    assert!(svc.files.destroyed_sessions.is_empty());
     assert!(svc.files.transcripts.contains_key("amber-swift-owl"));
     assert_eq!(svc.harps(all()), ["amber-swift-owl"], "still listed");
 }
@@ -618,7 +618,7 @@ fn a_destroy_purges_the_session_and_every_run_of_it_and_its_directory() {
     let events = head(&mut svc, sessions::SESSION_DOMAIN, session_root)
         + head(&mut svc, runs::RUN_DOMAIN, run);
     let destroyed = ready(svc.remove(destroy("amber-swift-owl"))).unwrap();
-    assert!(destroyed.applied && destroyed.index_entry_removed);
+    assert!(destroyed.applied);
     assert_eq!(
         destroyed.events_destroyed, events,
         "every event of the session and its run, counted"
@@ -669,7 +669,7 @@ fn a_destroy_reported_and_not_applied_changes_nothing() {
 }
 
 // session.feature: "A session running again is refused by the transcript's own
-// destroyer": the refusal names the command that was run.
+// destroyer": the refusal names the command that was run, `session remove`.
 #[test]
 fn the_refusal_names_the_destroyer_that_was_run() {
     let mut svc = service();
@@ -680,23 +680,15 @@ fn the_refusal_names_the_destroyer_that_was_run() {
         NOW - 70 * DAY,
         Some(LockState::Held),
     );
-    for (scope, verb) in [
-        (crate::Scope::Remove, "session remove"),
-        (crate::Scope::Purge, "session purge"),
-    ] {
-        let request = RemoveRequest {
-            scope,
-            ..remove("amber-swift-owl", true)
-        };
-        match ready(svc.remove(request)).unwrap().refusal {
-            Some(Refusal::NotProvenDead {
-                verb: said, reason, ..
-            }) => {
-                assert_eq!(said, verb);
-                assert!(reason.contains("owner is alive"), "{reason}");
-            }
-            other => panic!("{other:?}"),
+    match ready(svc.remove(remove("amber-swift-owl", true)))
+        .unwrap()
+        .refusal
+    {
+        Some(Refusal::NotProvenDead { verb, reason, .. }) => {
+            assert_eq!(verb, "session remove");
+            assert!(reason.contains("owner is alive"), "{reason}");
         }
+        other => panic!("{other:?}"),
     }
 }
 
@@ -722,8 +714,8 @@ fn a_removal_within_the_retention_is_refused() {
     );
     let removal = ready(svc.remove(remove("brisk-copper-moth", true))).unwrap();
     assert!(matches!(removal.refusal, Some(Refusal::Retained { .. })));
-    assert!(!removal.applied && !removal.index_entry_removed);
-    assert!(svc.files.destroyed.is_empty());
+    assert!(!removal.applied);
+    assert!(svc.files.destroyed_sessions.is_empty());
     assert_eq!(svc.harps(all()), ["brisk-copper-moth"]);
     assert_eq!(removal.files.destroy.len(), 1, "the plan is still shown");
 }
@@ -741,7 +733,7 @@ fn a_removal_of_a_kept_session_is_refused_at_any_age() {
             harp: "amber-swift-owl".to_string()
         })
     );
-    assert!(svc.files.destroyed.is_empty());
+    assert!(svc.files.destroyed_sessions.is_empty());
     ready(svc.keep(keep("amber-swift-owl", false))).unwrap();
     let removal = ready(svc.remove(remove("amber-swift-owl", true))).unwrap();
     assert!(removal.applied, "released, it goes");
@@ -761,7 +753,7 @@ fn a_removal_of_a_session_the_lock_cannot_prove_dead_is_refused() {
             "{name}: {:?}",
             removal.refusal
         );
-        assert!(svc.files.destroyed.is_empty(), "{name}");
+        assert!(svc.files.destroyed_sessions.is_empty(), "{name}");
     }
 }
 
@@ -826,22 +818,19 @@ fn an_internal_one_shot_is_reclaimable_at_any_age() {
     assert!(removal.applied, "{:?}", removal.refusal);
 }
 
-// Go: PurgeSession marks the entry purged BEFORE any file is unlinked: "if the
-// process dies between the two, the index already reads 'purged'".
+// Ruling 94b: a destroy purges the streams BEFORE it removes the directory,
+// so a failure removing the directory leaves a session nothing lists (its
+// harp never reused), not a listed session that lost its files.
 #[test]
-fn the_purge_is_recorded_before_the_files_go() {
+fn the_streams_go_before_the_directory() {
     let mut svc = service();
     finished(&mut svc, 1, "amber-swift-owl");
     svc.files.fail_destroy = true;
     let error = ready(svc.remove(remove("amber-swift-owl", true))).unwrap_err();
     assert!(matches!(error, AppError::Files(_)), "{error:?}");
-    let views = ready(svc.list(all())).unwrap();
-    assert_eq!(views.len(), 1, "the entry is still there");
-    assert!(
-        views[0].record.purged_at.is_some(),
-        "and says its transcript was purged"
-    );
-    assert!(views[0].summary().contains("purged"));
+    let session_root = uuid::Uuid::from_bytes([1; 16]);
+    assert_eq!(head(&mut svc, sessions::SESSION_DOMAIN, session_root), 0);
+    assert_eq!(svc.harps(all()), Vec::<String>::new(), "listed no more");
 }
 
 #[test]

@@ -5,7 +5,7 @@
 //! One claim stream per (project, harp text). A session takes its name
 //! first, on a mint or a rename; the name is refused while another session
 //! holds it; a rename moves the claim (claim the new name, release the old
-//! one, plan 3.1); a forgotten session's name stays claimed.
+//! one, plan 3.1); a removed session's name stays claimed.
 
 use std::collections::BTreeMap;
 

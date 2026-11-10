@@ -9,12 +9,13 @@
 //!   ephemeral ones (the engine homes, the locks, the worktrees, the
 //!   scratch): a purge runs no git, so a worktree is untouched by
 //!   construction, not by a filter applied after;
-//! - removal stays inside the session's directory.
+//! - a removal takes the session's directory whole, and its lock (owner
+//!   ruling 94b), never following a link out of it.
 
 mod error;
 
 use std::io::ErrorKind;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -153,37 +154,6 @@ impl SessionFiles for SessionDirs {
         self.files_under(&root, &root, &mut found)?;
         found.sort_by(|a, b| a.rel.cmp(&b.rel));
         Ok(found)
-    }
-
-    fn destroy(&mut self, harp: &str, rels: &[String]) -> Result<u64, Report> {
-        let root = self.dir(harp);
-        // Every path is checked before any is removed: a refusal removes
-        // nothing.
-        for rel in rels {
-            let leaves = Path::new(rel).is_absolute()
-                || Path::new(rel)
-                    .components()
-                    .any(|c| matches!(c, Component::ParentDir | Component::Prefix(_)));
-            if leaves {
-                return Err(Report::of(&FilesError::Outside { rel: rel.clone() }));
-            }
-        }
-        let mut freed = 0;
-        for rel in rels {
-            let path = root.join(rel);
-            match self.fs.symlink_metadata(&path) {
-                Ok(meta) if meta.kind == Kind::File => {
-                    self.fs
-                        .remove_file(&path)
-                        .map_err(|e| Report::of(&FilesError::io("remove", &path, &e)))?;
-                    freed += meta.len;
-                }
-                Ok(_) => {}
-                Err(e) if e.kind() == ErrorKind::NotFound => {}
-                Err(e) => return Err(Report::of(&FilesError::io("stat", &path, &e))),
-            }
-        }
-        Ok(freed)
     }
 
     fn move_output(&mut self, from: &str, to: &str) -> Result<bool, Report> {

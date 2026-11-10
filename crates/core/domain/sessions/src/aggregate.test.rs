@@ -15,10 +15,10 @@ use angzarr_embedded::v1::{
 use angzarr_embedded::{Any, Failure, Payload, Registry, Timestamp};
 
 use crate::{
-    AdoptRotations, BindEngineSession, EndRecorded, EngineSessionBound, ForgetSession, KeptChanged,
-    MintSession, Origin, RecordEnd, RecordPurge, RenameSession, RenamedTo, Rotation,
-    SessionAggregate, SessionCommand, SessionEvent, SessionForgotten, SessionPurged,
-    SessionRejection, SessionState, SetKept, SESSION_DOMAIN,
+    AdoptRotations, BindEngineSession, EndRecorded, EngineSessionBound, KeptChanged, MintSession,
+    Origin, RecordEnd, RecordPurge, RenameSession, RenamedTo, Rotation, SessionAggregate,
+    SessionCommand, SessionEvent, SessionPurged, SessionRejection, SessionState, SetKept,
+    SESSION_DOMAIN,
 };
 
 pub(crate) const HARP: &str = "amber-swift-owl";
@@ -245,7 +245,7 @@ fn a_mint_records_the_session_at_the_sampled_instant() {
     assert_eq!(state.origin, Some(Origin::Session));
     assert_eq!(state.started_at, at(101));
     assert!(state.native_id.is_empty(), "pending until the engine binds");
-    assert!(!state.kept && !state.forgotten);
+    assert!(!state.kept);
     assert_eq!(state.ended_at, None);
 }
 
@@ -751,37 +751,11 @@ fn a_rename_of_a_session_whose_lock_is_free_or_unproven_is_recorded() {
     }
 }
 
-// ----------------------------------------------------------------- forget
-
-// Go: TestForget: "second forget should error since entry is gone"; a
-// forgotten session is not found by anything else either. The stream stays
-// (plan 3.1: the name is never reused).
-#[test]
-fn a_forgotten_session_is_gone_to_every_command() {
-    let mut session = Session::minted();
-    let events = session.run(ForgetSession {}).unwrap();
-    assert_eq!(
-        events,
-        [SessionEvent::SessionForgotten(SessionForgotten {})]
-    );
-    assert!(session.state().forgotten);
-    let gone = said(&SessionRejection::Forgotten {
-        harp: HARP.to_string(),
-    });
-    assert_eq!(session.run(ForgetSession {}).unwrap_err(), gone);
-    // Updated per the owner ruling 2026-11-04 (S5 review item 8): a bind is a
-    // fact, so on a forgotten session it records nothing instead of refusing.
-    let pages = session.pages().len();
-    assert!(session.bound(bind("a", "/b")).unwrap().is_empty());
-    assert_eq!(session.pages().len(), pages);
-    assert_eq!(session.run(SetKept { kept: true }).unwrap_err(), gone);
-    assert_eq!(session.run(rename("other-name")).unwrap_err(), gone);
-}
-
 // ------------------------------------------------------------------ purge
 
 // Go: MarkPurged stamps PurgedAt, "so a purged session stays visible,
-// marked". The instant is the page's.
+// marked". The instant is the page's. (Only the importer records a purge
+// since `session remove` destroys, owner ruling 98.)
 #[test]
 fn a_purge_fact_marks_the_session_purged_at_the_instant() {
     let mut session = Session::minted();
@@ -1035,15 +1009,6 @@ fn observations_on_a_stream_with_no_session_record_nothing() {
     let mut session = Session::new();
     assert!(session.fact(prompt_fact(), "hook:prompt:s:p1").is_empty());
     assert!(session.pages().is_empty(), "a fact is never refused");
-}
-
-#[test]
-fn observations_on_a_forgotten_session_record_nothing() {
-    let mut session = Session::minted();
-    session.run(ForgetSession {}).unwrap();
-    let pages = session.pages().len();
-    assert!(session.fact(prompt_fact(), "hook:prompt:s:p1").is_empty());
-    assert_eq!(session.pages().len(), pages);
 }
 
 #[test]

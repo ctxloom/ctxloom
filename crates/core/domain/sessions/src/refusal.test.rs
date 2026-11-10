@@ -23,10 +23,6 @@ fn table() -> Vec<(TypedRefusal, SessionRejection)> {
         ),
         (TypedRefusal::of(&NoSession {}), SessionRejection::NoSession),
         (
-            TypedRefusal::of(&Forgotten { harp: harp() }),
-            SessionRejection::Forgotten { harp: harp() },
-        ),
-        (
             TypedRefusal::of(&HarpInvalid {
                 harp: harp(),
                 reason: "empty".to_string(),
@@ -93,7 +89,7 @@ fn withdraw_refuses(
         SessionRejection,
         rejection,
         Refuses<SessionAggregate, WithdrawSteer>,
-        [NoSession => NoSession, Forgotten{harp} => Forgotten, UnknownMessage{message_id} => UnknownMessage, AlreadyDelivered{message_id} => AlreadyDelivered]
+        [NoSession => NoSession, UnknownMessage{message_id} => UnknownMessage, AlreadyDelivered{message_id} => AlreadyDelivered]
     )
 }
 
@@ -103,10 +99,6 @@ fn a_handler_refuses_with_the_message_of_the_rejection_under_its_declared_status
         (
             SessionRejection::NoSession,
             <NoSession as Refusal>::REFUSAL_STATUS,
-        ),
-        (
-            SessionRejection::Forgotten { harp: harp() },
-            <Forgotten as Refusal>::REFUSAL_STATUS,
         ),
         (
             SessionRejection::UnknownMessage { message_id: id() },

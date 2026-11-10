@@ -8,10 +8,9 @@ use std::io::{self, Write};
 use angzarr_diagnostic::{Arg, Diagnostic};
 use angzarr_presentation::text;
 use serde::Serialize;
-use sessions_application::{
-    stamp, Class, FilePlan, ImportReport, PlanItem, Removal, Renamed, Scope, TranscriptRow, View,
-    NO_SUMMARY,
-};
+use sessions_application::{stamp, ImportReport, Renamed, TranscriptRow, View, NO_SUMMARY};
+#[cfg(feature = "session-destroy")]
+use sessions_application::{Class, FilePlan, PlanItem, Removal};
 
 /// One session as `session list` and `search` row it.
 #[derive(Serialize)]
@@ -217,17 +216,16 @@ pub(crate) struct KeepDoc {
 }
 
 /// One file in a removal's plan, as json.
+#[cfg(feature = "session-destroy")]
 #[derive(Serialize)]
 struct ItemDoc {
     path: String,
     rel: String,
     class: &'static str,
     bytes: u64,
-    action: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reason: Option<String>,
 }
 
+#[cfg(feature = "session-destroy")]
 impl ItemDoc {
     fn of(item: &PlanItem) -> ItemDoc {
         ItemDoc {
@@ -235,12 +233,11 @@ impl ItemDoc {
             rel: item.rel.clone(),
             class: class(item.class),
             bytes: item.bytes,
-            action: item.action,
-            reason: item.reason.clone(),
         }
     }
 }
 
+#[cfg(feature = "session-destroy")]
 fn class(class: Class) -> &'static str {
     match class {
         Class::Machine => "machine",
@@ -248,31 +245,31 @@ fn class(class: Class) -> &'static str {
     }
 }
 
-/// The file half of a removal, as Go's `PurgeSessionResult`.
+#[cfg(feature = "session-destroy")]
+/// The file half of a removal: the session's whole directory.
 #[derive(Serialize)]
 struct FilesDoc {
     harp: String,
     applied: bool,
     destroy: Vec<ItemDoc>,
-    keep: Vec<ItemDoc>,
     bytes_freed: u64,
-    populations: [&'static str; 1],
 }
 
-/// `session remove`'s answer, naming each artifact separately: a single
-/// "removed: true" could not tell that the index entry went and the files did
-/// not.
+#[cfg(feature = "session-destroy")]
+/// `session remove`'s answer: the destroy of the session, its files named,
+/// and how many events of it (and of its runs) went from the store.
 #[derive(Serialize)]
 pub(crate) struct RemovalDoc {
     harp: String,
     applied: bool,
-    index_entry_removed: bool,
+    events_destroyed: u64,
     files: FilesDoc,
     /// The scratch worktrees a purge reached, when it reached any.
     #[serde(skip_serializing_if = "Option::is_none")]
     worktrees: Option<isolation_application::Report>,
 }
 
+#[cfg(feature = "session-destroy")]
 impl RemovalDoc {
     pub(crate) fn of(
         removal: &Removal,
@@ -280,28 +277,26 @@ impl RemovalDoc {
     ) -> RemovalDoc {
         let FilePlan {
             destroy,
-            keep,
             bytes_freed,
         } = &removal.files;
         RemovalDoc {
             harp: removal.harp.clone(),
             applied: removal.applied,
-            index_entry_removed: removal.index_entry_removed,
+            events_destroyed: removal.events_destroyed,
             files: FilesDoc {
                 harp: removal.harp.clone(),
                 applied: removal.applied,
                 destroy: destroy.iter().map(ItemDoc::of).collect(),
-                keep: keep.iter().map(ItemDoc::of).collect(),
                 bytes_freed: *bytes_freed,
-                populations: ["transcript"],
             },
             worktrees: worktrees.cloned(),
         }
     }
 }
 
-/// A summary line, then a table of every file looked at (the destroys first,
-/// then every kept file with its reason), then one line for the index entry.
+#[cfg(feature = "session-destroy")]
+/// A summary line, then a table of every file the destroy takes, then one
+/// line for the session itself.
 pub(crate) fn removal_text(removal: &Removal, out: &mut dyn Write) -> io::Result<()> {
     let files = &removal.files;
     let verb = if removal.applied {
@@ -311,7 +306,7 @@ pub(crate) fn removal_text(removal: &Removal, out: &mut dyn Write) -> io::Result
     };
     writeln!(
         out,
-        "session {} (transcript) \u{2014} {verb} {} file(s) ({} byte(s) freed)",
+        "session {} \u{2014} {verb} {} file(s) ({} byte(s) freed)",
         removal.harp,
         files.destroy.len(),
         files.bytes_freed
@@ -319,32 +314,28 @@ pub(crate) fn removal_text(removal: &Removal, out: &mut dyn Write) -> io::Result
     let rows: Vec<Vec<String>> = files
         .destroy
         .iter()
-        .chain(&files.keep)
         .map(|i| {
             vec![
                 i.rel.clone(),
                 class(i.class).to_string(),
-                i.action.to_string(),
                 i.bytes.to_string(),
-                i.reason.clone().unwrap_or_default(),
             ]
         })
         .collect();
     if rows.is_empty() {
         writeln!(out, "(nothing found in this session's directory)")?;
     } else {
-        write!(
-            out,
-            "{}",
-            table(&["PATH", "CLASS", "ACTION", "BYTES", "REASON"], &rows)
-        )?;
+        write!(out, "{}", table(&["PATH", "CLASS", "BYTES"], &rows))?;
     }
-    match (removal.scope, removal.index_entry_removed) {
-        (Scope::Remove, true) => writeln!(out, "index entry {}: removed", removal.harp),
-        (Scope::Remove, false) => writeln!(out, "index entry {}: would be removed", removal.harp),
-        _ => writeln!(
+    match removal.applied {
+        true => writeln!(
             out,
-            "index entry {}: kept (the session stays listed)",
+            "session {}: destroyed, {} event(s) of it and its runs; its name stays taken",
+            removal.harp, removal.events_destroyed
+        ),
+        false => writeln!(
+            out,
+            "session {}: would be destroyed, its events and its runs' with it; its name stays taken",
             removal.harp
         ),
     }

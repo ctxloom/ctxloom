@@ -153,21 +153,29 @@ undone if a later one fails; a removed or destroyed session's name stays
 claimed. The refusal code of a taken name is `sessions-names-taken` (the
 crate-prefix rule).
 
-`session purge` DESTROYS a session (owner rulings 94, 94a-d), and exists only
-under the cargo feature `session-destroy` (binary -> `ctxloom-wiring` ->
-`session-cli`; `session sweep`, whose apply is that destroy, too;
-`scripts/plain-destroy-check.sh`, run by `just build`, holds the plain binary
-to not knowing either; the acceptance tests build with it, and `session-cli` dev-depends on
-itself with it, so its tests and `--all-targets` lint compile the destroy; no
-`feature_rules` entry, which the mutation harness would pass to every
-package it builds). A destroy purges, from
-the store, the session's stream and each run stream UUIDv5(session, 1..=n),
-each guarded by the head just read (retried on a conflict), then removes the
-session's directory and lock; the name's claim is kept. A hook fact
-redelivered after it finds no session and records nothing. There is no
-transcript destroyer of its own (`session transcript purge` is gone): the
-conversation is the session's stream. `session remove` forgets the session
-(its events stay) and destroys its native history.
+`session remove` DESTROYS a session (owner rulings 94, 94a-d, 98), and exists
+only under the cargo feature `session-destroy` (binary -> `ctxloom-wiring` ->
+`session-cli`; `session sweep`, whose apply is that destroy, too). There is
+one deleting verb: `session purge` is gone in every build, and a plain build
+has no deleting verb at all (accepted cost: it cannot hide a session from the
+listings); `scripts/plain-destroy-check.sh`, run by `just build`, holds the
+plain binary to knowing none of `remove`, `purge` or `sweep`. The acceptance
+tests build with the feature, and `session-cli` dev-depends on itself with
+it, so its tests and `--all-targets` lint compile the destroy (no
+`feature_rules` entry: the mutation recipe refuses one). A destroy purges,
+from the store, the session's stream and each run stream UUIDv5(session,
+1..=n), each guarded by the head just read (retried on a conflict), then
+removes the session's whole directory (authored files too, a login link never
+followed) and its lock; the name's claim is kept. The streams go first, so a
+failure removing the directory leaves a session nothing lists. A hook fact
+redelivered after it finds no session and records nothing. It is refused, as
+before, for a session whose lock does not prove it ended (held, or none)
+unless `--even-if-live`, for a kept one, and within the transcript retention.
+There is no forget-but-keep (`ForgetSession`, `SessionForgotten` and the
+`sessions-forgotten` refusal are gone) and no transcript destroyer of its own
+(`session transcript purge` is gone): the conversation is the session's
+stream. `RecordPurge`/`SessionPurged` remain for `session import` alone (Go's
+`purged_at`), pending the owner's word (ruling 100 deletes them).
 
 Deliberate divergence from Go: `session remove` takes `--even-if-live`, as its
 own refusal text already told the user to use.

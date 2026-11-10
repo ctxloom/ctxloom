@@ -60,11 +60,9 @@ fn exit_codes_follow_the_rule() {
         limit: 24,
         length: 30,
     }));
-    let forgotten = AppError::Rejected(Report::of(&SessionRejection::Forgotten {
-        harp: "h".to_string(),
-    }));
+    let none = AppError::Rejected(Report::of(&SessionRejection::NoSession));
     assert_eq!((invalid.exit_code(), too_long.exit_code()), (2, 2));
-    assert_eq!(forgotten.exit_code(), 1);
+    assert_eq!(none.exit_code(), 1);
     assert_eq!(AppError::Failed(Report::new("x")).exit_code(), 1);
 }
 

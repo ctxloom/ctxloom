@@ -30,7 +30,6 @@ pub struct SessionState {
     pub started_at: Timestamp,
     pub ended_at: Option<Timestamp>,
     pub purged_at: Option<Timestamp>,
-    pub forgotten: bool,
     /// The session's depth in its tree (minimal lineage, owner ruling
     /// 2026-11-04, S5 review Q2 (b)); 0 for an owner.
     pub depth: u32,
@@ -91,7 +90,6 @@ impl From<SessionState> for sessions_proto::v1::SessionState {
             started_at: Some(value.started_at),
             ended_at: value.ended_at,
             purged_at: value.purged_at,
-            forgotten: value.forgotten,
             depth: value.depth,
             incarnation: value.incarnation,
             open_incarnation: value.open_incarnation,
@@ -195,7 +193,6 @@ impl TryFrom<sessions_proto::v1::SessionState> for SessionState {
             })?,
             ended_at: value.ended_at,
             purged_at: value.purged_at,
-            forgotten: value.forgotten,
             depth: value.depth,
             incarnation: value.incarnation,
             open_incarnation: value.open_incarnation,

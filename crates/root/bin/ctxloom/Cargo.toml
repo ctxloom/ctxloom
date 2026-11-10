@@ -49,8 +49,8 @@ duration-text.workspace = true
 project-dir.workspace = true
 
 [features]
-# `session purge`, the destroy of a whole session (owner rulings 94, 94b):
-# off in a plain build, where the verb is unknown (scripts/plain-destroy-check.sh,
+# `session remove` (and `sweep`), the destroy of a whole session (owner
+# rulings 94, 94b, 98): off in a plain build, where the verbs are unknown (scripts/plain-destroy-check.sh,
 # run by `just build`). The acceptance tests build the binary with it.
 session-destroy = ["ctxloom-wiring/session-destroy"]
 # The test-only commands (`ctxloom test ...`): the exit ladder, the --format

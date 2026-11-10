@@ -18,15 +18,14 @@ use angzarr_embedded_macros::{aggregate, applies, handles_cmd, handles_fact};
 
 use crate::refusal::refuse;
 use crate::{
-    adopted, end_recorded, engine_bound, forgotten, inbox, kept_changed, lifeline, live, purged,
-    record, renamed, session_minted, AdoptRotations, AlreadyDelivered, BindEngineSession,
-    ChildCannotStop, ClaimMessage, DeliverMessage, EndRecorded, EngineSessionBound, FailMessage,
-    ForgetSession, Forgotten, HarpInvalid, HarpTooLong, IncarnationEnded, IncarnationOwed,
-    KeptChanged, MessageArrived, MessageClaimed, MessageDelivered, MessageFailed, MintSession,
-    NoSession, RecordEnd, RecordIncarnationEnded, RecordMessageArrived, RecordPurge, RenameSession,
-    RenamedTo, SessionAdopted, SessionCommand, SessionEvent, SessionExists, SessionForgotten,
-    SessionLive, SessionMinted, SessionPurged, SessionRejection, SessionState, SetKept,
-    SteerWithdrawn, StopOrdered, StopSession, UnknownMessage, WithdrawSteer,
+    adopted, end_recorded, engine_bound, inbox, kept_changed, lifeline, live, purged, record,
+    renamed, session_minted, AdoptRotations, AlreadyDelivered, BindEngineSession, ChildCannotStop,
+    ClaimMessage, DeliverMessage, EndRecorded, EngineSessionBound, FailMessage, HarpInvalid,
+    HarpTooLong, IncarnationEnded, IncarnationOwed, KeptChanged, MessageArrived, MessageClaimed,
+    MessageDelivered, MessageFailed, MintSession, NoSession, RecordEnd, RecordIncarnationEnded,
+    RecordMessageArrived, RecordPurge, RenameSession, RenamedTo, SessionAdopted, SessionCommand,
+    SessionEvent, SessionExists, SessionLive, SessionMinted, SessionPurged, SessionRejection,
+    SessionState, SetKept, SteerWithdrawn, StopOrdered, StopSession, UnknownMessage, WithdrawSteer,
 };
 use crate::{
     AssistantTextShown, Compacted, PromptSubmitted, RecordAssistantText, RecordCompaction,
@@ -90,7 +89,7 @@ impl SessionAggregate {
     }
 
     /// Mark or unmark the transcript kept; `None` when it changes nothing.
-    #[handles_cmd(SetKept, refuses(NoSession, Forgotten))]
+    #[handles_cmd(SetKept, refuses(NoSession))]
     fn set_kept(
         &self,
         cmd: SetKept,
@@ -102,7 +101,7 @@ impl SessionAggregate {
                 SessionRejection,
                 rejection,
                 Refuses<Self, SetKept>,
-                [NoSession => NoSession, Forgotten{harp} => Forgotten]
+                [NoSession => NoSession]
             )
         })
     }
@@ -110,7 +109,7 @@ impl SessionAggregate {
     /// Rename the session; `None` when the name is the one held.
     #[handles_cmd(
         RenameSession,
-        refuses(NoSession, Forgotten, HarpInvalid, HarpTooLong, SessionLive)
+        refuses(NoSession, HarpInvalid, HarpTooLong, SessionLive)
     )]
     fn rename(
         &self,
@@ -123,13 +122,13 @@ impl SessionAggregate {
                 SessionRejection,
                 rejection,
                 Refuses<Self, RenameSession>,
-                [NoSession => NoSession, Forgotten{harp} => Forgotten, HarpInvalid{harp, reason} => HarpInvalid, HarpTooLong{harp, limit, length} => HarpTooLong, SessionLive{harp} => SessionLive]
+                [NoSession => NoSession, HarpInvalid{harp, reason} => HarpInvalid, HarpTooLong{harp, limit, length} => HarpTooLong, SessionLive{harp} => SessionLive]
             )
         })
     }
 
     /// Record that a purge destroyed the transcript.
-    #[handles_cmd(RecordPurge, refuses(NoSession, Forgotten))]
+    #[handles_cmd(RecordPurge, refuses(NoSession))]
     fn record_purge(
         &self,
         cmd: RecordPurge,
@@ -141,31 +140,13 @@ impl SessionAggregate {
                 SessionRejection,
                 rejection,
                 Refuses<Self, RecordPurge>,
-                [NoSession => NoSession, Forgotten{harp} => Forgotten]
-            )
-        })
-    }
-
-    /// Forget the session, keeping its stream.
-    #[handles_cmd(ForgetSession, refuses(NoSession, Forgotten))]
-    fn forget(
-        &self,
-        cmd: ForgetSession,
-        ctx: &Context,
-    ) -> Result<SessionForgotten, Failed<Refuses<Self, ForgetSession>>> {
-        let _ = (cmd, ctx);
-        forgotten(&self.session).map_err(|rejection| {
-            refuse!(
-                SessionRejection,
-                rejection,
-                Refuses<Self, ForgetSession>,
-                [NoSession => NoSession, Forgotten{harp} => Forgotten]
+                [NoSession => NoSession]
             )
         })
     }
 
     /// Adopt rotations the lineage lacks; `None` when it lacks none.
-    #[handles_cmd(AdoptRotations, refuses(NoSession, Forgotten))]
+    #[handles_cmd(AdoptRotations, refuses(NoSession))]
     fn adopt(
         &self,
         cmd: AdoptRotations,
@@ -177,13 +158,13 @@ impl SessionAggregate {
                 SessionRejection,
                 rejection,
                 Refuses<Self, AdoptRotations>,
-                [NoSession => NoSession, Forgotten{harp} => Forgotten]
+                [NoSession => NoSession]
             )
         })
     }
 
     /// Record when the last run ended.
-    #[handles_cmd(RecordEnd, refuses(NoSession, Forgotten))]
+    #[handles_cmd(RecordEnd, refuses(NoSession))]
     fn record_end(
         &self,
         cmd: RecordEnd,
@@ -195,13 +176,13 @@ impl SessionAggregate {
                 SessionRejection,
                 rejection,
                 Refuses<Self, RecordEnd>,
-                [NoSession => NoSession, Forgotten{harp} => Forgotten]
+                [NoSession => NoSession]
             )
         })
     }
 
     /// Order the session's runs to stop; refused from a child.
-    #[handles_cmd(StopSession, refuses(NoSession, Forgotten, ChildCannotStop))]
+    #[handles_cmd(StopSession, refuses(NoSession, ChildCannotStop))]
     fn stop_session(
         &self,
         cmd: StopSession,
@@ -213,16 +194,13 @@ impl SessionAggregate {
                 SessionRejection,
                 rejection,
                 Refuses<Self, StopSession>,
-                [NoSession => NoSession, Forgotten{harp} => Forgotten, ChildCannotStop{depth} => ChildCannotStop]
+                [NoSession => NoSession, ChildCannotStop{depth} => ChildCannotStop]
             )
         })
     }
 
     /// Withdraw a queued steer.
-    #[handles_cmd(
-        WithdrawSteer,
-        refuses(NoSession, Forgotten, UnknownMessage, AlreadyDelivered)
-    )]
+    #[handles_cmd(WithdrawSteer, refuses(NoSession, UnknownMessage, AlreadyDelivered))]
     fn withdraw_steer(
         &self,
         cmd: WithdrawSteer,
@@ -234,7 +212,7 @@ impl SessionAggregate {
                 SessionRejection,
                 rejection,
                 Refuses<Self, WithdrawSteer>,
-                [NoSession => NoSession, Forgotten{harp} => Forgotten, UnknownMessage{message_id} => UnknownMessage, AlreadyDelivered{message_id} => AlreadyDelivered]
+                [NoSession => NoSession, UnknownMessage{message_id} => UnknownMessage, AlreadyDelivered{message_id} => AlreadyDelivered]
             )
         })
     }
@@ -441,11 +419,6 @@ impl SessionAggregate {
 
     #[applies(SessionPurged)]
     fn session_purged(&mut self, event: SessionPurged, page: &PageContext) {
-        fold(&mut self.session, event.into(), page);
-    }
-
-    #[applies(SessionForgotten)]
-    fn session_forgotten(&mut self, event: SessionForgotten, page: &PageContext) {
         fold(&mut self.session, event.into(), page);
     }
 

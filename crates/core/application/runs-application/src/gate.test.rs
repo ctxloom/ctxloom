@@ -293,7 +293,7 @@ fn the_fact_allowlists_hold_no_command() {
             url::<runs::RequestStop>(),
             url::<sessions::MintSession>(),
             url::<sessions::RenameSession>(),
-            url::<sessions::ForgetSession>(),
+            url::<sessions::SetKept>(),
             url::<sessions::StopSession>(),
         ] {
             assert!(!allowlist.permits_fact(&command), "{command} as a fact");

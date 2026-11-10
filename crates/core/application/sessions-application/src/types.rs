@@ -47,35 +47,12 @@ pub struct Kept {
     pub dead_letters: Vec<DeadLetter>,
 }
 
-/// What a destroyer takes of a session.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum Scope {
-    /// The engine's native history and the index entry (`session remove`):
-    /// the session's events stay in the store, forgotten.
-    #[default]
-    Remove,
-    /// The whole session, DESTROYED (owner rulings 94, 94b; `session purge`,
-    /// the session-destroy feature's): every event of its stream and of each
-    /// of its runs' purged from the store, its directory and lock removed.
-    /// Its name stays claimed (94c).
-    Purge,
-}
-
-impl Scope {
-    /// The command that applies this scope, as the person spells it.
-    pub fn verb(self) -> &'static str {
-        match self {
-            Scope::Remove => "session remove",
-            Scope::Purge => "session purge",
-        }
-    }
-}
-
-/// Remove a session: its transcript and its index entry (or, by `scope`, one
-/// of the destroyers that leaves it listed).
+/// Remove a session: DESTROY it (owner rulings 94, 94b, 98; `session
+/// remove`, the session-destroy feature's): every event of its stream and of
+/// each of its runs' purged from the store, its directory and lock removed.
+/// Its name stays claimed (94c).
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct RemoveRequest {
-    pub scope: Scope,
     pub project: Option<String>,
     pub harp: String,
     /// Apply the plan (`--yes`); without it the use case only reports.
@@ -84,49 +61,46 @@ pub struct RemoveRequest {
     pub even_if_live: bool,
 }
 
-/// What a file in a session's directory is to a removal (Go's purge classes).
+/// The command that removes a session, as the person spells it.
+pub const REMOVE_VERB: &str = "session remove";
+
+/// What a file in a session's directory is to a removal (Go's purge classes):
+/// both are destroyed, and the plan names which is which.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Class {
-    /// The machine-written conversation: destroyed.
+    /// The machine-written conversation.
     Machine,
-    /// Anything else: never destroyed, only named.
+    /// Anything else: written by a person, destroyed with the session.
     Authored,
 }
 
-/// One file in a removal's plan.
+/// One file in a removal's plan: every file of the session's directory is
+/// destroyed with it.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct PlanItem {
     pub path: String,
     pub rel: String,
     pub class: Class,
     pub bytes: u64,
-    /// `destroy` or `keep`.
-    pub action: &'static str,
-    /// Why it is kept; always set for `keep`, so a kept file is never
-    /// silently kept.
-    pub reason: Option<String>,
 }
 
-/// The files a removal destroys and the ones it names and leaves.
+/// The files a removal destroys: the session's whole directory.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct FilePlan {
     pub destroy: Vec<PlanItem>,
-    pub keep: Vec<PlanItem>,
     /// The bytes freed: zero on a report-only run.
     pub bytes_freed: u64,
 }
 
-/// What a removal came to: the plan, whether it was applied, whether the index
-/// entry went, and why it refused if it did.
+/// What a removal came to: the plan, whether it was applied (the session
+/// destroyed), and why it refused if it did.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Removal {
-    pub scope: Scope,
     pub harp: String,
     pub applied: bool,
-    pub index_entry_removed: bool,
     pub files: FilePlan,
-    /// How many events a destroy purged from the store (its session's and
-    /// its runs'); zero for any other removal, and on a report.
+    /// How many events the destroy purged from the store (its session's and
+    /// its runs'); zero on a report.
     pub events_destroyed: u64,
     pub refusal: Option<Refusal>,
     pub dead_letters: Vec<DeadLetter>,

@@ -13,8 +13,8 @@
 //! The rules are Go's, from `internal/core/sessions` (release/0.7): its
 //! `BindSession` (a repeat of the bound id records nothing; a different id
 //! with a transcript is a rotation that keeps the displaced binding; one
-//! without never displaces), `AppendRotations`, `SetKeep`, `Rename`,
-//! `Forget` and `harp.Validate`.
+//! without never displaces), `AppendRotations`, `SetKeep`, `Rename` and
+//! `harp.Validate`.
 
 // Generated code: the event enum's conversions grow a line per event.
 #[allow(dead_code, clippy::too_many_lines)]
@@ -96,7 +96,6 @@ pub fn apply(state: &mut SessionState, event: &SessionEvent, recorded_at: Timest
         SessionEvent::SessionPurged(purged) => {
             state.purged_at = Some(purged.at.unwrap_or(recorded_at));
         }
-        SessionEvent::SessionForgotten(_) => state.forgotten = true,
         SessionEvent::SessionAdopted(adopted) => {
             for rotation in &adopted.rotations {
                 if !state
@@ -151,7 +150,7 @@ pub(crate) fn record<E: angzarr_embedded::markup::DomainMessage>(
 }
 
 /// What a mint records: refused when the stream is `taken` (it holds a
-/// session, forgotten or not: its id is never reused) or the harp cannot be a
+/// session: its id is never reused) or the harp cannot be a
 /// name.
 fn session_minted(
     held: &SessionState,
@@ -275,12 +274,6 @@ fn purged(held: &SessionState, purge: &RecordPurge) -> Result<SessionPurged, Ses
     })
 }
 
-/// What a forget records: refused for a session already forgotten.
-fn forgotten(held: &SessionState) -> Result<SessionForgotten, SessionRejection> {
-    live(held)?;
-    Ok(SessionForgotten {})
-}
-
 /// What an adopt records: the rotations new to the lineage (not the current
 /// binding, not already in it, once each); `None` when none is.
 fn adopted(
@@ -313,15 +306,10 @@ fn end_recorded(held: &SessionState, end: &RecordEnd) -> Result<EndRecorded, Ses
     Ok(EndRecorded { at: end.at })
 }
 
-/// The session, if the stream holds one that was not forgotten.
+/// The session, if the stream holds one.
 pub(crate) fn live(state: &SessionState) -> Result<&SessionState, SessionRejection> {
     if state.harp.is_empty() {
         return Err(SessionRejection::NoSession);
-    }
-    if state.forgotten {
-        return Err(SessionRejection::Forgotten {
-            harp: state.harp.clone(),
-        });
     }
     Ok(state)
 }

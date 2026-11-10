@@ -12,8 +12,6 @@ pub enum FilesError {
         path: String,
         ext_err_txt: String,
     },
-    /// A path to remove that leaves the session's directory.
-    Outside { rel: String },
     /// An output directory cannot move to where something already is.
     OutputExists { path: String },
     /// A session directory already under the name a rename moves one to.
@@ -40,7 +38,6 @@ impl Diagnostic for FilesError {
     fn code(&self) -> &str {
         match self {
             FilesError::Io { .. } => code!("io"),
-            FilesError::Outside { .. } => code!("outside"),
             FilesError::OutputExists { .. } => code!("output-exists"),
             FilesError::SessionExists { .. } => code!("session-exists"),
         }
@@ -57,7 +54,6 @@ impl Diagnostic for FilesError {
                 ("path", path.as_str().into()),
                 ("ext_err_txt", ext_err_txt.as_str().into()),
             ],
-            FilesError::Outside { rel } => vec![("rel", rel.as_str().into())],
             FilesError::OutputExists { path } | FilesError::SessionExists { path } => {
                 vec![("path", path.as_str().into())]
             }
@@ -79,9 +75,6 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             op: "read".to_string(),
             path: "/home/u/.ctxloom/sessions/x".to_string(),
             ext_err_txt: "permission denied".to_string(),
-        }),
-        Box::new(FilesError::Outside {
-            rel: "../x".to_string(),
         }),
         Box::new(FilesError::SessionExists {
             path: "/work/proj/.ctxloom/sessions/b".to_string(),

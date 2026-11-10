@@ -1,8 +1,8 @@
-//! Writing sessions: keep, bind, rename, remove and destroy. A write finds its
-//! session as a read does, then runs one command through angzarr-embedded's
-//! kernel (angzarr-embedded-runner's `Runner`), which retries it. A destroy
-//! (owner rulings 94, 94b) runs no command: it purges the session's streams
-//! from the store, head-guarded, and removes its directory.
+//! Writing sessions: keep, bind, rename and remove. A write finds its session
+//! as a read does, then runs one command through angzarr-embedded's kernel
+//! (angzarr-embedded-runner's `Runner`), which retries it. A remove is a
+//! destroy (owner rulings 94, 94b, 98) and runs no command: it purges the
+//! session's streams from the store, head-guarded, and removes its directory.
 
 use angzarr_diagnostic::Report;
 use angzarr_embedded::v1::{CommandBook, Cover, Uuid};
@@ -17,15 +17,15 @@ use ports::{Clock, CommandIds, Delay, Jitter, Project, ProjectIdentity};
 use session_index::{Retained, Retention, SessionRecord};
 use session_ports::{Liveness, LockState, ProjectStores, SessionFiles};
 use sessions::{
-    claim_root, validate_rename, BindEngineSession, ClaimName, ForgetSession, NameClaimAggregate,
-    NameClaimCommand, RecordPurge, ReleaseName, RenameSession, SessionAggregate, SessionCommand,
+    claim_root, validate_rename, BindEngineSession, ClaimName, NameClaimAggregate,
+    NameClaimCommand, ReleaseName, RenameSession, SessionAggregate, SessionCommand,
     SessionRejection, SetKept, NAMES_DOMAIN, SESSION_DOMAIN,
 };
 
 use crate::read::Reading;
 use crate::{
     failed, AppError, BindRequest, Bound, Class, DeadLetter, FilePlan, KeepRequest, Kept, PlanItem,
-    Refusal, Removal, RemoveRequest, RenameRequest, Renamed, Scope,
+    Refusal, Removal, RemoveRequest, RenameRequest, Renamed, REMOVE_VERB,
 };
 
 /// A write's way to its sessions and the kernel, borrowed from the service
@@ -326,19 +326,20 @@ where
             .map_err(AppError::Files)
     }
 
+    /// Remove a session: report its destroy, and on `yes` apply it, unless
+    /// it is refused (its lock does not prove it ended, without
+    /// `even_if_live`; it is kept; it is within its retention).
     pub(crate) async fn remove(&mut self, request: RemoveRequest) -> Result<Removal, AppError> {
         let (project, record) = self
             .read
             .find(request.project.as_deref(), &request.harp)
             .await?;
         let harp = record.harp.clone();
-        let plan = self.plan(&harp, request.scope)?;
-        let refusal = self.refusal(&record, request.even_if_live, request.scope)?;
-        let mut removal = Removal {
-            scope: request.scope,
+        let plan = self.plan(&harp)?;
+        let refusal = self.refusal(&record, request.even_if_live)?;
+        let removal = Removal {
             harp,
             applied: false,
-            index_entry_removed: false,
             files: FilePlan {
                 bytes_freed: 0,
                 ..plan
@@ -350,45 +351,10 @@ where
         if removal.refusal.is_some() || !request.yes {
             return Ok(removal);
         }
-        if request.scope == Scope::Purge {
-            return self.destroy(&project, &record, removal).await;
-        }
-        // The purge is recorded BEFORE any file is unlinked: if this dies
-        // between the two, the index already reads "purged" over its
-        // now-missing transcript, not a live session that lost it.
-        let destroy: Vec<String> = removal
-            .files
-            .destroy
-            .iter()
-            .map(|i| i.rel.clone())
-            .collect();
-        if !destroy.is_empty() {
-            let bytes = removal.files.destroy.iter().map(|i| i.bytes).sum();
-            self.commit(
-                &project,
-                &record,
-                RecordPurge {
-                    files: destroy.len() as u64,
-                    bytes,
-                    at: None,
-                },
-            )
-            .await?;
-            let freed = self
-                .read
-                .files
-                .destroy(&record.harp, &destroy)
-                .map_err(AppError::Files)?;
-            removal.files.bytes_freed = freed;
-        }
-        removal.applied = true;
-        self.commit(&project, &record, ForgetSession {}).await?;
-        removal.index_entry_removed = true;
-        removal.dead_letters = std::mem::take(self.dead_letters);
-        Ok(removal)
+        self.destroy(&project, &record, removal).await
     }
 
-    /// Destroy `record` (owner rulings 94, 94b): purge its stream and the
+    /// Destroy `record` (owner rulings 94, 94b, 98): purge its stream and the
     /// stream of each of its runs (UUIDv5(session, 1..=n)), each guarded by
     /// the head just read, then remove its directory and lock. The name's
     /// claim is kept (94c). The streams go first: a directory left by a
@@ -422,41 +388,37 @@ where
             .destroy_session(&record.harp)
             .map_err(AppError::Files)?;
         removal.applied = true;
-        removal.index_entry_removed = true;
+        removal.dead_letters = std::mem::take(self.dead_letters);
         Ok(removal)
     }
 
-    /// What removing `harp` would do to its files: the machine-written
-    /// conversation (the engine's native history, and a transcript an older
-    /// ctxloom left) destroyed, everything else named and left; a destroy
-    /// takes the whole directory.
-    fn plan(&mut self, harp: &str, scope: Scope) -> Result<FilePlan, AppError> {
+    /// What removing `harp` destroys of its files: the whole directory, the
+    /// machine-written conversation (the engine's native history, and a
+    /// transcript an older ctxloom left) and everything else, each named by
+    /// its class.
+    fn plan(&mut self, harp: &str) -> Result<FilePlan, AppError> {
         let survey = self.read.files.survey(harp).map_err(AppError::Files)?;
-        let mut plan = FilePlan::default();
-        for file in survey {
-            let machine = file.rel.starts_with("transcripts/") || file.rel.starts_with("native/");
-            let (class, action, reason, into) = if machine {
-                (Class::Machine, "destroy", None, &mut plan.destroy)
-            } else if scope == Scope::Purge {
-                (Class::Authored, "destroy", None, &mut plan.destroy)
-            } else {
-                (
-                    Class::Authored,
-                    "keep",
-                    Some("authored: never destroyed".to_string()),
-                    &mut plan.keep,
-                )
-            };
-            into.push(PlanItem {
-                path: file.path,
-                rel: file.rel,
-                class,
-                bytes: file.bytes,
-                action,
-                reason,
-            });
-        }
-        Ok(plan)
+        let destroy = survey
+            .into_iter()
+            .map(|file| {
+                let machine =
+                    file.rel.starts_with("transcripts/") || file.rel.starts_with("native/");
+                PlanItem {
+                    path: file.path,
+                    rel: file.rel,
+                    class: if machine {
+                        Class::Machine
+                    } else {
+                        Class::Authored
+                    },
+                    bytes: file.bytes,
+                }
+            })
+            .collect();
+        Ok(FilePlan {
+            destroy,
+            bytes_freed: 0,
+        })
     }
 
     /// Why `record` may not be removed, if it may not: its lock does not prove
@@ -466,7 +428,6 @@ where
         &mut self,
         record: &SessionRecord,
         even_if_live: bool,
-        scope: Scope,
     ) -> Result<Option<Refusal>, AppError> {
         let harp = record.harp.clone();
         let lock = self.read.liveness.lock_state(&harp);
@@ -478,7 +439,7 @@ where
             return Ok(Some(Refusal::NotProvenDead {
                 harp,
                 reason: reason.to_string(),
-                verb: scope.verb().to_string(),
+                verb: REMOVE_VERB.to_string(),
             }));
         }
         // The newest of its engine's native history and its own capture

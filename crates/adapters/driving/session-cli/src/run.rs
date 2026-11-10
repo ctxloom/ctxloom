@@ -16,18 +16,23 @@ use reclaim_application::{purge_cutoff, ReclaimError, SweepRequest};
 use sessions_application::Timestamp;
 use sessions_application::{
     dead_letter_line, AppError, DeadLetter, ImportRequest, ImportService, KeepRequest, ListQuery,
-    RemoveRequest, RemovedNothing, RenameRequest, Scope, SearchQuery, SessionService, ShowQuery,
-    State, TranscriptQuery, View, STATES,
-};
-
-use crate::render::{
-    conversation_text, import_text, removal_text, rows_text, show_text, transcripts_text,
-    worktrees_text, EditDoc, ImportDoc, KeepDoc, RemovalDoc, Row, ShowDoc, TranscriptsDoc,
+    RemovedNothing, RenameRequest, SearchQuery, SessionService, ShowQuery, State, TranscriptQuery,
+    View, STATES,
 };
 #[cfg(feature = "session-destroy")]
-use crate::{render::sweep_text, SweepArgs};
+use sessions_application::{RemoveRequest, REMOVE_VERB};
+
+use crate::render::{
+    conversation_text, import_text, rows_text, show_text, transcripts_text, worktrees_text,
+    EditDoc, ImportDoc, KeepDoc, Row, ShowDoc, TranscriptsDoc,
+};
+#[cfg(feature = "session-destroy")]
 use crate::{
-    CliFault, EditArgs, ListArgs, RemoveArgs, Session, SessionVerb, Transcript, TranscriptListArgs,
+    render::{removal_text, sweep_text, RemovalDoc},
+    RemoveArgs, SweepArgs,
+};
+use crate::{
+    CliFault, EditArgs, ListArgs, Session, SessionVerb, Transcript, TranscriptListArgs,
     TranscriptVerb, Worktrees, WorktreesVerb,
 };
 
@@ -206,9 +211,8 @@ async fn execute<S: SessionService + ImportService + WorktreeUse + SweepConfig>(
             })?;
             Ok(dead_letters(&kept.dead_letters))
         }
-        Some(SessionVerb::Remove(args)) => remove(service, args, Scope::Remove, format, out).await,
         #[cfg(feature = "session-destroy")]
-        Some(SessionVerb::Purge(args)) => remove(service, args, Scope::Purge, format, out).await,
+        Some(SessionVerb::Remove(args)) => remove(service, args, format, out).await,
         #[cfg(feature = "session-destroy")]
         Some(SessionVerb::Sweep(args)) => sweep(service, args, format, out).await,
         Some(SessionVerb::Import) => {
@@ -313,16 +317,17 @@ async fn edit<S: SessionService>(
     Ok(dead_letters(&renamed.dead_letters))
 }
 
+/// `session remove`: the destroy (owner ruling 98, the session-destroy
+/// feature's), reported, and applied on `--yes`.
+#[cfg(feature = "session-destroy")]
 async fn remove<S: SessionService + WorktreeUse>(
     service: &mut S,
     args: &RemoveArgs,
-    scope: Scope,
     format: Format,
     out: &mut dyn Write,
 ) -> Result<Done, Failure> {
     let removal = service
         .remove(RemoveRequest {
-            scope,
             project: None,
             harp: args.harp.clone(),
             yes: args.yes,
@@ -330,11 +335,11 @@ async fn remove<S: SessionService + WorktreeUse>(
         })
         .await
         .map_err(failure)?;
-    // Emptying a session covers the scratch worktrees living inside it, and
+    // Destroying a session covers the scratch worktrees living inside it, and
     // reaches exactly the verdicts the worktree leaf reaches on its own (Go:
-    // `session purge` drove isolation.ReapWorktrees). A refused purge touches
-    // nothing; a session with no directory has none.
-    let worktrees = if scope == Scope::Purge && removal.refusal.is_none() {
+    // `session purge` drove isolation.ReapWorktrees). A refused removal
+    // touches nothing; a session with no directory has none.
+    let worktrees = if removal.refusal.is_none() {
         match service.worktrees(Some(&args.harp), args.yes) {
             Ok(report) => Some(report).filter(|r| !r.worktrees.is_empty()),
             Err(IsolationError::NoSession { .. }) => None,
@@ -361,7 +366,7 @@ async fn remove<S: SessionService + WorktreeUse>(
             ""
         };
         done.notices.push(Box::new(RemovedNothing {
-            command: format!("ctxloom {} {} --yes{flag}", scope.verb(), args.harp),
+            command: format!("ctxloom {REMOVE_VERB} {} --yes{flag}", args.harp),
         }));
     }
     Ok(done)

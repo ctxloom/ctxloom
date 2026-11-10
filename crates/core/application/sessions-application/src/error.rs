@@ -153,7 +153,7 @@ pub enum Refusal {
         harp: String,
         reason: String,
         /// The command that was run, as the person spelled it (`session
-        /// remove`, `session purge`, `session transcript purge`).
+        /// remove`).
         verb: String,
     },
     /// The session is marked keep.

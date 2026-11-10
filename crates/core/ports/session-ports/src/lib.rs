@@ -120,10 +120,6 @@ pub trait SessionFiles {
     /// worktrees and the scratch).
     fn survey(&mut self, harp: &str) -> Result<Vec<FileItem>, Report>;
 
-    /// Remove the files at `rels` under `harp`'s directory; the bytes freed.
-    /// A file already gone is not a failure.
-    fn destroy(&mut self, harp: &str, rels: &[String]) -> Result<u64, Report>;
-
     /// Move a session's output directory from `from` to `to` (a rename
     /// moves it beside itself, to the new name): `false` when there is
     /// nothing at `from` to move. A move, never a copy then a delete, and

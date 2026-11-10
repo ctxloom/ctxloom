@@ -1,7 +1,8 @@
 //! The session index: a read model a projector folds from a project's
 //! session streams. It is purely derived, so it is no aggregate: it projects
 //! every session stream in a project's store (the store is the collection),
-//! holding every session not forgotten.
+//! holding every session there (a destroyed one's stream is gone, and so is
+//! it).
 //!
 //! - [`SessionIndex`] is the read model, folded one stream's book at a time
 //!   ([`SessionIndex::project`]); [`SessionIndexes`] is it on
@@ -185,13 +186,11 @@ impl SessionIndex {
         }
     }
 
-    /// Every session not forgotten, most recently started first, a tie by
-    /// harp.
+    /// Every session, most recently started first, a tie by harp.
     pub fn records(&self) -> Vec<SessionRecord> {
         let mut records: Vec<SessionRecord> = self
             .streams
             .iter()
-            .filter(|(_, session)| !session.state().forgotten)
             .map(|(root, session)| self.record_of(root, session))
             .collect();
         records.sort_by(|a, b| {
@@ -234,7 +233,7 @@ impl SessionIndex {
             .filter(|text| !text.is_empty())
     }
 
-    /// The session with the stable id `id`, forgotten or not.
+    /// The session with the stable id `id`.
     pub fn find_by_id(&self, id: &str) -> Option<SessionRecord> {
         self.streams
             .iter()

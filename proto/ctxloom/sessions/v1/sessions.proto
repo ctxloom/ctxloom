@@ -5,7 +5,7 @@ syntax = "proto3";
 // store. The harp is only its name. Go's session sidecar
 // (`~/.ctxloom/sessions/<harp>/session.yaml`) is folded here event by
 // event: the mint, the engine binding and its rotations, keep, rename,
-// purge, forget and adopt. Lineage, the inbox, the lifeline and grants
+// purge and adopt. Lineage, the inbox, the lifeline and grants
 // arrive with the slices that need them (S5 to S10).
 package ctxloom.sessions.v1;
 
@@ -43,8 +43,10 @@ message SessionState {
   optional google.protobuf.Timestamp ended_at = 13;
   // When a purge destroyed its transcript; absent until one did.
   optional google.protobuf.Timestamp purged_at = 14;
-  // Forgotten sessions keep their stream (and so their name, plan 3.1).
-  bool forgotten = 15;
+  // 15 was `forgotten`: `session remove` destroys a session now (owner
+  // ruling 98), nothing forgets one.
+  reserved 15;
+  reserved "forgotten";
   // The lineage the mint records (owner ruling 2026-11-04, S5 review Q2 (b)).
   uint32 depth = 16;
   // The run lifeline (plan 3.1) and the inbox, as the fold holds them.
@@ -142,7 +144,7 @@ message MintSession {
 // Record what the SessionStart hook bound: the engine's session id and
 // transcript. A FACT since the owner ruling of 2026-11-04 (S5 review item 8;
 // plan 3.1/4.2/4.3): it already happened, so it is recorded and never refused
-// (a stream holding no session, or a forgotten one, records nothing).
+// (a stream holding no session records nothing).
 // external_id `bind:<session>:<native_id>` (or, for a transcript-only bind,
 // `bind:<session>:path:<transcript_path>`), so a repeat is DUPLICATE.
 // Go's BindSession rules stand: a repeat of the bound id records nothing; a
@@ -166,7 +168,6 @@ message SetKept {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.KeptChanged"]
     refuses: "ctxloom.sessions.v1.NoSession"
-    refuses: "ctxloom.sessions.v1.Forgotten"
   };
 
   bool kept = 1;
@@ -180,7 +181,6 @@ message RenameSession {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.RenamedTo"]
     refuses: "ctxloom.sessions.v1.NoSession"
-    refuses: "ctxloom.sessions.v1.Forgotten"
     refuses: "ctxloom.sessions.v1.HarpInvalid"
     refuses: "ctxloom.sessions.v1.HarpTooLong"
     refuses: "ctxloom.sessions.v1.SessionLive"
@@ -195,30 +195,19 @@ message RenameSession {
   LockEvidence lock = 3;
 }
 
-// Record that a purge destroyed the session's transcript (a fact, from
-// the reclaim effect).
+// Record that Go purged the session's transcript: the importer's alone
+// since `session remove` destroys the session whole (owner ruling 98).
 message RecordPurge {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.SessionPurged"]
     refuses: "ctxloom.sessions.v1.NoSession"
-    refuses: "ctxloom.sessions.v1.Forgotten"
   };
 
   uint64 files = 1;
   uint64 bytes = 2;
   // Left out: the page's `recorded_at`.
   optional google.protobuf.Timestamp at = 3;
-}
-
-// `session remove --yes`: the index entry goes. The stream stays.
-message ForgetSession {
-  option (io.angzarr.v1.command) = {
-    component: "ctxloom.sessions.v1.SessionState"
-    emits: ["ctxloom.sessions.v1.SessionForgotten"]
-    refuses: "ctxloom.sessions.v1.NoSession"
-    refuses: "ctxloom.sessions.v1.Forgotten"
-  };
 }
 
 // Seed rotations the store never recorded (`session adopt --yes`). Each
@@ -229,7 +218,6 @@ message AdoptRotations {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.SessionAdopted"]
     refuses: "ctxloom.sessions.v1.NoSession"
-    refuses: "ctxloom.sessions.v1.Forgotten"
   };
 
   repeated Rotation rotations = 1;
@@ -243,7 +231,6 @@ message RecordEnd {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.EndRecorded"]
     refuses: "ctxloom.sessions.v1.NoSession"
-    refuses: "ctxloom.sessions.v1.Forgotten"
   };
 
   google.protobuf.Timestamp at = 1;
@@ -309,10 +296,6 @@ message SessionPurged {
   optional google.protobuf.Timestamp at = 3;
 }
 
-message SessionForgotten {
-  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
-}
-
 message SessionAdopted {
   option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
 
@@ -343,7 +326,6 @@ message StopSession {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.StopOrdered"]
     refuses: "ctxloom.sessions.v1.NoSession"
-    refuses: "ctxloom.sessions.v1.Forgotten"
     refuses: "ctxloom.sessions.v1.ChildCannotStop"
   };
 
@@ -357,7 +339,6 @@ message WithdrawSteer {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.SteerWithdrawn"]
     refuses: "ctxloom.sessions.v1.NoSession"
-    refuses: "ctxloom.sessions.v1.Forgotten"
     refuses: "ctxloom.sessions.v1.UnknownMessage"
     refuses: "ctxloom.sessions.v1.AlreadyDelivered"
   };
@@ -509,13 +490,6 @@ message NoSession {
 
 // A rename of a session that is live: its lock is held (owner ruling 91).
 message SessionLive {
-  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
-
-  string harp = 1;
-}
-
-// A command to a session that was forgotten (`session remove --yes`).
-message Forgotten {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 
   string harp = 1;

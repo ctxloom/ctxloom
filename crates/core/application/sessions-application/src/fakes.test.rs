@@ -119,7 +119,6 @@ pub struct FakeFiles {
     pub last_active: BTreeMap<String, Timestamp>,
     /// Other files per harp: (rel, bytes).
     pub others: BTreeMap<String, Vec<(String, u64)>>,
-    pub destroyed: Vec<(String, Vec<String>)>,
     pub fail_destroy: bool,
     /// Output folders that exist, by path; a move renames one.
     pub outputs: std::collections::BTreeSet<String>,
@@ -157,6 +156,9 @@ impl SessionFiles for FakeFiles {
     }
 
     fn destroy_session(&mut self, harp: &str) -> Result<u64, Report> {
+        if self.fail_destroy {
+            return Err(Report::new("fake-files-busy"));
+        }
         self.destroyed_sessions.push(harp.to_string());
         self.sessions.remove(harp);
         Ok(self.transcripts.remove(harp).map_or(0, |t| t.len() as u64))
@@ -195,28 +197,6 @@ impl SessionFiles for FakeFiles {
                 bytes,
             })
             .collect())
-    }
-
-    fn destroy(&mut self, harp: &str, rels: &[String]) -> Result<u64, Report> {
-        if self.fail_destroy {
-            return Err(Report::new("fake-files-busy"));
-        }
-        let mut freed = 0;
-        for rel in rels {
-            if rel == "transcripts/transcript.jsonl" {
-                freed += self.transcripts.remove(harp).map_or(0, |t| t.len() as u64);
-            } else if let Some(files) = self.others.get_mut(harp) {
-                files.retain(|(r, bytes)| {
-                    let hit = r == rel;
-                    if hit {
-                        freed += bytes;
-                    }
-                    !hit
-                });
-            }
-        }
-        self.destroyed.push((harp.to_string(), rels.to_vec()));
-        Ok(freed)
     }
 }
 

@@ -36,8 +36,8 @@ pub trait SessionService {
     /// Mark a session's transcript kept, or release it.
     fn keep(&mut self, request: KeepRequest)
         -> impl Future<Output = Result<Kept, AppError>> + Send;
-    /// Remove a session (or, `Scope::Purge`, destroy it whole: rulings 94,
-    /// 94b): report first, apply on `yes`.
+    /// Remove a session: destroy it whole (rulings 94, 94b, 98), its name
+    /// kept claimed; report first, apply on `yes`.
     fn remove(
         &mut self,
         request: RemoveRequest,

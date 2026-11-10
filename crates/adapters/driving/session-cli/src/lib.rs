@@ -9,8 +9,7 @@
 //! ctxloom session show <harp>
 //! ctxloom session edit <harp> --name <new>
 //! ctxloom session keep <harp> [--undo]
-//! ctxloom session remove <harp> [--yes] [--even-if-live]
-//! ctxloom session purge <harp> [--yes] [--even-if-live]   (session-destroy)
+//! ctxloom session remove <harp> [--yes] [--even-if-live]  (session-destroy)
 //! ctxloom session sweep [--purge-older-than <age>] [--yes] (session-destroy)
 //! ctxloom session transcript               (bare: lists)
 //! ctxloom session transcript list [<harp>] [--all]
@@ -20,7 +19,9 @@
 //! ctxloom session worktrees purge <harp> [--yes]
 //! ```
 //!
-//! Go's `session adopt` and `approvals` arrive with S10 and S12; `session watch` waits on the
+//! `session remove` DESTROYS a session (owner ruling 98): a plain build has
+//! no deleting verb, and `session purge` is gone. Go's `session adopt` and
+//! `approvals` arrive with S10 and S12; `session watch` waits on the
 //! owner's ruling on the watch lines. The old `rename` verb is gone, not
 //! hidden.
 //!
@@ -79,22 +80,19 @@ pub enum SessionVerb {
         after_help = "Examples:\n  ctxloom session keep amber-swift-owl\n  ctxloom session keep amber-swift-owl --undo"
     )]
     Keep(KeepArgs),
-    /// Remove a session entirely: its index entry and its transcript
-    #[command(after_help = "Examples:\n  ctxloom session remove amber-swift-owl --yes")]
-    Remove(RemoveArgs),
     /// Destroy a session: every event of it and of its runs, its directory and its lock; its name stays taken
     #[cfg(feature = "session-destroy")]
     #[command(
-        after_help = "Examples:\n  ctxloom session purge amber-swift-owl\n  ctxloom session purge amber-swift-owl --yes"
+        after_help = "Examples:\n  ctxloom session remove amber-swift-owl\n  ctxloom session remove amber-swift-owl --yes"
     )]
-    Purge(RemoveArgs),
+    Remove(RemoveArgs),
     /// Tidy every ended session of this project by rule: destroy what it can prove is safe, report the rest
     #[cfg(feature = "session-destroy")]
     #[command(
         after_help = "Examples:\n  ctxloom session sweep\n  ctxloom session sweep --purge-older-than 90d --yes"
     )]
     Sweep(SweepArgs),
-    /// The recorded conversation behind a session: list it, show it, purge it
+    /// The recorded conversation behind a session: list it, show it
     Transcript(Transcript),
     /// The scratch git checkouts a session left behind: list them, remove the safe ones
     Worktrees(Worktrees),
@@ -153,6 +151,7 @@ pub struct KeepArgs {
     pub undo: bool,
 }
 
+#[cfg(feature = "session-destroy")]
 #[derive(Args, Debug)]
 pub struct RemoveArgs {
     /// The session's name

@@ -128,63 +128,6 @@ fn the_survey_of_a_session_with_no_directory_is_empty() {
     assert_eq!(dirs.survey(HARP).unwrap(), Vec::new());
 }
 
-// ----------------------------------------------------------------- destroy
-
-#[test]
-fn destroy_removes_the_named_files_and_counts_the_bytes() {
-    let (fs, mut dirs) = dirs();
-    let transcript = write(&fs, &dirs, "transcripts/transcript.jsonl", "abc");
-    let notes = write(&fs, &dirs, "design-notes.md", "authored");
-    let freed = dirs
-        .destroy(HARP, &["transcripts/transcript.jsonl".to_string()])
-        .unwrap();
-    assert_eq!(freed, 3);
-    assert!(!fs.exists(&transcript).unwrap());
-    assert!(fs.exists(&notes).unwrap(), "what was not named stays");
-}
-
-#[test]
-fn a_file_already_gone_is_not_a_failure() {
-    let (_, mut dirs) = dirs();
-    assert_eq!(
-        dirs.destroy(HARP, &["transcripts/transcript.jsonl".to_string()])
-            .unwrap(),
-        0
-    );
-}
-
-// A path that leaves the session directory is refused, and nothing is removed.
-#[test]
-fn destroy_never_leaves_the_session_directory() {
-    let (fs, mut dirs) = dirs();
-    let outside = fs.create_dir_all(
-        Path::new("/work/proj/.ctxloom/sessions/other"),
-        Mode::from_bits(0o755),
-    );
-    outside.unwrap();
-    let other = Path::new("/work/proj/.ctxloom/sessions/other/precious");
-    fs.write_atomic(
-        other,
-        b"keep",
-        file_system::Perms::Exact(Mode::from_bits(0o600)),
-    )
-    .unwrap();
-    for rel in [
-        "../other/precious",
-        "/work/proj/.ctxloom/sessions/other/precious",
-        "a/../../other/precious",
-    ] {
-        let error = dirs.destroy(HARP, &[rel.to_string()]).unwrap_err();
-        assert_eq!(
-            angzarr_diagnostic::Diagnostic::code(&error),
-            "session-files-outside",
-            "{rel}"
-        );
-    }
-    assert!(fs.exists(other).unwrap());
-    let _ = Open::Read;
-}
-
 // ------------------------------------------------------- Go's session directories
 
 use session_ports::GoSessions;
@@ -415,17 +358,6 @@ fn a_move_onto_something_already_there_is_refused_and_moves_nothing() {
     assert!(fs.exists(Path::new(old)).unwrap());
 }
 
-// Only a file is removed: a directory named is left, and is no failure.
-#[test]
-fn a_directory_named_to_destroy_is_left_alone() {
-    let (fs, mut dirs) = dirs();
-    write(&fs, &dirs, "transcripts/transcript.jsonl", "abc");
-    assert_eq!(dirs.destroy(HARP, &["transcripts".to_string()]).unwrap(), 0);
-    assert!(fs
-        .exists(&dirs.dir(HARP).join("transcripts/transcript.jsonl"))
-        .unwrap());
-}
-
 // ------------------------------------------------------- the records port
 // Step 1b-ii: the driver writes the session's directory from the events,
 // through this port.
@@ -640,8 +572,8 @@ fn a_path_out_of_the_session_directory_is_refused() {
 }
 
 // Removing a session must never follow the link: the user's login is not the
-// session's to destroy. The survey never walks the home, and a destroy that
-// names the link itself, or the whole home, removes no file through it.
+// session's to destroy. The survey never walks the home, and the destroy of
+// the whole directory removes the link, never what it names.
 #[test]
 fn removing_a_session_whose_home_holds_the_link_leaves_the_login_intact() {
     let (fs, mut dirs) = dirs();
@@ -653,11 +585,8 @@ fn removing_a_session_whose_home_holds_the_link_leaves_the_login_intact() {
         surveyed.iter().all(|item| !item.rel.starts_with("home")),
         "{surveyed:?}"
     );
-    let rels: Vec<String> = surveyed.iter().map(|item| item.rel.clone()).collect();
-    dirs.destroy(HARP, &rels).unwrap();
-    // Even a destroy that names the link is not a removal of its target.
-    dirs.destroy(HARP, &["home/.credentials.json".to_string()])
-        .unwrap();
+    dirs.destroy_session(HARP).unwrap();
+    assert!(!fs.exists(&dirs.dir(HARP)).unwrap());
     assert_eq!(fs.read_to_string(Path::new(LOGIN)).unwrap(), SECRET);
 }
 

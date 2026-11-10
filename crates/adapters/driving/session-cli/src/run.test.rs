@@ -624,37 +624,33 @@ fn an_empty_name_reaches_the_use_case() {
 
 fn plan(applied: bool) -> Removal {
     Removal {
-        scope: Default::default(),
         harp: "amber-swift-owl".to_string(),
         applied,
-        index_entry_removed: applied,
         files: FilePlan {
-            destroy: vec![PlanItem {
-                path: "/h/.ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl"
-                    .to_string(),
-                rel: "transcripts/transcript.jsonl".to_string(),
-                class: Class::Machine,
-                bytes: 9,
-                action: "destroy",
-                reason: None,
-            }],
-            keep: vec![PlanItem {
-                path: "/h/.ctxloom/sessions/amber-swift-owl/notes.md".to_string(),
-                rel: "notes.md".to_string(),
-                class: Class::Authored,
-                bytes: 4,
-                action: "keep",
-                reason: Some("authored: never destroyed".to_string()),
-            }],
-            bytes_freed: if applied { 9 } else { 0 },
+            destroy: vec![
+                PlanItem {
+                    path: "/h/.ctxloom/sessions/amber-swift-owl/native/history.jsonl".to_string(),
+                    rel: "native/history.jsonl".to_string(),
+                    class: Class::Machine,
+                    bytes: 9,
+                },
+                PlanItem {
+                    path: "/h/.ctxloom/sessions/amber-swift-owl/notes.md".to_string(),
+                    rel: "notes.md".to_string(),
+                    class: Class::Authored,
+                    bytes: 4,
+                },
+            ],
+            bytes_freed: if applied { 13 } else { 0 },
         },
-        events_destroyed: 0,
+        events_destroyed: if applied { 7 } else { 0 },
         refusal: None,
         dead_letters: Vec::new(),
     }
 }
 
-// Go: sessionRemoveResult.
+// Owner ruling 98: `session remove` reports the destroy first: every file of
+// the session's directory, authored ones too, and nothing applied.
 #[test]
 fn a_removal_report_is_the_plan_and_says_nothing_was_removed() {
     let mut fake = Fake {
@@ -665,13 +661,11 @@ fn a_removal_report_is_the_plan_and_says_nothing_was_removed() {
     let doc = json_of(&ran);
     assert_eq!(doc["harp"], "amber-swift-owl");
     assert_eq!(doc["applied"], false);
-    assert_eq!(doc["index_entry_removed"], false);
+    assert_eq!(doc["events_destroyed"], 0);
     let files = &doc["files"];
-    assert_eq!(files["destroy"][0]["rel"], "transcripts/transcript.jsonl");
+    assert_eq!(files["destroy"][0]["rel"], "native/history.jsonl");
     assert_eq!(files["destroy"][0]["class"], "machine");
-    assert_eq!(files["destroy"][0]["action"], "destroy");
-    assert_eq!(files["keep"][0]["class"], "authored");
-    assert_eq!(files["keep"][0]["reason"], "authored: never destroyed");
+    assert_eq!(files["destroy"][1]["class"], "authored");
     assert_eq!(files["bytes_freed"], 0);
     let notices = ran.result.unwrap().notices;
     assert_eq!(notices.len(), 1);
@@ -689,10 +683,9 @@ fn a_removal_report_is_the_plan_and_says_nothing_was_removed() {
     assert!(!fake.remove[0].yes);
 }
 
-// Go: renderSessionRemove: the file plan's summary line, its table, and one
-// line for the index entry.
+// The plan's summary line, its table, and one line for the session itself.
 #[test]
-fn a_removal_report_in_text_names_each_file_and_the_index_entry() {
+fn a_removal_report_in_text_names_each_file_and_the_session() {
     let mut fake = Fake {
         removal: Some(plan(false)),
         ..Fake::default()
@@ -701,16 +694,16 @@ fn a_removal_report_in_text_names_each_file_and_the_index_entry() {
     let lines: Vec<&str> = ran.out.lines().collect();
     assert_eq!(
         lines[0],
-        "session amber-swift-owl (transcript) \u{2014} would destroy 1 file(s) (0 byte(s) freed)"
+        "session amber-swift-owl \u{2014} would destroy 2 file(s) (0 byte(s) freed)"
     );
-    for header in ["PATH", "CLASS", "ACTION", "BYTES", "REASON"] {
+    for header in ["PATH", "CLASS", "BYTES"] {
         assert!(lines[1].contains(header), "{header}: {}", lines[1]);
     }
-    assert!(ran.out.contains("transcripts/transcript.jsonl"));
-    assert!(ran.out.contains("notes.md") && ran.out.contains("authored: never destroyed"));
+    assert!(ran.out.contains("native/history.jsonl"));
+    assert!(ran.out.contains("notes.md") && ran.out.contains("authored"));
     assert_eq!(
         *lines.last().unwrap(),
-        "index entry amber-swift-owl: would be removed"
+        "session amber-swift-owl: would be destroyed, its events and its runs' with it; its name stays taken"
     );
 }
 
@@ -725,10 +718,12 @@ fn an_applied_removal_says_destroyed_and_adds_no_notice() {
         Format::Text,
         &["remove", "amber-swift-owl", "--yes"],
     );
-    assert!(ran.out.starts_with(
-        "session amber-swift-owl (transcript) \u{2014} destroyed 1 file(s) (9 byte(s) freed)"
+    assert!(ran
+        .out
+        .starts_with("session amber-swift-owl \u{2014} destroyed 2 file(s) (13 byte(s) freed)"));
+    assert!(ran.out.ends_with(
+        "session amber-swift-owl: destroyed, 7 event(s) of it and its runs; its name stays taken\n"
     ));
-    assert!(ran.out.ends_with("index entry amber-swift-owl: removed\n"));
     assert!(ran.result.unwrap().notices.is_empty());
     assert!(fake.remove[0].yes);
 }
@@ -1356,14 +1351,14 @@ fn a_sweep_reports_each_sessions_fate_with_its_reason_and_command_and_removes_no
                 "  {blank} it is marked keep: its transcript is kept at any age"
             ),
             format!("  {blank} run: ctxloom session keep held-one --undo"),
-            format!("  {:<28} {:<8} {:<8} {:>10}", "plan-one", "purge", "planned", "9 B"),
-            format!("  {blank} run: ctxloom session purge plan-one --yes"),
+            format!("  {:<28} {:<8} {:<8} {:>10}", "plan-one", "purge", "planned", "13 B"),
+            format!("  {blank} run: ctxloom session remove plan-one --yes"),
             format!(
                 "  {:<28} {:<8} {:<8} {:>10}",
                 "unknown-one", "skip", "skipped", ""
             ),
             format!("  {blank} its liveness cannot be proven"),
-            format!("  {blank} run: ctxloom session purge unknown-one --even-if-live"),
+            format!("  {blank} run: ctxloom session remove unknown-one --even-if-live"),
             String::new(),
             "0 done, 1 planned, 1 held, 0 left, 2 skipped, 0 failed; 0 session(s) had nothing to do."
                 .to_string(),
@@ -1458,13 +1453,13 @@ fn a_sweep_that_failed_while_acting_exits_nonzero_but_a_report_of_a_failure_does
     assert_eq!(failure.failure.exit, 1);
 }
 
-// ------------------------------------------- purge reaps the session's worktrees
+// ------------------------------------------ remove reaps the session's worktrees
 
-// j001300 / session.feature "Emptying a session ...": `session purge` covers
+// j001300 / session.feature "Emptying a session ...": `session remove` covers
 // the scratch worktrees living inside the session, through the worktree leaf's
 // own verdicts.
 #[test]
-fn purge_with_yes_reaps_the_sessions_scratch_worktrees_and_reports_them() {
+fn remove_with_yes_reaps_the_sessions_scratch_worktrees_and_reports_them() {
     use isolation_application::Verdict;
     let mut fake = Fake {
         removal: Some(plan(true)),
@@ -1485,7 +1480,7 @@ fn purge_with_yes_reaps_the_sessions_scratch_worktrees_and_reports_them() {
     let ran = go(
         &mut fake,
         Format::Text,
-        &["purge", "amber-swift-owl", "--yes"],
+        &["remove", "amber-swift-owl", "--yes"],
     );
     assert_eq!(
         fake.wt_asked,
@@ -1497,12 +1492,12 @@ fn purge_with_yes_reaps_the_sessions_scratch_worktrees_and_reports_them() {
         "{}",
         ran.out
     );
-    // The purge itself succeeded; a spared checkout is not a failure of it.
+    // The removal itself succeeded; a spared checkout is not a failure of it.
     assert!(ran.result.unwrap().notices.is_empty());
 }
 
 #[test]
-fn purge_with_yes_carries_the_worktree_report_in_json() {
+fn remove_with_yes_carries_the_worktree_report_in_json() {
     use isolation_application::Verdict;
     let mut fake = Fake {
         removal: Some(plan(true)),
@@ -1515,7 +1510,7 @@ fn purge_with_yes_carries_the_worktree_report_in_json() {
     let doc = json_of(&go(
         &mut fake,
         Format::Json,
-        &["purge", "amber-swift-owl", "--yes"],
+        &["remove", "amber-swift-owl", "--yes"],
     ));
     assert_eq!(doc["applied"], true);
     assert_eq!(doc["worktrees"]["reaped"], 1);
@@ -1523,7 +1518,7 @@ fn purge_with_yes_carries_the_worktree_report_in_json() {
 }
 
 #[test]
-fn a_purge_of_a_session_with_no_worktrees_is_unchanged() {
+fn a_removal_of_a_session_with_no_worktrees_is_unchanged() {
     let mut fake = Fake {
         removal: Some(plan(true)),
         wt_report: Some(wt_report(Vec::new(), true)),
@@ -1532,19 +1527,19 @@ fn a_purge_of_a_session_with_no_worktrees_is_unchanged() {
     let doc = json_of(&go(
         &mut fake,
         Format::Json,
-        &["purge", "amber-swift-owl", "--yes"],
+        &["remove", "amber-swift-owl", "--yes"],
     ));
     assert!(doc.get("worktrees").is_none(), "{doc}");
     let ran = go(
         &mut fake,
         Format::Text,
-        &["purge", "amber-swift-owl", "--yes"],
+        &["remove", "amber-swift-owl", "--yes"],
     );
     assert!(!ran.out.contains("scratch worktrees"), "{}", ran.out);
 }
 
 #[test]
-fn a_purge_of_a_session_with_no_directory_still_succeeds() {
+fn a_removal_of_a_session_with_no_directory_still_succeeds() {
     // The default Fake answers NoSession to every worktree question.
     let mut fake = Fake {
         removal: Some(plan(true)),
@@ -1553,14 +1548,14 @@ fn a_purge_of_a_session_with_no_directory_still_succeeds() {
     let ran = go(
         &mut fake,
         Format::Text,
-        &["purge", "amber-swift-owl", "--yes"],
+        &["remove", "amber-swift-owl", "--yes"],
     );
     assert!(ran.result.is_ok());
     assert_eq!(fake.wt_asked.len(), 1);
 }
 
 #[test]
-fn purge_without_yes_only_previews_the_worktrees() {
+fn remove_without_yes_only_previews_the_worktrees() {
     use isolation_application::Verdict;
     let mut fake = Fake {
         removal: Some(plan(false)),
@@ -1570,7 +1565,7 @@ fn purge_without_yes_only_previews_the_worktrees() {
         )),
         ..Fake::default()
     };
-    let ran = go(&mut fake, Format::Text, &["purge", "amber-swift-owl"]);
+    let ran = go(&mut fake, Format::Text, &["remove", "amber-swift-owl"]);
     assert_eq!(
         fake.wt_asked,
         vec![(Some("amber-swift-owl".to_string()), false)]
@@ -1580,7 +1575,7 @@ fn purge_without_yes_only_previews_the_worktrees() {
 }
 
 #[test]
-fn a_refused_purge_reaps_nothing() {
+fn a_refused_removal_reaps_nothing() {
     let mut refused = plan(false);
     refused.refusal = Some(Refusal::Retained {
         harp: "amber-swift-owl".to_string(),
@@ -1594,26 +1589,14 @@ fn a_refused_purge_reaps_nothing() {
     let ran = go(
         &mut fake,
         Format::Json,
-        &["purge", "amber-swift-owl", "--yes"],
+        &["remove", "amber-swift-owl", "--yes"],
     );
     assert!(ran.result.is_err());
     assert!(fake.wt_asked.is_empty(), "{:?}", fake.wt_asked);
 }
 
 #[test]
-fn only_purge_empties_the_worktrees_not_remove() {
-    let words = ["remove", "amber-swift-owl", "--yes"];
-    let mut fake = Fake {
-        removal: Some(plan(true)),
-        wt_report: Some(wt_report(Vec::new(), true)),
-        ..Fake::default()
-    };
-    let _ = go(&mut fake, Format::Json, &words);
-    assert!(fake.wt_asked.is_empty(), "{:?}", fake.wt_asked);
-}
-
-#[test]
-fn a_worktree_failure_during_a_purge_is_reported_not_swallowed() {
+fn a_worktree_failure_during_a_removal_is_reported_not_swallowed() {
     let mut fake = Fake {
         removal: Some(plan(true)),
         wt_fails: true,
@@ -1622,7 +1605,7 @@ fn a_worktree_failure_during_a_purge_is_reported_not_swallowed() {
     let ran = go(
         &mut fake,
         Format::Json,
-        &["purge", "amber-swift-owl", "--yes"],
+        &["remove", "amber-swift-owl", "--yes"],
     );
     assert!(ran.result.is_err());
 }
@@ -1772,7 +1755,7 @@ fn transcript_show_in_text_places_a_message_under_its_own_prompt_whatever_arrive
 }
 
 // Ruling 87a, 94b: the transcript has no destroyer of its own (no file holds
-// it; the session's events are destroyed whole, by `session purge`).
+// it; the session's events are destroyed whole, by `session remove`).
 #[test]
 fn there_is_no_transcript_purge() {
     let command = Session::augment_args(Command::new("session")).no_binary_name(true);

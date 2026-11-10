@@ -10,9 +10,8 @@ use angzarr_embedded::{
     Timestamp,
 };
 use sessions::{
-    AdoptRotations, BindEngineSession, EndRecorded, ForgetSession, MintSession, Origin, RecordEnd,
-    RecordPurge, RenameSession, Rotation, SessionAggregate, SessionCommand, SetKept,
-    SESSION_DOMAIN,
+    AdoptRotations, BindEngineSession, EndRecorded, MintSession, Origin, RecordEnd, RecordPurge,
+    RenameSession, Rotation, SessionAggregate, SessionCommand, SetKept, SESSION_DOMAIN,
 };
 
 use super::{SessionIndex, SessionIndexes, SessionRecord};
@@ -231,27 +230,6 @@ fn a_record_is_the_session_its_events_fold() {
             seconds: 106,
             nanos: 0
         })
-    );
-}
-
-// Go: TestForget, and session.feature "--yes removes the index entry": the
-// forgotten session is no longer listed.
-#[test]
-fn a_forgotten_session_leaves_the_list() {
-    let mut project = Project::new();
-    let mut index = SessionIndex::catch_up();
-    project.run(&mut index, FIRST, mint("amber-swift-owl"));
-    project.run(&mut index, SECOND, mint("brisk-copper-moth"));
-    project.run(&mut index, FIRST, ForgetSession {});
-    assert_eq!(harps(&index), ["brisk-copper-moth"]);
-    assert!(index.projector().index().find("amber-swift-owl").is_none());
-    assert!(
-        index
-            .projector()
-            .index()
-            .find_by_id(&id_text(FIRST))
-            .is_some(),
-        "its stream stays, so its id is still known"
     );
 }
 

@@ -19,8 +19,8 @@
 //! skipped, each saying why.
 //!
 //! Nothing is decided by a model: the same sessions give the same report.
-//! The purge acts through `session purge`, so every refusal it makes is the
-//! sweep's.
+//! The purge acts through `session remove` (a destroy, owner ruling 98), so
+//! every refusal it makes is the sweep's.
 
 use std::collections::BTreeMap;
 
@@ -28,7 +28,7 @@ use isolation_application::{IsolationError, Row, Verdict as Worktree, WorktreeUs
 use serde::Serialize;
 use session_index::stamp;
 use sessions_application::{
-    AppError, ListQuery, Refusal, RemoveRequest, Scope, SessionService, State, Timestamp,
+    AppError, ListQuery, Refusal, RemoveRequest, SessionService, State, Timestamp,
 };
 
 use crate::ReclaimError;
@@ -136,7 +136,7 @@ pub async fn sweep<S: SessionService + WorktreeUse>(
         let checkouts = worktree_rows(service, harp, request.yes)?;
         let preserved = preserved_worktree(&checkouts).map(str::to_string);
         rows.extend(checkouts.into_iter().map(|c| c.row));
-        let purge = format!("ctxloom session purge {harp} --yes");
+        let purge = format!("ctxloom session remove {harp} --yes");
         let decided = match view.state {
             State::Live => Some(row(
                 harp,
@@ -150,7 +150,7 @@ pub async fn sweep<S: SessionService + WorktreeUse>(
                 "skip",
                 Verdict::Skipped,
                 "its liveness cannot be proven",
-                format!("ctxloom session purge {harp} --even-if-live"),
+                format!("ctxloom session remove {harp} --even-if-live"),
             )),
             State::Ended if view.record.kept => Some(row(
                 harp,
@@ -302,7 +302,6 @@ async fn purge_row<S: SessionService>(
     yes: bool,
 ) -> Result<SweepRow, ReclaimError> {
     let ask = |yes| RemoveRequest {
-        scope: Scope::Purge,
         harp: harp.to_string(),
         yes,
         ..RemoveRequest::default()
@@ -326,7 +325,7 @@ async fn purge_row<S: SessionService>(
             Refusal::NotProvenDead { reason, .. } => (
                 Verdict::Skipped,
                 reason.clone(),
-                format!("ctxloom session purge {harp} --even-if-live"),
+                format!("ctxloom session remove {harp} --even-if-live"),
             ),
         };
         return Ok(row(harp, "purge", verdict, &reason, command));

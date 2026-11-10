@@ -21,14 +21,3 @@ fn a_mint_on_a_stream_with_history_is_refused_session_exists_and_records_nothing
     assert_eq!(session.pages().len(), before, "a refusal records nothing");
     assert_eq!(session.state().harp, HARP, "the session held is untouched");
 }
-
-#[test]
-fn a_mint_on_a_forgotten_sessions_stream_is_refused_too() {
-    let mut session = Session::minted();
-    session.run(crate::ForgetSession {}).unwrap();
-    assert_eq!(
-        session.run(mint("other-name-here")).unwrap_err().0,
-        "sessions-session-exists",
-        "the stream keeps its history, so its id is never reused"
-    );
-}

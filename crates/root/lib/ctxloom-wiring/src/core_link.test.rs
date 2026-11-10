@@ -155,7 +155,7 @@ async fn an_unknown_domain_is_hidden_and_answered_like_a_missing_one() {
         };
         CommandBook::command_of(
             cover,
-            &sessions::SessionCommand::from(sessions::ForgetSession {}),
+            &sessions::SessionCommand::from(sessions::SetKept { kept: true }),
         )
     };
     let hidden = edge.serve(book("trees"), Arrival::Ip).await.unwrap_err();

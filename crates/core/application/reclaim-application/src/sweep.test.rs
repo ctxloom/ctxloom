@@ -10,7 +10,7 @@ use isolation_application::{IsolationError, Report, Row, Verdict as Worktree, Wo
 use session_index::{Captured, SessionRecord, View};
 use sessions_application::{
     AppError, BindRequest, Bound, FilePlan, KeepRequest, Kept, ListQuery, Refusal, Removal,
-    RemoveRequest, RenameRequest, Renamed, Scope, SearchQuery, SessionService, ShowQuery, State,
+    RemoveRequest, RenameRequest, Renamed, SearchQuery, SessionService, ShowQuery, State,
     Timestamp, TranscriptQuery, TranscriptRow,
 };
 
@@ -67,7 +67,7 @@ fn view(harp: &str, state: State, ended_days_ago: i64, kept: bool) -> View {
 struct Fake {
     views: Vec<View>,
     refusal: Option<Refusal>,
-    asked: Vec<(String, bool, Scope)>,
+    asked: Vec<(String, bool)>,
     /// The scratch checkouts the sessions left, with their verdicts.
     scratch: Vec<Row>,
     /// What `worktrees` was asked: the session and whether to apply.
@@ -125,23 +125,18 @@ impl SessionService for Fake {
         nothing()
     }
     async fn remove(&mut self, request: RemoveRequest) -> Result<Removal, AppError> {
-        self.asked
-            .push((request.harp.clone(), request.yes, request.scope));
+        self.asked.push((request.harp.clone(), request.yes));
         let mut files = FilePlan::default();
         files.destroy.push(sessions_application::PlanItem {
             path: String::new(),
             rel: "transcripts/transcript.jsonl".to_string(),
             class: sessions_application::Class::Machine,
             bytes: 10,
-            action: "destroy",
-            reason: None,
         });
         files.bytes_freed = if request.yes { 10 } else { 0 };
         Ok(Removal {
-            scope: request.scope,
             harp: request.harp,
             applied: request.yes && self.refusal.is_none(),
-            index_entry_removed: false,
             files,
             events_destroyed: 0,
             refusal: self.refusal.clone(),
@@ -192,14 +187,11 @@ fn a_report_plans_each_old_session_and_purges_none() {
     let report = ready(sweep(&mut fake, &request(false))).unwrap();
     assert_eq!(verdict_of(&report, "amber-quiet-heron"), Verdict::Planned);
     assert_eq!(verdict_of(&report, "brisk-copper-moth"), Verdict::Planned);
-    assert!(fake
-        .asked
-        .iter()
-        .all(|(_, yes, scope)| !yes && *scope == Scope::Purge));
+    assert!(fake.asked.iter().all(|(_, yes)| !yes));
     assert_eq!(report.counts["planned"], 2);
     assert_eq!(
         report.rows[0].command,
-        "ctxloom session purge amber-quiet-heron --yes"
+        "ctxloom session remove amber-quiet-heron --yes"
     );
 }
 
@@ -225,7 +217,7 @@ fn running_and_unproven_sessions_are_skipped_and_never_asked_about() {
     assert_eq!(unproven.reason, "its liveness cannot be proven");
     assert_eq!(
         unproven.command,
-        "ctxloom session purge slate-unproven-vole --even-if-live"
+        "ctxloom session remove slate-unproven-vole --even-if-live"
     );
 }
 
@@ -292,7 +284,7 @@ fn a_refusal_of_the_purge_holds_the_session() {
     let report = ready(sweep(&mut fake, &request(true))).unwrap();
     assert_eq!(report.rows[0].verdict, Verdict::Held);
     assert!(report.rows[0].reason.contains("retention"));
-    assert!(fake.asked.iter().all(|(_, yes, _)| !yes));
+    assert!(fake.asked.iter().all(|(_, yes)| !yes));
 }
 
 // j001300: "The sweep removes only what it can prove is safe": on yes the
@@ -412,8 +404,8 @@ fn a_session_with_a_preserved_worktree_is_spared_from_purge() {
         assert_eq!(
             fake.asked,
             vec![
-                ("amber-quiet-heron".to_string(), false, Scope::Purge),
-                ("amber-quiet-heron".to_string(), true, Scope::Purge)
+                ("amber-quiet-heron".to_string(), false),
+                ("amber-quiet-heron".to_string(), true)
             ],
             "{verdict:?}: only the session without a preserved worktree is purged"
         );
@@ -470,7 +462,7 @@ fn a_reapable_checkout_is_planned_naming_the_leaf_that_removes_it() {
     );
 }
 
-// The purge is asked of the session the row is for, in the purge scope.
+// The purge is asked of the session the row is for (`session remove`).
 #[test]
 fn the_purge_names_the_session_and_its_scope() {
     let mut fake = Fake {
@@ -481,8 +473,8 @@ fn the_purge_names_the_session_and_its_scope() {
     assert_eq!(
         fake.asked,
         vec![
-            ("amber-quiet-heron".to_string(), false, Scope::Purge),
-            ("amber-quiet-heron".to_string(), true, Scope::Purge),
+            ("amber-quiet-heron".to_string(), false),
+            ("amber-quiet-heron".to_string(), true),
         ]
     );
 }

@@ -11,14 +11,14 @@ use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cove
 use angzarr_embedded::{Domain, Handled, OnRetryable, Payload};
 use angzarr_embedded_runner::{Refusal, Runner, Unrun};
 use sessions::{
-    AdoptRotations, ClaimName, ForgetSession, MintSession, NameClaimAggregate, NameClaimCommand,
-    ReleaseName, RenameSession, SessionAggregate, SessionCommand, SessionRejection, SetKept,
-    StopSession, WithdrawSteer,
+    AdoptRotations, ClaimName, MintSession, NameClaimAggregate, NameClaimCommand, ReleaseName,
+    RenameSession, SessionAggregate, SessionCommand, SessionRejection, SetKept, StopSession,
+    WithdrawSteer,
 };
 
 use super::run;
 use crate::bridge::Port;
-use crate::fakes::{claim_cover, cover, minted, project, ready, run as send, FakeClock, FakeDelay};
+use crate::fakes::{claim_cover, cover, minted, project, ready, FakeClock, FakeDelay};
 use crate::AppError;
 
 const WHEN: i64 = 1_700_000_000;
@@ -252,18 +252,6 @@ fn the_mint_and_rename_refusals_are_told_by_their_type() {
         SessionRejection::NoSession,
         "sessions-no-session",
         &[],
-        1,
-    );
-
-    let forgotten = store_with_session();
-    send(&forgotten, 1, WHEN + 1, ForgetSession {});
-    expect(
-        told(&forgotten, false, to_session(SetKept { kept: true })),
-        SessionRejection::Forgotten {
-            harp: "owl".to_string(),
-        },
-        "sessions-forgotten",
-        &[("harp", "owl")],
         1,
     );
 

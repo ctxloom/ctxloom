@@ -293,3 +293,15 @@ fn a_config_that_will_not_parse_is_the_setup_markers_to_report_and_checks_the_de
     let check = credentials(&["schema_version: [unclosed\n"], &[]);
     assert_eq!(check.status, Status::Fail);
 }
+
+// An agent is bound by a non-empty engine OR a non-empty profile list: each
+// alone binds it, and an empty list binds nothing.
+#[test]
+fn an_agent_bound_by_profiles_alone_or_engine_alone_is_bound_and_an_empty_list_is_not() {
+    let profiles = "schema_version: 8\nagents:\n  a:\n    profiles: [dev]\n";
+    assert_eq!(checks::agents(Some(profiles)).status, Status::Ok);
+    let engine = "schema_version: 8\nagents:\n  a:\n    engine: claude-code\n";
+    assert_eq!(checks::agents(Some(engine)).status, Status::Ok);
+    let empty = "schema_version: 8\nagents:\n  a:\n    profiles: []\n";
+    assert_eq!(checks::agents(Some(empty)).status, Status::Warn);
+}

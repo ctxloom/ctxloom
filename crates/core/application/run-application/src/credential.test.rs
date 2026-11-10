@@ -249,3 +249,12 @@ fn an_engine_with_no_login_file_shares_nothing() {
     assert!(notice.is_none());
     assert!(links.made.is_empty());
 }
+
+// A configured login file: `~/` is the home, an absolute path is itself, and
+// anything else is under the home.
+#[test]
+fn a_login_path_is_resolved_against_the_home_only_where_it_is_not_absolute() {
+    assert_eq!(resolve("/h", "~/a/b"), "/h/a/b");
+    assert_eq!(resolve("/h", "/etc/c.json"), "/etc/c.json");
+    assert_eq!(resolve("/h", ".acme/c.json"), "/h/.acme/c.json");
+}

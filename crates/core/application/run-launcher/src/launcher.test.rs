@@ -788,16 +788,31 @@ async fn the_orders_model_reaches_the_engines_turn_and_terminal_command() {
 }
 
 #[tokio::test]
-async fn an_order_with_no_model_gives_the_engine_none() {
-    let mut rig = rig(
-        ScriptedEngine::answering("A", None),
-        ScriptedRunner::exits(0),
-        orders_with(order("fake")),
-    );
-    enqueued(&rig.edge, SESSION, HARP).await;
-    rig.step().await;
-    let seen = rig.runner.seen.lock().unwrap();
-    assert!(!seen[0].args.iter().any(|a| a.contains("model")));
+async fn an_order_with_no_model_or_effort_gives_the_engine_none() {
+    for interactive in [false, true] {
+        let mut asked = order("fake");
+        asked.interactive = interactive;
+        let mut rig = rig(
+            ScriptedEngine::answering("A", None),
+            ScriptedRunner::exits(0),
+            orders_with(asked),
+        );
+        enqueued(&rig.edge, SESSION, HARP).await;
+        rig.step().await;
+        let seen = if interactive {
+            rig.runner.seen_terminal.lock().unwrap()
+        } else {
+            rig.runner.seen.lock().unwrap()
+        };
+        assert!(
+            !seen[0]
+                .args
+                .iter()
+                .any(|a| a.contains("model") || a.contains("effort")),
+            "interactive={interactive}: {:?}",
+            seen[0].args
+        );
+    }
 }
 
 // The settings the plan resolved (`engines.<e>.command` and the rest) are in

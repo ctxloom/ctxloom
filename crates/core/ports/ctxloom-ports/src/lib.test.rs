@@ -47,6 +47,12 @@ fn test_a_config_source_ignores_no_root_unless_it_says_so() {
     assert_eq!(NoRootIgnored.ignored_root(), None);
 }
 
+// An adapter that does not tell the project's layer has none to tell.
+#[test]
+fn test_a_config_source_has_no_project_layer_unless_it_says_so() {
+    assert_eq!(NoRootIgnored.project_layer_path(), None);
+}
+
 #[test]
 fn test_a_plain_relative_name_has_only_plain_segments() {
     for ok in ["a", "a/b", "a.b/c-d", ".hidden/x", "a..b"] {

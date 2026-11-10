@@ -131,8 +131,9 @@ impl Auth {
     /// optional (opencode's built-in endpoint key) and not exported has no
     /// row (the run is keyless). A login shared in place (`login`) and `none`
     /// have no row. A source that is a file alone has a `file` row, `via` its
-    /// path, usable by the primary session and by no child (ruling 53). Engines in name order. `layers` are the config files'
-    /// texts, lowest first.
+    /// path, usable by the primary session and by no child (ruling 53), with
+    /// no `present` (ruling 65: nothing here looks at a file). Engines in
+    /// name order. `layers` are the config files' texts, lowest first.
     pub fn status(&self, layers: &[String]) -> Vec<Row> {
         let config = engines::merged(layers);
         needs(
@@ -148,7 +149,7 @@ impl Auth {
                 return Some(Row {
                     engine: need.engine.clone(),
                     mode: FILE,
-                    present: Some(false),
+                    present: None,
                     vars: Vec::new(),
                     via: file.clone(),
                     remedy: remedy(&need),
@@ -193,11 +194,11 @@ impl Auth {
     /// (`runs-file-only-credential` and its fix). `layers` as for
     /// [`Auth::status`].
     pub fn file_only(&self, layers: &[String]) -> Vec<FileOnly> {
-        // Red: the warning is not yet given.
-        layers
-            .iter()
-            .take(0)
-            .map(|_| FileOnly::new("", Vec::new()))
+        let config = engines::merged(layers);
+        needs(&config, &engines::engines_in_use(&config))
+            .into_iter()
+            .filter(|need| need.file.is_some())
+            .map(|need| FileOnly::new(&need.engine, builtin_variables(&need.engine)))
             .collect()
     }
 
@@ -262,15 +263,23 @@ fn needs(config: &angzarr_yaml::Value, wanted: &[String]) -> Vec<Need> {
         .collect()
 }
 
+/// The variables of `engine`'s built-in source: what a source that is a file
+/// alone is told to name instead.
+fn builtin_variables(engine: &str) -> Vec<String> {
+    match engines::AuthSource::builtin(engine) {
+        engines::AuthSource::Credential { env, .. } => env,
+        _ => Vec::new(),
+    }
+}
+
 /// What to do about a credential that is not exported.
 fn remedy(need: &Need) -> String {
     if need.file.is_some() {
-        let named = match engines::AuthSource::builtin(&need.engine) {
-            // Every built-in source that is a credential names a variable.
-            engines::AuthSource::Credential { env, .. } => {
-                format!("one of {}", env.join(", "))
-            }
-            _ => "a variable".to_string(),
+        // An engine with no built-in variable (a test engine) is told to
+        // name one.
+        let named = match builtin_variables(&need.engine) {
+            env if env.is_empty() => "a variable".to_string(),
+            env => format!("one of {}", env.join(", ")),
         };
         return format!(
             "a child agent needs an environment credential: name {named} in engines.{}.auth.env and export it",

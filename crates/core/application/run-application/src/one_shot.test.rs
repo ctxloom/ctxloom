@@ -983,6 +983,7 @@ const NEEDS_A_TOKEN: Credentials = Credentials {
     ],
     user_dir: ".claude",
     login_file: Some(".credentials.json"),
+    sign_in: "sign in with /login in the session, or run `claude setup-token`, then export CLAUDE_CODE_OAUTH_TOKEN",
     ..Credentials::NONE
 };
 

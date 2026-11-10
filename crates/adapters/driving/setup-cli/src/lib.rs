@@ -222,9 +222,13 @@ fn init(
     }
     // Delegated agents authenticate with a token the human mints and
     // exports; init guides her to it, and never blocks on it or asks for it.
-    if !uses.auth.agent_token_exported(&uses.doctor.layer_texts()) {
+    let layers = uses.doctor.layer_texts();
+    if !uses.auth.agent_token_exported(&layers) {
         say_notices(&[token_guide()], PROG, format, catalog, err);
     }
+    // An engine whose source is a file alone authenticates no child (owner
+    // ruling 64): said as its children's runs are refused.
+    say_notices(&uses.auth.file_only(&layers), PROG, format, catalog, err);
     // On a terminal, the setup interview, and the offer to restart into the
     // session it configured. Off one, nothing is launched and nothing asked.
     let interviewed = interview(uses.terminal, uses.sessions).map_err(|launch| Failure {

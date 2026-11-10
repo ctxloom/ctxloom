@@ -162,8 +162,33 @@ fn chosen_engine(plan: &library_application::DryRun, request: &OneShot) -> Strin
 /// resolved the settings of ITS engine: another engine, forced by the caller,
 /// runs on its own built-ins.
 fn settings_of(plan: &library_application::DryRun, engine: &str) -> run_ports::EngineSettings {
-    let _ = (plan, engine);
-    run_ports::EngineSettings::default()
+    if plan.engine != engine {
+        return run_ports::EngineSettings::default();
+    }
+    let drive = &plan.drive;
+    run_ports::EngineSettings {
+        command: drive.command.clone(),
+        session_home: if drive.session_home == "host" {
+            run_ports::SessionHome::Host
+        } else {
+            run_ports::SessionHome::Session
+        },
+        auth: match (&drive.auth.source, &drive.auth.value) {
+            // Nobody said: the engine's own source, as the adapter holds it.
+            (library_application::Source::Default, _) => run_ports::AuthSetting::Builtin,
+            (_, library_application::AuthSource::None) => run_ports::AuthSetting::None,
+            (_, library_application::AuthSource::Login) => run_ports::AuthSetting::Login,
+            (_, library_application::AuthSource::Token) => run_ports::AuthSetting::Builtin,
+            (_, library_application::AuthSource::Credential { env, file }) => {
+                run_ports::AuthSetting::Source {
+                    env: env.clone(),
+                    file: file.clone(),
+                }
+            }
+        },
+        env_host: drive.env_host,
+        env: drive.env.clone(),
+    }
 }
 
 /// Everything [`Runs`] is made of.

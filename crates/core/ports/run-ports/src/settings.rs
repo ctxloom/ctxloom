@@ -86,7 +86,32 @@ impl EngineSettings {
     /// ever satisfied by the environment; the primary may also share a login
     /// file, and not when the engine's home is the host's own.
     pub fn credentials(&self, base: Credentials) -> CredentialPolicy {
-        CredentialPolicy::from(base)
+        let mut policy = CredentialPolicy::from(base);
+        match &self.auth {
+            AuthSetting::Builtin => {}
+            AuthSetting::None => {
+                policy.child_env.clear();
+                policy.primary_env.clear();
+                policy.login_file = None;
+            }
+            AuthSetting::Login => {
+                policy.child_env.clear();
+                policy.primary_env.clear();
+            }
+            AuthSetting::Source { env, file } => {
+                policy.child_env = env.clone();
+                policy.primary_env = env.clone();
+                match file {
+                    Some(path) => policy.login_source = Some(path.clone()),
+                    None => policy.login_file = None,
+                }
+            }
+        }
+        if self.session_home == SessionHome::Host {
+            policy.login_file = None;
+            policy.login_source = None;
+        }
+        policy
     }
 }
 

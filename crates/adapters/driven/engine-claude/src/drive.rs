@@ -14,8 +14,8 @@
 use std::collections::BTreeMap;
 
 use run_ports::{
-    copy_in, Credentials, Engine, EngineError, HomeFile, PrepareRequest, Prepared, TurnCommand,
-    TurnOutcome, TurnOutput, TurnRequest,
+    copy_in, Credentials, Engine, EngineError, HomeFile, PrepareRequest, Prepared, SessionHome,
+    TurnCommand, TurnOutcome, TurnOutput, TurnRequest,
 };
 
 use crate::{stream, Claude, NAME};
@@ -93,6 +93,9 @@ pub const PRIMARY_CREDENTIAL_ENV: &[&str] = &[
     "ANTHROPIC_AUTH_TOKEN",
 ];
 
+/// claude's configuration directory under the user's home.
+const LOGIN_DIR: &str = ".claude";
+
 /// claude's login file, in its configuration directory.
 pub const LOGIN_FILE: &str = ".credentials.json";
 
@@ -127,7 +130,7 @@ impl Engine for Claude {
     }
 
     fn drive_turn(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
-        let mut command = TurnCommand::new(PROGRAM);
+        let mut command = TurnCommand::new(program(request));
         command.args = ["-p", "--output-format", "stream-json", "--verbose"]
             .map(String::from)
             .to_vec();
@@ -138,7 +141,7 @@ impl Engine for Claude {
             command.args.push("--resume".to_string());
             command.args.push(native_id.clone());
         }
-        command.env = environment(ENV_ALLOWLIST, &request.env, &request.home);
+        command.env = environment(&Claude::new(), false, request)?;
         command.stdin = request.prompt.clone().into_bytes();
         command.cwd = request.cwd.clone();
         Ok(command)
@@ -148,7 +151,7 @@ impl Engine for Claude {
         Credentials {
             child_env: CHILD_CREDENTIAL_ENV,
             primary_env: PRIMARY_CREDENTIAL_ENV,
-            user_dir: ".claude",
+            user_dir: LOGIN_DIR,
             login_file: Some(LOGIN_FILE),
         }
     }
@@ -161,7 +164,7 @@ impl Engine for Claude {
     /// the system prompt, and the prompt (when she gave one) as the
     /// conversation's opening. The command is given her terminal.
     fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
-        let mut command = TurnCommand::new(PROGRAM);
+        let mut command = TurnCommand::new(program(request));
         command.args.push("--append-system-prompt-file".to_string());
         command.args.push(request.context_path.clone());
         push_model_and_effort(&mut command.args, request)?;
@@ -172,7 +175,7 @@ impl Engine for Claude {
         if !request.prompt.trim().is_empty() {
             command.args.push(request.prompt.clone());
         }
-        command.env = environment(INTERACTIVE_ENV_ALLOWLIST, &request.env, &request.home);
+        command.env = environment(&Claude::new(), true, request)?;
         command.cwd = request.cwd.clone();
         Ok(command)
     }
@@ -203,20 +206,82 @@ fn push_model_and_effort(args: &mut Vec<String>, request: &TurnRequest) -> Resul
     Ok(())
 }
 
-/// The command's whole environment: `caller`'s variables on `allowed` and
-/// `CLAUDE_CONFIG_DIR` set to `home`.
+/// The program: the engine block's `command`, else `claude` on the `PATH`.
+fn program(request: &TurnRequest) -> &str {
+    match request.settings.command.as_str() {
+        "" => PROGRAM,
+        configured => configured,
+    }
+}
+
+/// The variables only the terminal session is given: ctxloom's home and the
+/// listener's endpoint, bearer, run and session. A child's turn never gets one,
+/// whatever the config names.
+fn interactive_only(name: &str) -> bool {
+    name == run_ports::HOME_VARIABLE
+        || name == run_ports::HARP_VARIABLE
+        || run_ports::HOOK_VARIABLES.contains(&name)
+}
+
+/// The variable that is the primary's alone: never a child's.
+const PRIMARY_ONLY: &str = "ANTHROPIC_AUTH_TOKEN";
+
+/// Whether the caller's variable `name` may be handed to this command.
+fn grantable(name: &str, interactive: bool) -> bool {
+    interactive || !(interactive_only(name) || name == PRIMARY_ONLY)
+}
+
+/// The command's whole environment: `caller`'s variables on the curated
+/// allowlist, on the engine block's `env` and on the configured credential
+/// source (or all of them, with `env_host`, but never `HOME`), and
+/// `CLAUDE_CONFIG_DIR` set to the session's home, or to the user's own
+/// directory when the engine block says `session_home: host`. A child is never
+/// given the interactive-only variables nor the primary's token.
 fn environment(
-    allowed: &[&str],
-    caller: &BTreeMap<String, String>,
-    home: &str,
-) -> BTreeMap<String, String> {
-    let mut env: BTreeMap<String, String> = caller
+    engine: &Claude,
+    interactive: bool,
+    request: &TurnRequest,
+) -> Result<BTreeMap<String, String>, EngineError> {
+    let settings = &request.settings;
+    let policy = settings.credentials(engine.credentials());
+    let credential = if interactive {
+        &policy.primary_env
+    } else {
+        &policy.child_env
+    };
+    let curated = if interactive {
+        INTERACTIVE_ENV_ALLOWLIST
+    } else {
+        ENV_ALLOWLIST
+    };
+    let passes = |name: &str| {
+        grantable(name, interactive)
+            && (curated.contains(&name)
+                || settings.env.iter().any(|n| n == name)
+                || credential.iter().any(|n| n == name)
+                || (settings.env_host && name != "HOME"))
+    };
+    let mut env: BTreeMap<String, String> = request
+        .env
         .iter()
-        .filter(|(name, _)| allowed.contains(&name.as_str()))
+        .filter(|(name, _)| passes(name))
         .map(|(name, value)| (name.clone(), value.clone()))
         .collect();
-    env.insert("CLAUDE_CONFIG_DIR".to_string(), home.to_string());
-    env
+    let config_dir = match settings.session_home {
+        SessionHome::Session => request.home.clone(),
+        SessionHome::Host => {
+            let home = request
+                .env
+                .get("HOME")
+                .filter(|home| !home.is_empty())
+                .ok_or_else(|| EngineError::NoHostHome {
+                    engine: NAME.to_string(),
+                })?;
+            format!("{home}/{}", LOGIN_DIR)
+        }
+    };
+    env.insert("CLAUDE_CONFIG_DIR".to_string(), config_dir);
+    Ok(env)
 }
 
 #[cfg(test)]

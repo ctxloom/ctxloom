@@ -410,8 +410,30 @@ impl From<&Effective> for Drive {
 
 /// A launch with no agent (hand-assembled): `engine`'s own block alone.
 pub fn engine_drive(config: &Value, engine: &str) -> Result<Drive, EngineError> {
-    let _ = (config, engine);
-    Ok(Drive::default())
+    if !ENGINES.contains(&engine) {
+        return Err(EngineError::UnknownEngine {
+            engine: engine.to_string(),
+            known: ENGINES.iter().map(ToString::to_string).collect(),
+        });
+    }
+    let block = config
+        .get("engines")
+        .and_then(|engines| engines.get(engine));
+    let auth = engine_auth(config, engine).map_err(|why| EngineError::Auth {
+        engine: engine.to_string(),
+        why,
+    })?;
+    Ok(Drive {
+        command: block
+            .and_then(|b| text_of(b, "command"))
+            .unwrap_or_else(|| default_command(engine)),
+        session_home: block
+            .and_then(|b| text_of(b, "session_home"))
+            .unwrap_or_else(|| "session".to_string()),
+        auth,
+        env_host: block.and_then(|b| flag_of(b, "env_host")).unwrap_or(false),
+        env: block.and_then(|b| names_of(b, "env")).unwrap_or_default(),
+    })
 }
 
 /// The credential source of `engine` over the merged config: its block's

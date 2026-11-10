@@ -9,7 +9,8 @@
 //! can look the run up without upstream metadata support; it reaches the
 //! engine's environment and nowhere else: never a log line or an error
 //! message ([`Bearer`]'s `Debug` is redacted, [`BearerError`] does not
-//! echo what it was given, and [`RedactedEnv`] prints a map without its value).
+//! echo what it was given, and [`RedactedEnv`] prints an environment's names
+//! and none of its values).
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -249,31 +250,16 @@ pub fn hook_environment(
     ])
 }
 
-/// An environment as `Debug` shows it: every variable, the bearer's value
-/// withheld.
+/// An environment as `Debug` shows it: every variable's name, no value.
 pub struct RedactedEnv<'a>(pub &'a BTreeMap<String, String>);
 
 impl fmt::Debug for RedactedEnv<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Withheld(self.0, &[]).fmt(f)
-    }
-}
-
-/// A map shown without the bearer's value, any permit's
-/// (`CTXLOOM_PERMIT_*`, owner ruling 78), nor those of the names in `.1`.
-pub(crate) struct Withheld<'a>(pub &'a BTreeMap<String, String>, pub &'a [String]);
-
-impl fmt::Debug for Withheld<'_> {
+    /// The names alone: every value is withheld, whatever its name
+    /// (credential values never render; no list of sensitive names to keep).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut map = f.debug_map();
-        for (name, value) in self.0 {
-            let secret = name == BEARER_VARIABLE
-                || name.starts_with(crate::permit::PERMIT_PREFIX)
-                || self.1.contains(name);
-            match secret {
-                true => map.entry(name, &"<redacted>"),
-                false => map.entry(name, value),
-            };
+        for name in self.0.keys() {
+            map.entry(name, &"<redacted>");
         }
         map.finish()
     }

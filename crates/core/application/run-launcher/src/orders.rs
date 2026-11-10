@@ -35,7 +35,7 @@ pub struct Order {
 }
 
 impl fmt::Debug for Order {
-    /// Without the bearer's value: an order is logged, the secret is not.
+    /// The environment's names alone: an order is logged, no value of it is.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Order")
             .field("harp", &self.harp)

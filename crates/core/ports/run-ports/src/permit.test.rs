@@ -92,8 +92,7 @@ fn applied_the_permits_set_their_names_and_leave_no_permit_behind() {
         ("CTXLOOM_BEARER", "run.own"),
         ("CTXLOOM_PERMIT_OPENCODE_API_KEY", "oc-key"),
     ]);
-    let set = apply_permits(&caller, &mut command);
-    assert_eq!(set, ["LANG", "OPENCODE_API_KEY"]);
+    apply_permits(&caller, &mut command);
     assert_eq!(
         command,
         env(&[
@@ -107,7 +106,7 @@ fn applied_the_permits_set_their_names_and_leave_no_permit_behind() {
 #[test]
 fn no_permit_changes_nothing() {
     let mut command = env(&[("PATH", "/usr/bin")]);
-    assert!(apply_permits(&env(&[("PATH", "/x")]), &mut command).is_empty());
+    apply_permits(&env(&[("PATH", "/x")]), &mut command);
     assert_eq!(command, env(&[("PATH", "/usr/bin")]));
 }
 

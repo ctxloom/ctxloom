@@ -367,8 +367,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         // The caller's CTXLOOM_PERMIT_<NAME> reaches every engine's command as
         // <NAME>, over what the engine chose (owner ruling 78): the one place
         // every command, a child's turn and the terminal's, passes.
-        let permitted = run_ports::apply_permits(&order.env, &mut command.env);
-        command.withheld.extend(permitted);
+        run_ports::apply_permits(&order.env, &mut command.env);
         Ok((engine, command))
     }
 

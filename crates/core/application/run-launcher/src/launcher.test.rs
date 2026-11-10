@@ -936,7 +936,6 @@ async fn a_permit_reaches_the_command_under_its_own_name() {
             "{interactive}"
         );
         assert!(!command.env.contains_key("CTXLOOM_PERMIT_SECRET_KEY"));
-        assert_eq!(command.withheld, ["SECRET_KEY"]);
         assert!(!format!("{command:?}").contains("permitted-value"));
     }
 }

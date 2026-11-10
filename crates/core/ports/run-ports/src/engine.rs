@@ -85,7 +85,7 @@ pub struct TurnRequest {
 }
 
 impl fmt::Debug for TurnRequest {
-    /// Without the bearer's value: a request is logged, the secret is not.
+    /// The environment's names alone: a request is logged, no value of it is.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TurnRequest")
             .field("prompt", &self.prompt)

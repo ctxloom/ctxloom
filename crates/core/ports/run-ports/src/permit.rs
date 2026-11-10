@@ -83,17 +83,11 @@ pub fn permits(caller: &BTreeMap<String, String>) -> Permits {
 
 /// `env`, a command's whole environment, with `caller`'s permits applied: no
 /// `CTXLOOM_PERMIT_*` variable left in it, each permit followed set by its own
-/// name over whatever the engine put there. The names it set, in order: their
-/// values are to be withheld from a `Debug` ([`crate::TurnCommand::withheld`]).
-pub fn apply_permits(
-    caller: &BTreeMap<String, String>,
-    env: &mut BTreeMap<String, String>,
-) -> Vec<String> {
+/// name over whatever the engine put there. (A command's `Debug` shows no
+/// value of its environment, so none of these renders.)
+pub fn apply_permits(caller: &BTreeMap<String, String>, env: &mut BTreeMap<String, String>) {
     env.retain(|name, _| !name.starts_with(PERMIT_PREFIX));
-    let forwarded = permits(caller).forwarded;
-    let names = forwarded.keys().cloned().collect();
-    env.extend(forwarded);
-    names
+    env.extend(permits(caller).forwarded);
 }
 
 #[cfg(test)]

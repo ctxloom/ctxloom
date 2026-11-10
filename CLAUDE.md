@@ -227,7 +227,10 @@ variables, the certificate's codec and the bind table are pure functions in
 secret is returned once by `Enqueuer::enqueue` to the launching code, which
 puts it in the launch order's env; `Bearer`, `Token` and the `Debug` of
 `TurnCommand`, `TurnRequest` and `Order` never render it, and no error carries
-it. Residual, same-user (ruling 37, ACCEPTED: the user boundary is the trust
+it. Credential values never render: the `Debug` of every type that carries an
+engine environment (those three, through `run_ports::RedactedEnv`; `Permits`)
+prints the variables' NAMES and withholds EVERY value, whatever the name, so
+there is no list of sensitive names to keep in sync. Residual, same-user (ruling 37, ACCEPTED: the user boundary is the trust
 boundary): the model runs as the user and can read its own engine's
 environment, so it holds the bearer and the public certificate and can forge
 CAPTURE facts as the hook principal; it can never forge runner lifecycle facts
@@ -309,8 +312,8 @@ and the terminal alike, over whatever the allowlist, a block (opencode's
 after the engine built the command (`run_ports::apply_permits`). The
 `CTXLOOM_PERMIT_*` variable is never passed on; a permit for a `CTXLOOM_*`
 name is ignored and the run says so as a notice (by the permit's name, never
-its value); a value is withheld from every `Debug` (`TurnCommand::withheld`,
-`RedactedEnv`). An explicit `CTXLOOM_PERMIT_ANTHROPIC_AUTH_TOKEN` does give a
+its value); no value renders in a `Debug` (every environment value is
+withheld, see the credentials paragraph). An explicit `CTXLOOM_PERMIT_ANTHROPIC_AUTH_TOKEN` does give a
 child the primary's token (78a): the cost is that such a child holds the
 primary's own token, no distinct per-child credential. A permit may also
 replace what the engine relocated (`HOME`, an XDG base, a config dir): it is

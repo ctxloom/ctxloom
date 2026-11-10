@@ -204,9 +204,9 @@ impl TokenSource for CountingSource {
     }
 }
 
-/// What the hook server saw, in order, each with how many terminal launches
-/// the runner had seen by then (the engine's starts), so the order is read off
-/// the run and never waited for.
+/// What the hook server saw, in order, each with how many launches (a turn's
+/// or the terminal's) the runner had seen by then (the engine's starts), so
+/// the order is read off the run and never waited for.
 #[derive(Clone, Default)]
 struct Hooks {
     log: Arc<Mutex<Vec<(String, usize)>>>,
@@ -253,10 +253,9 @@ impl CertMint for Certs {
 
 impl Hooks {
     fn note(&self, what: String) {
-        let launched = self
-            .runner
-            .as_ref()
-            .map_or(0, |r| r.seen_terminal.lock().unwrap().len());
+        let launched = self.runner.as_ref().map_or(0, |r| {
+            r.seen.lock().unwrap().len() + r.seen_terminal.lock().unwrap().len()
+        });
         self.log.lock().unwrap().push((what, launched));
     }
 }
@@ -1122,30 +1121,48 @@ async fn an_interactive_run_is_handed_the_listener_endpoint_and_the_hook_bearer(
     assert_ne!(enqueued.model_credential_hash, token.hash().as_bytes());
 }
 
-// NEW-DESIGN: a CHILD's turn never gets them, even when the caller's own
-// environment (a run started from inside an interactive session) holds some.
+// Ruling 51 (with 27 and 29): a one-shot is its own owner, so its CHILD's turn
+// is handed the run's own listener variables too: the endpoint of the port it
+// serves, its run, the hook bearer (whose digest the run journaled as the
+// HOOK's), its certificate and its harp. What the caller's own environment held
+// (a run started from inside another session) is replaced, never passed on.
 #[tokio::test]
-async fn a_childs_turn_never_gets_the_listener_variables() {
+async fn a_childs_turn_is_handed_its_own_listener_endpoint_and_hook_bearer() {
     let mut script = Script::answering();
     script.env = vec![
         ("PATH", "/bin"),
-        ("CTXLOOM_ENDPOINT", "/inherited.sock"),
+        ("CTXLOOM_ENDPOINT", "https://10.0.0.9:1"),
         ("CTXLOOM_BEARER", "inherited.secret"),
         ("CTXLOOM_RUN", "inherited"),
         ("CTXLOOM_TLS_CERT", "inherited-cert"),
         ("CTXLOOM_SESSION_HARP", "inherited-harp"),
     ];
     let mut rig = rig(script);
-    rig.runs
+    let answer = rig
+        .runs
         .one_shot(&Flags::default(), &ask())
         .await
         .result
         .unwrap();
     let env = rig.runner.seen.lock().unwrap()[0].env.clone();
-    for name in run_ports::HOOK_VARIABLES {
-        assert!(!env.contains_key(name), "{name} in {env:?}");
-    }
-    assert!(!env.contains_key("CTXLOOM_SESSION_HARP"), "{env:?}");
+    let run = runs::run_root(&answer.session, 1);
+    let run_text = uuid::Uuid::from_slice(&run.value)
+        .unwrap()
+        .hyphenated()
+        .to_string();
+    assert_eq!(env["CTXLOOM_RUN"], run_text);
+    assert_eq!(env["CTXLOOM_SESSION_HARP"], answer.harp);
+    assert_eq!(env["CTXLOOM_ENDPOINT"], "https://127.0.0.1:40123");
+    assert_eq!(env["CTXLOOM_TLS_CERT"], minted_public().to_env_value());
+    let (bearer_run, token) = run_ports::Bearer::parse(&env["CTXLOOM_BEARER"]).unwrap();
+    assert_eq!(bearer_run, run_text);
+    let events = run_events(&rig.edge, &answer.session).await;
+    let runs::RunEvent::RunEnqueued(enqueued) = &events[0] else {
+        panic!("first event is the enqueue: {events:?}");
+    };
+    assert_eq!(enqueued.hook_credential_hash, token.hash().as_bytes());
+    assert_ne!(enqueued.runner_credential_hash, token.hash().as_bytes());
+    assert_ne!(enqueued.model_credential_hash, token.hash().as_bytes());
 }
 
 // NEW-DESIGN: a primary run launched from inside another interactive session
@@ -1248,16 +1265,119 @@ async fn a_listener_that_cannot_start_stops_the_run_before_its_engine() {
     assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
 }
 
-// A one-shot's child has no hooks and no listener.
+// Ruling 51: a one-shot serves the same listener as the terminal session, on
+// loopback, before its child is launched, and stops it after the child exits.
 #[tokio::test]
-async fn a_one_shot_serves_no_listener() {
+async fn a_one_shot_serves_its_listener_on_loopback_before_the_child_and_stops_it_after() {
     let mut rig = rig(Script::answering());
     rig.runs
         .one_shot(&Flags::default(), &ask())
         .await
         .result
         .unwrap();
-    assert!(rig.hooks.log.lock().unwrap().is_empty());
+    assert_eq!(
+        *rig.hooks.log.lock().unwrap(),
+        [
+            ("serve_tcp 127.0.0.1".to_string(), 0),
+            ("stop".to_string(), 1)
+        ],
+        "served on loopback before the child starts, stopped after it exits"
+    );
+}
+
+// The child's hooks are delivered while the listener serves, so a one-shot's
+// last catch-up (the transcript's writer) follows the listener's stop, as the
+// terminal session's does.
+#[tokio::test]
+async fn a_one_shots_listener_is_stopped_before_the_run_is_last_recorded() {
+    let mut rig = rig(Script::answering());
+    rig.runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    assert_eq!(
+        *rig.hooks.end_projected_at_stop.lock().unwrap(),
+        Some(false),
+        "the run's end was recorded before the listener stopped"
+    );
+    assert!(rig
+        .records
+        .text("amber-swift-owl", "records/runs.jsonl")
+        .unwrap()
+        .contains("RunEnded"));
+}
+
+// No listener, no child: a hook could not be heard, so nothing is made and no
+// engine started, and the error says why.
+#[tokio::test]
+async fn a_one_shot_whose_listener_cannot_start_launches_no_child() {
+    let mut rig = rig(Script {
+        hooks_refuse: Some("hook-listener-bind"),
+        ..Script::answering()
+    });
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(error.code(), "run-application-listener");
+    assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 0);
+    assert!(rig.runner.seen.lock().unwrap().is_empty());
+}
+
+// A child that cannot be spawned, and a one-shot refused after the bind (no
+// prompt), stop the listener: no port outlives the run.
+#[tokio::test]
+async fn a_one_shot_that_does_not_run_still_stops_its_listener() {
+    let mut never = Script::answering();
+    never.runner =
+        ScriptedRunner::answering(run_ports::Launch::NotStarted(run_ports::LaunchFailure {
+            deterministic: true,
+            detail: "no claude".to_string(),
+        }));
+    let mut silent = Script::answering();
+    silent.prompt = "";
+    for script in [never, silent] {
+        let mut rig = rig(script);
+        let done = rig.runs.one_shot(&Flags::default(), &ask()).await;
+        assert!(done.result.is_err());
+        let log = rig.hooks.log.lock().unwrap().clone();
+        let what: Vec<&str> = log.iter().map(|(what, _)| what.as_str()).collect();
+        assert_eq!(what, ["serve_tcp 127.0.0.1", "stop"]);
+    }
+}
+
+// A child's hook finds its session by the directory's `metadata.json` too, so
+// the directory names the session before the child is launched; and nothing of
+// the conversation is written while it runs (the transcript is the projector's,
+// at the run's end).
+#[tokio::test]
+async fn a_one_shots_session_directory_names_its_session_while_the_child_runs() {
+    let rig = rig(Script::answering());
+    let during = Arc::new(Mutex::new(None::<(Option<String>, Option<String>)>));
+    let window = {
+        let (records, during) = (rig.records.clone(), Arc::clone(&during));
+        Arc::new(move || {
+            *during.lock().unwrap() = Some((
+                records.text("amber-swift-owl", "metadata.json"),
+                records.text("amber-swift-owl", "transcripts/transcript.jsonl"),
+            ));
+        })
+    };
+    *rig.runner.during.lock().unwrap() = Some(window);
+    let mut rig = rig;
+    let answer = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let (metadata, transcript) = during.lock().unwrap().clone().expect("the child ran");
+    let metadata = metadata.expect("metadata.json was written before the child ran");
+    assert!(metadata.contains(&answer.session), "{metadata}");
+    assert_eq!(transcript, None, "no conversation is written while it runs");
 }
 
 // A hook is a process of its own that finds its session by reading the
@@ -1357,15 +1477,20 @@ async fn a_binary_whose_directory_is_unknown_leaves_the_path_as_it_was() {
     assert_eq!(interactive_path(unknown).await, "/bin");
 }
 
+// Ruling 51: a child's hooks are the bare `ctxloom` too, so the running
+// binary's directory leads a child's PATH as it leads the terminal's.
 #[tokio::test]
-async fn a_childs_turn_gets_its_path_as_it_was() {
+async fn the_running_binarys_directory_leads_a_childs_path() {
     let mut rig = rig_again_with(Script::answering());
     rig.runs
         .one_shot(&Flags::default(), &ask())
         .await
         .result
         .unwrap();
-    assert_eq!(rig.runner.seen.lock().unwrap()[0].env["PATH"], "/bin");
+    assert_eq!(
+        rig.runner.seen.lock().unwrap()[0].env["PATH"],
+        "/opt/ctxloom/bin:/bin"
+    );
 }
 
 // Owner rulings 2026-11-09, items 31-33: the interactive run's hook listener
@@ -1498,20 +1623,24 @@ async fn the_certificate_is_minted_for_the_binds_names_and_served_and_told() {
     }
 }
 
-// A child agent has no listener and no certificate: nothing is minted for it,
-// and its turn is told none.
+// Ruling 51: a one-shot's listener has its own certificate, minted for the
+// bind's names before it is served, served with it, and told (the public part
+// alone) to the child.
 #[tokio::test]
-async fn a_one_shot_mints_no_certificate_and_tells_none() {
+async fn a_one_shot_mints_its_certificate_serves_with_it_and_tells_the_child() {
     let mut rig = rig(Script::answering());
     rig.runs
         .one_shot(&Flags::default(), &ask())
         .await
         .result
         .unwrap();
-    assert!(rig.certs.asked.lock().unwrap().is_empty());
-    assert!(rig.hooks.identities.lock().unwrap().is_empty());
+    assert_eq!(rig.certs.asked.lock().unwrap().len(), 1);
+    assert_eq!(*rig.hooks.identities.lock().unwrap(), [MINTED_KEY]);
     let env = rig.runner.seen.lock().unwrap()[0].env.clone();
-    assert!(!env.contains_key("CTXLOOM_TLS_CERT"), "{env:?}");
+    assert_eq!(env["CTXLOOM_TLS_CERT"], minted_public().to_env_value());
+    for (name, value) in &env {
+        assert!(!value.contains(MINTED_KEY), "{name}");
+    }
 }
 
 // A certificate that cannot be minted is the run's refusal, with nothing

@@ -109,15 +109,34 @@ const HOME_EVENTS: &[&str] = &[
     "PostCompact",
 ];
 
-/// The `settings.json` of a terminal session's home: every one of
-/// [`HOME_EVENTS`] calls ctxloom's `hook <engine> execute <Event>`.
-pub(crate) fn home_settings() -> String {
+/// The unified events a child's home is installed to call ctxloom for (owner
+/// ruling 51): the per-turn ones. `SessionStart` and `SessionEnd` fire once
+/// per `claude -p` PROCESS, that is every turn, so they say nothing of the
+/// session and are not registered.
+const CHILD_EVENTS: &[&str] = &[
+    "turn_start",
+    "message_display",
+    "post_tool_batch",
+    "turn_end",
+    "PreCompact",
+    "PostCompact",
+];
+
+/// The `settings.json` of a session home: every one of [`HOME_EVENTS`] (the
+/// terminal session's) or [`CHILD_EVENTS`] (a child's turn) calls ctxloom's
+/// `hook <engine> execute <Event>`.
+pub(crate) fn home_settings(interactive: bool) -> String {
     let callback = Hook {
         command: "ctxloom".to_string(),
         args: vec!["hook".to_string()],
         ..Hook::default()
     };
-    let hooks: BTreeMap<String, Vec<Hook>> = HOME_EVENTS
+    let registered = if interactive {
+        HOME_EVENTS
+    } else {
+        CHILD_EVENTS
+    };
+    let hooks: BTreeMap<String, Vec<Hook>> = registered
         .iter()
         .map(|event| (event.to_string(), vec![callback.clone()]))
         .collect();

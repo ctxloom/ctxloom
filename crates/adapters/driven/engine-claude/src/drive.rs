@@ -111,18 +111,18 @@ impl Engine for Claude {
     }
 
     fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
-        let mut files = vec![HomeFile {
-            rel: CONTEXT_PROMPT_FILE.to_string(),
-            bytes: request.context.clone().into_bytes(),
-        }];
-        // Hooks are the terminal session's way to be heard; a child's turn is
-        // one command, whose end is its exit.
-        if request.interactive {
-            files.push(HomeFile {
+        // Hooks are how a session is heard, the terminal's and a child's turn
+        // alike (owner ruling 51); a child registers the per-turn events only.
+        let files = vec![
+            HomeFile {
+                rel: CONTEXT_PROMPT_FILE.to_string(),
+                bytes: request.context.clone().into_bytes(),
+            },
+            HomeFile {
                 rel: SETTINGS_FILE.to_string(),
-                bytes: crate::hooks::home_settings().into_bytes(),
-            });
-        }
+                bytes: crate::hooks::home_settings(request.interactive).into_bytes(),
+            },
+        ];
         Ok(Prepared {
             files,
             copy_in: copy_in(COPY_IN_ALLOWLIST, &request.offered),
@@ -137,6 +137,8 @@ impl Engine for Claude {
             .to_vec();
         command.args.push("--append-system-prompt-file".to_string());
         command.args.push(request.context_path.clone());
+        // The turn's hooks: the session dir's settings, as the terminal's.
+        push_settings(&mut command.args, request);
         push_model_and_effort(&mut command.args, request)?;
         if let Some(native_id) = &request.resume {
             command.args.push("--resume".to_string());
@@ -168,15 +170,7 @@ impl Engine for Claude {
         let mut command = TurnCommand::new(program(request));
         command.args.push("--append-system-prompt-file".to_string());
         command.args.push(request.context_path.clone());
-        // claude reads one `--settings` file (the last wins) and adds its hooks
-        // to the config directory's own, so the ctxloom-owned file `prepare`
-        // wrote in the session dir serves both home modes; nothing is written
-        // into the user's own directory. (In a container this path must be the
-        // in-container one: a follow-up.)
-        command.args.push("--settings".to_string());
-        command
-            .args
-            .push(format!("{}/{SETTINGS_FILE}", request.home));
+        push_settings(&mut command.args, request);
         push_model_and_effort(&mut command.args, request)?;
         if let Some(native_id) = &request.resume {
             command.args.push("--resume".to_string());
@@ -189,6 +183,17 @@ impl Engine for Claude {
         command.cwd = request.cwd.clone();
         Ok(command)
     }
+}
+
+/// `--settings <session home>/settings.json`. claude reads one `--settings`
+/// file (the last wins) and adds its hooks to the config directory's own, so
+/// the ctxloom-owned file `prepare` wrote in the session dir serves both home
+/// modes and both kinds of run; nothing is written into the user's own
+/// directory. (In a container this path must be the in-container one: a
+/// follow-up.)
+fn push_settings(args: &mut Vec<String>, request: &TurnRequest) {
+    args.push("--settings".to_string());
+    args.push(format!("{}/{SETTINGS_FILE}", request.home));
 }
 
 /// The effort levels `claude --effort` takes (`claude --help`, 2.1.321).

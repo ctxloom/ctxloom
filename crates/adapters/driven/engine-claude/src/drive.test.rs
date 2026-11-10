@@ -117,7 +117,8 @@ fn preparing_a_home_writes_the_context_file_it_names() {
         })
         .unwrap();
     assert_eq!(prepared.context_path, format!("/h/{CONTEXT_PROMPT_FILE}"));
-    assert_eq!(prepared.files.len(), 1);
+    // The context, and the settings that register the turn's hooks.
+    assert_eq!(prepared.files.len(), 2);
     assert_eq!(prepared.files[0].rel, CONTEXT_PROMPT_FILE);
     assert_eq!(prepared.files[0].bytes, b"the context");
     // Nothing of the user's own configuration is on the allowlist yet.

@@ -93,7 +93,7 @@ fn mock_responds(w: &mut World, _reply: String) {
     // resolves it.
     w.common.project.write(
         ".ctxloom/config.yaml",
-        "schema_version: 9\nllm:\n  configs:\n    mock:\n      type: mock\n  defaults:\n    primary: mock\n",
+        "schema_version: 9\nagents:\n  default:\n    engine: mock\ndefault_agent: default\n",
     );
 }
 

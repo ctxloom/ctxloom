@@ -634,7 +634,7 @@ fn j002000_setup(w: &mut World) {
     w.common.project = Project::initialized();
     w.common.project.write(
         ".ctxloom/config.yaml",
-        "schema_version: 9\nllm:\n  configs:\n    claude-code:\n      type: claude-code\n    mock-lossy:\n      type: mock-lossy\n  defaults:\n    primary: claude-code\n    fast: claude-code\nagents:\n  dev:\n    llm: claude-code\n    profiles:\n      - default\ndefault_agent: dev\n",
+        "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    profiles:\n      - default\ndefault_agent: dev\n",
     );
     let root = ".ctxloom/content/bundles/v2/house";
     w.common.project.write(
@@ -701,7 +701,7 @@ fn j002000_before(w: &mut World) {
 #[when("Alice swaps the engine under the binding")]
 fn j002000_swap(w: &mut World) {
     w.common.run_lines(
-        &format!("ctxloom agent edit {J002000_AGENT} --llm {J002000_NEW}"),
+        &format!("ctxloom agent edit {J002000_AGENT} --engine {J002000_NEW}"),
         "",
     );
 }
@@ -717,10 +717,12 @@ fn j002000_bound(w: &mut World) {
         .lines()
         .skip_while(|l| l.trim() != format!("{J002000_AGENT}:"))
         .skip(1)
-        .find_map(|l| l.trim().strip_prefix("llm:").map(|v| v.trim().to_string()))
-        .unwrap_or_else(|| {
-            panic!("config.yaml records no llm label for {J002000_AGENT}: {config}")
-        });
+        .find_map(|l| {
+            l.trim()
+                .strip_prefix("engine:")
+                .map(|v| v.trim().to_string())
+        })
+        .unwrap_or_else(|| panic!("config.yaml records no engine for {J002000_AGENT}: {config}"));
     assert_eq!(
         recorded,
         J002000_NEW,
@@ -1033,7 +1035,7 @@ fn j000200_scaffold(w: &mut World, engine: &str) {
     w.common.project.write(
         ".ctxloom/config.yaml",
         &format!(
-            "schema_version: 9\nllm:\n  configs:\n    {engine}:\n      type: {engine}\n  defaults:\n    primary: {engine}\n    fast: {engine}\nagents:\n  default:\n    llm: {engine}\n    profiles:\n      - default\ndefault_agent: default\n"
+            "schema_version: 9\nagents:\n  default:\n    engine: {engine}\n    profiles:\n      - default\ndefault_agent: default\n"
         ),
     );
     w.common.run_lines(
@@ -1063,10 +1065,9 @@ const J001900_BUNDLE: &str = "deploy-runbook";
 #[given("Alice's team ships its deploy process as ctxloom content")]
 fn j001900_setup(w: &mut World) {
     w.common.project = Project::initialized();
-    w.common.project.write(
-        ".ctxloom/config.yaml",
-        "schema_version: 9\nllm:\n  configs:\n    claude-code:\n      type: claude-code\n  defaults:\n    primary: claude-code\n    fast: claude-code\n",
-    );
+    w.common
+        .project
+        .write(".ctxloom/config.yaml", "schema_version: 9\n");
     w.common.run_lines(
         "ctxloom bundle create seed -d \"J000200 seed bundle\"\nctxloom profile create default --include seed -d \"J000200 default profile\"",
         "",

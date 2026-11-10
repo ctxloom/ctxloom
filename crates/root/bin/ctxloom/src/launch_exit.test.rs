@@ -59,7 +59,7 @@ fn test_a_refused_launch_exits_2_from_run_and_from_init_at_a_terminal() {
 #[test]
 fn test_a_failed_launch_exits_1_from_run_and_from_init_at_a_terminal() {
     let [(run_exit, run), (init_exit, init)] = both(
-        "schema_version: 9\nagents:\n  dev:\n    llm: no-such-engine\n    runtime: host\ndefault_agent: dev\n",
+        "schema_version: 9\nagents:\n  dev:\n    engine: opencode\n    runtime: host\ndefault_agent: dev\n",
     );
     assert_eq!((run_exit, init_exit), (1, 1), "{run} {init}");
     assert_eq!(init["code"], run["code"], "the same failure");

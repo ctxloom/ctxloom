@@ -119,10 +119,11 @@ impl World {
         }
     }
 
+    /// The session's directory: in the project, where the seed writes it.
     fn session_dir(&self, harp: &str) -> PathBuf {
         self.common
             .project
-            .home()
+            .dir()
             .join(".ctxloom/sessions")
             .join(harp)
     }
@@ -183,7 +184,7 @@ impl World {
                 let lock = files::open_read(
                     self.common
                         .project
-                        .home()
+                        .dir()
                         .join(".ctxloom/sessions")
                         .join(format!("{}.lock", session.harp)),
                 )
@@ -395,6 +396,11 @@ fn finished_an_hour_ago(w: &mut World, harp: String) {
 #[given(expr = "an internal one-shot session {string} that finished an hour ago")]
 fn oneshot(w: &mut World, harp: String) {
     w.plant(&harp, "oneshot");
+}
+
+#[given(expr = "session {string} holds a file {string} a person wrote")]
+fn authored_file(w: &mut World, harp: String, rel: String) {
+    files::put(w.session_dir(&harp).join(rel), "notes nobody filed\n");
 }
 
 #[given("the feature shipped on Friday and Alice is closing the workstream out")]

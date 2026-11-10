@@ -1,196 +1,146 @@
-# Written for the new design; awaits product plan step 4 (docs/plans/ctxloom-features.md).
+# world: base
 # Ported from cli/session.feature
 # Ported from journeys/j001300_closeout.feature
 # NOT ported: Go's other session destroyers. `session purge` (owner ruling
 #   98: one deleting verb), `session transcript purge` and `session worktrees
 #   purge` are retired: `session remove` is the one destroyer, and a removed
-#   session is gone, from
-#   disk and from the listing (vocabulary §8). Go's "the sweep empties a
-#   session but does not unlist it" is superseded by that rule. `session
-#   adopt` is dropped.
-# Superseded in part (owner rulings 87a, 94b): no transcript file exists, so
-#   the steps below that look for `transcripts/transcript.jsonl` are to be
-#   rewritten when this Feature is taken up; `session remove` destroys the
-#   whole session (its events, its runs', its directory and lock, the name
-#   kept claimed), and is built only with the `session-destroy` feature
-#   (owner ruling 98: a plain build has no deleting verb). The built verb's
-#   escape is still `--even-if-live`; `--force` below is this pending design's.
-@pending
+#   session is gone, from the store and from disk. The age form (`--older-than`,
+#   a configured `session_purge_age`) is `session sweep`'s, not here. The
+#   earlier design of this file (a `--force` override; a session holding a
+#   person's files refused whole) is dropped (owner ruling 104): the built
+#   verb's one override is `--even-if-live`, and a person's files go with the
+#   session after a warning that names each. `session remove` is built only
+#   with the `session-destroy` feature, which the acceptance tests turn on.
 Feature: session remove — the one destroyer, and a removed session is gone
 
-  `ctxloom session remove <harp>` purges one session; `ctxloom session remove
-  --older-than <age>` purges every session past that age. Purging takes the
-  session's index entry, its transcript and its scratch worktrees: afterwards
-  it is not on disk and not in `session list`. The session's output dir (its
-  plans, any summary) is the human's and is never touched.
+  `ctxloom session remove <harp>` destroys one session: its events and its
+  runs' in the store, its directory and its lock. Afterwards it is not in
+  `session list`, and its name is never given to another session. The
+  session's output dir (its plans, any summary) is the human's and is never
+  touched.
 
-  Purge takes only what ctxloom wrote. A session still holding anything the
-  human wrote (uncommitted work in a scratch worktree, notes nobody filed) is
-  refused whole, and the report names each thing that kept it.
-
-  Without `--yes` purge only reports: it changes nothing, names the exact
-  command that would, and exits 4 when no one is at a terminal to confirm.
+  Without `--yes` remove only reports: it changes nothing and names the exact
+  command that would.
 
   Background:
-    # new: Rust's own Background, stating the Given that Go repeats in each scenario (see their substitutions).
+    # new: Rust's own Background, stating the Given each scenario shares.
     Given an initialized ctxloom project
 
-  Rule: Purge reports first, and with --yes the session is gone
+  Rule: Remove reports first, and with --yes the session is gone
 
-    Scenario: The sweep reports before it removes
-      # substitution: the project Given is the Background's; the report-only run exits 4 (confirmation required off a terminal) where Go's exited 0.
+    Scenario: Remove reports before it destroys
+      # new: the report-only run of the built verb; it changes nothing and names the command that applies it.
       Given a finished session "amber-swift-owl" with a transcript
       When I run "ctxloom session remove amber-swift-owl"
-      Then the command exits with code 4
+      Then the command succeeds
       And the output contains "removed nothing"
       And the output contains "ctxloom session remove amber-swift-owl --yes"
-      And the file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" exists
+      When I run "ctxloom session list --all"
+      Then the output contains "amber-swift-owl"
 
-    Scenario: --yes removes the index entry and the transcript
-      # substitution: the project Given is the Background's; the verb is `session remove` (owner ruling 98: it destroys, as `session purge` did), and the session's whole directory goes with it.
+    Scenario: --yes destroys the session and leaves its output dir
+      # new: the destroy (owner rulings 94b, 98): its lock goes with it, the output dir is the human's.
       Given a finished session "amber-swift-owl" with a transcript and a summary an older ctxloom left
       When I run "ctxloom session remove amber-swift-owl --yes"
       Then the command succeeds
-      And the file ".ctxloom/sessions/amber-swift-owl" does not exist
+      And the file ".ctxloom/sessions/amber-swift-owl.lock" does not exist
       And the output file "essence.md" of session "amber-swift-owl" exists
       When I run "ctxloom session list --all"
       Then the output does not contain "amber-swift-owl"
 
-    # The session lock only ever refuses. A free lock proves the owner dead; a
-    # held lock, or no lock at all, refuses: "cannot determine" is never
-    # permission. The refusal names the exact command that purges it deliberately.
+  Rule: Only a session whose lock proves it ended is removed, unless --even-if-live
+
+    The session lock only ever refuses. A free lock proves the owner dead; a
+    held lock, or no lock at all, refuses: "cannot determine" is never
+    permission. The refusal names the exact command that removes it
+    deliberately, `--even-if-live`.
+
     Scenario: A session the lock cannot prove finished is refused, and the escape is named
-      # substitution: the project Given is the Background's; the escape is `--force` (Go's `--even-if-live`).
+      # new: the built refusal; `--even-if-live` is the one override (owner ruling 104).
       Given a finished session "amber-swift-owl" with a transcript but no session lock
       When I run "ctxloom session remove amber-swift-owl --yes"
-      Then the command fails
+      Then the command exits with code 2
       And the output contains "cannot be proven dead"
-      And the output contains "ctxloom session remove amber-swift-owl --yes --force"
-      And the file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" exists
+      And the output contains "ctxloom session remove amber-swift-owl --yes --even-if-live"
+      When I run "ctxloom session list --all"
+      Then the output contains "amber-swift-owl"
 
-    Scenario: --force purges it anyway
-      # new: Go's "--even-if-live sweeps it anyway", with `--force` overriding the unprovable-liveness refusal; the session is gone from the listing too.
+    Scenario: --even-if-live removes it anyway
+      # new: the override, applied.
       Given a finished session "amber-swift-owl" with a transcript but no session lock
-      When I run "ctxloom session remove amber-swift-owl --yes --force"
+      When I run "ctxloom session remove amber-swift-owl --yes --even-if-live"
       Then the command succeeds
-      And the file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" does not exist
       When I run "ctxloom session list --all"
       Then the output does not contain "amber-swift-owl"
 
-    # The index says ended; the lock says running. The lock wins.
-    Scenario: A session running again is refused by the transcript's own destroyer
-      # substitution: the project Given is the Background's; the destroyer is `session remove` (`session transcript purge` is retired), and the escape is `--force`.
+    Scenario: A session running again is refused
+      # new: the index says ended; the lock says running, and the lock wins.
       Given a session "amber-swift-owl" with a transcript that is running again
       When I run "ctxloom session remove amber-swift-owl --yes"
-      Then the command fails
+      Then the command exits with code 2
       And the output contains "owner is alive"
-      And the output contains "--force"
-      And the file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" exists
+      And the output contains "--even-if-live"
 
   Rule: A transcript is the session's record, kept until its retention passes
 
     Engines compact their own sessions, so a session's transcript is its only
-    record. Purge refuses a session that ended within
+    record. Remove refuses a session that ended within
     session_transcript_retention (30 days unless configured), and one marked
     keep at any age. No flag overrides it: `ctxloom session keep <harp> --undo`
     releases a kept one, and time releases the rest.
 
-    Scenario: A transcript within its retention is refused by every destroyer
-      # substitution: the project Given is the Background's; `session remove` is the one destroyer, so Go's outline over three destroyers is this one scenario.
+    Scenario: A session within its retention is refused
+      # new: the built retention refusal.
       Given a session "brisk-copper-moth" with a transcript that finished an hour ago
       When I run "ctxloom session remove brisk-copper-moth --yes"
-      Then the command fails
+      Then the command exits with code 2
       And the output contains "retention"
-      And the file ".ctxloom/sessions/brisk-copper-moth/transcripts/transcript.jsonl" exists
+      When I run "ctxloom session list --all"
+      Then the output contains "brisk-copper-moth"
 
-    Scenario: A kept transcript is refused at any age, and the listing says it is kept
-      # substitution: the project Given is the Background's; the destroyer is `session remove` (`session transcript purge` is retired).
-      Given a finished session "amber-swift-owl" with a transcript
-      When I run "ctxloom session keep amber-swift-owl"
-      Then the command succeeds
-      When I run "ctxloom session list --all --format json"
-      Then the JSON output array "$" contains an object whose "harp" is "amber-swift-owl" and whose "kept" is "true"
+    Scenario: A kept session is refused at any age, and --undo releases it
+      # new: keep and its release, then the removal.
+      Given a finished session "amber-swift-owl" marked keep
       When I run "ctxloom session remove amber-swift-owl --yes"
-      Then the command fails
+      Then the command exits with code 2
       And the output contains "ctxloom session keep amber-swift-owl --undo"
-      And the file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" exists
       When I run "ctxloom session keep amber-swift-owl --undo"
       Then the command succeeds
       When I run "ctxloom session remove amber-swift-owl --yes"
       Then the command succeeds
-      And the file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" does not exist
 
-  Rule: Purge takes one harp or an age, never both and never neither
+  Rule: A person's files go with the session, and remove names each first
 
-    `--older-than <age>` purges every session of the project that ended longer
-    ago than that. Without it, a configured `session_purge_age` is the age; with
-    neither a harp, an age nor a configured age, purge is refused rather than
-    guessing.
+    A session's directory may hold files a person wrote (notes nobody filed).
+    Remove takes them with the session, so it warns first, naming each: in the
+    report, on --yes, and with --even-if-live alike. The warning is a notice,
+    never a refusal (owner ruling 104).
 
-    Scenario: A harp and an age together are refused
-      # new: purge takes one harp or one age.
-      Given a finished session "amber-swift-owl" with a transcript
-      When I run "ctxloom session remove amber-swift-owl --older-than 90d --yes"
-      Then the command exits with code 2
-      And the file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" exists
-
-    Scenario: Neither a harp nor an age is refused, naming both forms
-      # new: purge with nothing to select refuses rather than purging everything.
-      Given a finished session "amber-swift-owl" with a transcript
-      When I run "ctxloom session remove --yes"
-      Then the command exits with code 2
-      And the output contains "ctxloom session remove <harp>"
-      And the output contains "--older-than"
-      And the file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" exists
-
-  Rule: A configured purge age stands where no age is given
-
-    Background:
-      # new: Rust's own.
-      Given the project already has the file ".ctxloom/config.yaml":
-        """
-        schema_version: 8
-        session_purge_age: 90d
-        """
-      And a finished session "amber-quiet-heron" whose transcript retention has passed
-      And every session has been idle for 120 days
-
-    Scenario: Without an age the configured purge age is purge's
-      # new: the configured age selects when no --older-than is given.
-      When I run "ctxloom session remove --yes"
-      Then the command succeeds
-      And the machine-written bulk of "amber-quiet-heron" is gone
-      When I run "ctxloom session list --all"
-      Then the output does not contain "amber-quiet-heron"
-
-    Scenario: The flag beats the configured purge age
-      # new: --older-than overrides the configured age.
-      When I run "ctxloom session remove --older-than 200d --yes"
-      Then the command succeeds
-      And the machine-written bulk of "amber-quiet-heron" is still there
-
-    Scenario: A configured purge age that is no age refuses before it touches anything
-      # new: a malformed configured age is refused, not read as zero.
-      Given the project already has the file ".ctxloom/config.yaml":
-        """
-        schema_version: 8
-        session_purge_age: soon
-        """
-      When I run "ctxloom session remove --yes"
-      Then the command fails
-      And the machine-written bulk of "amber-quiet-heron" is still there
-
-  Rule: Purge takes only what ctxloom wrote
-
-    A session holding a file the human wrote is refused whole, and the report
-    names each file, because a file kept but never mentioned is a file nobody
-    will ever file. The session's output dir is never touched.
-
-    Scenario: Emptying a session takes everything ctxloom wrote, and nothing Alice did
-      # substitution: the project Given is the Background's; purge is all or nothing, so a session holding authored files is refused whole and keeps its index entry until she files or deletes them.
-      Given a finished session "amber-quiet-heron" carrying design notes nobody filed
+    Scenario: Removing a session that holds a person's file warns, naming it
+      # new: owner ruling 104.
+      Given a finished session "amber-quiet-heron" with a transcript
+      And session "amber-quiet-heron" holds a file "design-notes.md" a person wrote
       When I run "ctxloom session remove amber-quiet-heron --yes"
-      Then the command fails
-      And the machine-written bulk of "amber-quiet-heron" is still there
-      And its output dir is untouched, and its index entry survives
-      And her unfiled design notes are still there, and were named in the report
+      Then the command succeeds
+      And the output contains "a person wrote"
+      And the output contains "design-notes.md"
+      And the file ".ctxloom/sessions/amber-quiet-heron/design-notes.md" does not exist
+
+    Scenario: The report warns of them too, and destroys nothing
+      # new: owner ruling 104, report-only.
+      Given a finished session "amber-quiet-heron" with a transcript
+      And session "amber-quiet-heron" holds a file "design-notes.md" a person wrote
+      When I run "ctxloom session remove amber-quiet-heron"
+      Then the command succeeds
+      And the output contains "a person wrote"
+      And the file ".ctxloom/sessions/amber-quiet-heron/design-notes.md" exists
+
+    Scenario: --even-if-live warns the same before it destroys them
+      # new: owner ruling 104: the override does not silence the warning.
+      Given a finished session "amber-quiet-heron" with a transcript but no session lock
+      And session "amber-quiet-heron" holds a file "design-notes.md" a person wrote
+      When I run "ctxloom session remove amber-quiet-heron --yes --even-if-live"
+      Then the command succeeds
+      And the output contains "a person wrote"
+      And the output contains "design-notes.md"
+      And the file ".ctxloom/sessions/amber-quiet-heron/design-notes.md" does not exist

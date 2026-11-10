@@ -724,6 +724,74 @@ fn an_applied_removal_says_destroyed_and_adds_no_notice() {
     assert!(fake.remove[0].yes);
 }
 
+/// The warning a removal's notices hold, if any: the authored files it names.
+fn authored_warning(done: &crate::Done) -> Option<String> {
+    done.notices
+        .iter()
+        .find(|n| n.code() == "sessions-application-destroys-authored")
+        .map(|n| format!("{:?}", n.args()))
+}
+
+// Owner ruling 104: a removal that destroys files a person wrote warns first,
+// naming each, as a notice (never a refusal): applied, reported, and with
+// --even-if-live alike.
+#[test]
+fn a_removal_that_destroys_authored_files_warns_naming_them() {
+    for words in [
+        &["remove", "amber-swift-owl", "--yes"][..],
+        &["remove", "amber-swift-owl"][..],
+        &["remove", "amber-swift-owl", "--yes", "--even-if-live"][..],
+    ] {
+        let mut fake = Fake {
+            removal: Some(plan(words.contains(&"--yes"))),
+            ..Fake::default()
+        };
+        let done = go(&mut fake, Format::Text, words).result.unwrap();
+        let warned = authored_warning(&done).unwrap_or_else(|| panic!("{words:?}: no warning"));
+        assert!(warned.contains("notes.md"), "{words:?}: {warned}");
+        assert!(
+            !warned.contains("native/history.jsonl"),
+            "{words:?}: {warned}"
+        );
+    }
+}
+
+// A removal with no authored file says nothing of them, and a refused one
+// destroys nothing, so it warns of nothing.
+#[test]
+fn a_removal_of_machine_files_alone_or_a_refused_one_does_not_warn() {
+    let mut machine = plan(true);
+    machine.files.destroy.retain(|i| i.class == Class::Machine);
+    let mut fake = Fake {
+        removal: Some(machine),
+        ..Fake::default()
+    };
+    let done = go(
+        &mut fake,
+        Format::Text,
+        &["remove", "amber-swift-owl", "--yes"],
+    )
+    .result
+    .unwrap();
+    assert_eq!(authored_warning(&done), None);
+    let mut refused = plan(false);
+    refused.refusal = Some(Refusal::Kept {
+        harp: "amber-swift-owl".to_string(),
+    });
+    let mut fake = Fake {
+        removal: Some(refused),
+        ..Fake::default()
+    };
+    let failed = go(
+        &mut fake,
+        Format::Text,
+        &["remove", "amber-swift-owl", "--yes"],
+    )
+    .result
+    .unwrap_err();
+    assert!(!format!("{:?}", failed.lines).contains("notes.md"));
+}
+
 #[test]
 fn even_if_live_reaches_the_use_case_and_the_applying_command_repeats_it() {
     let mut fake = Fake {

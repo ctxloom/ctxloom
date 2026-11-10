@@ -381,28 +381,26 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And Alice's own "claude-code" home directory was never created by the run
 
   @pending
-  Rule: --env-host and --env declare which host environment a binding's runs see
+  Rule: --env declares which host environment variables a binding's runs see
 
-    Scenario: Create records the declared host environment, and show reads it back
+    Scenario: Create records the declared environment names, and show reads them back
       Given an initialized ctxloom project
       And a profile "dev" exists
-      When I run "ctxloom agent create developer --engine claude-code --profiles dev --env-host=false --env ALPHA_TOKEN --env BETA_TOKEN"
+      When I run "ctxloom agent create developer --engine claude-code --profiles dev --env ALPHA_TOKEN --env BETA_TOKEN"
       Then the command succeeds
       When I run "ctxloom agent show developer --format text"
       Then the command succeeds
-      And the output contains "Env host: false"
       And the output contains "ALPHA_TOKEN"
       And the output contains "BETA_TOKEN"
 
-    Scenario: An edit passing an empty --env clears the names and keeps env_host
+    Scenario: An edit passing an empty --env clears the names
       Given an initialized ctxloom project
       And a profile "dev" exists
-      And I run "ctxloom agent create developer --engine claude-code --profiles dev --env-host=false --env ALPHA_TOKEN"
+      And I run "ctxloom agent create developer --engine claude-code --profiles dev --env ALPHA_TOKEN"
       When I run "ctxloom agent edit developer --env ''"
       Then the command succeeds
       When I run "ctxloom agent show developer --format text"
       Then the command succeeds
-      And the output contains "Env host: false"
       And the output does not contain "ALPHA_TOKEN"
 
   # RED (awaiting review): committed red on port/engines-schema. An agent is an
@@ -539,7 +537,6 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
         schema_version: 9
         engines:
           claude-code:
-            env_host: false
             env: [HTTPS_PROXY, NPM_TOKEN]
         agents:
           narrow:
@@ -550,7 +547,6 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       Then the command succeeds
       And the output reports "resolved.env.value" containing "ALPHA_TOKEN"
       And the output reports "resolved.env.source" as "agent"
-      And the output reports "resolved.env_host.source" as "engine"
       And the output does not contain "NPM_TOKEN"
 
     Scenario: An agent can no longer be given an engine home

@@ -39,7 +39,6 @@ agents:
     profiles: [p1]
     runtime: host
     driving: oneshot
-    env_host: false
     env: [ALPHA]
     permissions:
       approver: human

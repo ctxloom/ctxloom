@@ -17,7 +17,7 @@ Feature: engine — the programs ctxloom drives, and the settings they share
     session_home   whose engine configuration a run gets: session | host
     auth           where its credential comes from: a SOURCE, never a secret
     runtime        the default runtime an agent of it runs in
-    env_host, env  the default host environment an agent of it sees
+    env            the host variable names an agent of it sees, beside the curated allowlist
 
   Model, effort and permissions are NOT in that block. They are an agent's
   settings (`agent create --model --effort --permissions`), because two agents
@@ -100,7 +100,6 @@ Feature: engine — the programs ctxloom drives, and the settings they share
         engines:
           claude-code:
             command: /opt/claude/bin/claude
-            env_host: false
             env: [HTTPS_PROXY]
         """
       When I run "ctxloom engine show claude-code --format json"
@@ -112,8 +111,6 @@ Feature: engine — the programs ctxloom drives, and the settings they share
       And the output reports "session_home.source" as "default"
       And the output reports "runtime.value" as "host"
       And the output reports "runtime.source" as "project"
-      And the output reports "env_host.value" as "false"
-      And the output reports "env_host.source" as "engine"
       And the output reports "env.value" containing "HTTPS_PROXY"
       And the output reports "env.source" as "engine"
 

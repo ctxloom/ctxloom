@@ -73,12 +73,6 @@ impl<E: Edge> Feeds<E> {
         read(&*self.edge, who, cover, from).await
     }
 
-    /// `who`'s session inbox from `from`: the catch-up that finds mail from
-    /// outside the run's workflow (D10; plan 5.2).
-    pub async fn inbox(&self, who: &Identity, from: u64) -> Result<Vec<EventPage>, AppError> {
-        self.read(who, &who.session_cover(), from).await
-    }
-
     /// Follow one stream from `cursor`, re-identifying on every poll.
     pub fn follow(&self, credential: Credential, cursor: Cursor) -> Follow<E> {
         Follow {

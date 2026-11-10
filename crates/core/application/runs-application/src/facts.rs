@@ -1,8 +1,9 @@
 //! The inbound fact port (plan 4.2): narrow by construction.
 //!
-//! S5 carries the facts whose aggregates exist: the run's (attached, started, turn
-//! started / completed / failed, exited) and the session inbox's (claimed,
-//! delivered, failed). The plan's other variants (`RunPaused`, `RunResumed`,
+//! S5 carries the facts whose aggregates exist: the run's (attached, started,
+//! turn started / completed / failed, exited) and the session's bind. The
+//! session has no inbox (owner ruling 101): mail's delivery is angzarr's
+//! transport. The plan's other variants (`RunPaused`, `RunResumed`,
 //! `ArtifactPublished`, `ApprovalAsked`) arrive with their aggregates (S6, S9,
 //! S10). `EngineSessionBound` is in: S4's bind became a fact (item 8, RULED).
 
@@ -42,9 +43,6 @@ pub enum RunnerFact {
     TurnCompleted(runs::TurnCompleted),
     TurnFailed(runs::TurnFailed),
     RunExited(runs::RunExited),
-    MessageClaimed(sessions::ClaimMessage),
-    MessageDelivered(sessions::DeliverMessage),
-    MessageFailed(sessions::FailMessage),
     /// The SessionStart hook's bind, a fact since the owner ruling of
     /// 2026-11-04 (S5 review item 8): `bind:<session>:<native_id>`. The hook
     /// holds the RUNNER's credential (it is launched by the runner; owner
@@ -117,9 +115,6 @@ impl RunnerFact {
             RunnerFact::TurnCompleted(m) => any_of(m),
             RunnerFact::TurnFailed(m) => any_of(m),
             RunnerFact::RunExited(m) => any_of(m),
-            RunnerFact::MessageClaimed(m) => any_of(m),
-            RunnerFact::MessageDelivered(m) => any_of(m),
-            RunnerFact::MessageFailed(m) => any_of(m),
             RunnerFact::EngineSessionBound(m) => any_of(m),
         }
     }
@@ -140,11 +135,6 @@ impl RunnerFact {
             RunnerFact::TurnCompleted(m) => format!("turn:{run}:{}:completed", m.turn),
             RunnerFact::TurnFailed(m) => format!("turn:{run}:{}:failed", m.turn),
             RunnerFact::RunExited(_) => format!("exit:{run}"),
-            RunnerFact::MessageClaimed(m) => {
-                format!("claim:{session}:{}:{}", m.message_id, m.claimant)
-            }
-            RunnerFact::MessageDelivered(m) => format!("deliver:{session}:{}", m.message_id),
-            RunnerFact::MessageFailed(m) => format!("fail:{session}:{}", m.message_id),
             RunnerFact::EngineSessionBound(m) => format!("bind:{session}:{}", m.native_id),
         }
     }
@@ -159,10 +149,7 @@ impl RunnerFact {
                 | RunnerFact::TurnCompleted(_)
                 | RunnerFact::TurnFailed(_)
                 | RunnerFact::RunExited(_) => Stream::Run,
-                RunnerFact::MessageClaimed(_)
-                | RunnerFact::MessageDelivered(_)
-                | RunnerFact::MessageFailed(_)
-                | RunnerFact::EngineSessionBound(_) => Stream::Session,
+                RunnerFact::EngineSessionBound(_) => Stream::Session,
             },
             who,
         )
@@ -200,18 +187,6 @@ impl RunnerFact {
                 detail: String::new(),
             }),
             RunnerFact::RunExited(runs::RunExited { code: 0, signal: 0 }),
-            RunnerFact::MessageClaimed(sessions::ClaimMessage {
-                message_id: "m1".to_string(),
-                claimant: "runner".to_string(),
-            }),
-            RunnerFact::MessageDelivered(sessions::DeliverMessage {
-                message_id: "m1".to_string(),
-                at_turn: 1,
-            }),
-            RunnerFact::MessageFailed(sessions::FailMessage {
-                message_id: "m1".to_string(),
-                reason: "engine".to_string(),
-            }),
             RunnerFact::EngineSessionBound(sessions::BindEngineSession {
                 native_id: "native-1".to_string(),
                 transcript_path: "/t".to_string(),

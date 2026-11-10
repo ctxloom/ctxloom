@@ -233,9 +233,6 @@ fn every_fact_variant_is_on_its_authors_allowlist() {
             | RunnerFact::TurnCompleted(_)
             | RunnerFact::TurnFailed(_)
             | RunnerFact::RunExited(_)
-            | RunnerFact::MessageClaimed(_)
-            | RunnerFact::MessageDelivered(_)
-            | RunnerFact::MessageFailed(_)
             | RunnerFact::EngineSessionBound(_) => {}
         }
         assert!(
@@ -255,7 +252,7 @@ fn every_fact_variant_is_on_its_authors_allowlist() {
             fact.type_url()
         );
     }
-    assert_eq!(runner.len(), 10, "one sample per runner variant");
+    assert_eq!(runner.len(), 7, "one sample per runner variant");
     assert_eq!(model.len(), 2, "one sample per model variant");
     // The runner's list is its facts and the six observations its hooks record
     // (`capture::Observation`, which `capture.test.rs` holds to the list).

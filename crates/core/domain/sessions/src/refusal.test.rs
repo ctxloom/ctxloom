@@ -3,14 +3,10 @@
 use angzarr_embedded::markup::{Failed, Refuses, TypedRefusal};
 
 use super::*;
-use crate::{Refusal, SessionAggregate, SessionRejection, SetKept, WithdrawSteer};
+use crate::{Refusal, SessionAggregate, SessionRejection, SetKept, StopSession};
 
 fn harp() -> String {
     "owl".to_string()
-}
-
-fn id() -> String {
-    "m1".to_string()
 }
 
 /// One refusal message of every rejection, with the rejection it must read
@@ -57,14 +53,6 @@ fn table() -> Vec<(TypedRefusal, SessionRejection)> {
             TypedRefusal::of(&ChildCannotStop { depth: 2 }),
             SessionRejection::ChildCannotStop { depth: 2 },
         ),
-        (
-            TypedRefusal::of(&UnknownMessage { message_id: id() }),
-            SessionRejection::UnknownMessage { message_id: id() },
-        ),
-        (
-            TypedRefusal::of(&AlreadyDelivered { message_id: id() }),
-            SessionRejection::AlreadyDelivered { message_id: id() },
-        ),
     ]
 }
 
@@ -81,15 +69,13 @@ fn a_message_that_is_no_refusal_of_ours_is_none_of_ours() {
     assert_eq!(SessionRejection::try_from(&other), Err(NotOurs));
 }
 
-/// What `WithdrawSteer` refuses with for `rejection`.
-fn withdraw_refuses(
-    rejection: SessionRejection,
-) -> Failed<Refuses<SessionAggregate, WithdrawSteer>> {
+/// What `StopSession` refuses with for `rejection`.
+fn stop_refuses(rejection: SessionRejection) -> Failed<Refuses<SessionAggregate, StopSession>> {
     refuse!(
         SessionRejection,
         rejection,
-        Refuses<SessionAggregate, WithdrawSteer>,
-        [NoSession => NoSession, UnknownMessage{message_id} => UnknownMessage, AlreadyDelivered{message_id} => AlreadyDelivered]
+        Refuses<SessionAggregate, StopSession>,
+        [NoSession => NoSession, ChildCannotStop{depth} => ChildCannotStop]
     )
 }
 
@@ -101,12 +87,8 @@ fn a_handler_refuses_with_the_message_of_the_rejection_under_its_declared_status
             <NoSession as Refusal>::REFUSAL_STATUS,
         ),
         (
-            SessionRejection::UnknownMessage { message_id: id() },
-            <UnknownMessage as Refusal>::REFUSAL_STATUS,
-        ),
-        (
-            SessionRejection::AlreadyDelivered { message_id: id() },
-            <AlreadyDelivered as Refusal>::REFUSAL_STATUS,
+            SessionRejection::ChildCannotStop { depth: 2 },
+            <ChildCannotStop as Refusal>::REFUSAL_STATUS,
         ),
     ];
     for (rejection, declared) in cases {
@@ -118,7 +100,7 @@ fn a_handler_refuses_with_the_message_of_the_rejection_under_its_declared_status
         let Failed::Rejected {
             rejection: choice,
             status,
-        } = withdraw_refuses(rejection)
+        } = stop_refuses(rejection)
         else {
             panic!("a refusal");
         };
@@ -130,7 +112,7 @@ fn a_handler_refuses_with_the_message_of_the_rejection_under_its_declared_status
 #[test]
 fn a_rejection_the_command_lists_no_message_for_is_the_handlers_bug() {
     assert!(matches!(
-        withdraw_refuses(SessionRejection::NoClaim),
+        stop_refuses(SessionRejection::NoClaim),
         Failed::Bug(_)
     ));
 }

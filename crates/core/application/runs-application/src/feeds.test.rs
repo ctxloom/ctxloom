@@ -106,46 +106,6 @@ async fn following_a_stream_the_caller_does_not_own_yields_nothing() {
     assert!(follow.next().await.unwrap().is_empty());
 }
 
-// NEW-DESIGN (S5 plan red test: "Mail from outside the run's workflow is
-// caught by the session's inbox catch-up (D10; to verify here)"). Mail is a
-// MessageArrived on the SESSION stream, caused by someone else's workflow, so
-// the run's own feed never carries it; the inbox catch-up does, from the
-// session's own cursor.
-#[tokio::test]
-async fn mail_from_outside_the_runs_workflow_is_caught_by_the_inbox_catch_up() {
-    let world = World::new().await;
-    let feeds = Feeds::new(Arc::clone(&world.edge));
-    let who = &world.me.identity;
-    let mut run_feed = feeds.follow(world.me.credential.clone(), Cursor::start(&who.run_cover()));
-    run_feed.next().await.unwrap();
-
-    let arrival = fact_book(
-        who.session_cover(),
-        sessions::RecordMessageArrived {
-            message_id: "m1".to_string(),
-            from: "peer".to_string(),
-            kind: "note".to_string(),
-            body_ref: "body:m1".to_string(),
-        },
-        "arrive:fixture:m1",
-    );
-    world.edge.handle(arrival).await.unwrap();
-
-    assert!(
-        run_feed.next().await.unwrap().is_empty(),
-        "not the run's workflow"
-    );
-    let inbox = feeds.inbox(who, 0).await.unwrap();
-    assert!(
-        inbox.iter().any(|page| matches!(
-            &page.body,
-            Some(angzarr_embedded::v1::event_page::Body::Event(any))
-                if any.type_url.ends_with("MessageArrived")
-        )),
-        "the inbox catch-up finds it"
-    );
-}
-
 // NEW-DESIGN (plan 6: "No watch carries or needs a position across streams"):
 // the cursor names one stream and one sequence, nothing more.
 #[test]

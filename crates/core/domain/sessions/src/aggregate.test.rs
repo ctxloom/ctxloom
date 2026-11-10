@@ -810,7 +810,7 @@ fn an_end_fact_records_when_the_last_run_ended() {
 #[test]
 fn the_state_round_trips_through_its_wire_form() {
     // Updated per the owner rulings 2026-11-04 (S5 review Q1, Q2): the wire
-    // state now carries the lifeline, the inbox and the depth the mint records.
+    // state now carries the lifeline and the depth the mint records.
     let mut session = Session::minted();
     session.bound(bind("id-1", "/t1")).unwrap();
     session.bound(bind("id-2", "/t2")).unwrap();

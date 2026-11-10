@@ -13,7 +13,6 @@ use angzarr_embedded_runner::{Refusal, Runner, Unrun};
 use sessions::{
     AdoptRotations, ClaimName, MintSession, NameClaimAggregate, NameClaimCommand, ReleaseName,
     RenameSession, SessionAggregate, SessionCommand, SessionRejection, SetKept, StopSession,
-    WithdrawSteer,
 };
 
 use super::run;
@@ -96,40 +95,6 @@ fn mint(harp: &str) -> MintSession {
         origin: sessions::Origin::Session,
         started_at: None,
         depth: 0,
-    }
-}
-
-/// A fact to `cover`, under `external_id`.
-fn fact(cover: Cover, payload: angzarr_embedded::Any, external_id: &str) -> CommandBook {
-    CommandBook {
-        cover: Some(cover),
-        page: Some(CommandPage {
-            body: Some(command_page::Body::Fact(angzarr_embedded::v1::Fact {
-                payload: Some(payload),
-                origin: Some(angzarr_embedded::v1::FactOrigin {
-                    external_id: external_id.to_string(),
-                    description: String::new(),
-                }),
-            })),
-            ..CommandPage::default()
-        }),
-    }
-}
-
-/// A session fact, applied.
-fn applied(
-    store: &MemoryStore,
-    message: impl angzarr_embedded::markup::DomainMessage,
-    external_id: &str,
-) {
-    let book = fact(
-        cover(1),
-        angzarr_embedded::markup::pack_message(&message),
-        external_id,
-    );
-    match settle::<SessionAggregate>(store, book) {
-        Ok(Ok(Handled::Applied(_))) => {}
-        _ => panic!("the fact {external_id} was not applied"),
     }
 }
 
@@ -267,69 +232,6 @@ fn the_mint_and_rename_refusals_are_told_by_their_type() {
         SessionRejection::ChildCannotStop { depth: 1 },
         "sessions-child-cannot-stop",
         &[("depth", "1")],
-        1,
-    );
-
-    expect(
-        told(
-            &store,
-            false,
-            to_session(WithdrawSteer {
-                message_id: "m1".to_string(),
-            }),
-        ),
-        SessionRejection::UnknownMessage {
-            message_id: "m1".to_string(),
-        },
-        "sessions-unknown-message",
-        &[("message_id", "m1")],
-        1,
-    );
-}
-
-/// A steer withdrawn after it was delivered.
-#[test]
-fn a_withdrawal_after_the_delivery_is_told_by_its_type() {
-    let delivered = store_with_session();
-    applied(
-        &delivered,
-        sessions::RecordMessageArrived {
-            message_id: "m1".to_string(),
-            from: "s".to_string(),
-            kind: "steer".to_string(),
-            body_ref: "b".to_string(),
-        },
-        "arrived:m1",
-    );
-    applied(
-        &delivered,
-        sessions::ClaimMessage {
-            message_id: "m1".to_string(),
-            claimant: "r".to_string(),
-        },
-        "claimed:m1",
-    );
-    applied(
-        &delivered,
-        sessions::DeliverMessage {
-            message_id: "m1".to_string(),
-            at_turn: 1,
-        },
-        "delivered:m1",
-    );
-    expect(
-        told(
-            &delivered,
-            false,
-            to_session(WithdrawSteer {
-                message_id: "m1".to_string(),
-            }),
-        ),
-        SessionRejection::AlreadyDelivered {
-            message_id: "m1".to_string(),
-        },
-        "sessions-already-delivered",
-        &[("message_id", "m1")],
         1,
     );
 }

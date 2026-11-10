@@ -1,28 +1,18 @@
 //! The session's run lifeline (plan 3.1): which incarnation it owes, whether
-//! one is open, the relaunch budget, the stop flag. RED (S5): `lifeline.rs`
-//! holds stubs. Each test is PORTED-FROM-GO (naming the Go test) or
-//! NEW-DESIGN.
+//! one is open, the stop flag. No mail, so no relaunch (owner ruling 101).
+//! Each test is PORTED-FROM-GO (naming the Go test) or NEW-DESIGN.
 
 use crate::aggregate::tests::{mint, Session};
-use crate::{ClaimMessage, DeliverMessage, MintSession, RecordMessageArrived};
+use crate::MintSession;
 use crate::{
     IncarnationEnded, IncarnationOwed, RecordIncarnationEnded, SessionEvent, StopOrdered,
-    StopSession, RELAUNCH_BUDGET,
+    StopSession,
 };
 
 fn ended(incarnation: u32, cause: &str) -> RecordIncarnationEnded {
     RecordIncarnationEnded {
         incarnation,
         cause: cause.to_string(),
-    }
-}
-
-fn arrive(id: &str) -> RecordMessageArrived {
-    RecordMessageArrived {
-        message_id: id.to_string(),
-        from: "peer".to_string(),
-        kind: "note".to_string(),
-        body_ref: format!("body:{id}"),
     }
 }
 
@@ -67,72 +57,10 @@ fn a_mint_records_the_sessions_depth() {
     assert_eq!(session.state().depth, 2);
 }
 
-// NEW-DESIGN, owner ruling 2026-11-04 (S5 review Q1): "incarnation owed on
-// mail for an ended, unstopped recipient", by CONTINUATION: the session's own
-// handling of MessageArrived records IncarnationOwed, like a relaunch.
-// Go: TestEndFence_MailForAnEndedRunWaitsForTheResumedRun (the mail waits for
-// the resumed run).
+// NEW-DESIGN (plan 3.1, owner ruling 101): an end closes the open
+// incarnation and notices the parent; nothing owes a relaunch.
 #[test]
-fn mail_for_an_ended_unstopped_session_owes_the_next_incarnation() {
-    let mut session = first_run_ended("runner-exit");
-    let events = session.fact(arrive("m1"), "arrive:s:m1");
-    assert_eq!(events.len(), 2);
-    assert!(matches!(events[0], SessionEvent::MessageArrived(_)));
-    assert_eq!(
-        events[1],
-        SessionEvent::IncarnationOwed(IncarnationOwed {
-            incarnation: 2,
-            reason: "mail".to_string()
-        })
-    );
-}
-
-// NEW-DESIGN (same ruling): while an incarnation is open the mail just queues,
-// and after a stop it is queued without owing a run.
-#[test]
-fn mail_owes_nothing_while_a_run_is_open_or_after_a_stop() {
-    let mut open = Session::minted();
-    assert_eq!(open.fact(arrive("m1"), "arrive:s:m1").len(), 1);
-
-    let mut stopped = first_run_ended("runner-exit");
-    stopped
-        .run(StopSession {
-            requester_depth: 0,
-            reason: "user".to_string(),
-        })
-        .unwrap();
-    assert_eq!(stopped.fact(arrive("m1"), "arrive:s:m1").len(), 1);
-}
-
-// NEW-DESIGN (plan 3.1): the session decides by level. Mail pending, budget
-// left, not stopped, cause not `stopped`: it relaunches. Go's gate:
-// TestTerminateRun_LeftoverMailRelaunchesAndDeliversIt
-// (coordinator_drain_bound_test.go) is the nearest Go scenario; the fold is new.
-#[test]
-fn an_end_with_mail_pending_owes_the_next_incarnation() {
-    let mut session = Session::minted();
-    session.fact(arrive("m1"), "arrive:s:m1");
-    let events = session.fact(ended(1, "runner-exit"), "end:s:1");
-    assert_eq!(
-        events,
-        vec![
-            SessionEvent::IncarnationEnded(IncarnationEnded {
-                incarnation: 1,
-                cause: "runner-exit".to_string(),
-                notice_parent: false,
-            }),
-            SessionEvent::IncarnationOwed(IncarnationOwed {
-                incarnation: 2,
-                reason: "relaunch".to_string(),
-            }),
-        ]
-    );
-    assert_eq!(session.state().open_incarnation, Some(2));
-}
-
-// NEW-DESIGN (plan 3.1): no mail pending: give up and notice the parent.
-#[test]
-fn an_end_with_no_mail_pending_gives_up_and_notices_the_parent() {
+fn an_end_closes_the_incarnation_and_notices_the_parent() {
     let mut session = Session::minted();
     let events = session.fact(ended(1, "runner-exit"), "end:s:1");
     assert_eq!(
@@ -146,23 +74,11 @@ fn an_end_with_no_mail_pending_gives_up_and_notices_the_parent() {
     assert_eq!(session.state().open_incarnation, None);
 }
 
-// PORTED-FROM-GO: internal/core/coord/coordinator_drain_bound_test.go
-// TestBeginDrain_ChildDyingDuringDrainIsNotRelaunched: a run that ended
-// `stopped` is never relaunched, mail or no mail.
-#[test]
-fn a_stopped_end_is_never_relaunched_even_with_mail_pending() {
-    let mut session = Session::minted();
-    session.fact(arrive("m1"), "arrive:s:m1");
-    let events = session.fact(ended(1, "stopped"), "end:s:1");
-    assert_eq!(events.len(), 1);
-    assert_eq!(session.state().open_incarnation, None);
-}
-
 // PORTED-FROM-GO: internal/core/coord/launchgate_giveup_test.go
 // TestAgentStop_OnAnEndedRunStillStopsTheRelaunch: a stop order sets the flag
-// even after the run ended, and the relaunch it would have owed is not.
+// even after the run ended.
 #[test]
-fn a_stop_ordered_after_the_end_still_stops_the_relaunch() {
+fn a_stop_ordered_after_the_end_still_sets_the_flag() {
     let mut session = first_run_ended("runner-exit");
     let events = session
         .run(StopSession {
@@ -179,19 +95,30 @@ fn a_stop_ordered_after_the_end_still_stops_the_relaunch() {
     assert!(session.state().stopped);
 }
 
-// NEW-DESIGN (plan 3.1): a stopped session does not relaunch on an end.
+// Owner ruling 101: no end owes a relaunch, whatever its cause, stopped or
+// not; an idle reap, an expected end, notices nobody.
 #[test]
-fn a_stopped_session_does_not_relaunch_on_an_end() {
-    let mut session = Session::minted();
-    session.fact(arrive("m1"), "arrive:s:m1");
-    session
-        .run(StopSession {
-            requester_depth: 0,
-            reason: "user".to_string(),
-        })
-        .unwrap();
-    let events = session.fact(ended(1, "runner-exit"), "end:s:1");
-    assert_eq!(events.len(), 1);
+fn no_end_owes_a_relaunch_and_an_idle_reap_notices_nobody() {
+    for cause in ["runner-exit", "stopped", "orphaned", "launch-failed"] {
+        let mut session = Session::minted();
+        let events = session.fact(ended(1, cause), "end:s:1");
+        assert_eq!(events.len(), 1, "{cause}: {events:?}");
+        assert!(
+            matches!(&events[0], SessionEvent::IncarnationEnded(e) if e.notice_parent),
+            "{cause}"
+        );
+        assert_eq!(session.state().open_incarnation, None, "{cause}");
+    }
+    let mut reaped = Session::minted();
+    let events = reaped.fact(ended(1, "idle-reaped"), "end:s:1");
+    assert_eq!(
+        events,
+        vec![SessionEvent::IncarnationEnded(IncarnationEnded {
+            incarnation: 1,
+            cause: "idle-reaped".to_string(),
+            notice_parent: false,
+        })]
+    );
 }
 
 // NEW-DESIGN (plan 3.1, Go's I2: "refused from a child"). The depth is
@@ -221,63 +148,6 @@ fn a_second_stop_order_records_nothing() {
     };
     assert_eq!(session.run(stop.clone()).unwrap().len(), 1);
     assert!(session.run(stop).unwrap().is_empty());
-}
-
-// PORTED-FROM-GO: internal/core/coord/relaunch_budget_test.go
-// TestRelaunchBudget_BoundsAttachThenDie: a run that comes up and dies with
-// mail still pending exhausts the budget (an attach is NOT progress), so the
-// relaunch loop is bounded, then the session gives up and notices the parent.
-#[test]
-fn attach_then_die_with_mail_pending_exhausts_the_relaunch_budget() {
-    let mut session = Session::minted();
-    session.fact(arrive("m1"), "arrive:s:m1");
-    let mut relaunches = 0;
-    for incarnation in 1..=200 {
-        let events = session.fact(
-            ended(incarnation, "runner-exit"),
-            &format!("end:s:{incarnation}"),
-        );
-        if events
-            .iter()
-            .any(|e| matches!(e, SessionEvent::IncarnationOwed(_)))
-        {
-            relaunches += 1;
-        } else {
-            break;
-        }
-    }
-    // Go: defaultMaxLaunchAttempts = 4 (launchgate.go); nextRelaunch authorises
-    // while `spent < max` with `spent = max(fails, relaunches)`, so exactly four
-    // relaunches in the attach-then-die loop (S5 review item 11, fact-checked).
-    assert_eq!(RELAUNCH_BUDGET, 4);
-    assert_eq!(relaunches, RELAUNCH_BUDGET);
-    assert!(session.state().open_incarnation.is_none());
-}
-
-// PORTED-FROM-GO: internal/core/coord/relaunch_budget_test.go
-// TestRelaunchBudget_ResetByMailConsumption: a delivery is progress and earns
-// a fresh budget.
-#[test]
-fn consuming_mail_resets_the_relaunch_budget() {
-    let mut session = Session::minted();
-    session.fact(arrive("m1"), "arrive:s:m1");
-    session.fact(ended(1, "runner-exit"), "end:s:1");
-    assert_eq!(session.state().relaunches, 1);
-    session.fact(
-        ClaimMessage {
-            message_id: "m1".to_string(),
-            claimant: "runner".to_string(),
-        },
-        "claim:s:m1:runner",
-    );
-    session.fact(
-        DeliverMessage {
-            message_id: "m1".to_string(),
-            at_turn: 1,
-        },
-        "deliver:s:m1",
-    );
-    assert_eq!(session.state().relaunches, 0);
 }
 
 // NEW-DESIGN: an end told twice (a retried policy step) records nothing the

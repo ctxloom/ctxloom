@@ -347,8 +347,15 @@ for one started (ruling 95); no orphan claims `LaunchFailed`. Then the
 session's incarnation ended (`orphaned`). Every
 run's end, or abandon after its mint, tells its session
 `RecordIncarnationEnded` (`runner-exit`, `launch-failed`; keyed
-`incarnation-ended:<session>:<n>`), so no incarnation stays open; no policy
-drives a relaunch, the budget or mail yet. A mint passes over a harp whose
+`incarnation-ended:<session>:<n>`), so no incarnation stays open; nothing
+owes a later incarnation. The session has NO inbox (owner ruling 101): its
+mail states (`RecordMessageArrived`, `ClaimMessage`, `DeliverMessage`,
+`FailMessage` and their events), `WithdrawSteer`/`SteerWithdrawn`, the
+`sessions-unknown-message` and `sessions-already-delivered` refusals, the
+runner allowlist's inbox entries, `Feeds::inbox` and the mail-driven
+relaunch and its budget are gone (delivery, acknowledgement and failure are
+angzarr's transport; mail returns as one command to the recipient session,
+the post-MVP daemon's design, taskloom `smashing-embargo`). A mint passes over a harp whose
 directory exists, unclaimed, within `NAME_TRIES` (then `sessions-names-taken`). An
 agent's `model` and `effort` reach the engine as the order's `model` and
 `effort` (`--model`, `--effort` for claude, a turn and the terminal alike;

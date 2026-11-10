@@ -13,8 +13,8 @@
 use angzarr_embedded::markup::TypedRefusal;
 
 use crate::{
-    AlreadyDelivered, ChildCannotStop, HarpInvalid, HarpTooLong, NamesTaken, NoClaim, NoSession,
-    NotHolder, SessionExists, SessionLive, SessionRejection, UnknownMessage,
+    ChildCannotStop, HarpInvalid, HarpTooLong, NamesTaken, NoClaim, NoSession, NotHolder,
+    SessionExists, SessionLive, SessionRejection,
 };
 
 /// What a command handler fails with for `rejection`: the typed refusal
@@ -84,12 +84,6 @@ impl TryFrom<&TypedRefusal> for SessionRejection {
         }
         if let Some(SessionLive { harp }) = refusal.object() {
             return Ok(SessionRejection::SessionLive { harp });
-        }
-        if let Some(UnknownMessage { message_id }) = refusal.object() {
-            return Ok(SessionRejection::UnknownMessage { message_id });
-        }
-        if let Some(AlreadyDelivered { message_id }) = refusal.object() {
-            return Ok(SessionRejection::AlreadyDelivered { message_id });
         }
         Err(NotOurs)
     }

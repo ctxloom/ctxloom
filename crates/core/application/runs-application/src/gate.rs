@@ -83,9 +83,6 @@ impl Allowlist {
                 url::<runs::TurnCompleted>(),
                 url::<runs::TurnFailed>(),
                 url::<runs::RunExited>(),
-                url::<sessions::ClaimMessage>(),
-                url::<sessions::DeliverMessage>(),
-                url::<sessions::FailMessage>(),
                 url::<sessions::BindEngineSession>(),
                 url::<sessions::RecordPromptSubmitted>(),
                 url::<sessions::RecordAssistantText>(),
@@ -123,7 +120,7 @@ impl Allowlist {
 }
 
 /// Whether `identity` owns the stream `cover` names: its own run, its own
-/// session (inbox included). A pure predicate (listener plan 4.5).
+/// session. A pure predicate (listener plan 4.5).
 pub fn owns(identity: &Identity, cover: &Cover) -> bool {
     *cover == identity.run_cover() || *cover == identity.session_cover()
 }

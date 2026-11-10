@@ -7,7 +7,7 @@ use run_ports::Edge;
 use angzarr_embedded::v1::{DeliveryOutcome, Uuid};
 use angzarr_embedded::Answered;
 
-use crate::fakes::{fact_book, uuid, World, SESSION_ME};
+use crate::fakes::{uuid, World, SESSION_ME};
 use crate::{AppError, Facts, Identity, ModelFact, Principal, Recorded, RunnerFact};
 
 fn identity() -> Identity {
@@ -35,10 +35,11 @@ fn exited() -> RunnerFact {
     RunnerFact::RunExited(runs::RunExited { code: 0, signal: 0 })
 }
 
-fn delivered(id: &str) -> RunnerFact {
-    RunnerFact::MessageDelivered(sessions::DeliverMessage {
-        message_id: id.to_string(),
-        at_turn: 1,
+fn bound(native_id: &str) -> RunnerFact {
+    RunnerFact::EngineSessionBound(sessions::BindEngineSession {
+        native_id: native_id.to_string(),
+        transcript_path: "/t".to_string(),
+        engine_version: None,
     })
 }
 
@@ -142,31 +143,8 @@ fn claims_are_identified_by_run_and_turn() {
     assert_eq!(done.cover(&who), who.run_cover());
 }
 
-// NEW-DESIGN (plan 4.3: the stable session id, not the harp, D5 Q1).
-#[test]
-fn inbox_facts_are_identified_by_session_and_message() {
-    let who = identity();
-    let claimed = RunnerFact::MessageClaimed(sessions::ClaimMessage {
-        message_id: "m7".to_string(),
-        claimant: "runner".to_string(),
-    });
-    let failed = RunnerFact::MessageFailed(sessions::FailMessage {
-        message_id: "m7".to_string(),
-        reason: "engine".to_string(),
-    });
-    assert_eq!(
-        delivered("m7").external_id(&who),
-        format!("deliver:{SESSION_ME}:m7")
-    );
-    assert_eq!(
-        claimed.external_id(&who),
-        format!("claim:{SESSION_ME}:m7:runner")
-    );
-    assert_eq!(failed.external_id(&who), format!("fail:{SESSION_ME}:m7"));
-}
-
 // NEW-DESIGN (plan 4.2 narrowness 3): a fact may address only the caller's own
-// run, or its own session (inbox included): the stream is chosen by the
+// run, or its own session: the stream is chosen by the
 // variant and the identity, never by the payload.
 #[test]
 fn a_fact_addresses_only_the_callers_own_run_or_session() {
@@ -187,7 +165,7 @@ fn a_fact_addresses_only_the_callers_own_run_or_session() {
         );
     }
     assert_eq!(turn_started(1).cover(&who), who.run_cover());
-    assert_eq!(delivered("m").cover(&who), who.session_cover());
+    assert_eq!(bound("n").cover(&who), who.session_cover());
 }
 
 // NEW-DESIGN (plan 4.2 narrowness 1 and 4): the book is a Fact body, with its
@@ -229,33 +207,16 @@ async fn a_fact_on_the_callers_own_run_is_applied_and_again_is_duplicate() {
     assert_eq!(world.edge.pages(&who.run_cover()).await.len(), before);
 }
 
-// NEW-DESIGN: an inbox fact lands on the session's stream, not the run's. The
-// mail arrived first (a fact of the routing policy, as the fixture sends it).
+// NEW-DESIGN: a session fact (the bind) lands on the caller's session stream,
+// not its run's.
 #[tokio::test]
-async fn an_inbox_fact_lands_on_the_callers_session_and_not_its_run() {
+async fn a_session_fact_lands_on_the_callers_session_and_not_its_run() {
     let world = World::new().await;
     let facts = Facts::new(Arc::clone(&world.edge));
     let who = &world.me.identity;
-    world
-        .edge
-        .handle(fact_book(
-            who.session_cover(),
-            sessions::RecordMessageArrived {
-                message_id: "m1".to_string(),
-                from: "peer".to_string(),
-                kind: "note".to_string(),
-                body_ref: "body:m1".to_string(),
-            },
-            "arrive:fixture:m1",
-        ))
-        .await
-        .unwrap();
     let session_before = world.edge.pages(&who.session_cover()).await.len();
     let run_before = world.edge.pages(&who.run_cover()).await.len();
-    assert_eq!(
-        facts.record(who, delivered("m1")).await,
-        Ok(Recorded::Applied)
-    );
+    assert_eq!(facts.record(who, bound("n1")).await, Ok(Recorded::Applied));
     assert_eq!(
         world.edge.pages(&who.session_cover()).await.len(),
         session_before + 1
@@ -390,18 +351,12 @@ async fn a_claim_is_recorded_by_the_model_and_ends_nothing() {
 
 // NEW-DESIGN, owner ruling 2026-11-04 (item 16, totality): every AgentFact
 // applies in every state of the run and its session, and is never refused,
-// errored or parked: live, a turn in flight, a stop ordered, ended, and with
-// mail pending in the inbox. A fact that has nothing to do records nothing.
+// errored or parked: live, a turn in flight, a stop ordered, ended. A fact
+// that has nothing to do records nothing.
 #[tokio::test]
 async fn every_agent_fact_applies_in_every_state() {
     use crate::fakes::command_book;
-    let states = [
-        "live",
-        "turn in flight",
-        "stop ordered",
-        "ended",
-        "mail pending",
-    ];
+    let states = ["live", "turn in flight", "stop ordered", "ended"];
     for state in states {
         let world = World::new().await;
         let facts = Facts::new(Arc::clone(&world.edge));
@@ -430,22 +385,6 @@ async fn every_agent_fact_applies_in_every_state() {
                     .unwrap();
             }
             "ended" => world.end(me).await,
-            "mail pending" => {
-                world
-                    .edge
-                    .handle(fact_book(
-                        me.identity.session_cover(),
-                        sessions::RecordMessageArrived {
-                            message_id: "m1".to_string(),
-                            from: "peer".to_string(),
-                            kind: "note".to_string(),
-                            body_ref: "b".to_string(),
-                        },
-                        "arrive:fixture:m1",
-                    ))
-                    .await
-                    .unwrap();
-            }
             _ => {}
         }
         let mut outcomes = Vec::new();

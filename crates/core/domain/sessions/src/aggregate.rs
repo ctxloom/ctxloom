@@ -18,14 +18,13 @@ use angzarr_embedded_macros::{aggregate, applies, handles_cmd, handles_fact};
 
 use crate::refusal::refuse;
 use crate::{
-    adopted, end_recorded, engine_bound, inbox, kept_changed, lifeline, live, purged, record,
-    renamed, session_minted, AdoptRotations, AlreadyDelivered, BindEngineSession, ChildCannotStop,
-    ClaimMessage, DeliverMessage, EndRecorded, EngineSessionBound, FailMessage, HarpInvalid,
-    HarpTooLong, IncarnationEnded, IncarnationOwed, KeptChanged, MessageArrived, MessageClaimed,
-    MessageDelivered, MessageFailed, MintSession, NoSession, RecordEnd, RecordIncarnationEnded,
-    RecordMessageArrived, RecordPurge, RenameSession, RenamedTo, SessionAdopted, SessionCommand,
-    SessionEvent, SessionExists, SessionLive, SessionMinted, SessionPurged, SessionRejection,
-    SessionState, SetKept, SteerWithdrawn, StopOrdered, StopSession, UnknownMessage, WithdrawSteer,
+    adopted, end_recorded, engine_bound, kept_changed, lifeline, live, purged, record, renamed,
+    session_minted, AdoptRotations, BindEngineSession, ChildCannotStop, EndRecorded,
+    EngineSessionBound, HarpInvalid, HarpTooLong, IncarnationEnded, IncarnationOwed, KeptChanged,
+    MintSession, NoSession, RecordEnd, RecordIncarnationEnded, RecordPurge, RenameSession,
+    RenamedTo, SessionAdopted, SessionCommand, SessionEvent, SessionExists, SessionLive,
+    SessionMinted, SessionPurged, SessionRejection, SessionState, SetKept, StopOrdered,
+    StopSession,
 };
 use crate::{
     AssistantTextShown, Compacted, PromptSubmitted, RecordAssistantText, RecordCompaction,
@@ -199,25 +198,7 @@ impl SessionAggregate {
         })
     }
 
-    /// Withdraw a queued steer.
-    #[handles_cmd(WithdrawSteer, refuses(NoSession, UnknownMessage, AlreadyDelivered))]
-    fn withdraw_steer(
-        &self,
-        cmd: WithdrawSteer,
-        ctx: &Context,
-    ) -> Result<Option<SteerWithdrawn>, Failed<Refuses<Self, WithdrawSteer>>> {
-        let _ = ctx;
-        inbox::withdrawn(&self.session, &cmd).map_err(|rejection| {
-            refuse!(
-                SessionRejection,
-                rejection,
-                Refuses<Self, WithdrawSteer>,
-                [NoSession => NoSession, UnknownMessage{message_id} => UnknownMessage, AlreadyDelivered{message_id} => AlreadyDelivered]
-            )
-        })
-    }
-
-    /// A run's end, told by the policy run to session (a fact).
+    /// A run's end, told by the run application (a fact).
     #[handles_fact(RecordIncarnationEnded)]
     fn record_incarnation_ended(
         &self,
@@ -226,34 +207,6 @@ impl SessionAggregate {
     ) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
         lifeline::ended(&self.session, &fact)
-    }
-
-    #[handles_fact(RecordMessageArrived)]
-    fn message_arrived(
-        &self,
-        fact: RecordMessageArrived,
-        ctx: &Context,
-    ) -> Result<FactEmit<Self>, Bug> {
-        let _ = ctx;
-        inbox::arrived(&self.session, &fact)
-    }
-
-    #[handles_fact(ClaimMessage)]
-    fn claim_message(&self, fact: ClaimMessage, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
-        let _ = ctx;
-        inbox::claimed(&self.session, &fact)
-    }
-
-    #[handles_fact(DeliverMessage)]
-    fn deliver_message(&self, fact: DeliverMessage, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
-        let _ = ctx;
-        inbox::delivered(&self.session, &fact)
-    }
-
-    #[handles_fact(FailMessage)]
-    fn fail_message(&self, fact: FailMessage, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
-        let _ = ctx;
-        inbox::failed(&self.session, &fact)
     }
 
     /// RecordPromptSubmitted: a FACT (it already happened in the engine), so never refused;
@@ -444,31 +397,6 @@ impl SessionAggregate {
 
     #[applies(StopOrdered)]
     fn stop_ordered(&mut self, event: StopOrdered, page: &PageContext) {
-        fold(&mut self.session, event.into(), page);
-    }
-
-    #[applies(SteerWithdrawn)]
-    fn steer_withdrawn(&mut self, event: SteerWithdrawn, page: &PageContext) {
-        fold(&mut self.session, event.into(), page);
-    }
-
-    #[applies(MessageArrived)]
-    fn message_arrived_applied(&mut self, event: MessageArrived, page: &PageContext) {
-        fold(&mut self.session, event.into(), page);
-    }
-
-    #[applies(MessageClaimed)]
-    fn message_claimed(&mut self, event: MessageClaimed, page: &PageContext) {
-        fold(&mut self.session, event.into(), page);
-    }
-
-    #[applies(MessageDelivered)]
-    fn message_delivered(&mut self, event: MessageDelivered, page: &PageContext) {
-        fold(&mut self.session, event.into(), page);
-    }
-
-    #[applies(MessageFailed)]
-    fn message_failed(&mut self, event: MessageFailed, page: &PageContext) {
         fold(&mut self.session, event.into(), page);
     }
 }

@@ -1,29 +1,20 @@
 //! The session's run lifeline (plan 3.1): the incarnation it owes, whether one
-//! is open, the relaunch budget (the SESSION's, per harp, not per run) and the
-//! stop flag.
+//! is open, and the stop flag.
 //!
-//! What drives it today (owner ruling 85): a mint owes the first
-//! incarnation, and the run application tells the session when that run
-//! ends, however it ends (`RecordIncarnationEnded`: `runner-exit`,
-//! `launch-failed`, or `orphaned` from a sweep), so no incarnation stays
-//! open. NO POLICY drives the rest yet: nothing acts on an `IncarnationOwed`
-//! after the first (no relaunch is launched), nothing spends or resets the
-//! relaunch budget, and no mail asks for an incarnation. The events and their
-//! rules stay, ready for the policy that will.
+//! What drives it (owner ruling 85): a mint owes the first incarnation, and
+//! the run application tells the session when that run ends, however it ends
+//! (`RecordIncarnationEnded`: `runner-exit`, `launch-failed`, or `orphaned`
+//! from a sweep), so no incarnation stays open. Nothing owes a later one: the
+//! relaunch was owed only when mail was pending, and the session has no inbox
+//! (owner ruling 101; mail returns as one command to the recipient session,
+//! the daemon's design).
 
-use angzarr_embedded::markup::{pack_message, Bug, CommandContext, FactEmit};
+use angzarr_embedded::markup::{pack_message, Bug, FactEmit};
 
 use crate::{
-    live, record, InboxStatus, IncarnationEnded, IncarnationOwed, RecordIncarnationEnded,
-    SessionAggregate, SessionEvent, SessionRejection, SessionState, StopOrdered, StopSession,
+    live, IncarnationEnded, IncarnationOwed, RecordIncarnationEnded, SessionAggregate,
+    SessionEvent, SessionRejection, SessionState, StopOrdered, StopSession,
 };
-
-/// How many automatic relaunches a session spends before it gives up, reset
-/// only when mail is consumed (a delivery), never by an attach. Go's
-/// `defaultMaxLaunchAttempts = 4` (internal/core/coord/launchgate.go):
-/// `nextRelaunch` authorises while `spent < max`, so FOUR relaunches, then it
-/// refuses (owner fact check, S5 review item 11).
-pub const RELAUNCH_BUDGET: u32 = 4;
 
 /// The incarnation a mint owes: the first (owner ruling 2026-11-04, S5
 /// review Q1 (b)).
@@ -35,8 +26,7 @@ pub(crate) fn first_owed() -> IncarnationOwed {
 }
 
 /// What a stop order records: refused from a child (Go's I2); a second order
-/// records nothing. A stop ordered after the end still counts: it keeps the
-/// relaunch from being owed.
+/// records nothing.
 pub(crate) fn stop_ordered(
     held: &SessionState,
     stop: &StopSession,
@@ -56,22 +46,10 @@ pub(crate) fn stop_ordered(
 /// leaves the session resumable and notices nobody.
 const CAUSE_IDLE_REAPED: &str = "idle-reaped";
 
-/// Go's agent stop (`CauseStopped`): never relaunched.
-const CAUSE_STOPPED: &str = "stopped";
-
-/// Whether the inbox holds mail still to be consumed: queued or claimed.
-pub(crate) fn mail_pending(held: &SessionState) -> bool {
-    held.inbox
-        .iter()
-        .any(|entry| matches!(entry.status, InboxStatus::Queued | InboxStatus::Claimed))
-}
-
-/// What a run's end records: the end, then, BY LEVEL (Go's gate), a relaunch
-/// owed when mail is pending, the budget allows, the session is not stopped
-/// and the cause is not `stopped`; otherwise the session gives up and the
-/// parent is to be noticed (except for an idle reap, which is no death). An
-/// end for an incarnation that is not the open one (already ended, or stale)
-/// records nothing.
+/// What a run's end records: the end of the open incarnation, the parent to
+/// be noticed of it (except for an idle reap, which is no death). An end for
+/// an incarnation that is not the open one (already ended, or stale), or on a
+/// stream holding no session, records nothing.
 pub(crate) fn ended(
     held: &SessionState,
     end: &RecordIncarnationEnded,
@@ -79,41 +57,19 @@ pub(crate) fn ended(
     if live(held).is_err() || held.open_incarnation != Some(end.incarnation) {
         return Ok(FactEmit::none());
     }
-    let relaunch = mail_pending(held)
-        && held.relaunches < RELAUNCH_BUDGET
-        && !held.stopped
-        && end.cause != CAUSE_STOPPED;
-    let ended = IncarnationEnded {
+    Ok(FactEmit::of([pack_message(&IncarnationEnded {
         incarnation: end.incarnation,
         cause: end.cause.clone(),
-        notice_parent: !relaunch && end.cause != CAUSE_IDLE_REAPED,
-    };
-    Ok(FactEmit::of([pack_message(&ended)]).then(
-        move |after: &SessionAggregate, _: &CommandContext| {
-            record(relaunch.then(|| IncarnationOwed {
-                incarnation: after.state().incarnation + 1,
-                reason: RELAUNCH.to_string(),
-            }))
-        },
-    ))
+        notice_parent: end.cause != CAUSE_IDLE_REAPED,
+    })]))
 }
 
-/// The reason of an owed incarnation that spends the relaunch budget.
-const RELAUNCH: &str = "relaunch";
-
-/// The reason of an owed incarnation that mail asked for.
-pub(crate) const MAIL: &str = "mail";
-
-/// Fold a lifeline event: the incarnation owed (a relaunch spends the
-/// budget), its end, and the stop flag.
+/// Fold a lifeline event: the incarnation owed, its end, and the stop flag.
 pub(crate) fn apply(state: &mut SessionState, event: &SessionEvent) {
     match event {
         SessionEvent::IncarnationOwed(owed) => {
             state.incarnation = owed.incarnation;
             state.open_incarnation = Some(owed.incarnation);
-            if owed.reason == RELAUNCH {
-                state.relaunches += 1;
-            }
         }
         SessionEvent::IncarnationEnded(_) => state.open_incarnation = None,
         SessionEvent::StopOrdered(_) => state.stopped = true,

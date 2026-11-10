@@ -38,35 +38,8 @@ pub struct SessionState {
     pub incarnation: u32,
     /// The incarnation owed or running and not yet ended, if any.
     pub open_incarnation: Option<u32>,
-    /// Relaunches spent since the last mail was consumed (the budget is the
-    /// SESSION's, per harp, not per run).
-    pub relaunches: u32,
     /// Set by a stop order; no incarnation is owed after it.
     pub stopped: bool,
-    /// The inbox, oldest first.
-    pub inbox: Vec<InboxEntry>,
-}
-
-/// Where a message is in the session's inbox.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum InboxStatus {
-    Queued,
-    Claimed,
-    Delivered,
-    Withdrawn,
-    Failed,
-}
-
-/// One message in the session's inbox (the former mailbox, D5 Q4).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct InboxEntry {
-    pub message_id: String,
-    pub from: String,
-    pub kind: String,
-    pub body_ref: String,
-    pub status: InboxStatus,
-    pub claimant: String,
-    pub at_turn: Option<u64>,
 }
 
 impl From<SessionState> for sessions_proto::v1::SessionState {
@@ -93,67 +66,8 @@ impl From<SessionState> for sessions_proto::v1::SessionState {
             depth: value.depth,
             incarnation: value.incarnation,
             open_incarnation: value.open_incarnation,
-            relaunches: value.relaunches,
             stopped: value.stopped,
-            inbox: value
-                .inbox
-                .into_iter()
-                .map(sessions_proto::v1::InboxEntry::from)
-                .collect(),
         }
-    }
-}
-
-impl From<InboxEntry> for sessions_proto::v1::InboxEntry {
-    fn from(value: InboxEntry) -> Self {
-        use sessions_proto::v1::InboxStatus as Wire;
-        sessions_proto::v1::InboxEntry {
-            message_id: value.message_id,
-            from: value.from,
-            kind: value.kind,
-            body_ref: value.body_ref,
-            status: match value.status {
-                InboxStatus::Queued => Wire::Queued,
-                InboxStatus::Claimed => Wire::Claimed,
-                InboxStatus::Delivered => Wire::Delivered,
-                InboxStatus::Withdrawn => Wire::Withdrawn,
-                InboxStatus::Failed => Wire::Failed,
-            }
-            .into(),
-            claimant: value.claimant,
-            at_turn: value.at_turn,
-        }
-    }
-}
-
-impl TryFrom<sessions_proto::v1::InboxEntry> for InboxEntry {
-    type Error = WireError;
-
-    fn try_from(value: sessions_proto::v1::InboxEntry) -> Result<Self, WireError> {
-        use sessions_proto::v1::InboxStatus as Wire;
-        let status = match Wire::try_from(value.status) {
-            Ok(Wire::Queued) => InboxStatus::Queued,
-            Ok(Wire::Claimed) => InboxStatus::Claimed,
-            Ok(Wire::Delivered) => InboxStatus::Delivered,
-            Ok(Wire::Withdrawn) => InboxStatus::Withdrawn,
-            Ok(Wire::Failed) => InboxStatus::Failed,
-            _ => {
-                return Err(WireError::UnknownEnum {
-                    message: "ctxloom.sessions.v1.InboxEntry",
-                    field: "status",
-                    value: value.status,
-                })
-            }
-        };
-        Ok(InboxEntry {
-            message_id: value.message_id,
-            from: value.from,
-            kind: value.kind,
-            body_ref: value.body_ref,
-            status,
-            claimant: value.claimant,
-            at_turn: value.at_turn,
-        })
     }
 }
 
@@ -196,13 +110,7 @@ impl TryFrom<sessions_proto::v1::SessionState> for SessionState {
             depth: value.depth,
             incarnation: value.incarnation,
             open_incarnation: value.open_incarnation,
-            relaunches: value.relaunches,
             stopped: value.stopped,
-            inbox: value
-                .inbox
-                .into_iter()
-                .map(InboxEntry::try_from)
-                .collect::<Result<Vec<_>, _>>()?,
         })
     }
 }

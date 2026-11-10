@@ -5,7 +5,7 @@ syntax = "proto3";
 // store. The harp is only its name. Go's session sidecar
 // (`~/.ctxloom/sessions/<harp>/session.yaml`) is folded here event by
 // event: the mint, the engine binding and its rotations, keep, rename,
-// purge and adopt. Lineage, the inbox, the lifeline and grants
+// purge and adopt. Lineage, the lifeline and grants
 // arrive with the slices that need them (S5 to S10).
 package ctxloom.sessions.v1;
 
@@ -49,31 +49,14 @@ message SessionState {
   reserved "forgotten";
   // The lineage the mint records (owner ruling 2026-11-04, S5 review Q2 (b)).
   uint32 depth = 16;
-  // The run lifeline (plan 3.1) and the inbox, as the fold holds them.
+  // The run lifeline (plan 3.1), as the fold holds it.
   uint32 incarnation = 17;
   optional uint32 open_incarnation = 18;
-  uint32 relaunches = 19;
+  // 19 was `relaunches` and 21 the `inbox` (owner ruling 101: the session has
+  // no inbox, and nothing owes a relaunch without mail).
+  reserved 19, 21;
+  reserved "relaunches", "inbox";
   bool stopped = 20;
-  repeated InboxEntry inbox = 21;
-}
-
-enum InboxStatus {
-  INBOX_STATUS_UNSPECIFIED = 0;
-  INBOX_STATUS_QUEUED = 1;
-  INBOX_STATUS_CLAIMED = 2;
-  INBOX_STATUS_DELIVERED = 3;
-  INBOX_STATUS_WITHDRAWN = 4;
-  INBOX_STATUS_FAILED = 5;
-}
-
-message InboxEntry {
-  string message_id = 1;
-  string from = 2;
-  string kind = 3;
-  string body_ref = 4;
-  InboxStatus status = 5;
-  string claimant = 6;
-  optional uint64 at_turn = 7;
 }
 
 // Who a session was minted for (Go's Origin): an empty origin reads as a
@@ -311,12 +294,13 @@ message EndRecorded {
 
 // endregion events
 
-// region lifeline and inbox (S5; plan 3.1)
+// region lifeline (S5; plan 3.1)
 
 // The run LIFELINE: which incarnation the session owes, whether one is live,
-// the relaunch budget (per session, not per run) and the stop flag. The
-// inbox: queued, claimed, delivered, withdrawn, failed. Go's `run_ends[]` is
-// NOT kept here: it is the `run-ends` read model over the run streams.
+// and the stop flag. There is no inbox (owner ruling 101: delivery,
+// acknowledgement and failure are angzarr's transport, not session states).
+// Go's `run_ends[]` is NOT kept here: it is the `run-ends` read model over
+// the run streams.
 
 // Order every live run of the session to stop. `requester_depth` is STAMPED
 // from the caller's identity, never read from its payload; refused from a
@@ -333,24 +317,11 @@ message StopSession {
   string reason = 2;
 }
 
-// Withdraw a queued steer; refused once it was delivered.
-message WithdrawSteer {
-  option (io.angzarr.v1.command) = {
-    component: "ctxloom.sessions.v1.SessionState"
-    emits: ["ctxloom.sessions.v1.SteerWithdrawn"]
-    refuses: "ctxloom.sessions.v1.NoSession"
-    refuses: "ctxloom.sessions.v1.UnknownMessage"
-    refuses: "ctxloom.sessions.v1.AlreadyDelivered"
-  };
-
-  string message_id = 1;
-}
-
-// A run's end, told to its session by the policy run to session (a fact).
-// `cause` is Go's `Cause*` text (`runner-exit`, `stopped`, ...). The session
-// decides BY LEVEL, following Go's gate: relaunch when mail is pending, the
-// budget allows, it is not stopped and the cause is not `stopped`;
-// otherwise it gives up and notices the parent.
+// A run's end, told to its session by the run application (a fact).
+// `cause` is Go's `Cause*` text (`runner-exit`, `orphaned`, ...). The
+// session records the end of its open incarnation and the parent is to be
+// noticed, except for an idle reap; nothing owes a relaunch (no mail asks for
+// one, owner ruling 101).
 message RecordIncarnationEnded {
   option (io.angzarr.v1.fact) = {
     component: "ctxloom.sessions.v1.SessionState"
@@ -359,53 +330,6 @@ message RecordIncarnationEnded {
 
   uint32 incarnation = 1;
   string cause = 2;
-}
-
-// Mail arrived (a fact, from the policy that routes a send to the
-// recipient's session). external_id `arrive:<session>:<message_id>`.
-message RecordMessageArrived {
-  option (io.angzarr.v1.fact) = {
-    component: "ctxloom.sessions.v1.SessionState"
-    emits: ["ctxloom.sessions.v1.MessageArrived"]
-  };
-
-  string message_id = 1;
-  string from = 2;
-  string kind = 3;
-  string body_ref = 4;
-}
-
-// external_id `claim:<session>:<message_id>:<claimant>`.
-message ClaimMessage {
-  option (io.angzarr.v1.fact) = {
-    component: "ctxloom.sessions.v1.SessionState"
-    emits: ["ctxloom.sessions.v1.MessageClaimed"]
-  };
-
-  string message_id = 1;
-  string claimant = 2;
-}
-
-// external_id `deliver:<session>:<message_id>`; deduplicated by id (Go's
-// `in/delivered/`).
-message DeliverMessage {
-  option (io.angzarr.v1.fact) = {
-    component: "ctxloom.sessions.v1.SessionState"
-    emits: ["ctxloom.sessions.v1.MessageDelivered"]
-  };
-
-  string message_id = 1;
-  uint64 at_turn = 2;
-}
-
-message FailMessage {
-  option (io.angzarr.v1.fact) = {
-    component: "ctxloom.sessions.v1.SessionState"
-    emits: ["ctxloom.sessions.v1.MessageFailed"]
-  };
-
-  string message_id = 1;
-  string reason = 2;
 }
 
 message IncarnationOwed {
@@ -420,7 +344,8 @@ message IncarnationEnded {
 
   uint32 incarnation = 1;
   string cause = 2;
-  // Whether the session gave up on this end: the parent is to be noticed.
+  // Whether the parent is to be noticed of this end (every end but an idle
+  // reap's).
   bool notice_parent = 3;
 }
 
@@ -430,43 +355,7 @@ message StopOrdered {
   string reason = 1;
 }
 
-message SteerWithdrawn {
-  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
-
-  string message_id = 1;
-}
-
-message MessageArrived {
-  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
-
-  string message_id = 1;
-  string from = 2;
-  string kind = 3;
-  string body_ref = 4;
-}
-
-message MessageClaimed {
-  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
-
-  string message_id = 1;
-  string claimant = 2;
-}
-
-message MessageDelivered {
-  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
-
-  string message_id = 1;
-  uint64 at_turn = 2;
-}
-
-message MessageFailed {
-  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
-
-  string message_id = 1;
-  string reason = 2;
-}
-
-// endregion lifeline and inbox
+// endregion lifeline
 
 // region refusals
 //
@@ -518,20 +407,6 @@ message ChildCannotStop {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_PERMISSION_DENIED;
 
   uint64 depth = 1;
-}
-
-// A withdrawal of a message the inbox does not hold.
-message UnknownMessage {
-  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
-
-  string message_id = 1;
-}
-
-// A steer withdrawn after it was delivered.
-message AlreadyDelivered {
-  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
-
-  string message_id = 1;
 }
 
 // endregion refusals

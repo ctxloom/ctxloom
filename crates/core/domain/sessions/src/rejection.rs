@@ -30,10 +30,6 @@ pub enum SessionRejection {
     ChildCannotStop { depth: u64 },
     /// A rename of a live session: its lock is held (owner ruling 91).
     SessionLive { harp: String },
-    /// A message the inbox does not hold.
-    UnknownMessage { message_id: String },
-    /// A steer withdrawn after it was delivered.
-    AlreadyDelivered { message_id: String },
 }
 
 /// Its key and args, never English (angzarr decision 14.37).
@@ -54,9 +50,7 @@ impl Diagnostic for SessionRejection {
             SessionRejection::NoClaim => code!("no-claim"),
             SessionRejection::NotHolder { .. } => code!("not-holder"),
             SessionRejection::ChildCannotStop { .. } => code!("child-cannot-stop"),
-            SessionRejection::UnknownMessage { .. } => code!("unknown-message"),
             SessionRejection::SessionLive { .. } => code!("session-live"),
-            SessionRejection::AlreadyDelivered { .. } => code!("already-delivered"),
         }
     }
 
@@ -80,10 +74,6 @@ impl Diagnostic for SessionRejection {
                 ("length", (*length).into()),
             ],
             SessionRejection::ChildCannotStop { depth } => vec![("depth", (*depth).into())],
-            SessionRejection::UnknownMessage { message_id }
-            | SessionRejection::AlreadyDelivered { message_id } => {
-                vec![("message_id", message_id.as_str().into())]
-            }
             SessionRejection::NoSession | SessionRejection::NoClaim => Vec::new(),
         }
     }
@@ -116,14 +106,8 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(SessionRejection::NoClaim),
         Box::new(SessionRejection::NotHolder { harp: harp() }),
         Box::new(SessionRejection::ChildCannotStop { depth: 1 }),
-        Box::new(SessionRejection::UnknownMessage {
-            message_id: "m1".to_string(),
-        }),
         Box::new(SessionRejection::SessionLive {
             harp: "amber-swift-owl".to_string(),
-        }),
-        Box::new(SessionRejection::AlreadyDelivered {
-            message_id: "m1".to_string(),
         }),
     ]
 }

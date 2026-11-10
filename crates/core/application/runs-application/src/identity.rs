@@ -23,8 +23,7 @@ pub enum Role {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Principal {
     /// The runner: may record authoritative observations (an attach, a turn's
-    /// start and end, an exit, an engine session bound, the inbox's claim,
-    /// delivery and failure).
+    /// start and end, an exit, an engine session bound).
     Runner,
     /// The model: may record only CLAIM facts (advisory evidence) and send the
     /// closed `AgentRequest`s.
@@ -64,7 +63,7 @@ impl Identity {
         }
     }
 
-    /// The caller's own session stream (its inbox included).
+    /// The caller's own session stream.
     pub fn session_cover(&self) -> Cover {
         Cover {
             domain: sessions::SESSION_DOMAIN.to_string(),

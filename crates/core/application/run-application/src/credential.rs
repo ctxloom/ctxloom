@@ -61,8 +61,24 @@ pub fn refuse_file_only(
     auth: &AuthSetting,
     base: &Credentials,
 ) -> Option<RunRejection> {
-    let _ = (engine, auth, base);
-    None
+    let AuthSetting::Source { env, file: Some(_) } = auth else {
+        return None;
+    };
+    if !env.is_empty() {
+        return None;
+    }
+    let mut variables: Vec<String> = base.child_env.iter().map(ToString::to_string).collect();
+    if variables.is_empty() {
+        if let library_application::AuthSource::Credential { env, .. } =
+            library_application::AuthSource::builtin(engine)
+        {
+            variables = env;
+        }
+    }
+    Some(RunRejection::FileOnlyCredential {
+        engine: engine.to_string(),
+        variables: variables.join(", "),
+    })
 }
 
 /// Where a configured login file is: `~/` is the caller's home, a relative

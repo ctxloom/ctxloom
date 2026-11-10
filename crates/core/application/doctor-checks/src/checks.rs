@@ -188,7 +188,8 @@ pub fn agents(config: Option<&str>) -> Check {
 /// exported, in the mode the human's session authenticates in. One that is
 /// not is a `fail`: every run is refused for it. Only presence is read, never
 /// a value, and "present" is not "accepted": whether the engine accepts it is
-/// known only by launching the engine's own CLI.
+/// known only by launching the engine's own CLI. A source that is a file
+/// alone is a `warn`: the primary session may run on it, no child can.
 pub fn credentials(layers: &[String], auth: &Auth) -> Check {
     const M: &str = "DOCTOR-CHECK-CREDENTIALS-m5";
     const N: &str = "credentials";
@@ -211,6 +212,22 @@ pub fn credentials(layers: &[String], auth: &Auth) -> Check {
             .collect::<Vec<_>>()
             .join("; ");
         return row(M, N, Status::Fail, &detail, &first.remedy);
+    }
+    // A file alone serves the primary session; every child run of that
+    // engine is refused (ruling 53).
+    let primary_only: Vec<_> = verdicts.iter().filter(|v| v.primary_only).collect();
+    if let Some(first) = primary_only.first() {
+        let detail = primary_only
+            .iter()
+            .map(|v| {
+                format!(
+                    "{} (auth {}): usable by the primary session only; a child agent run is refused",
+                    v.engine, v.mode
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        return row(M, N, Status::Warn, &detail, &first.remedy);
     }
     if verdicts.is_empty() {
         return row(

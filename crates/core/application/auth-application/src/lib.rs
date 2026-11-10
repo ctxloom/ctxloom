@@ -16,6 +16,12 @@ use serde::Serialize;
 /// The mode every row of a credential from the environment is in.
 const TOKEN: &str = "token";
 
+/// The mode of a source that is a credentials file alone (owner ruling 53).
+const FILE: &str = "file";
+
+/// Who a file alone serves: the human's own primary session.
+const PRIMARY: &str = "primary";
+
 /// How the human supplies claude's token. It is minted with claude's own flow
 /// and kept in their environment or secret manager: Anthropic does not allow
 /// a third party to collect, store or intermediate Claude.ai credentials, so
@@ -65,6 +71,9 @@ struct Need {
     vars: Vec<String>,
     required: bool,
     builtin: bool,
+    /// The file of a source that is a file alone, which serves the primary
+    /// session only; `vars` is then empty.
+    file: Option<String>,
 }
 
 /// The use case, over the environment it is launched in.
@@ -82,7 +91,8 @@ impl Auth {
     /// the variable found, or missing with the fix. A credential that is
     /// optional (opencode's built-in endpoint key) and not exported has no
     /// row (the run is keyless). A login shared in place (`login`) and `none`
-    /// have no row. Engines in name order. `layers` are the config files'
+    /// have no row. A source that is a file alone has a `file` row, `via` its
+    /// path, usable by the primary session and by no child (ruling 53). Engines in name order. `layers` are the config files'
     /// texts, lowest first.
     pub fn status(&self, layers: &[String]) -> Vec<Row> {
         let config = engines::merged(layers);
@@ -95,6 +105,17 @@ impl Auth {
         )
         .into_iter()
         .filter_map(|need| {
+            if let Some(file) = &need.file {
+                return Some(Row {
+                    engine: need.engine.clone(),
+                    mode: FILE,
+                    present: false,
+                    vars: Vec::new(),
+                    via: file.clone(),
+                    remedy: remedy(&need),
+                    usable_by: PRIMARY,
+                });
+            }
             let found = need.vars.iter().find(|v| self.env.is_exported(v)).cloned();
             if found.is_none() && !need.required {
                 return None;
@@ -123,7 +144,7 @@ impl Auth {
         let config = engines::merged(layers);
         needs(&config, &engines::engines_in_use(&config))
             .iter()
-            .filter(|need| need.required)
+            .filter(|need| need.required && need.file.is_none())
             .all(|need| need.vars.iter().any(|v| self.env.is_exported(v)))
     }
 
@@ -135,12 +156,14 @@ impl Auth {
         needs(&config, engines)
             .into_iter()
             .map(|need| Verdict {
-                ready: !need.required || need.vars.iter().any(|v| self.env.is_exported(v)),
-                mode: TOKEN,
+                ready: need.file.is_some()
+                    || !need.required
+                    || need.vars.iter().any(|v| self.env.is_exported(v)),
+                mode: if need.file.is_some() { FILE } else { TOKEN },
                 remedy: remedy(&need),
+                primary_only: need.file.is_some(),
                 vars: need.vars,
                 engine: need.engine,
-                primary_only: false,
             })
             .collect()
     }
@@ -160,18 +183,27 @@ fn needs(config: &angzarr_yaml::Value, wanted: &[String]) -> Vec<Need> {
             // A file is only the human's own primary session's credential: a
             // source with no variable has nothing to look for in the
             // environment a child is given.
-            let engines::AuthSource::Credential { env, .. } = source.value else {
+            let engines::AuthSource::Credential { env, file } = source.value else {
                 return None;
             };
-            if env.is_empty() {
-                return None;
-            }
             let builtin = source.source == engines::Source::Default;
+            // A file alone serves the primary session and no child (ruling
+            // 53): its row says so.
+            if env.is_empty() {
+                return file.map(|file| Need {
+                    engine: engine.clone(),
+                    required: true,
+                    vars: Vec::new(),
+                    builtin,
+                    file: Some(file),
+                });
+            }
             Some(Need {
                 engine: engine.clone(),
                 required: !builtin || engines::AuthSource::required(engine),
                 vars: env,
                 builtin,
+                file: None,
             })
         })
         .collect()
@@ -179,6 +211,18 @@ fn needs(config: &angzarr_yaml::Value, wanted: &[String]) -> Vec<Need> {
 
 /// What to do about a credential that is not exported.
 fn remedy(need: &Need) -> String {
+    if need.file.is_some() {
+        let named = match engines::AuthSource::builtin(&need.engine) {
+            engines::AuthSource::Credential { env, .. } if !env.is_empty() => {
+                format!("one of {}", env.join(", "))
+            }
+            _ => "a variable".to_string(),
+        };
+        return format!(
+            "a child agent needs an environment credential: name {named} in engines.{}.auth.env and export it",
+            need.engine
+        );
+    }
     if need.engine == "claude-code" && need.builtin {
         return CLAUDE_REMEDY.to_string();
     }

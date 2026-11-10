@@ -32,7 +32,13 @@ pub(crate) fn human(bytes: u64) -> String {
 /// One line per credential row: Go's `auth status`.
 pub(crate) fn auth(rows: &[Row], out: &mut dyn Write) -> io::Result<()> {
     for row in rows {
-        if row.present {
+        if !row.usable_by.is_empty() {
+            writeln!(
+                out,
+                "{} {}: usable by the {} session only ({}) \u{2014} {}",
+                row.engine, row.mode, row.usable_by, row.via, row.remedy
+            )?;
+        } else if row.present {
             writeln!(
                 out,
                 "{} {}: present ({})",

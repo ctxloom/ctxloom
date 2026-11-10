@@ -667,7 +667,15 @@ runtime is used exactly and `Override::Replaced` says what it weakened).
 `engines.<e>.command`, `auth.file` and `session_home: host` in a project
 layer are taken out with a warning (`strip_project_only`, ruling 46).
 `auth status` and doctor read the effective source (`auth-application`; any
-one variable authenticates, `via` names it).
+one variable authenticates, `via` names it). A source that is a FILE alone
+(owner ruling 53) authenticates no child: a child launch (`claude -p`,
+`opencode run`) on it is the typed `runs-file-only-credential` (proto
+`FileOnlyCredential`, its fix names the built-in variables to put in
+`engines.<e>.auth.env` and export), asked before the listener is served or
+anything minted, as `runs-no-credential` now is too; `auth status` gives it a
+`file` row (`usable_by: primary`, `via` the path, `present: false`) and doctor
+a `warn`. The primary session is unchanged. init's token guide
+(`agent_token_exported`) still counts a file alone as nothing to guide.
 
 ## Use `just`
 

@@ -356,8 +356,16 @@ where
         interactive: bool,
         notices: &mut Vec<Notice>,
     ) -> Result<(Box<dyn run_ports::Serving>, Started), RunError> {
-        let Listening { serving, told } = self.serve().await?;
         let settings = settings_of(&previewed.plan, &chosen_engine(&previewed.plan, request));
+        // A child that cannot authenticate is refused before anything of its
+        // run exists: no listener, no certificate, no session (ruling 53).
+        if !interactive {
+            let engine = chosen_engine(&previewed.plan, request);
+            if let Some(refusal) = self.refuse_unauthenticated(&engine, &settings) {
+                return Err(RunError::Refused(refusal));
+            }
+        }
+        let Listening { serving, told } = self.serve().await?;
         let started = match self.start(previewed, request, interactive, &told).await {
             Ok(started) => started,
             Err(error) => {
@@ -458,17 +466,6 @@ where
                 known: self.launcher.engines().join(", "),
             });
         }
-        // A child agent is given an environment credential and nothing else.
-        if !interactive {
-            let credentials = self.launcher.credentials(&engine).unwrap_or_default();
-            if let Some(refusal) = refuse_file_only(&engine, &settings.auth, &credentials) {
-                return Err(RunError::Refused(refusal));
-            }
-            let credentials = settings.credentials(credentials);
-            if let Some(refusal) = refuse_child(&engine, &credentials, &self.env) {
-                return Err(RunError::Refused(refusal));
-            }
-        }
         let project = self.identity.for_write(None).map_err(RunError::Project)?;
         let (session, harp) = self.mint(&project, &engine, interactive).await?;
         self.recorder.watch(&session);
@@ -537,6 +534,19 @@ where
             engine,
             run: enqueued.run,
         })
+    }
+
+    /// A child agent is given an environment credential and nothing else:
+    /// one whose engine's source is a file alone, or with none of its
+    /// variables set, is refused.
+    fn refuse_unauthenticated(
+        &self,
+        engine: &str,
+        settings: &run_ports::EngineSettings,
+    ) -> Option<runs::RunRejection> {
+        let base = self.launcher.credentials(engine).unwrap_or_default();
+        refuse_file_only(engine, &settings.auth, &base)
+            .or_else(|| refuse_child(engine, &settings.credentials(base), &self.env))
     }
 
     /// The recorder caught up with everything the core holds so far.

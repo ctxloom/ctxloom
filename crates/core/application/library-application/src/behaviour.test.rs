@@ -1155,3 +1155,63 @@ fn test_a_dry_run_carries_the_agent_s_model_and_effort() {
     let bare = plan("bare");
     assert_eq!((bare.model.as_str(), bare.effort.as_str()), ("", ""));
 }
+
+// owner ruling 46: the program an engine runs comes from the home layer only;
+// a project's own config cannot name it (nor a credentials file), and is told
+// so. Model, effort, permissions and a non-host runtime stay the project's.
+#[test]
+fn test_a_project_config_cannot_set_the_engine_command_and_is_warned() {
+    let home = "schema_version: 9\nengines:\n  claude-code:\n    command: /home/u/bin/claude\n";
+    let project = "schema_version: 9\nengines:\n  claude-code:\n    command: /tmp/evil\n    auth:\n      file: /tmp/creds\n      env: [TEAM_TOKEN]\nagents:\n  dev:\n    engine: claude-code\n    model: haiku\n    profiles: [p]\n";
+    let files: &[(&str, &str)] = &[ENVELOPE, ("profiles/p.yaml", "description: p\n")];
+    let library = with(&[("project", files)], &[home, project]).library();
+    let shown = library.agent_show(&plain(), "dev", &say);
+    let ignored: Vec<String> = shown
+        .notices
+        .iter()
+        .map(ToString::to_string)
+        .filter(|n| n.contains("is ignored"))
+        .collect();
+    assert_eq!(ignored.len(), 2, "{ignored:?}");
+    assert!(
+        ignored[0].contains("engines.claude-code.command"),
+        "{ignored:?}"
+    );
+    assert!(
+        ignored[1].contains("engines.claude-code.auth.file"),
+        "{ignored:?}"
+    );
+    let resolved = ok(shown).resolved.unwrap();
+    assert_eq!(resolved.command, "/home/u/bin/claude");
+    assert_eq!(resolved.model, "haiku");
+    // the home layer, alone, may say them
+    let alone = with(&[], &[home, "schema_version: 9\n"]).library();
+    let none = alone.agent_list(&plain());
+    assert!(none
+        .notices
+        .iter()
+        .all(|n| !n.to_string().contains("is ignored")));
+}
+
+// the runtime a launch settles on is the agent's own, else its engine's
+// default, else the project's, else the host
+#[test]
+fn test_a_dry_run_settles_the_runtime_agent_then_engine_then_project() {
+    let layers = ["schema_version: 9\nruntime: container-rootful\nengines:\n  claude-code:\n    runtime: container-rootless\nagents:\n  silent:\n    engine: claude-code\n  own:\n    engine: claude-code\n    runtime: host\n  other:\n    engine: opencode\n"];
+    let library = with(&[], &layers).library();
+    let axes = |agent: &str| {
+        ok(library.dry_run(
+            &plain(),
+            &crate::RunRequest {
+                agent: agent.to_string(),
+                ..crate::RunRequest::default()
+            },
+        ))
+        .plan
+        .axes
+        .1
+    };
+    assert_eq!(axes("silent"), "container-rootless");
+    assert_eq!(axes("own"), "host");
+    assert_eq!(axes("other"), "container-rootful");
+}

@@ -65,8 +65,10 @@ struct Selection {
 
 impl Project {
     /// The workspace and runtime a launch settles on: the flag or the
-    /// binding's, else the project's default, else none and the host.
-    fn axes(&self, request: &RunRequest, agent: Option<&Agent>) -> (String, String) {
+    /// workspace default, else none; for the runtime the agent's own, else
+    /// its engine's default, else the project's, else the host (never merged,
+    /// never a fallback to the other container ownership).
+    fn axes(&self, request: &RunRequest, runtime: Option<String>) -> (String, String) {
         let first = |declared: &str, default: String, otherwise: &str| {
             [declared.to_string(), default]
                 .into_iter()
@@ -76,7 +78,7 @@ impl Project {
         (
             first(&request.workspace, self.config.text("workspace"), "none"),
             first(
-                agent.map_or("", |a| a.runtime.as_str()),
+                runtime.as_deref().unwrap_or(""),
                 self.config.text("runtime"),
                 "host",
             ),
@@ -209,19 +211,21 @@ impl Project {
         let package = self.compose(&selection, &mut findings)?;
         // An agent's engine, model and effort are its own; a launch with no
         // agent takes the default engine and passes no model or effort.
-        let (engine, model, effort) = match selection.agent.as_ref() {
+        let (engine, model, effort, runtime) = match selection.agent.as_ref() {
             Some(agent) => {
                 let effective = self.effective_of(agent)?;
                 (
                     effective.engine.value,
                     effective.model.map(|m| m.value).unwrap_or_default(),
                     effective.effort.map(|e| e.value).unwrap_or_default(),
+                    Some(effective.runtime.value),
                 )
             }
             None => (
                 library::config::engines::DEFAULT_ENGINE.to_string(),
                 String::new(),
                 String::new(),
+                None,
             ),
         };
         let degraded = self.flags.degraded;
@@ -254,7 +258,7 @@ impl Project {
             context: package.context,
             prompt,
             findings: rows,
-            axes: self.axes(request, selection.agent.as_ref()),
+            axes: self.axes(request, runtime),
             model,
             effort,
         };

@@ -5,7 +5,8 @@
 use std::collections::BTreeSet;
 
 use angzarr_yaml::Value;
-use ctxloom_ports::{ConfigFiles, LayerText, RegisteredCompanion, Source};
+use ctxloom_ports::{ConfigFiles, LayerText, RegisteredCompanion, Scope, Source};
+use library::config::engines;
 use library::config::layer::{self, Note};
 use library::config::overrides;
 use library::config::schema::{self, Violation};
@@ -49,11 +50,21 @@ pub fn load(
         notices.push(Notice::RootIgnored { root });
     }
     let layers = files.layers().map_err(AppError::Cause)?;
+    let project_path = project_layer_path(files);
     let mut violations: Vec<String> = Vec::new();
     let mut shape_failure = false;
     let mut values = Vec::new();
     for layer in &layers {
         let mut value = read_layer(layer, notices)?;
+        if project_path.as_deref() == Some(layer.path.as_str()) {
+            for key in engines::strip_project_only(&mut value) {
+                notices.push(Notice::text(format!(
+                    "{key} in {} is ignored: a project's config cannot set it (ruling 46); put it in your home config ({})",
+                    layer.path,
+                    files.layer_path(Scope::Home)
+                )));
+            }
+        }
         let found = judged(layer, &value, notices);
         shape_failure |= found.iter().any(Violation::is_shape);
         if flags.degraded {
@@ -78,6 +89,15 @@ pub fn load(
         authored_labels,
         source: files.source(),
     })
+}
+
+/// The path of the project's own config file, when there is a project and it
+/// is a file apart from the home's.
+fn project_layer_path(files: &dyn ConfigFiles) -> Option<String> {
+    if files.source() != Source::Project {
+        return None;
+    }
+    files.layer(Scope::Project).ok().flatten().map(|l| l.path)
 }
 
 fn read_layer(layer: &LayerText, notices: &mut Vec<Notice>) -> Result<Value, AppError> {

@@ -239,9 +239,11 @@ launch), behind `runs-application`'s `HookGate`) is started before the run is
 minted (the port is part of what the engine is told) and stopped if the run
 does not start; otherwise it is stopped, with a bounded grace, after the
 engine exits and before the run's end is last recorded
-(`ctxloom-wiring`'s `Hooks`). Not built: the hidden runner subcommand, and the
-engine's model (`llm.configs.<label>.model` and any per-agent model are not
-passed to the engine yet; they travel with the engines schema).
+(`ctxloom-wiring`'s `Hooks`). Not built: the hidden runner subcommand. An
+agent's `model` and `effort` reach the engine as the order's `model` and
+`effort` (`--model`, `--effort` for claude, a turn and the terminal alike;
+unset is no flag; claude takes `low|medium|high|xhigh|max`, any other level is
+refused before launch).
 
 `crates/core/clippy.toml` holds the core's purity rules (no I/O, clock, env,
 threads or hash-ordered collections) and reaches every core crate, because
@@ -508,14 +510,25 @@ lint-path-deps`, part of `just lint`, and lefthook's pre-commit `path-deps`
 gate, third in order) judges the staged index; its self-test is in `just
 selftest`.
 
-## Engines schema (red, awaiting review)
+## Engines schema (track 1 landed on `engines/core`)
 
-`port/engines-schema` holds red tests only: the `engines:` block (command,
-session_home, auth source, default runtime/env), an agent's `engine`, `model`,
-`effort` and `permissions`, the read-only `engine` noun, and the removal of
-`llm` (its keys become ordinary unknown keys; no schema bump, no migration, no
-custom message). Stubs: `library::config::engines`. The names are not final
-until the owner has reviewed `engines-schema.proposal.md`.
+`engines:` holds, per fixed engine name, what its agents share: `command`
+(home-layer config only), `session_home` (`session` | `host`; `host` is not
+honoured from a project config until a trust check can gate it), `auth`,
+`runtime`, `env_host`, `env`. `auth` is THE auth setting: `none`, `login` (the
+human's own login shared in place), `token` (the engine's built-in variables),
+or a source `{env: NAME|[NAMES], file: PATH}`; a name that is not a variable
+name is refused without being repeated; a file is only a primary session's.
+The top-level `auth:` key, `llm`, `agents.<n>.llm` and `agents.<n>.engine_home`
+are ordinary unknown keys (hard migrate: no alias, no reader, no migration).
+An agent's `engine`, `model`, `effort` and `permissions` are its own, and
+`library::config::engines::effective` answers each value with the layer that
+said it (agent > engine > project > default; a list replaces; an agent's
+runtime is used exactly and `Override::Replaced` says what it weakened).
+`engines.<e>.command`, `auth.file` and `session_home: host` in a project
+layer are taken out with a warning (`strip_project_only`, ruling 46).
+`auth status` and doctor read the effective source (`auth-application`; any
+one variable authenticates, `via` names it).
 
 ## Use `just`
 

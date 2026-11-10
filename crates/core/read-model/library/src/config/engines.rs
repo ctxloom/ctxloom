@@ -485,8 +485,31 @@ fn runtime_of(
 /// each is taken out of `layer` and its dotted path returned, so the loader
 /// can warn. Nothing else is touched.
 pub fn strip_project_only(layer: &mut Value) -> Vec<String> {
-    let _ = layer;
-    Vec::new()
+    let mut removed = Vec::new();
+    let Some(Value::Map(engines)) = layer.get_mut("engines") else {
+        return removed;
+    };
+    for (engine, block) in engines.iter_mut() {
+        let at = |key: &str| format!("engines.{engine}.{key}");
+        if block.get("command").is_some() {
+            block.remove("command");
+            removed.push(at("command"));
+        }
+        if block.get("session_home").and_then(Value::as_str) == Some("host") {
+            block.remove("session_home");
+            removed.push(at("session_home"));
+        }
+        if let Some(auth @ Value::Map(_)) = block.get_mut("auth") {
+            if auth.get("file").is_some() {
+                auth.remove("file");
+                removed.push(at("auth.file"));
+            }
+            if auth.as_map().is_some_and(<[_]>::is_empty) {
+                block.remove("auth");
+            }
+        }
+    }
+    removed
 }
 
 /// The engine an agent that names none is bound to.

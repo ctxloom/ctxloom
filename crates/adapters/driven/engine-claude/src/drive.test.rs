@@ -41,6 +41,8 @@ fn a_turn_is_one_print_command_that_streams_json() {
             "--verbose",
             "--append-system-prompt-file",
             "/p/.ctxloom/sessions/h/home/ctxloom-context.md",
+            "--settings",
+            "/p/.ctxloom/sessions/h/home/settings.json",
         ]
     );
     assert_eq!(command.cwd.as_deref(), Some("/p"));
@@ -240,11 +242,85 @@ fn an_interactive_home_gets_settings_whose_hooks_call_ctxloom_execute() {
     }
 }
 
+/// The native events a prepared home's `settings.json` registers, each checked
+/// to call `ctxloom hook claude-code execute <Event>`.
+fn registered_events(prepared: &run_ports::Prepared) -> Vec<String> {
+    let settings = prepared
+        .files
+        .iter()
+        .find(|f| f.rel == "settings.json")
+        .expect("settings.json in the home");
+    let doc = surface_ports::Json::parse(std::str::from_utf8(&settings.bytes).unwrap()).unwrap();
+    let Some(surface_ports::Json::Object(events)) = doc.get("hooks").cloned() else {
+        panic!("no hooks in {doc:?}");
+    };
+    let mut names = Vec::new();
+    for (event, groups) in events {
+        let groups = groups.as_array().unwrap().to_vec();
+        assert_eq!(groups.len(), 1, "{event}");
+        let hooks = groups[0]
+            .get("hooks")
+            .and_then(|h| h.as_array())
+            .unwrap()
+            .to_vec();
+        assert_eq!(hooks.len(), 1, "{event}");
+        assert_eq!(
+            hooks[0].get("command").and_then(|c| c.as_str()),
+            Some("ctxloom")
+        );
+        let args: Vec<String> = hooks[0]
+            .get("args")
+            .and_then(|a| a.as_array())
+            .unwrap()
+            .iter()
+            .filter_map(|a| a.as_str().map(String::from))
+            .collect();
+        assert_eq!(args, ["hook", "claude-code", "execute", event.as_str()]);
+        names.push(event);
+    }
+    names.sort();
+    names
+}
+
+// Owner ruling 51 (after rulings 24, 26, 29): a one-shot child's turn is heard
+// through hooks too, so its home gets settings; but SessionStart and
+// SessionEnd fire once per `claude -p` PROCESS (every turn, child-probe), so a
+// child registers only the per-turn events: the prompt, the batch, each
+// message, the turn's end and a compaction.
 #[test]
-fn a_childs_home_has_no_settings() {
+fn a_childs_home_registers_the_per_turn_events_and_not_the_per_process_ones() {
     let prepared = prepared(false);
-    assert!(prepared.files.iter().all(|f| f.rel != "settings.json"));
-    assert_eq!(prepared.files.len(), 1);
+    assert_eq!(prepared.files.len(), 2, "the context and the settings");
+    assert_eq!(
+        registered_events(&prepared),
+        [
+            "MessageDisplay",
+            "PostCompact",
+            "PostToolBatch",
+            "PreCompact",
+            "Stop",
+            "UserPromptSubmit"
+        ]
+    );
+}
+
+// The terminal session's set is unchanged: it also hears the session begin
+// and end.
+#[test]
+fn an_interactive_home_registers_the_session_events_too() {
+    assert_eq!(
+        registered_events(&prepared(true)),
+        [
+            "MessageDisplay",
+            "PostCompact",
+            "PostToolBatch",
+            "PreCompact",
+            "SessionEnd",
+            "SessionStart",
+            "Stop",
+            "UserPromptSubmit"
+        ]
+    );
 }
 
 #[test]
@@ -567,7 +643,7 @@ fn a_host_session_home_with_no_home_in_the_environment_is_refused() {
 // file (the last wins) and ADDS its hooks to the config dir's own settings, so
 // the terminal session is always handed the ctxloom-owned file `prepare`
 // writes in the session dir, never a file in the user's ~/.claude. A child's
-// turn is unchanged (child hooks are ruling 24's, separate).
+// turn is handed the same file (ruling 51, below).
 #[test]
 fn the_terminal_session_reads_the_session_dirs_settings_in_both_home_modes() {
     for host in [false, true] {
@@ -603,8 +679,11 @@ fn the_terminal_session_reads_the_session_dirs_settings_in_both_home_modes() {
     }
 }
 
+// Ruling 51: a child's turn reads the session dir's settings exactly as the
+// terminal session does: one `--settings`, the ctxloom-owned file, in both home
+// modes, and never a file in the user's ~/.claude.
 #[test]
-fn a_childs_turn_is_given_no_settings_flag() {
+fn a_childs_turn_reads_the_session_dirs_settings_in_both_home_modes() {
     for host in [false, true] {
         let mut asked = request();
         asked.env = env(&[("HOME", "/home/alice")]);
@@ -613,11 +692,22 @@ fn a_childs_turn_is_given_no_settings_flag() {
                 s.session_home = SessionHome::Host
             }
         });
-        let command = Claude::new().drive_turn(&asked).unwrap();
-        assert!(
-            !command.args.contains(&"--settings".to_string()),
-            "{:?}",
-            command.args
-        );
+        for resume in [None, Some("native-1".to_string())] {
+            asked.resume = resume;
+            let command = Claude::new().drive_turn(&asked).unwrap();
+            let flags: Vec<usize> = command
+                .args
+                .iter()
+                .enumerate()
+                .filter(|(_, a)| *a == "--settings")
+                .map(|(i, _)| i)
+                .collect();
+            assert_eq!(flags.len(), 1, "host={host}: {:?}", command.args);
+            assert_eq!(
+                command.args[flags[0] + 1],
+                "/p/.ctxloom/sessions/h/home/settings.json",
+                "host={host}"
+            );
+        }
     }
 }

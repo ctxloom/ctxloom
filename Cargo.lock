@@ -2412,9 +2412,11 @@ checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 name = "liveness"
 version = "0.1.0"
 dependencies = [
+ "angzarr-diagnostic",
  "file-system",
  "mutants",
  "os",
+ "run-ports",
  "session-ports",
 ]
 
@@ -3271,6 +3273,7 @@ dependencies = [
  "run-ports",
  "runs",
  "runs-application",
+ "session-ports",
  "sessions",
  "tokio",
  "uuid",
@@ -3766,6 +3769,7 @@ dependencies = [
  "mutants",
  "ports",
  "serde",
+ "serde_json",
  "session-index",
  "session-ports",
  "sessions",

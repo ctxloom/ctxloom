@@ -5,13 +5,17 @@ use std::sync::Arc;
 use run_ports::Edge;
 
 use crate::fakes::{command_book, uuid, CountingSource, KernelEdge, SESSION_ME};
-use crate::{AppError, Credential, EnqueueRequest, Enqueuer, Gate, Principal, RunsGate};
+use crate::{
+    Credential, CredentialEvidence, EnqueueError, EnqueueRequest, Enqueuer, Evidence, Gate,
+    Principal, RunsGate,
+};
 
 fn request() -> EnqueueRequest {
     EnqueueRequest {
         session: SESSION_ME.to_string(),
         incarnation: 1,
         mode: runs::RunMode::Interactive,
+        evidence: Evidence::passing("claude-code"),
     }
 }
 
@@ -118,10 +122,10 @@ async fn a_source_that_repeats_a_token_cannot_enqueue() {
     minted(&edge).await;
     let enqueuer = Enqueuer::new(Arc::clone(&edge), Arc::new(Stuck));
     let refused = enqueuer.enqueue(request()).await.unwrap_err();
-    let AppError::Refused { code, .. } = refused else {
-        panic!("not refused: {refused:?}");
-    };
-    assert_eq!(code, "runs-credentials-not-distinct");
+    assert_eq!(
+        refused,
+        EnqueueError::Refused(runs::RunRejection::CredentialsNotDistinct)
+    );
 }
 
 // NEW-DESIGN (plan 5.3: a token PER RUN): two enqueues mint two different
@@ -193,4 +197,59 @@ async fn the_enqueued_value_never_renders_a_secret() {
     ] {
         assert!(!shown.contains(&token.to_text()));
     }
+}
+
+// Rulings 73e, 73f: the evidence reaches the run's decision, and the refusal
+// comes back as the run's own rejection, whole: an aggregate keeps every
+// refusal it holds, in check order.
+#[tokio::test]
+async fn the_evidence_reaches_the_runs_decision_and_its_refusal_comes_back_whole() {
+    let edge = Arc::new(KernelEdge::new());
+    let enqueuer = Enqueuer::new(Arc::clone(&edge), Arc::new(CountingSource::default()));
+    let request = EnqueueRequest {
+        mode: runs::RunMode::OneShot,
+        evidence: Evidence {
+            prompt_given: false,
+            credential: Some(CredentialEvidence {
+                accepted_variables: vec!["ANTHROPIC_API_KEY".to_string()],
+                ..CredentialEvidence::default()
+            }),
+            ..Evidence::passing("claude-code")
+        },
+        ..request()
+    };
+    let refused = enqueuer.enqueue(request).await.unwrap_err();
+    assert_eq!(
+        refused,
+        EnqueueError::Refused(runs::RunRejection::LaunchRefused {
+            refusals: vec![
+                runs::RunRejection::NoPrompt,
+                runs::RunRejection::NoCredential {
+                    engine: "claude-code".to_string(),
+                    variables: "ANTHROPIC_API_KEY".to_string(),
+                },
+            ],
+            plan_aborted: false,
+        })
+    );
+    let cover = angzarr_embedded::v1::Cover {
+        domain: runs::RUN_DOMAIN.to_string(),
+        root: Some(runs::run_root(SESSION_ME, 1)),
+        edition: None,
+    };
+    assert!(
+        edge.pages(&cover).await.is_empty(),
+        "a refusal journals nothing"
+    );
+}
+
+// Ruling 73f (the proposal for a refused run's residue): the run's decision
+// needs no session to exist, so the enqueue can be sent before a name is
+// claimed or the session minted, and a refused run leaves neither.
+#[tokio::test]
+async fn a_run_is_enqueued_before_its_session_is_minted() {
+    let edge = Arc::new(KernelEdge::new());
+    let enqueuer = Enqueuer::new(Arc::clone(&edge), Arc::new(CountingSource::default()));
+    let enqueued = enqueuer.enqueue(request()).await.unwrap();
+    assert_eq!(enqueued.run, runs::run_root(SESSION_ME, 1));
 }

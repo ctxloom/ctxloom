@@ -3,7 +3,10 @@
 use angzarr_embedded::markup::{Failed, Refuses, TypedRefusal};
 
 use super::*;
-use crate::{QueueTurn, Refusal, RequestStop, RunAggregate, RunRejection};
+use crate::{
+    EnqueueRun, LaunchRefused, NoPrompt, QueueTurn, Refusal, RequestStop, RunAggregate,
+    RunRejection, UnknownEngine,
+};
 
 /// One refusal message of every rejection, with the rejection it must read
 /// back as: the table of the domain.
@@ -49,6 +52,58 @@ fn table() -> Vec<(TypedRefusal, RunRejection)> {
             RunRejection::FileOnlyCredential {
                 engine: "claude-code".to_string(),
                 variables: "A, B".to_string(),
+            },
+        ),
+        (TypedRefusal::of(&NoPrompt {}), RunRejection::NoPrompt),
+        (
+            TypedRefusal::of(&UnknownEngine {
+                name: "bogus".to_string(),
+                known: "claude-code".to_string(),
+            }),
+            RunRejection::UnknownEngine {
+                name: "bogus".to_string(),
+                known: "claude-code".to_string(),
+            },
+        ),
+        (
+            TypedRefusal::of(&LaunchRefused {
+                no_prompt: vec![NoPrompt {}],
+                unknown_engine: vec![UnknownEngine {
+                    name: "bogus".to_string(),
+                    known: "claude-code".to_string(),
+                }],
+                no_credential: Vec::new(),
+                file_only_credential: Vec::new(),
+                plan_aborted: true,
+            }),
+            RunRejection::LaunchRefused {
+                refusals: vec![
+                    RunRejection::NoPrompt,
+                    RunRejection::UnknownEngine {
+                        name: "bogus".to_string(),
+                        known: "claude-code".to_string(),
+                    },
+                ],
+                plan_aborted: true,
+            },
+        ),
+        (
+            TypedRefusal::of(&LaunchRefused {
+                no_prompt: Vec::new(),
+                unknown_engine: Vec::new(),
+                no_credential: vec![NoCredential {
+                    engine: "claude-code".to_string(),
+                    variables: "A, B".to_string(),
+                }],
+                file_only_credential: Vec::new(),
+                plan_aborted: false,
+            }),
+            RunRejection::LaunchRefused {
+                refusals: vec![RunRejection::NoCredential {
+                    engine: "claude-code".to_string(),
+                    variables: "A, B".to_string(),
+                }],
+                plan_aborted: false,
             },
         ),
     ]
@@ -117,4 +172,70 @@ fn a_rejection_the_command_lists_no_message_for_is_the_handlers_bug() {
         queue_turn_refuses(RunRejection::AlreadyEnqueued),
         Failed::Bug(_)
     ));
+}
+
+/// What `EnqueueRun` refuses with for `rejection`.
+fn enqueue_refuses(rejection: RunRejection) -> Failed<Refuses<RunAggregate, EnqueueRun>> {
+    crate::aggregate::enqueue_refusal(rejection)
+}
+
+// Ruling 73c: no prompt and an unknown engine are bad arguments; the aggregate
+// is a precondition the run failed. Each status is its message's option,
+// compared here with another message's of the same meaning, never spelled.
+#[test]
+fn the_enqueue_refuses_each_pre_launch_check_with_its_message_under_its_status() {
+    let invalid = <CredentialHashInvalid as Refusal>::REFUSAL_STATUS;
+    let precondition = <NoCredential as Refusal>::REFUSAL_STATUS;
+    assert_eq!(<NoPrompt as Refusal>::REFUSAL_STATUS, invalid);
+    assert_eq!(<UnknownEngine as Refusal>::REFUSAL_STATUS, invalid);
+    assert_eq!(<LaunchRefused as Refusal>::REFUSAL_STATUS, precondition);
+    let aggregate = RunRejection::LaunchRefused {
+        refusals: vec![
+            RunRejection::NoPrompt,
+            RunRejection::FileOnlyCredential {
+                engine: "e".to_string(),
+                variables: "V".to_string(),
+            },
+        ],
+        plan_aborted: false,
+    };
+    let cases = [
+        (RunRejection::NoPrompt, invalid),
+        (
+            RunRejection::UnknownEngine {
+                name: "n".to_string(),
+                known: "k".to_string(),
+            },
+            invalid,
+        ),
+        (
+            RunRejection::NoCredential {
+                engine: "e".to_string(),
+                variables: "V".to_string(),
+            },
+            precondition,
+        ),
+        (
+            RunRejection::FileOnlyCredential {
+                engine: "e".to_string(),
+                variables: "V".to_string(),
+            },
+            precondition,
+        ),
+        (aggregate, precondition),
+    ];
+    for (rejection, declared) in cases {
+        let Failed::Rejected {
+            rejection: choice,
+            status,
+        } = enqueue_refuses(rejection.clone())
+        else {
+            panic!("a refusal of {rejection:?}");
+        };
+        assert_eq!(status, declared, "{rejection:?}");
+        assert_eq!(
+            RunRejection::try_from(&TypedRefusal::from(choice)),
+            Ok(rejection)
+        );
+    }
 }

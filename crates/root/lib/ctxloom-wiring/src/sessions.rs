@@ -35,7 +35,11 @@ fn matches_of<'a>(call: &Call<'a>, noun: &str) -> &'a ArgMatches {
 
 /// A failure of the command line itself: exit 1.
 fn failed(cause: Box<dyn Diagnostic>) -> Failure {
-    Failure { cause, exit: 1 }
+    Failure {
+        cause,
+        exit: 1,
+        refusals: Vec::new(),
+    }
 }
 
 impl Commands {
@@ -83,6 +87,7 @@ impl Commands {
                 Err(Failure {
                     cause: failure.failure.cause,
                     exit: failure.failure.exit,
+                    refusals: Vec::new(),
                 })
             }
         }

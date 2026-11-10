@@ -83,6 +83,12 @@ to = "surface-ports"
 kind = "dev"
 reason = "test-only: builds a type only the port defines; re-exporting it just for tests would add public API for nobody"
 
+[[exception]]
+from = "run-cli"
+to = "runs"
+kind = "dev"
+reason = "test-only: builds the runs domain's refusals a RunError carries (ruling 73's aggregate), to hand on; re-exporting them just for tests would add public API for nobody"
+
 # hook-listener's end-to-end test serves the real kernel on a real socket: it
 # builds the application behind the edge (the kernel's registry of the two
 # domains the hook reaches and its `embedded-edge` adapter) and the commands and

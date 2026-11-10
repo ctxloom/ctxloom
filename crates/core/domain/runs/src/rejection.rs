@@ -29,6 +29,31 @@ pub enum RunRejection {
     /// use a file. `variables` are the ones the engine's built-in source
     /// accepts, to name in the source and export.
     FileOnlyCredential { engine: String, variables: String },
+    /// A one-shot with no prompt from any door: it would ask nothing (ruling
+    /// 73c).
+    NoPrompt,
+    /// A run on an engine this build cannot drive (ruling 73c): `known` are
+    /// the ones it drives, comma separated.
+    UnknownEngine { name: String, known: String },
+    /// A launch refused for more than one reason, or for one beside the plan's
+    /// fatal findings (rulings 73, 73b, 73c): each refusal, in check order;
+    /// `plan_aborted` when the plan had fatal findings too (the library says
+    /// them). Its `count` is how many checks failed, the findings one of them.
+    LaunchRefused {
+        refusals: Vec<RunRejection>,
+        plan_aborted: bool,
+    },
+}
+
+impl RunRejection {
+    /// The refusals this one stands for, in check order: an aggregate's
+    /// own, else itself.
+    pub fn refusals(&self) -> Vec<RunRejection> {
+        match self {
+            RunRejection::LaunchRefused { refusals, .. } => refusals.clone(),
+            other => vec![other.clone()],
+        }
+    }
 }
 
 impl fmt::Display for RunRejection {
@@ -49,6 +74,9 @@ impl Diagnostic for RunRejection {
             RunRejection::CredentialsNotDistinct => code!("credentials-not-distinct"),
             RunRejection::NoCredential { .. } => code!("no-credential"),
             RunRejection::FileOnlyCredential { .. } => code!("file-only-credential"),
+            RunRejection::NoPrompt => code!("no-prompt"),
+            RunRejection::UnknownEngine { .. } => code!("unknown-engine"),
+            RunRejection::LaunchRefused { .. } => code!("launch-refused"),
         }
     }
 
@@ -61,11 +89,23 @@ impl Diagnostic for RunRejection {
                 ("engine", engine.as_str().into()),
                 ("variables", variables.as_str().into()),
             ],
+            RunRejection::UnknownEngine { name, known } => vec![
+                ("name", name.as_str().into()),
+                ("known", known.as_str().into()),
+            ],
+            RunRejection::LaunchRefused {
+                refusals,
+                plan_aborted,
+            } => vec![(
+                "count",
+                (refusals.len() as u64 + u64::from(*plan_aborted)).into(),
+            )],
             RunRejection::AlreadyEnqueued
             | RunRejection::NoRun
             | RunRejection::Ended
             | RunRejection::NotItsStream
-            | RunRejection::CredentialsNotDistinct => Vec::new(),
+            | RunRejection::CredentialsNotDistinct
+            | RunRejection::NoPrompt => Vec::new(),
         }
     }
 }
@@ -94,6 +134,15 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(RunRejection::FileOnlyCredential {
             engine: "claude-code".to_string(),
             variables: "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY".to_string(),
+        }),
+        Box::new(RunRejection::NoPrompt),
+        Box::new(RunRejection::UnknownEngine {
+            name: "bogus".to_string(),
+            known: "claude-code, opencode".to_string(),
+        }),
+        Box::new(RunRejection::LaunchRefused {
+            refusals: vec![RunRejection::NoPrompt],
+            plan_aborted: true,
         }),
     ]
 }

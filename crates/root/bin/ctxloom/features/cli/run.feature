@@ -532,6 +532,7 @@ Feature: run — assembling a project's context and handing it to an engine
         """
       Then the command exits with code 2
       And the refusal is "runs-no-credential"
+      And the refusal holds no list of refusals
       And the refusal's fix says "claude setup-token"
       When Alice asks again in text, which carries the fix:
         """
@@ -782,3 +783,77 @@ Feature: run — assembling a project's context and handing it to an engine
       Then the command fails
       And the output contains "bogus-engine"
       And no model was asked anything
+
+  Rule: A refused run says every check it failed at once, and leaves nothing behind
+
+    Before a run starts, it is checked: the plan's fatal findings, a one-shot's
+    prompt, an engine this build can drive, and a child's credential. A run
+    that fails more than one says them all in one refusal, `runs-launch-refused`,
+    in that order (each the refusal it would be alone: its code, args, message
+    and fix), so she fixes them together instead of one per attempt. One
+    failure is its own refusal, exactly as before. The exit is 2, or 3 when
+    the plan's fatal findings are among the failures (they are said as
+    warnings beside the refusal, as a run past them always said them). An
+    engine nobody drives is still planned, so the plan and the prompt are
+    judged; its credential cannot be. A refused run claims no name and makes
+    no session: nothing of it is listed, and nothing is left in the project.
+
+    Scenario: A one-shot with no prompt and no credential is refused for both at once
+      # new: owner rulings 73, 73a, 73b.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And Alice has exported no credential
+      When Alice starts a child agent with nothing to ask and no credential:
+        """
+        ctxloom run --one-shot
+        """
+      Then the command exits with code 2
+      And the refusal is "runs-launch-refused"
+      And the refusals are "runs-no-prompt, runs-no-credential"
+      And each refusal carries its own message and fix
+      And no assistant was launched
+      And the file ".ctxloom/sessions" does not exist
+      When Alice asks again in text:
+        """
+        ctxloom run --one-shot --format text
+        """
+      Then the command exits with code 2
+      And the output contains "nothing to run"
+      And the output contains "claude setup-token"
+
+    Scenario: An engine nobody drives is still planned, so a missing prompt is said beside it
+      # new: owner rulings 73c, 73d.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And Alice has exported no credential
+      When Alice names an engine ctxloom does not have, with nothing to ask:
+        """
+        ctxloom run --one-shot --engine bogus-engine
+        """
+      Then the command exits with code 2
+      And the refusal is "runs-launch-refused"
+      And the refusals are "runs-no-prompt, runs-unknown-engine"
+      And the output contains "bogus-engine"
+      And no assistant was launched
+
+    Scenario: A fatal finding beside a refused credential is exit 3, and both are said
+      # new: owner rulings 73a, 73c.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And Alice has exported no credential
+      And the project already has the file ".ctxloom/content/bundles/v2/project/profiles/broken.yaml":
+        """
+        description: references a missing bundle
+        bundles:
+          - does-not-exist
+        """
+      When Alice runs a child agent on a broken profile with no credential:
+        """
+        ctxloom run --one-shot --profile broken hello
+        """
+      Then the command exits with code 3
+      And the refusal is "runs-launch-refused"
+      And the refusals are "runs-no-credential"
+      And the output contains "does-not-exist"
+      And no assistant was launched
+      And the file ".ctxloom/sessions" does not exist

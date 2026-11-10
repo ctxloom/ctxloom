@@ -161,6 +161,16 @@ pub async fn enqueued(edge: &TestEdge, session: &str, harp: &str) {
         runner_credential_hash: vec![1; 32],
         model_credential_hash: vec![2; 32],
         hook_credential_hash: vec![3; 32],
+        prompt_given: true,
+        engine: "claude-code".to_string(),
+        drivable_engines: vec!["claude-code".to_string()],
+        credential: runs::CredentialEvidence {
+            file_only: false,
+            builtin_variables: Vec::new(),
+            accepted_variables: Vec::new(),
+            accepted_set: false,
+        },
+        plan_aborted: false,
     }
     .into();
     edge.handle(command_book(run_cover(session), enqueue.to_any()))

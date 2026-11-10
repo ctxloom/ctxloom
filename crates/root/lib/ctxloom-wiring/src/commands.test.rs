@@ -486,19 +486,27 @@ fn test_a_one_shot_is_run_by_the_run_use_case() {
         &["run", "--one-shot", "--engine", "nope", "hello"],
     )
     .unwrap_err();
-    assert_eq!(failure.cause.code(), "run-application-unknown-engine");
+    assert_eq!(failure.cause.code(), "runs-unknown-engine");
     assert_eq!(failure.exit, 2);
+    assert!(
+        failure.refusals.is_empty(),
+        "one refusal is its own envelope"
+    );
 }
 
 // A one-shot with no prompt, argued or piped, is refused as that, not
-// started as a session.
+// started as a session; with no credential exported either, it is refused
+// for both at once, in check order, and the command line is handed both
+// (rulings 73, 73b).
 #[test]
 fn test_a_one_shot_with_no_prompt_is_not_a_session() {
     let world = world_without_programs("one-shot-bare");
     let failure =
         try_line(&mut world.commands(), Format::Json, &["run", "--one-shot"]).unwrap_err();
-    assert_eq!(failure.cause.code(), "run-application-no-prompt");
+    assert_eq!(failure.cause.code(), "runs-launch-refused");
     assert_eq!(failure.exit, 2);
+    let codes: Vec<&str> = failure.refusals.iter().map(|r| r.code()).collect();
+    assert_eq!(codes, ["runs-no-prompt", "runs-no-credential"]);
 }
 
 // Without `--one-shot` it is the human's session, which is started on the
@@ -512,7 +520,7 @@ fn test_run_without_one_shot_is_the_session() {
         &["run", "--engine", "nope"],
     )
     .unwrap_err();
-    assert_eq!(failure.cause.code(), "run-application-unknown-engine");
+    assert_eq!(failure.cause.code(), "runs-unknown-engine");
 }
 
 // `--dry-run` stays the library's: the plan is printed, nothing is run.

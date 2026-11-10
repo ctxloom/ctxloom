@@ -6,6 +6,7 @@ use angzarr_presentation::{Catalog, Format};
 use clap::{Arg, ArgAction, Command};
 use library_application::{AppError, Flags, Notice};
 use run_application::{Answer, Done, Ended, OneShot, RunError, RunService};
+use runs::RunRejection;
 
 use super::{is_one_shot, run, session, with_one_shot, Call};
 
@@ -83,6 +84,8 @@ impl RunService for Double {
 
 struct Ran {
     exit: Result<u8, (String, u8)>,
+    /// The codes of the refusals the failure handed on.
+    refusals: Vec<String>,
     out: String,
     err: String,
 }
@@ -108,7 +111,7 @@ fn go(line: &[&str], format: Option<Format>, piped: Option<&str>, service: &mut 
     let catalog = Catalog::en_us(&[library_application::EN_US, crate::EN_US]).unwrap();
     let (mut out, mut err) = (Vec::new(), Vec::new());
     let mut stdin = || piped.map(String::from);
-    let exit = run(
+    let ran = run(
         service,
         run_matches,
         &call,
@@ -116,10 +119,14 @@ fn go(line: &[&str], format: Option<Format>, piped: Option<&str>, service: &mut 
         &mut stdin,
         &mut out,
         &mut err,
-    )
-    .map_err(|f| (f.cause.code().to_string(), f.exit));
+    );
+    let refusals = ran.as_ref().err().map_or_else(Vec::new, |f| {
+        f.refusals.iter().map(|r| r.code().to_string()).collect()
+    });
+    let exit = ran.map_err(|f| (f.cause.code().to_string(), f.exit));
     Ran {
         exit,
+        refusals,
         out: String::from_utf8(out).unwrap(),
         err: String::from_utf8(err).unwrap(),
     }
@@ -270,10 +277,33 @@ fn every_selection_flag_reaches_the_request() {
 
 #[test]
 fn a_refusal_ends_the_command_with_its_code_and_exit_and_writes_no_reply() {
-    let mut service = Double::failing(RunError::NoPrompt);
+    let mut service = Double::failing(RunError::Refused(RunRejection::NoPrompt));
     let ran = go(&["--one-shot"], Some(Format::Text), None, &mut service);
-    assert_eq!(ran.exit, Err(("run-application-no-prompt".to_string(), 2)));
+    assert_eq!(ran.exit, Err(("runs-no-prompt".to_string(), 2)));
     assert_eq!(ran.out, "");
+    assert!(ran.refusals.is_empty(), "a single refusal lists nothing");
+}
+
+// Owner rulings 73a, 73b: an aggregate refusal ends the command with its own
+// code and exit, and hands on each refusal it holds, in check order, for the
+// command line to list.
+#[test]
+fn an_aggregate_refusal_hands_on_each_refusal_in_check_order() {
+    for (plan_aborted, exit) in [(false, 2), (true, 3)] {
+        let mut service = Double::failing(RunError::Refused(RunRejection::LaunchRefused {
+            refusals: vec![
+                RunRejection::NoPrompt,
+                RunRejection::NoCredential {
+                    engine: "claude-code".to_string(),
+                    variables: "CLAUDE_CODE_OAUTH_TOKEN".to_string(),
+                },
+            ],
+            plan_aborted,
+        }));
+        let ran = go(&["--one-shot"], Some(Format::Json), None, &mut service);
+        assert_eq!(ran.exit, Err(("runs-launch-refused".to_string(), exit)));
+        assert_eq!(ran.refusals, ["runs-no-prompt", "runs-no-credential"]);
+    }
 }
 
 #[test]
@@ -361,7 +391,7 @@ fn ended(code: Option<i32>) -> Ended {
 
 #[test]
 fn a_session_asks_with_the_line_prints_nothing_and_exits_as_the_engine_did() {
-    let mut double = Double::failing(RunError::NoPrompt);
+    let mut double = Double::failing(RunError::EmptyAnswer);
     double.ended = Some(Ok(ended(Some(3))));
     let (exit, out, err) = go_session(&["--profile", "dev", "hello", "there"], &mut double);
     assert_eq!(exit, Ok(3));
@@ -374,14 +404,14 @@ fn a_session_asks_with_the_line_prints_nothing_and_exits_as_the_engine_did() {
 
 #[test]
 fn a_session_ended_by_a_signal_exits_one() {
-    let mut double = Double::failing(RunError::NoPrompt);
+    let mut double = Double::failing(RunError::EmptyAnswer);
     double.ended = Some(Ok(ended(None)));
     assert_eq!(go_session(&[], &mut double).0, Ok(1));
 }
 
 #[test]
 fn a_session_that_could_not_start_fails_with_the_errors_exit() {
-    let mut double = Double::failing(RunError::NoPrompt);
+    let mut double = Double::failing(RunError::EmptyAnswer);
     double.ended = Some(Err(RunError::NotStarted {
         detail: "no claude".to_string(),
     }));

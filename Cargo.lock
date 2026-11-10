@@ -3286,6 +3286,7 @@ dependencies = [
  "cli-support",
  "library-application",
  "run-application",
+ "runs",
  "serde",
  "serde_json",
 ]

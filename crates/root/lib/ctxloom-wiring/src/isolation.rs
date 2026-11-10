@@ -84,10 +84,7 @@ pub(crate) fn container(
     _catalog: &Catalog,
     out: &mut dyn std::io::Write,
 ) -> Result<u8, Failure> {
-    let wired = |e: LibError| Failure {
-        cause: Box::new(e),
-        exit: 1,
-    };
+    let wired = |e: LibError| Failure::new(e, 1);
     let wiring = Wiring::new(Arc::clone(env)).map_err(wired)?;
     let library = Rc::new(crate::library::build(&wiring, None).map_err(wired)?);
     let flags = call.globals.clone();
@@ -105,7 +102,7 @@ pub(crate) fn container(
         },
         UserFilesFs::new(wiring.fs()),
     );
-    container_cli::run(&containers, call, out)
+    container_cli::run(&containers, call, out).map_err(Failure::from)
 }
 
 #[cfg(test)]

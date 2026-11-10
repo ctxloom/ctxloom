@@ -8,6 +8,8 @@ use angzarr_embedded::v1::{CommandBook, Cover, Uuid};
 use angzarr_embedded::CommandBookExt;
 use run_ports::{Edge, Token, TokenSource};
 
+use runs::RunRejection;
+
 use crate::error::AppError;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -16,6 +18,62 @@ pub struct EnqueueRequest {
     pub session: String,
     pub incarnation: u32,
     pub mode: runs::RunMode,
+    /// What the run's pre-launch checks are judged on (rulings 73e, 73f).
+    pub evidence: Evidence,
+}
+
+/// The evidence of a run's pre-launch checks, as the run application asked its
+/// ports: the run's aggregate judges it in `EnqueueRun`'s decide (owner
+/// rulings 73e, 73f). Names and yes-or-no only, never a credential's value;
+/// the run's event journals none of it.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct Evidence {
+    /// Whether the plan gave a prompt that is not blank.
+    pub prompt_given: bool,
+    /// The engine the run is on.
+    pub engine: String,
+    /// Every engine this build drives.
+    pub drivable_engines: Vec<String>,
+    /// A child's credential; none for a session, and for an engine that
+    /// cannot be driven (ruling 73d).
+    pub credential: Option<CredentialEvidence>,
+    /// Whether the plan refused the run for fatal startup findings.
+    pub plan_aborted: bool,
+}
+
+/// What a child's run authenticates with (ruling 53).
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct CredentialEvidence {
+    /// The engine's source names a credentials file and no variable.
+    pub file_only: bool,
+    /// The variables the engine's built-in source accepts.
+    pub builtin_variables: Vec<String>,
+    /// The variables the child would be given a credential by.
+    pub accepted_variables: Vec<String>,
+    /// Whether one of them is set, and not empty.
+    pub accepted_set: bool,
+}
+
+impl Evidence {
+    /// Evidence that passes every check: a prompt, on `engine`, which is
+    /// driven, with nothing to authenticate.
+    pub fn passing(engine: &str) -> Evidence {
+        Evidence {
+            prompt_given: true,
+            engine: engine.to_string(),
+            drivable_engines: vec![engine.to_string()],
+            credential: None,
+            plan_aborted: false,
+        }
+    }
+}
+
+/// Why an enqueue did not happen: the run refused it (its own rejection,
+/// whole, so an aggregate keeps its refusals), or the kernel failed.
+#[derive(Clone, Debug, PartialEq)]
+pub enum EnqueueError {
+    Refused(RunRejection),
+    Failed(AppError),
 }
 
 /// What the enqueue gives back: the run's root and its three tokens, shown once.
@@ -43,7 +101,7 @@ impl<E: Edge, T: TokenSource> Enqueuer<E, T> {
         Enqueuer { edge, source }
     }
 
-    pub async fn enqueue(&self, request: EnqueueRequest) -> Result<Enqueued, AppError> {
+    pub async fn enqueue(&self, request: EnqueueRequest) -> Result<Enqueued, EnqueueError> {
         let runner_token = self.source.mint();
         let model_token = self.source.mint();
         let hook_token = self.source.mint();
@@ -61,12 +119,24 @@ impl<E: Edge, T: TokenSource> Enqueuer<E, T> {
             runner_credential_hash: runner_token.hash().as_bytes().to_vec(),
             model_credential_hash: model_token.hash().as_bytes().to_vec(),
             hook_credential_hash: hook_token.hash().as_bytes().to_vec(),
+            // RED (ruling 73e): the evidence does not reach the command yet.
+            prompt_given: true,
+            engine: String::new(),
+            drivable_engines: Vec::new(),
+            credential: runs::CredentialEvidence {
+                file_only: false,
+                builtin_variables: Vec::new(),
+                accepted_variables: Vec::new(),
+                accepted_set: false,
+            },
+            plan_aborted: false,
         };
+        let _ = request.evidence;
         let book = CommandBook::command_of(cover, &runs::RunCommand::from(enqueue));
         self.edge
             .handle(book)
             .await
-            .map_err(AppError::from_failure)?;
+            .map_err(|failure| EnqueueError::Failed(AppError::from_failure(failure)))?;
         Ok(Enqueued {
             run,
             runner_token,

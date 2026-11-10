@@ -77,6 +77,7 @@ impl World {
                 session: SESSION.to_string(),
                 incarnation: 1,
                 mode: runs::RunMode::Interactive,
+                evidence: runs_application::Evidence::passing("claude-code"),
             })
             .await
             .unwrap();

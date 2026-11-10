@@ -288,19 +288,67 @@ fn an_assistant(w: &mut World) {
     assert_ne!(w.launch_record(), "", "no assistant was launched");
 }
 
+/// The error's json envelope: the last json document on the error stream
+/// (the warnings a run said before it, one json line each, come first).
+fn envelope_of(w: &World) -> serde_json::Value {
+    serde_json::Deserializer::from_str(&w.ran().stderr)
+        .into_iter::<serde_json::Value>()
+        .map(|value| value.expect("the error stream is json documents"))
+        .last()
+        .unwrap_or_else(|| panic!("a json envelope on the error stream: {}", w.ran().said()))
+}
+
 /// A refusal is a typed message: its code is the envelope's `code`.
 #[then(expr = "the refusal is {string}")]
 fn refusal_is(w: &mut World, code: String) {
-    let envelope: serde_json::Value =
-        serde_json::from_str(&w.ran().stderr).expect("a json envelope on the error stream");
+    let envelope = envelope_of(w);
     assert_eq!(envelope["code"], code, "{}", w.ran().said());
+}
+
+/// An aggregate refusal lists each refusal it holds, in check order (owner
+/// ruling 73b): their codes, comma separated.
+#[then(expr = "the refusals are {string}")]
+fn refusals_are(w: &mut World, codes: String) {
+    let envelope = envelope_of(w);
+    let listed: Vec<&str> = envelope["refusals"]
+        .as_array()
+        .unwrap_or_else(|| panic!("a refusals list: {}", w.ran().said()))
+        .iter()
+        .map(|r| r["code"].as_str().expect("a code"))
+        .collect();
+    let wanted: Vec<&str> = codes.split(", ").collect();
+    assert_eq!(listed, wanted, "{}", w.ran().said());
+}
+
+/// Each listed refusal is the envelope it would be alone: its message, and the
+/// fix where its catalog has one.
+#[then("each refusal carries its own message and fix")]
+fn each_refusal_whole(w: &mut World) {
+    let envelope = envelope_of(w);
+    for refusal in envelope["refusals"].as_array().expect("a refusals list") {
+        assert!(
+            refusal["message"].as_str().is_some_and(|m| !m.is_empty()),
+            "{refusal}"
+        );
+        assert!(
+            refusal["fix"].as_str().is_some_and(|f| !f.is_empty()),
+            "{refusal}"
+        );
+        assert!(refusal["args"].is_object(), "{refusal}");
+    }
+}
+
+/// A single refusal is its own plain envelope, as it always was (ruling 73b).
+#[then("the refusal holds no list of refusals")]
+fn refusal_holds_no_list(w: &mut World) {
+    let envelope = envelope_of(w);
+    assert!(envelope.get("refusals").is_none(), "{}", w.ran().said());
 }
 
 /// The json envelope carries the remedy as `fix` (owner ruling).
 #[then(expr = "the refusal's fix says {string}")]
 fn refusal_fix_says(w: &mut World, text: String) {
-    let envelope: serde_json::Value =
-        serde_json::from_str(&w.ran().stderr).expect("a json envelope on the error stream");
+    let envelope = envelope_of(w);
     let fix = envelope["fix"].as_str().expect("a fix in the envelope");
     assert!(fix.contains(&text), "{fix:?} does not say {text:?}");
 }

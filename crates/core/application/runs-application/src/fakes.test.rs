@@ -312,6 +312,16 @@ impl World {
                 runner_credential_hash: Sha256::digest(token.as_bytes()).to_vec(),
                 model_credential_hash: Sha256::digest(model_token.as_bytes()).to_vec(),
                 hook_credential_hash: Sha256::digest(hook_token.as_bytes()).to_vec(),
+                prompt_given: true,
+                engine: "claude-code".to_string(),
+                drivable_engines: vec!["claude-code".to_string()],
+                credential: runs::CredentialEvidence {
+                    file_only: false,
+                    builtin_variables: Vec::new(),
+                    accepted_variables: Vec::new(),
+                    accepted_set: false,
+                },
+                plan_aborted: false,
             },
         ))
         .await

@@ -22,6 +22,7 @@ use crate::{
     AlreadyEnqueued, CredentialHashInvalid, CredentialsNotDistinct, Ended, NoRun, NotItsStream,
     TurnInFlight,
 };
+use crate::{FileOnlyCredential, LaunchRefused, NoCredential, NoPrompt, UnknownEngine};
 
 /// The run aggregate: one run, folded from its stream.
 #[derive(Clone, Debug, Default)]
@@ -132,6 +133,20 @@ fn digest(hash: &[u8]) -> Result<(), RunRejection> {
     }
 }
 
+/// What the enqueue refuses with for `rejection`: its typed message, under
+/// the status the message declares.
+pub(crate) fn enqueue_refusal(
+    rejection: RunRejection,
+) -> Failed<Refuses<RunAggregate, EnqueueRun>> {
+    // RED (ruling 73): the pre-launch checks' messages are not mapped yet.
+    refuse!(
+        RunRejection,
+        rejection,
+        Refuses<RunAggregate, EnqueueRun>,
+        [AlreadyEnqueued => AlreadyEnqueued, CredentialHashInvalid{length} => CredentialHashInvalid, CredentialsNotDistinct => CredentialsNotDistinct, NotItsStream => NotItsStream]
+    )
+}
+
 #[aggregate(domain = "runs", command = RunCommand, event = RunEvent)]
 impl RunAggregate {
     /// Enqueue the run: once, on its own derived stream, with a distinct
@@ -142,7 +157,12 @@ impl RunAggregate {
             AlreadyEnqueued,
             CredentialHashInvalid,
             CredentialsNotDistinct,
-            NotItsStream
+            NotItsStream,
+            NoCredential,
+            FileOnlyCredential,
+            NoPrompt,
+            UnknownEngine,
+            LaunchRefused
         )
     )]
     fn enqueue(
@@ -150,14 +170,7 @@ impl RunAggregate {
         cmd: EnqueueRun,
         ctx: &Context,
     ) -> Result<RunEnqueued, Failed<Refuses<Self, EnqueueRun>>> {
-        decide_enqueue(ctx, cmd).map_err(|rejection| {
-            refuse!(
-                RunRejection,
-                rejection,
-                Refuses<Self, EnqueueRun>,
-                [AlreadyEnqueued => AlreadyEnqueued, CredentialHashInvalid{length} => CredentialHashInvalid, CredentialsNotDistinct => CredentialsNotDistinct, NotItsStream => NotItsStream]
-            )
-        })
+        decide_enqueue(ctx, cmd).map_err(enqueue_refusal)
     }
 
     /// Queue a turn: one at a time, and none after the end.

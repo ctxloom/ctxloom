@@ -13,10 +13,35 @@ use angzarr_presentation::{Catalog, Format};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use cli_support::{flag, many, one, say_notices};
 use library_application::{Flags, RunRequest};
-use run_application::{Answer, OneShot, RunService};
+use run_application::{Answer, OneShot, RunError, RunService};
 use serde::Serialize;
 
-pub use cli_support::Failure;
+/// Why a run's command did not complete: its diagnostic and exit code, and
+/// the refusals an aggregate refusal holds, in check order (owner ruling
+/// 73b), for the command line to list; none for any other error.
+#[derive(Debug)]
+pub struct Failure {
+    pub cause: Box<dyn angzarr_diagnostic::Diagnostic>,
+    pub exit: u8,
+    pub refusals: Vec<Box<dyn angzarr_diagnostic::Diagnostic>>,
+}
+
+impl Failure {
+    fn new(cause: impl angzarr_diagnostic::Diagnostic + 'static, exit: u8) -> Failure {
+        Failure {
+            cause: Box::new(cause),
+            exit,
+            refusals: Vec::new(),
+        }
+    }
+}
+
+/// What a run's error ends the command with.
+fn failed(error: RunError) -> Failure {
+    let exit = error.exit_code();
+    // RED (ruling 73b): the aggregate's refusals are not handed on yet.
+    Failure::new(error, exit)
+}
 
 /// One command, with the global flags the library's use cases take.
 pub type Call<'a> = cli_support::Call<'a, Flags>;
@@ -78,10 +103,7 @@ pub fn run<S: RunService>(
     let request = request_of(run, prompt);
     let done = service.one_shot(&call.globals, &request);
     say_notices(&done.notices, PROG, format, catalog, err);
-    let answer = done.result.map_err(|error| {
-        let exit = error.exit_code();
-        Failure::new(error, exit)
-    })?;
+    let answer = done.result.map_err(failed)?;
     write_answer(format, &answer, out).map_err(|e| {
         Failure::new(
             OutputFailure {
@@ -136,10 +158,7 @@ pub fn session<S: RunService>(
     let request = request_of(run, prompt_of(run));
     let done = service.interactive(&call.globals, &request);
     say_notices(&done.notices, PROG, call.format(), catalog, err);
-    let ended = done.result.map_err(|error| {
-        let exit = error.exit_code();
-        Failure::new(error, exit)
-    })?;
+    let ended = done.result.map_err(failed)?;
     Ok(ended
         .code
         .and_then(|code| u8::try_from(code).ok())

@@ -12,10 +12,10 @@ use angzarr_embedded::v1::{command_page, CommandBook, CommandPage, Cover, Fact, 
 use angzarr_embedded::{Any, Failure, Handled, Payload, Registry};
 
 use crate::{
-    run_root, EndCause, EnqueueRun, FinalReported, LaunchFailed, QueueTurn, RequestStop,
-    RunAggregate, RunCommand, RunEnded, RunEvent, RunExited, RunMode, RunRejection, RunState,
-    RunnerAttached, RunnerStarted, SummaryReported, TurnCompleted, TurnFailed, TurnFailureClass,
-    TurnStarted, RUN_DOMAIN,
+    run_root, CredentialEvidence, EndCause, EnqueueRun, FinalReported, LaunchFailed, QueueTurn,
+    RequestStop, RunAggregate, RunCommand, RunEnded, RunEvent, RunExited, RunMode, RunRejection,
+    RunState, RunnerAttached, RunnerStarted, SummaryReported, TurnCompleted, TurnFailed,
+    TurnFailureClass, TurnStarted, RUN_DOMAIN,
 };
 
 const SESSION: &str = "5f0c7a52-1111-5111-8111-000000000001";
@@ -80,6 +80,14 @@ impl Run {
         run
     }
 
+    /// The rejection a command is refused with, as the domain reads it back.
+    fn rejection(&mut self, command: impl Into<RunCommand>) -> RunRejection {
+        match self.harness.when(command).result() {
+            Err(Failure::Rejected(rejected)) => refused(&rejected),
+            other => panic!("not a rejection: {other:?}"),
+        }
+    }
+
     fn command(&mut self, command: impl Into<RunCommand>) -> Result<Vec<RunEvent>, Said> {
         match self.harness.when(command).result() {
             Ok(events) => Ok(events),
@@ -133,6 +141,56 @@ fn enqueue() -> EnqueueRun {
         runner_credential_hash: RUNNER_HASH.to_vec(),
         model_credential_hash: MODEL_HASH.to_vec(),
         hook_credential_hash: HOOK_HASH.to_vec(),
+        prompt_given: true,
+        engine: "claude-code".to_string(),
+        drivable_engines: vec!["claude-code".to_string(), "opencode".to_string()],
+        credential: not_asked(),
+        plan_aborted: false,
+    }
+}
+
+/// No credential to judge: a session's, or an engine's that asks a child for
+/// none.
+fn not_asked() -> CredentialEvidence {
+    CredentialEvidence {
+        file_only: false,
+        builtin_variables: Vec::new(),
+        accepted_variables: Vec::new(),
+        accepted_set: false,
+    }
+}
+
+/// A child's credential: the variables it would be given one by, and whether
+/// one of them is set.
+fn accepting(set: bool) -> CredentialEvidence {
+    CredentialEvidence {
+        accepted_variables: vec![
+            "CLAUDE_CODE_OAUTH_TOKEN".to_string(),
+            "ANTHROPIC_API_KEY".to_string(),
+        ],
+        accepted_set: set,
+        ..not_asked()
+    }
+}
+
+/// A child of an engine whose source is a file alone.
+fn file_only() -> CredentialEvidence {
+    CredentialEvidence {
+        file_only: true,
+        builtin_variables: vec![
+            "CLAUDE_CODE_OAUTH_TOKEN".to_string(),
+            "ANTHROPIC_API_KEY".to_string(),
+        ],
+        ..accepting(true)
+    }
+}
+
+/// A one-shot's enqueue, its checks passing.
+fn one_shot() -> EnqueueRun {
+    EnqueueRun {
+        mode: RunMode::OneShot,
+        credential: accepting(true),
+        ..enqueue()
     }
 }
 
@@ -711,4 +769,200 @@ fn event_any(page: &angzarr_embedded::v1::EventPage) -> &angzarr_embedded::Any {
         Some(angzarr_embedded::v1::event_page::Body::Event(event)) => event,
         other => panic!("not a domain event: {other:?}"),
     }
+}
+
+// ---- the pre-launch checks, decided by the enqueue (owner rulings 73, 73c-f) ----
+
+const BOTH: &str = "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY";
+
+fn no_credential() -> RunRejection {
+    RunRejection::NoCredential {
+        engine: "claude-code".to_string(),
+        variables: BOTH.to_string(),
+    }
+}
+
+fn unknown(name: &str) -> RunRejection {
+    RunRejection::UnknownEngine {
+        name: name.to_string(),
+        known: "claude-code, opencode".to_string(),
+    }
+}
+
+// Ruling 73c: a one-shot with no prompt is the typed NoPrompt, and journals
+// nothing.
+#[test]
+fn a_one_shot_with_no_prompt_is_refused_and_journals_nothing() {
+    let mut run = Run::new();
+    let cmd = EnqueueRun {
+        prompt_given: false,
+        ..one_shot()
+    };
+    assert_eq!(run.rejection(cmd), RunRejection::NoPrompt);
+    assert_eq!(run.event_count(), 0);
+}
+
+// A session's prompt is optional: an interactive run without one enqueues.
+#[test]
+fn an_interactive_run_needs_no_prompt() {
+    let mut run = Run::new();
+    let cmd = EnqueueRun {
+        prompt_given: false,
+        ..enqueue()
+    };
+    assert!(run.command(cmd).is_ok());
+}
+
+// Ruling 73c: an engine this build does not drive is the typed UnknownEngine,
+// naming it and the ones it drives.
+#[test]
+fn an_engine_that_is_not_driven_is_refused_naming_it_and_the_ones_that_are() {
+    for mode in [RunMode::OneShot, RunMode::Interactive] {
+        let mut run = Run::new();
+        let cmd = EnqueueRun {
+            mode,
+            engine: "bogus-engine".to_string(),
+            credential: not_asked(),
+            ..enqueue()
+        };
+        assert_eq!(run.rejection(cmd), unknown("bogus-engine"), "{mode:?}");
+        assert_eq!(run.event_count(), 0);
+    }
+}
+
+// Ruling 53, now decided here: a child of a file-only source is refused naming
+// the built-in variables, even with one of them set (the source names none).
+#[test]
+fn a_child_of_a_file_only_source_is_refused_naming_the_variables_to_export() {
+    let mut run = Run::new();
+    let cmd = EnqueueRun {
+        credential: file_only(),
+        ..one_shot()
+    };
+    assert_eq!(
+        run.rejection(cmd),
+        RunRejection::FileOnlyCredential {
+            engine: "claude-code".to_string(),
+            variables: BOTH.to_string(),
+        }
+    );
+}
+
+// A child with none of its variables set is refused; with one set, or on an
+// engine that asks a child for none, it enqueues.
+#[test]
+fn a_child_needs_one_of_its_variables_set_unless_its_engine_asks_for_none() {
+    let mut run = Run::new();
+    let cmd = EnqueueRun {
+        credential: accepting(false),
+        ..one_shot()
+    };
+    assert_eq!(run.rejection(cmd), no_credential());
+    for credential in [accepting(true), not_asked()] {
+        let mut run = Run::new();
+        let cmd = EnqueueRun {
+            credential,
+            ..one_shot()
+        };
+        assert!(run.command(cmd).is_ok());
+    }
+}
+
+// Rulings 73, 73b: two failing checks are ONE refusal, LaunchRefused, holding
+// both in check order; its count is how many failed.
+#[test]
+fn two_failing_checks_are_one_launch_refused_holding_both_in_check_order() {
+    let mut run = Run::new();
+    let cmd = EnqueueRun {
+        prompt_given: false,
+        credential: accepting(false),
+        ..one_shot()
+    };
+    let rejection = run.rejection(cmd);
+    assert_eq!(
+        rejection,
+        RunRejection::LaunchRefused {
+            refusals: vec![RunRejection::NoPrompt, no_credential()],
+            plan_aborted: false,
+        }
+    );
+    let (code, args) = said(&rejection);
+    assert_eq!(code, "runs-launch-refused");
+    assert_eq!(args["count"], "2");
+    assert_eq!(run.event_count(), 0);
+}
+
+// Ruling 73d: an engine nobody drives has no credential policy, so its
+// credential evidence is not judged: the most a run can fail is the plan, the
+// prompt and the engine.
+#[test]
+fn an_undriven_engines_credential_is_not_judged() {
+    let mut run = Run::new();
+    let cmd = EnqueueRun {
+        prompt_given: false,
+        engine: "bogus-engine".to_string(),
+        credential: accepting(false),
+        plan_aborted: true,
+        ..one_shot()
+    };
+    assert_eq!(
+        run.rejection(cmd),
+        RunRejection::LaunchRefused {
+            refusals: vec![RunRejection::NoPrompt, unknown("bogus-engine")],
+            plan_aborted: true,
+        }
+    );
+}
+
+// Rulings 73a, 73c: the plan's fatal findings are not a refusal of the list,
+// but they refuse the launch: alone, as an empty aggregate the application
+// says as the plan's own error; beside one refusal, as the aggregate of it,
+// counting the findings as one failed check.
+#[test]
+fn a_plan_aborted_refuses_the_launch_beside_or_without_the_typed_refusals() {
+    let mut run = Run::new();
+    let alone = EnqueueRun {
+        plan_aborted: true,
+        ..one_shot()
+    };
+    assert_eq!(
+        run.rejection(alone),
+        RunRejection::LaunchRefused {
+            refusals: Vec::new(),
+            plan_aborted: true,
+        }
+    );
+    assert_eq!(run.event_count(), 0);
+    let mut run = Run::new();
+    let beside = EnqueueRun {
+        plan_aborted: true,
+        credential: accepting(false),
+        ..one_shot()
+    };
+    let rejection = run.rejection(beside);
+    assert_eq!(
+        rejection,
+        RunRejection::LaunchRefused {
+            refusals: vec![no_credential()],
+            plan_aborted: true,
+        }
+    );
+    assert_eq!(said(&rejection).1["count"], "2");
+}
+
+// The evidence is the command's alone: an enqueue that passes its checks
+// journals the run as before, and the event has no field of the evidence (its
+// wire form is the six fields it always had).
+#[test]
+fn the_evidence_never_reaches_the_event() {
+    let mut run = Run::new();
+    let events = run.command(one_shot()).unwrap();
+    let [RunEvent::RunEnqueued(enqueued)] = events.as_slice() else {
+        panic!("one RunEnqueued, got {events:?}");
+    };
+    let wire = runs_proto::v1::RunEnqueued::from(enqueued.clone());
+    let bytes = prost::Message::encode_to_vec(&wire);
+    let back: runs_proto::v1::EnqueueRun = prost::Message::decode(bytes.as_slice()).unwrap();
+    assert!(!back.prompt_given && back.engine.is_empty() && back.drivable_engines.is_empty());
+    assert!(back.credential.is_none() && !back.plan_aborted);
 }

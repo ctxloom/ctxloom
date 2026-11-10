@@ -37,7 +37,7 @@ mod requests;
 
 pub use admission::Admission;
 pub use capture::{delivery_budget, observe, Attempt, Capture, Observation, Report};
-pub use enqueue::{EnqueueRequest, Enqueued, Enqueuer};
+pub use enqueue::{CredentialEvidence, EnqueueError, EnqueueRequest, Enqueued, Enqueuer, Evidence};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{AppError, Why, EN_US};

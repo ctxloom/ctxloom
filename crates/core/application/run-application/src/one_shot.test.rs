@@ -38,6 +38,34 @@ struct Seen {
     claims_refused: AtomicBool,
     /// The claims of a name that were made.
     claims: AtomicUsize,
+    /// Every command and fact handled, the certificate's mint and the
+    /// listener's serve, in the order they happened (ruling 73f's order).
+    timeline: Timeline,
+    /// The last run command sent, decoded: what an enqueue was judged on.
+    enqueued: Mutex<Option<runs::EnqueueRun>>,
+}
+
+/// What happened, in order, across the edge, the certificate's mint and the
+/// listener: `EnqueueRun refused`, `MintSession`, `certificate`, `serve`.
+type Timeline = Arc<Mutex<Vec<String>>>;
+
+/// The payload type a book carries, by its short name.
+fn sent(book: &CommandBook) -> String {
+    use angzarr_embedded::v1::command_page::Body;
+    let url = match book.page.as_ref().and_then(|p| p.body.as_ref()) {
+        Some(Body::Command(command)) => command
+            .payload
+            .as_ref()
+            .map(|any| any.type_url.clone())
+            .unwrap_or_default(),
+        Some(Body::Fact(fact)) => fact
+            .payload
+            .as_ref()
+            .map(|any| any.type_url.clone())
+            .unwrap_or_default(),
+        None => String::new(),
+    };
+    url.rsplit('.').next().unwrap_or_default().to_string()
 }
 
 impl Edge for Seen {
@@ -53,6 +81,17 @@ impl Edge for Seen {
         if names {
             self.claims.fetch_add(1, Ordering::SeqCst);
         }
+        let what = sent(&book);
+        if let Some(angzarr_embedded::v1::command_page::Body::Command(command)) =
+            book.page.as_ref().and_then(|p| p.body.as_ref())
+        {
+            use angzarr_embedded::Payload;
+            if let Some(Ok(runs::RunCommand::EnqueueRun(enqueue))) =
+                command.payload.as_ref().map(runs::RunCommand::from_any)
+            {
+                *self.enqueued.lock().unwrap() = Some(enqueue);
+            }
+        }
         if names && self.claims_refused.load(Ordering::SeqCst) {
             let release = sessions::NameClaimCommand::from(sessions::ReleaseName {
                 session: "none".to_string(),
@@ -65,7 +104,13 @@ impl Edge for Seen {
                 ))
                 .await;
         }
-        self.edge.handle(book).await
+        let answered = self.edge.handle(book).await;
+        let outcome = if answered.is_ok() { "" } else { " refused" };
+        self.timeline
+            .lock()
+            .unwrap()
+            .push(format!("{what}{outcome}"));
+        answered
     }
 
     async fn events(&self, cover: &Cover, from: u64) -> Result<Vec<EventPage>, StoreError> {
@@ -221,6 +266,7 @@ struct Hooks {
     end_projected_at_stop: Arc<Mutex<Option<bool>>>,
     /// The private key of the identity each serve was given.
     identities: Arc<Mutex<Vec<String>>>,
+    timeline: Timeline,
 }
 
 /// The key the fake mint gives: a secret that must reach the listener and
@@ -237,11 +283,16 @@ fn minted_public() -> PublicCert {
 struct Certs {
     asked: Arc<Mutex<Vec<CertNames>>>,
     refuse: Option<&'static str>,
+    timeline: Timeline,
 }
 
 impl CertMint for Certs {
     fn mint(&self, names: &CertNames) -> Result<HookCertificate, Report> {
         self.asked.lock().unwrap().push(names.clone());
+        self.timeline
+            .lock()
+            .unwrap()
+            .push("certificate".to_string());
         if let Some(reason) = self.refuse {
             return Err(Report::new(reason));
         }
@@ -295,6 +346,7 @@ impl HookServer for Hooks {
         identity: &'a HookCertificate,
     ) -> BoxFuture<'a, Result<Box<dyn Serving>, Report>> {
         Box::pin(async move {
+            self.timeline.lock().unwrap().push("serve".to_string());
             if let Some(reason) = self.refuse {
                 return Err(Report::new(reason));
             }
@@ -309,6 +361,7 @@ impl HookServer for Hooks {
 }
 
 struct Rig {
+    timeline: Timeline,
     hooks: Hooks,
     certs: Certs,
     runs: Runs<TestCore, CountingSource, ScriptedRunner, MemoryRecords, MemoryRecords>,
@@ -410,8 +463,10 @@ fn rig(script: Script) -> Rig {
     let records = MemoryRecords::default();
     let orders = Arc::new(Orders::new());
     let asked = Arc::new(Mutex::new(Vec::new()));
+    let timeline = Timeline::default();
     let seen = Arc::new(Seen {
         edge: Arc::clone(&edge),
+        timeline: Arc::clone(&timeline),
         ..Seen::default()
     });
     let links = Links {
@@ -430,10 +485,12 @@ fn rig(script: Script) -> Rig {
         runner: Some(script.runner.clone()),
         refuse: script.hooks_refuse,
         records: Some(records.clone()),
+        timeline: Arc::clone(&timeline),
         ..Hooks::default()
     };
     let certs = Certs {
         refuse: script.certs_refuse,
+        timeline: Arc::clone(&timeline),
         ..Certs::default()
     };
     let runs = Runs::new(Parts {
@@ -473,6 +530,7 @@ fn rig(script: Script) -> Rig {
         certs: Box::new(certs.clone()),
     });
     Rig {
+        timeline,
         hooks,
         certs,
         runs,
@@ -624,6 +682,9 @@ async fn a_fatal_startup_finding_refuses_the_run_before_any_session() {
         RunError::Plan(plan) if matches!(**plan, PlanError::StartupAborted { .. })
     ));
     assert!(rig.runner.seen.lock().unwrap().is_empty());
+    // Rulings 73e, 73f: the enqueue judged it, and refused it before a name was
+    // claimed, a session minted, a certificate minted or a listener served.
+    assert_eq!(*rig.timeline.lock().unwrap(), ["EnqueueRun refused"]);
 }
 
 // A one-shot gets exactly one turn: an empty prompt asks nothing.
@@ -640,7 +701,12 @@ async fn a_one_shot_with_no_prompt_refuses_before_a_session_exists() {
             .await
             .result
             .unwrap_err();
-        assert!(matches!(error, RunError::NoPrompt), "{prompt:?}");
+        assert!(
+            matches!(error, RunError::Refused(runs::RunRejection::NoPrompt)),
+            "{prompt:?}: {error:?}"
+        );
+        assert_eq!(error.code(), "runs-no-prompt");
+        assert_eq!(error.exit_code(), 2);
         assert!(rig.records.names("amber-swift-owl").is_empty());
         assert!(rig.runner.seen.lock().unwrap().is_empty());
     }
@@ -659,11 +725,12 @@ async fn an_engine_that_cannot_be_driven_is_refused_naming_it_and_the_ones_that_
         .result
         .unwrap_err();
     match &error {
-        RunError::UnknownEngine { name, known } => {
+        RunError::Refused(runs::RunRejection::UnknownEngine { name, known }) => {
             assert_eq!((name.as_str(), known.as_str()), ("mock", "fake"));
         }
         other => panic!("{other:?}"),
     }
+    assert_eq!(error.code(), "runs-unknown-engine");
     assert_eq!(error.exit_code(), 2);
     assert!(rig.runner.seen.lock().unwrap().is_empty());
 }
@@ -696,11 +763,14 @@ async fn the_engine_flag_overrides_the_plans() {
         .await
         .result
         .unwrap_err();
-    assert!(matches!(&error, RunError::UnknownEngine { name, .. } if name == "bogus-engine"));
+    assert!(
+        matches!(&error, RunError::Refused(runs::RunRejection::UnknownEngine { name, .. }) if name == "bogus-engine"),
+        "{error:?}"
+    );
     assert_eq!(
         rig.asked.lock().unwrap().len(),
-        planned,
-        "an engine nobody drives is refused before the plan is asked"
+        planned + 1,
+        "ruling 73d: the plan is asked even for an engine nobody drives"
     );
 }
 
@@ -720,6 +790,13 @@ async fn a_project_that_cannot_be_told_starts_nothing() {
         matches!(&error, RunError::Project(report) if report.code() == "ports-registry-locked")
     );
     assert!(rig.runner.seen.lock().unwrap().is_empty());
+    // The proposal for ruling 73f: the project is told once the run is
+    // enqueued, and a project that cannot be told ends the run it enqueued, so
+    // no run is left owed a runner; no name was claimed and nothing served.
+    assert_eq!(
+        *rig.timeline.lock().unwrap(),
+        ["EnqueueRun", "LaunchFailed"]
+    );
 }
 
 // The mint is the first thing that can fail, and the name is claimed first: a
@@ -769,6 +846,15 @@ async fn names_that_are_all_taken_refuse_the_run_with_the_kernels_refusal() {
     );
     assert_eq!(error.exit_code(), 2);
     assert!(rig.runner.seen.lock().unwrap().is_empty());
+    // The run was enqueued before the names were tried, so it is ended; nothing
+    // was served.
+    let timeline = rig.timeline.lock().unwrap().clone();
+    assert_eq!(timeline.first().map(String::as_str), Some("EnqueueRun"));
+    assert_eq!(timeline.last().map(String::as_str), Some("LaunchFailed"));
+    assert!(
+        !timeline.iter().any(|t| t == "serve" || t == "certificate"),
+        "{timeline:?}"
+    );
 }
 
 #[tokio::test]
@@ -942,6 +1028,11 @@ async fn a_claim_refused_for_another_reason_is_not_tried_again_with_another_name
     );
     assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 1);
     assert!(rig.runner.seen.lock().unwrap().is_empty());
+    assert_eq!(
+        *rig.timeline.lock().unwrap(),
+        ["EnqueueRun", "LaunchFailed"],
+        "the enqueued run is ended"
+    );
 }
 
 // A launch that left no end to the run in its stream is an error naming the
@@ -1418,8 +1509,12 @@ async fn a_one_shot_whose_listener_cannot_start_launches_no_child() {
         .result
         .unwrap_err();
     assert_eq!(error.code(), "run-application-listener");
-    assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 0);
     assert!(rig.runner.seen.lock().unwrap().is_empty());
+    // Ruling 73f: the session is minted before the listener is served, so a
+    // listener that cannot start finds it made: its run is ended, and its
+    // directory written, as a run whose engine could not be spawned is.
+    assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 1);
+    after_its_session_the_run_ended(&rig);
 }
 
 // A child that cannot be spawned stops the listener: no port outlives the run.
@@ -1617,11 +1712,11 @@ async fn an_interactive_runs_engine_is_told_the_loopback_url_of_the_port_served(
     );
 }
 
-// A run refused by the plan's checks (an engine nobody drives) serves no
-// listener at all; one refused after its listener was bound (the project
-// cannot be told) stops it: no port outlives a run that never started.
+// A run refused by its checks (an engine nobody drives) serves no listener at
+// all, and neither does one that fails before it (the project cannot be told,
+// ruling 73f's order).
 #[tokio::test]
-async fn a_run_refused_after_the_listener_was_bound_stops_it() {
+async fn a_run_refused_or_failing_before_its_listener_serves_none() {
     let mut rig = rig(Script::answering());
     let bogus = OneShot {
         engine: "bogus-engine".to_string(),
@@ -1633,7 +1728,13 @@ async fn a_run_refused_after_the_listener_was_bound_stops_it() {
         .await
         .result
         .unwrap_err();
-    assert!(matches!(error, RunError::UnknownEngine { .. }), "{error:?}");
+    assert!(
+        matches!(
+            error,
+            RunError::Refused(runs::RunRejection::UnknownEngine { .. })
+        ),
+        "{error:?}"
+    );
     assert!(
         rig.hooks.log.lock().unwrap().is_empty(),
         "no listener served"
@@ -1646,9 +1747,10 @@ async fn a_run_refused_after_the_listener_was_bound_stops_it() {
         .result
         .unwrap_err();
     assert!(matches!(error, RunError::Project(_)), "{error:?}");
-    let log = rig.hooks.log.lock().unwrap().clone();
-    let what: Vec<&str> = log.iter().map(|(what, _)| what.as_str()).collect();
-    assert_eq!(what, ["serve_tcp 127.0.0.1", "stop"]);
+    assert!(
+        rig.hooks.log.lock().unwrap().is_empty(),
+        "no listener served"
+    );
 }
 
 fn rig_with_project_error() -> Rig {
@@ -1658,9 +1760,10 @@ fn rig_with_project_error() -> Rig {
     })
 }
 
-// A listener that cannot be bound is the run's refusal, with nothing made.
+// A listener that cannot be bound fails the run after its session was made
+// (ruling 73f): the run is ended and the session's directory says so.
 #[tokio::test]
-async fn a_listener_that_cannot_bind_refuses_the_run_before_anything_is_made() {
+async fn a_listener_that_cannot_bind_ends_the_run_its_session_was_made_for() {
     let mut rig = rig(Script {
         hooks_refuse: Some("hook-listener-bind"),
         ..Script::answering()
@@ -1672,8 +1775,9 @@ async fn a_listener_that_cannot_bind_refuses_the_run_before_anything_is_made() {
         .result
         .unwrap_err();
     assert_eq!(error.code(), "run-application-listener");
-    assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 0);
+    assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 1);
     assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
+    after_its_session_the_run_ended(&rig);
 }
 
 // A live probe (2026-11-09): a model never reached claude. The agent's model
@@ -1761,10 +1865,10 @@ async fn a_one_shot_mints_its_certificate_serves_with_it_and_tells_the_child() {
     }
 }
 
-// A certificate that cannot be minted is the run's refusal, with nothing
-// served, nothing made and no engine started.
+// A certificate that cannot be minted fails the run after its session was
+// made (ruling 73f): nothing is served, no engine started, and the run ended.
 #[tokio::test]
-async fn a_certificate_that_cannot_be_minted_refuses_the_run_before_anything_is_made() {
+async fn a_certificate_that_cannot_be_minted_ends_the_run_and_serves_nothing() {
     let mut rig = rig(Script {
         certs_refuse: Some("hook-tls-generate"),
         ..Script::answering()
@@ -1777,8 +1881,9 @@ async fn a_certificate_that_cannot_be_minted_refuses_the_run_before_anything_is_
         .unwrap_err();
     assert_eq!(error.code(), "run-application-listener");
     assert!(rig.hooks.log.lock().unwrap().is_empty(), "nothing served");
-    assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 0);
+    assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 1);
     assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
+    after_its_session_the_run_ended(&rig);
 }
 
 // ---- engines.<e>.* reaches the launch (owner rulings 44, 46, 48) ----
@@ -2027,4 +2132,265 @@ async fn a_permit_for_the_path_the_run_builds_or_for_home_is_ignored() {
             Some("oc-key")
         );
     }
+}
+
+// ---- every pre-launch check, decided by the run's enqueue (owner rulings 73, 73a-f) ----
+
+/// A run that failed after its session was made: the enqueued run is ended
+/// (a `LaunchFailed`), the session's directory is written, and its run record
+/// holds the end (ruling 73f, the proposal for what a failed run leaves).
+fn after_its_session_the_run_ended(rig: &Rig) {
+    let timeline = rig.timeline.lock().unwrap().clone();
+    let at = |what: &str| timeline.iter().position(|t| t == what);
+    assert!(at("EnqueueRun") < at("MintSession"), "{timeline:?}");
+    assert!(at("LaunchFailed").is_some(), "{timeline:?}");
+    let names = rig.records.names("amber-swift-owl");
+    assert!(names.iter().any(|n| n == "metadata.json"), "{names:?}");
+    let runs = rig
+        .records
+        .text("amber-swift-owl", "records/runs.jsonl")
+        .unwrap_or_default();
+    assert!(runs.contains("RunEnded"), "{runs}");
+}
+
+/// The fatal finding the plan gives in these tests.
+fn a_fatal_finding() -> Vec<FindingRow> {
+    vec![FindingRow {
+        kind: "profile".to_string(),
+        text: "no such bundle".to_string(),
+        remedy: String::new(),
+        fatal: true,
+    }]
+}
+
+/// The codes `error` stands for, in order.
+fn codes_of(error: &RunError) -> Vec<String> {
+    error
+        .refusals()
+        .iter()
+        .map(|refusal| refusal.code().to_string())
+        .collect()
+}
+
+fn no_credential_of_fake() -> runs::RunRejection {
+    runs::RunRejection::NoCredential {
+        engine: "fake".to_string(),
+        variables: "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY".to_string(),
+    }
+}
+
+// Rulings 73, 73b: a one-shot with no prompt and no credential is refused for
+// both at once, in check order, as one refusal: exit 2.
+#[tokio::test]
+async fn two_failing_checks_are_refused_together_in_check_order() {
+    let mut script = needing_a_token();
+    script.prompt = "";
+    let mut rig = rig(script);
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap_err();
+    assert!(
+        matches!(&error, RunError::Refused(runs::RunRejection::LaunchRefused { refusals, plan_aborted: false })
+            if *refusals == [runs::RunRejection::NoPrompt, no_credential_of_fake()]),
+        "{error:?}"
+    );
+    assert_eq!(error.code(), "runs-launch-refused");
+    assert_eq!(error.exit_code(), 2);
+    assert_eq!(codes_of(&error), ["runs-no-prompt", "runs-no-credential"]);
+}
+
+// Ruling 73a: fatal findings beside a refusal make the exit 3; the findings
+// are the plan's notices (said as they always are), the refusal the run's.
+#[tokio::test]
+async fn fatal_findings_beside_a_refusal_are_exit_3_and_the_refusal_is_kept() {
+    let mut script = needing_a_token();
+    script.fatal = a_fatal_finding();
+    let mut rig = rig(script);
+    let done = rig.runs.one_shot(&Flags::default(), &ask()).await;
+    let error = done.result.unwrap_err();
+    assert!(
+        matches!(&error, RunError::Refused(runs::RunRejection::LaunchRefused { refusals, plan_aborted: true })
+            if *refusals == [no_credential_of_fake()]),
+        "{error:?}"
+    );
+    assert_eq!(error.exit_code(), 3);
+    assert_eq!(codes_of(&error), ["runs-no-credential"]);
+    assert_eq!(done.notices.len(), 1, "the plan's notices are still said");
+}
+
+// A single failing check is the plain refusal it always was (rulings 73a,
+// 73c): its own code, exit 2, standing for itself alone.
+#[tokio::test]
+async fn one_failing_check_is_its_own_refusal_standing_for_itself() {
+    let mut rig = rig(needing_a_token());
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(error.code(), "runs-no-credential");
+    assert_eq!(error.exit_code(), 2);
+    assert!(
+        error.refusals().is_empty(),
+        "no list: its own plain envelope"
+    );
+}
+
+// Ruling 73d: an engine nobody drives is planned anyway, so the prompt is
+// still judged; its credential is not (its policy is its launcher's).
+#[tokio::test]
+async fn an_undriven_engine_is_planned_and_the_prompt_still_judged() {
+    let mut script = needing_a_token();
+    script.prompt = "";
+    let mut rig = rig(script);
+    let bogus = OneShot {
+        engine: "bogus-engine".to_string(),
+        ..ask()
+    };
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &bogus)
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(rig.asked.lock().unwrap().len(), 1, "the plan was asked");
+    assert_eq!(codes_of(&error), ["runs-no-prompt", "runs-unknown-engine"]);
+    assert_eq!(error.exit_code(), 2);
+}
+
+// Ruling 73d: at most three failures in one run, the fatal findings, the
+// prompt and the engine; with the findings among them, exit 3.
+#[tokio::test]
+async fn the_findings_the_prompt_and_the_engine_fail_together() {
+    let mut script = needing_a_token();
+    script.prompt = "";
+    script.fatal = a_fatal_finding();
+    let mut rig = rig(script);
+    let bogus = OneShot {
+        engine: "bogus-engine".to_string(),
+        ..ask()
+    };
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &bogus)
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(codes_of(&error), ["runs-no-prompt", "runs-unknown-engine"]);
+    assert_eq!(error.exit_code(), 3);
+}
+
+// The proposal for ruling 73f's residue: the enqueue is sent before a name is
+// claimed or a session minted, so a REFUSED run leaves nothing: no name, no
+// session in the store or on disk, no run event (a refusal journals nothing),
+// no certificate, no listener. The user sees the refusal and nothing else.
+#[tokio::test]
+async fn a_refused_run_claims_no_name_mints_no_session_and_serves_nothing() {
+    for interactive in [false, true] {
+        let mut script = needing_a_token();
+        script.prompt = "";
+        let mut rig = rig(script);
+        let bogus = OneShot {
+            engine: "bogus-engine".to_string(),
+            ..ask()
+        };
+        let failed = if interactive {
+            rig.runs
+                .interactive(&Flags::default(), &bogus)
+                .await
+                .result
+                .is_err()
+        } else {
+            rig.runs
+                .one_shot(&Flags::default(), &bogus)
+                .await
+                .result
+                .is_err()
+        };
+        assert!(failed);
+        assert_eq!(
+            *rig.timeline.lock().unwrap(),
+            ["EnqueueRun refused"],
+            "interactive {interactive}"
+        );
+        assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 0);
+        assert!(rig.records.names("amber-swift-owl").is_empty());
+        assert!(rig.certs.asked.lock().unwrap().is_empty());
+        assert!(rig.hooks.log.lock().unwrap().is_empty());
+    }
+}
+
+// Ruling 73f's order for a run that starts: enqueued (its checks judged and
+// its hook credential's digest journaled), then named and minted, then its
+// certificate minted and its listener served; so when the listener serves, a
+// hook's bearer already finds its run.
+#[tokio::test]
+async fn a_run_is_enqueued_then_named_and_minted_then_certified_and_served() {
+    for interactive in [false, true] {
+        let mut script = Script::answering();
+        if interactive {
+            script.prompt = "";
+        }
+        let mut rig = rig(script);
+        if interactive {
+            rig.runs
+                .interactive(&Flags::default(), &ask())
+                .await
+                .result
+                .unwrap();
+        } else {
+            rig.runs
+                .one_shot(&Flags::default(), &ask())
+                .await
+                .result
+                .unwrap();
+        }
+        let timeline = rig.timeline.lock().unwrap().clone();
+        let first: Vec<&str> = timeline.iter().take(5).map(String::as_str).collect();
+        assert_eq!(
+            first,
+            [
+                "EnqueueRun",
+                "ClaimName",
+                "MintSession",
+                "certificate",
+                "serve"
+            ],
+            "interactive {interactive}"
+        );
+    }
+}
+
+// The evidence the enqueue is judged on is what the ports said: the engine
+// asked for, every engine the launcher drives, and a child's credential by
+// the NAMES of its variables (never a value).
+#[tokio::test]
+async fn the_enqueue_is_judged_on_the_engines_driven_and_the_credentials_names() {
+    let mut script = needing_a_token();
+    script.env = vec![
+        ("HOME", "/home/u"),
+        ("ANTHROPIC_API_KEY", "VALUE-NEVER-SENT"),
+    ]; // gitleaks:allow
+    let mut rig = rig(script);
+    rig.runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let evidence = rig.runs.core.0.enqueued.lock().unwrap().clone();
+    let evidence = evidence.expect("an enqueue was sent");
+    assert_eq!(evidence.engine, "fake");
+    assert_eq!(evidence.drivable_engines, ["fake"]);
+    assert!(evidence.prompt_given && !evidence.plan_aborted);
+    let credential = evidence.credential;
+    assert_eq!(
+        credential.accepted_variables,
+        ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"]
+    );
+    assert!(credential.accepted_set && !credential.file_only);
+    assert!(!format!("{credential:?}").contains("VALUE-NEVER-SENT"));
 }

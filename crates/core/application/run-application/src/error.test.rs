@@ -3,6 +3,8 @@ use library_application::AppError as PlanError;
 use run_ports::FailureClass;
 use runs_application::AppError as CoreError;
 
+use runs::RunRejection;
+
 use crate::{diagnostic_samples, RunError, EN_US};
 
 #[test]
@@ -57,11 +59,11 @@ fn a_plan_error_keeps_its_own_code_and_exit() {
 
 #[test]
 fn what_cannot_be_run_is_refused_and_what_went_wrong_in_a_run_failed() {
-    assert_eq!(RunError::NoPrompt.exit_code(), 2);
-    let unknown = RunError::UnknownEngine {
+    assert_eq!(RunError::Refused(RunRejection::NoPrompt).exit_code(), 2);
+    let unknown = RunError::Refused(RunRejection::UnknownEngine {
         name: "x".to_string(),
         known: "y".to_string(),
-    };
+    });
     assert_eq!(unknown.exit_code(), 2);
     let refused = RunError::Session(CoreError::Refused {
         code: "sessions-names-taken".to_string(),
@@ -115,13 +117,7 @@ fn the_samples_hold_a_value_of_every_code() {
         .iter()
         .map(|s| s.code().to_string())
         .collect();
-    for want in [
-        "no-prompt",
-        "unknown-engine",
-        "not-started",
-        "empty-answer",
-        "not-ended",
-    ] {
+    for want in ["not-started", "empty-answer", "not-ended"] {
         assert!(
             codes.contains(&format!("run-application-{want}")),
             "{want} in {codes:?}"
@@ -132,9 +128,64 @@ fn the_samples_hold_a_value_of_every_code() {
 // An error displays as its code and its args.
 #[test]
 fn an_error_displays_as_its_code_and_args() {
-    assert_eq!(RunError::NoPrompt.to_string(), "run-application-no-prompt");
+    assert_eq!(
+        RunError::Refused(RunRejection::NoPrompt).to_string(),
+        "runs-no-prompt"
+    );
     assert_eq!(
         RunError::NotEnded { run: "r1".into() }.to_string(),
         "run-application-not-ended run=r1"
     );
+}
+
+// Ruling 73c, hard migrate: the prompt and the engine are the runs domain's
+// refusals now, and no code of this crate's names them.
+#[test]
+fn no_prompt_and_an_unknown_engine_are_no_codes_of_this_crate() {
+    let codes: Vec<String> = diagnostic_samples()
+        .iter()
+        .map(|s| s.code().to_string())
+        .collect();
+    for gone in [
+        "run-application-no-prompt",
+        "run-application-unknown-engine",
+    ] {
+        assert!(!codes.iter().any(|c| c == gone), "{gone} in {codes:?}");
+        assert!(
+            !EN_US.1.lines().any(|l| l.starts_with(&format!("{gone} ="))),
+            "{gone} in the catalog"
+        );
+    }
+}
+
+// Ruling 73a: most severe wins. An aggregate with the plan's fatal findings
+// among its failures is exit 3, without them exit 2; every refusal it holds
+// is said, in check order. A single refusal holds no list (ruling 73b).
+#[test]
+fn an_aggregate_is_exit_3_with_fatal_findings_and_says_each_refusal_in_order() {
+    let aggregate = |plan_aborted| {
+        RunError::Refused(RunRejection::LaunchRefused {
+            refusals: vec![
+                RunRejection::NoPrompt,
+                RunRejection::UnknownEngine {
+                    name: "x".to_string(),
+                    known: "y".to_string(),
+                },
+            ],
+            plan_aborted,
+        })
+    };
+    assert_eq!(aggregate(false).exit_code(), 2);
+    assert_eq!(aggregate(true).exit_code(), 3);
+    let codes: Vec<String> = aggregate(true)
+        .refusals()
+        .iter()
+        .map(|r| r.code().to_string())
+        .collect();
+    assert_eq!(codes, ["runs-no-prompt", "runs-unknown-engine"]);
+    // A single refusal is its own plain envelope: it holds no list.
+    assert!(RunError::Refused(RunRejection::NoPrompt)
+        .refusals()
+        .is_empty());
+    assert!(RunError::EmptyAnswer.refusals().is_empty());
 }

@@ -75,6 +75,9 @@ message EnqueueRun {
     refuses: "ctxloom.runs.v1.NotItsStream"
     refuses: "ctxloom.runs.v1.NoCredential"
     refuses: "ctxloom.runs.v1.FileOnlyCredential"
+    refuses: "ctxloom.runs.v1.NoPrompt"
+    refuses: "ctxloom.runs.v1.UnknownEngine"
+    refuses: "ctxloom.runs.v1.LaunchRefused"
   };
 
   string session = 1;
@@ -86,6 +89,42 @@ message EnqueueRun {
   // interactive engine's hook processes present for the capture facts alone.
   // Required: a SHA-256 digest distinct from the other two.
   bytes hook_credential_hash = 6;
+
+  // The EVIDENCE of the pre-launch checks (owner rulings 73e, 73f): what the
+  // run application asked its ports (the plan, the engine registry, the
+  // credential policy, the environment), for `decide` to judge. It is the
+  // command's alone: `RunEnqueued` carries none of it, and nothing of it is a
+  // credential's value (names and yes-or-no only).
+
+  // Whether the plan gave a prompt that is not blank. Judged for a one-shot
+  // alone: a session's prompt is optional.
+  bool prompt_given = 7;
+  // The engine the run is on, and every engine this build drives.
+  string engine = 8;
+  repeated string drivable_engines = 9;
+  // What a child's run authenticates with; left at its default (nothing to
+  // judge) for an interactive run, and for an engine that cannot be driven
+  // (its policy is its launcher's, 73d).
+  CredentialEvidence credential = 10;
+  // Whether the plan refused the run for fatal startup findings. The findings
+  // themselves are the library's and are said beside the refusal (73c).
+  bool plan_aborted = 11;
+}
+
+// A child's credential, as the run application found it (ruling 53 and owner
+// ruling 2026-11-08, item 8): never a value.
+message CredentialEvidence {
+  // The engine's source names a credentials file and no variable.
+  bool file_only = 1;
+  // The variables the engine's built-in source accepts: what a file-only
+  // source is told to name and export.
+  repeated string builtin_variables = 2;
+  // The variables the child would be given a credential by, any one of which
+  // serves; none when the engine asks a child for none.
+  repeated string accepted_variables = 3;
+  // Whether one of `accepted_variables` is set, and not empty, in the
+  // caller's environment.
+  bool accepted_set = 4;
 }
 
 // Queue the next turn. Refused while one is in flight and after the run's
@@ -378,11 +417,9 @@ message CredentialsNotDistinct {
 
 // A child agent's run asked for with none of the environment credentials its
 // engine authenticates with (owner ruling 2026-11-08, item 8: a child gets
-// only an env credential, never a shared credentials file). It is refused
-// before any session is made or any engine started. The run application raises
-// it from its pre-launch check of the environment (an environment variable is
-// no state of the run, so `decide` cannot see it); EnqueueRun lists it as the
-// command the check stands before.
+// only an env credential, never a shared credentials file). EnqueueRun's
+// `decide` refuses it from the command's credential evidence (ruling 73e),
+// before any session is made or any engine started.
 message NoCredential {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 
@@ -395,9 +432,9 @@ message NoCredential {
 // A child agent's run whose engine's credential source names a credentials
 // FILE and no environment variable (owner ruling 53, 2026-11-09): a file is
 // the human's primary interactive session's alone (ruling 8), so no child of
-// that engine can authenticate. Refused, like NoCredential, before the listener
-// is served, a session made or an engine started; raised by the run
-// application's pre-launch check.
+// that engine can authenticate. Refused, like NoCredential, by EnqueueRun's
+// `decide` from the credential evidence, before the listener is served, a
+// session made or an engine started.
 message FileOnlyCredential {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 
@@ -406,6 +443,39 @@ message FileOnlyCredential {
   // The variables the engine's built-in source accepts, comma separated: the
   // ones to name in the source's `env` and export.
   string variables = 2;
+}
+
+// A one-shot with no prompt from any door: it would ask nothing (ruling 73c).
+message NoPrompt {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+}
+
+// A run on an engine this build cannot drive (ruling 73c).
+message UnknownEngine {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  // The engine asked for.
+  string name = 1;
+  // The engines this build drives, comma separated.
+  string known = 2;
+}
+
+// A launch refused for more than one reason, or for a reason beside the plan's
+// fatal findings (owner rulings 73, 73b, 73c): every check that failed, in the
+// order they are checked (the order of these fields). Each field holds at
+// most one, and at most one of the two credential fields is set: they are
+// `repeated` because the generated domain layer keeps no presence for a
+// singular message field, and an empty refusal (NoPrompt) must still be seen.
+// The fatal findings are not here: `plan_aborted` says only that there were
+// some, and the library says them.
+message LaunchRefused {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  repeated NoPrompt no_prompt = 1;
+  repeated UnknownEngine unknown_engine = 2;
+  repeated NoCredential no_credential = 3;
+  repeated FileOnlyCredential file_only_credential = 4;
+  bool plan_aborted = 5;
 }
 
 // endregion refusals

@@ -21,7 +21,7 @@ use library_application::{AppError as PlanError, Flags, Notice, Outcome, Preview
 use ports::{CommandIds, Names, Project, ProjectIdentity};
 use run_launcher::{Launched, Launcher, Order, Orders, Outcome as Turn, Recorder};
 use run_ports::{CertMint, Edge, HookServer, LoginLinks, RunnerLauncher, SessionRecords};
-use runs_application::{AppError as CoreError, EnqueueRequest, Enqueuer};
+use runs_application::{AppError as CoreError, EnqueueError, EnqueueRequest, Enqueuer};
 use sessions::{
     claim_root, ClaimName, MintSession, NameClaimCommand, Origin, SessionCommand, NAMES_DOMAIN,
     SESSION_DOMAIN,
@@ -489,9 +489,14 @@ where
                 session: session.clone(),
                 incarnation: 1,
                 mode,
+                // RED (ruling 73e): the checks are still the application's.
+                evidence: runs_application::Evidence::passing(&engine),
             })
             .await
-            .map_err(RunError::Session)?;
+            .map_err(|error| match error {
+                EnqueueError::Refused(rejection) => RunError::Refused(rejection),
+                EnqueueError::Failed(error) => RunError::Session(error),
+            })?;
         // The order is placed once the run's tokens exist: the hook bearer
         // reaches the engine's environment through it (the terminal session's
         // and a one-shot child's alike, ruling 51), and the caller's own

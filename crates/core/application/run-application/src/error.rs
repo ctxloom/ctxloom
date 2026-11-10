@@ -61,6 +61,16 @@ impl RunError {
     }
 }
 
+impl RunError {
+    /// The refusals an aggregate refusal holds, in check order, each said as
+    /// the run's single refusal would be (rulings 73, 73b); none for any other
+    /// error, a single refusal included (it is its own plain envelope).
+    pub fn refusals(&self) -> Vec<Box<dyn Diagnostic>> {
+        // RED (ruling 73): not said yet.
+        Vec::new()
+    }
+}
+
 impl fmt::Display for RunError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         angzarr_diagnostic::display(self, f)

@@ -45,6 +45,7 @@ impl Extension for Fake {
                 value: "odd".to_string(),
             }),
             exit,
+            refusals: Vec::new(),
         })
     }
 }
@@ -423,4 +424,85 @@ fn test_the_envelope_keeps_its_order_and_the_fix_comes_last() {
     );
     let at = |key: &str| json.find(&format!("\"{key}\"")).unwrap();
     assert!(at("code") < at("args") && at("args") < at("message") && at("message") < at("fix"));
+}
+
+/// An aggregate refusal as an extension reports one: a summary and the
+/// refusals it holds, in order (this crate's own errors stand in for them).
+fn aggregate() -> CliError {
+    CliError::Extension(Failure {
+        cause: Box::new(CliError::Output {
+            detail: "two checks failed".to_string(),
+        }),
+        exit: 2,
+        refusals: vec![
+            Box::new(CliError::Usage {
+                detail: "first".to_string(),
+            }),
+            Box::new(CliError::UnknownVerb {
+                verb: "frob".to_string(),
+                command: "ctxloom".to_string(),
+                choices: "a, b".to_string(),
+            }),
+        ],
+    })
+}
+
+// Owner ruling 73b: ONE json envelope, the summary's, whose `refusals` holds
+// each refusal as its own single envelope would be ({code, args, message,
+// fix?}), in order; the list is this crate's, after the envelope's own keys.
+#[test]
+fn test_an_aggregate_refusal_is_one_json_envelope_listing_each_refusal_in_order() {
+    let (code, json) = reported(&aggregate(), Format::Json);
+    assert_eq!(code, 2);
+    let envelope: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(envelope["code"], "ctxloom-cli-output");
+    assert!(envelope.get("fix").is_none(), "{json}");
+    let refusals = envelope["refusals"].as_array().expect("a refusals list");
+    let codes: Vec<&str> = refusals
+        .iter()
+        .map(|r| r["code"].as_str().unwrap())
+        .collect();
+    assert_eq!(codes, ["ctxloom-cli-usage", "ctxloom-cli-unknown-verb"]);
+    assert_eq!(refusals[0]["message"], "first");
+    assert_eq!(
+        refusals[0]["fix"],
+        "run ctxloom -h, or the command with -h, for its usage"
+    );
+    assert_eq!(refusals[1]["args"]["verb"], "frob");
+    assert_eq!(refusals[1]["fix"], "run ctxloom -h for its commands");
+    let at = |key: &str| json.find(&format!("\"{key}\"")).unwrap();
+    assert!(at("message") < at("refusals"), "{json}");
+}
+
+// Owner ruling 73b: in text, the summary line, then each refusal's own
+// `ctxloom:` line and `  fix:` line, in order.
+#[test]
+fn test_an_aggregate_refusal_in_text_says_the_summary_then_each_refusal() {
+    let (code, text) = reported(&aggregate(), Format::Text);
+    assert_eq!(code, 2);
+    assert_eq!(
+        text,
+        "ctxloom: cannot write the output: two checks failed\n\
+         ctxloom: first\n\
+         \x20 fix: run ctxloom -h, or the command with -h, for its usage\n\
+         ctxloom: unknown command frob for ctxloom: Did you mean one of a, b?\n\
+         \x20 fix: run ctxloom -h for its commands\n"
+    );
+}
+
+// An error that holds no refusals is reported exactly as before: no
+// `refusals` key at all.
+#[test]
+fn test_an_error_with_no_refusals_has_no_refusals_key() {
+    let (_, json) = reported(
+        &CliError::Extension(Failure::new(
+            CliError::Output {
+                detail: "d".to_string(),
+            },
+            1,
+        )),
+        Format::Json,
+    );
+    let envelope: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert!(envelope.get("refusals").is_none(), "{json}");
 }

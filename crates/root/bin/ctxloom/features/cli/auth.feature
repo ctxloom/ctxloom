@@ -120,5 +120,5 @@ Feature: auth — how ctxloom-launched engines authenticate
       # says nothing of whether it is there.
       And the output does not contain "present"
       # owner ruling 81: in the words a child's run of it is refused with.
-      And the output reports "[engine=claude-code].message" containing "engines.claude-code.auth names only a file"
-      And the output reports "[engine=claude-code].remedy" containing "name one of those variables in engines.claude-code.auth.env and export it"
+      And the output reports "[engine=claude-code].message" as "a child agent run of claude-code needs a credential in the environment (any one of: CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY), and engines.claude-code.auth names only a file, which serves the primary interactive session alone"
+      And the output reports "[engine=claude-code].remedy" as "name one of those variables in engines.claude-code.auth.env and export it (for claude-code, `claude setup-token` makes CLAUDE_CODE_OAUTH_TOKEN); the file keeps serving the primary session"

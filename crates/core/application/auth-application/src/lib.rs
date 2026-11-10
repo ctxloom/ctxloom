@@ -159,7 +159,7 @@ impl Auth {
                     present: None,
                     vars: Vec::new(),
                     via: file.clone(),
-                    message: String::new(),
+                    message: file_only_message(&need.engine),
                     remedy: remedy(&need),
                     usable_by: PRIMARY,
                 });
@@ -207,7 +207,7 @@ impl Auth {
         needs(&config, &engines::engines_in_use(&config))
             .into_iter()
             .filter(|need| need.file.is_some())
-            .map(|need| FileOnly::new(&need.engine, builtin_variables(&need.engine)))
+            .map(|need| file_only(&need.engine))
             .collect()
     }
 
@@ -223,7 +223,11 @@ impl Auth {
                     || !need.required
                     || need.vars.iter().any(|v| self.env.is_exported(v)),
                 mode: if need.file.is_some() { FILE } else { TOKEN },
-                message: String::new(),
+                message: if need.file.is_some() {
+                    file_only_message(&need.engine)
+                } else {
+                    String::new()
+                },
                 remedy: remedy(&need),
                 primary_only: need.file.is_some(),
                 vars: need.vars,
@@ -282,19 +286,54 @@ fn builtin_variables(engine: &str) -> Vec<String> {
     }
 }
 
+/// `d` in the runs catalog's en-US words: the wording a child's run is
+/// refused with, so doctor, `auth status` and init say what the run says
+/// (owner ruling 81).
+struct InRunsWords<'a>(&'a dyn Diagnostic);
+
+impl fmt::Display for InRunsWords<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        angzarr_diagnostic::catalog::render(RUNS_EN_US.1, self.0, f)
+    }
+}
+
+/// The fix of a diagnostic: its `<code>-fix` message, with its args.
+#[derive(Debug)]
+struct FixOf<'a>(&'a FileOnly, String);
+
+impl fmt::Display for FixOf<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        angzarr_diagnostic::display(self, f)
+    }
+}
+
+impl Diagnostic for FixOf<'_> {
+    fn code(&self) -> &str {
+        &self.1
+    }
+
+    fn args(&self) -> Vec<(&str, Arg)> {
+        self.0.args()
+    }
+}
+
+/// `runs-file-only-credential` of `engine`, naming its built-in variables.
+fn file_only(engine: &str) -> FileOnly {
+    FileOnly::new(engine, builtin_variables(engine))
+}
+
+/// What a source that is a file alone means, in the refusal's words.
+fn file_only_message(engine: &str) -> String {
+    InRunsWords(&file_only(engine)).to_string()
+}
+
 /// What to do about a credential that is not exported.
 fn remedy(need: &Need) -> String {
     if need.file.is_some() {
-        // An engine with no built-in variable (a test engine) is told to
-        // name one.
-        let named = match builtin_variables(&need.engine) {
-            env if env.is_empty() => "a variable".to_string(),
-            env => format!("one of {}", env.join(", ")),
-        };
-        return format!(
-            "a child agent needs an environment credential: name {named} in engines.{}.auth.env and export it",
-            need.engine
-        );
+        // The refusal's own fix (ruling 81).
+        let warned = file_only(&need.engine);
+        let fix = FixOf(&warned, format!("{}-fix", warned.code()));
+        return InRunsWords(&fix).to_string();
     }
     if need.engine == "claude-code" && need.builtin {
         return CLAUDE_REMEDY.to_string();

@@ -23,7 +23,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::time::Duration;
 
-use crate::hook::RedactedEnv;
+use crate::hook::Withheld;
 
 /// The command of one turn: the program, its arguments, its WHOLE
 /// environment (the launcher adds none), what it is fed on stdin, and where
@@ -41,12 +41,13 @@ pub struct TurnCommand {
 }
 
 impl fmt::Debug for TurnCommand {
-    /// Without the bearer's value: a command is logged, the secret is not.
+    /// Without the bearer's value, nor a permit's: a command is logged, the
+    /// secret is not.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TurnCommand")
             .field("program", &self.program)
             .field("args", &self.args)
-            .field("env", &RedactedEnv(&self.env))
+            .field("env", &Withheld(&self.env, &self.withheld))
             .field("stdin", &self.stdin)
             .field("cwd", &self.cwd)
             .finish()

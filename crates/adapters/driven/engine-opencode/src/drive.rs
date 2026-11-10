@@ -31,13 +31,13 @@ use crate::{Opencode, NAME};
 /// The program: found on the `PATH` of the process that runs the command.
 const PROGRAM: &str = "opencode";
 
-/// opencode's endpoint key: optional (a built-in provider's free models need
-/// none), passed on when set; it is no child's requirement.
-pub const OPTIONAL_KEY: &str = "CTXLOOM_OPENCODE_API_KEY";
-
-/// The provider keys of opencode's built-in credential source (ruling 69):
-/// the standard variables of its Anthropic and OpenAI providers (models.dev's
-/// `env` of each, which opencode reads). Optional, as [`OPTIONAL_KEY`] is.
+/// The provider keys of opencode's built-in credential source (rulings 69,
+/// 79): the standard variables of its Anthropic and OpenAI providers
+/// (models.dev's `env` of each, which opencode reads). Each optional: a
+/// built-in provider's free models need none, and no child is refused for
+/// want of one. Another provider's variable is the config's `env`, or, for
+/// one an `OPENCODE_*` block withholds (`OPENCODE_API_KEY`), a
+/// `CTXLOOM_PERMIT_<NAME>` (ruling 78).
 pub const PROVIDER_KEYS: &[&str] = &["ANTHROPIC_API_KEY", "OPENAI_API_KEY"];
 
 /// opencode's login file, in its data directory.
@@ -58,8 +58,8 @@ pub const SIGN_IN: &str = "run `opencode auth login`, then start the session aga
 
 /// The variables of the caller's environment a child's turn is given: how to
 /// find programs, locale and temp space, the proxy and certificate settings a
-/// network needs, opencode's optional keys (its endpoint key and the provider
-/// keys of its built-in source), and what the plugin's hook
+/// network needs, the optional provider keys of opencode's built-in source,
+/// and what the plugin's hook
 /// processes need (ctxloom's home by name, the session's harp, the run's
 /// listener). Never `HOME`, an XDG base nor any `OPENCODE_*` variable of the
 /// caller's: `OPENCODE_PURE` would skip the plugin, and capture vanish.
@@ -77,7 +77,6 @@ pub const ENV_ALLOWLIST: &[&str] = &[
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
     "NODE_EXTRA_CA_CERTS",
-    OPTIONAL_KEY,
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
     run_ports::HOME_VARIABLE,
@@ -143,8 +142,12 @@ impl Engine for Opencode {
             home_dir: SESSION_DATA_DIR,
             sign_in: SIGN_IN,
             login_optional: true,
-            no_link_on: &["macos", "windows"],
-            copy_on: &[],
+            // A file on every platform (no keychain): linked everywhere, and
+            // on Windows, where a symlink needs a privilege, copied when no
+            // link can be made (ruling 80; the cost: a refresh rotates the
+            // copy's token, which can sign the real login out).
+            no_link_on: &[],
+            copy_on: &["windows"],
         }
     }
 

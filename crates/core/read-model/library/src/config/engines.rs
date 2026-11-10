@@ -194,16 +194,12 @@ impl AuthSource {
 
     /// The built-in source of `engine`: claude-code takes
     /// `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`; opencode the keys of
-    /// its Anthropic and OpenAI providers or its endpoint key (owner ruling
-    /// 69; each optional, see [`AuthSource::required`]); the mocks need none.
+    /// its Anthropic and OpenAI providers (owner rulings 69 and 79; each
+    /// optional, see [`AuthSource::required`]); the mocks need none.
     pub fn builtin(engine: &str) -> AuthSource {
         let env = match engine {
             "claude-code" => vec!["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
-            "opencode" => vec![
-                "ANTHROPIC_API_KEY",
-                "OPENAI_API_KEY",
-                "CTXLOOM_OPENCODE_API_KEY",
-            ],
+            "opencode" => vec!["ANTHROPIC_API_KEY", "OPENAI_API_KEY"],
             _ => return AuthSource::None,
         };
         AuthSource::Credential {

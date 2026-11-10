@@ -391,7 +391,7 @@ fn opencode_on_windows_copies_its_login_when_no_link_can_be_made_and_says_the_co
         )]
     );
     assert!(text.contains("copied"), "{text}");
-    assert!(text.contains("sign your own opencode out"), "{text}");
+    assert!(text.contains("sign your own login out"), "{text}");
     assert_eq!(remedy, "run `opencode auth login`");
 }
 

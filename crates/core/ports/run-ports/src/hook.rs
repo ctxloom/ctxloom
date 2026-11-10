@@ -255,9 +255,22 @@ pub struct RedactedEnv<'a>(pub &'a BTreeMap<String, String>);
 
 impl fmt::Debug for RedactedEnv<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Withheld(self.0, &[]).fmt(f)
+    }
+}
+
+/// A map shown without the bearer's value, any permit's
+/// (`CTXLOOM_PERMIT_*`, owner ruling 78), nor those of the names in `.1`.
+pub(crate) struct Withheld<'a>(pub &'a BTreeMap<String, String>, pub &'a [String]);
+
+impl fmt::Debug for Withheld<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut map = f.debug_map();
         for (name, value) in self.0 {
-            match name == BEARER_VARIABLE {
+            let secret = name == BEARER_VARIABLE
+                || name.starts_with(crate::permit::PERMIT_PREFIX)
+                || self.1.contains(name);
+            match secret {
                 true => map.entry(name, &"<redacted>"),
                 false => map.entry(name, value),
             };

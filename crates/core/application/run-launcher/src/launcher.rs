@@ -358,12 +358,17 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             effort: order.effort.clone(),
             settings: order.settings.clone(),
         };
-        let command = if order.interactive {
+        let mut command = if order.interactive {
             engine.drive_interactive(&request)
         } else {
             engine.drive_turn(&request)
         }
         .map_err(|e| e.to_string())?;
+        // The caller's CTXLOOM_PERMIT_<NAME> reaches every engine's command as
+        // <NAME>, over what the engine chose (owner ruling 78): the one place
+        // every command, a child's turn and the terminal's, passes.
+        let permitted = run_ports::apply_permits(&order.env, &mut command.env);
+        command.withheld.extend(permitted);
         Ok((engine, command))
     }
 

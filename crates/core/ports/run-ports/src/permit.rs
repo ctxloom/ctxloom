@@ -64,19 +64,36 @@ fn is_name(name: &str) -> bool {
 /// The permits of `caller`: the same for a child's turn and the human's
 /// terminal session.
 pub fn permits(caller: &BTreeMap<String, String>) -> Permits {
-    let _ = (caller, is_name, RUNS_OWN);
-    Permits::default()
+    let mut got = Permits::default();
+    for (permit, value) in caller {
+        let Some(name) = permit.strip_prefix(PERMIT_PREFIX) else {
+            continue;
+        };
+        let permit = permit.clone();
+        if !is_name(name) {
+            got.ignored.push(Ignored::NoName { permit });
+        } else if name.starts_with(RUNS_OWN) {
+            got.ignored.push(Ignored::RunsOwn { permit });
+        } else {
+            got.forwarded.insert(name.to_string(), value.clone());
+        }
+    }
+    got
 }
 
 /// `env`, a command's whole environment, with `caller`'s permits applied: no
 /// `CTXLOOM_PERMIT_*` variable left in it, each permit followed set by its own
-/// name. The names it set: their values are withheld from a `Debug`.
+/// name over whatever the engine put there. The names it set, in order: their
+/// values are to be withheld from a `Debug` ([`crate::TurnCommand::withheld`]).
 pub fn apply_permits(
     caller: &BTreeMap<String, String>,
     env: &mut BTreeMap<String, String>,
 ) -> Vec<String> {
-    let _ = (caller, env);
-    Vec::new()
+    env.retain(|name, _| !name.starts_with(PERMIT_PREFIX));
+    let forwarded = permits(caller).forwarded;
+    let names = forwarded.keys().cloned().collect();
+    env.extend(forwarded);
+    names
 }
 
 #[cfg(test)]

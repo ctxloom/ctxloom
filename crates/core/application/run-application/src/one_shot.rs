@@ -291,7 +291,7 @@ where
         let mut notices = planned.notices;
         let result = match planned.result {
             Err(error) => Err(RunError::Plan(Box::new(error))),
-            Ok(previewed) => self.run(previewed, request).await,
+            Ok(previewed) => self.run(previewed, request, &mut notices).await,
         };
         Done {
             result,
@@ -376,6 +376,14 @@ where
             return Err(refused);
         }
         let settings = settings_of(&previewed.plan, &chosen_engine(&previewed.plan, request));
+        // The launcher applies the permits; what it will not follow is said
+        // here, by the permit's name (owner ruling 78).
+        notices.extend(
+            run_ports::permits(&self.env)
+                .ignored
+                .iter()
+                .map(crate::credential::ignored_permit),
+        );
         let Listening { serving, told } = self.serve().await?;
         let started = match self.start(previewed, request, interactive, &told).await {
             Ok(started) => started,
@@ -608,9 +616,13 @@ where
     /// The one-shot: its listener served for its child's hooks (a one-shot is
     /// its own owner, ruling 29), one turn, and the reply the child's stream
     /// gave.
-    async fn run(&mut self, previewed: Previewed, request: &OneShot) -> Result<Answer, RunError> {
-        let mut unused = Vec::new();
-        let (serving, started) = self.ready(previewed, request, false, &mut unused).await?;
+    async fn run(
+        &mut self,
+        previewed: Previewed,
+        request: &OneShot,
+        notices: &mut Vec<Notice>,
+    ) -> Result<Answer, RunError> {
+        let (serving, started) = self.ready(previewed, request, false, notices).await?;
         let ours = self.drive(serving, &started).await?;
         let Started {
             session,

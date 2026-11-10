@@ -344,11 +344,27 @@ impl LoginLinks for SessionDirs {
         self.fs.symlink_dir(Path::new(target), &path).map_err(io)
     }
 
-    fn copy(&mut self, harp: &str, rel: &str, _source: &str) -> Result<(), RecordsError> {
-        // Red: not yet.
-        Err(RecordsError::BadPath {
-            rel: format!("{harp}/{rel}"),
-        })
+    /// The login, copied whole into a file created new (`O_EXCL`), readable
+    /// by its owner alone: what a session home holds where no link can be
+    /// made (owner ruling 80). Nothing reads the bytes but this copy.
+    fn copy(&mut self, harp: &str, rel: &str, source: &str) -> Result<(), RecordsError> {
+        let path = self.record_path(harp, rel)?;
+        let io = |e: std::io::Error| RecordsError::Io {
+            harp: harp.to_string(),
+            rel: rel.to_string(),
+            ext_err_txt: e.to_string(),
+        };
+        let bytes = self.fs.read(Path::new(source)).map_err(io)?;
+        if let Some(parent) = path.parent() {
+            self.fs
+                .create_dir_all(parent, Mode::from_bits(0o755))
+                .map_err(io)?;
+        }
+        let mut file = self
+            .fs
+            .open(&path, Open::CreateNew(Mode::from_bits(0o600)))
+            .map_err(io)?;
+        file.write_all(&bytes).map_err(io)
     }
 }
 

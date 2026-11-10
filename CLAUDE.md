@@ -307,9 +307,15 @@ and the told host, so a runtime's host alias is a DNS name), and the client's
 `hook-listener`'s `TlsIdentity` and nowhere else: never journaled, logged, in
 an environment or in an error. A hook that finds the listener named but the
 certificate missing or garbled refuses (`HookSink::Refused`, `hook-cli-not-recorded`
-naming `CTXLOOM_TLS_CERT`) and sends nothing. The listener has no connection
-limit, idle or handshake timeout of its own (angzarr's `Listener` offers none:
-an escalation); a request is capped at `hook-listener`'s `MAX_REQUEST_BYTES`.
+naming `CTXLOOM_TLS_CERT`) and sends nothing. The listener's limits are
+angzarr's generic `Listener` defaults (core `acacb163`; `hook-listener` sets
+none): a TLS handshake within 10 s, an HTTP/2 keepalive ping every 60 s
+answered within 20 s, a connection closed after 1 h plus a 30 s grace (never
+zero: a zero grace is `ListenError::ZeroConnectionAgeGrace` at bind, which
+`hook-listener` carries as its bind error's cause), at most 200 streams per
+connection, and no request timeout of the server's own. There is still no
+limit on the number of connections; a request is capped at `hook-listener`'s
+`MAX_REQUEST_BYTES`.
 Revisit trigger (ruling 37): ctxloom on a multi-user host with a shared uid,
 or an authority wider than capture on this credential (ruling 38).
 A one-shot child's model can read the same environment, so it can forge
@@ -529,14 +535,14 @@ The lock holds ONE `angzarr-embedded`, `angzarr-proto`, `angzarr-ports` and
 `angzarr-diagnostic` (a test reads Cargo.lock). Every pin in `Cargo.toml` is
 a full commit. The angzarr pins are one line, one per family member:
 
-- angzarr core `35b29dea` (`angzarr-diagnostic`, `angzarr-yaml`,
+- angzarr core `acacb163` (`angzarr-diagnostic`, `angzarr-yaml`,
   `angzarr-presentation`; `angzarr-coordinator-grpc`'s `tls` feature, which
   `hook-listener` enables, is `Listener::tls`);
-- angzarr-embedded `ba73fabe` on angzarr-router `bc729edc`;
-- angzarr-build `9e9eff01` (the markup generator, `angzarr-build` and
+- angzarr-embedded `c78e3735` on angzarr-router `4fc923bc`;
+- angzarr-build `bb0b509a` (the markup generator, `angzarr-build` and
   `angzarr-codegen`, its own repository);
-- angzarr-platform `dfae6726`;
-- taskloom's crates `efc28291` and ctxloom-lib's `3b687062`, built on the
+- angzarr-platform `d543f5ed`;
+- taskloom's crates `2eafb9e7` and ctxloom-lib's `e19644b1`, built on the
   same line,
 
 so moving one moves all. The lock holds one of every angzarr crate. The platform crates (`os`, `file-system`, `file-lock`) are

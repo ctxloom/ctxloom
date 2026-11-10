@@ -20,6 +20,13 @@
 //! no mutual TLS and no plaintext: a client that does not speak TLS gets no
 //! answer.
 //!
+//! The listener's limits are angzarr's generic defaults (`Listener::DEFAULT_*`;
+//! none is set here): a TLS handshake within 10 s, an HTTP/2 keepalive ping
+//! every 60 s answered within 20 s, a connection closed after an hour plus a
+//! 30 s grace (a hook is one short-lived process, one connection), at most 200
+//! streams per connection, and no request timeout of the server's own. There
+//! is no limit on the number of connections.
+//!
 //! A listener spawns its tasks on the runtime that awaits
 //! [`HookListener::serve_tcp`] and needs it to be a multi-thread runtime (or
 //! its own): the run's engine is waited for in a blocking call, and a

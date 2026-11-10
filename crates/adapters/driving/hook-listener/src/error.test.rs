@@ -44,6 +44,29 @@ fn a_bind_failure_names_the_address_and_carries_the_listeners_cause() {
     assert!(rendered.contains("127.0.0.1:9"), "{rendered}");
 }
 
+// The listener's limits are angzarr's defaults (the listener sets none), so
+// its grace is never zero; were a bind refused for one, the refusal is the
+// listener's own cause, said by the listener's catalog, which CATALOGS carries.
+#[test]
+fn a_bind_refused_for_a_zero_connection_age_grace_carries_the_listeners_cause_and_message() {
+    let cause = ListenError::ZeroConnectionAgeGrace;
+    let error = ListenerError::bind_addr("127.0.0.1:9".parse().unwrap(), &cause);
+    assert_eq!(error.code(), "hook-listener-bind");
+    assert_eq!(
+        error,
+        ListenerError::Bind {
+            endpoint: "127.0.0.1:9".to_string(),
+            cause: ListenError::ZeroConnectionAgeGrace,
+        }
+    );
+    let id = format!("{} =", cause.code());
+    let (_, listener_catalog) = crate::CATALOGS[1];
+    assert!(
+        listener_catalog.lines().any(|l| l.starts_with(&id)),
+        "{id} is in the listener's catalog"
+    );
+}
+
 // The samples hold a value of every code of the crate: a catalog test that
 // reads none would pass without checking anything.
 #[test]

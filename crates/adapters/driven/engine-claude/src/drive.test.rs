@@ -486,12 +486,19 @@ fn the_interactive_only_variables_are_never_a_childs_whatever_the_config_says() 
     }
 }
 
+// Owner ruling: env_host is a bounded, enumerable set (the container runtime
+// will read it): the curated allowlist and the names the config lists, never
+// "everything".
 #[test]
-fn env_host_passes_the_whole_environment_but_never_home() {
+fn env_host_passes_only_the_allowlist_and_the_listed_names() {
     let mut asked = request();
-    asked.settings = settings(|s| s.env_host = true);
+    asked.settings = settings(|s| {
+        s.env_host = true;
+        s.env = names(&["ALPHA_TOKEN"]);
+    });
     asked.env = env(&[
         ("PATH", "/usr/bin"),
+        ("ALPHA_TOKEN", "a"), // gitleaks:allow
         ("AWS_PROFILE", "dev"),
         ("HOME", "/home/alice"),
     ]);
@@ -499,8 +506,8 @@ fn env_host_passes_the_whole_environment_but_never_home() {
         Claude::new().drive_turn(&asked).unwrap(),
         Claude::new().drive_interactive(&asked).unwrap(),
     ] {
-        assert_eq!(command.env["AWS_PROFILE"], "dev");
-        assert!(!command.env.contains_key("HOME"));
+        let names: Vec<&str> = command.env.keys().map(String::as_str).collect();
+        assert_eq!(names, vec!["ALPHA_TOKEN", "CLAUDE_CONFIG_DIR", "PATH"]);
         assert_eq!(
             command.env["CLAUDE_CONFIG_DIR"],
             "/p/.ctxloom/sessions/h/home"

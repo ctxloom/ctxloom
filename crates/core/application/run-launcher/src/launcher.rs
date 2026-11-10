@@ -83,6 +83,9 @@ pub struct Launched {
     pub harp: String,
     pub engine: String,
     pub outcome: Outcome,
+    /// The caller's permits the launch did not follow (owner rulings 78,
+    /// 78b), by the permit's name: the run says them.
+    pub ignored: Vec<run_ports::Ignored>,
 }
 
 /// The launcher: the engines it can drive, the way a command is run, the
@@ -180,14 +183,17 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             depth: 0,
             principal: Principal::Runner,
         };
+        let mut ignored = Vec::new();
+        let prepared = self.prepare(&order, &mut ignored);
         let done = |outcome| Launched {
             run: launch.run.clone(),
             session: launch.session.clone(),
             harp: order.harp.clone(),
             engine: order.engine.clone(),
             outcome,
+            ignored: ignored.clone(),
         };
-        let (engine, command) = match self.prepare(&order) {
+        let (engine, command) = match prepared {
             Ok(prepared) => prepared,
             Err(detail) => {
                 self.not_started(&who, true, &detail).await?;
@@ -328,7 +334,11 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
     /// Everything a launch does before it records a sign of life: the engine,
     /// the session home, the user's line, the command. Its error is why
     /// nothing was started.
-    fn prepare(&mut self, order: &Order) -> Result<(Arc<dyn Engine>, TurnCommand), String> {
+    fn prepare(
+        &mut self,
+        order: &Order,
+        ignored: &mut Vec<run_ports::Ignored>,
+    ) -> Result<(Arc<dyn Engine>, TurnCommand), String> {
         let engine = self
             .engine(&order.engine)
             .ok_or_else(|| format!("no engine named {}", order.engine))?;
@@ -367,7 +377,9 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         // The caller's CTXLOOM_PERMIT_<NAME> reaches every engine's command as
         // <NAME>, over what the engine chose (owner ruling 78): the one place
         // every command, a child's turn and the terminal's, passes.
-        run_ports::apply_permits(&order.env, &mut command.env);
+        // Never over a name ctxloom set for the engine (ruling 78b): the
+        // adapter's computed names, derived from the command, and the run's.
+        *ignored = run_ports::apply_permits(&order.env, &mut command.env, &order.owned);
         Ok((engine, command))
     }
 

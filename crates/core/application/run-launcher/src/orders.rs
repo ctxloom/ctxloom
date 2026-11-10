@@ -32,6 +32,9 @@ pub struct Order {
     /// How the config says the engine is run: program, session home,
     /// credential source, environment passthrough (names and paths only).
     pub settings: run_ports::EngineSettings,
+    /// The names the run itself set in `env` for the engine (owner ruling
+    /// 78b): no permit replaces them (`run_ports::apply_permits`).
+    pub owned: Vec<String>,
 }
 
 impl fmt::Debug for Order {
@@ -48,6 +51,7 @@ impl fmt::Debug for Order {
             .field("model", &self.model)
             .field("effort", &self.effort)
             .field("settings", &self.settings)
+            .field("owned", &self.owned)
             .finish()
     }
 }

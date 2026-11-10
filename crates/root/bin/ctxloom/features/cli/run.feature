@@ -621,7 +621,9 @@ Feature: run — assembling a project's context and handing it to an engine
     `<NAME>=value`, a child's turn and her interactive session alike, whatever
     the curation says. The permit itself is not passed on, and a value is
     never shown. A permit can never replace one of the run's own `CTXLOOM_*`
-    variables: it is ignored, and the run says so. An explicit permit for
+    variables, nor anything else ctxloom sets for the engine (the session home
+    it relocates the engine into, the PATH it builds for the hooks, her HOME,
+    which is ctxloom's own home): it is ignored, and the run says so. An explicit permit for
     `ANTHROPIC_AUTH_TOKEN` gives a child the primary's token (without one it
     never reaches a child): such a child holds her token, no credential of
     its own.
@@ -652,6 +654,46 @@ Feature: run — assembling a project's context and handing it to an engine
       And the output contains "never replaced"
       And the output does not contain "forged-bearer-not-real"
       And opencode's "CTXLOOM_BEARER" was the run's own, not "forged-bearer-not-real"
+
+    # A permit never replaces what ctxloom itself sets for the engine: the
+    # session home it relocates the engine into, and the PATH it builds for
+    # the hooks (owner ruling 78b). Each is ignored, and said.
+    Scenario: A permit for a name ctxloom sets for opencode is ignored, and the run says so
+      # new: owner ruling 78b (2026-11-10).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And the environment variable "CTXLOOM_PERMIT_HOME" is set to "/evil-home"
+      And the environment variable "CTXLOOM_PERMIT_XDG_DATA_HOME" is set to "/evil-data"
+      And the environment variable "CTXLOOM_PERMIT_OPENCODE_CONFIG_DIR" is set to "/evil-config"
+      And the environment variable "CTXLOOM_PERMIT_PATH" is set to "/evil"
+      And the environment variable "CTXLOOM_PERMIT_OPENCODE_API_KEY" is set to "oc-fixture-not-real"
+      When Alice runs her assistant on opencode interactively, and it reports its environment:
+        """
+        ctxloom run --engine opencode
+        """
+      Then opencode's HOME, XDG_DATA_HOME and OPENCODE_CONFIG_DIR were its session home's, and its PATH led with ctxloom's directory
+      And opencode's environment held "OPENCODE_API_KEY" as "oc-fixture-not-real", and no CTXLOOM_PERMIT_ variable
+      And the output contains "CTXLOOM_PERMIT_HOME was not passed on"
+      And the output contains "CTXLOOM_PERMIT_XDG_DATA_HOME was not passed on"
+      And the output contains "CTXLOOM_PERMIT_OPENCODE_CONFIG_DIR was not passed on"
+      And the output contains "CTXLOOM_PERMIT_PATH was not passed on"
+
+    Scenario: A permit for a name ctxloom sets for claude is ignored in a child's turn
+      # new: owner ruling 78b (2026-11-10).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And Alice has exported only the credential "CLAUDE_CODE_OAUTH_TOKEN"
+      And the environment variable "CTXLOOM_PERMIT_CLAUDE_CONFIG_DIR" is set to "/evil-config"
+      And the environment variable "CTXLOOM_PERMIT_HOME" is set to "/evil-home"
+      When Alice runs a child agent with permits for what ctxloom sets:
+        """
+        ctxloom run --one-shot "hello"
+        """
+      Then the command succeeds
+      And the assistant's "CLAUDE_CONFIG_DIR" was ctxloom's, not "/evil-config"
+      And the assistant's environment did not hold "HOME"
+      And the output contains "CTXLOOM_PERMIT_CLAUDE_CONFIG_DIR was not passed on"
+      And the output contains "CTXLOOM_PERMIT_HOME was not passed on"
 
     Scenario: An explicit permit gives a child the primary's token
       # new: owner ruling 78a (2026-11-10).

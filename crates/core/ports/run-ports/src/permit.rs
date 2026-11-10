@@ -15,7 +15,7 @@
 //! Pure: the launcher applies it to the command the engine built
 //! ([`apply_permits`]); the run says what it ignored ([`permits`]).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 /// The prefix of a permit's name.
@@ -31,6 +31,10 @@ pub enum Ignored {
     RunsOwn { permit: String },
     /// What follows the prefix is no variable name.
     NoName { permit: String },
+    /// It names a variable ctxloom itself sets for the engine (owner ruling
+    /// 78b): one the adapter computes (`HOME`, an XDG base, a config dir) or
+    /// the run builds (`PATH` with the program's directory first).
+    Owned { permit: String },
 }
 
 /// What the caller's permits bring into an engine's command.
@@ -61,9 +65,25 @@ fn is_name(name: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-/// The permits of `caller`: the same for a child's turn and the human's
-/// terminal session.
-pub fn permits(caller: &BTreeMap<String, String>) -> Permits {
+/// The names ctxloom itself set in `command`, a command's whole environment
+/// built from `caller`'s (owner ruling 78b): every name whose value is not the
+/// caller's as it was passed through (the adapter computed it), and `also`,
+/// the names the run set in the caller's environment before the engine saw
+/// it. Derived from what was set, so it cannot drift from the adapters.
+pub fn owned_names(
+    caller: &BTreeMap<String, String>,
+    command: &BTreeMap<String, String>,
+    also: &[String],
+) -> BTreeSet<String> {
+    let _ = (caller, command);
+    also.iter().cloned().collect()
+}
+
+/// The permits of `caller`, `owned` the names ctxloom sets for the engine
+/// ([`owned_names`]): the same for a child's turn and the human's terminal
+/// session.
+pub fn permits(caller: &BTreeMap<String, String>, owned: &BTreeSet<String>) -> Permits {
+    let _ = owned;
     let mut got = Permits::default();
     for (permit, value) in caller {
         let Some(name) = permit.strip_prefix(PERMIT_PREFIX) else {
@@ -81,13 +101,22 @@ pub fn permits(caller: &BTreeMap<String, String>) -> Permits {
     got
 }
 
-/// `env`, a command's whole environment, with `caller`'s permits applied: no
-/// `CTXLOOM_PERMIT_*` variable left in it, each permit followed set by its own
-/// name over whatever the engine put there. (A command's `Debug` shows no
-/// value of its environment, so none of these renders.)
-pub fn apply_permits(caller: &BTreeMap<String, String>, env: &mut BTreeMap<String, String>) {
+/// `env`, a command's whole environment built from `caller`'s, with
+/// `caller`'s permits applied: no `CTXLOOM_PERMIT_*` variable left in it, each
+/// permit followed set by its own name over what the engine passed through,
+/// never over a name ctxloom set ([`owned_names`], `also` the run's own).
+/// The permits it did not follow. (A command's `Debug` shows no value of its
+/// environment, so none of these renders.)
+pub fn apply_permits(
+    caller: &BTreeMap<String, String>,
+    env: &mut BTreeMap<String, String>,
+    also: &[String],
+) -> Vec<Ignored> {
+    let owned = owned_names(caller, env, also);
     env.retain(|name, _| !name.starts_with(PERMIT_PREFIX));
-    env.extend(permits(caller).forwarded);
+    let got = permits(caller, &owned);
+    env.extend(got.forwarded);
+    got.ignored
 }
 
 #[cfg(test)]

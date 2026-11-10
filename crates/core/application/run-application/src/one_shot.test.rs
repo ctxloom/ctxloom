@@ -1316,6 +1316,7 @@ async fn the_bearer_is_in_no_debug_or_error_rendering() {
                 model: String::new(),
                 effort: String::new(),
                 settings: Default::default(),
+                owned: Vec::new(),
             }
         ),
     ] {
@@ -1975,5 +1976,55 @@ async fn a_permit_of_a_run_variable_is_said_to_be_ignored_and_its_value_never_sh
             "{notices:?}"
         );
         assert!(!format!("{notices:?}").contains("forged-bearer"));
+    }
+}
+
+// Ruling 78b: the PATH the run builds (its program's directory first, for the
+// hooks) and HOME (ctxloom's own home, which its hook processes read) are the
+// run's: a permit for either is said to be ignored, and the engine is given
+// ctxloom's.
+#[tokio::test]
+async fn a_permit_for_the_path_the_run_builds_or_for_home_is_ignored() {
+    for interactive in [false, true] {
+        let mut script = Script::answering();
+        script.env = vec![
+            ("PATH", "/bin"),
+            ("HOME", "/home/u"),
+            ("CTXLOOM_PERMIT_PATH", "/evil"),
+            ("CTXLOOM_PERMIT_HOME", "/elsewhere"),
+            ("CTXLOOM_PERMIT_OPENCODE_API_KEY", "oc-key"),
+        ];
+        let mut rig = rig(script);
+        let notices = if interactive {
+            rig.runs
+                .interactive(&Flags::default(), &ask())
+                .await
+                .notices
+        } else {
+            rig.runs.one_shot(&Flags::default(), &ask()).await.notices
+        };
+        for name in ["PATH", "HOME"] {
+            assert!(
+                notices.iter().any(|n| matches!(n,
+                    Notice::Finding { text, .. }
+                    if text.contains(&format!("CTXLOOM_PERMIT_{name} was not passed on"))
+                        && text.contains(&format!("ctxloom sets {name}")))),
+                "{name}: {notices:?}"
+            );
+        }
+        let command = if interactive {
+            rig.runner.seen_terminal.lock().unwrap()[0].clone()
+        } else {
+            rig.runner.seen.lock().unwrap()[0].clone()
+        };
+        assert_eq!(
+            command.env.get("PATH").map(String::as_str),
+            Some("/opt/ctxloom/bin:/bin")
+        );
+        assert_eq!(command.env.get("HOME").map(String::as_str), Some("/home/u"));
+        assert_eq!(
+            command.env.get("OPENCODE_API_KEY").map(String::as_str),
+            Some("oc-key")
+        );
     }
 }

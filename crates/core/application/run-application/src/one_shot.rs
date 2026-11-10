@@ -72,6 +72,17 @@ fn ours(launched: Vec<Launched>, session: &str) -> Option<Launched> {
         .find(|l: &Launched| l.session == session)
 }
 
+/// The permits the launcher did not follow, said by the permit's name (owner
+/// rulings 78, 78b).
+fn said_permits(launched: &Launched, notices: &mut Vec<Notice>) {
+    notices.extend(
+        launched
+            .ignored
+            .iter()
+            .map(crate::credential::ignored_permit),
+    );
+}
+
 /// The error of a session whose launch a step did not make.
 fn not_ended(session: &str) -> RunError {
     RunError::NotEnded {
@@ -376,14 +387,6 @@ where
             return Err(refused);
         }
         let settings = settings_of(&previewed.plan, &chosen_engine(&previewed.plan, request));
-        // The launcher applies the permits; what it will not follow is said
-        // here, by the permit's name (owner ruling 78).
-        notices.extend(
-            run_ports::permits(&self.env)
-                .ignored
-                .iter()
-                .map(crate::credential::ignored_permit),
-        );
         let Listening { serving, told } = self.serve().await?;
         let started = match self.start(previewed, request, interactive, &told).await {
             Ok(started) => started,
@@ -438,6 +441,7 @@ where
     ) -> Result<Ended, RunError> {
         let (serving, started) = self.ready(previewed, request, true, notices).await?;
         let launched = self.drive(serving, &started).await?;
+        said_permits(&launched, notices);
         let Started {
             session,
             harp,
@@ -510,6 +514,8 @@ where
             };
             env.insert("PATH".to_string(), path);
         }
+        // Red: what the run set is not yet named.
+        let owned: Vec<String> = Vec::new();
         let run_text = text(&enqueued.run);
         env.extend(run_ports::hook_environment(
             &told.endpoint,
@@ -531,6 +537,7 @@ where
                 model: plan.model,
                 effort: plan.effort,
                 settings,
+                owned,
             },
         );
         Ok(Started {
@@ -624,6 +631,7 @@ where
     ) -> Result<Answer, RunError> {
         let (serving, started) = self.ready(previewed, request, false, notices).await?;
         let ours = self.drive(serving, &started).await?;
+        said_permits(&ours, notices);
         let Started {
             session,
             harp,

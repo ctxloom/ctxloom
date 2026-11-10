@@ -47,7 +47,7 @@ done
 if [ -n "${CLAUDE_CONFIG_DIR:-}" ] && [ -d "$CLAUDE_CONFIG_DIR" ]; then
   find "$CLAUDE_CONFIG_DIR" -type f -exec cat {} + >> "$rec" 2>/dev/null
 fi
-if [ -n "${ANTHROPIC_AUTH_TOKEN:-}" ]; then echo "env ANTHROPIC_AUTH_TOKEN=$ANTHROPIC_AUTH_TOKEN" >> "$rec"; fi
+env > "$(dirname "$0")/claude-env"
 [ -t 0 ] || cat >> "$rec"
 echo '{"type":"system","subtype":"init","session_id":"00000000-0000-4000-8000-0000000000aa"}'
 echo '{"type":"result","subtype":"success","is_error":false,"result":"J000100-ASSISTANT-REPLY","session_id":"00000000-0000-4000-8000-0000000000aa"}'
@@ -255,22 +255,32 @@ fn no_assistant(w: &mut World) {
     assert_eq!(w.launch_record(), "", "an assistant was launched");
 }
 
+/// The environment the stub assistant was last given, by name.
+fn assistant_env(w: &World) -> BTreeMap<String, String> {
+    files::read(w.adopt_scratch().join("bin/claude-env"))
+        .expect("the assistant ran")
+        .lines()
+        .filter_map(|l| l.split_once('='))
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+}
+
 #[then(expr = "the assistant's environment held {string} as {string}")]
 fn assistant_env_held(w: &mut World, name: String, value: String) {
-    assert!(
-        w.launch_record().contains(&format!("env {name}={value}\n")),
-        "{}",
-        w.launch_record()
-    );
+    let env = assistant_env(w);
+    assert_eq!(env.get(&name), Some(&value), "{:?}", env.keys());
 }
 
 #[then(expr = "the assistant's environment did not hold {string}")]
 fn assistant_env_lacks(w: &mut World, name: String) {
-    assert!(
-        !w.launch_record().contains(&format!("env {name}=")),
-        "{}",
-        w.launch_record()
-    );
+    let env = assistant_env(w);
+    assert!(!env.contains_key(&name), "{:?}", env.keys());
+}
+
+#[then(expr = "the assistant's {string} was ctxloom's, not {string}")]
+fn assistant_env_ctxlooms(w: &mut World, name: String, value: String) {
+    let env = assistant_env(w);
+    assert_ne!(env.get(&name), Some(&value), "{name}");
 }
 
 #[then("an assistant was launched")]

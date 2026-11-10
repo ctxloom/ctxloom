@@ -259,6 +259,24 @@ fn opencode_env_runs_own(w: &mut World, name: String, value: String) {
 }
 
 #[cucumber::then(
+    "opencode's HOME, XDG_DATA_HOME and OPENCODE_CONFIG_DIR were its session home's, and its PATH led with ctxloom's directory"
+)]
+fn opencode_env_relocated(w: &mut World) {
+    w.ran().succeeds();
+    let env = opencode_env(w);
+    let home = w.opencode_session_dir().join("home");
+    let home = home.to_string_lossy();
+    assert_eq!(env.get("HOME").map(String::as_str), Some(&*home));
+    assert_eq!(
+        env.get("OPENCODE_CONFIG_DIR").map(String::as_str),
+        Some(&*home)
+    );
+    assert_eq!(env.get("XDG_DATA_HOME"), Some(&format!("{home}/xdg/data")));
+    let path = env.get("PATH").expect("a PATH");
+    assert!(!path.starts_with("/evil"), "{path}");
+}
+
+#[cucumber::then(
     "opencode ran in its session home, with what its plugin's hooks need to reach ctxloom and without OPENCODE_PURE"
 )]
 fn opencode_environment(w: &mut World) {

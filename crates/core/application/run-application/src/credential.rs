@@ -49,6 +49,13 @@ pub fn ignored_permit(ignored: &Ignored) -> Notice {
                 run_ports::PERMIT_PREFIX
             ),
         ),
+        Ignored::Owned { permit } => (
+            permit,
+            format!(
+                "ctxloom sets {} for the engine itself",
+                permit.trim_start_matches(run_ports::PERMIT_PREFIX)
+            ),
+        ),
     };
     Notice::Finding {
         text: format!("{permit} was not passed on to the agent: {why}"),

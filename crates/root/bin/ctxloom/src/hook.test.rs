@@ -349,6 +349,35 @@ fn test_a_hook_with_no_endpoint_says_the_listener_is_not_running() {
     );
 }
 
+// Review finding 6 (ruling 87): a hook finds its session from the run, by the
+// id its environment names (`CTXLOOM_SESSION`), with no session directory and
+// no metadata.json to read: it gets as far as the delivery, which fails open
+// for want of a listener here.
+#[test]
+fn test_a_hook_finds_its_session_from_the_run_with_no_session_directory() {
+    let env = Env::new();
+    let ran = env.run_hook(
+        &["hook", "claude-code", "execute", "Stop"],
+        STOP,
+        &[
+            ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
+            ("CTXLOOM_SESSION", "0a1b2c3d-0000-4000-8000-0000000000aa"),
+        ],
+    );
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    assert_eq!(ran.stdout.trim(), "{}");
+    assert!(
+        !ran.stderr.contains("no session directory"),
+        "the session is the run's, not a directory's: {}",
+        ran.stderr
+    );
+    assert!(
+        ran.stderr.contains("listener is not running"),
+        "{}",
+        ran.stderr
+    );
+}
+
 /// A loopback URL nobody listens on: a port that was bound, then released.
 fn closed_endpoint() -> String {
     let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();

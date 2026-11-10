@@ -36,6 +36,14 @@ pub const TLS_CERT_VARIABLE: &str = "CTXLOOM_TLS_CERT";
 /// and a one-shot child's).
 pub const HARP_VARIABLE: &str = "CTXLOOM_SESSION_HARP";
 
+/// The variable that names the run's session by its stable id (UUID text):
+/// what a hook addresses its facts to (review finding 6, ruling 87: never
+/// read from the session's directory). Not a secret; the gate still holds a
+/// hook to the session of the run its bearer names.
+///
+/// RED (finding 6): declared, not yet among [`HOOK_VARIABLES`] nor set.
+pub const SESSION_VARIABLE: &str = "CTXLOOM_SESSION";
+
 /// The four variables, which reach a run's engine's environment (the
 /// terminal session's and a one-shot child's, ruling 51), always the run's own:
 /// an inherited value is replaced.

@@ -198,6 +198,27 @@ impl<R: SessionRecords> SessionIds for DirIds<R> {
     }
 }
 
+/// The run's session, as the hook environment names it (`CTXLOOM_SESSION`,
+/// review finding 6): the one session a hook's facts are addressed to,
+/// whatever its harp says; none where the variable is unset or not an id.
+///
+/// RED (finding 6): a stub that names none.
+pub struct RunIds(Option<String>);
+
+impl RunIds {
+    /// The ids the environment's `CTXLOOM_SESSION` names.
+    pub fn from_environment(session: Option<&str>) -> RunIds {
+        RunIds(session.map(str::to_string))
+    }
+}
+
+impl SessionIds for RunIds {
+    fn session_of(&self, harp: &str) -> Option<Uuid> {
+        let _ = (harp, &self.0);
+        None
+    }
+}
+
 /// A hook's recording: its observations, delivered through a sink to the
 /// session its harp names.
 pub struct HookRecording<S: FactSink, I: SessionIds> {

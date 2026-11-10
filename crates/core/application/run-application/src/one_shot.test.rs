@@ -2434,3 +2434,37 @@ async fn the_enqueue_is_judged_on_the_engines_driven_and_the_credentials_names()
     assert!(credential.accepted_set && !credential.file_only);
     assert!(!format!("{credential:?}").contains("VALUE-NEVER-SENT"));
 }
+
+// Review finding 6 (ruling 87): the engine is told its run's SESSION, by its
+// stable id, so a hook addresses its facts to it without reading anything in
+// the session's directory; an inherited one (a run started inside another
+// session) is replaced by this run's. The terminal and a child's turn alike.
+#[tokio::test]
+async fn the_engine_is_told_the_runs_session_by_its_id_never_an_inherited_one() {
+    for interactive in [false, true] {
+        let mut script = Script::answering();
+        script.env = vec![
+            ("PATH", "/bin"),
+            ("HOME", "/home/u"),
+            ("CTXLOOM_SESSION", "00000000-0000-4000-8000-00000000dead"),
+        ];
+        let mut rig = rig(script);
+        let session = if interactive {
+            let ended = rig.runs.interactive(&Flags::default(), &ask()).await;
+            ended.result.unwrap().session
+        } else {
+            let answered = rig.runs.one_shot(&Flags::default(), &ask()).await;
+            answered.result.unwrap().session
+        };
+        let env = if interactive {
+            rig.runner.seen_terminal.lock().unwrap()[0].env.clone()
+        } else {
+            rig.runner.seen.lock().unwrap()[0].env.clone()
+        };
+        assert_eq!(
+            env.get("CTXLOOM_SESSION"),
+            Some(&session),
+            "interactive={interactive}"
+        );
+    }
+}

@@ -438,3 +438,42 @@ fn closed_url() -> String {
     drop(probe);
     format!("https://127.0.0.1:{port}")
 }
+
+// ------------------------------------------------- RunIds (review finding 6)
+
+// Ruling 87: a hook's session is the run's, as its environment names it
+// (`CTXLOOM_SESSION`), never read from a file in the session's directory:
+// the same id whatever harp the hook says (a rename does not lose it).
+#[test]
+fn a_hooks_session_is_the_one_its_environment_names_whatever_the_harp() {
+    let ids = RunIds::from_environment(Some(SESSION));
+    assert_eq!(ids.session_of(HARP), Some(session_id()));
+    assert_eq!(ids.session_of("renamed-since"), Some(session_id()));
+}
+
+#[test]
+fn an_environment_that_names_no_usable_session_is_none() {
+    for held in [None, Some(""), Some("not-a-uuid")] {
+        assert_eq!(
+            RunIds::from_environment(held).session_of(HARP),
+            None,
+            "{held:?}"
+        );
+    }
+}
+
+// Ruling 87: with no session directory at all (no metadata.json is written),
+// a hook still records on its run's session.
+#[tokio::test]
+async fn a_hook_records_on_its_runs_session_with_no_session_directory() {
+    let (_, edge) = world().await;
+    let recording = HookRecording::new(
+        EdgeSink::new(Arc::clone(&edge)),
+        RunIds::from_environment(Some(SESSION)),
+    );
+    let before = pages(&edge).await.len();
+    assert!(recording
+        .record("PostToolBatch", HARP, &answer(batch()))
+        .is_empty());
+    assert_eq!(pages(&edge).await.len(), before + 2);
+}

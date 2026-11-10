@@ -284,3 +284,15 @@ fn an_empty_or_illegal_scheme_is_malformed_and_a_legal_other_one_is_a_scheme_err
         );
     }
 }
+
+// Review finding 6 (ruling 87): a hook addresses its facts to the session the
+// run names, told in the engine's environment like the run itself, and never
+// read from a file in the session's directory. Always the run's own value.
+#[test]
+fn the_runs_session_is_one_of_the_variables_a_hook_is_given() {
+    assert_eq!(crate::SESSION_VARIABLE, "CTXLOOM_SESSION");
+    assert!(
+        HOOK_VARIABLES.contains(&crate::SESSION_VARIABLE),
+        "{HOOK_VARIABLES:?}"
+    );
+}

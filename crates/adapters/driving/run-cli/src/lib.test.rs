@@ -263,6 +263,9 @@ fn every_selection_flag_reaches_the_request() {
     assert_eq!(asked.run.tags, ["go"]);
     assert_eq!(asked.run.workspace, "worktree");
     assert_eq!(asked.engine, "claude-code");
+    // Ruling 57: the plan is asked for the engine too, so it resolves the
+    // agent's block for it.
+    assert_eq!(asked.run.engine, "claude-code");
 }
 
 #[test]

@@ -61,11 +61,11 @@ fn test_the_schema_decides_which_scalars_are_numbers_and_booleans() {
 // whole document sorted.
 #[test]
 fn test_a_section_prints_in_the_order_of_its_fields() {
-    let doc = parse("agents:\n  dev:\n    env: [ALPHA]\n    driving: oneshot\n    permissions:\n      claude-code:\n        mode: plan\n      approver: human\n    runtime: host\n    profiles: [p1]\n    engine: claude-code\n");
+    let doc = parse("agents:\n  dev:\n    env: [ALPHA]\n    driving: oneshot\n    permissions:\n      approver: human\n    engines:\n      claude-code:\n        permissions:\n          mode: plan\n        model: opus\n    runtime: host\n    profiles: [p1]\n    engine: claude-code\n");
     let section = typed(&doc, &["agents".to_string()], Order::Fields);
     assert_eq!(
         to_yaml(&section),
-        "dev:\n  engine: claude-code\n  profiles:\n    - p1\n  runtime: host\n  permissions:\n    approver: human\n    claude-code:\n      mode: plan\n  driving: oneshot\n  env:\n    - ALPHA\n"
+        "dev:\n  engine: claude-code\n  engines:\n    claude-code:\n      model: opus\n      permissions:\n        mode: plan\n  profiles:\n    - p1\n  runtime: host\n  permissions:\n    approver: human\n  driving: oneshot\n  env:\n    - ALPHA\n"
     );
     let engines = typed(
         &parse("engines:\n  claude-code:\n    env: [A]\n    runtime: host\n    command: claude\n"),
@@ -170,7 +170,7 @@ fn test_quoting_escapes_quotes_backslashes_newlines_and_tabs() {
 #[test]
 fn test_scalars_are_typed_by_the_schema_or_by_what_they_look_like() {
     let doc = typed(
-        &parse("sync:\n  auto_sync: yes\ndelegation:\n  concurrency: lots\nagents:\n  dev:\n    permissions:\n      claude-code:\n        t: true\n        f: false\n        n: 7\n        w: word\n"),
+        &parse("sync:\n  auto_sync: yes\ndelegation:\n  concurrency: lots\nagents:\n  dev:\n    engines:\n      claude-code:\n        permissions:\n          t: true\n          f: false\n          n: 7\n          w: word\n"),
         &[],
         Order::Sorted,
     );
@@ -193,8 +193,11 @@ fn test_scalars_are_typed_by_the_schema_or_by_what_they_look_like() {
         at(&entries, key)
     };
     let Typed::Map(options) = dig(
-        dig(dig(at(&top, "agents"), "dev"), "permissions"),
-        "claude-code",
+        dig(
+            dig(dig(at(&top, "agents"), "dev"), "engines"),
+            "claude-code",
+        ),
+        "permissions",
     ) else {
         panic!()
     };

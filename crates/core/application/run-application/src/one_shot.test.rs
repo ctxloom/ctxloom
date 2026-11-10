@@ -136,6 +136,7 @@ impl Planner for ScriptedPlan {
             model: self.model.clone(),
             effort: self.effort.clone(),
             drive: self.drive.clone(),
+            settings: None,
         };
         Outcome {
             result: Ok(Previewed {

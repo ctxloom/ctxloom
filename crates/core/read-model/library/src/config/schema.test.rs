@@ -18,7 +18,7 @@ fn texts(doc: &str) -> Vec<String> {
 // the fixture `cfg/v8`: every key of the schema, correctly used
 #[test]
 fn test_a_config_using_every_key_correctly_has_no_violation() {
-    let doc = "schema_version: 8\neditor:\n  command: vim\n  args: [-u, NONE]\nconfig:\n  use_distilled: false\n  silence_unsupported: true\n  statusline: false\nsync:\n  auto_sync: false\nworkspace: worktree\nruntime: host\ndelegation:\n  concurrency: 3\n  depth: 2\n  idle_timeout: 5m\nshell_timeout:\n  default: 30s\n  max: 1h\nisolation_images:\n  claude-code: example.com/img:1\nisolation_base: ctxloom\nisolation_memory_limit: 4g\nisolation_pids_limit: 512\noutput_dir: /var/out\nisolation_engines: [claude-code]\ncompanions:\n  acme:\n    command: [acme-bin, --flag]\n  beta:\n    command: [beta-bin]\nui:\n  prefix_key: ctrl-b\n  list_window: 7d\nsession_reap_age: 30d\nsession_purge_age: 90d\nsession_transcript_retention: 365d\nnon_tty_format: json\nagents:\n  dev:\n    engine: claude-code\n    model: opus\n    profiles: [p1]\n    runtime: host\n    driving: oneshot\n    env: [ALPHA]\n    permissions:\n      approver: human\n      claude-code:\n        mode: plan\ndefault_agent: dev\nengines:\n  claude-code:\n    auth: login\n";
+    let doc = "schema_version: 8\neditor:\n  command: vim\n  args: [-u, NONE]\nconfig:\n  use_distilled: false\n  silence_unsupported: true\n  statusline: false\nsync:\n  auto_sync: false\nworkspace: worktree\nruntime: host\ndelegation:\n  concurrency: 3\n  depth: 2\n  idle_timeout: 5m\nshell_timeout:\n  default: 30s\n  max: 1h\nisolation_images:\n  claude-code: example.com/img:1\nisolation_base: ctxloom\nisolation_memory_limit: 4g\nisolation_pids_limit: 512\noutput_dir: /var/out\nisolation_engines: [claude-code]\ncompanions:\n  acme:\n    command: [acme-bin, --flag]\n  beta:\n    command: [beta-bin]\nui:\n  prefix_key: ctrl-b\n  list_window: 7d\nsession_reap_age: 30d\nsession_purge_age: 90d\nsession_transcript_retention: 365d\nnon_tty_format: json\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: opus\n        effort: low\n        permissions:\n          mode: plan\n    profiles: [p1]\n    runtime: host\n    driving: oneshot\n    env: [ALPHA]\n    permissions:\n      approver: human\ndefault_agent: dev\nengines:\n  claude-code:\n    auth: login\n";
     assert_eq!(texts(doc), Vec::<String>::new());
 }
 
@@ -46,7 +46,7 @@ fn test_an_unknown_top_level_key_is_named_with_the_keys_there_are() {
 fn test_an_unknown_nested_key_is_named_by_its_path_and_where_it_would_be_legal() {
     assert_eq!(
         texts("schema_version: 8\nagents:\n  developer:\n    profiles: [dev]\n    auth: login\n"),
-        ["unknown key `agents.developer.auth` in config.yaml: ctxloom does not know it (known keys at `agents.developer`: driving, effort, engine, env, may_delegate, model, permissions, profiles, roots, runtime, surfaces)"]
+        ["unknown key `agents.developer.auth` in config.yaml: ctxloom does not know it (known keys at `agents.developer`: driving, engine, engines, env, may_delegate, permissions, profiles, roots, runtime, surfaces)"]
     );
     // Go: the project's permissions take only the neutral keys.
     assert_eq!(
@@ -149,7 +149,7 @@ fn test_known_paths() {
     assert!(known_path(&p("engines.claude-code.session_home")));
     assert!(known_path(&p("agents.MyCoder.runtime")));
     assert!(known_path(&p(
-        "agents.anything.permissions.claude-code.mode"
+        "agents.anything.engines.claude-code.permissions.mode"
     )));
     assert!(known_path(&p("default_agent")));
     assert!(!known_path(&p("nonsense.x")));
@@ -259,6 +259,15 @@ fn test_the_schema_describes_exactly_the_paths_it_lists() {
         &["engines", "claude-code", "session_home"],
         &["engines", "opencode", "env", "0"],
         &["agents", "dev", "env", "0"],
+        &["agents", "dev", "engines", "claude-code", "model"],
+        &[
+            "agents",
+            "dev",
+            "engines",
+            "opencode",
+            "permissions",
+            "mode",
+        ],
     ] {
         assert!(known_path(&path(known)), "{known:?}");
     }
@@ -267,6 +276,10 @@ fn test_the_schema_describes_exactly_the_paths_it_lists() {
         &["editor", "bogus"],
         &["agents", "dev", "nope"],
         &["engines", "claude-code", "model"],
+        &["agents", "dev", "model"],
+        &["agents", "dev", "effort"],
+        &["agents", "dev", "permissions", "claude-code", "mode"],
+        &["agents", "dev", "engines", "claude-code", "runtime"],
     ] {
         assert!(!known_path(&path(unknown)), "{unknown:?}");
     }
@@ -319,7 +332,7 @@ fn test_a_companion_is_registered_with_a_command_list() {
 
 // ---- RED (awaiting review): the engines schema, owner rulings 40-44 ----
 
-const ENGINES_DOC: &str = "schema_version: 9\nengines:\n  claude-code:\n    command: claude\n    session_home: session\n    auth:\n      env: [CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY]\n    runtime: container-rootless\n    env: [HTTPS_PROXY]\n  opencode:\n    auth: none\nagents:\n  dev:\n    engine: claude-code\n    model: haiku\n    effort: low\n    profiles: [p1]\n    runtime: host\n    env: [ALPHA]\n    permissions:\n      claude-code:\n        mode: plan\n";
+const ENGINES_DOC: &str = "schema_version: 9\nengines:\n  claude-code:\n    command: claude\n    session_home: session\n    auth:\n      env: [CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY]\n    runtime: container-rootless\n    env: [HTTPS_PROXY]\n  opencode:\n    auth: none\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: haiku\n        effort: low\n        permissions:\n          mode: plan\n      opencode:\n        model: opencode/big-pickle\n    profiles: [p1]\n    runtime: host\n    env: [ALPHA]\n";
 
 #[test]
 fn test_the_engines_block_and_an_agent_s_engine_model_and_effort_are_legal() {
@@ -498,4 +511,51 @@ fn test_a_test_build_knows_the_mock_engines_too() {
             "opencode"
         ]
     );
+}
+
+// Ruling 57 (2026-11-09), hard migrate: an agent's model, effort and
+// permission mode live in its per-engine block `agents.<n>.engines.<e>`; the
+// flat `model` / `effort` and the old engine-keyed `permissions.<engine>` map
+// are ordinary unknown keys (no alias). The engine-neutral posture keys of
+// `permissions` (approver, approval_timeout, sandbox, network) stay.
+#[test]
+fn test_an_agent_s_flat_model_effort_and_engine_keyed_permissions_are_unknown_keys() {
+    for (doc, key) in [
+        ("agents:\n  dev:\n    model: haiku\n", "agents.dev.model"),
+        ("agents:\n  dev:\n    effort: low\n", "agents.dev.effort"),
+        (
+            "agents:\n  dev:\n    permissions:\n      claude-code:\n        mode: plan\n",
+            "agents.dev.permissions.claude-code",
+        ),
+    ] {
+        let said = texts(&format!("schema_version: 9\n{doc}"));
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said[0].starts_with(&format!("unknown key `{key}` in config.yaml")),
+            "{said:?}"
+        );
+    }
+    assert_eq!(
+        texts("schema_version: 9\nagents:\n  dev:\n    permissions:\n      approver: human\n"),
+        Vec::<String>::new()
+    );
+}
+
+// The per-engine block names only engines ctxloom drives, and holds only
+// model, effort and permissions (runtime and env are the agent's, engine-neutral).
+#[test]
+fn test_an_agent_s_engine_block_holds_model_effort_and_permissions_of_a_known_engine() {
+    let said =
+        texts("schema_version: 9\nagents:\n  dev:\n    engines:\n      gpt-9:\n        model: x\n");
+    assert!(
+        said[0].starts_with("unknown key `agents.dev.engines.gpt-9`"),
+        "{said:?}"
+    );
+    let said = texts("schema_version: 9\nagents:\n  dev:\n    engines:\n      claude-code:\n        runtime: host\n");
+    assert!(
+        said[0].starts_with("unknown key `agents.dev.engines.claude-code.runtime`"),
+        "{said:?}"
+    );
+    let said = texts("schema_version: 9\nagents:\n  dev:\n    engines:\n      claude-code:\n        model: \"\"\n");
+    assert_eq!(said.len(), 1, "an empty model is refused: {said:?}");
 }

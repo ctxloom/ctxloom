@@ -44,17 +44,100 @@ fn test_an_agent_that_says_nothing_runs_on_the_built_in_defaults() {
     );
 }
 
-// ruling 40: model, effort and permissions are the agent's
+// ruling 40, in ruling 57's shape: model, effort and permissions are the
+// agent's, in its block for the engine it runs on
 #[test]
 fn test_an_agent_s_model_effort_and_permissions_are_its_own() {
     let got = of(
-        "agents:\n  dev:\n    engine: claude-code\n    model: haiku\n    effort: low\n    permissions:\n      claude-code:\n        mode: plan\n",
+        "agents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: haiku\n        effort: low\n        permissions:\n          mode: plan\n",
         "dev",
     );
     assert_eq!(got.engine, text("claude-code", Source::Agent));
     assert_eq!(got.model, Some(text("haiku", Source::Agent)));
     assert_eq!(got.effort, Some(text("low", Source::Agent)));
     assert_eq!(got.permissions, text("plan", Source::Agent));
+}
+
+// Ruling 57, hard migrate: the flat keys and the engine-keyed permissions
+// map are not read (the schema refuses them; the resolver must not honour
+// them either).
+#[test]
+fn test_an_agent_s_flat_model_effort_and_permissions_map_are_not_read() {
+    let got = of(
+        "agents:\n  dev:\n    engine: claude-code\n    model: haiku\n    effort: low\n    permissions:\n      claude-code:\n        mode: plan\n",
+        "dev",
+    );
+    assert_eq!(got.model, None);
+    assert_eq!(got.effort, None);
+    assert_eq!(got.permissions, text("acceptEdits", Source::Default));
+}
+
+// Ruling 57: only the block of the engine run on is read; another engine's
+// block says nothing of this one.
+#[test]
+fn test_only_the_block_of_the_engine_run_on_is_read() {
+    let got = of(
+        "agents:\n  dev:\n    engine: claude-code\n    engines:\n      opencode:\n        model: opencode/big-pickle\n",
+        "dev",
+    );
+    assert_eq!(got.model, None);
+    assert_eq!(got.permissions, text("acceptEdits", Source::Default));
+}
+
+/// An agent bound to claude-code, with a block for each engine and a runtime
+/// and env of its own.
+const TWO_BLOCKS: &str = "engines:\n  opencode:\n    runtime: container-rootless\n    env: [OPENCODE_ONLY]\nagents:\n  dev:\n    engine: claude-code\n    runtime: host\n    env: [ALPHA]\n    engines:\n      claude-code:\n        model: haiku\n        effort: low\n        permissions:\n          mode: plan\n      opencode:\n        model: opencode/big-pickle\n";
+
+// Ruling 57 (amends 54): `run --engine X` runs the agent on X with its block
+// for X; the agent's runtime and env (engine-neutral) are kept; X's own
+// command, home and auth drive it.
+#[test]
+fn test_an_agent_on_another_engine_takes_its_block_for_that_engine() {
+    let config = cfg(TWO_BLOCKS);
+    let got = effective_on(&config, "dev", "opencode").unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(got.engine.value, "opencode");
+    assert_eq!(got.model, Some(text("opencode/big-pickle", Source::Agent)));
+    assert_eq!(got.effort, None);
+    assert_eq!(got.permissions, text("", Source::Default));
+    assert_eq!(got.runtime, text("host", Source::Agent));
+    assert_eq!(got.env, sourced(names(&["ALPHA"]), Source::Agent));
+    assert_eq!(got.command, text("opencode", Source::Default));
+    assert_eq!(
+        got.auth,
+        sourced(AuthSource::builtin("opencode"), Source::Default)
+    );
+}
+
+// Ruling 57: with no block for X, X's defaults apply: no model, no effort,
+// X's own permission default.
+#[test]
+fn test_an_agent_with_no_block_for_the_engine_runs_on_its_defaults() {
+    let config = cfg(
+        "agents:\n  dev:\n    engine: opencode\n    engines:\n      opencode:\n        model: m\n",
+    );
+    let got = effective_on(&config, "dev", "claude-code").unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(got.engine.value, "claude-code");
+    assert_eq!(got.model, None);
+    assert_eq!(got.effort, None);
+    assert_eq!(got.permissions, text("acceptEdits", Source::Default));
+}
+
+// Its own engine, asked for by name, is the same as asked for by none.
+#[test]
+fn test_an_agent_on_its_own_engine_by_name_is_its_effective_settings() {
+    let config = cfg(TWO_BLOCKS);
+    assert_eq!(
+        effective_on(&config, "dev", "claude-code").unwrap(),
+        effective(&config, "dev").unwrap()
+    );
+}
+
+#[test]
+fn test_an_agent_on_an_engine_nobody_drives_is_refused() {
+    assert!(matches!(
+        effective_on(&cfg(TWO_BLOCKS), "dev", "gpt-9"),
+        Err(EngineError::UnknownEngine { .. })
+    ));
 }
 
 // ruling 40: an engines block has no model: a model there is not read (the
@@ -492,7 +575,7 @@ fn a_file_only_auth_leaves_no_empty_auth_behind() {
 
 #[test]
 fn what_a_project_may_say_is_left_alone() {
-    let text = "engines:\n  claude-code:\n    session_home: session\n    auth: none\n    runtime: container-rootful\nagents:\n  dev:\n    model: haiku\n    runtime: host\n";
+    let text = "engines:\n  claude-code:\n    session_home: session\n    auth: none\n    runtime: container-rootful\nagents:\n  dev:\n    engines:\n      claude-code:\n        model: haiku\n    runtime: host\n";
     let (removed, layer) = stripped(text);
     assert!(removed.is_empty(), "{removed:?}");
     assert_eq!(layer, cfg(text));
@@ -537,7 +620,7 @@ fn test_a_drive_of_an_engine_with_no_block_is_the_built_ins() {
 #[test]
 fn test_an_engine_s_settings_are_the_block_then_the_project_then_the_defaults() {
     let config = cfg(
-        "runtime: container-rootful\nengines:\n  claude-code:\n    command: /opt/claude\n    env: [HTTPS_PROXY]\n  opencode:\n    runtime: host\nagents:\n  dev:\n    engine: claude-code\n    runtime: host\n    model: haiku\n",
+        "runtime: container-rootful\nengines:\n  claude-code:\n    command: /opt/claude\n    env: [HTTPS_PROXY]\n  opencode:\n    runtime: host\nagents:\n  dev:\n    engine: claude-code\n    runtime: host\n    engines:\n      claude-code:\n        model: haiku\n",
     );
     let got = engine_settings(&config, "claude-code").unwrap_or_else(|e| panic!("{e:?}"));
     assert_eq!(got.command, text("/opt/claude", Source::Engine));

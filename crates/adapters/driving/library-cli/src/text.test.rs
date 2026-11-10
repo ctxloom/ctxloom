@@ -791,6 +791,7 @@ fn plan() -> DryRun {
         model: String::new(),
         effort: String::new(),
         drive: Default::default(),
+        settings: None,
     }
 }
 

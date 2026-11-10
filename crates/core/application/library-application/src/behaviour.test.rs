@@ -777,7 +777,7 @@ fn test_a_server_name_claimed_by_two_bundles_is_a_finding_but_one_bundle_twice_i
 #[test]
 fn test_an_agent_resolves_its_engine_model_and_posture() {
     let project: &[(&str, &str)] = &[ENVELOPE, ("profiles/plain.yaml", "description: p\n")];
-    let layers = ["schema_version: 9\nagents:\n  bare:\n    engine: opencode\n  silent:\n    profiles: [plain]\n  typed:\n    engine: mock\n    model: m1\n    effort: low\n  planner:\n    engine: claude-code\n    permissions:\n      claude-code:\n        mode: plan\n"];
+    let layers = ["schema_version: 9\nagents:\n  bare:\n    engine: opencode\n  silent:\n    profiles: [plain]\n  typed:\n    engine: mock\n    engines:\n      mock:\n        model: m1\n        effort: low\n  planner:\n    engine: claude-code\n    engines:\n      claude-code:\n        permissions:\n          mode: plan\n"];
     let library = with(&[("project", project)], &layers).library();
     let resolved = |name: &str| {
         ok(library.agent_show(&plain(), name, &say))
@@ -839,7 +839,7 @@ fn test_requirements_name_only_the_commands_a_host_must_have() {
 #[test]
 fn test_the_effective_posture_follows_the_binding_then_the_engine_default() {
     let project: &[(&str, &str)] = &[ENVELOPE, ("profiles/p.yaml", "description: p\n")];
-    let layers = ["schema_version: 9\npermissions:\n  approver: reviewer\nagents:\n  neutral:\n    engine: claude-code\n    permissions:\n      approver: \"\"\n  foreign:\n    engine: claude-code\n    permissions:\n      opencode:\n        mode: whatever\n  own:\n    engine: claude-code\n    permissions:\n      approver: none\n      claude-code:\n        mode: plan\n  modeless:\n    engine: claude-code\n    permissions:\n      claude-code:\n        other: x\n  mocked:\n    engine: mock\n"];
+    let layers = ["schema_version: 9\npermissions:\n  approver: reviewer\nagents:\n  neutral:\n    engine: claude-code\n    permissions:\n      approver: \"\"\n  foreign:\n    engine: claude-code\n    engines:\n      opencode:\n        permissions:\n          mode: whatever\n  own:\n    engine: claude-code\n    permissions:\n      approver: none\n    engines:\n      claude-code:\n        permissions:\n          mode: plan\n  modeless:\n    engine: claude-code\n    engines:\n      claude-code:\n        permissions:\n          other: x\n  mocked:\n    engine: mock\n"];
     let library = with(&[("project", project)], &layers).library();
     // --degraded keeps a value the schema refuses (an empty approver), so the
     // fall-through past an empty declaration can be seen.
@@ -1123,7 +1123,7 @@ fn test_the_config_sections_are_the_schemas() {
 // engine block never supplies them (owner ruling 40).
 #[test]
 fn test_a_dry_run_carries_the_agent_s_model_and_effort() {
-    let layers = ["schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    model: haiku\n    effort: low\n  bare:\n    engine: claude-code\n"];
+    let layers = ["schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: haiku\n        effort: low\n  bare:\n    engine: claude-code\n"];
     let library = with(&[], &layers).library();
     let plan = |agent: &str| {
         ok(library.dry_run(
@@ -1144,13 +1144,60 @@ fn test_a_dry_run_carries_the_agent_s_model_and_effort() {
     assert_eq!((bare.model.as_str(), bare.effort.as_str()), ("", ""));
 }
 
+// Ruling 57 (amends 54): `run --engine X` plans the agent on X: its block for
+// X (model, effort), else X's defaults (no flag); its runtime and env are
+// kept; X's engine block drives it.
+#[test]
+fn test_a_dry_run_on_another_engine_takes_the_agent_s_block_for_it() {
+    let layers = ["schema_version: 9\nengines:\n  opencode:\n    command: /opt/opencode\nagents:\n  dev:\n    engine: claude-code\n    runtime: container-rootless\n    env: [ALPHA]\n    engines:\n      claude-code:\n        model: haiku\n        effort: low\n      opencode:\n        model: opencode/big-pickle\n  lone:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: haiku\n"];
+    let library = with(&[], &layers).library();
+    let plan = |agent: &str, engine: &str| {
+        ok(library.dry_run(
+            &plain(),
+            &crate::RunRequest {
+                agent: agent.to_string(),
+                engine: engine.to_string(),
+                ..crate::RunRequest::default()
+            },
+        ))
+        .plan
+    };
+    let other = plan("dev", "opencode");
+    assert_eq!(
+        (
+            other.engine.as_str(),
+            other.model.as_str(),
+            other.effort.as_str()
+        ),
+        ("opencode", "opencode/big-pickle", "")
+    );
+    assert_eq!(other.axes.1, "container-rootless", "the runtime is kept");
+    assert_eq!(other.drive.command, "/opt/opencode");
+    assert_eq!(other.drive.env, ["ALPHA"], "the agent's env is kept");
+    // the dry run reports each value with the layer that said it
+    let settings = other.settings.expect("an agent's run reports its settings");
+    assert_eq!(
+        (settings.model.value.as_deref(), settings.model.source),
+        (Some("opencode/big-pickle"), "agent")
+    );
+    assert_eq!(
+        (settings.effort.value, settings.effort.source),
+        (None, "default")
+    );
+    assert_eq!(settings.runtime.value, "container-rootless");
+    // no block for the engine: its defaults, no flag
+    let lone = plan("lone", "opencode");
+    assert_eq!((lone.model.as_str(), lone.effort.as_str()), ("", ""));
+    assert_eq!(lone.settings.unwrap().model.source, "default");
+}
+
 // owner ruling 46: the program an engine runs comes from the home layer only;
 // a project's own config cannot name it (nor a credentials file), and is told
 // so. Model, effort, permissions and a non-host runtime stay the project's.
 #[test]
 fn test_a_project_config_cannot_set_the_engine_command_and_is_warned() {
     let home = "schema_version: 9\nengines:\n  claude-code:\n    command: /home/u/bin/claude\n";
-    let project = "schema_version: 9\nengines:\n  claude-code:\n    command: /tmp/evil\n    auth:\n      file: /tmp/creds\n      env: [TEAM_TOKEN]\nagents:\n  dev:\n    engine: claude-code\n    model: haiku\n    profiles: [p]\n";
+    let project = "schema_version: 9\nengines:\n  claude-code:\n    command: /tmp/evil\n    auth:\n      file: /tmp/creds\n      env: [TEAM_TOKEN]\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: haiku\n    profiles: [p]\n";
     let files: &[(&str, &str)] = &[ENVELOPE, ("profiles/p.yaml", "description: p\n")];
     let library = with(&[("project", files)], &[home, project]).library();
     let shown = library.agent_show(&plain(), "dev", &say);

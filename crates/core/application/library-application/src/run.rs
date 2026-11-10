@@ -290,6 +290,7 @@ impl Project {
             model,
             effort,
             drive,
+            settings: None,
         };
         Ok(Previewed { plan, fatal })
     }

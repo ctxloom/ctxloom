@@ -415,8 +415,10 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       When I run "ctxloom agent create reviewer --engine claude-code --model haiku --effort low --permissions plan --profiles dev"
       Then the command succeeds
       And the file ".ctxloom/config.yaml" contains "engine: claude-code"
+      And the file ".ctxloom/config.yaml" contains "engines:"
       And the file ".ctxloom/config.yaml" contains "model: haiku"
       And the file ".ctxloom/config.yaml" contains "effort: low"
+      And the file ".ctxloom/config.yaml" contains "mode: plan"
       And the file ".ctxloom/config.yaml" does not contain "llm:"
       When I run "ctxloom agent show reviewer --format json"
       Then the command succeeds
@@ -427,6 +429,46 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output reports "resolved.effort.value" as "low"
       And the output reports "resolved.permissions.value" as "plan"
       And the output reports "resolved.permissions.source" as "agent"
+
+    # Ruling 57: the settings are per engine, under `agents.<n>.engines.<e>`;
+    # `--engine` with them names the block (and the agent's engine), and a
+    # dry run on another engine (`run --engine`) takes the agent's block for
+    # it, else that engine's defaults, keeping the agent's runtime.
+    Scenario: The settings are written per engine, and a run on another engine takes that engine's block
+      # new: owner ruling 57 (2026-11-09)
+      Given an initialized ctxloom project
+      And a profile "dev" exists
+      And I run "ctxloom agent create reviewer --engine claude-code --model haiku --runtime host --profiles dev"
+      When I run "ctxloom agent edit reviewer --engine opencode --model opencode/big-pickle"
+      Then the command succeeds
+      And the file ".ctxloom/config.yaml" contains "model: haiku"
+      And the file ".ctxloom/config.yaml" contains "model: opencode/big-pickle"
+      When I run "ctxloom agent show reviewer --format json"
+      Then the command succeeds
+      And the output reports "resolved.model.value" as "opencode/big-pickle"
+      And the output reports "resolved.model.source" as "agent"
+      When I run "ctxloom run --dry-run --agent reviewer --engine claude-code hello --format json"
+      Then the command succeeds
+      And the output reports "engine" as "claude-code"
+      And the output reports "settings.model.value" as "haiku"
+      And the output reports "settings.model.source" as "agent"
+      And the output reports "settings.effort.source" as "default"
+      And the output reports "settings.runtime.value" as "host"
+
+    Scenario: A flat model, effort or engine-keyed permissions map is refused as an unknown key
+      # new: owner ruling 57, hard migrate (no alias, no migration)
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        agents:
+          reviewer:
+            engine: claude-code
+            model: haiku
+        """
+      When I run "ctxloom agent show reviewer"
+      Then the command exits with code 2
+      And the output contains "unknown key `agents.reviewer.model`"
 
     Scenario: An agent that sets neither model nor effort passes no flag, and says so
       # new: ruling 42, unset means the engine's own default

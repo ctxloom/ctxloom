@@ -69,7 +69,7 @@ fn test_each_shared_setting_carries_the_layer_that_said_it() {
 #[test]
 fn test_an_agent_s_settings_are_listed_with_sources_and_a_weaker_runtime_says_so() {
     let row = show(
-        "schema_version: 9\nengines:\n  claude-code:\n    runtime: container-rootless\nagents:\n  loose:\n    engine: claude-code\n    runtime: host\n    model: haiku\n  other:\n    engine: claude-code\n    runtime: container-rootful\n  kept:\n    engine: claude-code\n",
+        "schema_version: 9\nengines:\n  claude-code:\n    runtime: container-rootless\nagents:\n  loose:\n    engine: claude-code\n    runtime: host\n    engines:\n      claude-code:\n        model: haiku\n  other:\n    engine: claude-code\n    runtime: container-rootful\n  kept:\n    engine: claude-code\n",
         "claude-code",
     );
     let agent = |name: &str| row.agents.iter().find(|a| a.name == name).unwrap();
@@ -92,6 +92,28 @@ fn test_an_agent_s_settings_are_listed_with_sources_and_a_weaker_runtime_says_so
     assert_eq!(kept.model.value, None);
     assert_eq!(kept.model.source, "default");
     assert_eq!(kept.permissions.value, "acceptEdits");
+}
+
+// Ruling 57: an engine's agents are those bound to it and those with a block
+// for it (they run on it under `run --engine`), each with the values its block
+// for THIS engine gives (agent), else the engine's defaults (default).
+#[test]
+fn test_an_engine_lists_the_agents_with_a_block_for_it_with_that_blocks_values() {
+    let config = "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: haiku\n      opencode:\n        model: opencode/big-pickle\n        permissions:\n          mode: plan\n  plain:\n    engine: claude-code\n";
+    let row = show(config, "opencode");
+    let names: Vec<&str> = row.agents.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names, ["dev"]);
+    let dev = &row.agents[0].settings;
+    assert_eq!(dev.model.value.as_deref(), Some("opencode/big-pickle"));
+    assert_eq!(dev.model.source, "agent");
+    assert_eq!(dev.effort.value, None);
+    assert_eq!(dev.effort.source, "default");
+    assert_eq!(dev.permissions.value, "plan");
+    assert_eq!(dev.permissions.source, "agent");
+    let row = show(config, "claude-code");
+    let dev = row.agents.iter().find(|a| a.name == "dev").unwrap();
+    assert_eq!(dev.settings.model.value.as_deref(), Some("haiku"));
+    assert_eq!(dev.settings.permissions.source, "default");
 }
 
 // engine.feature: Showing an engine ctxloom does not drive is refused, naming the engines it does

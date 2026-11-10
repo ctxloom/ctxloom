@@ -615,7 +615,7 @@ mod write_verbs;
 // ---- engine list|show, exactly as printed ----
 
 const ENGINE_HOME: &str = "schema_version: 9\nruntime: container-rootless\nengines:\n  claude-code:\n    command: /opt/claude\n    env: [HTTPS_PROXY]\n    auth: none\n  opencode:\n    session_home: host\n";
-const ENGINE_PROJECT: &str = "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    model: haiku\n    runtime: host\n    profiles: [dev]\n  strict:\n    engine: claude-code\n    runtime: container-rootful\n    profiles: [dev]\n  same:\n    engine: claude-code\n    runtime: container-rootless\n  plain:\n    engine: opencode\n";
+const ENGINE_PROJECT: &str = "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: haiku\n    runtime: host\n    profiles: [dev]\n  strict:\n    engine: claude-code\n    runtime: container-rootful\n    profiles: [dev]\n  same:\n    engine: claude-code\n    runtime: container-rootless\n  plain:\n    engine: opencode\n";
 
 #[test]
 fn test_engine_show_prints_the_settings_their_layers_and_each_agents_resolution() {

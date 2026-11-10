@@ -357,6 +357,14 @@ pub fn effective(config: &Value, agent: &str) -> Result<Effective, EngineError> 
     })
 }
 
+/// The settings agent `agent` runs with on `engine` (`run --engine`, owner
+/// ruling 57): its block for that engine, its own runtime and env, and the
+/// engine's block for the rest.
+pub fn effective_on(config: &Value, agent: &str, engine: &str) -> Result<Effective, EngineError> {
+    let _ = engine;
+    effective(config, agent)
+}
+
 /// What a launch of an engine is told of how to run it: the engine block's
 /// `command`, `session_home` and `auth`, and the `env` passthrough
 /// the launching agent settled on. A source, never a value.

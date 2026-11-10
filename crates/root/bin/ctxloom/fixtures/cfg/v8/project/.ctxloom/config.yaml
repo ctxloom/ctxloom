@@ -42,6 +42,8 @@ agents:
     env: [ALPHA]
     permissions:
       approver: human
+    engines:
       claude-code:
-        mode: plan
+        permissions:
+          mode: plan
 default_agent: dev

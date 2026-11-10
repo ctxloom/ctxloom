@@ -525,6 +525,11 @@ pub struct DryRun {
     /// engine, not shown by a dry run.
     #[serde(skip)]
     pub drive: library::config::engines::Drive,
+    /// The agent's settings on the engine the run is on (its block for that
+    /// engine, owner ruling 57), each with the layer that said it; none for
+    /// a launch with no agent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub settings: Option<crate::AgentSettings>,
 }
 
 /// What `context assemble` answers (Go's `assemble_context` result).

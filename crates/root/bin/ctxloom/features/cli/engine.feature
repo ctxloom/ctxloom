@@ -153,8 +153,10 @@ Feature: engine — the programs ctxloom drives, and the settings they share
         agents:
           reviewer:
             engine: claude-code
-            model: haiku
-            effort: low
+            engines:
+              claude-code:
+                model: haiku
+                effort: low
           plain:
             engine: claude-code
         """
@@ -172,6 +174,30 @@ Feature: engine — the programs ctxloom drives, and the settings they share
       And the output contains "model: haiku (agent)"
       And the output contains "model: engine default, no flag passed (default)"
       And the output contains "permissions: acceptEdits (default)"
+
+    # An agent's model, effort and permission mode are per engine (ruling 57):
+    # an engine lists the agents with a block for it too, since they run on it
+    # under `run --engine`, each value from that block, else the engine's.
+    Scenario: An engine lists an agent with a block for it, with that block's values
+      # new: owner ruling 57 (2026-11-09)
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        agents:
+          reviewer:
+            engine: claude-code
+            engines:
+              claude-code:
+                model: haiku
+              opencode:
+                model: opencode/big-pickle
+        """
+      When I run "ctxloom engine show opencode --format json"
+      Then the command succeeds
+      And the output reports "agents[name=reviewer].model.value" as "opencode/big-pickle"
+      And the output reports "agents[name=reviewer].model.source" as "agent"
+      And the output reports "agents[name=reviewer].effort.source" as "default"
 
     Scenario: An agent's runtime that replaces the engine's is shown as an override, and a weaker one says so
       # new: the isolation guard is never silent

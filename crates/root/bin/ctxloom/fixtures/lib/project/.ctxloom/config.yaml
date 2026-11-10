@@ -11,9 +11,10 @@ agents:
       - base
       - dev
     runtime: container-rootless
-    permissions:
+    engines:
       claude-code:
-        mode: plan
+        permissions:
+          mode: plan
 default_agent: developer
 config:
   use_distilled: true

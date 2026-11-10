@@ -31,9 +31,9 @@ arch_lint := arch_lint_root / "bin/arch-lint"
 # sibling checkouts instead of the commit's pinned dependencies.
 staged_tree := "../.{name}.staged"
 
-# session-cli's tests hold `session purge`, the destroy (owner ruling 94b),
-# which only its `session-destroy` feature compiles.
-feature_rules := "session-cli=session-cli/session-destroy"
+# No feature is turned on by what a commit changes. (session-cli's tests turn
+# on its `session-destroy` themselves, by a dev-dependency on the crate.)
+feature_rules := ""
 features_prepare := ""
 
 # Mutation kill-rate thresholds, percent, by crate path: the one place they

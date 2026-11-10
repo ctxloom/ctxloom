@@ -3707,6 +3707,7 @@ dependencies = [
  "reclaim-application",
  "serde",
  "serde_json",
+ "session-cli",
  "sessions-application",
  "tokio",
 ]

@@ -22,6 +22,12 @@ tokio.workspace = true
 
 [dev-dependencies]
 mutants.workspace = true
+# The crate's own tests (and its lint, `--all-targets`) hold `session purge`,
+# the destroy (owner ruling 94b), which only `session-destroy` compiles: the
+# crate depends on itself with it, for its tests alone. A plain build builds no
+# dev-dependency, so the shipped binary stays without it
+# (scripts/plain-destroy-check.sh).
+session-cli = { path = ".", features = ["session-destroy"] }
 sessions-application = { workspace = true, features = ["test-support"] }
 
 

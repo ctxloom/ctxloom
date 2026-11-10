@@ -2334,6 +2334,7 @@ dependencies = [
  "ctxloom-ports",
  "deps-ports",
  "library",
+ "mutants",
  "serde",
  "serde_json",
 ]

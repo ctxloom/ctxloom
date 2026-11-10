@@ -16,6 +16,8 @@ pub(crate) fn listed() -> Vec<&'static str> {
 /// (`mock-launch`, `mock-lossy`, `mock-noskills`) included under
 /// `test-support`.
 #[cfg(feature = "test-support")]
+// Compiled only under `test-support`, which this crate's own tests do not turn on.
+#[cfg_attr(test, mutants::skip)]
 pub(crate) fn listed() -> Vec<&'static str> {
     crate::agents::ENGINES.to_vec()
 }

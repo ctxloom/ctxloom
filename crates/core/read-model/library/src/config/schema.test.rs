@@ -455,3 +455,18 @@ fn test_env_host_is_an_unknown_key_of_an_agent_and_of_an_engine_block() {
         "{engine:?}"
     );
 }
+
+// An array's children are addressed by index alone.
+#[test]
+fn test_only_an_index_names_an_array_s_item() {
+    let at = |tail: &str| {
+        node_at(&[
+            "agents".to_string(),
+            "dev".to_string(),
+            "profiles".to_string(),
+            tail.to_string(),
+        ])
+    };
+    assert!(at("0").is_some());
+    assert!(at("first").is_none());
+}

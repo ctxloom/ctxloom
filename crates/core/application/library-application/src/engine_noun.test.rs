@@ -141,3 +141,57 @@ fn test_auth_state_reads_the_source_and_names_the_variable_never_its_value() {
     assert_eq!(missing.auth.source, "engine");
     assert_eq!(missing.auth.state, "missing");
 }
+
+// A credential file named under `~/` is the user's, found beneath HOME (and
+// never a value): the human's own session may share it.
+#[test]
+fn test_a_login_file_under_home_is_found_beneath_home() {
+    let (library, mem) = Setup {
+        layers: &[
+            "schema_version: 9\nengines:\n  claude-code:\n    auth:\n      env: [ACME_TOKEN]\n      file: ~/.acme/c.json\n",
+            "schema_version: 9\n",
+        ],
+        environ: &[("PATH", "/bin"), ("HOME", "/home/u")],
+        ..Setup::default()
+    }
+    .fixture();
+    let missing = library
+        .engine_show(&plain(), "claude-code")
+        .result
+        .unwrap()
+        .auth;
+    assert_eq!(missing.state, "missing");
+    mem.put_user("/home/u/.acme/c.json", b"{}", false);
+    let present = library
+        .engine_show(&plain(), "claude-code")
+        .result
+        .unwrap()
+        .auth;
+    assert_eq!(present.state, "present");
+    assert_eq!(present.via.as_deref(), Some("~/.acme/c.json"));
+}
+
+// An auth source prints as the word it was written as, or as the names it
+// reads (never a value).
+#[test]
+fn test_an_auth_source_is_shown_as_its_word_or_its_names() {
+    let value = |home: &'static str| {
+        let row = layered(home, "schema_version: 9\n")
+            .engine_show(&plain(), "claude-code")
+            .result
+            .unwrap();
+        serde_json::to_value(&row.auth.value).unwrap()
+    };
+    assert_eq!(
+        value("schema_version: 9\nengines:\n  claude-code:\n    auth: none\n"),
+        serde_json::json!("none")
+    );
+    assert_eq!(
+        value("schema_version: 9\nengines:\n  claude-code:\n    auth: login\n"),
+        serde_json::json!("login")
+    );
+    assert_eq!(
+        value("schema_version: 9\nengines:\n  claude-code:\n    auth:\n      env: [A]\n      file: ~/f\n"),
+        serde_json::json!({"env": ["A"], "file": "~/f"})
+    );
+}

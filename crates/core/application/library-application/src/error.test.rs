@@ -160,3 +160,19 @@ fn the_companion_diagnostics_have_samples() {
         );
     }
 }
+
+// The refusals of the application itself are among the samples (not only the
+// write side's, the versions' and the notices').
+#[test]
+fn the_applications_own_refusals_have_samples() {
+    let codes: Vec<String> = diagnostic_samples()
+        .iter()
+        .map(|d| d.code().to_string())
+        .collect();
+    assert!(
+        codes
+            .iter()
+            .any(|c| c == "library-application-config-unparsable"),
+        "{codes:?}"
+    );
+}

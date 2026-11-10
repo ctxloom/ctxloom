@@ -557,3 +557,52 @@ fn test_an_engine_nobody_drives_has_no_settings() {
         Err(EngineError::UnknownEngine { .. })
     ));
 }
+
+// ---- mutation: the built-in sources, which are required, who is in use ----
+
+#[test]
+fn test_each_engine_has_its_own_builtin_source() {
+    let env = |list: &[&str]| AuthSource::Credential {
+        env: names(list),
+        file: None,
+    };
+    assert_eq!(
+        AuthSource::builtin("claude-code"),
+        env(&["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"])
+    );
+    assert_eq!(
+        AuthSource::builtin("opencode"),
+        env(&["CTXLOOM_OPENCODE_API_KEY"])
+    );
+    assert_eq!(AuthSource::builtin("mock"), AuthSource::None);
+}
+
+#[test]
+fn test_every_source_is_required_but_opencode_s() {
+    assert!(AuthSource::required("claude-code"));
+    assert!(AuthSource::required("mock"));
+    assert!(!AuthSource::required("opencode"));
+}
+
+#[test]
+fn test_the_engines_in_use_are_each_once_in_agent_name_order() {
+    let config = cfg(
+        "agents:\n  c:\n    engine: opencode\n  b:\n    engine: opencode\n  a:\n    engine: mock\n  d:\n    profiles: [p]\n",
+    );
+    assert_eq!(
+        engines_in_use(&config),
+        names(&["mock", "opencode", "claude-code"])
+    );
+}
+
+#[test]
+fn test_with_no_agent_the_default_engine_is_in_use() {
+    assert_eq!(
+        engines_in_use(&cfg("schema_version: 9\n")),
+        names(&["claude-code"])
+    );
+    assert_eq!(
+        engines_in_use(&cfg("agents: {}\n")),
+        names(&["claude-code"])
+    );
+}

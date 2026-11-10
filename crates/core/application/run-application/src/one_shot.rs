@@ -22,7 +22,7 @@ use std::sync::Arc;
 use angzarr_diagnostic::Diagnostic;
 
 use angzarr_embedded::v1::{Cover, Uuid};
-use angzarr_embedded::{Catalog, CommandBookExt, Processed, ReadStore, Store};
+use angzarr_embedded::{Catalog, CommandBookExt, Failure, Processed, ReadStore, Store};
 use library_application::{AppError as PlanError, Flags, Notice, Outcome, Previewed, RunRequest};
 use ports::{CommandIds, Names, Project, ProjectIdentity};
 use run_launcher::{Launched, Launcher, Order, Orders, Outcome as Turn};
@@ -31,8 +31,8 @@ use runs_application::{
     AppError as CoreError, EnqueueError, EnqueueRequest, Enqueued, Enqueuer, Evidence,
 };
 use sessions::{
-    claim_root, ClaimName, MintSession, NameClaimCommand, Origin, SessionCommand, NAMES_DOMAIN,
-    SESSION_DOMAIN,
+    claim_root, ClaimName, MintSession, NameClaimCommand, Origin, ReleaseName, SessionCommand,
+    SessionRejection, NAMES_DOMAIN, SESSION_DOMAIN,
 };
 
 use crate::credential::{credential_evidence, share_login};
@@ -40,9 +40,6 @@ use crate::error::RunError;
 
 /// How many names are tried for a session before a taken one is the error.
 const NAME_TRIES: usize = 3;
-
-/// The refusal a name already claimed is answered with.
-const NAMES_TAKEN: &str = "sessions-names-taken";
 
 /// Why an incarnation ended (ruling 85, Go's causes): its engine ran and
 /// exited, or its launch failed before that.
@@ -741,9 +738,12 @@ where
     }
 
     /// Claim a name and mint the session on it: the session's id text and its
-    /// harp. A name already claimed is tried again with another, and so is
-    /// one whose directory exists (defect 3: however the store came to have
-    /// no claim on it), without claiming it.
+    /// harp. A name already claimed (the claim refused `NamesTaken`, read by
+    /// the refusal's type) is tried again with another, and so is one whose
+    /// directory exists (defect 3: however the store came to have no claim on
+    /// it), without claiming it. A mint refused after its name was claimed
+    /// gives the name back (review finding 7), best effort: the mint's
+    /// refusal is the error.
     async fn mint(
         &mut self,
         project: &Project,
@@ -757,10 +757,7 @@ where
         for _ in 0..NAME_TRIES {
             let harp = self.names.project_id();
             if self.dirs.exists(&harp) {
-                taken = Some(CoreError::Refused {
-                    code: NAMES_TAKEN.to_string(),
-                    args: BTreeMap::new(),
-                });
+                taken = Some(names_taken(&harp));
                 continue;
             }
             let claim = NameClaimCommand::from(ClaimName {
@@ -768,29 +765,34 @@ where
                 harp: harp.clone(),
                 session: session.clone(),
             });
-            let cover = Cover {
-                domain: NAMES_DOMAIN.to_string(),
-                root: Some(claim_root(&project.id, &harp)),
-                edition: None,
-            };
             match edge
-                .handle(angzarr_embedded::v1::CommandBook::command_of(cover, &claim))
+                .handle(angzarr_embedded::v1::CommandBook::command_of(
+                    claim_cover(project, &harp),
+                    &claim,
+                ))
                 .await
             {
                 Ok(_) => {
-                    self.mint_on(&edge, project, engine, &session, &harp, interactive)
-                        .await?;
-                    return Ok(harp);
-                }
-                Err(failure) => match CoreError::from_failure(failure) {
-                    CoreError::Refused { code, .. } if code == NAMES_TAKEN => {
-                        taken = Some(CoreError::Refused {
-                            code,
-                            args: BTreeMap::new(),
+                    let minted = self
+                        .mint_on(&edge, project, engine, &session, &harp, interactive)
+                        .await;
+                    if minted.is_err() {
+                        let release = NameClaimCommand::from(ReleaseName {
+                            session: session.clone(),
                         });
+                        let _ = edge
+                            .handle(angzarr_embedded::v1::CommandBook::command_of(
+                                claim_cover(project, &harp),
+                                &release,
+                            ))
+                            .await;
                     }
-                    other => return Err(RunError::Session(other)),
-                },
+                    return minted.map(|()| harp);
+                }
+                Err(Failure::Rejected(rejected)) if refused_taken(&rejected) => {
+                    taken = Some(names_taken(&harp));
+                }
+                Err(failure) => return Err(RunError::Session(CoreError::from_failure(failure))),
             }
         }
         Err(RunError::Session(taken.unwrap_or(CoreError::Failed {
@@ -860,6 +862,35 @@ where
         } else {
             Err(RunError::NotEnded { run: text(run) })
         }
+    }
+}
+
+/// The claim stream of `harp` in `project`.
+fn claim_cover(project: &Project, harp: &str) -> Cover {
+    Cover {
+        domain: NAMES_DOMAIN.to_string(),
+        root: Some(claim_root(&project.id, harp)),
+        edition: None,
+    }
+}
+
+/// Whether a claim was refused because the name is taken: the refusal's
+/// TYPE, read back as the domain's rejection, never its code's text.
+fn refused_taken(rejected: &angzarr_embedded::Rejected) -> bool {
+    rejected
+        .rejection::<angzarr_embedded::markup::TypedRefusal>()
+        .and_then(|typed| SessionRejection::try_from(typed).ok())
+        .is_some_and(|rejection| matches!(rejection, SessionRejection::NamesTaken { .. }))
+}
+
+/// The refusal of a run whose names were all taken, the last being `harp`.
+fn names_taken(harp: &str) -> CoreError {
+    let rejection = SessionRejection::NamesTaken {
+        harp: harp.to_string(),
+    };
+    CoreError::Refused {
+        code: rejection.code().to_string(),
+        args: BTreeMap::new(),
     }
 }
 

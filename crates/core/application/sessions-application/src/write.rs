@@ -4,7 +4,7 @@
 //! (owner rulings 94, 94b) runs no command: it purges the session's streams
 //! from the store, head-guarded, and removes its directory.
 
-use angzarr_diagnostic::{Diagnostic, Report};
+use angzarr_diagnostic::Report;
 use angzarr_embedded::v1::{CommandBook, Cover, Uuid};
 use angzarr_embedded::{
     CommandBookExt, EventStore, Handled, OnRetryable, Purge, StoreError, StreamRef,
@@ -153,6 +153,19 @@ where
         harp: &str,
         command: impl Into<NameClaimCommand>,
     ) -> Result<(), AppError> {
+        self.claim_typed(project, harp, command)
+            .await?
+            .map_err(AppError::from)
+    }
+
+    /// Run `command` on the claim stream of `harp`: done, or the domain's
+    /// refusal as its typed rejection; a failure to run it at all.
+    async fn claim_typed(
+        &mut self,
+        project: &Project,
+        harp: &str,
+        command: impl Into<NameClaimCommand>,
+    ) -> Result<Result<(), angzarr_embedded_runner::Refusal<SessionRejection>>, AppError> {
         let command = command.into();
         let cover = Cover {
             domain: NAMES_DOMAIN.to_string(),
@@ -169,12 +182,16 @@ where
             retry: self.retry,
             dead_letters: &mut *self.dead_letters,
         };
-        typed::run::<NameClaimAggregate, _, _, _>(&mut runner, store, book, &command_id).await??;
-        Ok(())
+        Ok(
+            typed::run::<NameClaimAggregate, _, _, _>(&mut runner, store, book, &command_id)
+                .await?
+                .map(drop),
+        )
     }
 
     /// Give `session`'s hold on `harp` back, best effort: a session minted
-    /// before claims existed holds none, and that is not a failure.
+    /// before claims existed holds none, and that is not a failure (the
+    /// refusal read by its type, never its code's text).
     async fn release(
         &mut self,
         project: &Project,
@@ -182,28 +199,24 @@ where
         session: &str,
     ) -> Result<(), AppError> {
         let released = self
-            .claim_command(
+            .claim_typed(
                 project,
                 harp,
                 ReleaseName {
                     session: session.to_string(),
                 },
             )
-            .await;
+            .await?;
         match released {
-            Err(AppError::Rejected(cause))
-                if [
-                    SessionRejection::NoClaim.code(),
-                    (SessionRejection::NotHolder {
-                        harp: String::new(),
-                    })
-                    .code(),
-                ]
-                .contains(&cause.code()) =>
+            Err(refusal)
+                if matches!(
+                    refusal.rejection,
+                    Some(SessionRejection::NoClaim | SessionRejection::NotHolder { .. })
+                ) =>
             {
                 Ok(())
             }
-            other => other,
+            other => other.map_err(AppError::from),
         }
     }
 

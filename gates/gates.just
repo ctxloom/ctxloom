@@ -26,9 +26,12 @@
 #                        checkout directory's name. Inside target/ unless a
 #                        relative path dependency needs the same depth.
 #   feature_rules        "<package>=<feature> ...": a feature turned on whenever
-#                        that package is tested, or its sources are mutated.
-#   features_prepare     a recipe of the justfile's, run first whenever a
-#                        feature rule turns a feature on.
+#                        that package is tested. Never in the mutation run:
+#                        `mutants-staged` refuses a non-empty one (a crate
+#                        turns its own features on for its tests through a
+#                        dev-dependency on itself).
+#   features_prepare     a recipe of the justfile's, run before the tests
+#                        whenever a feature rule turns a feature on.
 #
 # and this recipe, which the hooks call: `lint` (clippy, through `_run`).
 #
@@ -394,12 +397,13 @@ _require-nextest gate:
 # Red tests fail it, on every branch: when the staged tree's tests fail
 # unmutated (cargo-mutants' baseline, exit 4), no mutant can be judged, and a
 # run that judged nothing has shown nothing; judge the commit that turns the
-# tests green.
+# tests green. A non-empty `feature_rules` is refused before anything runs
+# (`_mutants-no-features`).
 [no-exit-message]
 [private]
 [group('hook')]
 [doc("Mutation-test the staged diff against the tier thresholds (closeout drives it)")]
-mutants-staged:
+mutants-staged: _mutants-no-features
     #!/usr/bin/env bash
     set -euo pipefail
     if ! cargo mutants --version >/dev/null 2>&1; then
@@ -413,18 +417,27 @@ mutants-staged:
     fi
     exec just --justfile '{{gates_root}}/justfile' _staged-tree _mutants-affected
 
+# No feature rule reaches the mutation run (owner ruling 99): cargo mutants
+# builds every package it mutates with the features it is given, so a rule
+# for one crate is a configuration error for every other (the hollow pass of
+# 2026-11-10, 300 builds unviable). A crate whose tests need a feature of its
+# own turns it on through a dev-dependency on itself.
+[no-exit-message]
+_mutants-no-features:
+    #!/usr/bin/env bash
+    if [ -n "{{feature_rules}}" ]; then
+        echo "FAIL mutants-staged: feature_rules is set (\"{{feature_rules}}\"), and no feature rule may reach the mutation run; a crate turns its own features on for its tests through a dev-dependency on itself" >&2
+        exit 1
+    fi
+
 # Inside the staged tree: `_mutants-judge`, run as the gate.
 [no-exit-message]
 _mutants-affected:
     @just --justfile '{{gates_root}}/justfile' _run mutants-staged "staged diff" mutants just --justfile '{{gates_root}}/justfile' _mutants-judge
 
-# Mutate the staged diff in place (the tree is throwaway) and judge each
-# tier's kill rate. `feature_rules` turns on the features of the packages
-# whose sources the diff touches, after `features_prepare`. Killed = caught
-# or timed out (a mutant the tests could not finish under changed behaviour);
-# unviable mutants (did not build) count neither way. A failing verdict goes
-# to verdict.txt beside mutants.out: its summary line, then the kill rate by
-# tier, for `_extract-mutants`. Mutants run under `cargo test`, not nextest:
+# Mutate the staged diff in place (the tree is throwaway), with no feature
+# but the crates' own, and judge each tier's kill rate (`_mutants-verdict`).
+# Mutants run under `cargo test`, not nextest:
 # a process per test only slows a run that rebuilds for each mutant.
 #
 # cargo mutants runs in a session of its own (setsid), and whatever is left
@@ -438,14 +451,13 @@ _mutants-affected:
 # closed for the run. Only the session's processes are touched; nothing
 # started outside the run is in it.
 [no-exit-message]
-_mutants-judge:
+_mutants-judge: _mutants-no-features
     #!/usr/bin/env bash
     set -euo pipefail
     root='{{gates_root}}'
     out=${GATE_LOG_DIR:-$root/target/logs}/mutants-staged
     rm -rf "$out"
     mkdir -p "$out"
-    verdict() { printf '%s\n' "$@" | tee -a "$out/verdict.txt"; }
     work=$(mktemp -d)
     # The run's session id: its leader's pid, written by the leader.
     session="$work/session"
@@ -463,45 +475,95 @@ _mutants-judge:
     trap 'reap; rm -rf "$work"' EXIT
     trap 'exit 130' INT TERM HUP
     git diff --cached --no-color --no-ext-diff --no-renames --src-prefix=a/ --dst-prefix=b/ HEAD -- '*.rs' > "$work/staged.patch"
-    read -ra rules <<< "{{feature_rules}}"
-    features=()
-    if [ "${#rules[@]}" -gt 0 ]; then
-        declare -A dir_of=()
-        while IFS=$'\t' read -r name dir; do dir_of[$name]=$dir; done < <(cargo metadata --format-version 1 --no-deps \
-            --offline --manifest-path "$root/Cargo.toml" | jq -r --arg root "$root/" \
-            '.packages[] | "\(.name)\t\(.manifest_path | ltrimstr($root) | rtrimstr("/Cargo.toml"))"')
-        for rule in "${rules[@]}"; do
-            dir=${dir_of[${rule%%=*}]:-}
-            if [ -n "$dir" ] && grep -qF "+++ b/$dir/" "$work/staged.patch"; then
-                features+=(--features "${rule#*=}")
-            fi
-        done
-    fi
-    if [ "${#features[@]}" -gt 0 ] && [ -n "{{features_prepare}}" ]; then
-        just --justfile "$root/justfile" {{features_prepare}}
-    fi
     rc=0
     # In the background, so an interrupt is handled at once rather than once
     # the run ends: the trap's exit reaps the session, cargo mutants too.
     setsid --wait bash -c 'echo $$ > "$1"; shift; exec "$@"' mutants-session "$session" \
-        cargo mutants --dir "$root" --in-place --workspace "${features[@]}" --in-diff "$work/staged.patch" \
+        cargo mutants --dir "$root" --in-place --workspace --in-diff "$work/staged.patch" \
         --output "$out" --colors never 9>&- &
     wait "$!" || rc=$?
     reap
+    just --justfile "$root/justfile" _mutants-verdict "$out" "$rc"
+
+# The mutation verdict, from cargo-mutants' own outcomes.json and exit code
+# alone (owner ruling 99: no log is read). `rc` is cargo mutants' exit: 4, its
+# baseline (the tests fail unmutated), is the gate's exit too; any but 0, 2,
+# 3 and 4 is a run that ended before a verdict. Then every mutant found
+# (`total_mutants`) must have been tested (an entry of `outcomes[]`), each
+# mutant's file must be under a threshold (the longest prefix of
+# `thresholds` it is under), and each tier must reach its threshold. Killed
+# = caught or timed out (a mutant the tests could not finish under changed
+# behaviour); unviable (did not build) counts neither way, but a tier that
+# found mutants and judged none has shown nothing, and fails. A failing
+# verdict goes to <out>/verdict.txt beside mutants.out: its summary line, then
+# the kill rate by tier, for `_extract-mutants`. Its self-test is
+# scripts/mutants-verdict.selftest.sh (`just selftest`).
+[no-exit-message]
+_mutants-verdict out rc thresholds=mutation_thresholds:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out='{{out}}' rc='{{rc}}'
+    outcomes=$out/mutants.out/outcomes.json
+    verdict() { printf '%s\n' "$@" | tee -a "$out/verdict.txt"; }
     case "$rc" in
         0|2|3) ;;
         4)
             verdict "the staged tree's tests fail unmutated (cargo-mutants baseline); fix them first" \
                 "baseline log: target/logs/mutants-staged/mutants.out/log/baseline.log"
-            # cargo-mutants' own code for it, which `mutants-staged` fails on.
             exit 4 ;;
         *)
             verdict "cargo mutants failed before a verdict (exit $rc)"
             exit 1 ;;
     esac
-    # The verdict: every mutant found tested, each tier at its threshold
-    # (scripts/mutants-judge.sh; its self-test is in `just selftest`).
-    exec "$root/scripts/mutants-judge.sh" "$out" "{{mutation_thresholds}}" "$rc"
+    if [ ! -f "$outcomes" ] || [ "$(jq '.total_mutants // 0' "$outcomes")" -eq 0 ]; then
+        echo "mutants-staged: no mutants: the staged diff changes no mutable code."
+        exit 0
+    fi
+    # Each mutant judged, with its tier (null: under no threshold); then the
+    # count found, the count judged, the untiered files and each tier's tally.
+    judged=$(jq --arg tiers '{{thresholds}}' '
+        ($tiers | split(" ") | map(select(. != "") | split("=") | {prefix: .[0], min: (.[1] | tonumber)})) as $t
+        | [.outcomes[] | select(.scenario | type == "object") | {file: .scenario.Mutant.file, summary}
+            | . as $m | . + {tier: ([$t[] | select(. as $tier | $m.file | startswith($tier.prefix + "/"))] | max_by(.prefix | length))}]
+        | {tested: length, untiered: (map(select(.tier == null) | .file) | unique),
+           tiers: (map(select(.tier != null)) | group_by(.tier.prefix) | map({prefix: .[0].tier.prefix, min: .[0].tier.min,
+               killed: (map(select(.summary == "CaughtMutant" or .summary == "Timeout")) | length),
+               missed: (map(select(.summary == "MissedMutant")) | length),
+               unviable: (map(select(.summary == "Unviable")) | length),
+               timeout: (map(select(.summary == "Timeout")) | length),
+               found: length}))}' "$outcomes")
+    found=$(jq '.total_mutants' "$outcomes")
+    tested=$(jq '.tested' <<< "$judged")
+    if [ "$tested" -ne "$found" ]; then
+        verdict "$found mutants found but $tested tested (cargo mutants exit $rc); nothing is judged until every one is" \
+            "run log: target/logs/mutants-staged.log"
+        exit 1
+    fi
+    untiered=$(jq -r '.untiered | join(" ")' <<< "$judged")
+    if [ -n "$untiered" ]; then
+        verdict "no threshold in mutation_thresholds (justfile) for: $untiered"
+        exit 1
+    fi
+    report=$(jq -r '.tiers[] | (.killed + .missed) as $viable
+        | (if $viable == 0 then 100 else (.killed * 100 / $viable | floor) end) as $rate
+        | "\(if .killed * 100 >= .min * $viable then "pass" else "FAIL" end)  \(.prefix): \(.killed)/\($viable) killed (\($rate)%), threshold \(.min)%"
+            + (if .unviable > 0 then "; \(.unviable) unviable, not counted" else "" end)
+            + (if .timeout > 0 then "; \(.timeout) timed out, counted killed" else "" end)' <<< "$judged")
+    echo "mutants-staged: kill rate by tier:"
+    sed 's/^/  /' <<< "$report"
+    hollow=$(jq -r '[.tiers[] | select(.killed + .missed == 0)
+        | "\(.prefix): \(.found) mutants found and none judged (every one unviable)"] | join("; ")' <<< "$judged")
+    if [ -n "$hollow" ]; then
+        verdict "a tier judged nothing: $hollow" \
+            "a mutant that cannot build is skipped by #[cfg_attr(test, mutants::skip)] with its reason, never by a lower bar" \
+            "kill rate by tier:" "$(sed 's/^/  /' <<< "$report")"
+        exit 1
+    fi
+    if grep -q '^FAIL' <<< "$report"; then
+        verdict "below the kill-rate threshold: $(grep '^FAIL' <<< "$report" | sed 's/^FAIL  //; s/;.*//' | paste -sd ';' | sed 's/;/; /g')" \
+            "kill rate by tier:" "$(sed 's/^/  /' <<< "$report")"
+        exit 1
+    fi
 
 # Run a recipe of the STAGED tree: HEAD checked out into a throwaway git
 # worktree with `git diff --cached` applied on top, so the recipe sees what the

@@ -31,8 +31,9 @@ arch_lint := arch_lint_root / "bin/arch-lint"
 # sibling checkouts instead of the commit's pinned dependencies.
 staged_tree := "../.{name}.staged"
 
-# No feature is turned on by what a commit changes. (session-cli's tests turn
-# on its `session-destroy` themselves, by a dev-dependency on the crate.)
+# No feature is turned on by what a commit changes, and the mutation run
+# refuses any (owner ruling 99: `_mutants-no-features`). session-cli's tests
+# turn on its `session-destroy` themselves, by a dev-dependency on the crate.
 feature_rules := ""
 features_prepare := ""
 

@@ -957,9 +957,15 @@ drives. A failing gate is a finding: fix the cause and commit again; never
    mutant's log, outcomes.json) is kept in target/logs/mutants-staged/. Red
    tests fail it on every branch (no mutant can be judged against failing
    tests), as does a run that found mutants and tested fewer: a mutation
-   run that judged nothing has shown nothing. The verdict is
-   `scripts/mutants-judge.sh` (self-test in `just selftest`): it also fails a
-   tier whose every mutant was unviable (it judged nothing), and fails, as a
-   misconfigured gate, any unviable mutant whose build log holds no compiler
-   error (cargo refused the build before the mutant: a feature a package
-   lacks, a manifest error), never counting it unviable.
+   run that judged nothing has shown nothing. The verdict is the private
+   recipe `_mutants-verdict` in `gates/gates.just` (owner ruling 99), inline
+   jq over cargo-mutants' own `outcomes.json` (its `outcomes[]`, each
+   mutant's file and summary, and `total_mutants`) and its exit code, no log
+   read: it fails the red baseline (exit 4, kept), a run that ended before a
+   verdict, fewer tested than found, a file under no threshold, a tier below
+   its threshold, and a tier that found mutants and judged none (every one
+   unviable). No feature reaches the mutation run: `mutants-staged` refuses
+   a non-empty `feature_rules` (`_mutants-no-features`), so a crate whose
+   tests need a feature of its own dev-depends on itself with it (as
+   `session-cli` does for `session-destroy`). Both are held by
+   `scripts/mutants-verdict.selftest.sh` (`just selftest`).

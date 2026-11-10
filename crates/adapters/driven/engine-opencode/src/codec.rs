@@ -252,6 +252,8 @@ impl HookCodec for Codec {
     }
 
     /// opencode keeps no transcript ctxloom reads.
+    // `vec![]` is `Vec::new()`: the mutant is the body itself.
+    #[cfg_attr(test, mutants::skip)]
     fn invoked_skills(&self, _transcript: &str) -> Vec<String> {
         Vec::new()
     }

@@ -117,8 +117,8 @@ impl Engine for Opencode {
         crate::stream::read_turn(output)
     }
 
-    /// opencode has no native "session ended" (its plugin's `dispose` runs at
-    /// teardown, too late to rely on): the launcher records it at the exit.
+    /// opencode has no native "session ended" event, and the plugin forwards
+    /// none: the launcher records the end at the exit (ruling 58).
     fn session_ends_with_exit(&self) -> bool {
         true
     }

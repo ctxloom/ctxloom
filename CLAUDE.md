@@ -576,6 +576,54 @@ lint-path-deps`, part of `just lint`, and lefthook's pre-commit `path-deps`
 gate, third in order) judges the staged index; its self-test is in `just
 selftest`.
 
+## opencode is heard through its plugin (ruling 58)
+
+`adapters/driven/engine-opencode` is opencode's adapter (registered in the
+wiring's `engines()` and driven by the launcher, always: it is a real engine).
+opencode has no hook commands; its hooks are plugins in its own process. Every
+session home (`OPENCODE_CONFIG_DIR`) gets `plugins/ctxloom.js` (`PLUGIN`, node
+builtins only), which forwards opencode's bus events (v2 `{id,type,properties}`)
+and the `chat.message` trigger, serially and in order, by spawning `ctxloom hook
+opencode execute <Event>` with the event on stdin, plus what it alone knows
+under `ctxloom` (the prompt a step message answers, a compaction's trigger and
+summary text). Its queue and dedupe live on `globalThis` (opencode may
+instantiate a plugin twice in one process), it drops sub-agent sessions (a
+`parentID`) and reasoning, runs each hook without opencode's `HOME` (so
+`CTXLOOM_HOME` is the home) and with stderr to `<home>/ctxloom-hooks.log`
+(never the TUI's terminal), and drains in `dispose` (5 s cap; `run` and the TUI
+await it, probe P4/P5). The codec maps: prompt = `chat.message` by
+`output.message.id`; words = a text part WHOLE at `time.end` (one fact per part,
+message id = part id, no per-delta capture); tool = a part `completed|error` by
+its part id, with its status (the proto's optional `ToolCallStatus`; the
+transcript's tool line carries `status` only when known, claude's never); turn
+end = the completed assistant message whose finish is not `tool-calls` (or
+errored), never a `summary: true` one, and `session.idle` for the last prompt
+(a refused-tool turn only idles; the second end is a DUPLICATE); compaction =
+the compaction part (before; `auto` -> trigger) and the summary message
+(after, size and SHA-256 only), keyed by the compaction's own message.
+`observe` matches the unified kinds only (`compaction_before|after`; claude's
+codec maps `PreCompact|PostCompact` onto them). The session's end is recorded
+by the LAUNCHER at the TUI's exit (`Engine::session_ends_with_exit`; reason
+`exit`, no native id, so a second run of the same session would collide).
+A child turn is `opencode run --format json [--session <id>] [-m <model>]` with
+the prompt on STDIN (an argv prompt with a space reaches the model quoted, and
+`run` reads stdin to EOF); the stream is read for the reply (the final step's
+text; a turn a refused tool ended is answered) and the outcome only. The TUI is
+`opencode [-m] [--session] [--prompt <text>]`. Both run relocated: `HOME`,
+every XDG base and `OPENCODE_CONFIG_DIR` in the session home, the npm pre-seed
+(`node_modules/` and a `package-lock.json` naming `@opencode-ai/plugin`) in the
+home and in `xdg/config/opencode`, no `OPENCODE_*` or XDG variable of the
+caller's (`OPENCODE_PURE` would skip the plugin); `session_home: host` keeps
+the user's dirs and still adds the session home as a config dir. The key
+`CTXLOOM_OPENCODE_API_KEY` is optional and passed when set; no child is
+refused for it. An effort level is not passed (no flag verified). At rest
+opencode carries its context alone (an `AGENTS.md` section). Costs: no
+per-delta capture; one hook process per forwarded event; the plugin's own
+logic is tested under node (`home.test.rs`, j001000), so those tests need node
+on `PATH`. Not verified live: the pre-seed's `.ctxloom` marker file in
+`node_modules/`, `--prompt`/`-m` on the TUI, `AGENTS.md` read from the config
+dir, sub-agent sessions, auto compaction.
+
 ## Engines schema (track 1 landed on `engines/core`)
 
 `engines:` holds, per fixed engine name, what its agents share: `command`

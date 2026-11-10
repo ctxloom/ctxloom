@@ -2,10 +2,13 @@
 //!
 //! In one process, in order: the library plans the run (the agent or profile,
 //! the assembled context, the engine, the startup findings); the project is
-//! told; a name is claimed and the session minted; the run is enqueued; the
-//! launcher, caught up on the store, finds it owed a runner and drives the
-//! engine for one turn; the recorder writes the session's directory from the
-//! events; the run is checked to have ended, and the answer is returned. A
+//! told; the run's hook listener is served (a one-shot is its own owner: its
+//! child's hooks call back to it); a name is claimed and the session minted;
+//! the run is enqueued; the session's directory is written so a hook can find
+//! it; the launcher, caught up on the store, finds it owed a runner and drives
+//! the engine for one turn; the listener is stopped; the recorder writes the
+//! session's directory from the events (the transcript from the hooks'
+//! facts); the run is checked to have ended, and the answer is returned. A
 //! plan that is refused, or a session that cannot be made, has started no
 //! engine.
 
@@ -120,7 +123,8 @@ pub struct Place {
     pub project_dir: String,
     pub output_root: String,
     /// The directory of the running ctxloom binary, which leads an
-    /// interactive engine's `PATH` so a hook's bare `ctxloom` is it; empty
+    /// engine's `PATH` (the terminal's and a child's) so a hook's bare
+    /// `ctxloom` is it; empty
     /// when it could not be found.
     pub program_dir: String,
 }
@@ -150,11 +154,26 @@ pub struct Runs<
     pub(crate) certs: Box<dyn CertMint>,
 }
 
-/// What an interactive engine is told of the run's listener: its URL and the
-/// public part of its certificate.
-struct Told<'a> {
-    endpoint: &'a str,
-    cert: &'a run_ports::PublicCert,
+/// What an engine is told of the run's listener: its URL and the public part
+/// of its certificate.
+struct Told {
+    endpoint: String,
+    cert: run_ports::PublicCert,
+}
+
+/// The run's listener, serving, and what the engine is told of it.
+struct Listening {
+    serving: Box<dyn run_ports::Serving>,
+    told: Told,
+}
+
+/// A run made and enqueued, its order placed: the session, its name, the
+/// engine and the run.
+struct Started {
+    session: String,
+    harp: String,
+    engine: String,
+    run: Uuid,
 }
 
 /// The engine a run is on: the one asked for, else the plan's.
@@ -224,10 +243,10 @@ pub struct Parts<
     /// The operating system's name (`std::env::consts::OS`), which says
     /// whether a login can be shared by a link at all.
     pub os: String,
-    /// Where an interactive run's hook processes are served (the run's
-    /// loopback port); a one-shot's child is given none.
+    /// Where a run's hook processes are served (the run's loopback port), the
+    /// terminal session's and a one-shot child's alike.
     pub hooks: Box<dyn HookServer>,
-    /// What mints an interactive run's listener certificate (a child is given none).
+    /// What mints a run's listener certificate.
     pub certs: Box<dyn CertMint>,
 }
 
@@ -289,15 +308,12 @@ where
         }
     }
 
-    async fn session(
-        &mut self,
-        previewed: Previewed,
-        request: &OneShot,
-        notices: &mut Vec<Notice>,
-    ) -> Result<Ended, RunError> {
-        // The hooks' listener is bound before the run is minted: the port it
-        // was given is part of what the engine is told. It binds loopback (the
-        // host row of the bind table) and is stopped if the run does not start.
+    /// The run's hook listener: bound before the run is minted (the port it
+    /// was given is part of what the engine is told), on loopback (the host
+    /// row of the bind table), with the run's freshly minted certificate. A
+    /// one-shot is its own owner (ruling 29), so it serves one as the
+    /// terminal session does. Its caller stops it if the run does not start.
+    async fn serve(&self) -> Result<Listening, RunError> {
         let plan = run_ports::bind_for(run_ports::Runtime::Host, &run_ports::PlatformFacts::NONE)
             .and_then(|plan| plan.check().map(|()| plan))
             .map_err(|e| RunError::Bind(Box::new(e)))?;
@@ -313,20 +329,36 @@ where
             .serve_tcp(plan.bind_addr, &identity)
             .await
             .map_err(RunError::Listener)?;
-        let endpoint = match run_ports::endpoint_url(&plan.told_host, serving.port()) {
-            Ok(endpoint) => endpoint,
+        match run_ports::endpoint_url(&plan.told_host, serving.port()) {
+            Ok(endpoint) => Ok(Listening {
+                serving,
+                told: Told {
+                    endpoint,
+                    cert: identity.public().clone(),
+                },
+            }),
             Err(error) => {
                 serving.stop().await;
-                return Err(RunError::Listener(angzarr_diagnostic::Report::of(&error)));
+                Err(RunError::Listener(angzarr_diagnostic::Report::of(&error)))
             }
-        };
-        let told = Told {
-            endpoint: &endpoint,
-            cert: identity.public(),
-        };
+        }
+    }
+
+    /// Everything a run does before its engine is launched, with its listener
+    /// serving: the plan checked, the session minted, the run enqueued and its
+    /// order placed, the primary handed her login, and the session's directory
+    /// naming it (its hooks, processes of their own, find the session by that
+    /// file). The listener is stopped if any of it fails.
+    async fn ready(
+        &mut self,
+        previewed: Previewed,
+        request: &OneShot,
+        interactive: bool,
+        notices: &mut Vec<Notice>,
+    ) -> Result<(Box<dyn run_ports::Serving>, Started), RunError> {
+        let Listening { serving, told } = self.serve().await?;
         let settings = settings_of(&previewed.plan, &chosen_engine(&previewed.plan, request));
-        let started = self.start(previewed, request, Some(&told)).await;
-        let (session, harp, engine, run) = match started {
+        let started = match self.start(previewed, request, interactive, &told).await {
             Ok(started) => started,
             Err(error) => {
                 serving.stop().await;
@@ -334,30 +366,57 @@ where
             }
         };
         // The primary is handed her login before her engine starts.
-        if let Some(credentials) = self.launcher.credentials(&engine) {
-            notices.extend(share_login(
-                &mut *self.links,
-                &settings.credentials(credentials),
-                &self.env,
-                &self.os,
-                &harp,
-            ));
+        if interactive {
+            if let Some(credentials) = self.launcher.credentials(&started.engine) {
+                notices.extend(share_login(
+                    &mut *self.links,
+                    &settings.credentials(credentials),
+                    &self.env,
+                    &self.os,
+                    &started.harp,
+                ));
+            }
         }
-        // The session's directory names it before the engine runs: its hooks
-        // (processes of their own) find the session by that file.
         if let Err(error) = self.catch_up().await {
             serving.stop().await;
             return Err(error);
         }
+        Ok((serving, started))
+    }
+
+    /// Launch what is owed, stop the listener, then record: a hook still in
+    /// flight as the engine exits is delivered before the listener has
+    /// drained, and the last catch-up (the transcript's writer) follows it, so
+    /// nothing delivered is left out of the transcript. This run's launch, its
+    /// run's end checked.
+    async fn drive(
+        &mut self,
+        serving: Box<dyn run_ports::Serving>,
+        started: &Started,
+    ) -> Result<Launched, RunError> {
         let launched = self.launch().await;
-        // A hook still in flight as the engine exits is delivered before the
-        // listener has drained; the last catch-up (the transcript's writer)
-        // follows it, so nothing delivered is left out of the transcript.
         serving.stop().await;
         let launched = launched?;
         self.catch_up().await?;
-        let launched = ours(launched, &session).ok_or_else(|| not_ended(&session))?;
-        self.ended(&run).await?;
+        let ours = ours(launched, &started.session).ok_or_else(|| not_ended(&started.session))?;
+        self.ended(&started.run).await?;
+        Ok(ours)
+    }
+
+    async fn session(
+        &mut self,
+        previewed: Previewed,
+        request: &OneShot,
+        notices: &mut Vec<Notice>,
+    ) -> Result<Ended, RunError> {
+        let (serving, started) = self.ready(previewed, request, true, notices).await?;
+        let launched = self.drive(serving, &started).await?;
+        let Started {
+            session,
+            harp,
+            engine,
+            ..
+        } = started;
         match launched.outcome {
             Turn::Ended { code } => Ok(Ended {
                 harp,
@@ -374,14 +433,14 @@ where
     }
 
     /// Plan checked, the session minted, the order placed and the run
-    /// enqueued: the session, its name, the engine and the run.
+    /// enqueued.
     async fn start(
         &mut self,
         previewed: Previewed,
         request: &OneShot,
-        told: Option<&Told<'_>>,
-    ) -> Result<(String, String, String, Uuid), RunError> {
-        let interactive = told.is_some();
+        interactive: bool,
+        told: &Told,
+    ) -> Result<Started, RunError> {
         if !previewed.fatal.is_empty() {
             return Err(RunError::Plan(Box::new(PlanError::aborted(
                 &previewed.fatal,
@@ -425,41 +484,34 @@ where
             .await
             .map_err(RunError::Session)?;
         // The order is placed once the run's tokens exist: the hook bearer
-        // reaches the interactive engine's environment through it, and a
-        // child's turn is given none of the listener's variables (the caller's
-        // own, from a session it was started inside, are dropped).
+        // reaches the engine's environment through it (the terminal session's
+        // and a one-shot child's alike, ruling 51), and the caller's own
+        // listener variables, from a session it was started inside, are
+        // replaced by this run's, never passed on.
         let mut env = self.env.clone();
         for name in run_ports::HOOK_VARIABLES {
             env.remove(name);
         }
-        env.remove(run_ports::HARP_VARIABLE);
-        if interactive {
-            // A hook finds its session by the harp, and the engine's
-            // environment is the only thing a hook process is given.
-            env.insert(run_ports::HARP_VARIABLE.to_string(), harp.clone());
-            // The running binary's directory leads the engine's PATH, so a
-            // hook's bare `ctxloom` is this binary and not another one the
-            // user has (the Go one); the inherited PATH follows it.
-            if !self.place.program_dir.is_empty() {
-                let path = match env.get("PATH").filter(|path| !path.is_empty()) {
-                    Some(inherited) => format!("{}:{inherited}", self.place.program_dir),
-                    None => self.place.program_dir.clone(),
-                };
-                env.insert("PATH".to_string(), path);
-            }
-            let run_text = uuid::Uuid::from_slice(&enqueued.run.value)
-                .unwrap_or_default()
-                .hyphenated()
-                .to_string();
-            if let Some(told) = told {
-                env.extend(run_ports::hook_environment(
-                    told.endpoint,
-                    &run_text,
-                    &enqueued.hook_token,
-                    told.cert,
-                ));
-            }
+        // A hook finds its session by the harp, and the engine's environment
+        // is the only thing a hook process is given.
+        env.insert(run_ports::HARP_VARIABLE.to_string(), harp.clone());
+        // The running binary's directory leads the engine's PATH, so a hook's
+        // bare `ctxloom` is this binary and not another one the user has (the
+        // Go one); the inherited PATH follows it.
+        if !self.place.program_dir.is_empty() {
+            let path = match env.get("PATH").filter(|path| !path.is_empty()) {
+                Some(inherited) => format!("{}:{inherited}", self.place.program_dir),
+                None => self.place.program_dir.clone(),
+            };
+            env.insert("PATH".to_string(), path);
         }
+        let run_text = text(&enqueued.run);
+        env.extend(run_ports::hook_environment(
+            &told.endpoint,
+            &run_text,
+            &enqueued.hook_token,
+            &told.cert,
+        ));
         self.orders.place(
             &session,
             1,
@@ -476,7 +528,12 @@ where
                 settings,
             },
         );
-        Ok((session, harp, engine, enqueued.run))
+        Ok(Started {
+            session,
+            harp,
+            engine,
+            run: enqueued.run,
+        })
     }
 
     /// The recorder caught up with everything the core holds so far.
@@ -487,13 +544,6 @@ where
             .map_err(RunError::Launch)
     }
 
-    /// Launch what is owed and record it: this session's launch.
-    async fn launched(&mut self, session: &str) -> Result<Launched, RunError> {
-        let launched = self.launch().await?;
-        self.catch_up().await?;
-        ours(launched, session).ok_or_else(|| not_ended(session))
-    }
-
     /// Launch what is owed, not yet recorded.
     async fn launch(&mut self) -> Result<Vec<Launched>, RunError> {
         self.launcher
@@ -502,10 +552,19 @@ where
             .map_err(RunError::Launch)
     }
 
+    /// The one-shot: its listener served for its child's hooks (a one-shot is
+    /// its own owner, ruling 29), one turn, and the reply the child's stream
+    /// gave.
     async fn run(&mut self, previewed: Previewed, request: &OneShot) -> Result<Answer, RunError> {
-        let (session, harp, engine, run) = self.start(previewed, request, None).await?;
-        let ours = self.launched(&session).await?;
-        self.ended(&run).await?;
+        let mut unused = Vec::new();
+        let (serving, started) = self.ready(previewed, request, false, &mut unused).await?;
+        let ours = self.drive(serving, &started).await?;
+        let Started {
+            session,
+            harp,
+            engine,
+            ..
+        } = started;
         match ours.outcome {
             Turn::Answered { answer, .. } if answer.trim().is_empty() => Err(RunError::EmptyAnswer),
             Turn::Answered { answer, .. } => Ok(Answer {

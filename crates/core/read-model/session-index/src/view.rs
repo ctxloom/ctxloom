@@ -63,13 +63,9 @@ pub const NO_SUMMARY: &str = "(no summary)";
 
 impl View {
     /// The row's summary: the title, or [`NO_SUMMARY`], with a badge for a
-    /// purged session and for a kept one, so each rides the row in every
-    /// format and a purged session never reads as one never purged.
+    /// kept one, so it rides the row in every format.
     pub fn summary(&self) -> String {
         let mut summary = self.title.clone().unwrap_or_else(|| NO_SUMMARY.to_string());
-        if self.record.purged_at.is_some() {
-            summary.push_str("  \u{1f5d1} purged (transcript destroyed)");
-        }
         if self.record.kept {
             summary.push_str("  \u{1f4cc} kept (transcript kept at any age)");
         }

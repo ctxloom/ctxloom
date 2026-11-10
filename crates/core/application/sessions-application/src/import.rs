@@ -20,7 +20,7 @@ use ports::{Clock, CommandIds, Delay, Jitter, Project, ProjectIdentity};
 use session_ports::{GoSession, GoSessions, ProjectStores};
 use sessions::{
     claim_root, AdoptRotations, BindEngineSession, ClaimName, MintSession, NameClaimAggregate,
-    NameClaimCommand, Origin, RecordEnd, RecordPurge, Rotation, SessionAggregate, SessionCommand,
+    NameClaimCommand, Origin, RecordEnd, Rotation, SessionAggregate, SessionCommand,
     SessionRejection, SetKept, NAMES_DOMAIN, SESSION_DOMAIN,
 };
 
@@ -409,17 +409,8 @@ fn commands(
     if entry.keep || keep_marker {
         commands.push(("keep", SetKept { kept: true }.into_input()));
     }
-    if let Some(at) = entry.purged_at {
-        commands.push((
-            "purge",
-            RecordPurge {
-                files: 0,
-                bytes: 0,
-                at: Some(at),
-            }
-            .into_input(),
-        ));
-    }
+    // Go's purged_at is read and not recorded (owner ruling 102): a session
+    // is destroyed whole or kept, never marked.
     if let Some(at) = entry.ended_at {
         commands.push(("end", RecordEnd { at }.into_input()));
     }

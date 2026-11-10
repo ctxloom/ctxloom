@@ -23,8 +23,6 @@ pub(crate) struct Row {
     #[serde(skip_serializing_if = "Option::is_none")]
     end: Option<String>,
     #[serde(skip_serializing_if = "is_false")]
-    purged: bool,
-    #[serde(skip_serializing_if = "is_false")]
     kept: bool,
     engine: String,
 }
@@ -41,7 +39,6 @@ impl Row {
             state: view.state.as_str(),
             start: stamp::rfc3339(view.record.started_at),
             end: view.end().map(stamp::rfc3339),
-            purged: view.record.purged_at.is_some(),
             kept: view.record.kept,
             engine: view.record.engine.clone(),
         }
@@ -115,8 +112,6 @@ pub(crate) struct ShowDoc {
     #[serde(skip_serializing_if = "Option::is_none")]
     ended_at: Option<String>,
     #[serde(skip_serializing_if = "is_false")]
-    purged: bool,
-    #[serde(skip_serializing_if = "is_false")]
     kept: bool,
     output_dir: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -144,7 +139,6 @@ impl ShowDoc {
             title: view.title.clone(),
             started_at: stamp::rfc3339(record.started_at),
             ended_at: view.end().map(stamp::rfc3339),
-            purged: record.purged_at.is_some(),
             kept: record.kept,
             output_dir: record.output_dir.clone(),
             rotations: record
@@ -175,9 +169,6 @@ pub(crate) fn show_text(view: &View, out: &mut dyn Write) -> io::Result<()> {
     writeln!(out, "started:  {}", stamp::text(record.started_at))?;
     if let Some(end) = view.end() {
         writeln!(out, "ended:    {}", stamp::text(end))?;
-    }
-    if record.purged_at.is_some() {
-        writeln!(out, "purged:   its transcript was destroyed")?;
     }
     if record.kept {
         writeln!(
@@ -652,7 +643,12 @@ pub(crate) fn sweep_text(
     let count = |k: &str| report.counts.get(k).copied().unwrap_or(0);
     writeln!(
         out,
-        "\n{} done, {} planned, {} held, {} left, {} skipped, {} failed; {} session(s) had nothing to do.",
-        count("done"), count("planned"), count("held"), count("left"), count("skipped"), count("failed"), report.untouched
+        "\n{} done, {} planned, {} held, {} left, {} skipped, {} failed.",
+        count("done"),
+        count("planned"),
+        count("held"),
+        count("left"),
+        count("skipped"),
+        count("failed")
     )
 }

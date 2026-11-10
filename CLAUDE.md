@@ -174,8 +174,11 @@ unless `--even-if-live`, for a kept one, and within the transcript retention.
 There is no forget-but-keep (`ForgetSession`, `SessionForgotten` and the
 `sessions-forgotten` refusal are gone) and no transcript destroyer of its own
 (`session transcript purge` is gone): the conversation is the session's
-stream. `RecordPurge`/`SessionPurged` remain for `session import` alone (Go's
-`purged_at`), pending the owner's word (ruling 100 deletes them).
+stream. Nothing marks a session purged (owner rulings 100, 102):
+`RecordPurge`, `SessionPurged` and `SessionState.purged_at` (field 14,
+reserved) are gone, `session import` reads Go's `purged_at` and records
+nothing for it, no row or `show` says `purged`, and the sweep passes no
+session over as already emptied.
 
 Deliberate divergence from Go: `session remove` takes `--even-if-live`, as its
 own refusal text already told the user to use.

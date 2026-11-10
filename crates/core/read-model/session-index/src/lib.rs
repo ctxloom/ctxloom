@@ -64,7 +64,6 @@ pub struct SessionRecord {
     pub kept: bool,
     pub started_at: Timestamp,
     pub ended_at: Option<Timestamp>,
-    pub purged_at: Option<Timestamp>,
     /// The highest incarnation the session owed: its runs are
     /// UUIDv5(session, 1..=incarnation) (a destroy purges each, ruling 94b).
     pub incarnation: u32,
@@ -298,7 +297,6 @@ fn record_of(root: &[u8], session: &SessionAggregate) -> SessionRecord {
         kept: state.kept,
         started_at: state.started_at,
         ended_at: state.ended_at,
-        purged_at: state.purged_at,
         incarnation: state.incarnation,
         last_captured: None,
     }

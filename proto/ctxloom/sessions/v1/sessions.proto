@@ -4,8 +4,8 @@ syntax = "proto3";
 // stable id minted at creation (plan 3.1, D5 Q1/Q4), in its project's
 // store. The harp is only its name. Go's session sidecar
 // (`~/.ctxloom/sessions/<harp>/session.yaml`) is folded here event by
-// event: the mint, the engine binding and its rotations, keep, rename,
-// purge and adopt. Lineage, the lifeline and grants
+// event: the mint, the engine binding and its rotations, keep, rename and
+// adopt. Lineage, the lifeline and grants
 // arrive with the slices that need them (S5 to S10).
 package ctxloom.sessions.v1;
 
@@ -41,8 +41,10 @@ message SessionState {
   google.protobuf.Timestamp started_at = 12;
   // When its last run ended (Go's ended_at); absent until recorded.
   optional google.protobuf.Timestamp ended_at = 13;
-  // When a purge destroyed its transcript; absent until one did.
-  optional google.protobuf.Timestamp purged_at = 14;
+  // 14 was `purged_at` (owner ruling 102: a session is destroyed whole, and
+  // Go's purge mark is not imported).
+  reserved 14;
+  reserved "purged_at";
   // 15 was `forgotten`: `session remove` destroys a session now (owner
   // ruling 98), nothing forgets one.
   reserved 15;
@@ -178,21 +180,6 @@ message RenameSession {
   LockEvidence lock = 3;
 }
 
-// Record that Go purged the session's transcript: the importer's alone
-// since `session remove` destroys the session whole (owner ruling 98).
-message RecordPurge {
-  option (io.angzarr.v1.command) = {
-    component: "ctxloom.sessions.v1.SessionState"
-    emits: ["ctxloom.sessions.v1.SessionPurged"]
-    refuses: "ctxloom.sessions.v1.NoSession"
-  };
-
-  uint64 files = 1;
-  uint64 bytes = 2;
-  // Left out: the page's `recorded_at`.
-  optional google.protobuf.Timestamp at = 3;
-}
-
 // Seed rotations the store never recorded (`session adopt --yes`). Each
 // whose native id is the current binding or already in the lineage is
 // skipped; the lineage stays ordered by rotation instant.
@@ -269,14 +256,6 @@ message RenamedTo {
 
   string harp = 1;
   string output_dir = 2;
-}
-
-message SessionPurged {
-  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
-
-  uint64 files = 1;
-  uint64 bytes = 2;
-  optional google.protobuf.Timestamp at = 3;
 }
 
 message SessionAdopted {

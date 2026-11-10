@@ -10,8 +10,8 @@ use angzarr_embedded::{
     Timestamp,
 };
 use sessions::{
-    AdoptRotations, BindEngineSession, EndRecorded, MintSession, Origin, RecordEnd, RecordPurge,
-    RenameSession, Rotation, SessionAggregate, SessionCommand, SetKept, SESSION_DOMAIN,
+    AdoptRotations, BindEngineSession, EndRecorded, MintSession, Origin, RecordEnd, RenameSession,
+    Rotation, SessionAggregate, SessionCommand, SetKept, SESSION_DOMAIN,
 };
 
 use super::{SessionIndex, SessionIndexes, SessionRecord};
@@ -189,15 +189,6 @@ fn a_record_is_the_session_its_events_fold() {
             },
         },
     );
-    project.run(
-        &mut index,
-        FIRST,
-        RecordPurge {
-            files: 1,
-            bytes: 2,
-            at: None,
-        },
-    );
     let [record] = records(&index).try_into().unwrap();
     assert_eq!(record.id, id_text(FIRST));
     assert_eq!(record.harp, "amber-swift-owl");
@@ -221,13 +212,6 @@ fn a_record_is_the_session_its_events_fold() {
         record.ended_at,
         Some(Timestamp {
             seconds: 900,
-            nanos: 0
-        })
-    );
-    assert_eq!(
-        record.purged_at,
-        Some(Timestamp {
-            seconds: 106,
             nanos: 0
         })
     );

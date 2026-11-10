@@ -16,9 +16,8 @@ use angzarr_embedded::{Any, Failure, Payload, Registry, Timestamp};
 
 use crate::{
     AdoptRotations, BindEngineSession, EndRecorded, EngineSessionBound, KeptChanged, MintSession,
-    Origin, RecordEnd, RecordPurge, RenameSession, RenamedTo, Rotation, SessionAggregate,
-    SessionCommand, SessionEvent, SessionPurged, SessionRejection, SessionState, SetKept,
-    SESSION_DOMAIN,
+    Origin, RecordEnd, RenameSession, RenamedTo, Rotation, SessionAggregate, SessionCommand,
+    SessionEvent, SessionRejection, SessionState, SetKept, SESSION_DOMAIN,
 };
 
 pub(crate) const HARP: &str = "amber-swift-owl";
@@ -749,45 +748,6 @@ fn a_rename_of_a_session_whose_lock_is_free_or_unproven_is_recorded() {
             .unwrap();
         assert_eq!(events.len(), 1, "{lock:?}");
     }
-}
-
-// ------------------------------------------------------------------ purge
-
-// Go: MarkPurged stamps PurgedAt, "so a purged session stays visible,
-// marked". The instant is the page's. (Only the importer records a purge
-// since `session remove` destroys, owner ruling 98.)
-#[test]
-fn a_purge_fact_marks_the_session_purged_at_the_instant() {
-    let mut session = Session::minted();
-    session
-        .run(RecordPurge {
-            files: 3,
-            bytes: 1024,
-            at: None,
-        })
-        .unwrap();
-    assert_eq!(session.state().purged_at, Some(at(102)));
-}
-
-#[test]
-fn a_purge_fact_that_carries_its_instant_is_read_in_preference() {
-    let mut session = Session::minted();
-    let events = session
-        .run(RecordPurge {
-            files: 1,
-            bytes: 1,
-            at: Some(at(42)),
-        })
-        .unwrap();
-    assert_eq!(
-        events,
-        [SessionEvent::SessionPurged(SessionPurged {
-            files: 1,
-            bytes: 1,
-            at: Some(at(42)),
-        })]
-    );
-    assert_eq!(session.state().purged_at, Some(at(42)));
 }
 
 // ------------------------------------------------------------------- end

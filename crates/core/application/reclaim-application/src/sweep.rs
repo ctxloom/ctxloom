@@ -6,7 +6,6 @@
 //! | running                                       | skipped whole               |
 //! | liveness unprovable                           | skipped whole; the manual route is named |
 //! | marked keep                                   | held; `session keep --undo` is named |
-//! | nothing left to purge                         | untouched                   |
 //! | a scratch worktree must be preserved          | spared from purge, naming it |
 //! | no purge age                                  | held (purges have no default) |
 //! | last active after the purge age               | left                        |
@@ -96,8 +95,6 @@ pub struct SweepReport {
     pub purge_cutoff: Option<String>,
     pub rows: Vec<SweepRow>,
     pub counts: BTreeMap<&'static str, u64>,
-    /// Sessions with nothing to do.
-    pub untouched: u64,
 }
 
 fn row(
@@ -130,7 +127,6 @@ pub async fn sweep<S: SessionService + WorktreeUse>(
         })
         .await?;
     let mut rows = Vec::new();
-    let mut untouched = 0;
     for view in &views {
         let harp = view.record.harp.as_str();
         let checkouts = worktree_rows(service, harp, request.yes)?;
@@ -159,10 +155,6 @@ pub async fn sweep<S: SessionService + WorktreeUse>(
                 "it is marked keep: its transcript is kept at any age",
                 format!("ctxloom session keep {harp} --undo"),
             )),
-            State::Ended if view.captured.is_none() && view.record.purged_at.is_some() => {
-                untouched += 1;
-                continue;
-            }
             State::Ended => None,
         };
         if let Some(decided) = decided {
@@ -213,7 +205,6 @@ pub async fn sweep<S: SessionService + WorktreeUse>(
             .map(|at| stamp::rfc3339(at)[..10].to_string()),
         rows,
         counts,
-        untouched,
     })
 }
 

@@ -51,7 +51,6 @@ fn view(harp: &str, state: State, ended_days_ago: i64, kept: bool) -> View {
             kept,
             started_at: at(NOW - (ended_days_ago + 1) * DAY),
             ended_at: Some(at(NOW - ended_days_ago * DAY)),
-            purged_at: None,
             incarnation: 1,
             last_captured: None,
         },
@@ -301,21 +300,6 @@ fn yes_purges_the_planned_session() {
     assert_eq!(fake.asked.last().map(|a| a.1), Some(true));
 }
 
-// A purged session with nothing captured has nothing to do.
-#[test]
-fn a_session_already_emptied_is_untouched() {
-    let mut emptied = view("amber-quiet-heron", State::Ended, 120, false);
-    emptied.captured = None;
-    emptied.record.purged_at = Some(at(NOW - 100 * DAY));
-    let mut fake = Fake {
-        views: vec![emptied],
-        ..Fake::default()
-    };
-    let report = ready(sweep(&mut fake, &request(true))).unwrap();
-    assert!(report.rows.is_empty());
-    assert_eq!(report.untouched, 1);
-}
-
 // j001300 "The sweep removes only what it can prove is safe": the scratch
 // worktrees are reclaimed through the worktree leaf, which the sweep asks
 // with its own apply decision, and each outcome is a row of the report.
@@ -479,20 +463,19 @@ fn the_purge_names_the_session_and_its_scope() {
     );
 }
 
-// Untouched needs both: nothing captured AND already purged.
+// Owner ruling 102: no session is passed over as already emptied: one with
+// nothing captured is decided like any other.
 #[test]
-fn a_session_with_only_one_of_the_emptied_marks_is_still_decided() {
+fn a_session_with_nothing_captured_is_still_decided() {
     let mut uncaptured = view("amber-quiet-heron", State::Ended, 120, false);
     uncaptured.captured = None;
-    let mut purged = view("brisk-quiet-heron", State::Ended, 120, false);
-    purged.record.purged_at = Some(at(NOW - 100 * DAY));
     let mut fake = Fake {
-        views: vec![uncaptured, purged],
+        views: vec![uncaptured],
         ..Fake::default()
     };
     let report = ready(sweep(&mut fake, &request(false))).unwrap();
-    assert_eq!(report.untouched, 0);
-    assert_eq!(report.rows.len(), 2);
+    assert_eq!(report.rows.len(), 1);
+    assert_eq!(report.rows[0].action, "purge");
 }
 
 // A session that ended exactly at the purge age is old enough.

@@ -157,7 +157,7 @@ fn the_listing_after_an_import_is_the_listing_go_gives() {
         owl.transcript_path,
         "/home/u/.claude/projects/proj/9a1c0d1e.jsonl"
     );
-    assert!(!owl.kept && owl.purged_at.is_none() && owl.rotations.is_empty());
+    assert!(!owl.kept && owl.rotations.is_empty());
 
     let moth = by(MOTH);
     assert!(moth.kept, "schema 2's keep mark");
@@ -171,8 +171,6 @@ fn the_listing_after_an_import_is_the_listing_go_gives() {
 
     let wren = by(WREN);
     assert!(wren.kept);
-    // Owner ruling 102: Go's purged_at is read and not recorded.
-    assert_eq!(wren.purged_at, None);
     assert_eq!(wren.engine_version, "2.1.229 (Claude Code)");
     assert_eq!(wren.origin, Some(Origin::Agent));
     assert_eq!(wren.rotations.len(), 1);

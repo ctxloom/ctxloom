@@ -40,18 +40,9 @@ fn a_title_is_carried_through_untouched() {
     assert_eq!(view("h", Some("Fixed the bug")).summary(), "Fixed the bug");
 }
 
-// Go: the purged and kept marks ride the summary as badges, "on the row itself,
+// Go: the kept mark rides the summary as a badge (a purge mark is gone, owner
+// ruling 102), "on the row itself,
 // so they show up in every --format". The emoji are Go's, byte for byte.
-#[test]
-fn a_purged_session_says_so_in_its_summary() {
-    let mut v = view("h", Some("Fixed the bug"));
-    v.record.purged_at = Some(at(STARTED));
-    assert_eq!(
-        v.summary(),
-        "Fixed the bug  \u{1f5d1} purged (transcript destroyed)"
-    );
-}
-
 #[test]
 fn a_kept_session_says_so_in_its_summary() {
     let mut v = view("h", Some("Fixed the bug"));
@@ -59,12 +50,6 @@ fn a_kept_session_says_so_in_its_summary() {
     assert_eq!(
         v.summary(),
         "Fixed the bug  \u{1f4cc} kept (transcript kept at any age)"
-    );
-    v.record.purged_at = Some(at(STARTED));
-    assert_eq!(
-        v.summary(),
-        "Fixed the bug  \u{1f5d1} purged (transcript destroyed)  \u{1f4cc} kept (transcript kept at any age)",
-        "purged first, then kept, as Go orders them"
     );
 }
 

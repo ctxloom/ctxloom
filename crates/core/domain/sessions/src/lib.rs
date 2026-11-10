@@ -52,7 +52,7 @@ pub use state::{NameClaimState, SessionState, NAMES_DOMAIN, SESSION_DOMAIN};
 
 /// Fold `event`, recorded at `recorded_at` (its page's
 /// `EventMeta.recorded_at`), into `state`: what the aggregate's appliers do,
-/// one place (public, so a reader of the stream folds as the aggregate does). A mint's start, a purge's instant and a rotation's are
+/// one place (public, so a reader of the stream folds as the aggregate does). A mint's start and a rotation's are
 /// `recorded_at`, or the instant the event carries (an imported or adopted
 /// one), read in preference. Pure: the same state, event and instant always
 /// give the same result.
@@ -88,9 +88,6 @@ pub fn apply(state: &mut SessionState, event: &SessionEvent, recorded_at: Timest
         SessionEvent::RenamedTo(renamed) => {
             state.harp = renamed.harp.clone();
             state.output_dir = renamed.output_dir.clone();
-        }
-        SessionEvent::SessionPurged(purged) => {
-            state.purged_at = Some(purged.at.unwrap_or(recorded_at));
         }
         SessionEvent::SessionAdopted(adopted) => {
             for rotation in &adopted.rotations {
@@ -253,16 +250,6 @@ fn renamed(
         harp: rename.harp.clone(),
         output_dir: rename.output_dir.clone(),
     }))
-}
-
-/// What a purge fact records.
-fn purged(held: &SessionState, purge: &RecordPurge) -> Result<SessionPurged, SessionRejection> {
-    live(held)?;
-    Ok(SessionPurged {
-        files: purge.files,
-        bytes: purge.bytes,
-        at: purge.at,
-    })
 }
 
 /// What an adopt records: the rotations new to the lineage (not the current

@@ -18,13 +18,12 @@ use angzarr_embedded_macros::{aggregate, applies, handles_cmd, handles_fact};
 
 use crate::refusal::refuse;
 use crate::{
-    adopted, end_recorded, engine_bound, kept_changed, lifeline, live, purged, record, renamed,
+    adopted, end_recorded, engine_bound, kept_changed, lifeline, live, record, renamed,
     session_minted, AdoptRotations, BindEngineSession, ChildCannotStop, EndRecorded,
     EngineSessionBound, HarpInvalid, HarpTooLong, IncarnationEnded, IncarnationOwed, KeptChanged,
-    MintSession, NoSession, RecordEnd, RecordIncarnationEnded, RecordPurge, RenameSession,
-    RenamedTo, SessionAdopted, SessionCommand, SessionEvent, SessionExists, SessionLive,
-    SessionMinted, SessionPurged, SessionRejection, SessionState, SetKept, StopOrdered,
-    StopSession,
+    MintSession, NoSession, RecordEnd, RecordIncarnationEnded, RenameSession, RenamedTo,
+    SessionAdopted, SessionCommand, SessionEvent, SessionExists, SessionLive, SessionMinted,
+    SessionRejection, SessionState, SetKept, StopOrdered, StopSession,
 };
 use crate::{
     AssistantTextShown, Compacted, PromptSubmitted, RecordAssistantText, RecordCompaction,
@@ -122,24 +121,6 @@ impl SessionAggregate {
                 rejection,
                 Refuses<Self, RenameSession>,
                 [NoSession => NoSession, HarpInvalid{harp, reason} => HarpInvalid, HarpTooLong{harp, limit, length} => HarpTooLong, SessionLive{harp} => SessionLive]
-            )
-        })
-    }
-
-    /// Record that a purge destroyed the transcript.
-    #[handles_cmd(RecordPurge, refuses(NoSession))]
-    fn record_purge(
-        &self,
-        cmd: RecordPurge,
-        ctx: &Context,
-    ) -> Result<SessionPurged, Failed<Refuses<Self, RecordPurge>>> {
-        let _ = ctx;
-        purged(&self.session, &cmd).map_err(|rejection| {
-            refuse!(
-                SessionRejection,
-                rejection,
-                Refuses<Self, RecordPurge>,
-                [NoSession => NoSession]
             )
         })
     }
@@ -367,11 +348,6 @@ impl SessionAggregate {
 
     #[applies(RenamedTo)]
     fn renamed_to(&mut self, event: RenamedTo, page: &PageContext) {
-        fold(&mut self.session, event.into(), page);
-    }
-
-    #[applies(SessionPurged)]
-    fn session_purged(&mut self, event: SessionPurged, page: &PageContext) {
         fold(&mut self.session, event.into(), page);
     }
 

@@ -230,13 +230,12 @@ fn a_row_has_harp_summary_state_start_and_the_engine() {
     assert_eq!(row["engine"], "claude-code");
 }
 
-// Go: end, purged and kept "are omitted when unset"; the transcript when it
-// was captured.
+// Go: end and kept "are omitted when unset" (its purged mark is gone, owner
+// ruling 102); the transcript when it was captured.
 #[test]
-fn end_purged_kept_and_the_transcript_ride_the_row_once_set() {
+fn end_kept_and_the_transcript_ride_the_row_once_set() {
     let mut v = view("amber-swift-owl", State::Ended);
     v.record.ended_at = Some(ts(STARTED + 3600));
-    v.record.purged_at = Some(ts(STARTED + 7200));
     v.record.kept = true;
     v.captured = Some(Captured { bytes: 9 });
     let mut fake = Fake {
@@ -246,12 +245,11 @@ fn end_purged_kept_and_the_transcript_ride_the_row_once_set() {
     let rows = json_of(&go(&mut fake, Format::Json, &["list"]));
     let row = &rows[0];
     assert_eq!(row["end"], "2026-07-17T13:00:00Z");
-    assert_eq!(row["purged"], true);
+    assert!(row.get("purged").is_none(), "{row}");
     assert_eq!(row["kept"], true);
     // Ruling 87a: no file holds the transcript, so the row names none.
     assert_eq!(row["transcript_path"], serde_json::Value::Null);
     assert!(row["summary"].as_str().unwrap().contains("kept"));
-    assert!(row["summary"].as_str().unwrap().contains("purged"));
 }
 
 // session.feature: "The listing takes each session's state from its lock, not
@@ -439,7 +437,6 @@ fn show_prints_the_record_one_fact_per_line() {
     let mut v = view("amber-swift-owl", State::Ended);
     v.record.native_id = "native-1".to_string();
     v.record.ended_at = Some(ts(STARTED + 3600));
-    v.record.purged_at = Some(ts(STARTED + 7200));
     v.record.kept = true;
     let mut fake = Fake {
         views: vec![v],
@@ -458,7 +455,6 @@ fn show_prints_the_record_one_fact_per_line() {
          project:  /work/proj\n\
          started:  2026-07-17 12:00:00\n\
          ended:    2026-07-17 13:00:00\n\
-         purged:   its transcript was destroyed\n\
          kept:     its transcript is kept at any age (`ctxloom session keep --undo` releases it)\n"
     );
     assert_eq!(fake.show[0].harp, "amber-swift-owl");
@@ -477,7 +473,7 @@ fn show_leaves_out_what_is_absent_and_names_a_session_with_no_title() {
     };
     let ran = go(&mut fake, Format::Text, &["show", "amber-swift-owl"]);
     assert!(ran.out.contains("(no summary)"), "{}", ran.out);
-    for absent in ["native:", "ended:", "purged:", "kept:"] {
+    for absent in ["native:", "ended:", "kept:"] {
         assert!(!ran.out.contains(absent), "{absent} in {}", ran.out);
     }
 }
@@ -1344,14 +1340,21 @@ fn a_sweep_reports_each_sessions_fate_with_its_reason_and_command_and_removes_no
     assert_eq!(
         lines[2..],
         [
-            format!("  {:<28} {:<8} {:<8} {:>10}", "live-one", "skip", "skipped", ""),
-            format!("  {blank} it is running"),
-            format!("  {:<28} {:<8} {:<8} {:>10}", "held-one", "keep", "held", ""),
             format!(
-                "  {blank} it is marked keep: its transcript is kept at any age"
+                "  {:<28} {:<8} {:<8} {:>10}",
+                "live-one", "skip", "skipped", ""
             ),
+            format!("  {blank} it is running"),
+            format!(
+                "  {:<28} {:<8} {:<8} {:>10}",
+                "held-one", "keep", "held", ""
+            ),
+            format!("  {blank} it is marked keep: its transcript is kept at any age"),
             format!("  {blank} run: ctxloom session keep held-one --undo"),
-            format!("  {:<28} {:<8} {:<8} {:>10}", "plan-one", "purge", "planned", "13 B"),
+            format!(
+                "  {:<28} {:<8} {:<8} {:>10}",
+                "plan-one", "purge", "planned", "13 B"
+            ),
             format!("  {blank} run: ctxloom session remove plan-one --yes"),
             format!(
                 "  {:<28} {:<8} {:<8} {:>10}",
@@ -1360,8 +1363,7 @@ fn a_sweep_reports_each_sessions_fate_with_its_reason_and_command_and_removes_no
             format!("  {blank} its liveness cannot be proven"),
             format!("  {blank} run: ctxloom session remove unknown-one --even-if-live"),
             String::new(),
-            "0 done, 1 planned, 1 held, 0 left, 2 skipped, 0 failed; 0 session(s) had nothing to do."
-                .to_string(),
+            "0 done, 1 planned, 1 held, 0 left, 2 skipped, 0 failed.".to_string(),
         ]
     );
     assert_eq!(fake.list.len(), 1);

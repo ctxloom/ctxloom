@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 
 use angzarr_yaml::Value;
 
-use crate::document::{exports, hook, mcp_server, parse_with_generation, PROFILE_REFS};
+use crate::document::{exports, hook, mcp_server, parse_document};
 use crate::error::BundleError;
 use crate::frontmatter::{is_meta_path, split_front_matter, stem_of};
 use crate::model::{Bundle, Command, Fragment, ItemBody, Skill, SkillFile, HOOK_EVENTS};
@@ -29,7 +29,7 @@ pub fn read_tree(name: &str, files: &Files) -> Result<Bundle, BundleError> {
     let envelope = files.get(MANIFEST).ok_or_else(|| BundleError::NoManifest {
         bundle: name.to_string(),
     })?;
-    let (mut bundle, generation) = parse_with_generation(&String::from_utf8_lossy(envelope))?;
+    let mut bundle = parse_document(&String::from_utf8_lossy(envelope))?;
     let inline = inline_keys(&bundle);
     if !inline.is_empty() {
         return Err(BundleError::InlineAndItems {
@@ -40,7 +40,6 @@ pub fn read_tree(name: &str, files: &Files) -> Result<Bundle, BundleError> {
     let reader = Reader {
         bundle: name,
         files,
-        generation,
     };
     reader.fragments(&mut bundle)?;
     reader.commands(&mut bundle)?;
@@ -82,7 +81,6 @@ fn inline_keys(bundle: &Bundle) -> Vec<&'static str> {
 struct Reader<'a> {
     bundle: &'a str,
     files: &'a Files,
-    generation: u32,
 }
 
 fn text(bytes: &[u8]) -> String {
@@ -221,9 +219,6 @@ impl<'a> Reader<'a> {
                 cause,
             })?;
             profile.name = name.clone();
-            if self.generation < PROFILE_REFS {
-                profile.canonicalize_refs();
-            }
             bundle.profiles.insert(name, profile);
         }
         Ok(())

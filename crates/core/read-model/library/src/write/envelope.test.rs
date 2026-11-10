@@ -16,15 +16,10 @@ fn test_a_new_envelope_is_the_bytes_go_writes() {
         "schema_version: 4\nversion: 2.0.0\ndescription: \"Go: the tool\"\n"
     );
     // The envelope reads back as the bundle it describes.
-    let (bundle, generation) =
-        crate::document::parse_with_generation(&new_envelope("1.2.3", "d")).unwrap();
+    let bundle = crate::document::parse_document(&new_envelope("1.2.3", "d")).unwrap();
     assert_eq!(
-        (
-            bundle.version.as_str(),
-            bundle.description.as_str(),
-            generation
-        ),
-        ("1.2.3", "d", 4)
+        (bundle.version.as_str(), bundle.description.as_str()),
+        ("1.2.3", "d")
     );
 }
 
@@ -126,7 +121,7 @@ fn test_a_description_with_lines_is_written_as_a_block() {
         text.contains("description: |-\n  multi\n  line\n"),
         "{text}"
     );
-    let (bundle, _) = crate::document::parse_with_generation(&text).unwrap();
+    let bundle = crate::document::parse_document(&text).unwrap();
     assert_eq!(bundle.description, "multi\nline");
 }
 

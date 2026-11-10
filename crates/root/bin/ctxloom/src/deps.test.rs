@@ -191,7 +191,7 @@ impl World {
             ),
             (
                 format!("{root}/profiles/{profile}.yaml"),
-                format!("bundles:\n  - file://{other_bare}@bundles/{target}\n"),
+                format!("bundles:\n  - ctxloom+file://{other_bare}//bundles/{target}\n"),
             ),
         ];
         let bare = self.seed_bare(&files);

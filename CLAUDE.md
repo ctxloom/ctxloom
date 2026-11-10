@@ -520,7 +520,7 @@ human's own login shared in place), `token` (the engine's built-in variables),
 or a source `{env: NAME|[NAMES], file: PATH}`; a name that is not a variable
 name is refused without being repeated; a file is only a primary session's.
 The top-level `auth:` key, `llm`, `agents.<n>.llm` and `agents.<n>.engine_home`
-are ordinary unknown keys (hard migrate: no alias, no reader, no migration).
+are ordinary unknown keys (hard migrate: no alias, no reader, no migration). The same goes for a bundle document in an older shape (`prompts:`, an item's `llm:`): the generation-0 to 3 reader is gone, only a newer `schema_version` is named, and the strict decode refuses the old keys.
 An agent's `engine`, `model`, `effort` and `permissions` are its own, and
 `library::config::engines::effective` answers each value with the layer that
 said it (agent > engine > project > default; a list replaces; an agent's

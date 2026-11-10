@@ -377,36 +377,6 @@ impl Profile {
         }
         Ok(())
     }
-
-    /// The profile's references moved onto the canonical grammar (the
-    /// format step of an envelope below generation 2): a bundle or parent
-    /// written as a fetch address is re-spelled, the rest left as written.
-    pub fn canonicalize_refs(&mut self) {
-        for bundle in &mut self.bundles {
-            *bundle = canonical_stored_ref(bundle);
-        }
-        for parent in &mut self.parents {
-            *parent = canonical_stored_ref(parent);
-        }
-    }
-}
-
-/// A reference written as a fetch address, in the canonical grammar (any
-/// version pin and `#` selector kept); anything else as written.
-pub fn canonical_stored_ref(reference: &str) -> String {
-    if !refs::is_fetch_address(reference) {
-        return reference.to_string();
-    }
-    let (base, selector) = match reference.find('#') {
-        Some(i) => (&reference[..i], &reference[i..]),
-        None => (reference, ""),
-    };
-    let canonical = refs::canonical_spelling(base);
-    if canonical == base {
-        reference.to_string()
-    } else {
-        canonical + selector
-    }
 }
 
 /// A profile after its parents are folded in.

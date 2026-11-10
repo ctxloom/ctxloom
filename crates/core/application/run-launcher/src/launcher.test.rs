@@ -698,12 +698,13 @@ fn the_launcher_hands_on_the_credentials_of_the_engine_it_holds() {
     assert_eq!(launcher.credentials("other"), None);
 }
 
-// The terminal session's opening prompt is still the launcher's to record (a
-// child's is not, above), under the run's turn id: the run's root and the
-// turn, exactly, so the same turn of another run is another id. It records no
-// words of the assistant's.
+// The terminal session's opening prompt is its hooks' to record, as every
+// other prompt is (ruling 26's principle): the engine submits it and its
+// UserPromptSubmit hook records it, so the launcher recording it too made it
+// twice in the transcript. The launcher records no prompt and no words of the
+// assistant's for the terminal session, only the run's own facts.
 #[tokio::test]
-async fn the_terminal_sessions_opening_prompt_carries_the_runs_turn_id() {
+async fn the_terminal_sessions_opening_prompt_is_its_hooks_to_record_not_the_launchers() {
     let mut interactive = order("fake");
     interactive.interactive = true;
     let mut rig = rig(
@@ -713,24 +714,26 @@ async fn the_terminal_sessions_opening_prompt_carries_the_runs_turn_id() {
     );
     enqueued(&rig.edge, SESSION, HARP).await;
     rig.step().await;
-    let root = runs::run_root(SESSION, 1);
-    let turn = format!(
-        "{}:1",
-        uuid::Uuid::from_slice(&root.value).unwrap().hyphenated()
+    // the prompt reached the engine's command, and nothing recorded it
+    assert!(
+        rig.runner.seen_terminal.lock().unwrap()[0]
+            .args
+            .iter()
+            .any(|a| a.contains("THE-PROMPT")),
+        "the opening prompt reached the engine"
     );
     let events = session_events(&rig.edge, SESSION).await;
-    let prompt = events.iter().find_map(|e| match e {
-        SessionEvent::PromptSubmitted(p) => Some(p),
-        _ => None,
-    });
-    let prompt = prompt.unwrap();
-    assert_eq!(
-        (prompt.prompt_id.as_str(), prompt.prompt.as_str()),
-        (turn.as_str(), "THE-PROMPT")
+    assert!(
+        !events.iter().any(|e| matches!(
+            e,
+            SessionEvent::PromptSubmitted(_) | SessionEvent::AssistantTextShown(_)
+        )),
+        "{events:?}"
     );
-    assert!(!events
-        .iter()
-        .any(|e| matches!(e, SessionEvent::AssistantTextShown(_))));
+    // the run's own facts are still the launcher's
+    let run = names(&run_events(&rig.edge, SESSION).await);
+    assert!(run.contains(&"RunnerStarted"), "{run:?}");
+    assert!(run.contains(&"RunEnded"), "{run:?}");
 }
 
 // A live probe (2026-11-09): the model the plan resolved never reached the

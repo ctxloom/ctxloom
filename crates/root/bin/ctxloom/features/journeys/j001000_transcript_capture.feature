@@ -79,6 +79,22 @@ Feature: Cross-engine transcript capture — every engine's conversation becomes
     And the transcript was written when the run ended, not while the engine ran
     And a hook fired after the run has ended is refused without failing, and adds nothing to the transcript
 
+  # A session opened with a prompt on its command line: the engine submits it
+  # as its first prompt, and its UserPromptSubmit hook records it. Hooks are
+  # the only source of the conversation (ruling 26's principle), so the
+  # launcher does not record it a second time.
+  Scenario: An interactive session opened with a prompt records that prompt once
+    # new: the opening prompt was recorded twice, by the launcher and the hook.
+    Given Alice has a project that has never used ctxloom
+    And Alice has set ctxloom up in her project
+    When Alice runs her assistant interactively on an opening prompt, and it fires its session's hooks twice each:
+      """
+      ctxloom run "Run the shell command: echo hi"
+      """
+    Then the assistant's environment held what its hooks need to reach ctxloom
+    And every hook it fired answered, said nothing was left unrecorded, and exited 0
+    And the session's transcript holds her prompt, the assistant's words in order, the tool call as a digest, the turn's end and the session's end, each once
+
   # A one-shot's assistant is a child turn (`claude -p`), heard through the
   # same hooks (owner ruling 51): its session home registers the per-turn
   # events, and the one-shot serves the listener they call back to. The stub

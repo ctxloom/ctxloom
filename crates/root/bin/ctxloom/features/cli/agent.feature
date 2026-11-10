@@ -254,14 +254,14 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output reports "[name=developer].engine" as "<the engine that survived>"
       And the output reports "[name=developer].profiles" containing "<the first profile>"
       And the output reports "[name=developer].profiles" containing "<the second profile>"
-      And the output reports "[name=developer].permissions.claude-code.mode" as "<the posture that survived>"
+      And the output reports "[name=developer].engines.claude-code.permissions.mode" as "<the posture that survived>"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the binding written | the axis that changed       | the engine that survived | the first profile | the second profile | the posture that survived |
         |               | developer           | container-rootless          | claude-code              | dev               | ops                | plan                      |
         | --format json | developer           | container-rootless          | claude-code              | dev               | ops                | plan                      |
-        | --format text | Updated agent       | runtime: container-rootless | engine: claude-code         | profiles: dev, ops | ops               | permissions: claude-code={mode=plan} |
+        | --format text | Updated agent       | runtime: container-rootless | engine: claude-code         | profiles: dev, ops | ops               | engines.claude-code: {permissions: {mode: plan}} |
 
     # --surface is the delivery-preference axis (kind=approach, repeatable):
     # which mechanism a surface reaches the engine through, distinct from
@@ -423,7 +423,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       When I run "ctxloom agent show reviewer --format json"
       Then the command succeeds
       And the output reports "definition.engine" as "claude-code"
-      And the output reports "definition.model" as "haiku"
+      And the output reports "definition.engines.claude-code.model" as "haiku"
       And the output reports "resolved.model.value" as "haiku"
       And the output reports "resolved.model.source" as "agent"
       And the output reports "resolved.effort.value" as "low"
@@ -454,6 +454,38 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output reports "settings.model.source" as "agent"
       And the output reports "settings.effort.source" as "default"
       And the output reports "settings.runtime.value" as "host"
+
+    # Ruling 67 (2026-11-10): what you see is what you write. The listing and
+    # the write summary show each engine block in the config's shape,
+    # `engines.<e>: {...}`, never a flat model or `<engine>={mode=...}`.
+    Scenario: The listing and the write summary show the engine blocks as the config holds them
+      # new: owner ruling 67
+      Given an initialized ctxloom project
+      And a profile "dev" exists
+      When I run "ctxloom agent create reviewer --engine claude-code --model haiku --permissions plan --profiles dev --format text"
+      Then the command succeeds
+      And the output contains "engines.claude-code: {model: haiku, permissions: {mode: plan}}"
+      And the output does not contain "claude-code={mode=plan}"
+      When I run "ctxloom agent list --format text"
+      Then the command succeeds
+      And the output contains "engines.claude-code: {model: haiku, permissions: {mode: plan}}"
+      And the output does not contain "    model: haiku"
+      When I run "ctxloom agent list --format json"
+      Then the command succeeds
+      And the output reports "[name=reviewer].engines.claude-code.model" as "haiku"
+      And the output reports "[name=reviewer].engines.claude-code.permissions.mode" as "plan"
+
+    # Ruling 68 (2026-11-10): an agent that names no engine has its settings
+    # written into the default engine's block, and the write says which.
+    Scenario: A setting written for an agent that names no engine names the block it went to
+      # new: owner ruling 68
+      Given an initialized ctxloom project
+      And a profile "dev" exists
+      When I run "ctxloom agent create plain --profiles dev --model haiku --format text"
+      Then the command succeeds
+      And the output contains "agent plain names no engine: its settings were written to agents.plain.engines.claude-code, the default engine's block"
+      And the output contains "engines.claude-code: {model: haiku}"
+      And the file ".ctxloom/config.yaml" contains "claude-code:"
 
     Scenario: A flat model, effort or engine-keyed permissions map is refused as an unknown key
       # new: owner ruling 57, hard migrate (no alias, no migration)
@@ -571,8 +603,11 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output reports "resolved.runtime.value" as "container-rootful"
       And the output reports "resolved.runtime.change" as "ownership-swap"
 
-    Scenario: An agent's env replaces the engine's list, it is not added to it
-      # new: a list replaces (the union would leak a curated list into a narrowed agent)
+    # Ruling 66 (2026-11-10): env MERGES. The engine's names apply to every
+    # run on it, the agent's own are added key by key (agent > engine), on
+    # the agent's own engine and under `run --engine X` alike.
+    Scenario: An agent's env is added to the engine's list, and each name says whose it is
+      # new: owner ruling 66 (amends the earlier "a list replaces")
       Given an initialized ctxloom project
       And the project already has the file ".ctxloom/config.yaml":
         """
@@ -580,6 +615,8 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
         engines:
           claude-code:
             env: [HTTPS_PROXY, NPM_TOKEN]
+          opencode:
+            env: [OPENCODE_ONLY]
         agents:
           narrow:
             engine: claude-code
@@ -588,7 +625,15 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       When I run "ctxloom agent show narrow --format json"
       Then the command succeeds
       And the output reports "resolved.env.value" containing "ALPHA_TOKEN"
+      And the output reports "resolved.env.value" containing "NPM_TOKEN"
       And the output reports "resolved.env.source" as "agent"
+      And the output reports "resolved.env.keys.[name=NPM_TOKEN].source" as "engine"
+      And the output reports "resolved.env.keys.[name=ALPHA_TOKEN].source" as "agent"
+      When I run "ctxloom run --dry-run --agent narrow --engine opencode hello --format json"
+      Then the command succeeds
+      And the output reports "settings.env.value" containing "OPENCODE_ONLY"
+      And the output reports "settings.env.value" containing "ALPHA_TOKEN"
+      And the output reports "settings.env.keys.[name=OPENCODE_ONLY].source" as "engine"
       And the output does not contain "NPM_TOKEN"
 
     Scenario: An agent can no longer be given an engine home

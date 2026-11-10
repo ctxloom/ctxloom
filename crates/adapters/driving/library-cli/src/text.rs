@@ -7,8 +7,9 @@ use std::io::{self, Write};
 use angzarr_presentation::text;
 use library_application::{
     AgentRow, AgentSettings, AgentShow, BundleList, BundleRow, BundleShow, BundleView,
-    CompanionRow, DryRun, EngineRow, ItemList, ItemShow, McpList, McpShow, Premises, ProfileList,
-    ProfileShow, RemoteFound, RuntimeSetting, SearchResults, SkillList, SkillShow, SourcedValue,
+    CompanionRow, DryRun, EngineRow, EnvSetting, ItemList, ItemShow, McpList, McpShow, Premises,
+    ProfileList, ProfileShow, RemoteFound, RuntimeSetting, SearchResults, SkillList, SkillShow,
+    SourcedValue,
 };
 
 use crate::inert::{body, field};
@@ -599,7 +600,7 @@ fn settings_lines(out: &mut dyn Write, s: &AgentSettings, indent: &str) -> io::R
         runtime_text(&s.runtime)
     )?;
     if !capital {
-        writeln!(out, "{indent}{}", names_line("env", &s.env))?;
+        writeln!(out, "{indent}{}", env_line(&s.env))?;
     }
     Ok(())
 }
@@ -634,6 +635,18 @@ fn names_line(key: &str, value: &SourcedValue<Vec<String>>) -> String {
         value.value.join(", ")
     };
     format!("{key}: {names} ({})", value.source)
+}
+
+/// An agent's env: `env: A, B (engine)` when one layer said every name,
+/// else each name with its own layer (`env: A (engine), B (agent)`).
+fn env_line(env: &EnvSetting) -> String {
+    names_line(
+        "env",
+        &SourcedValue {
+            value: env.value.clone(),
+            source: env.source,
+        },
+    )
 }
 
 /// One engine's own settings.

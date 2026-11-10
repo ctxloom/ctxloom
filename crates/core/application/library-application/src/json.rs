@@ -61,6 +61,14 @@ fn inline(value: &Value) -> String {
     }
 }
 
+/// A value on one line in YAML's flow form (`{k: v, ...}`, `[a, b]`), keys
+/// in the order the document holds them.
+// RED stub: wired into the agent row by the green commit.
+#[allow(dead_code)]
+pub fn flow(_value: &Value) -> String {
+    String::new()
+}
+
 /// The block on one line, for a listing: the neutral fields, then each
 /// engine's block, sorted.
 pub fn permissions_line(block: &Value) -> String {

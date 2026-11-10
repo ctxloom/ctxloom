@@ -317,9 +317,20 @@ pub struct AgentRow {
     pub driving: String,
     #[serde(skip_serializing_if = "no_items")]
     pub env: Vec<String>,
+    /// The agent's per-engine blocks as the config holds them
+    /// (`agents.<n>.engines`, owner rulings 57 and 67); absent when none.
+    #[serde(skip_serializing_if = "no_blocks")]
+    pub engines: serde_json::Value,
     /// The permissions block on one line, for the listing.
     #[serde(skip)]
     pub permissions_line: String,
+    /// Each engine block on one line, `engines.<e>: {...}`, for the listing.
+    #[serde(skip)]
+    pub engine_lines: Vec<String>,
+}
+
+fn no_blocks(value: &serde_json::Value) -> bool {
+    value.as_object().is_none_or(serde_json::Map::is_empty)
 }
 
 /// The engine and context an agent resolves to.

@@ -156,7 +156,7 @@ fn test_a_binding_is_written_with_sorted_keys_and_the_rest_of_the_file_is_kept()
     ]);
     assert_eq!(
         text.stdout,
-        "Updated agent \"dev2\" (engine: claude-code, profiles: dev, dev-base, runtime: host, permissions: claude-code={mode=plan}, env: A, B)\n"
+        "Updated agent \"dev2\" (engine: claude-code, profiles: dev, dev-base, runtime: host, engines.claude-code: {permissions: {mode: plan}}, env: A, B)\n"
     );
 }
 
@@ -259,7 +259,7 @@ fn test_an_edit_naming_only_runtime_leaves_every_other_axis_intact() {
                 .contains("runtime: container-rootless")
                 .contains("engine: claude-code")
                 .contains("profiles: dev, ops")
-                .contains("permissions: claude-code={mode=plan}");
+                .contains("engines.claude-code: {permissions: {mode: plan}}");
         } else {
             assert_eq!(reports_as(&ran.json(), "name"), "developer");
         }
@@ -275,7 +275,10 @@ fn test_an_edit_naming_only_runtime_leaves_every_other_axis_intact() {
         assert!(contains_value(&listed, "[name=developer].profiles", "dev"));
         assert!(contains_value(&listed, "[name=developer].profiles", "ops"));
         assert_eq!(
-            reports_as(&listed, "[name=developer].permissions.claude-code.mode"),
+            reports_as(
+                &listed,
+                "[name=developer].engines.claude-code.permissions.mode"
+            ),
             "plan"
         );
     }
@@ -644,4 +647,85 @@ fn test_removing_a_binding_nobody_defined_fails_rather_than_reporting_success() 
         .run(&["agent", "remove", "nosuchagent"])
         .fails()
         .contains("nosuchagent");
+}
+
+// agent.feature: Scenario: The listing and the write summary show the engine
+// blocks as the config holds them (owner ruling 67)
+#[test]
+fn test_the_listing_and_the_write_summary_show_the_engine_blocks_in_the_config_s_shape() {
+    let project = with_dev();
+    let ran = project.run(&[
+        "agent",
+        "create",
+        "reviewer",
+        "--engine",
+        "claude-code",
+        "--model",
+        "haiku",
+        "--permissions",
+        "plan",
+        "--profiles",
+        "dev",
+        "--format",
+        "text",
+    ]);
+    ran.succeeds();
+    assert_eq!(
+        ran.stdout,
+        "Created agent \"reviewer\" (engine: claude-code, profiles: dev, engines.claude-code: {model: haiku, permissions: {mode: plan}})\n"
+    );
+    project
+        .run(&["agent", "list", "--format", "text"])
+        .succeeds()
+        .contains("  reviewer (engine: claude-code)\n    profiles: dev\n    engines.claude-code: {model: haiku, permissions: {mode: plan}}\n")
+        .lacks("claude-code={mode=plan}");
+    let listed = project.run(&["agent", "list", "--format", "json"]).json();
+    assert_eq!(
+        listed[0]["engines"],
+        serde_json::json!({"claude-code": {"model": "haiku", "permissions": {"mode": "plan"}}})
+    );
+    assert_eq!(listed[0]["permissions"], serde_json::json!({}));
+    assert!(listed[0].get("model").is_none(), "{listed}");
+}
+
+// agent.feature: Scenario: A setting written for an agent that names no
+// engine names the block it went to (owner ruling 68)
+#[test]
+fn test_a_setting_written_for_an_agent_that_names_no_engine_names_the_block() {
+    let project = with_dev();
+    let ran = project.run(&[
+        "agent",
+        "create",
+        "plain",
+        "--profiles",
+        "dev",
+        "--model",
+        "haiku",
+        "--format",
+        "text",
+    ]);
+    ran.succeeds();
+    assert_eq!(
+        ran.stdout,
+        "Created agent \"plain\" (profiles: dev, engines.claude-code: {model: haiku})\n"
+    );
+    assert!(
+        ran.stderr.contains("agent plain names no engine: its settings were written to agents.plain.engines.claude-code, the default engine's block"),
+        "{}",
+        ran.stderr
+    );
+    // with the engine named, nothing is said
+    let ran = project.run(&[
+        "agent",
+        "edit",
+        "plain",
+        "--engine",
+        "claude-code",
+        "--effort",
+        "low",
+        "--format",
+        "text",
+    ]);
+    ran.succeeds();
+    assert!(!ran.stderr.contains("names no engine"), "{}", ran.stderr);
 }

@@ -192,8 +192,53 @@ fn agent_row(engine: &str) -> AgentRow {
         permissions: serde_json::json!({}),
         driving: String::new(),
         env: Vec::new(),
+        engines: serde_json::json!({}),
         permissions_line: String::new(),
+        engine_lines: Vec::new(),
     }
+}
+
+// Ruling 67: the listing shows each engine block as the config holds it,
+// `engines.<e>: {...}`, and the neutral posture as `permissions: {...}`.
+#[test]
+fn test_an_agent_listing_shows_the_engine_blocks_in_the_config_s_shape() {
+    let row = AgentRow {
+        permissions_line: "{approver: human}".to_string(),
+        engine_lines: vec![
+            "engines.claude-code: {model: haiku, permissions: {mode: plan}}".to_string(),
+            "engines.opencode: {effort: high}".to_string(),
+        ],
+        ..agent_row("claude-code")
+    };
+    assert_eq!(
+        shown(|out| agent_list(out, &[row])),
+        "Agents (1):\n  dev (engine: claude-code)\n    profiles: p1, p2\n    runtime: host\n    permissions: {approver: human}\n    engines.claude-code: {model: haiku, permissions: {mode: plan}}\n    engines.opencode: {effort: high}\n"
+    );
+}
+
+// Ruling 66: an env one layer said whole is said once; a merged one names
+// each name's layer.
+#[test]
+fn test_an_agent_s_env_line_names_each_layer_when_they_differ() {
+    use library_application::{EnvKey, EnvSetting};
+    let key = |name: &str, source: &'static str| EnvKey {
+        name: name.to_string(),
+        source,
+    };
+    let env = |keys: Vec<EnvKey>, source: &'static str| EnvSetting {
+        value: keys.iter().map(|k| k.name.clone()).collect(),
+        source,
+        keys,
+    };
+    assert_eq!(env_line(&env(Vec::new(), "default")), "env: none (default)");
+    assert_eq!(
+        env_line(&env(vec![key("A", "engine"), key("B", "engine")], "engine")),
+        "env: A, B (engine)"
+    );
+    assert_eq!(
+        env_line(&env(vec![key("A", "engine"), key("B", "agent")], "agent")),
+        "env: A (engine), B (agent)"
+    );
 }
 
 // agent.go renderAgentList: an agent with no engine says the project default.
@@ -917,9 +962,10 @@ fn settings(model: Option<&str>) -> library_application::AgentSettings {
             overrides_source: None,
             change: None,
         },
-        env: SourcedValue {
+        env: library_application::EnvSetting {
             value: Vec::new(),
             source: "default",
+            keys: Vec::new(),
         },
     }
 }

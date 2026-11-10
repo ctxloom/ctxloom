@@ -268,7 +268,13 @@ pub struct Effective {
     pub permissions: Sourced<String>,
     pub runtime: Sourced<String>,
     pub runtime_override: Override,
+    /// The names a launch passes through: the engine block's, then the
+    /// agent's own added (owner ruling 66: merged key by key, agent > engine).
+    /// Its source is the highest layer that said any of them.
     pub env: Sourced<Vec<String>>,
+    /// Each name of `env`, in its order, with the layer that said it (a name
+    /// both say is the agent's).
+    pub env_keys: Vec<Sourced<String>>,
     pub command: Sourced<String>,
     pub session_home: Sourced<String>,
     pub auth: Sourced<AuthSource>,
@@ -370,6 +376,7 @@ fn resolve(config: &Value, agent: &str, on: Option<&str>) -> Result<Effective, E
         runtime,
         runtime_override,
         env,
+        env_keys: Vec::new(),
         command: from_block("command").map_or_else(
             || default(default_command(&name)),
             |value| Sourced {

@@ -3,7 +3,7 @@
 use angzarr_yaml::parse;
 use serde_json::json;
 
-use super::{permissions, permissions_line, scalar};
+use super::{flow, permissions, permissions_line, scalar};
 
 fn doc(text: &str) -> angzarr_yaml::Value {
     parse(text).expect("a document")
@@ -61,4 +61,21 @@ fn test_the_permissions_line_lists_neutral_fields_then_sorted_engine_blocks() {
         permissions_line(&doc("approval_timeout: 5m\nnetwork: off\n")),
         "approval_timeout=5m, network=off"
     );
+}
+
+// Ruling 67: a value on one line in YAML's flow form, keys in the order the
+// config holds them: what is shown is what is written.
+#[test]
+fn test_a_value_in_flow_form_keeps_the_config_s_order() {
+    assert_eq!(
+        flow(&doc(
+            "model: haiku\neffort: low\npermissions:\n  mode: plan\n"
+        )),
+        "{model: haiku, effort: low, permissions: {mode: plan}}"
+    );
+    assert_eq!(flow(&doc("[a, b]\n")), "[a, b]");
+    assert_eq!(flow(&doc("plain\n")), "plain");
+    assert_eq!(flow(&doc("{}\n")), "{}");
+    assert_eq!(flow(&doc("a:\n")), "{a: null}");
+    assert_eq!(flow(&angzarr_yaml::Value::Null), "null");
 }

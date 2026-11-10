@@ -394,7 +394,9 @@ impl Agent {
             permissions: crate::json::permissions(&self.permissions),
             driving: self.driving.clone(),
             env: self.env.clone(),
+            engines: serde_json::json!({}),
             permissions_line: crate::json::permissions_line(&self.permissions),
+            engine_lines: Vec::new(),
         }
     }
 }

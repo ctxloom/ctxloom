@@ -80,6 +80,8 @@ library-application-notice-config-keyless = config file { $path } defines no key
 library-application-notice-runtime-weakens = runtime { $runtime } replaces { $key } { $replaced }: weakens isolation
 library-application-notice-runtime-strengthens = runtime { $runtime } replaces { $key } { $replaced }: strengthens isolation
 library-application-notice-runtime-ownership-swap = runtime { $runtime } replaces { $key } { $replaced }: ownership differs, not interchangeable
+library-application-notice-default-engine-block = agent { $agent } names no engine: its settings were written to agents.{ $agent }.{ $block }, the default engine's block
+library-application-notice-default-engine-block-fix = to write another engine's block, name it with --engine
 library-application-notice-root-ignored = CTXLOOM_ROOT={ $root } is not a directory; ignoring it
 
 ## Writes (S2). A refused write has written nothing.

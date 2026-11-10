@@ -100,7 +100,19 @@ fn test_an_agent_on_another_engine_takes_its_block_for_that_engine() {
     assert_eq!(got.effort, None);
     assert_eq!(got.permissions, text("", Source::Default));
     assert_eq!(got.runtime, text("host", Source::Agent));
-    assert_eq!(got.env, sourced(names(&["ALPHA"]), Source::Agent));
+    // Ruling 66: the engine's env applies to any run on it, and the agent's
+    // own names are added to it (agent > engine, key by key).
+    assert_eq!(
+        got.env,
+        sourced(names(&["OPENCODE_ONLY", "ALPHA"]), Source::Agent)
+    );
+    assert_eq!(
+        got.env_keys,
+        vec![
+            text("OPENCODE_ONLY", Source::Engine),
+            text("ALPHA", Source::Agent)
+        ]
+    );
     assert_eq!(got.command, text("opencode", Source::Default));
     assert_eq!(
         got.auth,
@@ -286,11 +298,12 @@ fn test_moving_between_runtimes_is_weaker_stronger_or_an_ownership_swap() {
     );
 }
 
-// env: resolved, agent > engine > default; a list
-// replaces, it is never the union (a union would let an engine's curated list
-// leak into an agent that narrowed it)
+// Ruling 66: env MERGES, agent > engine > default, key by key: the engine's
+// names apply to every agent on it, the agent's own are added, and a name
+// both say is the agent's. The list's source is the highest layer that said
+// any of it; each name keeps its own.
 #[test]
-fn test_env_is_the_agent_s_over_the_engine_s_and_a_list_replaces() {
+fn test_env_is_the_engine_s_merged_with_the_agent_s_key_by_key() {
     let engine = "engines:\n  claude-code:\n    env: [HTTPS_PROXY, NPM_TOKEN]\n";
     let got = of(
         &format!("{engine}agents:\n  dev:\n    engine: claude-code\n"),
@@ -300,12 +313,57 @@ fn test_env_is_the_agent_s_over_the_engine_s_and_a_list_replaces() {
         got.env,
         sourced(names(&["HTTPS_PROXY", "NPM_TOKEN"]), Source::Engine)
     );
+    assert_eq!(
+        got.env_keys,
+        vec![
+            text("HTTPS_PROXY", Source::Engine),
+            text("NPM_TOKEN", Source::Engine)
+        ]
+    );
 
     let got = of(
-        &format!("{engine}agents:\n  dev:\n    engine: claude-code\n    env: [ALPHA]\n"),
+        &format!("{engine}agents:\n  dev:\n    engine: claude-code\n    env: [ALPHA, NPM_TOKEN]\n"),
         "dev",
     );
+    assert_eq!(
+        got.env,
+        sourced(names(&["HTTPS_PROXY", "NPM_TOKEN", "ALPHA"]), Source::Agent)
+    );
+    assert_eq!(
+        got.env_keys,
+        vec![
+            text("HTTPS_PROXY", Source::Engine),
+            text("NPM_TOKEN", Source::Agent),
+            text("ALPHA", Source::Agent)
+        ]
+    );
+
+    // an agent's empty list adds nothing: the engine's names still apply
+    let got = of(
+        &format!("{engine}agents:\n  dev:\n    engine: claude-code\n    env: []\n"),
+        "dev",
+    );
+    assert_eq!(
+        got.env,
+        sourced(names(&["HTTPS_PROXY", "NPM_TOKEN"]), Source::Engine)
+    );
+
+    // an agent's names with no engine list are the agent's alone
+    let got = of("agents:\n  dev:\n    env: [ALPHA, ALPHA]\n", "dev");
     assert_eq!(got.env, sourced(names(&["ALPHA"]), Source::Agent));
+    assert_eq!(got.env_keys, vec![text("ALPHA", Source::Agent)]);
+}
+
+// Ruling 66: the plain path and `run --engine X` layer env the same way.
+#[test]
+fn test_env_merges_the_same_on_the_agent_s_engine_and_on_another() {
+    let config = cfg("engines:\n  claude-code:\n    env: [A]\n  opencode:\n    env: [O]\nagents:\n  dev:\n    engine: claude-code\n    env: [B]\n");
+    let own = effective(&config, "dev").unwrap();
+    let named = effective_on(&config, "dev", "claude-code").unwrap();
+    let other = effective_on(&config, "dev", "opencode").unwrap();
+    assert_eq!(own.env.value, names(&["A", "B"]));
+    assert_eq!(named.env, own.env);
+    assert_eq!(other.env.value, names(&["O", "B"]));
 }
 
 #[test]
@@ -590,7 +648,8 @@ fn test_a_drive_of_an_agent_carries_its_engine_block_and_its_own_passthrough() {
     let drive = Drive::from(&effective(&config, "dev").unwrap());
     assert_eq!(drive.command, "/x/claude");
     assert_eq!(drive.session_home, "host");
-    assert_eq!(drive.env, names(&["B"]));
+    // ruling 66: the engine's names, then the agent's
+    assert_eq!(drive.env, names(&["A", "B"]));
 }
 
 #[test]

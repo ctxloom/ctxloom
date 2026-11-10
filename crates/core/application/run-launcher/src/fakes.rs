@@ -429,6 +429,33 @@ impl Engine for Credentialed {
     }
 }
 
+/// An engine whose terminal session ends with its exit (as opencode's does),
+/// and is otherwise `0`.
+pub struct EndsByExit(pub ScriptedEngine);
+
+// A test double shipped for tests only; its tests are the callers' own.
+#[cfg_attr(test, mutants::skip)]
+impl Engine for EndsByExit {
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+    fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
+        self.0.prepare(request)
+    }
+    fn drive_turn(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
+        self.0.drive_turn(request)
+    }
+    fn finish_turn(&self, output: &TurnOutput) -> TurnOutcome {
+        self.0.finish_turn(output)
+    }
+    fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
+        self.0.drive_interactive(request)
+    }
+    fn session_ends_with_exit(&self) -> bool {
+        true
+    }
+}
+
 /// A file of a session directory, by its harp and relative path.
 type Files = BTreeMap<(String, String), Vec<u8>>;
 

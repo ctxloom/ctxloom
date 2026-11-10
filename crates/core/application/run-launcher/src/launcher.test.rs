@@ -844,3 +844,84 @@ async fn the_orders_engine_settings_reach_the_engines_request() {
         );
     }
 }
+
+// Ruling 58: an engine with no hook for its session's end (opencode) has it
+// recorded by the launcher at its terminal command's exit, once, before the
+// run ends; an engine whose hooks say it (claude) does not, and neither does a
+// command that never started, nor a child's turn.
+#[tokio::test]
+async fn an_engine_whose_session_ends_with_its_exit_has_the_end_recorded_at_the_exit() {
+    use crate::fakes::EndsByExit;
+    let launch = |interactive: bool, runner: ScriptedRunner| {
+        let mut asked = order("fake");
+        asked.interactive = interactive;
+        asked.prompt = String::new();
+        let edge = Arc::new(TestEdge::new());
+        let records = MemoryRecords::default();
+        let launcher = Launcher::new(
+            Arc::clone(&edge),
+            runner,
+            records.clone(),
+            vec![Arc::new(EndsByExit(ScriptedEngine::answering("ok", None)))
+                as Arc<dyn run_ports::Engine>],
+            orders_with(asked),
+            limits(),
+        );
+        (edge, launcher, records)
+    };
+    let (edge, mut launcher, records) = launch(true, ScriptedRunner::exits(0));
+    let mut recorder = Recorder::new(records.clone());
+    recorder.watch(SESSION);
+    enqueued(&edge, SESSION, HARP).await;
+    launcher.step(&edge.store, edge.catalog()).await.unwrap();
+    recorder.step(&edge.store, edge.catalog()).await.unwrap();
+    let ended: Vec<_> = session_events(&edge, SESSION)
+        .await
+        .into_iter()
+        .filter_map(|e| match e {
+            SessionEvent::SessionEnded(ended) => Some(ended),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        ended,
+        [sessions::SessionEnded {
+            native_session: String::new(),
+            reason: "exit".to_string(),
+        }]
+    );
+    let transcript = records
+        .text(HARP, "transcripts/transcript.jsonl")
+        .expect("the end is a line");
+    assert_eq!(transcript.lines().count(), 1, "{transcript}");
+    assert!(
+        transcript.contains(r#""kind":"session_end""#),
+        "{transcript}"
+    );
+    assert_eq!(
+        names(&run_events(&edge, SESSION).await),
+        ["RunEnqueued", "RunnerAttached", "RunnerStarted", "RunEnded"]
+    );
+
+    for (interactive, runner) in [
+        (
+            true,
+            ScriptedRunner::answering(Launch::NotStarted(LaunchFailure {
+                deterministic: true,
+                detail: "no opencode".to_string(),
+            })),
+        ),
+        (false, ScriptedRunner::exits(0)),
+    ] {
+        let (edge, mut launcher, _) = launch(interactive, runner);
+        enqueued(&edge, SESSION, HARP).await;
+        launcher.step(&edge.store, edge.catalog()).await.unwrap();
+        assert!(
+            !session_events(&edge, SESSION)
+                .await
+                .iter()
+                .any(|e| matches!(e, SessionEvent::SessionEnded(_))),
+            "interactive {interactive}: no end recorded"
+        );
+    }
+}

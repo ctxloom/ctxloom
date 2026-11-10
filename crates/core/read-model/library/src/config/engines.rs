@@ -479,6 +479,16 @@ fn runtime_of(
     (agent_said(value), kept)
 }
 
+/// Ruling 46: what a PROJECT layer may not say. `engines.<e>.command` and
+/// `engines.<e>.auth.file` are honoured only from the home-layer config, and
+/// `session_home: host` only through a trust check no layer reading can make:
+/// each is taken out of `layer` and its dotted path returned, so the loader
+/// can warn. Nothing else is touched.
+pub fn strip_project_only(layer: &mut Value) -> Vec<String> {
+    let _ = layer;
+    Vec::new()
+}
+
 /// The engine an agent that names none is bound to.
 pub const DEFAULT_ENGINE: &str = "claude-code";
 

@@ -461,3 +461,50 @@ fn test_the_source_words_are_stable() {
     assert_eq!(Source::Project.word(), "project");
     assert_eq!(Source::Default.word(), "default");
 }
+
+// ruling 46: a project layer cannot name the program to run, a credentials
+// file, or the host's own session home
+fn stripped(text: &str) -> (Vec<String>, Value) {
+    let mut layer = cfg(text);
+    let removed = strip_project_only(&mut layer);
+    (removed, layer)
+}
+
+#[test]
+fn a_project_layer_loses_the_command_the_auth_file_and_a_host_session_home() {
+    let (removed, layer) = stripped(
+        "engines:\n  claude-code:\n    command: /tmp/evil\n    session_home: host\n    auth:\n      env: [A_TOKEN]\n      file: /x/creds.json\n    runtime: container-rootless\n    env: [HTTPS_PROXY]\n",
+    );
+    assert_eq!(
+        removed,
+        [
+            "engines.claude-code.command",
+            "engines.claude-code.session_home",
+            "engines.claude-code.auth.file"
+        ]
+    );
+    assert_eq!(
+        layer,
+        cfg("engines:\n  claude-code:\n    auth:\n      env: [A_TOKEN]\n    runtime: container-rootless\n    env: [HTTPS_PROXY]\n")
+    );
+}
+
+#[test]
+fn a_file_only_auth_leaves_no_empty_auth_behind() {
+    let (removed, layer) = stripped("engines:\n  claude-code:\n    auth:\n      file: /x\n");
+    assert_eq!(removed, ["engines.claude-code.auth.file"]);
+    assert!(layer
+        .get("engines")
+        .and_then(|e| e.get("claude-code"))
+        .and_then(|b| b.get("auth"))
+        .is_none());
+}
+
+#[test]
+fn what_a_project_may_say_is_left_alone() {
+    let text = "engines:\n  claude-code:\n    session_home: session\n    auth: none\n    runtime: container-rootful\nagents:\n  dev:\n    model: haiku\n    runtime: host\n";
+    let (removed, layer) = stripped(text);
+    assert!(removed.is_empty(), "{removed:?}");
+    assert_eq!(layer, cfg(text));
+    assert!(stripped("agents: {}\n").0.is_empty());
+}

@@ -229,7 +229,7 @@ async fn the_evidence_reaches_the_runs_decision_and_its_refusal_comes_back_whole
                     variables: "ANTHROPIC_API_KEY".to_string(),
                 },
             ],
-            plan_aborted: false,
+            fatal_findings: 0,
         })
     );
     let cover = angzarr_embedded::v1::Cover {

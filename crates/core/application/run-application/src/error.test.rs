@@ -163,7 +163,7 @@ fn no_prompt_and_an_unknown_engine_are_no_codes_of_this_crate() {
 // is said, in check order. A single refusal holds no list (ruling 73b).
 #[test]
 fn an_aggregate_is_exit_3_with_fatal_findings_and_says_each_refusal_in_order() {
-    let aggregate = |plan_aborted| {
+    let aggregate = |fatal_findings| {
         RunError::Refused(RunRejection::LaunchRefused {
             refusals: vec![
                 RunRejection::NoPrompt,
@@ -172,12 +172,12 @@ fn an_aggregate_is_exit_3_with_fatal_findings_and_says_each_refusal_in_order() {
                     known: "y".to_string(),
                 },
             ],
-            plan_aborted,
+            fatal_findings,
         })
     };
-    assert_eq!(aggregate(false).exit_code(), 2);
-    assert_eq!(aggregate(true).exit_code(), 3);
-    let codes: Vec<String> = aggregate(true)
+    assert_eq!(aggregate(0).exit_code(), 2);
+    assert_eq!(aggregate(1).exit_code(), 3);
+    let codes: Vec<String> = aggregate(1)
         .refusals()
         .iter()
         .map(|r| r.code().to_string())

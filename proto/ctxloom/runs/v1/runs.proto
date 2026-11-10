@@ -106,9 +106,10 @@ message EnqueueRun {
   // judge) for an interactive run, and for an engine that cannot be driven
   // (its policy is its launcher's, 73d).
   CredentialEvidence credential = 10;
-  // Whether the plan refused the run for fatal startup findings. The findings
-  // themselves are the library's and are said beside the refusal (73c).
-  bool plan_aborted = 11;
+  // How many fatal startup findings the plan refused the run for (ruling 73h:
+  // a count; the findings' text never enters the proto: it is the library's,
+  // said beside the refusal, 73c).
+  uint32 fatal_findings = 11;
 }
 
 // A child's credential, as the run application found it (ruling 53 and owner
@@ -466,8 +467,8 @@ message UnknownEngine {
 // most one, and at most one of the two credential fields is set: they are
 // `repeated` because the generated domain layer keeps no presence for a
 // singular message field, and an empty refusal (NoPrompt) must still be seen.
-// The fatal findings are not here: `plan_aborted` says only that there were
-// some, and the library says them.
+// The fatal findings are not here: `fatal_findings` says only how many there
+// were, and the library says them.
 message LaunchRefused {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 
@@ -475,7 +476,7 @@ message LaunchRefused {
   repeated UnknownEngine unknown_engine = 2;
   repeated NoCredential no_credential = 3;
   repeated FileOnlyCredential file_only_credential = 4;
-  bool plan_aborted = 5;
+  uint32 fatal_findings = 5;
 }
 
 // endregion refusals

@@ -37,8 +37,9 @@ pub struct Evidence {
     /// A child's credential; none for a session, and for an engine that
     /// cannot be driven (ruling 73d).
     pub credential: Option<CredentialEvidence>,
-    /// Whether the plan refused the run for fatal startup findings.
-    pub plan_aborted: bool,
+    /// How many fatal startup findings the plan refused the run for (ruling
+    /// 73h: a count; the findings themselves stay the library's).
+    pub fatal_findings: u32,
 }
 
 /// What a child's run authenticates with (ruling 53).
@@ -63,7 +64,7 @@ impl Evidence {
             engine: engine.to_string(),
             drivable_engines: vec![engine.to_string()],
             credential: None,
-            plan_aborted: false,
+            fatal_findings: 0,
         }
     }
 }
@@ -129,7 +130,7 @@ impl<E: Edge, T: TokenSource> Enqueuer<E, T> {
                 accepted_variables: Vec::new(),
                 accepted_set: false,
             },
-            plan_aborted: false,
+            fatal_findings: 0,
         };
         let _ = request.evidence;
         let book = CommandBook::command_of(cover, &runs::RunCommand::from(enqueue));

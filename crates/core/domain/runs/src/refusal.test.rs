@@ -74,7 +74,7 @@ fn table() -> Vec<(TypedRefusal, RunRejection)> {
                 }],
                 no_credential: Vec::new(),
                 file_only_credential: Vec::new(),
-                plan_aborted: true,
+                fatal_findings: 1,
             }),
             RunRejection::LaunchRefused {
                 refusals: vec![
@@ -84,7 +84,7 @@ fn table() -> Vec<(TypedRefusal, RunRejection)> {
                         known: "claude-code".to_string(),
                     },
                 ],
-                plan_aborted: true,
+                fatal_findings: 1,
             },
         ),
         (
@@ -96,14 +96,14 @@ fn table() -> Vec<(TypedRefusal, RunRejection)> {
                     variables: "A, B".to_string(),
                 }],
                 file_only_credential: Vec::new(),
-                plan_aborted: false,
+                fatal_findings: 0,
             }),
             RunRejection::LaunchRefused {
                 refusals: vec![RunRejection::NoCredential {
                     engine: "claude-code".to_string(),
                     variables: "A, B".to_string(),
                 }],
-                plan_aborted: false,
+                fatal_findings: 0,
             },
         ),
     ]
@@ -197,7 +197,7 @@ fn the_enqueue_refuses_each_pre_launch_check_with_its_message_under_its_status()
                 variables: "V".to_string(),
             },
         ],
-        plan_aborted: false,
+        fatal_findings: 0,
     };
     let cases = [
         (RunRejection::NoPrompt, invalid),

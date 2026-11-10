@@ -145,7 +145,7 @@ fn enqueue() -> EnqueueRun {
         engine: "claude-code".to_string(),
         drivable_engines: vec!["claude-code".to_string(), "opencode".to_string()],
         credential: not_asked(),
-        plan_aborted: false,
+        fatal_findings: 0,
     }
 }
 
@@ -883,7 +883,7 @@ fn two_failing_checks_are_one_launch_refused_holding_both_in_check_order() {
         rejection,
         RunRejection::LaunchRefused {
             refusals: vec![RunRejection::NoPrompt, no_credential()],
-            plan_aborted: false,
+            fatal_findings: 0,
         }
     );
     let (code, args) = said(&rejection);
@@ -902,40 +902,40 @@ fn an_undriven_engines_credential_is_not_judged() {
         prompt_given: false,
         engine: "bogus-engine".to_string(),
         credential: accepting(false),
-        plan_aborted: true,
+        fatal_findings: 1,
         ..one_shot()
     };
     assert_eq!(
         run.rejection(cmd),
         RunRejection::LaunchRefused {
             refusals: vec![RunRejection::NoPrompt, unknown("bogus-engine")],
-            plan_aborted: true,
+            fatal_findings: 1,
         }
     );
 }
 
-// Rulings 73a, 73c: the plan's fatal findings are not a refusal of the list,
+// Rulings 73a, 73c, 73h: the plan's fatal findings (a count) are not a refusal of the list,
 // but they refuse the launch: alone, as an empty aggregate the application
 // says as the plan's own error; beside one refusal, as the aggregate of it,
 // counting the findings as one failed check.
 #[test]
-fn a_plan_aborted_refuses_the_launch_beside_or_without_the_typed_refusals() {
+fn fatal_findings_refuse_the_launch_beside_or_without_the_typed_refusals() {
     let mut run = Run::new();
     let alone = EnqueueRun {
-        plan_aborted: true,
+        fatal_findings: 1,
         ..one_shot()
     };
     assert_eq!(
         run.rejection(alone),
         RunRejection::LaunchRefused {
             refusals: Vec::new(),
-            plan_aborted: true,
+            fatal_findings: 1,
         }
     );
     assert_eq!(run.event_count(), 0);
     let mut run = Run::new();
     let beside = EnqueueRun {
-        plan_aborted: true,
+        fatal_findings: 3,
         credential: accepting(false),
         ..one_shot()
     };
@@ -944,9 +944,10 @@ fn a_plan_aborted_refuses_the_launch_beside_or_without_the_typed_refusals() {
         rejection,
         RunRejection::LaunchRefused {
             refusals: vec![no_credential()],
-            plan_aborted: true,
+            fatal_findings: 3,
         }
     );
+    // Ruling 73h: the findings are counted, not said; as checks they are one.
     assert_eq!(said(&rejection).1["count"], "2");
 }
 
@@ -964,5 +965,5 @@ fn the_evidence_never_reaches_the_event() {
     let bytes = prost::Message::encode_to_vec(&wire);
     let back: runs_proto::v1::EnqueueRun = prost::Message::decode(bytes.as_slice()).unwrap();
     assert!(!back.prompt_given && back.engine.is_empty() && back.drivable_engines.is_empty());
-    assert!(back.credential.is_none() && !back.plan_aborted);
+    assert!(back.credential.is_none() && back.fatal_findings == 0);
 }

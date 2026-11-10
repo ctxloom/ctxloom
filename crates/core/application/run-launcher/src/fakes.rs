@@ -170,7 +170,7 @@ pub async fn enqueued(edge: &TestEdge, session: &str, harp: &str) {
             accepted_variables: Vec::new(),
             accepted_set: false,
         },
-        plan_aborted: false,
+        fatal_findings: 0,
     }
     .into();
     edge.handle(command_book(run_cover(session), enqueue.to_any()))

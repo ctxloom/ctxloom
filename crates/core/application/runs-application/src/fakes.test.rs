@@ -321,7 +321,7 @@ impl World {
                     accepted_variables: Vec::new(),
                     accepted_set: false,
                 },
-                plan_aborted: false,
+                fatal_findings: 0,
             },
         ))
         .await

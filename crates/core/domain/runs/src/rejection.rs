@@ -37,11 +37,11 @@ pub enum RunRejection {
     UnknownEngine { name: String, known: String },
     /// A launch refused for more than one reason, or for one beside the plan's
     /// fatal findings (rulings 73, 73b, 73c): each refusal, in check order;
-    /// `plan_aborted` when the plan had fatal findings too (the library says
+    /// `fatal_findings`, how many fatal findings the plan had too (the library says
     /// them). Its `count` is how many checks failed, the findings one of them.
     LaunchRefused {
         refusals: Vec<RunRejection>,
-        plan_aborted: bool,
+        fatal_findings: u32,
     },
 }
 
@@ -95,10 +95,10 @@ impl Diagnostic for RunRejection {
             ],
             RunRejection::LaunchRefused {
                 refusals,
-                plan_aborted,
+                fatal_findings,
             } => vec![(
                 "count",
-                (refusals.len() as u64 + u64::from(*plan_aborted)).into(),
+                (refusals.len() as u64 + u64::from(*fatal_findings > 0)).into(),
             )],
             RunRejection::AlreadyEnqueued
             | RunRejection::NoRun
@@ -142,7 +142,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         }),
         Box::new(RunRejection::LaunchRefused {
             refusals: vec![RunRejection::NoPrompt],
-            plan_aborted: true,
+            fatal_findings: 1,
         }),
     ]
 }

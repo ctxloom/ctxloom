@@ -289,7 +289,7 @@ fn a_refusal_ends_the_command_with_its_code_and_exit_and_writes_no_reply() {
 // command line to list.
 #[test]
 fn an_aggregate_refusal_hands_on_each_refusal_in_check_order() {
-    for (plan_aborted, exit) in [(false, 2), (true, 3)] {
+    for (fatal_findings, exit) in [(0, 2), (2, 3)] {
         let mut service = Double::failing(RunError::Refused(RunRejection::LaunchRefused {
             refusals: vec![
                 RunRejection::NoPrompt,
@@ -298,7 +298,7 @@ fn an_aggregate_refusal_hands_on_each_refusal_in_check_order() {
                     variables: "CLAUDE_CODE_OAUTH_TOKEN".to_string(),
                 },
             ],
-            plan_aborted,
+            fatal_findings,
         }));
         let ran = go(&["--one-shot"], Some(Format::Json), None, &mut service);
         assert_eq!(ran.exit, Err(("runs-launch-refused".to_string(), exit)));

@@ -2193,7 +2193,7 @@ async fn two_failing_checks_are_refused_together_in_check_order() {
         .result
         .unwrap_err();
     assert!(
-        matches!(&error, RunError::Refused(runs::RunRejection::LaunchRefused { refusals, plan_aborted: false })
+        matches!(&error, RunError::Refused(runs::RunRejection::LaunchRefused { refusals, fatal_findings: 0 })
             if *refusals == [runs::RunRejection::NoPrompt, no_credential_of_fake()]),
         "{error:?}"
     );
@@ -2212,7 +2212,7 @@ async fn fatal_findings_beside_a_refusal_are_exit_3_and_the_refusal_is_kept() {
     let done = rig.runs.one_shot(&Flags::default(), &ask()).await;
     let error = done.result.unwrap_err();
     assert!(
-        matches!(&error, RunError::Refused(runs::RunRejection::LaunchRefused { refusals, plan_aborted: true })
+        matches!(&error, RunError::Refused(runs::RunRejection::LaunchRefused { refusals, fatal_findings: 1 })
             if *refusals == [no_credential_of_fake()]),
         "{error:?}"
     );
@@ -2385,7 +2385,7 @@ async fn the_enqueue_is_judged_on_the_engines_driven_and_the_credentials_names()
     let evidence = evidence.expect("an enqueue was sent");
     assert_eq!(evidence.engine, "fake");
     assert_eq!(evidence.drivable_engines, ["fake"]);
-    assert!(evidence.prompt_given && !evidence.plan_aborted);
+    assert!(evidence.prompt_given && evidence.fatal_findings == 0);
     let credential = evidence.credential;
     assert_eq!(
         credential.accepted_variables,

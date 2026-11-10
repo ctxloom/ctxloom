@@ -6,7 +6,9 @@
 //! blocks (opencode's `OPENCODE_*`) or the config say, for a child's turn and
 //! the human's terminal alike. The `CTXLOOM_PERMIT_*` variable itself is never
 //! passed. A permit never brings in a `CTXLOOM_*` name (the run's own hook
-//! variables and home are the run's). It may bring a child the primary's own
+//! variables and home are the run's), nor any other name ctxloom sets for the
+//! engine (owner ruling 78b: a denylist DERIVED from what was set, see
+//! [`owned_names`], never an allowlist of permittable names). It may bring a child the primary's own
 //! `ANTHROPIC_AUTH_TOKEN` (owner ruling 78a: the explicit permit wins over the
 //! primary-only rule; the cost is that such a child holds the primary's token,
 //! no credential of its own). A value is never shown: [`Permits`]' `Debug`
@@ -75,15 +77,18 @@ pub fn owned_names(
     command: &BTreeMap<String, String>,
     also: &[String],
 ) -> BTreeSet<String> {
-    let _ = (caller, command);
-    also.iter().cloned().collect()
+    command
+        .iter()
+        .filter(|(name, value)| caller.get(*name) != Some(*value))
+        .map(|(name, _)| name.clone())
+        .chain(also.iter().cloned())
+        .collect()
 }
 
 /// The permits of `caller`, `owned` the names ctxloom sets for the engine
 /// ([`owned_names`]): the same for a child's turn and the human's terminal
 /// session.
 pub fn permits(caller: &BTreeMap<String, String>, owned: &BTreeSet<String>) -> Permits {
-    let _ = owned;
     let mut got = Permits::default();
     for (permit, value) in caller {
         let Some(name) = permit.strip_prefix(PERMIT_PREFIX) else {
@@ -94,6 +99,8 @@ pub fn permits(caller: &BTreeMap<String, String>, owned: &BTreeSet<String>) -> P
             got.ignored.push(Ignored::NoName { permit });
         } else if name.starts_with(RUNS_OWN) {
             got.ignored.push(Ignored::RunsOwn { permit });
+        } else if owned.contains(name) {
+            got.ignored.push(Ignored::Owned { permit });
         } else {
             got.forwarded.insert(name.to_string(), value.clone());
         }

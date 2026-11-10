@@ -498,6 +498,11 @@ where
         // listener variables, from a session it was started inside, are
         // replaced by this run's, never passed on.
         let mut env = self.env.clone();
+        // What the run itself sets for the engine, which no permit replaces
+        // (ruling 78b): HOME is ctxloom's own home (its hook processes' wiring
+        // reads it first), and the PATH below; the CTXLOOM_* names are the
+        // run's whatever this says.
+        let mut owned = vec!["HOME".to_string()];
         for name in run_ports::HOOK_VARIABLES {
             env.remove(name);
         }
@@ -513,9 +518,8 @@ where
                 None => self.place.program_dir.clone(),
             };
             env.insert("PATH".to_string(), path);
+            owned.push("PATH".to_string());
         }
-        // Red: what the run set is not yet named.
-        let owned: Vec<String> = Vec::new();
         let run_text = text(&enqueued.run);
         env.extend(run_ports::hook_environment(
             &told.endpoint,

@@ -315,9 +315,19 @@ name is ignored and the run says so as a notice (by the permit's name, never
 its value); no value renders in a `Debug` (every environment value is
 withheld, see the credentials paragraph). An explicit `CTXLOOM_PERMIT_ANTHROPIC_AUTH_TOKEN` does give a
 child the primary's token (78a): the cost is that such a child holds the
-primary's own token, no distinct per-child credential. A permit may also
-replace what the engine relocated (`HOME`, an XDG base, a config dir): it is
-taken literally; `session_home: host` sets `CLAUDE_CONFIG_DIR`
+primary's own token, no distinct per-child credential. A permit never
+replaces what ctxloom itself sets for the engine (ruling 78b: a DENYLIST
+DERIVED from what was set, never an allowlist): `run_ports::owned_names` is
+every name in the engine's command whose value is not the caller's as passed
+through (what the adapter computed: `HOME` and the XDG bases relocated,
+`CLAUDE_CONFIG_DIR`, `OPENCODE_CONFIG_DIR`, ...) plus the order's `owned`,
+the names the run set before the engine saw the environment (`HOME`,
+ctxloom's own home, which its hook processes' wiring reads first, and the
+`PATH` it builds with the program's directory first); a denied permit is
+ignored with the same notice (said from the launch, `Launched::ignored`). A
+name the adapter merely passes through (`LANG`) stays permittable, as does an
+XDG base under `session_home: host` (passed through, not relocated). Claude
+stays token-only on Windows (ruling 82); `session_home: host` sets `CLAUDE_CONFIG_DIR`
 to `$HOME/.claude` (no `HOME` is `run-ports-engine-no-host-home`), links no
 login there; the hooks still fire, because the launch (the terminal's and a
 child's turn) passes `--settings <session dir>/settings.json` (the ctxloom-owned file `prepare` writes,

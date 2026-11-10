@@ -148,12 +148,44 @@ pub struct Credentials {
     /// The environment variables any one of which authenticates the human's
     /// PRIMARY session; with one set, it shares no login file.
     pub primary_env: &'static [&'static str],
-    /// The user's own configuration directory for this engine, relative to
-    /// their home (claude: `.claude`), where its login file is.
+    /// The user's own directory for this engine, relative to their home
+    /// (claude: `.claude`; opencode: `.local/share/opencode`, its data
+    /// directory), where its login file is.
     pub user_dir: &'static str,
-    /// The name of the login file, in the user's directory and in a session
-    /// home alike, that the primary may share by a link. Never read.
+    /// A variable that, set to an absolute path, moves the user's directory
+    /// to `<its value>/<the second name>` (opencode: `XDG_DATA_HOME`,
+    /// `opencode`); none, or unset, is [`Credentials::user_dir`].
+    pub user_dir_variable: Option<(&'static str, &'static str)>,
+    /// The name of the login file, in the user's directory and in the session
+    /// home's [`Credentials::home_dir`] alike, that the primary may share by a
+    /// link. Never read.
     pub login_file: Option<&'static str>,
+    /// Where under the session home the engine looks for its login file:
+    /// empty is the home itself (claude's config dir), opencode's is its
+    /// relocated data directory (`xdg/data/opencode`).
+    pub home_dir: &'static str,
+    /// What the human is told to do when her primary session is handed no
+    /// login (none there, a platform that cannot link, a link that failed):
+    /// the engine's own way to sign in, in its own words.
+    pub sign_in: &'static str,
+    /// The engine runs without any login (opencode's free models): a login
+    /// missing from its default place is nothing to say.
+    pub login_optional: bool,
+}
+
+impl Credentials {
+    /// An engine that is handed no credential: what [`Default`] gives, as a
+    /// constant, for the struct update of another constant.
+    pub const NONE: Credentials = Credentials {
+        child_env: &[],
+        primary_env: &[],
+        user_dir: "",
+        user_dir_variable: None,
+        login_file: None,
+        home_dir: "",
+        sign_in: "",
+        login_optional: false,
+    };
 }
 
 /// An agent engine's contribution to running a child.

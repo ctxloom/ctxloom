@@ -173,6 +173,54 @@ pub(super) fn forwards(w: &mut World, step: &cucumber::gherkin::Step) -> bool {
     true
 }
 
+/// The stub opencode of ruling 69's scenario: says what its data directory
+/// holds where opencode reads its login (`$XDG_DATA_HOME/opencode/auth.json`):
+/// a link and where it points, a file of its own, or nothing.
+const LOGIN_STUB: &str = r#"here="$(dirname "$0")"
+f="$XDG_DATA_HOME/opencode/auth.json"
+if [ -L "$f" ]; then echo "link $(readlink "$f")" > "$here/opencode-login"
+elif [ -e "$f" ]; then echo "file" > "$here/opencode-login"
+else echo "none" > "$here/opencode-login"
+fi
+"#;
+
+/// The `Alice ...:` step of ruling 69's scenario: an interactive opencode
+/// that reports its login, then exits.
+pub(super) fn reports_login(w: &mut World, step: &cucumber::gherkin::Step) -> bool {
+    if !step.value.contains("and it reports its login") {
+        return false;
+    }
+    let bin = w.opencode_dir();
+    files::put_program(bin.join("opencode"), LOGIN_STUB);
+    let host = crate::tests::host_var("PATH").unwrap_or_default();
+    w.common.set_env(
+        "PATH",
+        format!("{}:{}", bin.display(), host.to_string_lossy()),
+    );
+    w.common.set_env("CTXLOOM_TEST_TERMINAL", "1".to_string());
+    w.before_run();
+    let lines = crate::tests::gherkin_common::doc(step);
+    w.common_mut().run_lines(&lines, "");
+    true
+}
+
+#[cucumber::then("opencode's data directory held a link to her opencode login, not a copy")]
+fn opencode_login_linked(w: &mut World) {
+    let login = w
+        .common
+        .project
+        .home()
+        .join(".local/share/opencode/auth.json");
+    assert_eq!(
+        files::read(w.opencode_dir().join("opencode-login"))
+            .expect("opencode ran")
+            .trim(),
+        format!("link {}", login.display()),
+        "{}",
+        w.ran().said()
+    );
+}
+
 #[cucumber::then(
     "opencode ran in its session home, with what its plugin's hooks need to reach ctxloom and without OPENCODE_PURE"
 )]

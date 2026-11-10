@@ -587,6 +587,55 @@ Feature: run — assembling a project's context and handing it to an engine
       And the output contains "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY"
       And no assistant was launched
 
+    # opencode's login mirrors claude's: a child of an opencode source that
+    # is a file alone is refused the same way, naming opencode's built-in
+    # variables: its providers' keys and its endpoint key.
+    Scenario: A child opencode run whose credential source is a file alone is refused
+      # new: owner rulings 53 and 69 (2026-11-10).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And the home already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        engines:
+          opencode:
+            auth:
+              file: ~/.local/share/opencode/auth.json
+        """
+      When Alice runs a child opencode agent on a file-only credential source:
+        """
+        ctxloom run --engine opencode --one-shot "hello"
+        """
+      Then the command exits with code 2
+      And the refusal is "runs-file-only-credential"
+      And the refusal's fix says "engines.opencode.auth.env"
+      And the output contains "ANTHROPIC_API_KEY, OPENAI_API_KEY, CTXLOOM_OPENCODE_API_KEY"
+
+  Rule: Alice's interactive opencode session shares her opencode login by a link, never a copy
+
+    opencode keeps its login in `auth.json` in its data directory
+    (`$XDG_DATA_HOME/opencode`, else `~/.local/share/opencode`), and an OAuth
+    provider's refresh writes the rotated token back to it. Her interactive
+    session's relocated data directory is given a link to her own file, so a
+    refresh there is a refresh of her login; a copy's would invalidate it. A
+    child is never given the file.
+
+    Scenario: Her interactive opencode session's data directory links her opencode login
+      # new: owner ruling 69 (2026-11-10), with a stub opencode on PATH that
+      # reports what its data directory holds.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And the home already has the file ".local/share/opencode/auth.json":
+        """
+        {"fixture": "not a real login"}
+        """
+      When Alice runs her assistant on opencode interactively, and it reports its login:
+        """
+        ctxloom run --engine opencode
+        """
+      Then the command succeeds
+      And opencode's data directory held a link to her opencode login, not a copy
+
   @pending
   Rule: --engine runs the engine it names, with that engine's defaults
 

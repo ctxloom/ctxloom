@@ -35,6 +35,18 @@ const PROGRAM: &str = "opencode";
 /// none), passed on when set; it is no child's requirement.
 pub const OPTIONAL_KEY: &str = "CTXLOOM_OPENCODE_API_KEY";
 
+/// The provider keys of opencode's built-in credential source (ruling 69):
+/// the standard variables of its Anthropic and OpenAI providers (models.dev's
+/// `env` of each, which opencode reads). Optional, as [`OPTIONAL_KEY`] is.
+pub const PROVIDER_KEYS: &[&str] = &["ANTHROPIC_API_KEY", "OPENAI_API_KEY"];
+
+/// opencode's login file, in its data directory.
+pub const LOGIN_FILE: &str = "auth.json";
+
+/// How the human gives her primary session a credential when no login is
+/// shared with it: opencode's own sign-in, or a provider's key.
+pub const SIGN_IN: &str = "";
+
 /// The variables of the caller's environment a child's turn is given: how to
 /// find programs, locale and temp space, the proxy and certificate settings a
 /// network needs, opencode's optional key, and what the plugin's hook
@@ -109,7 +121,7 @@ impl Engine for Opencode {
             child_env: &[],
             primary_env: &[],
             user_dir: ".local/share/opencode",
-            login_file: None,
+            ..Credentials::NONE
         }
     }
 

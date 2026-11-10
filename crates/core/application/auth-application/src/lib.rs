@@ -7,8 +7,10 @@
 //! thing the [`ExportedVars`] port can say of a variable is whether it is
 //! exported, so a value cannot reach any output from here.
 
+use std::fmt;
 use std::sync::Arc;
 
+use angzarr_diagnostic::{Arg, Diagnostic};
 pub use ctxloom_ports::ExportedVars;
 use library::config::{engines, schema};
 use serde::Serialize;
@@ -35,7 +37,10 @@ const CLAUDE_REMEDY: &str = "run `claude setup-token` and export CLAUDE_CODE_OAU
 pub struct Row {
     pub engine: String,
     pub mode: &'static str,
-    pub present: bool,
+    /// Whether the credential is exported: a variable row's alone. A file
+    /// row has none (owner ruling 65): nothing here looks at a file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub present: Option<bool>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub vars: Vec<String>,
     /// The variable the credential was found in (a name, never a value).
@@ -63,6 +68,40 @@ pub struct Verdict {
     /// The source is a file alone: the primary session may run on it, a
     /// child agent cannot (owner ruling 53).
     pub primary_only: bool,
+}
+
+/// The catalog of the runs messages [`FileOnly`] is said in.
+pub use runs::EN_US as RUNS_EN_US;
+
+/// A warning that an engine in use authenticates no child: its source is a
+/// file alone. Said as the refusal a child's run of it meets
+/// (`runs-file-only-credential`), so the words and the fix are one.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct FileOnly(runs::RunRejection);
+
+impl FileOnly {
+    fn new(engine: &str, variables: Vec<String>) -> FileOnly {
+        FileOnly(runs::RunRejection::FileOnlyCredential {
+            engine: engine.to_string(),
+            variables: variables.join(", "),
+        })
+    }
+}
+
+impl fmt::Display for FileOnly {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl Diagnostic for FileOnly {
+    fn code(&self) -> &str {
+        self.0.code()
+    }
+
+    fn args(&self) -> Vec<(&str, Arg)> {
+        self.0.args()
+    }
 }
 
 /// An engine's credential source and whether a run is refused without it.
@@ -109,7 +148,7 @@ impl Auth {
                 return Some(Row {
                     engine: need.engine.clone(),
                     mode: FILE,
-                    present: false,
+                    present: Some(false),
                     vars: Vec::new(),
                     via: file.clone(),
                     remedy: remedy(&need),
@@ -123,7 +162,7 @@ impl Auth {
             Some(Row {
                 engine: need.engine.clone(),
                 mode: TOKEN,
-                present: found.is_some(),
+                present: Some(found.is_some()),
                 vars: found.iter().cloned().collect(),
                 remedy: if found.is_some() {
                     String::new()
@@ -146,6 +185,20 @@ impl Auth {
             .iter()
             .filter(|need| need.required && need.file.is_none())
             .all(|need| need.vars.iter().any(|v| self.env.is_exported(v)))
+    }
+
+    /// The engines the delegated agents use whose effective `auth` is a file
+    /// alone (owner ruling 64): no child of theirs can authenticate, which
+    /// init warns of, in the words a child's run is refused with
+    /// (`runs-file-only-credential` and its fix). `layers` as for
+    /// [`Auth::status`].
+    pub fn file_only(&self, layers: &[String]) -> Vec<FileOnly> {
+        // Red: the warning is not yet given.
+        layers
+            .iter()
+            .take(0)
+            .map(|_| FileOnly::new("", Vec::new()))
+            .collect()
     }
 
     /// For each of `engines` whose effective `auth` reads the environment

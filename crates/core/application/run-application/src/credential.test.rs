@@ -15,9 +15,26 @@ const CLAUDE: Credentials = Credentials {
     ],
     user_dir: ".claude",
     login_file: Some(".credentials.json"),
+    sign_in: "sign in with /login in the session, or run `claude setup-token`, then export CLAUDE_CODE_OAUTH_TOKEN",
+    ..Credentials::NONE
 };
 
 const TARGET: &str = "/home/u/.claude/.credentials.json";
+
+/// opencode's (ruling 69): its login is in its data directory, which the
+/// session home relocates under `xdg/data`, and it runs without one.
+const OPENCODE: Credentials = Credentials {
+    user_dir: ".local/share/opencode",
+    user_dir_variable: Some(("XDG_DATA_HOME", "opencode")),
+    login_file: Some("auth.json"),
+    home_dir: "xdg/data/opencode",
+    sign_in: "run `opencode auth login`",
+    login_optional: true,
+    ..Credentials::NONE
+};
+
+const OPENCODE_TARGET: &str = "/home/u/.local/share/opencode/auth.json";
+const OPENCODE_REL: &str = "home/xdg/data/opencode/auth.json";
 
 fn env(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
     pairs
@@ -33,6 +50,8 @@ struct Links {
     state: LinkState,
     fails: bool,
     made: Vec<(String, String, String)>,
+    /// The one path of the session directory the link may be asked about.
+    rel: &'static str,
 }
 
 impl Links {
@@ -42,6 +61,15 @@ impl Links {
             state: LinkState::Absent,
             fails: false,
             made: Vec::new(),
+            rel: "home/.credentials.json",
+        }
+    }
+
+    fn with_opencode_login(at: &'static str) -> Links {
+        Links {
+            present: vec![at],
+            rel: OPENCODE_REL,
+            ..Links::with_login()
         }
     }
 }
@@ -51,7 +79,7 @@ impl LoginLinks for Links {
         self.present.contains(&path)
     }
     fn state(&self, _: &str, rel: &str) -> LinkState {
-        assert_eq!(rel, "home/.credentials.json");
+        assert_eq!(rel, self.rel);
         self.state.clone()
     }
     fn link(&mut self, harp: &str, rel: &str, target: &str) -> Result<(), RecordsError> {
@@ -143,14 +171,14 @@ fn a_child_on_a_file_only_source_is_refused_naming_the_builtin_variables() {
 }
 
 // An engine whose adapter names no child variable is told the library's
-// built-in source (opencode's endpoint key).
+// built-in source (opencode's provider keys and its endpoint key, ruling 69).
 #[test]
 fn an_engine_with_no_adapter_variable_names_its_builtin_source() {
     assert_eq!(
         refuse_file_only("opencode", &file_only(), &Credentials::default()),
         Some(RunRejection::FileOnlyCredential {
             engine: "opencode".to_string(),
-            variables: "CTXLOOM_OPENCODE_API_KEY".to_string(),
+            variables: "ANTHROPIC_API_KEY, OPENAI_API_KEY, CTXLOOM_OPENCODE_API_KEY".to_string(),
         })
     );
 }
@@ -230,6 +258,7 @@ fn a_missing_login_is_a_notice_and_no_link() {
     assert!(text.contains("no login at ~/.claude/.credentials.json"));
     assert!(remedy.contains("/login"));
     assert!(remedy.contains("claude setup-token"));
+    assert_eq!(remedy, CLAUDE.sign_in);
     assert!(links.made.is_empty());
 }
 
@@ -281,6 +310,7 @@ fn macos_and_windows_never_link_and_are_told_to_set_a_token() {
         assert!(text.contains(os), "{os}");
         assert!(remedy.contains("claude setup-token"), "{os}");
         assert!(remedy.contains("CLAUDE_CODE_OAUTH_TOKEN"), "{os}");
+        assert_eq!(remedy, CLAUDE.sign_in, "{os}");
         assert!(links.made.is_empty(), "{os}");
     }
 }
@@ -308,6 +338,110 @@ fn an_engine_with_no_login_file_shares_nothing() {
     );
     assert!(notice.is_none());
     assert!(links.made.is_empty());
+}
+
+fn opencode_shared(links: &mut Links, vars: &[(&str, &str)]) -> Option<Notice> {
+    share_login(
+        links,
+        &OPENCODE.into(),
+        &env(vars),
+        "linux",
+        "amber-swift-owl",
+    )
+}
+
+// Ruling 69: opencode's primary links the user's own auth.json (never a copy:
+// a refresh rotates the token in place) where its relocated data directory is.
+#[test]
+fn opencodes_login_is_linked_into_the_relocated_data_directory() {
+    let mut links = Links::with_opencode_login(OPENCODE_TARGET);
+    assert!(opencode_shared(&mut links, &[("HOME", "/home/u")]).is_none());
+    assert_eq!(
+        links.made,
+        vec![(
+            "amber-swift-owl".to_string(),
+            OPENCODE_REL.to_string(),
+            OPENCODE_TARGET.to_string()
+        )]
+    );
+}
+
+// opencode reads its data directory from XDG_DATA_HOME when it is set: the
+// link is to the login opencode itself would use. A relative value is no
+// directory (the XDG rule), so the home's default stands.
+#[test]
+fn xdg_data_home_moves_the_login_the_primary_shares() {
+    let mut links = Links::with_opencode_login("/data/opencode/auth.json");
+    let vars = [("HOME", "/home/u"), ("XDG_DATA_HOME", "/data")];
+    assert!(opencode_shared(&mut links, &vars).is_none());
+    assert_eq!(links.made[0].2, "/data/opencode/auth.json");
+    let mut links = Links::with_opencode_login(OPENCODE_TARGET);
+    let vars = [("HOME", "/home/u"), ("XDG_DATA_HOME", "data")];
+    assert!(opencode_shared(&mut links, &vars).is_none());
+    assert_eq!(links.made[0].2, OPENCODE_TARGET);
+    let mut links = Links::with_opencode_login(OPENCODE_TARGET);
+    let vars = [("HOME", "/home/u"), ("XDG_DATA_HOME", "")];
+    assert!(opencode_shared(&mut links, &vars).is_none());
+    assert_eq!(links.made[0].2, OPENCODE_TARGET);
+}
+
+// opencode runs without a login (its free models): none at its default place
+// is nothing to say, and nothing is linked.
+#[test]
+fn an_optional_login_missing_from_its_default_place_is_nothing_to_say() {
+    let mut links = Links::with_opencode_login(OPENCODE_TARGET);
+    links.present.clear();
+    assert!(opencode_shared(&mut links, &[("HOME", "/home/u")]).is_none());
+    assert!(links.made.is_empty());
+}
+
+// A login file the config names is asked for, so its absence is said, with
+// the engine's own way to sign in.
+#[test]
+fn a_configured_login_that_is_missing_is_said_even_when_logins_are_optional() {
+    let mut links = Links::with_opencode_login(OPENCODE_TARGET);
+    links.present.clear();
+    let settings = run_ports::EngineSettings {
+        auth: AuthSetting::Source {
+            env: Vec::new(),
+            file: Some("~/team/auth.json".to_string()),
+        },
+        ..run_ports::EngineSettings::default()
+    };
+    let (text, remedy) = said(share_login(
+        &mut links,
+        &settings.credentials(OPENCODE),
+        &env(&[("HOME", "/home/u")]),
+        "linux",
+        "amber-swift-owl",
+    ));
+    assert!(text.contains("/home/u/team/auth.json"), "{text}");
+    assert_eq!(remedy, "run `opencode auth login`");
+    assert!(links.made.is_empty());
+}
+
+// What the human is told is the engine's own way to sign in, wherever no
+// login is shared: on a platform that cannot link, and where a link fails.
+#[test]
+fn every_notice_says_the_engines_own_way_to_sign_in() {
+    let mut links = Links::with_opencode_login(OPENCODE_TARGET);
+    let notice = share_login(
+        &mut links,
+        &OPENCODE.into(),
+        &env(&[("HOME", "/home/u")]),
+        "windows",
+        "h",
+    );
+    assert_eq!(said(notice).1, "run `opencode auth login`");
+    let mut links = Links::with_opencode_login(OPENCODE_TARGET);
+    links.fails = true;
+    let (text, remedy) = said(opencode_shared(&mut links, &[("HOME", "/home/u")]));
+    assert!(text.contains("could not be shared"), "{text}");
+    assert_eq!(remedy, "run `opencode auth login`");
+    let mut links = Links::with_opencode_login(OPENCODE_TARGET);
+    links.state = LinkState::Other;
+    let (text, _) = said(opencode_shared(&mut links, &[("HOME", "/home/u")]));
+    assert!(text.contains("auth.json of its own"), "{text}");
 }
 
 // A configured login file: `~/` is the home, an absolute path is itself, and

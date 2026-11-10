@@ -682,6 +682,7 @@ fn the_launcher_hands_on_the_credentials_of_the_engine_it_holds() {
         primary_env: &["A_TOKEN", "B_TOKEN"],
         user_dir: ".fake",
         login_file: Some("login.json"),
+        ..run_ports::Credentials::NONE
     };
     let launcher = Launcher::new(
         Arc::new(TestEdge::new()),

@@ -25,6 +25,8 @@ struct World {
     exported: Mutex<Vec<String>>,
     /// The project has no `.ctxloom` yet.
     fresh: std::sync::atomic::AtomicBool,
+    /// The config layers' texts, lowest first.
+    config: Mutex<Vec<String>>,
 }
 
 /// Her terminal: there or not, and what she answers.
@@ -125,7 +127,16 @@ impl ConfigFiles for World {
         "/work/.ctxloom".to_string()
     }
     fn layers(&self) -> Result<Vec<LayerText>, PortFailure> {
-        Ok(Vec::new())
+        Ok(self
+            .config
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|text| LayerText {
+                path: "/work/.ctxloom/config.yaml".to_string(),
+                text: text.clone(),
+            })
+            .collect())
     }
     fn layer(&self, _: Scope) -> Result<Option<LayerText>, PortFailure> {
         Ok(None)
@@ -257,8 +268,13 @@ fn go_with(
         .expect("parses");
     let noun = matches.subcommand_name().expect("a noun").to_string();
     let call = Call::new(&matches, Some(format), Format::Text);
-    let catalog = Catalog::en_us(&[sessions_application::EN_US, deps_application::EN_US, EN_US])
-        .expect("catalog");
+    let catalog = Catalog::en_us(&[
+        sessions_application::EN_US,
+        deps_application::EN_US,
+        auth_application::RUNS_EN_US,
+        EN_US,
+    ])
+    .expect("catalog");
     let mut err = Vec::new();
     let exit = run(&uses, &noun, &call, &catalog, out, &mut err);
     Run {
@@ -450,6 +466,62 @@ fn init_with_an_api_key_exported_needs_no_guide() {
     });
     assert_eq!(r.exit.unwrap(), 0);
     assert_eq!(r.err, "");
+}
+
+// Ruling 64: an engine in use whose source is a file alone authenticates no
+// child, so init warns of it, in the words a child's run is refused with, and
+// still exits 0. A file is no token, so the token guide is not given too.
+#[test]
+fn init_warns_of_an_engine_whose_source_is_a_file_alone() {
+    for format in [Format::Text, Format::Json] {
+        let r = go(&["init"], format, |world, _| {
+            world.config.lock().unwrap().push(
+                "engines:\n  claude-code:\n    auth:\n      file: ~/.claude/.credentials.json\n"
+                    .to_string(),
+            );
+        });
+        assert_eq!(r.exit.unwrap(), 0);
+        assert_eq!(r.out, "ctxloom directory already exists: /work/.ctxloom\n");
+        assert!(
+            r.err.contains("engines.claude-code.auth names only a file"),
+            "{}",
+            r.err
+        );
+        assert!(
+            r.err.contains(
+                "name one of those variables in engines.claude-code.auth.env and export it"
+            ),
+            "{}",
+            r.err
+        );
+        assert!(
+            r.err.contains("CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY"),
+            "{}",
+            r.err
+        );
+        assert!(
+            !r.err.contains("delegated agents need a token"),
+            "{}",
+            r.err
+        );
+    }
+    let text = go(&["init"], Format::Text, |world, _| {
+        world.config.lock().unwrap().push(
+            "engines:\n  claude-code:\n    auth:\n      file: ~/.claude/.credentials.json\n"
+                .to_string(),
+        );
+    });
+    assert!(
+        text.err
+            .starts_with("ctxloom: warning: a child agent run of claude-code needs"),
+        "{}",
+        text.err
+    );
+    assert!(
+        text.err.contains("\n  fix: name one of those"),
+        "{}",
+        text.err
+    );
 }
 
 #[test]

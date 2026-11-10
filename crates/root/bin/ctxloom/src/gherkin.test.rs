@@ -85,6 +85,7 @@ impl CommonWorld for World {
         if setup::stages(self, step)
             || capture::fires(self, step)
             || capture_opencode::forwards(self, step)
+            || capture_opencode::reports_login(self, step)
         {
             return;
         }

@@ -38,7 +38,7 @@ pub(crate) fn auth(rows: &[Row], out: &mut dyn Write) -> io::Result<()> {
                 "{} {}: usable by the {} session only ({}) \u{2014} {}",
                 row.engine, row.mode, row.usable_by, row.via, row.remedy
             )?;
-        } else if row.present {
+        } else if row.present == Some(true) {
             writeln!(
                 out,
                 "{} {}: present ({})",

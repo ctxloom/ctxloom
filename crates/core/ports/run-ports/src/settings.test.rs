@@ -9,6 +9,20 @@ const CLAUDE: Credentials = Credentials {
     ],
     user_dir: ".claude",
     login_file: Some(".credentials.json"),
+    sign_in: "sign in with /login",
+    ..Credentials::NONE
+};
+
+/// opencode's shape (ruling 69): its login is in its data directory, which the
+/// session home relocates, and `XDG_DATA_HOME` moves the user's.
+const OPENCODE: Credentials = Credentials {
+    user_dir: ".local/share/opencode",
+    user_dir_variable: Some(("XDG_DATA_HOME", "opencode")),
+    login_file: Some("auth.json"),
+    home_dir: "xdg/data/opencode",
+    sign_in: "run `opencode auth login`",
+    login_optional: true,
+    ..Credentials::NONE
 };
 
 fn names(of: &[&str]) -> Vec<String> {
@@ -95,6 +109,36 @@ fn the_hosts_own_home_has_its_own_login_and_nothing_is_linked_into_it() {
         policy.child_env,
         names(&["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"])
     );
+}
+
+// Ruling 69: where the login is, in the user's home and in the session home,
+// and what to say without one, reach the policy as the engine said them.
+#[test]
+fn the_policy_carries_where_the_login_is_and_how_to_sign_in() {
+    let policy = EngineSettings::default().credentials(OPENCODE);
+    assert_eq!(policy.user_dir, ".local/share/opencode");
+    assert_eq!(
+        policy.user_dir_variable,
+        Some(("XDG_DATA_HOME".to_string(), "opencode".to_string()))
+    );
+    assert_eq!(policy.login_file.as_deref(), Some("auth.json"));
+    assert_eq!(policy.home_dir, "xdg/data/opencode");
+    assert_eq!(policy.sign_in, "run `opencode auth login`");
+    assert!(policy.login_optional);
+    let claude = CredentialPolicy::from(CLAUDE);
+    assert_eq!(
+        (claude.home_dir.as_str(), claude.user_dir_variable),
+        ("", None)
+    );
+    assert!(!claude.login_optional);
+    // The host's own home: nothing is linked, whatever the engine.
+    let host = with(AuthSetting::Builtin, SessionHome::Host).credentials(OPENCODE);
+    assert_eq!(host.login_file, None);
+}
+
+#[test]
+fn credentials_none_is_the_default() {
+    assert_eq!(Credentials::NONE, Credentials::default());
 }
 
 #[test]

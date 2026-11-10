@@ -131,7 +131,7 @@ fn a_file_only_row_reads_as_the_primarys_alone() {
     let row = auth_application::Row {
         engine: "claude-code".to_string(),
         mode: "file",
-        present: false,
+        present: None,
         vars: Vec::new(),
         via: "~/.claude/.credentials.json".to_string(),
         remedy: "a child agent needs an environment credential".to_string(),

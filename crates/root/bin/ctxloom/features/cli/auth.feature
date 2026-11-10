@@ -116,3 +116,6 @@ Feature: auth — how ctxloom-launched engines authenticate
       And the output reports "[engine=claude-code].mode" as "file"
       And the output reports "[engine=claude-code].usable_by" as "primary"
       And the output reports "[engine=claude-code].via" as "~/.claude/.credentials.json"
+      # owner ruling 65 (2026-11-10): nothing looks at the file, so the row
+      # says nothing of whether it is there.
+      And the output does not contain "present"

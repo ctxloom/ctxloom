@@ -983,6 +983,7 @@ const NEEDS_A_TOKEN: Credentials = Credentials {
     ],
     user_dir: ".claude",
     login_file: Some(".credentials.json"),
+    ..Credentials::NONE
 };
 
 fn needing_a_token() -> Script {

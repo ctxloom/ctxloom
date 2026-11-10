@@ -369,6 +369,20 @@ fn the_primary_may_be_authenticated_by_any_of_three_variables_and_is_passed_each
     }
 }
 
+// The login is the config dir's own file (the session home is the config
+// dir), `HOME` alone places the user's, and a missing one is said with
+// claude's own ways to sign in.
+#[test]
+fn the_login_is_the_homes_own_file_and_a_missing_one_says_how_to_sign_in() {
+    let credentials = Claude::new().credentials();
+    assert_eq!(credentials.home_dir, "");
+    assert_eq!(credentials.user_dir_variable, None);
+    assert!(!credentials.login_optional);
+    assert!(credentials.sign_in.contains("/login"));
+    assert!(credentials.sign_in.contains("claude setup-token"));
+    assert!(credentials.sign_in.contains("CLAUDE_CODE_OAUTH_TOKEN"));
+}
+
 // Owner rulings 2026-11-08 item 9, 2026-11-09 item 16 and 51 (with 27): a
 // session's hook processes find the listener through the engine's
 // environment, so the terminal command AND a one-shot child's turn are passed

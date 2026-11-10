@@ -40,8 +40,12 @@ does not mean reading its tests too.
 
 Acceptance tests drive the real binary: `crates/root/bin/ctxloom/src/*.test.rs`
 build it once (with its `test-support` feature, which turns on the hidden
-`ctxloom test ...` commands) and run it as a separate process in a temporary
-home. The red tests of a milestone are committed red on its branch
+`ctxloom test ...` commands and the `mock` engines) and run it as a separate
+process in a temporary home. The `mock` and `mock-*` engines exist only under
+`test-support` (`library::config::schema::ENGINES` and the wiring's
+`engines()`): a plain build knows claude-code and opencode alone, and `just
+build` proves it by running `scripts/plain-engines-check.sh` against the plain
+binary. The red tests of a milestone are committed red on its branch
 (`just test-commit` allows that off the default branch, never on it).
 
 ## Layout: a crate's directory is its role

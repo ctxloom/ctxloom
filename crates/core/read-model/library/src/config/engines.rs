@@ -595,7 +595,7 @@ pub fn strip_project_only(layer: &mut Value) -> Vec<String> {
 pub const DEFAULT_ENGINE: &str = "claude-code";
 
 /// The engines ctxloom drives (the schema's).
-const ENGINES: [&str; 6] = super::schema::ENGINES;
+const ENGINES: &[&str] = super::schema::ENGINES;
 
 /// The program `engine` runs when the engine block names none: claude's is
 /// `claude`; every other engine's is its own name.

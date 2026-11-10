@@ -69,8 +69,12 @@ build:
     set -euo pipefail
     terse=(-q --message-format=short)
     [ "${VERBOSE:-}" = 1 ] && terse=()
+    # Then the plain binary it made is held to knowing only the real engines
+    # (ruling 52: the mocks are test-support's; scripts/plain-engines-check.sh).
+    target=${CARGO_TARGET_DIR:-{{TOP}}/target}
     exec just --justfile {{TOP}}/justfile _run build workspace cargo \
-        cargo build "${terse[@]}" --manifest-path {{TOP}}/Cargo.toml --workspace
+        bash -c 'cargo build "${@:3}" --manifest-path "$1/Cargo.toml" --workspace &&
+            "$1/scripts/plain-engines-check.sh" "$2/debug/ctxloom"' build {{TOP}} "$target" "${terse[@]}"
 
 # Install the arch-lint binary at the pinned ctxloom-lib commit, unless it is
 # there; and refuse a pin that differs from the one Cargo.toml has.

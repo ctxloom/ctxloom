@@ -78,27 +78,33 @@ impl Auth {
     /// texts, lowest first.
     pub fn status(&self, layers: &[String]) -> Vec<Row> {
         let config = engines::merged(layers);
-        needs(&config, &schema::ENGINES.map(ToString::to_string))
-            .into_iter()
-            .filter_map(|need| {
-                let found = need.vars.iter().find(|v| self.env.is_exported(v)).cloned();
-                if found.is_none() && !need.required {
-                    return None;
-                }
-                Some(Row {
-                    engine: need.engine.clone(),
-                    mode: TOKEN,
-                    present: found.is_some(),
-                    vars: found.iter().cloned().collect(),
-                    remedy: if found.is_some() {
-                        String::new()
-                    } else {
-                        remedy(&need)
-                    },
-                    via: found.unwrap_or_default(),
-                })
+        needs(
+            &config,
+            &schema::ENGINES
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+        )
+        .into_iter()
+        .filter_map(|need| {
+            let found = need.vars.iter().find(|v| self.env.is_exported(v)).cloned();
+            if found.is_none() && !need.required {
+                return None;
+            }
+            Some(Row {
+                engine: need.engine.clone(),
+                mode: TOKEN,
+                present: found.is_some(),
+                vars: found.iter().cloned().collect(),
+                remedy: if found.is_some() {
+                    String::new()
+                } else {
+                    remedy(&need)
+                },
+                via: found.unwrap_or_default(),
             })
-            .collect()
+        })
+        .collect()
     }
 
     /// Whether the credential the delegated agents authenticate with is

@@ -12,22 +12,23 @@ fn parse(text: &str) -> Value {
 #[test]
 fn test_the_yaml_go_prints() {
     let doc = typed(
-        &parse("schema_version: 8\nisolation_pids_limit: 512\nisolation_memory_limit: 4g\ncompanions:\n  acme: {command: [acme-bin, --x]}\n  beta: {command: [beta-bin]}\nconfig:\n  statusline: false\nagents:\n  dev:\n    engine: claude-code\n    env: [ALPHA]\n"),
+        &parse("schema_version: 8\nisolation_pids_limit: 512\nisolation_memory_limit: 4g\ncompanions:\n  acme: {command: [acme-bin, --x]}\n  beta: {command: [beta-bin]}\nconfig:\n  statusline: none\nagents:\n  dev:\n    engine: claude-code\n    env: [ALPHA]\n"),
         &[],
         Order::Sorted,
     );
     assert_eq!(
         to_yaml(&doc),
-        "agents:\n  dev:\n    engine: claude-code\n    env:\n      - ALPHA\ncompanions:\n  acme:\n    command:\n      - acme-bin\n      - --x\n  beta:\n    command:\n      - beta-bin\nconfig:\n  statusline: false\nisolation_memory_limit: 4g\nisolation_pids_limit: \"512\"\nschema_version: 8\n"
+        "agents:\n  dev:\n    engine: claude-code\n    env:\n      - ALPHA\ncompanions:\n  acme:\n    command:\n      - acme-bin\n      - --x\n  beta:\n    command:\n      - beta-bin\nconfig:\n  statusline: none\nisolation_memory_limit: 4g\nisolation_pids_limit: \"512\"\nschema_version: 8\n"
     );
 }
 
-// The schema decides the types: integer, boolean, string; the limits are
-// strings even when they look like numbers.
+// The schema decides the types: integer, string; the limits are strings even
+// when they look like numbers, and no key of the schema is a boolean (owner
+// ruling 59: a word, never `true`/`false`, in what a person writes).
 #[test]
 fn test_the_schema_decides_which_scalars_are_numbers_and_booleans() {
     let doc = typed(
-        &parse("delegation:\n  concurrency: 3\nsync:\n  auto_sync: false\nisolation_pids_limit: 512\neditor:\n  command: \"true\"\n"),
+        &parse("delegation:\n  concurrency: 3\nsync:\n  on_run: none\nisolation_pids_limit: 512\neditor:\n  command: \"true\"\n"),
         &[],
         Order::Sorted,
     );
@@ -47,7 +48,7 @@ fn test_the_schema_decides_which_scalars_are_numbers_and_booleans() {
     );
     assert_eq!(
         get("sync"),
-        Typed::Map(vec![("auto_sync".into(), Typed::Bool(false))])
+        Typed::Map(vec![("on_run".into(), Typed::Str("none".into()))])
     );
     assert_eq!(get("isolation_pids_limit"), Typed::Str("512".into()));
     assert_eq!(
@@ -166,11 +167,11 @@ fn test_quoting_escapes_quotes_backslashes_newlines_and_tabs() {
     assert_eq!(quote_if_needed(""), "\"\"");
 }
 
-// the schema types a boolean and an integer; a free-form map reads what it sees
+// the schema types an integer and a string; a free-form map reads what it sees
 #[test]
 fn test_scalars_are_typed_by_the_schema_or_by_what_they_look_like() {
     let doc = typed(
-        &parse("sync:\n  auto_sync: yes\ndelegation:\n  concurrency: lots\nagents:\n  dev:\n    engines:\n      claude-code:\n        permissions:\n          t: true\n          f: false\n          n: 7\n          w: word\n"),
+        &parse("sync:\n  on_run: \"true\"\ndelegation:\n  concurrency: lots\nagents:\n  dev:\n    engines:\n      claude-code:\n        permissions:\n          t: true\n          f: false\n          n: 7\n          w: word\n"),
         &[],
         Order::Sorted,
     );
@@ -183,7 +184,11 @@ fn test_scalars_are_typed_by_the_schema_or_by_what_they_look_like() {
     let Typed::Map(sync) = at(&top, "sync") else {
         panic!()
     };
-    assert_eq!(at(&sync, "auto_sync"), s("yes"), "not a boolean spelling");
+    assert_eq!(
+        at(&sync, "on_run"),
+        s("true"),
+        "a string key is never a boolean"
+    );
     let Typed::Map(delegation) = at(&top, "delegation") else {
         panic!()
     };
@@ -205,12 +210,12 @@ fn test_scalars_are_typed_by_the_schema_or_by_what_they_look_like() {
     assert_eq!(at(&options, "f"), Typed::Bool(false));
     assert_eq!(at(&options, "n"), Typed::Int(7));
     assert_eq!(at(&options, "w"), s("word"));
-    let on = typed(&parse("sync:\n  auto_sync: true\n"), &[], Order::Sorted);
+    let on = typed(&parse("sync:\n  on_run: missing\n"), &[], Order::Sorted);
     assert_eq!(
         on,
         Typed::Map(vec![entry(
             "sync",
-            Typed::Map(vec![entry("auto_sync", Typed::Bool(true))])
+            Typed::Map(vec![entry("on_run", s("missing"))])
         )])
     );
 }

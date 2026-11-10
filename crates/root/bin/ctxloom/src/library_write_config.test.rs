@@ -24,7 +24,7 @@ const DEFAULT_REMOTES: &str = "# ctxloom Remote Sources\n# Pre-configured remote
 /// `resources/profiles/default.yaml` at ca14d6046.
 const SEED_PROFILE: &str = "description: \"Local default coding profile scaffolded by `ctxloom init`: the project's primary implementer context, inheriting ctxloom-default's developer profile. Edit it freely; `ctxloom init prompt` re-enters the setup interview any time.\"\ntags:\n  - default\n# A LOCAL profile (owned and editable in this project's .ctxloom), not a bare\n# remote reference.\n#\n# The baseline-conduct parent was REMOVED with the `default` bundle it pointed\n# at. Conduct is no longer SEEDED into every project as a fixed parent; it is\n# offered by init's phase-3 survey as content carrying the `default` tag, which\n# the user includes or declines like anything else. A tag is a recommendation\n# the user answers; a seeded parent is a decision made on their behalf before\n# they arrive.\nparents:\n  - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/ai-developer@branch:main#profiles/developer\n";
 
-const CLAUDE_CONFIG: &str = "agents:\n  default:\n    engine: claude-code\n    profiles:\n      - default\n    runtime: host\nconfig:\n  use_distilled: true\ndefault_agent: default\nschema_version: 9\n";
+const CLAUDE_CONFIG: &str = "agents:\n  default:\n    engine: claude-code\n    profiles:\n      - default\n    runtime: host\ndefault_agent: default\nschema_version: 9\n";
 
 // config.feature: Scenario: Create scaffolds the config, the remotes registry
 // and the seeded profile
@@ -82,7 +82,7 @@ fn test_create_records_the_engine_it_is_given_and_refuses_one_nobody_knows() {
             .succeeds();
         let written = project.read(CONFIG).expect("the config");
         let expected = format!(
-            "agents:\n  default:\n    engine: {engine}\n    profiles:\n      - default\n    runtime: host\nconfig:\n  use_distilled: true\ndefault_agent: default\nschema_version: 9\n"
+            "agents:\n  default:\n    engine: {engine}\n    profiles:\n      - default\n    runtime: host\ndefault_agent: default\nschema_version: 9\n"
         );
         assert_eq!(written, expected);
     }

@@ -25,6 +25,17 @@ pub struct Flags {
     pub no_companions: bool,
 }
 
+/// What `run` does with the project's dependencies at its start
+/// (`sync.on_run`, owner rulings 59 and 60).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OnRun {
+    /// Nothing: the dependencies are pulled by hand (`ctxloom deps pull`).
+    None,
+    /// Install what the profiles reference and is not installed (the
+    /// default).
+    Missing,
+}
+
 /// The configuration, read.
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -330,6 +341,21 @@ impl Config {
     /// unless turned off).
     pub fn use_distilled(&self) -> bool {
         self.text("config.use_distilled") != "false"
+    }
+
+    /// RED stub: whether distilled forms are preferred (`config.content_form`).
+    pub fn prefers_distilled(&self) -> bool {
+        self.use_distilled()
+    }
+
+    /// RED stub: what a run does with the dependencies at its start.
+    pub fn sync_on_run(&self) -> OnRun {
+        OnRun::None
+    }
+
+    /// RED stub: the output directory as written.
+    pub fn output_dir(&self) -> String {
+        String::new()
     }
 
     /// Whether ctxloom manages the HUD statusline (`config.statusline`, on

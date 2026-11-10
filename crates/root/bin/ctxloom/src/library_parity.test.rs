@@ -86,9 +86,15 @@ const BARE_COMPANION_FIXTURES: [&str; 3] = ["cfg/v8", "cfg/layers", "cfg/layers-
 /// Go's golden as this build words it where the owner changed it (virtuous-word,
 /// 2026-11-06): the schema stamp (Go writes 8, this build 9: the companions
 /// registration) and the hint under an empty `companion list` (a companion is
-/// added with the command that runs it).
+/// added with the command that runs it); and Go's boolean
+/// `config.use_distilled` as the word that replaced it, `config.content_form`
+/// (owner ruling 59: the fixtures say the word, Go's goldens stay Go's).
 fn as_changed(golden: &str) -> String {
     golden
+        .replace("\"use_distilled\": true", "\"content_form\": \"distilled\"")
+        .replace("\"use_distilled\": false", "\"content_form\": \"original\"")
+        .replace("use_distilled: true", "content_form: distilled")
+        .replace("use_distilled: false", "content_form: original")
         .replace("schema_version: 8", "schema_version: 9")
         .replace("\"schema_version\": 8", "\"schema_version\": 9")
         .replace(

@@ -14,12 +14,51 @@ fn config(text: &str) -> Config {
     }
 }
 
-// config.use_distilled is on unless it says false.
+// config.content_form (owner ruling 59): distilled unless it says original.
 #[test]
-fn test_distilled_forms_are_preferred_unless_turned_off() {
-    assert!(config("editor:\n  command: vim\n").use_distilled());
-    assert!(config("config:\n  use_distilled: true\n").use_distilled());
-    assert!(!config("config:\n  use_distilled: false\n").use_distilled());
+fn test_distilled_forms_are_preferred_unless_the_content_form_is_original() {
+    assert!(config("editor:\n  command: vim\n").prefers_distilled());
+    assert!(config("config:\n  content_form: distilled\n").prefers_distilled());
+    assert!(!config("config:\n  content_form: original\n").prefers_distilled());
+}
+
+// config.statusline (ruling 59): ctxloom's unless it says none.
+#[test]
+fn test_ctxloom_manages_the_statusline_unless_it_says_none() {
+    assert!(config("editor:\n  command: vim\n").statusline());
+    assert!(config("config:\n  statusline: ctxloom\n").statusline());
+    assert!(!config("config:\n  statusline: none\n").statusline());
+}
+
+// sync.on_run (rulings 59, 60): a run installs what is missing unless it says
+// none.
+#[test]
+fn test_a_run_installs_missing_dependencies_unless_on_run_is_none() {
+    use super::OnRun;
+    assert_eq!(
+        config("editor:\n  command: vim\n").sync_on_run(),
+        OnRun::Missing
+    );
+    assert_eq!(
+        config("sync:\n  on_run: missing\n").sync_on_run(),
+        OnRun::Missing
+    );
+    assert_eq!(config("sync:\n  on_run: none\n").sync_on_run(), OnRun::None);
+}
+
+// output.dir (rulings 89, 106): `ctxloom/` unless it says otherwise, as it
+// was written (the project root it is relative to is the caller's).
+#[test]
+fn test_the_output_directory_is_ctxloom_unless_the_config_names_one() {
+    assert_eq!(config("editor:\n  command: vim\n").output_dir(), "ctxloom/");
+    assert_eq!(
+        config("output:\n  dir: out/sessions\n").output_dir(),
+        "out/sessions"
+    );
+    assert_eq!(
+        config("output:\n  dir: /var/out\n").output_dir(),
+        "/var/out"
+    );
 }
 
 // A config that fails to decode (a value of the wrong shape, in a layer or

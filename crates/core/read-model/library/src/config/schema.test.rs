@@ -18,7 +18,7 @@ fn texts(doc: &str) -> Vec<String> {
 // the fixture `cfg/v8`: every key of the schema, correctly used
 #[test]
 fn test_a_config_using_every_key_correctly_has_no_violation() {
-    let doc = "schema_version: 8\neditor:\n  command: vim\n  args: [-u, NONE]\nconfig:\n  use_distilled: false\n  silence_unsupported: true\n  statusline: false\nsync:\n  auto_sync: false\nworkspace: worktree\nruntime: host\ndelegation:\n  concurrency: 3\n  depth: 2\n  idle_timeout: 5m\nshell_timeout:\n  default: 30s\n  max: 1h\nisolation_images:\n  claude-code: example.com/img:1\nisolation_base: ctxloom\nisolation_memory_limit: 4g\nisolation_pids_limit: 512\noutput_dir: /var/out\nisolation_engines: [claude-code]\ncompanions:\n  acme:\n    command: [acme-bin, --flag]\n  beta:\n    command: [beta-bin]\nui:\n  prefix_key: ctrl-b\n  list_window: 7d\nsession_reap_age: 30d\nsession_purge_age: 90d\nsession_transcript_retention: 365d\nnon_tty_format: json\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: opus\n        effort: low\n        permissions:\n          mode: plan\n    profiles: [p1]\n    runtime: host\n    driving: oneshot\n    env: [ALPHA]\n    permissions:\n      approver: human\ndefault_agent: dev\nengines:\n  claude-code:\n    auth: login\n";
+    let doc = "schema_version: 8\neditor:\n  command: vim\n  args: [-u, NONE]\nconfig:\n  content_form: original\n  statusline: none\nsync:\n  on_run: none\nworkspace: worktree\nruntime: host\ndelegation:\n  concurrency: 3\n  depth: 2\n  idle_timeout: 5m\nshell_timeout:\n  default: 30s\n  max: 1h\nisolation_images:\n  claude-code: example.com/img:1\nisolation_base: ctxloom\nisolation_memory_limit: 4g\nisolation_pids_limit: 512\noutput:\n  dir: /var/out\nisolation_engines: [claude-code]\ncompanions:\n  acme:\n    command: [acme-bin, --flag]\n  beta:\n    command: [beta-bin]\nui:\n  prefix_key: ctrl-b\n  list_window: 7d\nsession_reap_age: 30d\nsession_purge_age: 90d\nsession_transcript_retention: 365d\nnon_tty_format: json\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: opus\n        effort: low\n        permissions:\n          mode: plan\n    profiles: [p1]\n    runtime: host\n    driving: oneshot\n    env: [ALPHA]\n    permissions:\n      approver: human\n      sandbox: full\n      network: none\ndefault_agent: dev\nengines:\n  claude-code:\n    auth: login\n";
     assert_eq!(texts(doc), Vec::<String>::new());
 }
 
@@ -28,7 +28,7 @@ fn test_a_config_using_every_key_correctly_has_no_violation() {
 fn test_an_unknown_top_level_key_is_named_with_the_keys_there_are() {
     assert_eq!(
         texts("schema_version: 8\nzzz: 1\n"),
-        ["unknown key `zzz` in config.yaml: ctxloom does not know it (known keys at the top level: agents, companions, config, default_agent, delegation, editor, engines, isolation_base, isolation_devcontainer_service, isolation_engines, isolation_images, isolation_memory_limit, isolation_pids_limit, non_tty_format, output_dir, permissions, runtime, schema_version, session_purge_age, session_reap_age, session_transcript_retention, shell_timeout, sync, ui, workspace)"]
+        ["unknown key `zzz` in config.yaml: ctxloom does not know it (known keys at the top level: agents, companions, config, default_agent, delegation, editor, engines, isolation_base, isolation_devcontainer_service, isolation_engines, isolation_images, isolation_memory_limit, isolation_pids_limit, non_tty_format, output, permissions, runtime, schema_version, session_purge_age, session_reap_age, session_transcript_retention, shell_timeout, sync, ui, workspace)"]
     );
     // The inline profiles block, the native mcp block and the retired turn cap
     // are keys the schema does not describe.
@@ -88,8 +88,8 @@ fn test_a_value_of_the_wrong_shape_says_what_it_holds_and_what_was_expected() {
         ["config.yaml: `delegation.concurrency` holds a string, expected integer"]
     );
     assert_eq!(
-        texts("schema_version: 8\nconfig:\n  use_distilled: maybe\n"),
-        ["config.yaml: `config.use_distilled` holds a string, expected boolean"]
+        texts("schema_version: 8\nconfig:\n  content_form: [distilled]\n"),
+        ["config.yaml: `config.content_form` holds a array, expected string"]
     );
     assert_eq!(
         texts("schema_version: 8\neditor:\n  args: x\n"),
@@ -558,4 +558,121 @@ fn test_an_agent_s_engine_block_holds_model_effort_and_permissions_of_a_known_en
     );
     let said = texts("schema_version: 9\nagents:\n  dev:\n    engines:\n      claude-code:\n        model: \"\"\n");
     assert_eq!(said.len(), 1, "an empty model is refused: {said:?}");
+}
+
+// Owner rulings 59, 60 and 106 (2026-11-09/10), hard migrate: no boolean is
+// left in what a person writes. The five booleans and the old output key are
+// ordinary unknown keys (no alias, no reader, no migration, no warning).
+#[test]
+fn test_the_retired_boolean_keys_and_output_dir_are_unknown_keys() {
+    for (doc, key) in [
+        ("config:\n  use_distilled: true\n", "config.use_distilled"),
+        (
+            "config:\n  silence_unsupported: true\n",
+            "config.silence_unsupported",
+        ),
+        ("sync:\n  auto_sync: true\n", "sync.auto_sync"),
+        ("output_dir: /var/out\n", "output_dir"),
+    ] {
+        let said = texts(&format!("schema_version: 9\n{doc}"));
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said[0].starts_with(&format!("unknown key `{key}` in config.yaml")),
+            "{said:?}"
+        );
+    }
+    assert_eq!(
+        texts("schema_version: 9\nconfig:\n  zzz: 1\n")[0],
+        "unknown key `config.zzz` in config.yaml: ctxloom does not know it (known keys at `config`: content_form, statusline)"
+    );
+    assert_eq!(
+        texts("schema_version: 9\nsync:\n  zzz: 1\n")[0],
+        "unknown key `sync.zzz` in config.yaml: ctxloom does not know it (known keys at `sync`: on_run)"
+    );
+    assert_eq!(
+        texts("schema_version: 9\noutput:\n  zzz: 1\n")[0],
+        "unknown key `output.zzz` in config.yaml: ctxloom does not know it (known keys at `output`: dir)"
+    );
+}
+
+// Each former boolean is a word now, and only its words are taken: the old
+// `true` / `false` spellings are refused like any other value.
+#[test]
+fn test_each_former_boolean_takes_only_its_words() {
+    for (key, words, refused) in [
+        (
+            "config.content_form",
+            "\"distilled\", \"original\"",
+            "false",
+        ),
+        ("config.statusline", "\"ctxloom\", \"none\"", "true"),
+        ("sync.on_run", "\"none\", \"missing\"", "true"),
+        ("permissions.network", "\"none\", \"open\"", "false"),
+        (
+            "agents.dev.permissions.network",
+            "\"none\", \"open\"",
+            "true",
+        ),
+    ] {
+        let doc = |value: &str| {
+            let mut text = String::from("schema_version: 9\n");
+            let parts: Vec<&str> = key.split('.').collect();
+            for (depth, part) in parts.iter().enumerate() {
+                text.push_str(&"  ".repeat(depth));
+                text.push_str(part);
+                text.push(':');
+                if depth + 1 == parts.len() {
+                    text.push_str(&format!(" {value}\n"));
+                } else {
+                    text.push('\n');
+                }
+            }
+            text
+        };
+        for word in words.split(", ") {
+            assert_eq!(
+                texts(&doc(word.trim_matches('"'))),
+                Vec::<String>::new(),
+                "{key}: {word}"
+            );
+        }
+        assert_eq!(
+            texts(&doc(refused)),
+            [format!(
+                "config.yaml: `{key}` breaks the schema: value must be one of {words}"
+            )]
+        );
+    }
+}
+
+// Ruling 106: `output.dir` is a path, absolute or relative to the project
+// root; an empty one says nothing and is refused.
+#[test]
+fn test_output_dir_is_a_non_empty_path() {
+    for dir in ["ctxloom/", "/var/out", "docs/sessions"] {
+        assert_eq!(
+            texts(&format!("schema_version: 9\noutput:\n  dir: {dir}\n")),
+            Vec::<String>::new()
+        );
+    }
+    assert_eq!(
+        texts("schema_version: 9\noutput:\n  dir: \"\"\n"),
+        ["config.yaml: `output.dir` breaks the schema: length must be >= 1, but got 0"]
+    );
+}
+
+// With the booleans gone, nothing in the schema is typed boolean: a value that
+// reads `true` at a schema'd string key is a string.
+#[test]
+fn test_no_key_of_the_schema_is_a_boolean() {
+    for path in [
+        "config.content_form",
+        "config.statusline",
+        "sync.on_run",
+        "permissions.network",
+        "output.dir",
+    ] {
+        let path: Vec<String> = path.split('.').map(String::from).collect();
+        assert_eq!(scalar_kind(&path), ScalarKind::Str, "{path:?}");
+    }
 }

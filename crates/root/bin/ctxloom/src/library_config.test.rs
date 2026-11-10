@@ -160,6 +160,47 @@ fn test_an_unknown_key_is_refused_naming_it_and_degraded_carries_on() {
         .contains("warning");
 }
 
+// Owner rulings 59, 60, 106 and 108 (hard migrate): a config still holding a
+// retired boolean, or the old top-level `output_dir`, is refused (exit 2)
+// naming the key, as any unknown key is; its replacement reads.
+#[test]
+fn test_the_retired_config_booleans_are_refused_and_their_words_read() {
+    let project = Project::initialized();
+    for (doc, key) in [
+        ("config:\n  use_distilled: true\n", "config.use_distilled"),
+        (
+            "config:\n  silence_unsupported: true\n",
+            "config.silence_unsupported",
+        ),
+        ("config:\n  statusline: false\n", "config.statusline"),
+        ("sync:\n  auto_sync: true\n", "sync.auto_sync"),
+        ("permissions:\n  network: false\n", "permissions.network"),
+        ("output_dir: /var/out\n", "output_dir"),
+    ] {
+        project.write(".ctxloom/config.yaml", &format!("schema_version: 9\n{doc}"));
+        let refused = project.run(&["config", "show", "--format", "json"]);
+        assert_eq!(refused.code, 2, "{key}: {}", refused.said());
+        assert!(
+            refused.stderr.contains(&format!("`{key}`")),
+            "{key}: {}",
+            refused.said()
+        );
+    }
+    project.write(
+        ".ctxloom/config.yaml",
+        "schema_version: 9\nconfig:\n  content_form: original\n  statusline: none\nsync:\n  on_run: none\npermissions:\n  network: none\noutput:\n  dir: docs/sessions\n",
+    );
+    let doc = project
+        .run(&["config", "show", "--format", "json"])
+        .succeeds()
+        .json();
+    assert_eq!(reports_as(&doc, "config.content_form"), "original");
+    assert_eq!(reports_as(&doc, "config.statusline"), "none");
+    assert_eq!(reports_as(&doc, "sync.on_run"), "none");
+    assert_eq!(reports_as(&doc, "permissions.network"), "none");
+    assert_eq!(reports_as(&doc, "output.dir"), "docs/sessions");
+}
+
 // internal/migrations/config/internal/v8/step_test.go: TestStep_DropsEssenceMaxChars
 // and TestStep_EmptiedSectionLeavesAndAbsentKeyIsUntouched, through the
 // binary: a schema 7 config loads, and shows as 9 without the key.
@@ -168,13 +209,13 @@ fn test_a_schema_7_config_migrates_in_memory_dropping_essence_max_chars() {
     let project = Project::initialized();
     project.write(
         ".ctxloom/config.yaml",
-        "schema_version: 7\nconfig:\n  use_distilled: false\n  essence_max_chars: 4096\n",
+        "schema_version: 7\nconfig:\n  content_form: original\n  essence_max_chars: 4096\n",
     );
     let ran = project.run(&["config", "show", "--format", "json"]);
     ran.succeeds().lacks("essence_max_chars");
     let doc = ran.json();
     assert_eq!(reports_as(&doc, "schema_version"), "9");
-    assert_eq!(reports_as(&doc, "config.use_distilled"), "false");
+    assert_eq!(reports_as(&doc, "config.content_form"), "original");
     // The file is not touched: persisting an upgrade is --write-upgrades'.
     let kept = files::read(project.dir().join(".ctxloom/config.yaml")).unwrap();
     assert!(kept.contains("essence_max_chars"), "{kept}");

@@ -5,7 +5,7 @@
 //! resolves case-insensitively to a key that is already there, adopting its
 //! casing; two keys that differ only in case are an error, not a guess. A
 //! path no key matches resolves through the schema (underscores are ambiguous:
-//! `CONFIG_USE_DISTILLED` is `config.use_distilled`); one the schema does not
+//! `CONFIG_CONTENT_FORM` is `config.content_form`); one the schema does not
 //! know is created as written, with a warning. `--config-set` keeps the case
 //! it was typed in.
 

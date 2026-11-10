@@ -263,18 +263,18 @@ fn test_an_unknown_config_set_key_warns_and_is_applied() {
 }
 
 // TestResolvePath_SchemaMatchPrefersTheTypedCase: an env name's underscores
-// are ambiguous; the schema decides (CONFIG_USE_DISTILLED is config.use_distilled)
+// are ambiguous; the schema decides (CONFIG_CONTENT_FORM is config.content_form)
 #[test]
 fn test_the_schema_resolves_an_environment_names_underscores() {
     let out = apply_with(
         "",
-        &[("CONFIG_USE_DISTILLED", "false")],
+        &[("CONFIG_CONTENT_FORM", "original")],
         &[],
-        &["config.use_distilled", "config"],
+        &["config.content_form", "config"],
     );
     assert_eq!(
-        at(&out.value, "config.use_distilled"),
-        Some(&scalar("false"))
+        at(&out.value, "config.content_form"),
+        Some(&scalar("original"))
     );
     assert!(out.warnings.is_empty(), "{:?}", out.warnings);
 }

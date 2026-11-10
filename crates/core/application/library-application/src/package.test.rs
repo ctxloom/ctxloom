@@ -247,7 +247,7 @@ fn test_the_statusline_choice_is_kept_in_the_projects_config() {
         .result
         .expect("written");
     let config = mem.config(ctxloom_ports::Scope::Project).unwrap();
-    assert!(config.contains("statusline: false"), "{config}");
+    assert!(config.contains("statusline: none"), "{config}");
     let p = library
         .package(&plain(), &PackageRequest::default())
         .result
@@ -257,6 +257,8 @@ fn test_the_statusline_choice_is_kept_in_the_projects_config() {
         .set_statusline(&plain(), true)
         .result
         .expect("written");
+    let config = mem.config(ctxloom_ports::Scope::Project).unwrap();
+    assert!(config.contains("statusline: ctxloom"), "{config}");
     let p = library
         .package(&plain(), &PackageRequest::default())
         .result
@@ -321,7 +323,7 @@ fn test_the_engines_are_the_ones_this_build_knows() {
 fn test_distilled_forms_are_preferred_unless_the_config_says_not() {
     assert!(package().use_distilled);
     let off = Setup {
-        layers: &["schema_version: 9\nconfig:\n  use_distilled: false\n"],
+        layers: &["schema_version: 9\nconfig:\n  content_form: original\n"],
         ..setup()
     };
     let p = off
@@ -377,7 +379,7 @@ fn test_a_project_says_whether_it_has_agents_and_profiles_to_bind_them_to() {
 #[test]
 fn test_the_statusline_choice_keeps_the_other_config_entries() {
     let held = Setup {
-        layers: &["schema_version: 9\nconfig:\n  use_distilled: false\n  statusline: true\n"],
+        layers: &["schema_version: 9\nconfig:\n  content_form: original\n  statusline: ctxloom\n"],
         ..setup()
     };
     let (library, mem) = held.fixture();
@@ -386,9 +388,9 @@ fn test_the_statusline_choice_keeps_the_other_config_entries() {
         .result
         .expect("written");
     let config = mem.config(ctxloom_ports::Scope::Project).unwrap();
-    assert!(config.contains("use_distilled: false"), "{config}");
-    assert!(config.contains("statusline: false"), "{config}");
-    assert!(!config.contains("statusline: true"), "{config}");
+    assert!(config.contains("content_form: original"), "{config}");
+    assert!(config.contains("statusline: none"), "{config}");
+    assert!(!config.contains("statusline: ctxloom"), "{config}");
 }
 
 // ---- companion loadouts in the package (virtuous-word, companions slice 2) ----

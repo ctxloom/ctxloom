@@ -34,7 +34,7 @@ fn test_the_scaffold_binds_the_default_agent_to_its_engine() {
     ] {
         assert_eq!(
             initial_config(engine),
-            format!("agents:\n  default:\n    engine: {engine}\n    profiles:\n      - default\n    runtime: host\nconfig:\n  use_distilled: true\ndefault_agent: default\nschema_version: 9\n")
+            format!("agents:\n  default:\n    engine: {engine}\n    profiles:\n      - default\n    runtime: host\ndefault_agent: default\nschema_version: 9\n")
         );
     }
 }

@@ -223,7 +223,7 @@ fn test_the_statusline_choice_is_written_to_the_projects_config() {
             .value
     );
     let config = w.mem.config(ctxloom_ports::Scope::Project).unwrap();
-    assert!(config.contains("statusline: false"), "{config}");
+    assert!(config.contains("statusline: none"), "{config}");
 }
 
 // manage.go's `--print`: the steps install would take, without taking them.

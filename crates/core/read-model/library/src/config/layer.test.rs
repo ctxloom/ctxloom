@@ -235,11 +235,12 @@ fn test_a_newer_older_or_unreadable_stamp_is_a_note_and_the_layer_is_read_as_wri
 // TestStep_EmptiedSectionLeavesAndAbsentKeyIsUntouched
 #[test]
 fn test_generation_7_drops_essence_max_chars_and_the_section_it_empties() {
-    let r =
-        read("schema_version: 7\nconfig:\n    use_distilled: false\n    essence_max_chars: 4096\n")
-            .unwrap();
+    let r = read(
+        "schema_version: 7\nconfig:\n    content_form: original\n    essence_max_chars: 4096\n",
+    )
+    .unwrap();
     assert!(r.notes.is_empty(), "7 is migrated, not noted");
-    assert_eq!(text(&r.value, "config.use_distilled"), "false");
+    assert_eq!(text(&r.value, "config.content_form"), "original");
     assert!(get(&r.value, "config.essence_max_chars").is_none());
     assert_eq!(
         text(&r.value, "schema_version"),

@@ -268,6 +268,7 @@ fn a_renamed_session_is_listed_under_its_new_name() {
         RenameSession {
             harp: "bright-keen-hawk".to_string(),
             output_dir: "/home/Documents/ctxloom/proj/bright-keen-hawk".to_string(),
+            lock: sessions::LockEvidence::Free,
         },
     );
     assert_eq!(harps(&index), ["bright-keen-hawk"]);

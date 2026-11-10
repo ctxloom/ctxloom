@@ -209,6 +209,7 @@ fn rename(harp: &str) -> RenameSession {
     RenameSession {
         harp: harp.to_string(),
         output_dir: format!("/home/Documents/ctxloom/proj/{harp}"),
+        lock: crate::LockEvidence::Free,
     }
 }
 
@@ -709,6 +710,45 @@ fn a_rename_to_the_name_held_records_nothing() {
     let before = session.pages().len();
     assert!(session.run(rename(HARP)).unwrap().is_empty());
     assert_eq!(session.pages().len(), before);
+}
+
+// Owner ruling 91 (per 73e): the session judges a rename on what its lock
+// said. A held lock is a live session, whose engine works in the directory a
+// rename moves: refused, `SessionLive`, nothing recorded.
+#[test]
+fn a_rename_of_a_session_whose_lock_is_held_is_refused_as_live() {
+    let mut session = Session::minted();
+    let before = session.pages().len();
+    let refusal = session
+        .run(RenameSession {
+            lock: crate::LockEvidence::Held,
+            ..rename("bright-keen-hawk")
+        })
+        .unwrap_err();
+    assert_eq!(
+        refusal,
+        said(&SessionRejection::SessionLive {
+            harp: HARP.to_string()
+        })
+    );
+    assert_eq!(session.pages().len(), before, "nothing recorded");
+    assert_eq!(session.state().harp, HARP);
+}
+
+// Owner ruling 91: a free lock (the owner ended) and one that proves nothing
+// (a session from before runs held their lock) do not block a rename.
+#[test]
+fn a_rename_of_a_session_whose_lock_is_free_or_unproven_is_recorded() {
+    for lock in [crate::LockEvidence::Free, crate::LockEvidence::Unproven] {
+        let mut session = Session::minted();
+        let events = session
+            .run(RenameSession {
+                lock,
+                ..rename("bright-keen-hawk")
+            })
+            .unwrap();
+        assert_eq!(events.len(), 1, "{lock:?}");
+    }
 }
 
 // ----------------------------------------------------------------- forget

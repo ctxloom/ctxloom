@@ -244,6 +244,8 @@ where
                 RenameSession {
                     harp: to.clone(),
                     output_dir: new_output.clone(),
+                    // RED (ruling 91): the lock is not yet asked.
+                    lock: sessions::LockEvidence::Unproven,
                 },
             )
             .await;

@@ -15,6 +15,7 @@ angzarr-yaml.workspace = true
 # Each command run through the kernel, as every context runs one.
 angzarr-embedded-runner.workspace = true
 ports.workspace = true
+runs.workspace = true
 session-index.workspace = true
 serde.workspace = true
 session-ports.workspace = true

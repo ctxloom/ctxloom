@@ -8,7 +8,7 @@ use runs::{
 };
 use sessions::{IncarnationOwed, SessionEvent, SESSION_DOMAIN};
 
-use crate::{catch_up, Owed, Pending, PendingLaunch, PendingModel};
+use crate::{catch_up, Owed, Pending, PendingLaunch, PendingModel, StartedRun};
 
 /// The session stream root `n`, and its text as a run names its session.
 fn session_root(n: u8) -> (Uuid, String) {
@@ -57,17 +57,14 @@ fn enqueued(n: u8, incarnation: u32, mode: RunMode) -> EventBook {
         runner_credential_hash: vec![1; 32],
         model_credential_hash: vec![2; 32],
         hook_credential_hash: vec![3; 32],
-        launcher: launcher_of(n),
+        launcher_lock: lock_of(n),
     });
     book(RUN_DOMAIN, root, vec![page(0, event.to_any())])
 }
 
-/// The process that enqueued session `n`'s runs (ruling 86).
-fn launcher_of(n: u8) -> runs::LauncherProcess {
-    runs::LauncherProcess {
-        pid: 1000 + u32::from(n),
-        started: 77,
-    }
+/// The lock of session `n`'s runs (rulings 86, 92).
+fn lock_of(n: u8) -> String {
+    format!("/h/.ctxloom/runs/{n}.lock")
 }
 
 /// A later event of the run of session `n`'s `incarnation`, at `sequence`.
@@ -124,7 +121,7 @@ fn an_enqueued_run_is_owed_a_runner() {
             session,
             incarnation: 1,
             mode: RunMode::OneShot,
-            launcher: launcher_of(1),
+            launcher_lock: lock_of(1),
         }
     );
 }
@@ -342,15 +339,91 @@ fn a_book_from_the_first_page_replaces_what_the_session_owed() {
     assert_eq!(incarnations, vec![2]);
 }
 
-// Ruling 86: each run owed a runner carries the process that enqueued it, so a
-// later process can judge whether its launcher still runs.
+// Rulings 86, 92: each run owed a runner carries its own lock, so a later
+// process can judge whether its launcher still holds it.
 #[test]
-fn a_run_owed_a_runner_carries_the_process_that_enqueued_it() {
+fn a_run_owed_a_runner_carries_its_launchers_lock() {
     let model = fold(&[
         enqueued(1, 1, RunMode::OneShot),
         enqueued(2, 1, RunMode::Interactive),
     ]);
-    let launchers: Vec<runs::LauncherProcess> =
-        model.launches().into_iter().map(|l| l.launcher).collect();
-    assert_eq!(launchers, [launcher_of(1), launcher_of(2)]);
+    let locks: Vec<String> = model
+        .launches()
+        .into_iter()
+        .map(|l| l.launcher_lock)
+        .collect();
+    assert_eq!(locks, [lock_of(1), lock_of(2)]);
+}
+
+/// Session `n` minted as `harp` in `/work/p{n}`, then renamed `renamed` when
+/// given, as its stream's book.
+fn minted(n: u8, harp: &str, renamed: Option<&str>) -> EventBook {
+    let (root, _) = session_root(n);
+    let mut pages = vec![page(
+        0,
+        SessionEvent::SessionMinted(sessions::SessionMinted {
+            harp: harp.to_string(),
+            project_id: "p".to_string(),
+            project_dir: format!("/work/p{n}"),
+            output_dir: String::new(),
+            engine: "fake".to_string(),
+            origin: sessions::Origin::Session,
+            started_at: None,
+            depth: 0,
+        })
+        .to_any(),
+    )];
+    if let Some(to) = renamed {
+        pages.push(page(
+            1,
+            SessionEvent::RenamedTo(sessions::RenamedTo {
+                harp: to.to_string(),
+                output_dir: String::new(),
+            })
+            .to_any(),
+        ));
+    }
+    book(SESSION_DOMAIN, root, pages)
+}
+
+// Ruling 93: a run started and not ended is listed with its session's
+// project and CURRENT harp (its lock moves with a rename), until it ends.
+#[test]
+fn a_started_run_is_listed_with_its_sessions_lock_until_it_ends() {
+    let (_, session) = session_root(1);
+    let run = run_root(&session, 1);
+    let mut model = fold(&[
+        minted(1, "amber-swift-owl", Some("bright-keen-hawk")),
+        enqueued(1, 1, RunMode::Interactive),
+        later(1, 1, 1, started()),
+    ]);
+    assert_eq!(
+        model.started(),
+        [StartedRun {
+            run,
+            session,
+            incarnation: 1,
+            project_dir: "/work/p1".to_string(),
+            harp: "bright-keen-hawk".to_string(),
+        }]
+    );
+    assert!(
+        model.launches().is_empty(),
+        "started: no longer owed a runner"
+    );
+    model
+        .project(&later(1, 1, 2, ended_by(EndCause::RunnerExit)))
+        .unwrap();
+    assert!(model.started().is_empty(), "ended: no longer started");
+}
+
+// Ruling 93: a run still owed a runner is not a started one.
+#[test]
+fn a_run_owed_a_runner_is_not_started() {
+    let model = fold(&[
+        minted(1, "amber-swift-owl", None),
+        enqueued(1, 1, RunMode::OneShot),
+    ]);
+    assert!(model.started().is_empty());
+    assert_eq!(model.launches().len(), 1);
 }

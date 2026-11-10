@@ -389,6 +389,44 @@ impl<E: Edge> Facts<E> {
             Err(failure) => Err(AppError::from_failure(failure)),
         }
     }
+
+    /// The end of `session`'s (its id's text) `incarnation`, told to the
+    /// session when its run ends, however it ends (ruling 85), so no
+    /// incarnation stays open. `cause` is Go's text (`runner-exit`,
+    /// `launch-failed`, `orphaned`). Keyed `incarnation-ended:<session>:<n>`,
+    /// so a second telling (the owner's and a sweeper's) is a DUPLICATE; the
+    /// session records the end of its open incarnation only.
+    pub async fn incarnation_ended(
+        &self,
+        session: &str,
+        incarnation: u32,
+        cause: &str,
+    ) -> Result<Recorded, AppError> {
+        let root = uuid::Uuid::parse_str(session).map_err(|e| AppError::Failed {
+            reason: e.to_string(),
+        })?;
+        let cover = Cover {
+            domain: sessions::SESSION_DOMAIN.to_string(),
+            root: Some(Uuid::from_bytes(*root.as_bytes())),
+            edition: None,
+        };
+        let fact = sessions::RecordIncarnationEnded {
+            incarnation,
+            cause: cause.to_string(),
+        };
+        let book = book_of(
+            cover,
+            any_of(&fact),
+            format!("incarnation-ended:{session}:{incarnation}"),
+        );
+        match self.edge.handle(book).await {
+            Ok(answered) => Recorded::of(&answered).ok_or_else(|| AppError::Failed {
+                reason: "the kernel gave no delivery outcome".to_string(),
+            }),
+            Err(Failure::Kernel(KernelError::FactDeadLettered { .. })) => Ok(Recorded::Parked),
+            Err(failure) => Err(AppError::from_failure(failure)),
+        }
+    }
 }
 
 impl Recorded {

@@ -322,7 +322,7 @@ impl World {
                     accepted_set: false,
                 },
                 fatal_findings: 0,
-                launcher: runs::LauncherProcess { pid: 0, started: 0 },
+                launcher_lock: String::new(),
             },
         ))
         .await

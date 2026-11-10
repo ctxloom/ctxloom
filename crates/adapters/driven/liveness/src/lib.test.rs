@@ -146,61 +146,81 @@ fn a_session_lock_another_holds_is_refused_at_once() {
     assert_eq!(first.lock_state("brisk-copper-moth"), LockState::Unproven);
 }
 
-// ------------------------------------------------ processes (ruling 86)
-//
-// PROPOSAL: `/proc` through the file-system seam (no cfg, no new dependency):
-// a host with no `/proc` (macOS, Windows) proves nothing, so no run is ever
-// judged an orphan there. These run on this (Linux) host's real `/proc`.
+// --------------------------------------- run locks (rulings 86, 92, 93)
 
-use run_ports::{ProcessIdentity, ProcessState, Processes};
+use run_ports::{LockProbe, RunLocks};
 
-use super::ProcFiles;
+use super::RunLockFiles;
 
-fn host() -> ProcFiles {
-    let fs = file_system::Os::new(os::host(), Path::new("/")).unwrap();
-    ProcFiles::new(Arc::new(fs))
+const HOME: &str = "/home/u";
+const RUN: &str = "0a1b2c3d-0000-4000-8000-000000000001";
+
+fn run_locks() -> (Arc<Rooted>, RunLockFiles) {
+    let fs = Arc::new(Rooted::temp().unwrap());
+    (fs.clone(), RunLockFiles::new(fs, HOME))
 }
 
-// Ruling 86: this process is its pid and its start, and it is running.
+// Ruling 92: a run's own lock is machine-local, under ctxloom's home, named by
+// the run; held, it reads held to another process's probe.
 #[test]
-fn this_process_is_its_pid_and_its_start_and_it_runs() {
-    let processes = host();
-    let me = processes.current();
-    assert_eq!(me.pid, std::process::id());
-    assert!(me.started > 0, "{me:?}");
-    assert_eq!(processes.state(&me), ProcessState::Running);
-}
-
-// Ruling 86: a pid with another start is another process (the pid reused):
-// the one recorded is gone. A pid nothing has is gone.
-#[test]
-fn a_reused_pid_or_one_nothing_has_is_gone() {
-    let processes = host();
-    let me = processes.current();
-    let reused = ProcessIdentity {
-        started: me.started + 1,
-        ..me
-    };
-    assert_eq!(processes.state(&reused), ProcessState::Gone);
-    let nobody = ProcessIdentity {
-        pid: u32::MAX - 7,
-        started: 1,
-    };
-    assert_eq!(processes.state(&nobody), ProcessState::Gone);
-}
-
-// Ruling 86: an identity that names no process proves nothing, and a host with
-// no `/proc` proves nothing about any process.
-#[test]
-fn an_unknown_identity_or_a_host_without_proc_proves_nothing() {
-    let processes = host();
+fn a_held_run_lock_reads_held_at_the_path_it_names() {
+    let (fs, locks) = run_locks();
+    let held = locks.hold_run(RUN).expect("the run's lock is taken");
     assert_eq!(
-        processes.state(&ProcessIdentity::default()),
-        ProcessState::Unproven
+        held.path(),
+        "/home/u/.ctxloom/runs/0a1b2c3d-0000-4000-8000-000000000001.lock"
     );
-    let (fs, _) = locks();
-    let without_proc = ProcFiles::new(fs);
-    let someone = ProcessIdentity { pid: 1, started: 1 };
-    assert_eq!(without_proc.state(&someone), ProcessState::Unproven);
-    assert!(without_proc.current().is_unknown());
+    let other = RunLockFiles::new(fs.clone(), HOME);
+    assert_eq!(other.probe(held.path()), LockProbe::Held);
+}
+
+// Ruling 92: let go once the runner is started, the lock leaves no file
+// behind (a refused run leaves nothing), so its probe then proves nothing:
+// a started run is judged by its session's lock (ruling 93).
+#[test]
+fn a_run_lock_let_go_leaves_no_file_and_proves_nothing() {
+    let (fs, locks) = run_locks();
+    let held = locks.hold_run(RUN).unwrap();
+    let path = held.path().to_string();
+    drop(held);
+    assert!(!fs.exists(Path::new(&path)).unwrap(), "no file is left");
+    assert_eq!(locks.probe(&path), LockProbe::Unproven);
+}
+
+// Ruling 92: a launcher that died (the kernel let its lock go, the file left
+// behind) reads free: its run is an orphan.
+#[test]
+fn a_run_lock_whose_holder_died_reads_free() {
+    let (fs, locks) = run_locks();
+    let path = locks.path(RUN);
+    fs.create_dir_all(path.parent().unwrap(), Mode::from_bits(0o755))
+        .unwrap();
+    fs.open(&path, Open::Create(Mode::from_bits(0o600)))
+        .unwrap();
+    assert_eq!(locks.probe(&path.display().to_string()), LockProbe::Free);
+}
+
+// Ruling 92: a run's lock another holds is refused at once.
+#[test]
+fn a_run_lock_another_holds_is_refused_at_once() {
+    let (fs, locks) = run_locks();
+    let _held = locks.hold_run(RUN).unwrap();
+    let other = RunLockFiles::new(fs.clone(), HOME);
+    assert!(other.hold_run(RUN).is_err());
+}
+
+// Ruling 93: a session's lock is probed where the session's project keeps it.
+#[test]
+fn a_sessions_lock_is_probed_in_its_project() {
+    let (fs, locks) = run_locks();
+    assert_eq!(
+        locks.session(PROJECT, HARP),
+        LockProbe::Unproven,
+        "none yet"
+    );
+    let mut sessions = LockFiles::new(fs.clone(), PROJECT);
+    let held = session_ports::SessionLock::hold(&mut sessions, HARP).unwrap();
+    assert_eq!(locks.session(PROJECT, HARP), LockProbe::Held);
+    drop(held);
+    assert_eq!(locks.session(PROJECT, HARP), LockProbe::Free);
 }

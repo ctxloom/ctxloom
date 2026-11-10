@@ -612,20 +612,106 @@ fn a_removal_destroys_the_transcript_and_the_index_entry_and_names_what_it_keeps
     );
 }
 
-// session.feature: "The sweep empties a session but does not unlist it"
-// (session purge): the conversation goes, the index entry stays.
+/// The head of the stream `domain`/`root` in `project`'s store.
+fn head(svc: &mut Svc, domain: &str, root: uuid::Uuid) -> u64 {
+    use angzarr_embedded::EventStore;
+    let stream = angzarr_embedded::StreamRef::main(domain, root);
+    ready(EventStore::head(svc.store(HERE), stream))
+        .unwrap()
+        .next_sequence
+}
+
+/// A run stream of session `id`'s `incarnation`, with one event, as the run
+/// core would leave it.
+fn a_run_of(svc: &mut Svc, id: u8, incarnation: u32) -> uuid::Uuid {
+    use angzarr_embedded::{EventStore, Write};
+    let root = runs::run_root(&id_text(id), incarnation);
+    let root = uuid::Uuid::from_slice(&root.value).unwrap();
+    let page = angzarr_embedded::v1::EventPage {
+        sequence: 0,
+        body: Some(angzarr_embedded::v1::event_page::Body::Event(
+            angzarr_embedded::Any {
+                type_url: "type.googleapis.com/ctxloom.runs.v1.RunExited".to_string(),
+                value: Vec::new(),
+            },
+        )),
+        meta: None,
+    };
+    let stream = angzarr_embedded::StreamRef::main(runs::RUN_DOMAIN, root);
+    ready(EventStore::write(
+        svc.store(HERE),
+        Write::append(stream, 0, std::slice::from_ref(&page)),
+    ))
+    .unwrap();
+    root
+}
+
+fn destroy(harp: &str) -> RemoveRequest {
+    RemoveRequest {
+        scope: crate::Scope::Purge,
+        ..remove(harp, true)
+    }
+}
+
+// Owner rulings 94, 94a-c: `session purge` DESTROYS the session: every event
+// of its stream and of every run of it (UUIDv5(session, 1..n)) is purged from
+// the store, and its directory and lock are removed. It is listed no more.
+// The name stays claimed, never reused.
 #[test]
-fn a_purge_empties_the_session_and_leaves_it_listed() {
+fn a_destroy_purges_the_session_and_every_run_of_it_and_its_directory() {
     let mut svc = service();
     finished(&mut svc, 1, "amber-swift-owl");
-    let request = RemoveRequest {
-        scope: crate::Scope::Purge,
-        ..remove("amber-swift-owl", true)
-    };
-    let purged = ready(svc.remove(request)).unwrap();
-    assert!(purged.applied && !purged.index_entry_removed);
-    assert!(!svc.files.transcripts.contains_key("amber-swift-owl"));
-    assert_eq!(svc.harps(all()), ["amber-swift-owl"], "still listed");
+    claim(svc.store(HERE), HERE, "amber-swift-owl", &id_text(1)).unwrap();
+    let store = svc.stores.stores.get(HERE).unwrap();
+    captured(store, 1, NOW - 70 * DAY + 20, "p1", "a prompt to destroy");
+    let run = a_run_of(&mut svc, 1, 1);
+    let session_root = uuid::Uuid::from_bytes([1; 16]);
+    assert!(head(&mut svc, sessions::SESSION_DOMAIN, session_root) > 0);
+    let destroyed = ready(svc.remove(destroy("amber-swift-owl"))).unwrap();
+    assert!(destroyed.applied && destroyed.index_entry_removed);
+    assert_eq!(head(&mut svc, sessions::SESSION_DOMAIN, session_root), 0);
+    assert_eq!(head(&mut svc, runs::RUN_DOMAIN, run), 0, "its run is gone");
+    assert_eq!(svc.files.destroyed_sessions, ["amber-swift-owl"]);
+    assert_eq!(svc.harps(all()), Vec::<String>::new(), "listed no more");
+    assert_eq!(
+        holder(svc.store(HERE), HERE, "amber-swift-owl"),
+        id_text(1),
+        "the name stays claimed (94c)"
+    );
+}
+
+// Ruling 94d: a hook fact delivered again after its session was destroyed
+// (its command id forgotten with the stream) finds no session, and records
+// nothing.
+#[test]
+fn a_hook_fact_redelivered_after_a_destroy_records_nothing() {
+    let mut svc = service();
+    finished(&mut svc, 1, "amber-swift-owl");
+    let store = svc.stores.stores.get(HERE).unwrap();
+    captured(store, 1, NOW - 70 * DAY + 20, "p1", "a prompt to destroy");
+    ready(svc.remove(destroy("amber-swift-owl"))).unwrap();
+    let store = svc.stores.stores.get(HERE).unwrap();
+    captured(store, 1, NOW, "p1", "a prompt to destroy");
+    let session_root = uuid::Uuid::from_bytes([1; 16]);
+    assert_eq!(head(&mut svc, sessions::SESSION_DOMAIN, session_root), 0);
+    assert_eq!(svc.harps(all()), Vec::<String>::new());
+}
+
+// Ruling 94b: a destroy reported (no --yes) changes nothing: the streams and
+// the directory stay.
+#[test]
+fn a_destroy_reported_and_not_applied_changes_nothing() {
+    let mut svc = service();
+    finished(&mut svc, 1, "amber-swift-owl");
+    let report = ready(svc.remove(RemoveRequest {
+        yes: false,
+        ..destroy("amber-swift-owl")
+    }))
+    .unwrap();
+    assert!(!report.applied);
+    let session_root = uuid::Uuid::from_bytes([1; 16]);
+    assert!(head(&mut svc, sessions::SESSION_DOMAIN, session_root) > 0);
+    assert!(svc.files.destroyed_sessions.is_empty());
 }
 
 // session.feature: "--yes destroys the transcript and leaves the output dir"

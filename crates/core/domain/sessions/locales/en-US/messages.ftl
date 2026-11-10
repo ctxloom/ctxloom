@@ -12,3 +12,5 @@ sessions-not-holder = this session does not hold the name { $harp }
 sessions-child-cannot-stop = a child (depth { $depth }) cannot order a stop
 sessions-unknown-message = no message { $message_id } in the inbox
 sessions-already-delivered = message { $message_id } was already delivered
+sessions-session-live = session { $harp } is running, and a rename would move its directory from under its engine
+sessions-session-live-fix = wait for the session to end, then rename it

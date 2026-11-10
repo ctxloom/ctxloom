@@ -151,6 +151,16 @@ pub trait SessionFiles {
         let _ = (from, to);
         Ok(false)
     }
+
+    /// Remove `harp`'s session directory whole, and its lock file beside it
+    /// (owner ruling 94b: a destroy leaves nothing of the session); the bytes
+    /// freed. Nothing there is not a failure.
+    ///
+    /// RED (ruling 94b): a stub that removes nothing.
+    fn destroy_session(&mut self, harp: &str) -> Result<u64, Report> {
+        let _ = harp;
+        Ok(0)
+    }
 }
 
 /// One of Go's session directories, as `session import` reads it.

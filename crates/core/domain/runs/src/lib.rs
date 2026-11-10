@@ -3,7 +3,10 @@
 //! second incarnation is a new stream and a late fact for an ended run can
 //! never touch the resumed one. ONE run per incarnation, NOT per turn.
 
-#[allow(dead_code)]
+// The generated command enum: `EnqueueRun` carries the run's evidence and its
+// lock (rulings 73e, 92), the other commands little, so its variants differ in
+// size; a command is built once per run, so the size costs nothing.
+#[allow(dead_code, clippy::large_enum_variant)]
 mod generated {
     include!(concat!(env!("OUT_DIR"), "/ctxloom.runs.v1.domain.rs"));
 }

@@ -425,35 +425,56 @@ impl session_ports::SessionLock for Locks {
     }
 }
 
-/// This host's processes, as a test says them: this one is `CURRENT`, and
-/// every other is as `states` says (unproven when unnamed).
+/// The run locks, in memory: a hold and its let-go are said on the timeline
+/// (`run-lock`, `run-unlock`), the let-go with how many launches the runner
+/// had seen by then, so a test reads the order off the run.
 #[derive(Clone, Default)]
-struct FixedProcesses {
-    states: Arc<Mutex<Vec<(run_ports::ProcessIdentity, run_ports::ProcessState)>>>,
+struct RunLocks {
+    timeline: Timeline,
+    runner: Option<ScriptedRunner>,
+    /// Each let-go: the launches seen by then.
+    released: Arc<Mutex<Vec<usize>>>,
 }
 
-/// The process the run's rig runs in.
-const CURRENT: run_ports::ProcessIdentity = run_ports::ProcessIdentity {
-    pid: 31337,
-    started: 5,
-};
+/// The path the fake run lock is at.
+const RUN_LOCK: &str = "/home/u/.ctxloom/runs/the-run.lock";
 
-impl run_ports::Processes for FixedProcesses {
-    fn current(&self) -> run_ports::ProcessIdentity {
-        CURRENT
-    }
+struct FakeRunHeld(RunLocks);
 
-    fn state(&self, who: &run_ports::ProcessIdentity) -> run_ports::ProcessState {
-        self.states
+impl Drop for FakeRunHeld {
+    fn drop(&mut self) {
+        let launches = self.0.runner.as_ref().map_or(0, |r| {
+            r.seen.lock().unwrap().len() + r.seen_terminal.lock().unwrap().len()
+        });
+        self.0.released.lock().unwrap().push(launches);
+        self.0
+            .timeline
             .lock()
             .unwrap()
-            .iter()
-            .find(|(id, _)| id == who)
-            .map_or(run_ports::ProcessState::Unproven, |(_, state)| *state)
+            .push("run-unlock".to_string());
+    }
+}
+
+impl run_ports::RunLocks for RunLocks {
+    fn hold_run(&self, _: &str) -> Result<run_ports::HeldLock, Report> {
+        self.timeline.lock().unwrap().push("run-lock".to_string());
+        Ok(run_ports::HeldLock::new(
+            RUN_LOCK.to_string(),
+            FakeRunHeld(self.clone()),
+        ))
+    }
+
+    fn probe(&self, _: &str) -> run_ports::LockProbe {
+        run_ports::LockProbe::Unproven
+    }
+
+    fn session(&self, _: &str, _: &str) -> run_ports::LockProbe {
+        run_ports::LockProbe::Unproven
     }
 }
 
 struct Rig {
+    run_locks: RunLocks,
     locks: Locks,
     timeline: Timeline,
     hooks: Hooks,
@@ -587,6 +608,11 @@ fn rig(script: Script) -> Rig {
         timeline: Arc::clone(&timeline),
         ..Certs::default()
     };
+    let run_locks = RunLocks {
+        timeline: Arc::clone(&timeline),
+        runner: Some(script.runner.clone()),
+        ..RunLocks::default()
+    };
     let locks = Locks {
         timeline: Arc::clone(&timeline),
         runner: Some(script.runner.clone()),
@@ -629,9 +655,10 @@ fn rig(script: Script) -> Rig {
         hooks: Box::new(hooks.clone()),
         certs: Box::new(certs.clone()),
         locks: Box::new(locks.clone()),
-        processes: Arc::new(FixedProcesses::default()),
+        run_locks: Arc::new(run_locks.clone()),
     });
     Rig {
+        run_locks,
         locks,
         timeline,
         hooks,
@@ -2772,22 +2799,58 @@ async fn a_refused_run_has_no_incarnation_to_close() {
     assert!(session_events(&rig.edge, &session).await.is_empty());
 }
 
-// Ruling 86: the run's enqueue records this process as its launcher (its pid
-// and its start), so a later process can tell when it died.
+// Rulings 86, 92: the run's own lock is taken BEFORE its enqueue is visible
+// (so no other process ever sees it owed a runner with its lock free), the
+// enqueue journals its path, and it is let go once the runner is started
+// (the session's lock covers the run from then on, ruling 93).
 #[tokio::test]
-async fn the_enqueue_records_this_process_as_the_runs_launcher() {
-    let mut rig = rig(Script::answering());
-    rig.runs
-        .one_shot(&Flags::default(), &ask())
-        .await
-        .result
-        .unwrap();
-    let enqueued = rig.runs.core.0.enqueued.lock().unwrap().clone().unwrap();
-    assert_eq!(
-        enqueued.launcher,
-        runs::LauncherProcess {
-            pid: CURRENT.pid,
-            started: CURRENT.started
+async fn the_run_lock_is_held_from_before_the_enqueue_until_the_runner_starts() {
+    for interactive in [false, true] {
+        let mut rig = rig(Script::answering());
+        if interactive {
+            rig.runs
+                .interactive(&Flags::default(), &ask())
+                .await
+                .result
+                .unwrap();
+        } else {
+            rig.runs
+                .one_shot(&Flags::default(), &ask())
+                .await
+                .result
+                .unwrap();
         }
+        let enqueued = rig.runs.core.0.enqueued.lock().unwrap().clone().unwrap();
+        assert_eq!(
+            enqueued.launcher_lock, RUN_LOCK,
+            "interactive={interactive}"
+        );
+        let timeline = rig.timeline.lock().unwrap().clone();
+        let at = |what: &str| timeline.iter().position(|t| t == what);
+        assert!(
+            at("run-lock").is_some() && at("run-lock") < at("EnqueueRun"),
+            "taken before the enqueue: {timeline:?}"
+        );
+        assert_eq!(
+            *rig.run_locks.released.lock().unwrap(),
+            [1],
+            "interactive={interactive}: let go once, after the engine's spawn"
+        );
+    }
+}
+
+// Ruling 92: a refused run lets its run lock go (it made nothing else).
+#[tokio::test]
+async fn a_refused_run_lets_its_run_lock_go() {
+    let mut rig = rig(Script {
+        prompt: "",
+        ..Script::answering()
+    });
+    let _ = rig.runs.one_shot(&Flags::default(), &ask()).await;
+    let timeline = rig.timeline.lock().unwrap().clone();
+    assert_eq!(
+        timeline,
+        ["run-lock", "EnqueueRun refused", "run-unlock"],
+        "taken, refused, let go"
     );
 }

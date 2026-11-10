@@ -130,6 +130,8 @@ pub struct FakeFiles {
     /// Every session-directory move asked for: (from harp, to harp).
     pub session_moves: Vec<(String, String)>,
     pub fail_session_move: bool,
+    /// Every session directory destroyed whole, by harp.
+    pub destroyed_sessions: Vec<String>,
 }
 
 const DIR: &str = "/home/.ctxloom/sessions";
@@ -151,6 +153,12 @@ impl FakeFiles {
 impl SessionFiles for FakeFiles {
     fn move_output(&mut self, from: &str, to: &str) -> Result<bool, Report> {
         self.moving(from, to)
+    }
+
+    fn destroy_session(&mut self, harp: &str) -> Result<u64, Report> {
+        self.destroyed_sessions.push(harp.to_string());
+        self.sessions.remove(harp);
+        Ok(self.transcripts.remove(harp).map_or(0, |t| t.len() as u64))
     }
 
     fn move_session(&mut self, from: &str, to: &str) -> Result<bool, Report> {

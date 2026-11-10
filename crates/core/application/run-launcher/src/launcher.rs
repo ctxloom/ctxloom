@@ -98,9 +98,9 @@ pub struct Launcher<E: Edge, L: RunnerLauncher, R: SessionRecords> {
     orders: Arc<Orders>,
     limits: Limits,
     pending: CatchUp<PendingModel>,
-    /// RED (ruling 86): held, not yet asked.
+    /// RED (rulings 86, 92, 93): held, not yet asked.
     #[allow(dead_code)]
-    processes: Option<Arc<dyn run_ports::Processes>>,
+    locks: Option<Arc<dyn run_ports::RunLocks>>,
 }
 
 impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
@@ -120,15 +120,17 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             orders,
             limits,
             pending: catch_up(),
-            processes: None,
+            locks: None,
         }
     }
 
-    /// The launcher, asking `processes` whether a run's launcher still runs:
-    /// a run owed a runner whose launcher has died is recorded as an orphan
-    /// (ruling 86) by whichever process catches up on it first.
-    pub fn with_processes(mut self, processes: Arc<dyn run_ports::Processes>) -> Self {
-        self.processes = Some(processes);
+    /// The launcher, probing `locks` for the owners of other processes' runs:
+    /// a run still owed a runner whose own lock is free has lost its launcher
+    /// (rulings 86, 92), and a started run whose session's lock is free has
+    /// lost its owner (ruling 93). Whichever process catches up on it first
+    /// records it ended, `orphaned`.
+    pub fn with_locks(mut self, locks: Arc<dyn run_ports::RunLocks>) -> Self {
+        self.locks = Some(locks);
         self
     }
 

@@ -28,6 +28,10 @@ sessions-application = { workspace = true, features = ["test-support"] }
 [features]
 # `diagnostic_samples`, for other crates' catalog tests.
 test-support = []
+# `session purge`, which DESTROYS a session (owner rulings 94, 94b): its
+# stream, its runs' streams and its directory. Off in a plain build, where the
+# verb is unknown (scripts/plain-destroy-check.sh, in `just build`).
+session-destroy = []
 
 [lints]
 workspace = true

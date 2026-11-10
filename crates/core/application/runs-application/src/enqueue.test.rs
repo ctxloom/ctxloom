@@ -16,10 +16,7 @@ fn request() -> EnqueueRequest {
         incarnation: 1,
         mode: runs::RunMode::Interactive,
         evidence: Evidence::passing("claude-code"),
-        launcher: run_ports::ProcessIdentity {
-            pid: 4242,
-            started: 987_654,
-        },
+        launcher_lock: "/home/u/.ctxloom/runs/run-1.lock".to_string(),
     }
 }
 
@@ -258,10 +255,10 @@ async fn a_run_is_enqueued_before_its_session_is_minted() {
     assert_eq!(enqueued.run, runs::run_root(SESSION_ME, 1));
 }
 
-// Ruling 86: the enqueue journals the process that will launch the run: its
-// pid and its start, so a reused pid is not taken for it.
+// Rulings 86, 92: the enqueue journals the run's own lock, which its launcher
+// holds.
 #[tokio::test]
-async fn the_enqueue_journals_the_process_that_will_launch_the_run() {
+async fn the_enqueue_journals_the_lock_its_launcher_holds() {
     let edge = Arc::new(KernelEdge::new());
     minted(&edge).await;
     let enqueuer = Enqueuer::new(Arc::clone(&edge), Arc::new(CountingSource::default()));
@@ -276,17 +273,14 @@ async fn the_enqueue_journals_the_process_that_will_launch_the_run() {
         Some(angzarr_embedded::v1::event_page::Body::Event(any)) => {
             use angzarr_embedded::Payload;
             match runs::RunEvent::from_any(any) {
-                Ok(runs::RunEvent::RunEnqueued(enqueued)) => Some(enqueued.launcher),
+                Ok(runs::RunEvent::RunEnqueued(enqueued)) => Some(enqueued.launcher_lock),
                 _ => None,
             }
         }
         _ => None,
     });
     assert_eq!(
-        launcher,
-        Some(runs::LauncherProcess {
-            pid: 4242,
-            started: 987_654
-        })
+        launcher.as_deref(),
+        Some("/home/u/.ctxloom/runs/run-1.lock")
     );
 }

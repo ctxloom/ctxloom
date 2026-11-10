@@ -146,16 +146,13 @@ fn enqueue() -> EnqueueRun {
         drivable_engines: vec!["claude-code".to_string(), "opencode".to_string()],
         credential: not_asked(),
         fatal_findings: 0,
-        launcher: launcher(),
+        launcher_lock: launcher_lock(),
     }
 }
 
-/// The process that enqueues the run (ruling 86).
-fn launcher() -> crate::LauncherProcess {
-    crate::LauncherProcess {
-        pid: 4242,
-        started: 987_654,
-    }
+/// The run's lock file, which its launcher holds (rulings 86, 92).
+fn launcher_lock() -> String {
+    "/home/u/.ctxloom/runs/run-1.lock".to_string()
 }
 
 /// No credential to judge: a session's, or an engine's that asks a child for
@@ -236,16 +233,17 @@ fn enqueue_records_the_session_incarnation_mode_and_the_hash_of_the_token() {
     assert!(!state.credential_revoked);
 }
 
-// Ruling 86: the run journals the process that enqueued it, to launch it, so
-// a later process can tell an owner that died (an orphan) from one running.
+// Rulings 86, 92: the run journals its own lock, which its launcher holds
+// until the runner is started, so a later process can tell a launcher that
+// died (an orphan) from one still launching.
 #[test]
-fn enqueue_journals_the_process_that_will_launch_the_run() {
+fn enqueue_journals_the_lock_its_launcher_holds() {
     let mut run = Run::new();
     let events = run.command(enqueue()).unwrap();
     let [RunEvent::RunEnqueued(enqueued)] = events.as_slice() else {
         panic!("one RunEnqueued, got {events:?}");
     };
-    assert_eq!(enqueued.launcher, launcher());
+    assert_eq!(enqueued.launcher_lock, launcher_lock());
 }
 
 // NEW-DESIGN (D29: "only its SHA-256 goes in the event"), for each principal's

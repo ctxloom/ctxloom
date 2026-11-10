@@ -34,9 +34,25 @@ pub struct PendingLaunch {
     pub session: String,
     pub incarnation: u32,
     pub mode: RunMode,
-    /// The process that enqueued the run, to launch it (ruling 86): a run owed
-    /// a runner whose launcher has died is an orphan.
-    pub launcher: runs::LauncherProcess,
+    /// The run's own lock, held by its launcher until the runner is started
+    /// (rulings 86, 92): a run owed a runner whose lock is free is an orphan.
+    pub launcher_lock: String,
+}
+
+/// A run whose runner was started and that has not ended, with where its
+/// session's lock is (ruling 93): a started run whose session's lock is free
+/// has lost its owner.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StartedRun {
+    /// The run's stream root.
+    pub run: Uuid,
+    /// The session's id text.
+    pub session: String,
+    pub incarnation: u32,
+    /// The session's project directory and harp, as its stream says them now
+    /// (a rename moves its lock with its name); empty until its mint is seen.
+    pub project_dir: String,
+    pub harp: String,
 }
 
 /// An incarnation a session owes a run for.
@@ -162,12 +178,20 @@ impl Pending {
                     session: session.clone(),
                     incarnation: *incarnation,
                     mode: *mode,
-                    // RED (ruling 86): the launcher is not yet folded.
-                    launcher: runs::LauncherProcess { pid: 0, started: 0 },
+                    // RED (rulings 86, 92): the lock is not yet folded.
+                    launcher_lock: String::new(),
                 }),
                 Stage::Past => None,
             })
             .collect()
+    }
+
+    /// The runs started and not ended, by session then incarnation (ruling
+    /// 93).
+    ///
+    /// RED (ruling 93): a stub that lists none.
+    pub fn started(&self) -> Vec<StartedRun> {
+        Vec::new()
     }
 
     /// The incarnations owed a run that is not yet enqueued, by session then

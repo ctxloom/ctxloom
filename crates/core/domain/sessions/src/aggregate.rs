@@ -25,8 +25,8 @@ use crate::{
     KeptChanged, MessageArrived, MessageClaimed, MessageDelivered, MessageFailed, MintSession,
     NoSession, RecordEnd, RecordIncarnationEnded, RecordMessageArrived, RecordPurge, RenameSession,
     RenamedTo, SessionAdopted, SessionCommand, SessionEvent, SessionExists, SessionForgotten,
-    SessionMinted, SessionPurged, SessionRejection, SessionState, SetKept, SteerWithdrawn,
-    StopOrdered, StopSession, UnknownMessage, WithdrawSteer,
+    SessionLive, SessionMinted, SessionPurged, SessionRejection, SessionState, SetKept,
+    SteerWithdrawn, StopOrdered, StopSession, UnknownMessage, WithdrawSteer,
 };
 use crate::{
     AssistantTextShown, Compacted, PromptSubmitted, RecordAssistantText, RecordCompaction,
@@ -108,7 +108,10 @@ impl SessionAggregate {
     }
 
     /// Rename the session; `None` when the name is the one held.
-    #[handles_cmd(RenameSession, refuses(NoSession, Forgotten, HarpInvalid, HarpTooLong))]
+    #[handles_cmd(
+        RenameSession,
+        refuses(NoSession, Forgotten, HarpInvalid, HarpTooLong, SessionLive)
+    )]
     fn rename(
         &self,
         cmd: RenameSession,
@@ -120,7 +123,7 @@ impl SessionAggregate {
                 SessionRejection,
                 rejection,
                 Refuses<Self, RenameSession>,
-                [NoSession => NoSession, Forgotten{harp} => Forgotten, HarpInvalid{harp, reason} => HarpInvalid, HarpTooLong{harp, limit, length} => HarpTooLong]
+                [NoSession => NoSession, Forgotten{harp} => Forgotten, HarpInvalid{harp, reason} => HarpInvalid, HarpTooLong{harp, limit, length} => HarpTooLong, SessionLive{harp} => SessionLive]
             )
         })
     }

@@ -142,6 +142,7 @@ fn rename(harp: &str) -> RenameSession {
     RenameSession {
         harp: harp.to_string(),
         output_dir: String::new(),
+        lock: sessions::LockEvidence::Free,
     }
 }
 

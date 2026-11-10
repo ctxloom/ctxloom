@@ -78,7 +78,7 @@ impl World {
                 incarnation: 1,
                 mode: runs::RunMode::Interactive,
                 evidence: runs_application::Evidence::passing("claude-code"),
-                launcher: Default::default(),
+                launcher_lock: String::new(),
             })
             .await
             .unwrap();

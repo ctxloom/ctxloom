@@ -86,6 +86,20 @@ enum Origin {
   ORIGIN_ONESHOT = 3;
 }
 
+// What a session's liveness lock said when a command was decided on it
+// (owner rulings 73e, 91: the application asks the lock, the aggregate
+// judges what it said).
+enum LockEvidence {
+  // Not asked: judged as proving nothing.
+  LOCK_EVIDENCE_UNSPECIFIED = 0;
+  // A running process holds it: the session is live.
+  LOCK_EVIDENCE_HELD = 1;
+  // It is there and nothing holds it: the session's owner ended.
+  LOCK_EVIDENCE_FREE = 2;
+  // No lock, or one that cannot be tried: proves nothing.
+  LOCK_EVIDENCE_UNPROVEN = 3;
+}
+
 // One displaced binding of a session: the native id and vendor
 // transcript it was bound to before a later bind replaced it.
 message Rotation {
@@ -169,11 +183,16 @@ message RenameSession {
     refuses: "ctxloom.sessions.v1.Forgotten"
     refuses: "ctxloom.sessions.v1.HarpInvalid"
     refuses: "ctxloom.sessions.v1.HarpTooLong"
+    refuses: "ctxloom.sessions.v1.SessionLive"
   };
 
   string harp = 1;
   // The output dir after the move; empty when the session has none.
   string output_dir = 2;
+  // The EVIDENCE (owner ruling 91, per 73e): what the session's lock said.
+  // A held one refuses the rename (its engine works in the directory a
+  // rename moves); a free or unproven one does not.
+  LockEvidence lock = 3;
 }
 
 // Record that a purge destroyed the session's transcript (a fact, from
@@ -486,6 +505,13 @@ message SessionExists {
 // A command to a stream holding no session.
 message NoSession {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
+}
+
+// A rename of a session that is live: its lock is held (owner ruling 91).
+message SessionLive {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string harp = 1;
 }
 
 // A command to a session that was forgotten (`session remove --yes`).

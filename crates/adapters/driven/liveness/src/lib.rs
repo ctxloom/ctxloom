@@ -81,30 +81,52 @@ impl SessionLock for LockFiles {
     }
 }
 
-/// This host's processes, read through the file-system seam from `/proc`
-/// (Linux): a process's start is the `starttime` of `/proc/<pid>/stat`
-/// (ruling 86). Elsewhere every probe is unproven, never gone.
+/// The run locks (rulings 86, 92, 93): a run's own lock at
+/// `<home>/.ctxloom/runs/<run>.lock` (machine-local, beside the projects'
+/// stores, so a refused run leaves nothing in the project), and a session's
+/// lock as [`LockFiles`] has it.
 ///
-/// RED (ruling 86): a stub that knows no process.
-pub struct ProcFiles {
+/// RED (ruling 92): a stub that holds and proves nothing.
+pub struct RunLockFiles {
     fs: Arc<dyn Fs>,
+    home: PathBuf,
 }
 
-impl ProcFiles {
-    pub fn new(fs: Arc<dyn Fs>) -> ProcFiles {
-        ProcFiles { fs }
+impl RunLockFiles {
+    /// The run locks under ctxloom's home `home`, through `fs`.
+    pub fn new(fs: Arc<dyn Fs>, home: impl Into<PathBuf>) -> RunLockFiles {
+        RunLockFiles {
+            fs,
+            home: home.into(),
+        }
+    }
+
+    /// Where run `run`'s lock is.
+    pub fn path(&self, run: &str) -> PathBuf {
+        self.home
+            .join(".ctxloom")
+            .join("runs")
+            .join(format!("{run}.lock"))
     }
 }
 
-impl run_ports::Processes for ProcFiles {
-    fn current(&self) -> run_ports::ProcessIdentity {
+impl run_ports::RunLocks for RunLockFiles {
+    fn hold_run(&self, run: &str) -> Result<run_ports::HeldLock, Report> {
         let _ = &self.fs;
-        run_ports::ProcessIdentity::default()
+        Ok(run_ports::HeldLock::new(
+            self.path(run).display().to_string(),
+            (),
+        ))
     }
 
-    fn state(&self, who: &run_ports::ProcessIdentity) -> run_ports::ProcessState {
-        let _ = who;
-        run_ports::ProcessState::Unproven
+    fn probe(&self, path: &str) -> run_ports::LockProbe {
+        let _ = path;
+        run_ports::LockProbe::Unproven
+    }
+
+    fn session(&self, project_dir: &str, harp: &str) -> run_ports::LockProbe {
+        let _ = (project_dir, harp);
+        run_ports::LockProbe::Unproven
     }
 }
 

@@ -31,8 +31,9 @@ arch_lint := arch_lint_root / "bin/arch-lint"
 # sibling checkouts instead of the commit's pinned dependencies.
 staged_tree := "../.{name}.staged"
 
-# No feature is turned on by what a commit changes.
-feature_rules := ""
+# session-cli's tests hold `session purge`, the destroy (owner ruling 94b),
+# which only its `session-destroy` feature compiles.
+feature_rules := "session-cli=session-cli/session-destroy"
 features_prepare := ""
 
 # Mutation kill-rate thresholds, percent, by crate path: the one place they
@@ -70,11 +71,14 @@ build:
     terse=(-q --message-format=short)
     [ "${VERBOSE:-}" = 1 ] && terse=()
     # Then the plain binary it made is held to knowing only the real engines
-    # (ruling 52: the mocks are test-support's; scripts/plain-engines-check.sh).
+    # (ruling 52: the mocks are test-support's; scripts/plain-engines-check.sh)
+    # and to having no destroy (ruling 94b: `session purge` is the
+    # session-destroy feature's; scripts/plain-destroy-check.sh).
     target=${CARGO_TARGET_DIR:-{{TOP}}/target}
     exec just --justfile {{TOP}}/justfile _run build workspace cargo \
         bash -c 'cargo build "${@:3}" --manifest-path "$1/Cargo.toml" --workspace &&
-            "$1/scripts/plain-engines-check.sh" "$2/debug/ctxloom"' build {{TOP}} "$target" "${terse[@]}"
+            "$1/scripts/plain-engines-check.sh" "$2/debug/ctxloom" &&
+            "$1/scripts/plain-destroy-check.sh" "$2/debug/ctxloom"' build {{TOP}} "$target" "${terse[@]}"
 
 # Install the arch-lint binary at the pinned ctxloom-lib commit, unless it is
 # there; and refuse a pin that differs from the one Cargo.toml has.

@@ -119,8 +119,8 @@ fn decide_enqueue(ctx: &Context, cmd: EnqueueRun) -> Result<RunEnqueued, RunReje
         runner_credential_hash: cmd.runner_credential_hash,
         model_credential_hash: cmd.model_credential_hash,
         hook_credential_hash: cmd.hook_credential_hash,
-        // RED (ruling 86): the launcher is not yet journaled.
-        launcher: crate::LauncherProcess { pid: 0, started: 0 },
+        // RED (rulings 86, 92): the launcher's lock is not yet journaled.
+        launcher_lock: String::new(),
     })
 }
 

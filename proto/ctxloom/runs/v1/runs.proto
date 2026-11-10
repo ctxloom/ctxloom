@@ -110,22 +110,12 @@ message EnqueueRun {
   // a count; the findings' text never enters the proto: it is the library's,
   // said beside the refusal, 73c).
   uint32 fatal_findings = 11;
-  // The process that enqueues the run and will launch it (ruling 86): what a
-  // later process judges an orphan by. Unlike the evidence above, it is
-  // journaled, in `RunEnqueued`.
-  LauncherProcess launcher = 12;
-}
-
-// The process that enqueued a run (ruling 86): its pid and when it started,
-// so a later process can tell an owner that died from one still running, and
-// a pid the system has since given another process is not taken for it.
-// All zero is a run enqueued before it was recorded: never judged an orphan.
-message LauncherProcess {
-  uint32 pid = 1;
-  // When the process started, in the host's own terms (Linux: the
-  // `starttime` of /proc/<pid>/stat, clock ticks since boot): opaque to the
-  // domain, compared for equality only.
-  uint64 started = 2;
+  // The run's own lock file, which the process that enqueues it holds from
+  // before the enqueue until its runner is started (owner rulings 86, 92): a
+  // later process finding the run still owed a runner and this lock free
+  // knows its launcher is gone. Its absolute path; unlike the evidence above
+  // it is journaled, in `RunEnqueued`. Empty: none was taken.
+  string launcher_lock = 12;
 }
 
 // A child's credential, as the run application found it (ruling 53 and owner
@@ -302,10 +292,11 @@ message RunEnqueued {
   // interactive engine's hook processes present for the capture facts alone.
   // Empty on a run enqueued before it existed.
   bytes hook_credential_hash = 6;
-  // The process that enqueued it, to launch it (ruling 86); all zero on a run
-  // enqueued before it was recorded. Numbered as in `EnqueueRun`, whose
-  // first six fields this event's are.
-  LauncherProcess launcher = 12;
+  // The run's lock file, which its launcher holds until the runner is started
+  // (rulings 86, 92); empty on a run enqueued before it existed: never judged
+  // an orphan. Numbered as in `EnqueueRun`, whose first six fields this
+  // event's are.
+  string launcher_lock = 12;
 }
 
 message RunnerAttachedRecorded {

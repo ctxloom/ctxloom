@@ -170,9 +170,9 @@ pub struct Runs<
     /// RED (defect 1): placed, not yet taken.
     #[allow(dead_code)]
     pub(crate) locks: Box<dyn session_ports::SessionLock>,
-    /// RED (ruling 86): placed, not yet asked.
+    /// RED (rulings 86, 92): placed, not yet taken.
     #[allow(dead_code)]
-    pub(crate) processes: Arc<dyn run_ports::Processes>,
+    pub(crate) run_locks: Arc<dyn run_ports::RunLocks>,
 }
 
 /// What an engine is told of the run's listener: its URL and the public part
@@ -273,9 +273,9 @@ pub struct Parts<
     /// The session's liveness lock, which the run holds for its life
     /// (defect 1), so the session reads live to every other process.
     pub locks: Box<dyn session_ports::SessionLock>,
-    /// This host's processes: this one, recorded as the run's launcher, and
-    /// any other, asked whether a run's launcher still runs (ruling 86).
-    pub processes: Arc<dyn run_ports::Processes>,
+    /// The run's own lock, which this process holds from before the enqueue
+    /// is visible until the runner is started (rulings 86, 92).
+    pub run_locks: Arc<dyn run_ports::RunLocks>,
 }
 
 impl<K, T, L, R, W> Runs<K, T, L, R, W>
@@ -304,7 +304,7 @@ where
             hooks: parts.hooks,
             certs: parts.certs,
             locks: parts.locks,
-            processes: parts.processes,
+            run_locks: parts.run_locks,
         }
     }
 
@@ -529,8 +529,8 @@ where
             incarnation: 1,
             mode,
             evidence,
-            // RED (ruling 86): this process is not yet recorded.
-            launcher: run_ports::ProcessIdentity::default(),
+            // RED (rulings 86, 92): no run lock is taken yet.
+            launcher_lock: String::new(),
         };
         self.enqueuer
             .enqueue(request)

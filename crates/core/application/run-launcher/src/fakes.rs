@@ -140,22 +140,12 @@ fn command_book(cover: Cover, payload: angzarr_embedded::Any) -> CommandBook {
 
 /// Mint `session` as `harp` and enqueue its first run, as a one-shot is.
 pub async fn enqueued(edge: &TestEdge, session: &str, harp: &str) {
-    enqueued_by(
-        edge,
-        session,
-        harp,
-        runs::LauncherProcess { pid: 0, started: 0 },
-    )
-    .await;
+    enqueued_by(edge, session, harp, "").await;
 }
 
-/// [`enqueued`], by the process `launcher` (ruling 86).
-pub async fn enqueued_by(
-    edge: &TestEdge,
-    session: &str,
-    harp: &str,
-    launcher: runs::LauncherProcess,
-) {
+/// [`enqueued`], its launcher holding the run lock at `launcher_lock` (rulings
+/// 86, 92; empty: none).
+pub async fn enqueued_by(edge: &TestEdge, session: &str, harp: &str, launcher_lock: &str) {
     let mint: sessions::SessionCommand = sessions::MintSession {
         harp: harp.to_string(),
         project_id: "calm-otter".to_string(),
@@ -187,7 +177,7 @@ pub async fn enqueued_by(
             accepted_set: false,
         },
         fatal_findings: 0,
-        launcher,
+        launcher_lock: launcher_lock.to_string(),
     }
     .into();
     edge.handle(command_book(run_cover(session), enqueue.to_any()))

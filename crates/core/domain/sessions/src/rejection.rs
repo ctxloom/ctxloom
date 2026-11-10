@@ -30,6 +30,8 @@ pub enum SessionRejection {
     NotHolder { harp: String },
     /// A stop ordered by a child (Go's I2); `depth` is the requester's.
     ChildCannotStop { depth: u64 },
+    /// A rename of a live session: its lock is held (owner ruling 91).
+    SessionLive { harp: String },
     /// A message the inbox does not hold.
     UnknownMessage { message_id: String },
     /// A steer withdrawn after it was delivered.
@@ -56,6 +58,7 @@ impl Diagnostic for SessionRejection {
             SessionRejection::NotHolder { .. } => code!("not-holder"),
             SessionRejection::ChildCannotStop { .. } => code!("child-cannot-stop"),
             SessionRejection::UnknownMessage { .. } => code!("unknown-message"),
+            SessionRejection::SessionLive { .. } => code!("session-live"),
             SessionRejection::AlreadyDelivered { .. } => code!("already-delivered"),
         }
     }
@@ -65,7 +68,8 @@ impl Diagnostic for SessionRejection {
             SessionRejection::SessionExists { harp }
             | SessionRejection::Forgotten { harp }
             | SessionRejection::NamesTaken { harp }
-            | SessionRejection::NotHolder { harp } => vec![("harp", harp.as_str().into())],
+            | SessionRejection::NotHolder { harp }
+            | SessionRejection::SessionLive { harp } => vec![("harp", harp.as_str().into())],
             SessionRejection::HarpInvalid { harp, reason } => vec![
                 ("harp", harp.as_str().into()),
                 ("reason", reason.as_str().into()),
@@ -119,6 +123,9 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(SessionRejection::ChildCannotStop { depth: 1 }),
         Box::new(SessionRejection::UnknownMessage {
             message_id: "m1".to_string(),
+        }),
+        Box::new(SessionRejection::SessionLive {
+            harp: "amber-swift-owl".to_string(),
         }),
         Box::new(SessionRejection::AlreadyDelivered {
             message_id: "m1".to_string(),

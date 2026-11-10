@@ -36,6 +36,9 @@ struct Seen {
     edge: Arc<TestEdge>,
     hide_end: AtomicBool,
     claims_refused: AtomicBool,
+    /// A session's mint refused (its harp sent as one no session may have),
+    /// after its name was claimed.
+    mint_refused: AtomicBool,
     /// The claims of a name that were made.
     claims: AtomicUsize,
     /// Every command and fact handled, the certificate's mint and the
@@ -103,6 +106,28 @@ impl Edge for Seen {
                 command.payload.as_ref().map(runs::RunCommand::from_any)
             {
                 *self.enqueued.lock().unwrap() = Some(enqueue);
+            }
+        }
+        if self.mint_refused.load(Ordering::SeqCst) {
+            use angzarr_embedded::Payload;
+            if let Some(angzarr_embedded::v1::command_page::Body::Command(command)) =
+                book.page.as_ref().and_then(|p| p.body.as_ref())
+            {
+                if let Some(Ok(sessions::SessionCommand::MintSession(mut mint))) = command
+                    .payload
+                    .as_ref()
+                    .map(sessions::SessionCommand::from_any)
+                {
+                    mint.harp = "a/b".to_string();
+                    let mint = sessions::SessionCommand::from(mint);
+                    return self
+                        .edge
+                        .handle(CommandBook::command_of(
+                            book.cover.unwrap_or_default(),
+                            &mint,
+                        ))
+                        .await;
+                }
             }
         }
         if names && self.claims_refused.load(Ordering::SeqCst) {
@@ -1099,6 +1124,52 @@ async fn an_answer_of_nothing_is_an_error_not_an_empty_success() {
         .result
         .unwrap_err();
     assert!(matches!(error, RunError::EmptyAnswer));
+}
+
+// Review finding 7: a name claimed for a session whose mint then fails is
+// given back, so no name is held for a session that never existed; the mint's
+// refusal is the run's error, and the run it enqueued is ended.
+#[tokio::test]
+async fn a_name_claimed_for_a_mint_that_fails_is_released() {
+    let mut rig = rig(Script::answering());
+    rig.runs.core.0.mint_refused.store(true, Ordering::SeqCst);
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap_err();
+    assert!(
+        matches!(&error, RunError::Session(CoreError::Refused { code, .. }) if code == "sessions-harp-invalid"),
+        "{error:?}"
+    );
+    assert_eq!(
+        claim_events(&rig.edge, "amber-swift-owl").await,
+        ["Claimed", "Released"]
+    );
+    let timeline = edge_timeline(&rig);
+    assert_eq!(timeline.last().map(String::as_str), Some("LaunchFailed"));
+}
+
+/// The events of `harp`'s claim stream, by their short type names.
+async fn claim_events(edge: &TestEdge, harp: &str) -> Vec<String> {
+    use run_ports::Edge;
+    let cover = angzarr_embedded::v1::Cover {
+        domain: sessions::NAMES_DOMAIN.to_string(),
+        root: Some(sessions::claim_root("calm-otter", harp)),
+        edition: None,
+    };
+    edge.events(&cover, 0)
+        .await
+        .unwrap()
+        .iter()
+        .filter_map(|page| match &page.body {
+            Some(event_page::Body::Event(any)) => {
+                any.type_url.rsplit('.').next().map(str::to_string)
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// Claim `harp` for `session` in the names domain, as another run has.

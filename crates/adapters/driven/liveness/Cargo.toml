@@ -8,6 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+angzarr-diagnostic.workspace = true
 file-system.workspace = true
 os.workspace = true
 session-ports.workspace = true

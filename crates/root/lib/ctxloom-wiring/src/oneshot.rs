@@ -164,6 +164,7 @@ impl<'a> OneShots<'a> {
             os: std::env::consts::OS.to_string(),
             hooks,
             certs: Box::new(hook_tls::Minter::new(hook_tls::SystemClock)),
+            locks: Box::new(liveness::LockFiles::new(wiring.fs(), project_dir.clone())),
         }))
     }
 }

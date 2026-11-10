@@ -167,6 +167,9 @@ pub struct Runs<
     pub(crate) os: String,
     pub(crate) hooks: Box<dyn HookServer>,
     pub(crate) certs: Box<dyn CertMint>,
+    /// RED (defect 1): placed, not yet taken.
+    #[allow(dead_code)]
+    pub(crate) locks: Box<dyn session_ports::SessionLock>,
 }
 
 /// What an engine is told of the run's listener: its URL and the public part
@@ -264,6 +267,9 @@ pub struct Parts<
     pub hooks: Box<dyn HookServer>,
     /// What mints a run's listener certificate.
     pub certs: Box<dyn CertMint>,
+    /// The session's liveness lock, which the run holds for its life
+    /// (defect 1), so the session reads live to every other process.
+    pub locks: Box<dyn session_ports::SessionLock>,
 }
 
 impl<K, T, L, R, W> Runs<K, T, L, R, W>
@@ -291,6 +297,7 @@ where
             os: parts.os,
             hooks: parts.hooks,
             certs: parts.certs,
+            locks: parts.locks,
         }
     }
 

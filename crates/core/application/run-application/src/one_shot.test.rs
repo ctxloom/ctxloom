@@ -360,7 +360,73 @@ impl HookServer for Hooks {
     }
 }
 
+/// The session locks, in memory: each hold and each let-go is said on the
+/// timeline (`lock <harp>`, `unlock <harp>`) with how many launches the runner
+/// had seen by then, so a test reads the order off the run, never waits.
+#[derive(Clone, Default)]
+struct Locks {
+    timeline: Timeline,
+    runner: Option<ScriptedRunner>,
+    /// Whether the fake listener was stopped, at each let-go.
+    hooks_log: Arc<Mutex<Vec<(String, usize)>>>,
+    /// Each let-go: (harp, launches seen, listener stopped).
+    released: Arc<Mutex<Vec<(String, usize, bool)>>>,
+    /// Each hold: (harp, launches seen).
+    held: Arc<Mutex<Vec<(String, usize)>>>,
+}
+
+impl Locks {
+    fn launches(&self) -> usize {
+        self.runner.as_ref().map_or(0, |r| {
+            r.seen.lock().unwrap().len() + r.seen_terminal.lock().unwrap().len()
+        })
+    }
+}
+
+/// A held fake lock: its drop is the let-go.
+struct FakeHeld {
+    harp: String,
+    locks: Locks,
+}
+
+impl Drop for FakeHeld {
+    fn drop(&mut self) {
+        let stopped = self
+            .locks
+            .hooks_log
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(what, _)| what == "stop");
+        self.locks.released.lock().unwrap().push((
+            self.harp.clone(),
+            self.locks.launches(),
+            stopped,
+        ));
+        self.locks
+            .timeline
+            .lock()
+            .unwrap()
+            .push(format!("unlock {}", self.harp));
+    }
+}
+
+impl session_ports::SessionLock for Locks {
+    fn hold(&mut self, harp: &str) -> Result<session_ports::Held, Report> {
+        self.held
+            .lock()
+            .unwrap()
+            .push((harp.to_string(), self.launches()));
+        self.timeline.lock().unwrap().push(format!("lock {harp}"));
+        Ok(session_ports::Held::new(FakeHeld {
+            harp: harp.to_string(),
+            locks: self.clone(),
+        }))
+    }
+}
+
 struct Rig {
+    locks: Locks,
     timeline: Timeline,
     hooks: Hooks,
     certs: Certs,
@@ -493,6 +559,12 @@ fn rig(script: Script) -> Rig {
         timeline: Arc::clone(&timeline),
         ..Certs::default()
     };
+    let locks = Locks {
+        timeline: Arc::clone(&timeline),
+        runner: Some(script.runner.clone()),
+        hooks_log: Arc::clone(&hooks.log),
+        ..Locks::default()
+    };
     let runs = Runs::new(Parts {
         core: TestCore(Arc::clone(&seen)),
         planner: Box::new(ScriptedPlan {
@@ -528,8 +600,10 @@ fn rig(script: Script) -> Rig {
         os: script.os.to_string(),
         hooks: Box::new(hooks.clone()),
         certs: Box::new(certs.clone()),
+        locks: Box::new(locks.clone()),
     });
     Rig {
+        locks,
         timeline,
         hooks,
         certs,
@@ -2467,4 +2541,64 @@ async fn the_engine_is_told_the_runs_session_by_its_id_never_an_inherited_one() 
             "interactive={interactive}"
         );
     }
+}
+
+// Defect 1: the run holds its session's lock for its life: taken once the
+// session is minted and before the engine starts, let go only after the
+// engine exited and the listener stopped. Interactive and one-shot alike.
+#[tokio::test]
+async fn the_run_holds_its_sessions_lock_from_its_mint_until_after_its_engine() {
+    for interactive in [false, true] {
+        let mut rig = rig(Script::answering());
+        if interactive {
+            rig.runs
+                .interactive(&Flags::default(), &ask())
+                .await
+                .result
+                .unwrap();
+        } else {
+            rig.runs
+                .one_shot(&Flags::default(), &ask())
+                .await
+                .result
+                .unwrap();
+        }
+        assert_eq!(
+            *rig.locks.held.lock().unwrap(),
+            [("amber-swift-owl".to_string(), 0)],
+            "interactive={interactive}: held once, before the engine started"
+        );
+        assert_eq!(
+            *rig.locks.released.lock().unwrap(),
+            [("amber-swift-owl".to_string(), 1, true)],
+            "interactive={interactive}: let go after the engine and the listener"
+        );
+        let timeline = rig.timeline.lock().unwrap().clone();
+        let at = |what: &str| timeline.iter().position(|t| t == what);
+        assert!(
+            at("MintSession") < at("lock amber-swift-owl"),
+            "the lock is the minted session's: {timeline:?}"
+        );
+    }
+}
+
+// Defect 1: a refused run makes nothing, so it takes no lock; a run that fails
+// after its session is minted lets its lock go.
+#[tokio::test]
+async fn a_refused_run_takes_no_lock_and_a_failed_one_lets_its_lock_go() {
+    let mut refused = rig(Script {
+        prompt: "",
+        ..Script::answering()
+    });
+    let _ = refused.runs.one_shot(&Flags::default(), &ask()).await;
+    assert!(refused.locks.held.lock().unwrap().is_empty());
+    let mut failed = rig(Script {
+        hooks_refuse: Some("hook-listener-bind"),
+        ..Script::answering()
+    });
+    let done = failed.runs.one_shot(&Flags::default(), &ask()).await;
+    assert!(done.result.is_err());
+    let held = failed.locks.held.lock().unwrap().len();
+    let released = failed.locks.released.lock().unwrap().len();
+    assert_eq!(held, released, "every lock taken was let go");
 }

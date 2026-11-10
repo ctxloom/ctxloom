@@ -512,6 +512,31 @@ Feature: run — assembling a project's context and handing it to an engine
       When Alice runs the isolated "claude-code" agent under workspace "none"
       Then the run is refused without any isolation finding, naming "auth: token"
 
+  Rule: A run holds its session's lock for as long as it runs, so its session reads live
+
+    The lock is `.ctxloom/sessions/<harp>.lock`, beside the session's
+    directory: an exclusive file lock the run takes once its session is
+    minted and lets go after its engine exits. Another process probes it
+    without holding it: held is live, free is ended. So while a session runs,
+    ctxloom will not move it from under its engine (a rename waits for its
+    end) and will not remove it without `--even-if-live`; once it has ended a
+    rename moves its directory with its name.
+
+    Scenario: While her session runs another terminal sees it live, and cannot rename or remove it
+      # new: concurrent-primaries defects 1 and 2, with a stub engine on PATH
+      # that runs the other terminal's commands itself, while it runs.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice runs her assistant interactively, and while it runs another terminal lists, renames and removes its session:
+        """
+        ctxloom run
+        """
+      Then while it ran, the listing showed its session as live
+      And while it ran, renaming its session was refused until the session ends
+      And while it ran, removing its session was refused because its owner is alive
+      And after it ended, its session is listed as ended under its own name
+      And after it ended, renaming it moves its session's directory and lock with its name
+
   # A CHILD agent (a one-shot is one) authenticates only with a credential in
   # its environment: the token the human mints with `claude setup-token` and
   # exports, or an API key. ctxloom never captures or stores one, and a child

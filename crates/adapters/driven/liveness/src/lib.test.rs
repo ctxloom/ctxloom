@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use file_system::{Fs, Open, Rooted};
 use os::{LockKind, Mode};
-use session_ports::{Liveness, LockState};
+use session_ports::{Liveness, LockState, SessionLock};
 
 use super::LockFiles;
 
@@ -114,4 +114,34 @@ fn each_harp_has_its_own_lock() {
     assert_eq!(locks.lock_state("amber-swift-owl"), LockState::Held);
     assert_eq!(locks.lock_state("brisk-copper-moth"), LockState::Free);
     assert_eq!(locks.lock_state("calm-dusty-wren"), LockState::Unproven);
+}
+
+// Defect 1: the run HOLDS its session's lock for its life, so the probe (any
+// other process's) reads it live; let go, it reads ended. The lock file is
+// made by the hold: a session that never ran has none.
+#[test]
+fn a_held_session_lock_reads_live_and_let_go_reads_ended() {
+    let (fs, mut probe) = locks();
+    let mut runner = LockFiles::new(fs.clone(), PROJECT);
+    assert_eq!(probe.lock_state(HARP), LockState::Unproven, "no lock yet");
+    let held = runner.hold(HARP).expect("the run takes its lock");
+    assert_eq!(probe.lock_state(HARP), LockState::Held);
+    drop(held);
+    assert_eq!(probe.lock_state(HARP), LockState::Free);
+}
+
+// Defect 1: a lock another holds is refused at once (no wait): two runs never
+// own one session at a time.
+#[test]
+fn a_session_lock_another_holds_is_refused_at_once() {
+    let (fs, mut first) = locks();
+    let mut second = LockFiles::new(fs.clone(), PROJECT);
+    let _held = first.hold(HARP).expect("the first run takes it");
+    let started = std::time::Instant::now();
+    assert!(second.hold(HARP).is_err(), "a second holder is refused");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(1),
+        "refused at once, not after the platform's wait"
+    );
+    assert_eq!(first.lock_state("brisk-copper-moth"), LockState::Unproven);
 }

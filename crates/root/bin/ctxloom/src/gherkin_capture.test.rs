@@ -253,6 +253,11 @@ pub(super) fn fires(w: &mut World, step: &cucumber::gherkin::Step) -> bool {
         run_child(w, step, true);
     } else if step.value.contains("fires no hooks") {
         run_child(w, step, false);
+    } else if step
+        .value
+        .contains("another terminal lists, renames and removes")
+    {
+        run_watched(w, step);
     } else {
         return false;
     }
@@ -604,4 +609,150 @@ fn late_hook(w: &mut World) {
         ran.said()
     );
     assert_eq!(w.transcript(), w.capture.ended, "nothing was appended");
+}
+
+// ------------------------------------------- a live session (defects 1, 2)
+
+/// The stub engine of a session another terminal watches: it runs that
+/// terminal's commands itself, while it runs (so no wait is needed: the
+/// order is the stub's own), and records what each said.
+const WATCHED_STUB: &str = r#"here="$(dirname "$0")"
+harp="$CTXLOOM_SESSION_HARP"
+echo "$harp" > "$here/watched-harp"
+ctxloom session list --format json > "$here/live-list" 2> "$here/live-list.err"
+ctxloom session edit "$harp" --name renamed-while-live --format json > "$here/live-rename" 2>&1
+echo "$?" > "$here/live-rename.code"
+ctxloom session remove "$harp" --yes --format json > "$here/live-remove" 2>&1
+echo "$?" > "$here/live-remove.code"
+"#;
+
+fn run_watched(w: &mut World, step: &cucumber::gherkin::Step) {
+    let bin = w.engine_dir();
+    let ctxloom = crate::tests::binary().display().to_string();
+    files::put_program(bin.join("ctxloom"), &format!("exec '{ctxloom}' \"$@\"\n"));
+    files::put_program(bin.join("claude"), WATCHED_STUB);
+    w.common.set_env("CTXLOOM_TEST_TERMINAL", "1".to_string());
+    w.before_run();
+    let lines = crate::tests::gherkin_common::doc(step);
+    w.common_mut().run_lines(&lines, "");
+}
+
+impl World {
+    /// The watched session's name, as its engine was told it.
+    fn watched_harp(&self) -> String {
+        let harp = files::read(self.engine_dir().join("watched-harp")).expect("the engine ran");
+        harp.trim().to_string()
+    }
+
+    fn watched(&self, name: &str) -> String {
+        files::read(self.engine_dir().join(name)).unwrap_or_default()
+    }
+
+    /// `ctxloom <args>` in the project, now.
+    fn run_now(&self, args: &[&str]) -> Ran {
+        let env: Vec<(&str, &str)> = self
+            .common
+            .env
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        self.common.project.run_with(&env, args)
+    }
+}
+
+/// The state a listing (JSON) gives the session `harp`, wherever in the
+/// document its row is.
+fn listed_state(listing: &str, harp: &str) -> Option<String> {
+    fn find(value: &Value, harp: &str) -> Option<String> {
+        match value {
+            Value::Object(map) if map.get("harp").and_then(Value::as_str) == Some(harp) => {
+                map.get("state").and_then(Value::as_str).map(str::to_string)
+            }
+            Value::Object(map) => map.values().find_map(|v| find(v, harp)),
+            Value::Array(items) => items.iter().find_map(|v| find(v, harp)),
+            _ => None,
+        }
+    }
+    let value: Value = serde_json::from_str(listing).ok()?;
+    find(&value, harp)
+}
+
+#[then("while it ran, the listing showed its session as live")]
+fn listed_live(w: &mut World) {
+    w.ran().succeeds();
+    let harp = w.watched_harp();
+    let listing = w.watched("live-list");
+    assert_eq!(
+        listed_state(&listing, &harp).as_deref(),
+        Some("live"),
+        "the run holds its lock (defect 1): {listing} {}",
+        w.watched("live-list.err")
+    );
+}
+
+#[then("while it ran, renaming its session was refused until the session ends")]
+fn rename_refused_live(w: &mut World) {
+    let said = w.watched("live-rename");
+    assert_ne!(w.watched("live-rename.code").trim(), "0", "{said}");
+    // PROPOSAL: the typed refusal `SessionLive` (FAILED_PRECONDITION), code
+    // `sessions-session-live`, its fix saying to wait for the session's end.
+    assert!(said.contains("sessions-session-live"), "{said}");
+    assert!(
+        said.contains("\"fix\""),
+        "the envelope carries the fix: {said}"
+    );
+    assert!(
+        !files::exists(
+            w.common
+                .project
+                .dir()
+                .join(".ctxloom/sessions/renamed-while-live")
+        ),
+        "nothing was moved"
+    );
+}
+
+#[then("while it ran, removing its session was refused because its owner is alive")]
+fn remove_refused_live(w: &mut World) {
+    let said = w.watched("live-remove");
+    assert!(
+        said.contains("the owner is alive"),
+        "refused for its held lock, not for having none: {said}"
+    );
+}
+
+#[then("after it ended, its session is listed as ended under its own name")]
+fn listed_ended(w: &mut World) {
+    let harp = w.watched_harp();
+    let ran = w.run_now(&["session", "list", "--format", "json"]);
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    assert_eq!(
+        listed_state(&ran.stdout, &harp).as_deref(),
+        Some("ended"),
+        "{}",
+        ran.stdout
+    );
+}
+
+#[then("after it ended, renaming it moves its session's directory and lock with its name")]
+fn rename_moves_directory(w: &mut World) {
+    let harp = w.watched_harp();
+    let sessions = w.common.project.dir().join(".ctxloom/sessions");
+    let ran = w.run_now(&["session", "edit", &harp, "--name", "renamed-after-end"]);
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    assert!(
+        !files::exists(sessions.join(&harp)),
+        "the old directory is gone (defect 2): a later session could claim it"
+    );
+    assert!(
+        files::is_dir(sessions.join("renamed-after-end/home")),
+        "the directory moved with the name"
+    );
+    let listed = w.run_now(&["session", "list", "--format", "json"]);
+    assert_eq!(
+        listed_state(&listed.stdout, "renamed-after-end").as_deref(),
+        Some("ended"),
+        "its lock moved with it, so it still reads ended: {}",
+        listed.stdout
+    );
 }

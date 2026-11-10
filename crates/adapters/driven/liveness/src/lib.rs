@@ -17,9 +17,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use angzarr_diagnostic::Report;
 use file_system::{Fs, Kind, Open};
 use os::LockKind;
-use session_ports::{Liveness, LockState};
+use session_ports::{Held, Liveness, LockState, SessionLock};
 
 /// Liveness over the lock files under one project.
 pub struct LockFiles {
@@ -66,6 +67,17 @@ impl Liveness for LockFiles {
             Ok(false) => LockState::Held,
             Err(_) => LockState::Unproven,
         }
+    }
+}
+
+/// The lock a run holds for its life (defect 1), taken with the platform's
+/// `file-lock` (the one way every ctxloom binary takes a lock).
+///
+/// RED (defect 1): a stub that holds nothing.
+impl SessionLock for LockFiles {
+    fn hold(&mut self, harp: &str) -> Result<Held, Report> {
+        let _ = self.path(harp);
+        Ok(Held::new(()))
     }
 }
 

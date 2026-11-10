@@ -61,6 +61,34 @@ pub trait Liveness {
     fn lock_state(&mut self, harp: &str) -> LockState;
 }
 
+/// A session's liveness lock, HELD: what a run takes for its life so its
+/// session reads live (defect 1: no production code took it, so every
+/// session read unknown). Let go when dropped, however the run ends; the
+/// kernel lets go of it however the process ends.
+pub struct Held(#[allow(dead_code)] Box<dyn Send>);
+
+impl Held {
+    /// A held lock, let go when `guard` is dropped.
+    pub fn new(guard: impl Send + 'static) -> Held {
+        Held(Box::new(guard))
+    }
+}
+
+impl std::fmt::Debug for Held {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Held")
+    }
+}
+
+/// Taking a session's liveness lock (the one [`Liveness`] probes), to hold.
+///
+/// Synchronous, and it touches the filesystem, as the probe does.
+pub trait SessionLock: Send {
+    /// Take `harp`'s lock and hold it until the answer is dropped. Refused at
+    /// once, never waited for, when another process holds it.
+    fn hold(&mut self, harp: &str) -> Result<Held, Report>;
+}
+
 /// A session's canonical transcript, as it is on disk.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct TranscriptFile {

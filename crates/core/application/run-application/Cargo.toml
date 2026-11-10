@@ -16,6 +16,7 @@ run-launcher.workspace = true
 run-ports.workspace = true
 runs.workspace = true
 runs-application.workspace = true
+session-ports.workspace = true
 sessions.workspace = true
 uuid.workspace = true
 

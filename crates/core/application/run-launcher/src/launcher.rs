@@ -3,9 +3,8 @@
 //! [`RunnerLauncher`], and records what came of it as the run's facts.
 //!
 //! The order of a launch, and why:
-//! 1. the session home and the user's line of the transcript are written, and
-//!    the turn's command is built; a launch that fails here has started
-//!    nothing, and is a `LaunchFailed`;
+//! 1. the session home is written and the turn's command is built; a launch
+//!    that fails here has started nothing, and is a `LaunchFailed`;
 //! 2. `RunnerAttached` is recorded, then the command is SPAWNED
 //!    ([`RunnerLauncher::launch`]), and only then are `RunnerStarted` (with the
 //!    pid the spawn gave) and `TurnStarted` recorded, while the command runs:
@@ -16,17 +15,19 @@
 //!    the run, and never a `RunnerStarted`;
 //! 3. the command runs to its end ([`Running::finish`]; a wait that breaks
 //!    after the spawn is a `LaunchFailed` too); one that ran is read by the engine
-//!    ([`Engine::finish_turn`]): the assistant's line is written to the
-//!    transcript, the engine's own session id is bound to the session, and the
-//!    turn is `TurnCompleted` or `TurnFailed`;
+//!    ([`Engine::finish_turn`]): the reply is the launch's answer, the
+//!    engine's own session id is bound to the session, and the turn is
+//!    `TurnCompleted` or `TurnFailed`;
 //! 4. `RunExited` ends the run.
 //!
 //! The transcript is the PROJECTOR's to write (D27; [`crate::Recorder`], the
-//! one writer): the launcher records the prompt and the answer as the same
-//! capture facts the engine's hooks record (a prompt submitted; the answer as
-//! one assistant text, its only delta marked final) on the session's stream,
-//! and the events carry the transcript's path (`answer_ref`) and never its
-//! bytes.
+//! one writer), from the capture facts on the session's stream. A child's
+//! turn's facts are its hooks' alone (owner rulings 26 and 51): the launcher
+//! records none of its prompt or its words, so a turn whose hooks never reach
+//! the listener has no conversation in its transcript, though its reply is
+//! still the launch's answer. The terminal session's opening prompt is the
+//! launcher's to record, as a hook records a prompt. The events carry the
+//! transcript's path (`answer_ref`) and never its bytes.
 
 use std::sync::Arc;
 
@@ -194,15 +195,19 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             }
         };
         self.record(&who, attached()).await?;
-        // The user's line of the transcript: the prompt, as a hook records one.
-        let turn = turn_id(&launch.run);
-        if !order.prompt.trim().is_empty() {
-            self.observe(&who, prompt_submitted(&turn, &order.prompt))
-                .await?;
-        }
         if order.interactive {
+            // The terminal session's opening prompt: the user's line of the
+            // transcript, as a hook records one.
+            if !order.prompt.trim().is_empty() {
+                let turn = turn_id(&launch.run);
+                self.observe(&who, prompt_submitted(&turn, &order.prompt))
+                    .await?;
+            }
             return self.terminal(&who, &order, &command, done).await;
         }
+        // A child's turn is heard through its hooks alone (owner rulings 26
+        // and 51): its prompt and its words are theirs to record, and the
+        // stream is read below for the reply and the turn's outcome only.
         let running = match self.runner.launch(&command, &self.limits) {
             Ok(running) => running,
             Err(failure) => return self.never_started(&who, failure, done).await,
@@ -222,8 +227,6 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         let code = output.exit.code.unwrap_or(0);
         let outcome = match outcome {
             TurnOutcome::Answered { answer, native_id } => {
-                // The assistant's line: one text, its only delta, the last.
-                self.observe(&who, answered(&turn, &answer)).await?;
                 if let Some(native) = &native_id {
                     self.record(&who, bound(native, self.records.dir(&order.harp)))
                         .await?;
@@ -409,18 +412,6 @@ fn prompt_submitted(turn: &str, prompt: &str) -> Observation {
     Observation::PromptSubmitted(sessions::RecordPromptSubmitted {
         prompt_id: turn.to_string(),
         prompt: prompt.to_string(),
-    })
-}
-
-/// The answer of turn `turn`: one text, its only delta, the last.
-fn answered(turn: &str, answer: &str) -> Observation {
-    Observation::AssistantText(sessions::RecordAssistantText {
-        prompt_id: turn.to_string(),
-        turn_id: turn.to_string(),
-        message_id: turn.to_string(),
-        index: 0,
-        is_final: true,
-        text: answer.to_string(),
     })
 }
 

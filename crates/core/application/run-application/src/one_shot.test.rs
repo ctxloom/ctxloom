@@ -547,7 +547,6 @@ async fn the_session_directory_is_written_from_the_events() {
         "metadata.json",
         "records/runs.jsonl",
         "records/session.jsonl",
-        "transcripts/transcript.jsonl",
         "home/ctx.md",
     ] {
         assert!(
@@ -555,6 +554,12 @@ async fn the_session_directory_is_written_from_the_events() {
             "{expected} in {names:?}"
         );
     }
+    // The conversation is the child's hooks' to report (ruling 26), and this
+    // scripted engine has none: no transcript was written for it.
+    assert!(
+        !names.iter().any(|n| n == "transcripts/transcript.jsonl"),
+        "{names:?}"
+    );
 }
 
 #[tokio::test]

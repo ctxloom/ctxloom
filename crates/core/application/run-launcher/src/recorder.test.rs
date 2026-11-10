@@ -32,8 +32,44 @@ async fn ran_with(recorder: &mut Recorder<MemoryRecords>, engine: ScriptedEngine
         Limits::new(std::time::Duration::from_secs(5)),
     );
     launcher.step(&edge.store, edge.catalog()).await.unwrap();
+    heard(&edge).await;
     recorder.step(&edge.store, edge.catalog()).await.unwrap();
     edge
+}
+
+/// What the child's hooks report of its turn (the launcher records none of
+/// it, owner ruling 26): its prompt, and its answer as one final delta.
+async fn heard(edge: &Arc<TestEdge>) {
+    use runs_application::{Facts, Observation};
+    let facts = Facts::new(Arc::clone(edge));
+    for observation in [
+        Observation::PromptSubmitted(sessions::RecordPromptSubmitted {
+            prompt_id: "p1".to_string(),
+            prompt: "THE-PROMPT".to_string(),
+        }),
+        Observation::AssistantText(sessions::RecordAssistantText {
+            prompt_id: "p1".to_string(),
+            turn_id: "t1".to_string(),
+            message_id: "m1".to_string(),
+            index: 0,
+            is_final: true,
+            text: "A".to_string(),
+        }),
+    ] {
+        facts.observe(&who(), &observation).await.unwrap();
+    }
+}
+
+/// The run's identity, as the facts of this session's turn carry it.
+fn who() -> runs_application::Identity {
+    runs_application::Identity {
+        run: runs::run_root(SESSION, 1),
+        session: crate::fakes::uuid(SESSION),
+        incarnation: 1,
+        harp: HARP.to_string(),
+        depth: 0,
+        principal: runs_application::Principal::Runner,
+    }
 }
 
 fn lines(records: &MemoryRecords, rel: &str) -> Vec<serde_json::Value> {
@@ -83,9 +119,9 @@ async fn every_event_of_the_session_and_its_run_is_a_line_of_its_record() {
         [
             "SessionMinted",
             "IncarnationOwed",
+            "EngineSessionBound",
             "PromptSubmitted",
-            "AssistantTextShown",
-            "EngineSessionBound"
+            "AssistantTextShown"
         ]
     );
     let runs = lines(&records, RUNS_RECORD);
@@ -200,11 +236,11 @@ async fn an_event_line_carries_what_the_event_says() {
     let session = lines(&records, SESSION_RECORD);
     assert_eq!(session[0]["harp"], HARP);
     assert_eq!(session[1]["incarnation"], 1);
-    assert_eq!(session[4]["native_id"], "native-7");
+    assert_eq!(session[2]["native_id"], "native-7");
     assert!(
-        session[4].get("transcript_path").is_some(),
+        session[2].get("transcript_path").is_some(),
         "{}",
-        session[4]
+        session[2]
     );
     let runs = lines(&records, RUNS_RECORD);
     assert_eq!(runs[0]["session"], SESSION);
@@ -279,15 +315,8 @@ async fn the_transcript_is_written_from_the_capture_events_by_the_recorder_alone
 
 /// What the engine's hooks would add to the session after the run.
 async fn observe_more(edge: &Arc<TestEdge>) {
-    use runs_application::{Facts, Identity, Observation, Principal};
-    let who = Identity {
-        run: runs::run_root(SESSION, 1),
-        session: crate::fakes::uuid(SESSION),
-        incarnation: 1,
-        harp: HARP.to_string(),
-        depth: 0,
-        principal: Principal::Runner,
-    };
+    use runs_application::{Facts, Observation};
+    let who = who();
     let observations = [
         Observation::AssistantText(sessions::RecordAssistantText {
             prompt_id: "p2".to_string(),
@@ -357,6 +386,7 @@ async fn a_transcript_that_cannot_be_written_is_tried_again_and_written_once() {
         Limits::new(std::time::Duration::from_secs(5)),
     );
     launcher.step(&edge.store, edge.catalog()).await.unwrap();
+    heard(&edge).await;
     *records.refuses.lock().unwrap() = Some("transcripts/".to_string());
     recorder
         .step(&edge.store, edge.catalog())

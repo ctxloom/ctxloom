@@ -251,6 +251,25 @@ clippy reads the nearest `clippy.toml`. A crate's own `clippy.toml` would
 replace it, so none has one. It repeats the root `clippy.toml`'s settings,
 and `just lint` refuses to run if they disagree.
 
+The engine block reaches the drive (engines track 4). The plan's `DryRun.drive`
+(`library::config::engines::Drive`: `command`, `session_home`, the `auth`
+source, the agent's `env_host`/`env`) becomes `run_ports::EngineSettings`
+(owned, names and paths only, never a credential value) in the `Order` and the
+`TurnRequest`. engine-claude runs the configured `command` (default `claude`);
+passes the curated allowlist plus `engines.<e>.env`, the configured auth
+variables, or with `env_host` the whole environment but never `HOME`; the
+`CTXLOOM_*` interactive variables and `ANTHROPIC_AUTH_TOKEN` stay out of a
+child whatever the config says; `session_home: host` sets `CLAUDE_CONFIG_DIR`
+to `$HOME/.claude` (no `HOME` is `run-ports-engine-no-host-home`), links no
+login and installs no hook there. `EngineSettings::credentials` meets the
+engine's `Credentials` with the source: a child is satisfied by the source's
+`env` alone, the primary may share the source's `file` (or, for the built-in
+source, `~/.claude/.credentials.json`), `none` and `login` ask a child for no
+variable. Settings apply only to the engine the plan resolved (`run --engine`
+forcing another runs on its built-ins). A launch whose agent `runtime` weakens
+the engine's (or swaps container ownerships) says so as a notice. `init`'s
+token guide asks the configured source.
+
 ## Architecture: hexagonal around CQRS/ES (checked by `just lint-arch`, and in review)
 
 Dependencies point inward; a review refuses a change that breaks these, and

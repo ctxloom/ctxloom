@@ -227,9 +227,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         ctxloom config create --engine <engine>
         """
       Then the command succeeds
-      And the file ".ctxloom/config.yaml" contains "llm: <engine>"
-      And the file ".ctxloom/config.yaml" contains "type: <engine>"
-      And the file ".ctxloom/config.yaml" contains "primary: <engine>"
+      And the file ".ctxloom/config.yaml" contains "engine: <engine>"
 
       Examples:
         | engine |

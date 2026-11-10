@@ -13,6 +13,9 @@
 use super::library::{contains_value, reports_as, Project};
 use crate::tests::files;
 
+/// A project whose default agent is bound to an engine.
+const AGENT_CONFIG: &str = "schema_version: 9\nagents:\n  default:\n    engine: claude-code\n    profiles:\n      - default\n    runtime: host\ndefault_agent: default\n";
+
 const FORMATS: [&[&str]; 3] = [&[], &["--format", "json"], &["--format", "text"]];
 
 fn with_flags(project: &Project, base: &[&str], flags: &[&str]) -> super::Ran {
@@ -30,23 +33,17 @@ fn is_text(flags: &[&str]) -> bool {
 fn test_show_renders_the_whole_configuration_document() {
     for flags in FORMATS {
         let project = Project::initialized();
+        project.write(".ctxloom/config.yaml", AGENT_CONFIG);
         let ran = with_flags(&project, &["config", "show"], flags);
         ran.succeeds().contains("claude-code");
         if is_text(flags) {
-            ran.contains("llm:")
-                .contains("configs:")
-                .contains("defaults:");
+            ran.contains("agents:")
+                .contains("engine: claude-code")
+                .contains("default_agent: default");
         } else {
             let doc = ran.json();
-            assert_eq!(
-                reports_as(&doc, "llm.configs.claude-code.type"),
-                "claude-code"
-            );
-            assert_eq!(
-                reports_as(&doc, "llm.configs.claude-fast.type"),
-                "claude-code"
-            );
-            assert_eq!(reports_as(&doc, "llm.defaults.primary"), "claude-code");
+            assert_eq!(reports_as(&doc, "agents.default.engine"), "claude-code");
+            assert_eq!(reports_as(&doc, "default_agent"), "default");
         }
     }
 }
@@ -57,17 +54,15 @@ fn test_show_renders_the_whole_configuration_document() {
 fn test_bare_config_shows_the_document_instead_of_printing_help() {
     for flags in FORMATS {
         let project = Project::initialized();
+        project.write(".ctxloom/config.yaml", AGENT_CONFIG);
         let ran = with_flags(&project, &["config"], flags);
         ran.succeeds().lacks("Available Commands:");
         if is_text(flags) {
-            ran.contains("llm:").contains("defaults:");
+            ran.contains("agents:").contains("default_agent:");
         } else {
             let doc = ran.json();
-            assert_eq!(
-                reports_as(&doc, "llm.configs.claude-code.type"),
-                "claude-code"
-            );
-            assert_eq!(reports_as(&doc, "llm.defaults.primary"), "claude-code");
+            assert_eq!(reports_as(&doc, "agents.default.engine"), "claude-code");
+            assert_eq!(reports_as(&doc, "default_agent"), "default");
         }
     }
 }
@@ -77,28 +72,32 @@ fn test_bare_config_shows_the_document_instead_of_printing_help() {
 #[test]
 fn test_the_machine_readable_rendering_carries_the_document_not_an_empty_object() {
     let project = Project::initialized();
+    project.write(".ctxloom/config.yaml", AGENT_CONFIG);
     let ran = project.run(&["--format", "json", "config", "show"]);
     ran.succeeds().contains("claude-code");
     assert!(ran.json().as_object().is_some_and(|o| !o.is_empty()));
 }
 
-// config.feature: Scenario Outline: The llm section carries the engine
-// registry and nothing above it
+// config.feature: Scenario Outline: The agents section carries the engine
+// bindings and nothing above it (the retired registry section's scenario, ported: the
+// engine an agent names is in `agents`, the registry is gone)
 #[test]
-fn test_the_llm_section_carries_the_engine_registry_and_nothing_above_it() {
+fn test_the_agents_section_carries_the_engine_bindings_and_nothing_above_it() {
     for flags in FORMATS {
         let project = Project::initialized();
-        let ran = with_flags(&project, &["config", "show", "llm"], flags);
+        project.write(".ctxloom/config.yaml", AGENT_CONFIG);
+        let ran = with_flags(&project, &["config", "show", "agents"], flags);
         ran.succeeds()
             .contains("claude-code")
             .lacks("editor:")
-            .lacks("llm:");
+            .lacks("agents:");
         if is_text(flags) {
-            ran.contains("configs:").contains("defaults:");
+            ran.contains("engine: claude-code")
+                .contains("runtime: host");
         } else {
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "configs.claude-code.type"), "claude-code");
-            assert_eq!(reports_as(&doc, "defaults.primary"), "claude-code");
+            assert_eq!(reports_as(&doc, "default.engine"), "claude-code");
+            assert_eq!(reports_as(&doc, "default.runtime"), "host");
         }
     }
 }
@@ -114,7 +113,7 @@ fn test_a_config_carrying_an_inline_profiles_block_is_refused_naming_the_key() {
         "schema_version: 9\nprofiles:\n  definitions:\n    dev:\n      bundles:\n        - demo\n",
     );
     project
-        .run(&["config", "show", "llm"])
+        .run(&["config", "show", "agents"])
         .fails()
         .contains("unknown key `profiles`");
 }
@@ -129,7 +128,7 @@ fn test_an_unknown_section_is_refused_and_the_real_ones_are_named() {
         .fails()
         .contains("nonsense")
         .contains("config")
-        .contains("llm");
+        .contains("engines");
 }
 
 // config.feature: Scenario: A misspelled subcommand fails instead of printing help
@@ -154,7 +153,7 @@ fn test_an_unknown_key_is_refused_naming_it_and_degraded_carries_on() {
     refused
         .fails()
         .contains("unknown key `zzz`")
-        .contains("known keys at the top level: agents, auth, companions");
+        .contains("known keys at the top level: agents, companions, config");
     project
         .run(&["--degraded", "bundle", "list"])
         .succeeds()
@@ -239,7 +238,7 @@ fn test_layers_merge_home_under_project() {
     assert_eq!(reports_as(&doc, "editor.command"), "project-editor");
     assert!(contains_value(&doc, "editor.args", "-h"), "{doc}");
     assert_eq!(reports_as(&doc, "workspace"), "worktree");
-    assert_eq!(reports_as(&doc, "agents.proj.llm"), "claude-code");
+    assert_eq!(reports_as(&doc, "agents.proj.engine"), "claude-code");
     assert!(contains_value(&doc, "agents.proj.profiles", "x"), "{doc}");
     assert!(contains_value(&doc, "agents.home.profiles", "h"), "{doc}");
     // Names union; a name's command is the project's where both register it.

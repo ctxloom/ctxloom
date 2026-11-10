@@ -118,7 +118,7 @@ Feature: What a start writes, and whose pins it reads
     # launch's source.)
     Scenario: A project-less start ignores a home lockfile that a project would abort on
       Given an empty project directory
-      And the home config declares the mock engine label "session-owner"
+      And the home config declares the agent "session-owner" bound to the mock engine
       And the home already has the file ".ctxloom/lock.yaml":
         """
         schema_version: 2
@@ -127,7 +127,7 @@ Feature: What a start writes, and whose pins it reads
             sha: "abc
             pinned: true
         """
-      When I run "ctxloom run --dry-run --llm session-owner -f isolation-axes hello"
+      When I run "ctxloom run --dry-run --agent session-owner -f isolation-axes hello"
       Then the startup does not abort on a fatal bundle finding
       And the command succeeds
       # THE CONTROL. The same unparseable bytes, moved to the project layer,
@@ -141,7 +141,7 @@ Feature: What a start writes, and whose pins it reads
             sha: "abc
             pinned: true
         """
-      When I run "ctxloom run --dry-run --llm session-owner -f isolation-axes hello"
+      When I run "ctxloom run --dry-run --agent session-owner -f isolation-axes hello"
       Then the startup aborts on a fatal bundle finding
       And the output contains "failed to parse lockfile"
 
@@ -154,7 +154,7 @@ Feature: What a start writes, and whose pins it reads
   @end-reason
   Scenario: A run refused by a fatal startup finding records why its session ended
     Given an empty project directory
-    And the home config declares the mock engine label "session-owner"
+    And the home config declares the agent "session-owner" bound to the mock engine
     And the project already has the file ".ctxloom/lock.yaml":
       """
       schema_version: 2
@@ -163,7 +163,7 @@ Feature: What a start writes, and whose pins it reads
           sha: "abc
           pinned: true
       """
-    When I run "ctxloom run --one-shot --llm session-owner -f isolation-axes hello"
+    When I run "ctxloom run --one-shot --agent session-owner -f isolation-axes hello"
     Then the startup aborts on a fatal bundle finding
     And the minted session's record says it ended before launch as "fatal-startup" with exit 3
     And the session record's findings include "failed to parse lockfile"

@@ -5,10 +5,10 @@ editor:
 workspace: worktree
 agents:
   home:
-    llm: claude-code
+    engine: claude-code
     profiles: [h]
   proj:
-    llm: claude-fast
+    engine: mock
     profiles: [overridden]
 companions:
   acme: {command: [acme-bin]}

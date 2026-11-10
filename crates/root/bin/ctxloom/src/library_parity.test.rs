@@ -16,8 +16,15 @@
 //!   are the owner's (D24) and name MCP tools whose cut list is open.
 //! - A dry run's `resolved`, `environment`, `delivery` and `engine_home`
 //!   (engine surfaces and isolation: S9 and S11), and the text sections that
-//!   print them. Its `llm`, `backend`, `profiles`, `fragments`, `context`,
+//!   print them. Its `profiles`, `fragments`, `context`,
 //!   `tokens`, `prompt` and `findings` (D16) are compared.
+//! - A row whose Go output carries the retired `llm` vocabulary (the
+//!   registry under `llm:`, an agent's or a profile's `llm` key, the `llm`
+//!   noun's listing): the engines schema (owner rulings 41-48) removed it
+//!   with no alias, so Go's words cannot be the words here. Such a row is
+//!   held to its exit code (`carries_retired_llm`); the new schema's output is
+//!   asserted by `library_config` and `library_cli`, and the rows of the
+//!   retired `llm` noun itself are gone with it.
 //! - Error texts. A failing command's stdout is empty in both and its exit
 //!   code is compared; the words are asserted in `library_cli.test.rs` from
 //!   the Gherkin. A usage error is exit 2 here (D28, ruled), where Go's
@@ -33,6 +40,26 @@ use crate::tests::files;
 /// Rows where Go's exit 1 is clap's usage refusal in this binary: D28 maps
 /// those to 2.
 const USAGE_REFUSALS: [&str; 2] = ["config-misspelled-subcommand", "run-dry-agent-and-profile"];
+
+/// Rows where Go's exit 1 is the strict decode's refusal of a config (an
+/// unknown key, a value the schema breaks): D15 makes it 2 here, with no
+/// answer on stdout (engines schema, track 1).
+const CONFIG_REFUSALS: [&str; 14] = [
+    "cfg-unknownkey-show-json",
+    "cfg-unknownkey-bundle-list",
+    "cfg-inline-profiles-show-json",
+    "cfg-inline-profiles-bundle-list",
+    "cfg-bad-agent-key-show-json",
+    "cfg-bad-agent-key-bundle-list",
+    "cfg-bad-enum-show-json",
+    "cfg-bad-enum-bundle-list",
+    "cfg-bad-delegation-show-json",
+    "cfg-bad-delegation-bundle-list",
+    "cfg-native-mcp-show-json",
+    "cfg-native-mcp-bundle-list",
+    "cfg-retired-turn-cap-show-json",
+    "cfg-retired-turn-cap-bundle-list",
+];
 
 /// Rows where the owner overrides Go (D15, 2026-11-03): a config whose
 /// `schema_version` is newer, older, unstamped or not a number is refused with
@@ -72,11 +99,9 @@ fn as_changed(golden: &str) -> String {
 
 /// A dry run's keys that are compared (D16); the rest print later slices'
 /// surfaces.
-const DRY_RUN_KEYS: [&str; 9] = [
+const DRY_RUN_KEYS: [&str; 7] = [
     "agent",
     "runtime",
-    "llm",
-    "backend",
     "profiles",
     "fragments",
     "context",
@@ -84,8 +109,17 @@ const DRY_RUN_KEYS: [&str; 9] = [
     "prompt",
 ];
 
+/// Whether Go's `stdout` names the retired `llm` registry or key (engines
+/// schema, rulings 41-48: no alias, no shim), so its words cannot be held.
+fn carries_retired_llm(golden: &str) -> bool {
+    golden.contains("\"llm\"")
+        || golden.contains("llm:")
+        || golden.contains("LLM:")
+        || golden.contains("\"backend\"")
+}
+
 /// A dry run's text sections that print later slices' surfaces.
-const DRY_RUN_SECTIONS: [&str; 3] = ["Environment", "Delivery", "Context File"];
+const DRY_RUN_SECTIONS: [&str; 5] = ["Environment", "Delivery", "Context File", "LLM", "Engine"];
 
 struct Row {
     id: String,
@@ -174,7 +208,9 @@ fn mismatch(row: &Row, project: &Project) -> Option<String> {
         return (ran.code != 2 || !ran.stdout.trim().is_empty())
             .then(|| format!("want a refusal (exit 2, no answer): {}", ran.said()));
     }
-    let want_exit = if USAGE_REFUSALS.contains(&row.id.as_str()) {
+    let want_exit = if USAGE_REFUSALS.contains(&row.id.as_str())
+        || CONFIG_REFUSALS.contains(&row.id.as_str())
+    {
         2
     } else {
         go_exit
@@ -187,6 +223,9 @@ fn mismatch(row: &Row, project: &Project) -> Option<String> {
         ));
     }
     let want = as_changed(&golden(&row.id, "stdout"));
+    if !is_dry_run(&row.id) && carries_retired_llm(&want) {
+        return None;
+    }
     let got = project.normalized(&ran.stdout);
     if want.trim().is_empty() {
         return (!got.trim().is_empty()).then(|| format!("stdout should be empty: {got:?}"));

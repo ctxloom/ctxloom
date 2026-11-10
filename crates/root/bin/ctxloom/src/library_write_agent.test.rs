@@ -46,7 +46,7 @@ fn test_creating_a_binding_records_every_axis_and_the_listing_reads_each_one_bac
                 "agent",
                 "create",
                 "developer",
-                "--llm",
+                "--engine",
                 "claude-code",
                 "--profiles",
                 "dev",
@@ -59,7 +59,7 @@ fn test_creating_a_binding_records_every_axis_and_the_listing_reads_each_one_bac
         if is_text(flags) {
             assert_eq!(
                 ran.stdout,
-                "Created agent \"developer\" (llm: claude-code, profiles: dev, runtime: container-rootless)\n"
+                "Created agent \"developer\" (engine: claude-code, profiles: dev, runtime: container-rootless)\n"
             );
         } else {
             assert_eq!(reports_as(&ran.json(), "name"), "developer");
@@ -69,12 +69,12 @@ fn test_creating_a_binding_records_every_axis_and_the_listing_reads_each_one_bac
         listed.succeeds();
         if is_text(flags) {
             listed
-                .contains("llm: claude-code")
+                .contains("engine: claude-code")
                 .contains("profiles: dev")
                 .contains("runtime: container-rootless");
         } else {
             let doc = listed.json();
-            assert_eq!(reports_as(&doc, "[name=developer].llm"), "claude-code");
+            assert_eq!(reports_as(&doc, "[name=developer].engine"), "claude-code");
             assert!(contains_value(&doc, "[name=developer].profiles", "dev"));
             assert_eq!(
                 reports_as(&doc, "[name=developer].runtime"),
@@ -98,7 +98,7 @@ fn test_a_binding_is_written_with_sorted_keys_and_the_rest_of_the_file_is_kept()
             "agent",
             "create",
             "dev2",
-            "--llm",
+            "--engine",
             "claude-code",
             "--profiles",
             "dev,dev-base",
@@ -128,7 +128,7 @@ fn test_a_binding_is_written_with_sorted_keys_and_the_rest_of_the_file_is_kept()
             "    engine_home: session\n",
             "    env:\n      - A\n      - B\n",
             "    env_host: false\n",
-            "    llm: claude-code\n",
+            "    engine: claude-code\n",
             "    permissions:\n      claude-code:\n        mode: plan\n",
             "    profiles:\n      - dev\n      - dev-base\n",
             "    roots:\n      mcp: project-root\n",
@@ -161,7 +161,7 @@ fn test_a_binding_is_written_with_sorted_keys_and_the_rest_of_the_file_is_kept()
     ]);
     assert_eq!(
         text.stdout,
-        "Updated agent \"dev2\" (llm: claude-code, profiles: dev, dev-base, runtime: host, permissions: claude-code={mode=plan}, engine_home: session, env_host: false, env: A, B)\n"
+        "Updated agent \"dev2\" (engine: claude-code, profiles: dev, dev-base, runtime: host, permissions: claude-code={mode=plan}, engine_home: session, env_host: false, env: A, B)\n"
     );
 }
 
@@ -178,7 +178,7 @@ fn test_create_refuses_an_existing_name_and_leaves_the_live_binding_untouched() 
                 "agent",
                 "create",
                 "developer",
-                "--llm",
+                "--engine",
                 "claude-code",
                 "--profiles",
                 "dev",
@@ -237,7 +237,7 @@ fn test_an_edit_naming_only_runtime_leaves_every_other_axis_intact() {
                 "agent",
                 "create",
                 "developer",
-                "--llm",
+                "--engine",
                 "claude-code",
                 "--profiles",
                 "dev,ops",
@@ -262,7 +262,7 @@ fn test_an_edit_naming_only_runtime_leaves_every_other_axis_intact() {
         if is_text(flags) {
             ran.contains("Updated agent")
                 .contains("runtime: container-rootless")
-                .contains("llm: claude-code")
+                .contains("engine: claude-code")
                 .contains("profiles: dev, ops")
                 .contains("permissions: claude-code={mode=plan}");
         } else {
@@ -273,7 +273,10 @@ fn test_an_edit_naming_only_runtime_leaves_every_other_axis_intact() {
             reports_as(&listed, "[name=developer].runtime"),
             "container-rootless"
         );
-        assert_eq!(reports_as(&listed, "[name=developer].llm"), "claude-code");
+        assert_eq!(
+            reports_as(&listed, "[name=developer].engine"),
+            "claude-code"
+        );
         assert!(contains_value(&listed, "[name=developer].profiles", "dev"));
         assert!(contains_value(&listed, "[name=developer].profiles", "ops"));
         assert_eq!(
@@ -294,7 +297,7 @@ fn test_setting_a_surface_delivery_preference_records_it_in_the_binding() {
                 "agent",
                 "create",
                 "developer",
-                "--llm",
+                "--engine",
                 "claude-code",
                 "--profiles",
                 "dev",
@@ -331,7 +334,7 @@ fn test_selecting_a_root_for_a_surface_kind_records_it_in_the_binding() {
             "agent",
             "create",
             "developer",
-            "--llm",
+            "--engine",
             "claude-code",
             "--profiles",
             "dev",
@@ -353,7 +356,7 @@ fn test_a_root_the_engine_does_not_offer_is_refused_and_the_binding_is_left_alon
             "agent",
             "create",
             "developer",
-            "--llm",
+            "--engine",
             "claude-code",
             "--profiles",
             "dev",
@@ -377,7 +380,7 @@ fn test_there_is_no_flag_that_gives_an_agent_an_auth_mode() {
             "agent",
             "create",
             "developer",
-            "--llm",
+            "--engine",
             "claude-code",
             "--profiles",
             "dev",
@@ -402,7 +405,7 @@ fn test_an_agent_write_refuses_what_it_cannot_honour_and_writes_nothing() {
             "agent",
             "create",
             "dev2",
-            "--llm",
+            "--engine",
             "claude-code",
             "--profiles",
             "dev",
@@ -410,12 +413,12 @@ fn test_an_agent_write_refuses_what_it_cannot_honour_and_writes_nothing() {
         .succeeds();
     let before = project.read(CONFIG);
     for (args, said) in [
-        (vec!["--llm", "nosuch"], "unknown engine \"nosuch\"; valid engines: "),
+        (vec!["--engine", "nosuch"], "unknown engine \"nosuch\"; valid engines: "),
         (vec!["--runtime", "weird"], "unknown runtime axis \"weird\" (known: host|container-rootless|container-rootful)"),
         (vec!["--permissions", "weird"], "mode \"weird\" is not a claude mode (known: default|acceptEdits|plan|bypassPermissions)"),
         (vec!["--permissions", "bypass"], "mode \"bypass\" is declared as mode: bypassPermissions"),
         (vec!["--engine-home", "weird"], "weird"),
-        (vec!["--llm", "", "--profiles", ""], "an agent needs an llm or at least one profile"),
+        (vec!["--engine", "", "--profiles", ""], "an agent needs an engine or at least one profile"),
         (vec!["--env", "A=1"], "A=1"),
         (vec!["--env", "A"], "env"),
         (vec!["--root", "context=bogus"], "\"bogus\" is not a root (session-home, project-root, work-dir)"),
@@ -438,11 +441,11 @@ fn test_an_agent_write_refuses_what_it_cannot_honour_and_writes_nothing() {
             "plan",
         ])
         .fails()
-        .contains("set --llm in the same command");
+        .contains("set --engine in the same command");
     project
         .run(&["agent", "create", "empty"])
         .fails()
-        .contains("an agent needs an llm or at least one profile");
+        .contains("an agent needs an engine or at least one profile");
     assert_eq!(project.read(CONFIG), before);
 }
 
@@ -456,7 +459,7 @@ fn test_create_records_the_declared_host_environment_and_show_reads_it_back() {
             "agent",
             "create",
             "developer",
-            "--llm",
+            "--engine",
             "claude-code",
             "--profiles",
             "dev",
@@ -485,7 +488,7 @@ fn test_an_edit_passing_an_empty_env_clears_the_names_and_keeps_env_host() {
             "agent",
             "create",
             "developer",
-            "--llm",
+            "--engine",
             "claude-code",
             "--profiles",
             "dev",
@@ -515,7 +518,7 @@ fn test_engine_home_session_is_written_into_the_binding() {
             "agent",
             "create",
             "isolated",
-            "--llm",
+            "--engine",
             "claude-code",
             "--profiles",
             "dev",

@@ -8,7 +8,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
   Covers: `ctxloom agent list`, `agent show`, `agent create`, `agent edit`,
   `agent default`, `agent remove`, and the bare `ctxloom agent` form.
 
-  An agent is a NAME for a decision you would otherwise retype: which LLM
+  An agent is a NAME for a decision you would otherwise retype: which
   engine, which composed profiles, and — the axis that makes it more than a
   shortcut — which RUNTIME that engine process executes in: host, container-rootless
   or container-rootful.
@@ -26,7 +26,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
   invocation (`run --workspace`), because the same agent is run both ways on the
   same day. And a binding is not a session: nothing here starts anything.
 
-  The engine labels these bindings name are the other noun — see cli/llm.feature.
+  The engine labels these bindings name are the other noun — see cli/engine.feature.
 
   This is the comprehensive per-noun spec: what the noun DOES, leaf by leaf,
   hermetically against a seeded project.
@@ -70,7 +70,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And a profile "dev" exists
       When Alice binds an engine and a runtime to a profile:
         """
-        ctxloom agent create developer --llm claude-code --profiles dev --runtime container-rootless <flags>
+        ctxloom agent create developer --engine claude-code --profiles dev --runtime container-rootless <flags>
         """
       Then the command succeeds
       And the output reports "name" as "<the binding written>"
@@ -79,7 +79,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the file ".ctxloom/config.yaml" contains "developer"
       When I run "ctxloom agent list <flags>"
       Then the command succeeds
-      And the output reports "[name=developer].llm" as "<the engine>"
+      And the output reports "[name=developer].engine" as "<the engine>"
       And the output reports "[name=developer].profiles" containing "<the profile>"
       And the output reports "[name=developer].runtime" as "<the runtime>"
 
@@ -88,7 +88,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
         | flags         | the binding written | the engine       | the profile   | the runtime                   |
         |               | developer           | claude-code      | dev           | container-rootless            |
         | --format json | developer           | claude-code      | dev           | container-rootless            |
-        | --format text | Created agent       | llm: claude-code | profiles: dev | runtime: container-rootless   |
+        | --format text | Created agent       | engine: claude-code | profiles: dev | runtime: container-rootless   |
 
     # The bare noun answers the question somebody typing it has, rather than
     # teaching them what they could have typed instead. The help-banner check
@@ -122,14 +122,14 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
     Scenario Outline: Showing one binding reports what was declared and what it resolves to
       Given an initialized ctxloom project
       And a profile "dev" exists
-      And I run "ctxloom agent create developer --llm claude-code --profiles dev --runtime container-rootless"
+      And I run "ctxloom agent create developer --engine claude-code --profiles dev --runtime container-rootless"
       When Alice inspects one binding:
         """
         ctxloom agent show developer <flags>
         """
       Then the command succeeds
       And the output reports "definition.name" as "<the binding named>"
-      And the output reports "definition.llm" as "<the engine declared>"
+      And the output reports "definition.engine" as "<the engine declared>"
       And the output reports "definition.runtime" as "<the runtime declared>"
       And the output reports "definition.profiles" containing "<the profile declared>"
       And the output reports "resolved.label" as "<what the engine resolves to>"
@@ -140,7 +140,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
         | flags         | the binding named | the engine declared         | the runtime declared        | the profile declared | what the engine resolves to | what the profiles compose               |
         |               | developer         | claude-code                 | container-rootless          | dev                  | claude-code                 | ctxloom+local:dev-base#fragments/example |
         | --format json | developer         | claude-code                 | container-rootless          | dev                  | claude-code                 | ctxloom+local:dev-base#fragments/example |
-        | --format text | Agent: developer  | Engine (declared): claude-code | Runtime: container-rootless | dev                  | Resolved llm:               | Composed fragments:                     |
+        | --format text | Agent: developer  | Engine (declared): claude-code | Runtime: container-rootless | dev                  | Resolved engine:               | Composed fragments:                     |
 
     # Reporting nothing for a name nobody defined would be a listing of one,
     # not an answer: "this agent has no axes set" and "this agent does not
@@ -164,7 +164,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
     obvious from the surface:
 
     create and edit already share ONE body (operations.SetAgent, which
-    j002000_engine_switch.feature relies on for its --llm validation), so the
+    j002000_engine_switch.feature relies on for its --engine validation), so the
     refusals are the only thing that distinguishes the verbs. Making them upsert
     is DELETING TWO GUARDS from a shared function, not merging two
     implementations. And a binding carries engine, profiles, runtime and
@@ -186,7 +186,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       Given an initialized ctxloom project
       And a profile "dev" exists
       And a profile "ops" exists
-      And I run "ctxloom agent create developer --llm claude-code --profiles dev"
+      And I run "ctxloom agent create developer --engine claude-code --profiles dev"
       When Alice re-uses a name that is already bound:
         """
         ctxloom agent create developer --profiles ops
@@ -241,7 +241,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       Given an initialized ctxloom project
       And a profile "dev" exists
       And a profile "ops" exists
-      And I run "ctxloom agent create developer --llm claude-code --profiles dev,ops --runtime host --permissions plan"
+      And I run "ctxloom agent create developer --engine claude-code --profiles dev,ops --runtime host --permissions plan"
       When Alice moves one binding into a container and changes nothing else:
         """
         ctxloom agent edit developer --runtime container-rootless <flags>
@@ -251,7 +251,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       When I run "ctxloom agent list <flags>"
       Then the command succeeds
       And the output reports "[name=developer].runtime" as "<the axis that changed>"
-      And the output reports "[name=developer].llm" as "<the engine that survived>"
+      And the output reports "[name=developer].engine" as "<the engine that survived>"
       And the output reports "[name=developer].profiles" containing "<the first profile>"
       And the output reports "[name=developer].profiles" containing "<the second profile>"
       And the output reports "[name=developer].permissions.claude-code.mode" as "<the posture that survived>"
@@ -261,17 +261,17 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
         | flags         | the binding written | the axis that changed       | the engine that survived | the first profile | the second profile | the posture that survived |
         |               | developer           | container-rootless          | claude-code              | dev               | ops                | plan                      |
         | --format json | developer           | container-rootless          | claude-code              | dev               | ops                | plan                      |
-        | --format text | Updated agent       | runtime: container-rootless | llm: claude-code         | profiles: dev, ops | ops               | permissions: claude-code={mode=plan} |
+        | --format text | Updated agent       | runtime: container-rootless | engine: claude-code         | profiles: dev, ops | ops               | permissions: claude-code={mode=plan} |
 
     # --surface is the delivery-preference axis (kind=approach, repeatable):
     # which mechanism a surface reaches the engine through, distinct from
-    # llm/profiles/runtime/permissions above. It carries no listing render
+    # engine/profiles/runtime/permissions above. It carries no listing render
     # (agent list never prints a "surfaces:" line), so the only honest read
     # of the effect is the binding it was written to.
     Scenario Outline: Setting a surface delivery preference records it in the binding
       Given an initialized ctxloom project
       And a profile "dev" exists
-      And I run "ctxloom agent create developer --llm claude-code --profiles dev"
+      And I run "ctxloom agent create developer --engine claude-code --profiles dev"
       When Alice sets how this binding's context should be delivered:
         """
         ctxloom agent edit developer --surface context=system-prompt <flags>
@@ -295,7 +295,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
     Scenario: Selecting a root for a surface kind records it in the binding
       Given an initialized ctxloom project
       And a profile "dev" exists
-      And I run "ctxloom agent create developer --llm claude-code --profiles dev"
+      And I run "ctxloom agent create developer --engine claude-code --profiles dev"
       When Alice picks where this binding's MCP config is written:
         """
         ctxloom agent edit developer --root mcp=project-root
@@ -306,7 +306,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
     Scenario: A root the engine does not offer is refused, and the binding is left alone
       Given an initialized ctxloom project
       And a profile "dev" exists
-      And I run "ctxloom agent create developer --llm claude-code --profiles dev"
+      And I run "ctxloom agent create developer --engine claude-code --profiles dev"
       When I run "ctxloom agent edit developer --root context=nowhere"
       Then the command fails
       And the output contains "context=nowhere"
@@ -318,7 +318,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
     Scenario: There is no flag that gives an agent an auth mode
       Given an initialized ctxloom project
       And a profile "dev" exists
-      And I run "ctxloom agent create developer --llm claude-code --profiles dev"
+      And I run "ctxloom agent create developer --engine claude-code --profiles dev"
       When I run "ctxloom agent edit developer --auth login"
       Then the command fails
       And the output contains "unknown flag: --auth"
@@ -386,7 +386,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
     Scenario: Create records the declared host environment, and show reads it back
       Given an initialized ctxloom project
       And a profile "dev" exists
-      When I run "ctxloom agent create developer --llm claude-code --profiles dev --env-host=false --env ALPHA_TOKEN --env BETA_TOKEN"
+      When I run "ctxloom agent create developer --engine claude-code --profiles dev --env-host=false --env ALPHA_TOKEN --env BETA_TOKEN"
       Then the command succeeds
       When I run "ctxloom agent show developer --format text"
       Then the command succeeds
@@ -397,7 +397,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
     Scenario: An edit passing an empty --env clears the names and keeps env_host
       Given an initialized ctxloom project
       And a profile "dev" exists
-      And I run "ctxloom agent create developer --llm claude-code --profiles dev --env-host=false --env ALPHA_TOKEN"
+      And I run "ctxloom agent create developer --engine claude-code --profiles dev --env-host=false --env ALPHA_TOKEN"
       When I run "ctxloom agent edit developer --env ''"
       Then the command succeeds
       When I run "ctxloom agent show developer --format text"
@@ -571,7 +571,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
     Scenario: A binding that declares no approver asks the human, and says what happens when nobody can answer
       Given an initialized ctxloom project
       And a profile "dev" exists
-      And I run "ctxloom agent create developer --llm claude-code --profiles dev"
+      And I run "ctxloom agent create developer --engine claude-code --profiles dev"
       When I run "ctxloom agent show developer --format text"
       Then the command succeeds
       And the output contains "Headless posture: acceptEdits, approver human — asks go to the root's approvals modal"

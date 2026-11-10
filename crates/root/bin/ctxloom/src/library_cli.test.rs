@@ -489,17 +489,17 @@ fn test_the_listing_reads_each_axis_of_a_binding_back() {
         project.profile("dev", "dev-base");
         project.write(
             ".ctxloom/config.yaml",
-            "schema_version: 9\nagents:\n  developer:\n    llm: claude-code\n    profiles:\n      - dev\n    runtime: container-rootless\n",
+            "schema_version: 9\nagents:\n  developer:\n    engine: claude-code\n    profiles:\n      - dev\n    runtime: container-rootless\n",
         );
         let ran = run_with_flags(&project, &["agent", "list"], flags);
         ran.succeeds();
         if is_text(flags) {
-            ran.contains("llm: claude-code")
+            ran.contains("engine: claude-code")
                 .contains("profiles: dev")
                 .contains("runtime: container-rootless");
         } else {
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "[name=developer].llm"), "claude-code");
+            assert_eq!(reports_as(&doc, "[name=developer].engine"), "claude-code");
             assert!(contains_value(&doc, "[name=developer].profiles", "dev"));
             assert_eq!(
                 reports_as(&doc, "[name=developer].runtime"),
@@ -543,7 +543,7 @@ fn test_showing_one_binding_reports_what_was_declared_and_what_it_resolves_to() 
         project.profile("dev", "dev-base");
         project.write(
             ".ctxloom/config.yaml",
-            "schema_version: 9\nagents:\n  developer:\n    llm: claude-code\n    profiles: [dev]\n    runtime: container-rootless\n",
+            "schema_version: 9\nagents:\n  developer:\n    engine: claude-code\n    profiles: [dev]\n    runtime: container-rootless\n",
         );
         let ran = run_with_flags(&project, &["agent", "show", "developer"], flags);
         ran.succeeds();
@@ -551,15 +551,15 @@ fn test_showing_one_binding_reports_what_was_declared_and_what_it_resolves_to() 
             ran.contains("Agent: developer")
                 .contains("Engine (declared): claude-code")
                 .contains("Runtime: container-rootless")
-                .contains("Resolved llm:")
+                .contains("Resolved engine:")
                 .contains("Composed fragments:");
         } else {
             let doc = ran.json();
             assert_eq!(reports_as(&doc, "definition.name"), "developer");
-            assert_eq!(reports_as(&doc, "definition.llm"), "claude-code");
+            assert_eq!(reports_as(&doc, "definition.engine"), "claude-code");
             assert_eq!(reports_as(&doc, "definition.runtime"), "container-rootless");
             assert!(contains_value(&doc, "definition.profiles", "dev"));
-            assert_eq!(reports_as(&doc, "resolved.label"), "claude-code");
+            assert_eq!(reports_as(&doc, "resolved.engine"), "claude-code");
             assert!(contains_value(
                 &doc,
                 "resolved.fragments",
@@ -592,60 +592,6 @@ fn test_a_binding_still_carrying_auth_is_refused_naming_the_key() {
         .run(&["agent", "list"])
         .fails()
         .contains("unknown key `agents.developer.auth`");
-}
-
-// ---------------------------------------------------------------- cli/llm.feature
-
-// llm.feature: Scenario Outline: The listing names the built-in backends and
-// marks the default
-#[test]
-fn test_the_llm_listing_names_the_builtin_backends_and_marks_the_default() {
-    for flags in FORMATS {
-        let project = Project::initialized();
-        let ran = run_with_flags(&project, &["llm", "list"], flags);
-        ran.succeeds();
-        if is_text(flags) {
-            ran.contains("(default)").contains("claude-fast");
-        } else {
-            let doc = ran.json();
-            assert_eq!(reports_as(&doc, "[label=claude-code].default"), "true");
-            assert_eq!(reports_as(&doc, "[label=claude-fast].label"), "claude-fast");
-        }
-    }
-}
-
-// llm.feature: Scenario: Bare llm lists the engines
-#[test]
-fn test_bare_llm_lists_the_engines() {
-    let project = Project::initialized();
-    project
-        .run(&["llm"])
-        .succeeds()
-        .contains("claude-code")
-        .lacks("Available Commands:");
-}
-
-// llm.feature: Scenario Outline: A label the team wrote is told apart from an
-// engine ctxloom supplied (the listing half, with the label in the config)
-#[test]
-fn test_a_label_the_team_wrote_is_told_apart_from_one_ctxloom_supplied() {
-    for flags in FORMATS {
-        let project = Project::initialized();
-        project.write(
-            ".ctxloom/config.yaml",
-            "schema_version: 9\nllm:\n  configs:\n    big:\n      type: mock\n      model: o1\n    claude-code:\n      type: claude-code\n      model: opus\n  defaults:\n    primary: claude-code\n",
-        );
-        let ran = run_with_flags(&project, &["llm", "list"], flags);
-        ran.succeeds();
-        if is_text(flags) {
-            ran.contains("[configured]").contains("[built-in]");
-        } else {
-            let doc = ran.json();
-            assert_eq!(reports_as(&doc, "[label=big].authored"), "true");
-            assert_eq!(reports_as(&doc, "[label=claude-code].authored"), "true");
-            assert_eq!(reports_as(&doc, "[label=mock].authored"), "false");
-        }
-    }
 }
 
 // ---------------------------------------------------------------- cli/mcp.feature

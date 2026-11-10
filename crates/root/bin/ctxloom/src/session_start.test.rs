@@ -49,7 +49,7 @@ fn test_the_session_start_hook_is_silent_once_an_agent_exists() {
             "agent",
             "create",
             "default",
-            "--llm",
+            "--engine",
             "claude-code",
             "--profiles",
             "dev",

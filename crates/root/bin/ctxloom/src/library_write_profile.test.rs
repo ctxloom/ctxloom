@@ -117,8 +117,6 @@ fn test_create_says_what_it_wrote_and_refuses_what_it_must() {
         "base",
         "--include",
         "demo",
-        "--llm",
-        "claude-fast",
         "-d",
         "day-to-day-work",
     ]);
@@ -126,7 +124,7 @@ fn test_create_says_what_it_wrote_and_refuses_what_it_must() {
         .contains("Created profile \"dev\" with parents: base; bundles: demo");
     assert_eq!(
         project.read(DEV_YAML).as_deref(),
-        Some("description: day-to-day-work\nparents:\n  - base\nllm: claude-fast\nbundles:\n  - demo\n")
+        Some("description: day-to-day-work\nparents:\n  - base\nbundles:\n  - demo\n")
     );
     project
         .run(&["profile", "create", "only-parent", "--parent", "base"])
@@ -156,7 +154,7 @@ fn test_create_says_what_it_wrote_and_refuses_what_it_must() {
             "zzz",
         ])
         .fails()
-        .contains("unknown LLM \"zzz\"");
+        .contains("--llm");
     assert_eq!(
         project.tree(PROFILES),
         before,
@@ -365,7 +363,7 @@ fn test_a_modify_that_was_told_to_change_nothing_says_so() {
     project
         .run(&["profile", "modify", "dev", "--llm", "zzz"])
         .fails()
-        .contains("unknown LLM \"zzz\"");
+        .contains("--llm");
     assert_eq!(
         project.tree(PROFILES),
         before,
@@ -487,18 +485,23 @@ fn test_the_description_can_be_set_by_flag_instead() {
     }
 }
 
-// profile.feature: Scenario: The preferred engine can be set by flag
+// engines schema (rulings 41-48), profile.feature: a profile prefers no
+// engine any more; the flag is gone, and a profile file still carrying the
+// key is refused like any unknown key
 #[test]
-fn test_the_preferred_engine_can_be_set_by_flag() {
+fn test_a_profile_has_no_preferred_engine_any_more() {
     let project = demo_and_dev();
-    project
-        .run(&["llm", "create", "big", "--type", "mock", "--model", "o1"])
-        .succeeds();
+    let before = project.tree(PROFILES);
     project
         .run(&["profile", "modify", "dev", "--llm", "big"])
-        .succeeds()
-        .contains("set llm to \"big\"");
-    project.file_contains(DEV_YAML, "llm: big");
+        .fails()
+        .contains("--llm");
+    assert_eq!(project.tree(PROFILES), before);
+    project.write(DEV_YAML, "bundles:\n  - demo\nllm: big\n");
+    project
+        .run(&["profile", "show", "dev"])
+        .fails()
+        .contains("llm");
 }
 
 // cli/profile.go modify (documented condition): every change it makes is

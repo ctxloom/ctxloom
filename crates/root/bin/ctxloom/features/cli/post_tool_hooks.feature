@@ -56,7 +56,7 @@ Feature: The PostToolUse callback — a nudge after the tool call that earns one
             tags: [ctxloom:link_id=nightly]
         """
       And a profile "ops" with bundle "nightly"
-      And I run "ctxloom agent create default --llm claude-code --profiles ops"
+      And I run "ctxloom agent create default --engine claude-code --profiles ops"
       And I run "ctxloom agent default default"
       And the session harp is "brisk-copper-moth"
       And the session index records harp "brisk-copper-moth" on engine "claude-code"

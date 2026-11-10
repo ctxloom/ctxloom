@@ -49,7 +49,7 @@ fn nightly_project() -> Project {
             "agent",
             "create",
             "default",
-            "--llm",
+            "--engine",
             "claude-code",
             "--profiles",
             "ops",

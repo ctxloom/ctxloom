@@ -380,7 +380,8 @@ Feature: engine — the programs ctxloom drives, and the settings they share
       Given an initialized ctxloom project
       When I run "ctxloom agent create developer --llm claude-code --profiles dev"
       Then the command fails
-      And the output contains "unknown flag: --llm"
+      And the output contains "unknown flag"
+      And the output contains "--llm"
       And the file ".ctxloom/config.yaml" does not contain "developer"
 
     Scenario: --llm is gone from run
@@ -388,4 +389,5 @@ Feature: engine — the programs ctxloom drives, and the settings they share
       Given an initialized ctxloom project
       When I run "ctxloom run --dry-run --llm claude-code hello"
       Then the command fails
-      And the output contains "unknown flag: --llm"
+      And the output contains "unknown flag"
+      And the output contains "--llm"

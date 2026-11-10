@@ -74,10 +74,6 @@ agent-show-developer-json	lib	agent show developer --format json
 agent-show-developer-text	lib	agent show developer --format text
 agent-show-reviewer-json	lib	agent show reviewer --format json
 agent-show-unknown	lib	agent show nosuchagent
-# cli/llm.feature
-llm-list-json	lib	llm list --format json
-llm-list-text	lib	llm list --format text
-llm-bare-json	lib	llm --format json
 # cli/companion.feature
 companion-list-json	lib	companion list --format json
 companion-list-text	lib	companion list --format text
@@ -104,13 +100,10 @@ search-bad-type	lib	search --local --type widget testing
 config-show-json	lib	config show --format json
 config-show-text	lib	config show --format text
 config-bare-json	lib	config --format json
-config-show-llm-json	lib	config show llm --format json
-config-show-llm-text	lib	config show llm --format text
 config-show-agents-json	lib	config show agents --format json
 config-show-raw-json	lib	config show --raw --format json
 config-show-unknown-section	lib	config show nonsense
 config-set-json	lib	--config-set editor.command=vim config show editor --format json
-config-set-llm-json	lib	--config-set llm.defaults.primary=claude-fast config show llm --format json
 config-env-json	lib	CTXLOOM_CONFIG_EDITOR_COMMAND=nano config show editor --format json
 config-misspelled-subcommand	lib	config shwo
 # cli/run.feature (run --dry-run)
@@ -118,8 +111,6 @@ run-dry-dev-json	lib	run --dry-run --profile dev hello --format json
 run-dry-dev-text	lib	run --dry-run --profile dev hello --format text
 run-dry-default-json	lib	run --dry-run hello --format json
 run-dry-agent-json	lib	run --dry-run --agent developer hello --format json
-run-dry-llm-json	lib	run --dry-run -p base -l claude-fast hello --format json
-run-dry-bad-llm	lib	run --dry-run -p dev -l nosuch hello
 run-dry-fragment-json	lib	run --dry-run -f demo#fragments/testing --format json
 run-dry-fragment-bare-json	lib	run --dry-run -f testing --format json
 run-dry-fragment-premised-json	lib	run --dry-run -f golang --format json
@@ -201,8 +192,6 @@ prof-run-cycle-a	prof	run --dry-run -p cycle-a --format json
 prof-run-selfish	prof	run --dry-run -p selfish --format json
 prof-run-orphan	prof	run --dry-run -p orphan --format json
 prof-run-orphan-degraded	prof	run --dry-run --degraded -p orphan --format json
-prof-run-llm-override	prof	run --dry-run -p llm-override --format json
-prof-run-llm-inherit	prof	run --dry-run -p llm-inherit --format json
 prof-run-bookend	prof	run --dry-run -p bookend --format json
 prof-run-missing-bundle	prof	run --dry-run -p missing-bundle --format json
 prof-run-missing-bundle-degraded	prof	run --dry-run --degraded -p missing-bundle --format json
@@ -289,7 +278,6 @@ empty-fragment-premises-text	empty	fragment premises --format text
 empty-fragment-premises-json	empty	fragment premises --format json
 empty-run---dry-run-json	empty	run --dry-run --format json
 empty-run---dry-run-text	empty	run --dry-run --format text
-empty-llm-list-json	empty	llm list --format json
 empty-config-show-json	empty	config show --format json
 emptybundles-bundle-list-text	emptybundles	bundle list --format text
 emptybundles-bundle-list-json	emptybundles	bundle list --format json
@@ -307,7 +295,6 @@ emptybundles-fragment-premises-text	emptybundles	fragment premises --format text
 emptybundles-fragment-premises-json	emptybundles	fragment premises --format json
 emptybundles-run---dry-run-json	emptybundles	run --dry-run --format json
 emptybundles-run---dry-run-text	emptybundles	run --dry-run --format text
-emptybundles-llm-list-json	emptybundles	llm list --format json
 emptybundles-config-show-json	emptybundles	config show --format json
 # No project here (configload/appdir.go: no .ctxloom up the path, so the home's config alone)
 noproject-bundle-list-text	noproject	CTXLOOM_ROOT= bundle list --format text

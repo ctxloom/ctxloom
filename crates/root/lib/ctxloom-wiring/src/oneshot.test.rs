@@ -1,6 +1,6 @@
 use ports::{Project, ProjectIdentity};
 
-use super::{output_root, run_env, Told};
+use super::{output_root, run_env, sync_at_start, Told};
 use process_env::EnvSnapshot;
 use std::path::{Path, PathBuf};
 
@@ -339,4 +339,53 @@ fn the_output_root_is_the_output_directory_against_the_project_root() {
         PathBuf::from("/work/proj/notes/sessions")
     );
     assert_eq!(output_root(project, "/var/out/"), PathBuf::from("/var/out"));
+}
+
+// Owner rulings 59, 60: `sync.on_run: missing` (the default) installs, at a
+// run's start, what the profiles reference and is not installed; `none`
+// pulls nothing. A pull that fails (offline) is said and the run goes on with
+// what is installed; one that installed nothing says nothing.
+#[test]
+fn a_run_installs_the_missing_dependencies_at_its_start_unless_on_run_is_none() {
+    use library_application::OnRun;
+    use std::cell::Cell;
+    let asked = Cell::new(0);
+    let pull = |answer: Result<u64, String>| {
+        let asked = &asked;
+        move || {
+            asked.set(asked.get() + 1);
+            answer
+        }
+    };
+    assert!(sync_at_start(OnRun::None, pull(Ok(3))).is_empty());
+    assert_eq!(asked.get(), 0, "none pulls nothing");
+    assert!(sync_at_start(OnRun::Missing, pull(Ok(0))).is_empty());
+    assert_eq!(asked.get(), 1);
+    let said = |notices: Vec<library_application::Notice>| -> Vec<(String, String)> {
+        notices
+            .into_iter()
+            .map(|n| match n {
+                library_application::Notice::Finding { text, remedy } => (text, remedy),
+                other => panic!("{other:?}"),
+            })
+            .collect()
+    };
+    assert_eq!(
+        said(sync_at_start(OnRun::Missing, pull(Ok(2)))),
+        [(
+            "installed 2 missing dependencies at the start of the run (sync.on_run: missing)"
+                .to_string(),
+            String::new()
+        )]
+    );
+    assert_eq!(
+        said(sync_at_start(
+            OnRun::Missing,
+            pull(Err("1 could not be installed".to_string()))
+        )),
+        [(
+            "could not install the missing dependencies at the start of the run: 1 could not be installed; the run goes on with what is installed".to_string(),
+            "run `ctxloom deps pull` once the remotes are reachable, or set `sync.on_run: none` to skip this".to_string()
+        )]
+    );
 }

@@ -252,6 +252,15 @@ pub(crate) fn output_root(project_dir: &Path, written: &str) -> std::path::PathB
     )
 }
 
+/// RED stub: what a run does with the dependencies at its start.
+#[allow(dead_code)]
+pub(crate) fn sync_at_start(
+    _on_run: library_application::OnRun,
+    _pull: impl FnOnce() -> Result<u64, String>,
+) -> Vec<library_application::Notice> {
+    Vec::new()
+}
+
 fn path_text(path: &Path) -> String {
     path.display().to_string()
 }

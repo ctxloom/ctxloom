@@ -32,6 +32,23 @@ Feature: Setting up ctxloom on a project
     Then her assistant receives her personal repository's content
     And her assistant receives her company repository's content
 
+  # A run installs what her profiles reference and is not installed yet
+  # (`sync.on_run: missing`, the default; owner rulings 59, 60), so a bundle
+  # she has just put in her profile reaches her assistant without a
+  # `ctxloom deps pull` first. `sync.on_run: none` leaves the pulling to her.
+  Scenario: A run installs the bundle she just put in her profile
+    # new: owner rulings 59, 60.
+    Given Alice has a project that has never used ctxloom
+    And her company has a ctxloom repository
+    When Alice sets ctxloom up, adds her company's repository, puts its bundle in her profile and starts a session without pulling:
+      """
+      ctxloom init
+      ctxloom remote create acme https://github.com/acme/ctxloom-content
+      ctxloom profile edit default --add-bundle acme/standards
+      ctxloom run
+      """
+    Then her assistant receives her company repository's content
+
   # On a terminal, setup interviews her. The interview runs in a session that
   # cannot see what it has just configured, so ctxloom offers to restart her
   # into the configured one. The offer is [Y/n]: a bare Enter accepts it; n or no

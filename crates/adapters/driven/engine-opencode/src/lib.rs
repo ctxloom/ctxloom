@@ -46,16 +46,28 @@ impl EngineSurfaces for Opencode {
         NAME
     }
 
-    fn carries(&self, _kind: Kind) -> bool {
-        false
+    fn carries(&self, kind: Kind) -> bool {
+        kind == Kind::Context
     }
 
+    /// A session's home holds the context (`AGENTS.md` in
+    /// `OPENCODE_CONFIG_DIR`), so a copy at rest would double it.
     fn context_rides_launch(&self) -> bool {
-        false
+        true
     }
 
-    fn plan(&self, _kind: Kind, _inputs: &Inputs) -> Result<Planned, SurfaceError> {
-        Ok(Planned::default())
+    fn plan(&self, kind: Kind, inputs: &Inputs) -> Result<Planned, SurfaceError> {
+        let mut planned = Planned::default();
+        if kind == Kind::Context {
+            planned.claims.push(Claim::Section {
+                path: inputs
+                    .context_file
+                    .clone()
+                    .unwrap_or_else(|| CONTEXT_FILE.to_string()),
+                text: inputs.context.clone(),
+            });
+        }
+        Ok(planned)
     }
 
     fn wiring(&self, _store: &dyn SurfaceStore, _target: &str) -> Result<Wiring, SurfaceError> {
@@ -64,14 +76,6 @@ impl EngineSurfaces for Opencode {
 
     fn codec(&self) -> &dyn HookCodec {
         &self.codec
-    }
-}
-
-#[allow(dead_code)]
-fn section(path: &str, text: &str) -> Claim {
-    Claim::Section {
-        path: path.to_string(),
-        text: text.to_string(),
     }
 }
 

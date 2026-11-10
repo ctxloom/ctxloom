@@ -5,6 +5,7 @@ use run_ports::{
     TurnRequest,
 };
 
+use crate::home::{self, CONTEXT_FILE};
 use crate::{Opencode, NAME};
 
 /// The variables of the caller's environment a child's turn is given.
@@ -29,8 +30,13 @@ impl Engine for Opencode {
         NAME
     }
 
-    fn prepare(&self, _request: &PrepareRequest) -> Result<Prepared, EngineError> {
-        Err(not_yet("prepare"))
+    fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
+        Ok(Prepared {
+            files: home::files(&request.context),
+            // Nothing of the user's own opencode configuration crosses.
+            copy_in: Vec::new(),
+            context_path: format!("{}/{CONTEXT_FILE}", request.home),
+        })
     }
 
     fn drive_turn(&self, _request: &TurnRequest) -> Result<TurnCommand, EngineError> {

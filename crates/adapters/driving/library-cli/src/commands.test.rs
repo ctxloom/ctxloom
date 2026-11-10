@@ -107,3 +107,14 @@ fn test_an_agent_no_longer_takes_an_engine_home() {
 fn test_run_names_its_engine_with_engine() {
     assert!(parse(&["run", "--dry-run", "--engine", "claude-code"]).is_ok());
 }
+
+// owner ruling (env_host removed): the engine environment is the curated
+// allowlist plus the names in --env; there is no whole-environment mode
+#[test]
+fn test_an_agent_takes_no_env_host() {
+    for verb in ["create", "edit"] {
+        assert!(parse(&["agent", verb, "dev", "--env-host"]).is_err());
+        assert!(parse(&["agent", verb, "dev", "--env-host=false"]).is_err());
+        assert!(parse(&["agent", verb, "dev", "--env", "A"]).is_ok());
+    }
+}

@@ -614,3 +614,23 @@ fn test_a_runtime_that_replaces_the_engine_s_is_said_when_written() {
     );
     assert_eq!(said("container-rootless", "same"), "");
 }
+
+// owner ruling (env_host removed): --env names alone are enough
+#[test]
+fn test_env_names_need_no_other_setting() {
+    let (library, mem) = world();
+    write(
+        &library,
+        "narrow",
+        &AgentRequest {
+            env: Some(vec!["ALPHA_TOKEN".to_string()]),
+            ..dev()
+        },
+        false,
+    )
+    .result
+    .unwrap();
+    let written = mem.config(Scope::Project).unwrap();
+    assert!(written.contains("ALPHA_TOKEN"), "{written}");
+    assert!(!written.contains("env_host"), "{written}");
+}

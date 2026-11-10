@@ -859,6 +859,102 @@ fn test_a_dry_run_prints_its_sections_and_names_the_empty_ones() {
     );
 }
 
+// Ruling 72: a dry run's text shows each setting the run takes with the
+// place in the config that said it, as the JSON's `settings` does (by word):
+// an agent's block, the agent, the engine block, the top level, or nothing.
+#[test]
+fn test_a_dry_run_shows_each_setting_with_the_place_that_said_it() {
+    use library_application::{EnvKey, EnvSetting, RuntimeSetting, SourcedValue};
+    let settings = library_application::AgentSettings {
+        model: SourcedValue {
+            value: Some(st("sonnet")),
+            source: "agent",
+        },
+        effort: SourcedValue {
+            value: None,
+            source: "default",
+        },
+        permissions: SourcedValue {
+            value: st("acceptEdits"),
+            source: "default",
+        },
+        runtime: RuntimeSetting {
+            value: st("host"),
+            source: "agent",
+            overrides: Some(st("container-rootless")),
+            overrides_source: Some("engine"),
+            change: Some("weakens"),
+        },
+        env: EnvSetting {
+            value: sv(&["HTTPS_PROXY", "ALPHA"]),
+            source: "agent",
+            keys: vec![
+                EnvKey {
+                    name: st("HTTPS_PROXY"),
+                    source: "engine",
+                },
+                EnvKey {
+                    name: st("ALPHA"),
+                    source: "agent",
+                },
+            ],
+        },
+    };
+    let shown_plan = shown(|out| {
+        dry_run(
+            out,
+            &DryRun {
+                settings: Some(settings.clone()),
+                ..plan()
+            },
+        )
+    });
+    assert!(
+        shown_plan.starts_with(concat!(
+            "=== Agent ===\ndev (workspace: worktree, runtime: host)\n=== Engine ===\nclaude-code\n",
+            "\n=== Settings ===\n",
+            "  model        sonnet  (agents.dev.engines.claude-code)\n",
+            "  effort       engine default, no flag passed  (default)\n",
+            "  permissions  acceptEdits  (default)\n",
+            "  runtime      host  (agents.dev; replaces engines.claude-code container-rootless: weakens isolation)\n",
+            "  env          HTTPS_PROXY  (engines.claude-code), ALPHA  (agents.dev)\n",
+            "\n=== Profiles ===\n",
+        )),
+        "{shown_plan}"
+    );
+    // the top level and an empty env
+    let project = library_application::AgentSettings {
+        runtime: RuntimeSetting {
+            value: st("container-rootless"),
+            source: "project",
+            overrides: None,
+            overrides_source: None,
+            change: None,
+        },
+        env: EnvSetting {
+            value: Vec::new(),
+            source: "default",
+            keys: Vec::new(),
+        },
+        ..settings
+    };
+    let shown_plan = shown(|out| {
+        dry_run(
+            out,
+            &DryRun {
+                settings: Some(project),
+                ..plan()
+            },
+        )
+    });
+    assert!(
+        shown_plan.contains(
+            "  runtime      container-rootless  (runtime)\n  env          none  (default)\n"
+        ),
+        "{shown_plan}"
+    );
+}
+
 fn found(remote: &str, name: &str, tags: &[&str]) -> library_application::RemoteFound {
     library_application::RemoteFound {
         remote: remote.to_string(),

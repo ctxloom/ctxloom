@@ -455,6 +455,34 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output reports "settings.effort.source" as "default"
       And the output reports "settings.runtime.value" as "host"
 
+    # Ruling 72 (2026-11-10): the dry run's text shows each setting with the
+    # place in the config that said it, as its JSON `settings` does.
+    Scenario: A dry run's text shows each setting with the place that said it
+      # new: owner ruling 72
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        engines:
+          claude-code:
+            env: [HTTPS_PROXY]
+        agents:
+          dev:
+            engine: claude-code
+            runtime: host
+            env: [ALPHA_TOKEN]
+            engines:
+              claude-code:
+                model: sonnet
+        """
+      When I run "ctxloom run --dry-run --agent dev hello --format text"
+      Then the command succeeds
+      And the output contains "=== Settings ==="
+      And the output contains "model        sonnet  (agents.dev.engines.claude-code)"
+      And the output contains "effort       engine default, no flag passed  (default)"
+      And the output contains "runtime      host  (agents.dev)"
+      And the output contains "env          HTTPS_PROXY  (engines.claude-code), ALPHA_TOKEN  (agents.dev)"
+
     # Ruling 67 (2026-11-10): what you see is what you write. The listing and
     # the write summary show each engine block in the config's shape,
     # `engines.<e>: {...}`, never a flat model or `<engine>={mode=...}`.

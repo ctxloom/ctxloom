@@ -559,9 +559,10 @@ never reach the listener has no conversation in its transcript (its reply is
 still printed); a failing tool has no status from the hooks (claude gives no
 PostToolUse and no error flag; the stream's `is_error` is not recorded); every
 `Stop` hook adds its runtime to the turn. The terminal session's opening prompt
-(given on its command line) is still the launcher's to record, under the run's
-turn id; its `UserPromptSubmit` hook records it again under claude's prompt id
-(read from the code, not tested: a duplicate, not addressed here). A
+(given on its command line) is its hooks' to record too (`UserPromptSubmit`,
+under claude's prompt id; ruling 26's principle): the launcher records no
+prompt for any run, only the run's own facts (a j001000 scenario proves it
+lands once). A
 reader coalesces deltas by `message_id` and `index`. ARRIVAL ORDER IS NOT
 TURN ORDER: Stop and MessageDisplay are separate hook processes, and Stop
 fires first (a live probe saw `turn_end` before the turn's words, and the

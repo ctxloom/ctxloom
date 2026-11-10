@@ -25,8 +25,8 @@
 //! turn's facts are its hooks' alone (owner rulings 26 and 51): the launcher
 //! records none of its prompt or its words, so a turn whose hooks never reach
 //! the listener has no conversation in its transcript, though its reply is
-//! still the launch's answer. The terminal session's opening prompt is the
-//! launcher's to record, as a hook records a prompt. The events carry the
+//! still the launch's answer. The terminal session's opening prompt is its
+//! hooks' to record too, like every other of its prompts. The events carry the
 //! transcript's path (`answer_ref`) and never its bytes.
 
 use std::sync::Arc;
@@ -196,13 +196,9 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         };
         self.record(&who, attached()).await?;
         if order.interactive {
-            // The terminal session's opening prompt: the user's line of the
-            // transcript, as a hook records one.
-            if !order.prompt.trim().is_empty() {
-                let turn = turn_id(&launch.run);
-                self.observe(&who, prompt_submitted(&turn, &order.prompt))
-                    .await?;
-            }
+            // The terminal session's opening prompt, like every prompt of it,
+            // is its hooks' to record (the engine submits it and its prompt
+            // hook fires): the launcher records the run's own facts only.
             return self.terminal(&who, &order, &command, done).await;
         }
         // A child's turn is heard through its hooks alone (owner rulings 26
@@ -406,21 +402,6 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
                 reason: e.to_string(),
             })
     }
-}
-
-/// The id of the turn a run takes, which the observations of its prompt and
-/// its answer name as their prompt, turn and message.
-fn turn_id(run: &Uuid) -> String {
-    let run = uuid::Uuid::from_slice(&run.value).unwrap_or_default();
-    format!("{}:{TURN}", run.hyphenated())
-}
-
-/// The prompt of turn `turn`, as a hook records a submitted one.
-fn prompt_submitted(turn: &str, prompt: &str) -> Observation {
-    Observation::PromptSubmitted(sessions::RecordPromptSubmitted {
-        prompt_id: turn.to_string(),
-        prompt: prompt.to_string(),
-    })
 }
 
 /// The launcher's word that the runner is spawned: the engine it runs under,

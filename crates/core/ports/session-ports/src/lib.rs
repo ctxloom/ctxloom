@@ -164,3 +164,7 @@ pub trait GoSessions {
     /// is the domain's rule, which the import applies to what this returns.
     fn go_sessions(&mut self) -> Result<Vec<GoSession>, Report>;
 }
+
+#[cfg(test)]
+#[path = "lib.test.rs"]
+mod tests;

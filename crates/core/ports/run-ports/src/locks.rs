@@ -68,3 +68,7 @@ pub trait RunLocks: Send + Sync {
     /// says.
     fn session(&self, project_dir: &str, harp: &str) -> LockProbe;
 }
+
+#[cfg(test)]
+#[path = "locks.test.rs"]
+mod tests;

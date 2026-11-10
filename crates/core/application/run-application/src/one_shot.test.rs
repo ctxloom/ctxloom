@@ -2732,3 +2732,22 @@ async fn a_refused_run_lets_its_run_lock_go() {
         "taken, refused, let go"
     );
 }
+
+// Ruling 85: a run whose engine's command never started closes its
+// incarnation as a launch that failed, not as a runner that exited.
+#[tokio::test]
+async fn a_run_whose_command_never_started_closes_its_incarnation_as_launch_failed() {
+    let mut script = Script::answering();
+    script.runner =
+        ScriptedRunner::answering(run_ports::Launch::NotStarted(run_ports::LaunchFailure {
+            deterministic: true,
+            detail: "no claude".to_string(),
+        }));
+    let mut rig = rig(script);
+    let _ = rig.runs.one_shot(&Flags::default(), &ask()).await;
+    let session = enqueued_session(&rig);
+    assert_eq!(
+        incarnations_ended(&rig, &session).await,
+        [(1, "launch-failed".to_string())]
+    );
+}

@@ -625,8 +625,14 @@ fn a_destroy_purges_the_session_and_every_run_of_it_and_its_directory() {
     let run = a_run_of(&mut svc, 1, 1);
     let session_root = uuid::Uuid::from_bytes([1; 16]);
     assert!(head(&mut svc, sessions::SESSION_DOMAIN, session_root) > 0);
+    let events = head(&mut svc, sessions::SESSION_DOMAIN, session_root)
+        + head(&mut svc, runs::RUN_DOMAIN, run);
     let destroyed = ready(svc.remove(destroy("amber-swift-owl"))).unwrap();
     assert!(destroyed.applied && destroyed.index_entry_removed);
+    assert_eq!(
+        destroyed.events_destroyed, events,
+        "every event of the session and its run, counted"
+    );
     assert_eq!(head(&mut svc, sessions::SESSION_DOMAIN, session_root), 0);
     assert_eq!(head(&mut svc, runs::RUN_DOMAIN, run), 0, "its run is gone");
     assert_eq!(svc.files.destroyed_sessions, ["amber-swift-owl"]);
@@ -1392,4 +1398,65 @@ fn a_session_whose_lock_proves_nothing_is_renamed() {
     svc.with_directory(1, "amber-swift-owl");
     ready(svc.rename(rename("amber-swift-owl", "bright-keen-hawk"))).unwrap();
     assert_eq!(svc.harps(all()), ["bright-keen-hawk"]);
+}
+
+/// A stream of `n` events in a store that answers its next `conflicts`
+/// purges with a conflict (another writer moved it in between), and the
+/// stream.
+fn conflicting(
+    n: u64,
+    conflicts: usize,
+) -> (
+    angzarr_embedded::testing::FaultyStore<angzarr_embedded::angzarr_ports::memory::MemoryStore>,
+    uuid::Uuid,
+) {
+    use angzarr_embedded::{EventStore, Write};
+    let store = angzarr_embedded::testing::FaultyStore::new(
+        angzarr_embedded::angzarr_ports::memory::MemoryStore::new(),
+    );
+    let root = uuid::Uuid::from_bytes([9; 16]);
+    let pages: Vec<_> = (0..n)
+        .map(|sequence| angzarr_embedded::v1::EventPage {
+            sequence,
+            body: Some(angzarr_embedded::v1::event_page::Body::Event(
+                angzarr_embedded::Any {
+                    type_url: "type.googleapis.com/ctxloom.runs.v1.RunExited".to_string(),
+                    value: Vec::new(),
+                },
+            )),
+            meta: None,
+        })
+        .collect();
+    let stream = angzarr_embedded::StreamRef::main(runs::RUN_DOMAIN, root);
+    ready(EventStore::write(
+        store.inner(),
+        Write::append(stream, 0, &pages),
+    ))
+    .unwrap();
+    store.fail(std::iter::repeat_n(
+        angzarr_embedded::testing::Fault::Conflict,
+        conflicts,
+    ));
+    (store, root)
+}
+
+// Ruling 94b: a destroy's purge is guarded by the head just read; a conflict
+// (another writer moved the stream) is read again and tried again, three
+// times, and then is the destroy's failure, never a purge of a stream it has
+// not read.
+#[test]
+fn a_purge_that_conflicts_is_tried_again_three_times_then_fails() {
+    let (store, root) = conflicting(3, 3);
+    let stream = angzarr_embedded::StreamRef::main(runs::RUN_DOMAIN, root);
+    assert_eq!(
+        ready(crate::write::purge(&store, stream)).unwrap(),
+        3,
+        "three conflicts, then purged"
+    );
+    let (store, root) = conflicting(2, 4);
+    let stream = angzarr_embedded::StreamRef::main(runs::RUN_DOMAIN, root);
+    assert!(
+        ready(crate::write::purge(&store, stream)).is_err(),
+        "a fourth conflict is the failure"
+    );
 }

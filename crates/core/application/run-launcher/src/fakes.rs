@@ -559,6 +559,9 @@ impl SessionRecords for MemoryRecords {
         format!("/work/proj/.ctxloom/sessions/{harp}")
     }
 
+    // A test double shipped for tests only; its tests are the callers'
+    // (run-application's mint tests), not its own.
+    #[cfg_attr(test, mutants::skip)]
     fn exists(&mut self, harp: &str) -> bool {
         !self.names(harp).is_empty()
     }

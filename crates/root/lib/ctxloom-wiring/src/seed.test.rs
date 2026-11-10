@@ -225,3 +225,21 @@ fn a_go_session_of_the_project_is_imported() {
     let harps: Vec<&str> = report.imported.iter().map(|i| i.harp.as_str()).collect();
     assert_eq!(harps, ["amber-swift-owl"], "{report:?}");
 }
+
+// A seeded session's output goes where Go's fixture put it:
+// `<home>/Documents/ctxloom/<work directory's name>/<harp>`.
+#[test]
+fn a_seeded_sessions_output_dir_is_under_the_homes_documents() {
+    let world = World::new("seed-output");
+    let wiring = world.wiring();
+    wiring.seed_session(&seed()).unwrap();
+    let mut sessions = wiring.sessions();
+    let views = block(sessions.list(ListQuery::default())).unwrap();
+    let work = world.work();
+    let expected = world
+        .home()
+        .join("Documents/ctxloom")
+        .join(work.file_name().unwrap())
+        .join(HARP);
+    assert_eq!(views[0].record.output_dir, expected.display().to_string());
+}

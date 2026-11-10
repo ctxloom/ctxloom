@@ -1261,3 +1261,117 @@ async fn a_sweep_racing_a_normal_end_ends_the_run_once_by_its_exit() {
     assert_eq!(ended[0].0, EndCause::RunnerExit);
     assert_eq!(closed(&edge).await, [(1, "runner-exit".to_string())]);
 }
+
+// ------------------------------------- the run lock's release (ruling 92)
+
+/// A run lock held in the orders for `SESSION`'s first run: the flag says
+/// when it is let go.
+fn lock_held_in(orders: &Orders) -> Arc<std::sync::atomic::AtomicBool> {
+    struct Guard(Arc<std::sync::atomic::AtomicBool>);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    let gone = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    orders.hold(
+        SESSION,
+        1,
+        run_ports::HeldLock::new(RUN_LOCK.to_string(), Guard(Arc::clone(&gone))),
+    );
+    gone
+}
+
+// Ruling 92: the run's own lock is held until its runner is started, then let
+// go while the command still runs (the session's lock covers it from then
+// on): a turn's and the terminal's alike.
+#[tokio::test]
+async fn the_run_lock_is_let_go_once_the_runner_is_started() {
+    for interactive in [false, true] {
+        let mut asked = order("fake");
+        asked.interactive = interactive;
+        let orders = orders_with(asked);
+        let gone = lock_held_in(&orders);
+        let runner = ScriptedRunner::exits(0);
+        let seen: Arc<Mutex<Vec<(&str, bool)>>> = Arc::default();
+        for (window, when) in [(&runner.at_spawn, "spawn"), (&runner.during, "running")] {
+            let (seen, gone) = (Arc::clone(&seen), Arc::clone(&gone));
+            *window.lock().unwrap() = Some(Arc::new(move || {
+                let let_go = gone.load(std::sync::atomic::Ordering::SeqCst);
+                seen.lock().unwrap().push((when, let_go));
+            }));
+        }
+        let edge = Arc::new(TestEdge::new());
+        let mut launcher = Launcher::new(
+            Arc::clone(&edge),
+            runner,
+            MemoryRecords::default(),
+            vec![Arc::new(ScriptedEngine::answering("A", None))],
+            orders,
+            limits(),
+        );
+        enqueued_by(&edge, SESSION, HARP, RUN_LOCK).await;
+        launcher.step(&edge.store, edge.catalog()).await.unwrap();
+        let seen = seen.lock().unwrap().clone();
+        assert!(
+            seen.contains(&("spawn", false)) && seen.contains(&("running", true)),
+            "interactive={interactive}: held at the spawn, let go while it runs: {seen:?}"
+        );
+    }
+}
+
+// Ruling 92: a launch that never started lets its run lock go too.
+#[tokio::test]
+async fn a_launch_that_never_started_lets_its_run_lock_go() {
+    for interactive in [false, true] {
+        let mut asked = order("fake");
+        asked.interactive = interactive;
+        let orders = orders_with(asked);
+        let gone = lock_held_in(&orders);
+        let edge = Arc::new(TestEdge::new());
+        let mut launcher = Launcher::new(
+            Arc::clone(&edge),
+            ScriptedRunner::answering(Launch::NotStarted(LaunchFailure {
+                deterministic: true,
+                detail: "no program".to_string(),
+            })),
+            MemoryRecords::default(),
+            vec![Arc::new(ScriptedEngine::answering("A", None))],
+            orders,
+            limits(),
+        );
+        enqueued_by(&edge, SESSION, HARP, RUN_LOCK).await;
+        launcher.step(&edge.store, edge.catalog()).await.unwrap();
+        assert!(
+            gone.load(std::sync::atomic::Ordering::SeqCst),
+            "interactive={interactive}"
+        );
+    }
+}
+
+// Rulings 92, 93, the race the re-read is for, forced: a sweeper caught up
+// while the run was owed a runner; in the gap, its owner records the runner's
+// start and lets the run's lock go, so the probe finds it free. The re-read
+// sees the start: the sweeper records nothing, and the run, started, is not
+// ended.
+#[tokio::test]
+async fn a_sweep_that_finds_the_runner_started_since_records_nothing() {
+    let edge = Arc::new(TestEdge::new());
+    enqueued_by(&edge, SESSION, HARP, RUN_LOCK).await;
+    let locks = Locks::saying(Free, Unproven);
+    let owner_edge = Arc::clone(&edge);
+    *locks.before.lock().unwrap() = Some(Box::new(move || {
+        now(as_the_runner(
+            &owner_edge,
+            runs_application::RunnerFact::RunnerStarted(runs::RunnerStarted {
+                runtime: "fake".to_string(),
+                workspace: "/work/proj".to_string(),
+                pid: 7,
+            }),
+        ));
+    }));
+    let mut sweeper = another_process(&edge, locks);
+    sweeper.step(&edge.store, edge.catalog()).await.unwrap();
+    assert!(ends(&edge).await.is_empty(), "the started run is not ended");
+    assert!(closed(&edge).await.is_empty());
+}

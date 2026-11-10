@@ -26,12 +26,7 @@ pub trait SessionRecords: Send {
     /// Whether anything is at `harp`'s directory (defect 3: a mint never
     /// takes a harp whose directory exists, however the store came to have
     /// no claim on it). One that cannot be looked at counts as there.
-    ///
-    /// RED (defect 3): a stub that finds nothing.
-    fn exists(&mut self, harp: &str) -> bool {
-        let _ = harp;
-        false
-    }
+    fn exists(&mut self, harp: &str) -> bool;
 }
 
 /// Whether `rel` stays inside a session's directory: non-empty, relative,

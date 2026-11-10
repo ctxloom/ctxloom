@@ -145,11 +145,6 @@ impl Projection {
         self.lines
     }
 
-    /// The last stream page folded, if any.
-    pub fn high_water(&self) -> Option<u64> {
-        self.high_water
-    }
-
     /// One line in D27's envelope, `extra`'s members beside it.
     fn line(&self, seq: u64, seconds: i64, kind: &str, extra: Value) -> String {
         let mut line = json!({

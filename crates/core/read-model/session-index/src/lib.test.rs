@@ -618,3 +618,33 @@ fn a_records_last_capture_is_its_newest_capture_events_instant() {
     let last = records(&index)[0].last_captured.expect("captured");
     assert_eq!(last.seconds, project.seconds);
 }
+
+// Ruling 87a with defect 2: the lines folded after a rename carry the new
+// name; those before it keep the name they were said under.
+#[test]
+fn a_transcripts_lines_after_a_rename_carry_the_new_name() {
+    let mut project = Project::new();
+    let mut index = SessionIndex::catch_up();
+    project.run(&mut index, FIRST, mint("amber-swift-owl"));
+    project.run_book(&mut index, prompt(FIRST, "p1", "before"));
+    project.run(
+        &mut index,
+        FIRST,
+        RenameSession {
+            harp: "bright-keen-hawk".to_string(),
+            output_dir: String::new(),
+            lock: sessions::LockEvidence::Free,
+        },
+    );
+    project.run_book(&mut index, prompt(FIRST, "p2", "after"));
+    let text = index
+        .projector()
+        .index()
+        .transcript(&id_text(FIRST))
+        .unwrap();
+    let harps: Vec<String> = lines(&text)
+        .iter()
+        .map(|l| l["harp"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(harps, ["amber-swift-owl", "bright-keen-hawk"]);
+}

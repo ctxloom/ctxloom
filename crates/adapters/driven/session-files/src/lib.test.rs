@@ -762,3 +762,32 @@ fn a_destroy_removes_the_whole_directory_and_its_lock() {
         "again: nothing there"
     );
 }
+
+// Defect 2: only a session directory that is not there moves nothing; one
+// that cannot be looked at (its parent a file) is the error, never "nothing
+// to move".
+#[test]
+fn a_session_directory_that_cannot_be_looked_at_is_the_moves_error() {
+    let (fs, mut dirs) = dirs();
+    let sessions = dirs.dir(HARP).parent().unwrap().to_path_buf();
+    fs.create_dir_all(sessions.parent().unwrap(), Mode::from_bits(0o755))
+        .unwrap();
+    fs.write_atomic(
+        &sessions,
+        b"not a directory",
+        file_system::Perms::Exact(Mode::from_bits(0o600)),
+    )
+    .unwrap();
+    assert!(dirs.move_session(HARP, "bright-keen-hawk").is_err());
+}
+
+// Ruling 94b: a lock that is not there is no failure of a destroy; one that
+// cannot be removed (a directory in its place) is.
+#[test]
+fn a_lock_that_cannot_be_removed_is_the_destroys_error() {
+    let (fs, mut dirs) = dirs();
+    write(&fs, &dirs, "home/settings.json", "{}");
+    fs.create_dir_all(&dirs.lock_path(HARP).join("inside"), Mode::from_bits(0o755))
+        .unwrap();
+    assert!(dirs.destroy_session(HARP).is_err());
+}

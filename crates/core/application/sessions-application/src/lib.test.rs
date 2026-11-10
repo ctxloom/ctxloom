@@ -11,8 +11,8 @@ use crate::fakes::{
     FakeFiles, FakeIdentity, FakeLiveness, FakeStores,
 };
 use crate::{
-    AppError, BindRequest, Bound, KeepRequest, ListQuery, Refusal, RemoveRequest, RenameRequest,
-    SearchQuery, Service, SessionService, ShowQuery, State, TranscriptQuery,
+    AppError, BindRequest, Bound, Class, KeepRequest, ListQuery, Refusal, RemoveRequest,
+    RenameRequest, SearchQuery, Service, SessionService, ShowQuery, State, TranscriptQuery,
 };
 
 type Svc = Service<FakeIdentity, FakeStores, FakeFiles, FakeLiveness, FakeClock, FakeDelay>;
@@ -560,6 +560,37 @@ fn a_removal_destroys_the_whole_directory_authored_files_too() {
     let session_root = uuid::Uuid::from_bytes([1; 16]);
     assert_eq!(head(&mut svc, sessions::SESSION_DOMAIN, session_root), 0);
     assert_eq!(svc.harps(all()), Vec::<String>::new(), "no longer listed");
+}
+
+// A removal's plan names each file's class: the engine's native history and
+// a transcript an older ctxloom left are machine-written, everything else is
+// a person's.
+#[test]
+fn a_removal_plan_names_the_machine_written_and_the_authored_files() {
+    let mut svc = service();
+    finished(&mut svc, 1, "amber-swift-owl");
+    svc.files.others.insert(
+        "amber-swift-owl".to_string(),
+        vec![
+            ("native/history.jsonl".to_string(), 3),
+            ("notes.md".to_string(), 4),
+        ],
+    );
+    let removal = ready(svc.remove(remove("amber-swift-owl", false))).unwrap();
+    let classes: Vec<(&str, Class)> = removal
+        .files
+        .destroy
+        .iter()
+        .map(|i| (i.rel.as_str(), i.class))
+        .collect();
+    assert_eq!(
+        classes,
+        [
+            ("native/history.jsonl", Class::Machine),
+            ("notes.md", Class::Authored),
+            ("transcripts/transcript.jsonl", Class::Machine),
+        ]
+    );
 }
 
 /// The head of the stream `domain`/`root` in `project`'s store.

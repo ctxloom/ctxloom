@@ -207,16 +207,14 @@ where
                 },
             )
             .await?;
-        match released {
-            Err(refusal)
-                if matches!(
-                    refusal.rejection,
-                    Some(SessionRejection::NoClaim | SessionRejection::NotHolder { .. })
-                ) =>
-            {
-                Ok(())
-            }
-            other => other.map_err(AppError::from),
+        let Err(refusal) = released else {
+            return Ok(());
+        };
+        // `ReleaseName` refuses only these two, so any other refusal is one a
+        // later release learned to make: an error, not "nothing to release".
+        match &refusal.rejection {
+            Some(SessionRejection::NoClaim | SessionRejection::NotHolder { .. }) => Ok(()),
+            _ => Err(AppError::from(refusal)),
         }
     }
 

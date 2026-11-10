@@ -281,6 +281,12 @@ where
 
     /// `run --one-shot`: one turn on the prompt, and its answer.
     pub async fn one_shot(&mut self, flags: &Flags, request: &OneShot) -> Done<Answer> {
+        if let Some(unknown) = self.undriven(request) {
+            return Done {
+                result: Err(unknown),
+                notices: Vec::new(),
+            };
+        }
         let planned = self.planner.plan(flags, &request.run);
         let mut notices = planned.notices;
         let result = match planned.result {
@@ -297,6 +303,12 @@ where
     /// and the run ends when she leaves it; a prompt is optional, and opens the
     /// conversation when given.
     pub async fn interactive(&mut self, flags: &Flags, request: &OneShot) -> Done<Ended> {
+        if let Some(unknown) = self.undriven(request) {
+            return Done {
+                result: Err(unknown),
+                notices: Vec::new(),
+            };
+        }
         let planned = self.planner.plan(flags, &request.run);
         let mut notices = planned.notices;
         let result = match planned.result {
@@ -357,15 +369,13 @@ where
         interactive: bool,
         notices: &mut Vec<Notice>,
     ) -> Result<(Box<dyn run_ports::Serving>, Started), RunError> {
-        let settings = settings_of(&previewed.plan, &chosen_engine(&previewed.plan, request));
-        // A child that cannot authenticate is refused before anything of its
-        // run exists: no listener, no certificate, no session (ruling 53).
-        if !interactive {
-            let engine = chosen_engine(&previewed.plan, request);
-            if let Some(refusal) = self.refuse_unauthenticated(&engine, &settings) {
-                return Err(RunError::Refused(refusal));
-            }
+        // A run the plan refuses, or a child that cannot authenticate, is
+        // refused before anything of it exists: no listener, no certificate,
+        // no session (ruling 53).
+        if let Some(refused) = self.refused(&previewed, request, interactive) {
+            return Err(refused);
         }
+        let settings = settings_of(&previewed.plan, &chosen_engine(&previewed.plan, request));
         let Listening { serving, told } = self.serve().await?;
         let started = match self.start(previewed, request, interactive, &told).await {
             Ok(started) => started,
@@ -441,8 +451,8 @@ where
         }
     }
 
-    /// Plan checked, the session minted, the order placed and the run
-    /// enqueued.
+    /// The session minted, the order placed and the run enqueued (the plan
+    /// was checked before the listener was served).
     async fn start(
         &mut self,
         previewed: Previewed,
@@ -450,23 +460,9 @@ where
         interactive: bool,
         told: &Told,
     ) -> Result<Started, RunError> {
-        if !previewed.fatal.is_empty() {
-            return Err(RunError::Plan(Box::new(PlanError::aborted(
-                &previewed.fatal,
-            ))));
-        }
         let plan = previewed.plan;
-        if !interactive && plan.prompt.trim().is_empty() {
-            return Err(RunError::NoPrompt);
-        }
         let engine = chosen_engine(&plan, request);
         let settings = settings_of(&plan, &engine);
-        if !self.launcher.drives(&engine) {
-            return Err(RunError::UnknownEngine {
-                name: engine,
-                known: self.launcher.engines().join(", "),
-            });
-        }
         let project = self.identity.for_write(None).map_err(RunError::Project)?;
         let (session, harp) = self.mint(&project, &engine, interactive).await?;
         self.recorder.watch(&session);
@@ -535,6 +531,49 @@ where
             engine,
             run: enqueued.run,
         })
+    }
+
+    /// The refusal of an engine asked for (`--engine`) that the launcher
+    /// does not drive: said before the plan is asked for it.
+    fn undriven(&self, request: &OneShot) -> Option<RunError> {
+        (!request.engine.is_empty() && !self.launcher.drives(&request.engine)).then(|| {
+            RunError::UnknownEngine {
+                name: request.engine.clone(),
+                known: self.launcher.engines().join(", "),
+            }
+        })
+    }
+
+    /// Why the run is refused before anything of it is made, if it is: a
+    /// fatal finding of the plan, a one-shot with no prompt, an engine the
+    /// launcher does not drive, a child that cannot authenticate.
+    fn refused(
+        &self,
+        previewed: &Previewed,
+        request: &OneShot,
+        interactive: bool,
+    ) -> Option<RunError> {
+        if !previewed.fatal.is_empty() {
+            return Some(RunError::Plan(Box::new(PlanError::aborted(
+                &previewed.fatal,
+            ))));
+        }
+        if !interactive && previewed.plan.prompt.trim().is_empty() {
+            return Some(RunError::NoPrompt);
+        }
+        let engine = chosen_engine(&previewed.plan, request);
+        if !self.launcher.drives(&engine) {
+            return Some(RunError::UnknownEngine {
+                name: engine,
+                known: self.launcher.engines().join(", "),
+            });
+        }
+        if interactive {
+            return None;
+        }
+        let settings = settings_of(&previewed.plan, &engine);
+        self.refuse_unauthenticated(&engine, &settings)
+            .map(RunError::Refused)
     }
 
     /// A child agent is given an environment credential and nothing else:

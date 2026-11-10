@@ -682,6 +682,7 @@ async fn the_engine_flag_overrides_the_plans() {
         .result
         .unwrap();
     assert_eq!(answer.engine, "fake");
+    let planned = rig.asked.lock().unwrap().len();
     let bogus = OneShot {
         engine: "bogus-engine".to_string(),
         ..ask()
@@ -693,6 +694,11 @@ async fn the_engine_flag_overrides_the_plans() {
         .result
         .unwrap_err();
     assert!(matches!(&error, RunError::UnknownEngine { name, .. } if name == "bogus-engine"));
+    assert_eq!(
+        rig.asked.lock().unwrap().len(),
+        planned,
+        "an engine nobody drives is refused before the plan is asked"
+    );
 }
 
 #[tokio::test]
@@ -1409,8 +1415,8 @@ async fn a_one_shot_whose_listener_cannot_start_launches_no_child() {
     assert!(rig.runner.seen.lock().unwrap().is_empty());
 }
 
-// A child that cannot be spawned, and a one-shot refused after the bind (no
-// prompt), stop the listener: no port outlives the run.
+// A child that cannot be spawned stops the listener: no port outlives the run.
+// A one-shot the plan's checks refuse (no prompt) serves none at all.
 #[tokio::test]
 async fn a_one_shot_that_does_not_run_still_stops_its_listener() {
     let mut never = Script::answering();
@@ -1421,13 +1427,16 @@ async fn a_one_shot_that_does_not_run_still_stops_its_listener() {
         }));
     let mut silent = Script::answering();
     silent.prompt = "";
-    for script in [never, silent] {
+    for (script, served) in [
+        (never, &["serve_tcp 127.0.0.1", "stop"][..]),
+        (silent, &[][..]),
+    ] {
         let mut rig = rig(script);
         let done = rig.runs.one_shot(&Flags::default(), &ask()).await;
         assert!(done.result.is_err());
         let log = rig.hooks.log.lock().unwrap().clone();
         let what: Vec<&str> = log.iter().map(|(what, _)| what.as_str()).collect();
-        assert_eq!(what, ["serve_tcp 127.0.0.1", "stop"]);
+        assert_eq!(what, served);
     }
 }
 
@@ -1601,8 +1610,9 @@ async fn an_interactive_runs_engine_is_told_the_loopback_url_of_the_port_served(
     );
 }
 
-// A run that is refused after its listener was bound (an engine nobody drives)
-// stops the listener: no port outlives a run that never started.
+// A run refused by the plan's checks (an engine nobody drives) serves no
+// listener at all; one refused after its listener was bound (the project
+// cannot be told) stops it: no port outlives a run that never started.
 #[tokio::test]
 async fn a_run_refused_after_the_listener_was_bound_stops_it() {
     let mut rig = rig(Script::answering());
@@ -1617,9 +1627,28 @@ async fn a_run_refused_after_the_listener_was_bound_stops_it() {
         .result
         .unwrap_err();
     assert!(matches!(error, RunError::UnknownEngine { .. }), "{error:?}");
+    assert!(
+        rig.hooks.log.lock().unwrap().is_empty(),
+        "no listener served"
+    );
+    let mut rig = rig_with_project_error();
+    let error = rig
+        .runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap_err();
+    assert!(matches!(error, RunError::Project(_)), "{error:?}");
     let log = rig.hooks.log.lock().unwrap().clone();
     let what: Vec<&str> = log.iter().map(|(what, _)| what.as_str()).collect();
     assert_eq!(what, ["serve_tcp 127.0.0.1", "stop"]);
+}
+
+fn rig_with_project_error() -> Rig {
+    rig(Script {
+        project_error: Some(Report::new("ports-project-unwritable")),
+        ..Script::answering()
+    })
 }
 
 // A listener that cannot be bound is the run's refusal, with nothing made.

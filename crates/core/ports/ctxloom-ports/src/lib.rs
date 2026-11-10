@@ -181,6 +181,13 @@ pub trait ConfigFiles {
     /// made); an existing file keeps its mode.
     fn write_layer(&self, scope: Scope, text: &str) -> Result<(), Failure>;
 
+    /// The path (as `layers` shows it) of the project's own config file
+    /// among the layers: none with no project, or when the project's file is
+    /// the home's. A project's config may not set what only the home's may.
+    fn project_layer_path(&self) -> Option<String> {
+        None
+    }
+
     /// A `CTXLOOM_ROOT` that named no directory, and so was ignored.
     fn ignored_root(&self) -> Option<String> {
         None

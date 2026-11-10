@@ -633,3 +633,26 @@ fn test_the_names_of_the_app_dir_and_its_config_file() {
     assert_eq!(APP_DIR_NAME, ".ctxloom");
     assert_eq!(CONFIG_FILE_NAME, "config.yaml");
 }
+
+// ruling 46: the loader must tell the project's layer from the home's. It is
+// the project's file only when there is a project and it is not the home's.
+#[test]
+fn test_the_project_layer_is_named_only_when_it_is_a_file_apart_from_the_homes() {
+    let fs = rooted();
+    assert_eq!(
+        files_of(fs.clone(), project_app()).project_layer_path(),
+        Some("/work/proj/.ctxloom/config.yaml".to_string())
+    );
+    let home_app = AppDir {
+        path: PathBuf::from("/home/u/.ctxloom"),
+        source: Source::Home,
+        ignored_root: None,
+    };
+    assert_eq!(files_of(fs.clone(), home_app).project_layer_path(), None);
+    let same = AppDir {
+        path: PathBuf::from("/home/u/.ctxloom"),
+        source: Source::Project,
+        ignored_root: None,
+    };
+    assert_eq!(files_of(fs, same).project_layer_path(), None);
+}

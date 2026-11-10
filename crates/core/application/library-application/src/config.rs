@@ -50,7 +50,7 @@ pub fn load(
         notices.push(Notice::RootIgnored { root });
     }
     let layers = files.layers().map_err(AppError::Cause)?;
-    let project_path = project_layer_path(files);
+    let project_path = files.project_layer_path();
     let mut violations: Vec<String> = Vec::new();
     let mut shape_failure = false;
     let mut values = Vec::new();
@@ -93,13 +93,6 @@ pub fn load(
 
 /// The path of the project's own config file, when there is a project and it
 /// is a file apart from the home's.
-fn project_layer_path(files: &dyn ConfigFiles) -> Option<String> {
-    if files.source() != Source::Project {
-        return None;
-    }
-    files.layer(Scope::Project).ok().flatten().map(|l| l.path)
-}
-
 fn read_layer(layer: &LayerText, notices: &mut Vec<Notice>) -> Result<Value, AppError> {
     let read = layer::read(&layer.text).map_err(|e| match e {
         ConfigError::Syntax { cause } => AppError::ConfigUnparsable {

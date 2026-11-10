@@ -167,6 +167,13 @@ impl ConfigFiles for ConfigFilesFs {
         )
     }
 
+    fn project_layer_path(&self) -> Option<String> {
+        let home = self.home.join(APP_DIR_NAME).join(CONFIG_FILE_NAME);
+        let project = self.app_dir.path.join(CONFIG_FILE_NAME);
+        (self.app_dir.source == Source::Project && project != home)
+            .then(|| project.display().to_string())
+    }
+
     fn layers(&self) -> Result<Vec<LayerText>, Failure> {
         let home = self.home.join(APP_DIR_NAME).join(CONFIG_FILE_NAME);
         let mut paths = vec![home.clone()];

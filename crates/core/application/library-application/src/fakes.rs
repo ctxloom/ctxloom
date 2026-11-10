@@ -420,6 +420,12 @@ impl ConfigFiles for Mem {
         Ok(self.lock().layers.clone())
     }
 
+    fn project_layer_path(&self) -> Option<String> {
+        let state = self.lock();
+        let project = state.project?;
+        (state.home != Some(project)).then(|| state.layers[project].path.clone())
+    }
+
     fn layer(&self, scope: Scope) -> Result<Option<LayerText>, Failure> {
         let state = self.lock();
         let at = match scope {

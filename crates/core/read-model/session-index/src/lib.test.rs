@@ -443,3 +443,173 @@ fn a_meta_event_is_not_folded() {
     };
     index.project(&meta).unwrap();
 }
+
+// ------------------------------------------------- the transcript (ruling 87a)
+
+/// A capture fact on session stream `id`, as a hook delivers it: keyed by its
+/// external id, so a redelivery is a DUPLICATE.
+fn fact(id: u8, payload: Any, external_id: &str) -> CommandBook {
+    use angzarr_embedded::v1::{Fact, FactOrigin};
+    CommandBook {
+        cover: Some(cover(id)),
+        page: Some(CommandPage {
+            body: Some(command_page::Body::Fact(Fact {
+                payload: Some(payload),
+                origin: Some(FactOrigin {
+                    external_id: external_id.to_string(),
+                    description: String::new(),
+                }),
+            })),
+            ..CommandPage::default()
+        }),
+    }
+}
+
+fn wire<M: angzarr_embedded::markup::DomainMessage>(message: &M) -> Any {
+    Any::from_msg(&message.to_wire()).unwrap()
+}
+
+fn prompt(id: u8, prompt_id: &str, text: &str) -> CommandBook {
+    let payload = wire(&sessions::RecordPromptSubmitted {
+        prompt_id: prompt_id.to_string(),
+        prompt: text.to_string(),
+    });
+    fact(id, payload, &format!("hook:prompt:{id}:{prompt_id}"))
+}
+
+fn words(id: u8, prompt_id: &str, index: u32, text: &str) -> CommandBook {
+    let payload = wire(&sessions::RecordAssistantText {
+        prompt_id: prompt_id.to_string(),
+        turn_id: String::new(),
+        message_id: "m1".to_string(),
+        index,
+        is_final: false,
+        text: text.to_string(),
+    });
+    fact(id, payload, &format!("hook:text:{id}:m1:{index}"))
+}
+
+fn turn_end(id: u8, prompt_id: &str) -> CommandBook {
+    let payload = wire(&sessions::RecordTurnEnded {
+        prompt_id: prompt_id.to_string(),
+    });
+    fact(id, payload, &format!("hook:turn-end:{id}:{prompt_id}"))
+}
+
+fn lines(text: &str) -> Vec<serde_json::Value> {
+    text.lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+// Ruling 87a: the transcript is read from the session's events, in D27's
+// envelope (`v, harp, session_id, engine, seq, ts, kind`), each capture event
+// a line, `seq` counting them, the instant the page's.
+#[test]
+fn a_sessions_transcript_is_folded_from_its_capture_events() {
+    let mut project = Project::new();
+    let mut index = SessionIndex::catch_up();
+    project.run(&mut index, FIRST, mint("amber-swift-owl"));
+    project.run_book(&mut index, prompt(FIRST, "p1", "Fix the build"));
+    project.run_book(&mut index, words(FIRST, "p1", 0, "Done."));
+    project.run_book(&mut index, turn_end(FIRST, "p1"));
+    let text = index
+        .projector()
+        .index()
+        .transcript(&id_text(FIRST))
+        .expect("a transcript");
+    let got = lines(&text);
+    let kinds: Vec<&str> = got.iter().map(|l| l["kind"].as_str().unwrap()).collect();
+    assert_eq!(kinds, ["entry", "assistant_delta", "turn_end"]);
+    assert_eq!(got[0]["entry"]["type"], "user");
+    assert_eq!(got[0]["entry"]["content"], "Fix the build");
+    assert_eq!(got[1]["delta"]["text"], "Done.");
+    for (n, line) in got.iter().enumerate() {
+        assert_eq!(line["v"], 1);
+        assert_eq!(line["seq"], n);
+        assert_eq!(line["harp"], "amber-swift-owl");
+        assert_eq!(line["session_id"], id_text(FIRST));
+        assert_eq!(line["engine"], "claude-code");
+    }
+    // The mint was sampled at 101, the prompt at 102 (the Project's clock).
+    assert_eq!(got[0]["ts"], "1970-01-01T00:01:42Z");
+    assert!(text.ends_with('\n'), "a line each, newline ended");
+}
+
+// Ruling 87a: a session no hook has delivered for holds no transcript (the
+// read says it was never captured), and another session's lines are not its.
+#[test]
+fn a_session_with_no_capture_holds_no_transcript_and_none_of_anothers() {
+    let mut project = Project::new();
+    let mut index = SessionIndex::catch_up();
+    project.run(&mut index, FIRST, mint("amber-swift-owl"));
+    project.run(&mut index, SECOND, mint("brisk-copper-moth"));
+    project.run_book(&mut index, prompt(SECOND, "p1", "only the second's"));
+    let held = index.projector().index();
+    assert_eq!(held.transcript(&id_text(FIRST)), None);
+    let second = held.transcript(&id_text(SECOND)).expect("the second's");
+    assert_eq!(lines(&second).len(), 1);
+}
+
+// Ruling 87a: the transcript is LIVE: what the hooks delivered so far is
+// read, by an index kept across deliveries (continuing its `seq`) and by one
+// caught up afresh (another terminal's read), alike; a redelivery adds no line.
+#[test]
+fn the_transcript_holds_what_was_delivered_so_far_and_a_redelivery_adds_nothing() {
+    let mut project = Project::new();
+    let mut kept = SessionIndex::catch_up();
+    project.run(&mut kept, FIRST, mint("amber-swift-owl"));
+    project.run_book(&mut kept, prompt(FIRST, "p1", "first"));
+    let before = kept.projector().index().transcript(&id_text(FIRST));
+    assert_eq!(before.as_deref().map(|t| lines(t).len()), Some(1));
+    project.run_book(&mut kept, words(FIRST, "p1", 0, "partial"));
+    project.run_book(&mut kept, words(FIRST, "p1", 0, "partial"));
+    let after = kept
+        .projector()
+        .index()
+        .transcript(&id_text(FIRST))
+        .unwrap();
+    let got = lines(&after);
+    assert_eq!(got.len(), 2, "the redelivery is a DUPLICATE: {got:#?}");
+    assert_eq!(got[1]["seq"], 1);
+    let fresh = project.rebuilt();
+    assert_eq!(
+        fresh.projector().index().transcript(&id_text(FIRST)),
+        Some(after)
+    );
+}
+
+// PROPOSAL (87a): a purge destroys the transcript a person reads (the events
+// stay: ruling 90 accepts the growth), so the lines before the purge are no
+// longer shown, and what is captured after it is.
+#[test]
+fn a_purged_session_shows_only_what_was_captured_after_its_purge() {
+    let mut project = Project::new();
+    let mut index = SessionIndex::catch_up();
+    project.run(&mut index, FIRST, mint("amber-swift-owl"));
+    project.run_book(&mut index, prompt(FIRST, "p1", "before the purge"));
+    project.run(
+        &mut index,
+        FIRST,
+        RecordPurge {
+            files: 1,
+            bytes: 2,
+            at: None,
+        },
+    );
+    assert_eq!(
+        index.projector().index().transcript(&id_text(FIRST)),
+        None,
+        "purged: nothing to show"
+    );
+    project.run_book(&mut index, prompt(FIRST, "p2", "after the purge"));
+    let text = index
+        .projector()
+        .index()
+        .transcript(&id_text(FIRST))
+        .unwrap();
+    let got = lines(&text);
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0]["entry"]["content"], "after the purge");
+    assert_eq!(got[0]["seq"], 0);
+}

@@ -13,14 +13,14 @@ Feature: Cross-engine transcript capture — every engine's conversation becomes
   conversations in its own private store, in its own format, and that store
   changes or disappears when the engine does.
 
-  ctxloom keeps its own record instead. Whatever engine Alice ran, when the
-  session ends its conversation is in ctxloom's record of the session, in one
-  form, so reading it back, searching it or resuming it later never depends on
-  which engine she happened to use that day.
+  ctxloom keeps its own record instead. Whatever engine Alice ran, its
+  conversation is in ctxloom's record of the session, in one form, so reading
+  it back, searching it or resuming it later never depends on which engine she
+  happened to use that day.
 
-  Nobody runs an import. The record is there when the session ends, and it is
-  brought up to date whenever Alice reads or resumes the session, even one
-  that did not end cleanly.
+  Nobody runs an import, and no file is written for it: each thing the engine
+  reports is recorded as it happens, so the record can be read while the
+  session is still running, from another terminal, as well as after it ends.
 
   Background:
     Given an initialized ctxloom project
@@ -76,7 +76,8 @@ Feature: Cross-engine transcript capture — every engine's conversation becomes
     Then the assistant's environment held what its hooks need to reach ctxloom
     And every hook it fired answered, said nothing was left unrecorded, and exited 0
     And the session's transcript holds her prompt, the assistant's words in order, the tool call as a digest, the turn's end and the session's end, each once
-    And the transcript was written when the run ended, not while the engine ran
+    And while the engine ran, its session's transcript already held what its hooks had delivered
+    And the session's directory holds its session home and nothing projected from its events
     And a hook fired after the run has ended is refused without failing, and adds nothing to the transcript
 
   # A session opened with a prompt on its command line: the engine submits it
@@ -113,6 +114,7 @@ Feature: Cross-engine transcript capture — every engine's conversation becomes
     And the assistant's turn registered the hooks of a turn and not those of a session
     And every hook it fired answered, said nothing was left unrecorded, and exited 0
     And the session's transcript holds her prompt, the assistant's words in order, the tool call as a digest and the turn's end, each once
+    And the session's directory holds its session home and nothing projected from its events
 
   # Hooks are the only source of a one-shot's conversation: one whose hooks
   # never fire keeps none (the accepted cost), and still answers.

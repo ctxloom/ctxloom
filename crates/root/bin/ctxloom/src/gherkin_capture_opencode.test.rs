@@ -339,14 +339,9 @@ fn hooks_recorded(w: &mut World) {
     "the session's transcript holds her prompt, the tool call with its status, the assistant's words, the turn's end and the session's end at the exit, each once"
 )]
 fn transcript_holds(w: &mut World) {
-    let path = w
-        .opencode_session_dir()
-        .join("transcripts/transcript.jsonl");
-    let lines: Vec<Value> = files::read(&path)
-        .unwrap_or_else(|e| panic!("no transcript at {}: {e}", path.display()))
-        .lines()
-        .map(|l| serde_json::from_str(l).unwrap_or_else(|e| panic!("{l:?}: {e}")))
-        .collect();
+    // Ruling 87a: read from the session's events, as a person reads it.
+    let lines = super::capture::read_transcript(w, &w.opencode_harp());
+    super::capture::holds_only_its_home(&w.opencode_session_dir());
     let kinds: Vec<&str> = lines.iter().map(|l| l["kind"].as_str().unwrap()).collect();
     assert_eq!(
         kinds,

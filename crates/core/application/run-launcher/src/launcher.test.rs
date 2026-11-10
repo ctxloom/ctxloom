@@ -270,7 +270,9 @@ async fn a_childs_turn_records_neither_its_prompt_nor_its_answer_and_still_answe
             _ => None,
         });
     let completed = completed.unwrap();
-    assert_eq!(completed.answer_ref, "transcripts/transcript.jsonl");
+    // Ruling 87a: there is no transcript file, so the event names none.
+    // PROPOSAL: the reference is empty (the words are the session's events).
+    assert_eq!(completed.answer_ref, "");
     assert_eq!(completed.turn, 1);
 }
 
@@ -292,6 +294,14 @@ async fn the_engines_own_session_is_bound_to_the_session() {
         });
     let bound = bound.expect("the session was bound");
     assert_eq!(bound.native_id, "native-7");
+    // Ruling 87a: the bind names no ctxloom transcript file (none is written).
+    assert!(
+        !bound
+            .transcript_path
+            .contains("transcripts/transcript.jsonl"),
+        "{}",
+        bound.transcript_path
+    );
     let completed = run_events(&rig.edge, SESSION)
         .await
         .into_iter()

@@ -30,6 +30,8 @@ uuid.workspace = true
 angzarr-embedded = { workspace = true, features = ["test-support"] }
 ports = { workspace = true, features = ["test-support"] }
 mutants.workspace = true
+# The transcript's lines, read back by the tests (ruling 87a).
+serde_json.workspace = true
 
 
 [features]

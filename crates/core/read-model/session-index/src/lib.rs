@@ -148,6 +148,18 @@ impl SessionIndex {
         })
     }
 
+    /// The transcript of the session with the stable id `id` (owner ruling
+    /// 87a: no transcript file; the session's events in the store are the
+    /// record): D27's lines, one per capture event, `seq` counting them, as
+    /// far as the store held when this index caught up. `None` when the
+    /// session has no capture event (or no such session).
+    ///
+    /// RED (87a): a stub.
+    pub fn transcript(&self, id: &str) -> Option<String> {
+        let _ = id;
+        None
+    }
+
     /// The session with the stable id `id`, forgotten or not.
     pub fn find_by_id(&self, id: &str) -> Option<SessionRecord> {
         self.streams

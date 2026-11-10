@@ -7,8 +7,8 @@ use angzarr_diagnostic::Diagnostic;
 use session_ports::LockState;
 
 use crate::fakes::{
-    bound, claim, ended, holder, id_text, minted, project, ready, FakeClock, FakeDelay, FakeFiles,
-    FakeIdentity, FakeLiveness, FakeStores,
+    bound, captured, claim, ended, holder, id_text, minted, project, ready, FakeClock, FakeDelay,
+    FakeFiles, FakeIdentity, FakeLiveness, FakeStores,
 };
 use crate::{
     AppError, BindRequest, Bound, Class, KeepRequest, ListQuery, Refusal, RemoveRequest,
@@ -1151,5 +1151,139 @@ fn the_sample_dead_letter_names_its_component_and_reason() {
     assert!(
         line.contains("sessions") && line.contains("ROUTER_REASON_UNHANDLED_HANDLER_ERROR"),
         "{line}"
+    );
+}
+
+// ------------------------------------- the transcript from the store (87a)
+
+impl Svc {
+    /// A session minted at `started` whose hooks delivered `prompts`, one a
+    /// minute after it, and NO transcript file (owner ruling 87a).
+    fn seed_captured(&mut self, id: u8, harp: &str, started: i64, prompts: &[&str]) {
+        let store = self.stores.stores.entry(HERE.to_string()).or_default();
+        minted(store, id, harp, "/work/proj", started);
+        for (n, prompt) in prompts.iter().enumerate() {
+            captured(
+                store,
+                id,
+                started + 60 * (n as i64 + 1),
+                &format!("p{n}"),
+                prompt,
+            );
+        }
+        self.files.transcripts.remove(harp);
+    }
+}
+
+fn kinds_and_contents(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .map(|line| {
+            let line: serde_json::Value = serde_json::from_str(line).unwrap();
+            (
+                line["kind"].as_str().unwrap_or_default().to_string(),
+                line["entry"]["content"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
+            )
+        })
+        .collect()
+}
+
+// Ruling 87a: `session transcript show` answers from the session's events in
+// the store; there is no transcript file to read.
+#[test]
+fn a_transcript_is_shown_from_the_sessions_events_with_no_file() {
+    let mut svc = service();
+    svc.seed_captured(1, "amber-swift-owl", NOW - DAY, &["Fix the build"]);
+    let text = ready(svc.transcript("amber-swift-owl")).unwrap();
+    assert_eq!(
+        kinds_and_contents(&text),
+        [("entry".to_string(), "Fix the build".to_string())]
+    );
+}
+
+// Ruling 87a: a file left in a session's directory (a transcript an older
+// ctxloom wrote) is not what is shown: the events are.
+#[test]
+fn a_transcript_file_left_on_disk_is_not_what_is_shown() {
+    let mut svc = service();
+    svc.seed_captured(1, "amber-swift-owl", NOW - DAY, &["from the events"]);
+    svc.files.transcripts.insert(
+        "amber-swift-owl".to_string(),
+        transcript_of("amber-swift-owl"),
+    );
+    let text = ready(svc.transcript("amber-swift-owl")).unwrap();
+    assert!(text.contains("from the events"), "{text}");
+    assert!(!text.contains("Seeded prompt"), "{text}");
+}
+
+// Ruling 87a: a live session (its lock held) shows what its hooks have
+// delivered so far, and the next read sees what was delivered since.
+#[test]
+fn a_running_session_shows_what_its_hooks_delivered_so_far() {
+    let mut svc = service();
+    svc.seed_captured(1, "amber-swift-owl", NOW - DAY, &["first"]);
+    svc.liveness
+        .0
+        .insert("amber-swift-owl".to_string(), LockState::Held);
+    let so_far = ready(svc.transcript("amber-swift-owl")).unwrap();
+    assert_eq!(kinds_and_contents(&so_far).len(), 1);
+    let store = svc.stores.stores.get(HERE).unwrap();
+    captured(store, 1, NOW - DAY + 3600, "p9", "second");
+    let since = ready(svc.transcript("amber-swift-owl")).unwrap();
+    let got = kinds_and_contents(&since);
+    assert_eq!(got.len(), 2, "{since}");
+    assert_eq!(got[1].1, "second");
+}
+
+// Ruling 87a: the listing's title is the first prompt the session's events
+// hold, and its size is the transcript's as read from them; no file is named.
+#[test]
+fn a_listing_is_titled_and_sized_from_the_sessions_events() {
+    let mut svc = service();
+    svc.seed_captured(
+        1,
+        "amber-swift-owl",
+        NOW - DAY,
+        &["Fix the build", "and then"],
+    );
+    let views = ready(svc.list(all())).unwrap();
+    assert_eq!(views[0].title.as_deref(), Some("Fix the build"));
+    let text = ready(svc.transcript("amber-swift-owl")).unwrap();
+    let captured = views[0].captured.as_ref().expect("captured");
+    assert_eq!(captured.bytes, text.len() as u64);
+    assert_eq!(captured.path, "", "PROPOSAL: no file, so no path");
+    let found = ready(svc.search(SearchQuery {
+        list: all(),
+        words: vec!["build".to_string()],
+    }))
+    .unwrap();
+    assert_eq!(found.len(), 1, "a search matches the title from the events");
+}
+
+// Ruling 87a: `session transcript list` says a session's transcript is
+// captured, and its size, from the events, and names no path.
+#[test]
+fn the_transcript_listing_reads_the_events_and_names_no_file() {
+    let mut svc = service();
+    svc.seed_captured(1, "amber-swift-owl", NOW - 2 * DAY, &["asked"]);
+    svc.seed_captured(2, "brisk-copper-moth", NOW - DAY, &[]);
+    let text = ready(svc.transcript("amber-swift-owl")).unwrap();
+    let rows = ready(svc.transcripts(TranscriptQuery {
+        all: true,
+        ..TranscriptQuery::default()
+    }))
+    .unwrap();
+    let got: Vec<(&str, bool, u64, Option<&str>)> = rows
+        .iter()
+        .map(|r| (r.harp.as_str(), r.captured, r.bytes, r.path.as_deref()))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("brisk-copper-moth", false, 0, None),
+            ("amber-swift-owl", true, text.len() as u64, None),
+        ]
     );
 }

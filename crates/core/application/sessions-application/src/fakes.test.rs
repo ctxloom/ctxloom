@@ -298,6 +298,32 @@ pub fn ended(store: &MemoryStore, id: u8, at: i64, ended_at: i64) {
     );
 }
 
+/// A prompt the session's hooks delivered, at `at`: a capture fact on its
+/// stream, keyed as the hook keys it (owner ruling 87a: the store, not a
+/// file, is what a transcript is read from).
+pub fn captured(store: &MemoryStore, id: u8, at: i64, prompt_id: &str, prompt: &str) {
+    use angzarr_embedded::markup::DomainMessage;
+    use angzarr_embedded::v1::{Fact, FactOrigin};
+    let fact = sessions::RecordPromptSubmitted {
+        prompt_id: prompt_id.to_string(),
+        prompt: prompt.to_string(),
+    };
+    let book = CommandBook {
+        cover: Some(cover(id)),
+        page: Some(CommandPage {
+            body: Some(command_page::Body::Fact(Fact {
+                payload: Some(angzarr_embedded::Any::from_msg(&fact.to_wire()).unwrap()),
+                origin: Some(FactOrigin {
+                    external_id: format!("hook:prompt:{}:{prompt_id}", id_text(id)),
+                    description: String::new(),
+                }),
+            })),
+            ..CommandPage::default()
+        }),
+    };
+    run_book(store, at, book);
+}
+
 /// Go's session directories, as a test lays them out.
 #[derive(Default)]
 pub struct FakeGo(pub Vec<GoSession>);

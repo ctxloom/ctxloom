@@ -70,7 +70,7 @@ for payload in "$here"/payloads/*.json; do
     echo "$?" > "$fired/$id.code"
   done
 done
-[ ! -e "$CLAUDE_CONFIG_DIR/../transcripts/transcript.jsonl" ] || echo present > "$here/engine-saw-transcript"
+ctxloom session transcript show "$CTXLOOM_SESSION_HARP" --format json > "$here/live-transcript" 2> "$here/live-transcript.err" || true
 "#;
 
 /// The stub child: a `claude -p` turn. It reads the ONE `--settings` file its
@@ -143,19 +143,11 @@ impl World {
         names[0].clone()
     }
 
+    /// The session's transcript as `session transcript show` reads it (owner
+    /// ruling 87a: from the session's events, no file); none when nothing
+    /// was captured.
     fn transcript(&self) -> Vec<Value> {
-        let path = self
-            .common
-            .project
-            .dir()
-            .join(".ctxloom/sessions")
-            .join(self.harp())
-            .join("transcripts/transcript.jsonl");
-        files::read(&path)
-            .unwrap_or_else(|e| panic!("no transcript at {}: {e}", path.display()))
-            .lines()
-            .map(|l| serde_json::from_str(l).unwrap_or_else(|e| panic!("{l:?}: {e}")))
-            .collect()
+        read_transcript(self, &self.harp())
     }
 
     /// What each firing left: its event, command, answer, stderr and code.
@@ -185,6 +177,64 @@ impl World {
             })
             .collect()
     }
+}
+
+/// `harp`'s transcript, read by `ctxloom session transcript show --format
+/// json` in the project (owner ruling 87a): its lines; none when the session
+/// captured nothing.
+pub(super) fn read_transcript(w: &World, harp: &str) -> Vec<Value> {
+    let env: Vec<(&str, &str)> = w
+        .common
+        .env
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let ran = w.common.project.run_with(
+        &env,
+        &["session", "transcript", "show", harp, "--format", "json"],
+    );
+    if ran.code != 0 {
+        assert!(
+            ran.stderr.contains("no-captured-transcript"),
+            "the transcript could not be read: {}",
+            ran.said()
+        );
+        return Vec::new();
+    }
+    ran.stdout
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).unwrap_or_else(|e| panic!("{l:?}: {e}")))
+        .collect()
+}
+
+/// Ruling 87a: what a session's directory may hold, now that nothing of its
+/// events is projected there: its session home (and what the engine itself
+/// writes in it), never `metadata.json`, `records/` or `transcripts/`.
+pub(super) fn holds_only_its_home(dir: &std::path::Path) {
+    for gone in ["metadata.json", "records", "transcripts"] {
+        assert!(
+            !files::exists(dir.join(gone)),
+            "{} holds {gone}: ruling 87a writes nothing of the events there",
+            dir.display()
+        );
+    }
+    assert!(
+        files::is_dir(dir.join("home")),
+        "{} holds its session home",
+        dir.display()
+    );
+}
+
+#[then("the session's directory holds its session home and nothing projected from its events")]
+fn directory_holds_home(w: &mut World) {
+    let dir = w
+        .common
+        .project
+        .dir()
+        .join(".ctxloom/sessions")
+        .join(w.harp());
+    holds_only_its_home(&dir);
 }
 
 fn payload(template: &str, edit: impl FnOnce(&mut Value)) -> String {
@@ -350,14 +400,8 @@ fn child_transcript(w: &mut World) {
 
 #[then("the session's transcript holds no prompt and no words of the assistant's")]
 fn no_conversation(w: &mut World) {
-    let path = w
-        .common
-        .project
-        .dir()
-        .join(".ctxloom/sessions")
-        .join(w.harp())
-        .join("transcripts/transcript.jsonl");
-    let text = files::read(&path).unwrap_or_default();
+    let lines = w.transcript();
+    let text = serde_json::to_string(&lines).unwrap();
     assert!(
         !text.contains("\"entry\"") && !text.contains("assistant_delta"),
         "{text}"
@@ -485,13 +529,25 @@ fn transcript_holds(w: &mut World) {
     w.capture.ended = lines;
 }
 
-#[then("the transcript was written when the run ended, not while the engine ran")]
-fn written_at_the_end(w: &mut World) {
-    assert!(
-        !files::exists(w.engine_dir().join("engine-saw-transcript")),
-        "the transcript existed while the engine ran: the projector runs at the run's end"
+// Ruling 87a: the store is live (each hook's fact is an event when it is
+// delivered), so another process reading the session while its engine runs
+// sees what was delivered so far. The stub reads it after firing every hook
+// and before it exits: no wait, the order is the stub's own.
+#[then("while the engine ran, its session's transcript already held what its hooks had delivered")]
+fn readable_while_running(w: &mut World) {
+    let dir = w.engine_dir();
+    let live = files::read(dir.join("live-transcript")).unwrap_or_default();
+    let lines: Vec<Value> = live
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).unwrap_or_else(|e| panic!("{l:?}: {e}")))
+        .collect();
+    assert_eq!(
+        lines,
+        w.capture.ended,
+        "read while the engine ran ({}), the transcript held every delivery",
+        files::read(dir.join("live-transcript.err")).unwrap_or_default()
     );
-    assert!(!w.capture.ended.is_empty());
 }
 
 #[then("a hook fired after the run has ended is refused without failing, and adds nothing to the transcript")]

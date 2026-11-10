@@ -596,32 +596,37 @@ async fn the_engine_is_handed_the_plans_context_and_prompt_and_the_callers_envir
     );
 }
 
+// Ruling 87a: the session's events are its record, in the store; nothing of
+// them is projected into its directory (no `metadata.json`, no `records/`, no
+// transcript, no position). What is left is the session home the engine needs.
 #[tokio::test]
-async fn the_session_directory_is_written_from_the_events() {
-    let mut rig = rig(Script::answering());
-    rig.runs
-        .one_shot(&Flags::default(), &ask())
-        .await
-        .result
-        .unwrap();
-    let names = rig.records.names("amber-swift-owl");
-    for expected in [
-        "metadata.json",
-        "records/runs.jsonl",
-        "records/session.jsonl",
-        "home/ctx.md",
-    ] {
+async fn the_session_directory_holds_only_the_session_home() {
+    for interactive in [false, true] {
+        let mut rig = rig(Script::answering());
+        if interactive {
+            rig.runs
+                .interactive(&Flags::default(), &ask())
+                .await
+                .result
+                .unwrap();
+        } else {
+            rig.runs
+                .one_shot(&Flags::default(), &ask())
+                .await
+                .result
+                .unwrap();
+        }
+        let names = rig.records.names("amber-swift-owl");
         assert!(
-            names.iter().any(|n| n == expected),
-            "{expected} in {names:?}"
+            names.iter().any(|n| n == "home/ctx.md"),
+            "the session home is written: {names:?}"
+        );
+        let projected: Vec<&String> = names.iter().filter(|n| !n.starts_with("home/")).collect();
+        assert!(
+            projected.is_empty(),
+            "interactive={interactive}: nothing but the home: {projected:?}"
         );
     }
-    // The conversation is the child's hooks' to report (ruling 26), and this
-    // scripted engine has none: no transcript was written for it.
-    assert!(
-        !names.iter().any(|n| n == "transcripts/transcript.jsonl"),
-        "{names:?}"
-    );
 }
 
 #[tokio::test]

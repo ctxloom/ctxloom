@@ -1,6 +1,6 @@
 //! The run's hook listener as a port: what the run use case asks of whatever
-//! serves the hook processes of an interactive engine (owner ruling
-//! 2026-11-09, items 17 and 31-33). The use case names the address to bind
+//! serves the hook processes of a run's engine, the terminal session's or a
+//! one-shot child's (owner ruling 2026-11-09, items 17, 31-33 and 51). The use case names the address to bind
 //! ([`bind_for`](crate::bind_for)) and tells the engine the URL of the port
 //! that came back ([`endpoint_url`](crate::endpoint_url)); the server is the
 //! composition root's.

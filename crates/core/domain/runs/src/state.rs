@@ -19,7 +19,7 @@ pub struct RunState {
     /// 2026-11-04, item 16).
     pub model_credential_hash: Vec<u8>,
     /// SHA-256 of the HOOK principal's token (owner ruling 2026-11-09): the
-    /// interactive engine's hook processes present it, and its allowlist is
+    /// engine's hook processes (interactive or one-shot) present it, and its allowlist is
     /// the capture facts alone. Empty on a run enqueued before it existed,
     /// which no token matches.
     pub hook_credential_hash: Vec<u8>,

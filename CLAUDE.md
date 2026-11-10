@@ -143,7 +143,8 @@ Slice M1 (run) adds `ctxloom run`: `--one-shot <prompt>` and the bare interactiv
 session. A turn is a command. A child agent on claude runs one `claude -p
 --output-format stream-json` command per turn (`--resume <native id>` on later
 ones); the primary agent keeps the human's terminal, handed to the engine by
-inheritance, and its data is meant to come from hooks. Crates:
+inheritance. Both are heard through hooks (a child since owner ruling 51).
+Crates:
 
 - `core/ports/run-ports` (`RunnerLauncher`, `Engine`, `SessionRecords`) and
   `core/read-model/pending-launches` (the runs still owed a runner);
@@ -166,20 +167,23 @@ An engine's hooks are its adapter's: `ctxloom hook <engine> execute
 <NativeHookName>` (hidden) resolves the engine through `surface_ports::Registry`
 and its `HookCodec` decodes the payload. The settings an older ctxloom wrote
 (`hook <verb> --engine`) are stale and rewritten on the next surface apply.
-The interactive engine env has no `HOME`: ctxloom's home reaches its hook
-processes as `CTXLOOM_HOME` (`run_ports::HOME_VARIABLE`; the wiring takes it as
-the home when `HOME` is absent, and names the resolved home in a run's env; only
-the interactive allowlist passes it on), and the interactive session home's
-`settings.json` calls `ctxloom hook claude-code execute <Event>` for the
-session, turn, message, tool-batch and compaction (`PreCompact`, `PostCompact`)
-events (a child's home gets no hooks). The hook command is the bare `ctxloom`,
-so the INTERACTIVE engine's `PATH` is the directory of the running binary
-(`Place::program_dir`, the wiring's `current_exe` parent), then the inherited
-`PATH`; a child's turn env is unchanged. Two consequences: the session's own
-shell also sees that directory first, so a sibling program in it shadows the
-user's others (intended); and the binary must be named `ctxloom` for the hooks
-to resolve it (a renamed binary still leads `PATH` but the bare name finds
-nothing there: a known limit, not worked around).
+An engine env has no `HOME`: ctxloom's home reaches its hook processes as
+`CTXLOOM_HOME` (`run_ports::HOME_VARIABLE`; the wiring takes it as the home
+when `HOME` is absent, and names the resolved home in a run's env; both
+allowlists pass it on), and the session home's `settings.json` calls `ctxloom
+hook claude-code execute <Event>`. The interactive home registers the session,
+turn, message, tool-batch and compaction (`PreCompact`, `PostCompact`) events.
+A one-shot CHILD's home (owner ruling 51) registers the per-turn ones only:
+`UserPromptSubmit`, `PostToolBatch`, `MessageDisplay`, `Stop`, `PreCompact`,
+`PostCompact`; never `SessionStart` or `SessionEnd`, which `claude -p` fires
+once per PROCESS (every turn), and whose slow hook claude cancels. The hook
+command is the bare `ctxloom`, so an engine's `PATH` (the terminal's and a
+child's) is the directory of the running binary (`Place::program_dir`, the
+wiring's `current_exe` parent), then the inherited `PATH`. Two consequences:
+the session's own shell also sees that directory first, so a sibling program in
+it shadows the user's others (intended); and the binary must be named `ctxloom`
+for the hooks to resolve it (a renamed binary still leads `PATH` but the bare
+name finds nothing there: a known limit, not worked around).
 The launcher records `RunnerStarted{runtime, workspace, pid}` AFTER the spawn,
 with the pid the spawn gave (`RunnerLauncher::launch` answers a `Running`, the
 launcher records, `Running::finish` waits), and the pending launches clear on
@@ -193,15 +197,17 @@ A run has THREE credentials, minted at enqueue with the same machinery, each
 a 256-bit token whose SHA-256 alone is journaled in `RunEnqueued`
 (`runner_`, `model_` and `hook_credential_hash`; the aggregate requires three
 distinct digests, and `RunEnded` revokes all three in the fold). The hook
-credential exists so the interactive engine's hook processes can call back
-over the listener without holding the runner's or the model's token: its
+credential exists so the engine's hook processes (the terminal session's, and a
+one-shot child's: ruling 27 accepts the child holding it, capture scope, its own
+stream only) can call back over the listener without holding the runner's or the model's token: its
 scope (`runs-application`'s `Scope`, one value checked in one place, derived
 from the run's role in code and journaled nowhere) is today the six capture
 facts alone, so widening it later is adding to the scope. What
-a hook process receives, through the INTERACTIVE engine env only (like
-`CTXLOOM_HOME`; `engine-claude`'s `INTERACTIVE_ENV_ALLOWLIST`, never a child's
-turn env, whose allowlist is unchanged, and an inherited value from an
-enclosing session is dropped): `CTXLOOM_ENDPOINT`, the URL of the run's TCP
+a hook process receives, through the engine env (like `CTXLOOM_HOME`; both of
+`engine-claude`'s allowlists, `ENV_ALLOWLIST` for a child's turn since ruling
+51 and `INTERACTIVE_ENV_ALLOWLIST`; always the run's own values: an inherited
+one from an enclosing session is replaced, never passed on), with
+`CTXLOOM_SESSION_HARP`, the session's harp: `CTXLOOM_ENDPOINT`, the URL of the run's TCP
 listener, `https://<host>:<port>` (TLS only: `http://` is the typed
 `run-ports-endpoint-plaintext` and is never dialed, and port 0, a request to
 bind and never a place to dial, is `run-ports-endpoint-port-zero`, for the
@@ -248,10 +254,14 @@ limit, idle or handshake timeout of its own (angzarr's `Listener` offers none:
 an escalation); a request is capped at `hook-listener`'s `MAX_REQUEST_BYTES`.
 Revisit trigger (ruling 37): ctxloom on a multi-user host with a shared uid,
 or an authority wider than capture on this credential (ruling 38).
+A one-shot child's model can read the same environment, so it can forge
+capture facts for its OWN session (ruling 27's residual, accepted).
 The run is driven on a multi-thread runtime (`ctxloom-wiring`'s `run_runtime`,
 one worker), because `Running::finish` blocks the driving thread and a task
 spawned on a current-thread runtime (the listener) would starve meanwhile.
-An interactive run serves its endpoint: `hook-listener`'s `HookListener` (angzarr's
+Every run serves its endpoint, an interactive one and a one-shot alike (a
+one-shot is its own owner: ruling 29; children of an interactive owner calling
+back into ITS listener are not built): `hook-listener`'s `HookListener` (angzarr's
 coordinator `Handle` on a TCP port, TLS only (`Listener::tls`, angzarr's `tls`
 feature: tonic's `tls-ring`, never aws-lc), port 0, never an unspecified address, the
 arrival declared from the bind (the bind table, `run_ports::bind_for`: the host
@@ -262,7 +272,9 @@ minted certificate, before the run is
 minted (the port and the certificate are part of what the engine is told) and stopped if the run
 does not start; otherwise it is stopped, with a bounded grace, after the
 engine exits and before the run's end is last recorded
-(`ctxloom-wiring`'s `Hooks`). Not built: the hidden runner subcommand. An
+(`ctxloom-wiring`'s `Hooks`; `run-application`'s `serve`, `ready` and `drive`,
+one path for both kinds of run). The session's directory names the session
+before the engine is launched, so a hook process can find it. Not built: the hidden runner subcommand. An
 agent's `model` and `effort` reach the engine as the order's `model` and
 `effort` (`--model`, `--effort` for claude, a turn and the terminal alike;
 unset is no flag; claude takes `low|medium|high|xhigh|max`, any other level is
@@ -283,17 +295,19 @@ passes the curated allowlist plus `engines.<e>.env`, the configured auth
 variables: a bounded, enumerable set the container runtime will read. There is
 no `env_host` (owner ruling: no mode passes the host environment whole, and no
 boolean config keys; `env_host` is an ordinary unknown key, no alias). The
-`CTXLOOM_*` interactive variables and `ANTHROPIC_AUTH_TOKEN` stay out of a
-child whatever the config says; `session_home: host` sets `CLAUDE_CONFIG_DIR`
+`ANTHROPIC_AUTH_TOKEN` stays out of a child whatever the config says (the
+`CTXLOOM_*` hook variables are a child's too since ruling 51, always the run's
+own); `session_home: host` sets `CLAUDE_CONFIG_DIR`
 to `$HOME/.claude` (no `HOME` is `run-ports-engine-no-host-home`), links no
-login there; the terminal session's hooks still fire, because its launch passes
-`--settings <session dir>/settings.json` (the ctxloom-owned file `prepare` writes,
+login there; the hooks still fire, because the launch (the terminal's and a
+child's turn) passes `--settings <session dir>/settings.json` (the ctxloom-owned file `prepare` writes,
 in both home modes, never into the user's `~/.claude`; claude adds its hooks to the
 config dir's own, and honours one `--settings`; no posture settings are passed
 yet, so there was nothing to merge; verified with a fake program only, not a
 live interactive TUI, nor with `--setting-sources user`; in a container the flag
-must name the in-container path, a follow-up). A child's turn passes no
-`--settings` (child hooks are ruling 24's, separate). `EngineSettings::credentials` meets the
+must name the in-container path, a follow-up). A child's turn passes the same
+single `--settings` (ruling 51; verified with a fake program only, not a live
+`claude -p`). `EngineSettings::credentials` meets the
 engine's `Credentials` with the source: a child is satisfied by the source's
 `env` alone, the primary may share the source's `file` (or, for the built-in
 source, `~/.claude/.credentials.json`), `none` and `login` ask a child for no
@@ -532,7 +546,18 @@ session aggregate records each on a live session, nothing on any other, and a
 redelivery is DUPLICATE. `run-launcher`'s `Recorder` is the ONLY writer of
 `transcripts/transcript.jsonl` (a `Projection` over the stream's pages, `seq`
 counting lines, the last page projected kept in `records/transcript-position.
-json`); the launcher records its own prompt and answer as the same facts. A
+json`). A one-shot child's prompt and words come from its hooks ALONE (owner
+rulings 26 and 51): the launcher records none of them, and reads the child's
+stream only for the reply it returns and the run's outcome facts (RunnerStarted,
+TurnCompleted/TurnFailed, LaunchFailed, RunExited). Accepted costs: a hook
+delivery that is dropped loses that part of the record, and a child whose hooks
+never reach the listener has no conversation in its transcript (its reply is
+still printed); a failing tool has no status from the hooks (claude gives no
+PostToolUse and no error flag; the stream's `is_error` is not recorded); every
+`Stop` hook adds its runtime to the turn. The terminal session's opening prompt
+(given on its command line) is still the launcher's to record, under the run's
+turn id; its `UserPromptSubmit` hook records it again under claude's prompt id
+(read from the code, not tested: a duplicate, not addressed here). A
 reader coalesces deltas by `message_id` and `index`. ARRIVAL ORDER IS NOT
 TURN ORDER: Stop and MessageDisplay are separate hook processes, and Stop
 fires first (a live probe saw `turn_end` before the turn's words, and the

@@ -5,7 +5,10 @@
 //! events on stdout (`--output-format stream-json --verbose`, read by
 //! [`crate::stream`]). A later turn is a new command carrying
 //! `--resume <native session id>`, the id turn 1's stream named. Nothing runs
-//! between turns.
+//! between turns. The turn is heard through its hooks (owner ruling 51): the
+//! session home's `settings.json` registers the per-turn events and the command
+//! names it with `--settings`; the stream is read for the reply and the turn's
+//! outcome.
 //!
 //! The command's environment is built here and is all it gets: the session
 //! home as `CLAUDE_CONFIG_DIR` (the user's `~/.claude` is never named), and

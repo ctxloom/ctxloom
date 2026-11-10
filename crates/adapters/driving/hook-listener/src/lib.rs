@@ -1,5 +1,5 @@
 //! The run's hook listener (owner rulings 2026-11-09, items 7, 9, 16, 17 and
-//! 31-33): while an interactive run is live, this process serves the standard
+//! 31-33, 51): while a run is live (interactive or one-shot), this process serves the standard
 //! angzarr `CommandHandlerCoordinatorService.Handle` on TCP, so the hook
 //! processes of the run's engine can deliver capture facts.
 //!

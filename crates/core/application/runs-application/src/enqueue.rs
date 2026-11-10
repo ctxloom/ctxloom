@@ -22,8 +22,8 @@ pub struct EnqueueRequest {
 /// The runner's goes to the runner's 0600 file (launcher, S6); the model's to a
 /// separate file only the model-side adapter reads (S6, S10). Owner ruling
 /// 2026-11-04, item 16: two principals per run. The hook's goes into the
-/// interactive engine's environment and nowhere else (owner ruling
-/// 2026-11-09, item 16); like the others it is held by the launching code
+/// engine's environment (the terminal session's or a one-shot child's) and
+/// nowhere else (owner rulings 2026-11-09, items 16 and 51); like the others it is held by the launching code
 /// alone, and `Token`'s `Debug` is redacted.
 #[derive(Debug)]
 pub struct Enqueued {

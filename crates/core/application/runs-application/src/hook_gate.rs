@@ -1,7 +1,7 @@
 //! The gate the HOOK principal passes: core's [`Gate`] for ctxloom (owner
 //! rulings 2026-11-08 item 7 and 2026-11-09 items 9, 16 and 17).
 //!
-//! A hook process of the interactive engine holds the run's hook bearer
+//! A hook process of a run's engine (interactive or one-shot) holds the run's hook bearer
 //! (`<run-id>.<64 hex>`, [`run_ports::Bearer`]) and nothing else of the run:
 //! no runner token, no model token. The gate
 //!

@@ -1,13 +1,14 @@
-//! What a hook process of the interactive engine is told (owner rulings
-//! 2026-11-08 item 9 and 2026-11-09 item 16): where the run's listener is (a URL) and
+//! What a hook process of a run's engine (the terminal session's, or a
+//! one-shot child's: owner ruling 51) is told (owner rulings 2026-11-08 item 9
+//! and 2026-11-09 item 16): where the run's listener is (a URL) and
 //! the bearer that is its hook-only credential, in three environment
 //! variables. Pure: the endpoint URL and the variables are computed from what
 //! they are given (the bound port is injected, never read here).
 //!
 //! The bearer is a SECRET. It is a composite `<run-id>.<64 hex>`, so the gate
-//! can look the run up without upstream metadata support; it never reaches a
-//! child's turn (the engines' turn allowlists do not name it), a log line or
-//! an error message ([`Bearer`]'s `Debug` is redacted, [`BearerError`] does not
+//! can look the run up without upstream metadata support; it reaches the
+//! engine's environment and nowhere else: never a log line or an error
+//! message ([`Bearer`]'s `Debug` is redacted, [`BearerError`] does not
 //! echo what it was given, and [`RedactedEnv`] prints a map without its value).
 
 use std::collections::BTreeMap;
@@ -30,12 +31,13 @@ pub const RUN_VARIABLE: &str = "CTXLOOM_RUN";
 pub const TLS_CERT_VARIABLE: &str = "CTXLOOM_TLS_CERT";
 
 /// The variable that names the session's harp: the address a hook finds its
-/// session by. The interactive engine's environment carries it (a child's
-/// never does).
+/// session by. The engine's environment carries it (the terminal session's
+/// and a one-shot child's).
 pub const HARP_VARIABLE: &str = "CTXLOOM_SESSION_HARP";
 
-/// The four variables, which reach the INTERACTIVE engine's environment and
-/// no other.
+/// The four variables, which reach a run's engine's environment (the
+/// terminal session's and a one-shot child's, ruling 51), always the run's own:
+/// an inherited value is replaced.
 pub const HOOK_VARIABLES: [&str; 4] = [
     ENDPOINT_VARIABLE,
     BEARER_VARIABLE,
@@ -228,7 +230,7 @@ impl Diagnostic for BearerError {
     }
 }
 
-/// The variables the interactive engine is given for its hooks: the endpoint,
+/// The variables a run's engine is given for its hooks: the endpoint,
 /// the bearer and the run.
 pub fn hook_environment(
     endpoint: &str,

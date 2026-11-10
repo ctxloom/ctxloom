@@ -20,7 +20,8 @@ use angzarr_diagnostic::{code, Arg, Diagnostic};
 use crate::launcher::{TurnCommand, TurnOutput};
 
 /// The variable that names ctxloom's home (the directory ctxloom keeps
-/// `.ctxloom` under) in an interactive engine's environment. The engine's own
+/// `.ctxloom` under) in an engine's environment (the terminal session's and a
+/// one-shot child's). The engine's own
 /// children, hook processes among them, run without `HOME`, so they find
 /// ctxloom's home through this one explicit variable.
 pub const HOME_VARIABLE: &str = "CTXLOOM_HOME";

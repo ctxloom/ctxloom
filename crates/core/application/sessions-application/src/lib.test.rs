@@ -1287,3 +1287,93 @@ fn the_transcript_listing_reads_the_events_and_names_no_file() {
         ]
     );
 }
+
+// ------------------------------------------ rename and liveness (defect 2)
+
+impl Svc {
+    /// `harp`'s session directory exists, and its name is claimed by it.
+    fn with_directory(&mut self, id: u8, harp: &str) {
+        self.files.sessions.insert(harp.to_string());
+        claim(self.store(HERE), HERE, harp, &id_text(id)).unwrap();
+    }
+}
+
+// Defect 2: a LIVE session (its lock held) is not renamed: its engine works in
+// its directory. Refused with a typed refusal whose fix says to wait for the
+// session's end; no name is claimed, nothing is moved, nothing is recorded.
+#[test]
+fn a_live_session_is_not_renamed_and_nothing_is_claimed_or_moved() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, Some(LockState::Held));
+    svc.with_directory(1, "amber-swift-owl");
+    let old_out = "/home/Documents/ctxloom/proj/amber-swift-owl";
+    svc.files.outputs.insert(old_out.to_string());
+    let error = ready(svc.rename(rename("amber-swift-owl", "bright-keen-hawk"))).unwrap_err();
+    // PROPOSAL: the refusal `SessionLive`, code `sessions-session-live`.
+    assert_eq!(error.code(), "sessions-session-live");
+    assert!(svc.files.moves.is_empty(), "no output folder moved");
+    assert!(svc.files.session_moves.is_empty(), "no directory moved");
+    assert_eq!(holder(svc.store(HERE), HERE, "bright-keen-hawk"), "");
+    assert_eq!(holder(svc.store(HERE), HERE, "amber-swift-owl"), id_text(1));
+    assert_eq!(svc.harps(all()), ["amber-swift-owl"]);
+}
+
+// Defect 2: a rename of an ENDED session moves its session directory (and its
+// lock, beside it) to the new name, as well as its output folder: no
+// directory is left under the old name for a later session to claim.
+#[test]
+fn an_ended_sessions_rename_moves_its_session_directory_too() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, Some(LockState::Free));
+    svc.with_directory(1, "amber-swift-owl");
+    ready(svc.rename(rename("amber-swift-owl", "bright-keen-hawk"))).unwrap();
+    assert_eq!(
+        svc.files.session_moves,
+        [(
+            "amber-swift-owl".to_string(),
+            "bright-keen-hawk".to_string()
+        )]
+    );
+    assert!(svc.files.sessions.contains("bright-keen-hawk"));
+    assert!(!svc.files.sessions.contains("amber-swift-owl"));
+}
+
+// Defect 2: a session directory that cannot move refuses the rename whole:
+// the new name is released, the output folder moved back, the old name kept.
+#[test]
+fn a_session_directory_that_cannot_move_refuses_the_rename_whole() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, Some(LockState::Free));
+    svc.with_directory(1, "amber-swift-owl");
+    let old_out = "/home/Documents/ctxloom/proj/amber-swift-owl";
+    svc.files.outputs.insert(old_out.to_string());
+    svc.files.fail_session_move = true;
+    let error = ready(svc.rename(rename("amber-swift-owl", "bright-keen-hawk")));
+    assert!(error.is_err(), "the rename is refused");
+    assert_eq!(
+        svc.files.session_moves.len(),
+        1,
+        "the directory's move was asked for"
+    );
+    assert!(svc.files.outputs.contains(old_out), "the folder moved back");
+    assert_eq!(holder(svc.store(HERE), HERE, "bright-keen-hawk"), "");
+    assert_eq!(holder(svc.store(HERE), HERE, "amber-swift-owl"), id_text(1));
+    assert_eq!(svc.harps(all()), ["amber-swift-owl"]);
+}
+
+// PROPOSAL (defect 2): a lock that proves nothing (a session from before runs
+// held their lock) does not block a rename; only a held one does.
+#[test]
+fn a_session_whose_lock_proves_nothing_is_renamed() {
+    let mut svc = service();
+    svc.seed(
+        HERE,
+        1,
+        "amber-swift-owl",
+        NOW - DAY,
+        Some(LockState::Unproven),
+    );
+    svc.with_directory(1, "amber-swift-owl");
+    ready(svc.rename(rename("amber-swift-owl", "bright-keen-hawk"))).unwrap();
+    assert_eq!(svc.harps(all()), ["bright-keen-hawk"]);
+}

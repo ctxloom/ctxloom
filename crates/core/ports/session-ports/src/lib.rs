@@ -139,6 +139,18 @@ pub trait SessionFiles {
     /// nothing at `from` to move. A move, never a copy then a delete, and
     /// refused whole when something is already at `to`.
     fn move_output(&mut self, from: &str, to: &str) -> Result<bool, Report>;
+
+    /// Move the session directory of `from` (a harp), and its lock file
+    /// beside it, to `to`'s (defect 2: a rename leaves no directory behind
+    /// for a later session to claim): `false` when there is no directory at
+    /// `from`. A move, never a copy; refused whole when something is already
+    /// at `to`.
+    ///
+    /// RED (defect 2): a stub that moves nothing.
+    fn move_session(&mut self, from: &str, to: &str) -> Result<bool, Report> {
+        let _ = (from, to);
+        Ok(false)
+    }
 }
 
 /// One of Go's session directories, as `session import` reads it.

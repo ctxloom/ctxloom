@@ -710,3 +710,50 @@ fn a_directory_at_the_link_path_is_other_and_a_failed_look_is_not_absent() {
     // And a gap really is absent.
     assert_eq!(dirs.state(HARP, "home/never"), LinkState::Absent);
 }
+
+// ------------------------------------------- a session's move (defect 2)
+
+// Defect 2: a rename moves the session's directory and its lock file beside it
+// to the new name, leaving nothing under the old one.
+#[test]
+fn a_session_directory_and_its_lock_move_to_the_new_name() {
+    let (fs, mut dirs) = dirs();
+    write(&fs, &dirs, "home/settings.json", "{}");
+    let lock = dirs.dir(HARP).with_extension("lock");
+    fs.write_atomic(
+        &lock,
+        b"",
+        file_system::Perms::Exact(Mode::from_bits(0o600)),
+    )
+    .unwrap();
+    assert!(dirs.move_session(HARP, "bright-keen-hawk").unwrap());
+    assert!(!fs.exists(&dirs.dir(HARP)).unwrap());
+    assert!(!fs.exists(&lock).unwrap());
+    assert_eq!(
+        fs.read_to_string(&dirs.dir("bright-keen-hawk").join("home/settings.json"))
+            .unwrap(),
+        "{}"
+    );
+    assert!(fs
+        .exists(&dirs.dir("bright-keen-hawk").with_extension("lock"))
+        .unwrap());
+}
+
+#[test]
+fn a_session_with_no_directory_moves_nothing() {
+    let (_, mut dirs) = dirs();
+    assert!(!dirs.move_session(HARP, "bright-keen-hawk").unwrap());
+}
+
+// Defect 2: a directory already under the new name is never merged into.
+#[test]
+fn a_session_move_onto_a_directory_already_there_is_refused_and_moves_nothing() {
+    let (fs, mut dirs) = dirs();
+    write(&fs, &dirs, "home/settings.json", "{}");
+    fs.create_dir_all(&dirs.dir("bright-keen-hawk"), Mode::from_bits(0o755))
+        .unwrap();
+    assert!(dirs.move_session(HARP, "bright-keen-hawk").is_err());
+    assert!(fs
+        .exists(&dirs.dir(HARP).join("home/settings.json"))
+        .unwrap());
+}

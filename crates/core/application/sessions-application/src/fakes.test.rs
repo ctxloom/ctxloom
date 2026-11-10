@@ -125,6 +125,11 @@ pub struct FakeFiles {
     /// Every move asked for: (from, to).
     pub moves: Vec<(String, String)>,
     pub fail_move: bool,
+    /// The session directories that exist, by harp; a session move renames one.
+    pub sessions: std::collections::BTreeSet<String>,
+    /// Every session-directory move asked for: (from harp, to harp).
+    pub session_moves: Vec<(String, String)>,
+    pub fail_session_move: bool,
 }
 
 const DIR: &str = "/home/.ctxloom/sessions";
@@ -146,6 +151,18 @@ impl FakeFiles {
 impl SessionFiles for FakeFiles {
     fn move_output(&mut self, from: &str, to: &str) -> Result<bool, Report> {
         self.moving(from, to)
+    }
+
+    fn move_session(&mut self, from: &str, to: &str) -> Result<bool, Report> {
+        self.session_moves.push((from.to_string(), to.to_string()));
+        if self.fail_session_move || self.sessions.contains(to) {
+            return Err(Report::new("session-files-session-exists"));
+        }
+        let moved = self.sessions.remove(from);
+        if moved {
+            self.sessions.insert(to.to_string());
+        }
+        Ok(moved)
     }
 
     fn transcript(&mut self, harp: &str) -> Result<Option<TranscriptFile>, Report> {

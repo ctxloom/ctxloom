@@ -167,6 +167,15 @@ impl Engine for Claude {
         let mut command = TurnCommand::new(program(request));
         command.args.push("--append-system-prompt-file".to_string());
         command.args.push(request.context_path.clone());
+        // claude reads one `--settings` file (the last wins) and adds its hooks
+        // to the config directory's own, so the ctxloom-owned file `prepare`
+        // wrote in the session dir serves both home modes; nothing is written
+        // into the user's own directory. (In a container this path must be the
+        // in-container one: a follow-up.)
+        command.args.push("--settings".to_string());
+        command
+            .args
+            .push(format!("{}/{SETTINGS_FILE}", request.home));
         push_model_and_effort(&mut command.args, request)?;
         if let Some(native_id) = &request.resume {
             command.args.push("--resume".to_string());

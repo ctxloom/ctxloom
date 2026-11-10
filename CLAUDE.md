@@ -263,7 +263,14 @@ boolean config keys; `env_host` is an ordinary unknown key, no alias). The
 `CTXLOOM_*` interactive variables and `ANTHROPIC_AUTH_TOKEN` stay out of a
 child whatever the config says; `session_home: host` sets `CLAUDE_CONFIG_DIR`
 to `$HOME/.claude` (no `HOME` is `run-ports-engine-no-host-home`), links no
-login and installs no hook there. `EngineSettings::credentials` meets the
+login there; the terminal session's hooks still fire, because its launch passes
+`--settings <session dir>/settings.json` (the ctxloom-owned file `prepare` writes,
+in both home modes, never into the user's `~/.claude`; claude adds its hooks to the
+config dir's own, and honours one `--settings`; no posture settings are passed
+yet, so there was nothing to merge; verified with a fake program only, not a
+live interactive TUI, nor with `--setting-sources user`; in a container the flag
+must name the in-container path, a follow-up). A child's turn passes no
+`--settings` (child hooks are ruling 24's, separate). `EngineSettings::credentials` meets the
 engine's `Credentials` with the source: a child is satisfied by the source's
 `env` alone, the primary may share the source's `file` (or, for the built-in
 source, `~/.claude/.credentials.json`), `none` and `login` ask a child for no
@@ -536,7 +543,7 @@ selftest`.
 `engines:` holds, per fixed engine name, what its agents share: `command`
 (home-layer config only), `session_home` (`session` | `host`; `host` is not
 honoured from a project config until a trust check can gate it), `auth`,
-`runtime`, `env_host`, `env`. `auth` is THE auth setting: `none`, `login` (the
+`runtime`, `env`. `auth` is THE auth setting: `none`, `login` (the
 human's own login shared in place), `token` (the engine's built-in variables),
 or a source `{env: NAME|[NAMES], file: PATH}`; a name that is not a variable
 name is refused without being repeated; a file is only a primary session's.

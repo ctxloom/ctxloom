@@ -86,9 +86,8 @@ pub fn observe(event: &HookEvent) -> Vec<Observation> {
             native_session: event.native_session.clone(),
             reason: event.reason.clone(),
         })],
-        // The engine's compaction events are carried by their native names.
-        "PreCompact" => vec![compaction(event, sessions::CompactionPhase::Before)],
-        "PostCompact" => vec![compaction(event, sessions::CompactionPhase::After)],
+        "compaction_before" => vec![compaction(event, sessions::CompactionPhase::Before)],
+        "compaction_after" => vec![compaction(event, sessions::CompactionPhase::After)],
         _ => Vec::new(),
     }
 }

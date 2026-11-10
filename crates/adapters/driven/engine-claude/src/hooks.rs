@@ -26,9 +26,10 @@ fn route(unified: &str) -> Option<(&'static str, Option<&'static str>, bool)> {
         // Neither carries a tool matcher: the whole batch, the whole message.
         "post_tool_batch" => ("PostToolBatch", None, false),
         "message_display" => ("MessageDisplay", None, false),
-        // A compaction's hooks, under the engine's own names: no matcher.
-        "PreCompact" => ("PreCompact", None, false),
-        "PostCompact" => ("PostCompact", None, false),
+        // A compaction's hooks, by the unified name or the engine's own: no
+        // matcher.
+        "compaction_before" | "PreCompact" => ("PreCompact", None, false),
+        "compaction_after" | "PostCompact" => ("PostCompact", None, false),
         _ => return None,
     })
 }

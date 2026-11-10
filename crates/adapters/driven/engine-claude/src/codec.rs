@@ -24,6 +24,8 @@ fn unified(native: &str) -> String {
         "PermissionRequest" => "permission_ask",
         "PostToolBatch" => "post_tool_batch",
         "MessageDisplay" => "message_display",
+        "PreCompact" => "compaction_before",
+        "PostCompact" => "compaction_after",
         other => other,
     }
     .to_string()

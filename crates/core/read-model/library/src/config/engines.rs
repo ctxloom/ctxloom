@@ -2,7 +2,7 @@
 //!
 //! Owner rulings 40-44 (2026-11-09): `model`, `effort` and `permissions` are an
 //! AGENT's settings; the `engines.<engine>` block holds what is cross-agent:
-//! `command`, `session_home`, `auth`, and the default `runtime` / `env_host` /
+//! `command`, `session_home`, `auth`, and the default `runtime` /
 //! `env` an agent may override. An unset `model` / `effort` passes no flag;
 //! `permissions` has an explicit ctxloom default. Everything here is a pure
 //! function of the merged config tree: [`effective`] answers "what does this
@@ -268,7 +268,6 @@ pub struct Effective {
     pub permissions: Sourced<String>,
     pub runtime: Sourced<String>,
     pub runtime_override: Override,
-    pub env_host: Sourced<bool>,
     pub env: Sourced<Vec<String>>,
     pub command: Sourced<String>,
     pub session_home: Sourced<String>,
@@ -320,11 +319,6 @@ pub fn effective(config: &Value, agent: &str) -> Result<Effective, EngineError> 
     };
 
     let (runtime, runtime_override) = runtime_of(config, binding, block);
-    let env_host = pick(
-        flag_of(binding, "env_host"),
-        block.and_then(|b| flag_of(b, "env_host")),
-        false,
-    );
     let env = pick(
         names_of(binding, "env"),
         block.and_then(|b| names_of(b, "env")),
@@ -343,7 +337,6 @@ pub fn effective(config: &Value, agent: &str) -> Result<Effective, EngineError> 
         permissions,
         runtime,
         runtime_override,
-        env_host,
         env,
         command: from_block("command").map_or_else(
             || default(default_command(&name)),
@@ -365,14 +358,13 @@ pub fn effective(config: &Value, agent: &str) -> Result<Effective, EngineError> 
 }
 
 /// What a launch of an engine is told of how to run it: the engine block's
-/// `command`, `session_home` and `auth`, and the `env_host` / `env` passthrough
+/// `command`, `session_home` and `auth`, and the `env` passthrough
 /// the launching agent settled on. A source, never a value.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Drive {
     pub command: String,
     pub session_home: String,
     pub auth: Sourced<AuthSource>,
-    pub env_host: bool,
     pub env: Vec<String>,
 }
 
@@ -382,7 +374,6 @@ impl Default for Drive {
             command: String::new(),
             session_home: "session".to_string(),
             auth: default_source(AuthSource::None),
-            env_host: false,
             env: Vec::new(),
         }
     }
@@ -396,13 +387,12 @@ fn default_source(value: AuthSource) -> Sourced<AuthSource> {
 }
 
 impl From<&Effective> for Drive {
-    /// An agent's launch: its own `env_host` / `env`, the engine's other keys.
+    /// An agent's launch: its own `env`, the engine's other keys.
     fn from(effective: &Effective) -> Drive {
         Drive {
             command: effective.command.value.clone(),
             session_home: effective.session_home.value.clone(),
             auth: effective.auth.clone(),
-            env_host: effective.env_host.value,
             env: effective.env.value.clone(),
         }
     }
@@ -431,7 +421,6 @@ pub fn engine_drive(config: &Value, engine: &str) -> Result<Drive, EngineError> 
             .and_then(|b| text_of(b, "session_home"))
             .unwrap_or_else(|| "session".to_string()),
         auth,
-        env_host: block.and_then(|b| flag_of(b, "env_host")).unwrap_or(false),
         env: block.and_then(|b| names_of(b, "env")).unwrap_or_default(),
     })
 }
@@ -619,14 +608,6 @@ fn text_of(from: &Value, key: &str) -> Option<String> {
         .and_then(Value::as_str)
         .filter(|text| !text.is_empty())
         .map(ToString::to_string)
-}
-
-fn flag_of(from: &Value, key: &str) -> Option<bool> {
-    match from.get(key).and_then(Value::as_str) {
-        Some("true") => Some(true),
-        Some("false") => Some(false),
-        _ => None,
-    }
 }
 
 /// The names under `key`; a list that is there but empty is still said.

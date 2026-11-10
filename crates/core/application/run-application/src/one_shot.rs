@@ -186,7 +186,6 @@ fn settings_of(plan: &library_application::DryRun, engine: &str) -> run_ports::E
                 }
             }
         },
-        env_host: drive.env_host,
         env: drive.env.clone(),
     }
 }

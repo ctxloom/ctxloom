@@ -85,6 +85,6 @@ fn a_turn_request_renders_its_env_keys_and_never_the_bearer() {
     };
     assert_eq!(
         format!("{request:?}"),
-        r#"TurnRequest { prompt: "p", home: "/h", context_path: "/h/c", resume: None, env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "/bin"}, cwd: None, model: "", effort: "", settings: EngineSettings { command: "", session_home: Session, auth: Builtin, env_host: false, env: [] } }"#
+        r#"TurnRequest { prompt: "p", home: "/h", context_path: "/h/c", resume: None, env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "/bin"}, cwd: None, model: "", effort: "", settings: EngineSettings { command: "", session_home: Session, auth: Builtin, env: [] } }"#
     );
 }

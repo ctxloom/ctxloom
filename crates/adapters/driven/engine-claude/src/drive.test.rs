@@ -465,7 +465,6 @@ fn the_interactive_only_variables_are_never_a_childs_whatever_the_config_says() 
             "CTXLOOM_SESSION_HARP",
             "ANTHROPIC_AUTH_TOKEN",
         ]);
-        s.env_host = true;
     });
     asked.env = env(&[
         ("CTXLOOM_BEARER", "run.secret"),
@@ -486,16 +485,13 @@ fn the_interactive_only_variables_are_never_a_childs_whatever_the_config_says() 
     }
 }
 
-// Owner ruling: env_host is a bounded, enumerable set (the container runtime
-// will read it): the curated allowlist and the names the config lists, never
-// "everything".
+// Owner ruling: there is no env_host. What an engine gets is a bounded,
+// enumerable set (the container runtime will read it): the curated allowlist
+// and the names the config lists, never "everything".
 #[test]
-fn env_host_passes_only_the_allowlist_and_the_listed_names() {
+fn only_the_allowlist_and_the_listed_names_are_passed() {
     let mut asked = request();
-    asked.settings = settings(|s| {
-        s.env_host = true;
-        s.env = names(&["ALPHA_TOKEN"]);
-    });
+    asked.settings = settings(|s| s.env = names(&["ALPHA_TOKEN"]));
     asked.env = env(&[
         ("PATH", "/usr/bin"),
         ("ALPHA_TOKEN", "a"), // gitleaks:allow

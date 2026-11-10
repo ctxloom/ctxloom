@@ -253,13 +253,13 @@ and `just lint` refuses to run if they disagree.
 
 The engine block reaches the drive (engines track 4). The plan's `DryRun.drive`
 (`library::config::engines::Drive`: `command`, `session_home`, the `auth`
-source, the agent's `env_host`/`env`) becomes `run_ports::EngineSettings`
+source, the agent's `env`) becomes `run_ports::EngineSettings`
 (owned, names and paths only, never a credential value) in the `Order` and the
 `TurnRequest`. engine-claude runs the configured `command` (default `claude`);
 passes the curated allowlist plus `engines.<e>.env`, the configured auth
-variables. `env_host` is that same bounded, enumerable set and never widens
-it to the whole environment (owner ruling: the container runtime reads the
-set; the boolean adds nothing beyond the allowlist and the listed names). The
+variables: a bounded, enumerable set the container runtime will read. There is
+no `env_host` (owner ruling: no mode passes the host environment whole, and no
+boolean config keys; `env_host` is an ordinary unknown key, no alias). The
 `CTXLOOM_*` interactive variables and `ANTHROPIC_AUTH_TOKEN` stay out of a
 child whatever the config says; `session_home: host` sets `CLAUDE_CONFIG_DIR`
 to `$HOME/.claude` (no `HOME` is `run-ports-engine-no-host-home`), links no

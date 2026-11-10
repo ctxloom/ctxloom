@@ -233,8 +233,8 @@ fn grantable(name: &str, interactive: bool) -> bool {
 
 /// The command's whole environment: `caller`'s variables on the curated
 /// allowlist, on the engine block's `env` and on the configured credential
-/// source (`env_host` is that same bounded, enumerable set and never widens
-/// it: the container runtime will read the set), and
+/// source: a bounded, enumerable set (the container runtime reads it), never
+/// the whole environment, and
 /// `CLAUDE_CONFIG_DIR` set to the session's home, or to the user's own
 /// directory when the engine block says `session_home: host`. A child is never
 /// given the interactive-only variables nor the primary's token.

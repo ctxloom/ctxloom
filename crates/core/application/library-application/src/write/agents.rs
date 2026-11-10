@@ -418,11 +418,6 @@ impl Project {
                 "env entry \"{entry}\" must be a bare variable name, not NAME=value"
             )));
         }
-        if !agent.env.is_empty() && agent.env_host != Some(false) {
-            return Err(bad(
-                "env lists names to pass through, but env_host is not false, so the host environment is passed whole; set --env-host=false to curate it".to_string(),
-            ));
-        }
         Ok(())
     }
 

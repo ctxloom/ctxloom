@@ -1109,18 +1109,6 @@ fn test_an_agent_is_kept_when_profiles_alone_bind_it() {
     );
 }
 
-// config.feature: env_host is read as a boolean, absent when unset.
-#[test]
-fn test_an_agents_env_host_is_true_false_or_unset() {
-    let layers = ["schema_version: 9\nagents:\n  on:\n    engine: claude-code\n    env_host: true\n  off:\n    engine: claude-code\n    env_host: false\n  unset:\n    engine: claude-code\n"];
-    let rows = ok(with(&[], &layers).library().agent_list(&plain()));
-    let by = |name: &str| rows.iter().find(|r| r.name == name).unwrap().env_host;
-    assert_eq!(
-        (by("on"), by("off"), by("unset")),
-        (Some(true), Some(false), None)
-    );
-}
-
 // config.feature: the sections `config show` accepts.
 #[test]
 fn test_the_config_sections_are_the_schemas() {
@@ -1218,7 +1206,7 @@ fn test_a_dry_run_settles_the_runtime_agent_then_engine_then_project() {
 
 // ---- the plan carries how the engine is run (rulings 44, 46, 48) ----
 
-const DRIVEN_HOME: &str = "schema_version: 9\nengines:\n  claude-code:\n    command: /h/bin/claude\n    session_home: host\n    auth:\n      env: [ACME_TOKEN]\n      file: ~/.acme/c.json\n    env_host: true\n    env: [E1]\nagents:\n  dev:\n    engine: claude-code\n  own:\n    engine: claude-code\n    env_host: false\n    env: [E2]\n";
+const DRIVEN_HOME: &str = "schema_version: 9\nengines:\n  claude-code:\n    command: /h/bin/claude\n    session_home: host\n    auth:\n      env: [ACME_TOKEN]\n      file: ~/.acme/c.json\n    env: [E1]\nagents:\n  dev:\n    engine: claude-code\n  own:\n    engine: claude-code\n    env: [E2]\n";
 
 fn drive_of(request: crate::RunRequest) -> library::config::engines::Drive {
     use library::config::engines::Drive;
@@ -1245,14 +1233,12 @@ fn test_a_dry_run_carries_the_engine_block_and_the_agent_s_passthrough() {
             file: Some("~/.acme/c.json".to_string()),
         }
     );
-    assert!(dev.env_host);
     assert_eq!(dev.env, vec!["E1".to_string()]);
-    // an agent's own env / env_host replace the engine's
+    // an agent's own env replaces the engine's
     let own = drive_of(crate::RunRequest {
         agent: "own".to_string(),
         ..crate::RunRequest::default()
     });
-    assert!(!own.env_host);
     assert_eq!(own.env, vec!["E2".to_string()]);
 }
 
@@ -1264,7 +1250,6 @@ fn test_a_launch_with_no_agent_takes_the_default_engine_s_block() {
     });
     assert_eq!(by_hand.command, "/h/bin/claude");
     assert_eq!(by_hand.session_home, "host");
-    assert!(by_hand.env_host);
     assert_eq!(by_hand.env, vec!["E1".to_string()]);
 }
 

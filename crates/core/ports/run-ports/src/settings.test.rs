@@ -109,6 +109,6 @@ fn settings_render_names_and_paths_only() {
     };
     assert_eq!(
         format!("{settings:?}"),
-        r#"EngineSettings { command: "/opt/claude", session_home: Session, auth: Source { env: ["ACME_TOKEN"], file: Some("/x/c.json") }, env_host: false, env: [] }"#
+        r#"EngineSettings { command: "/opt/claude", session_home: Session, auth: Source { env: ["ACME_TOKEN"], file: Some("/x/c.json") }, env: [] }"#
     );
 }

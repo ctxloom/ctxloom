@@ -46,9 +46,8 @@ pub struct EngineSettings {
     pub command: String,
     pub session_home: SessionHome,
     pub auth: AuthSetting,
-    /// Pass the caller's whole environment (less what a child is never given).
-    pub env_host: bool,
-    /// Names of the caller's variables to pass on besides the curated ones.
+    /// Names of the caller's variables to pass on besides the curated ones:
+    /// the whole set is bounded and enumerable (the container runtime reads it).
     pub env: Vec<String>,
 }
 

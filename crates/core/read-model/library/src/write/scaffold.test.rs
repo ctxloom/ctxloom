@@ -20,18 +20,12 @@ fn test_the_seed_profile_is_gos_resource_byte_for_byte() {
     assert_eq!(SEED_NAME, "default");
 }
 
-// captured from Go runs: config create --engine <e>
+// owner amendment (2026-11-09): no llm registry, no top-level auth; the agent
+// names its engine, and the engine block is the user's
 #[test]
-fn test_the_claude_config_is_the_registrys_primary_and_fast_entries() {
-    assert_eq!(
-        initial_config("claude-code"),
-        "agents:\n  default:\n    engine_home: session\n    llm: claude-code\n    profiles:\n      - default\n    runtime: host\nauth: token\nconfig:\n  use_distilled: true\ndefault_agent: default\nllm:\n  configs:\n    claude-code:\n      model: opus\n      type: claude-code\n    claude-fast:\n      model: haiku\n      type: claude-code\n  defaults:\n    fast: claude-fast\n    primary: claude-code\nschema_version: 9\n"
-    );
-}
-
-#[test]
-fn test_an_engine_without_roles_is_one_entry_serving_both() {
+fn test_the_scaffold_binds_the_default_agent_to_its_engine() {
     for engine in [
+        "claude-code",
         "mock",
         "opencode",
         "mock-launch",
@@ -40,7 +34,7 @@ fn test_an_engine_without_roles_is_one_entry_serving_both() {
     ] {
         assert_eq!(
             initial_config(engine),
-            format!("agents:\n  default:\n    engine_home: session\n    llm: {engine}\n    profiles:\n      - default\n    runtime: host\nauth: token\nconfig:\n  use_distilled: true\ndefault_agent: default\nllm:\n  configs:\n    {engine}:\n      type: {engine}\n  defaults:\n    fast: {engine}\n    primary: {engine}\nschema_version: 9\n")
+            format!("agents:\n  default:\n    engine: {engine}\n    profiles:\n      - default\n    runtime: host\nconfig:\n  use_distilled: true\ndefault_agent: default\nschema_version: 9\n")
         );
     }
 }

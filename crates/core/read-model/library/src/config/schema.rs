@@ -87,7 +87,6 @@ enum Pat {
     MemoryLimit,
     PidsLimit,
     NoEquals,
-    Url,
 }
 
 impl Pat {
@@ -102,7 +101,6 @@ impl Pat {
             Pat::MemoryLimit => "^\\s*([0-9]+(\\.[0-9]+)?\\s*([kKmMgGtT]([iI]?[bB])?|[bB])?|[uU][nN][lL][iI][mM][iI][tT][eE][dD])\\s*$",
             Pat::PidsLimit => "^\\s*([0-9]+|[uU][nN][lL][iI][mM][iI][tT][eE][dD])\\s*$",
             Pat::NoEquals => "^[^=]+$",
-            Pat::Url => "^https?://",
         }
     }
 
@@ -126,7 +124,6 @@ impl Pat {
                     || (!t.is_empty() && t.chars().all(|c| c.is_ascii_digit()))
             }
             Pat::NoEquals => !s.is_empty() && !s.contains('=') && !s.contains('\n'),
-            Pat::Url => s.starts_with("http://") || s.starts_with("https://"),
         }
     }
 }
@@ -220,8 +217,9 @@ enum Node {
     },
     /// Any one of the shapes (the limits: a size text or a number).
     AnyOf(Vec<Node>),
-    /// An `llm.configs.<label>` entry: one shape per backend `type`.
-    Llm,
+    /// An `engines.<engine>.auth`: a word, or a source of variable names
+    /// and/or a file (read by [`AuthSource::parse`], the one reading).
+    Auth,
     /// Whatever there is.
     Free,
 }
@@ -284,7 +282,6 @@ fn map_of(each: Node) -> Node {
 }
 
 const RUNTIMES: &[&str] = &["host", "container-rootless", "container-rootful"];
-const ROLES: &[&str] = &["primary", "fast"];
 
 fn permission_props() -> Vec<(&'static str, Node)> {
     vec![
@@ -295,60 +292,28 @@ fn permission_props() -> Vec<(&'static str, Node)> {
     ]
 }
 
-/// The common properties of an `llm.configs` entry, then its own.
-fn llm_shape(own: Vec<(&'static str, Node)>) -> Vec<(&'static str, Node)> {
-    let mut props = vec![
-        ("role", choice(ROLES)),
-        (
-            "permissions",
-            Node::Object {
-                props: permission_props(),
-                extra: Extra::Any,
-            },
-        ),
-        ("model", string()),
-        ("context_window", int(Some(1))),
-    ];
-    props.extend(own);
-    props
-}
-
-/// The backend `type`s an `llm.configs` entry may declare.
-const LLM_TYPES: [&str; 6] = [
+/// The engines ctxloom drives: the keys `engines` may name, and what an
+/// agent's `engine` may be.
+pub const ENGINES: [&str; 6] = [
     "claude-code",
     "mock",
-    "mock-lossy",
     "mock-launch",
+    "mock-lossy",
     "mock-noskills",
     "opencode",
 ];
 
-/// The properties of the entry of backend `kind`, `type` first.
-fn llm_props(kind: &str) -> Vec<(&'static str, Node)> {
-    let mut props = vec![("type", choice(&[]))];
-    let own = match kind {
-        "claude-code" => vec![("binary_path", string()), ("args", list(string()))],
-        "opencode" => vec![
-            ("binary_path", string()),
-            ("args", list(string())),
-            (
-                "provider",
-                object(vec![
-                    ("base_url", pattern(Pat::Url)),
-                    ("output_limit", int(Some(1))),
-                    ("header_timeout_ms", int(Some(0))),
-                    ("chunk_timeout_ms", int(Some(1))),
-                ]),
-            ),
-            ("model_options", Node::Free),
-            ("snapshot", Node::Bool),
-            ("title_generation", Node::Bool),
-            ("share", choice(&["manual", "auto", "disabled"])),
-        ],
-        _ => vec![("mock_control", map_of(string()))],
-    };
-    props.extend(llm_shape(own));
-    props
+/// One `engines.<engine>` block: what its agents share. `model`, `effort` and
+/// `permissions` are the agent's, never here.
+fn engine_block() -> Node {
+    object(vec![
+        ("command", non_empty()),
+        ("session_home", choice(&["host", "session"])),
+        ("auth", Node::Auth),
+        ("runtime", choice(RUNTIMES)),
+        ("env_host", Node::Bool),
+        ("env", list(pattern(Pat::NoEquals))),
+    ])
 }
 
 /// The schema of a config (`resources/schema/input/config-schema.json`).
@@ -358,14 +323,8 @@ fn root() -> Node {
         props: vec![
             ("schema_version", int(None)),
             (
-                "llm",
-                object(vec![
-                    ("configs", map_of(Node::Llm)),
-                    (
-                        "defaults",
-                        object(vec![("primary", string()), ("fast", string())]),
-                    ),
-                ]),
+                "engines",
+                object(ENGINES.iter().map(|e| (*e, engine_block())).collect()),
             ),
             (
                 "editor",
@@ -424,7 +383,6 @@ fn root() -> Node {
             ("session_transcript_retention", pattern(Pat::Age)),
             // plan supersedes Go: D28, json and text only
             ("non_tty_format", choice(&["json", "text"])),
-            ("auth", choice(&["login", "token"])),
         ],
         extra: Extra::Deny,
     }
@@ -434,7 +392,9 @@ fn root() -> Node {
 fn binding() -> Node {
     Node::Object {
         props: vec![
-            ("llm", string()),
+            ("engine", choice(&ENGINES)),
+            ("model", non_empty()),
+            ("effort", non_empty()),
             ("profiles", list(non_empty())),
             ("runtime", choice(RUNTIMES)),
             (
@@ -457,7 +417,6 @@ fn binding() -> Node {
             ("driving", choice(&["conversational", "oneshot"])),
             ("surfaces", map_of(string())),
             ("roots", map_of(string())),
-            ("engine_home", choice(&["host", "session"])),
             ("env_host", Node::Bool),
             (
                 "env",
@@ -512,11 +471,6 @@ fn push(path: &[String], key: &str) -> Vec<String> {
 fn keys_of(node: &Node) -> Vec<String> {
     let mut keys: Vec<String> = match node {
         Node::Object { props, .. } => props.iter().map(|(k, _)| (*k).to_string()).collect(),
-        Node::Llm => LLM_TYPES
-            .iter()
-            .flat_map(|kind| llm_props(kind))
-            .map(|(k, _)| k.to_string())
-            .collect(),
         _ => Vec::new(),
     };
     keys.sort();
@@ -537,12 +491,6 @@ fn child<'a>(node: &'a Node, key: &str) -> Option<std::borrow::Cow<'a, Node>> {
                 Extra::Any => Some(std::borrow::Cow::Owned(Node::Free)),
                 Extra::Deny => None,
             }),
-        Node::Llm => LLM_TYPES.iter().find_map(|kind| {
-            llm_props(kind)
-                .into_iter()
-                .find(|(k, _)| *k == key)
-                .map(|(_, n)| std::borrow::Cow::Owned(n))
-        }),
         Node::Array { items, .. } if key.parse::<usize>().is_ok() => {
             Some(std::borrow::Cow::Borrowed(items.as_ref()))
         }
@@ -579,6 +527,7 @@ pub fn validate(doc: &Value) -> Vec<Violation> {
 fn check(node: &Node, value: &Value, path: &mut Vec<String>, out: &mut Vec<Violation>) {
     match node {
         Node::Free => {}
+        Node::Auth => check_auth(value, path, out),
         Node::Str {
             choices,
             pattern,
@@ -612,7 +561,6 @@ fn check(node: &Node, value: &Value, path: &mut Vec<String>, out: &mut Vec<Viola
                 out.push(none_of_the_shapes(path));
             }
         }
-        Node::Llm => check_llm(value, path, out),
     }
 }
 
@@ -733,91 +681,43 @@ fn site(path: &[String]) -> String {
     }
 }
 
-/// An `llm.configs.<label>` entry: the shape its `type` names, or none.
-fn check_llm(value: &Value, path: &mut Vec<String>, out: &mut Vec<Violation>) {
-    let Value::Map(entries) = value else {
-        out.push(holds(path, value, "object"));
+/// An `engines.<engine>.auth`, judged by the one reading of it. A refusal
+/// names the key and never the text written there: a secret pasted where a
+/// variable name belongs must not be echoed.
+fn check_auth(value: &Value, path: &[String], out: &mut Vec<Violation>) {
+    use crate::config::engines::{AuthError, AuthSource};
+    let Err(why) = AuthSource::parse(value) else {
         return;
     };
-    let kind = value.get("type").and_then(Value::as_str);
-    let Some(kind) = kind.filter(|k| LLM_TYPES.contains(k)) else {
-        // No shape is named: a key no shape has is still unknown; otherwise
-        // the entry is the defect.
-        let before = out.len();
-        for (key, _) in entries {
-            if !keys_of(&Node::Llm).contains(key) {
-                out.push(Violation::UnknownKey {
-                    path: dotted(&push(path, key)),
-                    site: site(path),
-                    known: keys_of(&Node::Llm),
-                });
-            }
-        }
-        if out.len() == before {
-            out.push(none_of_the_shapes(path));
-        }
-        return;
-    };
-    let props = llm_props(kind);
-    let mut elsewhere = false;
-    let before = out.len();
-    for (key, entry) in entries {
-        match props.iter().find(|(k, _)| k == key) {
-            Some((_, prop)) => {
-                path.push(key.clone());
-                check(prop, entry, path, out);
-                path.pop();
-            }
-            None if keys_of(&Node::Llm).contains(key) => elsewhere = true,
-            None => out.push(Violation::UnknownKey {
-                path: dotted(&push(path, key)),
+    let (key, detail) = match why {
+        AuthError::Shape => (
+            None,
+            "must be `none`, `login`, `token`, or a mapping of `env` and/or `file`",
+        ),
+        AuthError::UnknownKey { key } => {
+            out.push(Violation::UnknownKey {
+                path: dotted(&push(path, &key)),
                 site: site(path),
-                known: keys_of(&Node::Llm),
-            }),
-        }
-    }
-    check_llm_requirements(kind, value, path, out);
-    if elsewhere && out.len() == before {
-        out.push(none_of_the_shapes(path));
-    }
-}
-
-/// The `required` and `dependentRequired` of an `llm.configs` shape.
-fn check_llm_requirements(kind: &str, value: &Value, path: &[String], out: &mut Vec<Violation>) {
-    if kind != "opencode" {
-        return;
-    }
-    let missing: Vec<&str> = ["type", "model"]
-        .into_iter()
-        .filter(|k| value.get(k).is_none())
-        .collect();
-    if !missing.is_empty() {
-        let quoted: Vec<String> = missing.iter().map(|k| format!("'{k}'")).collect();
-        out.push(Violation::Breaks {
-            path: dotted(path),
-            detail: format!("missing properties: {}", quoted.join(", ")),
-        });
-    }
-    if let Some(provider) = value.get("provider") {
-        if value.get("context_window").is_none() {
-            out.push(Violation::Breaks {
-                path: dotted(path),
-                detail: "properties 'context_window' required, if 'provider' property exists"
-                    .to_string(),
+                known: vec!["env".to_string(), "file".to_string()],
             });
+            return;
         }
-        let missing: Vec<String> = ["base_url", "output_limit"]
-            .into_iter()
-            .filter(|k| provider.get(k).is_none())
-            .map(|k| format!("'{k}'"))
-            .collect();
-        if !missing.is_empty() {
+        AuthError::Empty => (None, "needs `env` (variable names) or `file`"),
+        AuthError::NotAName { index } => {
+            let at = push(&push(path, "env"), &index.to_string());
             out.push(Violation::Breaks {
-                path: dotted(&push(path, "provider")),
-                detail: format!("missing properties: {}", missing.join(", ")),
+                path: dotted(&at),
+                detail: "is not an environment variable NAME (the source names a variable, never holds a credential)".to_string(),
             });
+            return;
         }
-    }
+        AuthError::EmptyFile => (Some("file"), "must not be empty"),
+    };
+    let at = key.map_or_else(|| path.to_vec(), |k| push(path, k));
+    out.push(Violation::Breaks {
+        path: dotted(&at),
+        detail: detail.to_string(),
+    });
 }
 
 /// Whether the schema describes `path` (a key, or a free-form label under a
@@ -868,19 +768,15 @@ pub(crate) enum ScalarKind {
 pub(crate) fn field_order(path: &[String]) -> Vec<String> {
     match node_at(path).as_deref() {
         Some(Node::Object { props, .. }) => props.iter().map(|(k, _)| (*k).to_string()).collect(),
-        Some(Node::Llm) => llm_props("claude-code")
-            .into_iter()
-            .map(|(k, _)| k.to_string())
-            .collect(),
         _ => Vec::new(),
     }
 }
 
 /// The top-level keys, in the order a section is named: `config show nonsense`
 /// lists them.
-pub const SECTIONS: [&str; 26] = [
+pub const SECTIONS: [&str; 25] = [
     "schema_version",
-    "llm",
+    "engines",
     "editor",
     "config",
     "sync",
@@ -904,7 +800,6 @@ pub const SECTIONS: [&str; 26] = [
     "session_purge_age",
     "session_transcript_retention",
     "non_tty_format",
-    "auth",
 ];
 
 #[cfg(test)]

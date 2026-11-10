@@ -132,11 +132,7 @@ impl Doctor {
             .ok()
             .flatten()
             .map(|layer| layer.text);
-        let layers: Vec<String> = self
-            .config
-            .layers()
-            .map(|layers| layers.into_iter().map(|layer| layer.text).collect())
-            .unwrap_or_default();
+        let layers = self.layer_texts();
         let settings = self.present(&self.settings_paths());
         let mut stale = Vec::new();
         for (file, text) in &settings {
@@ -162,6 +158,15 @@ impl Doctor {
                 checks::ingestion(),
             ],
         }
+    }
+
+    /// The config files' texts, lowest layer first; none where they cannot
+    /// be read.
+    pub fn layer_texts(&self) -> Vec<String> {
+        self.config
+            .layers()
+            .map(|layers| layers.into_iter().map(|layer| layer.text).collect())
+            .unwrap_or_default()
     }
 
     /// `--fix`: take every stale hook entry out of the engine's project and

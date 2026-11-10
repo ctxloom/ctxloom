@@ -18,7 +18,7 @@ fn texts(doc: &str) -> Vec<String> {
 // the fixture `cfg/v8`: every key of the schema, correctly used
 #[test]
 fn test_a_config_using_every_key_correctly_has_no_violation() {
-    let doc = "schema_version: 8\neditor:\n  command: vim\n  args: [-u, NONE]\nconfig:\n  use_distilled: false\n  silence_unsupported: true\n  statusline: false\nsync:\n  auto_sync: false\nworkspace: worktree\nruntime: host\ndelegation:\n  concurrency: 3\n  depth: 2\n  idle_timeout: 5m\nshell_timeout:\n  default: 30s\n  max: 1h\nisolation_images:\n  claude-code: example.com/img:1\nisolation_base: ctxloom\nisolation_memory_limit: 4g\nisolation_pids_limit: 512\noutput_dir: /var/out\nisolation_engines: [claude-code]\ncompanions:\n  acme:\n    command: [acme-bin, --flag]\n  beta:\n    command: [beta-bin]\nui:\n  prefix_key: ctrl-b\n  list_window: 7d\nsession_reap_age: 30d\nsession_purge_age: 90d\nsession_transcript_retention: 365d\nnon_tty_format: json\nauth: login\nagents:\n  dev:\n    llm: claude-code\n    profiles: [p1]\n    runtime: host\n    driving: oneshot\n    env_host: false\n    env: [ALPHA]\n    permissions:\n      approver: human\n      claude-code:\n        mode: plan\ndefault_agent: dev\nllm:\n  configs:\n    claude-code:\n      type: claude-code\n      model: opus\n  defaults:\n    primary: claude-code\n";
+    let doc = "schema_version: 8\neditor:\n  command: vim\n  args: [-u, NONE]\nconfig:\n  use_distilled: false\n  silence_unsupported: true\n  statusline: false\nsync:\n  auto_sync: false\nworkspace: worktree\nruntime: host\ndelegation:\n  concurrency: 3\n  depth: 2\n  idle_timeout: 5m\nshell_timeout:\n  default: 30s\n  max: 1h\nisolation_images:\n  claude-code: example.com/img:1\nisolation_base: ctxloom\nisolation_memory_limit: 4g\nisolation_pids_limit: 512\noutput_dir: /var/out\nisolation_engines: [claude-code]\ncompanions:\n  acme:\n    command: [acme-bin, --flag]\n  beta:\n    command: [beta-bin]\nui:\n  prefix_key: ctrl-b\n  list_window: 7d\nsession_reap_age: 30d\nsession_purge_age: 90d\nsession_transcript_retention: 365d\nnon_tty_format: json\nagents:\n  dev:\n    engine: claude-code\n    model: opus\n    profiles: [p1]\n    runtime: host\n    driving: oneshot\n    env_host: false\n    env: [ALPHA]\n    permissions:\n      approver: human\n      claude-code:\n        mode: plan\ndefault_agent: dev\nengines:\n  claude-code:\n    auth: login\n";
     assert_eq!(texts(doc), Vec::<String>::new());
 }
 
@@ -28,7 +28,7 @@ fn test_a_config_using_every_key_correctly_has_no_violation() {
 fn test_an_unknown_top_level_key_is_named_with_the_keys_there_are() {
     assert_eq!(
         texts("schema_version: 8\nzzz: 1\n"),
-        ["unknown key `zzz` in config.yaml: ctxloom does not know it (known keys at the top level: agents, auth, companions, config, default_agent, delegation, editor, isolation_base, isolation_devcontainer_service, isolation_engines, isolation_images, isolation_memory_limit, isolation_pids_limit, llm, non_tty_format, output_dir, permissions, runtime, schema_version, session_purge_age, session_reap_age, session_transcript_retention, shell_timeout, sync, ui, workspace)"]
+        ["unknown key `zzz` in config.yaml: ctxloom does not know it (known keys at the top level: agents, companions, config, default_agent, delegation, editor, engines, isolation_base, isolation_devcontainer_service, isolation_engines, isolation_images, isolation_memory_limit, isolation_pids_limit, non_tty_format, output_dir, permissions, runtime, schema_version, session_purge_age, session_reap_age, session_transcript_retention, shell_timeout, sync, ui, workspace)"]
     );
     // The inline profiles block, the native mcp block and the retired turn cap
     // are keys the schema does not describe.
@@ -46,7 +46,7 @@ fn test_an_unknown_top_level_key_is_named_with_the_keys_there_are() {
 fn test_an_unknown_nested_key_is_named_by_its_path_and_where_it_would_be_legal() {
     assert_eq!(
         texts("schema_version: 8\nagents:\n  developer:\n    profiles: [dev]\n    auth: login\n"),
-        ["unknown key `agents.developer.auth` in config.yaml: ctxloom does not know it (known keys at `agents.developer`: driving, engine_home, env, env_host, llm, may_delegate, permissions, profiles, roots, runtime, surfaces)"]
+        ["unknown key `agents.developer.auth` in config.yaml: ctxloom does not know it (known keys at `agents.developer`: driving, effort, engine, env, env_host, may_delegate, model, permissions, profiles, roots, runtime, surfaces)"]
     );
     // Go: the project's permissions take only the neutral keys.
     assert_eq!(
@@ -77,10 +77,6 @@ fn test_a_value_the_schema_refuses_is_worded_as_go_words_it() {
     assert_eq!(
         texts("schema_version: 8\nisolation_pids_limit: lots\n"),
         ["config.yaml: `isolation_pids_limit` breaks the schema: matches none of the shapes the schema allows here"]
-    );
-    assert_eq!(
-        texts("schema_version: 8\nllm:\n  configs:\n    x:\n      type: nonesuch\n"),
-        ["config.yaml: `llm.configs.x` breaks the schema: matches none of the shapes the schema allows here"]
     );
 }
 
@@ -150,7 +146,7 @@ fn test_a_dropped_output_format_is_not_a_non_tty_format() {
 fn test_known_paths() {
     let p = |s: &str| s.split('.').map(ToString::to_string).collect::<Vec<_>>();
     assert!(known_path(&p("editor.command")));
-    assert!(known_path(&p("llm.defaults.primary")));
+    assert!(known_path(&p("engines.claude-code.session_home")));
     assert!(known_path(&p("agents.MyCoder.runtime")));
     assert!(known_path(&p(
         "agents.anything.permissions.claude-code.mode"
@@ -185,84 +181,15 @@ fn test_an_override_value_is_checked_at_its_path() {
 #[test]
 fn test_the_sections_are_the_top_level_keys_in_go_s_order() {
     assert_eq!(SECTIONS[0], "schema_version");
-    assert_eq!(SECTIONS[1], "llm");
-    assert_eq!(SECTIONS.len(), 26);
-    assert_eq!(SECTIONS[25], "auth");
-}
-
-fn llm_texts(body: &str) -> Vec<String> {
-    texts(&format!(
-        "llm:\n  configs:\n    a:\n      {}",
-        body.replace("\n    ", "\n      ")
-    ))
-}
-
-// config-schema.json, llm.configs: the shape an entry's `type` names, and what
-// the shapes require of each other (a table of the entries and the refusals)
-#[test]
-fn test_an_llm_entry_is_judged_by_the_shape_its_type_names() {
-    let none = "config.yaml: `llm.configs.a` breaks the schema: matches none of the shapes the schema allows here";
-    let unknown = |key: &str| {
-        format!("unknown key `llm.configs.a.{key}` in config.yaml: ctxloom does not know it (known keys at `llm.configs.a`: args, binary_path, context_window, mock_control, model, model_options, permissions, provider, role, share, snapshot, title_generation, type)")
-    };
-    for ok in [
-        "type: claude-code\n    binary_path: x\n    args: [a]\n",
-        "type: opencode\n    model: m\n",
-        "type: opencode\n    model: m\n    context_window: 4\n    provider:\n      base_url: https://x\n      output_limit: 5\n      header_timeout_ms: 0\n      chunk_timeout_ms: 1\n    model_options:\n      a: 1\n    share: auto\n    snapshot: true\n",
-        "type: mock\n    mock_control:\n      a: b\n",
-        "type: mock\n    context_window: 1\n",
-    ] {
-        assert_eq!(llm_texts(ok), Vec::<String>::new(), "{ok:?}");
-    }
-    for (body, want) in [
-        (
-            "type: opencode\n",
-            vec!["config.yaml: `llm.configs.a` breaks the schema: missing properties: 'model'".to_string()],
-        ),
-        ("model: m\n", vec![none.to_string()]),
-        ("binary_path: x\n", vec![none.to_string()]),
-        ("type: bogus\n    binary_path: x\n", vec![none.to_string()]),
-        ("type: claude-code\n    provider:\n      base_url: x\n", vec![none.to_string()]),
-        ("type: claude-code\n    bogus: 1\n", vec![unknown("bogus")]),
-        ("type: bogus\n    zzz: x\n", vec![unknown("zzz")]),
-        ("zzz: x\n", vec![unknown("zzz")]),
-        (
-            "type: opencode\n    model: m\n    provider:\n      base_url: https://x\n      output_limit: 5\n",
-            vec!["config.yaml: `llm.configs.a` breaks the schema: properties 'context_window' required, if 'provider' property exists".to_string()],
-        ),
-        (
-            "type: opencode\n    model: m\n    context_window: 4\n    provider:\n      base_url: https://x\n",
-            vec!["config.yaml: `llm.configs.a.provider` breaks the schema: missing properties: 'output_limit'".to_string()],
-        ),
-        (
-            "type: mock\n    context_window: 0\n",
-            vec!["config.yaml: `llm.configs.a.context_window` breaks the schema: must be >= 1 but found 0".to_string()],
-        ),
-        (
-            "type: opencode\n    model: m\n    context_window: 1\n    provider:\n      base_url: https://x\n      output_limit: 0\n      header_timeout_ms: -1\n      chunk_timeout_ms: 0\n",
-            vec![
-                "config.yaml: `llm.configs.a.provider.output_limit` breaks the schema: must be >= 1 but found 0".to_string(),
-                "config.yaml: `llm.configs.a.provider.header_timeout_ms` breaks the schema: must be >= 0 but found -1".to_string(),
-                "config.yaml: `llm.configs.a.provider.chunk_timeout_ms` breaks the schema: must be >= 1 but found 0".to_string(),
-            ],
-        ),
-        (
-            "type: mock\n    role: primary\n    permissions:\n      network: maybe\n",
-            vec!["config.yaml: `llm.configs.a.permissions.network` holds a string, expected boolean".to_string()],
-        ),
-    ] {
-        assert_eq!(llm_texts(body), want, "{body:?}");
-    }
-    assert_eq!(
-        texts("llm:\n  configs:\n    a: nope\n"),
-        ["config.yaml: `llm.configs.a` holds a string, expected object"]
-    );
+    assert_eq!(SECTIONS[1], "engines");
+    assert_eq!(SECTIONS.len(), 25);
+    assert_eq!(SECTIONS[24], "non_tty_format");
 }
 
 // the string patterns the schema writes, each accepting and refusing
 #[test]
 fn test_each_string_pattern_accepts_and_refuses() {
-    let cases: [(Pat, &[&str], &[&str]); 6] = [
+    let cases: [(Pat, &[&str], &[&str]); 5] = [
         (
             Pat::PrefixKey,
             &["ctrl-b", "ctrl+x"],
@@ -284,11 +211,6 @@ fn test_each_string_pattern_accepts_and_refuses() {
             &["", " ", "a1", "-1", "1.5"],
         ),
         (Pat::NoEquals, &["a", "a b"], &["", "a=b", "a\nb"]),
-        (
-            Pat::Url,
-            &["http://x", "https://x"],
-            &["ftp://x", "http:/", "", "https:/x"],
-        ),
     ];
     for (pat, good, bad) in cases {
         for s in good {
@@ -334,9 +256,8 @@ fn test_the_schema_describes_exactly_the_paths_it_lists() {
     for known in [
         &["companions", "acme", "command", "0"][..],
         &["editor", "command"],
-        &["llm", "configs", "x", "binary_path"],
-        &["llm", "configs", "x", "provider", "base_url"],
-        &["llm", "configs", "x", "model_options", "any", "thing"],
+        &["engines", "claude-code", "session_home"],
+        &["engines", "opencode", "env", "0"],
         &["agents", "dev", "env", "0"],
     ] {
         assert!(known_path(&path(known)), "{known:?}");
@@ -346,6 +267,7 @@ fn test_the_schema_describes_exactly_the_paths_it_lists() {
         &["editor", "bogus"],
         &["agents", "dev", "nope"],
         &["llm", "configs", "x", "nope"],
+        &["engines", "claude-code", "model"],
     ] {
         assert!(!known_path(&path(unknown)), "{unknown:?}");
     }

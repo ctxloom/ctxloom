@@ -11,6 +11,8 @@ fn order(harp: &str) -> Order {
         env: BTreeMap::new(),
         cwd: None,
         interactive: false,
+        model: String::new(),
+        effort: String::new(),
     }
 }
 
@@ -53,9 +55,11 @@ fn an_order_renders_its_env_keys_and_never_the_bearer() {
         ]),
         cwd: None,
         interactive: true,
+        model: String::new(),
+        effort: String::new(),
     };
     assert_eq!(
         format!("{order:?}"),
-        r#"Order { harp: "h", engine: "e", context: "c", prompt: "p", env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "/bin"}, cwd: None, interactive: true }"#
+        r#"Order { harp: "h", engine: "e", context: "c", prompt: "p", env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "/bin"}, cwd: None, interactive: true, model: "", effort: "" }"#
     );
 }

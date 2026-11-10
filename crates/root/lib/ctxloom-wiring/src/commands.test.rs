@@ -345,7 +345,7 @@ fn test_a_refresh_is_asked_for_the_flags_of_the_command() {
     let refresh = SetupRefresh {
         setup: &wired.surface,
         flags: library_application::Flags {
-            config_set: vec!["llm.configs.m.type=mock".to_string()],
+            config_set: vec!["agents.m.engine=mock".to_string()],
             ..library_application::Flags::default()
         },
     };
@@ -458,7 +458,7 @@ fn world_without_programs(name: &str) -> World {
     crate::fixtures::mkdirs(world.dir.join("work/.ctxloom"));
     crate::fixtures::put_mode(
         world.dir.join("work/.ctxloom/config.yaml"),
-        "schema_version: 9\nagents:\n  dev:\n    llm: claude-code\n    profiles: [dev]\n    runtime: host\ndefault_agent: dev\n",
+        "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    profiles: [dev]\n    runtime: host\ndefault_agent: dev\n",
         0o644,
     );
     let bundles = world.dir.join("work/.ctxloom/content/bundles/v2");

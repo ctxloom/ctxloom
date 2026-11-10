@@ -61,7 +61,6 @@ fn test_create_records_every_axis_the_config_sorted_and_answers_the_binding() {
             permissions: Some("plan".to_string()),
             surfaces: Some(vec![("context".to_string(), "system-prompt".to_string())]),
             roots: Some(vec![("mcp".to_string(), "project-root".to_string())]),
-            engine_home: Some("session".to_string()),
             env_host: Some(false),
             env: Some(vec!["A".to_string(), "B".to_string()]),
             ..dev()
@@ -71,10 +70,9 @@ fn test_create_records_every_axis_the_config_sorted_and_answers_the_binding() {
     .result
     .unwrap();
     assert_eq!(row.name, "dev2");
-    assert_eq!(row.llm, "claude-code");
+    assert_eq!(row.engine, "claude-code");
     assert_eq!(row.profiles, ["dev"]);
     assert_eq!(row.runtime, "container-rootless");
-    assert_eq!(row.home_mode, "session");
     assert_eq!(row.env_host, Some(false));
     assert_eq!(row.env, ["A", "B"]);
     assert_eq!(
@@ -83,7 +81,7 @@ fn test_create_records_every_axis_the_config_sorted_and_answers_the_binding() {
     );
     assert_eq!(
         mem.config(Scope::Project).unwrap(),
-        "schema_version: 9\nagents:\n  dev2:\n    engine_home: session\n    env:\n      - A\n      - B\n    env_host: false\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: plan\n    profiles:\n      - dev\n    roots:\n      mcp: project-root\n    runtime: container-rootless\n    surfaces:\n      context: system-prompt\n"
+        "schema_version: 9\nagents:\n  dev2:\n    engine: claude-code\n    env:\n      - A\n      - B\n    env_host: false\n    permissions:\n      claude-code:\n        mode: plan\n    profiles:\n      - dev\n    roots:\n      mcp: project-root\n    runtime: container-rootless\n    surfaces:\n      context: system-prompt\n"
     );
 }
 
@@ -108,7 +106,7 @@ fn test_a_permission_mode_is_written_into_the_engines_block_in_its_spelling() {
         .contains("        mode: acceptEdits\n"));
     // The block is named for the backend the label maps to.
     let (library, mem) = Setup {
-        layers: &["schema_version: 9\nllm:\n  configs:\n    big:\n      type: mock\n"],
+        layers: &["schema_version: 9\n"],
         ..Setup::default()
     }
     .fixture();
@@ -133,7 +131,8 @@ fn test_a_permission_mode_is_written_into_the_engines_block_in_its_spelling() {
 // agent.feature: Create refuses an existing name, and leaves the live binding untouched
 #[test]
 fn test_create_refuses_a_name_that_is_there_and_edit_a_name_that_is_not() {
-    let (library, mem) = world_with("schema_version: 9\nagents:\n  dev:\n    llm: claude-code\n");
+    let (library, mem) =
+        world_with("schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n");
     assert!(err(write(&library, "dev", &dev(), false)).contains("AgentExists"));
     assert!(err(write(&library, "nosuchagent", &dev(), true)).contains("AgentMissing"));
     assert_eq!(mem.writes(), 0);
@@ -168,7 +167,7 @@ fn test_an_edit_changes_only_the_axes_it_names() {
     .result
     .unwrap();
     assert_eq!(row.runtime, "container-rootless");
-    assert_eq!(row.llm, "claude-code");
+    assert_eq!(row.engine, "claude-code");
     assert_eq!(row.profiles, ["dev", "ops"]);
     assert_eq!(
         row.permissions,
@@ -245,12 +244,12 @@ fn test_a_flag_named_empty_clears_its_axis_and_only_that_one() {
     )
     .result
     .unwrap();
-    assert_eq!(row.llm, "claude-code");
+    assert_eq!(row.engine, "claude-code");
 }
 
 /// Each request is refused with the named error, and the file is as it was.
 fn refuses_all(cases: Vec<(AgentRequest, bool, &str)>) {
-    let (library, mem) = world_with("schema_version: 9\nagents:\n  d:\n    llm: claude-code\n");
+    let (library, mem) = world_with("schema_version: 9\nagents:\n  d:\n    engine: claude-code\n");
     let before = mem.config(Scope::Project);
     for (request, edit, said) in cases {
         let name = if edit { "d" } else { "n" };
@@ -418,7 +417,7 @@ fn test_a_mode_a_surface_and_a_root_need_the_engine_they_are_checked_against() {
 #[test]
 fn test_a_label_the_team_wrote_is_a_valid_engine_and_maps_to_its_backend() {
     let (library, _mem) = Setup {
-        layers: &["schema_version: 9\nllm:\n  configs:\n    big:\n      type: mock\n"],
+        layers: &["schema_version: 9\n"],
         ..Setup::default()
     }
     .fixture();
@@ -486,7 +485,7 @@ fn test_default_reports_the_bound_agent_and_binds_a_named_one() {
 #[test]
 fn test_remove_previews_then_takes_exactly_that_binding() {
     let (library, mem) = world_with(
-        "schema_version: 9\nagents:\n  a:\n    llm: claude-code\n  b:\n    llm: claude-code\n",
+        "schema_version: 9\nagents:\n  a:\n    engine: claude-code\n  b:\n    engine: claude-code\n",
     );
     let Removal::Preview(p) = library.agent_remove(&plain(), "a", false).result.unwrap() else {
         panic!("a preview")
@@ -503,7 +502,7 @@ fn test_remove_previews_then_takes_exactly_that_binding() {
     assert_eq!((done.status.as_str(), done.name.as_str()), ("removed", "a"));
     assert_eq!(
         mem.config(Scope::Project).unwrap(),
-        "schema_version: 9\nagents:\n  b:\n    llm: claude-code\n"
+        "schema_version: 9\nagents:\n  b:\n    engine: claude-code\n"
     );
     library.agent_remove(&plain(), "b", true).result.unwrap();
     assert_eq!(

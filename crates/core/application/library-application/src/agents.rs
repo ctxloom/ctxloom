@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use angzarr_diagnostic::Diagnostic;
 use angzarr_yaml::Value;
+use library::config::engines::{self, AuthError, Effective, EngineError};
 use library::model::McpServer;
 use library::profile::ResolvedProfile;
 
@@ -17,17 +18,7 @@ use crate::views::{
 use crate::Flags;
 
 /// The engines this build knows by name.
-pub const ENGINES: [&str; 6] = [
-    "claude-code",
-    "mock",
-    "mock-launch",
-    "mock-lossy",
-    "mock-noskills",
-    "opencode",
-];
-
-/// The built-in default engine.
-const DEFAULT_ENGINE: &str = "claude-code";
+pub const ENGINES: [&str; 6] = library::config::schema::ENGINES;
 
 /// The runtimes an engine can be given.
 pub(crate) const RUNTIMES: [&str; 3] = ["host", "container-rootless", "container-rootful"];
@@ -52,6 +43,18 @@ impl Library {
         say: &dyn Fn(&dyn Diagnostic) -> String,
     ) -> Outcome<AgentShow> {
         self.run(flags, |p| p.agent_show(name, say))
+    }
+
+    /// The engine a bare command means: the default agent's, else the
+    /// engine the project's agents are bound to first, else the default.
+    pub fn default_engine(&self, flags: &Flags) -> Outcome<String> {
+        self.run(flags, |p| {
+            let default = p.config.agent(&p.config.default_agent());
+            match default {
+                Some(agent) => Ok(p.effective_of(&agent)?.engine.value),
+                None => Ok(p.config.configured_engines().remove(0)),
+            }
+        })
     }
 
     /// `llm list`.
@@ -231,31 +234,11 @@ impl Project {
         })
     }
 
-    /// The label and the engine behind it that a launch under `llm` would take
-    /// (`profile_llm` when none was named): the configured label's type and
-    /// model, the engine a bare engine name is, else the built-in default.
-    pub(crate) fn backend_of(&self, llm: &str, profile_llm: &str) -> (String, String, String) {
-        let label = [llm, profile_llm]
-            .into_iter()
-            .find(|l| !l.is_empty())
-            .map_or_else(|| self.config.primary_label(), ToString::to_string);
-        let (backend, model) = match self.config.llm_entry(&label) {
-            Some(entry) => (
-                entry
-                    .get("type")
-                    .and_then(Value::as_str)
-                    .unwrap_or(DEFAULT_ENGINE)
-                    .to_string(),
-                entry
-                    .get("model")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
-            ),
-            None if ENGINES.contains(&label.as_str()) => (label.clone(), String::new()),
-            None => (DEFAULT_ENGINE.to_string(), String::new()),
-        };
-        (label, backend, model)
+    /// What `agent` launches with: its engine, model, effort, permissions,
+    /// runtime, env and the engine block's shared settings, each with the
+    /// layer that said it.
+    pub(crate) fn effective_of(&self, agent: &Agent) -> Result<Effective, AppError> {
+        engines::effective(&self.config.value, &agent.name).map_err(engine_error)
     }
 
     fn agent_show(
@@ -300,41 +283,31 @@ impl Project {
         };
         let set = self.resolve_profiles(&names, &mut findings)?;
         let assembled = self.assemble_set(&set, &[], &[], &mut findings);
-        let (label, backend, model) = self.backend_of(
-            &agent.llm,
-            &set.iter()
-                .map(|p| p.llm.clone())
-                .find(|l| !l.is_empty())
-                .unwrap_or_default(),
-        );
-        let runtime = if agent.runtime.is_empty() {
-            self.config.text("runtime")
-        } else {
-            agent.runtime.clone()
-        };
-        let entry = self.config.llm_entry(&label);
-        let effective = effective_posture(&backend, &agent.permissions, entry);
-        let approver = approver_of(&agent.permissions, entry, &self.config.value);
-        let home = if agent.home_mode.is_empty() {
-            "session".to_string()
-        } else {
-            agent.home_mode.clone()
-        };
+        let effective = self.effective_of(agent)?;
+        let approver = approver_of(&agent.permissions, &self.config.value);
         let resolved = ResolvedAgent {
             name: agent.name.clone(),
-            llm: agent.llm.clone(),
             profiles: agent.profiles.clone(),
-            label,
-            backend,
-            model,
+            engine: effective.engine.value.clone(),
+            model: effective
+                .model
+                .as_ref()
+                .map(|m| m.value.clone())
+                .unwrap_or_default(),
+            effort: effective
+                .effort
+                .as_ref()
+                .map(|e| e.value.clone())
+                .unwrap_or_default(),
             context: assembled.context.clone(),
             fragments: assembled.loaded.clone(),
-            runtime,
+            runtime: effective.runtime.value.clone(),
             permissions: crate::json::permissions(&agent.permissions),
-            effective_permissions: effective,
+            effective_permissions: effective.permissions.value.clone(),
             approver,
             driving: agent.driving.clone(),
-            home_mode: home,
+            session_home: effective.session_home.value.clone(),
+            command: effective.command.value.clone(),
         };
         let (requirements, requirements_error) = self.requirements(&set);
         Ok((resolved, requirements, requirements_error))
@@ -394,44 +367,9 @@ impl Project {
     }
 }
 
-/// The posture a run takes without `--permissions`, in the engine's words:
-/// the agent's block for the engine, else the label's, else the engine's own
-/// default (only an engine with a permission model has one).
-fn effective_posture(backend: &str, binding: &Value, label: Option<&Value>) -> String {
-    if backend != "claude-code" {
-        return String::new();
-    }
-    if let Value::Map(blocks) = binding {
-        let engines: Vec<&(String, Value)> = blocks
-            .iter()
-            .filter(|(k, _)| {
-                !matches!(
-                    k.as_str(),
-                    "approver" | "approval_timeout" | "sandbox" | "network"
-                )
-            })
-            .collect();
-        if let Some((_, block)) = engines.iter().find(|(k, _)| k == backend) {
-            if let Some(mode) = block.get("mode").and_then(Value::as_str) {
-                return mode.to_string();
-            }
-        } else if !engines.is_empty() {
-            return String::new();
-        }
-    }
-    if let Some(mode) = label
-        .and_then(|l| l.get("permissions"))
-        .and_then(|p| p.get("mode"))
-        .and_then(Value::as_str)
-    {
-        return mode.to_string();
-    }
-    "acceptEdits".to_string()
-}
-
 /// Who answers what the posture leaves open in a headless run: the binding's
-/// declaration, then the label's, then the project's, else the human.
-fn approver_of(binding: &Value, label: Option<&Value>, config: &Value) -> String {
+/// declaration, then the project's, else the human.
+fn approver_of(binding: &Value, config: &Value) -> String {
     let declared = |block: Option<&Value>| -> Option<String> {
         block
             .and_then(|b| b.get("approver"))
@@ -440,7 +378,6 @@ fn approver_of(binding: &Value, label: Option<&Value>, config: &Value) -> String
             .map(ToString::to_string)
     };
     declared(Some(binding))
-        .or_else(|| declared(label.and_then(|l| l.get("permissions"))))
         .or_else(|| declared(config.get("permissions")))
         .unwrap_or_else(|| "human".to_string())
 }
@@ -467,4 +404,26 @@ fn contest(name: &str, first: &str, second: &str) -> library::findings::Finding 
         ),
         "rename the server in one of the two bundles, or exclude it with `exclude_mcp:` in your profile",
     )
+}
+
+/// An agent's settings that cannot be resolved, as the refusal that says why.
+pub(crate) fn engine_error(error: EngineError) -> AppError {
+    match error {
+        EngineError::AgentNotFound { name } => AppError::AgentNotFound { name },
+        EngineError::UnknownEngine { engine, known } => AppError::UnknownEngine {
+            engine,
+            known: known.join(", "),
+        },
+        EngineError::Auth { engine, why } => AppError::EngineAuth {
+            engine,
+            why: match why {
+                AuthError::Shape => "must be none, login, token, or a mapping of env and/or file",
+                AuthError::UnknownKey { .. } => "takes only env and file",
+                AuthError::Empty => "needs env (variable names) or file",
+                AuthError::NotAName { .. } => "env holds an entry that is not a variable name",
+                AuthError::EmptyFile => "file must not be empty",
+            }
+            .to_string(),
+        },
+    }
 }

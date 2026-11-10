@@ -5,7 +5,7 @@
 use crate::fakes::{plain, Setup, ENVELOPE};
 use crate::PackageRequest;
 
-const CONFIG: &str = "schema_version: 9\nagents:\n  default:\n    llm: mock\n    profiles: [dev]\ndefault_agent: default\nllm:\n  configs:\n    mock:\n      type: mock\n    claude-code:\n      type: claude-code\n    claude-fast:\n      type: claude-code\n";
+const CONFIG: &str = "schema_version: 9\nagents:\n  default:\n    engine: mock\n    profiles: [dev]\ndefault_agent: default\n";
 
 const DEMO: &[(&str, &str)] = &[
     ENVELOPE,
@@ -70,10 +70,7 @@ fn test_the_package_is_the_default_agents_profiles_assembled() {
     assert!(p.context.contains("FRAGMENT-BODY-testing"));
     assert_eq!(p.deny_tools, vec!["Bash".to_string()]);
     assert!(p.statusline);
-    assert_eq!(
-        p.configured_engines,
-        vec!["claude-code".to_string(), "mock".to_string()]
-    );
+    assert_eq!(p.configured_engines, vec!["mock".to_string()]);
     assert!(p.has_agents && p.has_profiles);
 }
 
@@ -352,7 +349,7 @@ fn packaged(
 
 const NO_AGENTS: &str = "schema_version: 9\n";
 const AGENT_WITHOUT_PROFILES: &str =
-    "schema_version: 9\nagents:\n  a:\n    llm: mock\ndefault_agent: a\nllm:\n  configs:\n    mock:\n      type: mock\n";
+    "schema_version: 9\nagents:\n  a:\n    engine: mock\ndefault_agent: a\n";
 
 #[test]
 fn test_a_project_says_whether_it_has_agents_and_profiles_to_bind_them_to() {
@@ -404,7 +401,7 @@ mod companions {
 
     use super::{CONFIG, DEMO, PROJECT};
 
-    const WITH: &str = "schema_version: 9\nagents:\n  default:\n    llm: mock\n    profiles: [dev]\ndefault_agent: default\nllm:\n  configs:\n    mock:\n      type: mock\ncompanions:\n  zeta:\n    command: [zeta]\n  alpha:\n    command: [alpha]\n";
+    const WITH: &str = "schema_version: 9\nagents:\n  default:\n    engine: mock\n    profiles: [dev]\ndefault_agent: default\ncompanions:\n  zeta:\n    command: [zeta]\n  alpha:\n    command: [alpha]\n";
 
     const ALPHA: &str = "run:\n  version: 1.0.0\n  hooks:\n    pre_tool:\n      - command: alpha guard\n        tool: shell\n        type: command\n      - command: alpha guard\n        tool: file_edit\n        type: command\n  commands:\n    check:\n      description: Alpha check\n      content: ALPHA-CHECK-BODY\n  mcp:\n    alpha-tool:\n      command: alpha-mcp\n      args: [--serve]\n";
 

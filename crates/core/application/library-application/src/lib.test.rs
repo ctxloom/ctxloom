@@ -215,7 +215,7 @@ fn test_a_config_without_bare_companions_loads_from_generation_7_on() {
 // is dropped with a warning.
 #[test]
 fn test_an_agent_bound_to_nothing_is_dropped_with_a_warning() {
-    let layers = ["schema_version: 9\nagents:\n  ghost: {}\n  real:\n    llm: claude-code\n"];
+    let layers = ["schema_version: 9\nagents:\n  ghost: {}\n  real:\n    engine: claude-code\n"];
     let out = setup(&layers).library().agent_list(&plain());
     assert_eq!(out.notices.len(), 1);
     let rows = out.result.unwrap();
@@ -358,7 +358,7 @@ fn test_a_skill_mode_is_the_files_execute_bit_and_a_headless_skill_is_withheld()
 // profiles; a profile that is not there is not found.
 #[test]
 fn test_the_profile_listing_marks_the_defaults_and_a_missing_profile_is_not_found() {
-    let layers = ["schema_version: 9\nagents:\n  dev:\n    llm: claude-code\n    profiles: [dev]\ndefault_agent: dev\n"];
+    let layers = ["schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    profiles: [dev]\ndefault_agent: dev\n"];
     let library = setup(&layers).library();
     let list = ok(library.profile_list(&plain()));
     let names: Vec<(&str, bool)> = list
@@ -377,7 +377,7 @@ fn test_the_profile_listing_marks_the_defaults_and_a_missing_profile_is_not_foun
 // minus what a profile excludes.
 #[test]
 fn test_the_registered_servers_follow_the_default_agents_profiles_and_their_exclusions() {
-    let layers = ["schema_version: 9\nagents:\n  dev:\n    llm: claude-code\n    profiles: [dev]\ndefault_agent: dev\n"];
+    let layers = ["schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    profiles: [dev]\ndefault_agent: dev\n"];
     let library = setup(&layers).library();
     let list = ok(library.mcp_list(&plain()));
     assert_eq!(list.servers.len(), 1);
@@ -393,7 +393,7 @@ fn test_the_registered_servers_follow_the_default_agents_profiles_and_their_excl
 // told apart from one ctxloom supplied.
 #[test]
 fn test_the_llm_listing_marks_the_default_and_who_wrote_each_label() {
-    let layers = ["schema_version: 9\nllm:\n  configs:\n    big:\n      type: mock\n      model: o1\n    claude-code:\n      type: claude-code\n      model: opus\n  defaults:\n    primary: claude-code\n"];
+    let layers = ["schema_version: 9\n"];
     let rows = ok(setup(&layers).library().llm_list(&plain()));
     let by = |label: &str| rows.iter().find(|r| r.label == label).unwrap();
     assert!(by("claude-code").default && by("claude-code").authored);
@@ -481,11 +481,10 @@ fn test_a_search_ranks_names_before_tags_and_refuses_what_it_cannot_answer() {
 // fails loudly.
 #[test]
 fn test_a_dry_run_carries_the_composed_context_and_refuses_what_run_refuses() {
-    let layers = ["schema_version: 9\nagents:\n  dev:\n    llm: claude-fast\n    profiles: [dev]\n    runtime: host\ndefault_agent: dev\n"];
+    let layers = ["schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    profiles: [dev]\n    runtime: host\ndefault_agent: dev\n"];
     let library = setup(&layers).library();
     let plan = ok(library.dry_run(&plain(), &RunRequest::default())).plan;
-    assert_eq!(plan.llm, "claude-fast");
-    assert_eq!(plan.backend, "claude-code");
+    assert_eq!(plan.engine, "claude-code");
     assert_eq!(plan.profiles, ["dev"]);
     assert_eq!(plan.runtime, "host");
     assert!(plan.context.contains("TEST-BODY"));
@@ -559,7 +558,7 @@ fn test_a_run_with_no_agent_says_why() {
         .err()
         .unwrap();
     assert!(matches!(none, AppError::LaunchNoAgents));
-    let layers = ["schema_version: 9\nagents:\n  dev:\n    llm: claude-code\n"];
+    let layers = ["schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n"];
     let some = setup(&layers)
         .library()
         .dry_run(&plain(), &RunRequest::default());
@@ -581,15 +580,6 @@ fn test_a_run_with_no_agent_says_why() {
     assert!(matches!(
         home.dry_run(&plain(), &RunRequest::default()).result,
         Err(AppError::LaunchNoProject)
-    ));
-    let llm = RunRequest {
-        llm: "nosuch".to_string(),
-        profile: "dev".to_string(),
-        ..RunRequest::default()
-    };
-    assert!(matches!(
-        setup(&[CONFIG]).library().dry_run(&plain(), &llm).result,
-        Err(AppError::UnknownLlm { .. })
     ));
 }
 
@@ -619,19 +609,17 @@ fn test_assembling_reports_what_it_could_not_load() {
 // resolves to; one that does not resolve says so rather than failing.
 #[test]
 fn test_agent_show_reports_the_declaration_the_resolution_and_a_failure_to_resolve() {
-    let layers = ["schema_version: 9\nagents:\n  good:\n    llm: claude-code\n    profiles: [dev]\n  bad:\n    llm: claude-code\n    profiles: [ghost]\n"];
+    let layers = ["schema_version: 9\nagents:\n  good:\n    engine: claude-code\n    profiles: [dev]\n  bad:\n    engine: claude-code\n    profiles: [ghost]\n"];
     let library = setup(&layers).library();
     let say = |d: &dyn angzarr_diagnostic::Diagnostic| d.code().to_string();
     let good = ok(library.agent_show(&plain(), "good", &say));
     let resolved = good.resolved.unwrap();
-    assert_eq!(
-        (resolved.label.as_str(), resolved.backend.as_str()),
-        ("claude-code", "claude-code")
-    );
-    assert_eq!(resolved.model, "opus");
+    assert_eq!(resolved.engine, "claude-code");
+    assert_eq!(resolved.model, "", "no model named is no flag");
+    assert_eq!(resolved.command, "claude");
     assert_eq!(resolved.effective_permissions, "acceptEdits");
     assert_eq!(resolved.approver, "human");
-    assert_eq!(resolved.home_mode, "session");
+    assert_eq!(resolved.session_home, "session");
     assert_eq!(good.requirements.len(), 1);
     assert_eq!(good.requirements[0].command, "tree-sitter");
     assert_eq!(good.requirements[0].sources[0].kind, "mcp");

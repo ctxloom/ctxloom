@@ -23,6 +23,15 @@ impl ExportedVars for Env {
     }
 }
 
+/// The engine block that shares the human's own login in place.
+fn login() -> String {
+    "engines:\n  claude-code:\n    auth: login\n".to_string()
+}
+
+fn layer(text: &str) -> Vec<String> {
+    vec![text.to_string()]
+}
+
 fn auth(exported: &[&'static str]) -> Auth {
     Auth::new(Arc::new(Env {
         exported: exported.to_vec(),
@@ -33,7 +42,7 @@ fn auth(exported: &[&'static str]) -> Auth {
 // auth.feature: "An exported token is reported present without revealing it".
 #[test]
 fn an_exported_claude_token_is_reported_present_by_the_variable_it_is_read_from() {
-    let rows = auth(&["CLAUDE_CODE_OAUTH_TOKEN"]).status();
+    let rows = auth(&["CLAUDE_CODE_OAUTH_TOKEN"]).status(&[]);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].engine, "claude-code");
     assert_eq!(rows[0].mode, "token");
@@ -46,7 +55,7 @@ fn an_exported_claude_token_is_reported_present_by_the_variable_it_is_read_from(
 // the token".
 #[test]
 fn a_missing_claude_token_is_reported_missing_with_how_to_mint_and_export_it() {
-    let rows = auth(&[]).status();
+    let rows = auth(&[]).status(&[]);
     assert_eq!(rows.len(), 1);
     assert!(!rows[0].present);
     assert!(rows[0].vars.is_empty());
@@ -59,12 +68,12 @@ fn a_missing_claude_token_is_reported_missing_with_how_to_mint_and_export_it() {
 // Go: opencode's endpoint key is optional, so it has a row only when exported.
 #[test]
 fn opencodes_optional_key_has_a_row_only_when_it_is_exported() {
-    let rows = auth(&["CLAUDE_CODE_OAUTH_TOKEN", "CTXLOOM_OPENCODE_API_KEY"]).status();
-    let names: Vec<&str> = rows.iter().map(|r| r.engine).collect();
+    let rows = auth(&["CLAUDE_CODE_OAUTH_TOKEN", "CTXLOOM_OPENCODE_API_KEY"]).status(&[]);
+    let names: Vec<&str> = rows.iter().map(|r| r.engine.as_str()).collect();
     assert_eq!(names, ["claude-code", "opencode"]);
     assert!(rows[1].present);
     assert_eq!(rows[1].vars, ["CTXLOOM_OPENCODE_API_KEY"]);
-    let rows = auth(&[]).status();
+    let rows = auth(&[]).status(&[]);
     assert!(rows.iter().all(|r| r.engine != "opencode"));
 }
 
@@ -72,7 +81,7 @@ fn opencodes_optional_key_has_a_row_only_when_it_is_exported() {
 // when there are some.
 #[test]
 fn a_row_serializes_to_gos_shape() {
-    let rows = auth(&["CLAUDE_CODE_OAUTH_TOKEN"]).status();
+    let rows = auth(&["CLAUDE_CODE_OAUTH_TOKEN"]).status(&[]);
     assert_eq!(
         serde_json::to_value(&rows).unwrap(),
         json!([{
@@ -80,9 +89,10 @@ fn a_row_serializes_to_gos_shape() {
             "mode": "token",
             "present": true,
             "vars": ["CLAUDE_CODE_OAUTH_TOKEN"],
+            "via": "CLAUDE_CODE_OAUTH_TOKEN",
         }])
     );
-    let rows = auth(&[]).status();
+    let rows = auth(&[]).status(&[]);
     let doc = serde_json::to_value(&rows).unwrap();
     assert_eq!(doc[0]["present"], false);
     assert!(doc[0].get("vars").is_none());
@@ -100,7 +110,7 @@ fn only_the_credential_variables_are_asked_about_and_only_whether_they_are_expor
         exported: vec!["CLAUDE_CODE_OAUTH_TOKEN"],
         asked: Mutex::new(Vec::new()),
     });
-    let _ = Auth::new(env.clone()).status();
+    let _ = Auth::new(env.clone()).status(&[]);
     let mut asked = env.asked.lock().unwrap().clone();
     asked.sort();
     assert_eq!(
@@ -112,12 +122,20 @@ fn only_the_credential_variables_are_asked_about_and_only_whether_they_are_expor
 // doctor.feature: "A missing agent credential is a fail row".
 #[test]
 fn a_configured_claude_without_its_token_is_not_ready_and_says_the_fix() {
-    let verdicts = auth(&[]).needed(&["claude-code".to_string()], "token");
+    let verdicts = auth(&[]).needed(&["claude-code".to_string()], &[]);
     assert_eq!(verdicts.len(), 1);
     let v = &verdicts[0];
     assert_eq!(
-        (v.engine, v.mode, v.var),
-        ("claude-code", "token", "CLAUDE_CODE_OAUTH_TOKEN")
+        (v.engine.as_str(), v.mode, v.vars.as_slice()),
+        (
+            "claude-code",
+            "token",
+            [
+                "CLAUDE_CODE_OAUTH_TOKEN".to_string(),
+                "ANTHROPIC_API_KEY".to_string()
+            ]
+            .as_slice()
+        )
     );
     assert!(!v.ready);
     assert!(v.remedy.contains("claude setup-token"));
@@ -125,7 +143,7 @@ fn a_configured_claude_without_its_token_is_not_ready_and_says_the_fix() {
 
 #[test]
 fn a_configured_claude_with_its_token_is_ready() {
-    let verdicts = auth(&["CLAUDE_CODE_OAUTH_TOKEN"]).needed(&["claude-code".to_string()], "token");
+    let verdicts = auth(&["CLAUDE_CODE_OAUTH_TOKEN"]).needed(&["claude-code".to_string()], &[]);
     assert_eq!(verdicts.len(), 1);
     assert!(verdicts[0].ready);
 }
@@ -133,7 +151,7 @@ fn a_configured_claude_with_its_token_is_ready() {
 // Go: opencode is keyless without its key, which is not a refusal.
 #[test]
 fn opencode_is_ready_without_its_optional_key() {
-    let verdicts = auth(&[]).needed(&["opencode".to_string()], "token");
+    let verdicts = auth(&[]).needed(&["opencode".to_string()], &[]);
     assert_eq!(verdicts.len(), 1);
     assert!(verdicts[0].ready);
     assert_eq!(verdicts[0].engine, "opencode");
@@ -143,24 +161,23 @@ fn opencode_is_ready_without_its_optional_key() {
 #[test]
 fn login_mode_needs_nothing_from_the_environment() {
     assert!(auth(&[])
-        .needed(&["claude-code".to_string()], "login")
+        .needed(&["claude-code".to_string()], &[login()])
         .is_empty());
+    assert!(auth(&[])
+        .status(&[login()])
+        .iter()
+        .all(|r| r.engine != "claude-code"));
 }
 
 #[test]
 fn an_engine_with_no_credential_rule_is_not_asked_about() {
-    assert!(auth(&[]).needed(&["mock".to_string()], "token").is_empty());
+    assert!(auth(&[]).needed(&["mock".to_string()], &[]).is_empty());
 }
 
 #[test]
 fn each_engine_is_reported_once_whatever_its_labels() {
     let engines = ["claude-code".to_string(), "claude-code".to_string()];
-    assert_eq!(auth(&[]).needed(&engines, "token").len(), 1);
-}
-
-#[test]
-fn a_mode_that_is_not_login_is_the_default_token() {
-    assert_eq!(auth(&[]).needed(&["claude-code".to_string()], "").len(), 1);
+    assert_eq!(auth(&[]).needed(&engines, &[]).len(), 1);
 }
 
 #[test]
@@ -169,4 +186,63 @@ fn a_token_or_an_api_key_is_an_agent_token_and_nothing_else_is() {
     assert!(auth(&["ANTHROPIC_API_KEY"]).agent_token_exported());
     assert!(!auth(&["ANTHROPIC_AUTH_TOKEN", "CTXLOOM_OPENCODE_API_KEY"]).agent_token_exported());
     assert!(!auth(&[]).agent_token_exported());
+}
+
+// engines.<engine>.auth is the source: any ONE of its variables authenticates
+// (the API key alone is enough, which status once denied), and what is read
+// is a name, never a value.
+#[test]
+fn an_api_key_alone_authenticates_claude_and_the_row_names_the_variable() {
+    let rows = auth(&["ANTHROPIC_API_KEY"]).status(&[]);
+    assert_eq!(rows[0].engine, "claude-code");
+    assert!(rows[0].present);
+    assert_eq!(rows[0].via, "ANTHROPIC_API_KEY");
+    let verdicts = auth(&["ANTHROPIC_API_KEY"]).needed(&["claude-code".to_string()], &[]);
+    assert!(verdicts[0].ready);
+}
+
+#[test]
+fn a_configured_source_replaces_the_built_in_one_and_the_fix_names_it() {
+    let layers =
+        layer("engines:\n  claude-code:\n    auth:\n      env: [TEAM_TOKEN, OTHER_TOKEN]\n");
+    // the built-in variable no longer counts
+    let rows = auth(&["CLAUDE_CODE_OAUTH_TOKEN"]).status(&layers);
+    assert!(!rows[0].present);
+    assert_eq!(rows[0].remedy, "export TEAM_TOKEN or OTHER_TOKEN");
+    let rows = auth(&["OTHER_TOKEN"]).status(&layers);
+    assert!(rows[0].present);
+    assert_eq!(rows[0].via, "OTHER_TOKEN");
+    let verdicts = auth(&[]).needed(&["claude-code".to_string()], &layers);
+    assert!(!verdicts[0].ready);
+    assert_eq!(verdicts[0].vars, ["TEAM_TOKEN", "OTHER_TOKEN"]);
+}
+
+#[test]
+fn auth_none_and_a_file_alone_need_nothing_from_the_environment_of_a_child() {
+    let none = layer("engines:\n  claude-code:\n    auth: none\n");
+    assert!(auth(&[]).status(&none).is_empty());
+    assert!(auth(&[])
+        .needed(&["claude-code".to_string()], &none)
+        .is_empty());
+    let file =
+        layer("engines:\n  claude-code:\n    auth:\n      file: /h/.claude/.credentials.json\n");
+    assert!(auth(&[]).status(&file).is_empty());
+}
+
+#[test]
+fn token_spelled_out_is_the_built_in_variables() {
+    let layers = layer("engines:\n  claude-code:\n    auth: token\n");
+    let rows = auth(&["ANTHROPIC_API_KEY"]).status(&layers);
+    assert_eq!(rows[0].via, "ANTHROPIC_API_KEY");
+}
+
+// a source the schema refuses is the loader's to report: nothing here panics
+// or echoes it
+#[test]
+fn a_refused_source_is_skipped_and_never_repeated() {
+    let layers =
+        layer("engines:\n  claude-code:\n    auth:\n      env: [sk-ant-oat01-NOT-A-REAL-KEY]\n");
+    let rows = auth(&[]).status(&layers);
+    assert!(rows.iter().all(|r| r.engine != "claude-code"));
+    assert!(!format!("{rows:?}").contains("sk-ant"));
 }

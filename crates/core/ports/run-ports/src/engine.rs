@@ -73,6 +73,11 @@ pub struct TurnRequest {
     /// The caller's environment: the engine passes on only what it allows.
     pub env: BTreeMap<String, String>,
     pub cwd: Option<String>,
+    /// The model to run; empty names none, and the engine passes no flag.
+    pub model: String,
+    /// The effort level to run at; empty names none, and the engine passes no
+    /// flag.
+    pub effort: String,
 }
 
 impl fmt::Debug for TurnRequest {
@@ -85,6 +90,8 @@ impl fmt::Debug for TurnRequest {
             .field("resume", &self.resume)
             .field("env", &crate::hook::RedactedEnv(&self.env))
             .field("cwd", &self.cwd)
+            .field("model", &self.model)
+            .field("effort", &self.effort)
             .finish()
     }
 }
@@ -187,6 +194,12 @@ pub fn copy_in(allowed: &[&str], offered: &[String]) -> Vec<String> {
 pub enum EngineError {
     /// The engine has not built this operation.
     NotYet { engine: String, operation: String },
+    /// An effort level the engine does not take.
+    UnknownEffort {
+        engine: String,
+        level: String,
+        known: String,
+    },
 }
 
 impl fmt::Display for EngineError {
@@ -199,6 +212,7 @@ impl Diagnostic for EngineError {
     fn code(&self) -> &str {
         match self {
             EngineError::NotYet { .. } => code!("engine-not-yet"),
+            EngineError::UnknownEffort { .. } => code!("engine-unknown-effort"),
         }
     }
 
@@ -207,6 +221,15 @@ impl Diagnostic for EngineError {
             EngineError::NotYet { engine, operation } => vec![
                 ("engine", engine.as_str().into()),
                 ("operation", operation.as_str().into()),
+            ],
+            EngineError::UnknownEffort {
+                engine,
+                level,
+                known,
+            } => vec![
+                ("engine", engine.as_str().into()),
+                ("level", level.as_str().into()),
+                ("known", known.as_str().into()),
             ],
         }
     }

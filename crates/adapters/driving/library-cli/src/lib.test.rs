@@ -45,7 +45,7 @@ const PROJECT: &[(&str, &str)] = &[
     ),
 ];
 
-const AGENTS: &str = "schema_version: 9\ncompanions:\n  acme: {command: [acme-bin, --as, acme]}\nagents:\n  dev:\n    llm: claude-code\n    profiles: [dev]\n    runtime: host\ndefault_agent: dev\n";
+const AGENTS: &str = "schema_version: 9\ncompanions:\n  acme: {command: [acme-bin, --as, acme]}\nagents:\n  dev:\n    engine: claude-code\n    profiles: [dev]\n    runtime: host\ndefault_agent: dev\n";
 
 /// What one invocation left behind.
 struct Ran {
@@ -152,7 +152,7 @@ fn text_of(line: &[&str]) -> String {
 fn test_config_show_prints_the_effective_configuration_a_section_or_the_raw_layers() {
     let all = json_of(&["config", "show"]);
     assert_eq!(all["default_agent"], "dev");
-    assert_eq!(all["llm"]["defaults"]["primary"], "claude-code");
+    assert_eq!(all["agents"]["dev"]["engine"], "claude-code");
     assert_eq!(json_of(&["config"]), all);
     assert_eq!(
         json_of(&["config", "show", "companions"]),
@@ -305,7 +305,7 @@ fn test_profile_agent_llm_companion_and_mcp_commands() {
     assert_eq!(agents[0]["name"], "dev");
     assert_eq!(json_of(&["agent"]), agents);
     let show = json_of(&["agent", "show", "dev"]);
-    assert_eq!(show["resolved"]["model"], "opus");
+    assert_eq!(show["resolved"]["engine"], "claude-code");
     assert!(text_of(&["agent", "show", "dev"])
         .starts_with("Agent: dev\nEngine (declared): claude-code\n"));
     assert!(text_of(&["agent"]).starts_with("Agents (1):\n"));
@@ -409,10 +409,6 @@ fn test_a_dry_run_carries_its_arguments_into_the_plan() {
         "pp"
     );
     assert_eq!(
-        json_of(&["run", "--dry-run", "-l", "claude-fast", "-p", "dev"])["llm"],
-        "claude-fast"
-    );
-    assert_eq!(
         json_of(&["run", "--dry-run", "-r", "review"])["prompt"],
         "REVIEW-BODY\n"
     );
@@ -440,8 +436,7 @@ fn test_a_dry_run_carries_its_arguments_into_the_plan() {
         only["fragments"],
         serde_json::json!(["ctxloom+local:demo#fragments/golang"])
     );
-    assert!(text_of(&["run", "--dry-run", "hello"])
-        .starts_with("=== LLM ===\nclaude-code (claude-code)\n"));
+    assert!(text_of(&["run", "--dry-run", "hello"]).starts_with("=== Engine ===\nclaude-code\n"));
     assert!(text_of(&["run", "--dry-run", "--agent", "dev"]).starts_with("=== Agent ===\ndev ("));
     assert_eq!(
         go(&["run"], JSON, BARE).refused(),
@@ -472,7 +467,7 @@ fn test_fatal_findings_print_the_plan_and_abort() {
 // under text.
 #[test]
 fn test_notices_are_said_as_a_json_line_or_as_words_with_their_fix() {
-    let ghost = ["schema_version: 9\nagents:\n  ghost: {}\n  real:\n    llm: claude-code\n"];
+    let ghost = ["schema_version: 9\nagents:\n  ghost: {}\n  real:\n    engine: claude-code\n"];
     let json = go(&["agent", "list"], JSON, &ghost);
     assert_eq!(json.code(), 0);
     let line: serde_json::Value = serde_json::from_str(json.err.trim_end()).unwrap();

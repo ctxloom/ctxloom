@@ -3,6 +3,7 @@
 
 run-ports-token-malformed = a token is 64 hexadecimal characters, not { $length } characters
 run-ports-engine-not-yet = the { $engine } engine has not built { $operation } yet
+run-ports-engine-unknown-effort = the { $engine } engine takes no effort level "{ $level }"; it takes: { $known }
 run-ports-records-bad-path = { $rel } is not a path inside a session's directory
 run-ports-records-io = could not use { $rel } of session { $harp }: { $ext_err_txt }
 run-ports-bearer-malformed = a bearer is a run id, a dot and 64 hexadecimal characters, not { $length } characters

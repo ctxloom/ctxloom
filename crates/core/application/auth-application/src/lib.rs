@@ -10,9 +10,10 @@
 use std::sync::Arc;
 
 pub use ctxloom_ports::ExportedVars;
+use library::config::{engines, schema};
 use serde::Serialize;
 
-/// The mode every agent ctxloom spawns authenticates in.
+/// The mode every row of a credential from the environment is in.
 const TOKEN: &str = "token";
 
 /// How the human supplies claude's token. It is minted with claude's own flow
@@ -26,55 +27,41 @@ const CLAUDE_REMEDY: &str = "run `claude setup-token` and export CLAUDE_CODE_OAU
 /// passes a turn; this crate cannot see the adapter that holds them.
 const AGENT_TOKEN_VARS: [&str; 2] = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"];
 
-/// One engine's credential in token mode.
-struct Rule {
-    engine: &'static str,
-    var: &'static str,
-    /// A run is refused without it. An optional one (opencode's endpoint key)
-    /// leaves the run keyless.
-    required: bool,
-    remedy: &'static str,
-}
-
-/// The engines that read a credential from the environment, by name.
-const RULES: [Rule; 2] = [
-    Rule {
-        engine: "claude-code",
-        var: "CLAUDE_CODE_OAUTH_TOKEN",
-        required: true,
-        remedy: CLAUDE_REMEDY,
-    },
-    Rule {
-        engine: "opencode",
-        var: "CTXLOOM_OPENCODE_API_KEY",
-        required: false,
-        remedy: "",
-    },
-];
-
 /// One row of `auth status`: whether an engine's credential is exported, the
 /// variable it is read from when it is (never its value), and the fix when it
 /// is not.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize)]
 pub struct Row {
-    pub engine: &'static str,
+    pub engine: String,
     pub mode: &'static str,
     pub present: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub vars: Vec<&'static str>,
-    #[serde(skip_serializing_if = "str::is_empty")]
-    pub remedy: &'static str,
+    pub vars: Vec<String>,
+    /// The variable the credential was found in (a name, never a value).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub via: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub remedy: String,
 }
 
 /// Whether one configured engine could authenticate a run.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Verdict {
-    pub engine: &'static str,
+    pub engine: String,
     pub mode: &'static str,
-    pub var: &'static str,
+    /// The variables any one of which authenticates the engine.
+    pub vars: Vec<String>,
     /// False only where a required credential is not exported.
     pub ready: bool,
-    pub remedy: &'static str,
+    pub remedy: String,
+}
+
+/// An engine's credential source and whether a run is refused without it.
+struct Need {
+    engine: String,
+    vars: Vec<String>,
+    required: bool,
+    builtin: bool,
 }
 
 /// The use case, over the environment it is launched in.
@@ -87,23 +74,33 @@ impl Auth {
         Auth { env }
     }
 
-    /// Per engine that reads a credential from the environment: present with
-    /// its variable, or missing with the fix. An optional credential that is
-    /// not exported has no row (the run is keyless). Engines in name order.
-    pub fn status(&self) -> Vec<Row> {
-        RULES
-            .iter()
-            .filter_map(|rule| {
-                let present = self.env.is_exported(rule.var);
-                if !present && !rule.required {
+    /// Per engine whose effective `auth` (the config's `engines.<engine>.auth`,
+    /// else the engine's built-in source) reads the environment: present with
+    /// the variable found, or missing with the fix. A credential that is
+    /// optional (opencode's built-in endpoint key) and not exported has no
+    /// row (the run is keyless). A login shared in place (`login`) and `none`
+    /// have no row. Engines in name order. `layers` are the config files'
+    /// texts, lowest first.
+    pub fn status(&self, layers: &[String]) -> Vec<Row> {
+        let config = engines::merged(layers);
+        needs(&config, &schema::ENGINES.map(ToString::to_string))
+            .into_iter()
+            .filter_map(|need| {
+                let found = need.vars.iter().find(|v| self.env.is_exported(v)).cloned();
+                if found.is_none() && !need.required {
                     return None;
                 }
                 Some(Row {
-                    engine: rule.engine,
+                    engine: need.engine.clone(),
                     mode: TOKEN,
-                    present,
-                    vars: if present { vec![rule.var] } else { Vec::new() },
-                    remedy: if present { "" } else { rule.remedy },
+                    present: found.is_some(),
+                    vars: found.iter().cloned().collect(),
+                    remedy: if found.is_some() {
+                        String::new()
+                    } else {
+                        remedy(&need)
+                    },
+                    via: found.unwrap_or_default(),
                 })
             })
             .collect()
@@ -115,26 +112,61 @@ impl Auth {
         AGENT_TOKEN_VARS.iter().any(|var| self.env.is_exported(var))
     }
 
-    /// For each of `engines` that reads a credential from the environment
-    /// (each once), whether it could authenticate a run in `mode`. A login
-    /// shared in place (`login`) reads nothing from the environment; any
-    /// other mode is the default, `token`.
-    pub fn needed(&self, engines: &[String], mode: &str) -> Vec<Verdict> {
-        if mode == "login" {
-            return Vec::new();
-        }
-        RULES
-            .iter()
-            .filter(|rule| engines.iter().any(|e| e == rule.engine))
-            .map(|rule| Verdict {
-                engine: rule.engine,
+    /// For each of `engines` whose effective `auth` reads the environment
+    /// (each once), whether it could authenticate a run. `login` and `none`
+    /// read nothing from the environment. `layers` as for [`Auth::status`].
+    pub fn needed(&self, engines: &[String], layers: &[String]) -> Vec<Verdict> {
+        let config = engines::merged(layers);
+        needs(&config, engines)
+            .into_iter()
+            .map(|need| Verdict {
+                ready: !need.required || need.vars.iter().any(|v| self.env.is_exported(v)),
                 mode: TOKEN,
-                var: rule.var,
-                ready: !rule.required || self.env.is_exported(rule.var),
-                remedy: rule.remedy,
+                remedy: remedy(&need),
+                vars: need.vars,
+                engine: need.engine,
             })
             .collect()
     }
+}
+
+/// The engines among `wanted` (each once, in name order) whose source is
+/// variables, with what it takes to satisfy each.
+fn needs(config: &angzarr_yaml::Value, wanted: &[String]) -> Vec<Need> {
+    let mut names: Vec<&String> = wanted.iter().collect();
+    names.sort();
+    names.dedup();
+    names
+        .into_iter()
+        .filter_map(|engine| {
+            // A source the schema refuses is the loader's to report.
+            let source = engines::engine_auth(config, engine).ok()?;
+            // A file is only the human's own primary session's credential: a
+            // source with no variable has nothing to look for in the
+            // environment a child is given.
+            let engines::AuthSource::Credential { env, .. } = source.value else {
+                return None;
+            };
+            if env.is_empty() {
+                return None;
+            }
+            let builtin = source.source == engines::Source::Default;
+            Some(Need {
+                engine: engine.clone(),
+                required: !builtin || engines::AuthSource::required(engine),
+                vars: env,
+                builtin,
+            })
+        })
+        .collect()
+}
+
+/// What to do about a credential that is not exported.
+fn remedy(need: &Need) -> String {
+    if need.engine == "claude-code" && need.builtin {
+        return CLAUDE_REMEDY.to_string();
+    }
+    format!("export {}", need.vars.join(" or "))
 }
 
 #[cfg(test)]

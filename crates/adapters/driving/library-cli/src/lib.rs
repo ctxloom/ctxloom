@@ -503,7 +503,6 @@ fn run_command(
         profile: text_arg(sub, "profile"),
         fragments: many(sub, "fragment"),
         tags: many(sub, "tag"),
-        llm: text_arg(sub, "llm"),
         prompt,
         saved_command: text_arg(sub, "command"),
         workspace: text_arg(sub, "workspace"),

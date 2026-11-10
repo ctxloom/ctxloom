@@ -98,7 +98,7 @@ pub fn run<G>(
 
 /// `auth` and `auth status`: the credential report.
 fn auth(uses: &UseCases<'_>, format: Format, out: &mut dyn Write) -> Result<u8, Failure> {
-    let rows = uses.auth.status();
+    let rows = uses.auth.status(&uses.doctor.layer_texts());
     match format {
         Format::Json => write_json(out, &rows),
         Format::Text => text::auth(&rows, out),

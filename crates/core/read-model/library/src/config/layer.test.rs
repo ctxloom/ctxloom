@@ -192,41 +192,6 @@ fn test_other_lists_are_replaced_not_joined() {
     assert_eq!(seq(&v, "editor.args"), ["c"]);
 }
 
-// reading.go OverlayDefaultRegistry + resources/default-config.yaml
-#[test]
-fn test_the_default_registry_fills_an_llm_section_that_declares_none() {
-    let mut doc = parse("schema_version: 8\nllm:\n  defaults:\n    primary: nope\n");
-    overlay_default_registry(&mut doc);
-    assert_eq!(text(&doc, "llm.configs.claude-code.type"), "claude-code");
-    assert_eq!(text(&doc, "llm.configs.claude-code.model"), "opus");
-    assert_eq!(text(&doc, "llm.configs.claude-code.role"), "primary");
-    assert_eq!(text(&doc, "llm.configs.claude-fast.model"), "haiku");
-    assert_eq!(
-        text(&doc, "llm.defaults.primary"),
-        "nope",
-        "a declared default is kept"
-    );
-    assert_eq!(
-        text(&doc, "llm.defaults.fast"),
-        "claude-fast",
-        "a missing one is filled"
-    );
-
-    let mut bare = parse("schema_version: 8\n");
-    overlay_default_registry(&mut bare);
-    assert_eq!(text(&bare, "llm.defaults.primary"), "claude-code");
-}
-
-// reading.go OverlayDefaultRegistry: any llm.configs of the config's own and
-// the registry is not laid under it
-#[test]
-fn test_a_config_that_declares_llm_configs_is_left_as_it_is() {
-    let mut doc = parse("llm:\n  configs:\n    big:\n      type: mock\n      model: o1\n");
-    overlay_default_registry(&mut doc);
-    assert!(get(&doc, "llm.configs.claude-code").is_none());
-    assert!(get(&doc, "llm.defaults").is_none());
-}
-
 // config_version_refusal_test.go: a generation this build cannot migrate is a
 // note naming it, and the layer is read as written
 #[test]

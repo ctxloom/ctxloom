@@ -645,7 +645,7 @@ fn test_agent_verbs() {
                 "container-rootless"
             ]
         ),
-        "Created agent \"dev\" (llm: claude-code, profiles: dev, runtime: container-rootless)\n"
+        "Created agent \"dev\" (engine: claude-code, profiles: dev, runtime: container-rootless)\n"
     );
     assert_eq!(
         text(
@@ -656,7 +656,7 @@ fn test_agent_verbs() {
                 "--env", "A", "--env", "B", "--surface", "context=system-prompt", "--root", "mcp=project-root",
             ]
         ),
-        "Updated agent \"dev\" (llm: claude-code, profiles: dev, dev, runtime: host, permissions: claude-code={mode=plan}, engine_home: session, env_host: false, env: A, B)\n"
+        "Updated agent \"dev\" (engine: claude-code, profiles: dev, dev, runtime: host, permissions: claude-code={mode=plan}, env_host: false, env: A, B)\n"
     );
     let doc = json(
         &library,

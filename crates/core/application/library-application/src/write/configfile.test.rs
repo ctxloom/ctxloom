@@ -35,16 +35,16 @@ fn update(
 // config_save.go saveLocked
 #[test]
 fn test_a_section_is_replaced_whole_sorted_and_the_rest_of_the_file_is_kept() {
-    let layer = "# mine\nschema_version: 9\nauth: token # kept\nagents:\n  b:\n    llm: x\n";
+    let layer = "# mine\nschema_version: 9\nsync:\n  auto_sync: false # kept\nagents:\n  b:\n    profiles: [x]\n";
     let (out, mem) = update(&[layer], Scope::Project, "agents", |current| {
         let mut agents = current.expect("the held section");
-        *agents.entry("a") = map(&[("llm", scalar("y"))]);
+        *agents.entry("a") = map(&[("profiles", Value::Seq(vec![scalar("y")]))]);
         Ok(Some(agents))
     });
     assert_eq!(out.unwrap(), "/p/.ctxloom/config.yaml");
     assert_eq!(
         mem.config(Scope::Project).unwrap(),
-        "# mine\nschema_version: 9\nauth: token # kept\nagents:\n  a:\n    llm: y\n  b:\n    llm: x\n"
+        "# mine\nschema_version: 9\nsync:\n  auto_sync: false # kept\nagents:\n  a:\n    profiles:\n      - y\n  b:\n    profiles:\n      - x\n"
     );
 }
 

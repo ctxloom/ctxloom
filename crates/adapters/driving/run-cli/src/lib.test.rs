@@ -264,7 +264,6 @@ fn every_selection_flag_reaches_the_request() {
     assert_eq!(asked.run.profile, "p");
     assert_eq!(asked.run.fragments, ["a", "b"]);
     assert_eq!(asked.run.tags, ["go"]);
-    assert_eq!(asked.run.llm, "fast");
     assert_eq!(asked.run.workspace, "worktree");
     assert_eq!(asked.engine, "claude-code");
 }

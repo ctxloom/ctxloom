@@ -305,7 +305,11 @@ pub struct ProfileShow {
 pub struct AgentRow {
     pub name: String,
     #[serde(skip_serializing_if = "no_text")]
-    pub llm: String,
+    pub engine: String,
+    #[serde(skip_serializing_if = "no_text")]
+    pub model: String,
+    #[serde(skip_serializing_if = "no_text")]
+    pub effort: String,
     #[serde(skip_serializing_if = "no_items")]
     pub profiles: Vec<String>,
     #[serde(skip_serializing_if = "no_text")]
@@ -313,8 +317,6 @@ pub struct AgentRow {
     pub permissions: serde_json::Value,
     #[serde(skip_serializing_if = "no_text")]
     pub driving: String,
-    #[serde(rename = "engine_home", skip_serializing_if = "no_text")]
-    pub home_mode: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub env_host: Option<bool>,
     #[serde(skip_serializing_if = "no_items")]
@@ -328,13 +330,14 @@ pub struct AgentRow {
 #[derive(Clone, Debug, Serialize)]
 pub struct ResolvedAgent {
     pub name: String,
-    #[serde(skip_serializing_if = "no_text")]
-    pub llm: String,
     pub profiles: Vec<String>,
-    pub label: String,
-    pub backend: String,
+    pub engine: String,
+    /// Empty is the engine's own default: no flag is passed.
     #[serde(skip_serializing_if = "no_text")]
     pub model: String,
+    /// Empty is the engine's own default: no flag is passed.
+    #[serde(skip_serializing_if = "no_text")]
+    pub effort: String,
     #[serde(skip_serializing_if = "no_text")]
     pub context: String,
     #[serde(skip_serializing_if = "no_items")]
@@ -348,8 +351,12 @@ pub struct ResolvedAgent {
     pub approver: String,
     #[serde(skip_serializing_if = "no_text")]
     pub driving: String,
-    #[serde(rename = "engine_home", skip_serializing_if = "no_text")]
-    pub home_mode: String,
+    /// The engine block's `session_home`.
+    #[serde(skip_serializing_if = "no_text")]
+    pub session_home: String,
+    /// The program the engine block (else the engine's own name) runs.
+    #[serde(skip_serializing_if = "no_text")]
+    pub command: String,
 }
 
 /// A command an agent needs on its PATH and who asks for it.
@@ -513,8 +520,7 @@ pub struct DryRun {
     pub workspace: String,
     #[serde(skip_serializing_if = "no_text")]
     pub runtime: String,
-    pub llm: String,
-    pub backend: String,
+    pub engine: String,
     pub profiles: Vec<String>,
     pub fragments: Vec<String>,
     pub context: String,
@@ -525,6 +531,14 @@ pub struct DryRun {
     /// The workspace and runtime a launch settles on (shown beside an agent).
     #[serde(skip)]
     pub axes: (String, String),
+    /// The agent's model, empty when it names none: handed to the engine as
+    /// `--model`, not shown by a dry run.
+    #[serde(skip)]
+    pub model: String,
+    /// The agent's effort, empty when it names none: handed to the engine,
+    /// not shown by a dry run.
+    #[serde(skip)]
+    pub effort: String,
 }
 
 /// What `context assemble` answers (Go's `assemble_context` result).

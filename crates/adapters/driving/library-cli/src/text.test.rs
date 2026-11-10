@@ -184,12 +184,13 @@ fn test_a_profile_listing_summarizes_each_profile() {
 fn agent_row(llm: &str) -> AgentRow {
     AgentRow {
         name: "dev".to_string(),
-        llm: llm.to_string(),
+        engine: llm.to_string(),
+        model: String::new(),
+        effort: String::new(),
         profiles: vec!["p1".to_string(), "p2".to_string()],
         runtime: "host".to_string(),
         permissions: serde_json::json!({}),
         driving: String::new(),
-        home_mode: String::new(),
         env_host: None,
         env: Vec::new(),
         permissions_line: String::new(),
@@ -201,7 +202,7 @@ fn agent_row(llm: &str) -> AgentRow {
 fn test_an_agent_listing_says_project_default_for_no_engine() {
     assert_eq!(
         shown(|out| agent_list(out, &[agent_row("")])),
-        "Agents (1):\n  dev (llm: project default)\n    profiles: p1, p2\n    runtime: host\n"
+        "Agents (1):\n  dev (engine: default)\n    profiles: p1, p2\n    runtime: host\n"
     );
     assert!(shown(|out| agent_list(out, &[])).starts_with("No agents defined.\n"));
 }
@@ -241,15 +242,16 @@ fn test_agent_show_says_a_resolution_failed_and_carries_on() {
     assert!(text.starts_with(
         "Agent: dev\nEngine (declared): claude-code\nRuntime: host\nProfiles:\n  - p1\n  - p2\n"
     ));
-    assert!(text.ends_with("Resolved llm: unavailable (agent \"dev\": compose profiles: nope)\n"));
+    assert!(
+        text.ends_with("Resolved engine: unavailable (agent \"dev\": compose profiles: nope)\n")
+    );
     let resolved = AgentShow {
         resolved: Some(ResolvedAgent {
             name: "dev".to_string(),
-            llm: String::new(),
             profiles: Vec::new(),
-            label: "big".to_string(),
-            backend: "mock".to_string(),
+            engine: "mock".to_string(),
             model: "o1".to_string(),
+            effort: String::new(),
             context: String::new(),
             fragments: vec!["a".to_string()],
             runtime: String::new(),
@@ -257,15 +259,16 @@ fn test_agent_show_says_a_resolution_failed_and_carries_on() {
             effective_permissions: String::new(),
             approver: "human".to_string(),
             driving: String::new(),
-            home_mode: "session".to_string(),
+            session_home: "session".to_string(),
+            command: String::new(),
         }),
         resolution_error: String::new(),
         ..show
     };
     let text = shown(|out| agent_show(out, &resolved));
-    assert!(text.contains("Resolved llm: big (backend: mock, model: o1)\n"));
+    assert!(text.contains("Resolved engine: mock (model: o1)\n"));
     assert!(!text.contains("Resolved permissions"));
-    assert!(text.contains("Resolved config home: session\nComposed fragments: 1\n"));
+    assert!(text.contains("Session home: session\nComposed fragments: 1\n"));
 }
 
 // llm_list.go: the default is marked, the origin bracketed, then the legend.
@@ -658,11 +661,10 @@ fn test_an_agent_show_without_an_approver_prints_no_posture() {
         definition: agent_row("claude-code"),
         resolved: Some(ResolvedAgent {
             name: st("dev"),
-            llm: st("claude-code"),
             profiles: Vec::new(),
-            label: st("claude-code"),
-            backend: String::new(),
+            engine: st("claude-code"),
             model: String::new(),
+            effort: String::new(),
             context: String::new(),
             fragments: sv(&["a", "b"]),
             runtime: String::new(),
@@ -670,7 +672,8 @@ fn test_an_agent_show_without_an_approver_prints_no_posture() {
             effective_permissions: String::new(),
             approver: String::new(),
             driving: String::new(),
-            home_mode: String::new(),
+            session_home: String::new(),
+            command: String::new(),
         }),
         resolution_error: String::new(),
         requirements: vec![Requirement {
@@ -684,7 +687,7 @@ fn test_an_agent_show_without_an_approver_prints_no_posture() {
     };
     let text = shown(|out| agent_show(out, &show));
     assert!(text.contains(
-        "Resolved llm: claude-code\nComposed fragments: 2\nRequires:\n  - tree-sitter (mcp ts)\n"
+        "Resolved engine: claude-code\nComposed fragments: 2\nRequires:\n  - tree-sitter (mcp ts)\n"
     ));
     assert!(!text.contains("Headless posture"));
     assert!(!text.contains("Resolved permissions"));
@@ -812,8 +815,7 @@ fn plan() -> DryRun {
         agent: st("dev"),
         workspace: st("worktree"),
         runtime: st("host"),
-        llm: st("claude-code"),
-        backend: st("claude-code"),
+        engine: st("claude-code"),
         profiles: sv(&["p"]),
         fragments: sv(&["f1", "f2"]),
         context: st("CTX"),
@@ -821,6 +823,8 @@ fn plan() -> DryRun {
         prompt: st("go"),
         findings: Vec::new(),
         axes: (st("worktree"), st("host")),
+        model: String::new(),
+        effort: String::new(),
     }
 }
 
@@ -829,7 +833,7 @@ fn plan() -> DryRun {
 fn test_a_dry_run_prints_its_sections_and_names_the_empty_ones() {
     assert_eq!(
         shown(|out| dry_run(out, &plan())),
-        "=== Agent ===\ndev (workspace: worktree, runtime: host)\n=== LLM ===\nclaude-code (claude-code)\n\n=== Profiles ===\n  p\n\n=== Fragments Loaded ===\n  f1\n  f2\n\n=== Assembled Context (~7 tokens) ===\nCTX\n\n=== Prompt ===\ngo\n"
+        "=== Agent ===\ndev (workspace: worktree, runtime: host)\n=== Engine ===\nclaude-code\n\n=== Profiles ===\n  p\n\n=== Fragments Loaded ===\n  f1\n  f2\n\n=== Assembled Context (~7 tokens) ===\nCTX\n\n=== Prompt ===\ngo\n"
     );
     let empty = DryRun {
         agent: String::new(),
@@ -841,7 +845,7 @@ fn test_a_dry_run_prints_its_sections_and_names_the_empty_ones() {
     };
     assert_eq!(
         shown(|out| dry_run(out, &empty)),
-        "=== LLM ===\nclaude-code (claude-code)\n\n=== Profiles ===\n(no profiles)\n\n=== Fragments Loaded ===\n(no fragments)\n\n=== Assembled Context (~7 tokens) ===\n(no context)\n\n=== Prompt ===\n(interactive mode)\n"
+        "=== Engine ===\nclaude-code\n\n=== Profiles ===\n(no profiles)\n\n=== Fragments Loaded ===\n(no fragments)\n\n=== Assembled Context (~7 tokens) ===\n(no context)\n\n=== Prompt ===\n(interactive mode)\n"
     );
 }
 

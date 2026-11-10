@@ -131,8 +131,7 @@ fn with_no_engines_there_is_no_default() {
 
 #[test]
 fn the_configured_default_is_the_one_a_bare_command_means_when_it_is_an_engine() {
-    let config =
-        "schema_version: 8\nllm:\n  configs:\n    mock:\n      type: mock\n  defaults:\n    primary: mock\n";
+    let config = "schema_version: 9\nagents:\n  default:\n    engine: mock\n    profiles: [p]\ndefault_agent: default\n";
     let (_temp, engines) = engines_of(&["claude", "mock"], Some(config));
     assert_eq!(engines.default_backend().as_deref(), Some("mock"));
     let (_temp, other) = engines_of(&["claude"], Some(config));

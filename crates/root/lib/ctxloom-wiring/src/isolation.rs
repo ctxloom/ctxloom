@@ -33,15 +33,10 @@ impl Backends for Engines {
     fn default_backend(&self) -> Option<String> {
         let configured = self
             .library
-            .llm_list(&self.flags)
+            .default_engine(&self.flags)
             .result
             .ok()
-            .and_then(|rows| {
-                rows.into_iter()
-                    .find(|row| row.default)
-                    .map(|row| row.label)
-                    .filter(|label| self.names.contains(label))
-            });
+            .filter(|engine| self.names.contains(engine));
         configured.or_else(|| self.names.first().cloned())
     }
 }

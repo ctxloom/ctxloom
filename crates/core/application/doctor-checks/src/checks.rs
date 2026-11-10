@@ -1,7 +1,5 @@
 //! The checks that read only the text they are given.
 
-use std::collections::BTreeMap;
-
 use auth_application::Auth;
 use serde::Serialize;
 
@@ -129,7 +127,8 @@ fn has_identity(gitconfig: &str) -> bool {
     name && email
 }
 
-/// `AGENTS-b2`: every configured agent names the llm it runs.
+/// `AGENTS-b2`: every configured agent names the engine it runs, or the
+/// profiles it is for (an agent bound to neither resolves nothing).
 pub fn agents(config: Option<&str>) -> Check {
     const M: &str = "DOCTOR-CHECK-AGENTS-b2";
     const N: &str = "agents";
@@ -152,7 +151,12 @@ pub fn agents(config: Option<&str>) -> Check {
     let unbound: Vec<&str> = agents
         .iter()
         .filter(|(_, agent)| {
-            !matches!(agent.get("llm"), Some(angzarr_yaml::Value::Scalar(llm)) if !llm.is_empty())
+            let named = |key: &str| match agent.get(key) {
+                Some(angzarr_yaml::Value::Scalar(text)) => !text.is_empty(),
+                Some(angzarr_yaml::Value::Seq(items)) => !items.is_empty(),
+                _ => false,
+            };
+            !named("engine") && !named("profiles")
         })
         .map(|(name, _)| name.as_str())
         .collect();
@@ -161,7 +165,10 @@ pub fn agents(config: Option<&str>) -> Check {
             M,
             N,
             Status::Ok,
-            &format!("{} agent(s) configured, each naming its llm", agents.len()),
+            &format!(
+                "{} agent(s) configured, each bound to an engine or profiles",
+                agents.len()
+            ),
             "",
         );
     }
@@ -170,55 +177,11 @@ pub fn agents(config: Option<&str>) -> Check {
         N,
         Status::Warn,
         &format!(
-            "agent(s) {} name no llm, so none resolves",
+            "agent(s) {} name neither an engine nor profiles, so none resolves",
             unbound.join(", ")
         ),
-        "ctxloom agent edit <name> --llm <llm>",
+        "ctxloom agent edit <name> --engine <engine>",
     )
-}
-
-/// The engines the layers configure, and the mode they authenticate in. The
-/// layers are the config files lowest first, merged as the configuration is:
-/// a label or an agent of a later layer replaces the same name of an earlier
-/// one, and the shipped default (`claude-code`) stands where no layer
-/// authors a label.
-fn engines_and_mode(layers: &[String]) -> (Vec<String>, String) {
-    let scalar = |value: Option<&angzarr_yaml::Value>| match value {
-        Some(angzarr_yaml::Value::Scalar(text)) => Some(text.clone()),
-        _ => None,
-    };
-    let (mut labels, mut agents) = (BTreeMap::new(), BTreeMap::new());
-    let mut mode = String::new();
-    for value in layers.iter().filter_map(|l| angzarr_yaml::parse(l).ok()) {
-        if let Some(auth) = scalar(value.get("auth")) {
-            mode = auth;
-        }
-        if let Some(angzarr_yaml::Value::Map(configs)) =
-            value.get("llm").and_then(|llm| llm.get("configs"))
-        {
-            for (label, entry) in configs {
-                labels.insert(label.clone(), scalar(entry.get("type")).unwrap_or_default());
-            }
-        }
-        if let Some(angzarr_yaml::Value::Map(named)) = value.get("agents") {
-            for (name, agent) in named {
-                agents.insert(name.clone(), scalar(agent.get("llm")).unwrap_or_default());
-            }
-        }
-    }
-    let mut engines: Vec<String> = if labels.is_empty() {
-        vec!["claude-code".to_string()]
-    } else {
-        labels.values().cloned().collect()
-    };
-    // An agent names a label, or an engine outright.
-    engines.extend(
-        agents
-            .values()
-            .filter(|llm| !llm.is_empty())
-            .map(|llm| labels.get(llm).unwrap_or(llm).clone()),
-    );
-    (engines, mode)
 }
 
 /// `CREDENTIALS-m5`: whether the credential every configured engine needs is
@@ -229,16 +192,25 @@ fn engines_and_mode(layers: &[String]) -> (Vec<String>, String) {
 pub fn credentials(layers: &[String], auth: &Auth) -> Check {
     const M: &str = "DOCTOR-CHECK-CREDENTIALS-m5";
     const N: &str = "credentials";
-    let (engines, mode) = engines_and_mode(layers);
-    let verdicts = auth.needed(&engines, &mode);
+    let engines =
+        library::config::engines::engines_in_use(&library::config::engines::merged(layers));
+    let verdicts = auth.needed(&engines, layers);
     let missing: Vec<_> = verdicts.iter().filter(|v| !v.ready).collect();
     if let Some(first) = missing.first() {
         let detail = missing
             .iter()
-            .map(|v| format!("{} (auth {}): {} is not exported", v.engine, v.mode, v.var))
+            .map(|v| {
+                let names = v.vars.join(", ");
+                let unset = if v.vars.len() == 1 {
+                    format!("{names} is not exported")
+                } else {
+                    format!("none of {names} is exported")
+                };
+                format!("{} (auth {}): {unset}", v.engine, v.mode)
+            })
             .collect::<Vec<_>>()
             .join("; ");
-        return row(M, N, Status::Fail, &detail, first.remedy);
+        return row(M, N, Status::Fail, &detail, &first.remedy);
     }
     if verdicts.is_empty() {
         return row(

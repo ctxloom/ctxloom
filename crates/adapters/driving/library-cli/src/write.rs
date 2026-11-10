@@ -581,8 +581,8 @@ pub(crate) fn agent(
             let outcome = cx.library.agent_write(&cx.flags, &name, &request, !created);
             finish(cx, outcome, out, err, |row, out, _| {
                 let mut parts = Vec::new();
-                if !row.llm.is_empty() {
-                    parts.push(format!("llm: {}", row.llm));
+                if !row.engine.is_empty() {
+                    parts.push(format!("engine: {}", row.engine));
                 }
                 if !row.profiles.is_empty() {
                     parts.push(format!("profiles: {}", row.profiles.join(", ")));
@@ -592,9 +592,6 @@ pub(crate) fn agent(
                 }
                 if !row.permissions_line.is_empty() {
                     parts.push(format!("permissions: {}", row.permissions_line));
-                }
-                if !row.home_mode.is_empty() {
-                    parts.push(format!("engine_home: {}", row.home_mode));
                 }
                 if let Some(host) = row.env_host {
                     parts.push(format!("env_host: {host}"));

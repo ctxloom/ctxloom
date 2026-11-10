@@ -109,10 +109,10 @@ fn deps_want_git_and_an_identity() {
 }
 
 #[test]
-fn an_agent_with_no_llm_resolves_to_nothing() {
-    let bad = "schema_version: 8\nagents:\n  coder:\n    profiles: [p]\n";
+fn an_agent_with_neither_an_engine_nor_profiles_resolves_to_nothing() {
+    let bad = "schema_version: 8\nagents:\n  coder:\n    runtime: host\n";
     assert_eq!(checks::agents(Some(bad)).status, Status::Warn);
-    let good = "schema_version: 8\nagents:\n  coder:\n    llm: claude-code\n";
+    let good = "schema_version: 8\nagents:\n  coder:\n    engine: claude-code\n";
     assert_eq!(checks::agents(Some(good)).status, Status::Ok);
     assert_eq!(
         checks::agents(Some("schema_version: 8\n")).status,
@@ -185,7 +185,7 @@ fn a_missing_claude_token_is_a_fail_row_with_runs_fix() {
     assert!(check.detail.contains("claude-code"), "{}", check.detail);
     assert!(check
         .detail
-        .contains("CLAUDE_CODE_OAUTH_TOKEN is not exported"));
+        .contains("none of CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY is exported"));
     assert!(check.remedy.contains("claude setup-token"));
 }
 
@@ -211,11 +211,14 @@ fn with_no_config_at_all_the_shipped_default_engine_is_checked() {
     assert_eq!(credentials(&[], TOKEN).status, Status::Ok);
 }
 
-// Go: the mode is the human's session auth (`auth:`); a login is shared in
-// place and reads nothing from the environment.
+// owner amendment (2026-11-09): `engines.<engine>.auth` is the one auth key; a
+// login shared in place reads nothing from the environment.
 #[test]
-fn login_mode_needs_no_credential_from_the_environment() {
-    let check = credentials(&["schema_version: 8\nauth: login\n"], &[]);
+fn login_needs_no_credential_from_the_environment() {
+    let check = credentials(
+        &["schema_version: 9\nengines:\n  claude-code:\n    auth: login\n"],
+        &[],
+    );
     assert_eq!(check.status, Status::Info);
     assert!(check
         .detail
@@ -223,30 +226,49 @@ fn login_mode_needs_no_credential_from_the_environment() {
 }
 
 #[test]
-fn the_auth_mode_of_the_highest_layer_wins() {
-    let home = "schema_version: 8\nauth: login\n";
-    let project = "schema_version: 8\nauth: token\n";
+fn the_auth_of_the_highest_layer_wins() {
+    let home = "schema_version: 9\nengines:\n  claude-code:\n    auth: login\n";
+    let project = "schema_version: 9\nengines:\n  claude-code:\n    auth: token\n";
     assert_eq!(credentials(&[home, project], &[]).status, Status::Fail);
     assert_eq!(credentials(&[project, home], &[]).status, Status::Info);
 }
 
-// Go: a backend is one a configured label or agent resolves to.
+// the credential is any ONE variable of the source: an API key alone passes
 #[test]
-fn an_authored_label_replaces_the_shipped_default_engine() {
-    let config = "schema_version: 8\nllm:\n  configs:\n    local:\n      type: mock\n";
-    let check = credentials(&[config], &[]);
-    assert_eq!(check.status, Status::Info, "{}", check.detail);
+fn an_api_key_alone_passes_and_a_configured_source_replaces_the_built_in_one() {
+    const KEY: &[&str] = &["ANTHROPIC_API_KEY"];
+    assert_eq!(
+        credentials(&["schema_version: 9\n"], KEY).status,
+        Status::Ok
+    );
+    let team = "schema_version: 9\nengines:\n  claude-code:\n    auth:\n      env: [TEAM_TOKEN]\n";
+    let check = credentials(&[team], KEY);
+    assert_eq!(check.status, Status::Fail);
+    assert!(
+        check.detail.contains("TEAM_TOKEN is not exported"),
+        "{}",
+        check.detail
+    );
+    assert_eq!(check.remedy, "export TEAM_TOKEN");
+    assert_eq!(credentials(&[team], &["TEAM_TOKEN"]).status, Status::Ok);
 }
 
 #[test]
-fn a_labels_engine_is_checked_whatever_the_label_is_called() {
-    let config = "schema_version: 8\nllm:\n  configs:\n    work:\n      type: claude-code\n";
-    assert_eq!(credentials(&[config], &[]).status, Status::Fail);
+fn several_variables_missing_are_said_as_none_of_them() {
+    let check = credentials(&["schema_version: 9\n"], &[]);
+    assert!(
+        check
+            .detail
+            .contains("none of CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY is exported"),
+        "{}",
+        check.detail
+    );
 }
 
+// the engines checked are the ones the agents are bound to
 #[test]
 fn opencode_is_keyless_without_its_optional_key_and_never_fails() {
-    let config = "schema_version: 8\nllm:\n  configs:\n    oc:\n      type: opencode\n";
+    let config = "schema_version: 9\nagents:\n  o:\n    engine: opencode\n";
     let check = credentials(&[config], &[]);
     assert_eq!(check.status, Status::Ok);
     assert!(
@@ -257,22 +279,13 @@ fn opencode_is_keyless_without_its_optional_key_and_never_fails() {
 }
 
 #[test]
-fn an_agent_naming_an_engine_directly_is_checked_too() {
-    let config = "schema_version: 8\nllm:\n  configs:\n    local:\n      type: mock\nagents:\n  dev:\n    llm: claude-code\n";
-    assert_eq!(credentials(&[config], &[]).status, Status::Fail);
-}
-
-#[test]
-fn an_agent_naming_a_label_is_checked_as_that_labels_engine() {
-    let config = "schema_version: 8\nllm:\n  configs:\n    local:\n      type: mock\n    work:\n      type: claude-code\nagents:\n  dev:\n    llm: work\n";
-    assert_eq!(credentials(&[config], &[]).status, Status::Fail);
-}
-
-#[test]
-fn a_later_layer_overrides_a_label_of_an_earlier_one() {
-    let home = "schema_version: 8\nllm:\n  configs:\n    work:\n      type: claude-code\n";
-    let project = "schema_version: 8\nllm:\n  configs:\n    work:\n      type: mock\n";
-    assert_eq!(credentials(&[home, project], &[]).status, Status::Info);
+fn an_agent_naming_an_engine_is_checked_and_one_naming_none_is_the_default() {
+    let named = "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n";
+    assert_eq!(credentials(&[named], &[]).status, Status::Fail);
+    let mocked = "schema_version: 9\nagents:\n  dev:\n    engine: mock\n";
+    assert_eq!(credentials(&[mocked], &[]).status, Status::Info);
+    let silent = "schema_version: 9\nagents:\n  dev:\n    profiles: [p]\n";
+    assert_eq!(credentials(&[silent], &[]).status, Status::Fail);
 }
 
 #[test]

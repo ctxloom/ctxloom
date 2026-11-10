@@ -361,8 +361,8 @@ mod pinned {
         )
     }
 
-    const CFG: &str = "schema_version: 8\nagents:\n  default:\n    llm: mock\n    profiles: [dev]\ndefault_agent: default\nllm:\n  configs:\n    mock:\n      type: mock\n";
-    const CFG_NO_HUD: &str = "schema_version: 8\nconfig:\n  statusline: false\nagents:\n  default:\n    llm: mock\n    profiles: [dev]\ndefault_agent: default\nllm:\n  configs:\n    mock:\n      type: mock\n";
+    const CFG: &str = "schema_version: 8\nagents:\n  default:\n    engine: mock\n    profiles: [dev]\ndefault_agent: default\n";
+    const CFG_NO_HUD: &str = "schema_version: 8\nconfig:\n  statusline: false\nagents:\n  default:\n    engine: mock\n    profiles: [dev]\ndefault_agent: default\n";
 
     #[test]
     fn a_bare_project_names_only_what_it_carries_items_for() {

@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
-use run_ports::{Engine, PrepareRequest, TurnRequest};
+use run_ports::{Engine, EngineError, PrepareRequest, TurnRequest};
 
-use crate::drive::{COPY_IN_ALLOWLIST, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST};
+use crate::drive::{COPY_IN_ALLOWLIST, EFFORT_LEVELS, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST};
 use crate::{Claude, CONTEXT_PROMPT_FILE};
 
 fn request() -> TurnRequest {
@@ -13,6 +13,8 @@ fn request() -> TurnRequest {
         resume: None,
         env: BTreeMap::new(),
         cwd: Some("/p".to_string()),
+        model: String::new(),
+        effort: String::new(),
     }
 }
 
@@ -318,4 +320,81 @@ fn the_interactive_command_never_renders_the_bearer() {
     asked.env = env(&[("CTXLOOM_BEARER", "run.TOPSECRET")]);
     let command = Claude::new().drive_interactive(&asked).unwrap();
     assert!(!format!("{command:?} {asked:?}").contains("TOPSECRET"));
+}
+
+// A live probe (2026-11-09): `llm.configs.claude-code.model` never reached
+// claude. A configured model is `--model <m>`, for a turn and for the terminal
+// session, and the prompt stays the interactive command's last word; none
+// configured is no flag at all.
+#[test]
+fn a_configured_model_is_passed_to_claude_for_a_turn_and_for_the_terminal() {
+    let mut asked = request();
+    asked.model = "haiku".to_string();
+    let turn = Claude::new().drive_turn(&asked).unwrap();
+    let at = turn.args.iter().position(|a| a == "--model").unwrap();
+    assert_eq!(turn.args[at + 1], "haiku");
+    let terminal = Claude::new().drive_interactive(&asked).unwrap();
+    let at = terminal.args.iter().position(|a| a == "--model").unwrap();
+    assert_eq!(terminal.args[at + 1], "haiku");
+    assert_eq!(
+        terminal.args.last().map(String::as_str),
+        Some("what does this project expect of me?")
+    );
+}
+
+#[test]
+fn no_configured_model_is_no_model_flag() {
+    for command in [
+        Claude::new().drive_turn(&request()).unwrap(),
+        Claude::new().drive_interactive(&request()).unwrap(),
+    ] {
+        assert!(!command.args.iter().any(|a| a == "--model"), "{command:?}");
+    }
+}
+
+// `claude --effort <level>` (low, medium, high, xhigh, max; `claude --help`,
+// 2.1.321): passed for a turn and for the terminal session, none named is no
+// flag, and a level claude does not take is refused before it is launched.
+#[test]
+fn a_configured_effort_is_passed_to_claude_for_a_turn_and_for_the_terminal() {
+    for level in EFFORT_LEVELS {
+        let mut asked = request();
+        asked.effort = level.to_string();
+        for command in [
+            Claude::new().drive_turn(&asked).unwrap(),
+            Claude::new().drive_interactive(&asked).unwrap(),
+        ] {
+            let at = command.args.iter().position(|a| a == "--effort").unwrap();
+            assert_eq!(command.args[at + 1], level);
+        }
+    }
+}
+
+#[test]
+fn no_configured_effort_is_no_effort_flag() {
+    for command in [
+        Claude::new().drive_turn(&request()).unwrap(),
+        Claude::new().drive_interactive(&request()).unwrap(),
+    ] {
+        assert!(!command.args.iter().any(|a| a == "--effort"), "{command:?}");
+    }
+}
+
+#[test]
+fn an_effort_claude_does_not_take_is_refused_before_launch() {
+    let mut asked = request();
+    asked.effort = "extreme".to_string();
+    for refused in [
+        Claude::new().drive_turn(&asked),
+        Claude::new().drive_interactive(&asked),
+    ] {
+        assert_eq!(
+            refused,
+            Err(EngineError::UnknownEffort {
+                engine: "claude-code".to_string(),
+                level: "extreme".to_string(),
+                known: "low, medium, high, xhigh, max".to_string(),
+            })
+        );
+    }
 }

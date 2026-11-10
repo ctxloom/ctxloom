@@ -159,54 +159,6 @@ fn merge_one(into: &mut Value, layer: &Value) {
     }
 }
 
-/// The shipped default registry laid under the config: with no `llm.configs`
-/// of its own, the config takes the registry's (`claude-code`, primary, and
-/// `claude-fast`, fast) and fills a missing `llm.defaults.primary` and `fast`
-/// from it. A config that declares any `llm.configs` is left as it is.
-pub fn overlay_default_registry(doc: &mut Value) {
-    let has_configs = doc
-        .get("llm")
-        .and_then(|llm| llm.get("configs"))
-        .and_then(Value::as_map)
-        .is_some_and(|configs| !configs.is_empty());
-    if has_configs {
-        return;
-    }
-    if !matches!(doc, Value::Map(_)) {
-        *doc = Value::Map(Vec::new());
-    }
-    let llm = doc.entry("llm");
-    if !matches!(llm, Value::Map(_)) {
-        *llm = Value::Map(Vec::new());
-    }
-    *llm.entry("configs") = registry_configs();
-    let defaults = llm.entry("defaults");
-    if !matches!(defaults, Value::Map(_)) {
-        *defaults = Value::Map(Vec::new());
-    }
-    for (role, label) in [("primary", "claude-code"), ("fast", "claude-fast")] {
-        let slot = defaults.entry(role);
-        if matches!(slot, Value::Null) {
-            *slot = Value::Scalar(label.to_string());
-        }
-    }
-}
-
-/// `llm.configs` of the shipped registry (`resources/default-config.yaml`).
-fn registry_configs() -> Value {
-    let entry = |model: &str, role: &str| {
-        Value::Map(vec![
-            ("type".to_string(), Value::Scalar("claude-code".to_string())),
-            ("model".to_string(), Value::Scalar(model.to_string())),
-            ("role".to_string(), Value::Scalar(role.to_string())),
-        ])
-    };
-    Value::Map(vec![
-        ("claude-code".to_string(), entry("opus", "primary")),
-        ("claude-fast".to_string(), entry("haiku", "fast")),
-    ])
-}
-
 #[cfg(test)]
 #[path = "layer.test.rs"]
 mod tests;

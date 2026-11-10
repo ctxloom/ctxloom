@@ -101,6 +101,8 @@ struct ScriptedPlan {
     prompt: String,
     backend: String,
     fatal: Vec<FindingRow>,
+    model: String,
+    effort: String,
     error: Option<fn() -> PlanError>,
     asked: Arc<Mutex<Vec<RunRequest>>>,
 }
@@ -121,8 +123,7 @@ impl Planner for ScriptedPlan {
             agent: String::new(),
             workspace: String::new(),
             runtime: String::new(),
-            llm: "fake".to_string(),
-            backend: self.backend.clone(),
+            engine: self.backend.clone(),
             profiles: Vec::new(),
             fragments: Vec::new(),
             context: "THE-CONTEXT".to_string(),
@@ -130,6 +131,8 @@ impl Planner for ScriptedPlan {
             prompt: self.prompt.clone(),
             findings: Vec::new(),
             axes: (String::new(), String::new()),
+            model: self.model.clone(),
+            effort: self.effort.clone(),
         };
         Outcome {
             result: Ok(Previewed {
@@ -310,6 +313,9 @@ struct Script {
     engine: ScriptedEngine,
     runner: ScriptedRunner,
     fatal: Vec<FindingRow>,
+    /// The model and effort the plan resolved.
+    model: &'static str,
+    effort: &'static str,
     plan_error: Option<fn() -> PlanError>,
     project_error: Option<Report>,
     names: Vec<&'static str>,
@@ -334,6 +340,8 @@ impl Script {
             engine: ScriptedEngine::answering("THE-ANSWER", Some("native-7")),
             runner: ScriptedRunner::exits(0),
             fatal: Vec::new(),
+            model: "",
+            effort: "",
             plan_error: None,
             project_error: None,
             names: vec!["amber-swift-owl", "calm-quiet-fox", "wild-brave-elk"],
@@ -380,6 +388,8 @@ fn rig(script: Script) -> Rig {
             prompt: script.prompt.to_string(),
             backend: script.backend.to_string(),
             fatal: script.fatal,
+            model: script.model.to_string(),
+            effort: script.effort.to_string(),
             error: script.plan_error,
             asked: Arc::clone(&asked),
         }),
@@ -1137,6 +1147,8 @@ async fn the_bearer_is_in_no_debug_or_error_rendering() {
                 env: command.env.clone(),
                 cwd: None,
                 interactive: true,
+                model: String::new(),
+                effort: String::new(),
             }
         ),
     ] {
@@ -1363,4 +1375,36 @@ async fn a_listener_that_cannot_bind_refuses_the_run_before_anything_is_made() {
     assert_eq!(error.code(), "run-application-listener");
     assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 0);
     assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
+}
+
+// A live probe (2026-11-09): a model never reached claude. The agent's model
+// and effort the plan resolved are the order's, for the turn and for the
+// terminal session.
+#[tokio::test]
+async fn the_plans_model_and_effort_are_handed_to_the_engine_for_a_turn_and_for_the_terminal() {
+    let mut script = Script::answering();
+    script.model = "haiku";
+    script.effort = "low";
+    let mut rig = rig(script);
+    rig.runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let args = rig.runner.seen.lock().unwrap()[0].args.clone();
+    assert!(args.contains(&"--model=haiku".to_string()), "{args:?}");
+    assert!(args.contains(&"--effort=low".to_string()), "{args:?}");
+
+    let mut script = Script::answering();
+    script.model = "haiku";
+    script.effort = "low";
+    let mut rig = rig_again_with(script);
+    rig.runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let args = rig.runner.seen_terminal.lock().unwrap()[0].args.clone();
+    assert!(args.contains(&"--model=haiku".to_string()), "{args:?}");
+    assert!(args.contains(&"--effort=low".to_string()), "{args:?}");
 }

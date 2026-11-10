@@ -420,10 +420,10 @@ pub fn agent_list(out: &mut dyn Write, rows: &[AgentRow]) -> io::Result<()> {
     writeln!(out, "Agents ({}):", rows.len())?;
     for row in rows {
         write!(out, "  {}", row.name)?;
-        if row.llm.is_empty() {
-            write!(out, " (llm: project default)")?;
+        if row.engine.is_empty() {
+            write!(out, " (engine: default)")?;
         } else {
-            write!(out, " (llm: {})", row.llm)?;
+            write!(out, " (engine: {})", row.engine)?;
         }
         writeln!(out)?;
         if !row.profiles.is_empty() {
@@ -433,7 +433,8 @@ pub fn agent_list(out: &mut dyn Write, rows: &[AgentRow]) -> io::Result<()> {
             ("runtime", &row.runtime),
             ("permissions", &row.permissions_line),
             ("driving", &row.driving),
-            ("engine_home", &row.home_mode),
+            ("model", &row.model),
+            ("effort", &row.effort),
         ] {
             if !value.is_empty() {
                 writeln!(out, "    {key}: {value}")?;
@@ -479,10 +480,16 @@ fn headless(backend: &str, posture: &str, approver: &str) -> String {
 pub fn agent_show(out: &mut dyn Write, show: &AgentShow) -> io::Result<()> {
     let def = &show.definition;
     writeln!(out, "Agent: {}", def.name)?;
-    if def.llm.is_empty() {
-        writeln!(out, "Engine (declared): (project default)")?;
+    if def.engine.is_empty() {
+        writeln!(out, "Engine (declared): (default)")?;
     } else {
-        writeln!(out, "Engine (declared): {}", def.llm)?;
+        writeln!(out, "Engine (declared): {}", def.engine)?;
+    }
+    if !def.model.is_empty() {
+        writeln!(out, "Model: {}", def.model)?;
+    }
+    if !def.effort.is_empty() {
+        writeln!(out, "Effort: {}", def.effort)?;
     }
     if !def.runtime.is_empty() {
         writeln!(out, "Runtime: {}", def.runtime)?;
@@ -493,24 +500,21 @@ pub fn agent_show(out: &mut dyn Write, show: &AgentShow) -> io::Result<()> {
     if !def.driving.is_empty() {
         writeln!(out, "Driving: {}", def.driving)?;
     }
-    if !def.home_mode.is_empty() {
-        writeln!(out, "Config home (declared): {}", def.home_mode)?;
-    }
     if let Some(env_host) = def.env_host {
         writeln!(out, "Env host: {env_host}")?;
     }
     plain_bullets(out, "Env", &def.env)?;
     plain_bullets(out, "Profiles", &def.profiles)?;
     match &show.resolved {
-        None => writeln!(out, "Resolved llm: unavailable ({})", show.resolution_error)?,
+        None => writeln!(
+            out,
+            "Resolved engine: unavailable ({})",
+            show.resolution_error
+        )?,
         Some(resolved) => {
-            write!(out, "Resolved llm: {}", resolved.label)?;
-            if !resolved.backend.is_empty() {
-                write!(out, " (backend: {}", resolved.backend)?;
-                if !resolved.model.is_empty() {
-                    write!(out, ", model: {}", resolved.model)?;
-                }
-                write!(out, ")")?;
+            write!(out, "Resolved engine: {}", resolved.engine)?;
+            if !resolved.model.is_empty() {
+                write!(out, " (model: {})", resolved.model)?;
             }
             writeln!(out)?;
             if !resolved.effective_permissions.is_empty() {
@@ -525,14 +529,14 @@ pub fn agent_show(out: &mut dyn Write, show: &AgentShow) -> io::Result<()> {
                     out,
                     "Headless posture: {}",
                     headless(
-                        &resolved.backend,
+                        &resolved.engine,
                         &resolved.effective_permissions,
                         &resolved.approver
                     )
                 )?;
             }
-            if !resolved.home_mode.is_empty() {
-                writeln!(out, "Resolved config home: {}", resolved.home_mode)?;
+            if !resolved.session_home.is_empty() {
+                writeln!(out, "Session home: {}", resolved.session_home)?;
             }
             writeln!(out, "Composed fragments: {}", resolved.fragments.len())?;
         }
@@ -784,8 +788,8 @@ pub fn dry_run(out: &mut dyn Write, plan: &DryRun) -> io::Result<()> {
             plan.agent
         )?;
     }
-    writeln!(out, "=== LLM ===")?;
-    writeln!(out, "{} ({})", plan.llm, plan.backend)?;
+    writeln!(out, "=== Engine ===")?;
+    writeln!(out, "{}", plan.engine)?;
     writeln!(out, "\n=== Profiles ===")?;
     listed(out, &plan.profiles, "(no profiles)")?;
     writeln!(out, "\n=== Fragments Loaded ===")?;

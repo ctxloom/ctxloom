@@ -254,7 +254,7 @@ impl EngineSurfaces for Engine {
     }
 }
 
-pub(crate) const CONFIG: &str = "schema_version: 8\nagents:\n  default:\n    llm: mock\n    profiles: [dev]\ndefault_agent: default\nllm:\n  configs:\n    beta:\n      type: mock\n";
+pub(crate) const CONFIG: &str = "schema_version: 8\nagents:\n  default:\n    engine: mock\n    profiles: [dev]\ndefault_agent: default\n";
 
 /// Bundles `demo` (a fragment, a command, a skill pair, an MCP server) and
 /// `project` (the profile `dev`).

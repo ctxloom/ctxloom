@@ -12,13 +12,13 @@ fn parse(text: &str) -> Value {
 #[test]
 fn test_the_yaml_go_prints() {
     let doc = typed(
-        &parse("schema_version: 8\nisolation_pids_limit: 512\nisolation_memory_limit: 4g\ncompanions:\n  acme: {command: [acme-bin, --x]}\n  beta: {command: [beta-bin]}\nconfig:\n  statusline: false\nagents:\n  dev:\n    llm: claude-code\n    env: [ALPHA]\n"),
+        &parse("schema_version: 8\nisolation_pids_limit: 512\nisolation_memory_limit: 4g\ncompanions:\n  acme: {command: [acme-bin, --x]}\n  beta: {command: [beta-bin]}\nconfig:\n  statusline: false\nagents:\n  dev:\n    engine: claude-code\n    env: [ALPHA]\n"),
         &[],
         Order::Sorted,
     );
     assert_eq!(
         to_yaml(&doc),
-        "agents:\n  dev:\n    env:\n      - ALPHA\n    llm: claude-code\ncompanions:\n  acme:\n    command:\n      - acme-bin\n      - --x\n  beta:\n    command:\n      - beta-bin\nconfig:\n  statusline: false\nisolation_memory_limit: 4g\nisolation_pids_limit: \"512\"\nschema_version: 8\n"
+        "agents:\n  dev:\n    engine: claude-code\n    env:\n      - ALPHA\ncompanions:\n  acme:\n    command:\n      - acme-bin\n      - --x\n  beta:\n    command:\n      - beta-bin\nconfig:\n  statusline: false\nisolation_memory_limit: 4g\nisolation_pids_limit: \"512\"\nschema_version: 8\n"
     );
 }
 
@@ -61,20 +61,20 @@ fn test_the_schema_decides_which_scalars_are_numbers_and_booleans() {
 // whole document sorted.
 #[test]
 fn test_a_section_prints_in_the_order_of_its_fields() {
-    let doc = parse("agents:\n  dev:\n    env: [ALPHA]\n    driving: oneshot\n    permissions:\n      claude-code:\n        mode: plan\n      approver: human\n    runtime: host\n    profiles: [p1]\n    llm: claude-code\n    env_host: false\n");
+    let doc = parse("agents:\n  dev:\n    env: [ALPHA]\n    driving: oneshot\n    permissions:\n      claude-code:\n        mode: plan\n      approver: human\n    runtime: host\n    profiles: [p1]\n    engine: claude-code\n    env_host: false\n");
     let section = typed(&doc, &["agents".to_string()], Order::Fields);
     assert_eq!(
         to_yaml(&section),
-        "dev:\n  llm: claude-code\n  profiles:\n    - p1\n  runtime: host\n  permissions:\n    approver: human\n    claude-code:\n      mode: plan\n  driving: oneshot\n  env_host: false\n  env:\n    - ALPHA\n"
+        "dev:\n  engine: claude-code\n  profiles:\n    - p1\n  runtime: host\n  permissions:\n    approver: human\n    claude-code:\n      mode: plan\n  driving: oneshot\n  env_host: false\n  env:\n    - ALPHA\n"
     );
-    let llm = typed(
-        &parse("llm:\n  configs:\n    claude-code:\n      model: opus\n      role: primary\n      type: claude-code\n  defaults:\n    fast: claude-fast\n    primary: claude-code\n"),
-        &["llm".to_string()],
+    let engines = typed(
+        &parse("engines:\n  claude-code:\n    env: [A]\n    runtime: host\n    command: claude\n"),
+        &["engines".to_string()],
         Order::Fields,
     );
     assert_eq!(
-        to_yaml(&llm),
-        "configs:\n  claude-code:\n    type: claude-code\n    role: primary\n    model: opus\ndefaults:\n  primary: claude-code\n  fast: claude-fast\n"
+        to_yaml(&engines),
+        "claude-code:\n  command: claude\n  runtime: host\n  env:\n    - A\n"
     );
 }
 
@@ -170,7 +170,7 @@ fn test_quoting_escapes_quotes_backslashes_newlines_and_tabs() {
 #[test]
 fn test_scalars_are_typed_by_the_schema_or_by_what_they_look_like() {
     let doc = typed(
-        &parse("sync:\n  auto_sync: yes\ndelegation:\n  concurrency: lots\nllm:\n  configs:\n    a:\n      type: opencode\n      model_options:\n        t: true\n        f: false\n        n: 7\n        w: word\n"),
+        &parse("sync:\n  auto_sync: yes\ndelegation:\n  concurrency: lots\nagents:\n  dev:\n    permissions:\n      claude-code:\n        t: true\n        f: false\n        n: 7\n        w: word\n"),
         &[],
         Order::Sorted,
     );
@@ -188,16 +188,14 @@ fn test_scalars_are_typed_by_the_schema_or_by_what_they_look_like() {
         panic!()
     };
     assert_eq!(at(&delegation, "concurrency"), s("lots"));
-    let Typed::Map(llm) = at(&top, "llm") else {
-        panic!()
+    let dig = |from: Typed, key: &str| -> Typed {
+        let Typed::Map(entries) = from else { panic!() };
+        at(&entries, key)
     };
-    let Typed::Map(configs) = at(&llm, "configs") else {
-        panic!()
-    };
-    let Typed::Map(a) = at(&configs, "a") else {
-        panic!()
-    };
-    let Typed::Map(options) = at(&a, "model_options") else {
+    let Typed::Map(options) = dig(
+        dig(dig(at(&top, "agents"), "dev"), "permissions"),
+        "claude-code",
+    ) else {
         panic!()
     };
     assert_eq!(at(&options, "t"), Typed::Bool(true));

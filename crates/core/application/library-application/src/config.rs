@@ -72,10 +72,8 @@ pub fn load(
     stamp(&mut merged);
     let authored_labels = labels(&merged);
     let raw = merged.clone();
-    let mut value = merged;
-    layer::overlay_default_registry(&mut value);
     Ok(Config {
-        value,
+        value: merged,
         raw,
         authored_labels,
         source: files.source(),
@@ -185,7 +183,7 @@ fn remove_at(value: &mut Value, keys: &[&str]) {
     }
 }
 
-/// Go drops an agent that declares neither an llm nor a profile, and says so.
+/// Go drops an agent that declares neither an engine nor a profile, and says so.
 fn drop_engineless_agents(value: &mut Value, path: &str, notices: &mut Vec<Notice>) {
     let Some(Value::Map(agents)) = value.get_mut("agents") else {
         return;
@@ -195,7 +193,7 @@ fn drop_engineless_agents(value: &mut Value, path: &str, notices: &mut Vec<Notic
     for name in names {
         let body = agents.iter().find(|(n, _)| *n == name).map(|(_, v)| v);
         let binds = body.is_some_and(|body| {
-            body.get("llm")
+            body.get("engine")
                 .and_then(Value::as_str)
                 .is_some_and(|s| !s.is_empty())
                 || body
@@ -206,7 +204,7 @@ fn drop_engineless_agents(value: &mut Value, path: &str, notices: &mut Vec<Notic
         if !binds {
             agents.retain(|(n, _)| *n != name);
             notices.push(Notice::text(format!(
-                "agents.{name} in {path} declares neither an llm nor profiles, so nothing could resolve an engine for it — an agent bound to nothing is not an agent; the entry is ignored"
+                "agents.{name} in {path} declares neither an engine nor profiles, so nothing could resolve an engine for it — an agent bound to nothing is not an agent; the entry is ignored"
             )));
         }
     }
@@ -257,12 +255,14 @@ fn labels(value: &Value) -> BTreeSet<String> {
 #[derive(Clone, Debug)]
 pub struct Agent {
     pub name: String,
-    pub llm: String,
+    /// The engine the binding names; empty is the default (`claude-code`).
+    pub engine: String,
+    pub model: String,
+    pub effort: String,
     pub profiles: Vec<String>,
     pub runtime: String,
     pub permissions: Value,
     pub driving: String,
-    pub home_mode: String,
     pub env_host: Option<bool>,
     pub env: Vec<String>,
 }
@@ -374,21 +374,10 @@ impl Config {
         self.text("config.statusline") != "false"
     }
 
-    /// The engines the project's labels name (`llm.configs.<label>.type`),
-    /// each once, in label order.
+    /// The engines the project's agents are bound to, each once; claude-code,
+    /// the default, when there is no agent.
     pub fn configured_engines(&self) -> Vec<String> {
-        let mut out: Vec<String> = Vec::new();
-        for label in self.label_names() {
-            let kind = self
-                .llm_entry(&label)
-                .and_then(|entry| entry.get("type"))
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            if crate::agents::ENGINES.contains(&kind) && !out.iter().any(|e| e == kind) {
-                out.push(kind.to_string());
-            }
-        }
-        out
+        library::config::engines::engines_in_use(&self.value)
     }
 
     /// The registered companions, by name: each with the command that runs
@@ -414,12 +403,13 @@ impl Agent {
     pub fn of(name: &str, body: &Value) -> Agent {
         Agent {
             name: name.to_string(),
-            llm: text_at(body, "llm"),
+            engine: text_at(body, "engine"),
+            model: text_at(body, "model"),
+            effort: text_at(body, "effort"),
             profiles: list_at(body, "profiles"),
             runtime: text_at(body, "runtime"),
             permissions: body.get("permissions").cloned().unwrap_or(Value::Null),
             driving: text_at(body, "driving"),
-            home_mode: text_at(body, "engine_home"),
             env_host: body
                 .get("env_host")
                 .and_then(Value::as_str)
@@ -432,12 +422,13 @@ impl Agent {
     pub fn row(&self) -> AgentRow {
         AgentRow {
             name: self.name.clone(),
-            llm: self.llm.clone(),
+            engine: self.engine.clone(),
+            model: self.model.clone(),
+            effort: self.effort.clone(),
             profiles: self.profiles.clone(),
             runtime: self.runtime.clone(),
             permissions: crate::json::permissions(&self.permissions),
             driving: self.driving.clone(),
-            home_mode: self.home_mode.clone(),
             env_host: self.env_host,
             env: self.env.clone(),
             permissions_line: crate::json::permissions_line(&self.permissions),

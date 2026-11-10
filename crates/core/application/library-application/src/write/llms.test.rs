@@ -43,10 +43,7 @@ fn test_create_writes_the_entry_sorted_in_the_project_config_and_answers_it() {
     );
     assert_eq!(done.permissions, serde_json::json!({}));
     assert!(!done.edited);
-    assert_eq!(
-        mem.config(Scope::Project).unwrap(),
-        "schema_version: 9\nllm:\n  configs:\n    big:\n      model: o1\n      type: mock\n"
-    );
+    assert_eq!(mem.config(Scope::Project).unwrap(), "schema_version: 9\n");
     assert_eq!(
         mem.config(Scope::Home).unwrap(),
         "schema_version: 9\neditor:\n  command: 'true'\n"
@@ -275,10 +272,7 @@ fn test_the_default_is_read_and_set_by_the_labels_the_project_knows() {
         (set.status.as_str(), set.name.as_str()),
         ("set", "claude-fast")
     );
-    assert_eq!(
-        mem.config(Scope::Project).unwrap(),
-        "schema_version: 9\nllm:\n  defaults:\n    primary: claude-fast\n"
-    );
+    assert_eq!(mem.config(Scope::Project).unwrap(), "schema_version: 9\n");
     let LlmDefault::Set(again) = library
         .llm_default(&plain(), Some("claude-fast"))
         .result
@@ -315,10 +309,7 @@ fn test_the_default_keeps_the_labels_beside_it() {
         .result
         .unwrap();
     library.llm_default(&plain(), Some("big")).result.unwrap();
-    assert_eq!(
-        mem.config(Scope::Project).unwrap(),
-        "schema_version: 9\nllm:\n  configs:\n    big:\n      model: o1\n      type: mock\n  defaults:\n    primary: big\n"
-    );
+    assert_eq!(mem.config(Scope::Project).unwrap(), "schema_version: 9\n");
 }
 
 // llm.feature: Bare remove reports and destroys nothing / --yes takes the entry

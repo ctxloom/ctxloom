@@ -289,14 +289,14 @@ fn a_missing_credential_fails_the_report_and_an_exported_one_does_not() {
     assert!(!report.failed());
 }
 
-// The home's config is a layer too: its `auth: login` stands where the
+// The home's config is a layer too: its `engines.claude-code.auth: login` stands where the
 // project says nothing.
 #[test]
 fn the_homes_auth_mode_is_read_with_the_projects_config() {
     let mem = project();
     mem.files.lock().unwrap().insert(
         "/home/u/.ctxloom/config.yaml".to_string(),
-        "schema_version: 8\nauth: login\n".to_string(),
+        "schema_version: 9\nengines:\n  claude-code:\n    auth: login\n".to_string(),
     );
     let report = doctor_with_token(&mem, true, false).report(false);
     assert_eq!(status(&report, "DOCTOR-CHECK-CREDENTIALS-m5"), Status::Info);

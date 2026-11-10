@@ -364,6 +364,12 @@ impl Engine for ScriptedEngine {
         }
         let mut command = TurnCommand::new("fake");
         command.args = vec![request.context_path.clone()];
+        if !request.model.is_empty() {
+            command.args.push(format!("--model={}", request.model));
+        }
+        if !request.effort.is_empty() {
+            command.args.push(format!("--effort={}", request.effort));
+        }
         command.env = request.env.clone();
         command.stdin = request.prompt.clone().into_bytes();
         command.cwd = request.cwd.clone();
@@ -377,6 +383,12 @@ impl Engine for ScriptedEngine {
     fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
         let mut command = TurnCommand::new("fake-terminal");
         command.args = vec![request.context_path.clone(), request.prompt.clone()];
+        if !request.model.is_empty() {
+            command.args.push(format!("--model={}", request.model));
+        }
+        if !request.effort.is_empty() {
+            command.args.push(format!("--effort={}", request.effort));
+        }
         command.env = request.env.clone();
         command.cwd = request.cwd.clone();
         Ok(command)
@@ -503,6 +515,8 @@ pub fn order(engine: &str) -> Order {
         env: BTreeMap::from([("PATH".to_string(), "/bin".to_string())]),
         cwd: Some("/work/proj".to_string()),
         interactive: false,
+        model: String::new(),
+        effort: String::new(),
     }
 }
 

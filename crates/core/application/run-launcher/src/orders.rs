@@ -25,6 +25,10 @@ pub struct Order {
     /// The human's terminal session, not a turn: the engine's command is
     /// given her terminal and the prompt may be empty.
     pub interactive: bool,
+    /// The agent's model; empty names none (the engine's own default).
+    pub model: String,
+    /// The agent's effort level; empty names none.
+    pub effort: String,
 }
 
 impl fmt::Debug for Order {
@@ -38,6 +42,8 @@ impl fmt::Debug for Order {
             .field("env", &run_ports::RedactedEnv(&self.env))
             .field("cwd", &self.cwd)
             .field("interactive", &self.interactive)
+            .field("model", &self.model)
+            .field("effort", &self.effort)
             .finish()
     }
 }

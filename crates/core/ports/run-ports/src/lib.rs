@@ -49,6 +49,11 @@ pub fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
         engine: "claude-code".to_string(),
         operation: "drive_interactive".to_string(),
     }));
+    samples.push(Box::new(EngineError::UnknownEffort {
+        engine: "claude-code".to_string(),
+        level: "extreme".to_string(),
+        known: "low, medium, high".to_string(),
+    }));
     samples.push(Box::new(RecordsError::BadPath {
         rel: "..".to_string(),
     }));

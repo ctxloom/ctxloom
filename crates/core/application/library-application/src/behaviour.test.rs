@@ -374,7 +374,7 @@ fn test_skills_list_by_bundle_and_merge_tags_without_repeats() {
     assert_eq!(first.description, "Does one");
 }
 
-const AGENT_DEV: &str = "schema_version: 9\nagents:\n  dev:\n    llm: claude-code\n    profiles: [dev]\ndefault_agent: dev\n";
+const AGENT_DEV: &str = "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    profiles: [dev]\ndefault_agent: dev\n";
 
 // profile.feature: a profile of the project bundle is named bare, any other
 // bundle's by its full reference, and its display name is the bare one.
@@ -531,7 +531,7 @@ fn search_library() -> crate::Library {
         .iter()
         .map(|(a, b)| (a.as_str(), b.as_str()))
         .collect();
-    let layers = ["schema_version: 9\nagents:\n  d:\n    llm: claude-code\n    profiles: [all]\ndefault_agent: d\n"];
+    let layers = ["schema_version: 9\nagents:\n  d:\n    engine: claude-code\n    profiles: [all]\ndefault_agent: d\n"];
     let mut with_all = refs.clone();
     with_all.push(("profiles/all.yaml", "bundles: [project]\n"));
     Setup {
@@ -749,7 +749,7 @@ fn test_a_server_name_claimed_by_two_bundles_is_a_finding_but_one_bundle_twice_i
         ("profiles/twice-a.yaml", "bundles: [x]\n"),
         ("profiles/twice-b.yaml", "bundles: [x]\n"),
     ];
-    let layers = ["schema_version: 9\nagents:\n  twice:\n    llm: claude-code\n    profiles: [twice-a, twice-b]\n"];
+    let layers = ["schema_version: 9\nagents:\n  twice:\n    engine: claude-code\n    profiles: [twice-a, twice-b]\n"];
     let library = with(&[("project", project), ("x", &x), ("y", &y)], &layers).library();
     let clash = crate::RunRequest {
         profile: "clash".to_string(),
@@ -771,44 +771,34 @@ fn test_a_server_name_claimed_by_two_bundles_is_a_finding_but_one_bundle_twice_i
         .is_empty());
 }
 
-// agent.feature: the engine behind a label is its configured type; an engine
-// named bare is itself; any other name is the built-in default; the label a
-// profile prefers is used when the binding names none.
+// owner rulings 40-44: an agent's engine is the one it names, else claude-code;
+// its model and effort are its own, and its posture the engine's default
+// unless it says otherwise.
 #[test]
-fn test_an_agent_resolves_its_engine_from_its_label_or_its_profiles() {
-    let project: &[(&str, &str)] = &[
-        ENVELOPE,
-        ("profiles/plain.yaml", "description: p\n"),
-        ("profiles/prefers.yaml", "llm: opencode\n"),
-    ];
-    let layers = ["schema_version: 9\nagents:\n  bare:\n    llm: opencode\n  weird:\n    llm: weird-label\n  inherits:\n    profiles: [plain, prefers]\n  typed:\n    llm: fancy\nllm:\n  configs:\n    fancy:\n      type: mock\n      model: m1\n"];
+fn test_an_agent_resolves_its_engine_model_and_posture() {
+    let project: &[(&str, &str)] = &[ENVELOPE, ("profiles/plain.yaml", "description: p\n")];
+    let layers = ["schema_version: 9\nagents:\n  bare:\n    engine: opencode\n  silent:\n    profiles: [plain]\n  typed:\n    engine: mock\n    model: m1\n    effort: low\n  planner:\n    engine: claude-code\n    permissions:\n      claude-code:\n        mode: plan\n"];
     let library = with(&[("project", project)], &layers).library();
     let resolved = |name: &str| {
         ok(library.agent_show(&plain(), name, &say))
             .resolved
             .unwrap_or_else(|| panic!("{name} did not resolve"))
     };
-    let bare = resolved("bare");
-    assert_eq!(
-        (bare.label.as_str(), bare.backend.as_str()),
-        ("opencode", "opencode")
-    );
-    let weird = resolved("weird");
-    assert_eq!(
-        (weird.label.as_str(), weird.backend.as_str()),
-        ("weird-label", "claude-code")
-    );
-    let inherits = resolved("inherits");
-    assert_eq!(inherits.label, "opencode");
+    assert_eq!(resolved("bare").engine, "opencode");
+    assert_eq!(resolved("bare").command, "opencode");
+    assert_eq!(resolved("silent").engine, "claude-code");
+    assert_eq!(resolved("silent").effective_permissions, "acceptEdits");
     let typed = resolved("typed");
     assert_eq!(
         (
-            typed.backend.as_str(),
+            typed.engine.as_str(),
             typed.model.as_str(),
+            typed.effort.as_str(),
             typed.effective_permissions.as_str()
         ),
-        ("mock", "m1", "")
+        ("mock", "m1", "low", "")
     );
+    assert_eq!(resolved("planner").effective_permissions, "plan");
 }
 
 // agent.feature: a bundle's server that is reached by URL or served by the
@@ -831,7 +821,8 @@ fn test_requirements_name_only_the_commands_a_host_must_have() {
         ("mcp/blank.yaml", "args: [a]\n"),
         ("profiles/all.yaml", "bundles: [project]\n"),
     ];
-    let layers = ["schema_version: 9\nagents:\n  a:\n    llm: claude-code\n    profiles: [all]\n"];
+    let layers =
+        ["schema_version: 9\nagents:\n  a:\n    engine: claude-code\n    profiles: [all]\n"];
     let shown = ok(with(&[("project", files)], &layers)
         .library()
         .agent_show(&plain(), "a", &say));
@@ -846,9 +837,9 @@ fn test_requirements_name_only_the_commands_a_host_must_have() {
 
 // agent.feature: the permission posture a run takes, in the engine's words.
 #[test]
-fn test_the_effective_posture_follows_the_binding_then_the_label_then_the_default() {
+fn test_the_effective_posture_follows_the_binding_then_the_engine_default() {
     let project: &[(&str, &str)] = &[ENVELOPE, ("profiles/p.yaml", "description: p\n")];
-    let layers = ["schema_version: 9\npermissions:\n  approver: reviewer\nagents:\n  neutral:\n    llm: claude-code\n    permissions:\n      approver: \"\"\n  foreign:\n    llm: claude-code\n    permissions:\n      opencode:\n        mode: whatever\n  own:\n    llm: claude-code\n    permissions:\n      approver: none\n      claude-code:\n        mode: plan\n  modeless:\n    llm: claude-code\n    permissions:\n      claude-code:\n        other: x\n  labelled:\n    llm: strict\n  labelled-approver:\n    llm: strict\n    permissions:\n      approver: human\n  mocked:\n    llm: mock\nllm:\n  configs:\n    strict:\n      type: claude-code\n      permissions:\n        mode: bypassPermissions\n        approver: none\n"];
+    let layers = ["schema_version: 9\npermissions:\n  approver: reviewer\nagents:\n  neutral:\n    engine: claude-code\n    permissions:\n      approver: \"\"\n  foreign:\n    engine: claude-code\n    permissions:\n      opencode:\n        mode: whatever\n  own:\n    engine: claude-code\n    permissions:\n      approver: none\n      claude-code:\n        mode: plan\n  modeless:\n    engine: claude-code\n    permissions:\n      claude-code:\n        other: x\n  mocked:\n    engine: mock\n"];
     let library = with(&[("project", project)], &layers).library();
     // --degraded keeps a value the schema refuses (an empty approver), so the
     // fall-through past an empty declaration can be seen.
@@ -864,19 +855,15 @@ fn test_the_effective_posture_follows_the_binding_then_the_label_then_the_defaul
     };
     let pair = |a: &str, b: &str| (a.to_string(), b.to_string());
     assert_eq!(seen("neutral"), pair("acceptEdits", "reviewer"));
-    assert_eq!(seen("foreign"), pair("", "reviewer"));
+    // a block for another engine says nothing of this one: the default stands
+    assert_eq!(seen("foreign"), pair("acceptEdits", "reviewer"));
     assert_eq!(seen("own"), pair("plan", "none"));
     assert_eq!(seen("modeless"), pair("acceptEdits", "reviewer"));
-    assert_eq!(seen("labelled"), pair("bypassPermissions", "none"));
-    assert_eq!(
-        seen("labelled-approver"),
-        pair("bypassPermissions", "human")
-    );
     assert_eq!(seen("mocked"), pair("", "reviewer"));
     let bare = Setup {
         ..with(
             &[("project", project)],
-            &["schema_version: 9\nagents:\n  a:\n    llm: claude-code\n"],
+            &["schema_version: 9\nagents:\n  a:\n    engine: claude-code\n"],
         )
     }
     .library();
@@ -888,7 +875,7 @@ fn test_the_effective_posture_follows_the_binding_then_the_label_then_the_defaul
 // the project's, else none and the host.
 #[test]
 fn test_a_dry_run_settles_the_workspace_and_runtime_axes() {
-    let agent = "agents:\n  dev:\n    llm: claude-code\n    runtime: container-rootless\n  plain:\n    llm: claude-code\n";
+    let agent = "agents:\n  dev:\n    engine: claude-code\n    runtime: container-rootless\n  plain:\n    engine: claude-code\n";
     let run = |layers: &str, request: crate::RunRequest| {
         let layers = [layers];
         ok(with(&[], &layers).library().dry_run(&plain(), &request))
@@ -928,7 +915,7 @@ fn test_a_dry_run_settles_the_workspace_and_runtime_axes() {
 #[test]
 fn test_the_prompt_is_given_or_the_saved_commands_body() {
     let files: &[(&str, &str)] = &[ENVELOPE, ("prompts/saved.md", "SAVED BODY\n")];
-    let layers = ["schema_version: 9\nagents:\n  d:\n    llm: claude-code\ndefault_agent: d\n"];
+    let layers = ["schema_version: 9\nagents:\n  d:\n    engine: claude-code\ndefault_agent: d\n"];
     let library = with(&[("b", files)], &layers).library();
     let prompt = |given: &str, saved: &str| {
         library
@@ -989,38 +976,6 @@ fn test_degraded_tolerates_a_missing_default_agent_only() {
             .result,
         Err(AppError::LaunchNoAgent { .. })
     ));
-}
-
-// run.feature: --llm must name a configured label or an engine; the refusal
-// lists what is usable: the labels and the real engines, each once, sorted.
-#[test]
-fn test_an_unknown_llm_lists_the_usable_ones() {
-    let layers = ["schema_version: 9\nllm:\n  configs:\n    opencode:\n      type: opencode\n      model: m\n    zed:\n      type: mock\n"];
-    let request = crate::RunRequest {
-        profile: "x".to_string(),
-        llm: "nosuch".to_string(),
-        ..crate::RunRequest::default()
-    };
-    match with(&[], &layers)
-        .library()
-        .dry_run(&plain(), &request)
-        .result
-    {
-        Err(AppError::UnknownLlm { usable, .. }) => {
-            assert!(!usable.contains("mock"), "{usable}");
-            let words: Vec<&str> = usable.split(", ").collect();
-            let mut sorted = words.clone();
-            sorted.sort_unstable();
-            sorted.dedup();
-            assert_eq!(words, sorted, "sorted, each once: {usable}");
-            assert!(
-                words.contains(&"claude-code")
-                    && words.contains(&"opencode")
-                    && words.contains(&"zed")
-            );
-        }
-        other => panic!("{:?}", other.err()),
-    }
 }
 
 // run.feature: warnings (a placeholder left as written) are said but are not
@@ -1157,7 +1112,7 @@ fn test_an_agent_is_kept_when_profiles_alone_bind_it() {
 // config.feature: env_host is read as a boolean, absent when unset.
 #[test]
 fn test_an_agents_env_host_is_true_false_or_unset() {
-    let layers = ["schema_version: 9\nagents:\n  on:\n    llm: claude-code\n    env_host: true\n  off:\n    llm: claude-code\n    env_host: false\n  unset:\n    llm: claude-code\n"];
+    let layers = ["schema_version: 9\nagents:\n  on:\n    engine: claude-code\n    env_host: true\n  off:\n    engine: claude-code\n    env_host: false\n  unset:\n    engine: claude-code\n"];
     let rows = ok(with(&[], &layers).library().agent_list(&plain()));
     let by = |name: &str| rows.iter().find(|r| r.name == name).unwrap().env_host;
     assert_eq!(
@@ -1173,4 +1128,30 @@ fn test_the_config_sections_are_the_schemas() {
     assert!(sections.contains(&"editor") && sections.contains(&"companions"));
     assert!(sections.len() > 10);
     assert!(sections.iter().all(|s| !s.is_empty() && *s != "xyzzy"));
+}
+
+// A live probe (2026-11-09): the model never reached the engine. The plan
+// names the agent's model and effort; an agent with none names none, and the
+// engine block never supplies them (owner ruling 40).
+#[test]
+fn test_a_dry_run_carries_the_agent_s_model_and_effort() {
+    let layers = ["schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    model: haiku\n    effort: low\n  bare:\n    engine: claude-code\n"];
+    let library = with(&[], &layers).library();
+    let plan = |agent: &str| {
+        ok(library.dry_run(
+            &plain(),
+            &crate::RunRequest {
+                agent: agent.to_string(),
+                ..crate::RunRequest::default()
+            },
+        ))
+        .plan
+    };
+    let dev = plan("dev");
+    assert_eq!(
+        (dev.engine.as_str(), dev.model.as_str(), dev.effort.as_str()),
+        ("claude-code", "haiku", "low")
+    );
+    let bare = plan("bare");
+    assert_eq!((bare.model.as_str(), bare.effort.as_str()), ("", ""));
 }

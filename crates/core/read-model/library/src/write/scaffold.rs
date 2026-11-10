@@ -29,66 +29,30 @@ fn map(entries: Vec<(&str, Value)>) -> Value {
     )
 }
 
-/// The registry's entries for `engine`, and the labels that play its two
-/// roles: the shipped registry marks claude-code's primary (`opus`) and fast
-/// (`haiku`) entries; an engine it does not mark is one entry of its own
-/// serving both.
-fn registry(engine: &str) -> (Value, String, String) {
-    if engine == "claude-code" {
-        let entry = |model: &str| map(vec![("model", text(model)), ("type", text("claude-code"))]);
-        return (
-            map(vec![
-                ("claude-code", entry("opus")),
-                ("claude-fast", entry("haiku")),
-            ]),
-            "claude-code".to_string(),
-            "claude-fast".to_string(),
-        );
-    }
-    (
-        map(vec![(engine, map(vec![("type", text(engine))]))]),
-        engine.to_string(),
-        engine.to_string(),
-    )
-}
-
-/// The config a new project starts as, as a value: keys sorted.
+/// The config a new project starts as, as a value: keys sorted. The default
+/// agent names its engine and the seeded profile; the engine block is the
+/// user's to write (an engine on its built-in settings needs none).
 pub fn initial_sections(engine: &str) -> Value {
-    let (configs, primary, fast) = registry(engine);
     sorted(&map(vec![
         (
             "agents",
             map(vec![(
                 SEED_NAME,
                 map(vec![
-                    ("engine_home", text("session")),
-                    ("llm", text(&primary)),
+                    ("engine", text(engine)),
                     ("profiles", Value::Seq(vec![text(SEED_NAME)])),
                     ("runtime", text("host")),
                 ]),
             )]),
         ),
-        ("auth", text("token")),
         ("config", map(vec![("use_distilled", text("true"))])),
         ("default_agent", text(SEED_NAME)),
-        (
-            "llm",
-            map(vec![
-                ("configs", configs),
-                (
-                    "defaults",
-                    map(vec![("fast", text(&fast)), ("primary", text(&primary))]),
-                ),
-            ]),
-        ),
         ("schema_version", text(&crate::config::CURRENT.to_string())),
     ]))
 }
 
 /// The config a new project starts as, for `engine` (a name the caller has
-/// checked): the registry's primary and fast entries of that engine, or a
-/// single entry serving both roles; the default agent bound to the seeded
-/// profile. Keys sorted, as a fresh document is.
+/// checked): the default agent bound to that engine and the seeded profile. Keys sorted, as a fresh document is.
 pub fn initial_config(engine: &str) -> String {
     render_sorted(&initial_sections(engine))
 }

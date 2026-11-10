@@ -90,9 +90,15 @@ impl Project {
         let label = match &request.llm {
             Some(label) => label.clone(),
             None => {
-                let own = held.get("llm").and_then(Value::as_str).unwrap_or_default();
+                let own = held
+                    .get("engine")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
                 if own.is_empty() {
-                    self.config.agent(name).map(|a| a.llm).unwrap_or_default()
+                    self.config
+                        .agent(name)
+                        .map(|a| a.engine)
+                        .unwrap_or_default()
                 } else {
                     own.to_string()
                 }
@@ -301,7 +307,7 @@ impl Project {
             entry = Value::Map(Vec::new());
         }
         if let Some(llm) = &request.llm {
-            put(&mut entry, "llm", some_text(llm));
+            put(&mut entry, "engine", some_text(llm));
         }
         if let Some(profiles) = &request.profiles {
             let list = Value::Seq(
@@ -325,9 +331,6 @@ impl Project {
         }
         if let Some(roots) = &request.roots {
             put(&mut entry, "roots", pairs_map(roots));
-        }
-        if let Some(home) = &request.engine_home {
-            put(&mut entry, "engine_home", some_text(home));
         }
         if let Some(on) = request.env_host {
             put(
@@ -364,11 +367,11 @@ impl Project {
             .clone()
             .or_else(|| {
                 entry
-                    .get("llm")
+                    .get("engine")
                     .and_then(Value::as_str)
                     .map(ToString::to_string)
             })
-            .or_else(|| self.config.agent(name).map(|a| a.llm))
+            .or_else(|| self.config.agent(name).map(|a| a.engine))
             .unwrap_or_default();
         let Some(backend) = self.engine_of(&label) else {
             return;
@@ -397,7 +400,7 @@ impl Project {
     /// A record that cannot launch as written is refused.
     fn check_written(&self, name: &str, entry: &Value) -> Result<(), AppError> {
         let agent = Agent::of(name, entry);
-        if agent.llm.is_empty() && agent.profiles.is_empty() {
+        if agent.engine.is_empty() && agent.profiles.is_empty() {
             return Err(WriteError::AgentWithoutEngine {
                 name: name.to_string(),
             }

@@ -107,6 +107,11 @@ pub enum AppError {
     McpNotFound { name: String },
     /// An LLM label nobody can use.
     UnknownLlm { label: String, usable: String },
+    /// An engine ctxloom does not drive.
+    UnknownEngine { engine: String, known: String },
+    /// An engine's `auth` the schema refuses (the text it holds is never
+    /// repeated).
+    EngineAuth { engine: String, why: String },
     /// A profile that cannot be composed.
     Compose {
         profile: String,
@@ -211,6 +216,8 @@ impl Diagnostic for AppError {
             AppError::LaunchNoAgents => code!("launch-no-agents"),
             AppError::McpNotFound { .. } => code!("mcp-not-found"),
             AppError::UnknownLlm { .. } => code!("unknown-llm"),
+            AppError::UnknownEngine { .. } => code!("unknown-engine"),
+            AppError::EngineAuth { .. } => code!("engine-auth"),
             AppError::Compose { .. } => code!("compose"),
             AppError::NoFragments { .. } => code!("no-fragments"),
             AppError::AgentExclusive { .. } => code!("agent-exclusive"),
@@ -221,6 +228,8 @@ impl Diagnostic for AppError {
         }
     }
 
+    // A table of one arm per error: its length is its variant count.
+    #[allow(clippy::too_many_lines)]
     fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             AppError::Cause(cause) => cause.args(),
@@ -298,6 +307,14 @@ impl Diagnostic for AppError {
             AppError::UnknownLlm { label, usable } => vec![
                 ("label", label.as_str().into()),
                 ("usable", usable.as_str().into()),
+            ],
+            AppError::UnknownEngine { engine, known } => vec![
+                ("engine", engine.as_str().into()),
+                ("known", known.as_str().into()),
+            ],
+            AppError::EngineAuth { engine, why } => vec![
+                ("engine", engine.as_str().into()),
+                ("why", why.as_str().into()),
             ],
             AppError::Compose { profile, cause } => vec![
                 ("profile", profile.as_str().into()),
@@ -485,6 +502,8 @@ fn version_samples() -> Vec<Box<dyn Diagnostic>> {
     ]
 }
 
+// A table of one sample per error: its length is its variant count.
+#[allow(clippy::too_many_lines)]
 #[cfg(any(test, feature = "test-support"))]
 fn error_samples() -> Vec<Box<dyn Diagnostic>> {
     let s = |text: &str| text.to_string();
@@ -563,6 +582,14 @@ fn error_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(AppError::UnknownLlm {
             label: s("x"),
             usable: s("claude-code"),
+        }),
+        Box::new(AppError::UnknownEngine {
+            engine: s("gpt-9"),
+            known: s("claude-code, opencode"),
+        }),
+        Box::new(AppError::EngineAuth {
+            engine: s("claude-code"),
+            why: s("needs env or file"),
         }),
         Box::new(AppError::Compose {
             profile: s("dev"),

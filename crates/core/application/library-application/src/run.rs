@@ -9,7 +9,6 @@ use library::findings::{Class, Finding};
 use library::profile::ResolvedProfile;
 use library::tokens;
 
-use crate::agents::ENGINES;
 use crate::config::Agent;
 use crate::error::{AppError, Notice};
 use crate::project::{Library, Outcome, Project};
@@ -23,7 +22,6 @@ pub struct RunRequest {
     pub profile: String,
     pub fragments: Vec<String>,
     pub tags: Vec<String>,
-    pub llm: String,
     pub prompt: String,
     /// `--command <name>`: the saved command whose body is the prompt.
     pub saved_command: String,
@@ -156,24 +154,6 @@ impl Project {
         }
     }
 
-    /// An explicit `--llm` must name a configured label or an engine.
-    fn check_llm(&self, label: &str) -> Result<(), AppError> {
-        if label.is_empty() || self.config.llm_entry(label).is_some() || ENGINES.contains(&label) {
-            return Ok(());
-        }
-        let mut usable: Vec<String> = self.config.label_names();
-        for engine in ENGINES.iter().filter(|e| !e.starts_with("mock")) {
-            if !usable.iter().any(|u| u == engine) {
-                usable.push((*engine).to_string());
-            }
-        }
-        usable.sort();
-        Err(AppError::UnknownLlm {
-            label: label.to_string(),
-            usable: usable.join(", "),
-        })
-    }
-
     /// The selection of `set` and the caller's asks, assembled. Whether the
     /// premised fragments load or are indexed follows the engine.
     pub(crate) fn assemble_set(
@@ -223,23 +203,27 @@ impl Project {
                 value: request.workspace.clone(),
             });
         }
-        self.check_llm(&request.llm)?;
         let prompt = self.prompt_of(request)?;
         let selection = self.selection(request)?;
         let mut findings = Vec::new();
         let package = self.compose(&selection, &mut findings)?;
-        let agent_llm = selection
-            .agent
-            .as_ref()
-            .map(|a| a.llm.clone())
-            .unwrap_or_default();
-        let wanted = if request.llm.is_empty() {
-            agent_llm
-        } else {
-            request.llm.clone()
+        // An agent's engine, model and effort are its own; a launch with no
+        // agent takes the default engine and passes no model or effort.
+        let (engine, model, effort) = match selection.agent.as_ref() {
+            Some(agent) => {
+                let effective = self.effective_of(agent)?;
+                (
+                    effective.engine.value,
+                    effective.model.map(|m| m.value).unwrap_or_default(),
+                    effective.effort.map(|e| e.value).unwrap_or_default(),
+                )
+            }
+            None => (
+                library::config::engines::DEFAULT_ENGINE.to_string(),
+                String::new(),
+                String::new(),
+            ),
         };
-        let (label, backend, _) = self.backend_of(&wanted, &package.selection.llm);
-        self.check_llm(&label)?;
         let degraded = self.flags.degraded;
         for finding in &findings {
             self.notices.push(Notice::finding(finding));
@@ -263,8 +247,7 @@ impl Project {
                 .as_ref()
                 .map(|a| a.runtime.clone())
                 .unwrap_or_default(),
-            llm: label,
-            backend,
+            engine,
             profiles: package.selection.profiles.clone(),
             fragments: package.loaded.clone(),
             tokens: tokens::estimate(&package.context) as u64,
@@ -272,6 +255,8 @@ impl Project {
             prompt,
             findings: rows,
             axes: self.axes(request, selection.agent.as_ref()),
+            model,
+            effort,
         };
         Ok(Previewed { plan, fatal })
     }

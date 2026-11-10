@@ -322,7 +322,7 @@ where
             return Err(RunError::NoPrompt);
         }
         let engine = if request.engine.is_empty() {
-            plan.backend.clone()
+            plan.engine.clone()
         } else {
             request.engine.clone()
         };
@@ -400,6 +400,8 @@ where
                 env,
                 cwd: Some(self.place.project_dir.clone()),
                 interactive,
+                model: plan.model,
+                effort: plan.effort,
             },
         );
         Ok((session, harp, engine, enqueued.run))

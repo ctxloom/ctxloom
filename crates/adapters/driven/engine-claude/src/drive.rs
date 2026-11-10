@@ -133,6 +133,7 @@ impl Engine for Claude {
             .to_vec();
         command.args.push("--append-system-prompt-file".to_string());
         command.args.push(request.context_path.clone());
+        push_model_and_effort(&mut command.args, request)?;
         if let Some(native_id) = &request.resume {
             command.args.push("--resume".to_string());
             command.args.push(native_id.clone());
@@ -163,6 +164,7 @@ impl Engine for Claude {
         let mut command = TurnCommand::new(PROGRAM);
         command.args.push("--append-system-prompt-file".to_string());
         command.args.push(request.context_path.clone());
+        push_model_and_effort(&mut command.args, request)?;
         if let Some(native_id) = &request.resume {
             command.args.push("--resume".to_string());
             command.args.push(native_id.clone());
@@ -174,6 +176,31 @@ impl Engine for Claude {
         command.cwd = request.cwd.clone();
         Ok(command)
     }
+}
+
+/// The effort levels `claude --effort` takes (`claude --help`, 2.1.321).
+pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
+/// `--model <model>` and `--effort <level>` when the agent names them; none
+/// named is no flag (the engine's own default). A level claude does not take
+/// is refused here, before it is launched.
+fn push_model_and_effort(args: &mut Vec<String>, request: &TurnRequest) -> Result<(), EngineError> {
+    if !request.model.is_empty() {
+        args.push("--model".to_string());
+        args.push(request.model.clone());
+    }
+    if !request.effort.is_empty() {
+        if !EFFORT_LEVELS.contains(&request.effort.as_str()) {
+            return Err(EngineError::UnknownEffort {
+                engine: NAME.to_string(),
+                level: request.effort.clone(),
+                known: EFFORT_LEVELS.join(", "),
+            });
+        }
+        args.push("--effort".to_string());
+        args.push(request.effort.clone());
+    }
+    Ok(())
 }
 
 /// The command's whole environment: `caller`'s variables on `allowed` and

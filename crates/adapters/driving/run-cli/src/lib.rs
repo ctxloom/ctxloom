@@ -106,7 +106,6 @@ fn request_of(run: &ArgMatches, prompt: String) -> OneShot {
             profile: one(run, "profile").unwrap_or_default(),
             fragments: many(run, "fragment"),
             tags: many(run, "tag"),
-            llm: one(run, "llm").unwrap_or_default(),
             prompt,
             saved_command: one(run, "command").unwrap_or_default(),
             workspace: one(run, "workspace").unwrap_or_default(),

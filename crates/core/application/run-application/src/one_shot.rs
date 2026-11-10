@@ -27,7 +27,7 @@ use sessions::{
     SESSION_DOMAIN,
 };
 
-use crate::credential::{refuse_child, share_login};
+use crate::credential::{refuse_child, refuse_file_only, share_login};
 use crate::error::RunError;
 
 /// How many names are tried for a session before a taken one is the error.
@@ -461,6 +461,9 @@ where
         // A child agent is given an environment credential and nothing else.
         if !interactive {
             let credentials = self.launcher.credentials(&engine).unwrap_or_default();
+            if let Some(refusal) = refuse_file_only(&engine, &settings.auth, &credentials) {
+                return Err(RunError::Refused(refusal));
+            }
             let credentials = settings.credentials(credentials);
             if let Some(refusal) = refuse_child(&engine, &credentials, &self.env) {
                 return Err(RunError::Refused(refusal));

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use library_application::Notice;
-use run_ports::{Credentials, LinkState, LoginLinks, RecordsError};
+use run_ports::{AuthSetting, Credentials, LinkState, LoginLinks, RecordsError};
 use runs::RunRejection;
 
 use super::*;
@@ -120,6 +120,66 @@ fn an_engine_that_needs_no_credential_refuses_nothing() {
         refuse_child("fake", &Credentials::default().into(), &BTreeMap::new()),
         None
     );
+}
+
+fn file_only() -> AuthSetting {
+    AuthSetting::Source {
+        env: Vec::new(),
+        file: Some("~/.claude/.credentials.json".to_string()),
+    }
+}
+
+// Ruling 53: a source that is a file alone can authenticate no child, so it is
+// refused naming the engine and the variables its built-in source accepts.
+#[test]
+fn a_child_on_a_file_only_source_is_refused_naming_the_builtin_variables() {
+    assert_eq!(
+        refuse_file_only("claude-code", &file_only(), &CLAUDE),
+        Some(RunRejection::FileOnlyCredential {
+            engine: "claude-code".to_string(),
+            variables: "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY".to_string(),
+        })
+    );
+}
+
+// An engine whose adapter names no child variable is told the library's
+// built-in source (opencode's endpoint key).
+#[test]
+fn an_engine_with_no_adapter_variable_names_its_builtin_source() {
+    assert_eq!(
+        refuse_file_only("opencode", &file_only(), &Credentials::default()),
+        Some(RunRejection::FileOnlyCredential {
+            engine: "opencode".to_string(),
+            variables: "CTXLOOM_OPENCODE_API_KEY".to_string(),
+        })
+    );
+}
+
+// A source with any variable, or no file, is the environment check's (or
+// nobody's): the file-only refusal is for a file and nothing else.
+#[test]
+fn a_source_with_a_variable_or_without_a_file_is_not_file_only() {
+    let with_env = AuthSetting::Source {
+        env: vec!["TEAM_TOKEN".to_string()],
+        file: Some("~/.claude/.credentials.json".to_string()),
+    };
+    let no_file = AuthSetting::Source {
+        env: Vec::new(),
+        file: None,
+    };
+    for auth in [
+        with_env,
+        no_file,
+        AuthSetting::Builtin,
+        AuthSetting::None,
+        AuthSetting::Login,
+    ] {
+        assert_eq!(
+            refuse_file_only("claude-code", &auth, &CLAUDE),
+            None,
+            "{auth:?}"
+        );
+    }
 }
 
 #[test]

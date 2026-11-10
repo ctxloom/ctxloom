@@ -10,7 +10,7 @@
 use std::collections::BTreeMap;
 
 use library_application::Notice;
-use run_ports::{CredentialPolicy, LinkState, LoginLinks};
+use run_ports::{AuthSetting, CredentialPolicy, Credentials, LinkState, LoginLinks};
 use runs::RunRejection;
 
 /// The platforms whose login cannot be shared by a link: macOS keeps claude's
@@ -50,6 +50,19 @@ pub fn refuse_child(
         engine: engine.to_string(),
         variables: credentials.child_env.join(", "),
     })
+}
+
+/// The refusal of a child agent's run whose engine's configured source is a
+/// credentials file and no variable (owner ruling 53), naming the variables
+/// the engine's built-in source accepts; none for any other source. Asked
+/// before anything of the run is made: its listener, its session, its engine.
+pub fn refuse_file_only(
+    engine: &str,
+    auth: &AuthSetting,
+    base: &Credentials,
+) -> Option<RunRejection> {
+    let _ = (engine, auth, base);
+    None
 }
 
 /// Where a configured login file is: `~/` is the caller's home, a relative

@@ -96,3 +96,23 @@ Feature: auth — how ctxloom-launched engines authenticate
       And the output contains "claude-code token: missing"
       And the output contains "TEAM_CLAUDE_TOKEN"
       And the output does not contain "sk-ant-oat01-acceptance-fixture-not-real"
+
+    Scenario: A source that is a file alone serves the primary session only
+      # new: owner ruling 53 (2026-11-09). A file is the human's own session's;
+      # a child agent needs a variable, so the row says who it serves.
+      Given an initialized ctxloom project
+      And the home already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        engines:
+          claude-code:
+            auth:
+              file: ~/.claude/.credentials.json
+        """
+      And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-acceptance-fixture-not-real"
+      When I run "ctxloom auth status --format json"
+      Then the command succeeds
+      And the output does not contain "sk-ant-oat01-acceptance-fixture-not-real"
+      And the output reports "[engine=claude-code].mode" as "file"
+      And the output reports "[engine=claude-code].usable_by" as "primary"
+      And the output reports "[engine=claude-code].via" as "~/.claude/.credentials.json"

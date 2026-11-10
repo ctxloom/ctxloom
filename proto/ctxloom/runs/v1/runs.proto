@@ -74,6 +74,7 @@ message EnqueueRun {
     refuses: "ctxloom.runs.v1.CredentialsNotDistinct"
     refuses: "ctxloom.runs.v1.NotItsStream"
     refuses: "ctxloom.runs.v1.NoCredential"
+    refuses: "ctxloom.runs.v1.FileOnlyCredential"
   };
 
   string session = 1;
@@ -388,6 +389,22 @@ message NoCredential {
   // The engine that would have been run.
   string engine = 1;
   // The variables any one of which would have served, comma separated.
+  string variables = 2;
+}
+
+// A child agent's run whose engine's credential source names a credentials
+// FILE and no environment variable (owner ruling 53, 2026-11-09): a file is
+// the human's primary interactive session's alone (ruling 8), so no child of
+// that engine can authenticate. Refused, like NoCredential, before the listener
+// is served, a session made or an engine started; raised by the run
+// application's pre-launch check.
+message FileOnlyCredential {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  // The engine that would have been run.
+  string engine = 1;
+  // The variables the engine's built-in source accepts, comma separated: the
+  // ones to name in the source's `env` and export.
   string variables = 2;
 }
 

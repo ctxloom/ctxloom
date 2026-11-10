@@ -252,9 +252,57 @@ fn auth_none_and_a_file_alone_need_nothing_from_the_environment_of_a_child() {
     assert!(auth(&[])
         .needed(&["claude-code".to_string()], &none)
         .is_empty());
-    let file =
-        layer("engines:\n  claude-code:\n    auth:\n      file: /h/.claude/.credentials.json\n");
-    assert!(auth(&[]).status(&file).is_empty());
+}
+
+/// A source that is a file alone (owner ruling 53).
+fn file_only() -> Vec<String> {
+    layer("engines:\n  claude-code:\n    auth:\n      file: /h/.claude/.credentials.json\n")
+}
+
+// Ruling 53: a file alone has a row of its own, usable by the primary and not
+// by a child, whatever is exported (the source names no variable), and the
+// fix names the variables to put in the source and export.
+#[test]
+fn a_file_only_source_has_a_row_usable_by_the_primary_not_by_children() {
+    for exported in [&[][..], &["CLAUDE_CODE_OAUTH_TOKEN"][..]] {
+        let rows = auth(exported).status(&file_only());
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        let row = &rows[0];
+        assert_eq!(row.engine, "claude-code");
+        assert_eq!(row.mode, "file");
+        assert!(!row.present, "no child can use it");
+        assert_eq!(row.usable_by, "primary");
+        assert_eq!(row.via, "/h/.claude/.credentials.json");
+        assert!(row.vars.is_empty());
+        assert_eq!(
+            row.remedy,
+            "a child agent needs an environment credential: name one of CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY in engines.claude-code.auth.env and export it"
+        );
+    }
+    let doc = serde_json::to_value(auth(&[]).status(&file_only())).unwrap();
+    assert_eq!(doc[0]["usable_by"], "primary");
+    // a token row says nothing of who may use it
+    let doc = serde_json::to_value(auth(&["CLAUDE_CODE_OAUTH_TOKEN"]).status(&[])).unwrap();
+    assert!(doc[0].get("usable_by").is_none());
+}
+
+// The doctor's verdict of a file alone: the primary can run, a child cannot.
+#[test]
+fn a_file_only_source_is_a_verdict_for_the_primary_only() {
+    let verdicts = auth(&[]).needed(&["claude-code".to_string()], &file_only());
+    assert_eq!(verdicts.len(), 1, "{verdicts:?}");
+    let v = &verdicts[0];
+    assert_eq!(v.mode, "file");
+    assert!(v.primary_only);
+    assert!(v.ready, "the primary may run on it");
+    assert!(
+        v.remedy.contains("engines.claude-code.auth.env"),
+        "{}",
+        v.remedy
+    );
+    // a variable source is no primary-only one
+    let verdicts = auth(&[]).needed(&["claude-code".to_string()], &[]);
+    assert!(!verdicts[0].primary_only);
 }
 
 #[test]

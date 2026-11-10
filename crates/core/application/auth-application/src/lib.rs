@@ -37,6 +37,11 @@ pub struct Row {
     pub via: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub remedy: String,
+    /// Who the credential serves when it is not every run: `primary` for a
+    /// source that is a file alone (owner ruling 53), which the human's own
+    /// interactive session may use and no child agent can.
+    #[serde(skip_serializing_if = "str::is_empty")]
+    pub usable_by: &'static str,
 }
 
 /// Whether one configured engine could authenticate a run.
@@ -49,6 +54,9 @@ pub struct Verdict {
     /// False only where a required credential is not exported.
     pub ready: bool,
     pub remedy: String,
+    /// The source is a file alone: the primary session may run on it, a
+    /// child agent cannot (owner ruling 53).
+    pub primary_only: bool,
 }
 
 /// An engine's credential source and whether a run is refused without it.
@@ -102,6 +110,7 @@ impl Auth {
                     remedy(&need)
                 },
                 via: found.unwrap_or_default(),
+                usable_by: "",
             })
         })
         .collect()
@@ -131,6 +140,7 @@ impl Auth {
                 remedy: remedy(&need),
                 vars: need.vars,
                 engine: need.engine,
+                primary_only: false,
             })
             .collect()
     }

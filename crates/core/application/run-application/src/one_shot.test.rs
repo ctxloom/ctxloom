@@ -1023,6 +1023,82 @@ async fn a_one_shot_with_an_env_credential_runs() {
     assert!(rig.links.made.lock().unwrap().is_empty());
 }
 
+/// An engine block whose credential source is a file alone: what the primary
+/// may share, and no child can use (ruling 53).
+fn file_only() -> Script {
+    let mut script = needing_a_token();
+    script.drive.auth = library_application::Sourced {
+        value: library_application::AuthSource::Credential {
+            env: Vec::new(),
+            file: Some("~/.claude/.credentials.json".to_string()),
+        },
+        source: library_application::Source::Engine,
+    };
+    script
+}
+
+// Ruling 53: a child of an engine whose source is a file alone is refused with
+// the typed refusal naming the engine and the variables to export, even with
+// one of them exported (the source names none, so the engine would not be
+// given it): no listener served, no certificate minted, no name claimed, no
+// engine spawned.
+#[tokio::test]
+async fn a_one_shot_on_a_file_only_source_is_refused_before_its_listener_or_session() {
+    let mut script = file_only();
+    script.env.push(("CLAUDE_CODE_OAUTH_TOKEN", "t")); // gitleaks:allow
+    let mut rig = rig(script);
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap_err();
+    assert!(
+        matches!(&error, RunError::Refused(runs::RunRejection::FileOnlyCredential { engine, variables })
+            if engine == "fake" && variables == "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY"),
+        "{error:?}"
+    );
+    assert_eq!(error.code(), "runs-file-only-credential");
+    assert_eq!(error.exit_code(), 2);
+    assert!(
+        rig.hooks.log.lock().unwrap().is_empty(),
+        "no listener served"
+    );
+    assert!(
+        rig.certs.asked.lock().unwrap().is_empty(),
+        "no certificate minted"
+    );
+    assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 0);
+    assert!(rig.runner.seen.lock().unwrap().is_empty());
+}
+
+// The primary is unchanged: her session may share the file.
+#[tokio::test]
+async fn the_primary_on_a_file_only_source_runs() {
+    let mut script = file_only();
+    script.prompt = "";
+    let mut rig = rig(script);
+    let done = rig.runs.interactive(&Flags::default(), &ask()).await;
+    assert!(done.result.is_ok(), "{:?}", done.result.err());
+}
+
+// A child with no env credential at all is refused before its listener is
+// served, as a file-only one is.
+#[tokio::test]
+async fn a_one_shot_with_no_env_credential_serves_no_listener() {
+    let mut rig = rig(needing_a_token());
+    let done = rig.runs.one_shot(&Flags::default(), &ask()).await;
+    assert!(done.result.is_err());
+    assert!(
+        rig.hooks.log.lock().unwrap().is_empty(),
+        "no listener served"
+    );
+    assert!(
+        rig.certs.asked.lock().unwrap().is_empty(),
+        "no certificate minted"
+    );
+}
+
 #[tokio::test]
 async fn the_primary_with_no_env_credential_is_linked_to_her_login_and_runs() {
     let mut script = needing_a_token();

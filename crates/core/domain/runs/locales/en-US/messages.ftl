@@ -10,3 +10,5 @@ runs-not-its-stream = this stream is not the run's own
 runs-credentials-not-distinct = the runner's, the model's and the hook's credentials must all differ
 runs-no-credential = a child agent run of { $engine } needs a credential in the environment (any one of: { $variables }), and none is set
 runs-no-credential-fix = run `claude setup-token` (it needs a Pro, Max, Team or Enterprise plan and makes a one-year token), then export CLAUDE_CODE_OAUTH_TOKEN with it, or store it in your secret manager
+runs-file-only-credential = a child agent run of { $engine } needs a credential in the environment (any one of: { $variables }), and engines.{ $engine }.auth names only a file, which serves the primary interactive session alone
+runs-file-only-credential-fix = name one of those variables in engines.{ $engine }.auth.env and export it (for claude-code, `claude setup-token` makes CLAUDE_CODE_OAUTH_TOKEN); the file keeps serving the primary session

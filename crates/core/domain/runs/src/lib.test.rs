@@ -71,5 +71,5 @@ fn rejections_display_their_code_and_the_samples_are_not_empty() {
         RunRejection::TurnInFlight { turn: 4 }.to_string(),
         "runs-turn-in-flight turn=4"
     );
-    assert_eq!(diagnostic_samples().len(), 8);
+    assert_eq!(diagnostic_samples().len(), 9);
 }

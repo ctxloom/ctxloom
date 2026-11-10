@@ -13,8 +13,8 @@
 use angzarr_embedded::markup::TypedRefusal;
 
 use crate::{
-    AlreadyEnqueued, CredentialHashInvalid, CredentialsNotDistinct, Ended, NoCredential, NoRun,
-    NotItsStream, RunRejection, TurnInFlight,
+    AlreadyEnqueued, CredentialHashInvalid, CredentialsNotDistinct, Ended, FileOnlyCredential,
+    NoCredential, NoRun, NotItsStream, RunRejection, TurnInFlight,
 };
 
 /// What a command handler fails with for `rejection`: the typed refusal
@@ -72,6 +72,9 @@ impl TryFrom<&TypedRefusal> for RunRejection {
         }
         if let Some(NoCredential { engine, variables }) = refusal.object() {
             return Ok(RunRejection::NoCredential { engine, variables });
+        }
+        if let Some(FileOnlyCredential { engine, variables }) = refusal.object() {
+            return Ok(RunRejection::FileOnlyCredential { engine, variables });
         }
         Err(NotOurs)
     }

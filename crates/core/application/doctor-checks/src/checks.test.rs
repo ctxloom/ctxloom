@@ -253,6 +253,24 @@ fn an_api_key_alone_passes_and_a_configured_source_replaces_the_built_in_one() {
     assert_eq!(credentials(&[team], &["TEAM_TOKEN"]).status, Status::Ok);
 }
 
+// Ruling 53: a source that is a file alone is a warn row: the primary session
+// can run on it, a child agent cannot, and the fix names what a child needs.
+#[test]
+fn a_file_only_source_is_a_warn_row_usable_by_the_primary_not_by_children() {
+    let file = "schema_version: 9\nengines:\n  claude-code:\n    auth:\n      file: ~/.claude/.credentials.json\n";
+    let check = credentials(&[file], TOKEN);
+    assert_eq!(check.status, Status::Warn);
+    assert_eq!(
+        check.detail,
+        "claude-code (auth file): usable by the primary session only; a child agent run is refused"
+    );
+    assert!(
+        check.remedy.contains("engines.claude-code.auth.env"),
+        "{}",
+        check.remedy
+    );
+}
+
 #[test]
 fn several_variables_missing_are_said_as_none_of_them() {
     let check = credentials(&["schema_version: 9\n"], &[]);

@@ -558,6 +558,35 @@ Feature: run — assembling a project's context and handing it to an engine
         | CLAUDE_CODE_OAUTH_TOKEN |
         | ANTHROPIC_API_KEY       |
 
+    # A credentials file serves the human's own primary session alone (ruling
+    # 8), so an engine whose source names a file and no variable can
+    # authenticate no child: the run is refused before anything starts,
+    # naming the variables to put in the source and export, even with one of
+    # them exported (the source does not name it, so the child would not get
+    # it). Her interactive session is unchanged.
+    Scenario: A child run of an engine whose credential source is a file alone is refused
+      # new: owner ruling 53 (2026-11-09).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And Alice has exported only the credential "CLAUDE_CODE_OAUTH_TOKEN"
+      And the home already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        engines:
+          claude-code:
+            auth:
+              file: ~/.claude/.credentials.json
+        """
+      When Alice runs a child agent on a file-only credential source:
+        """
+        ctxloom run --one-shot "hello"
+        """
+      Then the command exits with code 2
+      And the refusal is "runs-file-only-credential"
+      And the refusal's fix says "engines.claude-code.auth.env"
+      And the output contains "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY"
+      And no assistant was launched
+
   @pending
   Rule: --engine runs the engine it names, with that engine's defaults
 

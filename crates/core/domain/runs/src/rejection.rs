@@ -24,6 +24,11 @@ pub enum RunRejection {
     /// A child agent's run asked for with none of the environment
     /// credentials its engine authenticates with.
     NoCredential { engine: String, variables: String },
+    /// A child agent's run whose engine's credential source names a file and
+    /// no variable (owner ruling 53): only the human's primary session may
+    /// use a file. `variables` are the ones the engine's built-in source
+    /// accepts, to name in the source and export.
+    FileOnlyCredential { engine: String, variables: String },
 }
 
 impl fmt::Display for RunRejection {
@@ -43,6 +48,7 @@ impl Diagnostic for RunRejection {
             RunRejection::NotItsStream => code!("not-its-stream"),
             RunRejection::CredentialsNotDistinct => code!("credentials-not-distinct"),
             RunRejection::NoCredential { .. } => code!("no-credential"),
+            RunRejection::FileOnlyCredential { .. } => code!("file-only-credential"),
         }
     }
 
@@ -50,7 +56,8 @@ impl Diagnostic for RunRejection {
         match self {
             RunRejection::TurnInFlight { turn } => vec![("turn", (*turn).into())],
             RunRejection::CredentialHashInvalid { length } => vec![("length", (*length).into())],
-            RunRejection::NoCredential { engine, variables } => vec![
+            RunRejection::NoCredential { engine, variables }
+            | RunRejection::FileOnlyCredential { engine, variables } => vec![
                 ("engine", engine.as_str().into()),
                 ("variables", variables.as_str().into()),
             ],
@@ -81,6 +88,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(RunRejection::NotItsStream),
         Box::new(RunRejection::CredentialsNotDistinct),
         Box::new(RunRejection::NoCredential {
+            engine: "claude-code".to_string(),
+            variables: "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY".to_string(),
+        }),
+        Box::new(RunRejection::FileOnlyCredential {
             engine: "claude-code".to_string(),
             variables: "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY".to_string(),
         }),

@@ -41,6 +41,16 @@ fn table() -> Vec<(TypedRefusal, RunRejection)> {
                 variables: "A, B".to_string(),
             },
         ),
+        (
+            TypedRefusal::of(&FileOnlyCredential {
+                engine: "claude-code".to_string(),
+                variables: "A, B".to_string(),
+            }),
+            RunRejection::FileOnlyCredential {
+                engine: "claude-code".to_string(),
+                variables: "A, B".to_string(),
+            },
+        ),
     ]
 }
 

@@ -184,8 +184,13 @@ fn the_interactive_run_is_given_ctxloom_home_and_still_no_home() {
         command.env.get("CTXLOOM_HOME").map(String::as_str),
         Some("/home/alice")
     );
+    // Ruling 51: a child's hooks run without HOME too, so its turn is given
+    // ctxloom's home by name as well; neither is given HOME.
     let turn = Claude::new().drive_turn(&asked).unwrap();
-    assert!(!turn.env.contains_key("CTXLOOM_HOME"), "{:?}", turn.env);
+    assert_eq!(
+        turn.env.get("CTXLOOM_HOME").map(String::as_str),
+        Some("/home/alice")
+    );
     assert!(!turn.env.contains_key("HOME"));
 }
 
@@ -364,13 +369,14 @@ fn the_primary_may_be_authenticated_by_any_of_three_variables_and_is_passed_each
     }
 }
 
-// Owner rulings 2026-11-08 item 9 and 2026-11-09 item 16: the terminal session's
-// hook processes find the listener through the engine's environment, so the
-// interactive command is passed the endpoint, the bearer, the run and the
-// listener's certificate (public); a child's
-// turn is passed none of them, whatever the caller's environment holds.
+// Owner rulings 2026-11-08 item 9, 2026-11-09 item 16 and 51 (with 27): a
+// session's hook processes find the listener through the engine's
+// environment, so the terminal command AND a one-shot child's turn are passed
+// the endpoint, the bearer, the run, the listener's certificate (public) and
+// the session's harp. (Which values they are is the run's: an inherited one is
+// replaced before the engine is asked.)
 #[test]
-fn only_the_interactive_run_is_passed_the_listener_variables() {
+fn the_terminal_and_a_childs_turn_are_both_passed_the_listener_variables() {
     let mut asked = request();
     asked.env = env(&[
         ("PATH", "/usr/bin"),
@@ -380,21 +386,32 @@ fn only_the_interactive_run_is_passed_the_listener_variables() {
         ("CTXLOOM_TLS_CERT", "MAMBAgM="),
         ("CTXLOOM_SESSION_HARP", "brisk-copper-moth"),
     ]);
-    let interactive = Claude::new().drive_interactive(&asked).unwrap();
-    for name in run_ports::HOOK_VARIABLES {
-        assert!(interactive.env.contains_key(name), "{name}");
-        assert!(INTERACTIVE_ENV_ALLOWLIST.contains(&name));
-        assert!(
-            !ENV_ALLOWLIST.contains(&name),
-            "{name} must not reach a turn"
-        );
+    for command in [
+        Claude::new().drive_interactive(&asked).unwrap(),
+        Claude::new().drive_turn(&asked).unwrap(),
+    ] {
+        for name in run_ports::HOOK_VARIABLES {
+            assert_eq!(command.env.get(name), asked.env.get(name), "{name}");
+        }
+        assert_eq!(command.env["CTXLOOM_SESSION_HARP"], "brisk-copper-moth");
     }
-    assert_eq!(interactive.env["CTXLOOM_SESSION_HARP"], "brisk-copper-moth");
-    let turn = Claude::new().drive_turn(&asked).unwrap();
-    for name in run_ports::HOOK_VARIABLES {
-        assert!(!turn.env.contains_key(name), "{name} in {:?}", turn.env);
+    for name in run_ports::HOOK_VARIABLES
+        .into_iter()
+        .chain([run_ports::HOME_VARIABLE, run_ports::HARP_VARIABLE])
+    {
+        assert!(INTERACTIVE_ENV_ALLOWLIST.contains(&name), "{name}");
+        assert!(ENV_ALLOWLIST.contains(&name), "{name} reaches a turn");
     }
-    assert!(!turn.env.contains_key("CTXLOOM_SESSION_HARP"));
+}
+
+// The turn carrying the bearer renders without it, as the terminal's does.
+#[test]
+fn a_childs_turn_never_renders_the_bearer() {
+    let mut asked = request();
+    asked.env = env(&[("CTXLOOM_BEARER", "run.TOPSECRET")]);
+    let command = Claude::new().drive_turn(&asked).unwrap();
+    assert!(command.env.contains_key("CTXLOOM_BEARER"));
+    assert!(!format!("{command:?} {asked:?}").contains("TOPSECRET"));
 }
 
 // The command carrying the bearer renders without it.
@@ -536,17 +553,13 @@ fn configured_env_names_are_passed_on_besides_the_curated_ones() {
     }
 }
 
+// Owner ruling 15 (2026-11-09): ANTHROPIC_AUTH_TOKEN is the primary's alone,
+// whatever the config lists; the hook variables are a child's too now
+// (ruling 51), so they are not "interactive only" any more.
 #[test]
-fn the_interactive_only_variables_are_never_a_childs_whatever_the_config_says() {
+fn the_primarys_token_is_never_a_childs_whatever_the_config_says() {
     let mut asked = request();
-    asked.settings = settings(|s| {
-        s.env = names(&[
-            "CTXLOOM_BEARER",
-            "CTXLOOM_HOME",
-            "CTXLOOM_SESSION_HARP",
-            "ANTHROPIC_AUTH_TOKEN",
-        ]);
-    });
+    asked.settings = settings(|s| s.env = names(&["ANTHROPIC_AUTH_TOKEN"]));
     asked.env = env(&[
         ("CTXLOOM_BEARER", "run.secret"),
         ("CTXLOOM_ENDPOINT", "e"),
@@ -556,10 +569,16 @@ fn the_interactive_only_variables_are_never_a_childs_whatever_the_config_says() 
         ("ANTHROPIC_AUTH_TOKEN", "primary-only"), // gitleaks:allow
     ]);
     let turn = Claude::new().drive_turn(&asked).unwrap();
-    for name in asked.env.keys() {
-        assert!(!turn.env.contains_key(name), "{name} reached a child");
+    assert!(
+        !turn.env.contains_key("ANTHROPIC_AUTH_TOKEN"),
+        "{:?}",
+        turn.env
+    );
+    assert!(!ENV_ALLOWLIST.contains(&"ANTHROPIC_AUTH_TOKEN"));
+    for name in asked.env.keys().filter(|n| *n != "ANTHROPIC_AUTH_TOKEN") {
+        assert!(turn.env.contains_key(name), "{name} missing from a child");
     }
-    // The terminal session is given them, as before.
+    // The terminal session is given every one, as before.
     let terminal = Claude::new().drive_interactive(&asked).unwrap();
     for name in asked.env.keys() {
         assert!(terminal.env.contains_key(name), "{name} missing");

@@ -34,7 +34,9 @@ pub struct ProfileCreateRequest {
 /// `agent create` and `agent edit`.
 #[derive(Clone, Default, Debug)]
 pub struct AgentRequest {
-    pub llm: Option<String>,
+    pub engine: Option<String>,
+    pub model: Option<String>,
+    pub effort: Option<String>,
     pub profiles: Option<Vec<String>>,
     pub runtime: Option<String>,
     /// `kind=approach` pairs; an empty list clears them.
@@ -42,7 +44,6 @@ pub struct AgentRequest {
     /// `kind=root` pairs; an empty list clears them.
     pub roots: Option<Vec<(String, String)>>,
     pub permissions: Option<String>,
-    pub engine_home: Option<String>,
     pub env_host: Option<bool>,
     pub env: Option<Vec<String>>,
 }

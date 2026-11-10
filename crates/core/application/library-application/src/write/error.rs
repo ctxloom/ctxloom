@@ -92,8 +92,6 @@ write_errors! {
     UnknownEngine { name, engine, valid } = "write-unknown-engine";
     /// A runtime that is no axis.
     UnknownRuntime { name, value } = "write-unknown-runtime";
-    /// An engine home that is neither host nor session.
-    UnknownEngineHome { name, value } = "write-unknown-engine-home";
     /// A permission mode its engine does not take.
     Permissions { subject, detail } = "write-permissions";
     /// A permission mode with no engine to check it against.

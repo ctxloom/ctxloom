@@ -8,7 +8,6 @@ use library::config::layer;
 use library::config::schema;
 use library::write::section;
 
-use super::engines;
 use super::plan::Plan;
 use super::{WriteError, WritePorts};
 use crate::error::AppError;
@@ -121,20 +120,6 @@ impl Project {
         names.sort();
         names.dedup();
         names
-    }
-
-    /// The backend a label goes by: itself where it is an engine, else the
-    /// `type` of its entry.
-    pub(crate) fn engine_of(&self, label: &str) -> Option<String> {
-        if engines::known(label) {
-            return Some(label.to_string());
-        }
-        self.config
-            .llm_entry(label)
-            .and_then(|entry| entry.get("type"))
-            .and_then(Value::as_str)
-            .filter(|kind| engines::known(kind))
-            .map(ToString::to_string)
     }
 }
 

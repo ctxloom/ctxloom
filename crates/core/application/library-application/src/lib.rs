@@ -17,6 +17,7 @@ mod bundles;
 mod companions;
 mod config;
 mod config_show;
+mod engine_noun;
 mod error;
 /// In-memory ports, for this crate's tests and a driving adapter's.
 #[cfg(any(test, feature = "test-support"))]

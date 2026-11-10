@@ -555,13 +555,14 @@ pub(crate) fn profile(
 
 fn agent_request(sub: &ArgMatches) -> Result<AgentRequest, Failure> {
     Ok(AgentRequest {
-        llm: given(sub, "llm"),
+        engine: given(sub, "engine"),
+        model: given(sub, "model"),
+        effort: given(sub, "effort"),
         profiles: given_list(sub, "profiles"),
         runtime: given(sub, "runtime"),
         surfaces: given_pairs(sub, "surface")?,
         roots: given_pairs(sub, "root")?,
         permissions: given(sub, "permissions"),
-        engine_home: given(sub, "engine-home"),
         env_host: sub.try_get_one::<bool>("env-host").ok().flatten().copied(),
         env: given_list(sub, "env"),
     })

@@ -637,7 +637,7 @@ fn test_agent_verbs() {
                 "agent",
                 "create",
                 "dev",
-                "--llm",
+                "--engine",
                 "claude-code",
                 "--profiles",
                 "dev",
@@ -652,7 +652,7 @@ fn test_agent_verbs() {
             &library,
             &[
                 "agent", "edit", "dev", "--profiles", "dev,dev", "--runtime", "host",
-                "--permissions", "plan", "--engine-home", "session", "--env-host=false",
+                "--permissions", "plan", "--env-host=false",
                 "--env", "A", "--env", "B", "--surface", "context=system-prompt", "--root", "mcp=project-root",
             ]
         ),

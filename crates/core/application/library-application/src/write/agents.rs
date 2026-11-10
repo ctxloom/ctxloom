@@ -87,7 +87,7 @@ impl Project {
         request: &AgentRequest,
         held: &Value,
     ) -> Option<String> {
-        let label = match &request.llm {
+        let label = match &request.engine {
             Some(label) => label.clone(),
             None => {
                 let own = held
@@ -107,7 +107,7 @@ impl Project {
         if label.is_empty() {
             return None;
         }
-        self.engine_of(&label)
+        engines::known(&label).then_some(label)
     }
 
     /// The axes of a request, judged before anything is written; the mode in
@@ -118,13 +118,12 @@ impl Project {
         request: &AgentRequest,
         held: &Value,
     ) -> Result<Option<String>, AppError> {
-        if let Some(llm) = request.llm.as_deref().filter(|l| !l.is_empty()) {
-            let valid = self.available_llms();
-            if !valid.iter().any(|v| v == llm) {
+        if let Some(engine) = request.engine.as_deref().filter(|l| !l.is_empty()) {
+            if !engines::known(engine) {
                 return Err(WriteError::UnknownEngine {
                     name: name.to_string(),
-                    engine: llm.to_string(),
-                    valid: valid.join(", "),
+                    engine: engine.to_string(),
+                    valid: crate::engine_noun::listed().join(", "),
                 }
                 .into());
             }
@@ -134,15 +133,6 @@ impl Project {
                 return Err(WriteError::UnknownRuntime {
                     name: name.to_string(),
                     value: runtime.to_string(),
-                }
-                .into());
-            }
-        }
-        if let Some(home) = request.engine_home.as_deref().filter(|h| !h.is_empty()) {
-            if !["host", "session"].contains(&home) {
-                return Err(WriteError::UnknownEngineHome {
-                    name: name.to_string(),
-                    value: home.to_string(),
                 }
                 .into());
             }
@@ -306,8 +296,8 @@ impl Project {
         if !matches!(entry, Value::Map(_)) {
             entry = Value::Map(Vec::new());
         }
-        if let Some(llm) = &request.llm {
-            put(&mut entry, "engine", some_text(llm));
+        if let Some(engine) = &request.engine {
+            put(&mut entry, "engine", some_text(engine));
         }
         if let Some(profiles) = &request.profiles {
             let list = Value::Seq(
@@ -363,7 +353,7 @@ impl Project {
     /// agent binds.
     fn set_mode(&self, name: &str, request: &AgentRequest, entry: &mut Value, mode: &str) {
         let label = request
-            .llm
+            .engine
             .clone()
             .or_else(|| {
                 entry
@@ -373,7 +363,7 @@ impl Project {
             })
             .or_else(|| self.config.agent(name).map(|a| a.engine))
             .unwrap_or_default();
-        let Some(backend) = self.engine_of(&label) else {
+        let Some(backend) = engines::known(&label).then_some(label) else {
             return;
         };
         let mut permissions = entry

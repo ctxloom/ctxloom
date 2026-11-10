@@ -443,7 +443,9 @@ fn agent_write(name: &'static str, about: &'static str) -> Command {
     Command::new(name)
         .about(about)
         .arg(one("name", "The agent"))
-        .arg(named("llm", "llm.configs label to bind (empty = project default)"))
+        .arg(named("engine", "Engine to bind: claude-code, opencode (empty = the default)"))
+        .arg(named("model", "Model to pass the engine (empty = the engine's own default)"))
+        .arg(named("effort", "Effort level to pass the engine (empty = the engine's own default)"))
         .arg(
             Arg::new("profiles")
                 .long("profiles")
@@ -463,7 +465,6 @@ fn agent_write(name: &'static str, about: &'static str) -> Command {
             "permissions",
             "Permission mode, in the vocabulary of the engine this agent binds (empty clears it)",
         ))
-        .arg(named("engine-home", "Engine-home axis: session|host (empty = session)"))
         .arg(
             Arg::new("env-host")
                 .long("env-host")

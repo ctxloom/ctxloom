@@ -299,9 +299,22 @@ passes the curated allowlist plus `engines.<e>.env`, the configured auth
 variables: a bounded, enumerable set the container runtime will read. There is
 no `env_host` (owner ruling: no mode passes the host environment whole, and no
 boolean config keys; `env_host` is an ordinary unknown key, no alias). The
-`ANTHROPIC_AUTH_TOKEN` stays out of a child whatever the config says (the
-`CTXLOOM_*` hook variables are a child's too since ruling 51, always the run's
-own); `session_home: host` sets `CLAUDE_CONFIG_DIR`
+`ANTHROPIC_AUTH_TOKEN` stays out of a child whatever the config says, unless
+a permit names it (the `CTXLOOM_*` hook variables are a child's too since
+ruling 51, always the run's own). The escape hatch is `CTXLOOM_PERMIT_<NAME>`
+(owner rulings 78, 78a): `CTXLOOM_PERMIT_<NAME>=v` in the caller's
+environment reaches the engine as `<NAME>=v`, every engine, a child's turn
+and the terminal alike, over whatever the allowlist, a block (opencode's
+`OPENCODE_*`) or the config said; it is applied in one place, the launcher,
+after the engine built the command (`run_ports::apply_permits`). The
+`CTXLOOM_PERMIT_*` variable is never passed on; a permit for a `CTXLOOM_*`
+name is ignored and the run says so as a notice (by the permit's name, never
+its value); a value is withheld from every `Debug` (`TurnCommand::withheld`,
+`RedactedEnv`). An explicit `CTXLOOM_PERMIT_ANTHROPIC_AUTH_TOKEN` does give a
+child the primary's token (78a): the cost is that such a child holds the
+primary's own token, no distinct per-child credential. A permit may also
+replace what the engine relocated (`HOME`, an XDG base, a config dir): it is
+taken literally; `session_home: host` sets `CLAUDE_CONFIG_DIR`
 to `$HOME/.claude` (no `HOME` is `run-ports-engine-no-host-home`), links no
 login there; the hooks still fire, because the launch (the terminal's and a
 child's turn) passes `--settings <session dir>/settings.json` (the ctxloom-owned file `prepare` writes,
@@ -319,8 +332,12 @@ opencode's `auth.json`), `none` and `login` ask a child for no variable. Where
 the login is is the engine's `Credentials` (`user_dir`, `user_dir_variable`,
 `login_file`, `home_dir`: the link is `home/<home_dir>/<login_file>` of the
 session dir), and so is what the human is told when none is shared
-(`sign_in`, the engine's own words) and whether a missing one is worth saying
-(`login_optional`). Settings apply to the engine the plan resolved, and `run --engine
+(`sign_in`, the engine's own words), whether a missing one is worth saying
+(`login_optional`), where it is never linked (`no_link_on`: claude's macOS
+keychain and Windows' symlink privilege) and where a link that cannot be made
+is a copy (`copy_on`: opencode's Windows, ruling 80; `LoginLinks::copy`, a
+new 0600 file). The platform is the OS name the caller gives; macOS and
+Windows are unverified live. Settings apply to the engine the plan resolved, and `run --engine
 X` asks the plan for X (its engine block drives it). A launch whose agent `runtime` weakens
 the engine's (or swaps container ownerships) says so as a notice. `init`'s
 token guide asks the configured source.
@@ -650,14 +667,18 @@ claude's (owner ruling 69): opencode's login is `auth.json` in its data
 directory (`$XDG_DATA_HOME/opencode` when that is absolute, else
 `~/.local/share/opencode`), which an OAuth provider's refresh rewrites in
 place, so the PRIMARY's relocated data directory gets a SYMLINK to the user's
-file (`home/xdg/data/opencode/auth.json`), never a copy, whatever variable is
-set (her login may hold other providers); none there is said nothing of
+file (`home/xdg/data/opencode/auth.json`), on macOS too (ruling 80), whatever
+variable is set (her login may hold other providers); on Windows, when no
+symlink can be made, a COPY (ruling 80; the cost, said in a notice: a token
+the session refreshes is written to the copy, and the rotation can sign her
+own login out); none there is said nothing of
 (opencode runs keyless), a configured file missing is. A child is never given
 the file, only variables: its built-in source (`token`) is the provider keys
-`ANTHROPIC_API_KEY` and `OPENAI_API_KEY` and the endpoint key
-`CTXLOOM_OPENCODE_API_KEY` (Go's, for an endpoint provider block this port
-does not write yet), each optional and on both allowlists; no child is refused
-for want of one, and a file-only source refuses an opencode child as it does
+`ANTHROPIC_API_KEY` and `OPENAI_API_KEY`, each optional and on both
+allowlists (Go's `CTXLOOM_OPENCODE_API_KEY` is removed, ruling 79, hard
+migrate; another provider's key is the config's `env`, or a permit for one
+the `OPENCODE_*` block withholds, `CTXLOOM_PERMIT_OPENCODE_API_KEY`); no child
+is refused for want of one, and a file-only source refuses an opencode child as it does
 claude's. The bundle (1.18.4, read not run) writes `auth.json` with
 `writeFile` and `chmod`, no rename, so a refresh writes through the link: not
 verified live. Accepted residual: a primary and a human-run opencode
@@ -712,7 +733,9 @@ one variable authenticates, `via` names it). A source that is a FILE alone
 anything minted, as `runs-no-credential` now is too; `auth status` gives it a
 `file` row (`usable_by: primary`, `via` the path, and no `present`: nothing
 looks at the file, ruling 65, so doctor cannot report a missing one) and
-doctor a `warn`. The primary session is unchanged. init's token guide
+doctor a `warn`, both in the refusal's words (ruling 81: the row's `message`
+and `remedy`, doctor's detail and fix, are `runs-file-only-credential` and its
+fix rendered from the runs catalog, auth-application's `InRunsWords`). The primary session is unchanged. init's token guide
 (`agent_token_exported`) counts a file alone as nothing to guide; instead init
 warns of each engine in use on a file alone (ruling 64, `Auth::file_only`) in
 the words of the refusal itself (`runs-file-only-credential` and its fix,

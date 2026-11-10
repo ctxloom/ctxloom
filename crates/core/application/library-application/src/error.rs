@@ -156,8 +156,8 @@ impl AppError {
         }
     }
 
-    /// The process exit code: 2 refused before any state was read, 3 fatal
-    /// findings, 1 otherwise.
+    /// The process exit code: 2 refused before any state was read (a config
+    /// the strict decode refuses is one), 3 fatal findings, 1 otherwise.
     pub fn exit_code(&self) -> u8 {
         match self {
             AppError::AgentExclusive { .. }
@@ -165,6 +165,8 @@ impl AppError {
             | AppError::ConfigOlder { .. }
             | AppError::ConfigCompanionsBare { .. }
             | AppError::ConfigVersionUnreadable { .. }
+            | AppError::ConfigUnknownKey { .. }
+            | AppError::ConfigBreaksSchema { .. }
             | AppError::RunNeedsDryRun
             | AppError::SearchRemote
             | AppError::Workspace { .. } => 2,

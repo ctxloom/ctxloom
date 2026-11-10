@@ -182,6 +182,7 @@ clean-target:
 [no-exit-message]
 selftest:
     @{{TOP}}/scripts/mutants-batch.selftest.sh
+    @{{TOP}}/scripts/mutants-judge.selftest.sh
     @{{TOP}}/scripts/closeout.selftest.sh
     @{{TOP}}/scripts/ltk-rules-check.sh
     @{{TOP}}/scripts/output-budget.selftest.sh

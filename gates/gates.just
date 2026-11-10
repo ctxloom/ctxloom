@@ -499,47 +499,9 @@ _mutants-judge:
             verdict "cargo mutants failed before a verdict (exit $rc)"
             exit 1 ;;
     esac
-    # Every mutant found must have been tested: a run that found some and
-    # judged fewer (its baseline failing under an exit code that did not say
-    # so, or cut short) has not shown the tests catch them, so it fails
-    # rather than passing on the ones it never ran.
-    found=0
-    [ -f "$out/mutants.out/mutants.json" ] && found=$(jq length "$out/mutants.out/mutants.json")
-    if [ "$found" -eq 0 ]; then
-        echo "mutants-staged: no mutants: the staged diff changes no mutable code."
-        exit 0
-    fi
-    outcomes="$out/mutants.out/outcomes.json"
-    judged='[.outcomes[] | select(.scenario | type == "object") | {name: .scenario.Mutant.name, file: .scenario.Mutant.file, summary}]'
-    tested=0
-    [ -f "$outcomes" ] && tested=$(jq "$judged | length" "$outcomes")
-    if [ "$tested" -ne "$found" ]; then
-        verdict "$found mutants found but $tested tested (cargo mutants exit $rc); nothing is judged until every one is" \
-            "run log: target/logs/mutants-staged.log"
-        exit 1
-    fi
-    read -ra tiers <<< "{{mutation_thresholds}}"
-    # Each mutant's tier: the longest threshold prefix its file is under.
-    tiered=$(jq --arg tiers "${tiers[*]}" "$judged"' | ($tiers | split(" ") | map(split("=") | {prefix: .[0], min: (.[1] | tonumber)})) as $t
-        | map(. as $m | . + {tier: ([$t[] | . as $tier | select($m.file | startswith($tier.prefix + "/"))] | max_by(.prefix | length))})' "$outcomes")
-    untiered=$(jq -r '.[] | select(.tier == null) | .file' <<< "$tiered" | sort -u)
-    if [ -n "$untiered" ]; then
-        verdict "no threshold in mutation_thresholds (justfile) for: $(paste -sd ' ' <<< "$untiered")"
-        exit 1
-    fi
-    report=$(jq -r 'group_by(.tier.prefix)[] | (map(select(.summary == "CaughtMutant" or .summary == "Timeout")) | length) as $killed
-        | (map(select(.summary == "MissedMutant")) | length) as $missed | ($killed + $missed) as $viable
-        | .[0].tier as $tier | (if $viable == 0 then 100 else ($killed * 100 / $viable | floor) end) as $rate
-        | "\(if $killed * 100 >= $tier.min * $viable then "pass" else "FAIL" end)  \($tier.prefix): \($killed)/\($viable) killed (\($rate)%), threshold \($tier.min)%"
-            + (map(select(.summary == "Unviable")) | length | if . > 0 then "; \(.) unviable, not counted" else "" end)
-            + (map(select(.summary == "Timeout")) | length | if . > 0 then "; \(.) timed out, counted killed" else "" end)' <<< "$tiered")
-    echo "mutants-staged: kill rate by tier:"
-    sed 's/^/  /' <<< "$report"
-    if grep -q '^FAIL' <<< "$report"; then
-        verdict "below the kill-rate threshold: $(grep '^FAIL' <<< "$report" | sed 's/^FAIL  //; s/;.*//' | paste -sd ';' | sed 's/;/; /g')" \
-            "kill rate by tier:" "$(sed 's/^/  /' <<< "$report")"
-        exit 1
-    fi
+    # The verdict: every mutant found tested, each tier at its threshold
+    # (scripts/mutants-judge.sh; its self-test is in `just selftest`).
+    exec "$root/scripts/mutants-judge.sh" "$out" "{{mutation_thresholds}}" "$rc"
 
 # Run a recipe of the STAGED tree: HEAD checked out into a throwaway git
 # worktree with `git diff --cached` applied on top, so the recipe sees what the

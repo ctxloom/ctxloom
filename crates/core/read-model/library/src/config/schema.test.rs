@@ -18,7 +18,7 @@ fn texts(doc: &str) -> Vec<String> {
 // the fixture `cfg/v8`: every key of the schema, correctly used
 #[test]
 fn test_a_config_using_every_key_correctly_has_no_violation() {
-    let doc = "schema_version: 8\neditor:\n  command: vim\n  args: [-u, NONE]\nconfig:\n  use_distilled: false\n  silence_unsupported: true\n  statusline: false\nsync:\n  auto_sync: false\nworkspace: worktree\nruntime: host\ndelegation:\n  concurrency: 3\n  depth: 2\n  idle_timeout: 5m\nshell_timeout:\n  default: 30s\n  max: 1h\nisolation_images:\n  claude-code: example.com/img:1\nisolation_base: ctxloom\nisolation_memory_limit: 4g\nisolation_pids_limit: 512\noutput_dir: /var/out\nisolation_engines: [claude-code]\ncompanions:\n  acme:\n    command: [acme-bin, --flag]\n  beta:\n    command: [beta-bin]\nui:\n  prefix_key: ctrl-b\n  list_window: 7d\nsession_reap_age: 30d\nsession_purge_age: 90d\nsession_transcript_retention: 365d\nnon_tty_format: json\nagents:\n  dev:\n    engine: claude-code\n    model: opus\n    profiles: [p1]\n    runtime: host\n    driving: oneshot\n    env_host: false\n    env: [ALPHA]\n    permissions:\n      approver: human\n      claude-code:\n        mode: plan\ndefault_agent: dev\nengines:\n  claude-code:\n    auth: login\n";
+    let doc = "schema_version: 8\neditor:\n  command: vim\n  args: [-u, NONE]\nconfig:\n  use_distilled: false\n  silence_unsupported: true\n  statusline: false\nsync:\n  auto_sync: false\nworkspace: worktree\nruntime: host\ndelegation:\n  concurrency: 3\n  depth: 2\n  idle_timeout: 5m\nshell_timeout:\n  default: 30s\n  max: 1h\nisolation_images:\n  claude-code: example.com/img:1\nisolation_base: ctxloom\nisolation_memory_limit: 4g\nisolation_pids_limit: 512\noutput_dir: /var/out\nisolation_engines: [claude-code]\ncompanions:\n  acme:\n    command: [acme-bin, --flag]\n  beta:\n    command: [beta-bin]\nui:\n  prefix_key: ctrl-b\n  list_window: 7d\nsession_reap_age: 30d\nsession_purge_age: 90d\nsession_transcript_retention: 365d\nnon_tty_format: json\nagents:\n  dev:\n    engine: claude-code\n    model: opus\n    profiles: [p1]\n    runtime: host\n    driving: oneshot\n    env: [ALPHA]\n    permissions:\n      approver: human\n      claude-code:\n        mode: plan\ndefault_agent: dev\nengines:\n  claude-code:\n    auth: login\n";
     assert_eq!(texts(doc), Vec::<String>::new());
 }
 
@@ -46,7 +46,7 @@ fn test_an_unknown_top_level_key_is_named_with_the_keys_there_are() {
 fn test_an_unknown_nested_key_is_named_by_its_path_and_where_it_would_be_legal() {
     assert_eq!(
         texts("schema_version: 8\nagents:\n  developer:\n    profiles: [dev]\n    auth: login\n"),
-        ["unknown key `agents.developer.auth` in config.yaml: ctxloom does not know it (known keys at `agents.developer`: driving, effort, engine, env, env_host, may_delegate, model, permissions, profiles, roots, runtime, surfaces)"]
+        ["unknown key `agents.developer.auth` in config.yaml: ctxloom does not know it (known keys at `agents.developer`: driving, effort, engine, env, may_delegate, model, permissions, profiles, roots, runtime, surfaces)"]
     );
     // Go: the project's permissions take only the neutral keys.
     assert_eq!(
@@ -320,7 +320,7 @@ fn test_a_companion_is_registered_with_a_command_list() {
 
 // ---- RED (awaiting review): the engines schema, owner rulings 40-44 ----
 
-const ENGINES_DOC: &str = "schema_version: 9\nengines:\n  claude-code:\n    command: claude\n    session_home: session\n    auth:\n      env: [CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY]\n    runtime: container-rootless\n    env_host: false\n    env: [HTTPS_PROXY]\n  opencode:\n    auth: none\nagents:\n  dev:\n    engine: claude-code\n    model: haiku\n    effort: low\n    profiles: [p1]\n    runtime: host\n    env_host: true\n    env: [ALPHA]\n    permissions:\n      claude-code:\n        mode: plan\n";
+const ENGINES_DOC: &str = "schema_version: 9\nengines:\n  claude-code:\n    command: claude\n    session_home: session\n    auth:\n      env: [CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY]\n    runtime: container-rootless\n    env: [HTTPS_PROXY]\n  opencode:\n    auth: none\nagents:\n  dev:\n    engine: claude-code\n    model: haiku\n    effort: low\n    profiles: [p1]\n    runtime: host\n    env: [ALPHA]\n    permissions:\n      claude-code:\n        mode: plan\n";
 
 #[test]
 fn test_the_engines_block_and_an_agent_s_engine_model_and_effort_are_legal() {
@@ -367,7 +367,6 @@ fn test_the_engine_block_refuses_values_the_schema_does_not_give() {
     for (key, value) in [
         ("session_home", "elsewhere"),
         ("runtime", "vm"),
-        ("env_host", "maybe"),
         ("command", "''"),
     ] {
         let doc = format!("schema_version: 9\nengines:\n  claude-code:\n    {key}: {value}\n");
@@ -433,5 +432,27 @@ fn test_the_top_level_auth_key_is_an_unknown_key() {
     assert!(
         !said[0].contains(" auth,") && !said[0].ends_with(" auth)"),
         "{said:?}"
+    );
+}
+
+// Owner ruling: no `env_host`. An engine gets its curated allowlist plus the
+// names in `env`, and there is no mode that passes the host environment; the
+// key is an ordinary unknown key (hard migrate, no alias).
+#[test]
+fn test_env_host_is_an_unknown_key_of_an_agent_and_of_an_engine_block() {
+    let agent =
+        texts("schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    env_host: true\n");
+    assert!(
+        agent
+            .iter()
+            .any(|s| s.starts_with("unknown key `agents.dev.env_host`")),
+        "{agent:?}"
+    );
+    let engine = texts("schema_version: 9\nengines:\n  claude-code:\n    env_host: false\n");
+    assert!(
+        engine
+            .iter()
+            .any(|s| s.starts_with("unknown key `engines.claude-code.env_host`")),
+        "{engine:?}"
     );
 }

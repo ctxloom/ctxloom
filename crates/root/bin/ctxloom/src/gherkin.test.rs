@@ -82,7 +82,10 @@ impl CommonWorld for World {
     }
 
     fn alice_runs(&mut self, step: &Step) {
-        if setup::stages(self, step) || capture::fires(self, step) {
+        if setup::stages(self, step)
+            || capture::fires(self, step)
+            || capture_opencode::forwards(self, step)
+        {
             return;
         }
         self.before_run();
@@ -315,6 +318,9 @@ mod setup;
 
 #[path = "gherkin_capture.test.rs"]
 mod capture;
+
+#[path = "gherkin_capture_opencode.test.rs"]
+mod capture_opencode;
 
 // ------------------------------------------------------------------ given
 

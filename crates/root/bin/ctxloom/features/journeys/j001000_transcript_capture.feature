@@ -1,8 +1,9 @@
 # world: base
 # Ported from journeys/j001000_transcript_capture.feature (rev f36e8dfb2)
-# NOT ported: the @live scenario (it needs a real engine); the scenario that
-#   follows it is new, and proves the same capture with a stub engine that
-#   fires the hooks the session registered.
+# NOT ported: the @live scenario (it needs a real engine); the scenarios that
+#   follow it are new, and prove the same capture with stub engines: a claude
+#   that fires the hooks the session registered, and an opencode that runs the
+#   plugin its session home holds (under node).
 
 @doc
 Feature: Cross-engine transcript capture — every engine's conversation becomes one record you own
@@ -40,6 +41,25 @@ Feature: Cross-engine transcript capture — every engine's conversation becomes
     Examples:
       | agent       | engine      |
       | claude      | claude-code |
+
+  # opencode has no hook commands: it is heard through the plugin ctxloom
+  # writes into its session home, which forwards opencode's own bus events, one
+  # at a time and in order, to `ctxloom hook opencode execute <Event>`. The
+  # stub opencode loads that plugin (under node, as opencode loads it under
+  # Bun) and feeds it the events a real opencode emits for a prompt, a tool
+  # call and a reply; its turn also idles, which ends the turn a second time.
+  # opencode says nothing of a session's end: ctxloom records it at the exit.
+  Scenario: The events an interactive opencode session emits become the session's transcript
+    # new: ruling 58, with a stub opencode on PATH running the real plugin.
+    Given Alice has a project that has never used ctxloom
+    And Alice has set ctxloom up in her project
+    When Alice runs her assistant on opencode interactively, and its plugin forwards the session's events:
+      """
+      ctxloom run --engine opencode
+      """
+    Then opencode ran in its session home, with what its plugin's hooks need to reach ctxloom and without OPENCODE_PURE
+    And every hook the plugin ran left nothing unrecorded
+    And the session's transcript holds her prompt, the tool call with its status, the assistant's words, the turn's end and the session's end at the exit, each once
 
   # The interactive engine reports what happens through the hooks its session
   # home registers; the stub engine fires them as separate processes, with the

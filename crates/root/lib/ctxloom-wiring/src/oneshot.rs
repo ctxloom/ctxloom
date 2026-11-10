@@ -165,6 +165,7 @@ impl<'a> OneShots<'a> {
             hooks,
             certs: Box::new(hook_tls::Minter::new(hook_tls::SystemClock)),
             locks: Box::new(liveness::LockFiles::new(wiring.fs(), project_dir.clone())),
+            processes: Arc::new(liveness::ProcFiles::new(wiring.fs())),
         }))
     }
 }

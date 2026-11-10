@@ -98,6 +98,9 @@ pub struct Launcher<E: Edge, L: RunnerLauncher, R: SessionRecords> {
     orders: Arc<Orders>,
     limits: Limits,
     pending: CatchUp<PendingModel>,
+    /// RED (ruling 86): held, not yet asked.
+    #[allow(dead_code)]
+    processes: Option<Arc<dyn run_ports::Processes>>,
 }
 
 impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
@@ -117,7 +120,16 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             orders,
             limits,
             pending: catch_up(),
+            processes: None,
         }
+    }
+
+    /// The launcher, asking `processes` whether a run's launcher still runs:
+    /// a run owed a runner whose launcher has died is recorded as an orphan
+    /// (ruling 86) by whichever process catches up on it first.
+    pub fn with_processes(mut self, processes: Arc<dyn run_ports::Processes>) -> Self {
+        self.processes = Some(processes);
+        self
     }
 
     /// Whether an engine of this name can be driven.

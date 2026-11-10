@@ -16,6 +16,10 @@ fn request() -> EnqueueRequest {
         incarnation: 1,
         mode: runs::RunMode::Interactive,
         evidence: Evidence::passing("claude-code"),
+        launcher: run_ports::ProcessIdentity {
+            pid: 4242,
+            started: 987_654,
+        },
     }
 }
 
@@ -252,4 +256,37 @@ async fn a_run_is_enqueued_before_its_session_is_minted() {
     let enqueuer = Enqueuer::new(Arc::clone(&edge), Arc::new(CountingSource::default()));
     let enqueued = enqueuer.enqueue(request()).await.unwrap();
     assert_eq!(enqueued.run, runs::run_root(SESSION_ME, 1));
+}
+
+// Ruling 86: the enqueue journals the process that will launch the run: its
+// pid and its start, so a reused pid is not taken for it.
+#[tokio::test]
+async fn the_enqueue_journals_the_process_that_will_launch_the_run() {
+    let edge = Arc::new(KernelEdge::new());
+    minted(&edge).await;
+    let enqueuer = Enqueuer::new(Arc::clone(&edge), Arc::new(CountingSource::default()));
+    let enqueued = enqueuer.enqueue(request()).await.unwrap();
+    let cover = angzarr_embedded::v1::Cover {
+        domain: runs::RUN_DOMAIN.to_string(),
+        root: Some(enqueued.run.clone()),
+        edition: None,
+    };
+    let pages = edge.events(&cover, 0).await.unwrap();
+    let launcher = pages.iter().find_map(|page| match &page.body {
+        Some(angzarr_embedded::v1::event_page::Body::Event(any)) => {
+            use angzarr_embedded::Payload;
+            match runs::RunEvent::from_any(any) {
+                Ok(runs::RunEvent::RunEnqueued(enqueued)) => Some(enqueued.launcher),
+                _ => None,
+            }
+        }
+        _ => None,
+    });
+    assert_eq!(
+        launcher,
+        Some(runs::LauncherProcess {
+            pid: 4242,
+            started: 987_654
+        })
+    );
 }

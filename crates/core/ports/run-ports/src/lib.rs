@@ -15,6 +15,7 @@ mod hook;
 mod launcher;
 mod login;
 mod permit;
+mod process;
 mod records;
 mod serving;
 mod settings;
@@ -39,6 +40,7 @@ pub use launcher::{
 };
 pub use login::{LinkState, LoginLinks};
 pub use permit::{apply_permits, permits, Ignored, Permits, PERMIT_PREFIX};
+pub use process::{ProcessIdentity, ProcessState, Processes};
 pub use records::{check_rel, RecordsError, SessionRecords};
 pub use serving::{BoxFuture, HookServer, Serving};
 pub use settings::{AuthSetting, CredentialPolicy, EngineSettings, SessionHome};

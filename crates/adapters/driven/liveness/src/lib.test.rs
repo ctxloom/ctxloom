@@ -145,3 +145,62 @@ fn a_session_lock_another_holds_is_refused_at_once() {
     );
     assert_eq!(first.lock_state("brisk-copper-moth"), LockState::Unproven);
 }
+
+// ------------------------------------------------ processes (ruling 86)
+//
+// PROPOSAL: `/proc` through the file-system seam (no cfg, no new dependency):
+// a host with no `/proc` (macOS, Windows) proves nothing, so no run is ever
+// judged an orphan there. These run on this (Linux) host's real `/proc`.
+
+use run_ports::{ProcessIdentity, ProcessState, Processes};
+
+use super::ProcFiles;
+
+fn host() -> ProcFiles {
+    let fs = file_system::Os::new(os::host(), Path::new("/")).unwrap();
+    ProcFiles::new(Arc::new(fs))
+}
+
+// Ruling 86: this process is its pid and its start, and it is running.
+#[test]
+fn this_process_is_its_pid_and_its_start_and_it_runs() {
+    let processes = host();
+    let me = processes.current();
+    assert_eq!(me.pid, std::process::id());
+    assert!(me.started > 0, "{me:?}");
+    assert_eq!(processes.state(&me), ProcessState::Running);
+}
+
+// Ruling 86: a pid with another start is another process (the pid reused):
+// the one recorded is gone. A pid nothing has is gone.
+#[test]
+fn a_reused_pid_or_one_nothing_has_is_gone() {
+    let processes = host();
+    let me = processes.current();
+    let reused = ProcessIdentity {
+        started: me.started + 1,
+        ..me
+    };
+    assert_eq!(processes.state(&reused), ProcessState::Gone);
+    let nobody = ProcessIdentity {
+        pid: u32::MAX - 7,
+        started: 1,
+    };
+    assert_eq!(processes.state(&nobody), ProcessState::Gone);
+}
+
+// Ruling 86: an identity that names no process proves nothing, and a host with
+// no `/proc` proves nothing about any process.
+#[test]
+fn an_unknown_identity_or_a_host_without_proc_proves_nothing() {
+    let processes = host();
+    assert_eq!(
+        processes.state(&ProcessIdentity::default()),
+        ProcessState::Unproven
+    );
+    let (fs, _) = locks();
+    let without_proc = ProcFiles::new(fs);
+    let someone = ProcessIdentity { pid: 1, started: 1 };
+    assert_eq!(without_proc.state(&someone), ProcessState::Unproven);
+    assert!(without_proc.current().is_unknown());
+}

@@ -34,6 +34,9 @@ pub struct PendingLaunch {
     pub session: String,
     pub incarnation: u32,
     pub mode: RunMode,
+    /// The process that enqueued the run, to launch it (ruling 86): a run owed
+    /// a runner whose launcher has died is an orphan.
+    pub launcher: runs::LauncherProcess,
 }
 
 /// An incarnation a session owes a run for.
@@ -159,6 +162,8 @@ impl Pending {
                     session: session.clone(),
                     incarnation: *incarnation,
                     mode: *mode,
+                    // RED (ruling 86): the launcher is not yet folded.
+                    launcher: runs::LauncherProcess { pid: 0, started: 0 },
                 }),
                 Stage::Past => None,
             })

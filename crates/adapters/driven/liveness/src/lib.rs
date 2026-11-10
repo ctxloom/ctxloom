@@ -81,6 +81,33 @@ impl SessionLock for LockFiles {
     }
 }
 
+/// This host's processes, read through the file-system seam from `/proc`
+/// (Linux): a process's start is the `starttime` of `/proc/<pid>/stat`
+/// (ruling 86). Elsewhere every probe is unproven, never gone.
+///
+/// RED (ruling 86): a stub that knows no process.
+pub struct ProcFiles {
+    fs: Arc<dyn Fs>,
+}
+
+impl ProcFiles {
+    pub fn new(fs: Arc<dyn Fs>) -> ProcFiles {
+        ProcFiles { fs }
+    }
+}
+
+impl run_ports::Processes for ProcFiles {
+    fn current(&self) -> run_ports::ProcessIdentity {
+        let _ = &self.fs;
+        run_ports::ProcessIdentity::default()
+    }
+
+    fn state(&self, who: &run_ports::ProcessIdentity) -> run_ports::ProcessState {
+        let _ = who;
+        run_ports::ProcessState::Unproven
+    }
+}
+
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;

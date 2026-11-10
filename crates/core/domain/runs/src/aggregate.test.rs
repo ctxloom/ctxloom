@@ -146,6 +146,15 @@ fn enqueue() -> EnqueueRun {
         drivable_engines: vec!["claude-code".to_string(), "opencode".to_string()],
         credential: not_asked(),
         fatal_findings: 0,
+        launcher: launcher(),
+    }
+}
+
+/// The process that enqueues the run (ruling 86).
+fn launcher() -> crate::LauncherProcess {
+    crate::LauncherProcess {
+        pid: 4242,
+        started: 987_654,
     }
 }
 
@@ -225,6 +234,18 @@ fn enqueue_records_the_session_incarnation_mode_and_the_hash_of_the_token() {
     assert_eq!(state.model_credential_hash, MODEL_HASH.to_vec());
     assert_eq!(state.hook_credential_hash, HOOK_HASH.to_vec());
     assert!(!state.credential_revoked);
+}
+
+// Ruling 86: the run journals the process that enqueued it, to launch it, so
+// a later process can tell an owner that died (an orphan) from one running.
+#[test]
+fn enqueue_journals_the_process_that_will_launch_the_run() {
+    let mut run = Run::new();
+    let events = run.command(enqueue()).unwrap();
+    let [RunEvent::RunEnqueued(enqueued)] = events.as_slice() else {
+        panic!("one RunEnqueued, got {events:?}");
+    };
+    assert_eq!(enqueued.launcher, launcher());
 }
 
 // NEW-DESIGN (D29: "only its SHA-256 goes in the event"), for each principal's

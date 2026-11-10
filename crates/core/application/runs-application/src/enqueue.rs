@@ -21,6 +21,9 @@ pub struct EnqueueRequest {
     pub mode: runs::RunMode,
     /// What the run's pre-launch checks are judged on (rulings 73e, 73f).
     pub evidence: Evidence,
+    /// The process that enqueues the run and will launch it (ruling 86),
+    /// journaled so a later process can tell when it died.
+    pub launcher: run_ports::ProcessIdentity,
 }
 
 /// The evidence of a run's pre-launch checks, as the run application asked its
@@ -126,6 +129,8 @@ impl<E: Edge, T: TokenSource> Enqueuer<E, T> {
             drivable_engines: request.evidence.drivable_engines,
             credential: credential(request.evidence.credential.unwrap_or_default()),
             fatal_findings: request.evidence.fatal_findings,
+            // RED (ruling 86): the launcher is not yet sent.
+            launcher: runs::LauncherProcess { pid: 0, started: 0 },
         };
         let book = CommandBook::command_of(cover, &runs::RunCommand::from(enqueue));
         self.edge.handle(book).await.map_err(refused)?;

@@ -8,8 +8,8 @@ use runs::{EndCause, RunEvent};
 use sessions::SessionEvent;
 
 use crate::fakes::{
-    enqueued, names, order, orders_with, run_events, session_events, MemoryRecords, ScriptedEngine,
-    ScriptedRunner, TestEdge, HARP, SESSION,
+    enqueued, enqueued_by, names, order, orders_with, run_events, session_events, MemoryRecords,
+    ScriptedEngine, ScriptedRunner, TestEdge, HARP, SESSION,
 };
 use crate::{Launched, Launcher, Orders, Outcome, Recorder};
 
@@ -997,4 +997,185 @@ async fn a_permit_never_replaces_what_the_adapter_or_the_run_set() {
             },
         ]
     );
+}
+
+// ------------------------------------------------ orphaned runs (ruling 86)
+
+/// The process that enqueued the run, and died.
+const DEAD: runs::LauncherProcess = runs::LauncherProcess {
+    pid: 4242,
+    started: 987_654,
+};
+
+/// This host's processes, as a test says them: `DEAD` is `state`, every
+/// other unproven; `before` runs once, the first time `DEAD` is asked about
+/// (a second process's catch-up, forced into the gap between the ask and the
+/// record).
+struct Processes {
+    state: run_ports::ProcessState,
+    before: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    asked: Mutex<usize>,
+}
+
+impl Processes {
+    fn saying(state: run_ports::ProcessState) -> Arc<Processes> {
+        Arc::new(Processes {
+            state,
+            before: Mutex::new(None),
+            asked: Mutex::new(0),
+        })
+    }
+}
+
+impl run_ports::Processes for Processes {
+    fn current(&self) -> run_ports::ProcessIdentity {
+        run_ports::ProcessIdentity { pid: 1, started: 1 }
+    }
+
+    fn state(&self, who: &run_ports::ProcessIdentity) -> run_ports::ProcessState {
+        *self.asked.lock().unwrap() += 1;
+        if let Some(before) = self.before.lock().unwrap().take() {
+            before();
+        }
+        if who.pid == DEAD.pid && who.started == DEAD.started {
+            self.state
+        } else {
+            run_ports::ProcessState::Unproven
+        }
+    }
+}
+
+/// Another process's launcher over the same store: it holds no order.
+fn another_process(
+    edge: &Arc<TestEdge>,
+    processes: Arc<Processes>,
+) -> Launcher<TestEdge, ScriptedRunner, MemoryRecords> {
+    Launcher::new(
+        Arc::clone(edge),
+        ScriptedRunner::exits(0),
+        MemoryRecords::default(),
+        vec![Arc::new(ScriptedEngine::answering("A", None))],
+        Arc::new(Orders::new()),
+        limits(),
+    )
+    .with_processes(processes)
+}
+
+/// The run's ends, as its stream holds them: their detail.
+async fn ends(edge: &TestEdge) -> Vec<String> {
+    run_events(edge, SESSION)
+        .await
+        .into_iter()
+        .filter_map(|event| match event {
+            RunEvent::RunEnded(ended) => Some(ended.detail),
+            _ => None,
+        })
+        .collect()
+}
+
+// Ruling 86: a run owed a runner whose launcher has died is never launched by
+// anyone (its order died with it): the next process to catch up records its
+// launch as failed, `orphaned`, which ends it, and closes its session's
+// incarnation (ruling 85). Nothing is launched for it.
+#[tokio::test]
+async fn a_run_whose_launcher_died_is_recorded_as_an_orphan() {
+    let edge = Arc::new(TestEdge::new());
+    enqueued_by(&edge, SESSION, HARP, DEAD).await;
+    let mut later = another_process(&edge, Processes::saying(run_ports::ProcessState::Gone));
+    let launched = later.step(&edge.store, edge.catalog()).await.unwrap();
+    assert!(launched.is_empty(), "an orphan is not launched");
+    assert_eq!(ends(&edge).await, ["orphaned"]);
+    let closed: Vec<(u32, String)> = session_events(&edge, SESSION)
+        .await
+        .into_iter()
+        .filter_map(|event| match event {
+            SessionEvent::IncarnationEnded(ended) => Some((ended.incarnation, ended.cause)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(closed, [(1, "orphaned".to_string())]);
+}
+
+// Ruling 86: a launcher still running owns its run, and one the probe cannot
+// prove dead (a pid of another host, an unknown identity) is never judged
+// gone: the run is left as it is.
+#[tokio::test]
+async fn a_run_whose_launcher_runs_or_cannot_be_proven_dead_is_left() {
+    for state in [
+        run_ports::ProcessState::Running,
+        run_ports::ProcessState::Unproven,
+    ] {
+        let edge = Arc::new(TestEdge::new());
+        enqueued_by(&edge, SESSION, HARP, DEAD).await;
+        let processes = Processes::saying(state);
+        let mut later = another_process(&edge, Arc::clone(&processes));
+        later.step(&edge.store, edge.catalog()).await.unwrap();
+        assert!(ends(&edge).await.is_empty(), "{state:?}");
+        assert!(
+            *processes.asked.lock().unwrap() > 0,
+            "{state:?}: it was asked"
+        );
+    }
+}
+
+// Ruling 86: a run enqueued before its launcher was recorded names none, and is
+// never judged an orphan, whatever the probe would say.
+#[tokio::test]
+async fn a_run_that_names_no_launcher_is_never_an_orphan() {
+    let edge = Arc::new(TestEdge::new());
+    enqueued(&edge, SESSION, HARP).await;
+    let mut later = another_process(&edge, Processes::saying(run_ports::ProcessState::Gone));
+    later.step(&edge.store, edge.catalog()).await.unwrap();
+    assert!(ends(&edge).await.is_empty());
+}
+
+// Ruling 86, the race forced: two processes find the same orphan, the second
+// catching up in the gap between the first one's ask and its record. The
+// orphan is recorded ONCE (the fact is keyed by the run, so the second is a
+// DUPLICATE), and neither process fails for it.
+#[tokio::test]
+async fn two_processes_that_find_the_same_orphan_record_it_once() {
+    let edge = Arc::new(TestEdge::new());
+    enqueued_by(&edge, SESSION, HARP, DEAD).await;
+    let second = Arc::new(Mutex::new(another_process(
+        &edge,
+        Processes::saying(run_ports::ProcessState::Gone),
+    )));
+    let first_processes = Processes::saying(run_ports::ProcessState::Gone);
+    let (racer, racing_edge) = (Arc::clone(&second), Arc::clone(&edge));
+    *first_processes.before.lock().unwrap() = Some(Box::new(move || {
+        let mut second = racer.lock().unwrap();
+        now(second.step(&racing_edge.store, racing_edge.catalog())).unwrap();
+    }));
+    let mut first = another_process(&edge, first_processes);
+    first.step(&edge.store, edge.catalog()).await.unwrap();
+    assert_eq!(ends(&edge).await, ["orphaned"], "ended once");
+    let launch_failed = run_events(&edge, SESSION)
+        .await
+        .into_iter()
+        .filter(|event| matches!(event, RunEvent::RunEnded(_)))
+        .count();
+    assert_eq!(launch_failed, 1);
+}
+
+// Ruling 86: a run this process holds the order for is its own, launched as
+// ever, never judged by its recorded launcher.
+#[tokio::test]
+async fn a_run_whose_order_this_process_holds_is_launched_not_orphaned() {
+    let edge = Arc::new(TestEdge::new());
+    enqueued_by(&edge, SESSION, HARP, DEAD).await;
+    let runner = ScriptedRunner::exits(0);
+    let mut owner = Launcher::new(
+        Arc::clone(&edge),
+        runner.clone(),
+        MemoryRecords::default(),
+        vec![Arc::new(ScriptedEngine::answering("A", None))],
+        orders_with(order("fake")),
+        limits(),
+    )
+    .with_processes(Processes::saying(run_ports::ProcessState::Gone));
+    let launched = owner.step(&edge.store, edge.catalog()).await.unwrap();
+    assert_eq!(launched.len(), 1);
+    assert_eq!(runner.seen.lock().unwrap().len(), 1);
+    assert!(!ends(&edge).await.contains(&"orphaned".to_string()));
 }

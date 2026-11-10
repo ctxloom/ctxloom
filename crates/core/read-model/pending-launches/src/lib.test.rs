@@ -57,8 +57,17 @@ fn enqueued(n: u8, incarnation: u32, mode: RunMode) -> EventBook {
         runner_credential_hash: vec![1; 32],
         model_credential_hash: vec![2; 32],
         hook_credential_hash: vec![3; 32],
+        launcher: launcher_of(n),
     });
     book(RUN_DOMAIN, root, vec![page(0, event.to_any())])
+}
+
+/// The process that enqueued session `n`'s runs (ruling 86).
+fn launcher_of(n: u8) -> runs::LauncherProcess {
+    runs::LauncherProcess {
+        pid: 1000 + u32::from(n),
+        started: 77,
+    }
 }
 
 /// A later event of the run of session `n`'s `incarnation`, at `sequence`.
@@ -115,6 +124,7 @@ fn an_enqueued_run_is_owed_a_runner() {
             session,
             incarnation: 1,
             mode: RunMode::OneShot,
+            launcher: launcher_of(1),
         }
     );
 }
@@ -330,4 +340,17 @@ fn a_book_from_the_first_page_replaces_what_the_session_owed() {
     model.project(&owed(3, 2)).unwrap();
     let incarnations: Vec<u32> = model.owed().iter().map(|o| o.incarnation).collect();
     assert_eq!(incarnations, vec![2]);
+}
+
+// Ruling 86: each run owed a runner carries the process that enqueued it, so a
+// later process can judge whether its launcher still runs.
+#[test]
+fn a_run_owed_a_runner_carries_the_process_that_enqueued_it() {
+    let model = fold(&[
+        enqueued(1, 1, RunMode::OneShot),
+        enqueued(2, 1, RunMode::Interactive),
+    ]);
+    let launchers: Vec<runs::LauncherProcess> =
+        model.launches().into_iter().map(|l| l.launcher).collect();
+    assert_eq!(launchers, [launcher_of(1), launcher_of(2)]);
 }

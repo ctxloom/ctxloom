@@ -11,6 +11,7 @@ publish.workspace = true
 angzarr-diagnostic.workspace = true
 file-system.workspace = true
 os.workspace = true
+run-ports.workspace = true
 session-ports.workspace = true
 
 [dev-dependencies]

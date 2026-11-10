@@ -425,6 +425,34 @@ impl session_ports::SessionLock for Locks {
     }
 }
 
+/// This host's processes, as a test says them: this one is `CURRENT`, and
+/// every other is as `states` says (unproven when unnamed).
+#[derive(Clone, Default)]
+struct FixedProcesses {
+    states: Arc<Mutex<Vec<(run_ports::ProcessIdentity, run_ports::ProcessState)>>>,
+}
+
+/// The process the run's rig runs in.
+const CURRENT: run_ports::ProcessIdentity = run_ports::ProcessIdentity {
+    pid: 31337,
+    started: 5,
+};
+
+impl run_ports::Processes for FixedProcesses {
+    fn current(&self) -> run_ports::ProcessIdentity {
+        CURRENT
+    }
+
+    fn state(&self, who: &run_ports::ProcessIdentity) -> run_ports::ProcessState {
+        self.states
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(id, _)| id == who)
+            .map_or(run_ports::ProcessState::Unproven, |(_, state)| *state)
+    }
+}
+
 struct Rig {
     locks: Locks,
     timeline: Timeline,
@@ -601,6 +629,7 @@ fn rig(script: Script) -> Rig {
         hooks: Box::new(hooks.clone()),
         certs: Box::new(certs.clone()),
         locks: Box::new(locks.clone()),
+        processes: Arc::new(FixedProcesses::default()),
     });
     Rig {
         locks,
@@ -2741,4 +2770,24 @@ async fn a_refused_run_has_no_incarnation_to_close() {
     let _ = rig.runs.one_shot(&Flags::default(), &ask()).await;
     let session = enqueued_session(&rig);
     assert!(session_events(&rig.edge, &session).await.is_empty());
+}
+
+// Ruling 86: the run's enqueue records this process as its launcher (its pid
+// and its start), so a later process can tell when it died.
+#[tokio::test]
+async fn the_enqueue_records_this_process_as_the_runs_launcher() {
+    let mut rig = rig(Script::answering());
+    rig.runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let enqueued = rig.runs.core.0.enqueued.lock().unwrap().clone().unwrap();
+    assert_eq!(
+        enqueued.launcher,
+        runs::LauncherProcess {
+            pid: CURRENT.pid,
+            started: CURRENT.started
+        }
+    );
 }

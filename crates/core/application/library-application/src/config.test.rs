@@ -234,3 +234,18 @@ fn test_companions_are_read_by_name_with_their_commands() {
     assert!(config("editor:\n  command: vim\n").companions().is_empty());
     assert!(config("companions: [acme]\n").companions().is_empty());
 }
+
+// Ruling 67: an agent that declares no neutral posture has no permissions
+// line in the listing (not an empty `{}`); one that declares it has it.
+#[test]
+fn test_an_agent_without_a_neutral_posture_lists_no_permissions_line() {
+    let bare = super::Agent::of("a", &parse("engine: claude-code\n").expect("a document"));
+    assert_eq!(bare.row().permissions_line, "");
+    let empty = super::Agent::of("a", &parse("permissions: {}\n").expect("a document"));
+    assert_eq!(empty.row().permissions_line, "");
+    let posture = super::Agent::of(
+        "a",
+        &parse("permissions:\n  approver: human\n").expect("a document"),
+    );
+    assert_eq!(posture.row().permissions_line, "{approver: human}");
+}

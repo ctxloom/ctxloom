@@ -423,3 +423,31 @@ fn only_an_engine_in_use_on_a_file_alone_is_warned_of() {
     }
     assert!(auth(&[]).file_only(&[]).is_empty());
 }
+
+// Ruling 64: a warning of a file alone displays as the refusal it stands for
+// (its code and args, the catalog-free form; the words are the catalog's).
+#[test]
+fn a_file_only_warning_displays_as_the_refusal_a_childs_run_meets() {
+    let warned = auth(&[]).file_only(&file_only_in_use("claude-code"));
+    let refusal = runs::RunRejection::FileOnlyCredential {
+        engine: "claude-code".to_string(),
+        variables: "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY".to_string(),
+    };
+    assert_eq!(warned[0].to_string(), refusal.to_string());
+    assert_eq!(
+        warned[0].to_string(),
+        r#"runs-file-only-credential engine=claude-code variables="CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY""#
+    );
+}
+
+// Ruling 81: the fix of a warning displays as the diagnostic it is: its own
+// `-fix` code with the warning's args.
+#[test]
+fn a_fix_displays_as_its_own_code_with_the_warnings_args() {
+    let warned = super::file_only("claude-code");
+    let fix = FixOf(&warned, "runs-file-only-credential-fix".to_string());
+    assert_eq!(
+        fix.to_string(),
+        r#"runs-file-only-credential-fix engine=claude-code variables="CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY""#
+    );
+}

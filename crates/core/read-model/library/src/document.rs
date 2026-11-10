@@ -4,11 +4,9 @@
 //! envelope's reading.
 //!
 //! The envelope's `schema_version` names a generation, 0 to
-//! [`CURRENT`]: an older document is migrated in memory (generation 0 to 1
-//! renames `prompts:` to `commands:` and an item's `llm:` to `exports:`;
-//! 1 to 2 moves a profile's references onto the canonical grammar; 2 to 3 and
-//! 3 to 4 only widen what is read), a newer one is refused, and nothing is
-//! written back.
+//! [`CURRENT`]: a newer one is refused. There is no reader of an older shape
+//! (hard migrate): a document in it meets the ordinary strict decode, which
+//! refuses a key it does not know.
 
 use std::collections::BTreeMap;
 
@@ -21,9 +19,6 @@ use crate::yamlx::{self, key_line, nearest};
 
 /// The generation this build reads and writes.
 pub const CURRENT: u32 = 4;
-
-/// The generation at which a profile's stored references are canonical.
-pub const PROFILE_REFS: u32 = 2;
 
 /// The keys a bundle document may declare at its top level.
 const TOP_KEYS: [&str; 15] = [
@@ -110,28 +105,16 @@ pub const TOOL_CLASSES: [&str; 3] = ["shell", "file_edit", "skill"];
 /// refused; an entry under `skills:` carrying `content:` (a command's shape)
 /// is refused.
 pub fn parse_document(text: &str) -> Result<Bundle, BundleError> {
-    parse_with_generation(text).map(|(bundle, _)| bundle)
-}
-
-/// As [`parse_document`], with the generation the document declared (a tree's
-/// items are at their envelope's).
-pub fn parse_with_generation(text: &str) -> Result<(Bundle, u32), BundleError> {
-    let mut root = crate::yamlx::parse(text).map_err(|cause| BundleError::Syntax { cause })?;
-    let generation = read_generation(&root)?;
-    migrate(&mut root, generation);
+    let root = crate::yamlx::parse(text).map_err(|cause| BundleError::Syntax { cause })?;
+    read_generation(&root)?;
     check_vocabulary(&root, text)?;
-    let mut bundle = decode(&root, text)?;
-    if generation < PROFILE_REFS {
-        for profile in bundle.profiles.values_mut() {
-            profile.canonicalize_refs();
-        }
-    }
+    let bundle = decode(&root, text)?;
     if declares_nothing(&bundle) {
         return Err(BundleError::Empty {
             bytes: text.len() as u64,
         });
     }
-    Ok((bundle, generation))
+    Ok(bundle)
 }
 
 fn declares_nothing(bundle: &Bundle) -> bool {
@@ -160,41 +143,6 @@ fn read_generation(root: &Value) -> Result<u32, BundleError> {
         });
     }
     Ok(generation as u32)
-}
-
-/// Rename `old` to `new` in a mapping, keeping its place; when `new` is there
-/// already the legacy `old` is dropped (the current key wins).
-fn rename_key(entries: &mut Vec<(String, Value)>, old: &str, new: &str) {
-    let Some(at) = entries.iter().position(|(k, _)| k == old) else {
-        return;
-    };
-    if entries.iter().any(|(k, _)| k == new) {
-        entries.remove(at);
-    } else {
-        entries[at].0 = new.to_string();
-    }
-}
-
-/// The in-memory migrations from `generation` up to [`CURRENT`] that edit the
-/// document (the later steps only widen what is read).
-fn migrate(root: &mut Value, generation: u32) {
-    if generation >= 1 {
-        return;
-    }
-    let Value::Map(entries) = root else { return };
-    rename_key(entries, "prompts", "commands");
-    for (key, items) in entries.iter_mut() {
-        if key != "commands" && key != "skills" {
-            continue;
-        }
-        if let Value::Map(items) = items {
-            for (_, item) in items.iter_mut() {
-                if let Value::Map(fields) = item {
-                    rename_key(fields, "llm", "exports");
-                }
-            }
-        }
-    }
 }
 
 fn unknown(key: &str, path: &[&str], text: &str, site: &str, valid: &[&str]) -> BundleError {

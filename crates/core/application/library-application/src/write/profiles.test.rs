@@ -56,7 +56,6 @@ fn test_create_writes_the_definition_in_the_project_bundle() {
             &ProfileCreateRequest {
                 description: "day-to-day-work".to_string(),
                 parents: vec!["base".to_string()],
-                llm: "claude-fast".to_string(),
                 ..create("new")
             },
         )
@@ -71,7 +70,7 @@ fn test_create_writes_the_definition_in_the_project_bundle() {
     );
     assert_eq!(
         mem.text("project", "profiles/new.yaml").unwrap(),
-        "description: day-to-day-work\nparents:\n  - base\nllm: claude-fast\nbundles:\n  - demo\n"
+        "description: day-to-day-work\nparents:\n  - base\nbundles:\n  - demo\n"
     );
     let listed = library.profile_list(&plain()).result.unwrap();
     assert!(listed
@@ -152,11 +151,6 @@ fn test_create_refuses_what_composes_nothing_and_what_it_cannot_name() {
             "{bad:?}"
         );
     }
-    let llm = ProfileCreateRequest {
-        llm: "zzz".to_string(),
-        ..create("x")
-    };
-    assert!(err(library.profile_create(&plain(), &llm)).contains("UnknownLlm"));
     assert_eq!(mem.writes(), 0);
 }
 
@@ -255,14 +249,8 @@ fn test_modify_refuses_a_profile_nobody_has_a_parent_nobody_has_and_a_label_nobo
         ..none.clone()
     };
     assert!(err(library.profile_modify(&plain(), "dev", &parent)).contains("ParentNotFound"));
-    let llm = ProfileEdit {
-        llm: Some("zzz".to_string()),
-        ..none.clone()
-    };
-    assert!(err(library.profile_modify(&plain(), "dev", &llm)).contains("UnknownLlm"));
-    // An empty llm clears; a known one is set.
     let known = ProfileEdit {
-        llm: Some("claude-fast".to_string()),
+        description: Some("a new description".to_string()),
         ..none
     };
     assert_eq!(
@@ -271,7 +259,7 @@ fn test_modify_refuses_a_profile_nobody_has_a_parent_nobody_has_and_a_label_nobo
             .result
             .unwrap()
             .changes,
-        ["set llm to \"claude-fast\""]
+        ["updated description"]
     );
     assert_eq!(mem.writes(), 1);
 }

@@ -279,8 +279,6 @@ pub struct ProfileShow {
     pub name: String,
     #[serde(skip_serializing_if = "no_text")]
     pub description: String,
-    #[serde(skip_serializing_if = "no_text")]
-    pub llm: String,
     #[serde(skip_serializing_if = "no_items")]
     pub parents: Vec<String>,
     #[serde(skip_serializing_if = "no_items")]
@@ -379,16 +377,6 @@ pub struct AgentShow {
     pub requirements: Vec<Requirement>,
     #[serde(skip_serializing_if = "no_text")]
     pub requirements_error: String,
-}
-
-/// One row of `llm list`.
-#[derive(Clone, Debug, Serialize)]
-pub struct LlmRow {
-    pub label: String,
-    pub default: bool,
-    pub authored: bool,
-    #[serde(skip_serializing_if = "no_items")]
-    pub runtimes: Vec<String>,
 }
 
 /// One row of `companion list`.

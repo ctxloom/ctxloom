@@ -3,11 +3,8 @@ editor:
   command: project-editor
 agents:
   proj:
-    llm: claude-code
+    engine: claude-code
     profiles: [x]
 companions:
   beta: {command: [other-beta]}
   gamma: {command: [gamma-bin]}
-llm:
-  defaults:
-    fast: claude-fast

@@ -35,21 +35,13 @@ non_tty_format: json
 auth: login
 agents:
   dev:
-    llm: claude-code
+    engine: claude-code
     profiles: [p1]
     runtime: host
     driving: oneshot
-    env_host: false
     env: [ALPHA]
     permissions:
       approver: human
       claude-code:
         mode: plan
 default_agent: dev
-llm:
-  configs:
-    claude-code:
-      type: claude-code
-      model: opus
-  defaults:
-    primary: claude-code

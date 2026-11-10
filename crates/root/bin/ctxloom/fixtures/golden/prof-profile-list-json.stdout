@@ -952,32 +952,6 @@
     "bundle": "ctxloom+local:project"
   },
   {
-    "name": "llm-inherit",
-    "display_name": "llm-inherit",
-    "parents": [
-      "bottom"
-    ],
-    "bundles": [
-      "a"
-    ],
-    "path": "{PROJECT}/.ctxloom/content/bundles/v2/project/profiles/llm-inherit.yaml",
-    "is_remote": false,
-    "bundle": "ctxloom+local:project"
-  },
-  {
-    "name": "llm-override",
-    "display_name": "llm-override",
-    "parents": [
-      "bottom"
-    ],
-    "bundles": [
-      "a"
-    ],
-    "path": "{PROJECT}/.ctxloom/content/bundles/v2/project/profiles/llm-override.yaml",
-    "is_remote": false,
-    "bundle": "ctxloom+local:project"
-  },
-  {
     "name": "missing-bundle",
     "display_name": "missing-bundle",
     "bundles": [

@@ -25,7 +25,6 @@ pub struct ProfileCreateRequest {
     pub description: String,
     pub parents: Vec<String>,
     pub bundles: Vec<String>,
-    pub llm: String,
     /// The local bundle the profile is written into; the project's own when
     /// empty.
     pub target: String,
@@ -45,15 +44,4 @@ pub struct AgentRequest {
     pub roots: Option<Vec<(String, String)>>,
     pub permissions: Option<String>,
     pub env: Option<Vec<String>>,
-}
-
-/// `llm create` and `llm edit`.
-#[derive(Clone, Default, Debug)]
-pub struct LlmRequest {
-    pub kind: Option<String>,
-    pub model: Option<String>,
-    pub permissions: Option<String>,
-    /// `dotted.key=value` pairs, the value read as YAML; an empty value
-    /// removes the key.
-    pub set: Vec<String>,
 }

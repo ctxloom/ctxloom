@@ -159,7 +159,6 @@ fn test_config_show_prints_the_effective_configuration_a_section_or_the_raw_laye
         serde_json::json!({"acme": {"command": ["acme-bin", "--as", "acme"]}})
     );
     let raw = json_of(&["config", "show", "--raw"]);
-    assert!(raw.get("llm").is_none());
     assert_eq!(
         raw["companions"],
         serde_json::json!({"acme": {"command": ["acme-bin", "--as", "acme"]}})
@@ -289,9 +288,9 @@ fn test_skill_list_and_show() {
     assert!(text_of(&["skill"]).starts_with("Skills (1):\n"));
 }
 
-// profile.feature, agent.feature, llm.feature, companion.feature, mcp.feature
+// profile.feature, agent.feature, companion.feature, mcp.feature
 #[test]
-fn test_profile_agent_llm_companion_and_mcp_commands() {
+fn test_profile_agent_companion_and_mcp_commands() {
     let profiles = json_of(&["profile", "list"]);
     assert_eq!(profiles[1]["name"], "dev");
     assert_eq!(json_of(&["profile"]), profiles);
@@ -309,10 +308,6 @@ fn test_profile_agent_llm_companion_and_mcp_commands() {
     assert!(text_of(&["agent", "show", "dev"])
         .starts_with("Agent: dev\nEngine (declared): claude-code\n"));
     assert!(text_of(&["agent"]).starts_with("Agents (1):\n"));
-    let llms = json_of(&["llm", "list"]);
-    assert_eq!(llms[0]["label"], "claude-code");
-    assert_eq!(json_of(&["llm"]), llms);
-    assert!(text_of(&["llm"]).starts_with("Available LLMs:\n"));
     let companions = json_of(&["companion", "list"]);
     assert_eq!(
         companions[0],
@@ -542,7 +537,7 @@ fn test_the_format_is_asked_for_a_terminals_or_the_configurations() {
 #[test]
 fn test_running_a_noun_the_line_does_not_name_is_refused() {
     let program = Command::new("ctxloom").subcommands(nouns());
-    let matches = program.get_matches_from(["ctxloom", "llm", "list"]);
+    let matches = program.get_matches_from(["ctxloom", "companion", "list"]);
     let call = Call {
         matches: &matches,
         explicit_format: None,
@@ -579,7 +574,7 @@ impl Write for Broken {
 #[test]
 fn test_an_answer_that_cannot_be_written_fails_with_its_cause() {
     let program = Command::new("ctxloom").subcommands(nouns());
-    let matches = program.get_matches_from(["ctxloom", "llm", "list"]);
+    let matches = program.get_matches_from(["ctxloom", "companion", "list"]);
     let call = Call {
         matches: &matches,
         explicit_format: Some(Format::Json),
@@ -595,7 +590,7 @@ fn test_an_answer_that_cannot_be_written_fails_with_its_cause() {
     let catalog = Catalog::en_us(&[library_application::EN_US]).unwrap();
     let failure = run(
         &library,
-        "llm",
+        "companion",
         &call,
         &catalog,
         &mut Broken,

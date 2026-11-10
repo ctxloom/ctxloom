@@ -266,9 +266,6 @@ mod library_write_config;
 #[path = "library_write_items.test.rs"]
 mod library_write_items;
 
-#[path = "library_write_llm.test.rs"]
-mod library_write_llm;
-
 #[path = "library_write_loadout.test.rs"]
 mod library_write_loadout;
 

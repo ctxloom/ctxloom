@@ -213,7 +213,6 @@ fn test_select_carries_the_profile_sets_declarations() {
         p.variables = BTreeMap::from([("project".into(), "two".into())]);
         p.deny_tools = strings(&["WebFetch", "Task"]);
         p.exclude_mcp = strings(&["db"]);
-        p.llm = "fast".to_string();
     });
     let sel = select_all(&[first, second], &SelectRequest::default());
     assert_eq!(sel.commands, ["alpha#commands/release"]);
@@ -227,7 +226,6 @@ fn test_select_carries_the_profile_sets_declarations() {
         ])
     );
     assert_eq!(sel.deny_tools, ["Task", "WebFetch"]);
-    assert_eq!(sel.llm, "fast");
     assert!(sel.exclusions.contains("db"));
 }
 

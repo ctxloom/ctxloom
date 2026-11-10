@@ -2,4 +2,3 @@ parents: [bottom]
 bundles: [c]
 variables:
   who: right
-llm: claude-code

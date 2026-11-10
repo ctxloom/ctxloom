@@ -266,7 +266,6 @@ fn test_the_schema_describes_exactly_the_paths_it_lists() {
         &["companions", "acme", "x"][..],
         &["editor", "bogus"],
         &["agents", "dev", "nope"],
-        &["llm", "configs", "x", "nope"],
         &["engines", "claude-code", "model"],
     ] {
         assert!(!known_path(&path(unknown)), "{unknown:?}");

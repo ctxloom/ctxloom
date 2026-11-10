@@ -378,20 +378,21 @@ Feature: profile — the composition that decides what an agent actually receive
         | --format json | updated-desc         |
         | --format text | updated-desc         |
 
-    # The engine a profile prefers to launch is its own axis, distinct from
-    # the description above — a labeled llm config, read back out of the
-    # profile file it was written to.
-    Scenario: The preferred engine can be set by flag
+    # A profile composes context and prefers no engine: which engine runs is
+    # the agent's (engines schema, rulings 41-48). The old flag and the old
+    # profile key are gone, with no alias; the key is refused like any other
+    # unknown one.
+    Scenario: A profile has no preferred engine to set
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And a profile "dev" with bundle "demo"
-      And I run "ctxloom llm create big --type mock --model o1"
-      When Alice sets which engine this profile prefers to launch:
+      When Alice tries to set which engine this profile prefers to launch:
         """
         ctxloom profile modify dev --llm big
         """
-      Then the command succeeds
-      And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" contains "llm: big"
+      Then the command fails
+      And the output contains "--llm"
+      And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" does not contain "llm"
 
   Rule: Export publishes the definition; materialize writes the runnable surface
 

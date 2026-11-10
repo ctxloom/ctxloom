@@ -133,11 +133,11 @@ fn test_edit_opens_the_config_in_the_editor_of_the_environment() {
 #[test]
 fn test_edit_works_on_a_config_that_does_not_load() {
     let (library, mem) = Setup {
-        layers: &["schema_version: 9\nllm: [unclosed\n"],
+        layers: &["schema_version: 9\neditor: [unclosed\n"],
         ..Setup::default()
     }
     .fixture();
-    mem.set_scaffold_for_test("config.yaml", "llm: [unclosed\n");
+    mem.set_scaffold_for_test("config.yaml", "editor: [unclosed\n");
     assert!(library.config_edit().result.is_ok());
     assert_eq!(mem.opened().len(), 1);
 }

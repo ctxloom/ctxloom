@@ -1,6 +1,6 @@
 //! Ported from Go's `internal/core/bundles` tests (`upgrade_test.go`,
-//! `strict_test.go`, `profile_refs_step_test.go`) at 860336c4e: the inline
-//! document form and the migrations of its envelope.
+//! `strict_test.go`) at 860336c4e: the inline document form. There is no
+//! reader of an older shape (hard migrate).
 
 use super::*;
 
@@ -10,55 +10,11 @@ fn parse(text: &str) -> Bundle {
     parse_document(text).unwrap_or_else(|e| panic!("{}", e.english()))
 }
 
-// upgrade_test.go: TestParseBundle_MigratesPromptsKeyToCommands
-#[test]
-fn test_a_legacy_prompts_key_migrates_to_commands() {
-    let b = parse("version: \"1.0\"\nprompts:\n  review:\n    description: d\n    content: c\n");
-    assert_eq!(
-        b.commands["review"].body.content, "c",
-        "legacy prompts: must migrate into commands"
-    );
-    assert!(b.fragments.is_empty(), "no fragments declared");
-}
-
 // upgrade_test.go: TestParseBundle_CommandsKeyUnchanged
 #[test]
 fn test_a_current_commands_key_loads_unchanged() {
     let b = parse("version: \"1.0\"\ncommands:\n  review:\n    content: c\n");
     assert_eq!(b.commands["review"].body.content, "c");
-}
-
-// upgrade_test.go: TestParseBundle_CommandsWinsOverLegacyPrompts
-#[test]
-fn test_commands_win_over_a_legacy_prompts_key() {
-    let b = parse(
-        "version: \"1.0\"\ncommands:\n  new:\n    content: n\nprompts:\n  old:\n    content: o\n",
-    );
-    assert!(b.commands.contains_key("new"));
-    assert!(
-        !b.commands.contains_key("old"),
-        "legacy prompts: must not override commands:"
-    );
-}
-
-// strict_test.go: TestParseBundle_LegacyPromptsKeyIsMigratedBeforeStrictDecodeRefusesIt
-// and the item `llm:` to `exports:` rename of generation 0 to 1.
-#[test]
-fn test_the_migration_runs_before_the_strict_decode_and_renames_llm_to_exports() {
-    let b = parse(
-        "version: \"1.0.0\"\nprompts:\n  review:\n    content: review this\n    description: a legacy prompt\n    llm:\n      claude-code:\n        enabled: false\n",
-    );
-    let review = &b.commands["review"];
-    assert_eq!(review.body.content, "review this");
-    assert_eq!(review.description, "a legacy prompt");
-    assert!(
-        review.exports.contains_key("claude-code"),
-        "llm: becomes exports:"
-    );
-    assert!(
-        b.fragments.is_empty(),
-        "nothing else may be invented by the migration"
-    );
 }
 
 // upgrade_test.go: TestParseBundle_ContentShapedSkillIsRefused
@@ -224,32 +180,6 @@ fn test_a_fragments_premise_in_a_document() {
     );
 }
 
-const FETCH_BUNDLE: &str = "https://github.com/o/r@bundles/core";
-const CANONICAL_BUNDLE: &str = "ctxloom+git://github.com/o/r//bundles/core";
-const FETCH_PARENT: &str = "https://github.com/o/r@bundles/kit#profiles/base";
-const CANONICAL_PARENT: &str = "ctxloom+git://github.com/o/r//bundles/kit#profiles/base";
-
-// profile_refs_step_test.go: TestParseBundle_ProfileRefsStep: an envelope
-// older than the step has its profiles' stored refs moved onto the canonical
-// grammar; a current one is read as written.
-#[test]
-fn test_profile_refs_move_onto_the_canonical_grammar_below_generation_2() {
-    let doc = |generation: u32| {
-        format!(
-            "schema_version: {generation}\nversion: 1.0.0\nprofiles:\n  dev:\n    bundles:\n      - {FETCH_BUNDLE}\n    parents:\n      - {FETCH_PARENT}\n"
-        )
-    };
-    let old = parse(&doc(PROFILE_REFS - 1));
-    assert_eq!(old.profiles["dev"].bundles, [CANONICAL_BUNDLE]);
-    assert_eq!(old.profiles["dev"].parents, [CANONICAL_PARENT]);
-    let current = parse(&doc(PROFILE_REFS));
-    assert_eq!(
-        current.profiles["dev"].bundles,
-        [FETCH_BUNDLE],
-        "a current envelope is not migrated"
-    );
-}
-
 // schema_version_test.go + upgrade.go: a stamp past the current generation is
 // refused, not read as far as it can be.
 #[test]
@@ -279,7 +209,7 @@ fn test_a_newer_generation_is_refused_and_every_older_one_reads() {
 // refs: the document parser takes the corpus Go's composite tests are built on.
 #[test]
 fn test_the_composite_corpus_alpha_parses() {
-    let alpha = "version: 1.0.0\ndescription: alpha corpus\nfragments:\n  rules:\n    tags: [house]\n    content: \"Rules for {{project}}.\"\n  style:\n    content: \"Prefer small functions.\"\n  maybe:\n    premise: \"the agent is about to touch a signed bundle\"\n    content: \"Do not edit a signed bundle in place.\"\ncommands:\n  review:\n    description: Review the diff\n    content: \"Review the staged diff.\"\n    llm:\n      claude-code:\n        description: Review (claude)\n        argument_hint: \"[path]\"\n        allowed_tools: [Read]\n        model: sonnet\n  release:\n    description: Cut a release\n    content: \"Prepare the release notes.\"\n    llm:\n      claude-code:\n        enabled: false\nmcp:\n  db:\n    command: mcp-db\n";
+    let alpha = "version: 1.0.0\ndescription: alpha corpus\nfragments:\n  rules:\n    tags: [house]\n    content: \"Rules for {{project}}.\"\n  style:\n    content: \"Prefer small functions.\"\n  maybe:\n    premise: \"the agent is about to touch a signed bundle\"\n    content: \"Do not edit a signed bundle in place.\"\ncommands:\n  review:\n    description: Review the diff\n    content: \"Review the staged diff.\"\n    exports:\n      claude-code:\n        description: Review (claude)\n        argument_hint: \"[path]\"\n        allowed_tools: [Read]\n        model: sonnet\n  release:\n    description: Cut a release\n    content: \"Prepare the release notes.\"\n    exports:\n      claude-code:\n        enabled: false\nmcp:\n  db:\n    command: mcp-db\n";
     let b = parse(alpha);
     assert_eq!(
         b.fragments.keys().collect::<Vec<_>>(),
@@ -292,18 +222,6 @@ fn test_the_composite_corpus_alpha_parses() {
 
 fn refused(text: &str) -> String {
     parse_document(text).expect_err(text).english()
-}
-
-// upgrade_test.go: the generation-0 migration renames `llm:` to `exports:` on
-// commands and skills, and on nothing else
-#[test]
-fn test_the_llm_to_exports_migration_covers_skills_and_no_other_kind() {
-    let b = parse(
-        "version: \"1.0.0\"\nskills:\n  reviewer:\n    path: skills/reviewer\n    llm:\n      claude-code:\n        enabled: false\n",
-    );
-    assert!(b.skills["reviewer"].exports.contains_key("claude-code"));
-    let said = refused("version: \"1.0.0\"\nfragments:\n  f:\n    content: c\n    llm:\n      claude-code:\n        enabled: false\n");
-    assert!(said.contains("llm"), "{said}");
 }
 
 // strict_test.go: an unknown key is refused wherever the schema is closed
@@ -436,4 +354,28 @@ fn test_required_commands_are_command_names_and_hooks_decode_in_event_order() {
         .map(|h| format!("{}/{}", h.event, h.name))
         .collect();
     assert_eq!(order, ["pre_tool/0", "pre_tool/1", "post_tool/0"]);
+}
+
+// hard migrate: the shapes an older ctxloom wrote have no reader; the strict
+// decode refuses them like any unknown key (a bundle in the old shape is
+// edited by hand)
+#[test]
+fn test_the_older_bundle_shapes_are_refused_as_unknown_keys() {
+    let said = refused("version: \"1.0\"\nprompts:\n  review:\n    content: c\n");
+    assert!(said.contains("prompts"), "{said}");
+    let said = refused(
+        "version: \"1.0\"\ncommands:\n  review:\n    content: c\n    llm:\n      claude-code:\n        enabled: false\n",
+    );
+    assert!(said.contains("llm"), "{said}");
+    let said = refused("version: \"1.0\"\nskills:\n  r:\n    path: skills/r\n    llm:\n      claude-code:\n        enabled: false\n");
+    assert!(said.contains("llm"), "{said}");
+}
+
+// upgrade_test.go (ported): exports: is read on skills as well as commands
+#[test]
+fn test_exports_are_read_on_skills() {
+    let b = parse(
+        "version: \"1.0.0\"\nskills:\n  reviewer:\n    path: skills/reviewer\n    exports:\n      claude-code:\n        enabled: false\n",
+    );
+    assert!(b.skills["reviewer"].exports.contains_key("claude-code"));
 }

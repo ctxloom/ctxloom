@@ -7,9 +7,8 @@ use std::io::{self, Write};
 use angzarr_presentation::text;
 use library_application::{
     AgentRow, AgentSettings, AgentShow, BundleList, BundleRow, BundleShow, BundleView,
-    CompanionRow, DryRun, EngineRow, ItemList, ItemShow, LlmRow, McpList, McpShow, Premises,
-    ProfileList, ProfileShow, RemoteFound, RuntimeSetting, SearchResults, SkillList, SkillShow,
-    SourcedValue,
+    CompanionRow, DryRun, EngineRow, ItemList, ItemShow, McpList, McpShow, Premises, ProfileList,
+    ProfileShow, RemoteFound, RuntimeSetting, SearchResults, SkillList, SkillShow, SourcedValue,
 };
 
 use crate::inert::{body, field};
@@ -396,9 +395,6 @@ pub fn profile_show(out: &mut dyn Write, show: &ProfileShow) -> io::Result<()> {
     if !show.description.is_empty() {
         writeln!(out, "Description: {}", f(&show.description))?;
     }
-    if !show.llm.is_empty() {
-        writeln!(out, "LLM: {}", f(&show.llm))?;
-    }
     bullets(out, "Parents", &show.parents)?;
     bullets(out, "Bundles", &show.bundles)?;
     bullets(out, "Tags", &show.tags)?;
@@ -679,39 +675,6 @@ pub fn engine_show(out: &mut dyn Write, row: &EngineRow) -> io::Result<()> {
         settings_lines(out, &agent.settings, "      ")?;
     }
     Ok(())
-}
-
-/// `llm list`.
-pub fn llm_list(out: &mut dyn Write, rows: &[LlmRow]) -> io::Result<()> {
-    writeln!(out, "Available LLMs:")?;
-    for row in rows {
-        let mut label = row.label.clone();
-        if row.default {
-            label.push_str(" (default)");
-        }
-        let origin = if row.authored {
-            "[configured]"
-        } else {
-            "[built-in]"
-        };
-        writeln!(out, "  {label} {origin}")?;
-        if !row.runtimes.is_empty() {
-            writeln!(out, "      runtimes: {}", row.runtimes.join(", "))?;
-        }
-    }
-    writeln!(
-        out,
-        "\n[configured] declared in your config.yaml   [built-in] supplied by ctxloom"
-    )?;
-    writeln!(
-        out,
-        "runtimes: the `agent create --runtime` values that engine can be given. There is"
-    )?;
-    writeln!(
-        out,
-        "no default \u{2014} an agent created without one inherits whatever the project says,"
-    )?;
-    writeln!(out, "which is a default rather than a decision.")
 }
 
 /// `companion list`: the name, the command, and whether the program is

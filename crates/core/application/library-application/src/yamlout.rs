@@ -121,7 +121,6 @@ pub fn profile(profile: &Profile) -> String {
     f.list("parents", &profile.parents);
     f.list("tags", &profile.tags);
     f.list("select_tags", &profile.select_tags);
-    f.text("llm", &profile.llm);
     f.list("bundles", &profile.bundles);
     f.list("commands", &profile.commands);
     f.list("skills", &profile.skills);

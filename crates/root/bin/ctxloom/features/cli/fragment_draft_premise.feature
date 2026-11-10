@@ -22,7 +22,7 @@ Feature: fragment draft-premise — a drafted and critiqued premise is a proposa
     And the mock LLM responds "{premise: You are about to delete a worktree, moments: [removing a worktree], findings: [{kind: too-broad, evidence: fires on every worktree command}]}"
 
   Scenario: Off a terminal the draft and its critique are shown and nothing is written
-    When I run "ctxloom fragment draft-premise demo#fragments/worktrees --llm mock --format text"
+    When I run "ctxloom fragment draft-premise demo#fragments/worktrees --engine mock --format text"
     Then the command succeeds
     And the output contains "Draft premise: You are about to delete a worktree"
     And the output contains "[too-broad]"
@@ -32,7 +32,7 @@ Feature: fragment draft-premise — a drafted and critiqued premise is a proposa
     Then the output does not contain "demo#fragments/worktrees"
 
   Scenario: A structured caller gets the whole proposal, marked as only proposed
-    When I run "ctxloom fragment draft-premise demo#fragments/worktrees --llm mock --format json"
+    When I run "ctxloom fragment draft-premise demo#fragments/worktrees --engine mock --format json"
     Then the command succeeds
     And the output is valid JSON
     And the output reports "decision" as "proposed"

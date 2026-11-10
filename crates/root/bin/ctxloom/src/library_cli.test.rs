@@ -594,60 +594,6 @@ fn test_a_binding_still_carrying_auth_is_refused_naming_the_key() {
         .contains("unknown key `agents.developer.auth`");
 }
 
-// ---------------------------------------------------------------- cli/llm.feature
-
-// llm.feature: Scenario Outline: The listing names the built-in backends and
-// marks the default
-#[test]
-fn test_the_llm_listing_names_the_builtin_backends_and_marks_the_default() {
-    for flags in FORMATS {
-        let project = Project::initialized();
-        let ran = run_with_flags(&project, &["llm", "list"], flags);
-        ran.succeeds();
-        if is_text(flags) {
-            ran.contains("(default)").contains("claude-fast");
-        } else {
-            let doc = ran.json();
-            assert_eq!(reports_as(&doc, "[label=claude-code].default"), "true");
-            assert_eq!(reports_as(&doc, "[label=claude-fast].label"), "claude-fast");
-        }
-    }
-}
-
-// llm.feature: Scenario: Bare llm lists the engines
-#[test]
-fn test_bare_llm_lists_the_engines() {
-    let project = Project::initialized();
-    project
-        .run(&["llm"])
-        .succeeds()
-        .contains("claude-code")
-        .lacks("Available Commands:");
-}
-
-// llm.feature: Scenario Outline: A label the team wrote is told apart from an
-// engine ctxloom supplied (the listing half, with the label in the config)
-#[test]
-fn test_a_label_the_team_wrote_is_told_apart_from_one_ctxloom_supplied() {
-    for flags in FORMATS {
-        let project = Project::initialized();
-        project.write(
-            ".ctxloom/config.yaml",
-            "schema_version: 9\nllm:\n  configs:\n    big:\n      type: mock\n      model: o1\n    claude-code:\n      type: claude-code\n      model: opus\n  defaults:\n    primary: claude-code\n",
-        );
-        let ran = run_with_flags(&project, &["llm", "list"], flags);
-        ran.succeeds();
-        if is_text(flags) {
-            ran.contains("[configured]").contains("[built-in]");
-        } else {
-            let doc = ran.json();
-            assert_eq!(reports_as(&doc, "[label=big].authored"), "true");
-            assert_eq!(reports_as(&doc, "[label=claude-code].authored"), "true");
-            assert_eq!(reports_as(&doc, "[label=mock].authored"), "false");
-        }
-    }
-}
-
 // ---------------------------------------------------------------- cli/mcp.feature
 
 // mcp.feature: Scenario: (the listing of a bundle's server, j000400 in the

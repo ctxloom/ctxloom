@@ -20,7 +20,7 @@ fn test_the_seed_profile_is_gos_resource_byte_for_byte() {
     assert_eq!(SEED_NAME, "default");
 }
 
-// owner amendment (2026-11-09): no llm registry, no top-level auth; the agent
+// owner amendment (2026-11-09): no engine-label registry, no top-level auth; the agent
 // names its engine, and the engine block is the user's
 #[test]
 fn test_the_scaffold_binds_the_default_agent_to_its_engine() {

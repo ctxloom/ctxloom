@@ -57,7 +57,7 @@ fn test_the_schema_decides_which_scalars_are_numbers_and_booleans() {
 }
 
 // cfg-v8-section-agents-text: a section prints in the order of its record's
-// fields (llm, profiles, runtime, permissions, driving, env), the
+// fields (engine, profiles, runtime, permissions, driving, env), the
 // whole document sorted.
 #[test]
 fn test_a_section_prints_in_the_order_of_its_fields() {

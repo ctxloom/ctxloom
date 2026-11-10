@@ -1,7 +1,6 @@
 description: dev profile
 parents:
   - base
-llm: claude-fast
 bundles:
   - demo
 fragments:

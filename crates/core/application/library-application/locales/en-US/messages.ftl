@@ -42,7 +42,6 @@ library-application-launch-no-default-fix = choose one with `ctxloom agent defau
 library-application-launch-no-agents = launch: the named agent is not found: no agents are configured
 library-application-launch-no-agents-fix = create it with `ctxloom agent create <name> --profiles <profile>` (`ctxloom profile list` names the profiles)
 library-application-mcp-not-found = MCP server "{ $name }" not found
-library-application-unknown-llm = unknown LLM "{ $label }"; usable now: { $usable }
 library-application-unknown-engine = unknown engine "{ $engine }"; ctxloom drives: { $known }
 library-application-engine-auth = engines.{ $engine }.auth: { $why }
 library-application-compose = assemble context: profile { $profile }: { $cause }
@@ -121,12 +120,6 @@ library-application-write-surface-refused = agent "{ $name }": { $detail }
 library-application-write-surface-needs-engine = agent "{ $name }": a surface preference needs a known engine — set --engine in the same command, since which approaches exist is the engine's answer, not ctxloom's
 library-application-write-root-refused = agent "{ $name }": { $detail }
 library-application-write-root-needs-engine = agent "{ $name }": a root selection needs a known engine — set --engine in the same command, since which roots an approach offers is the engine's answer, not ctxloom's
-library-application-write-unknown-llm-type = llm "{ $label }": unknown type "{ $kind }"; known: { $known }
-library-application-write-llm-exists = llm "{ $label }" already exists — change it with `ctxloom llm edit { $label }`
-library-application-write-llm-missing = no llm named "{ $label }" — create it with `ctxloom llm create { $label }`
-library-application-write-llm-not-defined = llm "{ $label }" is not defined in config.yaml
-library-application-write-llm-not-in-config = llm "{ $label }" not found in config.yaml
-library-application-write-llm-field = llm "{ $label }": { $detail }
 library-application-write-companion-name = invalid companion name: "{ $name }" (a companion is registered under a plain name, e.g. `ctxloom companion add acme --command acme-companion`)
 library-application-write-companion-program-missing = companion program not found: { $program } (for companion "{ $name }")
 library-application-write-companion-no-command = companion "{ $name }" has no command: give the program after --command
@@ -153,3 +146,4 @@ library-application-write-mcp-bare-fix = list the servers a project registers wi
 library-application-write-mcp-bare-json = ctxloom mcp does not answer in json; list the servers a project registers with `ctxloom mcp server list`
 library-application-write-loadout-format = unknown format "{ $format }" (supported: yaml)
 library-application-write-flag-pair = { $flag }: expected NAME=value, got "{ $got }"
+

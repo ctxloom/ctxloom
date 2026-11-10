@@ -82,8 +82,6 @@ pub struct Profile {
     pub tags: Vec<String>,
     /// Fragment tags that select content.
     pub select_tags: Vec<String>,
-    /// The engine label this profile prefers.
-    pub llm: String,
     pub bundles: Vec<String>,
     pub commands: Vec<String>,
     pub skills: Vec<String>,
@@ -97,7 +95,7 @@ pub struct Profile {
 }
 
 /// The keys a profile document may declare.
-pub const PROFILE_KEYS: [&str; 15] = [
+pub const PROFILE_KEYS: [&str; 14] = [
     "bundle_items",
     "bundles",
     "commands",
@@ -107,7 +105,6 @@ pub const PROFILE_KEYS: [&str; 15] = [
     "exclude_mcp",
     "fragments",
     "hooks",
-    "llm",
     "parents",
     "select_tags",
     "skills",
@@ -317,7 +314,6 @@ impl Profile {
             parents: list(value, "parents", strict)?,
             tags: list(value, "tags", strict)?,
             select_tags: list(value, "select_tags", strict)?,
-            llm: scalar("llm")?,
             bundles: list(value, "bundles", strict)?,
             commands: list(value, "commands", strict)?,
             skills: list(value, "skills", strict)?,
@@ -354,7 +350,6 @@ impl Profile {
             || !self.deny_tools.is_empty()
             || !self.variables.is_empty()
             || self.hooks.has_any()
-            || !self.llm.is_empty()
     }
 
     /// A remote profile (shipped in the repository `source_url`) may name only
@@ -382,36 +377,6 @@ impl Profile {
         }
         Ok(())
     }
-
-    /// The profile's references moved onto the canonical grammar (the
-    /// format step of an envelope below generation 2): a bundle or parent
-    /// written as a fetch address is re-spelled, the rest left as written.
-    pub fn canonicalize_refs(&mut self) {
-        for bundle in &mut self.bundles {
-            *bundle = canonical_stored_ref(bundle);
-        }
-        for parent in &mut self.parents {
-            *parent = canonical_stored_ref(parent);
-        }
-    }
-}
-
-/// A reference written as a fetch address, in the canonical grammar (any
-/// version pin and `#` selector kept); anything else as written.
-pub fn canonical_stored_ref(reference: &str) -> String {
-    if !refs::is_fetch_address(reference) {
-        return reference.to_string();
-    }
-    let (base, selector) = match reference.find('#') {
-        Some(i) => (&reference[..i], &reference[i..]),
-        None => (reference, ""),
-    };
-    let canonical = refs::canonical_spelling(base);
-    if canonical == base {
-        reference.to_string()
-    } else {
-        canonical + selector
-    }
 }
 
 /// A profile after its parents are folded in.
@@ -428,7 +393,6 @@ pub struct ResolvedProfile {
     pub bundle_items: Vec<String>,
     pub hooks: HooksConfig,
     pub variables: BTreeMap<String, String>,
-    pub llm: String,
     pub exclude_fragments: Vec<String>,
     pub exclude_mcp: Vec<String>,
     pub deny_tools: Vec<String>,
@@ -436,8 +400,7 @@ pub struct ResolvedProfile {
 
 impl ResolvedProfile {
     /// Fold `other` in after what is here: lists union (first spelling
-    /// kept), a variable already here is kept, the first non-empty `llm`
-    /// stays, exclusions and denials accumulate.
+    /// kept), a variable already here is kept, exclusions and denials accumulate.
     pub fn merge(&mut self, other: &ResolvedProfile) {
         append_unique_refs(&mut self.bundles, &other.bundles);
         append_unique(&mut self.tags, &other.tags);
@@ -451,9 +414,6 @@ impl ResolvedProfile {
             self.variables
                 .entry(name.clone())
                 .or_insert_with(|| value.clone());
-        }
-        if self.llm.is_empty() {
-            self.llm.clone_from(&other.llm);
         }
         append_unique(&mut self.exclude_fragments, &other.exclude_fragments);
         append_unique(&mut self.exclude_mcp, &other.exclude_mcp);
@@ -657,9 +617,6 @@ impl Resolution<'_> {
         resolved.hooks.merge(&profile.hooks);
         for (k, v) in &profile.variables {
             resolved.variables.insert(k.clone(), v.clone());
-        }
-        if !profile.llm.is_empty() {
-            resolved.llm.clone_from(&profile.llm);
         }
         append_unique(&mut resolved.exclude_fragments, &profile.exclude_fragments);
         append_unique(&mut resolved.exclude_mcp, &profile.exclude_mcp);

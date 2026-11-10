@@ -54,7 +54,7 @@ fn test_render_sorted_writes_a_fresh_document_sorted_in_block_style() {
     let doc = map(&[
         ("schema_version", scalar("8")),
         (
-            "llm",
+            "engines",
             map(&[("defaults", map(&[("primary", scalar("a"))]))]),
         ),
         (
@@ -64,7 +64,7 @@ fn test_render_sorted_writes_a_fresh_document_sorted_in_block_style() {
     ]);
     assert_eq!(
         render_sorted(&doc),
-        "agents:\n  dev:\n    profiles:\n      - p\n      - q\nllm:\n  defaults:\n    primary: a\nschema_version: 8\n"
+        "agents:\n  dev:\n    profiles:\n      - p\n      - q\nengines:\n  defaults:\n    primary: a\nschema_version: 8\n"
     );
 }
 
@@ -92,7 +92,7 @@ fn test_a_section_set_on_nothing_is_a_document_of_that_section() {
 // comments and the order of the file survive
 #[test]
 fn test_a_section_set_replaces_only_its_own_lines() {
-    let text = "# my config\nschema_version: 8\nzzz: kept # not modelled\nllm:\n  configs:\n    zeta:\n      type: mock\n    alpha:\n      type: mock\n# trailing\nauth: token\n";
+    let text = "# my config\nschema_version: 8\nzzz: kept # not modelled\nengines:\n  configs:\n    zeta:\n      type: mock\n    alpha:\n      type: mock\n# trailing\nauth: token\n";
     let value = map(&[(
         "configs",
         map(&[
@@ -104,28 +104,28 @@ fn test_a_section_set_replaces_only_its_own_lines() {
         ]),
     )]);
     assert_eq!(
-        set_section(text, "llm", &value).unwrap(),
-        "# my config\nschema_version: 8\nzzz: kept # not modelled\nllm:\n  configs:\n    alpha:\n      type: mock\n    zeta:\n      model: z\n      type: mock\n# trailing\nauth: token\n"
+        set_section(text, "engines", &value).unwrap(),
+        "# my config\nschema_version: 8\nzzz: kept # not modelled\nengines:\n  configs:\n    alpha:\n      type: mock\n    zeta:\n      model: z\n      type: mock\n# trailing\nauth: token\n"
     );
 }
 
 #[test]
 fn test_a_section_set_appends_a_new_key_at_the_end() {
-    let text = "schema_version: 8\n# note\nllm:\n  defaults:\n    primary: a\n";
+    let text = "schema_version: 8\n# note\nengines:\n  defaults:\n    primary: a\n";
     assert_eq!(
         set_section(text, "companions", &seq(&["acme"])).unwrap(),
-        "schema_version: 8\n# note\nllm:\n  defaults:\n    primary: a\ncompanions:\n  - acme\n"
+        "schema_version: 8\n# note\nengines:\n  defaults:\n    primary: a\ncompanions:\n  - acme\n"
     );
     assert_eq!(
         set_section(text, "default_agent", &scalar("dev")).unwrap(),
-        "schema_version: 8\n# note\nllm:\n  defaults:\n    primary: a\ndefault_agent: dev\n"
+        "schema_version: 8\n# note\nengines:\n  defaults:\n    primary: a\ndefault_agent: dev\n"
     );
 }
 
 #[test]
 fn test_setting_what_is_there_changes_no_byte() {
-    let text = "# c\nschema_version: 8\nagents:\n  dev: # mine\n    llm: x\n";
-    let value = map(&[("dev", map(&[("llm", scalar("x"))]))]);
+    let text = "# c\nschema_version: 8\nagents:\n  dev: # mine\n    engine: x\n";
+    let value = map(&[("dev", map(&[("engine", scalar("x"))]))]);
     assert_eq!(set_section(text, "agents", &value).unwrap(), text);
 }
 
@@ -142,7 +142,7 @@ fn test_a_value_that_needs_quotes_is_quoted() {
 #[test]
 fn test_a_corrupt_file_is_refused_not_healed() {
     for corrupt in [
-        "llm: [unclosed\n",
+        "engines: [unclosed\n",
         "::: not: [valid yaml\n\tbroken",
         "a: 1\n\tb: tab\n",
     ] {
@@ -177,7 +177,8 @@ fn test_a_root_that_is_not_a_mapping_is_refused() {
 
 #[test]
 fn test_removing_a_section_takes_its_lines_and_leaves_the_rest() {
-    let text = "# c\nschema_version: 8\n# about agents\nagents:\n  dev:\n    llm: x\nauth: token\n";
+    let text =
+        "# c\nschema_version: 8\n# about agents\nagents:\n  dev:\n    engine: x\nauth: token\n";
     assert_eq!(
         remove_section(text, "agents").unwrap(),
         "# c\nschema_version: 8\nauth: token\n"
@@ -193,10 +194,10 @@ fn test_removing_a_section_takes_its_lines_and_leaves_the_rest() {
 
 #[test]
 fn test_a_section_is_read_where_it_is() {
-    let text = "# c\nagents:\n  dev:\n    llm: x\nauth: token\n";
+    let text = "# c\nagents:\n  dev:\n    engine: x\nauth: token\n";
     assert_eq!(
         section(text, "agents").unwrap(),
-        Some(map(&[("dev", map(&[("llm", scalar("x"))]))]))
+        Some(map(&[("dev", map(&[("engine", scalar("x"))]))]))
     );
     assert_eq!(section(text, "auth").unwrap(), Some(scalar("token")));
     assert_eq!(section(text, "companions").unwrap(), None);

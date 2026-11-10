@@ -3,4 +3,3 @@ bundles: [d]
 variables:
   who: bottom
   greeting: hello
-llm: claude-fast

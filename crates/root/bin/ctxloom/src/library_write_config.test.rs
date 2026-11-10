@@ -37,7 +37,7 @@ fn test_create_scaffolds_the_config_the_remotes_registry_and_the_seeded_profile(
         ran.stdout,
         format!("Wrote {}\n", project.dir().join(CONFIG).display())
     );
-    project.file_contains(CONFIG, "llm: claude-code");
+    project.file_contains(CONFIG, "engine: claude-code");
     // Go's bytes.
     assert_eq!(project.read(CONFIG).as_deref(), Some(CLAUDE_CONFIG));
     assert_eq!(
@@ -183,14 +183,22 @@ fn test_a_config_write_is_a_section_merge_with_sorted_keys() {
     let project = Project::initialized();
     project.write(
         CONFIG,
-        "# my config\nschema_version: 9\noutput_dir: out # my own\ncompanions:\n  acme:\n    command:\n      - acme-bin\nllm:\n  configs:\n    zeta:\n      type: mock\n      model: z1\n    alpha:\n      type: mock\n",
+        "# my config\nschema_version: 9\noutput_dir: out # my own\ncompanions:\n  acme:\n    command:\n      - acme-bin\nagents:\n  zeta:\n    engine: mock\n    profiles:\n      - p\n  alpha:\n    engine: mock\n    profiles:\n      - p\n",
     );
     project
-        .run(&["llm", "create", "mid", "--type", "mock", "--model", "m"])
+        .run(&[
+            "agent",
+            "create",
+            "mid",
+            "--engine",
+            "mock",
+            "--profiles",
+            "p",
+        ])
         .succeeds();
     assert_eq!(
         project.read(CONFIG).as_deref(),
-        Some("# my config\nschema_version: 9\noutput_dir: out # my own\ncompanions:\n  acme:\n    command:\n      - acme-bin\nllm:\n  configs:\n    alpha:\n      type: mock\n    mid:\n      model: m\n      type: mock\n    zeta:\n      model: z1\n      type: mock\n")
+        Some("# my config\nschema_version: 9\noutput_dir: out # my own\ncompanions:\n  acme:\n    command:\n      - acme-bin\nagents:\n  alpha:\n    engine: mock\n    profiles:\n      - p\n  mid:\n    engine: mock\n    profiles:\n      - p\n  zeta:\n    engine: mock\n    profiles:\n      - p\n")
     );
     // A key the write does not own is as the author left it.
     project.run(&["agent", "default", "ghost"]).succeeds();
@@ -208,15 +216,22 @@ fn test_a_config_write_is_a_section_merge_with_sorted_keys() {
 #[test]
 fn test_a_config_write_never_heals_a_corrupt_file() {
     for corrupt in [
-        "schema_version: 9\nllm: [unclosed\n",
+        "schema_version: 9\nagents: [unclosed\n",
         "::: not: [valid yaml\n\tbroken",
         "schema_version: 9\n\tagents: tab-indented\n",
     ] {
         let project = Project::initialized();
         project.write(CONFIG, corrupt);
         for args in [
-            vec!["llm", "default", "claude-fast"],
-            vec!["llm", "create", "big", "--type", "mock"],
+            vec![
+                "agent",
+                "create",
+                "big",
+                "--engine",
+                "mock",
+                "--profiles",
+                "p",
+            ],
             vec!["agent", "default", "x"],
             vec!["agent", "remove", "x", "--yes"],
         ] {
@@ -247,7 +262,7 @@ fn test_a_config_write_refuses_a_config_of_another_generation() {
     for body in ["schema_version: 10\n", "schema_version: 1\n"] {
         let project = Project::initialized();
         project.write(CONFIG, body);
-        project.run(&["llm", "default", "claude-fast"]).fails();
+        project.run(&["agent", "default", "x"]).fails();
         assert_eq!(project.read(CONFIG).as_deref(), Some(body));
     }
 }

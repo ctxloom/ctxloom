@@ -118,7 +118,7 @@ fn test_a_file_that_does_not_parse_is_refused_and_not_written() {
     }
     .fixture();
     let out = library.run(&plain(), |p| {
-        mem.set_config(Scope::Project, "schema_version: 9\nllm: [unclosed\n");
+        mem.set_config(Scope::Project, "schema_version: 9\neditor: [unclosed\n");
         p.update_config(Scope::Project, "agents", |_| Ok(Some(Value::Null)))
     });
     let err = out.result.unwrap_err();
@@ -126,7 +126,7 @@ fn test_a_file_that_does_not_parse_is_refused_and_not_written() {
     assert_eq!(mem.writes(), 0);
     assert_eq!(
         mem.config(Scope::Project).unwrap(),
-        "schema_version: 9\nllm: [unclosed\n"
+        "schema_version: 9\neditor: [unclosed\n"
     );
 }
 

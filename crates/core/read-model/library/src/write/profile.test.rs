@@ -25,12 +25,11 @@ fn test_a_new_profile_is_the_bytes_go_writes() {
     let full = NewProfile {
         description: "d".to_string(),
         parents: strings(&["base", "other"]),
-        llm: "claude-fast".to_string(),
         bundles: strings(&["demo", "x"]),
     };
     assert_eq!(
         new_profile(&full),
-        "description: d\nparents:\n  - base\n  - other\nllm: claude-fast\nbundles:\n  - demo\n  - x\n"
+        "description: d\nparents:\n  - base\n  - other\nbundles:\n  - demo\n  - x\n"
     );
     let parent_only = NewProfile {
         parents: strings(&["base"]),
@@ -39,10 +38,7 @@ fn test_a_new_profile_is_the_bytes_go_writes() {
     assert_eq!(new_profile(&parent_only), "parents:\n  - base\n");
     // The document reads back as the profile.
     let read = crate::profile::Profile::decode(&new_profile(&full)).unwrap();
-    assert_eq!(
-        (read.description.as_str(), read.llm.as_str()),
-        ("d", "claude-fast")
-    );
+    assert_eq!(read.description, "d");
     assert_eq!(read.parents, ["base", "other"]);
     assert_eq!(read.bundles, ["demo", "x"]);
 }
@@ -77,7 +73,6 @@ fn test_an_edit_that_names_nothing_changes_nothing() {
 fn test_every_change_is_named_in_go_s_order() {
     let all = ProfileEdit {
         description: Some("new d".to_string()),
-        llm: Some("claude-fast".to_string()),
         add_parents: strings(&["dev3"]),
         add_bundles: strings(&["demo2", "demo3"]),
         exclude_fragments: strings(&["f1", "f2"]),
@@ -89,7 +84,6 @@ fn test_every_change_is_named_in_go_s_order() {
         changes,
         [
             "updated description",
-            "set llm to \"claude-fast\"",
             "added parent: dev3",
             "added bundle: demo2",
             "added bundle: demo3",
@@ -100,13 +94,11 @@ fn test_every_change_is_named_in_go_s_order() {
     );
     let read = crate::profile::Profile::decode(&text).unwrap();
     assert_eq!(read.description, "new d");
-    assert_eq!(read.llm, "claude-fast");
     assert_eq!(read.parents, ["dev3"]);
     assert_eq!(read.bundles, ["demo", "demo2", "demo3"]);
     assert_eq!(read.exclude_fragments, ["f1", "f2"]);
     assert_eq!(read.exclude_mcp, ["m1"]);
     let undo = ProfileEdit {
-        llm: Some(String::new()),
         remove_parents: strings(&["dev3"]),
         remove_bundles: strings(&["demo2"]),
         include_fragments: strings(&["f1"]),
@@ -117,7 +109,6 @@ fn test_every_change_is_named_in_go_s_order() {
     assert_eq!(
         changes,
         [
-            "cleared llm",
             "removed parent: dev3",
             "removed bundle: demo2",
             "removed exclude fragment: f1",
@@ -125,7 +116,6 @@ fn test_every_change_is_named_in_go_s_order() {
         ]
     );
     let read = crate::profile::Profile::decode(&text).unwrap();
-    assert_eq!(read.llm, "");
     assert!(read.parents.is_empty() && read.exclude_mcp.is_empty());
     assert_eq!(read.bundles, ["demo", "demo3"]);
     assert_eq!(read.exclude_fragments, ["f2"]);

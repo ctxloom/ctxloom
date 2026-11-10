@@ -45,40 +45,59 @@ Feature: config — the project's one configuration document, read and scaffolde
     # so it names keys the rendered document must actually carry.
     Scenario Outline: Show renders the whole configuration document
       Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        agents:
+          default:
+            engine: claude-code
+            profiles: [default]
+            runtime: host
+        default_agent: default
+        """
       When Alice reads her project's configuration:
         """
         ctxloom config show <flags>
         """
       Then the command succeeds
       And the output contains "claude-code"
-      And the output reports "llm.configs.claude-code.type" as "<names the llm section>"
-      And the output reports "llm.configs.claude-fast.type" as "<names the configs block>"
-      And the output reports "llm.defaults.primary" as "<names the defaults block>"
+      And the output reports "agents.default.engine" as "<names the agents section>"
+      And the output reports "default_agent" as "<names the default agent>"
 
     @json-default
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
-      | flags         | names the llm section | names the configs block | names the defaults block |
-      |               | claude-code           | claude-code             | claude-code              |
-      | --format json | claude-code           | claude-code             | claude-code              |
-      | --format text | llm:                  | configs:                | defaults:                |
+      | flags         | names the agents section | names the default agent |
+      |               | claude-code              | default                 |
+      | --format json | claude-code              | default                 |
+      | --format text | engine: claude-code      | default_agent: default  |
 
     # The bare noun answers rather than teaches, through the same seam
     # `ctxloom remote` uses. "Available Commands:" is cobra's help heading —
     # its absence is what says a document was rendered rather than a menu.
     Scenario Outline: Bare config shows the document instead of printing help
       Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        agents:
+          default:
+            engine: claude-code
+            profiles: [default]
+            runtime: host
+        default_agent: default
+        """
       When I run "ctxloom config <flags>"
       Then the command succeeds
-      And the output reports "llm.configs.claude-code.type" as "<names the llm section>"
-      And the output reports "llm.defaults.primary" as "<names the defaults block>"
+      And the output reports "agents.default.engine" as "<names the agents section>"
+      And the output reports "default_agent" as "<names the default agent>"
       And the output does not contain "Available Commands:"
 
     @json-default
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
-      | flags         | names the llm section | names the defaults block |
-      |               | claude-code           | claude-code              |
-      | --format json | claude-code           | claude-code              |
-      | --format text | llm:                  | defaults:                |
+      | flags         | names the agents section | names the default agent |
+      |               | claude-code              | default                 |
+      | --format json | claude-code              | default                 |
+      | --format text | engine: claude-code      | default_agent: default  |
 
     # THE ZERO-PAYLOAD TRAP, and the reason this scenario exists at all.
     # Config's fields are unexported and it renders through a custom
@@ -88,6 +107,16 @@ Feature: config — the project's one configuration document, read and scaffolde
     # value only the real config has is.
     Scenario: The machine-readable rendering carries the document, not an empty object
       Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        agents:
+          default:
+            engine: claude-code
+            profiles: [default]
+            runtime: host
+        default_agent: default
+        """
       When Alice asks for the configuration in a form a script can parse:
         """
         ctxloom --format json config show
@@ -103,25 +132,35 @@ Feature: config — the project's one configuration document, read and scaffolde
     section's contents too — so each scenario names a key that IS in the whole
     document and must NOT be in the section view.
 
-    Scenario Outline: The llm section carries the engine registry and nothing above it
+    Scenario Outline: The agents section carries the engine bindings and nothing above it
       Given an initialized ctxloom project
-      When Alice asks which engines this project is wired for:
+      And the project already has the file ".ctxloom/config.yaml":
         """
-        ctxloom config show llm <flags>
+        schema_version: 9
+        agents:
+          default:
+            engine: claude-code
+            profiles: [default]
+            runtime: host
+        default_agent: default
+        """
+      When Alice asks which engines this project's agents are bound to:
+        """
+        ctxloom config show agents <flags>
         """
       Then the command succeeds
       And the output contains "claude-code"
-      And the output reports "configs.claude-code.type" as "<names the configs block>"
-      And the output reports "defaults.primary" as "<names the defaults block>"
+      And the output reports "default.engine" as "<names the engine>"
+      And the output reports "default.runtime" as "<names the runtime>"
       And the output does not contain "editor:"
-      And the output does not contain "llm:"
+      And the output does not contain "agents:"
 
     @json-default
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
-      | flags         | names the configs block | names the defaults block |
-      |               | claude-code             | claude-code              |
-      | --format json | claude-code             | claude-code              |
-      | --format text | configs:                | defaults:                |
+      | flags         | names the engine    | names the runtime |
+      |               | claude-code         | host              |
+      | --format json | claude-code         | host              |
+      | --format text | engine: claude-code | runtime: host     |
 
     # A key the config schema does not describe — a typo, or a block that once
     # meant something, such as an inline `profiles:` — fails the command and
@@ -132,7 +171,7 @@ Feature: config — the project's one configuration document, read and scaffolde
       And a profile "dev" is defined inline in config with bundle "demo"
       When Alice reads a section of the document:
         """
-        ctxloom config show llm
+        ctxloom config show agents
         """
       Then the command fails
       And the output contains "unknown key `profiles`"
@@ -150,7 +189,7 @@ Feature: config — the project's one configuration document, read and scaffolde
         """
       When Alice reads a section of the document:
         """
-        ctxloom config show llm
+        ctxloom config show agents
         """
       Then the command fails
       And the output contains ".ctxloom/config.yaml"
@@ -168,7 +207,7 @@ Feature: config — the project's one configuration document, read and scaffolde
         """
       When Alice reads a section of the document:
         """
-        ctxloom --degraded config show llm
+        ctxloom --degraded config show agents
         """
       Then the command succeeds
       And the output contains "claude-code"
@@ -187,7 +226,7 @@ Feature: config — the project's one configuration document, read and scaffolde
       Then the command fails
       And the output contains "nonsense"
       And the output contains "config"
-      And the output contains "llm"
+      And the output contains "engines"
 
     # A namespace that printed its own help on a misspelling and exited 0 is
     # this project's characteristic silent no-op wearing the CLI's dispatch as
@@ -216,7 +255,7 @@ Feature: config — the project's one configuration document, read and scaffolde
         """
       Then the command succeeds
       And the file ".ctxloom/config.yaml" is valid YAML
-      And the file ".ctxloom/config.yaml" contains "llm: claude-code"
+      And the file ".ctxloom/config.yaml" contains "engine: claude-code"
       And the file ".ctxloom/remotes.yaml" contains "ctxloom-default"
       And the file ".ctxloom/content/bundles/v2/project/profiles/default.yaml" exists
       When I run "ctxloom config show"

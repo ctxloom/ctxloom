@@ -23,7 +23,7 @@ use crate::write::WriteError;
 use crate::Flags;
 
 impl Library {
-    /// `profile create <name> [--parent P]... [--include B]... [-d D] [--llm L]
+    /// `profile create <name> [--parent P]... [--include B]... [-d D]
     /// [--bundle B]`.
     pub fn profile_create(
         &self,
@@ -112,18 +112,6 @@ impl Project {
         })
     }
 
-    /// The label is one the project can use.
-    fn require_llm(&self, label: &str) -> Result<(), AppError> {
-        let usable = self.available_llms();
-        if label.is_empty() || usable.iter().any(|l| l == label) {
-            return Ok(());
-        }
-        Err(AppError::UnknownLlm {
-            label: label.to_string(),
-            usable: usable.join(", "),
-        })
-    }
-
     /// A local parent is one the project has; a remote one is taken as given.
     fn require_parent(&self, parent: &str) -> Result<(), AppError> {
         let missing = || WriteError::ParentNotFound {
@@ -194,7 +182,6 @@ impl Project {
         if request.parents.is_empty() && request.bundles.is_empty() {
             return Err(WriteError::ProfileEmpty {}.into());
         }
-        self.require_llm(&request.llm)?;
         self.check_profile_name(&request.name)?;
         let target = if request.target.is_empty() {
             PROJECT_BUNDLE.to_string()
@@ -215,7 +202,6 @@ impl Project {
         let text = new_profile(&NewProfile {
             description: request.description.clone(),
             parents: request.parents.clone(),
-            llm: request.llm.clone(),
             bundles: request.bundles.clone(),
         });
         plan.write(&profile_path(&request.name), text);
@@ -235,9 +221,6 @@ impl Project {
     fn profile_modify(&self, name: &str, edit: &ProfileEdit) -> Result<ProfileModified, AppError> {
         self.require_project()?;
         let found = self.find_profile(name)?;
-        if let Some(llm) = &edit.llm {
-            self.require_llm(llm)?;
-        }
         for parent in &edit.add_parents {
             self.require_parent(parent)?;
         }

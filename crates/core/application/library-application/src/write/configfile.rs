@@ -108,19 +108,6 @@ impl Project {
             .apply(name, &plan.into_changes())
             .map_err(AppError::Cause)
     }
-
-    /// The names an engine or a label can go by: the engines of this build
-    /// and the labels of the configuration, sorted.
-    pub(crate) fn available_llms(&self) -> Vec<String> {
-        let mut names: Vec<String> = crate::agents::ENGINES
-            .iter()
-            .map(ToString::to_string)
-            .collect();
-        names.extend(self.config.label_names());
-        names.sort();
-        names.dedup();
-        names
-    }
 }
 
 #[cfg(test)]

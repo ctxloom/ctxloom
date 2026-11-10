@@ -10,24 +10,8 @@ fn config(text: &str) -> Config {
     Config {
         raw: value.clone(),
         value,
-        authored_labels: std::collections::BTreeSet::new(),
         source: Source::Project,
     }
-}
-
-// llmconfig.PrimaryLabel: llm.defaults.primary, else the sole configured
-// label, else none.
-#[test]
-fn test_the_primary_label_is_declared_or_the_sole_one_or_none() {
-    let sole = config("llm:\n  configs:\n    only:\n      type: mock\n");
-    assert_eq!(sole.primary_label(), "only");
-    let two = config("llm:\n  configs:\n    a:\n      type: mock\n    b:\n      type: mock\n");
-    assert_eq!(two.primary_label(), "");
-    let declared = config(
-        "llm:\n  configs:\n    a:\n      type: mock\n    b:\n      type: mock\n  defaults:\n    primary: b\n",
-    );
-    assert_eq!(declared.primary_label(), "b");
-    assert_eq!(config("editor:\n  command: vim\n").primary_label(), "");
 }
 
 // config.use_distilled is on unless it says false.

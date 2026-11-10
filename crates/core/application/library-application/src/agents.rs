@@ -1,4 +1,4 @@
-//! `agent list|show`, `llm list`, `companion list` and `mcp server list|show`.
+//! `agent list|show`, `companion list` and `mcp server list|show`.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -12,7 +12,7 @@ use crate::config::{mcp_row, Agent};
 use crate::error::AppError;
 use crate::project::{Library, Outcome, Project};
 use crate::views::{
-    AgentRow, AgentShow, CompanionRow, LlmRow, McpList, McpListRow, McpRow, McpShow, Requirement,
+    AgentRow, AgentShow, CompanionRow, McpList, McpListRow, McpRow, McpShow, Requirement,
     RequirementSource, ResolvedAgent,
 };
 use crate::Flags;
@@ -57,11 +57,6 @@ impl Library {
         })
     }
 
-    /// `llm list`.
-    pub fn llm_list(&self, flags: &Flags) -> Outcome<Vec<LlmRow>> {
-        self.run(flags, |p| Ok(p.llm_list()))
-    }
-
     /// `companion list`.
     pub fn companion_list(&self, flags: &Flags) -> Outcome<Vec<CompanionRow>> {
         self.run(flags, |p| Ok(p.companion_list()))
@@ -86,21 +81,6 @@ pub(crate) struct Served {
 }
 
 impl Project {
-    fn llm_list(&self) -> Vec<LlmRow> {
-        let mut names: BTreeSet<String> = ENGINES.iter().map(ToString::to_string).collect();
-        names.extend(self.config.label_names());
-        let primary = self.config.primary_label();
-        names
-            .into_iter()
-            .map(|label| LlmRow {
-                default: !label.is_empty() && label == primary,
-                authored: self.config.authored_labels.contains(&label),
-                runtimes: RUNTIMES.iter().map(ToString::to_string).collect(),
-                label,
-            })
-            .collect()
-    }
-
     /// The registered companions, each with whether its program exists. Only
     /// that is checked: a companion is never run to list it.
     fn companion_list(&self) -> Vec<CompanionRow> {

@@ -66,8 +66,6 @@ pub struct Selection {
     /// Later profiles win.
     pub variables: BTreeMap<String, String>,
     pub deny_tools: Vec<String>,
-    /// The first non-empty engine label.
-    pub llm: String,
     /// Each profile to the fragment names it pushed.
     pub declared: BTreeMap<String, Vec<String>>,
 }
@@ -121,9 +119,6 @@ impl Selector<'_> {
         self.selection.profiles.push(profile.name.clone());
         for (name, value) in &profile.variables {
             self.selection.variables.insert(name.clone(), value.clone());
-        }
-        if self.selection.llm.is_empty() {
-            self.selection.llm.clone_from(&profile.llm);
         }
         for tool in &profile.deny_tools {
             if self.once(format!("deny:{tool}")) {

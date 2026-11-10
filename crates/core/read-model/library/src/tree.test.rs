@@ -463,40 +463,6 @@ fn test_a_malformed_envelope_is_refused_by_name() {
     assert!(not_yaml.contains("invalid bundle YAML"), "{not_yaml}");
 }
 
-const FETCH_BUNDLE: &str = "https://github.com/o/r@bundles/core";
-const CANONICAL_BUNDLE: &str = "ctxloom+git://github.com/o/r//bundles/core";
-const FETCH_PARENT: &str = "https://github.com/o/r@bundles/kit#profiles/base";
-const CANONICAL_PARENT: &str = "ctxloom+git://github.com/o/r//bundles/kit#profiles/base";
-
-// profile_refs_step_test.go: TestReadTree_ProfileItemsFollowTheEnvelopeGeneration
-#[test]
-fn test_a_trees_profile_refs_follow_the_envelope_generation() {
-    for (generation, bundles, parents) in [
-        (1, CANONICAL_BUNDLE, CANONICAL_PARENT),
-        (2, FETCH_BUNDLE, FETCH_PARENT),
-    ] {
-        let profile = format!("bundles:\n  - {FETCH_BUNDLE}\nparents:\n  - {FETCH_PARENT}\n");
-        let tree = files(&[
-            (
-                "bundle.yaml",
-                &format!("schema_version: {generation}\nversion: 1.0.0\n"),
-            ),
-            ("profiles/dev.yaml", &profile),
-        ]);
-        let bundle = read_tree("kit", &tree).unwrap();
-        assert_eq!(
-            bundle.profiles["dev"].bundles,
-            [bundles],
-            "generation {generation}"
-        );
-        assert_eq!(
-            bundle.profiles["dev"].parents,
-            [parents],
-            "generation {generation}"
-        );
-    }
-}
-
 // treewalk_characterization_test.go + testdata/golden/treewalk.txt: the tree
 // holds these 14 files (the golden's `file` lines), and dump lists them.
 #[test]

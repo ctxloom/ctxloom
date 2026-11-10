@@ -63,17 +63,17 @@ fn test_home_and_project_deep_merge_a_nested_section() {
 #[test]
 fn test_a_project_agent_binding_replaces_the_homes_of_the_same_name_wholesale() {
     let v = merged(&[
-        "schema_version: 8\nagents:\n  coder:\n    llm: claude-code\n    profiles: [h]\n    runtime: host\n  home-only:\n    llm: claude-fast\n",
+        "schema_version: 8\nagents:\n  coder:\n    engine: claude-code\n    profiles: [h]\n    runtime: host\n  home-only:\n    engine: claude-fast\n",
         "schema_version: 8\nagents:\n  coder:\n    profiles: [p]\n",
     ]);
     assert_eq!(seq(&v, "agents.coder.profiles"), ["p"]);
     assert!(
-        get(&v, "agents.coder.llm").is_none(),
+        get(&v, "agents.coder.engine").is_none(),
         "no field of the home's binding survives"
     );
     assert!(get(&v, "agents.coder.runtime").is_none());
     assert_eq!(
-        text(&v, "agents.home-only.llm"),
+        text(&v, "agents.home-only.engine"),
         "claude-fast",
         "an agent only the lower layer names survives"
     );
@@ -83,12 +83,12 @@ fn test_a_project_agent_binding_replaces_the_homes_of_the_same_name_wholesale() 
 #[test]
 fn test_keys_other_than_agents_still_deep_merge() {
     let v = merged(&[
-        "schema_version: 8\nllm:\n  defaults:\n    primary: a\nagents:\n  x:\n    llm: l\n",
-        "schema_version: 8\nllm:\n  defaults:\n    fast: b\n",
+        "schema_version: 8\nconfig:\n  defaults:\n    primary: a\nagents:\n  x:\n    engine: l\n",
+        "schema_version: 8\nconfig:\n  defaults:\n    fast: b\n",
     ]);
-    assert_eq!(text(&v, "llm.defaults.primary"), "a");
-    assert_eq!(text(&v, "llm.defaults.fast"), "b");
-    assert_eq!(text(&v, "agents.x.llm"), "l");
+    assert_eq!(text(&v, "config.defaults.primary"), "a");
+    assert_eq!(text(&v, "config.defaults.fast"), "b");
+    assert_eq!(text(&v, "agents.x.engine"), "l");
 }
 
 // merge_test.go: TestLayerMergeFunc_CompanionsUnionAcrossLayers /

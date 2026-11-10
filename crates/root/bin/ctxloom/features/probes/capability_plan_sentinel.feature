@@ -43,8 +43,8 @@ Feature: P4 — the plan sentinel: does permissions=plan actually stop a write
 
   THE POSTURE RIDES THE SURFACE A PROJECT ACTUALLY COMMITS. `permissions:` on the
   agent binding, resolved by the launch resolver's one permission resolution
-  (launch.resolvePolicy: the --permissions flag over the binding and the llm
-  label, else the project, else the engine's default) and carried on the Launch
+  (launch.resolvePolicy: the --permissions flag over the binding and the engine
+  default, else the project, else the engine's default) and carried on the Launch
   as its PermissionPolicy (pb Launch.permission), from which each turn's posture
   is built in the engine's own native form — --permission-mode plan for claude.
   No cell here sets a flag the product does not offer

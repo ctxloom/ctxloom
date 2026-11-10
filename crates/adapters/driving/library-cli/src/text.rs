@@ -604,17 +604,22 @@ fn settings_lines(out: &mut dyn Write, s: &AgentSettings, indent: &str) -> io::R
     Ok(())
 }
 
+/// How a runtime differs from the one it replaced, in words.
+fn change_words(change: &str) -> &'static str {
+    match change {
+        "weakens" => "weakens isolation",
+        "strengthens" => "strengthens isolation",
+        _ => "ownership differs, not interchangeable",
+    }
+}
+
 /// `host (default)`, or `host (agent; replaces engine container-rootless:
 /// weakens isolation)`.
 fn runtime_text(runtime: &RuntimeSetting) -> String {
     let (Some(replaced), Some(change)) = (&runtime.overrides, runtime.change) else {
         return format!("{} ({})", runtime.value, runtime.source);
     };
-    let how = match change {
-        "weakens" => "weakens isolation",
-        "strengthens" => "strengthens isolation",
-        _ => "ownership differs, not interchangeable",
-    };
+    let how = change_words(change);
     format!(
         "{} ({}; replaces {} {replaced}: {how})",
         runtime.value,
@@ -895,6 +900,9 @@ pub fn dry_run(out: &mut dyn Write, plan: &DryRun) -> io::Result<()> {
     }
     writeln!(out, "=== Engine ===")?;
     writeln!(out, "{}", plan.engine)?;
+    if let Some(settings) = &plan.settings {
+        dry_run_settings(out, settings, &plan.agent, &plan.engine)?;
+    }
     writeln!(out, "\n=== Profiles ===")?;
     listed(out, &plan.profiles, "(no profiles)")?;
     writeln!(out, "\n=== Fragments Loaded ===")?;
@@ -911,6 +919,59 @@ pub fn dry_run(out: &mut dyn Write, plan: &DryRun) -> io::Result<()> {
     } else {
         writeln!(out, "{}", plan.prompt)
     }
+}
+
+/// Ruling 72: each setting a run takes, with the place in the config that
+/// said it (the JSON's `settings` says the same by word).
+fn dry_run_settings(
+    out: &mut dyn Write,
+    s: &AgentSettings,
+    agent: &str,
+    engine: &str,
+) -> io::Result<()> {
+    // An agent's model, effort and permissions are in its block for the
+    // engine; its runtime and env are on the agent itself.
+    let place = |source: &str, in_block: bool| match source {
+        "agent" if in_block => format!("agents.{agent}.engines.{engine}"),
+        "agent" => format!("agents.{agent}"),
+        "engine" => format!("engines.{engine}"),
+        "project" => "runtime".to_string(),
+        other => other.to_string(),
+    };
+    writeln!(out, "\n=== Settings ===")?;
+    let row = |out: &mut dyn Write, key: &str, value: &str, at: String| {
+        writeln!(out, "  {key:<11}  {value}  ({at})")
+    };
+    for (key, setting) in [("model", &s.model), ("effort", &s.effort)] {
+        let value = setting
+            .value
+            .as_deref()
+            .unwrap_or("engine default, no flag passed");
+        row(out, key, value, place(setting.source, true))?;
+    }
+    row(
+        out,
+        "permissions",
+        &s.permissions.value,
+        place(s.permissions.source, true),
+    )?;
+    let mut at = place(s.runtime.source, false);
+    if let (Some(replaced), Some(change)) = (&s.runtime.overrides, s.runtime.change) {
+        let how = change_words(change);
+        let from = place(s.runtime.overrides_source.unwrap_or("default"), false);
+        at = format!("{at}; replaces {from} {replaced}: {how}");
+    }
+    row(out, "runtime", &s.runtime.value, at)?;
+    if s.env.keys.is_empty() {
+        return row(out, "env", "none", place(s.env.source, false));
+    }
+    let each: Vec<String> = s
+        .env
+        .keys
+        .iter()
+        .map(|key| format!("{}  ({})", key.name, place(key.source, false)))
+        .collect();
+    writeln!(out, "  {:<11}  {}", "env", each.join(", "))
 }
 
 fn listed(out: &mut dyn Write, items: &[String], none: &str) -> io::Result<()> {

@@ -684,7 +684,10 @@ a model or effort written there for an agent that names no engine says so in
 the notice `notice-default-engine-block`, naming `agents.<n>.engines.<e>`,
 ruling 68; `--permissions` with no engine anywhere is still refused).
 `engine show X` lists the agents bound to X and those with a block for X; a
-dry run's JSON carries `settings` (each value with its source). `agent list`,
+dry run's JSON carries `settings` (each value with its source), and its text
+a Settings section naming the place that said each (ruling 72:
+`agents.<a>.engines.<e>`, `agents.<a>`, `engines.<e>`, the top-level
+`runtime`, or `default`). `agent list`,
 `agent show`'s definition and the create/edit summary show the agent in the
 config's shape (ruling 67): `engines` (JSON) / `engines.<e>: {...}` lines
 (text, YAML flow form, keys sorted as written), `permissions` the neutral

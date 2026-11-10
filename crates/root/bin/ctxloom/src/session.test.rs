@@ -846,7 +846,9 @@ fn test_import_gives_the_listing_go_gives_for_each_sidecar_generation() {
     assert_eq!(moth["start"], "2026-05-02T08:30:00.481Z");
     let wren = row(&listed, "calm-dusty-wren");
     assert_eq!(wren["kept"], true);
-    assert_eq!(wren["purged"], true);
+    // Owner ruling 102: Go's purged_at is not imported, and no row says
+    // `purged`.
+    assert!(wren.get("purged").is_none(), "{wren}");
 
     // Go's directories are read, never written.
     for (path, body) in planted {

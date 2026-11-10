@@ -171,13 +171,8 @@ fn the_listing_after_an_import_is_the_listing_go_gives() {
 
     let wren = by(WREN);
     assert!(wren.kept);
-    assert_eq!(
-        wren.purged_at,
-        Some(Timestamp {
-            seconds: 1_782_864_000,
-            nanos: 0
-        })
-    );
+    // Owner ruling 102: Go's purged_at is read and not recorded.
+    assert_eq!(wren.purged_at, None);
     assert_eq!(wren.engine_version, "2.1.229 (Claude Code)");
     assert_eq!(wren.origin, Some(Origin::Agent));
     assert_eq!(wren.rotations.len(), 1);

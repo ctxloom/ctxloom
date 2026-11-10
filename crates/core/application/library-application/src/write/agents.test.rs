@@ -538,3 +538,78 @@ fn test_the_home_config_alone_is_never_written_by_an_agent_command() {
     );
     assert!(mem.config(Scope::Project).unwrap().contains("agents:"));
 }
+
+// agent.feature: Creating an agent records engine, model, effort and permissions
+#[test]
+fn test_model_and_effort_are_the_agent_s_and_an_empty_one_clears() {
+    let (library, mem) = world();
+    let row = write(
+        &library,
+        "reviewer",
+        &AgentRequest {
+            model: text("haiku"),
+            effort: text("low"),
+            ..dev()
+        },
+        false,
+    )
+    .result
+    .unwrap();
+    assert_eq!((row.model.as_str(), row.effort.as_str()), ("haiku", "low"));
+    let written = mem.config(Scope::Project).unwrap();
+    assert!(written.contains("    model: haiku\n"), "{written}");
+    assert!(written.contains("    effort: low\n"), "{written}");
+    // agent.feature: An edit passing an empty --model returns the agent to the engine's default
+    write(
+        &library,
+        "reviewer",
+        &AgentRequest {
+            model: text(""),
+            ..AgentRequest::default()
+        },
+        true,
+    )
+    .result
+    .unwrap();
+    let written = mem.config(Scope::Project).unwrap();
+    assert!(!written.contains("model:"), "{written}");
+    assert!(written.contains("effort: low"), "{written}");
+}
+
+// agent.feature: An agent that weakens the engine's runtime says so when it is written
+#[test]
+fn test_a_runtime_that_replaces_the_engine_s_is_said_when_written() {
+    let (library, _mem) = world_with(
+        "schema_version: 9\nengines:\n  claude-code:\n    runtime: container-rootless\n",
+    );
+    let said = |runtime: &str, name: &str| {
+        let out = write(
+            &library,
+            name,
+            &AgentRequest {
+                runtime: text(runtime),
+                ..dev()
+            },
+            false,
+        );
+        out.result.unwrap();
+        out.notices
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let weaker = said("host", "loose");
+    assert!(
+        weaker.contains(
+            "runtime host replaces engines.claude-code.runtime container-rootless: weakens isolation"
+        ),
+        "{weaker}"
+    );
+    let swapped = said("container-rootful", "swapped");
+    assert!(
+        swapped.contains("ownership differs, not interchangeable"),
+        "{swapped}"
+    );
+    assert_eq!(said("container-rootless", "same"), "");
+}

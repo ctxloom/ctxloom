@@ -364,6 +364,18 @@ pub fn effective(config: &Value, agent: &str) -> Result<Effective, EngineError> 
     })
 }
 
+/// What every agent of `engine` shares, each with the layer that said it: the
+/// settings of [`effective`] for an agent that says nothing itself, so only
+/// the engine block, the project and the defaults speak. `model` and `effort`
+/// are then `None` and `permissions` the engine's default.
+pub fn engine_settings(config: &Value, engine: &str) -> Result<Effective, EngineError> {
+    let _ = config;
+    Err(EngineError::UnknownEngine {
+        engine: engine.to_string(),
+        known: Vec::new(),
+    })
+}
+
 /// The credential source of `engine` over the merged config: its block's
 /// `auth` (`token` spelled out as the engine's built-in variables), else the
 /// engine's built-in source. Engine-wide: an agent cannot override it.

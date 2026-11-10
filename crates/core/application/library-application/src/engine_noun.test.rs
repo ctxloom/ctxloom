@@ -1,0 +1,131 @@
+//! `engine.feature` at the application port: the listing, the show, and the
+//! sources of what is shown.
+
+use crate::fakes::{plain, Setup};
+use crate::{EngineRow, Library};
+
+fn library(config: &'static str, environ: &'static [(&'static str, &'static str)]) -> Library {
+    Setup {
+        layers: &[config],
+        environ,
+        ..Setup::default()
+    }
+    .library()
+}
+
+fn show(config: &'static str, engine: &str) -> EngineRow {
+    library(config, &[])
+        .engine_show(&plain(), engine)
+        .result
+        .unwrap_or_else(|e| panic!("{e:?}"))
+}
+
+// engine.feature: A project that configures nothing lists the engines on their defaults
+#[test]
+fn test_the_listing_names_the_public_engines_on_their_defaults() {
+    let rows = library("schema_version: 9\n", &[])
+        .engine_list(&plain())
+        .result
+        .unwrap();
+    let names: Vec<&str> = rows.iter().map(|r| r.name.as_str()).collect();
+    for engine in ["claude-code", "opencode"] {
+        assert!(names.contains(&engine), "{names:?}");
+    }
+    let claude = rows.iter().find(|r| r.name == "claude-code").unwrap();
+    assert_eq!(claude.command.value, "claude");
+    assert_eq!(claude.command.source, "default");
+    assert_eq!(claude.runtime.value, "host");
+    assert_eq!(claude.runtime.source, "default");
+}
+
+// engine.feature: Each shared setting carries the layer that said it
+#[test]
+fn test_each_shared_setting_carries_the_layer_that_said_it() {
+    let row = show(
+        "schema_version: 9\nruntime: host\nengines:\n  claude-code:\n    command: /opt/claude/bin/claude\n    env_host: false\n    env: [HTTPS_PROXY]\n",
+        "claude-code",
+    );
+    assert_eq!(row.command.value, "/opt/claude/bin/claude");
+    assert_eq!(row.command.source, "engine");
+    assert_eq!(row.session_home.source, "default");
+    assert_eq!(row.runtime.source, "project");
+    assert_eq!(row.env_host.source, "engine");
+    assert_eq!(row.env.value, ["HTTPS_PROXY"]);
+}
+
+// engine.feature: An agent's runtime that replaces the engine's is shown as an override
+#[test]
+fn test_an_agent_s_settings_are_listed_with_sources_and_a_weaker_runtime_says_so() {
+    let row = show(
+        "schema_version: 9\nengines:\n  claude-code:\n    runtime: container-rootless\nagents:\n  loose:\n    engine: claude-code\n    runtime: host\n    model: haiku\n  other:\n    engine: claude-code\n    runtime: container-rootful\n  kept:\n    engine: claude-code\n",
+        "claude-code",
+    );
+    let agent = |name: &str| row.agents.iter().find(|a| a.name == name).unwrap();
+    let loose = &agent("loose").settings;
+    assert_eq!(loose.model.value.as_deref(), Some("haiku"));
+    assert_eq!(loose.model.source, "agent");
+    assert_eq!(loose.runtime.value, "host");
+    assert_eq!(
+        loose.runtime.overrides.as_deref(),
+        Some("container-rootless")
+    );
+    assert_eq!(loose.runtime.change, Some("weakens"));
+    assert_eq!(
+        agent("other").settings.runtime.change,
+        Some("ownership-swap")
+    );
+    let kept = &agent("kept").settings;
+    assert_eq!(kept.runtime.value, "container-rootless");
+    assert_eq!(kept.runtime.source, "engine");
+    assert_eq!(kept.model.value, None);
+    assert_eq!(kept.model.source, "default");
+    assert_eq!(kept.permissions.value, "acceptEdits");
+}
+
+// engine.feature: Showing an engine ctxloom does not drive is refused, naming the engines it does
+#[test]
+fn test_an_engine_nobody_drives_is_refused_naming_the_engines() {
+    let refused = library("schema_version: 9\n", &[])
+        .engine_show(&plain(), "gpt-9")
+        .result
+        .err()
+        .map(|e| format!("{e:?}"))
+        .unwrap();
+    assert!(refused.contains("gpt-9"), "{refused}");
+    assert!(refused.contains("claude-code"), "{refused}");
+    assert!(refused.contains("opencode"), "{refused}");
+}
+
+// engine.feature: auth is a source, and status reads it without revealing it
+#[test]
+fn test_auth_state_reads_the_source_and_names_the_variable_never_its_value() {
+    let config = "schema_version: 9\n";
+    let row = library(
+        config,
+        &[
+            ("CLAUDE_CODE_OAUTH_TOKEN", ""),
+            ("ANTHROPIC_API_KEY", "sk-fixture"),
+        ],
+    )
+    .engine_show(&plain(), "claude-code")
+    .result
+    .unwrap();
+    assert_eq!(row.auth.source, "default");
+    assert_eq!(row.auth.state, "present");
+    assert_eq!(row.auth.via.as_deref(), Some("ANTHROPIC_API_KEY"));
+    assert!(!format!("{row:?}").contains("sk-fixture"));
+    let none = show(
+        "schema_version: 9\nengines:\n  claude-code:\n    auth: none\n",
+        "claude-code",
+    );
+    assert_eq!(none.auth.state, "not-needed");
+    let missing = library(
+        "schema_version: 9\nengines:\n  claude-code:\n    auth:\n      env: [TEAM_TOKEN]\n",
+        &[("CLAUDE_CODE_OAUTH_TOKEN", "sk-other")],
+    )
+    .engine_show(&plain(), "claude-code")
+    .result
+    .unwrap();
+    assert_eq!(missing.auth.source, "engine");
+    assert_eq!(missing.auth.state, "missing");
+}

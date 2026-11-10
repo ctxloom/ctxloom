@@ -1367,12 +1367,14 @@ fn a_session_with_no_directory_fails_the_listing() {
 // ----------------------------------------------------------------------- sweep
 
 fn notice_command(done: &crate::Done) -> String {
-    assert_eq!(done.notices.len(), 1);
-    assert_eq!(
-        done.notices[0].code(),
-        "sessions-application-removed-nothing"
-    );
-    done.notices[0]
+    let notices: Vec<_> = done
+        .notices
+        .iter()
+        .filter(|n| n.code() != "sessions-application-destroys-authored")
+        .collect();
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].code(), "sessions-application-removed-nothing");
+    notices[0]
         .args()
         .into_iter()
         .find(|(n, _)| *n == "command")

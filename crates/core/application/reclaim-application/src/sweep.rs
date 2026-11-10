@@ -339,12 +339,14 @@ async fn purge_row<S: SessionService>(
     if !yes {
         let mut r = row(harp, "purge", Verdict::Planned, "", command.to_string());
         r.bytes = bytes;
+        r.authored = planned.authored();
         return Ok(r);
     }
     match service.remove(ask(true)).await {
         Ok(done) => {
             let mut r = row(harp, "purge", Verdict::Done, "", String::new());
             r.bytes = done.files.bytes_freed;
+            r.authored = done.authored();
             Ok(r)
         }
         Err(error) => Ok(failed(harp, &error)),

@@ -20,7 +20,7 @@ use sessions_application::{
     View, STATES,
 };
 #[cfg(feature = "session-destroy")]
-use sessions_application::{Class, DestroysAuthored, RemoveRequest, REMOVE_VERB};
+use sessions_application::{DestroysAuthored, RemoveRequest, REMOVE_VERB};
 
 use crate::render::{
     conversation_text, import_text, rows_text, show_text, transcripts_text, worktrees_text,
@@ -362,13 +362,7 @@ async fn remove<S: SessionService + WorktreeUse>(
     // Owner ruling 104: what a person wrote goes with the session, so it is
     // named first, a warning and never a refusal; a refused removal destroys
     // nothing, so it warns of nothing.
-    let authored: Vec<&str> = removal
-        .files
-        .destroy
-        .iter()
-        .filter(|item| item.class == Class::Authored)
-        .map(|item| item.rel.as_str())
-        .collect();
+    let authored = removal.authored();
     if !authored.is_empty() {
         done.notices.push(Box::new(DestroysAuthored {
             harp: removal.harp.clone(),
@@ -421,6 +415,14 @@ async fn sweep<S: SessionService + WorktreeUse + SweepConfig>(
         Format::Text => sweep_text(&report, out),
     })?;
     let mut done = Done::default();
+    // Owner ruling 104: each destroy that takes a person's files warns of
+    // them, as `session remove` does.
+    for row in report.rows.iter().filter(|row| !row.authored.is_empty()) {
+        done.notices.push(Box::new(DestroysAuthored {
+            harp: row.harp.clone(),
+            files: row.authored.join(", "),
+        }));
+    }
     let failed = report.counts.get("failed").copied().unwrap_or(0);
     if args.yes && failed > 0 {
         return Err(fault(CliFault::SweepFailed { count: failed }));

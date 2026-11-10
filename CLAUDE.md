@@ -174,7 +174,9 @@ unless `--even-if-live` (the one override), for a kept one, and within the
 transcript retention. A removal whose session holds files a person wrote
 (anything but `transcripts/` and `native/`) warns first, naming each, as the
 notice `sessions-application-destroys-authored`, never a refusal: on
-`--yes`, in the report and with `--even-if-live` alike (owner ruling 104);
+`--yes`, in the report and with `--even-if-live` alike, and `session sweep`
+gives it for each session it destroys or plans to (its row's `authored`;
+owner ruling 104: every destroy of authored files warns);
 `features/cli/session_remove.feature` runs the built verb.
 There is no forget-but-keep (`ForgetSession`, `SessionForgotten` and the
 `sessions-forgotten` refusal are gone) and no transcript destroyer of its own

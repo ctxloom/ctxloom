@@ -106,6 +106,20 @@ pub struct Removal {
     pub dead_letters: Vec<DeadLetter>,
 }
 
+impl Removal {
+    /// The files a person wrote that the destroy takes, relative to the
+    /// session's directory, in the plan's order (owner ruling 104: each is
+    /// named in a warning before it goes).
+    pub fn authored(&self) -> Vec<String> {
+        self.files
+            .destroy
+            .iter()
+            .filter(|item| item.class == Class::Authored)
+            .map(|item| item.rel.clone())
+            .collect()
+    }
+}
+
 /// Rename a session (`session edit --name`).
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct RenameRequest {

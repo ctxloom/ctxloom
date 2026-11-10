@@ -757,3 +757,15 @@ fn a_session_move_onto_a_directory_already_there_is_refused_and_moves_nothing() 
         .exists(&dirs.dir(HARP).join("home/settings.json"))
         .unwrap());
 }
+
+// Defect 3: a harp whose directory exists is taken, whatever the store says.
+#[test]
+fn a_records_harp_exists_once_its_directory_does() {
+    use run_ports::SessionRecords;
+    let (fs, mut dirs) = dirs();
+    assert!(!SessionRecords::exists(&mut dirs, HARP));
+    fs.create_dir_all(&dirs.dir(HARP), Mode::from_bits(0o755))
+        .unwrap();
+    assert!(SessionRecords::exists(&mut dirs, HARP));
+    assert!(!SessionRecords::exists(&mut dirs, "brisk-copper-moth"));
+}

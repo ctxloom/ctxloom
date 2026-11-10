@@ -2602,3 +2602,64 @@ async fn a_refused_run_takes_no_lock_and_a_failed_one_lets_its_lock_go() {
     let released = failed.locks.released.lock().unwrap().len();
     assert_eq!(held, released, "every lock taken was let go");
 }
+
+// Defect 3: a mint never takes a harp whose session directory exists (the
+// store lost, recreated, or a clone with `sessions/` force-added: no claim
+// says the name is taken, the directory does). It is passed over for the
+// next, unclaimed: no claim is made on it.
+#[tokio::test]
+async fn a_name_whose_directory_exists_is_passed_over_unclaimed() {
+    let mut rig = rig(Script::answering());
+    let mut records = rig.records.clone();
+    run_ports::SessionRecords::write(&mut records, "amber-swift-owl", "home/settings.json", b"{}")
+        .unwrap();
+    let answer = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    assert_eq!(answer.harp, "calm-quiet-fox");
+    let timeline = rig.timeline.lock().unwrap().clone();
+    assert_eq!(
+        timeline
+            .iter()
+            .filter(|t| t.starts_with("ClaimName"))
+            .count(),
+        1,
+        "only the name used was claimed: {timeline:?}"
+    );
+}
+
+// Defect 3: when every name tried has a directory, the run is refused as a
+// taken name is (`sessions-names-taken`), no session is minted, and the run
+// it enqueued is ended.
+#[tokio::test]
+async fn names_whose_directories_all_exist_refuse_the_run_as_taken() {
+    let mut rig = rig(Script {
+        names: vec!["a-a-a", "b-b-b", "c-c-c"],
+        ..Script::answering()
+    });
+    let mut records = rig.records.clone();
+    for harp in ["a-a-a", "b-b-b", "c-c-c"] {
+        run_ports::SessionRecords::write(&mut records, harp, "home/settings.json", b"{}").unwrap();
+    }
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap_err();
+    assert!(
+        matches!(&error, RunError::Session(CoreError::Refused { code, .. }) if code == "sessions-names-taken"),
+        "{error:?}"
+    );
+    let timeline = rig.timeline.lock().unwrap().clone();
+    assert!(
+        !timeline
+            .iter()
+            .any(|t| t.starts_with("ClaimName") || t == "MintSession"),
+        "{timeline:?}"
+    );
+    assert_eq!(timeline.last().map(String::as_str), Some("LaunchFailed"));
+}

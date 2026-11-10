@@ -552,6 +552,10 @@ impl SessionRecords for MemoryRecords {
         format!("/work/proj/.ctxloom/sessions/{harp}")
     }
 
+    fn exists(&mut self, harp: &str) -> bool {
+        !self.names(harp).is_empty()
+    }
+
     fn write(&mut self, harp: &str, rel: &str, bytes: &[u8]) -> Result<(), RecordsError> {
         check_rel(rel)?;
         self.denied(harp, rel)?;

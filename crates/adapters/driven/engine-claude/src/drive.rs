@@ -31,8 +31,12 @@ const PROGRAM: &str = "claude";
 
 /// The variables of the caller's environment a turn is given: how to find
 /// programs, locale and temp space, the proxy and certificate settings a
-/// network needs, and the two ways claude is handed a credential. The user's
-/// `HOME` and every other variable stay behind.
+/// network needs, the two ways claude is handed a credential, and what the
+/// turn's hook processes need (owner ruling 51): ctxloom's home by name (they
+/// run without `HOME`), the session's harp, and the run's listener (the
+/// endpoint, the bearer, the hook principal's secret, the run and the
+/// listener's public certificate). The user's `HOME` and every other variable
+/// stay behind.
 pub const ENV_ALLOWLIST: &[&str] = &[
     "PATH",
     "LANG",
@@ -49,13 +53,16 @@ pub const ENV_ALLOWLIST: &[&str] = &[
     "NODE_EXTRA_CA_CERTS",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "ANTHROPIC_API_KEY",
+    run_ports::HOME_VARIABLE,
+    run_ports::ENDPOINT_VARIABLE,
+    run_ports::BEARER_VARIABLE,
+    run_ports::RUN_VARIABLE,
+    run_ports::TLS_CERT_VARIABLE,
+    run_ports::HARP_VARIABLE,
 ];
 
 /// The variables of the caller's environment the human's terminal session is
-/// given: a turn's, and ctxloom's home by name. Its hook processes run
-/// without `HOME`, and find ctxloom's home through this one explicit variable;
-/// they reach the run's listener through the endpoint and the bearer (the hook
-/// principal's secret) and the run, which a child's turn is never given.
+/// given: a turn's, and the primary's own token.
 pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = &[
     "PATH",
     "LANG",
@@ -229,21 +236,12 @@ fn program(request: &TurnRequest) -> &str {
     }
 }
 
-/// The variables only the terminal session is given: ctxloom's home and the
-/// listener's endpoint, bearer, run and session. A child's turn never gets one,
-/// whatever the config names.
-fn interactive_only(name: &str) -> bool {
-    name == run_ports::HOME_VARIABLE
-        || name == run_ports::HARP_VARIABLE
-        || run_ports::HOOK_VARIABLES.contains(&name)
-}
-
 /// The variable that is the primary's alone: never a child's.
 const PRIMARY_ONLY: &str = "ANTHROPIC_AUTH_TOKEN";
 
 /// Whether the caller's variable `name` may be handed to this command.
 fn grantable(name: &str, interactive: bool) -> bool {
-    interactive || !(interactive_only(name) || name == PRIMARY_ONLY)
+    interactive || name != PRIMARY_ONLY
 }
 
 /// The command's whole environment: `caller`'s variables on the curated
@@ -252,7 +250,7 @@ fn grantable(name: &str, interactive: bool) -> bool {
 /// the whole environment, and
 /// `CLAUDE_CONFIG_DIR` set to the session's home, or to the user's own
 /// directory when the engine block says `session_home: host`. A child is never
-/// given the interactive-only variables nor the primary's token.
+/// given the primary's token.
 fn environment(
     engine: &Claude,
     interactive: bool,

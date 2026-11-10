@@ -69,7 +69,7 @@ impl LoginLinks for Links {
 }
 
 fn shared(links: &mut Links, vars: &[(&str, &str)], os: &str) -> Option<Notice> {
-    share_login(links, &CLAUDE, &env(vars), os, "amber-swift-owl")
+    share_login(links, &CLAUDE.into(), &env(vars), os, "amber-swift-owl")
 }
 
 fn said(notice: Option<Notice>) -> (String, String) {
@@ -81,7 +81,7 @@ fn said(notice: Option<Notice>) -> (String, String) {
 
 #[test]
 fn a_child_with_no_env_credential_is_refused_naming_the_variables() {
-    let refused = refuse_child("claude-code", &CLAUDE, &env(&[("HOME", "/home/u")]));
+    let refused = refuse_child("claude-code", &CLAUDE.into(), &env(&[("HOME", "/home/u")]));
     assert_eq!(
         refused,
         Some(RunRejection::NoCredential {
@@ -95,7 +95,7 @@ fn a_child_with_no_env_credential_is_refused_naming_the_variables() {
 fn an_empty_variable_is_no_credential() {
     let refused = refuse_child(
         "claude-code",
-        &CLAUDE,
+        &CLAUDE.into(),
         &env(&[("CLAUDE_CODE_OAUTH_TOKEN", "")]),
     );
     assert!(refused.is_some());
@@ -105,19 +105,19 @@ fn an_empty_variable_is_no_credential() {
 fn either_variable_serves_a_child_and_the_primarys_own_does_not() {
     for name in ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"] {
         assert_eq!(
-            refuse_child("claude-code", &CLAUDE, &env(&[(name, "x")])),
+            refuse_child("claude-code", &CLAUDE.into(), &env(&[(name, "x")])),
             None
         );
     }
     // ANTHROPIC_AUTH_TOKEN authenticates the primary only.
     let only_primary = env(&[("ANTHROPIC_AUTH_TOKEN", "x")]);
-    assert!(refuse_child("claude-code", &CLAUDE, &only_primary).is_some());
+    assert!(refuse_child("claude-code", &CLAUDE.into(), &only_primary).is_some());
 }
 
 #[test]
 fn an_engine_that_needs_no_credential_refuses_nothing() {
     assert_eq!(
-        refuse_child("fake", &Credentials::default(), &BTreeMap::new()),
+        refuse_child("fake", &Credentials::default().into(), &BTreeMap::new()),
         None
     );
 }
@@ -241,7 +241,7 @@ fn an_engine_with_no_login_file_shares_nothing() {
     };
     let notice = share_login(
         &mut links,
-        &none,
+        &none.into(),
         &env(&[("HOME", "/home/u")]),
         "linux",
         "h",

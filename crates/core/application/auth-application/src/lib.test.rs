@@ -182,10 +182,38 @@ fn each_engine_is_reported_once_whatever_its_labels() {
 
 #[test]
 fn a_token_or_an_api_key_is_an_agent_token_and_nothing_else_is() {
-    assert!(auth(&["CLAUDE_CODE_OAUTH_TOKEN"]).agent_token_exported());
-    assert!(auth(&["ANTHROPIC_API_KEY"]).agent_token_exported());
-    assert!(!auth(&["ANTHROPIC_AUTH_TOKEN", "CTXLOOM_OPENCODE_API_KEY"]).agent_token_exported());
-    assert!(!auth(&[]).agent_token_exported());
+    assert!(auth(&["CLAUDE_CODE_OAUTH_TOKEN"]).agent_token_exported(&[]));
+    assert!(auth(&["ANTHROPIC_API_KEY"]).agent_token_exported(&[]));
+    assert!(!auth(&["ANTHROPIC_AUTH_TOKEN", "CTXLOOM_OPENCODE_API_KEY"]).agent_token_exported(&[]));
+    assert!(!auth(&[]).agent_token_exported(&[]));
+}
+
+// init's guide asks the configured source, not the two built-in variables.
+#[test]
+fn a_configured_source_is_what_the_agent_token_is() {
+    let acme = layer("engines:\n  claude-code:\n    auth:\n      env: [ACME_TOKEN]\n");
+    assert!(auth(&["ACME_TOKEN"]).agent_token_exported(&acme));
+    assert!(!auth(&["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"]).agent_token_exported(&acme));
+}
+
+#[test]
+fn an_engine_that_reads_no_variable_has_nothing_to_guide() {
+    for text in [
+        "engines:\n  claude-code:\n    auth: none\n",
+        "engines:\n  claude-code:\n    auth: login\n",
+        "agents:\n  a:\n    engine: mock\n",
+        // opencode's endpoint key is optional
+        "agents:\n  a:\n    engine: opencode\n",
+    ] {
+        assert!(auth(&[]).agent_token_exported(&layer(text)), "{text}");
+    }
+}
+
+#[test]
+fn every_engine_in_use_must_be_satisfied() {
+    let two = layer("agents:\n  a:\n    engine: claude-code\n  b:\n    engine: claude-code\nengines:\n  claude-code:\n    auth:\n      env: [ACME_TOKEN]\n");
+    assert!(auth(&["ACME_TOKEN"]).agent_token_exported(&two));
+    assert!(!auth(&[]).agent_token_exported(&two));
 }
 
 // engines.<engine>.auth is the source: any ONE of its variables authenticates

@@ -157,6 +157,47 @@ struct Told<'a> {
     cert: &'a run_ports::PublicCert,
 }
 
+/// The engine a run is on: the one asked for, else the plan's.
+fn chosen_engine(plan: &library_application::DryRun, request: &OneShot) -> String {
+    if request.engine.is_empty() {
+        plan.engine.clone()
+    } else {
+        request.engine.clone()
+    }
+}
+
+/// How the plan says `engine` is run, in the launch ports' terms. The plan
+/// resolved the settings of ITS engine: another engine, forced by the caller,
+/// runs on its own built-ins.
+fn settings_of(plan: &library_application::DryRun, engine: &str) -> run_ports::EngineSettings {
+    if plan.engine != engine {
+        return run_ports::EngineSettings::default();
+    }
+    let drive = &plan.drive;
+    run_ports::EngineSettings {
+        command: drive.command.clone(),
+        session_home: if drive.session_home == "host" {
+            run_ports::SessionHome::Host
+        } else {
+            run_ports::SessionHome::Session
+        },
+        auth: match (&drive.auth.source, &drive.auth.value) {
+            // Nobody said: the engine's own source, as the adapter holds it.
+            (library_application::Source::Default, _) => run_ports::AuthSetting::Builtin,
+            (_, library_application::AuthSource::None) => run_ports::AuthSetting::None,
+            (_, library_application::AuthSource::Login) => run_ports::AuthSetting::Login,
+            (_, library_application::AuthSource::Token) => run_ports::AuthSetting::Builtin,
+            (_, library_application::AuthSource::Credential { env, file }) => {
+                run_ports::AuthSetting::Source {
+                    env: env.clone(),
+                    file: file.clone(),
+                }
+            }
+        },
+        env: drive.env.clone(),
+    }
+}
+
 /// Everything [`Runs`] is made of.
 pub struct Parts<
     K: Core,
@@ -283,6 +324,7 @@ where
             endpoint: &endpoint,
             cert: identity.public(),
         };
+        let settings = settings_of(&previewed.plan, &chosen_engine(&previewed.plan, request));
         let started = self.start(previewed, request, Some(&told)).await;
         let (session, harp, engine, run) = match started {
             Ok(started) => started,
@@ -295,7 +337,7 @@ where
         if let Some(credentials) = self.launcher.credentials(&engine) {
             notices.extend(share_login(
                 &mut *self.links,
-                &credentials,
+                &settings.credentials(credentials),
                 &self.env,
                 &self.os,
                 &harp,
@@ -349,11 +391,8 @@ where
         if !interactive && plan.prompt.trim().is_empty() {
             return Err(RunError::NoPrompt);
         }
-        let engine = if request.engine.is_empty() {
-            plan.engine.clone()
-        } else {
-            request.engine.clone()
-        };
+        let engine = chosen_engine(&plan, request);
+        let settings = settings_of(&plan, &engine);
         if !self.launcher.drives(&engine) {
             return Err(RunError::UnknownEngine {
                 name: engine,
@@ -363,6 +402,7 @@ where
         // A child agent is given an environment credential and nothing else.
         if !interactive {
             let credentials = self.launcher.credentials(&engine).unwrap_or_default();
+            let credentials = settings.credentials(credentials);
             if let Some(refusal) = refuse_child(&engine, &credentials, &self.env) {
                 return Err(RunError::Refused(refusal));
             }
@@ -433,6 +473,7 @@ where
                 interactive,
                 model: plan.model,
                 effort: plan.effort,
+                settings,
             },
         );
         Ok((session, harp, engine, enqueued.run))

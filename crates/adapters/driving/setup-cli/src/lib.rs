@@ -222,7 +222,7 @@ fn init(
     }
     // Delegated agents authenticate with a token the human mints and
     // exports; init guides her to it, and never blocks on it or asks for it.
-    if !uses.auth.agent_token_exported() {
+    if !uses.auth.agent_token_exported(&uses.doctor.layer_texts()) {
         say_notices(&[token_guide()], PROG, format, catalog, err);
     }
     // On a terminal, the setup interview, and the offer to restart into the

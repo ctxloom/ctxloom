@@ -5,10 +5,12 @@
 //! are later slices'; what a preview shows of them is left out here, and said.
 
 use library::compose::{self, Options, Package, SelectRequest};
+use library::config::engines::{self, Drive, Effective};
 use library::findings::{Class, Finding};
 use library::profile::ResolvedProfile;
 use library::tokens;
 
+use crate::agents::engine_error;
 use crate::config::Agent;
 use crate::error::{AppError, Notice};
 use crate::project::{Library, Outcome, Project};
@@ -211,21 +213,31 @@ impl Project {
         let package = self.compose(&selection, &mut findings)?;
         // An agent's engine, model and effort are its own; a launch with no
         // agent takes the default engine and passes no model or effort.
-        let (engine, model, effort, runtime) = match selection.agent.as_ref() {
+        let (engine, model, effort, runtime, drive) = match selection.agent.as_ref() {
             Some(agent) => {
                 let effective = self.effective_of(agent)?;
+                // The isolation rule: an agent's runtime stands exactly, and a
+                // launch it makes less contained than the lower layers would
+                // have is never silent.
+                if let Some(notice) = runtime_notice(&effective) {
+                    self.notices.push(notice);
+                }
+                let drive = Drive::from(&effective);
                 (
                     effective.engine.value,
                     effective.model.map(|m| m.value).unwrap_or_default(),
                     effective.effort.map(|e| e.value).unwrap_or_default(),
                     Some(effective.runtime.value),
+                    drive,
                 )
             }
             None => (
-                library::config::engines::DEFAULT_ENGINE.to_string(),
+                engines::DEFAULT_ENGINE.to_string(),
                 String::new(),
                 String::new(),
                 None,
+                engines::engine_drive(&self.config.value, engines::DEFAULT_ENGINE)
+                    .map_err(engine_error)?,
             ),
         };
         let degraded = self.flags.degraded;
@@ -261,6 +273,7 @@ impl Project {
             axes: self.axes(request, runtime),
             model,
             effort,
+            drive,
         };
         Ok(Previewed { plan, fatal })
     }
@@ -361,4 +374,42 @@ fn refuse_empty(selection: &Selection, package: &Package) -> Result<(), AppError
         });
     }
     Ok(())
+}
+
+/// The notice for a runtime the agent chose that is not the one the lower
+/// layers gave: a container replaced by the host weakens isolation, and the
+/// two container ownerships are never interchangeable. A stronger runtime
+/// needs no word.
+fn runtime_notice(effective: &Effective) -> Option<Notice> {
+    let engines::Override::Replaced { replaced, change } = &effective.runtime_override else {
+        return None;
+    };
+    let from = match replaced.source {
+        engines::Source::Engine => format!("engines.{}.runtime", effective.engine.value),
+        _ => "runtime".to_string(),
+    };
+    let (what, remedy) = match change {
+        engines::Change::Strengthens => return None,
+        engines::Change::Weakens => (
+            "weakens isolation",
+            format!(
+                "remove `runtime` from agent {} to keep {}",
+                effective.agent, replaced.value
+            ),
+        ),
+        engines::Change::OwnershipSwap => (
+            "the two container ownerships are not interchangeable",
+            format!(
+                "remove `runtime` from agent {} to keep {}",
+                effective.agent, replaced.value
+            ),
+        ),
+    };
+    Some(Notice::Finding {
+        text: format!(
+            "runtime {} replaces {from} {}: {what}",
+            effective.runtime.value, replaced.value
+        ),
+        remedy,
+    })
 }

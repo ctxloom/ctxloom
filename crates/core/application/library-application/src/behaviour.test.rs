@@ -1109,18 +1109,6 @@ fn test_an_agent_is_kept_when_profiles_alone_bind_it() {
     );
 }
 
-// config.feature: env_host is read as a boolean, absent when unset.
-#[test]
-fn test_an_agents_env_host_is_true_false_or_unset() {
-    let layers = ["schema_version: 9\nagents:\n  on:\n    engine: claude-code\n    env_host: true\n  off:\n    engine: claude-code\n    env_host: false\n  unset:\n    engine: claude-code\n"];
-    let rows = ok(with(&[], &layers).library().agent_list(&plain()));
-    let by = |name: &str| rows.iter().find(|r| r.name == name).unwrap().env_host;
-    assert_eq!(
-        (by("on"), by("off"), by("unset")),
-        (Some(true), Some(false), None)
-    );
-}
-
 // config.feature: the sections `config show` accepts.
 #[test]
 fn test_the_config_sections_are_the_schemas() {
@@ -1214,4 +1202,101 @@ fn test_a_dry_run_settles_the_runtime_agent_then_engine_then_project() {
     assert_eq!(axes("silent"), "container-rootless");
     assert_eq!(axes("own"), "host");
     assert_eq!(axes("other"), "container-rootful");
+}
+
+// ---- the plan carries how the engine is run (rulings 44, 46, 48) ----
+
+const DRIVEN_HOME: &str = "schema_version: 9\nengines:\n  claude-code:\n    command: /h/bin/claude\n    session_home: host\n    auth:\n      env: [ACME_TOKEN]\n      file: ~/.acme/c.json\n    env: [E1]\nagents:\n  dev:\n    engine: claude-code\n  own:\n    engine: claude-code\n    env: [E2]\n";
+
+fn drive_of(request: crate::RunRequest) -> library::config::engines::Drive {
+    use library::config::engines::Drive;
+    let files: &[(&str, &str)] = &[ENVELOPE, ("profiles/p.yaml", "description: p\n")];
+    let library = with(&[("project", files)], &[DRIVEN_HOME, "schema_version: 9\n"]).library();
+    let drive: Drive = ok(library.dry_run(&plain(), &request)).plan.drive;
+    drive
+}
+
+#[test]
+fn test_a_dry_run_carries_the_engine_block_and_the_agent_s_passthrough() {
+    use library::config::engines::{AuthSource, Source};
+    let dev = drive_of(crate::RunRequest {
+        agent: "dev".to_string(),
+        ..crate::RunRequest::default()
+    });
+    assert_eq!(dev.command, "/h/bin/claude");
+    assert_eq!(dev.session_home, "host");
+    assert_eq!(dev.auth.source, Source::Engine);
+    assert_eq!(
+        dev.auth.value,
+        AuthSource::Credential {
+            env: vec!["ACME_TOKEN".to_string()],
+            file: Some("~/.acme/c.json".to_string()),
+        }
+    );
+    assert_eq!(dev.env, vec!["E1".to_string()]);
+    // an agent's own env replaces the engine's
+    let own = drive_of(crate::RunRequest {
+        agent: "own".to_string(),
+        ..crate::RunRequest::default()
+    });
+    assert_eq!(own.env, vec!["E2".to_string()]);
+}
+
+#[test]
+fn test_a_launch_with_no_agent_takes_the_default_engine_s_block() {
+    let by_hand = drive_of(crate::RunRequest {
+        profile: "p".to_string(),
+        ..crate::RunRequest::default()
+    });
+    assert_eq!(by_hand.command, "/h/bin/claude");
+    assert_eq!(by_hand.session_home, "host");
+    assert_eq!(by_hand.env, vec!["E1".to_string()]);
+}
+
+// the isolation rule: an agent's runtime is used exactly, and a launch that
+// weakens the one the lower layers gave says so
+fn notices_of(layers: &str, agent: &str) -> Vec<String> {
+    let library = with(&[], &[layers]).library();
+    library
+        .dry_run(
+            &plain(),
+            &crate::RunRequest {
+                agent: agent.to_string(),
+                ..crate::RunRequest::default()
+            },
+        )
+        .notices
+        .iter()
+        .map(ToString::to_string)
+        .collect()
+}
+
+#[test]
+fn test_a_launch_that_weakens_the_engine_s_runtime_says_so() {
+    let layers = "schema_version: 9\nengines:\n  claude-code:\n    runtime: container-rootless\nagents:\n  open:\n    engine: claude-code\n    runtime: host\n  swapped:\n    engine: claude-code\n    runtime: container-rootful\n  tighter:\n    engine: claude-code\n    runtime: container-rootless\n  silent:\n    engine: claude-code\n";
+    let open = notices_of(layers, "open");
+    assert!(
+        open.iter().any(|n| n
+            .contains("runtime host replaces engines.claude-code.runtime container-rootless")
+            && n.contains("weakens isolation")),
+        "{open:?}"
+    );
+    let swapped = notices_of(layers, "swapped");
+    assert!(
+        swapped
+            .iter()
+            .any(|n| n.contains("container-rootful replaces") && n.contains("not interchangeable")),
+        "{swapped:?}"
+    );
+    for agent in ["tighter", "silent"] {
+        assert!(
+            notices_of(layers, agent)
+                .iter()
+                .all(|n| !n.contains("replaces")),
+            "{agent}"
+        );
+    }
+    // a host engine strengthened by a container agent is no warning either
+    let up = "schema_version: 9\nagents:\n  c:\n    engine: claude-code\n    runtime: container-rootless\n";
+    assert!(notices_of(up, "c").iter().all(|n| !n.contains("replaces")));
 }

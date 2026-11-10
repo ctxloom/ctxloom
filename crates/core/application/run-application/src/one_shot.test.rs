@@ -104,6 +104,7 @@ struct ScriptedPlan {
     fatal: Vec<FindingRow>,
     model: String,
     effort: String,
+    drive: library_application::Drive,
     error: Option<fn() -> PlanError>,
     asked: Arc<Mutex<Vec<RunRequest>>>,
 }
@@ -134,6 +135,7 @@ impl Planner for ScriptedPlan {
             axes: (String::new(), String::new()),
             model: self.model.clone(),
             effort: self.effort.clone(),
+            drive: self.drive.clone(),
         };
         Outcome {
             result: Ok(Previewed {
@@ -327,7 +329,9 @@ struct Links {
 
 impl LoginLinks for Links {
     fn present(&self, path: &str) -> bool {
-        self.login && path == "/home/u/.claude/.credentials.json"
+        // the file exists wherever the configured source (or the default) puts it
+        self.login
+            && (path == "/home/u/.claude/.credentials.json" || path == "/home/u/.acme/creds.json")
     }
     fn state(&self, _: &str, _: &str) -> LinkState {
         self.held
@@ -354,6 +358,8 @@ struct Script {
     /// The model and effort the plan resolved.
     model: &'static str,
     effort: &'static str,
+    /// How the plan says the engine is run.
+    drive: library_application::Drive,
     plan_error: Option<fn() -> PlanError>,
     project_error: Option<Report>,
     names: Vec<&'static str>,
@@ -381,6 +387,7 @@ impl Script {
             fatal: Vec::new(),
             model: "",
             effort: "",
+            drive: Default::default(),
             plan_error: None,
             project_error: None,
             names: vec!["amber-swift-owl", "calm-quiet-fox", "wild-brave-elk"],
@@ -434,6 +441,7 @@ fn rig(script: Script) -> Rig {
             fatal: script.fatal,
             model: script.model.to_string(),
             effort: script.effort.to_string(),
+            drive: script.drive.clone(),
             error: script.plan_error,
             asked: Arc::clone(&asked),
         }),
@@ -1196,6 +1204,7 @@ async fn the_bearer_is_in_no_debug_or_error_rendering() {
                 interactive: true,
                 model: String::new(),
                 effort: String::new(),
+                settings: Default::default(),
             }
         ),
     ] {
@@ -1523,4 +1532,172 @@ async fn a_certificate_that_cannot_be_minted_refuses_the_run_before_anything_is_
     assert!(rig.hooks.log.lock().unwrap().is_empty(), "nothing served");
     assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 0);
     assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
+}
+
+// ---- engines.<e>.* reaches the launch (owner rulings 44, 46, 48) ----
+
+use library_application::{AuthSource, Drive, Source, Sourced};
+
+fn driven(script: Script, drive: Drive) -> Script {
+    Script { drive, ..script }
+}
+
+fn configured(auth: AuthSource) -> Sourced<AuthSource> {
+    Sourced {
+        value: auth,
+        source: Source::Engine,
+    }
+}
+
+fn names(of: &[&str]) -> Vec<String> {
+    of.iter().map(ToString::to_string).collect()
+}
+
+// The program the plan resolved is the program the runner is given.
+#[tokio::test]
+async fn the_configured_command_is_the_program_run_for_a_turn_and_the_terminal() {
+    for interactive in [false, true] {
+        let mut script = driven(
+            Script::answering(),
+            Drive {
+                command: "/opt/bin/claude".to_string(),
+                ..Drive::default()
+            },
+        );
+        script.prompt = if interactive { "" } else { "THE-PROMPT" };
+        let mut rig = rig(script);
+        if interactive {
+            let _ = rig.runs.interactive(&Flags::default(), &ask()).await;
+            let seen = rig.runner.seen_terminal.lock().unwrap();
+            assert_eq!(seen[0].program, "/opt/bin/claude");
+        } else {
+            let _ = rig.runs.one_shot(&Flags::default(), &ask()).await;
+            let seen = rig.runner.seen.lock().unwrap();
+            assert_eq!(seen[0].program, "/opt/bin/claude");
+        }
+    }
+}
+
+// A configured env source replaces the engine's built-in variables: a child
+// is refused without ONE OF ITS names, whatever else is exported.
+#[tokio::test]
+async fn a_child_is_refused_without_a_variable_of_the_configured_source() {
+    let drive = Drive {
+        auth: configured(AuthSource::Credential {
+            env: names(&["ACME_TOKEN"]),
+            file: None,
+        }),
+        ..Drive::default()
+    };
+    let mut script = driven(needing_a_token(), drive.clone());
+    script.env = vec![("HOME", "/home/u"), ("ANTHROPIC_API_KEY", "k")]; // gitleaks:allow
+    let mut rig_one = rig(script);
+    let error = rig_one
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap_err();
+    assert!(
+        matches!(&error, RunError::Refused(runs::RunRejection::NoCredential { variables, .. }) if variables == "ACME_TOKEN"),
+        "{error:?}"
+    );
+    let mut script = driven(needing_a_token(), drive);
+    script.env = vec![("HOME", "/home/u"), ("ACME_TOKEN", "t")]; // gitleaks:allow
+    let mut rig_two = rig(script);
+    let answer = rig_two
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result;
+    assert!(answer.is_ok(), "{answer:?}");
+}
+
+// `auth: none` and `auth: login` ask a child for no variable.
+#[tokio::test]
+async fn a_source_of_none_or_login_refuses_no_child() {
+    for auth in [AuthSource::None, AuthSource::Login] {
+        let drive = Drive {
+            auth: configured(auth),
+            ..Drive::default()
+        };
+        let mut rig = rig(driven(needing_a_token(), drive));
+        let answer = rig.runs.one_shot(&Flags::default(), &ask()).await.result;
+        assert!(answer.is_ok(), "{answer:?}");
+    }
+}
+
+// The primary shares the file the source names, and only when it names one.
+#[tokio::test]
+async fn the_primary_is_linked_to_the_file_the_source_names() {
+    let drive = Drive {
+        auth: configured(AuthSource::Credential {
+            env: names(&["ACME_TOKEN"]),
+            file: Some("~/.acme/creds.json".to_string()),
+        }),
+        ..Drive::default()
+    };
+    let mut script = driven(needing_a_token(), drive);
+    script.prompt = "";
+    let mut rig = rig(script);
+    let done = rig.runs.interactive(&Flags::default(), &ask()).await;
+    assert!(done.result.is_ok());
+    assert_eq!(
+        *rig.links.made.lock().unwrap(),
+        vec![(
+            "amber-swift-owl".to_string(),
+            "home/.credentials.json".to_string(),
+            "/home/u/.acme/creds.json".to_string()
+        )]
+    );
+}
+
+#[tokio::test]
+async fn a_source_with_no_file_links_no_login_for_the_primary() {
+    let drive = Drive {
+        auth: configured(AuthSource::Credential {
+            env: names(&["ACME_TOKEN"]),
+            file: None,
+        }),
+        ..Drive::default()
+    };
+    let mut script = driven(needing_a_token(), drive);
+    script.prompt = "";
+    let mut rig = rig(script);
+    let done = rig.runs.interactive(&Flags::default(), &ask()).await;
+    assert!(done.result.is_ok());
+    assert!(rig.links.made.lock().unwrap().is_empty());
+}
+
+// The host's own home has its own login: nothing is linked into it.
+#[tokio::test]
+async fn a_host_session_home_is_linked_no_login() {
+    let drive = Drive {
+        session_home: "host".to_string(),
+        ..Drive::default()
+    };
+    let mut script = driven(needing_a_token(), drive);
+    script.prompt = "";
+    let mut rig = rig(script);
+    let done = rig.runs.interactive(&Flags::default(), &ask()).await;
+    assert!(done.result.is_ok());
+    assert!(rig.links.made.lock().unwrap().is_empty());
+}
+
+// The settings of one engine are not another's: a run forced onto a different
+// engine than the plan resolved is run on that engine's built-ins.
+#[tokio::test]
+async fn the_settings_of_the_planned_engine_are_not_applied_to_another() {
+    let drive = Drive {
+        command: "/opt/bin/other".to_string(),
+        ..Drive::default()
+    };
+    let mut script = driven(Script::answering(), drive);
+    script.backend = "planned-engine";
+    let mut rig = rig(script);
+    let mut asked = ask();
+    asked.engine = "fake".to_string();
+    let answer = rig.runs.one_shot(&Flags::default(), &asked).await.result;
+    assert!(answer.is_ok(), "{answer:?}");
+    assert_eq!(rig.runner.seen.lock().unwrap()[0].program, "fake");
 }

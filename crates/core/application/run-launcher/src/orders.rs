@@ -29,6 +29,9 @@ pub struct Order {
     pub model: String,
     /// The agent's effort level; empty names none.
     pub effort: String,
+    /// How the config says the engine is run: program, session home,
+    /// credential source, environment passthrough (names and paths only).
+    pub settings: run_ports::EngineSettings,
 }
 
 impl fmt::Debug for Order {
@@ -44,6 +47,7 @@ impl fmt::Debug for Order {
             .field("interactive", &self.interactive)
             .field("model", &self.model)
             .field("effort", &self.effort)
+            .field("settings", &self.settings)
             .finish()
     }
 }

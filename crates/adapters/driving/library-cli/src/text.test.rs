@@ -825,6 +825,7 @@ fn plan() -> DryRun {
         axes: (st("worktree"), st("host")),
         model: String::new(),
         effort: String::new(),
+        drive: Default::default(),
     }
 }
 

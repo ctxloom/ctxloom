@@ -22,11 +22,6 @@ const TOKEN: &str = "token";
 /// no ctxloom command takes one.
 const CLAUDE_REMEDY: &str = "run `claude setup-token` and export CLAUDE_CODE_OAUTH_TOKEN (or store it in your secret manager)";
 
-/// The variables any one of which authenticates the agents ctxloom delegates
-/// to (a child's run is given nothing else). The same two the claude engine
-/// passes a turn; this crate cannot see the adapter that holds them.
-const AGENT_TOKEN_VARS: [&str; 2] = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"];
-
 /// One row of `auth status`: whether an engine's credential is exported, the
 /// variable it is read from when it is (never its value), and the fix when it
 /// is not.
@@ -106,10 +101,15 @@ impl Auth {
             .collect()
     }
 
-    /// Whether a credential a delegated agent can authenticate with is
-    /// exported: a token or an API key. Never its value.
-    pub fn agent_token_exported(&self) -> bool {
-        AGENT_TOKEN_VARS.iter().any(|var| self.env.is_exported(var))
+    /// Whether the credential the delegated agents authenticate with is
+    /// exported, by the effective `engines.<engine>.auth` of each engine the
+    /// agents use (`layers` as for [`Auth::status`]). Never its value.
+    pub fn agent_token_exported(&self, layers: &[String]) -> bool {
+        let config = engines::merged(layers);
+        needs(&config, &engines::engines_in_use(&config))
+            .iter()
+            .filter(|need| need.required)
+            .all(|need| need.vars.iter().any(|v| self.env.is_exported(v)))
     }
 
     /// For each of `engines` whose effective `auth` reads the environment

@@ -311,7 +311,6 @@ fn engine_block() -> Node {
         ("session_home", choice(&["host", "session"])),
         ("auth", Node::Auth),
         ("runtime", choice(RUNTIMES)),
-        ("env_host", Node::Bool),
         ("env", list(pattern(Pat::NoEquals))),
     ])
 }
@@ -417,7 +416,6 @@ fn binding() -> Node {
             ("driving", choice(&["conversational", "oneshot"])),
             ("surfaces", map_of(string())),
             ("roots", map_of(string())),
-            ("env_host", Node::Bool),
             (
                 "env",
                 list(Node::Str {

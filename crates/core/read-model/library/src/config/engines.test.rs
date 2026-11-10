@@ -35,7 +35,6 @@ fn test_an_agent_that_says_nothing_runs_on_the_built_in_defaults() {
     assert_eq!(got.permissions, text("acceptEdits", Source::Default));
     assert_eq!(got.runtime, text("host", Source::Default));
     assert_eq!(got.runtime_override, Override::Inherited);
-    assert_eq!(got.env_host, sourced(false, Source::Default));
     assert_eq!(got.env, sourced(Vec::new(), Source::Default));
     assert_eq!(got.command, text("claude", Source::Default));
     assert_eq!(got.session_home, text("session", Source::Default));
@@ -204,18 +203,16 @@ fn test_moving_between_runtimes_is_weaker_stronger_or_an_ownership_swap() {
     );
 }
 
-// env_host and env: resolved key by key, agent > engine > default; a list
+// env: resolved, agent > engine > default; a list
 // replaces, it is never the union (a union would let an engine's curated list
 // leak into an agent that narrowed it)
 #[test]
-fn test_env_host_and_env_are_the_agent_s_over_the_engine_s_and_a_list_replaces() {
-    let engine =
-        "engines:\n  claude-code:\n    env_host: false\n    env: [HTTPS_PROXY, NPM_TOKEN]\n";
+fn test_env_is_the_agent_s_over_the_engine_s_and_a_list_replaces() {
+    let engine = "engines:\n  claude-code:\n    env: [HTTPS_PROXY, NPM_TOKEN]\n";
     let got = of(
         &format!("{engine}agents:\n  dev:\n    engine: claude-code\n"),
         "dev",
     );
-    assert_eq!(got.env_host, sourced(false, Source::Engine));
     assert_eq!(
         got.env,
         sourced(names(&["HTTPS_PROXY", "NPM_TOKEN"]), Source::Engine)
@@ -226,13 +223,6 @@ fn test_env_host_and_env_are_the_agent_s_over_the_engine_s_and_a_list_replaces()
         "dev",
     );
     assert_eq!(got.env, sourced(names(&["ALPHA"]), Source::Agent));
-    assert_eq!(got.env_host, sourced(false, Source::Engine));
-
-    let got = of(
-        &format!("{engine}agents:\n  dev:\n    engine: claude-code\n    env_host: true\n"),
-        "dev",
-    );
-    assert_eq!(got.env_host, sourced(true, Source::Agent));
 }
 
 #[test]
@@ -507,4 +497,37 @@ fn what_a_project_may_say_is_left_alone() {
     assert!(removed.is_empty(), "{removed:?}");
     assert_eq!(layer, cfg(text));
     assert!(stripped("agents: {}\n").0.is_empty());
+}
+
+// ---- the drive: what a launch is told of how to run the engine ----
+
+#[test]
+fn test_a_drive_of_an_agent_carries_its_engine_block_and_its_own_passthrough() {
+    let config = cfg("engines:\n  claude-code:\n    command: /x/claude\n    session_home: host\n    env: [A]\nagents:\n  dev:\n    env: [B]\n");
+    let drive = Drive::from(&effective(&config, "dev").unwrap());
+    assert_eq!(drive.command, "/x/claude");
+    assert_eq!(drive.session_home, "host");
+    assert_eq!(drive.env, names(&["B"]));
+}
+
+#[test]
+fn test_a_drive_of_an_engine_alone_reads_its_block() {
+    let config = cfg("engines:\n  claude-code:\n    command: /x/claude\n    session_home: host\n    auth: none\n    env: [A]\n");
+    let drive = engine_drive(&config, "claude-code").unwrap();
+    assert_eq!(drive.command, "/x/claude");
+    assert_eq!(drive.session_home, "host");
+    assert_eq!(drive.auth, sourced(AuthSource::None, Source::Engine));
+    assert_eq!(drive.env, names(&["A"]));
+}
+
+#[test]
+fn test_a_drive_of_an_engine_with_no_block_is_the_built_ins() {
+    let drive = engine_drive(&cfg("schema_version: 9\n"), "claude-code").unwrap();
+    assert_eq!(drive.command, "claude");
+    assert_eq!(drive.session_home, "session");
+    assert_eq!(
+        drive.auth,
+        sourced(AuthSource::builtin("claude-code"), Source::Default)
+    );
+    assert!(drive.env.is_empty());
 }

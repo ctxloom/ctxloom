@@ -199,6 +199,23 @@ async fn an_identity_owns_its_own_run_and_session_and_nothing_else() {
     ));
 }
 
+// Owner ruling 101: the session has no inbox, so no principal may send an
+// inbox fact: neither list names one.
+#[test]
+fn no_allowlist_names_an_inbox_fact() {
+    for allowlist in [Allowlist::runner(), Allowlist::model()] {
+        for kind in [
+            "RecordMessageArrived",
+            "ClaimMessage",
+            "DeliverMessage",
+            "FailMessage",
+        ] {
+            let url = url::<sessions::BindEngineSession>().replace("BindEngineSession", kind);
+            assert!(!allowlist.permits_fact(&url), "{url}");
+        }
+    }
+}
+
 // NEW-DESIGN (listener plan section 11, risk "Allowlist drift": "ctxloom's own
 // test should assert every variant is allowlisted (S5)"), per principal (owner
 // ruling 2026-11-04, item 16): every RunnerFact variant is on the runner's list

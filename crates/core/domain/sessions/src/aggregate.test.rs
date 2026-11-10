@@ -833,6 +833,47 @@ fn an_event_is_read_back_by_its_type_url() {
     assert_eq!(SessionEvent::from_any(&any).unwrap(), event);
 }
 
+// Owner ruling 101: the session has no inbox. Mail's arrival, claim,
+// delivery and failure are angzarr's transport, not the session's states, so
+// none of them is a message the session takes: each is refused by the kernel
+// as no type it knows, and records nothing.
+#[test]
+fn the_session_takes_no_inbox_message() {
+    for kind in [
+        "RecordMessageArrived",
+        "ClaimMessage",
+        "DeliverMessage",
+        "FailMessage",
+    ] {
+        let mut session = Session::minted();
+        let before = session.pages().len();
+        let book = CommandBook {
+            cover: Some(cover()),
+            page: Some(CommandPage {
+                body: Some(command_page::Body::Fact(Fact {
+                    payload: Some(Any {
+                        type_url: Any::from_msg(&SetKept { kept: true }.to_wire())
+                            .unwrap()
+                            .type_url
+                            .replace("SetKept", kind),
+                        value: Vec::new(),
+                    }),
+                    origin: Some(FactOrigin {
+                        external_id: format!("{kind}:m1"),
+                        description: String::new(),
+                    }),
+                })),
+                ..CommandPage::default()
+            }),
+        };
+        assert!(
+            session.harness.when_book(book).handled().is_err(),
+            "{kind} is no message of the session's"
+        );
+        assert_eq!(session.pages().len(), before, "{kind} recorded nothing");
+    }
+}
+
 /// What the sibling test modules share.
 pub(crate) mod tests_support {
     pub(crate) use super::{mint, said, Session, HARP};

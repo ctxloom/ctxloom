@@ -287,6 +287,14 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             Ok(output) => output,
             Err(failure) => return self.never_started(who, failure, done).await,
         };
+        // An engine with no hook for its session's end (opencode, ruling 58):
+        // its exit is the end, and the launcher says so.
+        if self
+            .engine(&order.engine)
+            .is_some_and(|engine| engine.session_ends_with_exit())
+        {
+            self.observe(who, session_ended_at_exit()).await?;
+        }
         self.record(
             who,
             RunnerFact::RunExited(runs::RunExited {
@@ -421,6 +429,15 @@ fn answered(turn: &str, answer: &str) -> Observation {
         index: 0,
         is_final: true,
         text: answer.to_string(),
+    })
+}
+
+/// The end of a terminal session whose engine has no hook for it: at its
+/// exit, of no native session the launcher knows.
+fn session_ended_at_exit() -> Observation {
+    Observation::SessionEnded(sessions::RecordSessionEnded {
+        native_session: String::new(),
+        reason: "exit".to_string(),
     })
 }
 

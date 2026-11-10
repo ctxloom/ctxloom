@@ -117,6 +117,12 @@ impl Engine for Opencode {
         crate::stream::read_turn(output)
     }
 
+    /// opencode has no native "session ended" (its plugin's `dispose` runs at
+    /// teardown, too late to rely on): the launcher records it at the exit.
+    fn session_ends_with_exit(&self) -> bool {
+        true
+    }
+
     /// The human's session: the TUI, given her terminal; the prompt (when she
     /// gave one) a flag.
     fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {

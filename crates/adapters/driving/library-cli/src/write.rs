@@ -581,12 +581,6 @@ pub(crate) fn agent(
                 if !row.engine.is_empty() {
                     parts.push(format!("engine: {}", row.engine));
                 }
-                if !row.model.is_empty() {
-                    parts.push(format!("model: {}", row.model));
-                }
-                if !row.effort.is_empty() {
-                    parts.push(format!("effort: {}", row.effort));
-                }
                 if !row.profiles.is_empty() {
                     parts.push(format!("profiles: {}", row.profiles.join(", ")));
                 }
@@ -596,6 +590,8 @@ pub(crate) fn agent(
                 if !row.permissions_line.is_empty() {
                     parts.push(format!("permissions: {}", row.permissions_line));
                 }
+                // Ruling 67: what is shown is what is written.
+                parts.extend(row.engine_lines.iter().cloned());
                 if !row.env.is_empty() {
                     parts.push(format!("env: {}", row.env.join(", ")));
                 }

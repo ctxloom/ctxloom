@@ -1,9 +1,9 @@
-//! The configuration's values as JSON and as the lines Go prints them in.
+//! The configuration's values as JSON and in YAML's flow form.
 
 use angzarr_yaml::parse;
 use serde_json::json;
 
-use super::{flow, permissions, permissions_line, scalar};
+use super::{flow, permissions, scalar};
 
 fn doc(text: &str) -> angzarr_yaml::Value {
     parse(text).expect("a document")
@@ -45,33 +45,15 @@ fn test_a_permissions_block_is_an_object_and_anything_else_is_empty() {
     assert_eq!(permissions(&angzarr_yaml::Value::Null), json!({}));
 }
 
-// config show text: the neutral fields, then each engine's block sorted, a
-// block rendered the way fmt.Sprint prints a decoded map.
+// Ruling 67: a value on one line in YAML's flow form, keys sorted as the
+// config writer writes them: what is shown is what is written.
 #[test]
-fn test_the_permissions_line_lists_neutral_fields_then_sorted_engine_blocks() {
-    let block = doc(
-        "sandbox: strict\napprover: human\nnetwork: \"\"\ncodex:\n  b: 2\n  a: x\nclaude-code:\n  mode: plan\n  list: [a, b]\n  nested:\n    y: 1\n    x:\n",
-    );
-    assert_eq!(
-        permissions_line(&block),
-        "approver=human, sandbox=strict, claude-code={list=[a, b], mode=plan, nested=x=, y=1}, codex={a=x, b=2}"
-    );
-    assert_eq!(permissions_line(&doc("plain\n")), "");
-    assert_eq!(
-        permissions_line(&doc("approval_timeout: 5m\nnetwork: off\n")),
-        "approval_timeout=5m, network=off"
-    );
-}
-
-// Ruling 67: a value on one line in YAML's flow form, keys in the order the
-// config holds them: what is shown is what is written.
-#[test]
-fn test_a_value_in_flow_form_keeps_the_config_s_order() {
+fn test_a_value_in_flow_form_sorts_its_keys_as_written() {
     assert_eq!(
         flow(&doc(
             "model: haiku\neffort: low\npermissions:\n  mode: plan\n"
         )),
-        "{model: haiku, effort: low, permissions: {mode: plan}}"
+        "{effort: low, model: haiku, permissions: {mode: plan}}"
     );
     assert_eq!(flow(&doc("[a, b]\n")), "[a, b]");
     assert_eq!(flow(&doc("plain\n")), "plain");

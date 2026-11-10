@@ -663,7 +663,10 @@ The top-level `auth:` key, `llm`, `agents.<n>.llm` and `agents.<n>.engine_home`
 are ordinary unknown keys (hard migrate: no alias, no reader, no migration). The same goes for a bundle document in an older shape (`prompts:`, an item's `llm:`): the generation-0 to 3 reader is gone, only a newer `schema_version` is named, and the strict decode refuses the old keys.
 An agent's `engine`, `model`, `effort` and `permissions` are its own, and
 `library::config::engines::effective` answers each value with the layer that
-said it (agent > engine > project > default; a list replaces; an agent's
+said it (agent > engine > project > default; a list replaces, except `env`,
+which MERGES, ruling 66: the engine block's names, then the agent's own added
+key by key, each name with its layer in `env_keys` / the JSON's
+`env.keys`; an agent can no longer narrow the engine's list; an agent's
 runtime is used exactly and `Override::Replaced` says what it weakened).
 Per-engine blocks (owner ruling 57): `agents.<n>.engine` is the agent's
 default engine and `agents.<n>.engines.<e>: {model, effort, permissions}`
@@ -673,13 +676,19 @@ the posture's engine-neutral keys (`permissions.approver`, ...) stay on the
 agent. Hard migrate: flat `agents.<n>.model`/`effort` and an engine-keyed
 `agents.<n>.permissions.<e>` are unknown keys. `effective_on(config, agent,
 X)` is `run --engine X`: the agent's block for X, else X's defaults (no flag),
-its runtime and env kept, X's engine block for command/home/auth.
+its runtime kept, its env merged with X's (as on its own engine), X's engine
+block for command/home/auth.
 `agent create|edit --model/--effort/--permissions` write the block of
-`--engine` when given, else of the agent's engine (else the default engine).
+`--engine` when given, else of the agent's engine (else the default engine;
+a model or effort written there for an agent that names no engine says so in
+the notice `notice-default-engine-block`, naming `agents.<n>.engines.<e>`,
+ruling 68; `--permissions` with no engine anywhere is still refused).
 `engine show X` lists the agents bound to X and those with a block for X; a
-dry run's JSON carries `settings` (each value with its source). The listing's
-`permissions` still shows the old shape (neutral keys plus `<engine>: {mode}`
-per block), a view only.
+dry run's JSON carries `settings` (each value with its source). `agent list`,
+`agent show`'s definition and the create/edit summary show the agent in the
+config's shape (ruling 67): `engines` (JSON) / `engines.<e>: {...}` lines
+(text, YAML flow form, keys sorted as written), `permissions` the neutral
+posture alone; no flat model/effort.
 `engines.<e>.command`, `auth.file` and `session_home: host` in a project
 layer are taken out with a warning (`strip_project_only`, ruling 46).
 `auth status` and doctor read the effective source (`auth-application`; any

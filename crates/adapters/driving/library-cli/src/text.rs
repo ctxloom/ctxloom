@@ -431,12 +431,14 @@ pub fn agent_list(out: &mut dyn Write, rows: &[AgentRow]) -> io::Result<()> {
             ("runtime", &row.runtime),
             ("permissions", &row.permissions_line),
             ("driving", &row.driving),
-            ("model", &row.model),
-            ("effort", &row.effort),
         ] {
             if !value.is_empty() {
                 writeln!(out, "    {key}: {value}")?;
             }
+        }
+        // Ruling 67: each engine block as the config holds it.
+        for line in &row.engine_lines {
+            writeln!(out, "    {line}")?;
         }
     }
     Ok(())
@@ -486,17 +488,14 @@ pub fn agent_show(out: &mut dyn Write, show: &AgentShow) -> io::Result<()> {
     match show.resolved.as_ref() {
         Some(resolved) => settings_lines(out, &resolved.settings, "")?,
         None => {
-            if !def.model.is_empty() {
-                writeln!(out, "Model: {}", def.model)?;
-            }
-            if !def.effort.is_empty() {
-                writeln!(out, "Effort: {}", def.effort)?;
-            }
             if !def.runtime.is_empty() {
                 writeln!(out, "Runtime: {}", def.runtime)?;
             }
             if !def.permissions_line.is_empty() {
                 writeln!(out, "Permissions: {}", def.permissions_line)?;
+            }
+            for line in &def.engine_lines {
+                writeln!(out, "{line}")?;
             }
         }
     }
@@ -640,13 +639,21 @@ fn names_line(key: &str, value: &SourcedValue<Vec<String>>) -> String {
 /// An agent's env: `env: A, B (engine)` when one layer said every name,
 /// else each name with its own layer (`env: A (engine), B (agent)`).
 fn env_line(env: &EnvSetting) -> String {
-    names_line(
-        "env",
-        &SourcedValue {
-            value: env.value.clone(),
-            source: env.source,
-        },
-    )
+    if env.keys.iter().all(|key| key.source == env.source) {
+        return names_line(
+            "env",
+            &SourcedValue {
+                value: env.value.clone(),
+                source: env.source,
+            },
+        );
+    }
+    let each: Vec<String> = env
+        .keys
+        .iter()
+        .map(|key| format!("{} ({})", key.name, key.source))
+        .collect();
+    format!("env: {}", each.join(", "))
 }
 
 /// One engine's own settings.

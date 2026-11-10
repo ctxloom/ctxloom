@@ -304,14 +304,11 @@ pub struct AgentRow {
     pub name: String,
     #[serde(skip_serializing_if = "no_text")]
     pub engine: String,
-    #[serde(skip_serializing_if = "no_text")]
-    pub model: String,
-    #[serde(skip_serializing_if = "no_text")]
-    pub effort: String,
     #[serde(skip_serializing_if = "no_items")]
     pub profiles: Vec<String>,
     #[serde(skip_serializing_if = "no_text")]
     pub runtime: String,
+    /// The engine-neutral posture (`agents.<n>.permissions`), `{}` for none.
     pub permissions: serde_json::Value,
     #[serde(skip_serializing_if = "no_text")]
     pub driving: String,
@@ -321,7 +318,7 @@ pub struct AgentRow {
     /// (`agents.<n>.engines`, owner rulings 57 and 67); absent when none.
     #[serde(skip_serializing_if = "no_blocks")]
     pub engines: serde_json::Value,
-    /// The permissions block on one line, for the listing.
+    /// The neutral posture on one line in flow form, for the listing.
     #[serde(skip)]
     pub permissions_line: String,
     /// Each engine block on one line, `engines.<e>: {...}`, for the listing.

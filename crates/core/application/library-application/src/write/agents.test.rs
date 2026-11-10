@@ -73,10 +73,12 @@ fn test_create_records_every_axis_the_config_sorted_and_answers_the_binding() {
     assert_eq!(row.profiles, ["dev"]);
     assert_eq!(row.runtime, "container-rootless");
     assert_eq!(row.env, ["A", "B"]);
+    // ruling 67: the mode is in the engine's block, as written
     assert_eq!(
-        row.permissions,
-        serde_json::json!({"claude-code": {"mode": "plan"}})
+        row.engines,
+        serde_json::json!({"claude-code": {"permissions": {"mode": "plan"}}})
     );
+    assert_eq!(row.permissions, serde_json::json!({}));
     assert_eq!(
         mem.config(Scope::Project).unwrap(),
         "schema_version: 9\nagents:\n  dev2:\n    engine: claude-code\n    engines:\n      claude-code:\n        permissions:\n          mode: plan\n    env:\n      - A\n      - B\n    profiles:\n      - dev\n    roots:\n      mcp: project-root\n    runtime: container-rootless\n    surfaces:\n      context: system-prompt\n"
@@ -166,10 +168,12 @@ fn test_an_edit_changes_only_the_axes_it_names() {
     assert_eq!(row.runtime, "container-rootless");
     assert_eq!(row.engine, "claude-code");
     assert_eq!(row.profiles, ["dev", "ops"]);
+    // ruling 67: the mode is in the engine's block, as written
     assert_eq!(
-        row.permissions,
-        serde_json::json!({"claude-code": {"mode": "plan"}})
+        row.engines,
+        serde_json::json!({"claude-code": {"permissions": {"mode": "plan"}}})
     );
+    assert_eq!(row.permissions, serde_json::json!({}));
     let text = mem.config(Scope::Project).unwrap();
     assert!(text.contains("runtime: container-rootless"));
 }

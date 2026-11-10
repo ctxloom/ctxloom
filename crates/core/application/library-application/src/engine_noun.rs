@@ -268,7 +268,14 @@ pub(crate) fn settings_of(effective: &Effective) -> AgentSettings {
         env: EnvSetting {
             value: effective.env.value.clone(),
             source: effective.env.source.word(),
-            keys: Vec::new(),
+            keys: effective
+                .env_keys
+                .iter()
+                .map(|key| EnvKey {
+                    name: key.value.clone(),
+                    source: key.source.word(),
+                })
+                .collect(),
         },
     }
 }

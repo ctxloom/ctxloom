@@ -288,8 +288,9 @@ pub fn effective(config: &Value, agent: &str) -> Result<Effective, EngineError> 
 
 /// The settings agent `agent` runs with on `engine` (`run --engine`, owner
 /// ruling 57): its block for that engine (else the engine's defaults: no
-/// model, no effort, the engine's permission default), its own runtime and
-/// env (engine-neutral), and that engine's block for the rest.
+/// model, no effort, the engine's permission default), its own runtime
+/// (engine-neutral), its env merged with that engine's (ruling 66), and that
+/// engine's block for the rest.
 pub fn effective_on(config: &Value, agent: &str, engine: &str) -> Result<Effective, EngineError> {
     resolve(config, agent, Some(engine))
 }
@@ -357,10 +358,9 @@ fn resolve(config: &Value, agent: &str, on: Option<&str>) -> Result<Effective, E
     };
 
     let (runtime, runtime_override) = runtime_of(config, binding, block);
-    let env = pick(
-        names_of(binding, "env"),
-        block.and_then(|b| names_of(b, "env")),
-        Vec::new(),
+    let (env, env_keys) = env_of(
+        block.and_then(|b| names_of(b, "env")).unwrap_or_default(),
+        names_of(binding, "env").unwrap_or_default(),
     );
 
     let auth = engine_auth(config, &name).map_err(|why| EngineError::Auth {
@@ -376,7 +376,7 @@ fn resolve(config: &Value, agent: &str, on: Option<&str>) -> Result<Effective, E
         runtime,
         runtime_override,
         env,
-        env_keys: Vec::new(),
+        env_keys,
         command: from_block("command").map_or_else(
             || default(default_command(&name)),
             |value| Sourced {
@@ -397,8 +397,8 @@ fn resolve(config: &Value, agent: &str, on: Option<&str>) -> Result<Effective, E
 }
 
 /// What a launch of an engine is told of how to run it: the engine block's
-/// `command`, `session_home` and `auth`, and the `env` passthrough
-/// the launching agent settled on. A source, never a value.
+/// `command`, `session_home` and `auth`, and the `env` passthrough (the
+/// engine's names merged with the launching agent's). A source, never a value.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Drive {
     pub command: String,
@@ -426,7 +426,8 @@ fn default_source(value: AuthSource) -> Sourced<AuthSource> {
 }
 
 impl From<&Effective> for Drive {
-    /// An agent's launch: its own `env`, the engine's other keys.
+    /// An agent's launch: the engine's `env` merged with its own (ruling 66),
+    /// the engine's other keys.
     fn from(effective: &Effective) -> Drive {
         Drive {
             command: effective.command.value.clone(),
@@ -544,23 +545,35 @@ pub fn merged(layers: &[String]) -> Value {
     super::layer::merge_layers(&read)
 }
 
-/// The agent's value, else the engine block's, else `fallback`: each key
-/// resolved on its own, a list replaced whole.
-fn pick<T>(agent: Option<T>, engine: Option<T>, fallback: T) -> Sourced<T> {
-    match (agent, engine) {
-        (Some(value), _) => Sourced {
-            value,
-            source: Source::Agent,
-        },
-        (None, Some(value)) => Sourced {
-            value,
-            source: Source::Engine,
-        },
-        (None, None) => Sourced {
-            value: fallback,
-            source: Source::Default,
-        },
+/// Owner ruling 66: the engine block's names, then the agent's own added, key
+/// by key (a name both say is the agent's, in the engine's place; a name said
+/// twice is passed once). The list's source is the highest layer that said
+/// any of it.
+fn env_of(engine: Vec<String>, agent: Vec<String>) -> (Sourced<Vec<String>>, Vec<Sourced<String>>) {
+    let mut keys: Vec<Sourced<String>> = Vec::new();
+    for (names, source) in [(engine, Source::Engine), (agent, Source::Agent)] {
+        for name in names {
+            match keys.iter_mut().find(|key| key.value == name) {
+                Some(key) => key.source = source,
+                None => keys.push(Sourced {
+                    value: name,
+                    source,
+                }),
+            }
+        }
     }
+    let source = if keys.iter().any(|k| k.source == Source::Agent) {
+        Source::Agent
+    } else if keys.is_empty() {
+        Source::Default
+    } else {
+        Source::Engine
+    };
+    let env = Sourced {
+        value: keys.iter().map(|k| k.value.clone()).collect(),
+        source,
+    };
+    (env, keys)
 }
 
 /// The runtime an agent runs in: its own, exactly, else the engine block's,

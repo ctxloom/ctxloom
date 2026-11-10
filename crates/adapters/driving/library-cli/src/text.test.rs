@@ -185,8 +185,6 @@ fn agent_row(engine: &str) -> AgentRow {
     AgentRow {
         name: "dev".to_string(),
         engine: engine.to_string(),
-        model: String::new(),
-        effort: String::new(),
         profiles: vec!["p1".to_string(), "p2".to_string()],
         runtime: "host".to_string(),
         permissions: serde_json::json!({}),

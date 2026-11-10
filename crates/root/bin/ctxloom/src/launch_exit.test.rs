@@ -7,7 +7,7 @@
 //! pty is needed. `init` on a project that already has a `.ctxloom` reads
 //! nothing of its config itself, so a config error is the launch's own: the
 //! session's plan reads it. A newer `schema_version` is a refusal (2); an
-//! agent naming an LLM ctxloom does not have is an ordinary failure (1).
+//! agent naming an engine ctxloom does not have is an ordinary failure (1).
 
 use serde_json::Value;
 

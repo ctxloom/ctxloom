@@ -1096,7 +1096,7 @@ fn test_degraded_drops_unknown_keys_at_any_depth() {
 }
 
 // merge.go dropEnginelessAgents: an agent bound by profiles alone is kept,
-// one with an empty list of profiles and no llm is dropped.
+// one with an empty list of profiles and no engine is dropped.
 #[test]
 fn test_an_agent_is_kept_when_profiles_alone_bind_it() {
     let layers = ["schema_version: 9\nagents:\n  by-profiles:\n    profiles: [p]\n  empty:\n    profiles: []\n    runtime: host\n"];

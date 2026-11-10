@@ -409,6 +409,8 @@ fn test_the_engines_block_and_an_agent_s_engine_model_and_effort_are_legal() {
 fn test_every_auth_form_is_legal_and_no_other_is() {
     for auth in [
         "none",
+        "login",
+        "token",
         "{env: A_TOKEN}",
         "{env: [A, B]}",
         "{file: /x}",
@@ -417,7 +419,7 @@ fn test_every_auth_form_is_legal_and_no_other_is() {
         let doc = format!("schema_version: 9\nengines:\n  claude-code:\n    auth: {auth}\n");
         assert_eq!(texts(&doc), Vec::<String>::new(), "{auth}");
     }
-    for auth in ["login", "{token: x}", "[A]", "{env: 7}"] {
+    for auth in ["sso", "{token: x}", "[A]", "{env: 7}"] {
         let doc = format!("schema_version: 9\nengines:\n  claude-code:\n    auth: {auth}\n");
         assert!(!texts(&doc).is_empty(), "{auth} was accepted");
     }
@@ -494,4 +496,20 @@ fn test_the_top_level_keys_gain_engines_and_lose_llm() {
     let said = texts("schema_version: 9\nzzz: 1\n");
     assert!(said[0].contains("engines"), "{said:?}");
     assert!(!said[0].contains(" llm,"), "{said:?}");
+}
+
+// owner amendment (2026-11-09): hard migrate, one auth key. The top-level
+// `auth: login|token` is an ordinary unknown key, like `llm`; no alias.
+#[test]
+fn test_the_top_level_auth_key_is_an_unknown_key() {
+    let said = texts("schema_version: 9\nauth: token\n");
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].starts_with("unknown key `auth` in config.yaml"),
+        "{said:?}"
+    );
+    assert!(
+        !said[0].contains(" auth,") && !said[0].ends_with(" auth)"),
+        "{said:?}"
+    );
 }

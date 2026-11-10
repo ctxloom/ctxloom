@@ -87,6 +87,12 @@ pub enum Override {
 pub enum AuthSource {
     /// The engine needs no credential (`auth: none`).
     None,
+    /// `auth: login`: the human's own login is shared in place; nothing is
+    /// read from the environment.
+    Login,
+    /// `auth: token`: the engine's built-in variables (resolved by
+    /// [`effective`] to [`AuthSource::builtin`]).
+    Token,
     /// Any one of the named variables, non-empty, authenticates; and/or a
     /// credentials file, which only the human's own primary session may share.
     Credential {

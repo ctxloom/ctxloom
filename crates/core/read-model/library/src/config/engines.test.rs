@@ -320,9 +320,39 @@ fn test_auth_is_none_or_a_set_of_variable_names_or_a_file() {
     );
 }
 
+// owner amendment (2026-11-09): the top-level `auth: login|token` is folded
+// into the engine's key; `login` and `token` are values of it
+#[test]
+fn test_auth_also_takes_the_login_and_token_words() {
+    assert_eq!(auth("login"), Ok(AuthSource::Login));
+    assert_eq!(auth("token"), Ok(AuthSource::Token));
+}
+
+// `login` shares the human's own login in place and reads nothing from the
+// environment; `token` is the engine's built-in variables, spelled out
+#[test]
+fn test_login_needs_no_variable_and_token_is_the_built_in_variables() {
+    let nothing = |_: &str| false;
+    assert_eq!(
+        AuthSource::Login.status(true, &nothing, &nothing),
+        AuthState::NotNeeded
+    );
+    let doc = |word: &str| {
+        format!("engines:\n  claude-code:\n    auth: {word}\nagents:\n  dev:\n    engine: claude-code\n")
+    };
+    assert_eq!(
+        of(&doc("login"), "dev").auth,
+        sourced(AuthSource::Login, Source::Engine)
+    );
+    assert_eq!(
+        of(&doc("token"), "dev").auth,
+        sourced(AuthSource::builtin("claude-code"), Source::Engine)
+    );
+}
+
 #[test]
 fn test_auth_that_is_not_a_source_is_refused() {
-    assert_eq!(auth("login"), Err(AuthError::Shape));
+    assert_eq!(auth("sso"), Err(AuthError::Shape));
     assert_eq!(auth("[A_TOKEN]"), Err(AuthError::Shape));
     assert_eq!(auth("{}"), Err(AuthError::Empty));
     assert_eq!(

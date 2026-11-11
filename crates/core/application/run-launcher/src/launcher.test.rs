@@ -1199,7 +1199,7 @@ impl Locks {
 }
 
 impl run_ports::RunLocks for Locks {
-    fn hold_run(&self, _: &str) -> Result<run_ports::HeldLock, angzarr_diagnostic::Report> {
+    fn hold_run(&self, _: &str) -> Result<run_ports::HeldLock, run_ports::LockError> {
         unreachable!("the launcher takes no run's lock")
     }
 

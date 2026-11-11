@@ -438,7 +438,7 @@ impl Drop for FakeHeld {
 }
 
 impl session_ports::SessionLock for Locks {
-    fn hold(&mut self, harp: &str) -> Result<session_ports::Held, Report> {
+    fn hold(&mut self, harp: &str) -> Result<session_ports::Held, session_ports::LockError> {
         self.held
             .lock()
             .unwrap()
@@ -484,7 +484,7 @@ impl Drop for FakeRunHeld {
 }
 
 impl run_ports::RunLocks for RunLocks {
-    fn hold_run(&self, _: &str) -> Result<run_ports::HeldLock, Report> {
+    fn hold_run(&self, _: &str) -> Result<run_ports::HeldLock, run_ports::LockError> {
         self.timeline.lock().unwrap().push("run-lock".to_string());
         Ok(run_ports::HeldLock::new(
             RUN_LOCK.to_string(),

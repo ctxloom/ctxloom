@@ -219,3 +219,16 @@ fn a_resume_refused_is_the_session_domains_own_refusal() {
     let args: Vec<String> = error.args().iter().map(|(n, _)| n.to_string()).collect();
     assert_eq!(args, ["harp"]);
 }
+
+// Ruling 152: a lock another process holds declines the run (the session or
+// run is live: 20); a lock file that cannot be made is a failure (10).
+#[test]
+fn a_lock_held_elsewhere_is_refused_and_one_that_cannot_be_made_failed() {
+    use angzarr_diagnostic::Report;
+    use run_ports::LockError;
+    let held = RunError::Lock(LockError::Held(Report::new("file-lock-timeout")));
+    assert_eq!(held.exit(), Exit::REFUSED);
+    let failed = RunError::Lock(LockError::Failed(Report::new("file-lock-io")));
+    assert_eq!(failed.exit(), Exit::FAILED);
+    assert_eq!(held.code(), failed.code(), "one diagnostic, two kinds");
+}

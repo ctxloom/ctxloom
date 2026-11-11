@@ -26,7 +26,7 @@ use std::sync::Arc;
 use angzarr_diagnostic::Report;
 use file_system::{Fs, Kind, Open};
 use os::LockKind;
-use session_ports::{Held, Liveness, LockState, SessionLock};
+use session_ports::{Held, Liveness, LockError, LockState, SessionLock};
 
 /// Liveness over the lock files under one project.
 pub struct LockFiles {
@@ -78,7 +78,7 @@ fn probe(fs: &dyn Fs, path: &Path) -> LockState {
 
 /// Take the lock at `path`, at once or not at all: one another holds is
 /// refused, never waited for.
-fn take(fs: &dyn Fs, path: &Path) -> Result<file_lock::Locked, Report> {
+fn take(fs: &dyn Fs, path: &Path) -> Result<file_lock::Locked, LockError> {
     let path_text = path.display().to_string();
     let mut once = move || -> Result<(), file_lock::LockError> {
         Err(file_lock::LockError::Timeout {
@@ -86,14 +86,14 @@ fn take(fs: &dyn Fs, path: &Path) -> Result<file_lock::Locked, Report> {
             waited_ms: 0,
         })
     };
-    file_lock::lock(fs, path, &mut once).map_err(|e| Report::of(&e))
+    file_lock::lock(fs, path, &mut once).map_err(|e| LockError::Failed(Report::of(&e)))
 }
 
 /// The lock a run holds for its life (defect 1), taken with the platform's
 /// `file-lock` (the one way every ctxloom binary takes a lock).
 ///
 impl SessionLock for LockFiles {
-    fn hold(&mut self, harp: &str) -> Result<Held, Report> {
+    fn hold(&mut self, harp: &str) -> Result<Held, LockError> {
         take(&*self.fs, &self.path(harp)).map(Held::new)
     }
 }
@@ -152,7 +152,7 @@ fn probe_of(state: LockState) -> run_ports::LockProbe {
 }
 
 impl run_ports::RunLocks for RunLockFiles {
-    fn hold_run(&self, run: &str) -> Result<run_ports::HeldLock, Report> {
+    fn hold_run(&self, run: &str) -> Result<run_ports::HeldLock, LockError> {
         let path = self.path(run);
         let locked = take(&*self.fs, &path)?;
         Ok(run_ports::HeldLock::new(

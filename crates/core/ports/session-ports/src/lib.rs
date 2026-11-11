@@ -83,13 +83,33 @@ impl std::fmt::Debug for Held {
     }
 }
 
+/// Why a lock was not taken, by kind: another process holds it (the session
+/// or run is live, a decline), or its file could not be made or opened (a
+/// failure).
+#[derive(Debug)]
+pub enum LockError {
+    /// Another process holds it.
+    Held(Report),
+    /// The lock file, or its directory, could not be made or opened.
+    Failed(Report),
+}
+
+impl LockError {
+    /// What the lock said, whatever its kind.
+    pub fn report(&self) -> &Report {
+        match self {
+            LockError::Held(report) | LockError::Failed(report) => report,
+        }
+    }
+}
+
 /// Taking a session's liveness lock (the one [`Liveness`] probes), to hold.
 ///
 /// Synchronous, and it touches the filesystem, as the probe does.
 pub trait SessionLock: Send {
     /// Take `harp`'s lock and hold it until the answer is dropped. Refused at
     /// once, never waited for, when another process holds it.
-    fn hold(&mut self, harp: &str) -> Result<Held, Report>;
+    fn hold(&mut self, harp: &str) -> Result<Held, LockError>;
 }
 
 /// One file under a session's directory.

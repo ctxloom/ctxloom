@@ -40,7 +40,7 @@ pub use launcher::{
     Exit, Launch, LaunchEvent, LaunchFailure, Limits, RunnerLauncher, Running, TurnCommand,
     TurnOutput,
 };
-pub use locks::{HeldLock, LockProbe, RunLocks};
+pub use locks::{HeldLock, LockError, LockProbe, RunLocks};
 pub use login::{LinkState, LoginLinks};
 pub use permit::{apply_permits, permits, Ignored, Permits, PERMIT_PREFIX};
 pub use records::{check_rel, RecordsError, SessionRecords};

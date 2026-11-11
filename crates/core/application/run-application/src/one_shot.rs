@@ -610,8 +610,8 @@ where
         };
         let lock = match self.locks.hold(&harp) {
             Ok(lock) => lock,
-            Err(report) => {
-                let error = RunError::Lock(report);
+            Err(lock) => {
+                let error = RunError::Lock(lock);
                 return Err(self
                     .abandon(&enqueued.run, &session, incarnation, true, error)
                     .await);

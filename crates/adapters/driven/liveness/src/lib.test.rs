@@ -224,3 +224,43 @@ fn a_sessions_lock_is_probed_in_its_project() {
     drop(held);
     assert_eq!(locks.session(PROJECT, HARP), LockProbe::Free);
 }
+
+// A lock not taken says its kind: another process holds it (a decline: the
+// session or run is live), or its file cannot be made (a failure).
+#[test]
+fn a_lock_another_holds_is_held_and_one_that_cannot_be_made_failed() {
+    let (fs, mut first) = locks();
+    let _held = first.hold(HARP).unwrap();
+    let mut second = LockFiles::new(fs.clone(), PROJECT);
+    assert!(matches!(
+        second.hold(HARP),
+        Err(session_ports::LockError::Held(_))
+    ));
+    let (fs, run_held) = run_locks();
+    let _run = run_held.hold_run(RUN).unwrap();
+    let other = RunLockFiles::new(fs.clone(), HOME);
+    assert!(matches!(
+        other.hold_run(RUN),
+        Err(run_ports::LockError::Held(_))
+    ));
+
+    // A file where the lock's directory should be: nothing can be made.
+    let (fs, mut blocked) = locks();
+    let dir = blocked.path(HARP).parent().unwrap().to_path_buf();
+    fs.create_dir_all(dir.parent().unwrap(), Mode::from_bits(0o755))
+        .unwrap();
+    fs.open(&dir, Open::Create(Mode::from_bits(0o600))).unwrap();
+    assert!(matches!(
+        blocked.hold(HARP),
+        Err(session_ports::LockError::Failed(_))
+    ));
+    let (fs, runs) = run_locks();
+    let dir = runs.path(RUN).parent().unwrap().to_path_buf();
+    fs.create_dir_all(dir.parent().unwrap(), Mode::from_bits(0o755))
+        .unwrap();
+    fs.open(&dir, Open::Create(Mode::from_bits(0o600))).unwrap();
+    assert!(matches!(
+        runs.hold_run(RUN),
+        Err(run_ports::LockError::Failed(_))
+    ));
+}

@@ -3338,6 +3338,7 @@ dependencies = [
  "angzarr-embedded",
  "base64 0.22.1",
  "mutants",
+ "session-ports",
  "sha2",
  "subtle",
 ]

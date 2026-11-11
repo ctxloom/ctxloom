@@ -6,7 +6,7 @@ use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 use exit_code::{Exit, ExitClass};
 use library_application::AppError as PlanError;
 use run_launcher::LaunchError;
-use run_ports::{BindRefusal, FailureClass};
+use run_ports::{BindRefusal, FailureClass, LockError};
 use runs::RunRejection;
 use runs_application::AppError as CoreError;
 use sessions::SessionRejection;
@@ -32,7 +32,7 @@ pub enum RunError {
     Listener(Report),
     /// The run's own lock, or its session's, could not be taken (rulings 86,
     /// 92, defect 1): another process holds it, or the file cannot be made.
-    Lock(Report),
+    Lock(LockError),
     /// The kernel refused, or failed, to make the session or enqueue its run.
     Session(CoreError),
     /// The session asked for cannot be resumed (owner ruling 115): the
@@ -147,9 +147,8 @@ impl Diagnostic for RunError {
             RunError::Resume(rejection) => rejection.args(),
             RunError::Bind(error) => error.args(),
             RunError::Project(report) => vec![("reason", report.code().into())],
-            RunError::Listener(report) | RunError::Lock(report) => {
-                vec![("reason", report.code().into())]
-            }
+            RunError::Listener(report) => vec![("reason", report.code().into())],
+            RunError::Lock(error) => vec![("reason", error.report().code().into())],
             RunError::Session(error) => vec![("reason", why(error).into())],
             RunError::Launch(error) => vec![("reason", error.code().into())],
             RunError::NotStarted { detail } | RunError::Turn { detail, .. } => {
@@ -177,7 +176,9 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     vec![
         Box::new(RunError::Project(Report::new("ports-registry"))),
         Box::new(RunError::Listener(Report::new("hook-listener-bind"))),
-        Box::new(RunError::Lock(Report::new("file-lock-timeout"))),
+        Box::new(RunError::Lock(LockError::Held(Report::new(
+            "file-lock-timeout",
+        )))),
         Box::new(RunError::Session(CoreError::Failed {
             reason: "unavailable".to_string(),
         })),

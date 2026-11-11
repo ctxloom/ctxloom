@@ -429,23 +429,34 @@ directory exists, unclaimed, within `NAME_TRIES` (then `sessions-names-taken`). 
 agent's `model` and `effort` reach the engine as the order's `model` and
 `effort` (`--model`, `--effort` for claude, a turn and the terminal alike;
 unset is no flag; claude takes `low|medium|high|xhigh|max`, any other level is
-refused before launch). Its permission mode (`agents.<n>.engines.claude-code.
-permissions.mode`, else the engine's default, claude's `acceptEdits`) reaches
-claude the same way, as the order's `permission_mode` (owner ruling 116):
-`--permission-mode <mode>`, a turn and the terminal alike; none, or the
-config's `default` (claude's own default mode), is no flag. ctxloom's own
-words govern (owner ruling 125): the plan holds a claude mode to the write
-path's `postures` (`default|acceptEdits|plan|bypassPermissions`, any case,
-passed in their spelling) through the same `write::engines::mode`, so a
-dry run or launch refuses any other in the write's words
-(`library-application-write-permissions`; a retired `auto`/`dontAsk` names
-the approver it is now; claude's `manual` is not ctxloom's) before anything
-is enqueued. claude's own list (2.1.322's `--help`:
-`acceptEdits|auto|bypassPermissions|manual|dontAsk|plan`, engine-claude's
-`PERMISSION_MODES`, whose drive still refuses a word outside it,
-`run-ports-engine-unknown-permission-mode`) is only a check: a wiring test
-holds `postures` minus `default` to be a subset of it. opencode is given no mode (no
-flag verified), and the dry run's row says it is not passed.
+refused before launch). Its permissions are the ENGINE'S OWN DOCUMENT (owner
+rulings 133-139): `agents.<n>.engines.<e>.permissions`, copied verbatim and
+never checked (any document is taken; a typo reaches the engine, the accepted
+cost), else the engine's default document (claude-code's `{defaultMode:
+acceptEdits}`, so an agent with no block runs as before; opencode's none; a
+block written replaces it whole). The plan carries it as JSON text in the
+order it was written (`DryRun::permissions`, `library_application::json::
+document_text`), the order and the launcher hand it to `Engine::prepare`
+(`PrepareRequest::permissions`), and the config writer keeps it in its own
+order (`library::write::section::sorted_section`; the rest of the agents
+section is sorted as ever). engine-claude makes it the `permissions` key of
+the session's `settings.json`, the `--settings` file beside ctxloom's hooks,
+which it never overwrites; no `--permission-mode` is passed, claude's mode is
+the document's `defaultMode`. A profile's `deny_tools` is not merged into it:
+it stays `permissions.deny` of the project's `.claude/settings.json` (surface
+apply), and claude merges the two files' lists itself (a list never replaces
+another file's; for a single value such as `defaultMode` the `--settings`
+file wins). engine-opencode writes the session home's `opencode.json`
+(`OPENCODE_CONFIG_DIR`, which opencode 1.18.4 reads after the project's) with
+the document as its `permission` object (`{}` with none, so no earlier run's
+lingers; read from the 1.18.4 bundle, not run live). A document that is not
+JSON is `run-ports-engine-bad-permissions` (ctxloom's own rendering, so a
+bug). ctxloom chooses no opencode agent (`build`/`plan`): no flag for one.
+Gone (hard migrate): ctxloom's mode lists and launch check (ruling 125),
+`--permission-mode` (ruling 116), `run-ports-engine-unknown-permission-mode`,
+every `permission_mode` field, and `agent create|edit --permissions` (ruling
+138: the block is written in the config by hand, `config edit`, or by the
+setup agent). `docs/config/permissions.md` is the page.
 
 A run's pre-launch checks are DECIDED by the runs aggregate, in `EnqueueRun`'s
 `decide` (owner rulings 73, 73a-73i), on evidence fields the run application
@@ -521,9 +532,9 @@ to `$HOME/.claude` (no `HOME` is `run-ports-engine-no-host-home`), links no
 login there; the hooks still fire, because the launch (the terminal's and a
 child's turn) passes `--settings <session dir>/settings.json` (the ctxloom-owned file `prepare` writes,
 in both home modes, never into the user's `~/.claude`; claude adds its hooks to the
-config dir's own, and honours one `--settings`; no posture settings are written
-into it (the permission mode is the `--permission-mode` flag, ruling 116), so
-there was nothing to merge; verified with a fake program only, not a
+config dir's own, and honours one `--settings`; the agent's permissions
+document is its `permissions` key, beside the hooks (rulings 135, 137);
+verified with a fake program only, not a
 live interactive TUI, nor with `--setting-sources user`; in a container the flag
 must name the in-container path, a follow-up). A child's turn passes the same
 single `--settings` (ruling 51; verified with a fake program only, not a live
@@ -963,19 +974,21 @@ key by key, each name with its layer in `env_keys` / the JSON's
 runtime is used exactly and `Override::Replaced` says what it weakened).
 Per-engine blocks (owner ruling 57): `agents.<n>.engine` is the agent's
 default engine and `agents.<n>.engines.<e>: {model, effort, permissions}`
-holds what is in engine `e`'s vocabulary (`permissions` is the block that was
-`agents.<n>.permissions.<e>`, `{mode: ...}`); `runtime`, `env`, `profiles` and
-the posture's engine-neutral keys (`permissions.approver`, ...) stay on the
-agent. Hard migrate: flat `agents.<n>.model`/`effort` and an engine-keyed
+holds what is in engine `e`'s vocabulary (`permissions` is that engine's own
+document, passed verbatim, rulings 133-139; written only there, ruling 136);
+`runtime`, `env` and `profiles` stay on the agent. There is no engine-neutral
+posture (ruling 134): `permissions` at the project level and on an agent
+(its `approver`, `approval_timeout`, `sandbox`, `network`) is an unknown key.
+Hard migrate: flat `agents.<n>.model`/`effort` and an engine-keyed
 `agents.<n>.permissions.<e>` are unknown keys. `effective_on(config, agent,
 X)` is `run --engine X`: the agent's block for X, else X's defaults (no flag),
 its runtime kept, its env merged with X's (as on its own engine), X's engine
 block for command/home/auth.
-`agent create|edit --model/--effort/--permissions` write the block of
+`agent create|edit --model/--effort` write the block of
 `--engine` when given, else of the agent's engine (else the default engine;
 a model or effort written there for an agent that names no engine says so in
 the notice `notice-default-engine-block`, naming `agents.<n>.engines.<e>`,
-ruling 68; `--permissions` with no engine anywhere is still refused).
+ruling 68); no flag writes `permissions` (ruling 138).
 `engine show X` lists the agents bound to X and those with a block for X; a
 dry run's JSON carries `settings` (each value with its source), and its text
 a Settings section naming the place that said each (ruling 72:
@@ -983,8 +996,11 @@ a Settings section naming the place that said each (ruling 72:
 `runtime`, or `default`). `agent list`,
 `agent show`'s definition and the create/edit summary show the agent in the
 config's shape (ruling 67): `engines` (JSON) / `engines.<e>: {...}` lines
-(text, YAML flow form, keys sorted as written), `permissions` the neutral
-posture alone; no flat model/effort.
+(text, YAML flow form, keys sorted as written), each block that holds
+`permissions` followed by "passed to <engine> verbatim; ctxloom does not
+check it" (ruling 139; `agent show`, `engine show` and the dry run's Settings
+say it under the document too, and their JSON carries it as written); no
+flat model/effort, no `approver`, no "Headless posture".
 `engines.<e>.command`, `auth.file` and `session_home: host` in a project
 layer are taken out with a warning (`strip_project_only`, ruling 46).
 `auth status` and doctor read the effective source (`auth-application`; any
@@ -1017,7 +1033,7 @@ prerelease, no `schema_version` bump: each old key is an ordinary unknown key
 | `config.statusline: true\|false` | `config.statusline: ctxloom\|none` | `ctxloom` |
 | `config.silence_unsupported` | deleted | |
 | `sync.auto_sync` | `sync.on_run: none\|missing` | `missing` |
-| `permissions.network: true\|false` (and an agent's) | `permissions.network: none\|open` | `open` (ruling 109) |
+| `permissions.network: true\|false` (and an agent's) | deleted (ruling 134), with `approver`, `approval_timeout`, `sandbox` | |
 | `output_dir` (top level, unread) | `output.dir` | `ctxloom/` |
 
 The scaffold writes no `config:` section; `manage statusline install|
@@ -1032,19 +1048,16 @@ rename moves the folder. A first init at a terminal asks for `output.dir`
 before the interview (suggesting `ctxloom/`, saying outputs are committable)
 and writes the answer.
 
-A launch refuses a posture that claims more than its runtime enforces
-(rulings 59, 109): `EnqueueRun` carries `PostureEvidence` (the runtime, the
-agent's `permissions.network`/`sandbox`, else the project's, and the words
-`run_ports::enforced` says the runtime enforces), and decide refuses each
-restrictive word not enforced with the typed `UnenforcedPosture`
-(`runs-unenforced-posture`), after the credential and inside `LaunchRefused`
-with the rest. The honest defaults claim nothing: `network: open`,
-`sandbox: full` (no sandbox). Today no runtime enforces anything (every run
-launches on the host; the container rows are not wired to a launch), so
-`network: none` and `sandbox: read-only|workspace-write` are always refused;
-the fix names the honest word and does not send her to a container runtime,
-which would not hold the claim either. A runtime that starts enforcing a word
-adds it to `run_ports::enforced` with the launch that does.
+ctxloom has no posture of its own (owner ruling 134, superseding rulings 59,
+70, 106-109 and 125 as far as permissions go): the launch no longer judges a
+`network`/`sandbox` word against its runtime; `runs-unenforced-posture`,
+`UnenforcedPosture`, `PostureEvidence` and `run_ports::enforced` are gone
+(`EnqueueRun` field 13 `posture` and `LaunchRefused` field 6
+`unenforced_posture` are reserved). Such intent is said in the engine's own
+words (its permissions document) and enforced by the engine; a claude
+`sandbox` (a sibling of `permissions` in its settings) needs a block of its
+own, a follow-up not built. `runtime` stays engine-neutral, as process
+isolation.
 
 ## Use `just`
 

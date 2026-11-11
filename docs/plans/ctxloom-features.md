@@ -148,12 +148,14 @@ feature file; it belongs in git history.
   `config.content_form: distilled|original` (was `use_distilled`), `config.statusline:
   ctxloom|none`, `sync.on_run: none|missing` (was `auto_sync`; default `missing`: a run
   installs what its profiles reference and is not installed), `permissions.network:
-  none|open`; `config.silence_unsupported` is deleted.
+  none|open` (default `open`); `config.silence_unsupported` is deleted.
 - **Outputs** (rulings 89, 106): `output.dir` (default `ctxloom/`, relative to the project
   root, absolute allowed, not gitignored) holds each session's `<harp>/` folder; a first
   init at a terminal asks for it.
-- **Not built:** the refusal of a `sandbox`/`network` posture the launch cannot enforce
-  (ruling 59).
+- **Posture** (rulings 59, 109): a launch refuses (`runs-unenforced-posture`) a `network`
+  or `sandbox` word that claims more than its runtime enforces. The honest defaults are
+  `network: open` and `sandbox: full`; no runtime enforces `none`, `read-only` or
+  `workspace-write` yet.
 
 ### Specs
 - **Journeys are use cases; cli features are contracts.** A journey (`features/journeys/`)

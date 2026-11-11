@@ -287,8 +287,9 @@ fn permission_props() -> Vec<(&'static str, Node)> {
         ("approver", choice(&["human", "none", "reviewer"])),
         ("approval_timeout", pattern(Pat::Approval)),
         ("sandbox", choice(&["read-only", "workspace-write", "full"])),
-        // Words, never a boolean (owner ruling 59): `none`, the default, or
-        // `open`.
+        // Words, never a boolean (owner ruling 59): `open`, the honest
+        // default, or `none`, which a launch refuses on a runtime that does
+        // not enforce it (ruling 109).
         ("network", choice(&["none", "open"])),
     ]
 }

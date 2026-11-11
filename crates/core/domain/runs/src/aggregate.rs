@@ -24,8 +24,8 @@ use crate::{
     TurnInFlight,
 };
 use crate::{
-    CredentialEvidence, FileOnlyCredential, LaunchRefused, NoCredential, NoPrompt, Refusal,
-    RunMode, UnenforcedPosture, UnknownEngine,
+    CredentialEvidence, FileOnlyCredential, LaunchRefused, NoCredential, NoPrompt, PostureEvidence,
+    Refusal, RunMode, UnenforcedPosture, UnknownEngine,
 };
 
 /// The run aggregate: one run, folded from its stream.
@@ -125,8 +125,9 @@ fn decide_enqueue(ctx: &Context, cmd: EnqueueRun) -> Result<RunEnqueued, RunReje
 }
 
 /// The pre-launch checks, judged on the command's evidence (owner rulings 73,
-/// 73a-73h), in their order: the prompt (a one-shot's), the engine, then a
-/// child's credential, which an engine nobody drives has no policy for (73d).
+/// 73a-73h, 109), in their order: the prompt (a one-shot's), the engine, then
+/// a child's credential, which an engine nobody drives has no policy for
+/// (73d), then the posture against what the runtime enforces.
 /// One failure is its own refusal; two or more, or one beside the plan's
 /// fatal findings, are one `LaunchRefused` holding each in that order, and
 /// the findings alone are an empty one (they are the library's to say).
@@ -145,6 +146,7 @@ fn launchable(cmd: &EnqueueRun) -> Result<(), RunRejection> {
     if driven {
         refusals.extend(credential(&cmd.engine, &cmd.credential));
     }
+    refusals.extend(posture(&cmd.posture));
     match (refusals.len(), cmd.fatal_findings) {
         (0, 0) => Ok(()),
         (1, 0) => Err(refusals.remove(0)),
@@ -171,6 +173,37 @@ fn credential(engine: &str, evidence: &CredentialEvidence) -> Option<RunRejectio
             variables: evidence.accepted_variables.join(", "),
         }
     })
+}
+
+/// The posture's refusals (owner rulings 59, 109): a `network` or `sandbox`
+/// word that restricts and that the runtime does not enforce, network first.
+/// An unset key is its honest default, which claims nothing: `open`, `full`.
+fn posture(evidence: &PostureEvidence) -> Vec<RunRejection> {
+    [
+        (
+            "network",
+            &evidence.network,
+            "open",
+            &evidence.enforced_network,
+        ),
+        (
+            "sandbox",
+            &evidence.sandbox,
+            "full",
+            &evidence.enforced_sandbox,
+        ),
+    ]
+    .into_iter()
+    .filter(|(_, value, honest, enforced)| {
+        !value.is_empty() && value.as_str() != *honest && !enforced.contains(value)
+    })
+    .map(|(key, value, honest, _)| RunRejection::UnenforcedPosture {
+        runtime: evidence.runtime.clone(),
+        key: key.to_string(),
+        value: value.clone(),
+        honest: honest.to_string(),
+    })
+    .collect()
 }
 
 /// The event of a fact the run could use, recorded; none when it could not.

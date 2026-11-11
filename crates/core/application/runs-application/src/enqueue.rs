@@ -147,8 +147,7 @@ impl<E: Edge, T: TokenSource> Enqueuer<E, T> {
             credential: credential(request.evidence.credential.unwrap_or_default()),
             fatal_findings: request.evidence.fatal_findings,
             launcher_lock: request.launcher_lock,
-            // RED stub: the posture does not reach the run yet.
-            posture: posture(PostureEvidence::default()),
+            posture: posture(request.evidence.posture),
         };
         let book = CommandBook::command_of(cover, &runs::RunCommand::from(enqueue));
         self.edge.handle(book).await.map_err(refused)?;

@@ -100,6 +100,24 @@ impl Project {
         )
     }
 
+    /// The posture a run claims (owner rulings 59, 70, 109): each of
+    /// `permissions.network` and `permissions.sandbox` the agent's, else the
+    /// project's, else unset (which claims nothing).
+    fn posture_of(&self, agent: Option<&Agent>) -> crate::Posture {
+        let key = |name: &str| {
+            agent
+                .and_then(|a| a.permissions.get(name))
+                .and_then(angzarr_yaml::Value::as_str)
+                .map(ToString::to_string)
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(|| self.config.text(&format!("permissions.{name}")))
+        };
+        crate::Posture {
+            network: key("network"),
+            sandbox: key("sandbox"),
+        }
+    }
+
     /// The prompt: the one given, else the saved command's body.
     fn prompt_of(&self, request: &RunRequest) -> Result<String, AppError> {
         if !request.prompt.is_empty() || request.saved_command.is_empty() {
@@ -332,7 +350,7 @@ impl Project {
             effort,
             drive,
             settings,
-            posture: crate::Posture::default(),
+            posture: self.posture_of(selection.agent.as_ref()),
         };
         Ok(Previewed { plan, fatal })
     }

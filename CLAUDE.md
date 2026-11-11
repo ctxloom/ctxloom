@@ -904,7 +904,7 @@ prerelease, no `schema_version` bump: each old key is an ordinary unknown key
 | `config.statusline: true\|false` | `config.statusline: ctxloom\|none` | `ctxloom` |
 | `config.silence_unsupported` | deleted | |
 | `sync.auto_sync` | `sync.on_run: none\|missing` | `missing` |
-| `permissions.network: true\|false` (and an agent's) | `permissions.network: none\|open` | `none` |
+| `permissions.network: true\|false` (and an agent's) | `permissions.network: none\|open` | `open` (ruling 109) |
 | `output_dir` (top level, unread) | `output.dir` | `ctxloom/` |
 
 The scaffold writes no `config:` section; `manage statusline install|
@@ -917,9 +917,21 @@ pull). A session's outputs are `<project root>/<output.dir>/<harp>`
 `~/Documents/ctxloom/<basename>/<harp>`; nothing gitignores them, and a
 rename moves the folder. A first init at a terminal asks for `output.dir`
 before the interview (suggesting `ctxloom/`, saying outputs are committable)
-and writes the answer. NOT BUILT (ruling 59): the launch's refusal of a
-posture it cannot enforce (`sandbox`, `network`); today nothing enforces
-either and nothing refuses them.
+and writes the answer.
+
+A launch refuses a posture that claims more than its runtime enforces
+(rulings 59, 109): `EnqueueRun` carries `PostureEvidence` (the runtime, the
+agent's `permissions.network`/`sandbox`, else the project's, and the words
+`run_ports::enforced` says the runtime enforces), and decide refuses each
+restrictive word not enforced with the typed `UnenforcedPosture`
+(`runs-unenforced-posture`), after the credential and inside `LaunchRefused`
+with the rest. The honest defaults claim nothing: `network: open`,
+`sandbox: full` (no sandbox). Today no runtime enforces anything (every run
+launches on the host; the container rows are not wired to a launch), so
+`network: none` and `sandbox: read-only|workspace-write` are always refused;
+the fix names the honest word and does not send her to a container runtime,
+which would not hold the claim either. A runtime that starts enforcing a word
+adds it to `run_ports::enforced` with the launch that does.
 
 ## Use `just`
 

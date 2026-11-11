@@ -289,12 +289,8 @@ fn override_with(
             .filter(|violation| !before.contains(violation))
             .collect();
         if !added.is_empty() {
-            for violation in &added {
-                notices.push(Notice::Finding {
-                    text: violation.text(CONFIG_SET),
-                    remedy: remedy_of(violation).to_string(),
-                });
-            }
+            // The refusal names each one; a warning beside it would say it
+            // twice (as `judged` does not, for a layer).
             let texts: Vec<String> = added.iter().map(|v| v.text(CONFIG_SET)).collect();
             return Err(refused(&texts));
         }

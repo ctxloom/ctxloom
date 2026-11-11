@@ -126,8 +126,21 @@ impl InProcessCore<SqliteStore> {
     /// taken by value and closed, on a runtime of its own. Called outside
     /// any runtime (a runtime cannot be shut down from within one).
     pub fn close(self, served_on: tokio::runtime::Runtime) -> Result<(), Unclosed> {
-        let _ = (self, served_on);
-        todo!("ruling 131: let every holder go, then close the store by value")
+        let InProcessCore { app, edge, store } = self;
+        drop(edge);
+        drop(app);
+        // Joined: the runtime's shutdown waits for its workers, which drop
+        // every task they ran (their futures, and what those hold).
+        drop(served_on);
+        let store = Arc::try_unwrap(store).map_err(|still| Unclosed::StillHeld {
+            holders: Arc::strong_count(&still),
+        })?;
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(Unclosed::NoRuntime)?
+            .block_on(store.close())
+            .map_err(Unclosed::Failed)
     }
 }
 

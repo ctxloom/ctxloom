@@ -618,23 +618,27 @@ impl run_ports::Edge for Stalling {
 /// connection, so the wait is forced, never hoped for: the stop must end past
 /// its grace ([`crate::STOP_GRACE`], three seconds, really elapsed) with the
 /// typed timeout, and the listener must be aborted (nobody listens).
+/// Nobody is judged by this listener's own certificate, minted for this test
+/// alone ([`stopped`]).
 #[tokio::test(flavor = "current_thread")]
 async fn a_client_that_holds_a_connection_open_cannot_hold_the_stop() {
     let world = World::new().await;
+    let own = mint(&SystemClock, LOOPBACK_ANY_PORT.ip());
     let (arrived, mut in_handler) = tokio::sync::mpsc::unbounded_channel();
     let edge = Arc::new(Stalling {
         inner: Arc::clone(&world.edge),
         arrived,
     });
-    let listener = HookListener::serve_tcp(edge, LOOPBACK_ANY_PORT, identity())
+    let listener = HookListener::serve_tcp(edge, LOOPBACK_ANY_PORT, identity_of(&own))
         .await
         .expect("the listener starts");
     let addr = listener.local_addr();
     *world.addr.lock().unwrap() = Some(addr);
     let book = world.turn_ended("held");
     let bearer = format!("Bearer {}", world.bearer);
+    let client = try_connect(addr, &own).await.expect("connects");
     let held = tokio::spawn(async move {
-        CommandHandlerCoordinatorServiceClient::new(connect(addr).await)
+        CommandHandlerCoordinatorServiceClient::new(client)
             .handle(request(book, Some(&bearer)))
             .await
     });
@@ -651,10 +655,17 @@ async fn a_client_that_holds_a_connection_open_cannot_hold_the_stop() {
         }
     );
     held.abort();
-    assert!(
-        tokio::net::TcpStream::connect(world.addr()).await.is_err(),
-        "nobody listens"
-    );
+    stopped(addr, &own, "nobody listens").await;
+}
+
+/// Nobody presenting `own` answers at `addr` once its listener is stopped.
+/// Judged by the certificate, never by the port staying free: in one process
+/// (cargo test, the mutation run) a freed port can be given at once to another
+/// test's listener, which a plain connect would take for this one. So a test
+/// that asserts this serves on a certificate of its own, never the shared
+/// [`certificate`], which every other test's listener presents too.
+async fn stopped(addr: SocketAddr, own: &HookCertificate, what: &str) {
+    assert!(try_connect(addr, own).await.is_err(), "{what}");
 }
 
 /// A stop with nothing open ends within the grace with Ok: the success the
@@ -678,30 +689,33 @@ async fn tcp_client(addr: SocketAddr) -> CommandHandlerCoordinatorServiceClient<
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_capture_fact_over_tcp_is_applied_to_the_session_stream() {
     let world = World::new().await;
-    let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT, identity())
-        .await
-        .expect("serves");
+    let own = mint(&SystemClock, LOOPBACK_ANY_PORT.ip());
+    let listener = HookListener::serve_tcp(
+        Arc::clone(&world.edge),
+        LOOPBACK_ANY_PORT,
+        identity_of(&own),
+    )
+    .await
+    .expect("serves");
     let addr = listener.local_addr();
     assert!(addr.ip().is_loopback());
     assert_ne!(addr.port(), 0, "port 0 is replaced by the port given");
     let before = world.watched().await;
-    let answered = tcp_client(addr)
-        .await
-        .handle(request(
-            world.turn_ended("p1"),
-            Some(&format!("Bearer {}", world.bearer)),
-        ))
-        .await
-        .expect("applied")
-        .into_inner();
+    let answered = CommandHandlerCoordinatorServiceClient::new(
+        try_connect(addr, &own).await.expect("connects"),
+    )
+    .handle(request(
+        world.turn_ended("p1"),
+        Some(&format!("Bearer {}", world.bearer)),
+    ))
+    .await
+    .expect("applied")
+    .into_inner();
     assert_eq!(answered.delivery(), DeliveryOutcome::Applied);
     let after = world.watched().await;
     assert_eq!(after, [before[0] + 1, before[1], before[2], before[3]]);
     listener.stop().await.unwrap();
-    assert!(
-        tokio::net::TcpStream::connect(addr).await.is_err(),
-        "nobody listens after the stop"
-    );
+    stopped(addr, &own, "nobody listens after the stop").await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

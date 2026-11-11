@@ -249,13 +249,7 @@ impl Project {
             push_commands(companion, entry, &mut commands, package);
         }
         for ask in &selection.skills {
-            let Some((base, selector)) = ask.split_once('#') else {
-                continue;
-            };
-            let Ok((refs::ItemKind::Skill, item)) = refs::parse_selector(selector) else {
-                continue;
-            };
-            if let Ok(entry) = catalog.lookup(base) {
+            if let Ok((entry, refs::ItemKind::Skill, item)) = catalog.lookup_item(ask) {
                 self.add_skill(&entry.name, &item, &mut skills, package);
             }
         }

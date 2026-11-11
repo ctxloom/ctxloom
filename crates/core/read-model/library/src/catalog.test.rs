@@ -474,3 +474,37 @@ fn test_lookup_refuses_an_item_reference_in_every_spelling() {
         );
     }
 }
+
+// An item reference's own path: the bundle it reaches, its kind and name, in
+// every spelling; a reference that selects nothing is no item reference.
+#[test]
+fn test_lookup_item_reaches_the_items_bundle_kind_and_name() {
+    let cat = installed_catalog();
+    for (ask, bundle) in [
+        ("alpha#fragments/rules", "alpha"),
+        ("ctxloom+local:alpha#fragments/rules", "alpha"),
+        (
+            "ctxloom+file:///srv/o.git//bundles/kit@v1.0.0#fragments/rules",
+            "origin/kit",
+        ),
+    ] {
+        let (entry, kind, name) = cat.lookup_item(ask).expect(ask);
+        assert_eq!(
+            (entry.name.as_str(), kind, name.as_str()),
+            (bundle, ItemKind::Fragment, "rules"),
+            "{ask}"
+        );
+    }
+    let (_, kind, name) = cat.lookup_item("alpha#mcp/db").unwrap();
+    assert_eq!((kind, name.as_str()), (ItemKind::Mcp, "db"));
+    for ask in ["alpha", "alpha#widgets/x"] {
+        assert!(
+            matches!(cat.lookup_item(ask), Err(CatalogError::ItemSyntax { .. })),
+            "{ask}"
+        );
+    }
+    assert!(matches!(
+        cat.lookup_item("ghost#fragments/x"),
+        Err(CatalogError::BundleNotFound { .. })
+    ));
+}

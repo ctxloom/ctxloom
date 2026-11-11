@@ -9,9 +9,9 @@ use clap::{Args, Command, FromArgMatches};
 use serde_json::{json, Value};
 use sessions_application::{
     dead_letter_sample, AppError, BindRequest, Bound, Captured, Class, FilePlan, ImportReport,
-    ImportRequest, ImportService, Imported, KeepRequest, Kept, Left, ListQuery, PlanItem, Refusal,
-    Removal, RemoveRequest, RenameRequest, Renamed, SearchQuery, SessionRecord, SessionService,
-    ShowQuery, State, TranscriptQuery, TranscriptRow, View, Why,
+    ImportRequest, ImportService, Imported, KeepRequest, Kept, Left, ListQuery, PendingMessage,
+    PlanItem, Refusal, Removal, RemoveRequest, RenameRequest, Renamed, SearchQuery, SessionRecord,
+    SessionService, ShowQuery, State, TranscriptQuery, TranscriptRow, View, Why,
 };
 
 use super::run;
@@ -496,6 +496,72 @@ fn show_in_json_is_the_record() {
     assert_eq!(doc["title"], "Seeded prompt for amber-swift-owl.");
     assert_eq!(doc["started_at"], "2026-07-17T12:00:00Z");
     assert_eq!(doc["id"], "01010101-0101-0101-0101-010101010101");
+}
+
+fn pending(id: &str, urgency: sessions_application::Urgency, text: &str) -> PendingMessage {
+    PendingMessage {
+        message_id: id.to_string(),
+        urgency,
+        text: text.to_string(),
+        sender: None,
+    }
+}
+
+// D30: show lists the messages pending, one per line after the record, the
+// first line of each; none, no line.
+#[test]
+fn show_lists_the_pending_messages_after_the_record() {
+    let mut v = view("amber-swift-owl", State::Ended);
+    v.pending = vec![
+        pending(
+            "m1",
+            sessions_application::Urgency::Inform,
+            "read this\nand that",
+        ),
+        pending("m2", sessions_application::Urgency::Wake, "go on"),
+    ];
+    let mut fake = Fake {
+        views: vec![v],
+        ..Fake::default()
+    };
+    let ran = go(&mut fake, Format::Text, &["show", "amber-swift-owl"]);
+    assert!(
+        ran.out.ends_with(
+            "pending:  2 messages no turn has carried yet\n  m1 (inform): read this\n  m2 (wake): go on\n"
+        ),
+        "{}",
+        ran.out
+    );
+    let none = go(
+        &mut Fake {
+            views: vec![view("amber-swift-owl", State::Ended)],
+            ..Fake::default()
+        },
+        Format::Text,
+        &["show", "amber-swift-owl"],
+    );
+    assert!(!none.out.contains("pending:"), "{}", none.out);
+}
+
+#[test]
+fn show_in_json_lists_the_pending_messages_and_leaves_out_none() {
+    let mut v = view("amber-swift-owl", State::Ended);
+    v.pending = vec![pending("m1", sessions_application::Urgency::Steer, "stop")];
+    let mut fake = Fake {
+        views: vec![v],
+        ..Fake::default()
+    };
+    let doc = json_of(&go(&mut fake, Format::Json, &["show", "amber-swift-owl"]));
+    assert_eq!(
+        doc["pending"],
+        json!([{"message_id": "m1", "urgency": "steer", "text": "stop"}])
+    );
+    let mut empty = Fake {
+        views: vec![view("amber-swift-owl", State::Ended)],
+        ..Fake::default()
+    };
+    let doc = json_of(&go(&mut empty, Format::Json, &["show", "amber-swift-owl"]));
+    assert!(doc.get("pending").is_none());
 }
 
 #[test]

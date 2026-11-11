@@ -47,7 +47,11 @@ pub use import::{
 };
 pub use ports::{Project, Timestamp};
 pub use service::{registry, Service, SessionService};
-pub use session_index::{stamp, Captured, SessionRecord, State, View, NO_SUMMARY, STATES};
+pub use session_index::{
+    stamp, Captured, PendingMessage, SessionRecord, State, View, NO_SUMMARY, STATES,
+};
+/// A pending message's urgency, and its word (D12), for a renderer.
+pub use sessions::{urgency_word, Urgency};
 pub use types::{
     BindRequest, Bound, Class, FilePlan, KeepRequest, Kept, ListQuery, PlanItem, Removal,
     RemoveRequest, RenameRequest, Renamed, SearchQuery, ShowQuery, TranscriptQuery, TranscriptRow,

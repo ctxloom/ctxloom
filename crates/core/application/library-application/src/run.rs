@@ -241,13 +241,23 @@ impl Project {
                 if let Some(notice) = runtime_notice(&effective) {
                     self.notices.push(notice);
                 }
+                // A claude mode is held to ctxloom's own words, as a write
+                // holds it (owner ruling 125), before anything is launched.
+                let permission_mode = crate::write::engines::launch_mode(
+                    &effective.engine.value,
+                    &effective.permissions.value,
+                )
+                .map_err(|detail| crate::WriteError::Permissions {
+                    subject: format!("agent \"{}\"", agent.name),
+                    detail,
+                })?;
                 let drive = Drive::from(&effective);
                 let settings = crate::engine_noun::settings_of(&effective);
                 Ok(Launch {
                     engine: effective.engine.value,
                     model: effective.model.map(|m| m.value).unwrap_or_default(),
                     effort: effective.effort.map(|e| e.value).unwrap_or_default(),
-                    permission_mode: effective.permissions.value,
+                    permission_mode,
                     runtime: Some(effective.runtime.value),
                     drive,
                     settings: Some(settings),

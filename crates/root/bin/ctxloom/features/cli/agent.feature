@@ -523,7 +523,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
                   mode: dontAsk
         """
       When I run "ctxloom run --dry-run --agent dev hello --format text"
-      Then the command exits with code 2
+      Then the command exits with code 1
       And the output contains "dontAsk"
       And the output contains "is declared as approver: none"
 

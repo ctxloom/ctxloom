@@ -23,7 +23,7 @@ pub(crate) mod companions;
 mod configfile;
 mod configs;
 mod editor;
-mod engines;
+pub(crate) mod engines;
 pub(crate) mod error;
 mod items;
 mod mcp;

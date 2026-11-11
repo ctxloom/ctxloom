@@ -1222,9 +1222,20 @@ fn test_a_dry_run_refuses_a_claude_mode_outside_ctxloom_s_vocabulary() {
             panic!("{mode} was not refused");
         };
         assert_eq!(say(&refused), "library-application-write-permissions", "{mode}");
+        // The message is `{ $subject }: { $detail }`, the write's own.
+        let args: Vec<(String, String)> = angzarr_diagnostic::Diagnostic::args(&refused)
+            .into_iter()
+            .map(|(k, v)| match v {
+                angzarr_diagnostic::Arg::Str(text) => (k.to_string(), text),
+                other => panic!("{k} is not text: {other:?}"),
+            })
+            .collect();
         assert_eq!(
-            refused.to_string(),
-            format!("agent \"dev\": {says}"),
+            args,
+            vec![
+                ("subject".to_string(), "agent \"dev\"".to_string()),
+                ("detail".to_string(), says.to_string()),
+            ],
             "{mode}"
         );
     }

@@ -433,10 +433,18 @@ refused before launch). Its permission mode (`agents.<n>.engines.claude-code.
 permissions.mode`, else the engine's default, claude's `acceptEdits`) reaches
 claude the same way, as the order's `permission_mode` (owner ruling 116):
 `--permission-mode <mode>`, a turn and the terminal alike; none, or the
-config's `default` (claude's own default mode), is no flag; claude 2.1.322
-takes `acceptEdits|auto|bypassPermissions|manual|dontAsk|plan` (its `--help`),
-and any other mode is refused before launch
-(`run-ports-engine-unknown-permission-mode`). opencode is given no mode (no
+config's `default` (claude's own default mode), is no flag. ctxloom's own
+words govern (owner ruling 125): the plan holds a claude mode to the write
+path's `postures` (`default|acceptEdits|plan|bypassPermissions`, any case,
+passed in their spelling) through the same `write::engines::mode`, so a
+dry run or launch refuses any other in the write's words
+(`library-application-write-permissions`; a retired `auto`/`dontAsk` names
+the approver it is now; claude's `manual` is not ctxloom's) before anything
+is enqueued. claude's own list (2.1.322's `--help`:
+`acceptEdits|auto|bypassPermissions|manual|dontAsk|plan`, engine-claude's
+`PERMISSION_MODES`, whose drive still refuses a word outside it,
+`run-ports-engine-unknown-permission-mode`) is only a check: a wiring test
+holds `postures` minus `default` to be a subset of it. opencode is given no mode (no
 flag verified), and the dry run's row says it is not passed.
 
 A run's pre-launch checks are DECIDED by the runs aggregate, in `EnqueueRun`'s

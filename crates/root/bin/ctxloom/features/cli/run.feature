@@ -1095,7 +1095,7 @@ Feature: run — assembling a project's context and handing it to an engine
         """
         ctxloom --config-set agents.default.engines.claude-code.permissions.mode=auto run --one-shot hello
         """
-      Then the command exits with code 2
+      Then the command exits with code 1
       And the output contains "is declared as approver: reviewer"
       And no assistant was launched
 
@@ -1107,7 +1107,7 @@ Feature: run — assembling a project's context and handing it to an engine
         """
         ctxloom --config-set agents.default.engines.claude-code.permissions.mode=manual run
         """
-      Then the command exits with code 2
+      Then the command exits with code 1
       And the output contains "manual"
       And the output contains "is not a claude mode (known: default|acceptEdits|plan|bypassPermissions)"
       And no assistant was launched

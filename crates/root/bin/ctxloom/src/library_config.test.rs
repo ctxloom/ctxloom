@@ -201,6 +201,48 @@ fn test_the_retired_config_booleans_are_refused_and_their_words_read() {
     assert_eq!(reports_as(&doc, "output.dir"), "docs/sessions");
 }
 
+// hand-test 2026-11-10: a `--config-set` saying what a config file may not
+// (a retired key, a word the schema does not allow) is refused as the file
+// is, with the same diagnostic and exit 2, naming the flag; it was a warning
+// and the command ran on. `--degraded` still carries on, as for a file.
+#[test]
+fn test_a_config_set_the_schema_refuses_is_refused_as_the_file_is() {
+    let project = Project::initialized();
+    for (set, code, key) in [
+        (
+            "sync.auto_sync=true",
+            "library-application-config-unknown-key",
+            "unknown key `sync.auto_sync` in --config-set",
+        ),
+        (
+            "sync.on_run=true",
+            "library-application-config-breaks-schema",
+            "--config-set: `sync.on_run` breaks the schema",
+        ),
+    ] {
+        let ran = project.run(&["--config-set", set, "config", "show", "--format", "json"]);
+        assert_eq!(ran.code, 2, "{set}: {}", ran.said());
+        assert!(
+            ran.stdout.is_empty(),
+            "{set}: no answer is given: {}",
+            ran.stdout
+        );
+        assert!(ran.stderr.contains(code), "{set}: {}", ran.said());
+        assert!(ran.stderr.contains(key), "{set}: {}", ran.said());
+        project
+            .run(&[
+                "--degraded",
+                "--config-set",
+                set,
+                "config",
+                "show",
+                "--format",
+                "json",
+            ])
+            .succeeds();
+    }
+}
+
 // internal/migrations/config/internal/v8/step_test.go: TestStep_DropsEssenceMaxChars
 // and TestStep_EmptiedSectionLeavesAndAbsentKeyIsUntouched, through the
 // binary: a schema 7 config loads, and shows as 9 without the key.

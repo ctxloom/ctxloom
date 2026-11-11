@@ -72,6 +72,19 @@ Feature: run — assembling a project's context and handing it to an engine
       Then the command fails
       And the output contains "unknown flag"
 
+    # The help says what each spelling does: bare is the session, and the
+    # one-shot and the dry run are the flags (hand-test 2026-11-10: it still
+    # said this build takes only a one-shot or a dry run).
+    Scenario: The help names the interactive session beside the one-shot and the dry run
+      # new: the help of a bare run that is interactive.
+      Given an initialized ctxloom project
+      When I run "ctxloom run -h"
+      Then the command succeeds
+      And the output contains "a bare run is an interactive session"
+      And the output contains "--one-shot takes one turn"
+      And the output contains "--dry-run previews"
+      And the output does not contain "this build"
+
     # `--agent` names a BINDING that already carries its own composed profiles,
     # engine and runtime, so combining it with the flags that assemble context
     # by hand is a caller asking for two different answers to the same
@@ -924,6 +937,23 @@ Feature: run — assembling a project's context and handing it to an engine
         """
       Then the command succeeds
       And the session that answered keeps its outputs in "notes/sessions" of her project
+
+  # A run tells its session when its incarnation ended (ruling 85), however
+  # it ended; that end is when the session's last run ended, so the listing's
+  # END and `show`'s ended_at say it once the lock is free (hand-test
+  # 2026-11-10: both were blank for every session that had ended).
+  Rule: A session whose run ended says when it ended
+
+    Scenario: A one-shot's session lists when it ended
+      # new: the session's end is its incarnation's end (ruling 85).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice asks her assistant one thing:
+        """
+        ctxloom run --one-shot --format json hello
+        """
+      Then the command succeeds
+      And the session that answered is ended and says when it ended
 
   # Owner rulings 59 and 109: a posture is a claim about the fence around the
   # agent, and a launch refuses one that claims more than its runtime

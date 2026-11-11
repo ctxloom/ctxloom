@@ -221,6 +221,7 @@ impl Planner for ScriptedPlan {
             effort: self.effort.clone(),
             drive: self.drive.clone(),
             settings: None,
+            settings_agent: String::new(),
             posture: self.posture.clone(),
         };
         Outcome {

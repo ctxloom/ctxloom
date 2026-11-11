@@ -17,7 +17,7 @@ fn files(path: &str, text: &str) -> Vec<(String, String)> {
 #[test]
 fn a_blanket_ignore_rule_warns_and_names_the_install() {
     for rule in [".ctxloom/", ".ctxloom", "/.ctxloom/", ".ctxloom/*"] {
-        let check = checks::gitignore(Some(&format!("target/\n{rule}\n")));
+        let check = checks::gitignore(Some(&format!("target/\n{rule}\n")), &[]);
         assert_eq!(check.status, Status::Warn, "{rule}");
         assert!(check.detail.contains("blanket"));
         assert_eq!(check.remedy, "ctxloom manage gitignore install");
@@ -27,9 +27,25 @@ fn a_blanket_ignore_rule_warns_and_names_the_install() {
 // doctor.feature: "The current granular ignore patterns keep the check quiet".
 #[test]
 fn the_granular_patterns_and_no_gitignore_are_quiet() {
-    let granular = checks::gitignore(Some(".ctxloom/cache/\n.ctxloom/sessions/\n"));
+    let granular = checks::gitignore(Some(".ctxloom/cache/\n.ctxloom/sessions/\n"), &[]);
     assert_eq!(granular.status, Status::Ok);
-    assert_eq!(checks::gitignore(None).status, Status::Ok);
+    assert_eq!(checks::gitignore(None, &[]).status, Status::Ok);
+}
+
+// Hand-test 2026-11-10: private state git can see is a warning naming it
+// and the install that ignores it; a blanket rule is the finding first.
+#[test]
+fn private_state_git_can_see_warns_naming_it() {
+    let check = checks::gitignore(None, &["/cache", "/sessions"]);
+    assert_eq!(check.status, Status::Warn);
+    assert!(
+        check.detail.contains("(/cache, /sessions)"),
+        "{}",
+        check.detail
+    );
+    assert_eq!(check.remedy, "ctxloom manage gitignore install");
+    let blanket = checks::gitignore(Some(".ctxloom/\n"), &["/cache"]);
+    assert!(blanket.detail.contains("blanket"), "{}", blanket.detail);
 }
 
 // doctor.feature: "Doctor names a settings file whose ctxloom entry launches a
@@ -79,14 +95,30 @@ fn the_ingestion_limit_is_info_and_says_whose_process_it_is() {
 // doctor.feature: "A config that will not parse does not stop the diagnosis".
 #[test]
 fn a_broken_config_is_a_warning_not_a_failure() {
-    let check = checks::setup_marker(true, Some("schema_version: [unclosed\n  - : :\n"));
+    let check = checks::setup_marker(true, Some("schema_version: [unclosed\n  - : :\n"), None);
     assert_eq!(check.status, Status::Warn);
     assert_eq!(
-        checks::setup_marker(true, Some("schema_version: 8\n")).status,
+        checks::setup_marker(true, Some("schema_version: 8\n"), None).status,
         Status::Ok
     );
-    assert_eq!(checks::setup_marker(false, None).status, Status::Warn);
-    assert_eq!(checks::setup_marker(true, None).status, Status::Warn);
+    assert_eq!(checks::setup_marker(false, None, None).status, Status::Warn);
+    assert_eq!(checks::setup_marker(true, None, None).status, Status::Warn);
+}
+
+// Hand-test 2026-11-10: a config every run refuses is a fail row, in the
+// refusal's words and with its fix, project or not.
+#[test]
+fn a_config_every_run_refuses_is_a_fail_row_with_its_fix() {
+    for has_project in [true, false] {
+        let check = checks::setup_marker(
+            has_project,
+            Some("schema_version: 9\n"),
+            Some(("failed to load config: no", "edit it")),
+        );
+        assert_eq!(check.status, Status::Fail);
+        assert_eq!(check.detail, "failed to load config: no");
+        assert_eq!(check.remedy, "edit it");
+    }
 }
 
 // doctor.feature: --deps "binaries on PATH and git identity".
@@ -289,10 +321,35 @@ fn opencode_is_keyless_without_its_optional_key_and_never_fails() {
     let config = "schema_version: 9\nagents:\n  o:\n    engine: opencode\n";
     let check = credentials(&[config], &[]);
     assert_eq!(check.status, Status::Ok);
+    // hand-test 2026-11-10: no key is exported, so the row does not call it
+    // present; it says what `auth status` says (rulings 69, 79).
+    assert_eq!(
+        check.detail,
+        "opencode (auth token): not needed: none of ANTHROPIC_API_KEY, OPENAI_API_KEY is exported, so opencode runs keyless on its free models; export one for a provider's models"
+    );
+    assert_eq!(check.remedy, "");
+    let both =
+        "schema_version: 9\nagents:\n  c:\n    engine: claude-code\n  o:\n    engine: opencode\n";
+    let check = credentials(&[both], TOKEN);
+    assert_eq!(check.status, Status::Ok);
     assert!(
-        check.detail.contains("opencode (auth token)"),
+        check.detail.starts_with("every configured engine's credential is present: claude-code (auth token) (doctor does not test"),
         "{}",
         check.detail
+    );
+    assert!(
+        check.detail.ends_with("; opencode (auth token): not needed: none of ANTHROPIC_API_KEY, OPENAI_API_KEY is exported, so opencode runs keyless on its free models; export one for a provider's models"),
+        "{}",
+        check.detail
+    );
+    let keyed = credentials(&[config], &["OPENAI_API_KEY"]);
+    assert_eq!(keyed.status, Status::Ok);
+    assert!(
+        keyed
+            .detail
+            .starts_with("every configured engine's credential is present: opencode (auth token)"),
+        "{}",
+        keyed.detail
     );
 }
 

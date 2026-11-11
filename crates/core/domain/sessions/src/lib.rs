@@ -114,9 +114,15 @@ pub fn apply(state: &mut SessionState, event: &SessionEvent, recorded_at: Timest
         | SessionEvent::TurnEnded(_)
         | SessionEvent::SessionEnded(_)
         | SessionEvent::Compacted(_) => {}
-        SessionEvent::IncarnationOwed(_)
-        | SessionEvent::IncarnationEnded(_)
-        | SessionEvent::StopOrdered(_) => lifeline::apply(state, event),
+        // A run's end is when the session's last run ended (the proto's
+        // RecordEnd: IncarnationEnded supersedes it), at its page's instant.
+        SessionEvent::IncarnationEnded(_) => {
+            state.ended_at = Some(recorded_at);
+            lifeline::apply(state, event);
+        }
+        SessionEvent::IncarnationOwed(_) | SessionEvent::StopOrdered(_) => {
+            lifeline::apply(state, event)
+        }
     }
 }
 

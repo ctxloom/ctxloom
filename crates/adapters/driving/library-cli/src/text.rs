@@ -901,7 +901,7 @@ pub fn dry_run(out: &mut dyn Write, plan: &DryRun) -> io::Result<()> {
     writeln!(out, "=== Engine ===")?;
     writeln!(out, "{}", plan.engine)?;
     if let Some(settings) = &plan.settings {
-        dry_run_settings(out, settings, &plan.agent, &plan.engine)?;
+        dry_run_settings(out, settings, &plan.settings_agent, &plan.engine)?;
     }
     writeln!(out, "\n=== Profiles ===")?;
     listed(out, &plan.profiles, "(no profiles)")?;

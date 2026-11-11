@@ -21,12 +21,21 @@ fn test_create_writes_the_four_files_go_writes() {
     assert_eq!(
         mem.scaffold_paths(),
         [
+            ".gitignore",
             "config.yaml",
             "content/bundles/v2/project/bundle.yaml",
             "content/bundles/v2/project/profiles/default.yaml",
             "remotes.yaml"
         ]
     );
+    // Hand-test 2026-11-10: the private state is out of git from the start.
+    let ignored = mem.scaffold_text(".gitignore").unwrap();
+    for pattern in ["/cache", "/sessions", "/project-id", "/state", "*.lock"] {
+        assert!(
+            ignored.lines().any(|line| line == pattern),
+            "{pattern}: {ignored}"
+        );
+    }
     assert_eq!(
         mem.scaffold_text("config.yaml").unwrap(),
         library::write::scaffold::initial_config("claude-code")

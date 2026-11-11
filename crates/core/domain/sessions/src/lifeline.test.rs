@@ -74,6 +74,24 @@ fn an_end_closes_the_incarnation_and_notices_the_parent() {
     assert_eq!(session.state().open_incarnation, None);
 }
 
+// NEW-DESIGN (hand-test 2026-11-10; the proto's RecordEnd: "the run slice's
+// IncarnationEnded supersedes it"): the end of a run is when the session's
+// last run ended, its page's instant, so a session that ran says when it
+// ended without the importer's RecordEnd.
+#[test]
+fn an_end_records_when_the_sessions_last_run_ended() {
+    let mut session = Session::minted();
+    assert_eq!(session.state().ended_at, None, "nothing has ended yet");
+    session.fact(ended(1, "runner-exit"), "end:s:1");
+    let state = session.state();
+    let ended_at = state.ended_at.expect("the end is recorded");
+    assert!(
+        (ended_at.seconds, ended_at.nanos) >= (state.started_at.seconds, state.started_at.nanos),
+        "ended {ended_at:?} before it started {:?}",
+        state.started_at
+    );
+}
+
 // PORTED-FROM-GO: internal/core/coord/launchgate_giveup_test.go
 // TestAgentStop_OnAnEndedRunStillStopsTheRelaunch: a stop order sets the flag
 // even after the run ended.

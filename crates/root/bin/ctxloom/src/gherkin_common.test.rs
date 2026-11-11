@@ -108,6 +108,18 @@ impl Common {
         .to_string()
     }
 
+    /// `the output reports no "<path>"`: the json holds nothing at `path`.
+    pub(crate) fn output_reports_no(&self, path: &str) {
+        let ran = self.ran();
+        let doc = serde_json::from_str::<Value>(&ran.stdout)
+            .unwrap_or_else(|e| panic!("not json ({e}): {}", ran.said()));
+        assert!(
+            super::library::at(&doc, path).is_none(),
+            "{path} should be absent: {}",
+            ran.said()
+        );
+    }
+
     /// `the output reports "<path>" containing "<value>"`: the list at `path`
     /// has `value` among its entries.
     pub(crate) fn output_reports_containing(&self, path: &str, value: &str) {
@@ -283,6 +295,11 @@ macro_rules! common_steps {
             #[then(expr = "the output reports {string} as {string}")]
             fn output_reports(w: &mut World, path: String, value: String) {
                 w.common().output_reports(&path, &value);
+            }
+
+            #[then(expr = "the output reports no {string}")]
+            fn output_reports_no(w: &mut World, path: String) {
+                w.common().output_reports_no(&path);
             }
 
             #[then(expr = "the output reports {string} containing {string}")]

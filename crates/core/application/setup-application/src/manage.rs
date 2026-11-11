@@ -13,25 +13,7 @@ use surface_ports::Kind;
 
 use crate::{Done, Setup, SetupError};
 
-/// The comment at the head of `.ctxloom/.gitignore` (Go's
-/// `gitignore.NestedComment`).
-const NESTED_COMMENT: &str = "# ctxloom's private working state: rebuildable or purely local, and so must\n# never ride a distributable tree. Everything else under .ctxloom/ - config.yaml,\n# remotes.yaml, lock.yaml, content/ - is committed by omission, because it is\n# content or config the project depends on.\n#\n# GENERATED from gitignore.PrivateStatePatterns, relativized to this directory.\n# ctxloom REWRITES THIS FILE WHOLESALE; hand edits are lost. Change that list.\n#\n# COMMIT THIS FILE. Tracking it is what carries the rules with the directory -\n# into every clone and, crucially, into every linked worktree, which is where a\n# rule living only in the superproject's root .gitignore would not reach.";
-
-/// Go's `gitignore.NestedPatterns()`: ctxloom's private state, relative to
-/// `.ctxloom/`.
-const NESTED_PATTERNS: [&str; 5] = ["/cache", "/sessions", "/project-id", "/state", "*.lock"];
-
 const NESTED_PATH: &str = ".ctxloom/.gitignore";
-
-fn nested_content() -> String {
-    let mut out = String::from(NESTED_COMMENT);
-    out.push('\n');
-    for pattern in NESTED_PATTERNS {
-        out.push_str(pattern);
-        out.push('\n');
-    }
-    out
-}
 
 /// `manage install`.
 #[derive(Clone, Debug, Default)]
@@ -239,7 +221,7 @@ impl Setup {
     /// `.ctxloom/.gitignore` written wholesale when it is not what ctxloom
     /// would write: whether it was.
     fn write_nested_gitignore(&self) -> Result<(String, bool), SetupError> {
-        let want = nested_content();
+        let want = library::write::scaffold::nested_gitignore();
         let held = self
             .store
             .read(&self.project_dir, NESTED_PATH)

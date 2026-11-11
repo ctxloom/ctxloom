@@ -48,3 +48,56 @@ fn test_what_it_scaffolds_is_a_config_this_build_reads() {
         assert_eq!(doc.get("schema_version").and_then(Value::as_str), Some("9"));
     }
 }
+
+// The nested `.gitignore`: the comment, then each private-state pattern on a
+// line of its own, and nothing it lists is left to git.
+#[test]
+fn test_the_nested_gitignore_lists_every_private_state_pattern() {
+    let text = nested_gitignore();
+    assert!(text.starts_with("# ctxloom's private working state"));
+    assert!(
+        text.ends_with("/cache\n/sessions\n/project-id\n/state\n*.lock\n"),
+        "{text}"
+    );
+    assert_eq!(
+        PRIVATE_STATE_PATTERNS,
+        ["/cache", "/sessions", "/project-id", "/state", "*.lock"]
+    );
+    assert!(unignored_private_state(None, Some(&text)).is_empty());
+}
+
+// Hand-test 2026-11-10: with no ignore file every pattern is git's to see.
+#[test]
+fn test_with_no_ignore_file_all_private_state_is_unignored() {
+    assert_eq!(unignored_private_state(None, None), PRIVATE_STATE_PATTERNS);
+    assert_eq!(
+        unignored_private_state(Some("# /cache\ntarget/\n"), Some("\n# /sessions\n")),
+        PRIVATE_STATE_PATTERNS,
+        "comments and blank lines ignore nothing"
+    );
+}
+
+// The nested file's lines, with or without the leading `/` and a trailing `/`.
+#[test]
+fn test_the_nested_spellings_each_ignore_their_pattern() {
+    let nested = "cache/\n/sessions/\nproject-id\n /state \n";
+    assert_eq!(unignored_private_state(None, Some(nested)), ["*.lock"]);
+}
+
+// The root file's `.ctxloom/` spellings, anchored or not; an unanchored glob
+// by itself; a bare name at the root is some other directory's.
+#[test]
+fn test_the_root_spellings_each_ignore_their_pattern() {
+    let root =
+        ".ctxloom/cache/\n/.ctxloom/sessions\n.ctxloom/project-id\n/.ctxloom/state/\n*.lock\n";
+    assert!(unignored_private_state(Some(root), None).is_empty());
+    assert_eq!(
+        unignored_private_state(Some("cache/\nsessions\n.ctxloom/*.lock\n"), None),
+        ["/cache", "/sessions", "/project-id", "/state"]
+    );
+    assert_eq!(
+        unignored_private_state(Some("/cache\n"), Some("*.lock\n")),
+        ["/cache", "/sessions", "/project-id", "/state"],
+        "an anchored pattern is ignored at the root by its .ctxloom/ spelling only"
+    );
+}

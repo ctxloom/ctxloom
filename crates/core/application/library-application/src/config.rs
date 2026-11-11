@@ -90,7 +90,7 @@ pub fn load(
         return Err(refused(&violations));
     }
     let merged = layer::merge_layers(&values);
-    let merged = override_with(merged, environ, flags, notices);
+    let merged = override_with(merged, environ, flags, notices)?;
     let mut merged = reduced_when_unreadable(merged, shape_failure);
     stamp(&mut merged);
     let raw = merged.clone();
@@ -236,13 +236,19 @@ fn drop_engineless_agents(value: &mut Value, path: &str, notices: &mut Vec<Notic
     }
 }
 
-/// The environment's and the flags' overrides laid over `merged`.
+/// What a `--config-set` is named as where a file would be.
+const CONFIG_SET: &str = "--config-set";
+
+/// The environment's and the flags' overrides laid over `merged`. A
+/// `--config-set` the schema refuses (an unknown key, a value it does not
+/// allow) is refused as a layer saying it is, named `--config-set`, unless
+/// `--degraded`; the environment's are said and set anyway (Go's overlay).
 fn override_with(
     merged: Value,
     environ: &[(String, String)],
     flags: &Flags,
     notices: &mut Vec<Notice>,
-) -> Value {
+) -> Result<Value, AppError> {
     let (found, problems) = overrides::read(environ, &flags.config_set);
     for problem in problems {
         notices.push(Notice::text(format!(
@@ -250,18 +256,51 @@ fn override_with(
         )));
     }
     if found.env.is_empty() && found.flags.is_empty() {
-        return merged;
+        return Ok(merged);
     }
     let known = |path: &[String]| schema::known_path(path);
     let validate = |path: &[String], value: &Value| schema::validate_at(path, value);
-    let applied = overrides::apply(&merged, &found, &known, &validate);
-    for error in applied.errors {
+    let env_only = overrides::Overrides {
+        env: found.env,
+        flags: Vec::new(),
+    };
+    let from_env = overrides::apply(&merged, &env_only, &known, &validate);
+    say_applied(&from_env, notices);
+    let flags_only = overrides::Overrides {
+        env: Vec::new(),
+        flags: found.flags,
+    };
+    let from_flags = overrides::apply(&from_env.value, &flags_only, &known, &validate);
+    if !flags.degraded {
+        // What the flags added to what the schema refuses is theirs.
+        let before = schema::validate(&from_env.value);
+        let added: Vec<Violation> = schema::validate(&from_flags.value)
+            .into_iter()
+            .filter(|violation| !before.contains(violation))
+            .collect();
+        if !added.is_empty() {
+            for violation in &added {
+                notices.push(Notice::Finding {
+                    text: violation.text(CONFIG_SET),
+                    remedy: remedy_of(violation).to_string(),
+                });
+            }
+            let texts: Vec<String> = added.iter().map(|v| v.text(CONFIG_SET)).collect();
+            return Err(refused(&texts));
+        }
+    }
+    say_applied(&from_flags, notices);
+    Ok(from_flags.value)
+}
+
+/// The problems and warnings of applying overrides, said.
+fn say_applied(applied: &overrides::Applied, notices: &mut Vec<Notice>) {
+    for error in &applied.errors {
         notices.push(Notice::text(format!("config override resolution: {error}")));
     }
-    for warning in applied.warnings {
-        notices.push(Notice::text(warning));
+    for warning in &applied.warnings {
+        notices.push(Notice::text(warning.clone()));
     }
-    applied.value
 }
 
 /// An `agents.<name>` binding.

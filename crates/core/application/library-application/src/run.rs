@@ -350,7 +350,11 @@ impl Project {
             effort,
             drive,
             settings,
-            settings_agent: request.agent.clone(),
+            settings_agent: selection
+                .agent
+                .as_ref()
+                .map(|a| a.name.clone())
+                .unwrap_or_default(),
             posture: self.posture_of(selection.agent.as_ref()),
         };
         Ok(Previewed { plan, fatal })

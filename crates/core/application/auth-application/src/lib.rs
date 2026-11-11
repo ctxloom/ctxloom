@@ -138,8 +138,10 @@ impl Auth {
     /// Per engine whose effective `auth` (the config's `engines.<engine>.auth`,
     /// else the engine's built-in source) reads the environment: present with
     /// the variable found, or missing with the fix. A credential that is
-    /// optional (opencode's built-in endpoint key) and not exported has no
-    /// row (the run is keyless). A login shared in place (`login`) and `none`
+    /// optional (opencode's built-in provider keys, rulings 69 and 79) and
+    /// not exported is a row too, not present and with no fix: its message
+    /// says none is needed (the run is keyless), as doctor and `engine show`
+    /// say. A login shared in place (`login`) and `none`
     /// have no row. A source that is a file alone has a `file` row, `via` its
     /// path, usable by the primary session and by no child (ruling 53), with
     /// no `present` (ruling 65: nothing here looks at a file). Engines in
@@ -154,9 +156,9 @@ impl Auth {
                 .collect::<Vec<_>>(),
         )
         .into_iter()
-        .filter_map(|need| {
+        .map(|need| {
             if let Some(file) = &need.file {
-                return Some(Row {
+                return Row {
                     engine: need.engine.clone(),
                     mode: FILE,
                     present: None,
@@ -165,13 +167,22 @@ impl Auth {
                     message: file_only_message(&need.engine),
                     remedy: remedy(&need),
                     usable_by: PRIMARY,
-                });
+                };
             }
             let found = need.vars.iter().find(|v| self.env.is_exported(v)).cloned();
             if found.is_none() && !need.required {
-                return None;
+                return Row {
+                    engine: need.engine.clone(),
+                    mode: TOKEN,
+                    present: Some(false),
+                    vars: Vec::new(),
+                    via: String::new(),
+                    message: keyless_message(&need),
+                    remedy: String::new(),
+                    usable_by: "",
+                };
             }
-            Some(Row {
+            Row {
                 engine: need.engine.clone(),
                 mode: TOKEN,
                 present: Some(found.is_some()),
@@ -184,7 +195,7 @@ impl Auth {
                 via: found.unwrap_or_default(),
                 message: String::new(),
                 usable_by: "",
-            })
+            }
         })
         .collect()
     }
@@ -221,21 +232,25 @@ impl Auth {
         let config = engines::merged(layers);
         needs(&config, engines)
             .into_iter()
-            .map(|need| Verdict {
-                ready: need.file.is_some()
-                    || !need.required
-                    || need.vars.iter().any(|v| self.env.is_exported(v)),
-                mode: if need.file.is_some() { FILE } else { TOKEN },
-                message: if need.file.is_some() {
-                    file_only_message(&need.engine)
-                } else {
-                    String::new()
-                },
-                remedy: remedy(&need),
-                primary_only: need.file.is_some(),
-                keyless: false,
-                vars: need.vars,
-                engine: need.engine,
+            .map(|need| {
+                let exported = need.vars.iter().any(|v| self.env.is_exported(v));
+                let keyless = need.file.is_none() && !need.required && !exported;
+                Verdict {
+                    ready: need.file.is_some() || !need.required || exported,
+                    mode: if need.file.is_some() { FILE } else { TOKEN },
+                    message: if need.file.is_some() {
+                        file_only_message(&need.engine)
+                    } else if keyless {
+                        keyless_message(&need)
+                    } else {
+                        String::new()
+                    },
+                    remedy: remedy(&need),
+                    primary_only: need.file.is_some(),
+                    keyless,
+                    vars: need.vars,
+                    engine: need.engine,
+                }
             })
             .collect()
     }
@@ -329,6 +344,16 @@ fn file_only(engine: &str) -> FileOnly {
 /// What a source that is a file alone means, in the refusal's words.
 fn file_only_message(engine: &str) -> String {
     InRunsWords(&file_only(engine)).to_string()
+}
+
+/// What is said of an engine whose variables are optional and none is
+/// exported: it needs none, and runs keyless (rulings 69, 79).
+fn keyless_message(need: &Need) -> String {
+    format!(
+        "not needed: none of {} is exported, so {} runs keyless on its free models; export one for a provider's models",
+        need.vars.join(", "),
+        need.engine
+    )
 }
 
 /// What to do about a credential that is not exported.

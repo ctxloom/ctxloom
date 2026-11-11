@@ -270,7 +270,14 @@ fn the_port_folds_what_a_catch_up_hands_it() {
             }],
         )),
     };
-    assert!(ready(boards.dispatch(&garbled)).is_err());
+    let error = ready(boards.dispatch(&garbled)).unwrap_err();
+    assert!(!error.code.is_empty());
+    // The bug names the type it could not read, among its args.
+    assert!(
+        error.extras.values().any(|v| v.contains("nothing.Known")),
+        "{:?}",
+        error.extras
+    );
     let _ = catch_up();
 }
 

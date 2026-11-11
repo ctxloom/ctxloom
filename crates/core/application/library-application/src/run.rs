@@ -223,8 +223,8 @@ impl Project {
         request: &RunRequest,
         agent: Option<&Agent>,
     ) -> Result<Launch, AppError> {
-        // An agent's engine, model and effort are its own; a launch with no
-        // agent takes the default engine and passes no model or effort.
+        // An agent's engine, model, effort and permission mode are its own; a
+        // launch with no agent takes the default engine and passes none of them.
         // `--engine` runs the agent on that engine, with its block for it
         // (owner ruling 57); its runtime and env are kept.
         match agent {
@@ -247,7 +247,7 @@ impl Project {
                     engine: effective.engine.value,
                     model: effective.model.map(|m| m.value).unwrap_or_default(),
                     effort: effective.effort.map(|e| e.value).unwrap_or_default(),
-                    permission_mode: String::new(),
+                    permission_mode: effective.permissions.value,
                     runtime: Some(effective.runtime.value),
                     drive,
                     settings: Some(settings),

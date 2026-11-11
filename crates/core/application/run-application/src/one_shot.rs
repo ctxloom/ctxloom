@@ -897,7 +897,7 @@ where
                 interactive,
                 model: plan.model,
                 effort: plan.effort,
-                permission_mode: String::new(),
+                permission_mode: plan.permission_mode,
                 settings,
                 owned,
                 git_user: self.git_user.clone(),

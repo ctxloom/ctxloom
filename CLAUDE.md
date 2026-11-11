@@ -429,7 +429,15 @@ directory exists, unclaimed, within `NAME_TRIES` (then `sessions-names-taken`). 
 agent's `model` and `effort` reach the engine as the order's `model` and
 `effort` (`--model`, `--effort` for claude, a turn and the terminal alike;
 unset is no flag; claude takes `low|medium|high|xhigh|max`, any other level is
-refused before launch).
+refused before launch). Its permission mode (`agents.<n>.engines.claude-code.
+permissions.mode`, else the engine's default, claude's `acceptEdits`) reaches
+claude the same way, as the order's `permission_mode` (owner ruling 116):
+`--permission-mode <mode>`, a turn and the terminal alike; none, or the
+config's `default` (claude's own default mode), is no flag; claude 2.1.322
+takes `acceptEdits|auto|bypassPermissions|manual|dontAsk|plan` (its `--help`),
+and any other mode is refused before launch
+(`run-ports-engine-unknown-permission-mode`). opencode is given no mode (no
+flag verified), and the dry run's row says it is not passed.
 
 A run's pre-launch checks are DECIDED by the runs aggregate, in `EnqueueRun`'s
 `decide` (owner rulings 73, 73a-73i), on evidence fields the run application
@@ -505,8 +513,9 @@ to `$HOME/.claude` (no `HOME` is `run-ports-engine-no-host-home`), links no
 login there; the hooks still fire, because the launch (the terminal's and a
 child's turn) passes `--settings <session dir>/settings.json` (the ctxloom-owned file `prepare` writes,
 in both home modes, never into the user's `~/.claude`; claude adds its hooks to the
-config dir's own, and honours one `--settings`; no posture settings are passed
-yet, so there was nothing to merge; verified with a fake program only, not a
+config dir's own, and honours one `--settings`; no posture settings are written
+into it (the permission mode is the `--permission-mode` flag, ruling 116), so
+there was nothing to merge; verified with a fake program only, not a
 live interactive TUI, nor with `--setting-sources user`; in a container the flag
 must name the in-container path, a follow-up). A child's turn passes the same
 single `--settings` (ruling 51; verified with a fake program only, not a live

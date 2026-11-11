@@ -288,9 +288,27 @@ pub const PERMISSION_MODES: [&str; 6] = [
     "plan",
 ];
 
-/// RED stub (ruling 116): passes nothing yet.
-fn push_permission_mode(_args: &mut [String], request: &TurnRequest) -> Result<(), EngineError> {
-    let _ = (&request.permission_mode, PERMISSION_MODES);
+/// The config's word for claude's own default mode, passed as no flag
+/// (claude 2.1.322 no longer takes `default` as a choice).
+const DEFAULT_MODE: &str = "default";
+
+/// `--permission-mode <mode>` when the agent's mode names one (owner ruling
+/// 116); none, or `default`, is no flag (claude's own default). A mode claude
+/// does not take is refused here, before it is launched.
+fn push_permission_mode(args: &mut Vec<String>, request: &TurnRequest) -> Result<(), EngineError> {
+    let mode = request.permission_mode.as_str();
+    if mode.is_empty() || mode == DEFAULT_MODE {
+        return Ok(());
+    }
+    if !PERMISSION_MODES.contains(&mode) {
+        return Err(EngineError::UnknownPermissionMode {
+            engine: NAME.to_string(),
+            mode: mode.to_string(),
+            known: PERMISSION_MODES.join(", "),
+        });
+    }
+    args.push("--permission-mode".to_string());
+    args.push(mode.to_string());
     Ok(())
 }
 

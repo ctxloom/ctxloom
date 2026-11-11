@@ -530,7 +530,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             cwd: order.cwd.clone(),
             model: order.model.clone(),
             effort: order.effort.clone(),
-            permission_mode: String::new(),
+            permission_mode: order.permission_mode.clone(),
             settings: order.settings.clone(),
         };
         let mut command = if order.interactive {

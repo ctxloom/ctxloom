@@ -405,6 +405,11 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             Ok(output) => output,
             Err(failure) => return self.never_started(who, failure, done).await,
         };
+        // The engine's own session its hooks named at the session's end is
+        // bound, so `run --session` can resume it (owner ruling 115).
+        if let Some(native) = self.native_session_ended(who).await? {
+            self.record(who, bound(&native)).await?;
+        }
         // An engine with no hook for its session's end (opencode, ruling 58):
         // its exit is the end, and the launcher says so.
         if self
@@ -424,6 +429,36 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         Ok(done(Outcome::Ended {
             code: output.exit.code,
         }))
+    }
+
+    /// The engine's own session the session's hooks last named at its end
+    /// (`SessionEnded.native_session`), if any.
+    async fn native_session_ended(&self, who: &Identity) -> Result<Option<String>, LaunchError> {
+        let cover = angzarr_embedded::v1::Cover {
+            domain: sessions::SESSION_DOMAIN.to_string(),
+            root: Some(who.session.clone()),
+            edition: None,
+        };
+        let pages = self
+            .edge
+            .events(&cover, 0)
+            .await
+            .map_err(|e| LaunchError::Fact {
+                reason: e.to_string(),
+            })?;
+        let mut native = None;
+        for page in &pages {
+            if let Some(angzarr_embedded::v1::event_page::Body::Event(any)) = &page.body {
+                if let Ok(sessions::SessionEvent::SessionEnded(ended)) =
+                    <sessions::SessionEvent as angzarr_embedded::Payload>::from_any(any)
+                {
+                    if !ended.native_session.is_empty() {
+                        native = Some(ended.native_session);
+                    }
+                }
+            }
+        }
+        Ok(native)
     }
 
     /// The command did not run: record why, and end the launch.
@@ -490,7 +525,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             prompt: order.prompt.clone(),
             home,
             context_path: prepared.context_path,
-            resume: None,
+            resume: order.resume.clone(),
             env: order.env.clone(),
             cwd: order.cwd.clone(),
             model: order.model.clone(),

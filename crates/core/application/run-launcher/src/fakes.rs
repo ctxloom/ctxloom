@@ -138,6 +138,32 @@ fn command_book(cover: Cover, payload: angzarr_embedded::Any) -> CommandBook {
     }
 }
 
+/// The session's end as its engine's hook reports it (claude's SessionEnd),
+/// naming the engine's own session `native`: a fact on the session stream.
+// A test double shipped for tests only; its tests are the callers', not its own.
+#[cfg_attr(test, mutants::skip)]
+pub async fn hook_session_ended(edge: &TestEdge, session: &str, native: &str) {
+    use angzarr_embedded::markup::DomainMessage;
+    let fact = sessions::RecordSessionEnded {
+        native_session: native.to_string(),
+        reason: "prompt_input_exit".to_string(),
+    };
+    let book = CommandBook {
+        cover: Some(session_cover(session)),
+        page: Some(CommandPage {
+            body: Some(command_page::Body::Fact(angzarr_embedded::v1::Fact {
+                payload: Some(angzarr_embedded::Any::from_msg(&fact.to_wire()).unwrap()),
+                origin: Some(angzarr_embedded::v1::FactOrigin {
+                    external_id: format!("hook:end:{session}:{native}"),
+                    description: String::new(),
+                }),
+            })),
+            ..CommandPage::default()
+        }),
+    };
+    edge.handle(book).await.unwrap();
+}
+
 /// Mint `session` as `harp` and enqueue its first run, as a one-shot is.
 pub async fn enqueued(edge: &TestEdge, session: &str, harp: &str) {
     enqueued_by(edge, session, harp, "").await;
@@ -666,6 +692,7 @@ pub fn order(engine: &str) -> Order {
         settings: Default::default(),
         owned: Vec::new(),
         git_user: None,
+        resume: None,
     }
 }
 

@@ -39,6 +39,9 @@ pub struct Order {
     /// when it has none (owner ruling 112: the engine's HOME is the session
     /// home); none known, nothing is seeded.
     pub git_user: Option<run_ports::GitUser>,
+    /// The engine's own session the launch resumes (owner ruling 115, `run
+    /// --session`); none, the engine starts one.
+    pub resume: Option<String>,
 }
 
 impl fmt::Debug for Order {
@@ -57,6 +60,7 @@ impl fmt::Debug for Order {
             .field("settings", &self.settings)
             .field("owned", &self.owned)
             .field("git_user", &self.git_user)
+            .field("resume", &self.resume)
             .finish()
     }
 }

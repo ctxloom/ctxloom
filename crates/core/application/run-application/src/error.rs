@@ -8,6 +8,7 @@ use run_launcher::LaunchError;
 use run_ports::{BindRefusal, FailureClass};
 use runs::RunRejection;
 use runs_application::AppError as CoreError;
+use sessions::SessionRejection;
 
 #[derive(Debug)]
 pub enum RunError {
@@ -33,6 +34,9 @@ pub enum RunError {
     Lock(Report),
     /// The kernel refused, or failed, to make the session or enqueue its run.
     Session(CoreError),
+    /// The session asked for cannot be resumed (owner ruling 115): the
+    /// session domain's own refusal, with its code, args and message.
+    Resume(SessionRejection),
     /// The launch itself failed: the store, the files, the facts.
     Launch(LaunchError),
     /// The engine's command could not be started.
@@ -58,7 +62,7 @@ impl RunError {
             {
                 3
             }
-            RunError::Refused(_) | RunError::Bind(_) => 2,
+            RunError::Refused(_) | RunError::Bind(_) | RunError::Resume(_) => 2,
             RunError::Session(CoreError::Refused { .. }) => 2,
             _ => 1,
         }
@@ -101,6 +105,7 @@ impl Diagnostic for RunError {
         match self {
             RunError::Plan(error) => error.code(),
             RunError::Refused(rejection) => rejection.code(),
+            RunError::Resume(rejection) => rejection.code(),
             RunError::Bind(error) => error.code(),
             RunError::Project(_) => code!("project"),
             RunError::Listener(_) => code!("listener"),
@@ -124,6 +129,7 @@ impl Diagnostic for RunError {
             RunError::Plan(error) => error.args(),
             RunError::EmptyAnswer => Vec::new(),
             RunError::Refused(rejection) => rejection.args(),
+            RunError::Resume(rejection) => rejection.args(),
             RunError::Bind(error) => error.args(),
             RunError::Project(report) => vec![("reason", report.code().into())],
             RunError::Listener(report) | RunError::Lock(report) => {

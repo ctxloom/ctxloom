@@ -356,7 +356,27 @@ told; the hook credential's digest is journaled at the enqueue, so the gate
 already finds the run) and stopped if the run does not start; otherwise it is stopped, with a bounded grace, after the
 engine exits and before the run's end is last recorded
 (`ctxloom-wiring`'s `Hooks`; `run-application`'s `serve`, `ready` and `drive`,
-one path for both kinds of run). Not built: the hidden runner subcommand.
+one path for both kinds of run). `run --session <harp>` (owner ruling 115,
+a one-shot or the terminal) resumes a session: the run application reads the
+name's claim (none: `sessions-session-unknown`), folds the session's stream
+(empty: `sessions-session-destroyed`, a removed session's claim being kept),
+probes its lock (held: `sessions-session-running`), after a launcher step has
+swept other processes' dead runs; the session aggregate's `ResumeSession`
+then owes the NEXT incarnation (`IncarnationOwed{n+1, "resume"}`, refused
+while one is open, `sessions-session-running`; with no bound native id,
+`sessions-no-native-session`; for an `--engine` not the session's,
+`sessions-engine-mismatch`) BEFORE the run of `(session, n+1)` is enqueued,
+so a refused resume burns no run stream; a refused enqueue ends the owed
+incarnation (`launch-failed`). The run is planned on the session's engine,
+reuses its harp, directory and session home (no mint, no claim), and the
+`Order`'s `resume` (the native id) reaches the engine as
+`TurnRequest::resume` (claude `--resume`, opencode `--session`). A child's
+native id is bound from its turn's stream; a terminal session's is bound by
+the launcher at the terminal's exit, from the last `SessionEnded.native_session`
+its hooks recorded (claude's SessionEnd; opencode's end is the launcher's own,
+with no native id, so an interactive opencode session cannot be resumed yet).
+Not built:
+the hidden runner subcommand.
 
 The locks a run is judged by (owner rulings 85, 86, 92, 93, defects 1 and 3;
 advisory file locks through the platform's `file-lock`, taken at once or not

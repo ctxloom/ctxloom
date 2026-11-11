@@ -4,10 +4,11 @@
 //! What drives it (owner ruling 85): a mint owes the first incarnation, and
 //! the run application tells the session when that run ends, however it ends
 //! (`RecordIncarnationEnded`: `runner-exit`, `launch-failed`, or `orphaned`
-//! from a sweep), so no incarnation stays open. Nothing owes a later one: the
-//! relaunch was owed only when mail was pending, and the session has no inbox
-//! (owner ruling 101; mail returns as one command to the recipient session,
-//! the daemon's design).
+//! from a sweep), so no incarnation stays open. A later one is owed only by a
+//! resume (`ResumeSession`, owner ruling 115: `run --session`): never a
+//! relaunch, which was owed only when mail was pending, and the session has no
+//! inbox (owner ruling 101; mail returns as one command to the recipient
+//! session, the daemon's design).
 
 use angzarr_embedded::markup::{pack_message, Bug, FactEmit};
 
@@ -36,9 +37,25 @@ pub(crate) fn resumed(
     held: &SessionState,
     resume: &ResumeSession,
 ) -> Result<IncarnationOwed, SessionRejection> {
-    let _ = (held, resume);
+    let harp = || resume.harp.clone();
+    if live(held).is_err() {
+        return Err(SessionRejection::SessionDestroyed { harp: harp() });
+    }
+    if held.open_incarnation.is_some() {
+        return Err(SessionRejection::SessionRunning { harp: harp() });
+    }
+    if !resume.engine.is_empty() && resume.engine != held.engine {
+        return Err(SessionRejection::EngineMismatch {
+            harp: harp(),
+            engine: held.engine.clone(),
+            asked: resume.engine.clone(),
+        });
+    }
+    if held.native_id.is_empty() {
+        return Err(SessionRejection::NoNativeSession { harp: harp() });
+    }
     Ok(IncarnationOwed {
-        incarnation: 0,
+        incarnation: held.incarnation + 1,
         reason: RESUMED.to_string(),
     })
 }

@@ -189,3 +189,16 @@ fn an_aggregate_is_exit_3_with_fatal_findings_and_says_each_refusal_in_order() {
         .is_empty());
     assert!(RunError::EmptyAnswer.refusals().is_empty());
 }
+
+// Owner ruling 115: a resume refused is the session domain's own refusal, its
+// code and args as the domain says them, a refusal's exit.
+#[test]
+fn a_resume_refused_is_the_session_domains_own_refusal() {
+    let error = RunError::Resume(sessions::SessionRejection::SessionUnknown {
+        harp: "no-such-heron".to_string(),
+    });
+    assert_eq!(error.code(), "sessions-session-unknown");
+    assert_eq!(error.exit_code(), 2);
+    let args: Vec<String> = error.args().iter().map(|(n, _)| n.to_string()).collect();
+    assert_eq!(args, ["harp"]);
+}

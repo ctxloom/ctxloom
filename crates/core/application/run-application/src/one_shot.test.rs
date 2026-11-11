@@ -1676,6 +1676,7 @@ async fn the_bearer_is_in_no_debug_or_error_rendering() {
                 settings: Default::default(),
                 owned: Vec::new(),
                 git_user: None,
+                resume: None,
             }
         ),
     ] {
@@ -2936,11 +2937,15 @@ async fn incarnation_events(
         .collect()
 }
 
-/// The refusal code of a run's error, when it is a session refusal.
+/// The refusal code of a run's error, when it is a resume's refusal: the
+/// session domain's own, exit 2.
 fn refused_code(error: &RunError) -> String {
     match error {
-        RunError::Session(CoreError::Refused { code, .. }) => code.clone(),
-        other => panic!("not a session refusal: {other:?}"),
+        RunError::Resume(rejection) => {
+            assert_eq!(error.exit_code(), 2);
+            rejection.code().to_string()
+        }
+        other => panic!("not a resume's refusal: {other:?}"),
     }
 }
 

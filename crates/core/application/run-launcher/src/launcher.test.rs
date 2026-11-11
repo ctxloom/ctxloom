@@ -967,6 +967,46 @@ async fn an_engine_whose_session_ends_with_its_exit_has_the_end_recorded_at_the_
     }
 }
 
+// Owner ruling 115: a terminal session is resumed by its engine's own
+// session, which its hooks name at its end (claude's SessionEnd): once the
+// terminal exits, the launcher binds the last one named, as a child's turn
+// binds the one its stream names. None named, nothing is bound.
+#[tokio::test]
+async fn a_terminal_sessions_native_session_its_hooks_named_is_bound_at_its_exit() {
+    let bound = |events: Vec<SessionEvent>| -> Vec<String> {
+        events
+            .into_iter()
+            .filter_map(|e| match e {
+                SessionEvent::EngineSessionBound(b) => Some(b.native_id),
+                _ => None,
+            })
+            .collect()
+    };
+    let mut asked = order("fake");
+    asked.interactive = true;
+    let mut named = rig(
+        ScriptedEngine::answering("ok", None),
+        ScriptedRunner::exits(0),
+        orders_with(asked.clone()),
+    );
+    enqueued(&named.edge, SESSION, HARP).await;
+    crate::fakes::hook_session_ended(&named.edge, SESSION, "native-term-1").await;
+    named.step().await;
+    assert_eq!(
+        bound(session_events(&named.edge, SESSION).await),
+        ["native-term-1"]
+    );
+
+    let mut none = rig(
+        ScriptedEngine::answering("ok", None),
+        ScriptedRunner::exits(0),
+        orders_with(asked),
+    );
+    enqueued(&none.edge, SESSION, HARP).await;
+    none.step().await;
+    assert!(bound(session_events(&none.edge, SESSION).await).is_empty());
+}
+
 // Ruling 78: the caller's CTXLOOM_PERMIT_<NAME> reaches the engine's command
 // as <NAME>, a child's turn and the terminal alike, whatever the engine passed;
 // the permit itself is not passed, and the value is withheld from a Debug.

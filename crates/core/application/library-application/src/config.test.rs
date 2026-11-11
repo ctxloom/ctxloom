@@ -214,6 +214,23 @@ mod loading {
         );
     }
 
+    // hand-test 2 2026-11-11: a refused `--config-set` was said twice, as a
+    // warning and again in the refusal; the refusal alone says it.
+    #[test]
+    fn test_a_refused_config_set_is_said_by_the_refusal_alone() {
+        let (_, mem) = Setup {
+            layers: &[STAMPED],
+            ..Setup::default()
+        }
+        .fixture();
+        let files: &dyn ConfigFiles = mem.as_ref();
+        for set in ["sync.on_run=true", "nosuch=1"] {
+            let mut notices = Vec::new();
+            assert!(load(files, &[], &flags_with(&[set]), &mut notices).is_err());
+            assert!(notices.is_empty(), "{set}: {notices:?}");
+        }
+    }
+
     // `--degraded` carries on past a refused `--config-set`, as past a file.
     #[test]
     fn test_degraded_carries_on_past_a_refused_config_set() {

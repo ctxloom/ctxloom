@@ -1,0 +1,196 @@
+syntax = "proto3";
+
+// DRAFT for the owner's review (ruling 142, design-by-test). No build.rs
+// lists this file, so nothing is generated from it yet.
+//
+// APPROVALS: a CHILD's permission ask, routed as an approval request to the
+// human or its owner, answered once, or denied when its time runs out. An
+// angzarr aggregate, one stream per ask, in the child's project's store; the
+// daemon checks it as policy (the ask waits on it).
+//
+// An ask happens only where the child's engine's OWN permissions document
+// says ask (rulings 133-137: per engine, passed raw); ctxloom decides none
+// of it. Where the ask is heard is per engine:
+//
+//   claude-code, a hosted child (stream-json `-p`): the child is launched
+//     with `--permission-prompt-tool mcp__ctxloom__approval_prompt` and its
+//     session home's MCP config names ctxloom's MCP server; that tool is
+//     served by `ctxloom mcp` and answered through the daemon. Its input is
+//     `{tool_name, input, tool_use_id}`; its answer the JSON text
+//     `{"behavior":"allow","updatedInput":<input>}` or
+//     `{"behavior":"deny","message":<text>}`. The flag is listed by claude
+//     2.1.322 only inside `--permission-prompts`' help (hidden itself); the
+//     tool's input and answer shapes are the Agent SDK's documented ones,
+//     UNVERIFIED live.
+//   opencode, a hosted child (`opencode acp`): ACP's
+//     `session/request_permission`, which the daemon's ACP client receives
+//     and answers with the request's `allow_once` or `reject_once` option
+//     (engine-opencode answers it today from `ChildPermissions`; verified
+//     against the spike's lines, not live).
+//   NO HOOK POINT: a per-turn `opencode run` child (UNVERIFIED: no permission
+//     callback is documented for `run`), the mock engine, and every
+//     interactive TUI (claude's, opencode's): the human answers on the
+//     terminal, and nothing is routed.
+//
+// ROUTING (spec call S25): the ask is listed under the session tree's ROOT
+// (the human's primary), and answerable by the child's OWNER (an agent,
+// through its orchestration scope, its own children's asks only) or by the
+// user. The owner agent is told by a message (an inform, else a wake) naming
+// the ask.
+//
+// TIMEOUT (spec call S26): the ask arms the scheduler's alarm
+// (`io.angzarr.scheduler.v1.ArmAlarm`, key `approval-expiry:<ask>`); when it
+// fires, `RecordApprovalExpired` denies it. Default 300 seconds.
+//
+// Writes go through angzarr's coordinator: the ask a FACT (`Handle`, from the
+// daemon, which hosts the child), the answer a COMMAND (`HandleSync`,
+// projector `pending-approvals`). Reads through `Daemon.ListApprovals`, and
+// the waiting tool through `Daemon.AwaitApproval`.
+package ctxloom.approvals.v1;
+
+import "io/angzarr/v1/options.proto";
+import "ctxloom/sessions/v1/daemon.proto";
+
+enum Decision {
+  DECISION_UNSPECIFIED = 0;
+  DECISION_ALLOW = 1;
+  DECISION_DENY = 2;
+}
+
+message ApprovalState {
+  option (io.angzarr.v1.component) = {
+    component_name: "approval"
+    aggregate: {domain: "approvals"}
+  };
+
+  string ask_id = 1;
+  ctxloom.sessions.v1.SessionRef child = 2;
+  ctxloom.sessions.v1.SessionRef owner = 3;
+  ctxloom.sessions.v1.SessionRef root = 4;
+  string tool_name = 5;
+  bool settled = 6;
+  Decision decision = 7;
+}
+
+// region facts
+
+// The child's engine asked. Keyed `approval:<run>:<engine's request id>`
+// (claude's `tool_use_id`, ACP's request id), so a redelivered ask is one
+// ask. The stream root is UUIDv5(the child's session, that key).
+message RecordApprovalAsked {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.approvals.v1.ApprovalState"
+    emits: ["ctxloom.approvals.v1.ApprovalAsked"]
+  };
+
+  string ask_id = 1;
+  ctxloom.sessions.v1.SessionRef child = 2;
+  string run = 3;
+  string engine = 4;
+  ctxloom.sessions.v1.SessionRef owner = 5;
+  ctxloom.sessions.v1.SessionRef root = 6;
+  // What the engine asks to do: the tool's name, and its input as the
+  // engine gave it, bounded (the first 4 KiB, as text) with its size and
+  // SHA-256, so a person can judge it. Journaled: a tool's input is the
+  // child's own work, never ctxloom's secret.
+  string tool_name = 7;
+  string input_excerpt = 8;
+  uint64 input_bytes = 9;
+  string input_sha256 = 10;
+  uint32 timeout_seconds = 11;
+}
+
+// The ask's time ran out (the scheduler's alarm). Keyed
+// `approval-expired:<ask>`. On a settled ask, nothing.
+message RecordApprovalExpired {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.approvals.v1.ApprovalState"
+    emits: ["ctxloom.approvals.v1.ApprovalExpired"]
+  };
+
+  string ask_id = 1;
+}
+
+// endregion
+
+// region commands
+
+// Answer the ask. The answerer is STAMPED: absent, the user; a session, the
+// owner agent (its run's orchestration credential).
+message AnswerApproval {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.approvals.v1.ApprovalState"
+    emits: ["ctxloom.approvals.v1.ApprovalAnswered"]
+    refuses: "ctxloom.approvals.v1.ApprovalUnknown"
+    refuses: "ctxloom.approvals.v1.ApprovalSettled"
+    refuses: "ctxloom.approvals.v1.NotApprover"
+  };
+
+  string ask_id = 1;
+  Decision decision = 2;
+  // Said to the engine with a deny (claude's `message`).
+  string message = 3;
+  optional ctxloom.sessions.v1.SessionRef answerer = 4;
+}
+
+// endregion
+
+// region events
+
+message ApprovalAsked {
+  option (io.angzarr.v1.event) = {component: "ctxloom.approvals.v1.ApprovalState"};
+
+  string ask_id = 1;
+  ctxloom.sessions.v1.SessionRef child = 2;
+  string run = 3;
+  string engine = 4;
+  ctxloom.sessions.v1.SessionRef owner = 5;
+  ctxloom.sessions.v1.SessionRef root = 6;
+  string tool_name = 7;
+  string input_excerpt = 8;
+  uint64 input_bytes = 9;
+  string input_sha256 = 10;
+  uint32 timeout_seconds = 11;
+}
+
+message ApprovalAnswered {
+  option (io.angzarr.v1.event) = {component: "ctxloom.approvals.v1.ApprovalState"};
+
+  Decision decision = 1;
+  string message = 2;
+  // Absent: the user.
+  optional ctxloom.sessions.v1.SessionRef answerer = 3;
+}
+
+// Denied for want of an answer.
+message ApprovalExpired {
+  option (io.angzarr.v1.event) = {component: "ctxloom.approvals.v1.ApprovalState"};
+}
+
+// endregion
+
+// region refusals
+
+message ApprovalUnknown {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
+
+  string ask_id = 1;
+}
+
+// Already answered, or expired.
+message ApprovalSettled {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string ask_id = 1;
+  // `allowed`, `denied` or `expired`.
+  string how = 2;
+}
+
+// A session that is not the asking child's owner answered.
+message NotApprover {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_PERMISSION_DENIED;
+
+  string answerer = 1;
+}
+
+// endregion

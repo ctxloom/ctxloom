@@ -1,0 +1,143 @@
+syntax = "proto3";
+
+// DRAFT for the owner's review (ruling 142, design-by-test). No build.rs
+// lists this file, so nothing is generated from it yet.
+//
+// TRUST: a person's verdict on a project (its project layer's project-only
+// settings, and a project `ctxloom` bundle overriding the setup prompts,
+// ruling 128) or on a remote's content. An angzarr aggregate, one stream
+// per subject, in the USER's store (spec call S22); the daemon CHECKS it as
+// policy: the plan gathers it as evidence and the runs aggregate refuses a
+// launch whose project-only settings are not trusted
+// (`runs-untrusted-project-settings`, runs.proto when built).
+//
+// What is trusted is WHAT THE PERSON SAW (spec call S23): the digest of the
+// subject's trust-relevant content, as `Daemon.PreviewTrust` showed it. A
+// later change (a pull that edits `engines.<e>.command`) no longer matches,
+// and needs trust again.
+//
+// Only the USER may trust or revoke: the orchestration and capture scopes
+// never admit these commands (an agent cannot trust its own repository).
+// The actor is STAMPED by the daemon's gate from the credential; the time
+// is the event's own recorded instant.
+//
+// Commands go through angzarr's coordinator (`HandleSync`, projector
+// `trust-index`); reads through `Daemon.ListTrust` and `PreviewTrust`.
+package ctxloom.trust.v1;
+
+import "io/angzarr/v1/options.proto";
+
+// What a trust is about. The stream root is UUIDv5(the user namespace,
+// "ctxloom:trust:" + kind + ":" + key).
+message Subject {
+  oneof kind {
+    // A project, by its id (a worktree shares its primary's).
+    string project_id = 1;
+    // A remote, by its canonical URL.
+    string remote_url = 2;
+  }
+}
+
+// Who acted: stamped, never read from a payload.
+message Actor {
+  // The user's login on this machine (the daemon's uid's name).
+  string user = 1;
+}
+
+// One trust-relevant setting, named by its dotted path (`engines.claude-code.command`,
+// `engines.claude-code.auth.file`, `engines.<e>.session_home`, `bundles.ctxloom`).
+message Setting {
+  string path = 1;
+  // Its value as the preview showed it (a path or a word; never a secret:
+  // the project-only keys hold none).
+  string value = 2;
+}
+
+message TrustState {
+  option (io.angzarr.v1.component) = {
+    component_name: "trust"
+    aggregate: {domain: "trust"}
+  };
+
+  Subject subject = 1;
+  bool trusted = 2;
+  // The digest of what was trusted.
+  string digest = 3;
+  repeated Setting settings = 4;
+  Actor actor = 5;
+}
+
+// region commands
+
+// Trust the subject as previewed. Refused when the subject's content no
+// longer has `digest` (`TrustStale`: the gate stamps `current_digest`).
+// Trusting what is already trusted at this digest records nothing.
+message GrantTrust {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.trust.v1.TrustState"
+    emits: ["ctxloom.trust.v1.TrustGranted"]
+    refuses: "ctxloom.trust.v1.TrustStale"
+    refuses: "ctxloom.trust.v1.NotTheUser"
+  };
+
+  Subject subject = 1;
+  // The digest the person saw, and the settings it covers.
+  string digest = 2;
+  repeated Setting settings = 3;
+  // STAMPED evidence: the subject's digest now.
+  string current_digest = 4;
+  // STAMPED: absent when the caller is not the user.
+  Actor actor = 5;
+}
+
+// Take trust back (`ctxloom trust --undo`). Revoking what is not trusted
+// records nothing.
+message RevokeTrust {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.trust.v1.TrustState"
+    emits: ["ctxloom.trust.v1.TrustRevoked"]
+    refuses: "ctxloom.trust.v1.NotTheUser"
+  };
+
+  Subject subject = 1;
+  Actor actor = 2;
+}
+
+// endregion
+
+// region events
+
+message TrustGranted {
+  option (io.angzarr.v1.event) = {component: "ctxloom.trust.v1.TrustState"};
+
+  Subject subject = 1;
+  string digest = 2;
+  repeated Setting settings = 3;
+  Actor actor = 4;
+}
+
+message TrustRevoked {
+  option (io.angzarr.v1.event) = {component: "ctxloom.trust.v1.TrustState"};
+
+  Subject subject = 1;
+  Actor actor = 2;
+}
+
+// endregion
+
+// region refusals
+
+// The subject changed since the person looked: preview it again.
+message TrustStale {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string seen = 1;
+  string now = 2;
+}
+
+// Trust is the user's alone: an agent's credential asked.
+message NotTheUser {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_PERMISSION_DENIED;
+}
+
+// endregion

@@ -118,6 +118,26 @@ Feature: One daemon of her own does ctxloom's work, wherever Alice types
     And "brisk-copper-moth" is listed as closed, and its assistant has exited
     And nothing "brisk-copper-moth" was launched with is left at rest
 
+  # The child wants to run something its permissions say to ask about. No
+  # one is at its terminal, so the ask comes to Alice, wherever she types;
+  # she allows it, and the child goes on.
+  Scenario: Alice answers her child's permission ask from any terminal
+    # new: approvals.
+    Given Alice's session "amber-quiet-heron" is running, with a child "brisk-copper-moth" working for it
+    And "brisk-copper-moth" asks to run "Bash" with "make release"
+    When Alice looks at what her session's children are waiting on:
+      """
+      ctxloom session approvals amber-quiet-heron
+      """
+    Then the command succeeds
+    And she sees "brisk-copper-moth" asking to run "Bash" with "make release"
+    When Alice allows it:
+      """
+      ctxloom session approvals answer brisk-copper-moth allow
+      """
+    Then the command succeeds
+    And "brisk-copper-moth" ran "make release", and nothing waits for her any more
+
   # Her daemon is killed outright while her assistant works, and her
   # assistant's hooks go on firing. Her next command brings a daemon back:
   # the session never stopped, everything it reported reached the record

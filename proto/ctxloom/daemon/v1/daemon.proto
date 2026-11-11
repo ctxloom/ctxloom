@@ -34,9 +34,17 @@ syntax = "proto3";
 //      the orchestrator (ctxloom's MCP)       SendMessage, ClearChild,
 //                                             CloseSession, LaunchChild
 //                                             (HandleSync, as the CLI)
+//      trust [--remote <name>] (--yes)        GrantTrust       [trust-index]
+//      trust --undo                           RevokeTrust      [trust-index]
+//      session approvals answer <ask> <d>     AnswerApproval   [pending-approvals]
+//      the owner agent (ctxloom's MCP)        AnswerApproval   [pending-approvals]
+//      a child's ask (the daemon, hosting it) RecordApprovalAsked (Handle, fact)
+//      the ask's alarm                        RecordApprovalExpired (Handle, fact)
+//    (trust/v1/trust.proto and approvals/v1/approvals.proto, ruling 142.)
 //    A command whose decision needs evidence only the daemon has
 //    (SendMessage's `supported`, LaunchChild's `trust` and
-//    `delegation_limit`, RenameSession's lock) is STAMPED with it by the
+//    `delegation_limit`, RenameSession's lock, GrantTrust's current digest
+//    and actor) is STAMPED with it by the
 //    daemon's gate on admission, as the requester is (D-N22); what the
 //    client put there is overwritten.
 //
@@ -129,6 +137,24 @@ service Daemon {
   // counts it). The daemon sends `Stop` when the session is closed (S20):
   // the frontend stops the TUI gracefully, then kills it after the grace.
   rpc Hold(HoldRequest) returns (stream HoldSignal);
+  // endregion
+
+  // region trust (ruling 142; trust/v1/trust.proto)
+  // What trusting a project (or a remote) would allow: its trust-relevant
+  // settings and their digest, which `GrantTrust` then names (what the
+  // person saw is what is trusted).
+  rpc PreviewTrust(PreviewTrustRequest) returns (TrustPreview);
+  // Every trust the user has given, with its actor and time.
+  rpc ListTrust(ListTrustRequest) returns (TrustList);
+  // endregion
+
+  // region approvals (ruling 142; approvals/v1/approvals.proto)
+  // The asks waiting for an answer: under a root session, or all of them.
+  rpc ListApprovals(ListApprovalsRequest) returns (ApprovalList);
+  // The waiting side of an ask (ctxloom's MCP `approval_prompt` tool, the
+  // daemon's own ACP client): answered once the ask is settled, answered,
+  // or expired.
+  rpc AwaitApproval(AwaitApprovalRequest) returns (ApprovalSettledReply);
   // endregion
 
   // region children
@@ -499,6 +525,79 @@ message HandOffRequest {
 
 message HandedOff {
   WriteOutcome outcome = 1;
+}
+
+// endregion
+
+// region trust
+
+message PreviewTrustRequest {
+  Where where = 1;
+  // A remote by name, instead of the project.
+  string remote = 2;
+}
+
+message TrustSetting {
+  string path = 1;
+  string value = 2;
+}
+
+message TrustPreview {
+  // `project:<id>` or `remote:<url>`.
+  string subject = 1;
+  repeated TrustSetting settings = 2;
+  string digest = 3;
+  // Trusted now, at this digest.
+  bool trusted = 4;
+}
+
+message ListTrustRequest {}
+
+message TrustRow {
+  string subject = 1;
+  string digest = 2;
+  string actor = 3;
+  google.protobuf.Timestamp at = 4;
+}
+
+message TrustList {
+  repeated TrustRow trusts = 1;
+}
+
+// endregion
+
+// region approvals
+
+message ListApprovalsRequest {
+  Where where = 1;
+  // Under one root session's tree; none: every ask of the project.
+  string harp = 2;
+}
+
+message ApprovalRow {
+  string ask_id = 1;
+  // The asking child, by harp, and its owner.
+  string child = 2;
+  string owner = 3;
+  string engine = 4;
+  string tool_name = 5;
+  string input_excerpt = 6;
+  google.protobuf.Timestamp asked_at = 7;
+  google.protobuf.Timestamp expires_at = 8;
+}
+
+message ApprovalList {
+  repeated ApprovalRow approvals = 1;
+}
+
+message AwaitApprovalRequest {
+  string ask_id = 1;
+}
+
+message ApprovalSettledReply {
+  // `allow`, `deny`, or `expired` (which the engine is told as a deny).
+  string decision = 1;
+  string message = 2;
 }
 
 // endregion

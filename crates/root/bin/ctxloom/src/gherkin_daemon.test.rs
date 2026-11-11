@@ -1,7 +1,9 @@
 //! The steps of the user daemon's spec (ruling 132, the target T1-T12):
 //! `journeys/j002700_user_daemon.feature`, `cli/daemon.feature`,
 //! `cli/session_children.feature` and the daemon Rule of `cli/run.feature`,
-//! as the owner's rulings on the spec calls (S1-S20, 2026-11-11) shaped them.
+//! as the owner's rulings on the spec calls (S1-S20, 2026-11-11) shaped them;
+//! and trust and approvals (ruling 142): `journeys/j002800_trusting_a_project.feature`,
+//! `cli/trust.feature` and `cli/session_approvals.feature`.
 //!
 //! RED BY DESIGN. The spec is committed before the daemon is reworked to
 //! it, so every step here that the existing harness cannot already take is a
@@ -30,7 +32,8 @@ pub(super) fn claims(w: &mut World, step: &cucumber::gherkin::Step) -> bool {
         || text.contains("and ctxloom is sent a ")
         || text.contains("through her daemon")
         || text.contains("its daemon is killed outright while it works")
-        || text.contains("at her terminal, and answers yes when asked");
+        || text.contains("at her terminal, and answers yes when asked")
+        || text.contains("says yes at her terminal");
     if stubbed {
         red(text);
     }
@@ -601,4 +604,178 @@ fn orchestrator_launches(_: &mut World, _child: String) {
 #[then(expr = "the child {string} was given ANTHROPIC_API_KEY, and not CLAUDE_CODE_OAUTH_TOKEN")]
 fn child_given_curated(_: &mut World, _child: String) {
     red("the child was given the owner's curated credential only")
+}
+
+// ------------------------------------------------------ trust (ruling 142)
+
+#[given(
+    "Alice has cloned a project whose own ctxloom config names the program that runs as her assistant"
+)]
+fn cloned_project(_: &mut World) {
+    red("Alice has cloned a project whose config names its own assistant program")
+}
+
+#[then(
+    regex = r#"^she is told the project's own "([^"]+)" waits for her trust, and that `ctxloom trust` is how to give it$"#
+)]
+fn told_untrusted(_: &mut World, _path: String) {
+    red("she is told the project-only setting waits for her trust")
+}
+
+#[then("the project is listed as trusted by her, just now")]
+fn trusted_by_her(_: &mut World) {
+    red("the project is listed as trusted by her, just now")
+}
+
+#[then("her assistant ran as the program the project names")]
+fn ran_projects_program(_: &mut World) {
+    red("her assistant ran as the program the project names")
+}
+
+#[given("Alice has trusted the cloned project")]
+fn has_trusted(_: &mut World) {
+    red("Alice has trusted the cloned project")
+}
+
+#[given("a pull changes the program the project names")]
+fn pull_changes(_: &mut World) {
+    red("a pull changes the program the project names")
+}
+
+#[then("she is told the project's own settings changed since she trusted them")]
+fn told_stale(_: &mut World) {
+    red("she is told the project's settings changed since she trusted them")
+}
+
+#[given(expr = "an initialized ctxloom project whose project config says {string}")]
+fn project_says(_: &mut World, _setting: String) {
+    red("an initialized ctxloom project whose project config says a project-only setting")
+}
+
+#[given(
+    expr = "an initialized ctxloom project whose own {string} bundle replaces the setup prompt"
+)]
+fn project_overrides_setup(_: &mut World, _bundle: String) {
+    red("a project whose own ctxloom bundle replaces the setup prompt")
+}
+
+#[then("the setup used the built-in prompt, and said the project's own waits for trust")]
+fn builtin_setup(_: &mut World) {
+    red("the setup used the built-in prompt, and said the project's waits for trust")
+}
+
+#[then("the project is not trusted")]
+fn not_trusted(_: &mut World) {
+    red("the project is not trusted")
+}
+
+#[then("the project is listed as trusted by the user running ctxloom, with the time it was given")]
+fn listed_trusted(_: &mut World) {
+    red("the project is listed as trusted, with its actor and time")
+}
+
+#[given("the project's settings change after the preview and before the answer")]
+fn changed_mid_trust(_: &mut World) {
+    red("the project's settings change after the preview and before the answer")
+}
+
+#[when("its assistant sends a trust of its project with its own credential")]
+fn agent_trusts(_: &mut World) {
+    red("its assistant sends a trust of its project with its own credential")
+}
+
+#[then("the trust is refused as not the user's, and the project is not trusted")]
+fn agent_refused(_: &mut World) {
+    red("an agent's trust is refused")
+}
+
+#[given("an initialized ctxloom project that the user has trusted")]
+fn project_trusted(_: &mut World) {
+    red("an initialized ctxloom project that the user has trusted")
+}
+
+#[given(expr = "an initialized ctxloom project with a remote {string}")]
+fn project_with_remote(_: &mut World, _remote: String) {
+    red("an initialized ctxloom project with a remote")
+}
+
+#[then(expr = "the remote {string} is listed as trusted by the user running ctxloom")]
+fn remote_trusted(_: &mut World, _remote: String) {
+    red("the remote is listed as trusted")
+}
+
+// -------------------------------------------------- approvals (ruling 142)
+
+#[given(
+    regex = r#"^a child "([^"]+)" of "([^"]+)" whose engine has asked to run "([^"]+)" with "([^"]*)"$"#
+)]
+fn child_asked(_: &mut World, _child: String, _owner: String, _tool: String, _input: String) {
+    red("a child whose engine has asked to run a tool")
+}
+
+#[then(regex = r"^the child's engine was told (.+)$")]
+fn engine_told(_: &mut World, _what: String) {
+    red("the child's engine was told the answer")
+}
+
+#[then(expr = "no ask is waiting under {string}")]
+fn none_waiting(_: &mut World, _root: String) {
+    red("no ask is waiting under the root")
+}
+
+#[given(expr = "a child {string} of {string} whose ask has been answered")]
+fn ask_answered(_: &mut World, _child: String, _owner: String) {
+    red("a child whose ask has been answered")
+}
+
+#[when("the ask's time runs out")]
+fn ask_expires(_: &mut World) {
+    red("the ask's time runs out")
+}
+
+#[when(regex = r#"^the assistant of "([^"]+)" answers the ask allow, with its own credential$"#)]
+fn agent_answers(_: &mut World, _harp: String) {
+    red("an assistant answers the ask with its own credential")
+}
+
+#[then("the answer is refused as not the approver's, and the ask still waits")]
+fn not_approver(_: &mut World) {
+    red("the answer is refused as not the approver's")
+}
+
+#[then(regex = r#"^the child's claude was launched with "([^"]+)" "([^"]+)"$"#)]
+fn claude_flag(_: &mut World, _flag: String, _value: String) {
+    red("the child's claude was launched with the permission prompt tool")
+}
+
+#[then("the child's session home names ctxloom's MCP server")]
+fn home_names_mcp(_: &mut World) {
+    red("the child's session home names ctxloom's MCP server")
+}
+
+#[given(
+    expr = "an opencode child {string} of {string} that sends a permission request for {string}"
+)]
+fn opencode_asks(_: &mut World, _child: String, _owner: String, _tool: String) {
+    red("an opencode child that sends a permission request")
+}
+
+#[then("the child's opencode was answered with its request's allow-once option")]
+fn opencode_allowed(_: &mut World) {
+    red("the child's opencode was answered allow-once")
+}
+
+#[given(regex = r#"^"([^"]+)" asks to run "([^"]+)" with "([^"]*)"$"#)]
+fn journey_child_asks(_: &mut World, _child: String, _tool: String, _input: String) {
+    red("the child asks to run a tool")
+}
+
+#[then(regex = r#"^she sees "([^"]+)" asking to run "([^"]+)" with "([^"]*)"$"#)]
+fn sees_ask(_: &mut World, _child: String, _tool: String, _input: String) {
+    red("she sees the child's ask")
+}
+
+#[then(regex = r#"^"([^"]+)" ran "([^"]*)", and nothing waits for her any more$"#)]
+fn ran_after_allow(_: &mut World, _child: String, _input: String) {
+    red("the child ran the allowed tool, and nothing waits")
 }

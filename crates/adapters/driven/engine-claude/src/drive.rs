@@ -22,10 +22,16 @@ use run_ports::{
     TurnCommand, TurnOutcome, TurnOutput, TurnRequest,
 };
 
+use surface_ports::Json;
+
 use crate::{stream, Claude, NAME};
 
 /// The settings file of a session home (claude's config dir).
 const SETTINGS_FILE: &str = "settings.json";
+
+/// claude's own state file in its config dir (the session home): what it
+/// keeps of its onboarding and of each project it ran in.
+pub const STATE_FILE: &str = ".claude.json";
 
 /// The context file's name in the session home.
 pub const CONTEXT_PROMPT_FILE: &str = "ctxloom-context.md";
@@ -131,7 +137,7 @@ impl Engine for Claude {
     fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
         // Hooks are how a session is heard, the terminal's and a child's turn
         // alike (owner ruling 51); a child registers the per-turn events only.
-        let files = vec![
+        let mut files = vec![
             HomeFile {
                 rel: CONTEXT_PROMPT_FILE.to_string(),
                 bytes: request.context.clone().into_bytes(),
@@ -141,11 +147,22 @@ impl Engine for Claude {
                 bytes: crate::hooks::home_settings(request.interactive).into_bytes(),
             },
         ];
+        let existing = request.existing.get(STATE_FILE).map(Vec::as_slice);
+        if let Some(bytes) = seeded_state(existing, request.cwd.as_deref()) {
+            files.push(HomeFile {
+                rel: STATE_FILE.to_string(),
+                bytes,
+            });
+        }
         Ok(Prepared {
             files,
             copy_in: copy_in(COPY_IN_ALLOWLIST, &request.offered),
             context_path: format!("{}/{CONTEXT_PROMPT_FILE}", request.home),
         })
+    }
+
+    fn merges(&self) -> &'static [&'static str] {
+        &[STATE_FILE]
     }
 
     fn drive_turn(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
@@ -210,6 +227,37 @@ impl Engine for Claude {
         command.cwd = request.cwd.clone();
         Ok(command)
     }
+}
+
+/// claude's state file with the onboarding marked done and `cwd` trusted
+/// (owner ruling 113: the keys claude 2.1.322 reads; a release that changes
+/// them shows its onboarding again, visible and harmless), merged into what
+/// the home holds (`existing`; none, a fresh file). A file that is not a JSON
+/// object is claude's to deal with: none, the file is left as it is.
+fn seeded_state(existing: Option<&[u8]>, cwd: Option<&str>) -> Option<Vec<u8>> {
+    let mut state = match existing {
+        None => Json::Object(Vec::new()),
+        Some(bytes) => match std::str::from_utf8(bytes).ok().map(Json::parse) {
+            Some(Ok(doc @ Json::Object(_))) => doc,
+            _ => return None,
+        },
+    };
+    state.set("hasCompletedOnboarding", Json::Bool(true));
+    if let Some(dir) = cwd {
+        let project = object_at(object_at(&mut state, "projects"), dir);
+        project.set("hasTrustDialogAccepted", Json::Bool(true));
+    }
+    Some(format!("{}\n", state.pretty()).into_bytes())
+}
+
+/// The object member `key` of `parent` (an object), made an empty object
+/// when it is missing or is not one.
+fn object_at<'a>(parent: &'a mut Json, key: &str) -> &'a mut Json {
+    if !matches!(parent.get(key), Some(Json::Object(_))) {
+        parent.set(key, Json::Object(Vec::new()));
+    }
+    // Present and an object: set just above when it was not.
+    parent.get_mut(key).expect("the member was just set")
 }
 
 /// `--settings <session home>/settings.json`. claude reads one `--settings`

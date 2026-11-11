@@ -231,7 +231,15 @@ resolves them in the project (`worktree-git`'s `Git::user`,
 `run_ports::git_config`, written by the launcher): a file, not
 `GIT_AUTHOR_*`/`GIT_COMMITTER_*` (they would outrank a repository's own
 user), and nothing else of her git configuration (no signing key, credential
-helper or alias). The session home's `settings.json` calls `ctxloom
+helper or alias). claude's own state file in the session home,
+`.claude.json`, is seeded (owner ruling 113) with `hasCompletedOnboarding:
+true` and `projects.<the run's directory>.hasTrustDialogAccepted: true`, the
+keys claude 2.1.322 reads (no theme picker, security notes or trust prompt),
+MERGED into what is there (`Engine::merges` names the files an engine merges
+into, and the launcher hands their bytes in `PrepareRequest::existing` with
+the run's `cwd`; one that is not a JSON object is left as it is). It is
+claude's undocumented state: a release that changes it shows the onboarding
+again (visible, not harmful). The session home's `settings.json` calls `ctxloom
 hook claude-code execute <Event>`. The interactive home registers the session,
 turn, message, tool-batch and compaction (`PreCompact`, `PostCompact`) events.
 A one-shot CHILD's home (owner ruling 51) registers the per-turn ones only:

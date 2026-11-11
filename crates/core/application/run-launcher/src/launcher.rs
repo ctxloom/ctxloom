@@ -457,6 +457,18 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             .engine(&order.engine)
             .ok_or_else(|| format!("no engine named {}", order.engine))?;
         let home = format!("{}/home", self.records.dir(&order.harp));
+        // What the home holds of the files the engine merges into (ruling
+        // 113): a resumed session's home has its engine's own state there.
+        let mut existing = std::collections::BTreeMap::new();
+        for rel in engine.merges() {
+            if let Some(bytes) = self
+                .records
+                .read(&order.harp, &format!("home/{rel}"))
+                .map_err(|e| e.to_string())?
+            {
+                existing.insert((*rel).to_string(), bytes);
+            }
+        }
         let prepared = engine
             .prepare(&PrepareRequest {
                 home: home.clone(),
@@ -465,7 +477,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
                 offered: Vec::new(),
                 interactive: order.interactive,
                 cwd: order.cwd.clone(),
-                existing: Default::default(),
+                existing,
             })
             .map_err(|e| e.to_string())?;
         for file in &prepared.files {

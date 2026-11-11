@@ -304,7 +304,11 @@ fn registered_events(prepared: &run_ports::Prepared) -> Vec<String> {
 #[test]
 fn a_childs_home_registers_the_per_turn_events_and_not_the_per_process_ones() {
     let prepared = prepared(false);
-    assert_eq!(prepared.files.len(), 2, "the context and the settings");
+    assert_eq!(
+        prepared.files.len(),
+        3,
+        "the context, the settings and claude's state (ruling 113)"
+    );
     assert_eq!(
         registered_events(&prepared),
         [

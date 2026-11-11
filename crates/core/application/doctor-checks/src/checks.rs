@@ -55,7 +55,7 @@ pub fn setup_marker(
     refused: Option<(&str, &str)>,
 ) -> Check {
     const M: &str = "DOCTOR-CHECK-SETUP-MARKER-e5";
-    const N: &str = "setup marker";
+    const N: &str = "setup and config";
     if let Some((message, fix)) = refused {
         return row(M, N, Status::Fail, message, fix);
     }

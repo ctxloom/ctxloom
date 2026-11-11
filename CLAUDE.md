@@ -732,17 +732,18 @@ command and a hook's bind (`Sessions::close`; a failed close fails a command
 that had not), the seed's and `test open-store`'s, and a run's at its end.
 A run's store has holders past the use case: the core's application and
 edge, the use cases' edges, and the hook listener's connection and stream
-tasks, which tonic spawns itself, so `HookListener::stop` past its grace
-aborts angzarr's serve task but not them, and a hook call still in the
-handler keeps the coordinator, its edge, the application and the store.
-So the end lets each go by a move before the close: `Runs::into_core` (every
-part but the core, with their edges), then `InProcessCore::close(self,
-served_on: Runtime)`, which consumes the core and the runtime it served on
-(the runtime's shutdown drops every task it ran) and only then takes the
-store by value (the core keeps it in `CoreStores`, not `OneStore`, to have it
-back). An edge leaked past both is `Unclosed::StillHeld`, and a close that
-fails is `Unclosed::Failed`: either fails the run (exit non-zero), never a
-quiet drop. A read's connection is read-only, so an empty
+tasks, which tonic spawns itself, so a call still in the handler keeps the
+coordinator, its edge, the application and the store. `HookListener::stop`
+is angzarr's `Running::shutdown_within(STOP_GRACE)` (ruling 140): past the
+grace it ends every connection still open (the call is cut) and returns only
+once every copy of the service is released. So the end lets each go before
+the close: the listener stopped (by the run use case), `Runs::into_core`
+(every part but the core, with their edges), then `InProcessCore::close`,
+which consumes the core and only then takes the store by value (the core keeps
+it in `CoreStores`, not `OneStore`, to have it back) and closes it, on the
+run's own runtime, which is not shut down for it. A holder still there is
+`Unclosed::StillHeld`, and a close that fails is `Unclosed::Failed`: either
+fails the run (exit non-zero), never a quiet drop. A read's connection is read-only, so an empty
 `-wal`/`-shm` may stay after a read; a write leaves neither
 (`store_close.test.rs`). All file I/O goes
 through the `file-system` seam, so a test under a temporary home touches

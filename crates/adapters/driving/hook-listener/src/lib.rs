@@ -157,22 +157,25 @@ impl HookListener {
         self.reach
     }
 
-    /// Stop serving: the calls open get [`STOP_GRACE`] to finish, then the
-    /// listener is aborted either way.
+    /// Stop serving: the calls open get [`STOP_GRACE`] to finish, then every
+    /// connection still open is ended (a call still in its handler is cut).
+    /// Returns only once every copy of the service, and so of the edge it
+    /// serves through, is released (rulings 131, 140): a run closes its
+    /// store on this return.
     pub async fn stop(self) -> Result<(), ListenerError> {
         self.stop_within(STOP_GRACE).await
     }
 
     /// [`HookListener::stop`] with `grace` for the open calls. A client that
-    /// holds a connection open must never hold the run's end: past `grace`
-    /// the shutdown is dropped, which aborts the listener and removes the
-    /// socket, and the stop is [`ListenerError::StopTimedOut`].
+    /// holds a connection open never holds the run's end past `grace` (and
+    /// the moment the cut connections take to end): angzarr's
+    /// `Running::shutdown_within`.
     pub async fn stop_within(self, grace: Duration) -> Result<(), ListenerError> {
         let endpoint = self.endpoint;
-        match tokio::time::timeout(grace, self.running.shutdown()).await {
-            Ok(stopped) => stopped.map_err(|cause| ListenerError::stop(&endpoint, &cause)),
-            Err(_elapsed) => Err(ListenerError::timed_out(&endpoint, grace)),
-        }
+        self.running
+            .shutdown_within(grace)
+            .await
+            .map_err(|cause| ListenerError::stop(&endpoint, &cause))
     }
 }
 

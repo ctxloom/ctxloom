@@ -49,7 +49,7 @@ mutation_thresholds := "crates/core/domain=90 crates/core/read-model=90 crates/c
 # Staged paths outside any crate that can change what every crate builds or
 # tests (bash globs, `*` crossing `/`): one of these staged tests the whole
 # workspace.
-workspace_wide := "Cargo.toml Cargo.lock rust-toolchain.toml proto/* .cargo/config.toml .cargo/config"
+workspace_wide := "Cargo.toml Cargo.lock rust-toolchain.toml proto/* .cargo/config.toml .cargo/config .config/nextest.toml scripts/nextest-build-binaries.sh"
 
 # The cargo arguments `check-windows` (gates/os-gates.just) compiles for a
 # Windows target: driven adapters that use the platform seams, without C

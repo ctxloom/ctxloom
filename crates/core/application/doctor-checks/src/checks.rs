@@ -244,20 +244,28 @@ pub fn credentials(layers: &[String], auth: &Auth) -> Check {
             "",
         );
     }
+    // An engine whose keys are optional and none exported needs none, and
+    // is said so in `auth status`'s words, never as present.
     let present: Vec<String> = verdicts
         .iter()
+        .filter(|v| !v.keyless)
         .map(|v| format!("{} (auth {})", v.engine, v.mode))
         .collect();
-    row(
-        M,
-        N,
-        Status::Ok,
-        &format!(
-            "every configured engine's credential is present: {} (doctor does not test whether the engine accepts it; launching the engine's own CLI shows that)",
-            present.join(", ")
-        ),
-        "",
-    )
+    let keyless = verdicts
+        .iter()
+        .filter(|v| v.keyless)
+        .map(|v| format!("{} (auth {}): {}", v.engine, v.mode, v.message));
+    let detail: Vec<String> = (!present.is_empty())
+        .then(|| {
+            format!(
+                "every configured engine's credential is present: {} (doctor does not test whether the engine accepts it; launching the engine's own CLI shows that)",
+                present.join(", ")
+            )
+        })
+        .into_iter()
+        .chain(keyless)
+        .collect();
+    row(M, N, Status::Ok, &detail.join("; "), "")
 }
 
 /// `VERSION-c3`.

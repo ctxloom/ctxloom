@@ -538,6 +538,11 @@ pub struct DryRun {
     /// a launch with no agent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<crate::AgentSettings>,
+    /// The agent `settings` are of: `agent`, or the default agent a run with
+    /// no `--agent` takes; empty with no settings. Not shown by the JSON,
+    /// whose `settings` say their places by word.
+    #[serde(skip)]
+    pub settings_agent: String,
     /// The posture the run claims (owner rulings 59, 109): judged by the run
     /// against what its runtime enforces, not shown by a dry run.
     #[serde(skip)]

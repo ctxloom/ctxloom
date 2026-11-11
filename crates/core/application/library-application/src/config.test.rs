@@ -173,6 +173,63 @@ mod loading {
         );
     }
 
+    /// What loading `flags` over `layers` refused with, as its code and
+    /// violations.
+    fn refused_by(layers: &[&str], flags: &Flags) -> (String, String) {
+        use angzarr_diagnostic::Diagnostic as _;
+        let (_, mem) = Setup {
+            layers,
+            ..Setup::default()
+        }
+        .fixture();
+        let files: &dyn ConfigFiles = mem.as_ref();
+        let error = load(files, &[], flags, &mut Vec::new()).expect_err("refused");
+        let violations = match &error {
+            crate::error::AppError::ConfigUnknownKey { violations }
+            | crate::error::AppError::ConfigBreaksSchema { violations } => violations.clone(),
+            other => panic!("not a schema refusal: {other:?}"),
+        };
+        (error.code().to_string(), violations)
+    }
+
+    // hand-test 2026-11-10: a `--config-set` the schema refuses is refused
+    // as a file saying it is, named `--config-set`; it only warned.
+    #[test]
+    fn test_a_config_set_of_an_unknown_key_is_refused_as_a_file_is() {
+        let (code, violations) = refused_by(&[STAMPED], &flags_with(&["sync.auto_sync=true"]));
+        assert_eq!(code, "library-application-config-unknown-key");
+        assert!(
+            violations.contains("[config] unknown key `sync.auto_sync` in --config-set"),
+            "{violations}"
+        );
+    }
+
+    #[test]
+    fn test_a_config_set_of_a_word_the_schema_refuses_is_refused_as_a_file_is() {
+        let (code, violations) = refused_by(&[STAMPED], &flags_with(&["sync.on_run=true"]));
+        assert_eq!(code, "library-application-config-breaks-schema");
+        assert!(
+            violations.contains("[config] --config-set: `sync.on_run` breaks the schema"),
+            "{violations}"
+        );
+    }
+
+    // `--degraded` carries on past a refused `--config-set`, as past a file.
+    #[test]
+    fn test_degraded_carries_on_past_a_refused_config_set() {
+        let flags = Flags {
+            degraded: true,
+            ..flags_with(&["sync.on_run=true"])
+        };
+        let (_, mem) = Setup {
+            layers: &[STAMPED],
+            ..Setup::default()
+        }
+        .fixture();
+        let files: &dyn ConfigFiles = mem.as_ref();
+        assert!(load(files, &[], &flags, &mut Vec::new()).is_ok());
+    }
+
     #[test]
     fn test_an_unknown_override_warns_in_its_words_and_is_set_anyway() {
         let (value, said) = loaded(

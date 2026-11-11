@@ -43,7 +43,6 @@ fn auth(exported: &[&'static str]) -> Auth {
 #[test]
 fn an_exported_claude_token_is_reported_present_by_the_variable_it_is_read_from() {
     let rows = auth(&["CLAUDE_CODE_OAUTH_TOKEN"]).status(&[]);
-    assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].engine, "claude-code");
     assert_eq!(rows[0].mode, "token");
     assert_eq!(rows[0].present, Some(true));
@@ -56,7 +55,7 @@ fn an_exported_claude_token_is_reported_present_by_the_variable_it_is_read_from(
 #[test]
 fn a_missing_claude_token_is_reported_missing_with_how_to_mint_and_export_it() {
     let rows = auth(&[]).status(&[]);
-    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].engine, "claude-code");
     assert_eq!(rows[0].present, Some(false));
     assert!(rows[0].vars.is_empty());
     assert_eq!(
@@ -65,20 +64,34 @@ fn a_missing_claude_token_is_reported_missing_with_how_to_mint_and_export_it() {
     );
 }
 
-// opencode's keys are optional, so it has a row only when one is exported.
-// Ruling 79: Go's endpoint key is no credential of opencode's any more.
+// opencode's keys are optional (rulings 69, 79): one exported is a row,
+// present by its name; none exported is a row too (hand-test 2026-11-10: it
+// had none, while doctor called it present and `engine show` missing), saying
+// none is needed: opencode runs keyless. Ruling 79: Go's endpoint key is no
+// credential of opencode's any more.
 #[test]
-fn opencodes_optional_key_has_a_row_only_when_it_is_exported() {
+fn opencodes_optional_key_is_a_row_whether_or_not_it_is_exported() {
     let rows = auth(&["CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY"]).status(&[]);
     let names: Vec<&str> = rows.iter().map(|r| r.engine.as_str()).collect();
     assert_eq!(names, ["claude-code", "opencode"]);
     assert_eq!(rows[1].present, Some(true));
     assert_eq!(rows[1].vars, ["OPENAI_API_KEY"]);
-    let rows = auth(&[]).status(&[]);
-    assert!(rows.iter().all(|r| r.engine != "opencode"));
-    let rows = auth(&["CTXLOOM_OPENCODE_API_KEY"]).status(&[]);
-    assert!(rows.iter().all(|r| r.engine != "opencode"), "{rows:?}");
+    for exported in [&[][..], &["CTXLOOM_OPENCODE_API_KEY"]] {
+        let rows = auth(exported).status(&[]);
+        let row = rows
+            .iter()
+            .find(|r| r.engine == "opencode")
+            .unwrap_or_else(|| panic!("{exported:?}: {rows:?}"));
+        assert_eq!(row.mode, "token");
+        assert_eq!(row.present, Some(false), "none is exported");
+        assert!(row.vars.is_empty() && row.via.is_empty(), "{row:?}");
+        assert_eq!(row.remedy, "", "nothing to fix: {row:?}");
+        assert_eq!(row.message, KEYLESS_OPENCODE, "{row:?}");
+    }
 }
+
+/// What is said of opencode with none of its optional keys exported.
+const KEYLESS_OPENCODE: &str = "not needed: none of ANTHROPIC_API_KEY, OPENAI_API_KEY is exported, so opencode runs keyless on its free models; export one for a provider's models";
 
 // Go's emitted shape: engine, mode, present always; vars and remedy only
 // when there are some.
@@ -86,7 +99,7 @@ fn opencodes_optional_key_has_a_row_only_when_it_is_exported() {
 fn a_row_serializes_to_gos_shape() {
     let rows = auth(&["CLAUDE_CODE_OAUTH_TOKEN"]).status(&[]);
     assert_eq!(
-        serde_json::to_value(&rows).unwrap(),
+        serde_json::to_value(&rows[..1]).unwrap(),
         json!([{
             "engine": "claude-code",
             "mode": "token",
@@ -164,6 +177,15 @@ fn opencode_is_ready_without_its_optional_key() {
     assert_eq!(verdicts.len(), 1);
     assert!(verdicts[0].ready);
     assert_eq!(verdicts[0].engine, "opencode");
+    // hand-test 2026-11-10: ready, but on no key, and the verdict says so in
+    // the words `auth status` uses.
+    assert!(verdicts[0].keyless);
+    assert_eq!(verdicts[0].message, KEYLESS_OPENCODE);
+    let keyed = auth(&["OPENAI_API_KEY"]).needed(&["opencode".to_string()], &[]);
+    assert!(keyed[0].ready && !keyed[0].keyless, "{keyed:?}");
+    assert_eq!(keyed[0].message, "");
+    let claude = auth(&["CLAUDE_CODE_OAUTH_TOKEN"]).needed(&["claude-code".to_string()], &[]);
+    assert!(!claude[0].keyless, "{claude:?}");
 }
 
 // Go: a login shared in place reads nothing from the environment.
@@ -257,7 +279,10 @@ fn a_configured_source_replaces_the_built_in_one_and_the_fix_names_it() {
 #[test]
 fn auth_none_and_a_file_alone_need_nothing_from_the_environment_of_a_child() {
     let none = layer("engines:\n  claude-code:\n    auth: none\n");
-    assert!(auth(&[]).status(&none).is_empty());
+    assert!(auth(&[])
+        .status(&none)
+        .iter()
+        .all(|r| r.engine != "claude-code"));
     assert!(auth(&[])
         .needed(&["claude-code".to_string()], &none)
         .is_empty());
@@ -278,7 +303,11 @@ const FILE_ONLY_FIX: &str = "name one of those variables in engines.claude-code.
 #[test]
 fn a_file_only_source_has_a_row_usable_by_the_primary_not_by_children() {
     for exported in [&[][..], &["CLAUDE_CODE_OAUTH_TOKEN"][..]] {
-        let rows = auth(exported).status(&file_only());
+        let rows: Vec<Row> = auth(exported)
+            .status(&file_only())
+            .into_iter()
+            .filter(|r| r.engine == "claude-code")
+            .collect();
         assert_eq!(rows.len(), 1, "{rows:?}");
         let row = &rows[0];
         assert_eq!(row.engine, "claude-code");

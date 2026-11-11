@@ -211,27 +211,19 @@ fn a_helper_a_runtime_started_is_killed_with_it() {
     }
     assert!(started.elapsed() < Duration::from_secs(40));
     let pid = fs.read_to_string(&bin.join("helper")).unwrap();
-    let stat = Path::new("/proc").join(pid.trim()).join("stat");
-    let host = file_system::Os::new(os::host(), Path::new(os::host().flavor().top())).unwrap();
-    let helper = match host.read_to_string(&stat) {
-        Ok(line) => Helper::Alive(
-            ProcessState::of_stat(&line).unwrap_or_else(|| panic!("unreadable stat: {line:?}")),
-        ),
-        // The stat file went with the process (perhaps between the two calls).
-        Err(_) if !host.exists(&stat).unwrap() => Helper::Gone,
-        Err(e) => panic!("{}: {e}", stat.display()),
-    };
-    // Gone, or a zombie nobody has reaped yet (an orphan waits for init), or
-    // dead and caught at the instant it is being reaped.
-    assert!(
-        matches!(
-            helper,
-            Helper::Gone
-                | Helper::Alive(ProcessState::Zombie)
-                | Helper::Alive(ProcessState::Reaping)
-        ),
-        "{helper:?}"
-    );
+    // The run sends SIGKILL to the runtime's whole process group and reaps
+    // the runtime, not its descendants: the helper dies when the kernel next
+    // runs it, which can be just after the run returned (it was caught in
+    // state `R`). So it is looked at until it is gone, for a bounded time
+    // (the bounded look is forced in taskloom-cli-client's
+    // `a_helper_seen_alive_before_its_kill_lands_is_gone_within_the_bound`).
+    let until = std::time::Instant::now() + Duration::from_secs(10);
+    let mut helper = Helper::of(pid.trim());
+    while !helper.is_gone() && std::time::Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(1));
+        helper = Helper::of(pid.trim());
+    }
+    assert!(helper.is_gone(), "{helper:?}");
 }
 
 /// What became of a process the test started.
@@ -241,6 +233,33 @@ enum Helper {
     Gone,
     /// It still has a `/proc/<pid>`, in this state.
     Alive(ProcessState),
+}
+
+impl Helper {
+    /// The process `pid` as `/proc/<pid>/stat` has it now.
+    fn of(pid: &str) -> Self {
+        let stat = Path::new("/proc").join(pid).join("stat");
+        let host = file_system::Os::new(os::host(), Path::new(os::host().flavor().top())).unwrap();
+        match host.read_to_string(&stat) {
+            Ok(line) => Helper::Alive(
+                ProcessState::of_stat(&line).unwrap_or_else(|| panic!("unreadable stat: {line:?}")),
+            ),
+            // The stat file went with the process (perhaps between the two calls).
+            Err(_) if !host.exists(&stat).unwrap() => Helper::Gone,
+            Err(e) => panic!("{}: {e}", stat.display()),
+        }
+    }
+
+    /// Gone, or a zombie nobody has reaped yet (an orphan waits for init), or
+    /// dead and caught at the instant it is being reaped.
+    fn is_gone(&self) -> bool {
+        matches!(
+            self,
+            Helper::Gone
+                | Helper::Alive(ProcessState::Zombie)
+                | Helper::Alive(ProcessState::Reaping)
+        )
+    }
 }
 
 /// A process's state as the Linux kernel reports it in `/proc/<pid>/stat`

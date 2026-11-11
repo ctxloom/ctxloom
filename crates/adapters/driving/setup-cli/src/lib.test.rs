@@ -726,7 +726,11 @@ fn auth_status_reports_an_exported_token_present_and_never_prints_a_value() {
     assert_eq!(r.exit.unwrap(), 0);
     assert_eq!(
         r.out,
-        "claude-code token: present (CLAUDE_CODE_OAUTH_TOKEN)\n"
+        concat!(
+            "claude-code token: present (CLAUDE_CODE_OAUTH_TOKEN)\n",
+            // opencode's keys are optional (rulings 69, 79): it needs none.
+            "opencode token: not needed: none of ANTHROPIC_API_KEY, OPENAI_API_KEY is exported, so opencode runs keyless on its free models; export one for a provider's models\n",
+        )
     );
     assert_eq!(r.err, "");
 }
@@ -737,7 +741,10 @@ fn auth_status_names_how_to_mint_and_export_a_missing_token() {
     assert_eq!(r.exit.unwrap(), 0);
     assert_eq!(
         r.out,
-        "claude-code token: missing \u{2014} run `claude setup-token` and export CLAUDE_CODE_OAUTH_TOKEN (or store it in your secret manager)\n"
+        concat!(
+            "claude-code token: missing \u{2014} run `claude setup-token` and export CLAUDE_CODE_OAUTH_TOKEN (or store it in your secret manager)\n",
+            "opencode token: not needed: none of ANTHROPIC_API_KEY, OPENAI_API_KEY is exported, so opencode runs keyless on its free models; export one for a provider's models\n",
+        )
     );
 }
 

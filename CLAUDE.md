@@ -817,7 +817,9 @@ carries an `Exit`; `ctxloom_cli::run` turns it into the status with
   whatever Go said (owner ruling 152): a usage error (clap's own 2
   mapped), an unknown format or verb, a config the strict decode refuses
   or that does not read, a name nobody has (a session, a bundle, an item,
-  a profile, an agent, a remote), a taken name, a live session, any
+  a profile, an agent, a remote), a taken name, a live session (a run's
+  or session's lock another process holds; a lock file that cannot be
+  made is 10: the lock ports answer `LockError::Held` or `Failed`), any
   refusal of a domain or the read model or a write, a container verb with
   no runtime, a refused consented refresh, a refused delivery, a hook its
   service refused, and doctor's `fail` row (the refusal it guarantees);

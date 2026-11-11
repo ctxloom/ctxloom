@@ -86,7 +86,11 @@ fn take(fs: &dyn Fs, path: &Path) -> Result<file_lock::Locked, LockError> {
             waited_ms: 0,
         })
     };
-    file_lock::lock(fs, path, &mut once).map_err(|e| LockError::Failed(Report::of(&e)))
+    file_lock::lock(fs, path, &mut once).map_err(|e| match e {
+        // The at-once pause above gives up at once: another holds it.
+        file_lock::LockError::Timeout { .. } => LockError::Held(Report::of(&e)),
+        _ => LockError::Failed(Report::of(&e)),
+    })
 }
 
 /// The lock a run holds for its life (defect 1), taken with the platform's

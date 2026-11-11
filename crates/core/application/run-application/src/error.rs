@@ -59,7 +59,7 @@ impl ExitClass for RunError {
     /// fatal findings (21) for a refusal with the plan's fatal findings among
     /// its failures (rulings 73a, 152: the most severe wins), refused (20) for
     /// a refusal before anything ran (an ask that cannot be run, a refusal of
-    /// the kernel), the signal for a run a signal stopped (128 plus its
+    /// the kernel, a lock another process holds), the signal for a run a signal stopped (128 plus its
     /// number), failed (10) otherwise.
     fn exit(&self) -> Exit {
         match self {
@@ -72,6 +72,9 @@ impl ExitClass for RunError {
             }
             RunError::Refused(_) | RunError::Bind(_) | RunError::Resume(_) => Exit::REFUSED,
             RunError::Session(CoreError::Refused { .. }) => Exit::REFUSED,
+            // Held by another process: the session or run is live (ruling
+            // 152); a lock file not made is a failure, below.
+            RunError::Lock(LockError::Held(_)) => Exit::REFUSED,
             _ => Exit::FAILED,
         }
     }

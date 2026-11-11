@@ -493,6 +493,12 @@ fn home_absent(w: &mut World, rel: String) {
     );
 }
 
+#[then(expr = "the home file {string} contains {string}")]
+fn home_holds(w: &mut World, rel: String, text: String) {
+    let held = w.common.project.read_home(&rel).expect("a home file");
+    assert!(held.contains(&text), "{rel}: {held}");
+}
+
 #[then(expr = "the home file {string} does not contain {string}")]
 fn home_lacks(w: &mut World, rel: String, text: String) {
     let held = w.common.project.read_home(&rel).expect("a home file");

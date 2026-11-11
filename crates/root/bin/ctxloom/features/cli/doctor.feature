@@ -342,6 +342,38 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
       Then the command succeeds
       And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-MCP-INVOCATION-g7" and whose "status" is "ok"
 
+    # The user's ~/.claude.json is hers: read in her HOME, never in ctxloom's
+    # home, which CTXLOOM_HOME may put elsewhere.
+    Scenario: The user's own ~/.claude.json is read in her HOME, wherever ctxloom's home is
+      # new: the two-homes defect of the owner's first use (doctor read the
+      # user's files under CTXLOOM_HOME)
+      Given an initialized ctxloom project
+      And ctxloom's home is "ctxloom-home" in her home
+      And the home already has the file ".claude.json":
+        """
+        {"mcpServers": {"ctxloom": {"command": "ctxloom", "args": ["mcp", "serve"]}}}
+        """
+      And the home already has the file "ctxloom-home/.claude.json":
+        """
+        {"mcpServers": {"ctxloom": {"command": "decoy-ctxloom", "args": ["mcp", "serve"]}}}
+        """
+      When I run "ctxloom --format json doctor"
+      Then the command succeeds
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-MCP-INVOCATION-g7" and whose "status" is "warn"
+      And the output contains "~/.claude.json"
+
+    Scenario: A ~/.claude.json in ctxloom's home is no file of hers
+      # new: the converse
+      Given an initialized ctxloom project
+      And ctxloom's home is "ctxloom-home" in her home
+      And the home already has the file "ctxloom-home/.claude.json":
+        """
+        {"mcpServers": {"ctxloom": {"command": "ctxloom", "args": ["mcp", "serve"]}}}
+        """
+      When I run "ctxloom --format json doctor"
+      Then the command succeeds
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-MCP-INVOCATION-g7" and whose "status" is "ok"
+
   Rule: A hook entry an older ctxloom left behind is found, and --fix removes only it
 
     `ctxloom materialize` (and its `--release`) takes out only the entries
@@ -408,6 +440,37 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
       When I run "ctxloom --format json doctor"
       Then the command succeeds
       And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-STALE-HOOKS-n5" and whose "status" is "ok"
+
+    Scenario: The user's own ~/.claude/settings.json is read and fixed in her HOME, wherever ctxloom's home is
+      # new: the two-homes defect of the owner's first use (doctor read and
+      # fixed the user's files under CTXLOOM_HOME)
+      Given an initialized ctxloom project
+      And ctxloom's home is "ctxloom-home" in her home
+      And the home already has the file ".claude/settings.json":
+        """
+        {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "ctxloom hook inject-context abc123"}]}]}}
+        """
+      When I run "ctxloom --format json doctor"
+      Then the command succeeds
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-STALE-HOOKS-n5" and whose "status" is "warn"
+      When I run "ctxloom doctor --fix"
+      Then the command succeeds
+      And the home file ".claude/settings.json" does not contain "inject-context"
+
+    Scenario: A ~/.claude/settings.json in ctxloom's home is no file of hers
+      # new: the converse; --fix leaves it as it is
+      Given an initialized ctxloom project
+      And ctxloom's home is "ctxloom-home" in her home
+      And the home already has the file "ctxloom-home/.claude/settings.json":
+        """
+        {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "ctxloom hook inject-context abc123"}]}]}}
+        """
+      When I run "ctxloom --format json doctor"
+      Then the command succeeds
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-STALE-HOOKS-n5" and whose "status" is "ok"
+      When I run "ctxloom doctor --fix"
+      Then the command succeeds
+      And the home file "ctxloom-home/.claude/settings.json" contains "inject-context"
 
   Rule: The report ends on a stated limit rather than going quiet
 

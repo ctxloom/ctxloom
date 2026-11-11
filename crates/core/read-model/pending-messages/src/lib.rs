@@ -115,11 +115,40 @@ impl Pending {
     }
 
     fn fold_run(&mut self, root: &[u8], event: RunEvent) {
-        let _ = (root, event);
+        match event {
+            RunEvent::RunEnqueued(enqueued) => {
+                self.runs.entry(root.to_vec()).or_default().session = enqueued.session;
+            }
+            RunEvent::TurnQueued(queued) => {
+                self.runs
+                    .entry(root.to_vec())
+                    .or_default()
+                    .ids
+                    .extend(queued.message_ids);
+            }
+            _ => {}
+        }
     }
 
     fn fold_session(&mut self, session: &str, event: SessionEvent) {
-        let _ = (session, event, Inbound::default(), Carried::default());
+        match event {
+            SessionEvent::MessageSent(sent) => {
+                self.sessions
+                    .entry(session.to_string())
+                    .or_default()
+                    .sent
+                    .push(PendingMessage {
+                        message_id: sent.message_id,
+                        urgency: sent.urgency,
+                        text: sent.text,
+                        sender: sent.sender,
+                    });
+            }
+            SessionEvent::SessionClosed(_) => {
+                self.sessions.entry(session.to_string()).or_default().closed = true;
+            }
+            _ => {}
+        }
     }
 
     /// Whether a run of `session` carried `message_id`.

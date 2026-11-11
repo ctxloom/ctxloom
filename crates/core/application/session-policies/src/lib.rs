@@ -27,8 +27,6 @@ use angzarr_embedded::v1::{command_page, CommandBook, CommandPage, Cover, Fact, 
 use angzarr_embedded::Any;
 use pending_messages::PendingMessage;
 use runs::{QueueTurn, TurnUrgency, RUN_DOMAIN};
-// RED: the stubs use none of what the policies send yet.
-#[allow(unused_imports)]
 use sessions::{
     Child, ChildLaunched, ClaimName, CloseSession, EndChild, ForgetChild, IncarnationEnded,
     MintSession, Origin, RecordChildLaunchFailed, SendMessage, SessionClosed, SessionRef, Urgency,
@@ -142,8 +140,32 @@ pub fn turn_urgency(urgency: Urgency) -> TurnUrgency {
 /// Keyed `send:<message_id>` of the first wake or steer it carries: the
 /// message that starts the turn.
 pub fn deliver(gate: &RunGate, pending: &[PendingMessage]) -> Option<Keyed<QueueTurn>> {
-    let _ = (gate, pending, turn_urgency(Urgency::Wake));
-    None
+    if !gate.live {
+        return None;
+    }
+    let carried: Vec<&PendingMessage> = pending
+        .iter()
+        .filter(|message| !gate.in_flight || message.urgency != Urgency::Wake)
+        .collect();
+    let trigger = carried
+        .iter()
+        .find(|message| message.urgency != Urgency::Inform)?;
+    let urgency = if carried.iter().any(|m| m.urgency == Urgency::Steer) {
+        Urgency::Steer
+    } else {
+        Urgency::Wake
+    };
+    Some(Keyed {
+        project_id: gate.session.project_id.clone(),
+        cover: run_cover(&gate.session.session, gate.incarnation),
+        key: format!("send:{}", trigger.message_id),
+        command: QueueTurn {
+            prompt_ref: String::new(),
+            resume: true,
+            message_ids: carried.iter().map(|m| m.message_id.clone()).collect(),
+            urgency: turn_urgency(urgency),
+        },
+    })
 }
 
 // ---------------------------------------------------------------- cascade
@@ -170,12 +192,15 @@ fn close(child: &SessionRef, cause: &str, key: String) -> Option<Keyed<CloseSess
 /// still holds (its own stream's `children`, K2, never the cross-project
 /// index). Keyed `cascade:<owner>:<child>`.
 pub fn cascade(owner: &SessionRef, children: &[Child]) -> Vec<Keyed<CloseSession>> {
-    let _ = (
-        owner,
-        sessions_of(children),
-        close(owner, "", String::new()),
-    );
-    Vec::new()
+    sessions_of(children)
+        .filter_map(|child| {
+            close(
+                child,
+                "owner-closed",
+                format!("cascade:{}:{}", owner.session, child.session),
+            )
+        })
+        .collect()
 }
 
 /// A child's `SessionClosed` ends it on its owner, which stops holding it.
@@ -185,8 +210,15 @@ pub fn child_ended(
     owner: &SessionRef,
     closed: &SessionClosed,
 ) -> Option<Keyed<EndChild>> {
-    let _ = (child, owner, closed);
-    None
+    Some(Keyed {
+        project_id: owner.project_id.clone(),
+        cover: session_cover(&owner.session)?,
+        key: format!("child-ended:{}:{}", owner.session, child.session),
+        command: EndChild {
+            child: Some(child.clone()),
+            cause: closed.cause.clone(),
+        },
+    })
 }
 
 // ----------------------------------------------------------------- notice
@@ -202,8 +234,28 @@ pub fn notice(
     ended: &IncarnationEnded,
     supported: &[Urgency],
 ) -> Option<Keyed<SendMessage>> {
-    let _ = (child, harp, owner, ended, supported);
-    None
+    if !ended.notice_parent {
+        return None;
+    }
+    let urgency = [Urgency::Wake, Urgency::Inform]
+        .into_iter()
+        .find(|urgency| supported.contains(urgency))?;
+    let key = format!("notice:{}:{}", child.session, ended.incarnation);
+    Some(Keyed {
+        project_id: owner.project_id.clone(),
+        cover: session_cover(&owner.session)?,
+        key: key.clone(),
+        command: SendMessage {
+            message_id: key,
+            urgency,
+            text: format!(
+                "child {harp} ended its run {}: {}",
+                ended.incarnation, ended.cause
+            ),
+            requester: None,
+            supported: supported.to_vec(),
+        },
+    })
 }
 
 // ----------------------------------------------------------------- launch
@@ -222,8 +274,40 @@ pub struct Mint {
 /// application's, from the target's config). Keyed `claim:<owner>:<child>`
 /// and `mint:<owner>:<child>`.
 pub fn launch(owner: &SessionRef, launched: &ChildLaunched, output_dir: &str) -> Option<Mint> {
-    let _ = (owner, launched, output_dir);
-    None
+    let child = launched.child.as_ref()?;
+    let key = |what: &str| format!("{what}:{}:{}", owner.session, child.session);
+    Some(Mint {
+        claim: Keyed {
+            project_id: child.project_id.clone(),
+            cover: Cover {
+                domain: NAMES_DOMAIN.to_string(),
+                root: Some(sessions::claim_root(&child.project_id, &launched.harp)),
+                edition: None,
+            },
+            key: key("claim"),
+            command: ClaimName {
+                project_id: child.project_id.clone(),
+                harp: launched.harp.clone(),
+                session: child.session.clone(),
+            },
+        },
+        mint: Keyed {
+            project_id: child.project_id.clone(),
+            cover: session_cover(&child.session)?,
+            key: key("mint"),
+            command: MintSession {
+                harp: launched.harp.clone(),
+                project_id: child.project_id.clone(),
+                project_dir: launched.child_root.clone(),
+                output_dir: output_dir.to_string(),
+                engine: launched.engine.clone(),
+                origin: Origin::Agent,
+                started_at: None,
+                depth: launched.depth,
+                owner: Some(owner.clone()),
+            },
+        },
+    })
 }
 
 /// The launch's compensation: the claim or the mint was refused (`reason`,
@@ -234,8 +318,15 @@ pub fn launch_failed(
     child: &SessionRef,
     reason: &str,
 ) -> Option<KeyedFact<RecordChildLaunchFailed>> {
-    let _ = (owner, child, reason);
-    None
+    Some(KeyedFact {
+        project_id: owner.project_id.clone(),
+        cover: session_cover(&owner.session)?,
+        external_id: format!("launch-failed:{}:{}", owner.session, child.session),
+        fact: RecordChildLaunchFailed {
+            child: Some(child.clone()),
+            reason: reason.to_string(),
+        },
+    })
 }
 
 // ---------------------------------------------------------------- destroy
@@ -253,8 +344,27 @@ pub struct Destroy {
 /// holds are closed first, `owner-destroyed:<target>:<child>`, and its owner
 /// forgets it, `destroy:<target>`.
 pub fn destroy(target: &SessionRef, owner: Option<&SessionRef>, children: &[Child]) -> Destroy {
-    let _ = (target, owner, children);
-    Destroy::default()
+    Destroy {
+        close: sessions_of(children)
+            .filter_map(|child| {
+                close(
+                    child,
+                    "owner-destroyed",
+                    format!("owner-destroyed:{}:{}", target.session, child.session),
+                )
+            })
+            .collect(),
+        forget: owner.and_then(|owner| {
+            Some(Keyed {
+                project_id: owner.project_id.clone(),
+                cover: session_cover(&owner.session)?,
+                key: format!("destroy:{}", target.session),
+                command: ForgetChild {
+                    child: Some(target.clone()),
+                },
+            })
+        }),
+    }
 }
 
 #[cfg(test)]

@@ -6,12 +6,11 @@
 //! once; folding the end revokes every credential (D29).
 
 use angzarr_embedded::markup::{
-    pack_message, Bug, Context, DomainMessage, FactEmit, Failed, PageContext, Refuses,
+    pack_message, Bug, Context, DomainMessage, Emit, FactEmit, Failed, PageContext, Refuses,
 };
 use angzarr_embedded_macros::{aggregate, applies, handles_cmd, handles_fact};
 
 use crate::refusal::refuse;
-use crate::InterruptRequested;
 use crate::{
     apply, run_root, EndCause, EnqueueRun, FinalReported, FinalReportedRecorded, LaunchFailed,
     LaunchOrphaned, QueueTurn, RequestStop, RunCommand, RunEnded, RunEnqueued, RunEvent, RunExited,
@@ -28,6 +27,7 @@ use crate::{
     CredentialEvidence, FileOnlyCredential, LaunchRefused, NoCredential, NoPrompt, PostureEvidence,
     Refusal, RunMode, UnenforcedPosture, UnknownEngine,
 };
+use crate::{InterruptRequested, TurnUrgency};
 
 /// The run aggregate: one run, folded from its stream.
 #[derive(Clone, Debug, Default)]
@@ -56,23 +56,36 @@ impl RunAggregate {
         self.enqueued() && self.run.ended.is_none()
     }
 
-    /// The turn queue: one at a time, and none after the end.
-    fn decide_turn(&self, cmd: QueueTurn) -> Result<TurnQueued, RunRejection> {
+    /// The turn gate (S-b): none after the end; one turn in flight, behind
+    /// which only a steer is queued, asking the turn in flight to be
+    /// interrupted once; a wake or an inform waits.
+    fn decide_turn(
+        &self,
+        cmd: QueueTurn,
+    ) -> Result<(Option<InterruptRequested>, TurnQueued), RunRejection> {
         if !self.enqueued() {
             return Err(RunRejection::NoRun);
         }
         if self.run.ended.is_some() {
             return Err(RunRejection::Ended);
         }
-        if let Some(turn) = self.run.turn_in_flight {
-            return Err(RunRejection::TurnInFlight { turn });
-        }
-        Ok(TurnQueued {
+        let interrupt = match self.run.turns.first() {
+            None => None,
+            Some(head) if cmd.urgency == TurnUrgency::Steer => {
+                (!head.interrupt_requested).then(|| InterruptRequested {
+                    turn: head.turn,
+                    message_ids: head.message_ids.clone(),
+                })
+            }
+            Some(head) => return Err(RunRejection::TurnInFlight { turn: head.turn }),
+        };
+        let queued = TurnQueued {
             prompt_ref: cmd.prompt_ref,
             resume: cmd.resume,
             message_ids: cmd.message_ids,
             urgency: cmd.urgency,
-        })
+        };
+        Ok((interrupt, queued))
     }
 
     /// The stop request: recorded once; an ended run has nothing left to
@@ -334,21 +347,28 @@ impl RunAggregate {
         decide_enqueue(ctx, cmd).map_err(enqueue_refusal)
     }
 
-    /// Queue a turn: one at a time, and none after the end.
+    /// Queue a turn: one in flight, a steer behind it interrupting it, and
+    /// none after the end.
     #[handles_cmd(QueueTurn, refuses(NoRun, Ended, TurnInFlight))]
     fn queue_turn(
         &self,
         cmd: QueueTurn,
         ctx: &Context,
-    ) -> Result<TurnQueued, Failed<Refuses<Self, QueueTurn>>> {
+    ) -> Result<Emit<Self>, Failed<Refuses<Self, QueueTurn>>> {
         let _ = ctx;
-        self.decide_turn(cmd).map_err(|rejection| {
+        let (interrupt, queued) = self.decide_turn(cmd).map_err(|rejection| {
             refuse!(
                 RunRejection,
                 rejection,
                 Refuses<Self, QueueTurn>,
                 [NoRun => NoRun, Ended => Ended, TurnInFlight{turn} => TurnInFlight]
             )
+        })?;
+        Ok(match interrupt {
+            Some(interrupt) => Emit::of(interrupt).then(move |_: &Self, _: &Context| {
+                Ok::<_, Failed<Refuses<Self, QueueTurn>>>(queued)
+            }),
+            None => Emit::of(queued),
         })
     }
 

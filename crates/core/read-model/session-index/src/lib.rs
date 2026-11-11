@@ -310,9 +310,9 @@ fn record_of(root: &[u8], session: &SessionAggregate) -> SessionRecord {
         ended_at: state.ended_at,
         incarnation: state.incarnation,
         last_captured: None,
-        owner: None,
-        closed: false,
-        children: Vec::new(),
+        owner: state.owner.clone(),
+        closed: state.closed,
+        children: state.children.clone(),
     }
 }
 

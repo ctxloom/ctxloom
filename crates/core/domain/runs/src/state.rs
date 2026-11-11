@@ -63,6 +63,11 @@ pub struct OpenTurn {
 /// what the aggregate's appliers do, one place, so a reader of the stream
 /// (the credential check) folds as the aggregate does. Pure.
 pub fn apply(state: &mut RunState, event: &RunEvent, sequence: u64) {
+    fold(state, event, sequence);
+    state.turn_in_flight = state.turns.first().map(|open| open.turn);
+}
+
+fn fold(state: &mut RunState, event: &RunEvent, sequence: u64) {
     match event {
         RunEvent::RunEnqueued(enqueued) => {
             state.session = enqueued.session.clone();
@@ -75,10 +80,24 @@ pub fn apply(state: &mut RunState, event: &RunEvent, sequence: u64) {
         RunEvent::RunnerAttachedRecorded(_) => state.runner_attached = true,
         RunEvent::RunnerStartedRecorded(started) => state.runner_started = Some(started.clone()),
         // The turn in flight is the sequence of its `TurnQueued` event (plan 4.3).
-        RunEvent::TurnQueued(_) => state.turn_in_flight = Some(sequence),
-        RunEvent::InterruptRequested(_) | RunEvent::TurnStartedRecorded(_) => {}
-        RunEvent::TurnCompletedRecorded(completed) => free_the_gate(state, completed.turn),
-        RunEvent::TurnFailedRecorded(failed) => free_the_gate(state, failed.turn),
+        RunEvent::TurnQueued(queued) => state.turns.push(OpenTurn {
+            turn: sequence,
+            message_ids: queued.message_ids.clone(),
+            urgency: queued.urgency,
+            interrupt_requested: false,
+        }),
+        RunEvent::InterruptRequested(interrupt) => {
+            if let Some(open) = state.turns.iter_mut().find(|t| t.turn == interrupt.turn) {
+                open.interrupt_requested = true;
+            }
+        }
+        RunEvent::TurnStartedRecorded(_) => {}
+        RunEvent::TurnCompletedRecorded(completed) => {
+            free_the_gate(state, completed.turn, &completed.message_ids);
+        }
+        RunEvent::TurnFailedRecorded(failed) => {
+            free_the_gate(state, failed.turn, &failed.message_ids);
+        }
         RunEvent::StopRequested(_) => state.stop_requested = true,
         RunEvent::SummaryReportedRecorded(_) => state.summaries += 1,
         RunEvent::FinalReportedRecorded(reported) => state.final_reported = Some(reported.turn),
@@ -91,9 +110,16 @@ pub fn apply(state: &mut RunState, event: &RunEvent, sequence: u64) {
     }
 }
 
-/// A turn that completed or failed frees the gate, if it is the one in flight.
-fn free_the_gate(state: &mut RunState, turn: u64) {
-    if state.turn_in_flight == Some(turn) {
-        state.turn_in_flight = None;
+/// A turn that completed or failed is no longer open: the one holding the
+/// first of its messages, else (a turn of no message, the one-shot's) the one
+/// of its number; an end matching no open turn frees nothing. The turn in
+/// flight is then the first still open.
+fn free_the_gate(state: &mut RunState, turn: u64, message_ids: &[String]) {
+    let at = match message_ids.first() {
+        Some(id) => state.turns.iter().position(|t| t.message_ids.contains(id)),
+        None => state.turns.iter().position(|t| t.turn == turn),
+    };
+    if let Some(at) = at {
+        state.turns.remove(at);
     }
 }

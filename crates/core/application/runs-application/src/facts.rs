@@ -82,6 +82,15 @@ fn text(uuid: &Uuid) -> String {
         .unwrap_or_default()
 }
 
+/// What a turn's facts are keyed by (D28 S-b): the first of its messages,
+/// else (a turn of no message, the one-shot's) its number.
+fn turn_key(turn: u64, message_ids: &[String]) -> String {
+    message_ids
+        .first()
+        .cloned()
+        .unwrap_or_else(|| turn.to_string())
+}
+
 /// The book of a fact on `cover`.
 fn book_of(cover: Cover, payload: Any, external_id: String) -> CommandBook {
     CommandBook {
@@ -131,9 +140,15 @@ impl RunnerFact {
         match self {
             RunnerFact::RunnerAttached(m) => format!("attach:{run}:{}", m.runner_id),
             RunnerFact::RunnerStarted(_) => format!("started:{run}"),
-            RunnerFact::TurnStarted(m) => format!("turn:{run}:{}:started", m.turn),
-            RunnerFact::TurnCompleted(m) => format!("turn:{run}:{}:completed", m.turn),
-            RunnerFact::TurnFailed(m) => format!("turn:{run}:{}:failed", m.turn),
+            RunnerFact::TurnStarted(m) => {
+                format!("turn:{run}:{}:started", turn_key(m.turn, &m.message_ids))
+            }
+            RunnerFact::TurnCompleted(m) => {
+                format!("turn:{run}:{}:completed", turn_key(m.turn, &m.message_ids))
+            }
+            RunnerFact::TurnFailed(m) => {
+                format!("turn:{run}:{}:failed", turn_key(m.turn, &m.message_ids))
+            }
             RunnerFact::RunExited(_) => format!("exit:{run}"),
             RunnerFact::EngineSessionBound(m) => format!("bind:{session}:{}", m.native_id),
         }

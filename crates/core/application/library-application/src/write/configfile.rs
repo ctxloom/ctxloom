@@ -81,8 +81,40 @@ impl Project {
 }
 
 impl Project {
-    /// The plan over the tree of the bundle `name` as it is now.
+    /// The plan over the tree of the bundle `name` as it is now, to change
+    /// it. One of ctxloom's built-in bundles is read-only, and refused.
     pub(crate) fn plan_of(&self, name: &str) -> Result<Plan, AppError> {
+        self.writable(name)?;
+        self.plan_to_read(name)
+    }
+
+    /// The refusal of a write to one of ctxloom's built-in bundles (rulings
+    /// 110, 111), naming where a project bundle of its name, which overrides
+    /// it, would go; nothing for any other.
+    pub(crate) fn writable(&self, name: &str) -> Result<(), AppError> {
+        if !self.catalog.is_builtin(name) {
+            return Ok(());
+        }
+        let dir = self.content.bundle_dir(name);
+        let dir = dir
+            .strip_suffix(name)
+            .map_or(dir.as_str(), |parent| parent.trim_end_matches('/'))
+            .to_string();
+        Err(WriteError::BuiltinReadOnly {
+            bundle: name.to_string(),
+            origin: library::builtin::ORIGIN.to_string(),
+            dir,
+        }
+        .into())
+    }
+
+    /// The plan over the tree of the bundle `name` as it is now, to read
+    /// (an export): a built-in one's files are the ones ctxloom ships.
+    pub(crate) fn plan_to_read(&self, name: &str) -> Result<Plan, AppError> {
+        if self.catalog.is_builtin(name) {
+            let files = library::builtin::files(name).unwrap_or_default();
+            return Ok(Plan::of(files, Default::default()));
+        }
         let files = self.content.read_tree(name).map_err(AppError::Cause)?;
         let exec = self
             .content

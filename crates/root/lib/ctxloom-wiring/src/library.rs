@@ -111,6 +111,8 @@ pub(crate) fn build(
         environ,
     )
     .with_write_ports(ports)
+    // ctxloom's default content, built in (owner rulings 110, 111).
+    .with_builtins()
     .with_companions(Arc::new(ProcessCompanions::new(ProcessProbe::standard(
         Arc::clone(wiring.env()),
     ))));

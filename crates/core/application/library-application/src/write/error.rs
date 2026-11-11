@@ -46,6 +46,10 @@ write_errors! {
     NoProject { } = "write-no-project";
     /// A bundle that is already there.
     BundleExists { path } = "write-bundle-exists";
+    /// A write to one of ctxloom's built-in bundles, which are read-only
+    /// (rulings 110, 111); `dir` is where a project bundle of its name, which
+    /// overrides it, would be.
+    BuiltinReadOnly { bundle, origin, dir } = "write-builtin-read-only";
     /// A bundle name that is no name.
     BadBundleName { } = "write-bad-bundle-name";
     /// An item (fragment, command) that is already there.

@@ -67,6 +67,9 @@ fn bundle_entry(out: &mut dyn Write, row: &BundleRow) -> io::Result<()> {
     if row.held {
         write!(out, " [held]")?;
     }
+    if !row.origin.is_empty() {
+        write!(out, " [built-in {}]", f(&row.origin))?;
+    }
     writeln!(out)?;
     if !row.description.is_empty() {
         writeln!(out, "    {}", f(&row.description))?;

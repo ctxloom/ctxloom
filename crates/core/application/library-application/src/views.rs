@@ -34,6 +34,10 @@ pub struct BundleRow {
     pub reference: String,
     #[serde(skip_serializing_if = "no_text")]
     pub path: String,
+    /// The built-in origin a bundle ctxloom ships is listed under
+    /// (`ctxloom/default`, rulings 110, 111); empty for any other.
+    #[serde(skip_serializing_if = "no_text")]
+    pub origin: String,
     #[serde(skip_serializing_if = "no_text")]
     pub version: String,
     #[serde(skip_serializing_if = "no_text")]

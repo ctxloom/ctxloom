@@ -269,7 +269,7 @@ impl Project {
     fn profile_export(&self, name: &str, dest_dir: &str) -> Result<ProfileExported, AppError> {
         let found = self.find_profile(name)?;
         let ports = self.write_ports()?;
-        let plan = self.plan_of(&found.bundle)?;
+        let plan = self.plan_to_read(&found.bundle)?;
         let bytes = plan
             .files()
             .get(&profile_path(&found.name))
@@ -335,6 +335,7 @@ impl Project {
     fn profile_remove(&self, name: &str, yes: bool) -> Result<Removal<ProfileRemoved>, AppError> {
         self.require_project()?;
         let found = self.find_profile(name)?;
+        self.writable(&found.bundle)?;
         if !yes {
             let n = found.profile.bundles.len();
             let detail = if n > 0 {

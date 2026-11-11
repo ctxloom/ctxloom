@@ -165,7 +165,7 @@ impl Project {
     fn skill_export(&self, reference: &str, output: &str) -> Result<SkillExported, AppError> {
         let (bundle, name) = split_reference(reference)?;
         let entry = self.bundle(&bundle)?;
-        let plan = self.plan_of(&entry.name)?;
+        let plan = self.plan_to_read(&entry.name)?;
         let dir = self.skill_dir(&plan, &name)?;
         let sidecar = plan.text(&skill::sidecar_path(&name));
         let executable = skill::executable_files(sidecar.as_deref());

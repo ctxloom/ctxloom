@@ -20,6 +20,7 @@ fn bundle(name: &str, fragments: u64, commands: u64, mcp: u64) -> BundleRow {
         name: name.to_string(),
         reference: format!("ctxloom+local:{name}"),
         path: String::new(),
+        origin: String::new(),
         version: "1.2.0".to_string(),
         description: "demo bundle".to_string(),
         tags: vec!["sample".to_string()],
@@ -1119,4 +1120,24 @@ fn settings(model: Option<&str>) -> library_application::AgentSettings {
             keys: Vec::new(),
         },
     }
+}
+
+// Owner rulings 110, 111: a built-in bundle is listed under its origin.
+#[test]
+fn test_a_built_in_bundle_is_listed_under_its_origin() {
+    let list = BundleList {
+        rows: vec![BundleRow {
+            origin: "ctxloom/default".to_string(),
+            ..bundle("testing", 3, 0, 0)
+        }],
+        no_root: false,
+        hint: String::new(),
+    };
+    let mut out = Vec::new();
+    bundle_list(&mut out, &list).unwrap();
+    let text = String::from_utf8(out).unwrap();
+    assert!(
+        text.contains("  testing (v1.2.0) [built-in ctxloom/default]\n"),
+        "{text}"
+    );
 }

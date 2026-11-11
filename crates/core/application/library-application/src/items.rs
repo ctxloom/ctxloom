@@ -234,6 +234,8 @@ impl Project {
         for entry in self.catalog.entries() {
             let executable = match self.catalog.origin(&entry.name) {
                 Some(origin) => origin.executable.clone(),
+                // A built-in bundle ships no executable file.
+                None if self.catalog.is_builtin(&entry.name) => Default::default(),
                 None => self
                     .content
                     .executable_files(&entry.name)

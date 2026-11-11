@@ -221,6 +221,7 @@ impl Project {
     fn bundle_remove(&self, name: &str, yes: bool) -> Result<Removal<BundleRemoved>, AppError> {
         self.require_project()?;
         let entry = self.bundle(name)?;
+        self.writable(&entry.name)?;
         if !yes {
             let b = &entry.bundle;
             let mut parts = Vec::new();
@@ -271,7 +272,7 @@ impl Project {
         } else {
             output.to_string()
         };
-        let plan = self.plan_of(&entry.name)?;
+        let plan = self.plan_to_read(&entry.name)?;
         let puts: Vec<Put> = plan
             .files()
             .iter()
@@ -329,7 +330,13 @@ impl Project {
                 cause: cause.to_string(),
             }
         })?;
-        let there = self.catalog.entries().iter().any(|e| e.name == name)
+        // A built-in bundle of the name is not there: the import makes the
+        // project's own, which overrides it.
+        let there = self
+            .catalog
+            .entries()
+            .iter()
+            .any(|e| e.name == name && !self.catalog.is_builtin(&name))
             || self.unreadable.contains_key(&name);
         let dest = self.content.bundle_dir(&name);
         if there && !force {

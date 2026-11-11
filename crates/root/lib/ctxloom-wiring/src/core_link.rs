@@ -67,6 +67,9 @@ impl<S: Store + Processed + ListStreams + Send + Sync> Stores for CoreStores<S> 
         Ok(Arc::clone(&self.0))
     }
 
+    // Equivalent to none here: the resume at start runs the policies' owed
+    // work, and the core registers aggregates alone.
+    #[cfg_attr(test, mutants::skip)]
     fn at_start(&self) -> Vec<()> {
         vec![()]
     }

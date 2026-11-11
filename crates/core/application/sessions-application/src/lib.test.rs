@@ -1536,6 +1536,7 @@ fn launched_child(svc: &mut Svc, owner: u8, child: u8, child_project: &str, harp
             },
             delegation_limit: 4,
             requester: None,
+            prompt: String::new(),
         },
     );
     let store = svc

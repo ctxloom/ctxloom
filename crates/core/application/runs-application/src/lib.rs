@@ -33,6 +33,7 @@ mod gate;
 mod hook_commands;
 mod hook_gate;
 mod identity;
+mod orchestrate_gate;
 mod requests;
 mod stamp;
 
@@ -48,8 +49,11 @@ pub use facts::{Fact, Facts, ModelFact, Recorded, RunnerFact};
 pub use feeds::{Cursor, Feeds, Follow};
 pub use gate::{owns, Allowlist, Credential, Gate, RunsGate};
 pub use hook_commands::{EdgeCommands, EdgeFailure};
-pub use hook_gate::{hook_allowlist, HookGate, HookIdentity};
+pub use hook_gate::{hook_allowlist, HookGate, HookIdentity, Scope};
 pub use identity::{Identity, Principal, Role};
+pub use orchestrate_gate::{
+    orchestration_scope, stamp_book, OrchestratorGate, OrchestratorIdentity,
+};
 pub use requests::{AgentRequest, AgentRequests, Requested};
 /// The edge port the listener serves the kernel through, for the driving adapter
 /// that holds one without depending on the ports.

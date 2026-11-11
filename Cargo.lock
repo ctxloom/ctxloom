@@ -1025,6 +1025,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "daemon-board"
+version = "0.1.0"
+dependencies = [
+ "angzarr-embedded",
+ "mutants",
+ "runs",
+ "sessions",
+ "uuid",
+]
+
+[[package]]
 name = "darling"
 version = "0.20.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3757,6 +3768,7 @@ name = "session-policies"
 version = "0.1.0"
 dependencies = [
  "angzarr-embedded",
+ "daemon-board",
  "mutants",
  "pending-messages",
  "runs",

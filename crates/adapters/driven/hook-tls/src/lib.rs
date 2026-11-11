@@ -53,11 +53,18 @@ pub struct Validity {
     pub not_after: i64,
 }
 
-/// The window of a certificate minted at `now`.
+/// The window of a run's certificate minted at `now`.
 pub fn validity(now: i64) -> Validity {
+    validity_for(now, LIFETIME_SECONDS)
+}
+
+/// The window of a certificate minted at `now` to last `lifetime` seconds
+/// (the user daemon's lasts about a month, D27:
+/// `run_ports::DAEMON_CERT_LIFETIME_SECONDS`).
+pub fn validity_for(now: i64, lifetime: i64) -> Validity {
     Validity {
         not_before: now.saturating_sub(BACKDATE_SECONDS),
-        not_after: now.saturating_add(LIFETIME_SECONDS),
+        not_after: now.saturating_add(lifetime),
     }
 }
 
@@ -67,8 +74,8 @@ fn date(seconds: i64, clock: i64) -> Result<OffsetDateTime, MintError> {
 }
 
 /// The parameters of a certificate for `names` valid in `window`.
-fn parameters(names: &CertNames, now: i64) -> Result<CertificateParams, MintError> {
-    let window = validity(now);
+fn parameters(names: &CertNames, now: i64, lifetime: i64) -> Result<CertificateParams, MintError> {
+    let window = validity_for(now, lifetime);
     let mut params = CertificateParams::default();
     params.not_before = date(window.not_before, now)?;
     params.not_after = date(window.not_after, now)?;
@@ -94,11 +101,18 @@ fn parameters(names: &CertNames, now: i64) -> Result<CertificateParams, MintErro
 #[derive(Debug)]
 pub struct Minter<C> {
     clock: C,
+    lifetime: i64,
 }
 
 impl<C: Clock> Minter<C> {
+    /// A mint of run certificates, each lasting [`LIFETIME_SECONDS`].
     pub fn new(clock: C) -> Minter<C> {
-        Minter { clock }
+        Minter::lasting(clock, LIFETIME_SECONDS)
+    }
+
+    /// A mint of certificates that last `lifetime` seconds.
+    pub fn lasting(clock: C, lifetime: i64) -> Minter<C> {
+        Minter { clock, lifetime }
     }
 }
 
@@ -107,7 +121,8 @@ impl<C: Clock> CertMint for Minter<C> {
         let generate = |e: rcgen::Error| MintError::Generate {
             ext_err_txt: e.to_string(),
         };
-        let params = parameters(names, self.clock.unix_seconds()).map_err(|e| Report::of(&e))?;
+        let params = parameters(names, self.clock.unix_seconds(), self.lifetime)
+            .map_err(|e| Report::of(&e))?;
         let key = KeyPair::generate().map_err(|e| Report::of(&generate(e)))?;
         let cert = params
             .self_signed(&key)

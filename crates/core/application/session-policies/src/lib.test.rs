@@ -225,6 +225,7 @@ fn launched() -> ChildLaunched {
         harp: "kid".to_string(),
         engine: "opencode".to_string(),
         depth: 1,
+        prompt: String::new(),
     }
 }
 

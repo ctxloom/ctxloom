@@ -78,6 +78,7 @@ fn launch(child: &str, requester: Option<&str>) -> LaunchChild {
         },
         delegation_limit: 4,
         requester: requester.map(at),
+        prompt: "port the parser".to_string(),
     }
 }
 
@@ -372,6 +373,7 @@ fn a_launch_records_the_child_on_the_owner() {
             harp: "child-harp".to_string(),
             engine: "claude-code".to_string(),
             depth: 1,
+            prompt: "port the parser".to_string(),
         })]
     );
     assert_eq!(

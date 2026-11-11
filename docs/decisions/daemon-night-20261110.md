@@ -109,3 +109,36 @@ Owner bypassed the unattended stop conditions on this branch for tonight (review
 
 ### D-N22. The stamping seam: `runs_application::stamped` and `Identity::requester`
 - **Decision:** `Identity::requester(project_id)` names the identity's session as a `SessionRef` (the listener knows the project from the store it serves); `stamped(command, &requester)` overwrites `requester` on `CloseSession`, `SendMessage`, `ClearChild`, `LaunchChild` and `StopSession` and leaves every other command as it was. The daemon's listener calls it on each command its ORCHESTRATION scope (D25) admits; that scope (which command types the hook or orchestrator credential may send) is the daemon part's: the gate's `Scope` lists only command types (S-f).
+
+## smashing-embargo (part 2): the daemon process and its wiring
+
+### D-N23. Discovery under the ctxloom HOME, a line codec in run-ports
+- **Decision:** the daemon's files live in `<home>/.ctxloom/daemon/`: `daemon.lock` (the election, the platform file lock) and `daemon.endpoint` (0600), whose text is `ctxloom-daemon 1` then `version`, `pid`, `endpoint` (`https://127.0.0.1:<port>`) and `cert` (the PUBLIC certificate, base64 DER) lines. `run_ports::Discovery::{encode, decode}` is pure; `decode` answers `None` for anything unreadable (a hook then falls back to its spawn environment).
+- **Alternatives:** `$XDG_RUNTIME_DIR/ctxloom/` (review S7: tests reach the developer's daemon); JSON (a serde dependency in a port); a typed decode error (nothing acts on the reason: a reader falls back either way).
+- **Why:** S7, and the hook's rediscovery (B1, D27) needs only "a daemon is here, at this endpoint, with this cert".
+
+### D-N24. The daemon's certificate: a month, minted again at every start
+- **Decision:** `hook_tls::Minter::lasting(clock, run_ports::DAEMON_CERT_LIFETIME_SECONDS)` (30 days) mints the daemon's certificate at each daemon start; the key lives in memory only (never on disk), so a restart has a new port AND a new certificate, and the discovery file is how clients and hooks learn both (D27). `Minter::new` (a run's, 24 h) is unchanged.
+- **Alternatives:** persist the key across restarts (a secret on disk; D27 leaves it open); rotate while running (a daemon that lives a month is idle-exited long before).
+- **Why:** no secret at rest; an idle exit bounds a daemon's life far below a month.
+
+### D-N25. `LaunchChild` carries the child's first task
+- **Decision:** `LaunchChild.prompt` / `ChildLaunched.prompt` (new fields): once the launch policy has minted the child, the plan sends it `SendMessage{wake, message_id = key = "launch:<child>"}`; an empty prompt sends nothing and the child waits for its first message.
+- **Alternatives:** the orchestrator sends the task after the launch (it cannot: the child is minted asynchronously by the daemon, and a send before the mint is `NoSession`); a separate command (two steps for one intent).
+- **Why:** one command launches a child WITH its task; the key makes it once-only.
+
+### D-N26. The daemon's board: a read model of whole session and run folds
+- **Decision:** `crates/core/read-model/daemon-board`: every session stream folded by `SessionAggregate::apply` and every run stream by `runs::apply` (as the gate's `run_state` does), plus what their states forget: an owner's `ChildLaunched` events (harp, engine, prompt), a session's `MessageSent` texts (the turn handed to a child needs them after `TurnQueued` consumed the pending message), its `ClearRequested` ids, and a run's ENDED turns (for the notice). Held in memory, rebuilt from 0 by each daemon (S-d).
+- **Alternatives:** the session index (it projects transcripts too: wasted work per tick, and no run state); reading each stream through the edge per tick (O(streams) reads every poll).
+- **Why:** the plan decides from the aggregates' own folds, never from a second interpretation of the events.
+
+### D-N27. The policy runner is one pure `plan` over owed state; steps are keyed and done once per process
+- **Decision:** `session_policies::plan(Scene{project_id, board, pending, hosted, done}) -> Vec<Step>`: `Send` (a keyed command or fact), `Launch` (claim+mint, else the compensation fact), `Start`, `Feed`, `Clear`, `End`. It is RECONCILIATION over state, not reaction to an event's arrival: e.g. the cascade is "a closed session still holding a child", child-ended "a closed child its owner still holds", the launch "a held child whose session the store lacks". The daemon marks a step's key done when it took effect (applied, duplicate or refused for good), so a step is not retried in the process; a restart re-plans from 0 and the keyed commands are DUPLICATE (S-d).
+- **Turn notices (added):** each turn a child's run ENDED is told to its owner, `notice:<child>:<incarnation>:<turn>` (message id = key), "child <harp> finished|failed its turn for <ids>". The existing `notice` (on `IncarnationEnded`) is not used yet: a long-lived child's incarnation ends only when it is closed, which tells the owner nothing it did not do itself.
+- **Supported urgencies:** a daemon-hosted claude child takes inform, wake and steer; a primary takes only inform (no `Wake` port yet, D7), so its notices are PENDING informs, visible in `session show` (D30).
+- **Scope:** only the project's own sessions: a cross-project child or owner (D19) is a deferral.
+
+### D-N28. The orchestration scope is a second gate, `OrchestratorGate`, for the daemon's listener
+- **Decision:** `runs_application::OrchestratorGate` identifies a run's HOOK bearer exactly as `HookGate` does, then reads the bearer's session: the identity is `{hook, requester: SessionRef{project_id, session}, children}`; the allowlist is the capture facts plus the commands `SendMessage`, `CloseSession`, `ClearChild`, `LaunchChild`; `owns` is the bearer's own session stream or a child's it holds (its folded `children`, same project); `stamp` (angzarr's `Gate::stamp`) replaces the requester of those commands with the identity's (`runs_application::stamped`). `HookListener::serve_tcp_gated` serves any gate; the per-run listener keeps `HookGate` (capture only), unchanged.
+- **Alternatives:** widen `HookGate` itself (every run's own listener would take orchestration commands); a separate orchestrator bearer (a fourth credential; D25 says the orchestrator IS the owner agent, whose credential is its run's).
+- **Residual (accepted):** the owner's credential reaches its children's streams for capture facts too, so an owner agent can forge capture facts into its own child's transcript (same user, ruling 37).

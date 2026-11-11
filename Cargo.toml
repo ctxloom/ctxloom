@@ -85,6 +85,7 @@ scheduler-fixture = { path = "crates/core/domain/scheduler-fixture" }
 scheduler-due = { path = "crates/core/read-model/scheduler-due" }
 pending-launches = { path = "crates/core/read-model/pending-launches" }
 pending-messages = { path = "crates/core/read-model/pending-messages" }
+daemon-board = { path = "crates/core/read-model/daemon-board" }
 trees = { path = "crates/core/domain/trees" }
 run-ports = { path = "crates/core/ports/run-ports" }
 runs-application = { path = "crates/core/application/runs-application" }

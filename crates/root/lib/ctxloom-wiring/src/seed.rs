@@ -135,6 +135,7 @@ impl Wiring {
                 },
                 started_at: Some(started),
                 depth: 0,
+                owner: None,
             }
             .into(),
         )

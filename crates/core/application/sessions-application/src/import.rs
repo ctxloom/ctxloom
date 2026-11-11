@@ -376,6 +376,7 @@ fn commands(
             origin,
             started_at: Some(entry.started_at),
             depth: 0,
+            owner: None,
         }
         .into_input(),
     )];

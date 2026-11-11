@@ -43,3 +43,36 @@ Owner bypassed the unattended stop conditions on this branch for tonight (review
 - **Decision:** add `Json::compact()` (serde_json's one-line writer) beside `pretty()`, for JSON-lines.
 - **Alternatives:** a serde_json dependency in engine-claude; hand-escaping strings.
 - **Why:** the one JSON value type the adapters already share.
+
+## smashing-embargo (part 1): the daemon's domain model (D28)
+
+### D-N9. The requester: a stamped `optional SessionRef`; absent is the user
+- **Decision:** every command the owner rule guards (`CloseSession`, `SendMessage`, `ClearChild`, `LaunchChild`, and `StopSession` now) carries `optional SessionRef requester {project_id, session}`, which the listener STAMPS from the credential (S-f). Absent means the USER: the human at the CLI, or a policy of the user's daemon acting with the user's authority (ruling 37: the user boundary is the trust boundary). A session requester is allowed only when it is the target's recorded `owner` (for `LaunchChild`: the owner session itself, its own stream root and project).
+- **Alternatives:** a separate principal enum (user, owner, policy) in each command (more surface; the listener knows only the credential's session); letting the target session act on itself (D25 names only the owner; a session closing itself is the human's or its owner's call).
+- **Why:** the domain rule is one comparison against the folded state, and a command that names no session cannot be forged by a model (the listener always stamps a session credential's session).
+
+### D-N10. `StopSession` reconciled with D25 (S-f)
+- **Decision:** `StopSession` gains the stamped `requester`. When it names a session, the owner rule decides (the owner stops its own child whatever the child's depth; any other session is `NotOwner`). When it names none, Go's I2 depth rule stands (`requester_depth > 0` is `ChildCannotStop`), so today's callers (the run application stamps `requester_depth` only) behave exactly as before.
+- **Alternatives:** drop `ChildCannotStop` (breaks the runs application's admission, which stamps depth from the run identity); refuse every child requester even when it is the owner (contradicts D25's orchestration scope for a grandchild owner).
+
+### D-N11. The close is `CloseSession` → `SessionClosed`, a refusal named `SessionIsClosed`
+- **Decision:** `CloseSession{cause, requester}` emits `SessionClosed{cause}` once; a second close records nothing. The state keeps `closed` and `closed_cause`. The refusal for "this session is closed" is the message `SessionIsClosed` (code `sessions-session-closed`) because the event already owns the name `SessionClosed`. `SendMessage` and `ClearChild` refuse it; `LaunchChild` on a closed owner refuses `OwnerClosed`. `BindEngineSession`, the capture facts, keep, rename and the incarnation end still record on a closed session (they report what already happened while it wound down). A close stops no run itself: a policy on `SessionClosed` ordering `RequestStop` on its runs is the daemon part's.
+- **Why:** K1's terminal state with the smallest change to what facts record.
+
+### D-N12. One message, `SendMessage` → `MessageSent`, its command id from `message_id`
+- **Decision:** `SendMessage{message_id, urgency, text, requester, supported}`. `supported` (the recipient engine's urgencies, asked by the sender's application) is the capability EVIDENCE; an urgency not in it (and so every urgency when it is empty) is `UrgencyUnsupported` (fail closed; S-c). `MessageSent` records `sender = requester`. The command id is `sessions::command_id(message_id)`: UUIDv5 in a fixed namespace, UUIDv5(URL, `ctxloom:command`), of the key text; `sessions::keyed_book` builds the book for any domain's command, and every policy key below goes through it.
+- **Urgency enum:** `URGENCY_UNSPECIFIED` is not a domain value (the markup drops it; a wire message carrying it does not decode), so there is no `unspecified` word.
+- **Why:** D28's sheet (command id = message_id) with angzarr's UUID command ids.
+
+### D-N13. A wake owes an incarnation through a continuation step
+- **Decision:** a wake to an open, unstopped session with no open incarnation emits `MessageSent` then `IncarnationOwed{incarnation + 1, reason: "wake"}` in ONE decision (M2), as an `Emit` whose continuation returns the owed event. A wake to a stopped session owes nothing (the stop flag's meaning is unchanged). An inform never owes one (D30). No relaunch budget, backoff or `RelaunchWithheld` yet (deferred: M2's budget needs the scheduler, the daemon part's).
+- **Alternatives:** a separate `OweIncarnation` command from a policy (two decisions: a crash between them leaves a wake with nothing to run it).
+
+### D-N14. The owner link lives on both streams; `Child` is hand-written state
+- **Decision:** `MintSession{owner}` / `SessionMinted{owner}` record the child's owner; the owner's stream records `ChildLaunched{child: SessionRef, child_root, harp, engine, depth = owner's + 1}` and folds `children` (launched minus `ChildEnded`, `ChildForgotten`, `ChildLaunchFailed`). `Child{session, root}` is hand-written in `state.rs` (the markup generates a type only for a message a command or event carries).
+- **LaunchChild's checks, in order:** `NoSession`, `NotOwner` (only the owner session itself or the user), `OwnerClosed`, `NoOpenIncarnation`, `DelegationLimit` (the command's `delegation_limit` is the config's evidence; fail closed: 0 allows none; open children counted from the fold), `UntrustedTarget` (another project, `trust.trusted` false). The child's stable id and harp are the caller's (minting is random; decide is deterministic).
+- **The owner's bookkeeping:** `EndChild{child, cause}` → `ChildEnded`, `ForgetChild{child}` → `ChildForgotten` (commands, refusing `NoSession` only; a child the owner does not hold records nothing, so two policies racing to forget and end the same child record one event between them), and the fact `RecordChildLaunchFailed{child, reason}` → `ChildLaunchFailed` (K2's compensation; `reason` is a refusal code, never a secret, M4).
+- **Status choices:** `NotOwner` PERMISSION_DENIED; `SessionIsClosed`, `OwnerClosed`, `NoOpenIncarnation`, `DelegationLimit`, `UntrustedTarget` and `UrgencyUnsupported` FAILED_PRECONDITION (state or capability forbids, not a malformed argument).
+
+### D-N15. `ClearChild` → `ClearRequested{clear_id}` on the child
+- **Decision:** the clear names a `clear_id` (the requester's), keyed `clear:<session>:<clear_id>`; refused `NoSession`, `SessionIsClosed`, `NotOwner`. The rotation itself stays `BindEngineSession` (the driver maps `conversation_reset`), unchanged.

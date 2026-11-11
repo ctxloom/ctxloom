@@ -164,6 +164,30 @@ impl Session {
         }
     }
 
+    /// Send `command` under the command id keyed `key` (`crate::keyed_book`):
+    /// the events it recorded, `None` for a DUPLICATE, or its refusal.
+    pub(crate) fn keyed(
+        &mut self,
+        command: &impl DomainMessage,
+        key: &str,
+    ) -> Result<Option<Vec<SessionEvent>>, Said> {
+        let book = crate::keyed_book(cover(), command, key);
+        match self.harness.when_book(book).handled() {
+            Ok(angzarr_embedded::Handled::Applied(recorded)) => Ok(Some(
+                recorded
+                    .books()
+                    .iter()
+                    .filter(|book| book.cover.as_ref() == Some(&cover()))
+                    .flat_map(|book| &book.pages)
+                    .map(|page| SessionEvent::from_any(event_any(page)).unwrap())
+                    .collect(),
+            )),
+            Ok(angzarr_embedded::Handled::Duplicate(..)) => Ok(None),
+            Err(Failure::Rejected(rejected)) => Err(said(&refused(&rejected))),
+            Err(other) => panic!("not a rejection: {other:?}"),
+        }
+    }
+
     /// The pages stored, oldest first.
     pub(crate) fn pages(&self) -> Vec<EventPage> {
         self.harness.pages()
@@ -185,6 +209,7 @@ pub(crate) fn mint(harp: &str) -> MintSession {
         origin: Origin::Session,
         started_at: None,
         depth: 0,
+        owner: None,
     }
 }
 

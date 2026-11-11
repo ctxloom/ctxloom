@@ -155,6 +155,7 @@ pub async fn enqueued_by(edge: &TestEdge, session: &str, harp: &str, launcher_lo
         origin: Origin::Oneshot,
         started_at: None,
         depth: 0,
+        owner: None,
     }
     .into();
     edge.handle(command_book(session_cover(session), mint.to_any()))

@@ -51,6 +51,7 @@ fn a_mint_records_the_sessions_depth() {
     session
         .run(MintSession {
             depth: 2,
+            owner: None,
             ..mint(crate::aggregate::tests::HARP)
         })
         .unwrap();
@@ -84,6 +85,7 @@ fn a_stop_ordered_after_the_end_still_sets_the_flag() {
         .run(StopSession {
             requester_depth: 0,
             reason: "user".to_string(),
+            requester: None,
         })
         .unwrap();
     assert_eq!(
@@ -131,6 +133,7 @@ fn a_stop_ordered_by_a_child_is_refused() {
         .run(StopSession {
             requester_depth: 2,
             reason: "x".to_string(),
+            requester: None,
         })
         .unwrap_err();
     assert_eq!(code, "sessions-child-cannot-stop");
@@ -145,6 +148,7 @@ fn a_second_stop_order_records_nothing() {
     let stop = StopSession {
         requester_depth: 0,
         reason: "u".to_string(),
+        requester: None,
     };
     assert_eq!(session.run(stop.clone()).unwrap().len(), 1);
     assert!(session.run(stop).unwrap().is_empty());

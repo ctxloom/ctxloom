@@ -8,6 +8,7 @@ fn main() -> Result<(), angzarr_build::BuildError> {
             "ctxloom/sessions/v1/sessions.proto",
             "ctxloom/sessions/v1/names.proto",
             "ctxloom/sessions/v1/capture.proto",
+            "ctxloom/sessions/v1/daemon.proto",
         ],
         &["../../../../proto"],
         &[("ctxloom.sessions.v1", "::sessions_proto::v1")],

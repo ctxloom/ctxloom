@@ -868,6 +868,7 @@ fn an_internal_one_shot_is_reclaimable_at_any_age() {
             origin: sessions::Origin::Oneshot,
             started_at: None,
             depth: 0,
+            owner: None,
         },
     );
     ended(store, 1, NOW - HOUR, NOW - HOUR);
@@ -1202,6 +1203,7 @@ fn a_session_with_no_output_folder_renames_without_moving_one() {
             origin: sessions::Origin::Session,
             started_at: None,
             depth: 0,
+            owner: None,
         },
     );
     let renamed = ready(svc.rename(rename("amber-swift-owl", "bright-keen-hawk"))).unwrap();

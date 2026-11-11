@@ -50,6 +50,7 @@ async fn world() -> (Store, Arc<TheEdge>) {
         origin: sessions::Origin::Session,
         started_at: None,
         depth: 0,
+        owner: None,
     };
     edge.handle(angzarr_embedded::v1::CommandBook::command_of(
         session_cover(),

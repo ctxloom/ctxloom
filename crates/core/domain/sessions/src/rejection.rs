@@ -30,6 +30,21 @@ pub enum SessionRejection {
     ChildCannotStop { depth: u64 },
     /// A rename of a live session: its lock is held (owner ruling 91).
     SessionLive { harp: String },
+    /// A command from a session that is not the target's owner (D25, S-f);
+    /// `requester` is its stable id.
+    NotOwner { requester: String },
+    /// A message, a clear or a wake to a closed session (K1).
+    SessionClosed { harp: String },
+    /// A child launched by a closed owner.
+    OwnerClosed { harp: String },
+    /// A child launched by an owner with no incarnation running.
+    NoOpenIncarnation { harp: String },
+    /// A child past the owner's delegation limit.
+    DelegationLimit { limit: u64, open: u64 },
+    /// A child in another repository that has not passed the trust check.
+    UntrustedTarget { root: String },
+    /// An urgency the recipient's engine cannot honour (S-c).
+    UrgencyUnsupported { urgency: String },
 }
 
 /// Its key and args, never English (angzarr decision 14.37).
@@ -51,6 +66,13 @@ impl Diagnostic for SessionRejection {
             SessionRejection::NotHolder { .. } => code!("not-holder"),
             SessionRejection::ChildCannotStop { .. } => code!("child-cannot-stop"),
             SessionRejection::SessionLive { .. } => code!("session-live"),
+            SessionRejection::NotOwner { .. } => code!("not-owner"),
+            SessionRejection::SessionClosed { .. } => code!("session-closed"),
+            SessionRejection::OwnerClosed { .. } => code!("owner-closed"),
+            SessionRejection::NoOpenIncarnation { .. } => code!("no-open-incarnation"),
+            SessionRejection::DelegationLimit { .. } => code!("delegation-limit"),
+            SessionRejection::UntrustedTarget { .. } => code!("untrusted-target"),
+            SessionRejection::UrgencyUnsupported { .. } => code!("urgency-unsupported"),
         }
     }
 
@@ -59,7 +81,20 @@ impl Diagnostic for SessionRejection {
             SessionRejection::SessionExists { harp }
             | SessionRejection::NamesTaken { harp }
             | SessionRejection::NotHolder { harp }
-            | SessionRejection::SessionLive { harp } => vec![("harp", harp.as_str().into())],
+            | SessionRejection::SessionLive { harp }
+            | SessionRejection::SessionClosed { harp }
+            | SessionRejection::OwnerClosed { harp }
+            | SessionRejection::NoOpenIncarnation { harp } => vec![("harp", harp.as_str().into())],
+            SessionRejection::NotOwner { requester } => {
+                vec![("requester", requester.as_str().into())]
+            }
+            SessionRejection::DelegationLimit { limit, open } => {
+                vec![("limit", (*limit).into()), ("open", (*open).into())]
+            }
+            SessionRejection::UntrustedTarget { root } => vec![("root", root.as_str().into())],
+            SessionRejection::UrgencyUnsupported { urgency } => {
+                vec![("urgency", urgency.as_str().into())]
+            }
             SessionRejection::HarpInvalid { harp, reason } => vec![
                 ("harp", harp.as_str().into()),
                 ("reason", reason.as_str().into()),
@@ -108,6 +143,19 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(SessionRejection::ChildCannotStop { depth: 1 }),
         Box::new(SessionRejection::SessionLive {
             harp: "amber-swift-owl".to_string(),
+        }),
+        Box::new(SessionRejection::NotOwner {
+            requester: "0b0e5f4e-7c1d-4f6a-9d3e-2a1b0c9d8e7f".to_string(),
+        }),
+        Box::new(SessionRejection::SessionClosed { harp: harp() }),
+        Box::new(SessionRejection::OwnerClosed { harp: harp() }),
+        Box::new(SessionRejection::NoOpenIncarnation { harp: harp() }),
+        Box::new(SessionRejection::DelegationLimit { limit: 2, open: 2 }),
+        Box::new(SessionRejection::UntrustedTarget {
+            root: "/work/other".to_string(),
+        }),
+        Box::new(SessionRejection::UrgencyUnsupported {
+            urgency: "steer".to_string(),
         }),
     ]
 }

@@ -128,6 +128,7 @@ async fn a_command_envelope_of_any_type_is_refused_on_the_agent_listener() {
                 sessions::StopSession {
                     requester_depth: 0,
                     reason: "as a generic command".to_string(),
+                    requester: None,
                 },
             ),
         ];

@@ -53,6 +53,46 @@ fn table() -> Vec<(TypedRefusal, SessionRejection)> {
             TypedRefusal::of(&ChildCannotStop { depth: 2 }),
             SessionRejection::ChildCannotStop { depth: 2 },
         ),
+        (
+            TypedRefusal::of(&NotOwner {
+                requester: "r".to_string(),
+            }),
+            SessionRejection::NotOwner {
+                requester: "r".to_string(),
+            },
+        ),
+        (
+            TypedRefusal::of(&SessionIsClosed { harp: harp() }),
+            SessionRejection::SessionClosed { harp: harp() },
+        ),
+        (
+            TypedRefusal::of(&OwnerClosed { harp: harp() }),
+            SessionRejection::OwnerClosed { harp: harp() },
+        ),
+        (
+            TypedRefusal::of(&NoOpenIncarnation { harp: harp() }),
+            SessionRejection::NoOpenIncarnation { harp: harp() },
+        ),
+        (
+            TypedRefusal::of(&DelegationLimit { limit: 1, open: 1 }),
+            SessionRejection::DelegationLimit { limit: 1, open: 1 },
+        ),
+        (
+            TypedRefusal::of(&UntrustedTarget {
+                root: "/o".to_string(),
+            }),
+            SessionRejection::UntrustedTarget {
+                root: "/o".to_string(),
+            },
+        ),
+        (
+            TypedRefusal::of(&UrgencyUnsupported {
+                urgency: "steer".to_string(),
+            }),
+            SessionRejection::UrgencyUnsupported {
+                urgency: "steer".to_string(),
+            },
+        ),
     ]
 }
 

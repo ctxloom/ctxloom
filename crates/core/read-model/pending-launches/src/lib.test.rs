@@ -370,6 +370,7 @@ fn minted(n: u8, harp: &str, renamed: Option<&str>) -> EventBook {
             origin: sessions::Origin::Session,
             started_at: None,
             depth: 0,
+            owner: None,
         })
         .to_any(),
     )];

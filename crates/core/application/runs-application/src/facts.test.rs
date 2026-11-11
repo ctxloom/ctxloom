@@ -377,6 +377,7 @@ async fn every_agent_fact_applies_in_every_state() {
                 let stop = sessions::StopSession {
                     requester_depth: 0,
                     reason: "x".to_string(),
+                    requester: None,
                 };
                 world
                     .edge

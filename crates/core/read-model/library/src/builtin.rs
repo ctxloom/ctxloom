@@ -18,30 +18,33 @@ use crate::catalog::Entry;
 use crate::tree::{self, Files};
 
 /// The name the built-in origin is shown under.
-pub const ORIGIN: &str = "ctxloom/default";
+pub const ORIGIN: &str = "ctxloom/builtin";
 
 /// The one built-in bundle's name.
 pub const BUNDLE: &str = "ctxloom";
 
-/// The setup interview, `ctxloom#prompts/setup-interview`: the owner's
-/// words, used as they are.
+/// The setup interview as it ships, `ctxloom#prompts/setup-interview`: the
+/// owner's words, used as they are. An activity reads it through the catalog
+/// (ruling 128), where a project bundle of [`BUNDLE`]'s name overrides it.
 pub const SETUP_INTERVIEW: &str =
     include_str!("../resources/builtin/ctxloom/prompts/setup-interview.md");
 
-/// RED (ruling 128): the setup interview's name in [`BUNDLE`].
-pub const SETUP_INTERVIEW_NAME: &str = "";
+/// The setup interview's name in [`BUNDLE`]: what init reads through the
+/// catalog (ruling 128).
+pub const SETUP_INTERVIEW_NAME: &str = "setup-interview";
 
-/// RED (ruling 128): the distill prompt's name in [`BUNDLE`].
-pub const DISTILL_NAME: &str = "";
+/// The distill prompt's name in [`BUNDLE`]: what distill will read through
+/// the catalog (ruling 128).
+pub const DISTILL_NAME: &str = "distill";
 
-/// The distill prompt, `ctxloom#prompts/distill`: the owner's own text
-/// (ruling 123).
+/// The distill prompt as it ships, `ctxloom#prompts/distill`: the owner's
+/// own text (ruling 123), read through the catalog as the interview is.
 pub const DISTILL_PROMPT: &str = include_str!("../resources/builtin/ctxloom/prompts/distill.md");
 
 /// Where a built-in bundle's manifest is said to be: no file of the project's
 /// or the home's, so nothing reads it as one.
 pub fn manifest_path(bundle: &str) -> String {
-    format!("<built-in {ORIGIN}>/{bundle}/bundle.yaml")
+    format!("<built-in>/{bundle}/bundle.yaml")
 }
 
 macro_rules! bundle {

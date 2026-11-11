@@ -268,19 +268,6 @@ pub struct ProfileRow {
     pub is_remote: bool,
     #[serde(skip_serializing_if = "no_text")]
     pub bundle: String,
-    /// The built-in origin a profile ctxloom ships is listed under, as its
-    /// bundle is (`ctxloom/default`); empty for any other.
-    #[serde(skip_serializing_if = "no_text")]
-    pub origin: String,
-}
-
-/// An item as a listing names it: a built-in one by its bundle's name, under
-/// the built-in origin (as `bundle list` names the bundle); any other by its
-/// reference, with no origin.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Listed {
-    pub name: String,
-    pub origin: String,
 }
 
 /// What `profile list` answers.
@@ -529,9 +516,6 @@ pub struct DryRun {
     pub engine: String,
     pub profiles: Vec<String>,
     pub fragments: Vec<String>,
-    /// `fragments` as a listing names them (the text's list).
-    #[serde(skip)]
-    pub fragments_listed: Vec<Listed>,
     pub context: String,
     pub tokens: u64,
     #[serde(skip_serializing_if = "no_text")]

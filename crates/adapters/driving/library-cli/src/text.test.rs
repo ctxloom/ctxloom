@@ -173,39 +173,12 @@ fn test_a_profile_listing_summarizes_each_profile() {
             path: String::new(),
             is_remote: false,
             bundle: "ctxloom+local:project".to_string(),
-            origin: String::new(),
         }],
         hint: String::new(),
     };
     assert_eq!(
         shown(|out| profile_list(out, &list)),
         "Profiles (1):\n  dev (default)\n    dev profile\n    from bundle: ctxloom+local:project, parents: base, 1 bundles\n"
-    );
-}
-
-// hand-test 2 2026-11-11: a built-in profile is named as `bundle list` names
-// its bundle, under the built-in origin.
-#[test]
-fn test_a_profile_listing_names_a_built_in_profile_under_its_origin() {
-    let list = ProfileList {
-        rows: vec![ProfileRow {
-            name: "ai-developer#profiles/developer".to_string(),
-            display_name: "developer".to_string(),
-            description: String::new(),
-            parents: Vec::new(),
-            tags: Vec::new(),
-            bundles: vec!["testing".to_string()],
-            default: false,
-            path: String::new(),
-            is_remote: false,
-            bundle: "ai-developer".to_string(),
-            origin: "ctxloom/default".to_string(),
-        }],
-        hint: String::new(),
-    };
-    assert_eq!(
-        shown(|out| profile_list(out, &list)),
-        "Profiles (1):\n  ai-developer#profiles/developer [built-in ctxloom/default]\n    from bundle: ai-developer, 1 bundles\n"
     );
 }
 
@@ -846,13 +819,6 @@ fn test_search_results_group_by_kind_and_show_tags_and_source() {
     assert_eq!(shown(|out| search(out, &none)), "No results found.\n");
 }
 
-fn listed(name: &str, origin: &str) -> library_application::Listed {
-    library_application::Listed {
-        name: st(name),
-        origin: st(origin),
-    }
-}
-
 fn plan() -> DryRun {
     DryRun {
         agent: st("dev"),
@@ -861,7 +827,6 @@ fn plan() -> DryRun {
         engine: st("claude-code"),
         profiles: sv(&["p"]),
         fragments: sv(&["f1", "f2"]),
-        fragments_listed: vec![listed("f1", ""), listed("f2", "")],
         context: st("CTX"),
         tokens: 7,
         prompt: st("go"),
@@ -887,7 +852,6 @@ fn test_a_dry_run_prints_its_sections_and_names_the_empty_ones() {
         agent: String::new(),
         profiles: Vec::new(),
         fragments: Vec::new(),
-        fragments_listed: Vec::new(),
         context: String::new(),
         prompt: String::new(),
         ..plan()
@@ -895,28 +859,6 @@ fn test_a_dry_run_prints_its_sections_and_names_the_empty_ones() {
     assert_eq!(
         shown(|out| dry_run(out, &empty)),
         "=== Engine ===\nclaude-code\n\n=== Profiles ===\n(no profiles)\n\n=== Fragments Loaded ===\n(no fragments)\n\n=== Assembled Context (~7 tokens) ===\n(no context)\n\n=== Prompt ===\n(interactive mode)\n"
-    );
-}
-
-// hand-test 2 2026-11-11: a built-in fragment is listed as `bundle list`
-// names its bundle, under the built-in origin.
-#[test]
-fn test_a_dry_run_lists_a_built_in_fragment_under_its_origin() {
-    let built_in = DryRun {
-        fragments: sv(&[
-            "ctxloom+local:testing#fragments/tdd",
-            "ctxloom+local:project#fragments/f",
-        ]),
-        fragments_listed: vec![
-            listed("testing#fragments/tdd", "ctxloom/default"),
-            listed("ctxloom+local:project#fragments/f", ""),
-        ],
-        ..plan()
-    };
-    assert!(
-        shown(|out| dry_run(out, &built_in)).contains(
-            "=== Fragments Loaded ===\n  testing#fragments/tdd [built-in ctxloom/default]\n  ctxloom+local:project#fragments/f\n\n"
-        )
     );
 }
 

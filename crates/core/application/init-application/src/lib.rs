@@ -202,9 +202,7 @@ impl Init {
 
 /// `init prompt`: the interview body, as Go prints it (a line after it).
 pub fn prompt(prompts: &dyn Prompts) -> Result<String, PromptFailure> {
-    // RED: the port is not read.
-    let _ = prompts;
-    Ok(String::new())
+    Ok(format!("{}\n", prompts.setup_interview()?))
 }
 
 #[cfg(test)]

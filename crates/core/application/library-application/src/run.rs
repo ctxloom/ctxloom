@@ -344,7 +344,6 @@ impl Project {
                 .unwrap_or_default(),
             engine,
             profiles: package.selection.profiles.clone(),
-            fragments_listed: package.loaded.iter().map(|f| self.listed(f)).collect(),
             fragments: package.loaded.clone(),
             tokens: tokens::estimate(&package.context) as u64,
             context: package.context,

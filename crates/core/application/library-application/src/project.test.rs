@@ -366,7 +366,7 @@ fn test_a_project_bundle_of_the_name_lacking_the_prompt_is_refused() {
     assert_eq!(e.exit_code(), 2);
     assert_eq!(
         e.english(),
-        "the project's bundle \"ctxloom\" overrides ctxloom's built-in one whole, and has no prompt \"distill\""
+        "the project's bundle \"ctxloom\" (/p/.ctxloom/content/bundles/v2/ctxloom) overrides ctxloom's built-in one whole, and has no prompt \"distill\""
     );
 }
 

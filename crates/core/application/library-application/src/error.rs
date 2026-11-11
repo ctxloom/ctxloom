@@ -174,6 +174,7 @@ impl AppError {
             | AppError::ConfigBreaksSchema { .. }
             | AppError::RunNeedsDryRun
             | AppError::SearchRemote
+            | AppError::OperationalPromptMissing { .. }
             | AppError::Workspace { .. } => 2,
             AppError::StartupAborted { .. } => 3,
             _ => 1,

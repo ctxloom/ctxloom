@@ -68,7 +68,7 @@ fn bundle_entry(out: &mut dyn Write, row: &BundleRow) -> io::Result<()> {
         write!(out, " [held]")?;
     }
     if !row.origin.is_empty() {
-        write!(out, " [built-in {}]", f(&row.origin))?;
+        write!(out, " [built-in]")?;
     }
     writeln!(out)?;
     if !row.description.is_empty() {
@@ -353,9 +353,6 @@ pub fn profile_list(out: &mut dyn Write, list: &ProfileList) -> io::Result<()> {
         write!(out, "  {}", row.name)?;
         if row.default {
             write!(out, " (default)")?;
-        }
-        if !row.origin.is_empty() {
-            write!(out, " [built-in {}]", f(&row.origin))?;
         }
         writeln!(out)?;
         if !row.description.is_empty() {
@@ -919,18 +916,7 @@ pub fn dry_run(out: &mut dyn Write, plan: &DryRun) -> io::Result<()> {
     writeln!(out, "\n=== Profiles ===")?;
     listed(out, &plan.profiles, "(no profiles)")?;
     writeln!(out, "\n=== Fragments Loaded ===")?;
-    let fragments: Vec<String> = plan
-        .fragments_listed
-        .iter()
-        .map(|item| {
-            if item.origin.is_empty() {
-                item.name.clone()
-            } else {
-                format!("{} [built-in {}]", item.name, f(&item.origin))
-            }
-        })
-        .collect();
-    listed(out, &fragments, "(no fragments)")?;
+    listed(out, &plan.fragments, "(no fragments)")?;
     writeln!(out, "\n=== Assembled Context (~{} tokens) ===", plan.tokens)?;
     if plan.context.is_empty() {
         writeln!(out, "(no context)")?;

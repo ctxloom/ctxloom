@@ -113,9 +113,13 @@ pub fn interview(
             notices: Vec::new(),
         });
     }
-    // RED: the port is not read.
-    let _ = prompts;
-    let mut ended = sessions.interview("")?;
+    // Read as the project is now, after the scaffold; a refusal launches
+    // nothing and asks nothing.
+    let opening = prompts.setup_interview().map_err(|refused| LaunchFailure {
+        cause: refused.cause,
+        exit: refused.exit,
+    })?;
+    let mut ended = sessions.interview(&opening)?;
     let mut notices = std::mem::take(&mut ended.notices);
     let outcome = if !ended.clean() {
         Outcome::Interrupted { code: ended.code }

@@ -128,7 +128,7 @@ fn doctor_with(mem: &Arc<Mem>, git: bool, identity: bool, token: bool) -> Doctor
         Arc::new(Git(git)),
         Arc::new(Identity(identity)),
         Auth::new(Arc::new(Token(token))),
-        "/home/u",
+        Some("/home/u"),
         "0.1.0",
     )
 }
@@ -458,4 +458,37 @@ fn a_private_state_pattern_left_out_is_named() {
     assert_eq!(check.status, Status::Warn);
     assert!(check.detail.contains("/sessions"), "{}", check.detail);
     assert!(!check.detail.contains("/cache"), "{}", check.detail);
+}
+
+// With no HOME of hers known, none of her files is read: never a fallback to
+// another home (CTXLOOM_HOME's), which is the two-homes defect.
+#[test]
+fn without_her_home_none_of_her_files_is_read() {
+    let mem = project();
+    let stale =
+        r#"{"hooks":{"SessionStart":[{"hooks":[{"command":"ctxloom hook inject-context abc"}]}]}}"#;
+    mem.files.lock().unwrap().insert(
+        "/home/u/.claude/settings.json".to_string(),
+        stale.to_string(),
+    );
+    let doctor = Doctor::new(
+        mem.clone(),
+        mem.clone(),
+        Arc::new(Git(true)),
+        Arc::new(Identity(true)),
+        Auth::new(Arc::new(Token(true))),
+        None,
+        "0.1.0",
+    );
+    let report = doctor.report(false);
+    assert_eq!(status(&report, "DOCTOR-CHECK-STALE-HOOKS-n5"), Status::Ok);
+    assert!(report
+        .checks
+        .iter()
+        .all(|c| !c.detail.contains("~/.claude")));
+    assert!(doctor_with(&mem, true, true, true)
+        .report(false)
+        .checks
+        .iter()
+        .any(|c| c.marker == "DOCTOR-CHECK-STALE-HOOKS-n5" && c.status == Status::Warn));
 }

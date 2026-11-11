@@ -283,7 +283,7 @@ fn go_with(
         Arc::new(Git),
         Arc::new(Git),
         Auth::new(world.clone()),
-        "/home/u",
+        Some("/home/u"),
         "0.1.0",
     );
     let deps = Rc::new(fixture.deps);
@@ -718,7 +718,7 @@ fn a_noun_the_line_does_not_carry_is_a_usage_failure() {
         Arc::new(Git),
         Arc::new(Git),
         Auth::new(world.clone()),
-        "/h",
+        Some("/h"),
         "0",
     );
     let deps = Rc::new(fixture.deps);

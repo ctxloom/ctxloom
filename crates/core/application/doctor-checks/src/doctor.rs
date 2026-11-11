@@ -39,7 +39,10 @@ pub struct Doctor {
     executables: Arc<dyn Executables>,
     identity: Arc<dyn GitIdentity>,
     auth: Auth,
-    home: String,
+    /// The user's own `HOME`, where her engine files are (never ctxloom's
+    /// home, which `CTXLOOM_HOME` may put elsewhere); none when unset, and
+    /// then none of her files is read.
+    user_home: Option<String>,
     version: String,
 }
 
@@ -50,7 +53,7 @@ impl Doctor {
         executables: Arc<dyn Executables>,
         identity: Arc<dyn GitIdentity>,
         auth: Auth,
-        home: &str,
+        user_home: Option<&str>,
         version: &str,
     ) -> Doctor {
         Doctor {
@@ -59,7 +62,7 @@ impl Doctor {
             executables,
             identity,
             auth,
-            home: home.to_string(),
+            user_home: user_home.map(str::to_string),
             version: version.to_string(),
         }
     }
@@ -101,10 +104,12 @@ impl Doctor {
                 paths.push((name.to_string(), format!("{root}/{name}")));
             }
         }
-        paths.push((
-            "~/.claude/settings.json".to_string(),
-            format!("{}/.claude/settings.json", self.home),
-        ));
+        if let Some(home) = &self.user_home {
+            paths.push((
+                "~/.claude/settings.json".to_string(),
+                format!("{home}/.claude/settings.json"),
+            ));
+        }
         paths
     }
 
@@ -114,10 +119,9 @@ impl Doctor {
         if let Some(root) = self.root() {
             paths.push((".mcp.json".to_string(), format!("{root}/.mcp.json")));
         }
-        paths.push((
-            "~/.claude.json".to_string(),
-            format!("{}/.claude.json", self.home),
-        ));
+        if let Some(home) = &self.user_home {
+            paths.push(("~/.claude.json".to_string(), format!("{home}/.claude.json")));
+        }
         paths
     }
 

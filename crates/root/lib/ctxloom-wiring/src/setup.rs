@@ -93,7 +93,8 @@ impl SetupUseCases {
                 dir: around.cwd.clone(),
             }),
             Auth::new(Arc::new(ProcessEnv::from_snapshot(wiring.env()))),
-            &home.display().to_string(),
+            // Her own HOME for her files, never ctxloom's home.
+            wiring.env().home().and_then(std::ffi::OsStr::to_str),
             env!("CARGO_PKG_VERSION"),
         );
         let init = Init::new(

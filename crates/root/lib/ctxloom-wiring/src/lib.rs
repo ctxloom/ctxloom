@@ -34,8 +34,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use ::process_env::EnvSnapshot;
+use angzarr_embedded::StoreError;
 use config_files::{find_app_dir, AppDir, ConfigFilesFs, Surroundings};
-use ctxloom_store_sqlite::{SqliteStores, Stores};
+use ctxloom_store_sqlite::{OpenError, SqliteStores, StoreOpenError, Stores};
 use file_system::{Fs, Os};
 use harp_names::HarpNames;
 use isolation_application::{IsolationError, Report, WorktreeUse, Worktrees};
@@ -57,7 +58,7 @@ use worktree_git::GitWorkspaces;
 
 pub use capture::{EdgeSink, HookRecording, HookSink, RunIds, SessionIds, Unreachable};
 pub use commands::{engines, Commands, Hooks};
-pub use core_link::InProcessCore;
+pub use core_link::{CoreStores, InProcessCore, Unclosed};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{LibError, EN_US};
@@ -124,6 +125,19 @@ pub struct Sessions {
     pub worktrees: Worktrees<GitWorkspaces, LockFiles>,
     /// `session_purge_age`, for a sweep given no `--purge-older-than`.
     pub settings: SweepSettings,
+}
+
+impl Sessions {
+    /// Close the stores the use cases hold, each waited for (ruling 131), so
+    /// a command exits with its store's log checkpointed into the file:
+    /// dropped, a store is closed on the driver's thread whenever that runs,
+    /// which a process that exits first never lets it do. Both are closed
+    /// whatever the first says; the first failure is answered.
+    pub async fn close(&mut self) -> Result<(), StoreError> {
+        let used = self.use_cases.stores.close().await;
+        let imported = self.importer.stores.close().await;
+        used.and(imported)
+    }
 }
 
 impl SweepConfig for Sessions {
@@ -363,8 +377,16 @@ impl Wiring {
             .map_err(|e: io::Error| LibError::NoRuntime {
                 detail: e.to_string(),
             })?;
+        // Closed, not dropped (ruling 131): the file holds the open's
+        // migrations, with no log beside it, when this returns.
         runtime
-            .block_on(stores.open(project))
+            .block_on(async {
+                let store = stores.open(project).await?;
+                store
+                    .close()
+                    .await
+                    .map_err(|e| StoreOpenError::Open(OpenError::Store(e)))
+            })
             .map_err(LibError::Store)?;
         stores.path(project).map_err(LibError::Store)
     }

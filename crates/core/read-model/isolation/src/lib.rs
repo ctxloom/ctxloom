@@ -11,7 +11,7 @@
 //!   axis degrades: a worktree that cannot be had falls to the live directory
 //!   with a warning;
 //! - a container that cannot be served with the DEMANDED ownership is a
-//!   fatal isolation finding (exit 3) in BOTH modes: `--degraded` does not
+//!   fatal isolation finding (exit 21) in BOTH modes: `--degraded` does not
 //!   rescue it, and an ownership mismatch is never a substitution of the
 //!   other mode;
 //! - a container is never dropped to the host (Go 0.7: `--degraded` falls

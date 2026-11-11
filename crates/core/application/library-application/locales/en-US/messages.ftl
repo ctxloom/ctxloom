@@ -21,6 +21,8 @@ library-application-item-missing =
     { $kind } "{ $name }": item not found
 
     Available { $kind }s: { $available }
+library-application-operational-prompt-missing = the project's bundle "{ $bundle }" ({ $dir }) overrides ctxloom's built-in one whole, and has no prompt "{ $prompt }"
+library-application-operational-prompt-missing-fix = add prompts/{ $prompt }.md to it, or rename that bundle to use ctxloom's own
 library-application-bad-reference = invalid reference format: expected { $expected } (got "{ $got }")
 library-application-wrong-kind = "{ $ask }" selects a { $got }/, not a { $want }/ (expected { $expected })
 library-application-unsupported-format = { $command }: --format { $format } was accepted but this command does not support it yet (nothing was rendered through it)
@@ -116,8 +118,6 @@ library-application-write-agent-not-defined = agent "{ $name }" is not defined
 library-application-write-agent-not-in-config = agent "{ $name }" not found in config.yaml
 library-application-write-unknown-engine = agent "{ $name }": unknown engine "{ $engine }"; valid engines: { $valid }
 library-application-write-unknown-runtime = agent "{ $name }": unknown runtime axis "{ $value }" (known: host|container-rootless|container-rootful)
-library-application-write-permissions = { $subject }: { $detail }
-library-application-write-permissions-need-engine = agent "{ $name }": permissions: the mode is checked against, and written into the block of, the engine this agent binds, and this write binds none; set --engine in the same command, so the mode can be checked against the engine it binds
 library-application-write-agent-without-engine = agent "{ $name }": an agent needs an engine or at least one profile to bind an engine; neither was given
 library-application-write-bad-env = agent "{ $name }": { $detail }
 library-application-write-surface-refused = agent "{ $name }": { $detail }

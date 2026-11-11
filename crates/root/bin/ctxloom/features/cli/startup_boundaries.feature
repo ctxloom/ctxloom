@@ -152,9 +152,10 @@ Feature: What a start writes, and whose pins it reads
   # terminal, so the session's own record must carry the reason: without it the
   # session is a directory and two timestamps. The assertion is on the
   # RECORD's bytes (class, exit status and the printed finding), because a
-  # run that exited 3 and wrote nothing is this project's characteristic bug.
+  # run that exited 21 and wrote nothing is this project's characteristic bug.
   @end-reason
   Scenario: A run refused by a fatal startup finding records why its session ended
+    # substitution: exit codes per rulings 149, 152, 153 (21 fatal findings; Go's 3).
     Given an empty project directory
     And the home config declares the agent "session-owner" bound to the mock engine
     And the project already has the file ".ctxloom/lock.yaml":
@@ -167,5 +168,5 @@ Feature: What a start writes, and whose pins it reads
       """
     When I run "ctxloom run --one-shot --agent session-owner -f isolation-axes hello"
     Then the startup aborts on a fatal bundle finding
-    And the minted session's record says it ended before launch as "fatal-startup" with exit 3
+    And the minted session's record says it ended before launch as "fatal-startup" with exit 21
     And the session record's findings include "failed to parse lockfile"

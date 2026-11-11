@@ -56,11 +56,18 @@ done
 [ "${HOME:-}" = "$CLAUDE_CONFIG_DIR" ] || echo "HOME" >> "$here/engine-had"
 env | grep -E '^(CTXLOOM_|CLAUDE_CONFIG_DIR=|PATH=)' > "$here/engine-env"
 pwd > "$here/engine-cwd"
+settings=""
+prev=""
+for a in "$@"; do
+  [ "$prev" = "--settings" ] && settings="$a"
+  prev="$a"
+done
+[ -n "$settings" ] || echo "--settings" >> "$here/engine-missing"
 n=0
 for payload in "$here"/payloads/*.json; do
   event="$(basename "$payload" .json)"
   event="${event#*-}"
-  cmd="$(jq -r --arg e "$event" '.hooks[$e][0].hooks[0] | ([.command] + .args) | join(" ")' "$CLAUDE_CONFIG_DIR/settings.json")"
+  cmd="$(jq -r --arg e "$event" '.hooks[$e][0].hooks[0] | ([.command] + .args) | join(" ")' "$settings")"
   for again in 1 2; do
     n=$((n + 1))
     id="$(printf %03d "$n")"

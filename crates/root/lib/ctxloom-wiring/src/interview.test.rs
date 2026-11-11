@@ -3,6 +3,7 @@
 //! a no.
 
 use super::answered;
+use cli_support::Exit;
 
 #[test]
 fn a_bare_enter_is_a_yes() {
@@ -53,6 +54,6 @@ fn a_session_the_run_refuses_is_a_launch_failure_with_its_exit() {
         flags: &flags,
     };
     let failure = sessions.configured().expect_err("refused");
-    assert_eq!(failure.exit, 2);
+    assert_eq!(failure.exit, Exit::REFUSED);
     assert_eq!(failure.cause.code(), "library-application-config-newer");
 }

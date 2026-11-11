@@ -21,7 +21,7 @@ import 'gates/dev-local.just'
 # from the same ctxloom-lib commit the workspace pins (arch_lint_rev, kept
 # equal to Cargo.toml's by `_arch-lint-ready`'s check) and installed once per
 # commit into the user's cache, shared by every worktree.
-arch_lint_rev := "3fa0344badf47614a5e8f82264dadac4adc71602"
+arch_lint_rev := "466132c72e28c9b04915ed967526ad51eeb2572e"
 arch_lint_root := env_var_or_default("XDG_CACHE_HOME", env_var("HOME") / ".cache") / "ctxloom-arch-lint" / arch_lint_rev
 arch_lint := arch_lint_root / "bin/arch-lint"
 
@@ -49,7 +49,7 @@ mutation_thresholds := "crates/core/domain=90 crates/core/read-model=90 crates/c
 # Staged paths outside any crate that can change what every crate builds or
 # tests (bash globs, `*` crossing `/`): one of these staged tests the whole
 # workspace.
-workspace_wide := "Cargo.toml Cargo.lock rust-toolchain.toml proto/* .cargo/config.toml .cargo/config"
+workspace_wide := "Cargo.toml Cargo.lock rust-toolchain.toml proto/* .cargo/config.toml .cargo/config .config/nextest.toml scripts/nextest-build-binaries.sh"
 
 # The cargo arguments `check-windows` (gates/os-gates.just) compiles for a
 # Windows target: driven adapters that use the platform seams, without C
@@ -187,6 +187,7 @@ selftest:
     @{{TOP}}/scripts/closeout.selftest.sh
     @{{TOP}}/scripts/ltk-rules-check.sh
     @{{TOP}}/scripts/output-budget.selftest.sh
+    @{{TOP}}/scripts/tests-exit.selftest.sh
     @{{TOP}}/scripts/exec-mode-check.selftest.sh
     @{{TOP}}/scripts/dev-local.selftest.sh
     @{{TOP}}/scripts/path-deps-check.selftest.sh

@@ -205,13 +205,6 @@ pub async fn enqueued_by(edge: &TestEdge, session: &str, harp: &str, launcher_lo
         },
         fatal_findings: 0,
         launcher_lock: launcher_lock.to_string(),
-        posture: runs::PostureEvidence {
-            runtime: "host".to_string(),
-            network: String::new(),
-            sandbox: String::new(),
-            enforced_network: Vec::new(),
-            enforced_sandbox: Vec::new(),
-        },
     }
     .into();
     edge.handle(command_book(run_cover(session), enqueue.to_any()))
@@ -396,11 +389,19 @@ impl Engine for ScriptedEngine {
     }
 
     fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
+        let mut files = vec![HomeFile {
+            rel: "ctx.md".to_string(),
+            bytes: request.context.clone().into_bytes(),
+        }];
+        // The permissions document, where this engine reads it: as given.
+        if let Some(document) = &request.permissions {
+            files.push(HomeFile {
+                rel: "permissions.json".to_string(),
+                bytes: document.clone().into_bytes(),
+            });
+        }
         Ok(Prepared {
-            files: vec![HomeFile {
-                rel: "ctx.md".to_string(),
-                bytes: request.context.clone().into_bytes(),
-            }],
+            files,
             copy_in: Vec::new(),
             context_path: format!("{}/ctx.md", request.home),
         })
@@ -428,11 +429,6 @@ impl Engine for ScriptedEngine {
         if !request.effort.is_empty() {
             command.args.push(format!("--effort={}", request.effort));
         }
-        if !request.permission_mode.is_empty() {
-            command
-                .args
-                .push(format!("--permission-mode={}", request.permission_mode));
-        }
         command.env = request.env.clone();
         command.stdin = request.prompt.clone().into_bytes();
         command.cwd = request.cwd.clone();
@@ -458,11 +454,6 @@ impl Engine for ScriptedEngine {
         }
         if !request.effort.is_empty() {
             command.args.push(format!("--effort={}", request.effort));
-        }
-        if !request.permission_mode.is_empty() {
-            command
-                .args
-                .push(format!("--permission-mode={}", request.permission_mode));
         }
         command.env = request.env.clone();
         command.cwd = request.cwd.clone();
@@ -700,7 +691,7 @@ pub fn order(engine: &str) -> Order {
         interactive: false,
         model: String::new(),
         effort: String::new(),
-        permission_mode: String::new(),
+        permissions: None,
         settings: Default::default(),
         owned: Vec::new(),
         git_user: None,

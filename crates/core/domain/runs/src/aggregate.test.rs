@@ -13,10 +13,9 @@ use angzarr_embedded::{Any, Failure, Handled, Payload, Registry};
 
 use crate::{
     run_root, CredentialEvidence, EndCause, EnqueueRun, FinalReported, LaunchFailed,
-    LaunchOrphaned, PostureEvidence, QueueTurn, RequestStop, RunAggregate, RunCommand, RunEnded,
-    RunEvent, RunExited, RunMode, RunRejection, RunState, RunnerAttached, RunnerLost,
-    RunnerStarted, SummaryReported, TurnCompleted, TurnFailed, TurnFailureClass, TurnStarted,
-    RUN_DOMAIN,
+    LaunchOrphaned, QueueTurn, RequestStop, RunAggregate, RunCommand, RunEnded, RunEvent,
+    RunExited, RunMode, RunRejection, RunState, RunnerAttached, RunnerLost, RunnerStarted,
+    SummaryReported, TurnCompleted, TurnFailed, TurnFailureClass, TurnStarted, RUN_DOMAIN,
 };
 
 const SESSION: &str = "5f0c7a52-1111-5111-8111-000000000001";
@@ -151,28 +150,6 @@ fn enqueue() -> EnqueueRun {
         credential: not_asked(),
         fatal_findings: 0,
         launcher_lock: launcher_lock(),
-        posture: on_host("", ""),
-    }
-}
-
-/// The posture `network` and `sandbox` claim (empty: unset) on the host
-/// runtime, which enforces neither (ruling 109).
-fn on_host(network: &str, sandbox: &str) -> PostureEvidence {
-    PostureEvidence {
-        runtime: "host".to_string(),
-        network: network.to_string(),
-        sandbox: sandbox.to_string(),
-        enforced_network: Vec::new(),
-        enforced_sandbox: Vec::new(),
-    }
-}
-
-fn unenforced(key: &str, value: &str, honest: &str) -> RunRejection {
-    RunRejection::UnenforcedPosture {
-        runtime: "host".to_string(),
-        key: key.to_string(),
-        value: value.to_string(),
-        honest: honest.to_string(),
     }
 }
 
@@ -1113,114 +1090,31 @@ fn the_evidence_never_reaches_the_event() {
     assert!(back.credential.is_none() && back.fatal_findings == 0);
 }
 
-// ---- the posture, decided by the enqueue (owner rulings 59, 109) ----
+// ---- no posture of ctxloom's own (owner ruling 134) ----
 
-// The honest defaults claim nothing: an unset network is `open` and an unset
-// sandbox `full`, and those words said aloud are as honest, on a runtime that
-// enforces nothing.
+// The enqueue judges no posture: whatever an agent's engine permissions say,
+// they are the engine's (rulings 133-139), and the command carries no posture
+// evidence at all (field 13 is reserved).
 #[test]
-fn a_posture_that_claims_nothing_enqueues_on_a_runtime_that_enforces_nothing() {
-    for (network, sandbox) in [("", ""), ("open", ""), ("", "full"), ("open", "full")] {
-        for mode in [RunMode::OneShot, RunMode::Interactive] {
-            let mut run = Run::new();
-            let cmd = EnqueueRun {
-                mode,
-                posture: on_host(network, sandbox),
-                ..one_shot()
-            };
-            assert!(run.command(cmd).is_ok(), "{network:?} {sandbox:?} {mode:?}");
-        }
-    }
-}
-
-// Ruling 109: `network: none` on a runtime that does not enforce it claims a
-// fence that is not there: refused, naming the runtime, the key, the word and
-// the honest word; nothing is journaled.
-#[test]
-fn network_none_on_a_runtime_that_does_not_enforce_it_is_refused() {
-    let mut run = Run::new();
-    let cmd = EnqueueRun {
-        posture: on_host("none", ""),
-        ..one_shot()
-    };
-    let rejection = run.rejection(cmd);
-    assert_eq!(rejection, unenforced("network", "none", "open"));
-    let (code, args) = said(&rejection);
-    assert_eq!(code, "runs-unenforced-posture");
-    assert_eq!(args["runtime"], "host");
-    assert_eq!(args["key"], "network");
-    assert_eq!(args["value"], "none");
-    assert_eq!(args["honest"], "open");
-    assert_eq!(run.event_count(), 0);
-}
-
-// The restrictive sandboxes are refused the same way; their honest word is
-// `full` (no sandbox), which is what the host gives.
-#[test]
-fn a_restrictive_sandbox_on_a_runtime_that_does_not_enforce_it_is_refused() {
-    for sandbox in ["read-only", "workspace-write"] {
+fn the_enqueue_judges_no_posture() {
+    for mode in [RunMode::OneShot, RunMode::Interactive] {
         let mut run = Run::new();
-        let cmd = EnqueueRun {
-            mode: RunMode::Interactive,
-            posture: on_host("", sandbox),
-            ..enqueue()
-        };
-        assert_eq!(run.rejection(cmd), unenforced("sandbox", sandbox, "full"));
+        let cmd = EnqueueRun { mode, ..one_shot() };
+        assert!(run.command(cmd).is_ok(), "{mode:?}");
     }
-}
-
-// A runtime that enforces the word lets it through: the claim is true.
-#[test]
-fn a_restrictive_posture_a_runtime_enforces_enqueues() {
-    let mut run = Run::new();
-    let cmd = EnqueueRun {
-        posture: PostureEvidence {
-            runtime: "container-rootless".to_string(),
-            enforced_network: vec!["none".to_string()],
-            enforced_sandbox: vec!["read-only".to_string()],
-            ..on_host("none", "read-only")
-        },
-        ..one_shot()
-    };
-    assert!(run.command(cmd).is_ok());
-    // Enforcing one word is not enforcing another.
-    let mut run = Run::new();
-    let cmd = EnqueueRun {
-        posture: PostureEvidence {
-            enforced_sandbox: vec!["read-only".to_string()],
-            ..on_host("", "workspace-write")
-        },
-        ..one_shot()
-    };
-    assert_eq!(
-        run.rejection(cmd),
-        unenforced("sandbox", "workspace-write", "full")
-    );
-}
-
-// Rulings 73b, 109: the posture joins the aggregate after the credential,
-// network then sandbox, and reads back whole.
-#[test]
-fn an_unenforced_posture_joins_the_launch_refused_after_the_credential() {
     let mut run = Run::new();
     let cmd = EnqueueRun {
         prompt_given: false,
         credential: accepting(false),
-        posture: on_host("none", "read-only"),
         ..one_shot()
     };
     let rejection = run.rejection(cmd);
     assert_eq!(
         rejection,
         RunRejection::LaunchRefused {
-            refusals: vec![
-                RunRejection::NoPrompt,
-                no_credential(),
-                unenforced("network", "none", "open"),
-                unenforced("sandbox", "read-only", "full"),
-            ],
+            refusals: vec![RunRejection::NoPrompt, no_credential()],
             fatal_findings: 0,
         }
     );
-    assert_eq!(said(&rejection).1["count"], "4");
+    assert_eq!(said(&rejection).1["count"], "2");
 }

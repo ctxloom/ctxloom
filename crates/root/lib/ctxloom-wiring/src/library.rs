@@ -2,6 +2,7 @@
 //! process's filesystem, the application over them, and the driving adapter
 //! joined to the command line as an extension.
 
+use cli_support::Exit;
 use std::io::Write;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -152,8 +153,8 @@ impl Extension for LibraryCommands {
         catalog: &Catalog,
         out: &mut dyn Write,
         err: &mut dyn Write,
-    ) -> Result<u8, Failure> {
-        let library = self.wired().map_err(|e| Failure::new(e, 1))?;
+    ) -> Result<Exit, Failure> {
+        let library = self.wired().map_err(|e| Failure::new(e, Exit::FAILED))?;
         library_cli::run(library, noun, call, catalog, out, err)
     }
 }

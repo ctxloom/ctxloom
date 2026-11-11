@@ -494,7 +494,7 @@ fn test_there_is_no_session_purge() {
     let home = Home::new();
     home.finished(HARP);
     let ran = home.run(&["session", "purge", HARP, "--yes"]);
-    assert_eq!(ran.code, 2, "{}", ran.said());
+    assert_eq!(ran.code, 20, "{}", ran.said());
     assert!(files::exists(home.native_file(HARP)));
     let help = home.run(&["session", "--help"]);
     assert!(
@@ -639,7 +639,7 @@ fn test_the_old_rename_verb_is_gone() {
     let home = Home::new();
     home.seed(HARP, &[]);
     let ran = home.run(&["session", "rename", HARP, "bright-keen-hawk"]);
-    assert_eq!(ran.code, 2, "{}", ran.said());
+    assert_eq!(ran.code, 20, "{}", ran.said());
     assert!(said(&ran).contains("unknown command"), "{}", ran.said());
 }
 

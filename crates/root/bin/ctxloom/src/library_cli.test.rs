@@ -908,11 +908,29 @@ fn test_an_agent_and_a_profile_cannot_both_decide_the_context() {
     ]);
     assert_eq!(
         ran.code,
-        2,
-        "a usage refusal is exit 2 (D28): {}",
+        20,
+        "a usage refusal is exit 20 (D28, ruling 152): {}",
         ran.said()
     );
     ran.contains("none of the others can be");
+}
+
+// Ruling 153: a distinguishing success is returned only under
+// `--detailed-exitcode`: a dry run that would launch is 1 with it and 0
+// without; a read is 0 either way, and a refusal is 20 either way.
+#[test]
+fn test_a_dry_run_that_would_launch_is_one_only_under_detailed_exitcode() {
+    let project = demo_with_testing();
+    project.profile("dev", "demo");
+    let dry = ["run", "--dry-run", "--profile", "dev", "hello"];
+    let plain = project.run(&dry);
+    assert_eq!(plain.code, 0, "{}", plain.said());
+    let detailed = project.run(&[&dry[..], &["--detailed-exitcode"]].concat());
+    assert_eq!(detailed.code, 1, "{}", detailed.said());
+    let read = project.run(&["--detailed-exitcode", "bundle", "list"]);
+    assert_eq!(read.code, 0, "{}", read.said());
+    let refused = project.run(&["--detailed-exitcode", "test", "refuse"]);
+    assert_eq!(refused.code, 20, "{}", refused.said());
 }
 
 // run.feature: Scenario: A dry run shows the composed context without
@@ -1024,7 +1042,7 @@ fn test_a_profile_referencing_a_missing_bundle_is_refused_like_a_run() {
         &token,
         &["run", "--dry-run", "--profile", "broken", "hello"],
     );
-    assert_eq!(refused.code, 3, "{}", refused.said());
+    assert_eq!(refused.code, 21, "{}", refused.said());
     refused
         .contains("failed to load bundle")
         .contains("does-not-exist");

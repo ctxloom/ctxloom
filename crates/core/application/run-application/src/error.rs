@@ -3,9 +3,10 @@
 use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
+use exit_code::{Exit, ExitClass};
 use library_application::AppError as PlanError;
 use run_launcher::LaunchError;
-use run_ports::{BindRefusal, FailureClass};
+use run_ports::{BindRefusal, FailureClass, LockError};
 use runs::RunRejection;
 use runs_application::AppError as CoreError;
 use sessions::SessionRejection;
@@ -31,7 +32,7 @@ pub enum RunError {
     Listener(Report),
     /// The run's own lock, or its session's, could not be taken (rulings 86,
     /// 92, defect 1): another process holds it, or the file cannot be made.
-    Lock(Report),
+    Lock(LockError),
     /// The kernel refused, or failed, to make the session or enqueue its run.
     Session(CoreError),
     /// The session asked for cannot be resumed (owner ruling 115): the
@@ -53,26 +54,36 @@ pub enum RunError {
     Stopped { signal: String, status: u8 },
 }
 
-impl RunError {
-    /// The process exit code: what `PlanError` says for its own, 3 for a
-    /// refusal with the plan's fatal findings among its failures (ruling 73a:
-    /// the most severe wins), 2 for a refusal before anything ran (an ask
-    /// that cannot be run, a refusal of the kernel), the signal's status for a
-    /// run a signal stopped (128 plus its number), 1 otherwise.
-    pub fn exit_code(&self) -> u8 {
+impl ExitClass for RunError {
+    /// How a command this ends exits: what `PlanError` says for its own,
+    /// fatal findings (21) for a refusal with the plan's fatal findings among
+    /// its failures (rulings 73a, 152: the most severe wins), refused (20) for
+    /// a refusal before anything ran (an ask that cannot be run, a refusal of
+    /// the kernel, a lock another process holds), the signal for a run a signal stopped (128 plus its
+    /// number), failed (10) otherwise.
+    fn exit(&self) -> Exit {
         match self {
-            RunError::Plan(error) => error.exit_code(),
-            RunError::Stopped { status, .. } => *status,
+            RunError::Plan(error) => error.exit(),
+            RunError::Stopped { status, .. } => Exit::signal(signal_number(*status)),
             RunError::Refused(RunRejection::LaunchRefused { fatal_findings, .. })
                 if *fatal_findings > 0 =>
             {
-                3
+                Exit::FATAL_FINDINGS
             }
-            RunError::Refused(_) | RunError::Bind(_) | RunError::Resume(_) => 2,
-            RunError::Session(CoreError::Refused { .. }) => 2,
-            _ => 1,
+            RunError::Refused(_) | RunError::Bind(_) | RunError::Resume(_) => Exit::REFUSED,
+            RunError::Session(CoreError::Refused { .. }) => Exit::REFUSED,
+            // Held by another process: the session or run is live (ruling
+            // 152); a lock file not made is a failure, below.
+            RunError::Lock(LockError::Held(_)) => Exit::REFUSED,
+            _ => Exit::FAILED,
         }
     }
+}
+
+/// The number of the signal a shell's `status` (128 plus it) names, kept in
+/// 1..=127.
+fn signal_number(status: u8) -> u8 {
+    status.saturating_sub(128).max(1)
 }
 
 impl RunError {
@@ -139,9 +150,8 @@ impl Diagnostic for RunError {
             RunError::Resume(rejection) => rejection.args(),
             RunError::Bind(error) => error.args(),
             RunError::Project(report) => vec![("reason", report.code().into())],
-            RunError::Listener(report) | RunError::Lock(report) => {
-                vec![("reason", report.code().into())]
-            }
+            RunError::Listener(report) => vec![("reason", report.code().into())],
+            RunError::Lock(error) => vec![("reason", error.report().code().into())],
             RunError::Session(error) => vec![("reason", why(error).into())],
             RunError::Launch(error) => vec![("reason", error.code().into())],
             RunError::NotStarted { detail } | RunError::Turn { detail, .. } => {
@@ -169,7 +179,9 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     vec![
         Box::new(RunError::Project(Report::new("ports-registry"))),
         Box::new(RunError::Listener(Report::new("hook-listener-bind"))),
-        Box::new(RunError::Lock(Report::new("file-lock-timeout"))),
+        Box::new(RunError::Lock(LockError::Held(Report::new(
+            "file-lock-timeout",
+        )))),
         Box::new(RunError::Session(CoreError::Failed {
             reason: "unavailable".to_string(),
         })),

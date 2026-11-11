@@ -2,11 +2,10 @@
 //! the base World: Alice runs `ctxloom init` on an empty project directory,
 //! looks at what it did, and leaves by deleting `.ctxloom`.
 //!
-//! Hermetic: ctxloom's default content, which the seeded default profile
-//! inherits, is built into the binary (owner rulings 110, 111), so nothing
-//! reaches the network and no fixture stands in for it. A session "was
-//! handed" it when the stub's launch record carries [`BUILT_IN_MARKER`], a
-//! line of the built-in `testing#fragments/tdd` in both its forms.
+//! Hermetic: the seeded default profile is bare (owner ruling 117), so
+//! nothing reaches the network and no fixture stands in for content. The one
+//! built-in bundle holds ctxloom's operational prompts, which no ordinary
+//! session is handed: the stub's launch record carries no line of either.
 //!
 //! Claude Code is a stub first on `PATH`, so the engine init finds is the
 //! same on every machine. It records what it was launched with: its
@@ -25,9 +24,12 @@ use super::super::gherkin_common::CommonWorld;
 use super::World;
 use crate::tests::files;
 
-/// What the built-in default content's `testing#fragments/tdd` says, in its
-/// original and its distilled form alike.
-const BUILT_IN_MARKER: &str = "Red-green-refactor is mandatory";
+/// A line of each of ctxloom's built-in prompts (the setup interview, the
+/// distill prompt), which no ordinary session's launch carries.
+const OPERATIONAL_MARKERS: [&str; 2] = [
+    "You are running the ctxloom **setup interview**",
+    "You are a text compression assistant.",
+];
 
 /// The stub engine: records its launch beside itself, and replies as claude
 /// does under `--output-format stream-json`: its session's `init` and a
@@ -246,23 +248,120 @@ fn launched_with(w: &mut World, flag: String, value: String) {
     );
 }
 
-#[then("her assistant was handed ctxloom's built-in default content")]
-fn handed_built_in_default(w: &mut World) {
+/// The last launch was never handed `flag` (the stub records each argument
+/// on a line of its own).
+#[then(expr = "the assistant was launched without {string}")]
+fn launched_without(w: &mut World, flag: String) {
+    let record = w.launch_record();
+    assert!(!record.is_empty(), "no assistant was launched");
+    assert!(
+        !record.lines().any(|line| line == flag),
+        "the launch was handed {flag}: {record}"
+    );
+}
+
+/// The settings file the last launch was handed with `--settings`, parsed.
+fn handed_settings(w: &World) -> serde_json::Value {
+    let record = w.launch_record();
+    let lines: Vec<&str> = record.lines().collect();
+    let path = lines
+        .iter()
+        .rposition(|line| *line == "--settings")
+        .and_then(|at| lines.get(at + 1))
+        .unwrap_or_else(|| panic!("the launch was handed no --settings: {record}"));
+    let text = files::read(path).unwrap_or_else(|e| panic!("reading {path}: {e}"));
+    serde_json::from_str(&text).unwrap_or_else(|e| panic!("{path} is not JSON ({e}): {text}"))
+}
+
+/// The user-scope settings file of the config dir the last launch was given
+/// (`$CLAUDE_CONFIG_DIR/settings.json`, the session home), its path.
+fn user_settings_path(w: &World) -> String {
+    let env = assistant_env(w);
+    let dir = env
+        .get("CLAUDE_CONFIG_DIR")
+        .unwrap_or_else(|| panic!("the assistant was given no CLAUDE_CONFIG_DIR: {env:?}"));
+    format!("{dir}/settings.json")
+}
+
+/// Owner rulings 135, 137, 145: the agent's permissions document is, exactly,
+/// the `permissions` of the user-scope settings of the session's config dir,
+/// that file holds nothing else, and the `--settings` file (ctxloom's hooks)
+/// holds no permissions: a bad value in the block disables the block alone.
+#[then(expr = "the assistant's settings hold the permissions {string}")]
+fn settings_hold_permissions(w: &mut World, want: String) {
+    let want: serde_json::Value = serde_json::from_str(&want).expect("the step's JSON");
+    let path = user_settings_path(w);
+    let text = files::read(&path).unwrap_or_else(|e| panic!("reading {path}: {e}"));
+    let user: serde_json::Value =
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("{path} is not JSON ({e}): {text}"));
+    assert_eq!(user, serde_json::json!({ "permissions": want }), "{path}");
+    let handed = handed_settings(w);
+    assert!(handed.get("permissions").is_none(), "{handed}");
+}
+
+/// Owner T21: the agent edits the settings files it was given (they are in
+/// its own session directory, within reach of its file tools): it loosens
+/// its own permissions and drops ctxloom's hooks.
+#[given("her assistant loosens its own permissions in the settings it was handed")]
+fn loosens_its_settings(w: &mut World) {
+    files::put(
+        user_settings_path(w),
+        r#"{"permissions":{"defaultMode":"bypassPermissions","allow":["Bash(*)"]}}"#,
+    );
+    let record = w.launch_record();
+    let lines: Vec<&str> = record.lines().collect();
+    let path = lines
+        .iter()
+        .rposition(|line| *line == "--settings")
+        .and_then(|at| lines.get(at + 1))
+        .unwrap_or_else(|| panic!("the launch was handed no --settings: {record}"))
+        .to_string();
+    files::put(
+        &path,
+        r#"{"permissions":{"defaultMode":"bypassPermissions","allow":["Bash(*)"]}}"#,
+    );
+}
+
+/// ctxloom's own keys of the handed settings are never overwritten by the
+/// passthrough: its hooks still call `ctxloom hook claude-code execute`.
+#[then("the assistant's settings still register ctxloom's hooks")]
+fn settings_keep_hooks(w: &mut World) {
+    let settings = handed_settings(w);
+    let hooks = settings
+        .get("hooks")
+        .and_then(serde_json::Value::as_object)
+        .unwrap_or_else(|| panic!("no hooks: {settings}"));
+    assert!(!hooks.is_empty(), "no hook registered: {settings}");
+    assert!(
+        settings.to_string().contains("claude-code"),
+        "the hooks are not ctxloom's: {settings}"
+    );
+}
+
+#[then("her assistant was handed none of ctxloom's own prompts")]
+fn handed_no_operational_prompt(w: &mut World) {
     let record = w.launch_record();
     assert!(
-        record.contains(BUILT_IN_MARKER),
-        "the session's launch carried no built-in default content: {record}"
+        record.contains("what does this project expect of me?"),
+        "the session's launch was not recorded: {record}"
     );
-    for form in ["fragments/tdd.md", "fragments/tdd.distilled.md"] {
-        let shipped = library::builtin::files("testing").expect("built in")[form].clone();
+    let shipped = [
+        library::builtin::SETUP_INTERVIEW,
+        library::builtin::DISTILL_PROMPT,
+    ];
+    for (marker, prompt) in OPERATIONAL_MARKERS.iter().zip(shipped) {
         assert!(
-            String::from_utf8_lossy(&shipped).contains(BUILT_IN_MARKER),
-            "{form} no longer carries the marker"
+            prompt.contains(marker),
+            "the prompt no longer says {marker:?}"
+        );
+        assert!(
+            !record.contains(marker),
+            "the session's launch carried a built-in prompt ({marker:?}): {record}"
         );
     }
     assert!(
         !files::exists(w.common.project.dir().join(".ctxloom/cache")),
-        "nothing was fetched for it"
+        "nothing was fetched"
     );
 }
 

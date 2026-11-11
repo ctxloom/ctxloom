@@ -1,6 +1,7 @@
 //! Which purge age a sweep uses: the flag, else the configuration.
 
 use ctxloom_ports::Failure;
+use exit_code::{Exit, ExitClass};
 use sessions_application::Timestamp;
 
 use super::*;
@@ -113,7 +114,7 @@ fn a_configuration_that_cannot_be_read_fails_the_sweep() {
     };
     let error = purge_cutoff(None, &mut config, NOW).unwrap_err();
     assert!(matches!(error, ReclaimError::Config(_)), "{error:?}");
-    assert_eq!(error.exit_code(), 1);
+    assert_eq!(error.exit(), Exit::REFUSED);
 }
 
 #[test]

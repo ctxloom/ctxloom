@@ -5,6 +5,7 @@
 use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
+use exit_code::{Exit, ExitClass};
 
 /// This crate's en-US messages (`locales/en-US/messages.ftl`, ids under the
 /// crate's name).
@@ -16,8 +17,11 @@ pub const EN_US: (&str, &str) = (
 /// A command that did not complete.
 #[derive(Debug)]
 pub enum AppError {
-    /// An error of the read model or an adapter, as itself.
+    /// An adapter's error, as itself: something broke.
     Cause(Box<dyn Diagnostic>),
+    /// A refusal of the read model (the registry's, the lock's), as itself:
+    /// the request or the state forbids it (ruling 152: a decline).
+    Declined(Box<dyn Diagnostic>),
     /// A file could not be read or written.
     File { what: String, detail: String },
     /// A name or an address left out.
@@ -67,21 +71,44 @@ pub enum AppError {
 }
 
 impl AppError {
-    /// An error of the read model or an adapter, as itself.
+    /// A refusal of the read model, as itself: a decline. An adapter's
+    /// error is [`AppError::Cause`].
     pub fn cause(error: impl Diagnostic + 'static) -> AppError {
-        AppError::Cause(Box::new(error))
+        AppError::Declined(Box::new(error))
     }
+}
 
-    /// The exit code: 1 failed, 2 refused before any state was read, 3 the
-    /// project refresh was refused.
-    pub fn exit_code(&self) -> u8 {
+impl ExitClass for AppError {
+    /// How a command this ends exits (rulings 152, 153): failed (10) when
+    /// something broke (an adapter, a file, a clone, a fetch, a publish, a
+    /// pull); refused (20) when the request or the state declines it (a name
+    /// nobody has, a conflict, a destination taken, a refused refresh).
+    fn exit(&self) -> Exit {
         match self {
-            AppError::RefreshAborted { .. } => 3,
-            AppError::Required { .. }
+            AppError::Cause(_)
+            | AppError::File { .. }
+            | AppError::PullFailed { .. }
+            | AppError::Browse { .. }
+            | AppError::Publish { .. }
+            | AppError::DiscoverFailed
+            | AppError::CloneNotRefreshed { .. }
+            | AppError::Unreadable { .. } => Exit::FAILED,
+            AppError::Declined(_)
+            | AppError::Required { .. }
+            | AppError::NotRegistered { .. }
+            | AppError::Conflict { .. }
+            | AppError::NoRemoteNamed { .. }
             | AppError::DefaultNeedsName
+            | AppError::NothingToHold { .. }
+            | AppError::BundleNotFound { .. }
+            | AppError::BadDestination { .. }
+            | AppError::DestinationExists { .. }
+            | AppError::DestinationItself { .. }
             | AppError::PullRequestNeedsForge { .. }
-            | AppError::DiscoverSource { .. } => 2,
-            _ => 1,
+            | AppError::DiscoverSource { .. }
+            | AppError::EmptyFile { .. }
+            | AppError::NotRemoteReference { .. }
+            | AppError::RefreshAborted { .. } => Exit::REFUSED,
         }
     }
 }
@@ -97,7 +124,7 @@ impl std::error::Error for AppError {}
 impl Diagnostic for AppError {
     fn code(&self) -> &str {
         match self {
-            AppError::Cause(cause) => cause.code(),
+            AppError::Cause(cause) | AppError::Declined(cause) => cause.code(),
             AppError::File { .. } => code!("file"),
             AppError::Required { .. } => code!("required"),
             AppError::NotRegistered { .. } => code!("not-registered"),
@@ -125,7 +152,7 @@ impl Diagnostic for AppError {
 
     fn args(&self) -> Vec<(&str, Arg)> {
         match self {
-            AppError::Cause(cause) => cause.args(),
+            AppError::Cause(cause) | AppError::Declined(cause) => cause.args(),
             AppError::File { what, detail } | AppError::Unreadable { what, detail } => vec![
                 ("what", what.as_str().into()),
                 ("detail", detail.as_str().into()),

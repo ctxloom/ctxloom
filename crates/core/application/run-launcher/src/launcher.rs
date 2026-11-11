@@ -511,6 +511,8 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
                 interactive: order.interactive,
                 cwd: order.cwd.clone(),
                 existing,
+                permissions: order.permissions.clone(),
+                session_home: order.settings.session_home,
             })
             .map_err(|e| e.to_string())?;
         for file in &prepared.files {
@@ -528,7 +530,6 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             cwd: order.cwd.clone(),
             model: order.model.clone(),
             effort: order.effort.clone(),
-            permission_mode: order.permission_mode.clone(),
             settings: order.settings.clone(),
         };
         let mut command = if order.interactive {

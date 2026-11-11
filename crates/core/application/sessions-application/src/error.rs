@@ -3,6 +3,7 @@
 use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
+use exit_code::{Exit, ExitClass};
 
 use sessions::SessionRejection;
 
@@ -47,41 +48,24 @@ impl AppError {
             _ => &[],
         }
     }
+}
 
-    /// The process exit code: 2 when the request is invalid on its own
-    /// content (a name no session may have), 1 when it ran against state and
-    /// the answer was negative.
-    pub fn exit_code(&self) -> u8 {
+impl ExitClass for AppError {
+    /// How a command this ends exits (ruling 152): refused (20) when the
+    /// request declines against the line or the state (a name no session may
+    /// have, a taken name, a live session, a session nobody has, any refusal
+    /// of the domain); failed (10) when something broke (the store, the
+    /// kernel, the project's identity, a session's files, the retry budget).
+    fn exit(&self) -> Exit {
         match self {
-            AppError::DeadLettered { error, .. } => error.exit_code(),
-            AppError::Rejected(cause) => {
-                let invalid = [
-                    SessionRejection::HarpInvalid {
-                        harp: String::new(),
-                        reason: String::new(),
-                    }
-                    .code()
-                    .to_string(),
-                    SessionRejection::HarpTooLong {
-                        harp: String::new(),
-                        limit: 0,
-                        length: 0,
-                    }
-                    .code()
-                    .to_string(),
-                ];
-                if invalid.iter().any(|code| code == cause.code()) {
-                    2
-                } else {
-                    1
-                }
-            }
-            AppError::NoSession { .. }
-            | AppError::NoCapturedTranscript { .. }
-            | AppError::Failed(_)
+            AppError::DeadLettered { error, .. } => error.exit(),
+            AppError::Rejected(_)
+            | AppError::NoSession { .. }
+            | AppError::NoCapturedTranscript { .. } => Exit::REFUSED,
+            AppError::Failed(_)
             | AppError::Identity(_)
             | AppError::Files(_)
-            | AppError::GaveUp { .. } => 1,
+            | AppError::GaveUp { .. } => Exit::FAILED,
         }
     }
 }
@@ -144,7 +128,7 @@ impl From<angzarr_embedded_runner::Unrun> for AppError {
 }
 
 /// Why `session remove` refused, after printing its plan: the answer ends with
-/// what was NOT done (Go: `harpPurgeRefusal`), and exits 2.
+/// what was NOT done (Go: `harpPurgeRefusal`), and exits 20.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Refusal {
     /// The session's lock does not prove its owner dead: held, or no lock at

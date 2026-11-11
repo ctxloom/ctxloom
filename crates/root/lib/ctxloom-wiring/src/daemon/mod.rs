@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 
 use angzarr_presentation::{render, Catalog, Render};
 use clap::{Command, FromArgMatches, Subcommand};
+use cli_support::{Exit, ExitClass};
 use ctxloom_cli::{shaped, Call, CliError, Failure};
 use file_system::{Fs, Open};
 use os::Mode;
@@ -189,7 +190,7 @@ impl Render for Status {
 }
 
 fn failed(cause: impl angzarr_diagnostic::Diagnostic + 'static) -> Failure {
-    Failure::new(cause, 1)
+    Failure::new(cause, Exit::FAILED)
 }
 
 fn output(written: std::io::Result<()>) -> Result<(), Failure> {
@@ -203,7 +204,7 @@ fn output(written: std::io::Result<()>) -> Result<(), Failure> {
 /// A sessions use case's failure as the command line's, with its own exit
 /// (a refusal 2).
 fn refused(error: sessions_application::AppError) -> Failure {
-    let exit = error.exit_code();
+    let exit = error.exit();
     Failure::new(error, exit)
 }
 
@@ -217,7 +218,7 @@ fn urgency_of(word: &str) -> Result<sessions::Urgency, Failure> {
             CliError::Usage {
                 detail: format!("--urgency is inform, wake or steer, not {other}"),
             },
-            2,
+            Exit::REFUSED,
         )),
     }
 }
@@ -228,7 +229,7 @@ pub(crate) fn run(
     call: &Call<'_>,
     catalog: &Catalog,
     out: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let _ = catalog;
     let matches = call
         .matches
@@ -252,7 +253,7 @@ pub(crate) fn run(
         }
         DaemonVerb::Status => {
             output(render(out, format, &status(&files)))?;
-            return Ok(0);
+            return Ok(Exit::OK);
         }
         DaemonVerb::Stop => {
             if files.serving() {
@@ -262,7 +263,7 @@ pub(crate) fn run(
                     })
                 })?;
             }
-            return Ok(0);
+            return Ok(Exit::OK);
         }
         DaemonVerb::Send {
             harp,
@@ -310,7 +311,7 @@ pub(crate) fn run(
     };
     ensure(&wiring, env);
     output(render(out, format, &Done::from(ordered)))?;
-    Ok(0)
+    Ok(Exit::OK)
 }
 
 /// `launch`: the child's id minted here, the environment a child may be
@@ -375,7 +376,7 @@ fn be_the_daemon(
     env: &EnvSnapshot,
     files: &DaemonFiles,
     pace: serve::Pace,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let say = logger(wiring.fs(), files.log_path());
     let place = serve::Place {
         home: wiring.home().to_path_buf(),
@@ -383,7 +384,7 @@ fn be_the_daemon(
     };
     serve::serve(wiring.fs(), place, pace, say)
         .map_err(|detail| failed(LibError::NoRuntime { detail }))?;
-    Ok(0)
+    Ok(Exit::OK)
 }
 
 /// Whether a daemon serves, and where.

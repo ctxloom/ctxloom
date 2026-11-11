@@ -1,5 +1,6 @@
-//! The setup interview's ports (S12), wired: the person's terminal and the
-//! interactive sessions `init` launches.
+//! The setup interview's ports (S12), wired: the person's terminal, the
+//! interactive sessions `init` launches, and the interview's text, read
+//! through the project's catalog (owner ruling 128).
 //!
 //! The terminal is the process's own (standard input and output both a
 //! terminal). Under `test-support` the variable `CTXLOOM_TEST_TERMINAL`
@@ -8,12 +9,13 @@
 //! project as it is then, which is what makes the restart see what the
 //! interview configured.
 
+use cli_support::{Exit, ExitClass};
 use std::io::{BufRead, IsTerminal, Write};
 use std::rc::Rc;
 use std::sync::Arc;
 
 use deps_application::Deps;
-use init_application::{Ended, LaunchFailure, Sessions, Terminal};
+use init_application::{Ended, LaunchFailure, PromptFailure, Prompts, Sessions, Terminal};
 use library_application::{Flags, RunRequest};
 use process_env::EnvSnapshot;
 use run_application::{OneShot, RunService};
@@ -132,7 +134,7 @@ impl SetupSessions<'_> {
             .collect();
         // The launch's own exit code, as `ctxloom run` ends with it.
         let ended = done.result.map_err(|e| {
-            let exit = e.exit_code();
+            let exit = e.exit();
             LaunchFailure {
                 cause: Box::new(e),
                 exit,
@@ -152,6 +154,27 @@ impl Sessions for SetupSessions<'_> {
 
     fn configured(&self) -> Result<Ended, LaunchFailure> {
         self.launch("")
+    }
+}
+
+impl Prompts for SetupSessions<'_> {
+    /// The setup interview as the project's catalog holds it now (a project
+    /// bundle `ctxloom` overrides the built-in one whole), read from a library
+    /// built when it is asked, so a first init's reads the new project.
+    fn setup_interview(&self) -> Result<String, PromptFailure> {
+        let failed = |cause: init_application::Failure| PromptFailure {
+            cause,
+            exit: Exit::FAILED,
+        };
+        let wiring = Wiring::new(Arc::clone(self.env)).map_err(|e| failed(Box::new(e)))?;
+        let library = crate::library::build(&wiring, None).map_err(|e| failed(Box::new(e)))?;
+        library
+            .operational_prompt(self.flags, library::builtin::SETUP_INTERVIEW_NAME)
+            .result
+            .map_err(|e| PromptFailure {
+                exit: e.exit(),
+                cause: Box::new(e),
+            })
     }
 }
 

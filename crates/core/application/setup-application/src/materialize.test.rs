@@ -1,6 +1,7 @@
 //! `materialize` over in-memory ports. Each test names the Go scenario it
 //! holds the use case to (cli/materialize.feature, cli/manage.feature).
 
+use exit_code::{Exit, ExitClass};
 use library_application::Flags;
 use surface_ports::{Inspected, Kind};
 
@@ -108,7 +109,7 @@ fn test_the_project_directory_is_written_only_with_yes() {
     };
     let err = w.setup.materialize(&bare).unwrap_err();
     assert!(matches!(err, SetupError::NoTarget { ref dir, .. } if dir == "/p"));
-    assert_eq!(err.exit_code(), 2);
+    assert_eq!(err.exit(), Exit::REFUSED);
     assert!(w.store.state().log.is_empty());
     bare.yes = true;
     let done = w.setup.materialize(&bare).unwrap().value;
@@ -312,7 +313,7 @@ fn test_a_fatal_finding_refuses_the_delivery_unless_degraded() {
     r.profiles = vec!["broken".to_string()];
     let err = w.setup.materialize(&r).unwrap_err();
     assert!(matches!(err, SetupError::Refused { .. }), "{err:?}");
-    assert_eq!(err.exit_code(), 3);
+    assert_eq!(err.exit(), Exit::FATAL_FINDINGS);
     assert!(w.store.state().log.is_empty(), "nothing was written");
     r.flags = Flags {
         degraded: true,

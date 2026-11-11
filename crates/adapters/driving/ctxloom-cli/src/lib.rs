@@ -8,7 +8,9 @@
 //! - Under json an error is the envelope `{code, args, message}` on stderr;
 //!   under text it is `ctxloom: <message>`, then `  fix: <remedy>` where its
 //!   catalog has one. Stdout holds answers only.
-//! - Exit codes: 0, 1 failed, 2 refused, 3 fatal findings.
+//! - Exit codes (rulings 149, 152, 153): 0 ok, 1 would change (only under
+//!   `--detailed-exitcode`), 10 failed, 20 refused, 21 fatal findings, 128+n
+//!   a signal.
 //! - `-v` is accepted everywhere and changes no output.
 //! - With the `test-support` feature, `diagnostic_samples` (the hidden `test`
 //!   commands are the wiring's, mounted as an extension).

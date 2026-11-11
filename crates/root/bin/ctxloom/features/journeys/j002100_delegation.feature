@@ -86,7 +86,10 @@ Feature: Orchestrator delegates isolated work
       """
     Then Alice sees "reviewer" still held on its refused credential
 
-  # Alice gives the fixer the reviewer's profile and permissions. The fixer's
+  # Alice gives the fixer the reviewer's profile and permissions (its claude
+  # block, `agents.fixer.engines.claude-code.permissions: {defaultMode: plan}`,
+  # which she writes in the config by hand: owner ruling 138 removed
+  # `--permissions`). The fixer's
   # next run gets the new setup; the record of its earlier run still shows
   # what that run was actually given.
   Scenario: A child's grant is journaled at enqueue and survives a later config edit unchanged
@@ -94,7 +97,7 @@ Feature: Orchestrator delegates isolated work
     Given Alice's orchestrator has delegated the fix to "fixer"
     When Alice gives "fixer" the reviewer's profile and permissions:
       """
-      ctxloom agent edit fixer --add-profile reviewing --permissions plan
+      ctxloom agent edit fixer --add-profile reviewing
       """
     And Alice's orchestrator delegates the next fix to "fixer"
     Then Alice sees "fixer"'s first run was granted its original MCP server and permissions

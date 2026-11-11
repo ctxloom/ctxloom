@@ -347,11 +347,33 @@ fn a_stat_line_s_state_is_read_by_name() {
     }
 }
 
-// A helper that outlives an answering runtime does not hold the caller.
+/// A helper that holds the runtime's pipes after the runtime exits, until
+/// the file `release` appears beside the script (or 30 seconds, its own
+/// bound), its pid in `helper`. A runtime that exits normally is not killed
+/// with what it started (run-within: the descendant may be meant to stay),
+/// so the test lets it go itself.
+const HELD: &str = "d=$(dirname \"$0\")\n\
+    ( i=0; while [ ! -e \"$d/release\" ] && [ \"$i\" -lt 3000 ]; do sleep 0.01; i=$((i+1)); done ) &\n\
+    echo $! > \"$d/helper\"\n";
+
+/// Lets a [`HELD`] helper go when dropped, whether the test passed or not.
+struct Release<'a>(&'a Rooted, PathBuf);
+
+impl Drop for Release<'_> {
+    fn drop(&mut self) {
+        let _ = self
+            .0
+            .write_atomic(&self.1.join("release"), b"", Perms::Exact(Mode::FILE));
+    }
+}
+
+// A helper that outlives an answering runtime does not hold the caller, and
+// is gone once let go.
 #[test]
 fn a_helper_that_outlives_the_runtime_does_not_hold_the_caller() {
     let (fs, bin) = machine();
-    script(&fs, &bin, "docker", "sleep 5 &\nexit 0");
+    script(&fs, &bin, "docker", &format!("{HELD}exit 0"));
+    let release = Release(&fs, bin.clone());
     let found = HostRuntimes::new(
         fs.clone(),
         env(),
@@ -362,4 +384,18 @@ fn a_helper_that_outlives_the_runtime_does_not_hold_the_caller() {
     let started = std::time::Instant::now();
     assert!(found.installed()[0].reachable);
     assert!(started.elapsed() < Duration::from_secs(4));
+    let pid = fs.read_to_string(&bin.join("helper")).unwrap();
+    assert!(
+        !run_within::process_gone(pid.trim()),
+        "the helper held the pipes"
+    );
+    drop(release);
+    let until = std::time::Instant::now() + Duration::from_secs(10);
+    while !run_within::process_gone(pid.trim()) && std::time::Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(
+        run_within::process_gone(pid.trim()),
+        "the helper {pid} outlived the test"
+    );
 }

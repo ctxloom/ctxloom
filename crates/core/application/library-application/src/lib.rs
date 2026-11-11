@@ -37,8 +37,8 @@ pub use agents::ENGINES;
 pub use config::{load as load_config, Flags, OnRun, OUTPUT_DIR_DEFAULT};
 pub use config_show::ConfigShown;
 pub use engine_noun::{
-    AgentSettings, AuthSetting, EngineAgent, EngineRow, EnvKey, EnvSetting, RuntimeSetting,
-    SourcedValue,
+    AgentSettings, AuthSetting, EngineAgent, EngineRow, EnvKey, EnvSetting, PermissionsSetting,
+    RuntimeSetting, SourcedValue,
 };
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;

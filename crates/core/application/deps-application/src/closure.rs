@@ -35,16 +35,12 @@ pub(crate) struct LocalProfiles {
 }
 
 impl Deps {
-    /// The project's profiles, read from its bundles, and those of ctxloom's
-    /// built-in bundles it has none of the name of (rulings 110, 111): a
-    /// built-in profile is walked as the project's own, and names only
-    /// built-in bundles, so nothing is fetched or pinned for it.
+    /// The project's profiles, read from its bundles, with ctxloom's
+    /// built-in bundle counted as one of its own (rulings 110, 111, 117): a
+    /// profile that names it fetches and pins nothing for it. The built-in
+    /// bundle ships no profile, so there is none of its to walk.
     pub(crate) fn local_profiles(&self) -> Result<LocalProfiles, AppError> {
         let mut local = self.project_profiles()?;
-        let taken = local.bundles.clone();
-        local
-            .by_key
-            .extend(library::builtin::profiles(&|name| taken.contains(name)));
         local
             .bundles
             .extend(library::builtin::names().into_iter().map(str::to_string));

@@ -1,5 +1,5 @@
 //! The setup interview on a terminal: the mechanism only (the interview's
-//! words are [`crate::SETUP_INTERVIEW`], the owner's, used as they are).
+//! words are the project's catalog's, [`crate::Prompts`], used as they are).
 //!
 //! On a terminal, `init` hands the project to the engine once, as an
 //! interactive session whose opening prompt is the interview. That session
@@ -10,8 +10,9 @@
 //! terminal, the answer she types, and the sessions themselves are ports: nothing here reads the process.
 
 use ctxloom_ports::Failure;
+use exit_code::Exit;
 
-use crate::SETUP_INTERVIEW;
+use crate::Prompts;
 
 /// The command that starts the configured session later.
 pub const RESTART_COMMAND: &str = "ctxloom run";
@@ -52,20 +53,23 @@ impl Ended {
     }
 }
 
-/// A session that could not be launched: why, and the exit code that reason
-/// carries (a refusal 2 or 3, any other failure 1), the same as the command
+/// A session that could not be launched: why, and the exit that reason
+/// carries (refused 20 or fatal findings 21, any other failure 10), the same as the command
 /// that launches such a session by itself, `ctxloom run`. A session that ran
 /// is not this: it is [`Ended`], and its code is the engine's own.
 #[derive(Debug)]
 pub struct LaunchFailure {
     pub cause: Failure,
-    pub exit: u8,
+    pub exit: Exit,
 }
 
 impl LaunchFailure {
-    /// A launch that failed in the ordinary way: exit 1.
+    /// A launch that failed in the ordinary way: failed (10).
     pub fn failed(cause: Failure) -> LaunchFailure {
-        LaunchFailure { cause, exit: 1 }
+        LaunchFailure {
+            cause,
+            exit: Exit::FAILED,
+        }
     }
 }
 
@@ -105,6 +109,7 @@ pub struct Interviewed {
 pub fn interview(
     terminal: &dyn Terminal,
     sessions: &dyn Sessions,
+    prompts: &dyn Prompts,
 ) -> Result<Interviewed, LaunchFailure> {
     if !terminal.is_terminal() {
         return Ok(Interviewed {
@@ -112,7 +117,13 @@ pub fn interview(
             notices: Vec::new(),
         });
     }
-    let mut ended = sessions.interview(SETUP_INTERVIEW)?;
+    // Read as the project is now, after the scaffold; a refusal launches
+    // nothing and asks nothing.
+    let opening = prompts.setup_interview().map_err(|refused| LaunchFailure {
+        cause: refused.cause,
+        exit: refused.exit,
+    })?;
+    let mut ended = sessions.interview(&opening)?;
     let mut notices = std::mem::take(&mut ended.notices);
     let outcome = if !ended.clean() {
         Outcome::Interrupted { code: ended.code }

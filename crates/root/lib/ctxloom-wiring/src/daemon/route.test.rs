@@ -12,7 +12,7 @@ use run_ports::{Arrival, Edge, Unserved};
 use super::{Routes, RoutingEdge};
 use crate::InProcessCore;
 
-type TheEdge = EmbeddedEdge<angzarr_embedded_host::stores::OneStore<MemoryStore>>;
+type TheEdge = EmbeddedEdge<crate::CoreStores<MemoryStore>>;
 
 fn cover(n: u8) -> Cover {
     Cover {

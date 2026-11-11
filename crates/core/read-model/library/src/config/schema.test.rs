@@ -18,7 +18,7 @@ fn texts(doc: &str) -> Vec<String> {
 // the fixture `cfg/v8`: every key of the schema, correctly used
 #[test]
 fn test_a_config_using_every_key_correctly_has_no_violation() {
-    let doc = "schema_version: 8\neditor:\n  command: vim\n  args: [-u, NONE]\nconfig:\n  content_form: original\n  statusline: none\nsync:\n  on_run: none\nworkspace: worktree\nruntime: host\ndelegation:\n  concurrency: 3\n  depth: 2\n  idle_timeout: 5m\nshell_timeout:\n  default: 30s\n  max: 1h\nisolation_images:\n  claude-code: example.com/img:1\nisolation_base: ctxloom\nisolation_memory_limit: 4g\nisolation_pids_limit: 512\noutput:\n  dir: /var/out\nisolation_engines: [claude-code]\ncompanions:\n  acme:\n    command: [acme-bin, --flag]\n  beta:\n    command: [beta-bin]\nui:\n  prefix_key: ctrl-b\n  list_window: 7d\nsession_reap_age: 30d\nsession_purge_age: 90d\nsession_transcript_retention: 365d\nnon_tty_format: json\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: opus\n        effort: low\n        permissions:\n          mode: plan\n    profiles: [p1]\n    runtime: host\n    driving: oneshot\n    env: [ALPHA]\n    permissions:\n      approver: human\n      sandbox: full\n      network: none\ndefault_agent: dev\nengines:\n  claude-code:\n    auth: login\n";
+    let doc = "schema_version: 8\neditor:\n  command: vim\n  args: [-u, NONE]\nconfig:\n  content_form: original\n  statusline: none\nsync:\n  on_run: none\nworkspace: worktree\nruntime: host\ndelegation:\n  concurrency: 3\n  depth: 2\n  idle_timeout: 5m\nshell_timeout:\n  default: 30s\n  max: 1h\nisolation_images:\n  claude-code: example.com/img:1\nisolation_base: ctxloom\nisolation_memory_limit: 4g\nisolation_pids_limit: 512\noutput:\n  dir: /var/out\nisolation_engines: [claude-code]\ncompanions:\n  acme:\n    command: [acme-bin, --flag]\n  beta:\n    command: [beta-bin]\nui:\n  prefix_key: ctrl-b\n  list_window: 7d\nsession_reap_age: 30d\nsession_purge_age: 90d\nsession_transcript_retention: 365d\nnon_tty_format: json\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: opus\n        effort: low\n        permissions:\n          defaultMode: plan\n    profiles: [p1]\n    runtime: host\n    driving: oneshot\n    env: [ALPHA]\ndefault_agent: dev\nengines:\n  claude-code:\n    auth: login\n";
     assert_eq!(texts(doc), Vec::<String>::new());
 }
 
@@ -28,7 +28,7 @@ fn test_a_config_using_every_key_correctly_has_no_violation() {
 fn test_an_unknown_top_level_key_is_named_with_the_keys_there_are() {
     assert_eq!(
         texts("schema_version: 8\nzzz: 1\n"),
-        ["unknown key `zzz` in config.yaml: ctxloom does not know it (known keys at the top level: agents, companions, config, default_agent, delegation, editor, engines, isolation_base, isolation_devcontainer_service, isolation_engines, isolation_images, isolation_memory_limit, isolation_pids_limit, non_tty_format, output, permissions, runtime, schema_version, session_purge_age, session_reap_age, session_transcript_retention, shell_timeout, sync, ui, workspace)"]
+        ["unknown key `zzz` in config.yaml: ctxloom does not know it (known keys at the top level: agents, companions, config, default_agent, delegation, editor, engines, isolation_base, isolation_devcontainer_service, isolation_engines, isolation_images, isolation_memory_limit, isolation_pids_limit, non_tty_format, output, runtime, schema_version, session_purge_age, session_reap_age, session_transcript_retention, shell_timeout, sync, ui, workspace)"]
     );
     // The inline profiles block, the native mcp block and the retired turn cap
     // are keys the schema does not describe.
@@ -46,12 +46,7 @@ fn test_an_unknown_top_level_key_is_named_with_the_keys_there_are() {
 fn test_an_unknown_nested_key_is_named_by_its_path_and_where_it_would_be_legal() {
     assert_eq!(
         texts("schema_version: 8\nagents:\n  developer:\n    profiles: [dev]\n    auth: login\n"),
-        ["unknown key `agents.developer.auth` in config.yaml: ctxloom does not know it (known keys at `agents.developer`: driving, engine, engines, env, may_delegate, permissions, profiles, roots, runtime, surfaces)"]
-    );
-    // Go: the project's permissions take only the neutral keys.
-    assert_eq!(
-        texts("schema_version: 8\npermissions:\n  mode: plan\n"),
-        ["unknown key `permissions.mode` in config.yaml: ctxloom does not know it (known keys at `permissions`: approval_timeout, approver, network, sandbox)"]
+        ["unknown key `agents.developer.auth` in config.yaml: ctxloom does not know it (known keys at `agents.developer`: driving, engine, engines, env, may_delegate, profiles, roots, runtime, surfaces)"]
     );
 }
 
@@ -182,8 +177,10 @@ fn test_an_override_value_is_checked_at_its_path() {
 fn test_the_sections_are_the_top_level_keys_in_go_s_order() {
     assert_eq!(SECTIONS[0], "schema_version");
     assert_eq!(SECTIONS[1], "engines");
-    assert_eq!(SECTIONS.len(), 25);
-    assert_eq!(SECTIONS[24], "non_tty_format");
+    // Owner ruling 134: `permissions` is no longer a section.
+    assert_eq!(SECTIONS.len(), 24);
+    assert_eq!(SECTIONS[23], "non_tty_format");
+    assert!(!SECTIONS.contains(&"permissions"));
 }
 
 // the string patterns the schema writes, each accepting and refusing
@@ -516,8 +513,7 @@ fn test_a_test_build_knows_the_mock_engines_too() {
 // Ruling 57 (2026-11-09), hard migrate: an agent's model, effort and
 // permission mode live in its per-engine block `agents.<n>.engines.<e>`; the
 // flat `model` / `effort` and the old engine-keyed `permissions.<engine>` map
-// are ordinary unknown keys (no alias). The engine-neutral posture keys of
-// `permissions` (approver, approval_timeout, sandbox, network) stay.
+// are ordinary unknown keys (no alias).
 #[test]
 fn test_an_agent_s_flat_model_effort_and_engine_keyed_permissions_are_unknown_keys() {
     for (doc, key) in [
@@ -525,7 +521,8 @@ fn test_an_agent_s_flat_model_effort_and_engine_keyed_permissions_are_unknown_ke
         ("agents:\n  dev:\n    effort: low\n", "agents.dev.effort"),
         (
             "agents:\n  dev:\n    permissions:\n      claude-code:\n        mode: plan\n",
-            "agents.dev.permissions.claude-code",
+            // Ruling 134: the agent has no `permissions` at all now.
+            "agents.dev.permissions",
         ),
     ] {
         let said = texts(&format!("schema_version: 9\n{doc}"));
@@ -535,10 +532,47 @@ fn test_an_agent_s_flat_model_effort_and_engine_keyed_permissions_are_unknown_ke
             "{said:?}"
         );
     }
-    assert_eq!(
-        texts("schema_version: 9\nagents:\n  dev:\n    permissions:\n      approver: human\n"),
-        Vec::<String>::new()
-    );
+}
+
+// Owner ruling 134 (2026-11-11), hard migrate: the engine-neutral posture
+// (`permissions.approver`, `approval_timeout`, `sandbox`, `network`) is gone
+// at the project level and on an agent: its section is an unknown key.
+#[test]
+fn test_the_engine_neutral_posture_is_an_unknown_key_at_the_project_and_on_an_agent() {
+    for key in [
+        "approver: human",
+        "approval_timeout: 90s",
+        "sandbox: full",
+        "network: open",
+    ] {
+        for (doc, path) in [
+            (format!("permissions:\n  {key}\n"), "permissions"),
+            (
+                format!("agents:\n  dev:\n    permissions:\n      {key}\n"),
+                "agents.dev.permissions",
+            ),
+        ] {
+            let said = texts(&format!("schema_version: 9\n{doc}"));
+            assert_eq!(said.len(), 1, "{said:?}");
+            assert!(
+                said[0].starts_with(&format!("unknown key `{path}` in config.yaml")),
+                "{said:?}"
+            );
+        }
+    }
+}
+
+// Owner rulings 135, 137: an agent's engine block's `permissions` is the
+// engine's own document: any keys, any values, any depth are taken, and
+// nothing inside it is checked.
+#[test]
+fn test_an_agent_s_engine_permissions_take_any_document() {
+    for engine in ["claude-code", "opencode"] {
+        let doc = format!(
+            "schema_version: 9\nagents:\n  dev:\n    engines:\n      {engine}:\n        permissions:\n          defaultMode: anything\n          mode: plan\n          allow: [Read, \"Bash(git *)\"]\n          nested:\n            deep:\n              - x: 1\n          flag: true\n          n: 7\n"
+        );
+        assert_eq!(texts(&doc), Vec::<String>::new(), "{engine}");
+    }
 }
 
 // The per-engine block names only engines ctxloom drives, and holds only
@@ -607,12 +641,6 @@ fn test_each_former_boolean_takes_only_its_words() {
         ),
         ("config.statusline", "\"ctxloom\", \"none\"", "true"),
         ("sync.on_run", "\"none\", \"missing\"", "true"),
-        ("permissions.network", "\"none\", \"open\"", "false"),
-        (
-            "agents.dev.permissions.network",
-            "\"none\", \"open\"",
-            "true",
-        ),
     ] {
         let doc = |value: &str| {
             let mut text = String::from("schema_version: 9\n");
@@ -669,7 +697,6 @@ fn test_no_key_of_the_schema_is_a_boolean() {
         "config.content_form",
         "config.statusline",
         "sync.on_run",
-        "permissions.network",
         "output.dir",
     ] {
         let path: Vec<String> = path.split('.').map(String::from).collect();

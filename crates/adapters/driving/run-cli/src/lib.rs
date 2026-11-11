@@ -7,6 +7,7 @@
 //! the session that made it; what the plan noticed is said on the error
 //! stream.
 
+use cli_support::{Exit, ExitClass};
 use std::io::{self, Write};
 
 use angzarr_presentation::{Catalog, Format};
@@ -22,7 +23,7 @@ pub use cli_support::Failure;
 /// aggregate refusal holds, in check order, for the command line to list
 /// (owner rulings 73b, 73i).
 fn failed(error: RunError) -> Failure {
-    let exit = error.exit_code();
+    let exit = error.exit();
     let refusals = error.refusals();
     Failure::new(error, exit).with_refusals(refusals)
 }
@@ -86,7 +87,7 @@ pub fn run<S: RunService>(
     piped: &mut dyn FnMut() -> Option<String>,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let format = call.format();
     let mut prompt = prompt_of(run);
     if prompt.trim().is_empty() && one(run, "command").unwrap_or_default().is_empty() {
@@ -101,10 +102,10 @@ pub fn run<S: RunService>(
             OutputFailure {
                 ext_err_txt: e.to_string(),
             },
-            1,
+            Exit::FAILED,
         )
     })?;
-    Ok(0)
+    Ok(Exit::OK)
 }
 
 /// The prompt the line gave: `--prompt`, else the words.
@@ -139,7 +140,7 @@ fn request_of(run: &ArgMatches, prompt: String) -> OneShot {
 /// `run` without `--one-shot`: the human's session. The engine is given her
 /// terminal, so nothing is read from standard input and nothing is printed
 /// here; what the plan noticed is said on the error stream, and the exit is
-/// the engine's.
+/// the engine's, as ctxloom's classes say it (`Exit::from_child_status`).
 pub fn session<S: RunService>(
     service: &mut S,
     run: &ArgMatches,
@@ -147,15 +148,12 @@ pub fn session<S: RunService>(
     catalog: &Catalog,
     _out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let request = request_of(run, prompt_of(run));
     let done = service.interactive(&call.globals, &request);
     say_notices(&done.notices, PROG, call.format(), catalog, err);
     let ended = done.result.map_err(failed)?;
-    Ok(ended
-        .code
-        .and_then(|code| u8::try_from(code).ok())
-        .unwrap_or(1))
+    Ok(Exit::from_child_status(ended.code, None))
 }
 
 fn write_answer(format: Format, answer: &Answer, out: &mut dyn Write) -> io::Result<()> {

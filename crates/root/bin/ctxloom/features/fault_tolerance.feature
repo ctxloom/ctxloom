@@ -27,11 +27,12 @@ Feature: Fault tolerance
   # preview also refuses a credential the run would refuse, and --degraded
   # does not reach that one.
   Scenario: A profile referencing a missing bundle is refused like a run; --degraded previews past it
+    # substitution: exit codes per rulings 149, 152, 153 (10 failed, 20 refused, 21 fatal findings; Go's 1, 2, 3).
     Given an initialized ctxloom project
     And a profile "broken" referencing a missing bundle
     And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-fixture"
     When I run "ctxloom run --dry-run --profile broken hello"
-    Then the command exits with code 3
+    Then the command exits with code 21
     And the output contains "failed to load bundle"
     And the output contains "does-not-exist"
     When I run "ctxloom --degraded run --dry-run --profile broken hello"

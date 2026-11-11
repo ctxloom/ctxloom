@@ -26,6 +26,7 @@ reclaim-application.workspace = true
 auth-application.workspace = true
 setup-cli.workspace = true
 ctxloom-ports.workspace = true
+library.workspace = true
 library-application.workspace = true
 deps.workspace = true
 deps-application.workspace = true

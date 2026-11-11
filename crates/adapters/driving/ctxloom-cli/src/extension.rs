@@ -10,7 +10,7 @@ use angzarr_presentation::Catalog;
 use clap::Command;
 use library_application::Flags;
 
-pub use cli_support::Failure;
+pub use cli_support::{Exit, Failure};
 
 /// One command, with the global flags the library's use cases take.
 pub type Call<'a> = cli_support::Call<'a, Flags>;
@@ -21,8 +21,9 @@ pub trait Extension {
     /// default verb, no `help` command).
     fn nouns(&self) -> Vec<Command>;
 
-    /// Run `noun`. The exit code on success (0, or 3 when fatal findings
-    /// followed an answer that was still printed).
+    /// Run `noun`. Its exit on success: ok, a distinguishing success (would
+    /// change, said only under `--detailed-exitcode`), or fatal findings
+    /// that followed an answer that was still printed.
     fn run(
         &mut self,
         noun: &str,
@@ -30,7 +31,7 @@ pub trait Extension {
         catalog: &Catalog,
         out: &mut dyn Write,
         err: &mut dyn Write,
-    ) -> Result<u8, Failure>;
+    ) -> Result<Exit, Failure>;
 }
 
 /// No extension: the command line holds only this crate's own commands.
@@ -48,7 +49,7 @@ impl Extension for NoExtension {
         _catalog: &Catalog,
         _out: &mut dyn Write,
         _err: &mut dyn Write,
-    ) -> Result<u8, Failure> {
-        Ok(0)
+    ) -> Result<Exit, Failure> {
+        Ok(Exit::OK)
     }
 }

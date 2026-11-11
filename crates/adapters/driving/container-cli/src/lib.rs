@@ -17,6 +17,7 @@ mod commands;
 mod fault;
 mod text;
 
+use cli_support::{Exit, ExitClass};
 use std::io::Write;
 
 use angzarr_diagnostic::Diagnostic;
@@ -30,12 +31,12 @@ pub use fault::{CliFault, EN_US};
 
 pub use cli_support::{Call, Failure};
 
-fn failure(cause: impl Diagnostic + 'static, exit: u8) -> Failure {
+fn failure(cause: impl Diagnostic + 'static, exit: Exit) -> Failure {
     Failure::new(cause, exit)
 }
 
 fn app(error: isolation_application::IsolationError) -> Failure {
-    let exit = error.exit_code();
+    let exit = error.exit();
     failure(error, exit)
 }
 
@@ -44,7 +45,7 @@ fn output(error: std::io::Error) -> Failure {
         CliFault::Output {
             ext_err_txt: error.to_string(),
         },
-        1,
+        Exit::FAILED,
     )
 }
 
@@ -53,7 +54,7 @@ pub fn run<G>(
     uses: &dyn ContainerUse,
     call: &Call<'_, G>,
     out: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let format = call.explicit_format.unwrap_or(call.default_format);
     let sub = call
         .matches
@@ -63,7 +64,7 @@ pub fn run<G>(
                 CliFault::NoSuchCommand {
                     noun: "container".to_string(),
                 },
-                2,
+                Exit::REFUSED,
             )
         })?;
     match sub.subcommand() {
@@ -116,23 +117,23 @@ pub fn run<G>(
                 CliFault::NoSuchCommand {
                     noun: other.to_string(),
                 },
-                2,
+                Exit::REFUSED,
             ))
         }
     }
-    Ok(0)
+    Ok(Exit::OK)
 }
 
 /// The bare noun prints its help, which is prose: no encoding carries it, so
 /// a machine-readable format aimed at it is refused rather than answered with
 /// text and a 0.
-fn bare<G>(call: &Call<'_, G>, out: &mut dyn Write) -> Result<u8, Failure> {
+fn bare<G>(call: &Call<'_, G>, out: &mut dyn Write) -> Result<Exit, Failure> {
     if call.explicit_format == Some(Format::Json) {
         return Err(failure(
             CliFault::HelpNotPayload {
                 format: "json".to_string(),
             },
-            2,
+            Exit::REFUSED,
         ));
     }
     let mut container = commands::nouns()
@@ -140,7 +141,7 @@ fn bare<G>(call: &Call<'_, G>, out: &mut dyn Write) -> Result<u8, Failure> {
         .bin_name("ctxloom container")
         .disable_help_subcommand(true);
     write!(out, "{}", container.render_help()).map_err(output)?;
-    Ok(0)
+    Ok(Exit::OK)
 }
 
 #[cfg(test)]

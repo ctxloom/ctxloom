@@ -86,3 +86,73 @@ fn test_display_is_the_code_and_the_args() {
         "deps-application-notice text=t remedy=r"
     );
 }
+
+// Ruling 152: what broke (an adapter, a file, a clone, a fetch, a publish, a
+// pull) is 10; what the request or the state declines is 20, the refused
+// consented refresh among them.
+#[test]
+fn test_an_error_is_failed_or_declined_by_its_kind() {
+    use exit_code::{Exit, ExitClass};
+    let s = String::new;
+    let failed = [
+        AppError::Cause(Box::new(AppError::DefaultNeedsName)),
+        AppError::File {
+            what: s(),
+            detail: s(),
+        },
+        AppError::PullFailed {
+            count: 1,
+            refs: s(),
+        },
+        AppError::Browse {
+            remote: s(),
+            detail: s(),
+        },
+        AppError::Publish {
+            remote: s(),
+            detail: s(),
+        },
+        AppError::DiscoverFailed,
+        AppError::CloneNotRefreshed {
+            url: s(),
+            detail: s(),
+        },
+        AppError::Unreadable {
+            what: s(),
+            detail: s(),
+        },
+    ];
+    for error in failed {
+        assert_eq!(error.exit(), Exit::FAILED, "{error:?}");
+    }
+    let declined = [
+        AppError::cause(AppError::DefaultNeedsName),
+        AppError::Required { what: s() },
+        AppError::NotRegistered { url: s() },
+        AppError::Conflict { text: s() },
+        AppError::NoRemoteNamed { name: s() },
+        AppError::DefaultNeedsName,
+        AppError::NothingToHold {
+            name: s(),
+            verb: s(),
+        },
+        AppError::BundleNotFound { name: s() },
+        AppError::BadDestination {
+            to: s(),
+            known: s(),
+        },
+        AppError::DestinationExists { dest: s() },
+        AppError::DestinationItself { dest: s() },
+        AppError::PullRequestNeedsForge {
+            remote: s(),
+            forge: s(),
+        },
+        AppError::DiscoverSource { source: s() },
+        AppError::EmptyFile { path: s() },
+        AppError::NotRemoteReference { reference: s() },
+        AppError::RefreshAborted { detail: s() },
+    ];
+    for error in declined {
+        assert_eq!(error.exit(), Exit::REFUSED, "{error:?}");
+    }
+}

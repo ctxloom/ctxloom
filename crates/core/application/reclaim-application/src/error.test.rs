@@ -1,6 +1,7 @@
 //! The errors' codes, exit codes, args and messages.
 
 use angzarr_diagnostic::Diagnostic;
+use exit_code::{Exit, ExitClass};
 use sessions_application::AppError;
 
 use super::*;
@@ -26,7 +27,7 @@ fn no_session() -> AppError {
 #[test]
 fn a_bad_age_is_a_usage_error_with_its_own_code_and_args() {
     let error = bad_age();
-    assert_eq!(error.exit_code(), 2);
+    assert_eq!(error.exit(), Exit::REFUSED);
     assert_eq!(error.code(), "reclaim-application-bad-age");
     let args: Vec<&str> = error.args().iter().map(|(k, _)| *k).collect();
     assert_eq!(args, ["flag", "value", "error"]);
@@ -42,16 +43,16 @@ fn a_bad_age_is_a_usage_error_with_its_own_code_and_args() {
 fn a_sessions_failure_keeps_its_code_args_and_exit_code() {
     let cause = no_session();
     let error = ReclaimError::from(cause.clone());
-    assert_eq!(error.exit_code(), cause.exit_code());
+    assert_eq!(error.exit(), cause.exit());
     assert_eq!(error.code(), cause.code());
     assert_eq!(error.args().len(), cause.args().len());
     assert!(!error.args().is_empty());
 }
 
 #[test]
-fn a_cache_failure_exits_one_with_its_causes_code_and_args() {
+fn a_cache_failure_exits_failed_with_its_causes_code_and_args() {
     let error = ReclaimError::Cache(Box::new(bad_age()));
-    assert_eq!(error.exit_code(), 1);
+    assert_eq!(error.exit(), Exit::FAILED);
     assert_eq!(error.code(), "reclaim-application-bad-age");
     assert_eq!(error.args().len(), 3);
 }
@@ -66,9 +67,9 @@ fn the_catalog_has_a_message_for_every_sample() {
 }
 
 #[test]
-fn an_unreadable_configuration_exits_one_with_its_causes_code_and_args() {
+fn an_unreadable_configuration_exits_failed_with_its_causes_code_and_args() {
     let error = ReclaimError::Config(Box::new(bad_age()));
-    assert_eq!(error.exit_code(), 1);
+    assert_eq!(error.exit(), Exit::REFUSED);
     assert_eq!(error.code(), "reclaim-application-bad-age");
     assert_eq!(error.args().len(), 3);
 }

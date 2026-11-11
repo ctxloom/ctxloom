@@ -168,7 +168,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
     refusals are the only thing that distinguishes the verbs. Making them upsert
     is DELETING TWO GUARDS from a shared function, not merging two
     implementations. And a binding carries engine, profiles, runtime and
-    permission mode, so a silent overwrite loses whatever the invocation did not
+    each engine's settings, so a silent overwrite loses whatever the invocation did not
     name — the exact loss the merge scenario below pins.
 
     If the friction needs answering, an explicit `--force` on create (or a
@@ -241,7 +241,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       Given an initialized ctxloom project
       And a profile "dev" exists
       And a profile "ops" exists
-      And I run "ctxloom agent create developer --engine claude-code --profiles dev,ops --runtime host --permissions plan"
+      And I run "ctxloom agent create developer --engine claude-code --profiles dev,ops --runtime host --model haiku"
       When Alice moves one binding into a container and changes nothing else:
         """
         ctxloom agent edit developer --runtime container-rootless <flags>
@@ -254,18 +254,18 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output reports "[name=developer].engine" as "<the engine that survived>"
       And the output reports "[name=developer].profiles" containing "<the first profile>"
       And the output reports "[name=developer].profiles" containing "<the second profile>"
-      And the output reports "[name=developer].engines.claude-code.permissions.mode" as "<the posture that survived>"
+      And the output reports "[name=developer].engines.claude-code.model" as "<the model that survived>"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
-        | flags         | the binding written | the axis that changed       | the engine that survived | the first profile | the second profile | the posture that survived |
-        |               | developer           | container-rootless          | claude-code              | dev               | ops                | plan                      |
-        | --format json | developer           | container-rootless          | claude-code              | dev               | ops                | plan                      |
-        | --format text | Updated agent       | runtime: container-rootless | engine: claude-code         | profiles: dev, ops | ops               | engines.claude-code: {permissions: {mode: plan}} |
+        | flags         | the binding written | the axis that changed       | the engine that survived | the first profile | the second profile | the model that survived |
+        |               | developer           | container-rootless          | claude-code              | dev               | ops                | haiku                   |
+        | --format json | developer           | container-rootless          | claude-code              | dev               | ops                | haiku                   |
+        | --format text | Updated agent       | runtime: container-rootless | engine: claude-code         | profiles: dev, ops | ops               | engines.claude-code: {model: haiku} |
 
     # --surface is the delivery-preference axis (kind=approach, repeatable):
     # which mechanism a surface reaches the engine through, distinct from
-    # engine/profiles/runtime/permissions above. It carries no listing render
+    # engine/profiles/runtime/model above. It carries no listing render
     # (agent list never prints a "surfaces:" line), so the only honest read
     # of the effect is the binding it was written to.
     Scenario Outline: Setting a surface delivery preference records it in the binding
@@ -408,17 +408,19 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
   # (owner rulings 40-44), the runtime/env it may override from the engine.
   Rule: An agent names its engine and carries its own model, effort and permissions
 
-    Scenario: Creating an agent records engine, model, effort and permissions, and show reads each back with its source
-      # new: --engine replaces --llm; the three settings are the agent's
+    Scenario: Creating an agent records engine, model and effort, and show reads each back with its source
+      # new: --engine replaces --llm; the settings are the agent's. Its
+      # permissions are its engine's own document, written in config by hand
+      # (owner ruling 138: no flag writes them).
       Given an initialized ctxloom project
       And a profile "dev" exists
-      When I run "ctxloom agent create reviewer --engine claude-code --model haiku --effort low --permissions plan --profiles dev"
+      When I run "ctxloom agent create reviewer --engine claude-code --model haiku --effort low --profiles dev"
       Then the command succeeds
       And the file ".ctxloom/config.yaml" contains "engine: claude-code"
       And the file ".ctxloom/config.yaml" contains "engines:"
       And the file ".ctxloom/config.yaml" contains "model: haiku"
       And the file ".ctxloom/config.yaml" contains "effort: low"
-      And the file ".ctxloom/config.yaml" contains "mode: plan"
+      And the file ".ctxloom/config.yaml" does not contain "permissions:"
       And the file ".ctxloom/config.yaml" does not contain "llm:"
       When I run "ctxloom agent show reviewer --format json"
       Then the command succeeds
@@ -427,8 +429,8 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output reports "resolved.model.value" as "haiku"
       And the output reports "resolved.model.source" as "agent"
       And the output reports "resolved.effort.value" as "low"
-      And the output reports "resolved.permissions.value" as "plan"
-      And the output reports "resolved.permissions.source" as "agent"
+      And the output reports "resolved.permissions.value.defaultMode" as "acceptEdits"
+      And the output reports "resolved.permissions.source" as "default"
 
     # Ruling 57: the settings are per engine, under `agents.<n>.engines.<e>`;
     # `--engine` with them names the block (and the agent's engine), and a
@@ -480,16 +482,18 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output contains "=== Settings ==="
       And the output contains "model        sonnet  (agents.dev.engines.claude-code)"
       And the output contains "effort       engine default, no flag passed  (default)"
-      And the output contains "permissions  acceptEdits  (default)"
+      And the output contains "permissions  {defaultMode: acceptEdits}  (default)"
+      And the output contains "passed to claude-code verbatim; ctxloom does not check it"
       And the output does not contain "not passed to the engine yet"
       And the output contains "runtime      host  (agents.dev)"
       And the output contains "env          HTTPS_PROXY  (engines.claude-code), ALPHA_TOKEN  (agents.dev)"
 
-    # Owner ruling 116: claude is given the agent's permission mode
-    # (`--permission-mode`); opencode has no verified flag for one, so its
-    # dry run says the mode is not passed.
-    Scenario: The dry run says opencode is not given the agent's permission mode
-      # new: owner ruling 116 (2026-11-11)
+    # Owner rulings 135, 137, 139: an agent's `permissions` block for an engine
+    # IS that engine's own document, passed verbatim (opencode's becomes its
+    # config's `permission`), and ctxloom checks nothing in it; the dry run
+    # shows it as written, and says so.
+    Scenario: The dry run shows opencode's block as written, passed on unchecked
+      # new: owner rulings 135, 137, 139 (2026-11-11)
       Given an initialized ctxloom project
       And the project already has the file ".ctxloom/config.yaml":
         """
@@ -500,16 +504,24 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
             engines:
               opencode:
                 permissions:
-                  mode: plan
+                  edit: deny
+                  bash: ask
         """
       When I run "ctxloom run --dry-run --agent dev hello --format text"
       Then the command succeeds
-      And the output contains "permissions  plan, not passed to the engine yet  (agents.dev.engines.opencode)"
+      And the output contains "permissions  {bash: ask, edit: deny}  (agents.dev.engines.opencode)"
+      And the output contains "passed to opencode verbatim; ctxloom does not check it"
+      And the output does not contain "not passed to the engine yet"
+      When I run "ctxloom run --dry-run --agent dev hello --format json"
+      Then the command succeeds
+      And the output reports "settings.permissions.value.edit" as "deny"
+      And the output reports "settings.permissions.source" as "agent"
 
-    # Owner ruling 125: a hand-written claude mode is held to the words a write
-    # takes, at the dry run as at the launch, and refused in the write's words.
-    Scenario: The dry run refuses a hand-written claude mode a write would refuse
-      # new: owner ruling 125 (2026-11-11)
+    # Owner ruling 135 (replacing ruling 125's refusal): a hand-written claude
+    # block is claude's, so a word ctxloom does not know, the retired `mode`
+    # key among them, is shown and passed on, never refused.
+    Scenario: The dry run shows a claude block ctxloom does not understand, and refuses nothing
+      # new: owner rulings 135, 137 (2026-11-11)
       Given an initialized ctxloom project
       And the project already has the file ".ctxloom/config.yaml":
         """
@@ -523,29 +535,42 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
                   mode: dontAsk
         """
       When I run "ctxloom run --dry-run --agent dev hello --format text"
-      Then the command exits with code 1
-      And the output contains "dontAsk"
-      And the output contains "is declared as approver: none"
+      Then the command succeeds
+      And the output contains "permissions  {mode: dontAsk}  (agents.dev.engines.claude-code)"
+      And the output contains "passed to claude-code verbatim; ctxloom does not check it"
+      And the output does not contain "approver"
 
     # Ruling 67 (2026-11-10): what you see is what you write. The listing and
     # the write summary show each engine block in the config's shape,
-    # `engines.<e>: {...}`, never a flat model or `<engine>={mode=...}`.
+    # `engines.<e>: {...}`, never a flat model or `<engine>={mode=...}`; a
+    # block that holds permissions says they are passed on verbatim (139).
     Scenario: The listing and the write summary show the engine blocks as the config holds them
-      # new: owner ruling 67
+      # new: owner rulings 67, 139
       Given an initialized ctxloom project
-      And a profile "dev" exists
-      When I run "ctxloom agent create reviewer --engine claude-code --model haiku --permissions plan --profiles dev --format text"
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        agents:
+          reviewer:
+            engine: claude-code
+            engines:
+              claude-code:
+                permissions:
+                  defaultMode: plan
+        """
+      When I run "ctxloom agent edit reviewer --model haiku --format text"
       Then the command succeeds
-      And the output contains "engines.claude-code: {model: haiku, permissions: {mode: plan}}"
-      And the output does not contain "claude-code={mode=plan}"
+      And the output contains "engines.claude-code: {model: haiku, permissions: {defaultMode: plan}}"
+      And the output contains "permissions passed to claude-code verbatim; ctxloom does not check it"
       When I run "ctxloom agent list --format text"
       Then the command succeeds
-      And the output contains "engines.claude-code: {model: haiku, permissions: {mode: plan}}"
+      And the output contains "engines.claude-code: {model: haiku, permissions: {defaultMode: plan}}"
+      And the output contains "permissions passed to claude-code verbatim; ctxloom does not check it"
       And the output does not contain "    model: haiku"
       When I run "ctxloom agent list --format json"
       Then the command succeeds
       And the output reports "[name=reviewer].engines.claude-code.model" as "haiku"
-      And the output reports "[name=reviewer].engines.claude-code.permissions.mode" as "plan"
+      And the output reports "[name=reviewer].engines.claude-code.permissions.defaultMode" as "plan"
 
     # Ruling 68 (2026-11-10): an agent that names no engine has its settings
     # written into the default engine's block, and the write says which.
@@ -571,7 +596,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
             model: haiku
         """
       When I run "ctxloom agent show reviewer"
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the output contains "unknown key `agents.reviewer.model`"
 
     Scenario: An agent that sets neither model nor effort passes no flag, and says so
@@ -583,7 +608,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       Then the command succeeds
       And the output contains "Model: engine default, no flag passed"
       And the output contains "Effort: engine default, no flag passed"
-      And the output contains "Permissions: acceptEdits (default)"
+      And the output contains "Permissions: {defaultMode: acceptEdits} (default)"
       When I run "ctxloom run --dry-run --agent plain hello --format json"
       Then the command succeeds
       And the output does not contain "--model"
@@ -598,15 +623,38 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the file ".ctxloom/config.yaml" does not contain "model:"
       And the file ".ctxloom/config.yaml" contains "engine: claude-code"
 
-    Scenario: A permission mode the engine does not take is refused, and the binding is left alone
-      # new: checked against the engine's vocabulary
+    Scenario: The --permissions flag is gone, and the binding is left alone
+      # new: owner ruling 138 (hard migrate): the block is written in config
       Given an initialized ctxloom project
       And a profile "dev" exists
       And I run "ctxloom agent create reviewer --engine claude-code --profiles dev"
-      When I run "ctxloom agent edit reviewer --permissions nonsense"
+      When I run "ctxloom agent edit reviewer --permissions plan"
       Then the command fails
-      And the output contains "nonsense"
-      And the file ".ctxloom/config.yaml" does not contain "nonsense"
+      And the output contains "unknown flag: --permissions"
+      And the file ".ctxloom/config.yaml" does not contain "plan"
+
+    Scenario Outline: An engine-neutral posture key on an agent is an unknown key
+      # new: owner ruling 134 (hard migrate, no alias)
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        agents:
+          reviewer:
+            engine: claude-code
+            permissions:
+              <key>: <value>
+        """
+      When I run "ctxloom agent show reviewer"
+      Then the command exits with code 20
+      And the output contains "unknown key `agents.reviewer.permissions`"
+
+      Examples:
+        | key              | value     |
+        | approver         | human     |
+        | approval_timeout | 90s       |
+        | sandbox          | read-only |
+        | network          | open      |
 
     Scenario: Binding an unknown engine is refused with the engines named
       # new: --engine is validated before the write
@@ -715,26 +763,39 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       Then the command fails
       And the output contains "unknown flag: --session-home"
 
-  Rule: show says where a headless run's asks go, before anything is launched
+  # Owner rulings 133-139: ctxloom has no posture of its own to explain (the
+  # approver and its "Headless posture" are gone, ruling 134); what an agent
+  # runs with is its engine's own document, which `agent show` prints as
+  # written and says ctxloom passes on unchecked.
+  Rule: show prints the agent's permissions as written, and says ctxloom does not check them
 
-    A delegated child or a one-shot has nobody at its engine, so a call its
-    posture leaves open goes to its approver. The human — the default — is
-    asked in the approvals modal of the interactive run at the root, and only
-    there: a root that cannot present one denies the call at once. Finding that
-    out from a BLOCKED report is too late; `agent show` says it up front.
-
-    Scenario: A binding that declares no approver asks the human, and says what happens when nobody can answer
+    Scenario: show prints the block and the line that it is passed on verbatim
+      # new: owner rulings 134, 137, 139 (2026-11-11)
       Given an initialized ctxloom project
-      And a profile "dev" exists
-      And I run "ctxloom agent create developer --engine claude-code --profiles dev"
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        agents:
+          developer:
+            engine: claude-code
+            engines:
+              claude-code:
+                permissions:
+                  defaultMode: plan
+                  deny: [WebFetch]
+        """
       When I run "ctxloom agent show developer --format text"
       Then the command succeeds
-      And the output contains "Headless posture: acceptEdits, approver human — asks go to the root's approvals modal"
-      And the output contains "denied at once when the root is unattended (one-shot, --plain-terminal, headless)"
+      And the output contains "Permissions: {defaultMode: plan, deny: [WebFetch]} (agent)"
+      And the output contains "passed to claude-code verbatim; ctxloom does not check it"
+      And the output does not contain "Headless posture"
+      And the output does not contain "approver"
       When I run "ctxloom agent show developer --format json"
       Then the command succeeds
-      And the output reports "resolved.approver" as "human"
-      And the output reports "resolved.effectivePermissions" as "acceptEdits"
+      And the output reports "resolved.permissions.value.defaultMode" as "plan"
+      And the output reports "resolved.permissions.value.deny" containing "WebFetch"
+      And the output does not contain "approver"
+      And the output does not contain "effectivePermissions"
 
   @pending
   Rule: The default agent is what a bare run binds

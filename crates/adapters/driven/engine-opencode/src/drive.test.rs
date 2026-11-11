@@ -27,7 +27,6 @@ fn request() -> TurnRequest {
         cwd: Some("/p".to_string()),
         model: String::new(),
         effort: String::new(),
-        permission_mode: String::new(),
         settings: EngineSettings::default(),
     }
 }
@@ -90,13 +89,14 @@ fn test_a_model_is_passed_and_an_effort_is_not() {
     assert_eq!(terminal(&chosen).args, ["-m", "opencode/big-pickle"]);
 }
 
-// Owner ruling 116 passes claude's permission mode; opencode has no verified
-// flag for one, so a mode is not passed, and is not refused either.
+// Owner rulings 133-139: opencode's permissions are its config's, never a
+// flag (and ctxloom chooses no opencode agent, `build` or `plan`: no flag for
+// one is in scope), so a turn and the TUI carry none.
 #[test]
-fn test_a_permission_mode_is_not_passed() {
-    let mut chosen = request();
-    chosen.permission_mode = "plan".to_string();
+fn test_no_permission_or_agent_flag_is_passed() {
+    let chosen = request();
     assert_eq!(turn(&chosen).args, ["run", "--format", "json"]);
+    let mut chosen = request();
     chosen.prompt = String::new();
     assert!(terminal(&chosen).args.is_empty());
 }

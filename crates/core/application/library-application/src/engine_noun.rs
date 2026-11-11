@@ -63,9 +63,22 @@ pub struct RuntimeSetting {
 pub struct AgentSettings {
     pub model: SourcedValue<Option<String>>,
     pub effort: SourcedValue<Option<String>>,
-    pub permissions: SourcedValue<String>,
+    pub permissions: PermissionsSetting,
     pub runtime: RuntimeSetting,
     pub env: EnvSetting,
+}
+
+/// The engine's own permissions document an agent runs with (owner rulings
+/// 133-139): as written, passed to the engine verbatim and never checked;
+/// `null` is none, and nothing is passed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct PermissionsSetting {
+    pub value: Option<serde_json::Value>,
+    pub source: &'static str,
+    /// The document on one line in YAML's flow form, for text; empty when
+    /// there is none.
+    #[serde(skip)]
+    pub line: String,
 }
 
 /// The names a launch passes through (owner ruling 66: the engine block's,
@@ -267,7 +280,18 @@ pub(crate) fn settings_of(effective: &Effective) -> AgentSettings {
     AgentSettings {
         model: optional(&effective.model),
         effort: optional(&effective.effort),
-        permissions: sourced(&effective.permissions),
+        permissions: match &effective.permissions {
+            Some(document) => PermissionsSetting {
+                value: Some(crate::json::document(&document.value)),
+                source: document.source.word(),
+                line: crate::json::flow(&document.value),
+            },
+            None => PermissionsSetting {
+                value: None,
+                source: Source::Default.word(),
+                line: String::new(),
+            },
+        },
         runtime,
         env: EnvSetting {
             value: effective.env.value.clone(),

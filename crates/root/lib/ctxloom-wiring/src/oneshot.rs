@@ -10,10 +10,10 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::CoreStores;
 use angzarr_diagnostic::Report;
 use angzarr_embedded::angzarr_store_sqlite::SqliteStore;
 use angzarr_embedded::Catalog;
-use angzarr_embedded_host::stores::OneStore;
 use credentials::OsTokenSource;
 use ctxloom_store_sqlite::Stores;
 use embedded_edge::EmbeddedEdge;
@@ -41,8 +41,11 @@ use crate::{InProcessCore, Wiring};
 /// killed.
 pub(crate) const TURN_DEADLINE: Duration = Duration::from_secs(30 * 60);
 
+/// The run use cases as this process wires them.
+type TheRuns = Runs<InProcessCore<SqliteStore>, OsTokenSource, HostLauncher, SessionDirs>;
+
 impl Core for InProcessCore<SqliteStore> {
-    type Edge = EmbeddedEdge<OneStore<SqliteStore>>;
+    type Edge = EmbeddedEdge<CoreStores<SqliteStore>>;
     type Store = SqliteStore;
 
     fn edge(&self) -> Arc<Self::Edge> {
@@ -114,8 +117,7 @@ impl<'a> OneShots<'a> {
         library: Library,
         output_dir: &str,
         stop: host_launcher::Stop,
-    ) -> Result<Runs<InProcessCore<SqliteStore>, OsTokenSource, HostLauncher, SessionDirs>, RunError>
-    {
+    ) -> Result<TheRuns, RunError> {
         let wiring = self.wiring;
         let env = wiring.env();
         let environment = Environment {
@@ -343,9 +345,7 @@ impl OneShots<'_> {
         &mut self,
         flags: &Flags,
         stop_on: &'static [os::Signal],
-        use_case: impl AsyncFnOnce(
-            &mut Runs<InProcessCore<SqliteStore>, OsTokenSource, HostLauncher, SessionDirs>,
-        ) -> Done<T>,
+        use_case: impl AsyncFnOnce(&mut TheRuns) -> Done<T>,
     ) -> Done<T> {
         let refused = |reason: String| Done {
             result: Err(RunError::Session(CoreError::Failed { reason })),
@@ -369,7 +369,7 @@ impl OneShots<'_> {
         };
         let (stop, heard) = (host_launcher::Stop::new(), Heard::default());
         let mut notices = synced;
-        runtime.block_on(async {
+        let mut done = runtime.block_on(async {
             // Made on the runtime, before anything is launched.
             let hearing = match self.wiring.fs().os().signals(&signals::HEARD) {
                 Ok(signals) => Some(tokio::spawn(signals::forward(
@@ -385,8 +385,27 @@ impl OneShots<'_> {
                     None
                 }
             };
-            let mut done = match self.assemble(library, &output_dir, stop).await {
-                Ok(mut runs) => use_case(&mut runs).await,
+            let done = match self.assemble(library, &output_dir, stop).await {
+                Ok(mut runs) => {
+                    let mut done = use_case(&mut runs).await;
+                    // The store closed, not dropped, before the process exits
+                    // (rulings 131, 140): every part but the core let go with
+                    // their edges (the listener was stopped by the use case,
+                    // its connections ended and its service released), then
+                    // the core consumed and the store taken by value. A close
+                    // that fails fails the run.
+                    if let Err(unclosed) = runs.into_core().close().await {
+                        let reason = unclosed.to_string();
+                        match &done.result {
+                            Ok(_) => {
+                                done.result =
+                                    Err(RunError::Session(CoreError::Failed { reason }));
+                            }
+                            Err(_) => done.notices.push(library_application::Notice::text(reason)),
+                        }
+                    }
+                    done
+                }
                 Err(error) => Done {
                     result: Err(error),
                     notices: Vec::new(),
@@ -395,11 +414,12 @@ impl OneShots<'_> {
             if let Some(hearing) = hearing {
                 hearing.abort();
             }
-            heard.overrule(&mut done.result);
-            notices.append(&mut done.notices);
-            done.notices = notices;
             done
-        })
+        });
+        heard.overrule(&mut done.result);
+        notices.append(&mut done.notices);
+        done.notices = notices;
+        done
     }
 }
 

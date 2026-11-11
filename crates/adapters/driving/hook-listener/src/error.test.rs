@@ -82,18 +82,9 @@ fn the_samples_hold_a_value_of_every_code() {
             "hook-listener-bind",
             "hook-listener-bind-not-reported",
             "hook-listener-bind-unspecified",
-            "hook-listener-stop",
-            "hook-listener-stop-timed-out"
+            "hook-listener-stop"
         ]
     );
-}
-
-#[test]
-fn a_timeout_names_its_grace_in_milliseconds() {
-    let error = ListenerError::timed_out("/s", std::time::Duration::from_millis(1500));
-    assert_eq!(error.code(), "hook-listener-stop-timed-out");
-    let rendered = error.to_string();
-    assert!(rendered.contains("1500"), "{rendered}");
 }
 
 #[test]

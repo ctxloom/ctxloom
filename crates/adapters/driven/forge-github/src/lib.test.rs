@@ -701,12 +701,15 @@ fn test_an_error_and_every_cause_under_it_is_one_line() {
 }
 
 // A client built with its proxy on goes through the environment's proxy, and
-// one built without never does. The environment is the process's and is read
-// once, so each case runs in a process of its own: this test run again, told
-// which case it is.
+// one built without never does: it goes to the API itself. The environment is
+// the process's and is read once, so each case runs in a process of its own:
+// this test run again, told which case it is and where the API is. Both the
+// proxy and the API are stubs on loopback, so nothing is resolved or sent off
+// the machine.
 const PROXY_CASE: &str = "CTXLOOM_TEST_PROXY_CASE";
+const PROXY_API: &str = "CTXLOOM_TEST_PROXY_API";
 
-fn search_through_environment_proxy(proxy: bool) -> bool {
+fn search_through_environment_proxy(proxy: bool, api_url: &str) -> bool {
     let github = GitHub::with_env(|_| None);
     let github = if proxy {
         github
@@ -714,7 +717,7 @@ fn search_through_environment_proxy(proxy: bool) -> bool {
         github.without_proxy()
     };
     let endpoint = Endpoint {
-        api_url: "http://github.invalid".to_string(),
+        api_url: api_url.to_string(),
         token_vars: Vec::new(),
     };
     github.search_repositories(&endpoint, "", 1).is_ok()
@@ -722,13 +725,14 @@ fn search_through_environment_proxy(proxy: bool) -> bool {
 
 #[test]
 fn test_the_proxy_of_the_environment_is_used_unless_the_client_is_made_without_one() {
-    if let Some(case) = process_env::EnvSnapshot::from_process()
-        .utf8(PROXY_CASE)
-        .map(String::from)
-    {
+    let env = process_env::EnvSnapshot::from_process();
+    if let Some(case) = env.utf8(PROXY_CASE).map(String::from) {
         // The child: report by exit status.
-        let reached = search_through_environment_proxy(case == "on");
-        assert_eq!(reached, case == "on", "case {case}");
+        let api = env.utf8(PROXY_API).expect("the API's url").to_string();
+        assert!(
+            search_through_environment_proxy(case == "on", &api),
+            "case {case}"
+        );
         return;
     }
     let me = std::env::current_exe().expect("this test binary");
@@ -736,11 +740,13 @@ fn test_the_proxy_of_the_environment_is_used_unless_the_client_is_made_without_o
         "{}::test_the_proxy_of_the_environment_is_used_unless_the_client_is_made_without_one",
         module_path!().split_once("::").map_or("", |(_, rest)| rest)
     );
-    for (case, reaches) in [("on", true), ("off", false)] {
+    for (case, through_proxy) in [("on", true), ("off", false)] {
         let proxy = Stub::replying(200, r#"{"items": []}"#);
+        let api = Stub::replying(200, r#"{"items": []}"#);
         let out = std::process::Command::new(&me)
             .args(["--exact", &name, "--nocapture"])
             .env(PROXY_CASE, case)
+            .env(PROXY_API, api.url())
             .env("HTTP_PROXY", proxy.url())
             .env("http_proxy", proxy.url())
             .env_remove("NO_PROXY")
@@ -753,7 +759,16 @@ fn test_the_proxy_of_the_environment_is_used_unless_the_client_is_made_without_o
             String::from_utf8_lossy(&out.stdout),
             String::from_utf8_lossy(&out.stderr)
         );
-        assert_eq!(proxy.requests().len(), usize::from(reaches), "{case}");
+        assert_eq!(proxy.requests().len(), usize::from(through_proxy), "{case}");
+        assert_eq!(api.requests().len(), usize::from(!through_proxy), "{case}");
+        // What the proxy is asked for is the API, by its absolute URL.
+        for asked in proxy.requests() {
+            assert!(
+                asked.path.starts_with(&api.url()),
+                "{case}: {}",
+                asked.line()
+            );
+        }
     }
 }
 

@@ -13,7 +13,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::Report;
+pub use session_ports::LockError;
 
 /// What a probe of a lock says.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,7 +59,7 @@ impl fmt::Debug for HeldLock {
 /// The run and session locks of this host.
 pub trait RunLocks: Send + Sync {
     /// Take run `run`'s own lock (its id's text), at once or not at all.
-    fn hold_run(&self, run: &str) -> Result<HeldLock, Report>;
+    fn hold_run(&self, run: &str) -> Result<HeldLock, LockError>;
 
     /// What the lock at `path` (a run's, as its enqueue journaled it) says.
     fn probe(&self, path: &str) -> LockProbe;

@@ -727,11 +727,11 @@ fn test_a_local_parent_that_is_there_leaves_the_closure_complete() {
     assert!(report.unreachable.is_empty());
 }
 
-// Owner rulings 110, 111: the seeded profile's parent is a built-in profile,
-// which a pull walks as the project's own: the closure is complete and
-// nothing is fetched, pinned or written for it.
+// Owner ruling 117 (narrowing 110, 111): the seeded profile is bare, so a
+// pull of a fresh project has nothing to walk: the closure is complete and
+// nothing is fetched, pinned or written.
 #[test]
-fn test_a_built_in_parent_leaves_the_closure_complete_and_pulls_nothing() {
+fn test_the_bare_seeded_profile_leaves_the_closure_complete_and_pulls_nothing() {
     let fx = Fixture::new();
     fx.content.bundle(
         "project",
@@ -751,26 +751,21 @@ fn test_a_built_in_parent_leaves_the_closure_complete_and_pulls_nothing() {
     assert!(fx.files.lock_text().is_none(), "nothing to lock");
 }
 
-// A project bundle of a built-in one's name overrides it here too: its own
-// profiles are walked, the built-in one's are not.
+// A profile that names the built-in bundle reaches it as the project's own:
+// nothing is fetched or pinned for it.
 #[test]
-fn test_a_project_bundle_of_a_built_in_name_overrides_it_in_the_closure() {
+fn test_a_profile_naming_the_built_in_bundle_pulls_nothing() {
     let fx = Fixture::new();
     fx.content.bundle(
         "project",
         &[
             ENVELOPE,
-            (
-                "profiles/default.yaml",
-                library::write::scaffold::SEED_PROFILE,
-            ),
+            ("profiles/distiller.yaml", "bundles:\n  - ctxloom\n"),
         ],
     );
-    fx.content.bundle("ai-developer", &[ENVELOPE]);
     let report = ok(fx.deps.pull(false, true));
-    assert!(report.incomplete);
-    assert_eq!(
-        report.unreachable,
-        ["ctxloom+local:ai-developer#profiles/developer"]
-    );
+    assert!(!report.incomplete, "{:?}", report.unreachable);
+    assert!(report.unreachable.is_empty());
+    assert_eq!(report.installed, 0);
+    assert!(fx.files.lock_text().is_none(), "nothing to lock");
 }

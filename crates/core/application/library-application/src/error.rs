@@ -5,6 +5,7 @@
 use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
+use exit_code::{Exit, ExitClass};
 use library::{BundleError, ProfileError, RefError};
 
 /// This crate's en-US messages (`locales/en-US/messages.ftl`, ids under the
@@ -17,8 +18,11 @@ pub const EN_US: (&str, &str) = (
 /// A command that did not complete.
 #[derive(Debug)]
 pub enum AppError {
-    /// An error of the read model or an adapter, as itself.
+    /// An adapter's error, as itself: something broke (I/O, a store).
     Cause(Box<dyn Diagnostic>),
+    /// A refusal of the read model or of a write, as itself: the request or
+    /// the content forbids it (ruling 152: a decline, exit 20).
+    Declined(Box<dyn Diagnostic>),
     /// A config layer that is not YAML.
     ConfigUnparsable {
         path: String,
@@ -69,6 +73,13 @@ pub enum AppError {
         kind: String,
         name: String,
         available: String,
+    },
+    /// An operational prompt (owner ruling 128) the project's own bundle of
+    /// the built-in one's name lacks: it overrides the built-in one whole.
+    OperationalPromptMissing {
+        bundle: String,
+        prompt: String,
+        dir: String,
     },
     /// A reference that is not `bundle#<kind>/name`.
     BadReference { expected: String, got: String },
@@ -130,9 +141,10 @@ pub enum AppError {
 }
 
 impl AppError {
-    /// An error of another crate, as itself.
+    /// A refusal of another crate (the read model's, a write's), as itself:
+    /// a decline. An adapter's error is [`AppError::Cause`].
     pub fn cause(error: impl Diagnostic + 'static) -> AppError {
-        AppError::Cause(Box::new(error))
+        AppError::Declined(Box::new(error))
     }
 
     /// Fatal findings, after the plan was shown: the run is refused.
@@ -153,23 +165,19 @@ impl AppError {
             findings: lines,
         }
     }
+}
 
-    /// The process exit code: 2 refused before any state was read (a config
-    /// the strict decode refuses is one), 3 fatal findings, 1 otherwise.
-    pub fn exit_code(&self) -> u8 {
+impl ExitClass for AppError {
+    /// How a command this ends exits (rulings 149, 152, 153): failed (10)
+    /// when an adapter broke, fatal findings (21) for the run plan's, and
+    /// refused (20) for every other: each declines the request against the
+    /// line, the config or the content (a name nobody has, an unreadable
+    /// config or bundle, a reference that is no reference).
+    fn exit(&self) -> Exit {
         match self {
-            AppError::AgentExclusive { .. }
-            | AppError::ConfigNewer { .. }
-            | AppError::ConfigOlder { .. }
-            | AppError::ConfigCompanionsBare { .. }
-            | AppError::ConfigVersionUnreadable { .. }
-            | AppError::ConfigUnknownKey { .. }
-            | AppError::ConfigBreaksSchema { .. }
-            | AppError::RunNeedsDryRun
-            | AppError::SearchRemote
-            | AppError::Workspace { .. } => 2,
-            AppError::StartupAborted { .. } => 3,
-            _ => 1,
+            AppError::Cause(_) => Exit::FAILED,
+            AppError::StartupAborted { .. } => Exit::FATAL_FINDINGS,
+            _ => Exit::REFUSED,
         }
     }
 }
@@ -185,7 +193,7 @@ impl std::error::Error for AppError {}
 impl Diagnostic for AppError {
     fn code(&self) -> &str {
         match self {
-            AppError::Cause(cause) => cause.code(),
+            AppError::Cause(cause) | AppError::Declined(cause) => cause.code(),
             AppError::ConfigUnparsable { .. } => code!("config-unparsable"),
             AppError::ConfigNewer { .. } => code!("config-newer"),
             AppError::ConfigOlder { .. } => code!("config-older"),
@@ -200,6 +208,7 @@ impl Diagnostic for AppError {
             AppError::ViewMissing { .. } => code!("view-missing"),
             AppError::NotViewable { .. } => code!("not-viewable"),
             AppError::ItemMissing { .. } => code!("item-missing"),
+            AppError::OperationalPromptMissing { .. } => code!("operational-prompt-missing"),
             AppError::BadReference { .. } => code!("bad-reference"),
             AppError::WrongKind { .. } => code!("wrong-kind"),
             AppError::UnsupportedFormat { .. } => code!("unsupported-format"),
@@ -231,7 +240,7 @@ impl Diagnostic for AppError {
     #[allow(clippy::too_many_lines)]
     fn args(&self) -> Vec<(&str, Arg)> {
         match self {
-            AppError::Cause(cause) => cause.args(),
+            AppError::Cause(cause) | AppError::Declined(cause) => cause.args(),
             AppError::ConfigUnparsable { path, cause } => vec![
                 ("path", path.as_str().into()),
                 ("cause", Arg::Nested(cause.clone())),
@@ -270,6 +279,15 @@ impl Diagnostic for AppError {
                 ("kind", kind.as_str().into()),
                 ("name", name.as_str().into()),
                 ("available", available.as_str().into()),
+            ],
+            AppError::OperationalPromptMissing {
+                bundle,
+                prompt,
+                dir,
+            } => vec![
+                ("bundle", bundle.as_str().into()),
+                ("prompt", prompt.as_str().into()),
+                ("dir", dir.as_str().into()),
             ],
             AppError::BadReference { expected, got } => vec![
                 ("expected", expected.as_str().into()),
@@ -576,6 +594,11 @@ fn error_samples() -> Vec<Box<dyn Diagnostic>> {
             kind: s("fragment"),
             name: s("nope"),
             available: s("example"),
+        }),
+        Box::new(AppError::OperationalPromptMissing {
+            bundle: s("ctxloom"),
+            prompt: s("distill"),
+            dir: s("/p/.ctxloom/content/bundles/v2/ctxloom"),
         }),
         Box::new(AppError::BadReference {
             expected: s("bundle#fragments/name"),

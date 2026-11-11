@@ -42,9 +42,12 @@ feature file; it belongs in git history.
 ### Names (vocabulary doc §1-5)
 - **engine** is only the program: claude-code, opencode, mock. It is a fixed set; an engine has
   many agents.
-  - Model, effort and permissions are per-engine defaults in an `engines:` config block
-    (`config set engines.claude-code.model opus`), overridden per agent (`--model`, `--effort`,
-    `--permissions`).
+  - Model, effort and permissions are an agent's, per engine, in its block
+    `agents.<n>.engines.<e>` (rulings 57, 136); `--model` and `--effort` write them.
+  - **Permissions are the engine's own document** (owner rulings 133-139): the block's
+    `permissions` is copied verbatim, unchecked, into claude's `--settings` `permissions`
+    and opencode's `opencode.json` `permission`; no `--permission-mode` flag, no ctxloom
+    mode list, no `--permissions` flag. See `docs/config/permissions.md`.
   - A read-only `ctxloom engine` noun (`list`, `show <engine>`) shows each engine's effective
     defaults and the surfaces and hook events it carries.
   - The `llm` noun, its labels (`claude-fast`, `big`), `--llm`, `--backend` and `--type` (for
@@ -77,11 +80,16 @@ feature file; it belongs in git history.
 - **Every destructive command confirms.**
   - On a TTY it previews and prompts.
   - Off a TTY without `--yes` it previews (`applied:false`, `apply:<exact command>`), changes
-    nothing and exits **4**.
+    nothing and exits **0**, or **1** (would change) under `--detailed-exitcode` (rulings 149,
+    152, 153; this replaced the planned 4).
   - The engine-swap preview is `agent edit --engine`'s confirmation.
-- **Exit codes:** 0 succeeded; 1 failed; 2 refused before any state was read (usage); 3 fatal
-  findings (D28); 4 not applied, confirmation required; 5 succeeded but a side effect degraded;
-  6 a check found something (`doctor --strict`, `deps check --strict`).
+- **Exit codes** (owner rulings 149, 152, 153, superseding D28's ladder; the convention is
+  ctxloom-lib's `docs/exit-codes.md`): 0-9 successes, where 1-9 are returned only under
+  `--detailed-exitcode` (1 a plan or preview would change something); 10 failed; 20 refused
+  (usage errors included); 21 fatal findings; 128+n stopped by signal n. The planned 5
+  (succeeded but a side effect degraded) and 6 (a check found something: `doctor --strict`,
+  `deps check --strict`) are not assigned: each needs a block and a subcode (a success 2-9
+  under the flag, or a decline 22-29) from the owner.
 - **A name that does not resolve is refused.** Recall no longer warns and runs anyway.
 - **Nothing to do is refused**, naming the fields.
 
@@ -147,30 +155,32 @@ feature file; it belongs in git history.
 - **Words, never booleans** (owner rulings 59, 60, 106, 108; hard migrate, no alias):
   `config.content_form: distilled|original` (was `use_distilled`), `config.statusline:
   ctxloom|none`, `sync.on_run: none|missing` (was `auto_sync`; default `missing`: a run
-  installs what its profiles reference and is not installed), `permissions.network:
-  none|open` (default `open`); `config.silence_unsupported` is deleted.
+  installs what its profiles reference and is not installed); `config.silence_unsupported`
+  is deleted.
 - **Outputs** (rulings 89, 106): `output.dir` (default `ctxloom/`, relative to the project
   root, absolute allowed, not gitignored) holds each session's `<harp>/` folder; a first
   init at a terminal asks for it.
-- **Posture** (rulings 59, 109): a launch refuses (`runs-unenforced-posture`) a `network`
-  or `sandbox` word that claims more than its runtime enforces. The honest defaults are
-  `network: open` and `sandbox: full`; no runtime enforces `none`, `read-only` or
-  `workspace-write` yet.
+- **No posture of ctxloom's own** (ruling 134, superseding 59, 70, 106-109 and 125 as far
+  as permissions go): `permissions.approver`, `approval_timeout`, `sandbox` and `network`
+  are deleted at project and agent level (unknown keys, refused), and with them the
+  launch's `runs-unenforced-posture` check. `runtime` stays, as process isolation.
 
 ### Content
 
-- **The default content is built in** (owner rulings 110, 111). The bundles a new
-  project's seeded `default` profile inherits (`ai-developer#profiles/developer`, and the
-  `ai-coding-general`, `testing` and `git` bundles it names) ship in the binary, a copy of
-  `github.com/ctxloom/ctxloom-default` at a recorded commit (`library::builtin`). The
-  catalog lists them under the read-only built-in origin `ctxloom/default`, beside the
-  project's own bundles and those installed from remotes; a project bundle of the same
-  name overrides one whole. Nothing is pulled for them, nothing is written under
-  `.ctxloom/cache`, and they work offline. A write to one is refused
+- **ctxloom's operational prompts are built in** (owner rulings 110, 111, narrowed by
+  117, 123). One bundle, `ctxloom`, ships in the binary (`library::builtin`): the setup
+  interview `init` opens with (`prompts/setup-interview`) and the distill prompt
+  (`prompts/distill`, the owner's own text). It is not generally injected: no profile
+  includes it and no session is handed it; only init and distill use it. The catalog
+  lists it under the read-only built-in origin `ctxloom/builtin` (`[built-in]` in text),
+  beside the project's own bundles and those installed from remotes; a project bundle
+  of the same name overrides it whole, and init reads its interview through the
+  catalog, so the project's copy is what it opens with (one without it is refused). A write to it is refused
   (`library-application-write-builtin-read-only`), naming the override (`bundle export`
-  into the project's bundles directory). Init and the scaffold seed no remote;
-  `ctxloom-default` stays an ordinary remote for whoever wants its other content. Their
-  content changes only with a ctxloom release.
+  into the project's bundles directory). Init and the scaffold seed no remote and a
+  BARE `default` profile, which inherits nothing: a fresh project has no coding
+  guidance until a remote is added. `ctxloom-default` stays an ordinary remote for
+  whoever wants its content. The prompts change only with a ctxloom release.
 
 ### Specs
 - **Journeys are use cases; cli features are contracts.** A journey (`features/journeys/`)

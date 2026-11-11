@@ -36,7 +36,42 @@ fn convert(value: &Value) -> serde_json::Value {
     }
 }
 
-/// A `permissions` block as JSON: an object, `{}` for none.
+/// A value of the configuration as JSON, whatever its shape: an engine's
+/// permissions document as written (owner rulings 135, 137). A plain
+/// scalar reads as what its text reads as (`true`, a whole number), the YAML
+/// reader keeping no quotes.
+pub fn document(value: &Value) -> serde_json::Value {
+    convert(value)
+}
+
+/// A value of the configuration as JSON TEXT on one line, every mapping's keys
+/// in the order they were written (owner rulings 135, 137: what an engine is
+/// handed is a verbatim copy, and an engine may read its rules in order). A
+/// scalar reads as [`document`] reads it.
+pub fn document_text(value: &Value) -> String {
+    let quoted = |text: &str| serde_json::to_string(text).unwrap_or_else(|_| format!("{:?}", text));
+    match value {
+        Value::Map(entries) => {
+            let inner: Vec<String> = entries
+                .iter()
+                .map(|(key, inner)| format!("{}:{}", quoted(key), document_text(inner)))
+                .collect();
+            format!("{{{}}}", inner.join(","))
+        }
+        Value::Seq(items) => format!(
+            "[{}]",
+            items
+                .iter()
+                .map(document_text)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        other => convert(other).to_string(),
+    }
+}
+
+/// A block of the configuration (an agent's `engines`) as JSON: an object,
+/// `{}` for none.
 pub fn permissions(block: &Value) -> serde_json::Value {
     match convert(block) {
         object @ serde_json::Value::Object(_) => object,

@@ -319,8 +319,6 @@ pub struct Agent {
     pub effort: String,
     pub profiles: Vec<String>,
     pub runtime: String,
-    /// The engine-neutral posture (`agents.<n>.permissions`).
-    pub permissions: Value,
     pub driving: String,
     pub env: Vec<String>,
     /// The per-engine blocks (`agents.<n>.engines`, ruling 57).
@@ -461,10 +459,6 @@ impl Agent {
             engine,
             profiles: list_at(body, "profiles"),
             runtime: text_at(body, "runtime"),
-            permissions: match body.get("permissions") {
-                Some(neutral @ Value::Map(_)) => neutral.clone(),
-                _ => Value::Map(Vec::new()),
-            },
             engines: match body.get("engines") {
                 Some(blocks @ Value::Map(_)) => blocks.clone(),
                 _ => Value::Map(Vec::new()),
@@ -475,8 +469,8 @@ impl Agent {
     }
 
     /// The binding as the listing shows it, in the config's shape (owner
-    /// ruling 67): the neutral posture as `permissions`, each engine's block
-    /// under `engines`, as the binding holds them.
+    /// ruling 67): each engine's block under `engines`, as the binding holds
+    /// it (an engine's permissions document as written, rulings 135-139).
     pub fn row(&self) -> AgentRow {
         // Sorted by engine, as the config writer writes them.
         let mut blocks: Vec<&(String, Value)> = match &self.engines {
@@ -486,22 +480,20 @@ impl Agent {
         blocks.sort_by(|a, b| a.0.cmp(&b.0));
         let engine_lines = blocks
             .iter()
-            .map(|(engine, block)| format!("engines.{engine}: {}", crate::json::flow(block)))
+            .map(|(engine, block)| crate::EngineLine {
+                engine: engine.clone(),
+                line: format!("engines.{engine}: {}", crate::json::flow(block)),
+                permissions: block.get("permissions").is_some(),
+            })
             .collect();
-        let permissions_line = match &self.permissions {
-            Value::Map(entries) if !entries.is_empty() => crate::json::flow(&self.permissions),
-            _ => String::new(),
-        };
         AgentRow {
             name: self.name.clone(),
             engine: self.engine.clone(),
             profiles: self.profiles.clone(),
             runtime: self.runtime.clone(),
-            permissions: crate::json::permissions(&self.permissions),
             driving: self.driving.clone(),
             env: self.env.clone(),
             engines: crate::json::permissions(&self.engines),
-            permissions_line,
             engine_lines,
         }
     }

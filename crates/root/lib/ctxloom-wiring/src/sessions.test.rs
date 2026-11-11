@@ -1,8 +1,8 @@
 //! The mounted `session` and `hook` nouns.
 
+use cli_support::Exit;
 use std::sync::Arc;
 
-use ::process_env::EnvSnapshot;
 use angzarr_presentation::{Catalog, Format};
 use clap::Command;
 use ctxloom_cli::{Call, Extension};
@@ -11,7 +11,7 @@ use crate::commands::tests::World;
 use crate::Commands;
 
 fn commands() -> Commands {
-    Commands::new(Arc::new(EnvSnapshot::from_process()))
+    Commands::new(Arc::new(crate::tests::host_snapshot()))
 }
 
 /// Run `line` as the command line would: the nouns parsed, then handed over.
@@ -49,7 +49,7 @@ fn run_with(
         commands.run(&noun, &call, &catalog, &mut out, &mut err)?
     };
     Ok((
-        code,
+        code.code(true),
         String::from_utf8(out).unwrap(),
         String::from_utf8(err).unwrap(),
     ))
@@ -141,11 +141,11 @@ fn test_a_session_start_with_no_harp_is_silent() {
 }
 
 #[test]
-fn test_a_hook_for_an_engine_nobody_knows_fails_with_exit_1() {
+fn test_a_hook_for_an_engine_nobody_knows_is_refused_with_exit_20() {
     let failure = run(&mut commands(), &["hook", "nosuch", "execute", "Stop"])
         .err()
         .unwrap();
-    assert_eq!(failure.exit, 1);
+    assert_eq!(failure.exit, Exit::REFUSED);
 }
 
 // `session list` runs on the sessions use cases over the world's home: no
@@ -232,4 +232,95 @@ fn test_a_hook_that_observes_nothing_says_nothing_on_stderr() {
     .unwrap();
     assert_eq!((code, out.as_str()), (0, "{}\n"));
     assert!(err.is_empty(), "{err}");
+}
+
+// ------------------------------------------------ closed, not dropped (ruling 131)
+//
+// A session command's stores are closed before the command answers. Seen from
+// the file while the use cases are still alive: a store held open keeps its
+// log beside it, a closed one leaves nothing; a drop, which these replace,
+// would leave it to the driver's thread.
+
+fn project(id: &str) -> ports::Project {
+    ports::Project {
+        id: id.to_string(),
+        root: None,
+        store: std::path::PathBuf::from(format!("/unused/{id}/state.db")),
+    }
+}
+
+/// What is beside project `id`'s database under `home`.
+fn beside(home: &std::path::Path, id: &str) -> Vec<&'static str> {
+    let dir = home.join(".ctxloom/projects").join(id);
+    ["ctxloom.db-wal", "ctxloom.db-shm"]
+        .into_iter()
+        .filter(|name| crate::fixtures::exists(dir.join(name)))
+        .collect()
+}
+
+fn runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+}
+
+/// Both use cases' stores held open to write: the log beside each.
+fn held<'a>(commands: &'a mut Commands, home: &std::path::Path) -> &'a mut crate::Sessions {
+    use session_ports::ProjectStores;
+    let sessions = commands.sessions().ok().unwrap();
+    let runtime = runtime();
+    runtime
+        .block_on(ProjectStores::open(
+            &mut sessions.use_cases.stores,
+            &project("p"),
+        ))
+        .unwrap();
+    runtime
+        .block_on(ProjectStores::open(
+            &mut sessions.importer.stores,
+            &project("q"),
+        ))
+        .unwrap();
+    for id in ["p", "q"] {
+        assert!(
+            beside(home, id).contains(&"ctxloom.db-wal"),
+            "{id}: held open, its log beside it"
+        );
+    }
+    sessions
+}
+
+#[test]
+fn test_closing_the_sessions_closes_both_use_cases_stores() {
+    let world = World::new("sessions-close");
+    let home = world.home();
+    let mut commands = world.commands();
+    let sessions = held(&mut commands, &home);
+    runtime().block_on(sessions.close()).unwrap();
+    // The use cases are still alive: nothing was dropped.
+    for id in ["p", "q"] {
+        assert_eq!(beside(&home, id), Vec::<&str>::new(), "{id}: closed");
+    }
+}
+
+#[test]
+fn test_a_command_s_answer_stands_once_its_stores_are_closed() {
+    let world = World::new("closing");
+    let home = world.home();
+    let mut commands = world.commands();
+    held(&mut commands, &home);
+    let catalog = Catalog::en_us(&[crate::EN_US]).unwrap();
+    let mut err = Vec::new();
+    let answer = commands.closing(Ok(Exit::WOULD_CHANGE), Format::Text, &catalog, &mut err);
+    assert_eq!(
+        answer.ok(),
+        Some(Exit::WOULD_CHANGE),
+        "the command's own answer"
+    );
+    assert!(commands.sessions.is_none(), "the use cases are let go");
+    for id in ["p", "q"] {
+        assert_eq!(beside(&home, id), Vec::<&str>::new(), "{id}: closed");
+    }
+    assert!(err.is_empty(), "{}", String::from_utf8_lossy(&err));
 }

@@ -29,7 +29,7 @@ use surface_ports::{
 
 pub use codec::Codec;
 pub use drive::{ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST, LOGIN_FILE, PROVIDER_KEYS, SIGN_IN};
-pub use home::{CONTEXT_FILE, PLUGIN, PLUGIN_FILE, PRESEED_LOCK};
+pub use home::{CONFIG_FILE, CONTEXT_FILE, PLUGIN, PLUGIN_FILE, PRESEED_LOCK};
 
 /// The engine's name.
 pub const NAME: &str = "opencode";

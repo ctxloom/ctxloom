@@ -24,7 +24,6 @@ use angzarr_embedded::angzarr_ports::{CommitNotify, CommitWait};
 use angzarr_embedded::angzarr_store_sqlite::SqliteStore;
 use angzarr_embedded::v1::Uuid;
 use angzarr_embedded::{CatchUp, Failure};
-use angzarr_embedded_host::stores::OneStore;
 use credentials::OsTokenSource;
 use ctxloom_store_sqlite::Stores;
 use daemon_board::Boards;
@@ -51,7 +50,7 @@ use super::files::DaemonFiles;
 use super::route::{Routes, RoutingEdge};
 use crate::InProcessCore;
 
-type ProjectEdge = EmbeddedEdge<OneStore<SqliteStore>>;
+type ProjectEdge = EmbeddedEdge<crate::CoreStores<SqliteStore>>;
 
 /// How long an ended child has to exit before its tree is stopped.
 const END_GRACE: Duration = Duration::from_secs(5);
@@ -500,7 +499,7 @@ impl Daemon {
         let lock = match self.run_locks.hold_run(&run) {
             Ok(lock) => lock,
             Err(report) => {
-                (self.say)(&format!("{harp}: the run's lock: {report}"));
+                (self.say)(&format!("{harp}: the run's lock: {report:?}"));
                 return Taken::Again;
             }
         };
@@ -696,6 +695,10 @@ impl Daemon {
                 // reaches the launcher's homes; a hosted child's is a
                 // follow-up of the merge of main).
                 existing: BTreeMap::new(),
+                // A hosted child's permissions passthrough (ruling 137) is
+                // a follow-up of the merge of main.
+                permissions: None,
+                session_home: child.settings.session_home,
             })
             .map_err(|e| e.to_string())?;
         for file in &prepared.files {

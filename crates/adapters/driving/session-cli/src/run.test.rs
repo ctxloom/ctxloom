@@ -6,6 +6,7 @@
 
 use angzarr_presentation::Format;
 use clap::{Args, Command, FromArgMatches};
+use cli_support::Exit;
 use serde_json::{json, Value};
 use sessions_application::{
     dead_letter_sample, AppError, BindRequest, Bound, Captured, Class, FilePlan, ImportReport,
@@ -361,7 +362,7 @@ fn a_state_that_is_not_one_is_refused_naming_the_states() {
     ] {
         let ran = go(&mut fake, Format::Json, words);
         let failure = ran.result.unwrap_err();
-        assert_eq!(failure.failure.exit, 2);
+        assert_eq!(failure.failure.exit, Exit::REFUSED);
         assert_eq!(failure.failure.cause.code(), "session-cli-bad-state");
         let states = failure
             .failure
@@ -640,7 +641,7 @@ fn a_failure_of_the_use_case_is_the_commands_failure_with_its_exit_code() {
         failure.failure.cause.code(),
         "sessions-application-no-session"
     );
-    assert_eq!(failure.failure.exit, 1);
+    assert_eq!(failure.failure.exit, Exit::REFUSED);
 }
 
 // ------------------------------------------------------------------------ keep
@@ -697,7 +698,7 @@ fn a_bare_edit_refuses_and_names_the_field_it_takes() {
         .result
         .unwrap_err();
     assert_eq!(failure.failure.cause.code(), "session-cli-edit-nothing");
-    assert_eq!(failure.failure.exit, 2);
+    assert_eq!(failure.failure.exit, Exit::REFUSED);
     assert!(fake.renamed.is_empty());
 }
 
@@ -972,7 +973,7 @@ fn a_refusal_prints_the_plan_then_fails_refused() {
     let doc: Value = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(doc["applied"], false, "the plan is still printed");
     let failure = ran.result.unwrap_err();
-    assert_eq!(failure.failure.exit, 2);
+    assert_eq!(failure.failure.exit, Exit::REFUSED);
     assert_eq!(
         failure.failure.cause.code(),
         "sessions-application-refused-retained"
@@ -1223,7 +1224,7 @@ fn an_answer_that_cannot_be_written_fails_the_command() {
     let session = parsed(&["list"]);
     let failure = run(&session, &mut fake, Format::Json, &mut Broken).unwrap_err();
     assert_eq!(failure.failure.cause.code(), "session-cli-output");
-    assert_eq!(failure.failure.exit, 1);
+    assert_eq!(failure.failure.exit, Exit::FAILED);
 }
 
 // A transcript without a last newline still ends its last line, once.
@@ -1445,7 +1446,7 @@ fn purge_with_yes_applies_and_tallies() {
 }
 
 // j001300 "Purging a session that is still running removes nothing": an
-// action that changed nothing refuses (exit 2), after the report is out.
+// action that changed nothing refuses (exit 20), after the report is out.
 #[test]
 fn purge_with_yes_that_removed_nothing_refuses_after_reporting() {
     use isolation_application::Verdict;
@@ -1472,7 +1473,7 @@ fn purge_with_yes_that_removed_nothing_refuses_after_reporting() {
         failure.failure.cause.code(),
         "isolation-application-nothing-removed"
     );
-    assert_eq!(failure.failure.exit, 2);
+    assert_eq!(failure.failure.exit, Exit::REFUSED);
 }
 
 // "The retired reap switch is gone, not hidden".
@@ -1494,7 +1495,7 @@ fn a_session_with_no_directory_fails_the_listing() {
         failure.failure.cause.code(),
         "isolation-application-no-session"
     );
-    assert_eq!(failure.failure.exit, 1);
+    assert_eq!(failure.failure.exit, Exit::REFUSED);
 }
 
 // ----------------------------------------------------------------------- sweep
@@ -1684,7 +1685,7 @@ fn a_sweep_that_failed_while_acting_exits_nonzero_but_a_report_of_a_failure_does
     );
     let failure = ran.result.unwrap_err();
     assert_eq!(failure.failure.cause.code(), "session-cli-sweep-failed");
-    assert_eq!(failure.failure.exit, 1);
+    assert_eq!(failure.failure.exit, Exit::FAILED);
 }
 
 // ------------------------------------------ remove reaps the session's worktrees
@@ -1894,7 +1895,7 @@ fn a_configured_age_that_is_none_is_a_usage_error_naming_the_key() {
         ..Fake::default()
     };
     let failure = go(&mut fake, Format::Text, &["sweep"]).result.unwrap_err();
-    assert_eq!(failure.failure.exit, 2);
+    assert_eq!(failure.failure.exit, Exit::REFUSED);
     assert!(failure
         .failure
         .cause
@@ -1995,4 +1996,53 @@ fn there_is_no_transcript_purge() {
     let command = Session::augment_args(Command::new("session")).no_binary_name(true);
     let refused = command.try_get_matches_from(["transcript", "purge", "amber-swift-owl"]);
     assert!(refused.is_err());
+}
+
+// Ruling 153: a removal's or a sweep's preview that `--yes` would act on would
+// change something; the command applied, or a preview with nothing planned,
+// does not.
+#[test]
+fn a_preview_that_would_destroy_says_it_would_change_and_an_applied_one_does_not() {
+    let mut fake = Fake {
+        removal: Some(plan(false)),
+        ..Fake::default()
+    };
+    let previewed = go(&mut fake, Format::Json, &["remove", "amber-swift-owl"]);
+    assert!(previewed.result.unwrap().would_change);
+    let mut fake = Fake {
+        removal: Some(plan(true)),
+        ..Fake::default()
+    };
+    let applied = go(
+        &mut fake,
+        Format::Json,
+        &["remove", "amber-swift-owl", "--yes"],
+    );
+    assert!(!applied.result.unwrap().would_change);
+
+    let sweep = |views: Vec<View>, words: &[&str]| {
+        let mut fake = Fake {
+            views,
+            removal: Some(plan(words.contains(&"--yes"))),
+            ..Fake::default()
+        };
+        go(&mut fake, Format::Json, words)
+            .result
+            .unwrap()
+            .would_change
+    };
+    let words = ["sweep", "--purge-older-than", "1d", "--all-projects"];
+    assert!(sweep(vec![ended("plan-one")], &words), "one is planned");
+    assert!(
+        !sweep(vec![view("live-one", State::Live)], &words),
+        "nothing is planned"
+    );
+    let yes = [
+        "sweep",
+        "--purge-older-than",
+        "1d",
+        "--all-projects",
+        "--yes",
+    ];
+    assert!(!sweep(vec![ended("plan-one")], &yes), "applied");
 }

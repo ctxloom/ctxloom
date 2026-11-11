@@ -39,7 +39,7 @@ fn assert_envelope(value: &Value, what: &str) {
 #[test]
 fn test_a_refusal_under_json_is_an_envelope_on_stderr() {
     let ran = run(&["--format", "json", "test", "refuse"]);
-    assert_eq!(ran.code, 2, "{}", ran.said());
+    assert_eq!(ran.code, 20, "{}", ran.said());
     assert_eq!(ran.stdout, "", "stdout holds answers only");
     assert_envelope(&ran.err_json(), "a refusal");
 }
@@ -51,7 +51,7 @@ fn test_a_usage_error_under_json_is_an_envelope_on_stderr() {
         &["--format=json", "frobnicate"],
     ] {
         let ran = run(args);
-        assert_eq!(ran.code, 2, "{args:?}: {}", ran.said());
+        assert_eq!(ran.code, 20, "{args:?}: {}", ran.said());
         assert_eq!(ran.stdout, "", "{args:?}");
         assert_envelope(&ran.err_json(), "a usage error");
     }
@@ -76,7 +76,7 @@ fn test_the_envelope_s_message_is_the_text_error_s() {
 #[test]
 fn test_a_refusal_under_text_is_the_message_then_its_fix() {
     let ran = run(&["--format", "text", "test", "refuse"]);
-    assert_eq!(ran.code, 2, "{}", ran.said());
+    assert_eq!(ran.code, 20, "{}", ran.said());
     assert!(ran.stderr.starts_with("ctxloom: "), "{}", ran.said());
     assert!(
         ran.stderr.lines().any(|l| l.starts_with("  fix: ")),
@@ -117,7 +117,7 @@ fn test_off_a_terminal_an_error_is_the_envelope_with_no_explicit_format() {
     // D28: json off a terminal. No --format; stdout is a pipe here.
     for args in [&["test", "refuse"][..], &["frobnicate"]] {
         let ran = run(args);
-        assert_eq!(ran.code, 2, "{args:?}: {}", ran.said());
+        assert_eq!(ran.code, 20, "{args:?}: {}", ran.said());
         assert_eq!(ran.stdout, "", "{args:?}");
         assert_envelope(&ran.err_json(), "an error off a terminal");
     }

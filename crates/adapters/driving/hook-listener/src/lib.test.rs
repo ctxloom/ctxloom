@@ -617,46 +617,63 @@ impl run_ports::Edge for Stalling {
 /// A call that is held in the handler holds a connection open, which a
 /// graceful shutdown waits for. The call is held by the test (the edge never
 /// answers) and the test is told when it is in the handler over the TLS
-/// connection, so the wait is forced, never hoped for: the stop must end past
-/// its grace ([`crate::STOP_GRACE`], three seconds, really elapsed) with the
-/// typed timeout, and the listener must be aborted (nobody listens).
+/// connection, so the wait is forced, never hoped for. The stop must end past
+/// its grace ([`crate::STOP_GRACE`], three seconds, really elapsed), end the
+/// held connection (its caller sees it fail) and return only once every copy
+/// of the service, and so of the edge it holds, is released (rulings 131,
+/// 140: a run closes its store on the stop's word). Then nobody listens,
+/// judged by this listener's own certificate, minted for this test alone
+/// ([`stopped`]).
 #[tokio::test(flavor = "current_thread")]
 async fn a_client_that_holds_a_connection_open_cannot_hold_the_stop() {
     let world = World::new().await;
+    let own = mint(&SystemClock, LOOPBACK_ANY_PORT.ip());
     let (arrived, mut in_handler) = tokio::sync::mpsc::unbounded_channel();
     let edge = Arc::new(Stalling {
         inner: Arc::clone(&world.edge),
         arrived,
     });
-    let listener = HookListener::serve_tcp(edge, LOOPBACK_ANY_PORT, identity())
+    let listener = HookListener::serve_tcp(Arc::clone(&edge), LOOPBACK_ANY_PORT, identity_of(&own))
         .await
         .expect("the listener starts");
     let addr = listener.local_addr();
     *world.addr.lock().unwrap() = Some(addr);
     let book = world.turn_ended("held");
     let bearer = format!("Bearer {}", world.bearer);
+    let client = try_connect(addr, &own).await.expect("connects");
     let held = tokio::spawn(async move {
-        CommandHandlerCoordinatorServiceClient::new(connect(addr).await)
+        CommandHandlerCoordinatorServiceClient::new(client)
             .handle(request(book, Some(&bearer)))
             .await
     });
     in_handler.recv().await.expect("the call is in the handler");
-    let error = listener
+    let started = std::time::Instant::now();
+    listener
         .stop()
         .await
-        .expect_err("the held connection outlasts the grace");
-    assert_eq!(
-        error,
-        crate::ListenerError::StopTimedOut {
-            endpoint: world.addr().to_string(),
-            grace_ms: 3_000,
-        }
-    );
-    held.abort();
+        .expect("the held call is cut, and the stop ends");
     assert!(
-        tokio::net::TcpStream::connect(world.addr()).await.is_err(),
-        "nobody listens"
+        started.elapsed() >= crate::STOP_GRACE,
+        "the grace ran out first"
     );
+    assert_eq!(
+        Arc::strong_count(&edge),
+        1,
+        "once the stop returns, nothing the listener served holds the edge"
+    );
+    let cut = held.await.expect("the caller's task ends");
+    assert!(cut.is_err(), "the held call was cut: {cut:?}");
+    stopped(addr, &own, "nobody listens").await;
+}
+
+/// Nobody presenting `own` answers at `addr` once its listener is stopped.
+/// Judged by the certificate, never by the port staying free: in one process
+/// (cargo test, the mutation run) a freed port can be given at once to another
+/// test's listener, which a plain connect would take for this one. So a test
+/// that asserts this serves on a certificate of its own, never the shared
+/// [`certificate`], which every other test's listener presents too.
+async fn stopped(addr: SocketAddr, own: &HookCertificate, what: &str) {
+    assert!(try_connect(addr, own).await.is_err(), "{what}");
 }
 
 /// A stop with nothing open ends within the grace with Ok: the success the
@@ -680,30 +697,33 @@ async fn tcp_client(addr: SocketAddr) -> CommandHandlerCoordinatorServiceClient<
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_capture_fact_over_tcp_is_applied_to_the_session_stream() {
     let world = World::new().await;
-    let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT, identity())
-        .await
-        .expect("serves");
+    let own = mint(&SystemClock, LOOPBACK_ANY_PORT.ip());
+    let listener = HookListener::serve_tcp(
+        Arc::clone(&world.edge),
+        LOOPBACK_ANY_PORT,
+        identity_of(&own),
+    )
+    .await
+    .expect("serves");
     let addr = listener.local_addr();
     assert!(addr.ip().is_loopback());
     assert_ne!(addr.port(), 0, "port 0 is replaced by the port given");
     let before = world.watched().await;
-    let answered = tcp_client(addr)
-        .await
-        .handle(request(
-            world.turn_ended("p1"),
-            Some(&format!("Bearer {}", world.bearer)),
-        ))
-        .await
-        .expect("applied")
-        .into_inner();
+    let answered = CommandHandlerCoordinatorServiceClient::new(
+        try_connect(addr, &own).await.expect("connects"),
+    )
+    .handle(request(
+        world.turn_ended("p1"),
+        Some(&format!("Bearer {}", world.bearer)),
+    ))
+    .await
+    .expect("applied")
+    .into_inner();
     assert_eq!(answered.delivery(), DeliveryOutcome::Applied);
     let after = world.watched().await;
     assert_eq!(after, [before[0] + 1, before[1], before[2], before[3]]);
     listener.stop().await.unwrap();
-    assert!(
-        tokio::net::TcpStream::connect(addr).await.is_err(),
-        "nobody listens after the stop"
-    );
+    stopped(addr, &own, "nobody listens after the stop").await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

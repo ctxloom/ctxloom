@@ -18,7 +18,7 @@ pub struct Report {
 }
 
 impl Report {
-    /// Whether any row failed: the one finding that makes doctor exit 3.
+    /// Whether any row failed: the one finding that makes doctor exit 20 (refused).
     pub fn failed(&self) -> bool {
         self.checks.iter().any(|c| c.status == Status::Fail)
     }

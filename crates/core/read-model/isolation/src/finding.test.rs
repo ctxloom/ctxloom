@@ -1,6 +1,7 @@
 //! The diagnostics: each says its code and args, and its message uses exactly them.
 
 use super::{diagnostic_samples, EN_US};
+use exit_code::Exit;
 
 // Every sample says its code (Display is the code then the args, never
 // English), its catalog message uses exactly its args, and the samples are
@@ -37,9 +38,9 @@ fn every_sample_displays_its_code_and_its_message_uses_exactly_its_args() {
     }
 }
 
-// Every finding is fatal: exit 3, whatever the mode.
+// Every finding is fatal: exit 21, whatever the mode.
 #[test]
-fn every_finding_exits_three() {
+fn every_finding_exits_fatal_findings() {
     for sample in diagnostic_samples() {
         assert!(sample.code().starts_with("isolation-"), "{}", sample.code());
     }
@@ -51,7 +52,7 @@ fn every_finding_exits_three() {
             demanded: super::Ownership::Rootful,
         },
     ] {
-        assert_eq!(finding.exit_code(), 3);
+        assert_eq!(finding.exit(), Exit::FATAL_FINDINGS);
     }
 }
 

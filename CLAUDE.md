@@ -39,9 +39,13 @@ beside the code they test, but out of the source file, so reading the code
 does not mean reading its tests too.
 
 Acceptance tests drive the real binary: `crates/root/bin/ctxloom/src/*.test.rs`
-build it once (with its `test-support` feature, which turns on the hidden
-`ctxloom test ...` commands and the `mock` engines) and run it as a separate
-process in a temporary home. The `mock` and `mock-*` engines exist only under
+run it as a separate process in a temporary home, built (with its
+`test-support` feature, which turns on the hidden `ctxloom test ...` commands
+and the `mock` engines) ONCE per nextest run by the setup script
+`scripts/nextest-build-binaries.sh` (`.config/nextest.toml`), which names it
+and the companion stub in `CTXLOOM_TEST_BINARY` and
+`CTXLOOM_TEST_COMPANION_STUB`; `binary()` builds for itself only without
+them (owner ruling 144: once per test PROCESS cost about 2.3 s a test). The `mock` and `mock-*` engines exist only under
 `test-support` (`library::config::schema::ENGINES` and the wiring's
 `engines()`): a plain build knows claude-code and opencode alone, and `just
 build` proves it by running `scripts/plain-engines-check.sh` against the plain
@@ -77,7 +81,7 @@ The whole command line is parsed by `ctxloom-cli`; a crate that owns more
 nouns joins it through its `Extension` seam (`ctxloom-wiring` wires `library-cli`
 in).
 
-Divergence from Go: a config whose `schema_version` is newer, older or unreadable is refused (exit 2, D15 strict decode); Go warns and continues. A `non_tty_format` of yaml, toml or markdown is refused (D28).
+Divergence from Go: a config whose `schema_version` is newer, older or unreadable is refused (exit 20, D15 strict decode); Go warns and continues. A `non_tty_format` of yaml, toml or markdown is refused (D28).
 
 Slice S2 (library write side) adds, in the S1 crates, a write half: `library::write`
 (pure planning: the config section merge with sorted keys, item/envelope/mcp/
@@ -239,7 +243,7 @@ MERGED into what is there (`Engine::merges` names the files an engine merges
 into, and the launcher hands their bytes in `PrepareRequest::existing` with
 the run's `cwd`; one that is not a JSON object is left as it is). It is
 claude's undocumented state: a release that changes it shows the onboarding
-again (visible, not harmful). The session home's `settings.json` calls `ctxloom
+again (visible, not harmful). The session home's `ctxloom-hooks.json` calls `ctxloom
 hook claude-code execute <Event>`. The interactive home registers the session,
 turn, message, tool-batch and compaction (`PreCompact`, `PostCompact`) events.
 A one-shot CHILD's home (owner ruling 51) registers the per-turn ones only:
@@ -340,7 +344,7 @@ and the told host, so a runtime's host alias is a DNS name), and the client's
 an environment or in an error. A hook that finds the listener named but the
 certificate missing or garbled refuses (`HookSink::Refused`, `hook-cli-not-recorded`
 naming `CTXLOOM_TLS_CERT`) and sends nothing. The listener's limits are
-angzarr's generic `Listener` defaults (core `6c3175b9`; `hook-listener` sets
+angzarr's generic `Listener` defaults (core `415b29ee`; `hook-listener` sets
 none): a TLS handshake within 10 s, an HTTP/2 keepalive ping every 60 s
 answered within 20 s, a connection closed after 1 h plus a 30 s grace (never
 zero: a zero grace is `ListenError::ZeroConnectionAgeGrace` at bind, which
@@ -429,23 +433,44 @@ directory exists, unclaimed, within `NAME_TRIES` (then `sessions-names-taken`). 
 agent's `model` and `effort` reach the engine as the order's `model` and
 `effort` (`--model`, `--effort` for claude, a turn and the terminal alike;
 unset is no flag; claude takes `low|medium|high|xhigh|max`, any other level is
-refused before launch). Its permission mode (`agents.<n>.engines.claude-code.
-permissions.mode`, else the engine's default, claude's `acceptEdits`) reaches
-claude the same way, as the order's `permission_mode` (owner ruling 116):
-`--permission-mode <mode>`, a turn and the terminal alike; none, or the
-config's `default` (claude's own default mode), is no flag. ctxloom's own
-words govern (owner ruling 125): the plan holds a claude mode to the write
-path's `postures` (`default|acceptEdits|plan|bypassPermissions`, any case,
-passed in their spelling) through the same `write::engines::mode`, so a
-dry run or launch refuses any other in the write's words
-(`library-application-write-permissions`; a retired `auto`/`dontAsk` names
-the approver it is now; claude's `manual` is not ctxloom's) before anything
-is enqueued. claude's own list (2.1.322's `--help`:
-`acceptEdits|auto|bypassPermissions|manual|dontAsk|plan`, engine-claude's
-`PERMISSION_MODES`, whose drive still refuses a word outside it,
-`run-ports-engine-unknown-permission-mode`) is only a check: a wiring test
-holds `postures` minus `default` to be a subset of it. opencode is given no mode (no
-flag verified), and the dry run's row says it is not passed.
+refused before launch). Its permissions are the ENGINE'S OWN DOCUMENT (owner
+rulings 133-139): `agents.<n>.engines.<e>.permissions`, copied verbatim and
+never checked (any document is taken; a typo reaches the engine, the accepted
+cost), else the engine's default document (claude-code's `{defaultMode:
+acceptEdits}`, so an agent with no block runs as before; opencode's none; a
+block written replaces it whole). The plan carries it as JSON text in the
+order it was written (`DryRun::permissions`, `library_application::json::
+document_text`), the order and the launcher hand it to `Engine::prepare`
+(`PrepareRequest::permissions`), and the config writer keeps it in its own
+order (`library::write::section::sorted_section`; the rest of the agents
+section is sorted as ever). engine-claude writes it as `{"permissions":
+<block>}`, the whole of the session home's user-scope `settings.json` (the
+home is the session's `CLAUDE_CONFIG_DIR`; `{}` with none), APART from
+ctxloom's hooks, which are `ctxloom-hooks.json`, the file `--settings` names
+(owner ruling 145: claude 2.1.322 refuses a settings file whole for one
+invalid value, hooks included, so a bad value disables the block alone; the
+probe is in the ruling-145 commits). User scope is claude's lowest: a single
+value the project's `.claude/settings.json` also sets is the project's, lists
+merge, and it is where `defaultMode: auto|bypassPermissions` may take effect.
+Under `session_home: host` (the config dir is the user's own `~/.claude`,
+never written) the block stays the `permissions` of the hooks file, with the
+cost that a bad value there disables the hooks too. No `--permission-mode` is
+passed, claude's mode is the document's `defaultMode`. A profile's
+`deny_tools` stays `permissions.deny` of the project's `.claude/settings.json`
+(surface apply), and claude merges the files' lists itself. engine-opencode writes the session home's `opencode.json`
+(`OPENCODE_CONFIG_DIR`, which opencode 1.18.4 reads after the project's) with
+the document as its `permission` object (`{}` with none, so no earlier run's
+lingers; read from the 1.18.4 bundle, not run live). A document that is not
+JSON is `run-ports-engine-bad-permissions` (ctxloom's own rendering, so a
+bug). Both files are rewritten whole from the order at EVERY launch (T21: a
+fresh session, a turn, a resume; neither is in `Engine::merges`), so an
+agent's edit of its own permissions never survives into a launch. ctxloom
+chooses no opencode agent (`build`/`plan`): no flag for one.
+Gone (hard migrate): ctxloom's mode lists and launch check (ruling 125),
+`--permission-mode` (ruling 116), `run-ports-engine-unknown-permission-mode`,
+every `permission_mode` field, and `agent create|edit --permissions` (ruling
+138: the block is written in the config by hand, `config edit`, or by the
+setup agent). `docs/config/permissions.md` is the page.
 
 A run's pre-launch checks are DECIDED by the runs aggregate, in `EnqueueRun`'s
 `decide` (owner rulings 73, 73a-73i), on evidence fields the run application
@@ -466,8 +491,8 @@ with `refusals: [{code, args, message, fix?}]`, or in text the summary line then
 each refusal's `ctxloom:` and `  fix:` lines (cli-support's `Failure::refusals`
 and `say_failure`). Fatal findings alone are the library's
 `library-application-startup-aborted`, as before; beside a refusal they are the
-plan's warnings, said beside it, and the exit is 3 (the most severe wins),
-else 2. The run is enqueued FIRST (73g): plan, evidence, `EnqueueRun`, the
+plan's warnings, said beside it, and the exit is 21 (the most severe wins),
+else 20. The run is enqueued FIRST (73g): plan, evidence, `EnqueueRun`, the
 project told, a name claimed, `MintSession`, the certificate, the listener,
 the order. So a REFUSED run leaves nothing: no name, no session, no directory,
 no event, no open incarnation, no certificate, no listener. A failure after
@@ -519,11 +544,12 @@ XDG base under `session_home: host` (passed through, not relocated). Claude
 stays token-only on Windows (ruling 82); `session_home: host` sets `CLAUDE_CONFIG_DIR`
 to `$HOME/.claude` (no `HOME` is `run-ports-engine-no-host-home`), links no
 login there; the hooks still fire, because the launch (the terminal's and a
-child's turn) passes `--settings <session dir>/settings.json` (the ctxloom-owned file `prepare` writes,
+child's turn) passes `--settings <session dir>/ctxloom-hooks.json` (the ctxloom-owned file `prepare` writes,
 in both home modes, never into the user's `~/.claude`; claude adds its hooks to the
-config dir's own, and honours one `--settings`; no posture settings are written
-into it (the permission mode is the `--permission-mode` flag, ruling 116), so
-there was nothing to merge; verified with a fake program only, not a
+config dir's own, and honours one `--settings`; the agent's permissions
+document is not in it but in the session home's own `settings.json` (ruling
+145);
+verified with a fake program only, not a
 live interactive TUI, nor with `--setting-sources user`; in a container the flag
 must name the in-container path, a follow-up). A child's turn passes the same
 single `--settings` (ruling 51; verified with a fake program only, not a live
@@ -604,14 +630,14 @@ The lock holds ONE `angzarr-embedded`, `angzarr-proto`, `angzarr-ports` and
 `angzarr-diagnostic` (a test reads Cargo.lock). Every pin in `Cargo.toml` is
 a full commit. The angzarr pins are one line, one per family member:
 
-- angzarr core `6c3175b9` (`angzarr-diagnostic`, `angzarr-yaml`,
+- angzarr core `415b29ee` (`angzarr-diagnostic`, `angzarr-yaml`,
   `angzarr-presentation`; `angzarr-coordinator-grpc`'s `tls` feature, which
   `hook-listener` enables, is `Listener::tls`);
-- angzarr-embedded `46267520` on angzarr-router `58cfb1d2`;
-- angzarr-build `11d249c6` (the markup generator, `angzarr-build` and
+- angzarr-embedded `640d2d07` on angzarr-router `e79400c3`;
+- angzarr-build `558cde5f` (the markup generator, `angzarr-build` and
   `angzarr-codegen`, its own repository);
-- angzarr-platform `f2ece88c`;
-- taskloom's crates `2c117e8b` and ctxloom-lib's `3fa0344b`, built on the
+- angzarr-platform `da6a3ee3`;
+- taskloom's crates `ff760778` and ctxloom-lib's `466132c7`, built on the
   same line,
 
 so moving one moves all. The lock holds one of every angzarr crate. The platform crates (`os`, `file-system`, `file-lock`) are
@@ -694,7 +720,32 @@ angzarr-embedded's `sqlite` feature), opened at
 `~/.ctxloom/projects/<project-id>/ctxloom.db` by `ctxloom-store-sqlite` (the
 file name, the placement and the port, over ctxloom-lib's `sqlite-store-opener`,
 which refuses a store from before the embedded store, `ctxloom.db.pre-embedded`
-naming its backup), beside taskloom's `state.db` and never the same file (D26). All file I/O goes
+naming its backup), beside taskloom's `state.db` and never the same file (D26).
+A store is closed, never dropped, where its file matters after (ruling 131):
+angzarr-embedded's `SqliteStore::close` waits for the connection's close, so
+the last close's checkpoint and the log's removal are over when it returns
+(dropped, they are left to sqlx's detached thread, which an exiting process
+need not let run). `SqliteStores` closes a store it gives up for another (a
+project's, or a read's reopened to write) and `SqliteStores::close` the one it
+holds; the wiring closes the sessions use cases' stores after every `session`
+command and a hook's bind (`Sessions::close`; a failed close fails a command
+that had not), the seed's and `test open-store`'s, and a run's at its end.
+A run's store has holders past the use case: the core's application and
+edge, the use cases' edges, and the hook listener's connection and stream
+tasks, which tonic spawns itself, so a call still in the handler keeps the
+coordinator, its edge, the application and the store. `HookListener::stop`
+is angzarr's `Running::shutdown_within(STOP_GRACE)` (ruling 140): past the
+grace it ends every connection still open (the call is cut) and returns only
+once every copy of the service is released. So the end lets each go before
+the close: the listener stopped (by the run use case), `Runs::into_core`
+(every part but the core, with their edges), then `InProcessCore::close`,
+which consumes the core and only then takes the store by value (the core keeps
+it in `CoreStores`, not `OneStore`, to have it back) and closes it, on the
+run's own runtime, which is not shut down for it. A holder still there is
+`Unclosed::StillHeld`, and a close that fails is `Unclosed::Failed`: either
+fails the run (exit non-zero), never a quiet drop. A read's connection is read-only, so an empty
+`-wal`/`-shm` may stay after a read; a write leaves neither
+(`store_close.test.rs`). All file I/O goes
 through the `file-system` seam, so a test under a temporary home touches
 nothing else. ctxloom writes no SQL of its own.
 
@@ -729,17 +780,62 @@ binary's `catalog()` lists every crate's `EN_US`.
 ## The command line
 
 `--format` is `json` or `text` (json off a terminal); yaml, toml and markdown
-are refused like any unknown format, exit 2. Errors are `ctxloom: <message>`
+are refused like any unknown format, exit 20. Errors are `ctxloom: <message>`
 with an optional `  fix:` line in text, and the envelope `{code, args,
 message}` on stderr in json, plus `fix` (the same text as the `  fix:` line)
 when the catalog has the error's `<code>-fix` id, the key omitted otherwise,
 and `refusals`, each refusal an aggregate refusal holds reported the same way,
 in order, the key omitted when there are none (cli-support's `Reported`, which
 `ctxloom-cli`'s `report` writes through `say_failure`; angzarr-presentation's
-`Envelope` has neither field). Exit codes: 0, 1 failed, 2 refused, 3 fatal
-findings. `-h` works at every depth, there is no `help` command, an unknown
+`Envelope` has neither field). `-h` works at every depth, there is no `help` command, an unknown
 verb says "Did you mean" and lists the verbs, `-v` is accepted everywhere
 and changes no output.
+
+Exit codes (owner rulings 149, 152, 153; a hard migrate from Go's 0, 1, 2,
+3) follow ctxloom-lib's convention, `docs/exit-codes.md` in that repository
+(blocks: 0-9 successes, 10-19 failures, 20-29 declines, 128+n signals; the
+more severe of two outcomes, the higher detailed code, wins), encoded as
+ctxloom-lib's `exit-code` crate's `Exit` (re-exported by `cli-support`). An
+application error says its class by implementing `ExitClass`; a `Failure`
+carries an `Exit`; `ctxloom_cli::run` turns it into the status with
+`Exit::code(detailed)`, the one place the collapse lives. ctxloom's codes:
+
+- **0** ok (an apply, a read, or a plan or preview that succeeded);
+- **1** would change: a plan or preview that succeeded and would act,
+  returned ONLY under the global `--detailed-exitcode` (without it, 0):
+  `run --dry-run` whose plan has no fatal finding (it would launch);
+  a removal's preview without `--yes` (`bundle|fragment|command|skill|
+  profile|agent|companion remove`); `remote remove`
+  without `--yes`; `deps upgrade` without `--yes` with a pin to move or
+  drop; `clean` without `--yes` with a target present; `session remove`
+  without `--yes` that is not refused; `session sweep` without `--yes`
+  with a planned destroy;
+- **10** failed: ctxloom tried and something broke (an adapter's error,
+  I/O, the store or the kernel, an engine, git, a clone, a fetch, a
+  publish, a pull, the retry budget);
+- **20** refused, a decline: the request or the state forbids it, by kind,
+  whatever Go said (owner ruling 152): a usage error (clap's own 2
+  mapped), an unknown format or verb, a config the strict decode refuses
+  or that does not read, a name nobody has (a session, a bundle, an item,
+  a profile, an agent, a remote), a taken name, a live session (a run's
+  or session's lock another process holds; a lock file that cannot be
+  made is 10: the lock ports answer `LockError::Held` or `Failed`), any
+  refusal of a domain or the read model or a write, a container verb with
+  no runtime, a refused consented refresh, a refused delivery, a hook its
+  service refused, and doctor's `fail` row (the refusal it guarantees);
+- **21** fatal findings: ONLY the run plan's (a dry run's or a launch's
+  startup abort, materialize's strict refusal, a fatal isolation finding);
+  a launch both refused and with fatal findings is 21;
+- **128+n** stopped by signal n (ruling 114).
+
+Each application error says its class in its `ExitClass` impl. An error
+wrapping another crate's says which it is: `AppError::Cause` (an adapter's:
+10) and `AppError::Declined` (`AppError::cause`, a read-model or write
+refusal: 20) in library- and deps-application; `SetupError::Classed` keeps
+a library error's own class. An engine's own status (an interactive
+session's, init's interview) is said in these classes by
+`Exit::from_child_status`, never passed through: 0 ok, 128+n the signal,
+any other failed (10).
 
 ## Remotes and dependencies (slice S3)
 
@@ -771,34 +867,42 @@ library's `bundle` noun and owns `remote` and `deps`.
   withheld red tests for them are `#[ignore]`d in `bundle_remote.test.rs`.
   angzarr-yaml cannot read Go's `? key` form for lock keys over 128 bytes.
 
-## Built-in content (owner rulings 110, 111)
+## Built-in content (owner rulings 110, 111, narrowed by 117, 123, 126-128)
 
-ctxloom's default content ships in the binary: the bundles a new project's
-seeded `default` profile inherits (`ai-developer#profiles/developer`, and the
-`ai-coding-general`, `testing` and `git` bundles it names), a byte-for-byte
-copy of `github.com/ctxloom/ctxloom-default` at the commit
-`library::builtin::SOURCE_COMMIT` records, in
-`crates/core/read-model/library/resources/builtin/` (with its BSD-3-Clause
-`LICENSE`, a `SHA256SUMS` the tests hold the compiled table to, and a README
-on refreshing it). The text is the owner's: never edited here. The catalog
-lists them under the read-only built-in origin `ctxloom/default`
-(`Catalog::with_builtins`, joined by the composition root through
-`Library::with_builtins`; `bundle list` gives `origin` in json and `[built-in
-ctxloom/default]` in text) under their own names, so `ctxloom+local:<name>`
-reaches the project's bundle of that name, else the built-in one: a project
-bundle of the same name (readable or not) overrides it whole. The deps
-closure walks the built-in profiles as the project's own, so nothing is
-fetched, pinned or written under `.ctxloom/cache` for them, offline included.
-Every write to one is refused (`library-application-write-builtin-read-only`),
-its fix naming the override (`bundle export <name> <bundles dir>`); an
-export, and an import of the name (which makes the overriding project
-bundle), are not writes to it. Under `test-support` only,
-`CTXLOOM_TEST_NO_BUILTINS` withholds them, so the Go-parity and Go-ported
-tests (`Project::on_gos_catalog`) hold the catalog Go had. `init` and
-`config create` seed no remote (the registry is empty) and `init` pulls
-nothing. Divergence from Go: Go seeded and cloned the `ctxloom-default`
-remote and pulled the profile's dependencies; that repository stays an
-ordinary remote.
+ctxloom ships ONE bundle in the binary, `ctxloom`, its operational prompts:
+`prompts/setup-interview.md` (the interview `ctxloom init` opens with and
+`init prompt` prints) and `prompts/distill.md` (the owner's own text, ruling
+123, once ctxloom-default's `skills/distill.yaml`; no third-party notice or
+licence ships with it; for the distill activity, which is not built yet), in
+`crates/core/read-model/library/resources/builtin/ctxloom/`
+(`library::builtin`). It is listed and NEVER injected (ruling 126): it
+carries no fragment, profile or tag, no profile includes it, and no session
+is handed it; only the init and distill activities read it. The four
+ctxloom-default bundles are no longer built in, and `init` and `config
+create` seed a BARE `default` profile that inherits nothing (accepted cost: a
+fresh project has no coding guidance until a remote is added). The catalog
+lists it under the read-only built-in origin `ctxloom/builtin` (ruling 127;
+`Catalog::with_builtins`, joined by the composition root through
+`Library::with_builtins`; `bundle list` gives `origin: ctxloom/builtin` in
+json and `[built-in]` in text; only the bundle is labelled, as no built-in
+profile or fragment exists). A project bundle named `ctxloom` (readable or
+not) overrides it whole, and init reads its interview THROUGH the catalog
+(ruling 128: `Library::operational_prompt`, behind init-application's
+`Prompts` port, and outside a project the built-in one): the project's
+`prompts/setup-interview.md` is what init opens with, and one that lacks it
+is refused, `library-application-operational-prompt-missing` (exit 20),
+never answered from the embedded text. Trust cost, accepted by the owner:
+a project's content can rewrite the prompt ctxloom's own setup runs on. The
+deps closure counts the bundle as the project's own, so nothing is fetched,
+pinned or written under `.ctxloom/cache` for it. Every write to it is
+refused (`library-application-write-builtin-read-only`), its fix naming the
+override (`bundle export ctxloom <bundles dir>`); an export, and an import of
+the name, are not writes to it. Under `test-support` only,
+`CTXLOOM_TEST_NO_BUILTINS` withholds it, so the Go-parity and Go-ported tests
+(`Project::on_gos_catalog`) hold the catalog Go had. `init` and `config
+create` seed no remote (the registry is empty) and `init` pulls nothing.
+Divergence from Go: Go seeded and cloned the `ctxloom-default` remote and
+pulled the profile's dependencies; that repository stays an ordinary remote.
 
 ## Hook capture: the transcript is the session's events
 
@@ -955,19 +1059,21 @@ key by key, each name with its layer in `env_keys` / the JSON's
 runtime is used exactly and `Override::Replaced` says what it weakened).
 Per-engine blocks (owner ruling 57): `agents.<n>.engine` is the agent's
 default engine and `agents.<n>.engines.<e>: {model, effort, permissions}`
-holds what is in engine `e`'s vocabulary (`permissions` is the block that was
-`agents.<n>.permissions.<e>`, `{mode: ...}`); `runtime`, `env`, `profiles` and
-the posture's engine-neutral keys (`permissions.approver`, ...) stay on the
-agent. Hard migrate: flat `agents.<n>.model`/`effort` and an engine-keyed
+holds what is in engine `e`'s vocabulary (`permissions` is that engine's own
+document, passed verbatim, rulings 133-139; written only there, ruling 136);
+`runtime`, `env` and `profiles` stay on the agent. There is no engine-neutral
+posture (ruling 134): `permissions` at the project level and on an agent
+(its `approver`, `approval_timeout`, `sandbox`, `network`) is an unknown key.
+Hard migrate: flat `agents.<n>.model`/`effort` and an engine-keyed
 `agents.<n>.permissions.<e>` are unknown keys. `effective_on(config, agent,
 X)` is `run --engine X`: the agent's block for X, else X's defaults (no flag),
 its runtime kept, its env merged with X's (as on its own engine), X's engine
 block for command/home/auth.
-`agent create|edit --model/--effort/--permissions` write the block of
+`agent create|edit --model/--effort` write the block of
 `--engine` when given, else of the agent's engine (else the default engine;
 a model or effort written there for an agent that names no engine says so in
 the notice `notice-default-engine-block`, naming `agents.<n>.engines.<e>`,
-ruling 68; `--permissions` with no engine anywhere is still refused).
+ruling 68); no flag writes `permissions` (ruling 138).
 `engine show X` lists the agents bound to X and those with a block for X; a
 dry run's JSON carries `settings` (each value with its source), and its text
 a Settings section naming the place that said each (ruling 72:
@@ -975,8 +1081,11 @@ a Settings section naming the place that said each (ruling 72:
 `runtime`, or `default`). `agent list`,
 `agent show`'s definition and the create/edit summary show the agent in the
 config's shape (ruling 67): `engines` (JSON) / `engines.<e>: {...}` lines
-(text, YAML flow form, keys sorted as written), `permissions` the neutral
-posture alone; no flat model/effort.
+(text, YAML flow form, keys sorted as written), each block that holds
+`permissions` followed by "passed to <engine> verbatim; ctxloom does not
+check it" (ruling 139; `agent show`, `engine show` and the dry run's Settings
+say it under the document too, and their JSON carries it as written); no
+flat model/effort, no `approver`, no "Headless posture".
 `engines.<e>.command`, `auth.file` and `session_home: host` in a project
 layer are taken out with a warning (`strip_project_only`, ruling 46).
 `auth status` and doctor read the effective source (`auth-application`; any
@@ -1001,7 +1110,7 @@ through auth-application's `FileOnly`), exit 0 as ever.
 No key a person writes is a boolean (`schema.rs` has no `Bool` node; a
 free-form engine permission document may still read `true`). Hard migrate,
 prerelease, no `schema_version` bump: each old key is an ordinary unknown key
-(refused, exit 2), with no alias, reader, migration or warning.
+(refused, exit 20), with no alias, reader, migration or warning.
 
 | old | new | default |
 |---|---|---|
@@ -1009,7 +1118,7 @@ prerelease, no `schema_version` bump: each old key is an ordinary unknown key
 | `config.statusline: true\|false` | `config.statusline: ctxloom\|none` | `ctxloom` |
 | `config.silence_unsupported` | deleted | |
 | `sync.auto_sync` | `sync.on_run: none\|missing` | `missing` |
-| `permissions.network: true\|false` (and an agent's) | `permissions.network: none\|open` | `open` (ruling 109) |
+| `permissions.network: true\|false` (and an agent's) | deleted (ruling 134), with `approver`, `approval_timeout`, `sandbox` | |
 | `output_dir` (top level, unread) | `output.dir` | `ctxloom/` |
 
 The scaffold writes no `config:` section; `manage statusline install|
@@ -1024,24 +1133,22 @@ rename moves the folder. A first init at a terminal asks for `output.dir`
 before the interview (suggesting `ctxloom/`, saying outputs are committable)
 and writes the answer.
 
-A launch refuses a posture that claims more than its runtime enforces
-(rulings 59, 109): `EnqueueRun` carries `PostureEvidence` (the runtime, the
-agent's `permissions.network`/`sandbox`, else the project's, and the words
-`run_ports::enforced` says the runtime enforces), and decide refuses each
-restrictive word not enforced with the typed `UnenforcedPosture`
-(`runs-unenforced-posture`), after the credential and inside `LaunchRefused`
-with the rest. The honest defaults claim nothing: `network: open`,
-`sandbox: full` (no sandbox). Today no runtime enforces anything (every run
-launches on the host; the container rows are not wired to a launch), so
-`network: none` and `sandbox: read-only|workspace-write` are always refused;
-the fix names the honest word and does not send her to a container runtime,
-which would not hold the claim either. A runtime that starts enforcing a word
-adds it to `run_ports::enforced` with the launch that does.
+ctxloom has no posture of its own (owner ruling 134, superseding rulings 59,
+70, 106-109 and 125 as far as permissions go): the launch no longer judges a
+`network`/`sandbox` word against its runtime; `runs-unenforced-posture`,
+`UnenforcedPosture`, `PostureEvidence` and `run_ports::enforced` are gone
+(`EnqueueRun` field 13 `posture` and `LaunchRefused` field 6
+`unenforced_posture` are reserved). Such intent is said in the engine's own
+words (its permissions document) and enforced by the engine; a claude
+`sandbox` (a sibling of `permissions` in its settings) needs a block of its
+own, a follow-up not built. `runtime` stays engine-neutral, as process
+isolation.
 
 ## Use `just`
 
 `just --list` shows the public recipes by group. The checks are `just build`,
-`just test` (cargo-nextest, required: a missing nextest fails the gate),
+`just test` (cargo-nextest, the one test runner, mutation included, owner
+ruling 144; required: a missing nextest fails the gate),
 `just lint` (clippy, warnings denied), `just lint-deps` (cargo-deny) and
 `just lint-os`; `just test-pkg <crate>...` is the quick loop, `just fmt` and
 `just fmt-check` cover this workspace's crates only, `just run` runs the
@@ -1057,6 +1164,23 @@ target/logs/<gate>.log)` and at most 40 lines of extract (only failing tests,
 the first 20 diagnostics, survivors capped, each with a `+K more` tail).
 `scripts/output-budget.selftest.sh` holds that budget. Read the log for the
 rest; `VERBOSE=1 just <gate>` shows the full output.
+
+nextest's committed config is `.config/nextest.toml` (workspace-wide): each
+test in a process of its own; SLOW at 30 s and killed at 120 s
+(`terminate-after`; the longest test takes about 5 s); a test that leaves a
+child holding its stdout or stderr past 200 ms FAILS (`leak-timeout`
+`result = "fail"`); retries 0 (a retry would pass a flake, and a flake is a
+finding); the `ports` test group runs the tests that bind a port, or free
+one and dial it, one at a time across binaries (hook-listener,
+hook-sink-grpc, forge-github, the wiring's `oneshot::tests::hooks` and
+`capture`, the binary's `tests::hook`); and the setup script above. The
+wiring's tests read the process environment through `host_snapshot()`,
+under the `ENV_LOCK` its `Env` tests hold while they change it. `_tests`
+exits with codes of its own, never nextest's passed through (nextest's 102
+is "cargo metadata failed"): 0 passed, 100 a test failed, 101 not built, 120
+a doc test failed, 121 nextest failed otherwise (`nextest exited <code>` in
+the log); 100 and 120 are red tests, 101 and 121 are refused on every
+branch (`scripts/tests-exit.selftest.sh`).
 
 ## The pre-commit gates are in gates/; the justfile gives their parameters
 
@@ -1108,7 +1232,10 @@ drives. A failing gate is a finding: fix the cause and commit again; never
    90% or more; the composition root is listed but not held (the justfile's
    `mutation_thresholds` has every tier); the generated wire code is
    excluded (`.cargo/mutants.toml`). Each mutant runs only its own crate's
-   tests (`test_workspace = false`), under `cargo test`: a dependent's
+   tests (`test_workspace = false`), under cargo-nextest (`test_tool =
+   "nextest"`, owner ruling 144: the runner and `.config/nextest.toml` of
+   every other test gate; `--no-tests=pass`, so a crate with no tests
+   catches nothing; no doc test is lost, the workspace has none runnable): a dependent's
    tests, the binary's acceptance tests included, kill nothing, so a crate
    kills its own mutants. An unviable mutant (one that does not build)
    needs no skip: it counts neither way. A mutant judged equivalent or untestable gets

@@ -838,13 +838,15 @@ async fn the_orders_model_reaches_the_engines_turn_and_terminal_command() {
     }
 }
 
-// Owner ruling 116: the order's permission mode reaches the engine's command,
-// for a turn and for the terminal session alike, as its effort does.
+// Owner rulings 135, 137: the order's permissions document reaches the
+// engine's home as the engine is handed it, byte for byte, for a turn and for
+// the terminal session alike; none in the order, none for the engine. No
+// flag carries it (ruling 137 retired `--permission-mode`).
 #[tokio::test]
-async fn the_orders_permission_mode_reaches_the_engines_turn_and_terminal_command() {
+async fn the_orders_permissions_reach_the_engine_s_home_verbatim() {
     for interactive in [false, true] {
         let mut asked = order("fake");
-        asked.permission_mode = "acceptEdits".to_string();
+        asked.permissions = Some(r#"{"z":"deny","*":"ask","defaultMode":"plan"}"#.to_string());
         asked.interactive = interactive;
         let mut rig = rig(
             ScriptedEngine::answering("A", None),
@@ -853,17 +855,57 @@ async fn the_orders_permission_mode_reaches_the_engines_turn_and_terminal_comman
         );
         enqueued(&rig.edge, SESSION, HARP).await;
         rig.step().await;
-        let seen = if interactive {
-            rig.runner.seen_terminal.lock().unwrap()
-        } else {
-            rig.runner.seen.lock().unwrap()
-        };
-        assert!(
-            seen[0]
-                .args
-                .contains(&"--permission-mode=acceptEdits".to_string()),
-            "interactive={interactive}: {:?}",
-            seen[0].args
+        assert_eq!(
+            rig.records.text(HARP, "home/permissions.json").as_deref(),
+            Some(r#"{"z":"deny","*":"ask","defaultMode":"plan"}"#),
+            "interactive={interactive}"
+        );
+    }
+    let mut rig = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    );
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    assert_eq!(rig.records.text(HARP, "home/permissions.json"), None);
+}
+
+// Owner T21: what the engine writes in the home (its permissions among it) is
+// written again at EVERY launch, a fresh one, a turn and a resume alike, from
+// the order (the user's config), over whatever the session's agent left there:
+// an agent's edit of its own permissions never survives into a launch.
+#[tokio::test]
+async fn an_agents_edit_of_its_home_permissions_is_overwritten_at_every_launch() {
+    use run_ports::SessionRecords;
+    const DOCUMENT: &str = r#"{"defaultMode":"acceptEdits"}"#;
+    for (interactive, resume) in [
+        (false, None),
+        (false, Some("native-7")),
+        (true, Some("native-7")),
+    ] {
+        let mut asked = order("fake");
+        asked.permissions = Some(DOCUMENT.to_string());
+        asked.interactive = interactive;
+        asked.resume = resume.map(String::from);
+        let mut rig = rig(
+            ScriptedEngine::answering("A", None),
+            ScriptedRunner::exits(0),
+            orders_with(asked),
+        );
+        rig.records
+            .write(
+                HARP,
+                "home/permissions.json",
+                br#"{"defaultMode":"bypassPermissions"}"#,
+            )
+            .unwrap();
+        enqueued(&rig.edge, SESSION, HARP).await;
+        rig.step().await;
+        assert_eq!(
+            rig.records.text(HARP, "home/permissions.json").as_deref(),
+            Some(DOCUMENT),
+            "interactive={interactive} resume={resume:?}"
         );
     }
 }
@@ -886,9 +928,10 @@ async fn an_order_with_no_model_or_effort_gives_the_engine_none() {
             rig.runner.seen.lock().unwrap()
         };
         assert!(
-            !seen[0].args.iter().any(|a| a.contains("model")
-                || a.contains("effort")
-                || a.contains("permission-mode")),
+            !seen[0]
+                .args
+                .iter()
+                .any(|a| a.contains("model") || a.contains("effort") || a.contains("permission")),
             "interactive={interactive}: {:?}",
             seen[0].args
         );
@@ -1156,7 +1199,7 @@ impl Locks {
 }
 
 impl run_ports::RunLocks for Locks {
-    fn hold_run(&self, _: &str) -> Result<run_ports::HeldLock, angzarr_diagnostic::Report> {
+    fn hold_run(&self, _: &str) -> Result<run_ports::HeldLock, run_ports::LockError> {
         unreachable!("the launcher takes no run's lock")
     }
 

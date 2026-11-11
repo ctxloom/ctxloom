@@ -22,7 +22,7 @@ const SESSION: &str = "5f0c7a52-1111-5111-8111-000000000001";
 const HARP: &str = "amber-swift-owl";
 
 type Store = FaultyStore<MemoryStore>;
-type TheEdge = EmbeddedEdge<angzarr_embedded_host::stores::OneStore<Store>>;
+type TheEdge = EmbeddedEdge<crate::CoreStores<Store>>;
 
 fn session_id() -> Uuid {
     Uuid::from_bytes(*uuid::Uuid::parse_str(SESSION).unwrap().as_bytes())

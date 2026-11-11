@@ -1,5 +1,8 @@
 # Ported from probes/capability_plan_sentinel.feature (rev f36e8dfb2)
 # NOT ported: any of it yet (the Feature is @pending).
+# Owner rulings 133-139 (2026-11-11): in this port a claude plan posture is the
+#   agent's own `agents.<n>.engines.claude-code.permissions: {defaultMode: plan}`,
+#   passed to claude verbatim; the Go `permissions: {<engine>: {mode: ...}}` below is Go's.
 
 @live @probe-p4-plan-sentinel
 @pending

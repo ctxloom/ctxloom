@@ -1,6 +1,7 @@
 //! The one-shot over the real aggregates in an in-memory store, with the
 //! plan, the project, the names and the engine scripted.
 
+use exit_code::{Exit, ExitClass};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -187,9 +188,8 @@ struct ScriptedPlan {
     fatal: Vec<FindingRow>,
     model: String,
     effort: String,
-    permission_mode: String,
+    permissions: Option<String>,
     drive: library_application::Drive,
-    posture: library_application::Posture,
     error: Option<fn() -> PlanError>,
     asked: Arc<Mutex<Vec<RunRequest>>>,
 }
@@ -213,7 +213,6 @@ impl Planner for ScriptedPlan {
             engine: self.backend.clone(),
             profiles: Vec::new(),
             fragments: Vec::new(),
-            fragments_listed: Vec::new(),
             context: "THE-CONTEXT".to_string(),
             tokens: 0,
             prompt: self.prompt.clone(),
@@ -221,11 +220,10 @@ impl Planner for ScriptedPlan {
             axes: (String::new(), "host".to_string()),
             model: self.model.clone(),
             effort: self.effort.clone(),
-            permission_mode: self.permission_mode.clone(),
+            permissions: self.permissions.clone(),
             drive: self.drive.clone(),
             settings: None,
             settings_agent: String::new(),
-            posture: self.posture.clone(),
         };
         Outcome {
             result: Ok(Previewed {
@@ -440,7 +438,7 @@ impl Drop for FakeHeld {
 }
 
 impl session_ports::SessionLock for Locks {
-    fn hold(&mut self, harp: &str) -> Result<session_ports::Held, Report> {
+    fn hold(&mut self, harp: &str) -> Result<session_ports::Held, session_ports::LockError> {
         self.held
             .lock()
             .unwrap()
@@ -486,7 +484,7 @@ impl Drop for FakeRunHeld {
 }
 
 impl run_ports::RunLocks for RunLocks {
-    fn hold_run(&self, _: &str) -> Result<run_ports::HeldLock, Report> {
+    fn hold_run(&self, _: &str) -> Result<run_ports::HeldLock, run_ports::LockError> {
         self.timeline.lock().unwrap().push("run-lock".to_string());
         Ok(run_ports::HeldLock::new(
             RUN_LOCK.to_string(),
@@ -563,12 +561,10 @@ struct Script {
     /// The model and effort the plan resolved.
     model: &'static str,
     effort: &'static str,
-    /// The permission mode the plan resolved (owner ruling 116).
-    permission_mode: &'static str,
+    /// The permissions document the plan resolved (owner rulings 135, 137).
+    permissions: Option<&'static str>,
     /// How the plan says the engine is run.
     drive: library_application::Drive,
-    /// The posture the plan says the run claims.
-    posture: library_application::Posture,
     plan_error: Option<fn() -> PlanError>,
     project_error: Option<Report>,
     names: Vec<&'static str>,
@@ -598,9 +594,8 @@ impl Script {
             fatal: Vec::new(),
             model: "",
             effort: "",
-            permission_mode: "",
+            permissions: None,
             drive: Default::default(),
-            posture: Default::default(),
             plan_error: None,
             project_error: None,
             names: vec!["amber-swift-owl", "calm-quiet-fox", "wild-brave-elk"],
@@ -669,9 +664,8 @@ fn rig(script: Script) -> Rig {
             fatal: script.fatal,
             model: script.model.to_string(),
             effort: script.effort.to_string(),
-            permission_mode: script.permission_mode.to_string(),
+            permissions: script.permissions.map(ToString::to_string),
             drive: script.drive.clone(),
-            posture: script.posture.clone(),
             error: script.plan_error,
             asked: Arc::clone(&asked),
         }),
@@ -859,7 +853,7 @@ async fn a_plan_that_is_refused_starts_nothing_and_keeps_its_error() {
         &error,
         RunError::Plan(plan) if matches!(**plan, PlanError::AgentExclusive { .. })
     ));
-    assert_eq!(error.exit_code(), 2);
+    assert_eq!(error.exit(), Exit::REFUSED);
     assert_eq!(done.notices.len(), 1, "what the plan noticed is still said");
     assert!(rig.runner.seen.lock().unwrap().is_empty());
 }
@@ -881,7 +875,7 @@ async fn a_fatal_startup_finding_refuses_the_run_before_any_session() {
         .await
         .result
         .unwrap_err();
-    assert_eq!(error.exit_code(), 3);
+    assert_eq!(error.exit(), Exit::FATAL_FINDINGS);
     assert!(matches!(
         &error,
         RunError::Plan(plan) if matches!(**plan, PlanError::StartupAborted { .. })
@@ -911,7 +905,7 @@ async fn a_one_shot_with_no_prompt_refuses_before_a_session_exists() {
             "{prompt:?}: {error:?}"
         );
         assert_eq!(error.code(), "runs-no-prompt");
-        assert_eq!(error.exit_code(), 2);
+        assert_eq!(error.exit(), Exit::REFUSED);
         assert!(rig.records.names("amber-swift-owl").is_empty());
         assert!(rig.runner.seen.lock().unwrap().is_empty());
     }
@@ -936,7 +930,7 @@ async fn an_engine_that_cannot_be_driven_is_refused_naming_it_and_the_ones_that_
         other => panic!("{other:?}"),
     }
     assert_eq!(error.code(), "runs-unknown-engine");
-    assert_eq!(error.exit_code(), 2);
+    assert_eq!(error.exit(), Exit::REFUSED);
     assert!(rig.runner.seen.lock().unwrap().is_empty());
 }
 
@@ -1073,7 +1067,7 @@ async fn names_that_are_all_taken_refuse_the_run_with_the_kernels_refusal() {
         matches!(&error, RunError::Session(CoreError::Refused { code, .. }) if code == "sessions-names-taken"),
         "{error:?}"
     );
-    assert_eq!(error.exit_code(), 2);
+    assert_eq!(error.exit(), Exit::REFUSED);
     assert!(rig.runner.seen.lock().unwrap().is_empty());
     // The run was enqueued before the names were tried, so it is ended; nothing
     // was served.
@@ -1109,7 +1103,7 @@ async fn a_rate_limited_turn_is_that_error_and_the_run_still_ended() {
     assert!(
         matches!(&error, RunError::Turn { class: FailureClass::RateLimited, detail } if detail == "slow down")
     );
-    assert_eq!(error.exit_code(), 1);
+    assert_eq!(error.exit(), Exit::FAILED);
 }
 
 #[tokio::test]
@@ -1381,7 +1375,7 @@ async fn a_one_shot_with_no_env_credential_is_refused_before_anything_is_made() 
         "{error:?}"
     );
     assert_eq!(error.code(), "runs-no-credential");
-    assert_eq!(error.exit_code(), 2);
+    assert_eq!(error.exit(), Exit::REFUSED);
     assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 0);
     assert!(rig.runner.seen.lock().unwrap().is_empty());
 }
@@ -1438,7 +1432,7 @@ async fn a_one_shot_on_a_file_only_source_is_refused_before_its_listener_or_sess
         "{error:?}"
     );
     assert_eq!(error.code(), "runs-file-only-credential");
-    assert_eq!(error.exit_code(), 2);
+    assert_eq!(error.exit(), Exit::REFUSED);
     assert!(
         rig.hooks.log.lock().unwrap().is_empty(),
         "no listener served"
@@ -1681,7 +1675,7 @@ async fn the_bearer_is_in_no_debug_or_error_rendering() {
                 interactive: true,
                 model: String::new(),
                 effort: String::new(),
-                permission_mode: String::new(),
+                permissions: None,
                 settings: Default::default(),
                 owned: Vec::new(),
                 git_user: None,
@@ -1725,7 +1719,7 @@ async fn a_listener_that_cannot_start_stops_the_run_before_its_engine() {
         matches!(&error, RunError::Listener(report) if report.code() == "hook-listener-bind"),
         "{error:?}"
     );
-    assert_eq!(error.exit_code(), 1);
+    assert_eq!(error.exit(), Exit::FAILED);
     assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
 }
 
@@ -1980,49 +1974,57 @@ async fn the_plans_model_and_effort_are_handed_to_the_engine_for_a_turn_and_for_
     assert!(args.contains(&"--effort=low".to_string()), "{args:?}");
 }
 
-// Owner ruling 116: the agent's permission mode the plan resolved is the
-// order's, for the turn and for the terminal session, as its effort is; a
-// plan with none gives the engine none.
+// Owner rulings 135, 137: the agent's permissions document the plan
+// resolved is the order's, handed to the engine's home verbatim for the turn
+// and for the terminal session; a plan with none gives the engine none, and
+// no flag carries it.
 #[tokio::test]
-async fn the_plans_permission_mode_is_handed_to_the_engine_for_a_turn_and_for_the_terminal() {
+async fn the_plans_permissions_are_handed_to_the_engine_for_a_turn_and_for_the_terminal() {
+    const DOCUMENT: &str = r#"{"defaultMode":"plan","allow":["Read"]}"#;
     let mut script = Script::answering();
-    script.permission_mode = "plan";
+    script.permissions = Some(DOCUMENT);
     let mut rig = rig(script);
-    rig.runs
+    let answer = rig
+        .runs
         .one_shot(&Flags::default(), &ask())
         .await
         .result
         .unwrap();
-    let args = rig.runner.seen.lock().unwrap()[0].args.clone();
-    assert!(
-        args.contains(&"--permission-mode=plan".to_string()),
-        "{args:?}"
+    assert_eq!(
+        rig.records
+            .text(&answer.harp, "home/permissions.json")
+            .as_deref(),
+        Some(DOCUMENT)
     );
+    let args = rig.runner.seen.lock().unwrap()[0].args.clone();
+    assert!(!args.iter().any(|a| a.contains("permission")), "{args:?}");
 
     let mut script = Script::answering();
-    script.permission_mode = "plan";
+    script.permissions = Some(DOCUMENT);
     let mut rig = rig_again_with(script);
-    rig.runs
+    let ended = rig
+        .runs
         .interactive(&Flags::default(), &ask())
         .await
         .result
         .unwrap();
-    let args = rig.runner.seen_terminal.lock().unwrap()[0].args.clone();
-    assert!(
-        args.contains(&"--permission-mode=plan".to_string()),
-        "{args:?}"
+    assert_eq!(
+        rig.records
+            .text(&ended.harp, "home/permissions.json")
+            .as_deref(),
+        Some(DOCUMENT)
     );
 
     let mut rig = rig_again_with(Script::answering());
-    rig.runs
+    let answer = rig
+        .runs
         .one_shot(&Flags::default(), &ask())
         .await
         .result
         .unwrap();
-    let args = rig.runner.seen.lock().unwrap()[0].args.clone();
-    assert!(
-        !args.iter().any(|a| a.contains("permission-mode")),
-        "{args:?}"
+    assert_eq!(
+        rig.records.text(&answer.harp, "home/permissions.json"),
+        None
     );
 }
 
@@ -2389,7 +2391,7 @@ fn no_credential_of_fake() -> runs::RunRejection {
 }
 
 // Rulings 73, 73b: a one-shot with no prompt and no credential is refused for
-// both at once, in check order, as one refusal: exit 2.
+// both at once, in check order, as one refusal: exit 20.
 #[tokio::test]
 async fn two_failing_checks_are_refused_together_in_check_order() {
     let mut script = needing_a_token();
@@ -2407,15 +2409,15 @@ async fn two_failing_checks_are_refused_together_in_check_order() {
         "{error:?}"
     );
     assert_eq!(error.code(), "runs-launch-refused");
-    assert_eq!(error.exit_code(), 2);
+    assert_eq!(error.exit(), Exit::REFUSED);
     assert_eq!(codes_of(&error), ["runs-no-prompt", "runs-no-credential"]);
 }
 
-// Ruling 73a: fatal findings beside a refusal make the exit 3; the findings
+// Ruling 73a: fatal findings beside a refusal make the exit 21; the findings
 // are said as warnings beside it (the plan leaves a fatal finding to the
 // refusal that lists it, and this one does not), the refusal is the run's.
 #[tokio::test]
-async fn fatal_findings_beside_a_refusal_are_exit_3_and_the_refusal_is_kept() {
+async fn fatal_findings_beside_a_refusal_are_exit_21_and_the_refusal_is_kept() {
     let mut script = needing_a_token();
     script.fatal = a_fatal_finding();
     let mut rig = rig(script);
@@ -2426,7 +2428,7 @@ async fn fatal_findings_beside_a_refusal_are_exit_3_and_the_refusal_is_kept() {
             if *refusals == [no_credential_of_fake()]),
         "{error:?}"
     );
-    assert_eq!(error.exit_code(), 3);
+    assert_eq!(error.exit(), Exit::FATAL_FINDINGS);
     assert_eq!(codes_of(&error), ["runs-no-credential"]);
     let said: Vec<String> = done.notices.iter().map(|n| format!("{n:?}")).collect();
     assert_eq!(said.len(), 2, "{said:?}");
@@ -2438,7 +2440,7 @@ async fn fatal_findings_beside_a_refusal_are_exit_3_and_the_refusal_is_kept() {
 }
 
 // A single failing check is the plain refusal it always was (rulings 73a,
-// 73c): its own code, exit 2, standing for itself alone.
+// 73c): its own code, exit 20, standing for itself alone.
 #[tokio::test]
 async fn one_failing_check_is_its_own_refusal_standing_for_itself() {
     let mut rig = rig(needing_a_token());
@@ -2449,7 +2451,7 @@ async fn one_failing_check_is_its_own_refusal_standing_for_itself() {
         .result
         .unwrap_err();
     assert_eq!(error.code(), "runs-no-credential");
-    assert_eq!(error.exit_code(), 2);
+    assert_eq!(error.exit(), Exit::REFUSED);
     assert!(
         error.refusals().is_empty(),
         "no list: its own plain envelope"
@@ -2485,11 +2487,11 @@ async fn an_undriven_engine_is_planned_and_the_prompt_still_judged() {
         "on the agent's own engine, which the library knows"
     );
     assert_eq!(codes_of(&error), ["runs-no-prompt", "runs-unknown-engine"]);
-    assert_eq!(error.exit_code(), 2);
+    assert_eq!(error.exit(), Exit::REFUSED);
 }
 
 // Ruling 73d: at most three failures in one run, the fatal findings, the
-// prompt and the engine; with the findings among them, exit 3.
+// prompt and the engine; with the findings among them, exit 21.
 #[tokio::test]
 async fn the_findings_the_prompt_and_the_engine_fail_together() {
     let mut script = needing_a_token();
@@ -2507,7 +2509,7 @@ async fn the_findings_the_prompt_and_the_engine_fail_together() {
         .result
         .unwrap_err();
     assert_eq!(codes_of(&error), ["runs-no-prompt", "runs-unknown-engine"]);
-    assert_eq!(error.exit_code(), 3);
+    assert_eq!(error.exit(), Exit::FATAL_FINDINGS);
 }
 
 // The proposal for ruling 73f's residue: the enqueue is sent before a name is
@@ -2930,43 +2932,6 @@ async fn a_run_whose_command_never_started_closes_its_incarnation_as_launch_fail
     );
 }
 
-// Owner rulings 59, 109: the enqueue is judged on the posture the plan says
-// the run claims and on what its runtime enforces (the host: nothing), so a
-// `network: none` on the host is the run's own refusal, before anything is
-// served or launched.
-#[tokio::test]
-async fn the_enqueue_is_judged_on_the_claimed_posture_and_what_the_runtime_enforces() {
-    let mut script = Script::answering();
-    script.posture = library_application::Posture {
-        network: "none".to_string(),
-        sandbox: "read-only".to_string(),
-    };
-    let mut rig = rig(script);
-    let error = rig
-        .runs
-        .one_shot(&Flags::default(), &ask())
-        .await
-        .result
-        .unwrap_err();
-    let evidence = rig.runs.core.0.enqueued.lock().unwrap().clone();
-    let posture = evidence.expect("an enqueue was sent").posture;
-    assert_eq!(posture.runtime, "host");
-    assert_eq!(
-        (posture.network.as_str(), posture.sandbox.as_str()),
-        ("none", "read-only")
-    );
-    assert!(posture.enforced_network.is_empty() && posture.enforced_sandbox.is_empty());
-    assert!(
-        matches!(&error, RunError::Refused(runs::RunRejection::LaunchRefused { refusals, .. })
-            if refusals.len() == 2),
-        "{error:?}"
-    );
-    assert!(
-        rig.runner.seen.lock().unwrap().is_empty(),
-        "nothing was launched"
-    );
-}
-
 /// `run --session <harp>`, a one-shot on `prompt`.
 fn resume(harp: &str) -> OneShot {
     OneShot {
@@ -3000,11 +2965,11 @@ async fn incarnation_events(
 }
 
 /// The refusal code of a run's error, when it is a resume's refusal: the
-/// session domain's own, exit 2.
+/// session domain's own, exit 20.
 fn refused_code(error: &RunError) -> String {
     match error {
         RunError::Resume(rejection) => {
-            assert_eq!(error.exit_code(), 2);
+            assert_eq!(error.exit(), Exit::REFUSED);
             rejection.code().to_string()
         }
         other => panic!("not a resume's refusal: {other:?}"),

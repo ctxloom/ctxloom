@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use library_application::{AuthSource, DryRun, FindingRow, Posture, Previewed, Source, Sourced};
+use library_application::{AuthSource, DryRun, FindingRow, Previewed, Source, Sourced};
 use run_ports::{AuthSetting, Credentials};
 
 use super::hosted_child;
@@ -28,7 +28,6 @@ fn previewed(engine: &str, auth: Sourced<AuthSource>, fatal: usize) -> Previewed
             engine: engine.to_string(),
             profiles: Vec::new(),
             fragments: Vec::new(),
-            fragments_listed: Vec::new(),
             context: "THE-PROJECT-CONTEXT".to_string(),
             tokens: 0,
             prompt: String::new(),
@@ -36,7 +35,7 @@ fn previewed(engine: &str, auth: Sourced<AuthSource>, fatal: usize) -> Previewed
             axes: (String::new(), "host".to_string()),
             model: "opus".to_string(),
             effort: "high".to_string(),
-            permission_mode: String::new(),
+            permissions: None,
             drive: library_application::Drive {
                 command: "/opt/claude".to_string(),
                 env: vec!["EXTRA".to_string()],
@@ -45,10 +44,6 @@ fn previewed(engine: &str, auth: Sourced<AuthSource>, fatal: usize) -> Previewed
             },
             settings: None,
             settings_agent: String::new(),
-            posture: Posture {
-                network: "none".to_string(),
-                sandbox: String::new(),
-            },
         },
         fatal: vec![row; fatal],
     }
@@ -104,8 +99,6 @@ fn the_evidence_is_a_one_shot_childs_judged_on_the_environment_sent() {
     assert_eq!(evidence.engine, "claude-code");
     assert_eq!(evidence.drivable_engines, drivable());
     assert_eq!(evidence.fatal_findings, 2);
-    assert_eq!(evidence.posture.network, "none");
-    assert_eq!(evidence.posture.runtime, "host");
     let credential = evidence.credential.expect("a child's credential is judged");
     assert!(credential.accepted_set);
     assert!(!credential.file_only);

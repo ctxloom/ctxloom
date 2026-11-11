@@ -73,6 +73,18 @@ impl Library {
         self.run(flags, |p| p.item_show(kind, reference, distilled))
     }
 
+    /// The prompt `name` of ctxloom's operational bundle
+    /// ([`library::builtin::BUNDLE`]) as the project's catalog holds it
+    /// (owner ruling 128): what init and distill open with.
+    ///
+    /// A project bundle of that name overrides the built-in one whole: its
+    /// prompt is the one, and a prompt it lacks is refused, never taken from
+    /// the built-in bundle. With no project there is nothing to override it.
+    pub fn operational_prompt(&self, flags: &Flags, name: &str) -> Outcome<String> {
+        let builtins = self.builtins;
+        self.run(flags, |p| p.operational_prompt(name, builtins))
+    }
+
     /// `fragment premises`.
     pub fn premises(&self, flags: &Flags) -> Outcome<Premises> {
         self.run(flags, |p| Ok(p.premises()))
@@ -90,6 +102,29 @@ impl Library {
 }
 
 impl Project {
+    fn operational_prompt(&self, name: &str, builtins: bool) -> Result<String, AppError> {
+        let bundle = library::builtin::BUNDLE;
+        let shipped;
+        let entry = if self.no_project() && builtins {
+            shipped = library::builtin::entries(&|_| false);
+            shipped.iter().find(|e| e.name == bundle).ok_or_else(|| {
+                AppError::cause(CatalogError::BundleNotFound {
+                    ask: bundle.to_string(),
+                })
+            })?
+        } else {
+            self.bundle(bundle)?
+        };
+        match entry.bundle.commands.get(name) {
+            Some(command) => Ok(command.body.content.clone()),
+            None => Err(AppError::OperationalPromptMissing {
+                bundle: bundle.to_string(),
+                prompt: name.to_string(),
+                dir: self.content.bundle_dir(bundle),
+            }),
+        }
+    }
+
     fn item_list(&self, kind: Kind, bundle: &str) -> Result<ItemList, AppError> {
         let infos: Vec<ContentInfo> = match kind {
             Kind::Fragment => self.catalog.list_fragments(),

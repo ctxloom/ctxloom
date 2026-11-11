@@ -7,7 +7,7 @@ use run_ports::Edge;
 use crate::fakes::{command_book, uuid, CountingSource, KernelEdge, SESSION_ME};
 use crate::{
     Credential, CredentialEvidence, EnqueueError, EnqueueRequest, Enqueuer, Evidence, Gate,
-    PostureEvidence, Principal, RunsGate,
+    Principal, RunsGate,
 };
 
 fn request() -> EnqueueRequest {
@@ -283,34 +283,5 @@ async fn the_enqueue_journals_the_lock_its_launcher_holds() {
     assert_eq!(
         launcher.as_deref(),
         Some("/home/u/.ctxloom/runs/run-1.lock")
-    );
-}
-
-// Rulings 59, 109: the posture evidence reaches the run's decision: a
-// `network: none` its runtime does not enforce comes back refused.
-#[tokio::test]
-async fn the_posture_reaches_the_runs_decision() {
-    let edge = Arc::new(KernelEdge::new());
-    let enqueuer = Enqueuer::new(Arc::clone(&edge), Arc::new(CountingSource::default()));
-    let request = EnqueueRequest {
-        mode: runs::RunMode::OneShot,
-        evidence: Evidence {
-            posture: PostureEvidence {
-                runtime: "host".to_string(),
-                network: "none".to_string(),
-                ..PostureEvidence::default()
-            },
-            ..Evidence::passing("claude-code")
-        },
-        ..request()
-    };
-    assert_eq!(
-        enqueuer.enqueue(request).await.unwrap_err(),
-        EnqueueError::Refused(runs::RunRejection::UnenforcedPosture {
-            runtime: "host".to_string(),
-            key: "network".to_string(),
-            value: "none".to_string(),
-            honest: "open".to_string(),
-        })
     );
 }

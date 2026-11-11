@@ -96,10 +96,6 @@ write_errors! {
     UnknownEngine { name, engine, valid } = "write-unknown-engine";
     /// A runtime that is no axis.
     UnknownRuntime { name, value } = "write-unknown-runtime";
-    /// A permission mode its engine does not take.
-    Permissions { subject, detail } = "write-permissions";
-    /// A permission mode with no engine to check it against.
-    PermissionsNeedEngine { name } = "write-permissions-need-engine";
     /// An agent that binds nothing.
     AgentWithoutEngine { name } = "write-agent-without-engine";
     /// An env declaration that would not do what it says.
@@ -172,8 +168,13 @@ impl fmt::Display for WriteError {
 
 impl std::error::Error for WriteError {}
 
+/// A write that was refused declines the request (ruling 152); one whose
+/// ports were not wired broke.
 impl From<WriteError> for crate::AppError {
     fn from(error: WriteError) -> crate::AppError {
-        crate::AppError::cause(error)
+        match error {
+            WriteError::NotWired {} => crate::AppError::Cause(Box::new(error)),
+            refused => crate::AppError::cause(refused),
+        }
     }
 }

@@ -80,7 +80,6 @@ fn shown(path: &str) -> &str {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Pat {
     Duration,
-    Approval,
     Age,
     ListWindow,
     PrefixKey,
@@ -94,7 +93,6 @@ impl Pat {
     fn source(self) -> &'static str {
         match self {
             Pat::Duration => "^[0-9]+(\\.[0-9]+)?(ns|us|\u{b5}s|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|\u{b5}s|ms|s|m|h))*$",
-            Pat::Approval => "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$",
             Pat::Age => "^[0-9]+(d|w|h|m|s)$",
             Pat::ListWindow => "^(all|0|[0-9]+(d|w|h|m|s))$",
             Pat::PrefixKey => "^ctrl[-+].$",
@@ -107,7 +105,6 @@ impl Pat {
     fn matches(self, s: &str) -> bool {
         match self {
             Pat::Duration => durations(s, &["ns", "us", "\u{b5}s", "ms", "s", "m", "h"]),
-            Pat::Approval => durations(s, &["ns", "us", "ms", "s", "m", "h"]),
             Pat::Age => age(s),
             Pat::ListWindow => s == "all" || s == "0" || age(s),
             Pat::PrefixKey => {
@@ -282,18 +279,6 @@ fn map_of(each: Node) -> Node {
 
 const RUNTIMES: &[&str] = &["host", "container-rootless", "container-rootful"];
 
-fn permission_props() -> Vec<(&'static str, Node)> {
-    vec![
-        ("approver", choice(&["human", "none", "reviewer"])),
-        ("approval_timeout", pattern(Pat::Approval)),
-        ("sandbox", choice(&["read-only", "workspace-write", "full"])),
-        // Words, never a boolean (owner ruling 59): `open`, the honest
-        // default, or `none`, which a launch refuses on a runtime that does
-        // not enforce it (ruling 109).
-        ("network", choice(&["none", "open"])),
-    ]
-}
-
 /// The engines ctxloom drives: the keys `engines` may name, and what an
 /// agent's `engine` may be, in name order. A build without `test-support`
 /// (the one that ships) knows only the real engines (ruling 52).
@@ -355,7 +340,9 @@ fn root() -> Node {
             ),
             ("workspace", choice(&["none", "worktree"])),
             ("runtime", choice(RUNTIMES)),
-            ("permissions", object(permission_props())),
+            // Owner ruling 134: no engine-neutral `permissions` (approver,
+            // approval_timeout, sandbox, network) at the project level; an
+            // engine's permissions are its own document, on the agent.
             (
                 "delegation",
                 object(vec![
@@ -405,8 +392,9 @@ fn root() -> Node {
 }
 
 /// An agent's settings for one engine (`agents.<name>.engines.<engine>`,
-/// owner ruling 57): its model, effort and permission block (`mode`, and
-/// whatever else the engine's block holds), in that engine's vocabulary.
+/// owner ruling 57): its model, effort and permissions. The permissions are
+/// the engine's own document, copied to it verbatim (owner rulings 135,
+/// 137): any document is taken, and nothing inside it is checked.
 fn agent_engine_block() -> Node {
     object(vec![
         ("model", non_empty()),
@@ -422,7 +410,7 @@ fn agent_engine_block() -> Node {
 }
 
 /// An `agents.<name>` binding. Its engine-neutral settings (profiles,
-/// runtime, env, the posture's approver, ...) are its own; what is in an
+/// runtime, env, ...) are its own; what is in an
 /// engine's vocabulary is per engine, under `engines` (ruling 57).
 fn binding() -> Node {
     Node::Object {
@@ -434,7 +422,6 @@ fn binding() -> Node {
             ),
             ("profiles", list(non_empty())),
             ("runtime", choice(RUNTIMES)),
-            ("permissions", object(permission_props())),
             (
                 "may_delegate",
                 Node::Array {
@@ -795,7 +782,7 @@ pub(crate) fn field_order(path: &[String]) -> Vec<String> {
 
 /// The top-level keys, in the order a section is named: `config show nonsense`
 /// lists them.
-pub const SECTIONS: [&str; 25] = [
+pub const SECTIONS: [&str; 24] = [
     "schema_version",
     "engines",
     "editor",
@@ -805,7 +792,6 @@ pub const SECTIONS: [&str; 25] = [
     "default_agent",
     "workspace",
     "runtime",
-    "permissions",
     "delegation",
     "shell_timeout",
     "isolation_images",

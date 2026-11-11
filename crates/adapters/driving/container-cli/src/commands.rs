@@ -100,8 +100,8 @@ fn prune() -> Command {
         .long_about(
             "Find the agent images ctxloom built that nothing uses any more, and - with --yes - \
              remove them. Without --yes this only prints the plan.\n\n\
-             Exit status: 0 when the plan printed or everything planned was removed; 1 when any \
-             removal failed; 3 when no container runtime is available.",
+             Exit status: 0 when the plan printed or everything planned was removed; 10 when any \
+             removal failed; 21 when no container runtime is available.",
         )
         .after_help(
             "Examples:\n  ctxloom container prune\n  ctxloom container prune --yes --min-age 72h",

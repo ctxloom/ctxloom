@@ -14,7 +14,7 @@ use run_ports::{Credentials, EngineSettings};
 use runs_application::Evidence;
 
 use crate::credential::credential_evidence;
-use crate::one_shot::{posture_of, settings_of};
+use crate::one_shot::settings_of;
 
 /// How a hosted child is started, and what its enqueue is judged on.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,7 +55,6 @@ pub fn hosted_child(
             env,
         )),
         fatal_findings: u32::try_from(previewed.fatal.len()).unwrap_or(u32::MAX),
-        posture: posture_of(plan),
     };
     HostedChild {
         context: plan.context.clone(),

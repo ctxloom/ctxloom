@@ -772,12 +772,12 @@ fn test_a_server_name_claimed_by_two_bundles_is_a_finding_but_one_bundle_twice_i
 }
 
 // owner rulings 40-44: an agent's engine is the one it names, else claude-code;
-// its model and effort are its own, and its posture the engine's default
-// unless it says otherwise.
+// its model and effort are its own, and its permissions the engine's default
+// document unless its block writes one (rulings 135, 137: taken whole).
 #[test]
-fn test_an_agent_resolves_its_engine_model_and_posture() {
+fn test_an_agent_resolves_its_engine_model_and_permissions() {
     let project: &[(&str, &str)] = &[ENVELOPE, ("profiles/plain.yaml", "description: p\n")];
-    let layers = ["schema_version: 9\nagents:\n  bare:\n    engine: opencode\n  silent:\n    profiles: [plain]\n  typed:\n    engine: mock\n    engines:\n      mock:\n        model: m1\n        effort: low\n  planner:\n    engine: claude-code\n    engines:\n      claude-code:\n        permissions:\n          mode: plan\n"];
+    let layers = ["schema_version: 9\nagents:\n  bare:\n    engine: opencode\n  silent:\n    profiles: [plain]\n  typed:\n    engine: mock\n    engines:\n      mock:\n        model: m1\n        effort: low\n  planner:\n    engine: claude-code\n    engines:\n      claude-code:\n        permissions:\n          defaultMode: plan\n"];
     let library = with(&[("project", project)], &layers).library();
     let resolved = |name: &str| {
         ok(library.agent_show(&plain(), name, &say))
@@ -786,19 +786,30 @@ fn test_an_agent_resolves_its_engine_model_and_posture() {
     };
     assert_eq!(resolved("bare").engine, "opencode");
     assert_eq!(resolved("bare").command, "opencode");
+    assert_eq!(resolved("bare").settings.permissions.value, None);
     assert_eq!(resolved("silent").engine, "claude-code");
-    assert_eq!(resolved("silent").effective_permissions, "acceptEdits");
+    assert_eq!(
+        resolved("silent").settings.permissions.value,
+        Some(serde_json::json!({"defaultMode": "acceptEdits"}))
+    );
+    assert_eq!(resolved("silent").settings.permissions.source, "default");
     let typed = resolved("typed");
     assert_eq!(
         (
             typed.engine.as_str(),
             typed.settings.model.value.as_deref().unwrap_or(""),
             typed.settings.effort.value.as_deref().unwrap_or(""),
-            typed.effective_permissions.as_str()
         ),
-        ("mock", "m1", "low", "")
+        ("mock", "m1", "low")
     );
-    assert_eq!(resolved("planner").effective_permissions, "plan");
+    assert_eq!(typed.settings.permissions.value, None);
+    let planner = resolved("planner").settings.permissions;
+    assert_eq!(
+        planner.value,
+        Some(serde_json::json!({"defaultMode": "plan"}))
+    );
+    assert_eq!(planner.source, "agent");
+    assert_eq!(planner.line, "{defaultMode: plan}");
 }
 
 // agent.feature: a bundle's server that is reached by URL or served by the
@@ -835,40 +846,27 @@ fn test_requirements_name_only_the_commands_a_host_must_have() {
     assert!(shown.requirements_error.is_empty());
 }
 
-// agent.feature: the permission posture a run takes, in the engine's words.
+// Owner rulings 135, 137: the permissions an agent runs with are its block's
+// for the engine it runs on, whole, else that engine's default document; a
+// block for another engine says nothing of this one.
 #[test]
-fn test_the_effective_posture_follows_the_binding_then_the_engine_default() {
+fn test_the_permissions_follow_the_block_of_the_engine_run_on_then_the_default() {
     let project: &[(&str, &str)] = &[ENVELOPE, ("profiles/p.yaml", "description: p\n")];
-    let layers = ["schema_version: 9\npermissions:\n  approver: reviewer\nagents:\n  neutral:\n    engine: claude-code\n    permissions:\n      approver: \"\"\n  foreign:\n    engine: claude-code\n    engines:\n      opencode:\n        permissions:\n          mode: whatever\n  own:\n    engine: claude-code\n    permissions:\n      approver: none\n    engines:\n      claude-code:\n        permissions:\n          mode: plan\n  modeless:\n    engine: claude-code\n    engines:\n      claude-code:\n        permissions:\n          other: x\n  mocked:\n    engine: mock\n"];
+    let layers = ["schema_version: 9\nagents:\n  foreign:\n    engine: claude-code\n    engines:\n      opencode:\n        permissions:\n          edit: deny\n  own:\n    engine: claude-code\n    engines:\n      claude-code:\n        permissions:\n          mode: plan\n  modeless:\n    engine: claude-code\n    engines:\n      claude-code:\n        permissions:\n          other: x\n  mocked:\n    engine: mock\n"];
     let library = with(&[("project", project)], &layers).library();
-    // --degraded keeps a value the schema refuses (an empty approver), so the
-    // fall-through past an empty declaration can be seen.
-    let degraded = crate::Flags {
-        degraded: true,
-        ..plain()
-    };
     let seen = |name: &str| {
-        let r = ok(library.agent_show(&degraded, name, &say))
+        ok(library.agent_show(&plain(), name, &say))
             .resolved
-            .unwrap();
-        (r.effective_permissions, r.approver)
+            .unwrap()
+            .settings
+            .permissions
+            .value
     };
-    let pair = |a: &str, b: &str| (a.to_string(), b.to_string());
-    assert_eq!(seen("neutral"), pair("acceptEdits", "reviewer"));
-    // a block for another engine says nothing of this one: the default stands
-    assert_eq!(seen("foreign"), pair("acceptEdits", "reviewer"));
-    assert_eq!(seen("own"), pair("plan", "none"));
-    assert_eq!(seen("modeless"), pair("acceptEdits", "reviewer"));
-    assert_eq!(seen("mocked"), pair("", "reviewer"));
-    let bare = Setup {
-        ..with(
-            &[("project", project)],
-            &["schema_version: 9\nagents:\n  a:\n    engine: claude-code\n"],
-        )
-    }
-    .library();
-    let r = ok(bare.agent_show(&plain(), "a", &say)).resolved.unwrap();
-    assert_eq!(r.approver, "human");
+    let default = Some(serde_json::json!({"defaultMode": "acceptEdits"}));
+    assert_eq!(seen("foreign"), default);
+    assert_eq!(seen("own"), Some(serde_json::json!({"mode": "plan"})));
+    assert_eq!(seen("modeless"), Some(serde_json::json!({"other": "x"})));
+    assert_eq!(seen("mocked"), None);
 }
 
 // run.feature: workspace and runtime are the flag's or the binding's, else
@@ -909,28 +907,6 @@ fn test_a_dry_run_settles_the_workspace_and_runtime_axes() {
         ..plain_agent
     };
     assert_eq!(run(&configured, flagged), pair("none", "container-rootful"));
-}
-
-// Rulings 59, 70, 109: the posture a run claims is its agent's
-// `permissions.network` / `sandbox`, else the project's, else unset (which
-// claims nothing); the run judges it against its runtime.
-#[test]
-fn test_a_dry_run_carries_the_posture_the_run_claims() {
-    let posture = |layers: &str, agent: &str| {
-        let layers = [layers];
-        let request = crate::RunRequest {
-            agent: agent.to_string(),
-            ..crate::RunRequest::default()
-        };
-        let plan = ok(with(&[], &layers).library().dry_run(&plain(), &request)).plan;
-        (plan.posture.network, plan.posture.sandbox)
-    };
-    let pair = |a: &str, b: &str| (a.to_string(), b.to_string());
-    let doc = "schema_version: 9\npermissions:\n  network: open\n  sandbox: read-only\nagents:\n  tight:\n    engine: claude-code\n    permissions:\n      network: none\n  loose:\n    engine: claude-code\n";
-    assert_eq!(posture(doc, "tight"), pair("none", "read-only"));
-    assert_eq!(posture(doc, "loose"), pair("open", "read-only"));
-    let bare = "schema_version: 9\nagents:\n  loose:\n    engine: claude-code\n";
-    assert_eq!(posture(bare, "loose"), pair("", ""));
 }
 
 // run.feature: the prompt is the one given, else the saved command's body.
@@ -1166,13 +1142,13 @@ fn test_a_dry_run_carries_the_agent_s_model_and_effort() {
     assert_eq!((bare.model.as_str(), bare.effort.as_str()), ("", ""));
 }
 
-// Owner ruling 116: the plan names the agent's permission mode on the run's
-// engine (its block's `permissions.mode`, else the engine's default, which
-// is claude's `acceptEdits` and opencode's none); a launch with no agent
-// names none.
+// Owner rulings 135, 137: the plan carries the agent's permissions document
+// for the run's engine as JSON text in the order it was written (its block's,
+// else the engine's default: claude's `{defaultMode: acceptEdits}`, opencode's
+// none); a launch with no agent carries none.
 #[test]
-fn test_a_dry_run_carries_the_agent_s_permission_mode() {
-    let layers = ["schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        permissions:\n          mode: plan\n  bare:\n    engine: claude-code\n  oc:\n    engine: opencode\n"];
+fn test_a_dry_run_carries_the_agent_s_permissions_document_in_its_order() {
+    let layers = ["schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        permissions:\n          mode: plan\n          deny: [WebFetch]\n          allow: [Read]\n  bare:\n    engine: claude-code\n  oc:\n    engine: opencode\n  ocw:\n    engine: opencode\n    engines:\n      opencode:\n        permissions:\n          z: deny\n          \"*\": ask\n"];
     let library = with(&[], &layers).library();
     let plan = |agent: &str| {
         ok(library.dry_run(
@@ -1183,23 +1159,28 @@ fn test_a_dry_run_carries_the_agent_s_permission_mode() {
             },
         ))
         .plan
-        .permission_mode
+        .permissions
     };
-    assert_eq!(plan("dev"), "plan");
-    assert_eq!(plan("bare"), "acceptEdits");
-    assert_eq!(plan("oc"), "");
+    assert_eq!(
+        plan("dev").as_deref(),
+        Some(r#"{"mode":"plan","deny":["WebFetch"],"allow":["Read"]}"#)
+    );
+    assert_eq!(
+        plan("bare").as_deref(),
+        Some(r#"{"defaultMode":"acceptEdits"}"#)
+    );
+    assert_eq!(plan("oc"), None);
+    assert_eq!(plan("ocw").as_deref(), Some(r#"{"z":"deny","*":"ask"}"#));
 }
 
 // Ruling 57 (amends 54): `run --engine X` plans the agent on X: its block for
 // X (model, effort), else X's defaults (no flag); its runtime and env are
 // kept; X's engine block drives it.
-// Owner ruling 125: ctxloom's own vocabulary governs a claude agent's mode at
-// a launch as at a write: a mode outside it is refused before anything is
-// launched, with the write path's own words (a retired spelling, any case,
-// points at the approver it is now; claude's `manual` is not ctxloom's); a
-// mode in it is passed in its own spelling. opencode's mode is not checked.
+// Owner ruling 135 (replacing ruling 125's check): a dry run refuses no
+// word of an engine's document; claude's and opencode's blocks are passed on
+// as written, whatever they say.
 #[test]
-fn test_a_dry_run_refuses_a_claude_mode_outside_ctxloom_s_vocabulary() {
+fn test_a_dry_run_checks_nothing_in_an_engine_s_permissions_document() {
     let plan = |mode: &str, engine: &str| {
         let layers = [format!(
             "schema_version: 9\nagents:\n  dev:\n    engine: {engine}\n    engines:\n      {engine}:\n        permissions:\n          mode: {mode}\n"
@@ -1213,44 +1194,18 @@ fn test_a_dry_run_refuses_a_claude_mode_outside_ctxloom_s_vocabulary() {
             },
         )
     };
-    for (mode, says) in [
-        ("auto", "claude permissions: mode \"auto\" is declared as approver: reviewer"),
-        ("DontAsk", "claude permissions: mode \"DontAsk\" is declared as approver: none"),
-        ("manual", "claude permissions: mode \"manual\" is not a claude mode (known: default|acceptEdits|plan|bypassPermissions)"),
+    for (mode, engine) in [
+        ("auto", "claude-code"),
+        ("DontAsk", "claude-code"),
+        ("manual", "claude-code"),
+        ("anything", "opencode"),
     ] {
-        let Err(refused) = plan(mode, "claude-code").result else {
-            panic!("{mode} was not refused");
-        };
-        assert_eq!(say(&refused), "library-application-write-permissions", "{mode}");
-        // The message is `{ $subject }: { $detail }`, the write's own.
-        let args: Vec<(String, String)> = angzarr_diagnostic::Diagnostic::args(&refused)
-            .into_iter()
-            .map(|(k, v)| match v {
-                angzarr_diagnostic::Arg::Str(text) => (k.to_string(), text),
-                other => panic!("{k} is not text: {other:?}"),
-            })
-            .collect();
         assert_eq!(
-            args,
-            vec![
-                ("subject".to_string(), "agent \"dev\"".to_string()),
-                ("detail".to_string(), says.to_string()),
-            ],
-            "{mode}"
+            ok(plan(mode, engine)).plan.permissions,
+            Some(format!(r#"{{"mode":"{mode}"}}"#)),
+            "{mode} on {engine}"
         );
     }
-    assert_eq!(
-        ok(plan("acceptedits", "claude-code")).plan.permission_mode,
-        "acceptEdits"
-    );
-    assert_eq!(
-        ok(plan("default", "claude-code")).plan.permission_mode,
-        "default"
-    );
-    assert_eq!(
-        ok(plan("anything", "opencode")).plan.permission_mode,
-        "anything"
-    );
 }
 
 #[test]

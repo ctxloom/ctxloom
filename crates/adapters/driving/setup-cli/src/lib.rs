@@ -11,7 +11,7 @@
 //! - `clean [--yes]`: reports the cache it would remove and says outright
 //!   that it removed nothing, until `--yes`.
 //! - `doctor [--all] [--deps] [--fix]`: one row per check, each with its
-//!   `DOCTOR-CHECK-*` marker; json is `{checks: [...]}`. Exit 3 when a row
+//!   `DOCTOR-CHECK-*` marker; json is `{checks: [...]}`. Exit 20 when a row
 //!   failed, after the whole report. The text report lists the warnings;
 //!   `--all` lists every check.
 //! - `init` and `init prompt` print text whatever the format: the prompt is
@@ -20,6 +20,7 @@
 mod commands;
 mod text;
 
+use cli_support::Exit;
 use std::io::Write;
 
 use angzarr_diagnostic::Diagnostic;
@@ -29,7 +30,7 @@ use clap::ArgMatches;
 use cli_support::{say_notices, say_warning};
 use deps_application::Notice;
 use doctor_checks::Doctor;
-use init_application::{interview, Init, InitRequest, Outcome, Sessions, Terminal};
+use init_application::{interview, Init, InitRequest, Outcome, Prompts, Sessions, Terminal};
 use reclaim_application::Cleaner;
 use sessions_application::RemovedNothing;
 
@@ -50,9 +51,12 @@ pub struct UseCases<'a> {
     pub terminal: &'a dyn Terminal,
     /// The interactive sessions the interview launches.
     pub sessions: &'a dyn Sessions,
+    /// The setup interview, read through the project's catalog (owner
+    /// ruling 128).
+    pub prompts: &'a dyn Prompts,
 }
 
-fn failure(cause: impl Diagnostic + 'static, exit: u8) -> Failure {
+fn failure(cause: impl Diagnostic + 'static, exit: Exit) -> Failure {
     Failure::new(cause, exit)
 }
 
@@ -61,7 +65,7 @@ fn output(error: std::io::Error) -> Failure {
         CliFault::Output {
             ext_err_txt: error.to_string(),
         },
-        1,
+        Exit::FAILED,
     )
 }
 
@@ -78,14 +82,14 @@ pub fn run<G>(
     catalog: &Catalog,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let format = call.explicit_format.unwrap_or(call.default_format);
     let sub = call.matches.subcommand_matches(noun).ok_or_else(|| {
         failure(
             CliFault::NoSuchCommand {
                 noun: noun.to_string(),
             },
-            2,
+            Exit::REFUSED,
         )
     })?;
     match noun {
@@ -97,14 +101,14 @@ pub fn run<G>(
 }
 
 /// `auth` and `auth status`: the credential report.
-fn auth(uses: &UseCases<'_>, format: Format, out: &mut dyn Write) -> Result<u8, Failure> {
+fn auth(uses: &UseCases<'_>, format: Format, out: &mut dyn Write) -> Result<Exit, Failure> {
     let rows = uses.auth.status(&uses.doctor.layer_texts());
     match format {
         Format::Json => write_json(out, &rows),
         Format::Text => text::auth(&rows, out),
     }
     .map_err(output)?;
-    Ok(0)
+    Ok(Exit::OK)
 }
 
 fn clean(
@@ -114,9 +118,12 @@ fn clean(
     catalog: &Catalog,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let yes = sub.get_flag("yes");
-    let report = uses.cleaner.clean(yes).map_err(|e| failure(e, 1))?;
+    let report = uses
+        .cleaner
+        .clean(yes)
+        .map_err(|e| failure(e, Exit::FAILED))?;
     match format {
         Format::Json => write_json(out, &report),
         Format::Text => text::clean(&report, out),
@@ -132,8 +139,13 @@ fn clean(
             catalog,
             err,
         );
+        // Ruling 153: a preview with a target present that `--yes` would
+        // remove.
+        if report.targets.iter().any(|target| target.present) {
+            return Ok(Exit::WOULD_CHANGE);
+        }
     }
-    Ok(0)
+    Ok(Exit::OK)
 }
 
 fn doctor(
@@ -142,9 +154,12 @@ fn doctor(
     format: Format,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     if sub.get_flag("fix") {
-        let removed = uses.doctor.fix().map_err(|e| Failure::boxed(e, 1))?;
+        let removed = uses
+            .doctor
+            .fix()
+            .map_err(|e| Failure::boxed(e, Exit::FAILED))?;
         for r in &removed {
             let _ = writeln!(
                 err,
@@ -164,12 +179,14 @@ fn doctor(
     Ok(exit_of(&report))
 }
 
-/// The exit status a report ends the run with.
-fn exit_of(report: &doctor_checks::Report) -> u8 {
+/// The exit a report ends the run with: refused (20) when a row failed, the
+/// status of the run's refusal that row guarantees (ruling 152: 21 is the run
+/// plan's fatal findings alone).
+fn exit_of(report: &doctor_checks::Report) -> Exit {
     if report.failed() {
-        3
+        Exit::REFUSED
     } else {
-        0
+        Exit::OK
     }
 }
 
@@ -191,10 +208,12 @@ fn init(
     catalog: &Catalog,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     if sub.subcommand_matches("prompt").is_some() {
-        write!(out, "{}", init_application::prompt()).map_err(output)?;
-        return Ok(0);
+        let body = init_application::prompt(uses.prompts)
+            .map_err(|refused| Failure::boxed(refused.cause, refused.exit))?;
+        write!(out, "{body}").map_err(output)?;
+        return Ok(Exit::OK);
     }
     let request = InitRequest {
         remotes: sub
@@ -203,7 +222,10 @@ fn init(
             .unwrap_or_default(),
         forge: sub.get_one::<String>("forge").cloned().unwrap_or_default(),
     };
-    let done = uses.init.init(&request).map_err(|e| failure(e, 1))?;
+    let done = uses
+        .init
+        .init(&request)
+        .map_err(|e| failure(e, Exit::FAILED))?;
     if done.existed {
         writeln!(out, "ctxloom directory already exists: {}", done.app_dir).map_err(output)?;
     } else {
@@ -213,7 +235,7 @@ fn init(
         if let Some(dir) = uses
             .init
             .choose_output_dir(uses.terminal)
-            .map_err(|e| failure(e, 1))?
+            .map_err(|e| failure(e, Exit::FAILED))?
         {
             writeln!(
                 out,
@@ -240,13 +262,13 @@ fn init(
     say_notices(&uses.auth.file_only(&layers), PROG, format, catalog, err);
     // On a terminal, the setup interview, and the offer to restart into the
     // session it configured. Off one, nothing is launched and nothing asked.
-    let interviewed = interview(uses.terminal, uses.sessions)
+    let interviewed = interview(uses.terminal, uses.sessions, uses.prompts)
         .map_err(|launch| Failure::boxed(launch.cause, launch.exit))?;
     for notice in &interviewed.notices {
         say_warning(notice.as_ref(), PROG, Format::Text, catalog, err);
     }
     Ok(match interviewed.outcome {
-        Outcome::NotATerminal => 0,
+        Outcome::NotATerminal => Exit::OK,
         Outcome::Declined => {
             writeln!(
                 out,
@@ -254,16 +276,12 @@ fn init(
                 init_application::RESTART_COMMAND
             )
             .map_err(output)?;
-            0
+            Exit::OK
         }
-        Outcome::Interrupted { code } | Outcome::Restarted { code } => exit_of_session(code),
+        Outcome::Interrupted { code } | Outcome::Restarted { code } => {
+            Exit::from_child_status(code, None)
+        }
     })
-}
-
-/// The exit status a session ended with: the engine's, 1 where a signal
-/// ended it or it is not a status.
-fn exit_of_session(code: Option<i32>) -> u8 {
-    code.and_then(|code| u8::try_from(code).ok()).unwrap_or(1)
 }
 
 #[cfg(test)]

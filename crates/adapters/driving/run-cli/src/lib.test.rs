@@ -8,7 +8,7 @@ use library_application::{AppError, Flags, Notice};
 use run_application::{Answer, Done, Ended, OneShot, RunError, RunService};
 use runs::RunRejection;
 
-use super::{is_one_shot, run, session, with_one_shot, Call};
+use super::{is_one_shot, run, session, with_one_shot, Call, Exit};
 
 /// The library's `run`, as far as this crate reads it.
 fn library_run() -> Command {
@@ -123,7 +123,9 @@ fn go(line: &[&str], format: Option<Format>, piped: Option<&str>, service: &mut 
     let refusals = ran.as_ref().err().map_or_else(Vec::new, |f| {
         f.refusals.iter().map(|r| r.code().to_string()).collect()
     });
-    let exit = ran.map_err(|f| (f.cause.code().to_string(), f.exit));
+    let exit = ran
+        .map(|exit| exit.code(true))
+        .map_err(|f| (f.cause.code().to_string(), f.exit.code(true)));
     Ran {
         exit,
         refusals,
@@ -279,7 +281,7 @@ fn every_selection_flag_reaches_the_request() {
 fn a_refusal_ends_the_command_with_its_code_and_exit_and_writes_no_reply() {
     let mut service = Double::failing(RunError::Refused(RunRejection::NoPrompt));
     let ran = go(&["--one-shot"], Some(Format::Text), None, &mut service);
-    assert_eq!(ran.exit, Err(("runs-no-prompt".to_string(), 2)));
+    assert_eq!(ran.exit, Err(("runs-no-prompt".to_string(), 20)));
     assert_eq!(ran.out, "");
     assert!(ran.refusals.is_empty(), "a single refusal lists nothing");
 }
@@ -289,7 +291,7 @@ fn a_refusal_ends_the_command_with_its_code_and_exit_and_writes_no_reply() {
 // command line to list.
 #[test]
 fn an_aggregate_refusal_hands_on_each_refusal_in_check_order() {
-    for (fatal_findings, exit) in [(0, 2), (2, 3)] {
+    for (fatal_findings, exit) in [(0, 20), (2, 21)] {
         let mut service = Double::failing(RunError::Refused(RunRejection::LaunchRefused {
             refusals: vec![
                 RunRejection::NoPrompt,
@@ -319,7 +321,7 @@ fn a_plan_the_library_refused_keeps_its_exit() {
     );
     assert_eq!(
         ran.exit,
-        Err(("library-application-agent-exclusive".to_string(), 2))
+        Err(("library-application-agent-exclusive".to_string(), 20))
     );
 }
 
@@ -372,7 +374,8 @@ fn go_session(line: &[&str], service: &mut Double) -> (Result<u8, (String, u8)>,
         &mut out,
         &mut err,
     )
-    .map_err(|f| (f.cause.code().to_string(), f.exit));
+    .map(|exit| exit.code(true))
+    .map_err(|f| (f.cause.code().to_string(), f.exit.code(true)));
     (
         exit,
         String::from_utf8(out).unwrap(),
@@ -394,7 +397,8 @@ fn a_session_asks_with_the_line_prints_nothing_and_exits_as_the_engine_did() {
     let mut double = Double::failing(RunError::EmptyAnswer);
     double.ended = Some(Ok(ended(Some(3))));
     let (exit, out, err) = go_session(&["--profile", "dev", "hello", "there"], &mut double);
-    assert_eq!(exit, Ok(3));
+    // The engine's 3 is not one of ctxloom's codes (rulings 152, 153): failed.
+    assert_eq!(exit, Ok(10));
     assert_eq!(out, "", "the engine had the terminal; nothing more is said");
     assert!(err.contains("a notice"));
     let (_, asked) = &double.asked[0];
@@ -403,10 +407,31 @@ fn a_session_asks_with_the_line_prints_nothing_and_exits_as_the_engine_did() {
 }
 
 #[test]
-fn a_session_ended_by_a_signal_exits_one() {
+fn a_session_ended_by_a_signal_unreported_exits_failed() {
     let mut double = Double::failing(RunError::EmptyAnswer);
     double.ended = Some(Ok(ended(None)));
-    assert_eq!(go_session(&[], &mut double).0, Ok(1));
+    assert_eq!(go_session(&[], &mut double).0, Ok(10));
+}
+
+// Rulings 152, 153: an engine's status is said in ctxloom's classes: 0 ok, a
+// shell's 128 plus a signal's number that signal, any other failed.
+#[test]
+fn a_sessions_engine_status_is_said_in_ctxlooms_classes() {
+    for (status, exit) in [
+        (0, 0),
+        (1, 10),
+        (2, 10),
+        (128, 10),
+        (129, 129),
+        (143, 143),
+        (255, 255),
+        (256, 10),
+        (-1, 10),
+    ] {
+        let mut double = Double::failing(RunError::EmptyAnswer);
+        double.ended = Some(Ok(ended(Some(status))));
+        assert_eq!(go_session(&[], &mut double).0, Ok(exit), "{status}");
+    }
 }
 
 #[test]
@@ -417,7 +442,7 @@ fn a_session_that_could_not_start_fails_with_the_errors_exit() {
     }));
     assert_eq!(
         go_session(&[], &mut double).0,
-        Err(("run-application-not-started".to_string(), 1))
+        Err(("run-application-not-started".to_string(), 10))
     );
 }
 
@@ -433,7 +458,7 @@ impl std::io::Write for Broken {
     }
 }
 
-// A reply that cannot be written ends the command: exit 1, the code, and the
+// A reply that cannot be written ends the command: exit 10, the code, and the
 // system's words as `ext_err_txt`.
 #[test]
 fn a_reply_that_cannot_be_written_is_that_failure() {
@@ -460,7 +485,7 @@ fn a_reply_that_cannot_be_written_is_that_failure() {
         &mut err,
     )
     .unwrap_err();
-    assert_eq!(failure.exit, 1);
+    assert_eq!(failure.exit, Exit::FAILED);
     assert_eq!(failure.cause.code(), "run-cli-output");
     assert_eq!(
         failure.cause.to_string(),

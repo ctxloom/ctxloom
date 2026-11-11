@@ -43,7 +43,11 @@ Feature: Adopting ctxloom without regret — the first hour, and the exit verifi
     And the file ".ctxloom/.gitignore" contains "/sessions"
     And the file ".ctxloom/.gitignore" contains "/cache"
 
-  Scenario: Ten minutes in, a session started through ctxloom has her project's context
+  # Owner ruling 117: the default profile init seeds is bare, so a fresh
+  # project's session carries no coding guidance until she adds a remote; and
+  # ctxloom's own built-in prompts (the setup interview, the distill prompt)
+  # are init's and distill's alone, in no ordinary session's context.
+  Scenario: Ten minutes in, a session started through ctxloom answers her, and carries none of ctxloom's own prompts
     # new: her second step.
     Given Alice has set ctxloom up in her project
     When Alice starts her assistant through ctxloom and asks it something:
@@ -51,7 +55,8 @@ Feature: Adopting ctxloom without regret — the first hour, and the exit verifi
       ctxloom run --one-shot "what does this project expect of me?"
       """
     Then the command succeeds
-    And her assistant was handed ctxloom's built-in default content
+    And the output contains "J000100-ASSISTANT-REPLY"
+    And her assistant was handed none of ctxloom's own prompts
     And nothing in her project outside .ctxloom was written
     And nothing in her home directory outside ~/.ctxloom was written
 

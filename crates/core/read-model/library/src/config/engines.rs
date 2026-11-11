@@ -4,7 +4,9 @@
 //! AGENT's settings; the `engines.<engine>` block holds what is cross-agent:
 //! `command`, `session_home`, `auth`, and the default `runtime` /
 //! `env` an agent may override. An unset `model` / `effort` passes no flag;
-//! `permissions` has an explicit ctxloom default. Everything here is a pure
+//! `permissions` is the engine's own document, passed to it verbatim (owner
+//! rulings 133-139), with ctxloom's default document for claude
+//! ([`default_permissions`]) when the agent writes none. Everything here is a pure
 //! function of the merged config tree: [`effective`] answers "what does this
 //! agent run with, and which layer said so", [`runtime_change`] is the
 //! isolation guard, [`AuthSource`] is where an engine's credential comes from
@@ -266,8 +268,11 @@ pub struct Effective {
     pub model: Option<Sourced<String>>,
     /// `None` is the engine's own default: no flag is passed.
     pub effort: Option<Sourced<String>>,
-    /// The permission mode in the engine's vocabulary; never unset.
-    pub permissions: Sourced<String>,
+    /// The engine's own permissions document, as the agent's block for the
+    /// engine wrote it (owner rulings 135, 137: copied verbatim, never
+    /// checked), else the engine's default document; `None` is no document,
+    /// and nothing is passed.
+    pub permissions: Option<Sourced<Value>>,
     pub runtime: Sourced<String>,
     pub runtime_override: Override,
     /// The names a launch passes through: the engine block's, then the
@@ -290,7 +295,7 @@ pub fn effective(config: &Value, agent: &str) -> Result<Effective, EngineError> 
 
 /// The settings agent `agent` runs with on `engine` (`run --engine`, owner
 /// ruling 57): its block for that engine (else the engine's defaults: no
-/// model, no effort, the engine's permission default), its own runtime
+/// model, no effort, the engine's default permissions document), its own runtime
 /// (engine-neutral), its env merged with that engine's (ruling 66), and that
 /// engine's block for the rest.
 pub fn effective_on(config: &Value, agent: &str, engine: &str) -> Result<Effective, EngineError> {
@@ -341,22 +346,15 @@ fn resolve(config: &Value, agent: &str, on: Option<&str>) -> Result<Effective, E
 
     let own = agent_block(binding, &name);
     let from_own = |key: &str| own.and_then(|b| text_of(b, key)).map(agent_said);
-    let permissions = match own
-        .and_then(|b| b.get("permissions"))
-        .and_then(|p| text_of(p, "mode"))
-    {
-        Some(mode) => Sourced {
-            value: mode,
+    let permissions = match own.and_then(|b| b.get("permissions")) {
+        Some(document) => Some(Sourced {
+            value: document.clone(),
             source: Source::Agent,
-        },
-        None => default(
-            if name == DEFAULT_ENGINE {
-                "acceptEdits"
-            } else {
-                ""
-            }
-            .to_string(),
-        ),
+        }),
+        None => default_permissions(&name).map(|value| Sourced {
+            value,
+            source: Source::Default,
+        }),
     };
 
     let (runtime, runtime_override) = runtime_of(config, binding, block);
@@ -395,6 +393,21 @@ fn resolve(config: &Value, agent: &str, on: Option<&str>) -> Result<Effective, E
         ),
         auth,
         engine,
+    })
+}
+
+/// The permissions document an agent that writes none for `engine` runs on:
+/// for claude-code, `{defaultMode: acceptEdits}`, the mode ctxloom has
+/// always started claude in (a design call of the passthrough, rulings
+/// 133-139 leave the default unsaid: kept so an agent with no block runs as
+/// before); no other engine has one. A block the agent writes replaces it
+/// whole.
+pub fn default_permissions(engine: &str) -> Option<Value> {
+    (engine == "claude-code").then(|| {
+        Value::Map(vec![(
+            "defaultMode".to_string(),
+            Value::Scalar("acceptEdits".to_string()),
+        )])
     })
 }
 
@@ -470,7 +483,7 @@ pub fn engine_drive(config: &Value, engine: &str) -> Result<Drive, EngineError> 
 /// What every agent of `engine` shares, each with the layer that said it: the
 /// settings of [`effective`] for an agent that says nothing itself, so only
 /// the engine block, the project and the defaults speak. `model` and `effort`
-/// are then `None` and `permissions` the engine's default.
+/// are then `None` and `permissions` the engine's default document.
 pub fn engine_settings(config: &Value, engine: &str) -> Result<Effective, EngineError> {
     const PROBE: &str = "(engine)";
     let mut probe = config.clone();

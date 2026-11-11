@@ -56,6 +56,15 @@ fn cert() -> &'static HookCertificate {
     CERT.get_or_init(|| mint(SystemClock, &["127.0.0.1", "::1"], &[]))
 }
 
+/// A certificate of a test's own, for a sink that dials a port nobody is meant
+/// to listen on: a port released (or a server stopped) can be given at once to
+/// another test's server in the same process (cargo test, the mutation run),
+/// and every one of those presents the shared [`cert`], so a sink pinning
+/// [`cert`] would be answered there. Pinning this one, nobody can answer.
+fn own_cert() -> HookCertificate {
+    mint(SystemClock, &["127.0.0.1", "::1"], &[])
+}
+
 /// A sink that pins `cert` and dials `url`.
 fn sink_to(url: impl Into<String>, cert: &HookCertificate) -> GrpcSink {
     GrpcSink::new(url, bearer(), cert.public().clone())
@@ -394,7 +403,7 @@ fn a_server_that_never_answers_times_out_within_the_budget() {
 
 #[test]
 fn a_port_nobody_listens_on_is_unavailable_at_once() {
-    let sink = sink_to(closed_url(), cert());
+    let sink = sink_to(closed_url(), &own_cert());
     let started = Instant::now();
     match sink.deliver(CommandBook::default(), BUDGET) {
         Delivery::Unavailable { detail } => assert!(detail.contains("cannot reach"), "{detail}"),
@@ -405,10 +414,11 @@ fn a_port_nobody_listens_on_is_unavailable_at_once() {
 
 #[test]
 fn a_stopped_server_is_unavailable() {
-    let mut server = serve(Answer::Never);
+    let own = own_cert();
+    let mut server = serve_as(Answer::Never, Serving::Tls(&own));
     let url = server.url.clone();
     server.stop();
-    let sink = sink_to(url, cert());
+    let sink = sink_to(url, &own);
     assert!(matches!(
         sink.deliver(CommandBook::default(), BUDGET),
         Delivery::Unavailable { .. }
@@ -584,7 +594,7 @@ fn a_server_that_closes_mid_call_is_unavailable_not_timed_out() {
 #[test]
 fn the_bearer_never_appears_in_a_debug_or_a_detail() {
     let secret = bearer().expose().to_string();
-    let sink = sink_to(closed_url(), cert());
+    let sink = sink_to(closed_url(), &own_cert());
     assert!(!format!("{sink:?}").contains(&secret));
     // Down: a transport failure.
     let down = sink.deliver(CommandBook::default(), BUDGET);

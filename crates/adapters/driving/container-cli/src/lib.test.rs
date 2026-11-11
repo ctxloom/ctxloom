@@ -3,6 +3,7 @@
 //! named where one applies.
 
 use angzarr_presentation::Format;
+use cli_support::Exit;
 use isolation_application::{
     CheckReport, ContainerUse, Declaration, IsolationError, ScaffoldReport, ToolingReport,
 };
@@ -79,7 +80,7 @@ fn fake() -> Fake {
 }
 
 /// Run `ctxloom <args>` on `uses`: the answer, or the failure.
-fn go(uses: &Fake, args: &[&str], explicit: Option<Format>) -> (Result<u8, Failure>, String) {
+fn go(uses: &Fake, args: &[&str], explicit: Option<Format>) -> (Result<Exit, Failure>, String) {
     let matches = clap::Command::new("ctxloom")
         .subcommands(commands::nouns())
         .get_matches_from(std::iter::once("ctxloom").chain(args.iter().copied()));
@@ -93,7 +94,7 @@ fn go(uses: &Fake, args: &[&str], explicit: Option<Format>) -> (Result<u8, Failu
 #[test]
 fn the_bare_noun_prints_help_naming_what_it_holds() {
     let (result, out) = go(&fake(), &["container"], Some(Format::Text));
-    assert_eq!(result.unwrap(), 0);
+    assert_eq!(result.unwrap(), Exit::OK);
     for verb in ["scaffold", "tooling", "check", "build", "prune"] {
         assert!(out.contains(verb), "{verb} in {out}");
     }
@@ -105,7 +106,7 @@ fn a_machine_readable_format_aimed_at_the_bare_noun_is_refused() {
     let (result, out) = go(&fake(), &["container"], Some(Format::Json));
     let failure = result.unwrap_err();
     assert_eq!(failure.cause.code(), "container-cli-help-not-payload");
-    assert_eq!(failure.exit, 2);
+    assert_eq!(failure.exit, Exit::REFUSED);
     assert!(out.is_empty(), "no help is printed: {out}");
 }
 
@@ -113,7 +114,7 @@ fn a_machine_readable_format_aimed_at_the_bare_noun_is_refused() {
 #[test]
 fn check_in_json_reports_every_axis() {
     let (result, out) = go(&fake(), &["container", "check", "mock"], None);
-    assert_eq!(result.unwrap(), 0);
+    assert_eq!(result.unwrap(), Exit::OK);
     let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
     assert_eq!(doc["in_container"], false);
     assert_eq!(doc["runtime"], "none");
@@ -126,7 +127,7 @@ fn check_in_json_reports_every_axis() {
 #[test]
 fn check_in_text_labels_every_axis() {
     let (result, out) = go(&fake(), &["container", "check", "mock"], Some(Format::Text));
-    assert_eq!(result.unwrap(), 0);
+    assert_eq!(result.unwrap(), Exit::OK);
     assert!(
         out.contains("Container capability (backend: mock)"),
         "{out}"
@@ -173,7 +174,7 @@ fn an_unknown_backend_fails_check_and_build_alike() {
             failure.cause.code(),
             "isolation-application-unknown-backend"
         );
-        assert_eq!(failure.exit, 2);
+        assert_eq!(failure.exit, Exit::REFUSED);
     }
 }
 
@@ -186,16 +187,16 @@ fn prune_refusals_carry_their_exit_codes() {
         failure.cause.code(),
         "isolation-application-no-prune-runtime"
     );
-    assert_eq!(failure.exit, 3);
+    assert_eq!(failure.exit, Exit::REFUSED);
     assert!(out.is_empty());
     let (result, _) = go(&fake(), &["container", "prune", "--runtime", "rkt"], None);
-    assert_eq!(result.unwrap_err().exit, 2);
+    assert_eq!(result.unwrap_err().exit, Exit::REFUSED);
 }
 
 #[test]
 fn scaffold_says_where_it_wrote_and_what_to_do_next() {
     let (result, out) = go(&fake(), &["container", "scaffold"], None);
-    assert_eq!(result.unwrap(), 0);
+    assert_eq!(result.unwrap(), Exit::OK);
     assert!(out.contains("Devcontainer: .devcontainer"), "{out}");
     assert!(out.contains("ctxloom container build"), "{out}");
 }
@@ -210,7 +211,7 @@ fn tooling_in_json_carries_the_instructions_and_the_declarations() {
         }],
     };
     let (result, out) = go(&uses, &["container", "tooling", "list"], Some(Format::Json));
-    assert_eq!(result.unwrap(), 0);
+    assert_eq!(result.unwrap(), Exit::OK);
     let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
     assert_eq!(doc["instructions"], "INSTRUCTIONS FOR THE LLM");
     assert_eq!(doc["declarations"][0]["content"], "TOOLING-DECL-TOOLED");
@@ -226,7 +227,7 @@ fn bare_tooling_lists_and_the_text_form_attributes_each_declaration() {
         }],
     };
     let (result, out) = go(&uses, &["container", "tooling"], Some(Format::Text));
-    assert_eq!(result.unwrap(), 0);
+    assert_eq!(result.unwrap(), Exit::OK);
     assert!(out.contains("INSTRUCTIONS FOR THE LLM"), "{out}");
     assert!(out.contains("### tooled"), "{out}");
     assert!(out.contains("TOOLING-DECL-TOOLED"), "{out}");
@@ -242,7 +243,7 @@ fn tooling_with_nothing_declared_says_so() {
         &["container", "tooling", "list"],
         Some(Format::Text),
     );
-    assert_eq!(result.unwrap(), 0);
+    assert_eq!(result.unwrap(), Exit::OK);
     assert!(
         out.contains("No registered companion declares container tooling"),
         "{out}"
@@ -252,7 +253,7 @@ fn tooling_with_nothing_declared_says_so() {
         &["container", "tooling", "list"],
         Some(Format::Json),
     );
-    assert_eq!(result.unwrap(), 0);
+    assert_eq!(result.unwrap(), Exit::OK);
     let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
     assert_eq!(doc["declarations"], serde_json::json!([]));
 }

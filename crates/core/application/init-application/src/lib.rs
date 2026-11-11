@@ -8,9 +8,9 @@
 //!
 //! `init` of a directory with no `.ctxloom`: it scaffolds the project (the
 //! `Create` port, as `config create` does): the config, a remotes registry
-//! that seeds no remote, and the default profile inheriting the developer
-//! profile ctxloom ships built in (owner rulings 110, 111). Nothing is pulled:
-//! the default content is in the binary, and a fresh project works offline.
+//! that seeds no remote, and a BARE default profile that inherits nothing
+//! (owner rulings 110, 111, 117). Nothing is pulled, and a fresh project
+//! works offline.
 //! It writes nothing outside `.ctxloom`: the engine files wait for a session
 //! home.
 //!
@@ -31,6 +31,7 @@ use std::sync::Arc;
 
 pub use ctxloom_ports::{Failure, Scaffold, UserFiles};
 use deps_application::{CreateRequest, Deps, Notice};
+use exit_code::Exit;
 use serde::Serialize;
 
 pub use error::InitError;
@@ -39,12 +40,24 @@ pub use interview::{
     RESTART_QUESTION,
 };
 
-/// The setup interview's body: ctxloom's own words, copied byte for byte
-/// from Go ctxloom's `resources/commands/ctxloom-init.md` (release/0.7,
-/// f36e8dfb21; the file's blob is 702251f0877f), its front matter dropped.
-/// D24: the owner's text, never edited here. It names `agent_run`, an MCP tool
-/// whose place in the cut list (D8) is still open.
-pub const SETUP_INTERVIEW: &str = include_str!("../resources/setup-interview.md");
+/// What the setup interview is read through: the project's catalog, as it is
+/// when it is read (owner ruling 128). The interview is ctxloom's built-in
+/// bundle's `ctxloom#prompts/setup-interview` (the owner's words, once Go
+/// ctxloom's `resources/commands/ctxloom-init.md`), unless the project has a
+/// bundle of its own named `ctxloom`, which overrides it whole.
+pub trait Prompts {
+    /// The setup interview's body, or why there is none to read (a project
+    /// `ctxloom` bundle without one, or that cannot be read).
+    fn setup_interview(&self) -> Result<String, PromptFailure>;
+}
+
+/// A prompt that could not be read: why, and the exit code that reason
+/// carries (refused 20, any other failure 10).
+#[derive(Debug)]
+pub struct PromptFailure {
+    pub cause: Failure,
+    pub exit: Exit,
+}
 
 /// Scaffolds a project's `.ctxloom`: the config, the remotes registry and the
 /// seeded default profile; it refuses a directory that has a config.
@@ -189,8 +202,8 @@ impl Init {
 }
 
 /// `init prompt`: the interview body, as Go prints it (a line after it).
-pub fn prompt() -> String {
-    format!("{SETUP_INTERVIEW}\n")
+pub fn prompt(prompts: &dyn Prompts) -> Result<String, PromptFailure> {
+    Ok(format!("{}\n", prompts.setup_interview()?))
 }
 
 #[cfg(test)]

@@ -2,6 +2,7 @@
 //! sessions use cases over their default adapters, and the engines'
 //! callbacks, run as the extension's nouns.
 
+use cli_support::Exit;
 use std::io::Write;
 use std::sync::Arc;
 
@@ -33,9 +34,15 @@ fn matches_of<'a>(call: &Call<'a>, noun: &str) -> &'a ArgMatches {
         .unwrap_or_else(|| unreachable!("the line named {noun}"))
 }
 
-/// A failure of the command line itself: exit 1.
+/// A failure of the command line itself: exit 10.
 fn failed(cause: Box<dyn Diagnostic>) -> Failure {
-    Failure::boxed(cause, 1)
+    Failure::boxed(cause, Exit::FAILED)
+}
+
+/// A hook the service refused (an engine the registry does not know, a
+/// payload its codec cannot read): a decline, exit 20 (ruling 152).
+fn declined(cause: Box<dyn Diagnostic>) -> Failure {
+    Failure::boxed(cause, Exit::REFUSED)
 }
 
 impl Commands {
@@ -53,6 +60,47 @@ impl Commands {
         }
     }
 
+    /// The sessions use cases let go, their stores closed and waited for
+    /// (ruling 131) before the process exits: dropped, a store's close is
+    /// left to the driver's thread, which the exit need not let run, and the
+    /// store's log would stay beside it. None built, nothing to close.
+    fn close_sessions(&mut self) -> Result<(), Box<dyn Diagnostic>> {
+        let Some(mut sessions) = self.sessions.take() else {
+            return Ok(());
+        };
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| -> Box<dyn Diagnostic> {
+                Box::new(CliError::Output {
+                    detail: e.to_string(),
+                })
+            })?;
+        runtime
+            .block_on(sessions.close())
+            .map_err(|e| -> Box<dyn Diagnostic> { Box::new(e) })
+    }
+
+    /// `answer`, once the sessions' stores are closed: a close that fails is
+    /// said, and fails a command that had not (exit 1); beside a failure of
+    /// the command's own, which is answered, it is said as a warning.
+    fn closing(
+        &mut self,
+        answer: Result<Exit, Failure>,
+        format: Format,
+        catalog: &Catalog,
+        err: &mut dyn Write,
+    ) -> Result<Exit, Failure> {
+        match (self.close_sessions(), answer) {
+            (Ok(()), answer) => answer,
+            (Err(unclosed), Ok(_)) => Err(failed(unclosed)),
+            (Err(unclosed), Err(failure)) => {
+                say_warning(&*unclosed, PROG, format, catalog, err);
+                Err(failure)
+            }
+        }
+    }
+
     /// `session ...`: the command run on the sessions use cases, its notices
     /// and dead letters said beside its answer.
     pub(crate) fn session(
@@ -61,7 +109,20 @@ impl Commands {
         catalog: &Catalog,
         out: &mut dyn Write,
         err: &mut dyn Write,
-    ) -> Result<u8, Failure> {
+    ) -> Result<Exit, Failure> {
+        let answer = self.session_on_use_cases(call, catalog, out, err);
+        self.closing(answer, call.format(), catalog, err)
+    }
+
+    /// `session ...` on the sessions use cases, which [`Commands::session`]
+    /// closes after.
+    fn session_on_use_cases(
+        &mut self,
+        call: &Call<'_>,
+        catalog: &Catalog,
+        out: &mut dyn Write,
+        err: &mut dyn Write,
+    ) -> Result<Exit, Failure> {
         let command = session_cli::Session::from_arg_matches(matches_of(call, "session"))
             .unwrap_or_else(|e| unreachable!("clap parsed it: {e}"));
         let format = call.format();
@@ -74,7 +135,11 @@ impl Commands {
                 for notice in &done.notices {
                     say_warning(&**notice, PROG, format, catalog, err);
                 }
-                Ok(0)
+                Ok(if done.would_change {
+                    Exit::WOULD_CHANGE
+                } else {
+                    Exit::OK
+                })
             }
             Err(failure) => {
                 for line in &failure.lines {
@@ -95,7 +160,7 @@ impl Commands {
         catalog: &Catalog,
         out: &mut dyn Write,
         err: &mut dyn Write,
-    ) -> Result<u8, Failure> {
+    ) -> Result<Exit, Failure> {
         let hook = hook_cli::Hook::from_arg_matches(matches_of(call, "hook"))
             .unwrap_or_else(|e| unreachable!("clap parsed it: {e}"));
         let format: Format = call.format();
@@ -144,11 +209,14 @@ impl Commands {
                 &recording,
             )
         }
-        .map_err(failed)?;
+        .map_err(declined)?;
         if let Some((harp, native_id, transcript)) = asked.0 {
-            Bind(self)
+            let bound = Bind(self)
                 .bind(&harp, &native_id, &transcript)
-                .map_err(failed)?;
+                .map_err(failed)
+                .map(|()| Exit::OK);
+            // The bind's store closed before the hook answers (ruling 131).
+            self.closing(bound, format, catalog, err)?;
         }
         for warning in &outcome.warnings {
             say_warning(warning, PROG, format, catalog, err);
@@ -159,10 +227,10 @@ impl Commands {
                 CliError::Output {
                     detail: e.to_string(),
                 },
-                1,
+                Exit::FAILED,
             )
         })?;
-        Ok(0)
+        Ok(Exit::OK)
     }
 }
 

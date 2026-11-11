@@ -15,7 +15,7 @@ fn verbs(noun: &Command) -> Vec<String> {
 
 #[test]
 fn test_the_nouns_are_the_librarys_and_the_dependency_ones() {
-    let nouns = Commands::new(Arc::new(EnvSnapshot::from_process())).nouns();
+    let nouns = Commands::new(Arc::new(crate::tests::host_snapshot())).nouns();
     let names: Vec<&str> = nouns.iter().map(Command::get_name).collect();
     for noun in ["bundle", "fragment", "profile", "search", "remote", "deps"] {
         assert!(names.contains(&noun), "{noun} in {names:?}");
@@ -25,7 +25,7 @@ fn test_the_nouns_are_the_librarys_and_the_dependency_ones() {
 
 #[test]
 fn test_only_the_bundle_noun_gains_the_publishing_verbs() {
-    let nouns = Commands::new(Arc::new(EnvSnapshot::from_process())).nouns();
+    let nouns = Commands::new(Arc::new(crate::tests::host_snapshot())).nouns();
     let find = |name: &str| nouns.iter().find(|n| n.get_name() == name).expect(name);
     let bundle = verbs(find("bundle"));
     assert!(bundle.contains(&"push".to_string()) && bundle.contains(&"move".to_string()));
@@ -59,7 +59,7 @@ impl World {
         let dir = temp.root().to_path_buf();
         crate::fixtures::mkdirs(dir.join("home"));
         crate::fixtures::mkdirs(dir.join("work"));
-        let base = EnvSnapshot::from_process();
+        let base = crate::tests::host_snapshot();
         let mut world = World {
             _root: temp,
             dir,
@@ -153,7 +153,7 @@ pub(crate) fn try_line(
     let (mut out, mut err) = (Vec::new(), Vec::new());
     let code = commands.run(&noun, &call, &catalog, &mut out, &mut err)?;
     Ok((
-        code,
+        code.code(true),
         String::from_utf8(out).unwrap(),
         String::from_utf8(err).unwrap(),
     ))
@@ -264,7 +264,7 @@ fn test_auth_status_reads_the_launch_environment_and_never_its_values() {
 fn test_doctor_fails_without_the_token_and_passes_with_it() {
     let mut world = World::new("doctor-credentials");
     let (code, out, _) = run_line(&mut world.commands(), &["doctor"]);
-    assert_eq!(code, 3);
+    assert_eq!(code, 20);
     assert!(out.contains("DOCTOR-CHECK-CREDENTIALS-m5"), "{out}");
     world.set("CLAUDE_CODE_OAUTH_TOKEN", "x");
     let (code, _, _) = run_line(&mut world.commands(), &["doctor"]);
@@ -438,7 +438,7 @@ fn test_a_bundle_publishing_verb_is_run_by_the_dependency_commands() {
     let (mut out, mut err) = (Vec::new(), Vec::new());
     let result = commands.run("bundle", &call, &catalog, &mut out, &mut err);
     let failure = result.expect_err("no remote is set to push to");
-    assert_eq!(failure.exit, 2);
+    assert_eq!(failure.exit, Exit::REFUSED);
     assert!(
         failure
             .cause
@@ -476,7 +476,7 @@ pub(crate) fn world_without_programs(name: &str) -> World {
 }
 
 // `run --one-shot` is the run use case's: an engine nobody drives is refused
-// by it (exit 2), before anything is launched.
+// by it (exit 20), before anything is launched.
 #[test]
 fn test_a_one_shot_is_run_by_the_run_use_case() {
     let world = world_without_programs("one-shot");
@@ -487,7 +487,7 @@ fn test_a_one_shot_is_run_by_the_run_use_case() {
     )
     .unwrap_err();
     assert_eq!(failure.cause.code(), "runs-unknown-engine");
-    assert_eq!(failure.exit, 2);
+    assert_eq!(failure.exit, Exit::REFUSED);
     assert!(
         failure.refusals.is_empty(),
         "one refusal is its own envelope"
@@ -504,7 +504,7 @@ fn test_a_one_shot_with_no_prompt_is_not_a_session() {
     let failure =
         try_line(&mut world.commands(), Format::Json, &["run", "--one-shot"]).unwrap_err();
     assert_eq!(failure.cause.code(), "runs-launch-refused");
-    assert_eq!(failure.exit, 2);
+    assert_eq!(failure.exit, Exit::REFUSED);
     let codes: Vec<&str> = failure.refusals.iter().map(|r| r.code()).collect();
     assert_eq!(codes, ["runs-no-prompt", "runs-no-credential"]);
 }
@@ -523,11 +523,12 @@ fn test_run_without_one_shot_is_the_session() {
     assert_eq!(failure.cause.code(), "runs-unknown-engine");
 }
 
-// `--dry-run` stays the library's: the plan is printed, nothing is run.
+// `--dry-run` stays the library's: the plan is printed, nothing is run; it
+// would launch, so its detailed code is 1 (ruling 153).
 #[test]
 fn test_a_dry_run_is_the_librarys_plan_and_runs_nothing() {
     let world = world_without_programs("dry-run");
     let (code, out, _) = run_line(&mut world.commands(), &["run", "--dry-run", "hello"]);
-    assert_eq!(code, 0);
+    assert_eq!(code, 1);
     assert!(out.contains("hello"), "{out}");
 }

@@ -3,6 +3,7 @@
 use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
+use exit_code::{Exit, ExitClass};
 use isolation_ports::Failure;
 
 #[derive(Debug)]
@@ -22,7 +23,7 @@ pub enum IsolationError {
     /// A `--runtime` that is none of the runtimes ctxloom knows.
     UnknownRuntime { runtime: String, known: String },
     /// `container prune` on a machine with no container runtime: its own
-    /// exit status (3), distinct from a removal that failed (1).
+    /// exit status (20, a decline), distinct from a removal that failed (10).
     NoPruneRuntime,
     /// `container build` on a machine with no container runtime.
     NoBuildRuntime,
@@ -35,18 +36,24 @@ pub enum IsolationError {
     Adapter(Failure),
 }
 
-impl IsolationError {
-    /// The process exit code.
-    pub fn exit_code(&self) -> u8 {
+impl ExitClass for IsolationError {
+    /// How a command this ends exits (ruling 152): refused (20) when the
+    /// request declines against the line or the machine's state (an unknown
+    /// backend or runtime, no runtime to prune or build with, nothing
+    /// removed, a session nobody has, a devcontainer already there, a verb not
+    /// built); failed (10) when an adapter broke. Fatal findings (21) are the
+    /// run plan's alone.
+    fn exit(&self) -> Exit {
         match self {
+            IsolationError::Adapter(_) => Exit::FAILED,
             IsolationError::NothingRemoved { .. }
             | IsolationError::UnknownBackend { .. }
-            | IsolationError::UnknownRuntime { .. } => 2,
-            IsolationError::NoPruneRuntime | IsolationError::NoBuildRuntime => 3,
-            IsolationError::NoSession { .. }
+            | IsolationError::UnknownRuntime { .. }
+            | IsolationError::NoPruneRuntime
+            | IsolationError::NoBuildRuntime
+            | IsolationError::NoSession { .. }
             | IsolationError::DevcontainerExists { .. }
-            | IsolationError::NotPorted { .. }
-            | IsolationError::Adapter(_) => 1,
+            | IsolationError::NotPorted { .. } => Exit::REFUSED,
         }
     }
 }

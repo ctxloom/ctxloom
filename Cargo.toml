@@ -14,8 +14,8 @@ publish = false
 # The runtime pair: the lock holds ONE angzarr-embedded, angzarr-proto,
 # angzarr-ports and angzarr-diagnostic (and one of every angzarr crate). The
 # pins agree: angzarr-embedded c78e373 (angzarr-router 4fc923b), angzarr core
-# acacb16, angzarr-build bb0b509 and angzarr-platform d543f5e are one line of
-# revs, taskloom's crates (2eafb9e) and ctxloom-lib's (e19644b) are built on the
+# acacb16, angzarr-build bb0b509 and angzarr-platform 1e83ece are one line of
+# revs, taskloom's crates (d233493) and ctxloom-lib's (1000f53) are built on the
 # same ones, and moving any of them moves the others with it.
 #
 # angzarr-proto, angzarr-ports and angzarr-store-sqlite are reached through
@@ -54,19 +54,19 @@ angzarr-coordinator-grpc = { default-features = false, git = "https://github.com
 # Each test's scratch directory (a short path, for a socket): a dev-dependency.
 angzarr-test-dir = { git = "https://github.com/angzarr-io/angzarr", rev = "acacb163bdfc743651222ecd61bcee97afba6db9" }
 # The platform crates: os, the file-system seam, advisory locks.
-os = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "d543f5ed230955ba9a9ad04d90a62d2be7b1f23c" }
-file-system = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "d543f5ed230955ba9a9ad04d90a62d2be7b1f23c" }
-file-lock = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "d543f5ed230955ba9a9ad04d90a62d2be7b1f23c" }
+os = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "1e83ecedfbafeaa2dcffea0bfc35414dea6def27" }
+file-system = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "1e83ecedfbafeaa2dcffea0bfc35414dea6def27" }
+file-lock = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "1e83ecedfbafeaa2dcffea0bfc35414dea6def27" }
 
 # taskloom, by commit (D3 (b), D2 (a)): harp-names and the ports it implements.
-# 2eafb9e is taskloom's pin on the same angzarr family; only these crates are consumed.
-harp-names = { git = "https://github.com/ctxloom/taskloom", rev = "2eafb9e7cbcf9923e45bad37fdb07668b42ba550" }
-ports = { git = "https://github.com/ctxloom/taskloom", rev = "2eafb9e7cbcf9923e45bad37fdb07668b42ba550" }
+# d233493 is taskloom's pin on the same angzarr family; only these crates are consumed.
+harp-names = { git = "https://github.com/ctxloom/taskloom", rev = "d233493a1928cf6f76a76a5180775609e42b9e81" }
+ports = { git = "https://github.com/ctxloom/taskloom", rev = "d233493a1928cf6f76a76a5180775609e42b9e81" }
 # taskloom's system adapter: the clock, command ids, delay and jitter ports.
-system = { git = "https://github.com/ctxloom/taskloom", rev = "2eafb9e7cbcf9923e45bad37fdb07668b42ba550" }
+system = { git = "https://github.com/ctxloom/taskloom", rev = "d233493a1928cf6f76a76a5180775609e42b9e81" }
 # taskloom's project identity (the work root, the `.project-id` marker and the
 # home registry of projects), read through, not copied (D2 (a)).
-project-registry = { git = "https://github.com/ctxloom/taskloom", rev = "2eafb9e7cbcf9923e45bad37fdb07668b42ba550" }
+project-registry = { git = "https://github.com/ctxloom/taskloom", rev = "d233493a1928cf6f76a76a5180775609e42b9e81" }
 # Harp's word lists, at taskloom's rev, so the lock holds one.
 harp-core = { git = "https://github.com/benjaminabbitt/harp", rev = "e27196f5a425ffcf8e443aab95d2bf085cd2b134" }
 
@@ -148,22 +148,22 @@ container-cli = { path = "crates/adapters/driving/container-cli" }
 # ctxloom-lib, the shared substrate (S2): the driving edge's call, failure, notices
 # and argument shims. Pinned by full commit over https, as taskloom pins it;
 # its angzarr pins are the ones above.
-cli-support = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "e19644b19d012dca32ad75bab0d67e14cc6a2762" }
+cli-support = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "1000f539c7927a2c6fc6a27728fcd0faa3d5af2c" }
 # process-env (S3): the environment read once into a snapshot the composition root hands down.
-process-env = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "e19644b19d012dca32ad75bab0d67e14cc6a2762" }
+process-env = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "1000f539c7927a2c6fc6a27728fcd0faa3d5af2c" }
 # project-dir (S4): the ancestor walk with injected rules, and the checked project id.
-project-dir = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "e19644b19d012dca32ad75bab0d67e14cc6a2762" }
+project-dir = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "1000f539c7927a2c6fc6a27728fcd0faa3d5af2c" }
 # run-within (S6): a program run under a deadline, its tree killed, its output bounded.
-run-within = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "e19644b19d012dca32ad75bab0d67e14cc6a2762" }
+run-within = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "1000f539c7927a2c6fc6a27728fcd0faa3d5af2c" }
 # duration-text (S9): a span or date as an age, and the cutoff it makes.
-duration-text = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "e19644b19d012dca32ad75bab0d67e14cc6a2762" }
+duration-text = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "1000f539c7927a2c6fc6a27728fcd0faa3d5af2c" }
 # sqlite-store-opener (S5): places and opens a project's SQLite store under a file name the caller
 # names, refusing a store from before the embedded store; ctxloom-store-sqlite is its adapter.
-sqlite-store-opener = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "e19644b19d012dca32ad75bab0d67e14cc6a2762" }
+sqlite-store-opener = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "1000f539c7927a2c6fc6a27728fcd0faa3d5af2c" }
 
 # fixture-program: a test's fake program, linked to a committed shim that sh runs the
 # script through, so no file a test wrote is exec'd (ETXTBSY). A dev-dependency only.
-fixture-program = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "e19644b19d012dca32ad75bab0d67e14cc6a2762" }
+fixture-program = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "1000f539c7927a2c6fc6a27728fcd0faa3d5af2c" }
 
 # HTTP for forge-github (owner, 2026-11-04): the blocking client, so the
 # synchronous CLI holds no runtime of its own, and the TLS stack chosen below.

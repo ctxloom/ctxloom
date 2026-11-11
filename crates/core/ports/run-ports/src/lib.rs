@@ -2,13 +2,15 @@
 //! [`TokenHash`] (D29), the [`TokenSource`] that mints one, the [`Edge`] the
 //! core is served through (the exposure seam, `App::serve_in`, as a port), and
 //! the run launch ports (step 1b-i): [`RunnerLauncher`], [`Engine`] and
-//! [`SessionRecords`].
+//! [`SessionRecords`]; and the child-engine port (D15, D23): [`ChildEngine`],
+//! a long-lived child conversed with through its [`ChildControl`].
 //!
 //! `Arrival` and `Unserved` are this crate's own, not angzarr-embedded-host's:
 //! the host brings a gRPC stack and process supervision, which the core must
 //! not link. The driven adapter `embedded-edge` converts (review question 6).
 
 mod bind;
+mod child;
 mod edge;
 mod engine;
 mod hook;
@@ -25,6 +27,10 @@ mod tls;
 mod token;
 
 pub use bind::{bind_for, BindPlan, BindRefusal, ContainerRuntime, PlatformFacts, Probe, Runtime};
+pub use child::{
+    ChildControl, ChildEngine, ChildError, ChildMessage, ChildObservation, ChildSpec, Ended,
+    Queued, StartedChild, Urgency,
+};
 pub use edge::{Arrival, Edge, Unserved};
 pub use engine::{
     copy_in, Credentials, Engine, EngineError, FailureClass, HomeFile, PrepareRequest, Prepared,
@@ -57,6 +63,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
     samples.extend(hook::diagnostic_samples());
     samples.extend(bind::diagnostic_samples());
     samples.extend(tls::diagnostic_samples());
+    samples.extend(child::diagnostic_samples());
     samples.push(Box::new(EngineError::NotYet {
         engine: "claude-code".to_string(),
         operation: "drive_interactive".to_string(),

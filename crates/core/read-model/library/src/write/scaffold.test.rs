@@ -72,6 +72,19 @@ fn test_the_nested_gitignore_lists_every_private_state_pattern() {
     assert!(unignored_private_state(None, Some(&text)).is_empty());
 }
 
+// hand-test 2 2026-11-11: the header named Go's `gitignore.PrivateStatePatterns`
+// and told the reader to change it; the list is ctxloom's own.
+#[test]
+fn test_the_nested_gitignore_names_no_go_source() {
+    let text = nested_gitignore();
+    assert!(!text.contains("PrivateStatePatterns"), "{text}");
+    assert!(!text.contains("Change that list"), "{text}");
+    assert!(
+        text.contains("ctxloom REWRITES THIS FILE WHOLESALE"),
+        "{text}"
+    );
+}
+
 // Hand-test 2026-11-10: with no ignore file every pattern is git's to see.
 #[test]
 fn test_with_no_ignore_file_all_private_state_is_unignored() {

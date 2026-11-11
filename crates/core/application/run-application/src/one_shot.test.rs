@@ -212,6 +212,7 @@ impl Planner for ScriptedPlan {
             engine: self.backend.clone(),
             profiles: Vec::new(),
             fragments: Vec::new(),
+            fragments_listed: Vec::new(),
             context: "THE-CONTEXT".to_string(),
             tokens: 0,
             prompt: self.prompt.clone(),

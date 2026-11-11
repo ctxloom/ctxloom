@@ -162,6 +162,7 @@ impl Project {
                     .split_once("#profiles/")
                     .map(|(b, _)| b.to_string())
                     .unwrap_or_default(),
+                origin: String::new(),
             })
             .collect();
         rows.sort_by_key(|r| r.name.to_lowercase());

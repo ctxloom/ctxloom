@@ -121,6 +121,19 @@ fn a_config_every_run_refuses_is_a_fail_row_with_its_fix() {
     }
 }
 
+// hand-test 2 2026-11-11: an unknown config key was filed under "setup
+// marker"; the check reads the config too, and is named for both (its marker
+// stays `SETUP-MARKER-e5`, which the doctor skill and doctor.feature name).
+#[test]
+fn the_setup_check_is_named_for_the_config_it_reads() {
+    let refused = checks::setup_marker(true, None, Some(("failed to load config: no", "")));
+    assert_eq!(refused.name, "setup and config");
+    assert_eq!(
+        checks::setup_marker(false, None, None).name,
+        "setup and config"
+    );
+}
+
 // doctor.feature: --deps "binaries on PATH and git identity".
 #[test]
 fn deps_want_git_and_an_identity() {

@@ -137,6 +137,16 @@ Feature: init — the setup interview, and what it does to a project that alread
       And the output contains "ctxloom+local:testing#fragments/tdd"
       And the output does not contain "not installed"
       And the file ".ctxloom/cache" does not exist
+      # hand-test 2 2026-11-11: every listing names a built-in item as the
+      # bundle listing names its bundle, under the built-in origin.
+      When I run "ctxloom profile list --format text"
+      Then the command succeeds
+      And the output contains "ai-developer#profiles/developer [built-in ctxloom/default]"
+      And the output does not contain "ctxloom+local:ai-developer"
+      When I run "ctxloom run --dry-run --format text hello"
+      Then the command succeeds
+      And the output contains "  testing#fragments/tdd [built-in ctxloom/default]"
+      And the output does not contain "ctxloom+local:testing"
 
     # Read-only, and the refusal says how to change one: a project bundle of
     # its name overrides it whole, and an export is how to make one from it.

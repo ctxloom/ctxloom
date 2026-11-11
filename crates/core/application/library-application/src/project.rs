@@ -301,6 +301,16 @@ impl Project {
         }
     }
 
+    /// An item's reference as a listing names it (as `bundle list` names a
+    /// bundle): a built-in bundle's item by its bundle's name, under the
+    /// built-in origin; any other as it is.
+    pub(crate) fn listed(&self, reference: &str) -> crate::views::Listed {
+        crate::views::Listed {
+            name: reference.to_string(),
+            origin: String::new(),
+        }
+    }
+
     /// Whether the configuration came from the home alone (no project).
     pub(crate) fn no_project(&self) -> bool {
         self.config.source == Source::Home

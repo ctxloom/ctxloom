@@ -171,6 +171,56 @@ fn test_the_seeded_profile_assembles_from_the_built_in_bundles() {
     assert_eq!(mem.writes(), 0);
 }
 
+// hand-test 2 2026-11-11: `bundle list` named a built-in bundle under its
+// origin, but `profile list` and the dry run's fragments named its items
+// `ctxloom+local:...`. Every listing names a built-in item as the bundle
+// listing does: its bundle's name, under the built-in origin; what the run
+// resolves (the JSON's fragments) is unchanged.
+#[test]
+fn test_listings_name_a_built_in_item_by_the_built_in_origin() {
+    let (library, _) = world(&[("project", PROJECT)]);
+    let list = ok(library.profile_list(&plain()));
+    let developer = list
+        .rows
+        .iter()
+        .find(|r| r.display_name == "developer")
+        .expect("the built-in developer profile is listed");
+    assert_eq!(
+        (
+            developer.name.as_str(),
+            developer.bundle.as_str(),
+            developer.origin.as_str()
+        ),
+        (
+            "ai-developer#profiles/developer",
+            "ai-developer",
+            "ctxloom/default"
+        )
+    );
+    let own = list.rows.iter().find(|r| r.name == "default").unwrap();
+    assert_eq!(own.origin, "");
+    let shown = ok(library.profile_show(&plain(), &developer.name));
+    assert_eq!(shown.name, developer.name, "the listed name reaches it");
+
+    let request = crate::RunRequest {
+        profile: "default".to_string(),
+        ..crate::RunRequest::default()
+    };
+    let plan = ok(library.dry_run(&plain(), &request)).plan;
+    assert!(plan
+        .fragments
+        .contains(&"ctxloom+local:testing#fragments/tdd".to_string()));
+    assert_eq!(plan.fragments_listed.len(), plan.fragments.len());
+    assert!(
+        plan.fragments_listed.contains(&crate::Listed {
+            name: "testing#fragments/tdd".to_string(),
+            origin: "ctxloom/default".to_string(),
+        }),
+        "{:?}",
+        plan.fragments_listed
+    );
+}
+
 // No write reaches a built-in bundle: each is refused, naming where a project
 // bundle that overrides it would go, and nothing is written.
 #[test]

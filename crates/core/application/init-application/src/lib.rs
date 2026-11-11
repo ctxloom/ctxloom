@@ -7,11 +7,12 @@
 //! interview body.
 //!
 //! `init` of a directory with no `.ctxloom`: it scaffolds the project (the
-//! `Create` port, as `config create` does), which seeds the trusted
-//! `ctxloom-default` remote and the default profile inheriting from it, then
-//! pulls what that profile resolves through. A pull that fails (no network)
-//! is said and does not undo the scaffold. It writes nothing outside
-//! `.ctxloom`: the engine files wait for a session home.
+//! `Create` port, as `config create` does): the config, a remotes registry
+//! that seeds no remote, and the default profile inheriting the developer
+//! profile ctxloom ships built in (owner rulings 110, 111). Nothing is pulled:
+//! the default content is in the binary, and a fresh project works offline.
+//! It writes nothing outside `.ctxloom`: the engine files wait for a session
+//! home.
 //!
 //! On a terminal, the setup interview and the offer to restart into the
 //! configured session ([`interview`]; the mechanism, with the interview's
@@ -90,8 +91,6 @@ pub struct Initialized {
     /// The directory was there already.
     pub existed: bool,
     pub remotes: Vec<RemoteAdded>,
-    /// The dependencies the pull of a new project installed.
-    pub pulled: u64,
     /// What went wrong without stopping init (a remote that would not
     /// register), for the error stream.
     #[serde(skip)]
@@ -136,7 +135,6 @@ impl Init {
             app_dir,
             existed,
             remotes: Vec::new(),
-            pulled: 0,
             notices: Vec::new(),
         };
         // The use cases over the project as it is: a new one's once it is
@@ -145,17 +143,6 @@ impl Init {
         if !existed {
             self.create.create().map_err(InitError::Create)?;
             deps = self.create.deps().map_err(InitError::Create)?;
-            // NOT YET: the seeded pull still goes through the use cases built
-            // before the project (what a new project pulls is being
-            // redesigned: the default content is to ship in the binary).
-            let pulled = self.deps.pull(false, true);
-            done.notices.extend(pulled.notices);
-            match pulled.result {
-                Ok(report) => done.pulled = report.installed,
-                Err(error) => done.notices.push(Notice::text(format!(
-                    "could not pull the seeded dependencies: {error}"
-                ))),
-            }
         }
         for (index, url) in request.remotes.iter().enumerate() {
             let outcome = deps.remote_create(&CreateRequest {

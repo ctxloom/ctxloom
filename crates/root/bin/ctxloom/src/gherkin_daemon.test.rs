@@ -1,6 +1,7 @@
 //! The steps of the user daemon's spec (ruling 132, the target T1-T12):
 //! `journeys/j002700_user_daemon.feature`, `cli/daemon.feature`,
-//! `cli/session_children.feature` and the daemon Rule of `cli/run.feature`.
+//! `cli/session_children.feature` and the daemon Rule of `cli/run.feature`,
+//! as the owner's rulings on the spec calls (S1-S20, 2026-11-11) shaped them.
 //!
 //! RED BY DESIGN. The spec is committed before the daemon is reworked to
 //! it, so every step here that the existing harness cannot already take is a
@@ -28,7 +29,8 @@ pub(super) fn claims(w: &mut World, step: &cucumber::gherkin::Step) -> bool {
         || text.contains("which her daemon runs")
         || text.contains("and ctxloom is sent a ")
         || text.contains("through her daemon")
-        || text.contains("its daemon is killed outright while it works");
+        || text.contains("its daemon is killed outright while it works")
+        || text.contains("at her terminal, and answers yes when asked");
     if stubbed {
         red(text);
     }
@@ -514,4 +516,89 @@ fn never_stopped(_: &mut World) {
 #[then("the command started a new daemon, and reported the assistant's exit to it once")]
 fn reported_to_new(_: &mut World) {
     red("the command reported the TUI's exit to a new daemon, once")
+}
+
+// ---------------------------------------- the owner's rulings S8 to S20
+
+#[then("the hosted engines were ended cleanly before the daemon exited")]
+fn ended_cleanly(_: &mut World) {
+    red("the hosted engines were ended cleanly before the daemon exited")
+}
+
+#[then(
+    "the run the killed daemon hosted ended lost, and its turn in flight ended failed, with its owner told"
+)]
+fn lost_and_told(_: &mut World) {
+    red("the lost run's turn in flight ended failed, and its owner was told")
+}
+
+#[then(
+    regex = r#"^"([^"]+)" runs again as its session's next incarnation, in its own conversation$"#
+)]
+fn next_incarnation(_: &mut World, _child: String) {
+    red("the child runs again as its session's next incarnation")
+}
+
+#[then("the command started a new daemon and sent the write once more, under the same id")]
+fn retried_once(_: &mut World) {
+    red("the command retried its write once on a new daemon, under the same id")
+}
+
+#[then("the write was applied once, and its second delivery was a duplicate")]
+fn applied_once(_: &mut World) {
+    red("the write was applied once, and its retry was a duplicate")
+}
+
+#[then("the daemon's confirmation was asked at her terminal, and the session is gone")]
+fn asked_at_terminal(_: &mut World) {
+    red("the daemon's confirmation was asked at her terminal")
+}
+
+#[when("its orchestrator calls a ctxloom tool whose daemon call asks for confirmation")]
+fn tool_asks(_: &mut World) {
+    red("its orchestrator calls a ctxloom tool whose daemon call asks for confirmation")
+}
+
+#[then(
+    "the question reached its engine as an MCP elicitation, and the engine's answer reached the daemon"
+)]
+fn elicited(_: &mut World) {
+    red("the question reached its engine as an MCP elicitation")
+}
+
+#[given(expr = "an interactive session {string} whose assistant is running on its terminal")]
+fn primary_running(_: &mut World, _harp: String) {
+    red("an interactive session whose assistant is running on its terminal")
+}
+
+#[then("the assistant on its terminal was asked to stop, then killed once its grace had passed")]
+fn terminal_stopped(_: &mut World) {
+    red("the assistant on its terminal was stopped, gracefully, then killed")
+}
+
+#[then(regex = r#"^"([^"]+)" is listed as closed$"#)]
+fn closed_listed(_: &mut World, _harp: String) {
+    red("the session is listed as closed")
+}
+
+#[given(
+    expr = "a session {string} whose engine environment names ANTHROPIC_API_KEY through its engine block"
+)]
+fn owner_curated_env(_: &mut World, _harp: String) {
+    red("a session whose engine environment names ANTHROPIC_API_KEY")
+}
+
+#[given("the daemon was started from a shell holding CLAUDE_CODE_OAUTH_TOKEN")]
+fn daemon_env_token(_: &mut World) {
+    red("the daemon was started from a shell holding CLAUDE_CODE_OAUTH_TOKEN")
+}
+
+#[when(expr = "its orchestrator launches a child {string}")]
+fn orchestrator_launches(_: &mut World, _child: String) {
+    red("its orchestrator launches a child")
+}
+
+#[then(expr = "the child {string} was given ANTHROPIC_API_KEY, and not CLAUDE_CODE_OAUTH_TOKEN")]
+fn child_given_curated(_: &mut World, _child: String) {
+    red("the child was given the owner's curated credential only")
 }

@@ -106,7 +106,7 @@ Feature: One daemon of her own does ctxloom's work, wherever Alice types
     And "brisk-copper-moth"'s first turn was "review the change"
     When Alice sends the child a follow-up:
       """
-      ctxloom session send brisk-copper-moth "now check the tests too"
+      ctxloom session send brisk-copper-moth wake "now check the tests too"
       """
     Then the command succeeds
     And "brisk-copper-moth"'s next turn was "now check the tests too"

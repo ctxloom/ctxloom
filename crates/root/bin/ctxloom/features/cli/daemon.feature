@@ -13,6 +13,23 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
   the user typed starts the interactive TUI, from the launch the daemon
   computed.
 
+  TWO PATHS, AND NO OTHER. A command parses its own command line (so `-h`,
+  a usage error and `daemon status|stop` need no daemon). A domain write (a
+  message sent, a session closed or kept, a child launched) is the domain's
+  own command, sent through the daemon's command coordinator, which waits
+  for the read models the command's output is rendered from and returns
+  them. Everything else (a read, a library file's create or remove, a plan,
+  a launch, a destroy, the daemon's own status) is one call of the daemon's
+  service. The command renders what comes back, as text or JSON; the work
+  is the daemon's. Every write carries an id the command chose, so a
+  command whose daemon died under it starts another and sends the write
+  once more, and a write that had already applied is not applied twice.
+
+  QUESTIONS. When the daemon needs an answer (a confirmation, a choice, an
+  edit in `$EDITOR`), it asks the client, and the client presents the
+  question: the CLI at the terminal, an MCP client as an elicitation to its
+  engine. A command with no terminal is asked nothing.
+
   Surfaces covered here:
 
     ctxloom daemon status            (whether one serves, where, and what it hosts)
@@ -22,7 +39,7 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
   commands are, because nobody types it.
 
   FINDING IT. A client reads the discovery file,
-  `~/.ctxloom/daemon/daemon.endpoint` under ctxloom's home: the daemon's
+  `~/.ctxloom/daemon/daemon.discovery` under ctxloom's home: the daemon's
   endpoint (`https://127.0.0.1:<port>`), its public certificate, the user
   bearer and its pid, written when it serves (0600, in the 0700 daemon
   directory). Whoever holds `~/.ctxloom/daemon/daemon.lock` serves; a file
@@ -177,6 +194,7 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
       And the output contains "brisk-copper-moth"
       When I run "ctxloom daemon stop --even-if-live"
       Then the command succeeds
+      And the hosted engines were ended cleanly before the daemon exited
       And the daemon has exited, and nothing says it serves
 
   Rule: An idle daemon exits by itself
@@ -242,3 +260,50 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
         | while a turn is in flight                     |
         | after a hook's fact is recorded, before it is answered |
         | while the discovery file is written           |
+
+    Scenario: A child its killed daemon hosted is started again as the next incarnation of its session
+      # new: a re-host after a kill.
+      Given an initialized ctxloom project
+      And a child "brisk-copper-moth" that is in the middle of a turn
+      And the daemon will be killed outright while a turn is in flight
+      When I run "ctxloom session list"
+      Then the command succeeds
+      And the run the killed daemon hosted ended lost, and its turn in flight ended failed, with its owner told
+      And "brisk-copper-moth" runs again as its session's next incarnation, in its own conversation
+
+  Rule: A write is sent once more to a new daemon, and is applied once
+
+    Scenario Outline: A write whose daemon is killed under it is retried once on a new daemon, and applied once
+      # new: every write carries the id its command chose.
+      Given an initialized ctxloom project
+      And a child "brisk-copper-moth" that is open and idle
+      And the daemon will be killed outright after the write is applied, before it is answered
+      When I run '<write>'
+      Then the command succeeds
+      And the command started a new daemon and sent the write once more, under the same id
+      And the write was applied once, and its second delivery was a duplicate
+
+      Examples:
+        | write                                                       |
+        | ctxloom session send brisk-copper-moth wake "check the tests" |
+        | ctxloom session close brisk-copper-moth                     |
+        | ctxloom bundle create notes --description "my notes"        |
+
+  Rule: The daemon asks, and the client presents the question
+
+    Scenario: At her terminal, the CLI asks Alice the daemon's confirmation, and applies her answer
+      # new: a client with no elicitation presents the prompt itself.
+      Given an initialized ctxloom project
+      And a finished session "amber-swift-owl" whose transcript retention has passed
+      When Alice removes it at her terminal, and answers yes when asked:
+        """
+        ctxloom session remove amber-swift-owl
+        """
+      Then the daemon's confirmation was asked at her terminal, and the session is gone
+
+    Scenario: A client that supports elicitation passes the daemon's question through to its engine
+      # new: an MCP client passes the prompt on as an elicitation.
+      Given an initialized ctxloom project
+      And a session "amber-quiet-heron" that is still running
+      When its orchestrator calls a ctxloom tool whose daemon call asks for confirmation
+      Then the question reached its engine as an MCP elicitation, and the engine's answer reached the daemon

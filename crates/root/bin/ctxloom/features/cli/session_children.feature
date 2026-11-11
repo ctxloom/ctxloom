@@ -13,7 +13,7 @@ Feature: session launch, send, clear and close — a child of a session, run by 
   Surfaces covered here:
 
     ctxloom session launch <owner> [--name <harp>] [--agent <agent>] [--engine <engine>] ["<task>"]
-    ctxloom session send <harp> "<text>" [--urgency inform|wake|steer] [--id <id>]
+    ctxloom session send <harp> {inform|wake|steer} "<text>" [--id <id>]
     ctxloom session clear <harp>
     ctxloom session close <harp>
 
@@ -28,10 +28,17 @@ Feature: session launch, send, clear and close — a child of a session, run by 
   child is no longer open is swept. The child sees only its environment,
   never the file.
 
-  URGENCY. `inform` waits for the child's next turn, whoever starts it;
-  `wake` (the default) starts a turn when the child is idle; `steer`
-  interrupts the turn in flight and runs next. A message waiting for a turn
-  is listed by `session show`.
+  URGENCY, always said, as the word after the harp: `inform` waits for the
+  child's next turn, whoever starts it; `wake` starts a turn when the child
+  is idle; `steer` interrupts the turn in flight and runs next. A message
+  waiting for a turn is listed by `session show`.
+
+  HOW THEY ARE SENT. A send, a clear, a close and a launch are the session's
+  own commands, sent through the daemon's command coordinator under an id
+  the command chose (a message's id is `--id`, or one the command mints),
+  and rendered from the read models the coordinator waited for. A launch
+  first hands the daemon the environment the child is launched with. Every
+  refusal exits 2.
 
   Rule: A launch starts a child of the owner, with its task
 
@@ -63,13 +70,31 @@ Feature: session launch, send, clear and close — a child of a session, run by 
       And the output contains "needs a credential in the environment"
       And no hand-off file was left behind
 
+    Scenario: A child its orchestrator launches gets its credential from the owner's engine environment alone
+      # new: an orchestrator's child is handed the owner's curated environment.
+      Given an initialized ctxloom project
+      And a session "amber-quiet-heron" whose engine environment names ANTHROPIC_API_KEY through its engine block
+      And the daemon was started from a shell holding CLAUDE_CODE_OAUTH_TOKEN
+      When its orchestrator launches a child "brisk-copper-moth"
+      Then the child "brisk-copper-moth" was given ANTHROPIC_API_KEY, and not CLAUDE_CODE_OAUTH_TOKEN
+
   Rule: A message reaches the child by its urgency, once
+
+    Scenario: A send with no urgency is a usage error, and starts no daemon
+      # new: the urgency is a required word.
+      Given an initialized ctxloom project
+      And no ctxloom daemon is serving for this home
+      When I run 'ctxloom session send brisk-copper-moth "check the tests"'
+      Then the command exits with code 2
+      And the output contains "inform, wake, steer"
+      And no ctxloom daemon was started
+
 
     Scenario Outline: A message to an idle child is acted on as its urgency says
       # new: session send.
       Given an initialized ctxloom project
       And a child "brisk-copper-moth" that is open and idle
-      When I run 'ctxloom session send brisk-copper-moth "check the tests" --urgency <urgency>'
+      When I run 'ctxloom session send brisk-copper-moth <urgency> "check the tests"'
       Then the command succeeds
       And the child <outcome>
 
@@ -79,10 +104,10 @@ Feature: session launch, send, clear and close — a child of a session, run by 
         | inform  | ran no turn, and lists "check the tests" as waiting for one  |
 
     Scenario: A steer interrupts the child's turn in flight and runs next
-      # new: session send --urgency steer.
+      # new: session send steer.
       Given an initialized ctxloom project
       And a child "brisk-copper-moth" that is in the middle of a turn
-      When I run 'ctxloom session send brisk-copper-moth "stop and look at main.rs" --urgency steer'
+      When I run 'ctxloom session send brisk-copper-moth steer "stop and look at main.rs"'
       Then the command succeeds
       And the child's turn in flight was interrupted, and its next turn was "stop and look at main.rs"
 
@@ -90,8 +115,8 @@ Feature: session launch, send, clear and close — a child of a session, run by 
       # new: a send is keyed by its id.
       Given an initialized ctxloom project
       And a child "brisk-copper-moth" that is open and idle
-      When I run 'ctxloom session send brisk-copper-moth "check the tests" --id m1'
-      And I run 'ctxloom session send brisk-copper-moth "check the tests" --id m1'
+      When I run 'ctxloom session send brisk-copper-moth wake "check the tests" --id m1'
+      And I run 'ctxloom session send brisk-copper-moth wake "check the tests" --id m1'
       Then the command succeeds
       And the child ran one turn on "check the tests"
 
@@ -99,7 +124,7 @@ Feature: session launch, send, clear and close — a child of a session, run by 
       # new: a closed session takes no message.
       Given an initialized ctxloom project
       And a child "brisk-copper-moth" that has been closed
-      When I run 'ctxloom session send brisk-copper-moth "one more thing"'
+      When I run 'ctxloom session send brisk-copper-moth wake "one more thing"'
       Then the command exits with code 2
       And the output contains "session brisk-copper-moth is closed"
 
@@ -133,6 +158,15 @@ Feature: session launch, send, clear and close — a child of a session, run by 
       When I run "ctxloom session close amber-quiet-heron"
       Then the command succeeds
       And the child "brisk-copper-moth" is listed as closed, its engine has exited and its hand-off file is gone
+
+    Scenario: Closing a running interactive session stops its assistant on its terminal
+      # new: a close reaches the terminal the session runs on.
+      Given an initialized ctxloom project
+      And an interactive session "amber-quiet-heron" whose assistant is running on its terminal
+      When I run "ctxloom session close amber-quiet-heron"
+      Then the command succeeds
+      And the assistant on its terminal was asked to stop, then killed once its grace had passed
+      And "amber-quiet-heron" is listed as closed
 
     Scenario: A hand-off file whose child is no longer open is swept
       # new: the sweep.

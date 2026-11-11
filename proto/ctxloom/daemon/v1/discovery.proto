@@ -6,10 +6,10 @@ syntax = "proto3";
 //
 // The discovery file (T3, T12): what the user's daemon writes, once it
 // serves, so that a client can find it, pin it and present the user's
-// credential. It is `~/.ctxloom/daemon/daemon.endpoint` under ctxloom's home
+// credential. It is `~/.ctxloom/daemon/daemon.discovery` under ctxloom's home
 // (`CTXLOOM_HOME` first, then `HOME`), a 0600 file in the 0700 daemon
 // directory, written atomically (a temporary file renamed over it), holding
-// one `Discovery` in protobuf's binary encoding (spec call S5).
+// one `Discovery` in protobuf's binary encoding (owner, S5).
 package ctxloom.daemon.v1;
 
 import "google/protobuf/timestamp.proto";

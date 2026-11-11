@@ -34,7 +34,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
     ctxloom session edit <harp> --name <new>
     ctxloom session keep <harp> [--undo]
     ctxloom session pause|resume|stop <harp>
-    ctxloom session ask <harp> "<question>"
+    ctxloom session send <harp> {inform|wake|steer} "<text>"
     ctxloom session search <word>... [--state live|ended|unknown]
     ctxloom session transcript              (bare: lists)
     ctxloom session transcript list [<harp>]
@@ -303,10 +303,10 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Then the command fails
       And the output contains "unknown command"
 
-  Rule: A running session is controlled by its harp: pause, resume, stop and ask
+  Rule: A running session is controlled by its harp: pause, resume, stop and send
 
     An agent is a definition; a running session is the thing Alice steers.
-    `session pause`, `resume`, `stop` and `ask` each name a running session
+    `session pause`, `resume`, `stop` and `send` each name a running session
     by its harp, such as a child her orchestrator delegated to.
 
     Scenario: Pausing a running session holds it until she resumes it
@@ -342,13 +342,13 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Then the command succeeds
       And the session "amber-swift-owl" is shown ended
 
-    Scenario: Asking a running session a question returns at once, and its answer arrives later
-      # new: session ask.
+    Scenario: Sending a running session a question returns at once, and its answer arrives later
+      # new: session send.
       Given an initialized ctxloom project
       And a session "amber-swift-owl" that is running
       When Alice asks it a question:
         """
-        ctxloom session ask amber-swift-owl "which migration path?"
+        ctxloom session send amber-swift-owl wake "which migration path?"
         """
       Then the command succeeds without waiting for the answer
       And the session's answer, when it comes, quotes "which migration path?"

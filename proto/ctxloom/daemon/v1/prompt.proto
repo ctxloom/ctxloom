@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+// DRAFT for the owner's review (ruling 132, design-by-test). No build.rs
+// lists this file, so nothing is generated from it yet.
+//
+// A QUESTION THE DAEMON ASKS (owner, S9). The daemon owns the question; the
+// client presents it. A call that may need an answer is a bidirectional
+// stream of the `Daemon` service: the daemon sends a `Prompt`, the client
+// answers it with a `PromptAnswer` naming the same `prompt_id`, and the call
+// goes on.
+//
+// How a client presents it is the client's:
+//   - a client that supports elicitation (an MCP client: ctxloom's MCP
+//     server in an engine passes it to the engine) passes it through as an
+//     elicitation, and passes the answer back;
+//   - a client that does not presents it in its own UI: the CLI asks at the
+//     terminal.
+// A call made with no terminal and no elicitation (a CLI off a TTY) says so
+// in its request (`Presentable`), and the daemon asks nothing: a destroyer
+// then previews and the command exits 4, as before.
+package ctxloom.daemon.v1;
+
+import "ctxloom/daemon/v1/launch.proto";
+
+// What the caller can present, said in every request of a call that may
+// prompt.
+message Presentable {
+  // The client can ask a person (a CLI on a TTY, an MCP client that
+  // elicits).
+  bool can_ask = 1;
+  // The client can put a program on the person's terminal (the CLI on a
+  // TTY; never an MCP client).
+  bool can_launch = 2;
+}
+
+// Confirm what was previewed (a destroyer, an overwrite).
+message Confirm {
+  // The question, rendered in en-US by the daemon's catalog (the code and
+  // args are below, for a client that renders its own).
+  string text = 1;
+  string code = 2;
+  repeated PromptArg args = 3;
+}
+
+// Choose one of several (an engine, an agent).
+message Choose {
+  string text = 1;
+  string code = 2;
+  repeated PromptArg args = 3;
+  repeated string choices = 4;
+}
+
+// Edit a file on the person's terminal: `$EDITOR` as a `Launch` of kind
+// EDITOR (T10), the file the daemon wrote. Answered when the editor exits;
+// the daemon then reads the file back.
+message Edit {
+  Launch launch = 1;
+  // The file the editor opens (also in the launch's args).
+  string path = 2;
+}
+
+message PromptArg {
+  string name = 1;
+  string value = 2;
+}
+
+message Prompt {
+  // Unique within the call.
+  string prompt_id = 1;
+  oneof kind {
+    Confirm confirm = 2;
+    Choose choose = 3;
+    Edit edit = 4;
+  }
+}
+
+// The editor's end, for an `Edit`.
+message Edited {
+  int32 code = 1;
+  // The signal that ended it, if one did.
+  uint32 signal = 2;
+  // It could not be started: the OS's text, verbatim.
+  string ext_err_txt = 3;
+}
+
+message PromptAnswer {
+  string prompt_id = 1;
+  oneof answer {
+    bool confirmed = 2;
+    string chosen = 3;
+    Edited edited = 4;
+    // The person declined to answer (an elicitation dismissed): the call
+    // ends as a "no" would.
+    bool declined = 5;
+  }
+}

@@ -419,6 +419,27 @@ fn test_a_bundle_that_cannot_be_installed_fails_the_pull_and_is_not_locked() {
     assert!(fx.files.lock_text().is_none());
 }
 
+// Hand-test 2026-11-10: a repository whose bundle is not where ctxloom reads
+// bundles (`.ctxloom/content/bundles/v2/<bundle>/`) is refused naming that
+// place, so its owner can see what to move.
+#[test]
+fn test_a_bundle_missing_from_its_commit_names_where_it_was_looked_for() {
+    let fx = Fixture::new();
+    fx.remotes.serve(URL);
+    fx.remotes
+        .commit(URL, &[("bundles/demo/bundle.yaml", ENVELOPE.1)]);
+    fx.register("origin", URL);
+    fx.profile("dev", &[&demo_ref()]);
+    let report = pull(&fx);
+    assert_eq!(report.errors, 1);
+    let error = &report.failed[0].error;
+    assert!(error.contains("bundle demo not found in"), "{error}");
+    assert!(
+        error.contains(&format!("{BUNDLES}/demo/")),
+        "it names where it looked: {error}"
+    );
+}
+
 #[test]
 fn test_an_install_that_fails_is_reported_per_item() {
     let (fx, _) = unpulled();

@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 angzarr-embedded.workspace = true
+daemon-board.workspace = true
 pending-messages.workspace = true
 runs.workspace = true
 sessions.workspace = true

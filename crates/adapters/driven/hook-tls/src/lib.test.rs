@@ -3,7 +3,9 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use angzarr_diagnostic::Diagnostic;
 use run_ports::{CertMint, CertNames};
 
-use crate::{validity, Clock, MintError, Minter, Validity, BACKDATE_SECONDS, LIFETIME_SECONDS};
+use crate::{
+    validity, validity_for, Clock, MintError, Minter, Validity, BACKDATE_SECONDS, LIFETIME_SECONDS,
+};
 
 /// 2030-01-01T00:00:00Z.
 const NOW: i64 = 1_893_456_000;
@@ -88,6 +90,25 @@ fn the_minted_certificate_carries_the_window_exactly() {
     assert_eq!(
         times(later.public().der()),
         vec!["300101005500Z".to_string(), "300102010000Z".to_string()]
+    );
+}
+
+#[test]
+fn a_lasting_mint_carries_its_own_lifetime() {
+    assert_eq!(
+        validity_for(NOW, 30 * 86_400),
+        Validity {
+            not_before: NOW - 300,
+            not_after: NOW + 30 * 86_400
+        }
+    );
+    // The daemon's certificate (D27): 2029-12-31T23:55:00Z to 2030-01-31.
+    let minted = Minter::lasting(Fixed(NOW), run_ports::DAEMON_CERT_LIFETIME_SECONDS)
+        .mint(&loopback_names())
+        .unwrap();
+    assert_eq!(
+        times(minted.public().der()),
+        vec!["291231235500Z".to_string(), "300131000000Z".to_string()]
     );
 }
 

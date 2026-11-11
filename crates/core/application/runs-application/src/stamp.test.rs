@@ -84,6 +84,7 @@ fn every_guarded_command_is_stamped_with_the_credentials_requester() {
             },
             delegation_limit: 1,
             requester: forged(),
+            prompt: String::new(),
         }
         .into(),
         StopSession {

@@ -142,6 +142,10 @@ message LaunchChild {
   // STAMPED by the listener: only the owner session itself (or the user)
   // may launch its children (D25).
   optional SessionRef requester = 8;
+  // The child's first task: the launch policy sends it to the minted child
+  // as a wake (message id `launch:<child>`); empty sends nothing, and the
+  // child waits for its first message.
+  string prompt = 9;
 }
 
 // The owner's child ended (its session closed): the owner stops holding it.
@@ -222,6 +226,8 @@ message ChildLaunched {
   string engine = 4;
   // The child's depth: the owner's plus one.
   uint32 depth = 5;
+  // The child's first task, as the launch named it.
+  string prompt = 6;
 }
 
 message ChildLaunchFailed {

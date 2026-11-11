@@ -37,7 +37,7 @@ mod error;
 use std::sync::Arc;
 use std::time::Duration;
 
-use angzarr_coordinator::Coordinator;
+use angzarr_coordinator::{Coordinator, Gate};
 use angzarr_coordinator_grpc::{BoundEndpoint, Edge as Served, Listener, Running, Server};
 use angzarr_proto_transport_distributed::v1::command_handler_coordinator_service_server::CommandHandlerCoordinatorServiceServer;
 use runs_application::{Edge, EdgeCommands, HookGate};
@@ -106,16 +106,29 @@ impl HookListener {
         addr: std::net::SocketAddr,
         identity: TlsIdentity,
     ) -> Result<HookListener, ListenerError> {
+        let gate = HookGate::new(Arc::clone(&edge));
+        HookListener::serve_tcp_gated(edge, gate, addr, identity).await
+    }
+
+    /// [`HookListener::serve_tcp`] behind `gate` in place of the run's hook
+    /// gate: the user daemon's listener serves the orchestration scope
+    /// ([`runs_application::OrchestratorGate`], D25) this way.
+    pub async fn serve_tcp_gated<E, G>(
+        edge: Arc<E>,
+        gate: G,
+        addr: std::net::SocketAddr,
+        identity: TlsIdentity,
+    ) -> Result<HookListener, ListenerError>
+    where
+        E: Edge + 'static,
+        G: Gate + 'static,
+    {
         if addr.ip().is_unspecified() {
             return Err(ListenerError::Unspecified {
                 addr: addr.to_string(),
             });
         }
-        let coordinator = Coordinator::new(
-            EdgeCommands::new(Arc::clone(&edge)),
-            (),
-            HookGate::new(edge),
-        );
+        let coordinator = Coordinator::new(EdgeCommands::new(Arc::clone(&edge)), (), gate);
         let service =
             CommandHandlerCoordinatorServiceServer::new(Served::new(Arc::new(coordinator)))
                 .max_decoding_message_size(MAX_REQUEST_BYTES);

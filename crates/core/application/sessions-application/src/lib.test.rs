@@ -1536,6 +1536,7 @@ fn launched_child(svc: &mut Svc, owner: u8, child: u8, child_project: &str, harp
             },
             delegation_limit: 4,
             requester: None,
+            prompt: String::new(),
         },
     );
     let store = svc
@@ -1681,4 +1682,176 @@ fn show_lists_the_pending_messages() {
     );
     let listed = ready(svc.list(all())).unwrap();
     assert!(listed[0].pending.is_empty(), "a listing does not fill it");
+}
+
+// ------------------------------------------ the orchestrator's commands (D25)
+
+fn send(harp: &str, id: &str, urgency: sessions::Urgency, text: &str) -> crate::SendRequest {
+    crate::SendRequest {
+        project: None,
+        harp: harp.to_string(),
+        message_id: id.to_string(),
+        urgency,
+        text: text.to_string(),
+    }
+}
+
+fn close(harp: &str) -> crate::CloseRequest {
+    crate::CloseRequest {
+        project: None,
+        harp: harp.to_string(),
+        cause: "done".to_string(),
+    }
+}
+
+// D12: the user sends a message; its id is its key, so the same id again
+// records nothing; `show` lists it pending (D30).
+#[test]
+fn the_user_sends_a_session_a_message_once_by_its_id() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
+    let sent = ready(svc.send(send(
+        "amber-swift-owl",
+        "m1",
+        sessions::Urgency::Inform,
+        "fyi",
+    )))
+    .unwrap();
+    assert_eq!(
+        (sent.harp.as_str(), sent.id.as_str(), sent.recorded),
+        ("amber-swift-owl", "m1", true)
+    );
+    let again = ready(svc.send(send(
+        "amber-swift-owl",
+        "m1",
+        sessions::Urgency::Inform,
+        "fyi",
+    )))
+    .unwrap();
+    assert!(!again.recorded, "a duplicate");
+    let view = ready(svc.show(ShowQuery {
+        project: None,
+        harp: "amber-swift-owl".to_string(),
+    }))
+    .unwrap();
+    assert_eq!(view.pending.len(), 1);
+    assert_eq!(view.pending[0].text, "fyi");
+    let minted =
+        ready(svc.send(send("amber-swift-owl", "", sessions::Urgency::Inform, "x"))).unwrap();
+    assert!(minted.recorded);
+    assert_ne!(minted.id, "", "an id is minted when none is given");
+}
+
+// S-c: a primary takes no wake yet, so a wake to it is refused on the
+// evidence; a send to no session is NoSession.
+#[test]
+fn a_wake_to_a_primary_and_a_send_to_nobody_are_refused() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
+    let refused =
+        ready(svc.send(send("amber-swift-owl", "m1", sessions::Urgency::Wake, "go"))).unwrap_err();
+    assert_eq!(
+        refused.code(),
+        "sessions-urgency-unsupported",
+        "{refused:?}"
+    );
+    let nobody = ready(svc.send(send(
+        "nobody-here-now",
+        "m1",
+        sessions::Urgency::Inform,
+        "x",
+    )))
+    .unwrap_err();
+    assert!(matches!(nobody, AppError::NoSession { .. }), "{nobody:?}");
+}
+
+// K1: the user closes a session once; a closed session takes no message.
+#[test]
+fn the_user_closes_a_session_and_it_takes_no_more_messages() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
+    assert!(ready(svc.close(close("amber-swift-owl"))).unwrap().recorded);
+    assert!(
+        !ready(svc.close(close("amber-swift-owl"))).unwrap().recorded,
+        "a second close records nothing"
+    );
+    let refused = ready(svc.send(send(
+        "amber-swift-owl",
+        "m1",
+        sessions::Urgency::Inform,
+        "x",
+    )))
+    .unwrap_err();
+    assert_eq!(refused.code(), "sessions-session-closed");
+}
+
+// K2: the user launches a child of an owner; the owner holds it.
+#[test]
+fn the_user_launches_a_child_of_an_owner() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
+    let launched = ready(svc.launch_child(crate::LaunchRequest {
+        project: None,
+        owner: "amber-swift-owl".to_string(),
+        harp: "lone-wolf-pup".to_string(),
+        engine: "claude-code".to_string(),
+        prompt: "port the parser".to_string(),
+        delegation_limit: 4,
+    }))
+    .unwrap();
+    assert!(launched.recorded);
+    assert_eq!(launched.harp, "amber-swift-owl");
+    let view = ready(svc.show(ShowQuery {
+        project: None,
+        harp: "amber-swift-owl".to_string(),
+    }))
+    .unwrap();
+    assert_eq!(view.record.children.len(), 1);
+    assert_eq!(
+        view.record.children[0].session.as_ref().unwrap().session,
+        launched.id
+    );
+    assert_eq!(view.record.children[0].root, "/work/proj");
+    let limited = ready(svc.launch_child(crate::LaunchRequest {
+        project: None,
+        owner: "amber-swift-owl".to_string(),
+        harp: "lone-wolf-cub".to_string(),
+        engine: "claude-code".to_string(),
+        prompt: String::new(),
+        delegation_limit: 1,
+    }))
+    .unwrap_err();
+    assert_eq!(limited.code(), "sessions-delegation-limit");
+}
+
+// M1: the user asks a session to clear; the clear is recorded by its id.
+#[test]
+fn the_user_asks_a_session_to_clear() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
+    let cleared = ready(svc.clear(crate::ClearRequest {
+        project: None,
+        harp: "amber-swift-owl".to_string(),
+        clear_id: "c1".to_string(),
+    }))
+    .unwrap();
+    assert_eq!((cleared.id.as_str(), cleared.recorded), ("c1", true));
+    let minted = ready(svc.clear(crate::ClearRequest {
+        project: None,
+        harp: "amber-swift-owl".to_string(),
+        clear_id: String::new(),
+    }))
+    .unwrap();
+    assert_ne!(minted.id, "");
+}
+
+#[test]
+fn the_urgencies_a_send_gives_as_evidence() {
+    use sessions::Urgency::{Inform, Steer, Wake};
+    assert_eq!(
+        crate::urgencies_of(true, "claude-code"),
+        [Inform, Wake, Steer]
+    );
+    assert_eq!(crate::urgencies_of(false, "claude-code"), [Inform]);
+    assert_eq!(crate::urgencies_of(true, "opencode"), [Inform]);
 }

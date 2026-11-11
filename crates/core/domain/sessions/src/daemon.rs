@@ -192,6 +192,7 @@ pub(crate) fn child_launched(
         harp: launch.harp.clone(),
         engine: launch.engine.clone(),
         depth: held.depth + 1,
+        prompt: launch.prompt.clone(),
     })
 }
 

@@ -22,6 +22,10 @@
 //! A policy acts with the user's authority (D-N9): its commands name no
 //! session requester.
 
+mod plan;
+
+pub use plan::{plan, supported, Fed, RunAt, Scene, Sent, Step, CHILD_ENGINE};
+
 use angzarr_embedded::markup::DomainMessage;
 use angzarr_embedded::v1::{command_page, CommandBook, CommandPage, Cover, Fact, FactOrigin, Uuid};
 use angzarr_embedded::Any;

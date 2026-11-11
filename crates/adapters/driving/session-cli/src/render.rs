@@ -121,6 +121,16 @@ pub(crate) struct ShowDoc {
     /// The messages no turn has carried yet (D30); left out when none.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pending: Vec<PendingDoc>,
+    /// The stable id of the session it is a child of (D26); left out for a
+    /// top-level session.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    owner: Option<String>,
+    /// Closed (K1); left out while open.
+    #[serde(skip_serializing_if = "is_false")]
+    closed: bool,
+    /// The stable ids of the children it holds (K2); left out when none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    children: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -174,6 +184,13 @@ impl ShowDoc {
                     text: m.text.clone(),
                     sender: m.sender.as_ref().map(|s| s.session.clone()),
                 })
+                .collect(),
+            owner: record.owner.as_ref().map(|o| o.session.clone()),
+            closed: record.closed,
+            children: record
+                .children
+                .iter()
+                .filter_map(|c| c.session.as_ref().map(|s| s.session.clone()))
                 .collect(),
         }
     }

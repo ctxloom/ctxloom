@@ -365,6 +365,7 @@ impl Extension for Commands {
         nouns.extend(setup_cli::nouns());
         nouns.extend(container_cli::nouns());
         nouns.extend(sessions::nouns());
+        nouns.push(crate::daemon::noun());
         #[cfg(feature = "test-support")]
         nouns.push(crate::test_commands::noun());
         nouns
@@ -388,6 +389,9 @@ impl Extension for Commands {
                 catalog,
                 out,
             );
+        }
+        if noun == crate::daemon::NOUN {
+            return crate::daemon::run(&self.env, call, catalog, out);
         }
         if noun == "container" {
             return crate::isolation::container(&self.env, call, catalog, out);

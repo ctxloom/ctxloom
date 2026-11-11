@@ -401,3 +401,56 @@ async fn a_hook_records_on_its_runs_session_with_no_session_directory() {
         .is_empty());
     assert_eq!(pages(&edge).await.len(), before + 2);
 }
+
+fn discovered(endpoint: &str) -> run_ports::Discovery {
+    run_ports::Discovery {
+        version: "0.1.0".to_string(),
+        pid: 1,
+        endpoint: endpoint.to_string(),
+        cert: run_ports::PublicCert::from_env_value(A_CERT).unwrap(),
+    }
+}
+
+// B1, D27: a hook rediscovers the daemon; with no daemon, or no bearer, it
+// delivers as its environment says.
+#[test]
+fn a_hook_goes_to_the_daemon_it_rediscovers_and_else_as_its_environment_says() {
+    let daemon = HookSink::rediscovered(
+        Some(discovered(ENDPOINT)),
+        Some(A_BEARER),
+        HookSink::Unreachable(Unreachable),
+    );
+    assert!(matches!(daemon, HookSink::Rediscovered { .. }));
+    assert!(matches!(
+        HookSink::rediscovered(None, Some(A_BEARER), HookSink::Unreachable(Unreachable)),
+        HookSink::Unreachable(_)
+    ));
+    assert!(matches!(
+        HookSink::rediscovered(
+            Some(discovered(ENDPOINT)),
+            Some("no-dot"),
+            HookSink::Unreachable(Unreachable)
+        ),
+        HookSink::Unreachable(_)
+    ));
+}
+
+// A daemon that does not answer (it died; its port is closed) is passed
+// over: the delivery goes the environment's way.
+#[test]
+fn a_daemon_that_does_not_answer_falls_back_to_the_environments_way() {
+    let sink = HookSink::rediscovered(
+        Some(discovered(&closed_url())),
+        Some(A_BEARER),
+        HookSink::Unreachable(Unreachable),
+    );
+    match sink.deliver(a_book(), Duration::from_secs(5)) {
+        Delivery::Unavailable { detail } => {
+            assert_eq!(
+                detail, "the listener is not running",
+                "the fallback's answer"
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+}

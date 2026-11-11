@@ -41,6 +41,8 @@ Feature: Adopting ctxloom without regret — the first hour, and the exit verifi
     Then the command succeeds
     And nothing in her project outside .ctxloom was written
     And nothing in her home directory outside ~/.ctxloom was written
+    And the file ".ctxloom/.gitignore" contains "/sessions"
+    And the file ".ctxloom/.gitignore" contains "/cache"
 
   Scenario: Ten minutes in, a session started through ctxloom has her project's context
     # new: her second step.

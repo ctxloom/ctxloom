@@ -121,8 +121,18 @@ fn test_showing_an_unreadable_bundle_names_the_fault_and_a_missing_one_is_not_fo
 fn test_an_unknown_config_key_is_refused_and_degraded_drops_it_with_a_warning() {
     let layers = ["schema_version: 9\nzzz: 1\n"];
     let library = setup(&layers).library();
-    let refused = library.bundle_list(&plain()).result;
-    match refused {
+    let refused = library.bundle_list(&plain());
+    // Hand-test 2026-11-10: the refusal names each violation; a warning of
+    // the same violation beside it said it twice.
+    assert!(
+        !refused
+            .notices
+            .iter()
+            .any(|n| matches!(n, Notice::Finding { text, .. } if text.contains("unknown key"))),
+        "the refusal is said once: {:?}",
+        refused.notices
+    );
+    match refused.result {
         Err(AppError::ConfigUnknownKey { violations }) => {
             assert!(violations.contains("unknown key `zzz`"), "{violations}");
         }

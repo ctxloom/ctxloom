@@ -187,11 +187,15 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
     # never be mistaken for the superseded blanket one — a detector that warned
     # on both would fire on every correctly-configured project.
     Scenario: The current granular ignore patterns keep the check quiet
+      # substitution: every private-state pattern is listed, since a project that leaves any of them to git is now a finding of its own (hand-test 2026-11-10).
       Given an initialized ctxloom project
       And the project already has the file ".gitignore":
         """
         .ctxloom/cache/
         .ctxloom/sessions/
+        .ctxloom/project-id
+        .ctxloom/state/
+        .ctxloom/*.lock
         """
       When I run "ctxloom --format json doctor"
       Then the command succeeds
@@ -210,6 +214,46 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
       When I run "ctxloom --format json doctor"
       Then the command succeeds
       And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-GITIGNORE-f6" and whose "status" is "warn"
+
+    # The other half of the posture: ctxloom's private state (session homes
+    # holding an engine's login state, the cache, the project id) must be
+    # out of git. The rules live in the nested `.ctxloom/.gitignore` init
+    # writes; a project without them, and without the same rules in its root
+    # `.gitignore`, shows its sessions to `git status`.
+    Scenario: Private state git can see is reported as a warning
+      # new: hand-test 2026-11-10 (doctor said ok while `git status` listed .ctxloom/sessions/).
+      Given an initialized ctxloom project
+      When I run "ctxloom --format json doctor"
+      Then the command succeeds
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-GITIGNORE-f6" and whose "status" is "warn"
+      And the output contains "/sessions"
+      And the output contains "ctxloom manage gitignore install"
+      When I run "ctxloom manage gitignore install"
+      Then the command succeeds
+      When I run "ctxloom --format json doctor"
+      Then the command succeeds
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-GITIGNORE-f6" and whose "status" is "ok"
+
+  Rule: A config every run refuses is a fail row, and fails doctor
+
+    Doctor reads the config as a run does. A key the schema does not know is
+    refused by every run, so doctor says so in the run's own words, as a
+    `fail` row, and exits 3.
+
+    Scenario: An unknown config key is a fail row in the run's words, and exit 3
+      # new: hand-test 2026-11-10 (doctor said ".ctxloom and its config.yaml read" of a config every run refused).
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        sync:
+          auto_sync: true
+        """
+      When I run "ctxloom --format json doctor"
+      Then the command exits with code 3
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-SETUP-MARKER-e5" and whose "status" is "fail"
+      And the output contains "unknown key `sync.auto_sync`"
+      And the output contains "remove or rename the key in config.yaml"
 
   Rule: The one broken state nothing else can see
 

@@ -37,7 +37,7 @@ use file_system::Fs;
 use process_env::EnvSnapshot;
 
 /// Where bundles are in a repository.
-pub const BUNDLES: &str = ".ctxloom/content/bundles/v2";
+pub const BUNDLES: &str = deps_ports::BUNDLES_IN_REPOSITORY;
 
 /// The repositories content comes from, over git.
 pub struct GitRemotes {

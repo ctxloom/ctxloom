@@ -610,7 +610,10 @@ Every adapter that runs a program (`remote-git`, `worktree-git`,
 `companion-probe`, `container-runtime`, `taskloom-cli-client`) runs it
 through ctxloom-lib's `run-within`: the program under a deadline, its whole
 process tree killed when the deadline passes (not only the program: a git
-hook or a shell's `sleep` would otherwise live on holding the pipes), its
+hook or a shell's `sleep` would otherwise live on holding the pipes; killed
+is SIGKILL sent to the group and the program reaped: a descendant dies when
+the kernel next runs it, which can be just after the run returns, so a test
+that checks a helper is gone waits for it, bounded), its
 output bounded per stream, and the wait for that output bounded too
 (`drain_grace`, two seconds), so a descendant that outlives a program that
 exited cannot hang the caller. The program's environment is exactly the one

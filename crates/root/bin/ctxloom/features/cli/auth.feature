@@ -1,7 +1,7 @@
 # world: base
 # Ported from cli/auth.feature
 # NOT ported: nothing. All three scenarios. Rust has two engines with an environment
-#   credential (claude-code's token, opencode's optional endpoint key); a
+#   credential (claude-code's token, opencode's optional provider keys: rulings 69, 79); a
 #   claude login shared in place has no row, as in Go.
 @doc
 Feature: auth — how ctxloom-launched engines authenticate
@@ -45,6 +45,22 @@ Feature: auth — how ctxloom-launched engines authenticate
       When I run "ctxloom auth status --format text"
       Then the command succeeds
       And the output contains "claude-code token: missing — run `claude setup-token` and export CLAUDE_CODE_OAUTH_TOKEN"
+
+    # opencode's built-in keys are its providers' and optional (rulings 69
+    # and 79): with none exported it runs keyless on its free models. Status
+    # says so, as doctor and `engine show` do (hand-test 2026-11-10: status
+    # had no opencode row, doctor called it present, `engine show` missing).
+    Scenario: With no opencode key exported, status says opencode needs none
+      # new: rulings 69 and 79.
+      Given an initialized ctxloom project
+      And the environment variable "ANTHROPIC_API_KEY" is set to ""
+      And the environment variable "OPENAI_API_KEY" is set to ""
+      When I run "ctxloom auth status --format text"
+      Then the command succeeds
+      And the output contains "opencode token: not needed: none of ANTHROPIC_API_KEY, OPENAI_API_KEY is exported, so opencode runs keyless on its free models"
+      When I run "ctxloom engine show opencode --format json"
+      Then the command succeeds
+      And the output reports "auth.state" as "not-needed"
 
   Rule: ctxloom takes no credential
 
@@ -117,8 +133,9 @@ Feature: auth — how ctxloom-launched engines authenticate
       And the output reports "[engine=claude-code].usable_by" as "primary"
       And the output reports "[engine=claude-code].via" as "~/.claude/.credentials.json"
       # owner ruling 65 (2026-11-10): nothing looks at the file, so the row
-      # says nothing of whether it is there.
-      And the output does not contain "present"
+      # says nothing of whether it is there. (opencode's own row, optional
+      # and keyless, does say it is not present: rulings 69, 79.)
+      And the output reports no "[engine=claude-code].present"
       # owner ruling 81: in the words a child's run of it is refused with.
       And the output reports "[engine=claude-code].message" as "a child agent run of claude-code needs a credential in the environment (any one of: CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY), and engines.claude-code.auth names only a file, which serves the primary interactive session alone"
       And the output reports "[engine=claude-code].remedy" as "name one of those variables in engines.claude-code.auth.env and export it (for claude-code, `claude setup-token` makes CLAUDE_CODE_OAUTH_TOKEN); the file keeps serving the primary session"

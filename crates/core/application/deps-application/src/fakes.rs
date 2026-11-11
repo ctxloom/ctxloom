@@ -14,7 +14,7 @@ use deps_ports::{
 use crate::Deps;
 
 /// Where bundles are in a repository.
-pub const BUNDLES: &str = ".ctxloom/content/bundles/v2";
+pub const BUNDLES: &str = deps_ports::BUNDLES_IN_REPOSITORY;
 
 /// One commit: the whole tree at it.
 #[derive(Clone)]

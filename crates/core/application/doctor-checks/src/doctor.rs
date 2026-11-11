@@ -141,23 +141,68 @@ impl Doctor {
         let mcp = self.present(&self.mcp_paths());
         let mcp_and_settings: Vec<(String, String)> =
             mcp.into_iter().chain(settings.iter().cloned()).collect();
-        let gitignore = self
-            .root()
+        let root = self.root();
+        let gitignore = root
+            .as_ref()
             .and_then(|root| self.text(&format!("{root}/.gitignore")));
+        // Only a project has private state for git to see.
+        let unignored = match &root {
+            Some(root) => library::write::scaffold::unignored_private_state(
+                gitignore.as_deref(),
+                self.text(&format!("{root}/.ctxloom/.gitignore")).as_deref(),
+            ),
+            None => Vec::new(),
+        };
+        let refused = self.refusal();
         Report {
             checks: vec![
-                checks::setup_marker(self.root().is_some(), config.as_deref()),
+                checks::setup_marker(
+                    root.is_some(),
+                    config.as_deref(),
+                    refused.as_ref().map(|(m, f)| (m.as_str(), f.as_str())),
+                ),
                 deps,
                 checks::agents(config.as_deref()),
                 checks::credentials(&layers, &self.auth),
                 checks::version(&self.version),
                 checks::hooks(&settings),
-                checks::gitignore(gitignore.as_deref()),
+                checks::gitignore(gitignore.as_deref(), &unignored),
                 checks::mcp_invocation(&mcp_and_settings),
                 checks::stale_hooks(&stale),
                 checks::ingestion(),
             ],
         }
+    }
+
+    /// What every run would refuse the config with, read as a run reads it
+    /// (`library_application::load_config`): its en-US message and fix. A
+    /// config that does not parse is the setup marker's own finding, a
+    /// warning (the diagnosis goes on past it), so it is none here.
+    fn refusal(&self) -> Option<(String, String)> {
+        use angzarr_diagnostic::Diagnostic;
+        let error = match library_application::load_config(
+            self.config.as_ref(),
+            &[],
+            &library_application::Flags::default(),
+            &mut Vec::new(),
+        ) {
+            Ok(_) | Err(library_application::AppError::ConfigUnparsable { .. }) => return None,
+            Err(error) => error,
+        };
+        let catalog = library_application::EN_US.1;
+        let message = English(catalog, &error).to_string();
+        let fix = English(
+            catalog,
+            &angzarr_diagnostic::Report::new(format!("{}-fix", error.code())),
+        )
+        .to_string();
+        // A code with no fix in the catalog renders as the code itself.
+        let fix = if fix.starts_with(error.code()) {
+            String::new()
+        } else {
+            fix
+        };
+        Some((message, fix))
     }
 
     /// The config files' texts, lowest layer first; none where they cannot
@@ -188,5 +233,14 @@ impl Doctor {
             }));
         }
         Ok(removed)
+    }
+}
+
+/// A diagnostic in the en-US catalog `.0`.
+struct English<'a>(&'a str, &'a dyn angzarr_diagnostic::Diagnostic);
+
+impl std::fmt::Display for English<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        angzarr_diagnostic::catalog::render(self.0, self.1, f)
     }
 }

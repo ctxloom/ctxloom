@@ -171,7 +171,7 @@ impl Project {
             session_home: sourced(&shared.session_home),
             runtime: sourced(&shared.runtime),
             env: sourced(&shared.env),
-            auth: self.auth_setting(&shared.auth),
+            auth: self.auth_setting(engine, &shared.auth),
             agents,
         })
     }
@@ -179,7 +179,7 @@ impl Project {
     /// Whether the source is there, by the environment the process has (and,
     /// for a file only the human's own session may share, the user's files).
     /// Never a value.
-    fn auth_setting(&self, auth: &Sourced<AuthSource>) -> AuthSetting {
+    fn auth_setting(&self, engine: &str, auth: &Sourced<AuthSource>) -> AuthSetting {
         let exported = |name: &str| {
             self.environ
                 .iter()
@@ -199,9 +199,13 @@ impl Project {
                 .as_ref()
                 .is_some_and(|ports| ports.user.exists(&path).unwrap_or(false))
         };
+        // The built-in source of an engine whose keys are optional (opencode,
+        // rulings 69 and 79) needs none: a run on none is keyless.
+        let optional = auth.source == Source::Default && !AuthSource::required(engine);
         let (state, via) = match auth.value.status(true, &exported, &file_present) {
             AuthState::NotNeeded => ("not-needed", None),
             AuthState::Present { via } => ("present", Some(via)),
+            AuthState::Missing if optional => ("not-needed", None),
             AuthState::Missing => ("missing", None),
         };
         AuthSetting {

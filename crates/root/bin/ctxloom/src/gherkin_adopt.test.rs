@@ -551,3 +551,50 @@ fn outputs_kept_in(w: &mut World, rel: String) {
         "{doc}"
     );
 }
+
+/// The session a one-shot's json reply names is ended, and both `show` and
+/// the listing say when (its incarnation's end, ruling 85), no earlier than
+/// it started.
+#[then("the session that answered is ended and says when it ended")]
+fn says_when_it_ended(w: &mut World) {
+    let reply = w.common.json();
+    let harp = reply["harp"]
+        .as_str()
+        .expect("the reply names its session")
+        .to_string();
+    let env: Vec<(&str, &str)> = w
+        .common
+        .env
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let shown = w
+        .common
+        .project
+        .run_with(&env, &["session", "show", &harp, "--format", "json"]);
+    assert_eq!(shown.code, 0, "{}", shown.said());
+    let doc = super::super::parse_one(&shown.stdout);
+    assert_eq!(doc["state"].as_str(), Some("ended"), "{doc}");
+    let ended = doc["ended_at"].as_str().expect("show says when it ended");
+    let started = doc["started_at"]
+        .as_str()
+        .expect("show says when it started");
+    assert!(
+        ended >= started,
+        "ended {ended} before it started {started}"
+    );
+    let listed = w
+        .common
+        .project
+        .run_with(&env, &["session", "list", "--format", "json"]);
+    assert_eq!(listed.code, 0, "{}", listed.said());
+    let rows = super::super::parse_one(&listed.stdout);
+    let row = rows
+        .as_array()
+        .and_then(|rows| {
+            rows.iter()
+                .find(|r| r["harp"].as_str() == Some(harp.as_str()))
+        })
+        .unwrap_or_else(|| panic!("{harp} is not listed: {rows}"));
+    assert_eq!(row["end"].as_str(), Some(ended), "{row}");
+}

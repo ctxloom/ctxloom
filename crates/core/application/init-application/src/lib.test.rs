@@ -47,6 +47,9 @@ mod init {
         refuses: bool,
         outputs: RefCell<Vec<String>>,
         refuses_output: bool,
+        /// The dependency use cases over the project once created; none,
+        /// a fixture of its own.
+        project: Option<Rc<deps_application::Deps>>,
     }
 
     impl Create for Rc<Creator> {
@@ -64,6 +67,13 @@ mod init {
             }
             self.outputs.borrow_mut().push(dir.to_string());
             Ok(())
+        }
+
+        fn deps(&self) -> Result<Rc<deps_application::Deps>, Failure> {
+            Ok(self
+                .project
+                .clone()
+                .unwrap_or_else(|| Rc::new(Fixture::new().deps)))
         }
     }
 
@@ -267,6 +277,56 @@ mod init {
             .init(&InitRequest::default())
             .expect_err("refused");
         assert!(matches!(error, InitError::Create(_)));
+    }
+
+    // Hand-test 2026-11-10: a fresh `init --remote` registers the remote in
+    // the project it has just created, never through the use cases built
+    // before the project was there (which wrote `~/.ctxloom/remotes.yaml`).
+    #[test]
+    fn a_fresh_init_registers_its_remotes_in_the_project_it_created() {
+        let project = Fixture::new();
+        let registry = project.files.clone();
+        let wired = Fixture::new();
+        let before = wired.files.clone();
+        let creator = Rc::new(Creator {
+            project: Some(Rc::new(project.deps)),
+            ..Creator::default()
+        });
+        let done = init_with(Ok(false), creator, wired)
+            .init(&InitRequest {
+                remotes: vec!["file:///srv/mine.git".to_string()],
+                forge: "git".to_string(),
+            })
+            .expect("ok");
+        assert_eq!(done.remotes.len(), 1, "{:?}", done.notices);
+        let text = registry.registry_text().expect("the project's registry");
+        assert!(
+            text.contains("personal") && text.contains("mine.git"),
+            "{text}"
+        );
+        assert!(
+            before.registry_text().is_none(),
+            "nothing reached the registry the use cases saw before the project: {:?}",
+            before.registry_text()
+        );
+    }
+
+    // A re-run's project was there all along: its remotes go through the
+    // use cases it was given.
+    #[test]
+    fn a_rerun_registers_its_remotes_through_the_use_cases_it_was_given() {
+        let wired = Fixture::new();
+        let registry = wired.files.clone();
+        let done = init_with(Ok(true), Rc::new(Creator::default()), wired)
+            .init(&InitRequest {
+                remotes: vec!["file:///srv/mine.git".to_string()],
+                forge: "git".to_string(),
+            })
+            .expect("ok");
+        assert_eq!(done.remotes.len(), 1, "{:?}", done.notices);
+        assert!(registry
+            .registry_text()
+            .is_some_and(|t| t.contains("personal")));
     }
 
     #[test]

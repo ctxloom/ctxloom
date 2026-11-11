@@ -193,9 +193,10 @@ message AdoptRotations {
   repeated Rotation rotations = 1;
 }
 
-// Record when the session's last run ended. PROVISIONAL: the importer's
-// record of Go's ended_at; the run slice's IncarnationEnded supersedes it
-// (plan 9, an open question).
+// Record when the session's last run ended: the Go importer's record of
+// Go's ended_at, and nothing else's. A run's own end is IncarnationEnded
+// (ruling 85), which sets the session's end at its page's instant; RecordEnd
+// remains for the importer only.
 message RecordEnd {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.sessions.v1.SessionState"

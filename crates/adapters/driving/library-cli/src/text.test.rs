@@ -835,6 +835,7 @@ fn plan() -> DryRun {
         effort: String::new(),
         drive: Default::default(),
         settings: None,
+        settings_agent: st("dev"),
         posture: Default::default(),
     }
 }
@@ -954,6 +955,61 @@ fn test_a_dry_run_shows_each_setting_with_the_place_that_said_it() {
         ),
         "{shown_plan}"
     );
+}
+
+// hand-test 2026-11-10: a run with no --agent takes the default agent's
+// settings, and each is said at its full place, `agents.<name>`, not `agents.`
+// (ruling 72).
+#[test]
+fn test_a_dry_run_of_the_default_agent_names_its_place_in_full() {
+    use library_application::{EnvSetting, RuntimeSetting, SourcedValue};
+    let settings = library_application::AgentSettings {
+        model: SourcedValue {
+            value: Some(st("sonnet")),
+            source: "agent",
+        },
+        effort: SourcedValue {
+            value: None,
+            source: "default",
+        },
+        permissions: SourcedValue {
+            value: st("acceptEdits"),
+            source: "default",
+        },
+        runtime: RuntimeSetting {
+            value: st("host"),
+            source: "agent",
+            overrides: None,
+            overrides_source: None,
+            change: None,
+        },
+        env: EnvSetting {
+            value: Vec::new(),
+            source: "default",
+            keys: Vec::new(),
+        },
+    };
+    let shown_plan = shown(|out| {
+        dry_run(
+            out,
+            &DryRun {
+                agent: String::new(),
+                settings_agent: st("default"),
+                settings: Some(settings),
+                ..plan()
+            },
+        )
+    });
+    assert!(
+        shown_plan.contains("  model        sonnet  (agents.default.engines.claude-code)\n"),
+        "{shown_plan}"
+    );
+    assert!(
+        shown_plan.contains("  runtime      host  (agents.default)\n"),
+        "{shown_plan}"
+    );
+    assert!(!shown_plan.contains("(agents.)"), "{shown_plan}");
+    assert!(!shown_plan.contains("=== Agent ==="), "{shown_plan}");
 }
 
 fn found(remote: &str, name: &str, tags: &[&str]) -> library_application::RemoteFound {

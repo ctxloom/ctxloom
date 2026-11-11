@@ -124,6 +124,27 @@ fn the_failure_count_is_exact_and_a_row_shows_a_fix_only_where_there_is_one() {
     );
 }
 
+// hand-test 2026-11-10: an optional key none exported is not missing: the
+// line says what the row's message says, and offers no fix.
+#[test]
+fn an_optional_row_with_nothing_exported_reads_as_not_needed() {
+    let row = auth_application::Row {
+        engine: "opencode".to_string(),
+        mode: "token",
+        present: Some(false),
+        vars: Vec::new(),
+        via: String::new(),
+        message: "not needed: none of A, B is exported".to_string(),
+        remedy: String::new(),
+        usable_by: "",
+    };
+    let text = render(|o| crate::text::auth(&[row], o));
+    assert_eq!(
+        text,
+        "opencode token: not needed: none of A, B is exported\n"
+    );
+}
+
 // Ruling 53: a file alone serves the primary only, and the line says so with
 // what a child needs: ruling 81, the refusal's message, then its fix.
 #[test]

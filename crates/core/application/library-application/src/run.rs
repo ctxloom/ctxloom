@@ -332,6 +332,7 @@ impl Project {
             effort,
             drive,
             settings,
+            posture: crate::Posture::default(),
         };
         Ok(Previewed { plan, fatal })
     }

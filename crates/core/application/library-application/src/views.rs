@@ -538,6 +538,19 @@ pub struct DryRun {
     /// a launch with no agent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<crate::AgentSettings>,
+    /// The posture the run claims (owner rulings 59, 109): judged by the run
+    /// against what its runtime enforces, not shown by a dry run.
+    #[serde(skip)]
+    pub posture: Posture,
+}
+
+/// The posture a run claims: `permissions.network` and `permissions.sandbox`
+/// as configured (the agent's, else the project's), empty where unset, which
+/// claims nothing (`open`, `full`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Posture {
+    pub network: String,
+    pub sandbox: String,
 }
 
 /// What `context assemble` answers (Go's `assemble_context` result).

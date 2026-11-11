@@ -5,7 +5,7 @@ use angzarr_embedded::markup::{Failed, Refuses, TypedRefusal};
 use super::*;
 use crate::{
     EnqueueRun, LaunchRefused, NoPrompt, QueueTurn, Refusal, RequestStop, RunAggregate,
-    RunRejection, UnknownEngine,
+    RunRejection, UnenforcedPosture, UnknownEngine,
 };
 
 /// One refusal message of every rejection, with the rejection it must read
@@ -75,6 +75,7 @@ fn table() -> Vec<(TypedRefusal, RunRejection)> {
                 no_credential: Vec::new(),
                 file_only_credential: Vec::new(),
                 fatal_findings: 1,
+                unenforced_posture: Vec::new(),
             }),
             RunRejection::LaunchRefused {
                 refusals: vec![
@@ -87,6 +88,15 @@ fn table() -> Vec<(TypedRefusal, RunRejection)> {
                 fatal_findings: 1,
             },
         ),
+    ]
+    .into_iter()
+    .chain(posture_table())
+    .collect()
+}
+
+/// The posture's row of the table (owner ruling 109).
+fn posture_table() -> Vec<(TypedRefusal, RunRejection)> {
+    vec![
         (
             TypedRefusal::of(&LaunchRefused {
                 no_prompt: Vec::new(),
@@ -97,14 +107,32 @@ fn table() -> Vec<(TypedRefusal, RunRejection)> {
                 }],
                 file_only_credential: Vec::new(),
                 fatal_findings: 0,
+                unenforced_posture: vec![UnenforcedPosture {
+                    runtime: "host".to_string(),
+                    key: "sandbox".to_string(),
+                    value: "read-only".to_string(),
+                    honest: "full".to_string(),
+                }],
             }),
             RunRejection::LaunchRefused {
-                refusals: vec![RunRejection::NoCredential {
-                    engine: "claude-code".to_string(),
-                    variables: "A, B".to_string(),
-                }],
+                refusals: vec![
+                    RunRejection::NoCredential {
+                        engine: "claude-code".to_string(),
+                        variables: "A, B".to_string(),
+                    },
+                    unenforced_sandbox(),
+                ],
                 fatal_findings: 0,
             },
+        ),
+        (
+            TypedRefusal::of(&UnenforcedPosture {
+                runtime: "host".to_string(),
+                key: "sandbox".to_string(),
+                value: "read-only".to_string(),
+                honest: "full".to_string(),
+            }),
+            unenforced_sandbox(),
         ),
     ]
 }
@@ -237,5 +265,14 @@ fn the_enqueue_refuses_each_pre_launch_check_with_its_message_under_its_status()
             RunRejection::try_from(&TypedRefusal::from(choice)),
             Ok(rejection)
         );
+    }
+}
+
+fn unenforced_sandbox() -> RunRejection {
+    RunRejection::UnenforcedPosture {
+        runtime: "host".to_string(),
+        key: "sandbox".to_string(),
+        value: "read-only".to_string(),
+        honest: "full".to_string(),
     }
 }

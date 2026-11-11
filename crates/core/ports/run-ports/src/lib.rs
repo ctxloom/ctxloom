@@ -16,6 +16,7 @@ mod launcher;
 mod locks;
 mod login;
 mod permit;
+mod posture;
 mod records;
 mod serving;
 mod settings;
@@ -41,6 +42,7 @@ pub use launcher::{
 pub use locks::{HeldLock, LockProbe, RunLocks};
 pub use login::{LinkState, LoginLinks};
 pub use permit::{apply_permits, permits, Ignored, Permits, PERMIT_PREFIX};
+pub use posture::{enforced, Enforced};
 pub use records::{check_rel, RecordsError, SessionRecords};
 pub use serving::{BoxFuture, HookServer, Serving};
 pub use settings::{AuthSetting, CredentialPolicy, EngineSettings, SessionHome};

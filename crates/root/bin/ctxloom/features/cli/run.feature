@@ -912,3 +912,63 @@ Feature: run — assembling a project's context and handing it to an engine
         """
       Then the command succeeds
       And the session that answered keeps its outputs in "notes/sessions" of her project
+
+  # Owner rulings 59 and 109: a posture is a claim about the fence around the
+  # agent, and a launch refuses one that claims more than its runtime
+  # enforces. Today every run is launched on the host, which fences neither
+  # the network nor the files, so `network: none` and a restrictive `sandbox`
+  # (`read-only`, `workspace-write`) are refused before anything starts; the
+  # honest words, `network: open` (the default) and `sandbox: full` (no
+  # sandbox, the default), run. The refusal is the run's own, and joins
+  # `runs-launch-refused` with the other checks.
+  Rule: A launch refuses a posture its runtime does not enforce
+
+    Scenario: A child run that claims no network on the host is refused, naming the honest word
+      # new: owner rulings 59, 109.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice runs a child agent that claims it cannot reach the network:
+        """
+        ctxloom --config-set permissions.network=none run --one-shot hello
+        """
+      Then the command exits with code 2
+      And the refusal is "runs-unenforced-posture"
+      And the refusal's fix says "permissions.network: open"
+      And no assistant was launched
+
+    Scenario: Her session that claims a read-only sandbox on the host is refused
+      # new: owner rulings 59, 109.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice starts her session claiming a read-only sandbox:
+        """
+        ctxloom --config-set permissions.sandbox=read-only run
+        """
+      Then the command exits with code 2
+      And the refusal is "runs-unenforced-posture"
+      And the refusal's fix says "permissions.sandbox: full"
+      And no assistant was launched
+
+    Scenario: An unenforced posture joins the other failed checks
+      # new: owner rulings 73b, 109.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice runs a child agent on an engine that does not exist, claiming no network:
+        """
+        ctxloom --config-set permissions.network=none run --one-shot --engine bogus-engine hello
+        """
+      Then the command exits with code 2
+      And the refusal is "runs-launch-refused"
+      And the refusals are "runs-unknown-engine, runs-unenforced-posture"
+      And no assistant was launched
+
+    Scenario: The honest words run
+      # new: owner rulings 59, 109.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice runs a child agent saying what the host gives:
+        """
+        ctxloom --config-set permissions.network=open --config-set permissions.sandbox=full run --one-shot hello
+        """
+      Then the command succeeds
+      And an assistant was launched

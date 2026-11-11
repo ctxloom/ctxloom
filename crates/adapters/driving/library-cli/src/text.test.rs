@@ -835,6 +835,7 @@ fn plan() -> DryRun {
         effort: String::new(),
         drive: Default::default(),
         settings: None,
+        posture: Default::default(),
     }
 }
 

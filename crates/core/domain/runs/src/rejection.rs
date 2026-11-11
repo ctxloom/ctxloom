@@ -35,6 +35,15 @@ pub enum RunRejection {
     /// A run on an engine this build cannot drive (ruling 73c): `known` are
     /// the ones it drives, comma separated.
     UnknownEngine { name: String, known: String },
+    /// A posture that claims more than the runtime enforces (owner rulings
+    /// 59, 109): `key` (`network`, `sandbox`) says `value` on `runtime`,
+    /// which does not enforce it; `honest` is the word that claims nothing.
+    UnenforcedPosture {
+        runtime: String,
+        key: String,
+        value: String,
+        honest: String,
+    },
     /// A launch refused for more than one reason, or for one beside the plan's
     /// fatal findings (rulings 73, 73b, 73c): each refusal, in check order;
     /// `fatal_findings`, how many fatal findings the plan had too (the library says
@@ -76,6 +85,7 @@ impl Diagnostic for RunRejection {
             RunRejection::FileOnlyCredential { .. } => code!("file-only-credential"),
             RunRejection::NoPrompt => code!("no-prompt"),
             RunRejection::UnknownEngine { .. } => code!("unknown-engine"),
+            RunRejection::UnenforcedPosture { .. } => code!("unenforced-posture"),
             RunRejection::LaunchRefused { .. } => code!("launch-refused"),
         }
     }
@@ -92,6 +102,17 @@ impl Diagnostic for RunRejection {
             RunRejection::UnknownEngine { name, known } => vec![
                 ("name", name.as_str().into()),
                 ("known", known.as_str().into()),
+            ],
+            RunRejection::UnenforcedPosture {
+                runtime,
+                key,
+                value,
+                honest,
+            } => vec![
+                ("runtime", runtime.as_str().into()),
+                ("key", key.as_str().into()),
+                ("value", value.as_str().into()),
+                ("honest", honest.as_str().into()),
             ],
             RunRejection::LaunchRefused {
                 refusals,
@@ -139,6 +160,12 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(RunRejection::UnknownEngine {
             name: "bogus".to_string(),
             known: "claude-code, opencode".to_string(),
+        }),
+        Box::new(RunRejection::UnenforcedPosture {
+            runtime: "host".to_string(),
+            key: "network".to_string(),
+            value: "none".to_string(),
+            honest: "open".to_string(),
         }),
         Box::new(RunRejection::LaunchRefused {
             refusals: vec![RunRejection::NoPrompt],

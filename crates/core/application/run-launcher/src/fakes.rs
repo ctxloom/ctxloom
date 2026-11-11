@@ -178,6 +178,13 @@ pub async fn enqueued_by(edge: &TestEdge, session: &str, harp: &str, launcher_lo
         },
         fatal_findings: 0,
         launcher_lock: launcher_lock.to_string(),
+        posture: runs::PostureEvidence {
+            runtime: "host".to_string(),
+            network: String::new(),
+            sandbox: String::new(),
+            enforced_network: Vec::new(),
+            enforced_sandbox: Vec::new(),
+        },
     }
     .into();
     edge.handle(command_book(run_cover(session), enqueue.to_any()))

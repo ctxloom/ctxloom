@@ -80,6 +80,7 @@ message EnqueueRun {
     refuses: "ctxloom.runs.v1.FileOnlyCredential"
     refuses: "ctxloom.runs.v1.NoPrompt"
     refuses: "ctxloom.runs.v1.UnknownEngine"
+    refuses: "ctxloom.runs.v1.UnenforcedPosture"
     refuses: "ctxloom.runs.v1.LaunchRefused"
   };
 
@@ -119,6 +120,28 @@ message EnqueueRun {
   // knows its launcher is gone. Its absolute path; unlike the evidence above
   // it is journaled, in `RunEnqueued`. Empty: none was taken.
   string launcher_lock = 12;
+  // The posture the run's agent claims, and what the runtime it is launched
+  // on enforces (owner rulings 59, 109): judged so that no run claims more
+  // than its runtime enforces.
+  PostureEvidence posture = 13;
+}
+
+// The posture a run claims and what its runtime enforces (owner rulings 59,
+// 109), as the run application found them: the configured words, never a
+// guess.
+message PostureEvidence {
+  // The runtime the run is launched on (`host`, `container-rootless`, ...).
+  string runtime = 1;
+  // `permissions.network` as configured (the agent's, else the project's);
+  // empty when unset, which is `open`, the honest default.
+  string network = 2;
+  // `permissions.sandbox` as configured; empty when unset, which is `full`
+  // (no sandbox), the honest default.
+  string sandbox = 3;
+  // The restrictive `network` words the runtime enforces.
+  repeated string enforced_network = 4;
+  // The restrictive `sandbox` words the runtime enforces.
+  repeated string enforced_sandbox = 5;
 }
 
 // A child's credential, as the run application found it (ruling 53 and owner
@@ -497,6 +520,22 @@ message UnknownEngine {
   string known = 2;
 }
 
+// A run whose posture claims more than its runtime enforces (owner rulings
+// 59, 109): a `network` or `sandbox` word that restricts, on a runtime that
+// does not enforce it. The run would believe a fence that is not there.
+message UnenforcedPosture {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  // The runtime the run would be launched on.
+  string runtime = 1;
+  // The posture key: `network` or `sandbox`.
+  string key = 2;
+  // The word configured for it.
+  string value = 3;
+  // The word that claims nothing (`open`, `full`): what the runtime does.
+  string honest = 4;
+}
+
 // A launch refused for more than one reason, or for a reason beside the plan's
 // fatal findings (owner rulings 73, 73b, 73c): every check that failed, in the
 // order they are checked (the order of these fields). Each field holds at
@@ -513,6 +552,8 @@ message LaunchRefused {
   repeated NoCredential no_credential = 3;
   repeated FileOnlyCredential file_only_credential = 4;
   uint32 fatal_findings = 5;
+  // After the credential: the posture (network, then sandbox).
+  repeated UnenforcedPosture unenforced_posture = 6;
 }
 
 // endregion refusals

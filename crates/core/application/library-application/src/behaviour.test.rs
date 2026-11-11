@@ -911,6 +911,28 @@ fn test_a_dry_run_settles_the_workspace_and_runtime_axes() {
     assert_eq!(run(&configured, flagged), pair("none", "container-rootful"));
 }
 
+// Rulings 59, 70, 109: the posture a run claims is its agent's
+// `permissions.network` / `sandbox`, else the project's, else unset (which
+// claims nothing); the run judges it against its runtime.
+#[test]
+fn test_a_dry_run_carries_the_posture_the_run_claims() {
+    let posture = |layers: &str, agent: &str| {
+        let layers = [layers];
+        let request = crate::RunRequest {
+            agent: agent.to_string(),
+            ..crate::RunRequest::default()
+        };
+        let plan = ok(with(&[], &layers).library().dry_run(&plain(), &request)).plan;
+        (plan.posture.network, plan.posture.sandbox)
+    };
+    let pair = |a: &str, b: &str| (a.to_string(), b.to_string());
+    let doc = "schema_version: 9\npermissions:\n  network: open\n  sandbox: read-only\nagents:\n  tight:\n    engine: claude-code\n    permissions:\n      network: none\n  loose:\n    engine: claude-code\n";
+    assert_eq!(posture(doc, "tight"), pair("none", "read-only"));
+    assert_eq!(posture(doc, "loose"), pair("open", "read-only"));
+    let bare = "schema_version: 9\nagents:\n  loose:\n    engine: claude-code\n";
+    assert_eq!(posture(bare, "loose"), pair("", ""));
+}
+
 // run.feature: the prompt is the one given, else the saved command's body.
 #[test]
 fn test_the_prompt_is_given_or_the_saved_commands_body() {

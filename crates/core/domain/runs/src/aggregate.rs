@@ -25,7 +25,7 @@ use crate::{
 };
 use crate::{
     CredentialEvidence, FileOnlyCredential, LaunchRefused, NoCredential, NoPrompt, Refusal,
-    RunMode, UnknownEngine,
+    RunMode, UnenforcedPosture, UnknownEngine,
 };
 
 /// The run aggregate: one run, folded from its stream.
@@ -218,7 +218,8 @@ pub(crate) fn enqueue_refusal(
             NoCredential{engine, variables} => NoCredential,
             FileOnlyCredential{engine, variables} => FileOnlyCredential,
             NoPrompt => NoPrompt,
-            UnknownEngine{name, known} => UnknownEngine
+            UnknownEngine{name, known} => UnknownEngine,
+            UnenforcedPosture{runtime, key, value, honest} => UnenforcedPosture
         ]
     )
 }
@@ -232,6 +233,7 @@ fn launch_refused(refusals: Vec<RunRejection>, fatal_findings: u32) -> LaunchRef
         no_credential: Vec::new(),
         file_only_credential: Vec::new(),
         fatal_findings,
+        unenforced_posture: Vec::new(),
     };
     for refusal in refusals {
         match refusal {
@@ -247,6 +249,17 @@ fn launch_refused(refusals: Vec<RunRejection>, fatal_findings: u32) -> LaunchRef
             RunRejection::FileOnlyCredential { engine, variables } => message
                 .file_only_credential
                 .push(FileOnlyCredential { engine, variables }),
+            RunRejection::UnenforcedPosture {
+                runtime,
+                key,
+                value,
+                honest,
+            } => message.unenforced_posture.push(UnenforcedPosture {
+                runtime,
+                key,
+                value,
+                honest,
+            }),
             // The checks raise nothing else.
             _ => {}
         }
@@ -269,9 +282,14 @@ impl RunAggregate {
             FileOnlyCredential,
             NoPrompt,
             UnknownEngine,
+            UnenforcedPosture,
             LaunchRefused
         )
     )]
+    // The refusal is the generated `Refuses` choice, which holds
+    // `LaunchRefused` by value (five lists of refusals since ruling 109): the
+    // markup's type, not one this crate can box.
+    #[allow(clippy::result_large_err)]
     fn enqueue(
         &self,
         cmd: EnqueueRun,

@@ -188,6 +188,7 @@ struct ScriptedPlan {
     model: String,
     effort: String,
     drive: library_application::Drive,
+    posture: library_application::Posture,
     error: Option<fn() -> PlanError>,
     asked: Arc<Mutex<Vec<RunRequest>>>,
 }
@@ -215,11 +216,12 @@ impl Planner for ScriptedPlan {
             tokens: 0,
             prompt: self.prompt.clone(),
             findings: Vec::new(),
-            axes: (String::new(), String::new()),
+            axes: (String::new(), "host".to_string()),
             model: self.model.clone(),
             effort: self.effort.clone(),
             drive: self.drive.clone(),
             settings: None,
+            posture: self.posture.clone(),
         };
         Outcome {
             result: Ok(Previewed {
@@ -553,6 +555,8 @@ struct Script {
     effort: &'static str,
     /// How the plan says the engine is run.
     drive: library_application::Drive,
+    /// The posture the plan says the run claims.
+    posture: library_application::Posture,
     plan_error: Option<fn() -> PlanError>,
     project_error: Option<Report>,
     names: Vec<&'static str>,
@@ -581,6 +585,7 @@ impl Script {
             model: "",
             effort: "",
             drive: Default::default(),
+            posture: Default::default(),
             plan_error: None,
             project_error: None,
             names: vec!["amber-swift-owl", "calm-quiet-fox", "wild-brave-elk"],
@@ -649,6 +654,7 @@ fn rig(script: Script) -> Rig {
             model: script.model.to_string(),
             effort: script.effort.to_string(),
             drive: script.drive.clone(),
+            posture: script.posture.clone(),
             error: script.plan_error,
             asked: Arc::clone(&asked),
         }),
@@ -2820,5 +2826,42 @@ async fn a_run_whose_command_never_started_closes_its_incarnation_as_launch_fail
     assert_eq!(
         incarnations_ended(&rig, &session).await,
         [(1, "launch-failed".to_string())]
+    );
+}
+
+// Owner rulings 59, 109: the enqueue is judged on the posture the plan says
+// the run claims and on what its runtime enforces (the host: nothing), so a
+// `network: none` on the host is the run's own refusal, before anything is
+// served or launched.
+#[tokio::test]
+async fn the_enqueue_is_judged_on_the_claimed_posture_and_what_the_runtime_enforces() {
+    let mut script = Script::answering();
+    script.posture = library_application::Posture {
+        network: "none".to_string(),
+        sandbox: "read-only".to_string(),
+    };
+    let mut rig = rig(script);
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap_err();
+    let evidence = rig.runs.core.0.enqueued.lock().unwrap().clone();
+    let posture = evidence.expect("an enqueue was sent").posture;
+    assert_eq!(posture.runtime, "host");
+    assert_eq!(
+        (posture.network.as_str(), posture.sandbox.as_str()),
+        ("none", "read-only")
+    );
+    assert!(posture.enforced_network.is_empty() && posture.enforced_sandbox.is_empty());
+    assert!(
+        matches!(&error, RunError::Refused(runs::RunRejection::LaunchRefused { refusals, .. })
+            if refusals.len() == 2),
+        "{error:?}"
+    );
+    assert!(
+        rig.runner.seen.lock().unwrap().is_empty(),
+        "nothing was launched"
     );
 }

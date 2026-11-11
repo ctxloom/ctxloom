@@ -289,10 +289,35 @@ fn opencode_is_keyless_without_its_optional_key_and_never_fails() {
     let config = "schema_version: 9\nagents:\n  o:\n    engine: opencode\n";
     let check = credentials(&[config], &[]);
     assert_eq!(check.status, Status::Ok);
+    // hand-test 2026-11-10: no key is exported, so the row does not call it
+    // present; it says what `auth status` says (rulings 69, 79).
+    assert_eq!(
+        check.detail,
+        "opencode (auth token): not needed: none of ANTHROPIC_API_KEY, OPENAI_API_KEY is exported, so opencode runs keyless on its free models; export one for a provider's models"
+    );
+    assert_eq!(check.remedy, "");
+    let both =
+        "schema_version: 9\nagents:\n  c:\n    engine: claude-code\n  o:\n    engine: opencode\n";
+    let check = credentials(&[both], TOKEN);
+    assert_eq!(check.status, Status::Ok);
     assert!(
-        check.detail.contains("opencode (auth token)"),
+        check.detail.starts_with("every configured engine's credential is present: claude-code (auth token) (doctor does not test"),
         "{}",
         check.detail
+    );
+    assert!(
+        check.detail.ends_with("; opencode (auth token): not needed: none of ANTHROPIC_API_KEY, OPENAI_API_KEY is exported, so opencode runs keyless on its free models; export one for a provider's models"),
+        "{}",
+        check.detail
+    );
+    let keyed = credentials(&[config], &["OPENAI_API_KEY"]);
+    assert_eq!(keyed.status, Status::Ok);
+    assert!(
+        keyed
+            .detail
+            .starts_with("every configured engine's credential is present: opencode (auth token)"),
+        "{}",
+        keyed.detail
     );
 }
 

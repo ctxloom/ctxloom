@@ -75,6 +75,9 @@ pub struct Verdict {
     /// The source is a file alone: the primary session may run on it, a
     /// child agent cannot (owner ruling 53).
     pub primary_only: bool,
+    /// Ready on no credential at all: the source's variables are optional
+    /// (opencode's built-in keys, rulings 69 and 79) and none is exported.
+    pub keyless: bool,
 }
 
 /// The catalog of the runs messages [`FileOnly`] is said in.
@@ -230,6 +233,7 @@ impl Auth {
                 },
                 remedy: remedy(&need),
                 primary_only: need.file.is_some(),
+                keyless: false,
                 vars: need.vars,
                 engine: need.engine,
             })

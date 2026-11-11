@@ -350,6 +350,7 @@ impl Project {
             effort,
             drive,
             settings,
+            settings_agent: request.agent.clone(),
             posture: self.posture_of(selection.agent.as_ref()),
         };
         Ok(Previewed { plan, fatal })

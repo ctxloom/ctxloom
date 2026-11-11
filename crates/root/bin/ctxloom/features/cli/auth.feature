@@ -46,6 +46,22 @@ Feature: auth — how ctxloom-launched engines authenticate
       Then the command succeeds
       And the output contains "claude-code token: missing — run `claude setup-token` and export CLAUDE_CODE_OAUTH_TOKEN"
 
+    # opencode's built-in keys are its providers' and optional (rulings 69
+    # and 79): with none exported it runs keyless on its free models. Status
+    # says so, as doctor and `engine show` do (hand-test 2026-11-10: status
+    # had no opencode row, doctor called it present, `engine show` missing).
+    Scenario: With no opencode key exported, status says opencode needs none
+      # new: rulings 69 and 79.
+      Given an initialized ctxloom project
+      And the environment variable "ANTHROPIC_API_KEY" is set to ""
+      And the environment variable "OPENAI_API_KEY" is set to ""
+      When I run "ctxloom auth status --format text"
+      Then the command succeeds
+      And the output contains "opencode token: not needed: none of ANTHROPIC_API_KEY, OPENAI_API_KEY is exported, so opencode runs keyless on its free models"
+      When I run "ctxloom engine show opencode --format json"
+      Then the command succeeds
+      And the output reports "auth.state" as "not-needed"
+
   Rule: ctxloom takes no credential
 
     # Anthropic does not allow a third party to collect, store or intermediate

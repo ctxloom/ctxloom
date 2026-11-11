@@ -472,6 +472,14 @@ fn test_a_dry_run_carries_the_composed_context_and_refuses_what_run_refuses() {
     assert_eq!(plan.engine, "claude-code");
     assert_eq!(plan.profiles, ["dev"]);
     assert_eq!(plan.runtime, "host");
+    // hand-test 2026-11-10: the default agent's settings are said as its own
+    // (ruling 72), so the plan names whose they are though no --agent was given.
+    assert_eq!(plan.agent, "", "no --agent was given");
+    assert_eq!(plan.settings_agent, "dev");
+    assert_eq!(
+        plan.settings.as_ref().map(|s| s.runtime.source),
+        Some("agent")
+    );
     assert!(plan.context.contains("TEST-BODY"));
     assert!(
         !plan.context.contains("GO-RULES"),

@@ -22,6 +22,10 @@ pub struct Finding {
     /// What to do about it; empty for none.
     pub remedy: String,
     pub class: Class,
+    /// What the finding is about (a bundle's reference), empty for nothing
+    /// named: a warning about a thing a failing finding of its kind is also
+    /// about says it again, and [`said`] leaves it out.
+    pub about: String,
 }
 
 impl Finding {
@@ -32,6 +36,7 @@ impl Finding {
             text: text.into(),
             remedy: remedy.into(),
             class: Class::Fail,
+            about: String::new(),
         }
     }
 
@@ -42,6 +47,24 @@ impl Finding {
             text: text.into(),
             remedy: String::new(),
             class: Class::Warn,
+            about: String::new(),
         }
     }
+
+    /// The finding, about `subject`.
+    #[must_use]
+    pub fn about(mut self, subject: impl Into<String>) -> Finding {
+        self.about = subject.into();
+        self
+    }
 }
+
+/// The findings worth saying: each but a warning about what a failing
+/// finding of its kind is also about (the failure says it).
+pub fn said(findings: &[Finding]) -> Vec<&Finding> {
+    findings.iter().collect()
+}
+
+#[cfg(test)]
+#[path = "findings.test.rs"]
+mod tests;

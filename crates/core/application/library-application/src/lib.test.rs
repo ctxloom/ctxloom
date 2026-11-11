@@ -551,6 +551,35 @@ fn test_fatal_findings_are_fatal_unless_degraded() {
     assert_eq!(aborted.exit_code(), 3);
 }
 
+// hand-test 2 2026-11-11: a missing bundle was reported three times in one
+// dry run (two warnings, then the fatal list). A fatal finding is said by the
+// refusal alone; under --degraded, by one warning.
+#[test]
+fn test_a_missing_bundle_is_reported_once() {
+    let layers = [CONFIG];
+    let library = setup(&layers).library();
+    let broken = RunRequest {
+        profile: "broken".to_string(),
+        ..RunRequest::default()
+    };
+    let naming = |notices: &[Notice]| -> Vec<String> {
+        notices
+            .iter()
+            .map(|n| format!("{n:?}"))
+            .filter(|n| n.contains("does-not-exist"))
+            .collect()
+    };
+    let strict = library.dry_run(&plain(), &broken);
+    assert!(naming(&strict.notices).is_empty(), "{:?}", strict.notices);
+    assert_eq!(ok(strict).fatal.len(), 1);
+    let degraded = crate::Flags {
+        degraded: true,
+        ..plain()
+    };
+    let past = library.dry_run(&degraded, &broken);
+    assert_eq!(naming(&past.notices).len(), 1, "{:?}", past.notices);
+}
+
 // launch: with no agent the run says which of the three reasons applies.
 #[test]
 fn test_a_run_with_no_agent_says_why() {

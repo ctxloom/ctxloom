@@ -98,8 +98,9 @@ impl Sessions for Launches {
     }
 }
 
-/// The scaffold, which lands.
-struct Made;
+/// The scaffold, which lands, over the project the dependency use cases
+/// already see.
+struct Made(Rc<deps_application::Deps>);
 
 impl init_application::Create for Made {
     fn create(&self) -> Result<(), PortFailure> {
@@ -108,6 +109,10 @@ impl init_application::Create for Made {
 
     fn set_output_dir(&self, _: &str) -> Result<(), PortFailure> {
         Ok(())
+    }
+
+    fn deps(&self) -> Result<Rc<deps_application::Deps>, PortFailure> {
+        Ok(Rc::clone(&self.0))
     }
 }
 
@@ -256,11 +261,12 @@ fn go_with(
         "/home/u",
         "0.1.0",
     );
+    let deps = Rc::new(fixture.deps);
     let init = Init::new(
         world.clone(),
         world.clone(),
-        Rc::new(fixture.deps),
-        Box::new(Made),
+        Rc::clone(&deps),
+        Box::new(Made(deps)),
     );
     let uses = UseCases {
         auth: &auth,
@@ -658,11 +664,12 @@ fn a_noun_the_line_does_not_carry_is_a_usage_failure() {
         "/h",
         "0",
     );
+    let deps = Rc::new(fixture.deps);
     let init = Init::new(
         world.clone(),
         world.clone(),
-        Rc::new(fixture.deps),
-        Box::new(Made),
+        Rc::clone(&deps),
+        Box::new(Made(deps)),
     );
     let uses = UseCases {
         auth: &auth,

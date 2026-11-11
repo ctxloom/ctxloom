@@ -83,9 +83,18 @@ impl World {
 }
 
 /// A project that has never seen ctxloom, with her assistant, her token and
-/// ctxloom's published default (which `init` seeds) within reach.
+/// ctxloom's published default (which `init` seeds) within reach. Her
+/// commands find the project as hers do, from the directory she types them
+/// in: no `CTXLOOM_ROOT` (an empty one is none), so a first `init` must find
+/// the project it has just created.
 #[given("Alice has a project that has never used ctxloom")]
 fn never_used(w: &mut World) {
+    fresh_machine(w);
+    w.common.set_env("CTXLOOM_ROOT", String::new());
+}
+
+/// The machine of [`never_used`], the project still named by `CTXLOOM_ROOT`.
+fn fresh_machine(w: &mut World) {
     w.common_mut().project = crate::tests::library::Project::bare();
     super::adopt::claude_code(w);
     super::adopt::token(w);
@@ -178,7 +187,7 @@ impl World {
     /// already made it so.
     fn machine(&mut self) {
         if !files::exists(self.adopt_scratch().join("bin/claude")) {
-            never_used(self);
+            fresh_machine(self);
         }
     }
 

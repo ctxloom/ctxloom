@@ -52,6 +52,11 @@ pub trait Create {
 
     /// Write `dir` as the new project's `output.dir`.
     fn set_output_dir(&self, dir: &str) -> Result<(), Failure>;
+
+    /// The dependency use cases over the project as it is now: once
+    /// [`create`](Create::create) has written it, the new project's (those
+    /// built before saw no project, and would write the home's files).
+    fn deps(&self) -> Result<Rc<Deps>, Failure>;
 }
 
 /// The output directory a first init suggests: `output.dir`'s default (owner

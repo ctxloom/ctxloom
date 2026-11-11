@@ -9,7 +9,7 @@
 use serde_json::{json, Value};
 use sessions::{CompactionPhase, SessionEvent, ToolCallStatus};
 
-use crate::transcript::{entry_line, rfc3339, Speaker};
+use crate::transcript::{entry_line, rfc3339, sorted, Speaker};
 
 /// The transcript of one session, folded page by page.
 pub struct Projection {
@@ -159,7 +159,7 @@ impl Projection {
         if let (Some(line), Some(extra)) = (line.as_object_mut(), extra.as_object()) {
             line.extend(extra.clone());
         }
-        format!("{line}\n")
+        format!("{}\n", sorted(line))
     }
 }
 

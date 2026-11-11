@@ -71,6 +71,19 @@ impl ChildMessage {
     }
 }
 
+/// How a child's requests for permission are answered (an engine that asks
+/// over its protocol, as opencode's ACP `session/request_permission`): no
+/// human is there to ask. Each answer is for the one request, never
+/// "always". The agent's permission posture says which; none refuses.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ChildPermissions {
+    /// Refused (fail closed): the engine goes on without.
+    #[default]
+    Refuse,
+    /// Allowed.
+    Allow,
+}
+
 /// What a child is started with: a turn request's settings, with no prompt
 /// (the child is given its messages later).
 #[derive(Clone, PartialEq, Eq)]
@@ -92,8 +105,11 @@ pub struct ChildSpec {
     /// process ended).
     pub resume: Option<String>,
     /// The native session id to start a NEW conversation under (D17a: a
-    /// clear by restart, with a fresh id). Never with `resume`.
+    /// clear by restart, with a fresh id). Never with `resume`. An engine
+    /// that names its own sessions (opencode) has none to take.
     pub session_id: Option<String>,
+    /// How the engine's permission requests are answered.
+    pub permissions: ChildPermissions,
 }
 
 impl fmt::Debug for ChildSpec {
@@ -109,6 +125,7 @@ impl fmt::Debug for ChildSpec {
             .field("settings", &self.settings)
             .field("resume", &self.resume)
             .field("session_id", &self.session_id)
+            .field("permissions", &self.permissions)
             .finish()
     }
 }

@@ -91,3 +91,14 @@ fn the_retired_neutral_verbs_are_stale() {
     let subs: Vec<String> = stale(old).into_iter().map(|s| s.sub).collect();
     assert_eq!(subs, ["session-start", "skill-mates", "hud"]);
 }
+
+// The rewrite spells its keys sorted, as it always has, whatever serde_json's
+// map keeps (its `preserve_order`, which agent-client-protocol turns on).
+#[test]
+fn a_rewrite_keeps_its_keys_sorted_whatever_the_map_keeps() {
+    let text = r#"{"zeta":1,"hooks":{"Stop":[{"hooks":[{"command":"ctxloom hook inject-context abc","type":"command"}]}],"After":[]},"alpha":2}"#;
+    let (fixed, _) = strip(text).unwrap();
+    let at = |key: &str| fixed.find(key).unwrap();
+    assert!(at("\"alpha\"") < at("\"hooks\""), "{fixed}");
+    assert!(at("\"hooks\"") < at("\"zeta\""), "{fixed}");
+}

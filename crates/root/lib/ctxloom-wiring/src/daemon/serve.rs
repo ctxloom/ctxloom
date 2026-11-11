@@ -619,6 +619,8 @@ impl Daemon {
                 settings,
                 resume: None,
                 session_id: None,
+                // claude asks no permission over its stream: unused here.
+                permissions: run_ports::ChildPermissions::default(),
             })
             .map_err(|e| e.to_string())
     }

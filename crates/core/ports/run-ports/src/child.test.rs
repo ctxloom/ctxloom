@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 
 use angzarr_diagnostic::Diagnostic;
 
-use crate::{ChildError, ChildMessage, ChildSpec, EngineError, EngineSettings, Urgency};
+use crate::{
+    ChildError, ChildMessage, ChildPermissions, ChildSpec, EngineError, EngineSettings, Urgency,
+};
 
 fn spec() -> ChildSpec {
     ChildSpec {
@@ -18,6 +20,7 @@ fn spec() -> ChildSpec {
         settings: EngineSettings::default(),
         resume: None,
         session_id: None,
+        permissions: ChildPermissions::default(),
     }
 }
 
@@ -90,4 +93,10 @@ fn a_spawn_failure_names_the_program_and_the_system_text() {
         ext_err_txt: "Broken pipe".to_string(),
     };
     assert!(io.to_string().contains("Broken pipe"), "{io}");
+}
+
+#[test]
+fn a_child_refuses_what_it_is_asked_unless_allowed() {
+    assert_eq!(ChildPermissions::default(), ChildPermissions::Refuse);
+    assert!(format!("{:?}", spec()).contains("permissions: Refuse"));
 }

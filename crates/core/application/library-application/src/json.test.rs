@@ -61,3 +61,13 @@ fn test_a_value_in_flow_form_sorts_its_keys_as_written() {
     assert_eq!(flow(&doc("a:\n")), "{a: null}");
     assert_eq!(flow(&angzarr_yaml::Value::Null), "null");
 }
+
+// The keys come sorted, not in the document's order, whatever serde_json's
+// map keeps (its `preserve_order`, which agent-client-protocol turns on).
+#[test]
+fn test_a_blocks_keys_are_sorted_whatever_the_map_keeps() {
+    assert_eq!(
+        serde_json::to_string(&permissions(&doc("zeta: 1\nalpha:\n  y: 2\n  b: 3\n"))).unwrap(),
+        r#"{"alpha":{"b":3,"y":2},"zeta":1}"#
+    );
+}

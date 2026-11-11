@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use file_system::{Fs, Rooted};
 use run_ports::{
-    ChildEngine, ChildError, ChildMessage, ChildObservation, ChildSpec, EngineSettings, Exit,
-    FailureClass, Queued, StartedChild, TurnOutcome, Urgency,
+    ChildEngine, ChildError, ChildMessage, ChildObservation, ChildPermissions, ChildSpec,
+    EngineSettings, Exit, FailureClass, Queued, StartedChild, TurnOutcome, Urgency,
 };
 
 use crate::child::{child_command, detail_of};
@@ -84,6 +84,7 @@ fn spec(program: &str) -> ChildSpec {
         },
         resume: None,
         session_id: None,
+        permissions: ChildPermissions::default(),
     }
 }
 

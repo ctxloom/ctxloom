@@ -35,7 +35,7 @@ use std::thread::JoinHandle;
 
 use run_ports::{Exit, LaunchFailure, Limits, RunnerLauncher, Running, TurnCommand, TurnOutput};
 pub use run_within::Stop;
-use run_within::{run_terminal, RunError, Spec, Within};
+use run_within::{run_terminal, run_within_stopped_by, RunError, Spec, Within};
 
 /// Launches a command on this host.
 #[derive(Clone, Debug, Default)]
@@ -144,11 +144,7 @@ impl RunnerLauncher for HostLauncher {
             .max_bytes(limits.max_bytes);
         let stop = self.stop.clone();
         spawn_on_thread(move |started| {
-            {
-                let _ = &stop;
-                run_within::run_within_started(&spec, &within, started)
-            }
-            .map(|outcome| TurnOutput {
+            run_within_stopped_by(&spec, &within, &stop, started).map(|outcome| TurnOutput {
                 exit: outcome.status.map_or(
                     Exit {
                         code: None,

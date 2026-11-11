@@ -241,9 +241,23 @@ launcher records, `Running::finish` waits), and the pending launches clear on
 it, not on the runner's first word; a command that cannot spawn is a
 `LaunchFailed` and never a `RunnerStarted`. An interactive run's terminal
 session is ended by the human (the terminal delivers Ctrl-C to the shared
-process group, so it cancels a generation inside claude); ctxloom does not
-forward SIGINT/SIGTERM yet, since a SIGTERM-only stop needs a platform signal
-`Os` does not offer (`HostLauncher::stopped_by(Stop)` is there for it).
+process group, so it cancels a generation inside claude).
+A run asked to stop stops its engine first (ruling 114): for the whole run
+`ctxloom-wiring`'s `signals` hears SIGHUP, SIGINT and SIGTERM
+(`os::Os::signals`, each named), so none ends ctxloom by its default and
+orphans the engine. A one-shot stops on any of the three; the session on
+SIGHUP or SIGTERM only (a SIGINT is the terminal's Ctrl-C, which reaches the
+engine itself, and is let pass). The stop is `HostLauncher::stopped_by(Stop)`'s
+`Stop`: a turn's tree is asked to stop (SIGTERM to its group, run-within's
+`run_within_stopped_by`), given `Within::stop_grace` (five seconds), then
+killed; a terminal session's direct child is killed. The run then ends as any
+run whose engine exited (its end facts, the listener stopped, the locks
+released), and the command exits 128 plus the signal's number, the error
+`run-application-stopped` (`RunError::Stopped`) naming the signal. A second
+signal during the grace is heard and changes nothing; a signal that cannot be
+listened for is said as a notice and the run goes on unforwarded. Tested with
+the platform's fake (`os::Signals::fake`) and, for a one-shot's SIGTERM, end
+to end in j001000.
 A run has THREE credentials, minted at enqueue with the same machinery, each
 a 256-bit token whose SHA-256 alone is journaled in `RunEnqueued`
 (`runner_`, `model_` and `hook_credential_hash`; the aggregate requires three
@@ -580,12 +594,14 @@ the adapter gives; its tests need `run-within`'s `test-support`, which waits
 out ETXTBSY. Limits (os::process's): a descendant that calls `setsid` or
 `setpgid` escapes the kill, and the program runs in a process group of its
 own, so a Ctrl-C at the terminal does not reach it: a caller that must stop
-a run on Ctrl-C hears `Os::stop_signal` and ends the tree itself.
+a run on a signal hears it (`Os::signals`) and requests the `Stop` it ran the
+program with (`run_within_stopped_by`: the tree asked to stop, `stop_grace`,
+then killed; the outcome `stopped`).
 `run_within_started` also calls a `started(pid)` once after a successful spawn
 (never on a spawn failure). `run_terminal(spec, &Stop, started)` is the mode
 for a program that owns the terminal: inherited stdio, NOT a process group of
 its own (a Ctrl-C reaches it), no deadline, and a `Stop` (a cloneable flag the
-caller sets, e.g. from `Os::stop_signal`) that kills only the DIRECT child, not
+caller sets, e.g. from `Os::signals`) that kills only the DIRECT child, not
 its descendants. Tested on unix; macOS and Windows are not. No adapter bypasses
 `run-within` any more.
 All of ctxloom-lib's crates are pinned at one rev (`cli-support`,
@@ -749,8 +765,10 @@ A compaction's external id is `hook:compact:<session>:<prompt_id>:<trigger>:
 <phase>`, so two compactions of one turn (a manual and an auto) are two facts;
 two of the SAME trigger in one turn would still collide (the payload offers no
 further discriminator). The listener is a port, not a file: a run
-killed by SIGHUP or a timeout leaves nothing behind (ctxloom does not forward
-or handle SIGINT, SIGHUP or SIGTERM itself).
+killed by a timeout leaves nothing behind, and one asked to stop by SIGHUP,
+SIGINT or SIGTERM stops its engine, records its end and stops the listener
+before it exits (ruling 114, above). A SIGKILL is not heard: the engine
+outlives it.
 
 ## No path dependency leaves the repository
 

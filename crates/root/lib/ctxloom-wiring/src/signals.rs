@@ -64,8 +64,11 @@ pub(crate) async fn forward(
 ) {
     loop {
         let signal = signals.recv().await;
-        // Red: nothing is stopped yet.
-        let _ = (stop_on.contains(&signal), &stop, &heard);
+        if stop_on.contains(&signal) {
+            let _ = heard.0.set(signal);
+            stop.request();
+            return;
+        }
     }
 }
 

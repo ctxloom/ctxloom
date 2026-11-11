@@ -58,6 +58,7 @@ impl RunError {
     pub fn exit_code(&self) -> u8 {
         match self {
             RunError::Plan(error) => error.exit_code(),
+            RunError::Stopped { status, .. } => *status,
             RunError::Refused(RunRejection::LaunchRefused { fatal_findings, .. })
                 if *fatal_findings > 0 =>
             {

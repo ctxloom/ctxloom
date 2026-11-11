@@ -86,7 +86,10 @@ fn test_a_stopped_run_ends_as_the_signal_says_and_one_not_stopped_as_it_did() {
     let heard = Heard::default();
     let task = runtime.spawn(forward(signals, &STOP_ONE_SHOT, Stop::new(), heard.clone()));
     raise.raise(Signal::Terminate);
-    runtime.block_on(task).unwrap();
+    runtime
+        .block_on(async { tokio::time::timeout(Duration::from_secs(10), task).await })
+        .expect("the run was not stopped")
+        .unwrap();
     let mut ended = Ok::<u8, RunError>(0);
     heard.overrule(&mut ended);
     let ended = ended.unwrap_err();

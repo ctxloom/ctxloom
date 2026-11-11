@@ -133,8 +133,6 @@ fn exit_of(status: std::process::ExitStatus) -> Exit {
 }
 
 impl RunnerLauncher for HostLauncher {
-    // Its only mutant, a Default `Running`, does not type-check.
-    #[cfg_attr(test, mutants::skip)]
     fn launch(
         &self,
         command: &TurnCommand,

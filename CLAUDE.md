@@ -340,7 +340,7 @@ and the told host, so a runtime's host alias is a DNS name), and the client's
 an environment or in an error. A hook that finds the listener named but the
 certificate missing or garbled refuses (`HookSink::Refused`, `hook-cli-not-recorded`
 naming `CTXLOOM_TLS_CERT`) and sends nothing. The listener's limits are
-angzarr's generic `Listener` defaults (core `acacb163`; `hook-listener` sets
+angzarr's generic `Listener` defaults (core `6c3175b9`; `hook-listener` sets
 none): a TLS handshake within 10 s, an HTTP/2 keepalive ping every 60 s
 answered within 20 s, a connection closed after 1 h plus a 30 s grace (never
 zero: a zero grace is `ListenError::ZeroConnectionAgeGrace` at bind, which
@@ -587,14 +587,14 @@ The lock holds ONE `angzarr-embedded`, `angzarr-proto`, `angzarr-ports` and
 `angzarr-diagnostic` (a test reads Cargo.lock). Every pin in `Cargo.toml` is
 a full commit. The angzarr pins are one line, one per family member:
 
-- angzarr core `acacb163` (`angzarr-diagnostic`, `angzarr-yaml`,
+- angzarr core `6c3175b9` (`angzarr-diagnostic`, `angzarr-yaml`,
   `angzarr-presentation`; `angzarr-coordinator-grpc`'s `tls` feature, which
   `hook-listener` enables, is `Listener::tls`);
-- angzarr-embedded `c78e3735` on angzarr-router `4fc923bc`;
-- angzarr-build `bb0b509a` (the markup generator, `angzarr-build` and
+- angzarr-embedded `46267520` on angzarr-router `58cfb1d2`;
+- angzarr-build `11d249c6` (the markup generator, `angzarr-build` and
   `angzarr-codegen`, its own repository);
-- angzarr-platform `1e83eced`;
-- taskloom's crates `d233493a` and ctxloom-lib's `002b36c2`, built on the
+- angzarr-platform `f2ece88c`;
+- taskloom's crates `2c117e8b` and ctxloom-lib's `3fa0344b`, built on the
   same line,
 
 so moving one moves all. The lock holds one of every angzarr crate. The platform crates (`os`, `file-system`, `file-lock`) are
@@ -1097,7 +1097,8 @@ drives. A failing gate is a finding: fix the cause and commit again; never
    excluded (`.cargo/mutants.toml`). Each mutant runs only its own crate's
    tests (`test_workspace = false`), under `cargo test`: a dependent's
    tests, the binary's acceptance tests included, kill nothing, so a crate
-   kills its own mutants. A mutant judged equivalent or untestable gets
+   kills its own mutants. An unviable mutant (one that does not build)
+   needs no skip: it counts neither way. A mutant judged equivalent or untestable gets
    `#[cfg_attr(test, mutants::skip)]` on its function, with `mutants` a
    dev-dependency (`mutants.workspace = true`, so nothing new is linked)
    and a one-line comment above it saying why; never an exclude in
@@ -1114,8 +1115,10 @@ drives. A failing gate is a finding: fix the cause and commit again; never
    mutant's file and summary, and `total_mutants`) and its exit code, no log
    read: it fails the red baseline (exit 4, kept), a run that ended before a
    verdict, fewer tested than found, a file under no threshold, a tier below
-   its threshold, and a tier that found mutants and judged none (every one
-   unviable). No feature reaches the mutation run: `mutants-staged` refuses
+   its threshold, and a run that found mutants and judged none of them at
+   all (every one unviable; owner ruling 120, amending 99: the whole run's
+   rule, so a tier all unviable beside one that judged passes, its row
+   saying `none judged`). No feature reaches the mutation run: `mutants-staged` refuses
    a non-empty `feature_rules` (`_mutants-no-features`), so a crate whose
    tests need a feature of its own dev-depends on itself with it (as
    `session-cli` does for `session-destroy`). Both are held by

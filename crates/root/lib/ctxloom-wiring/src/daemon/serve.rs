@@ -4,9 +4,11 @@
 //! runner): it serves the listener, runs the plan and hosts the children.
 //!
 //! Each tick, per project: the board and the pending messages catch up on
-//! the store's `change_token` (`CatchUp::step_if_changed`: a poll; the
-//! angzarr Subscribe push replaces the poll behind the same `tick` once it is
-//! served), the plan is made from them, and its steps are taken. A child's
+//! the store's `change_token` (`CatchUp::step_if_changed`), the plan is made
+//! from them, and its steps are taken. The next tick comes at the first
+//! commit through this process's store handles (`CommitNotify`, the push) or
+//! after the poll interval, whichever is first: another process's commit
+//! (a CLI command's) reaches no in-process signal, so the poll stays (S-N4). A child's
 //! observations come back on a channel and are recorded as the run's facts.
 //! The daemon exits when asked (`daemon stop`), or once it has hosted nothing
 //! and had nothing to do for its idle time.
@@ -18,6 +20,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use angzarr_embedded::angzarr_ports::{CommitNotify, CommitWait};
 use angzarr_embedded::angzarr_store_sqlite::SqliteStore;
 use angzarr_embedded::v1::Uuid;
 use angzarr_embedded::{CatchUp, Failure};
@@ -41,6 +44,7 @@ use runs_application::{
 use session_files::SessionDirs;
 use session_policies::{plan, Fed, RunAt, Scene, Sent, Step};
 use sessions::Urgency;
+use std::future::Future as _;
 
 use super::files::DaemonFiles;
 use super::route::{Routes, RoutingEdge};
@@ -232,6 +236,13 @@ impl Daemon {
                 return Ok(());
             }
             self.open_projects().await;
+            // Armed before the tick reads (S-N2): a commit during it is not
+            // missed.
+            let commits: Vec<CommitWait> = self
+                .projects
+                .iter()
+                .map(|project| project.core.store().next_commit())
+                .collect();
             let busy = self.tick(draining).await;
             if busy || !self.hosted.is_empty() {
                 quiet_since = Instant::now();
@@ -239,7 +250,11 @@ impl Daemon {
                 (self.say)("idle: exiting");
                 return Ok(());
             }
-            tokio::time::sleep(pace.poll).await;
+            // The push: a commit through this process's store handles
+            // (the daemon's own writes, its listener's hooks) wakes the next
+            // tick at once; another process's (a CLI command's) is seen by
+            // the poll on `change_token` (S-N4: the required fallback).
+            let _ = tokio::time::timeout(pace.poll, any_commit(commits)).await;
         }
     }
 
@@ -699,6 +714,20 @@ impl Daemon {
             let _ = hosted.control.end(END_GRACE);
         }
     }
+}
+
+/// The first of `commits` to resolve; never, for none.
+async fn any_commit(mut commits: Vec<CommitWait>) {
+    std::future::poll_fn(|cx| {
+        let landed = commits
+            .iter_mut()
+            .any(|wait| std::pin::Pin::new(wait).poll(cx).is_ready());
+        match landed {
+            true => std::task::Poll::Ready(()),
+            false => std::task::Poll::Pending,
+        }
+    })
+    .await;
 }
 
 /// What a step came to.

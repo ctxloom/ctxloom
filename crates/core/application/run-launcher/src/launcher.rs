@@ -471,6 +471,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
                 .write(&order.harp, &format!("home/{}", file.rel), &file.bytes)
                 .map_err(|e| e.to_string())?;
         }
+        self.seed_git_user(order)?;
         let request = TurnRequest {
             prompt: order.prompt.clone(),
             home,
@@ -495,6 +496,28 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         // adapter's computed names, derived from the command, and the run's.
         *ignored = run_ports::apply_permits(&order.env, &mut command.env, &order.owned);
         Ok((engine, command))
+    }
+
+    /// Seed the session home with the user's git identity (owner ruling
+    /// 112: the engine's HOME is the session home, so git reads its global
+    /// configuration there): once, when the home has no `.gitconfig`; one
+    /// already there, which a tool of an earlier run may have written, is
+    /// left as it is.
+    fn seed_git_user(&mut self, order: &Order) -> Result<(), String> {
+        let Some(text) = order.git_user.as_ref().and_then(run_ports::git_config) else {
+            return Ok(());
+        };
+        let rel = format!("home/{}", run_ports::GIT_CONFIG_FILE);
+        let there = self
+            .records
+            .read(&order.harp, &rel)
+            .map_err(|e| e.to_string())?;
+        if there.is_none() {
+            self.records
+                .write(&order.harp, &rel, text.as_bytes())
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
     }
 
     /// Record `observation` on the session's stream.

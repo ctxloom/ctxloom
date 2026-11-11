@@ -221,8 +221,15 @@ impl Git {
     /// The identity git would commit with in `dir` (owner ruling 112: a
     /// session home is seeded with it).
     pub fn user(&self, dir: &Path) -> User {
-        let _ = dir;
-        User::default()
+        let get = |key: &str| {
+            self.run(dir, &["config", "--get", key])
+                .map(|value| value.trim().to_string())
+                .unwrap_or_default()
+        };
+        User {
+            name: get("user.name"),
+            email: get("user.email"),
+        }
     }
 }
 

@@ -22,8 +22,20 @@ pub const GIT_CONFIG_FILE: &str = ".gitconfig";
 
 /// The `.gitconfig` that carries `user`, none when it knows neither part.
 pub fn git_config(user: &GitUser) -> Option<String> {
-    let _ = user;
-    None
+    let mut text = String::from("[user]\n");
+    for (key, value) in [("name", &user.name), ("email", &user.email)] {
+        let value: String = value.chars().filter(|c| *c != '\n' && *c != '\r').collect();
+        if !value.is_empty() {
+            text.push_str(&format!("\t{key} = \"{}\"\n", quoted(&value)));
+        }
+    }
+    (text.len() > "[user]\n".len()).then_some(text)
+}
+
+/// `value` as it goes between a git config value's double quotes: its
+/// backslashes and quotes escaped.
+fn quoted(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 #[cfg(test)]

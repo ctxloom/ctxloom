@@ -648,8 +648,9 @@ Feature: run — assembling a project's context and handing it to an engine
     the curation says. The permit itself is not passed on, and a value is
     never shown. A permit can never replace one of the run's own `CTXLOOM_*`
     variables, nor anything else ctxloom sets for the engine (the session home
-    it relocates the engine into, the PATH it builds for the hooks, her HOME,
-    which is ctxloom's own home): it is ignored, and the run says so. An explicit permit for
+    it relocates the engine into, its HOME, which is that session home (owner
+    ruling 112), and the PATH it builds for the hooks): it is ignored, and the
+    run says so. An explicit permit for
     `ANTHROPIC_AUTH_TOKEN` gives a child the primary's token (without one it
     never reaches a child): such a child holds her token, no credential of
     its own.
@@ -717,7 +718,8 @@ Feature: run — assembling a project's context and handing it to an engine
         """
       Then the command succeeds
       And the assistant's "CLAUDE_CONFIG_DIR" was ctxloom's, not "/evil-config"
-      And the assistant's environment did not hold "HOME"
+      And the assistant's "HOME" was ctxloom's, not "/evil-home"
+      And the assistant's HOME was its session home
       And the output contains "CTXLOOM_PERMIT_CLAUDE_CONFIG_DIR was not passed on"
       And the output contains "CTXLOOM_PERMIT_HOME was not passed on"
 

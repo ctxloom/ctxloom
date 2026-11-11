@@ -53,7 +53,7 @@ mkdir -p "$fired"
 for v in CTXLOOM_ENDPOINT CTXLOOM_BEARER CTXLOOM_RUN CTXLOOM_HOME CLAUDE_CONFIG_DIR; do
   eval "[ -n \"\${$v:-}\" ]" || echo "$v" >> "$here/engine-missing"
 done
-[ -z "${HOME:-}" ] || echo "HOME" >> "$here/engine-had"
+[ "${HOME:-}" = "$CLAUDE_CONFIG_DIR" ] || echo "HOME" >> "$here/engine-had"
 env | grep -E '^(CTXLOOM_|CLAUDE_CONFIG_DIR=|PATH=)' > "$here/engine-env"
 pwd > "$here/engine-cwd"
 n=0
@@ -93,7 +93,7 @@ prompt="$(cat)"
 for v in CTXLOOM_ENDPOINT CTXLOOM_BEARER CTXLOOM_RUN CTXLOOM_HOME CTXLOOM_SESSION_HARP CTXLOOM_TLS_CERT CLAUDE_CONFIG_DIR; do
   eval "[ -n \"\${$v:-}\" ]" || echo "$v" >> "$here/engine-missing"
 done
-[ -z "${HOME:-}" ] || echo "HOME" >> "$here/engine-had"
+[ "${HOME:-}" = "$CLAUDE_CONFIG_DIR" ] || echo "HOME" >> "$here/engine-had"
 [ -z "${ANTHROPIC_AUTH_TOKEN:-}" ] || echo "ANTHROPIC_AUTH_TOKEN" >> "$here/engine-had"
 env | grep -E '^(CTXLOOM_|CLAUDE_CONFIG_DIR=|PATH=)' > "$here/engine-env"
 n=0

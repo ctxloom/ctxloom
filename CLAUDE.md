@@ -218,10 +218,20 @@ An engine's hooks are its adapter's: `ctxloom hook <engine> execute
 <NativeHookName>` (hidden) resolves the engine through `surface_ports::Registry`
 and its `HookCodec` decodes the payload. The settings an older ctxloom wrote
 (`hook <verb> --engine`) are stale and rewritten on the next surface apply.
-An engine env has no `HOME`: ctxloom's home reaches its hook processes as
+An engine's `HOME` is its session home (owner ruling 112, claude's as
+opencode's, a terminal's and a child's turn alike; under `session_home: host`
+the user's own), so what its tools keep under `~` lands in
+`.ctxloom/sessions/<harp>/home/`, never in the project; the cost: they see
+none of the user's dotfiles. ctxloom's home reaches its hook processes as
 `CTXLOOM_HOME` (`run_ports::HOME_VARIABLE`; the wiring takes it as the home
-when `HOME` is absent, and names the resolved home in a run's env; both
-allowlists pass it on), and the session home's `settings.json` calls `ctxloom
+FIRST, before `HOME`, and names the resolved home in a run's env; both
+allowlists pass it on). The session home is seeded, once (one there is left
+as it is), with a `.gitconfig` of the user's `[user] name/email` alone, as git
+resolves them in the project (`worktree-git`'s `Git::user`,
+`run_ports::git_config`, written by the launcher): a file, not
+`GIT_AUTHOR_*`/`GIT_COMMITTER_*` (they would outrank a repository's own
+user), and nothing else of her git configuration (no signing key, credential
+helper or alias). The session home's `settings.json` calls `ctxloom
 hook claude-code execute <Event>`. The interactive home registers the session,
 turn, message, tool-batch and compaction (`PreCompact`, `PostCompact`) events.
 A one-shot CHILD's home (owner ruling 51) registers the per-turn ones only:

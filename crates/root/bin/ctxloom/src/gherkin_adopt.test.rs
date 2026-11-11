@@ -283,6 +283,15 @@ fn assistant_env_ctxlooms(w: &mut World, name: String, value: String) {
     assert_ne!(env.get(&name), Some(&value), "{name}");
 }
 
+/// Owner ruling 112: claude's HOME is its session home, its config dir.
+#[then("the assistant's HOME was its session home")]
+fn assistant_home_is_session_home(w: &mut World) {
+    let env = assistant_env(w);
+    let home = env.get("HOME").expect("a HOME");
+    assert_eq!(Some(home), env.get("CLAUDE_CONFIG_DIR"));
+    assert!(home.contains("/.ctxloom/sessions/"), "{home}");
+}
+
 #[then("an assistant was launched")]
 fn an_assistant(w: &mut World) {
     assert_ne!(w.launch_record(), "", "no assistant was launched");

@@ -11,8 +11,9 @@
 //! outcome.
 //!
 //! The command's environment is built here and is all it gets: the session
-//! home as `CLAUDE_CONFIG_DIR` (the user's `~/.claude` is never named), and
-//! the caller's variables that are on [`ENV_ALLOWLIST`].
+//! home as `CLAUDE_CONFIG_DIR` and as `HOME` (owner ruling 112; the user's
+//! `~/.claude` is never named), and the caller's variables that are on
+//! [`ENV_ALLOWLIST`].
 
 use std::collections::BTreeMap;
 
@@ -35,11 +36,11 @@ const PROGRAM: &str = "claude";
 /// The variables of the caller's environment a turn is given: how to find
 /// programs, locale and temp space, the proxy and certificate settings a
 /// network needs, the two ways claude is handed a credential, and what the
-/// turn's hook processes need (owner ruling 51): ctxloom's home by name (they
-/// run without `HOME`), the session's harp, and the run's listener (the
-/// endpoint, the bearer, the hook principal's secret, the run and the
-/// listener's public certificate). The user's `HOME` and every other variable
-/// stay behind.
+/// turn's hook processes need (owner ruling 51): ctxloom's home by name (their
+/// `HOME` is the session home, ruling 112), the session's harp, and the run's
+/// listener (the endpoint, the bearer, the hook principal's secret, the run
+/// and the listener's public certificate). The user's `HOME` and every other
+/// variable stay behind.
 pub const ENV_ALLOWLIST: &[&str] = &[
     "PATH",
     "LANG",
@@ -267,9 +268,9 @@ fn grantable(name: &str, interactive: bool) -> bool {
 /// allowlist, on the engine block's `env` and on the configured credential
 /// source: a bounded, enumerable set (the container runtime reads it), never
 /// the whole environment, and
-/// `CLAUDE_CONFIG_DIR` set to the session's home, or to the user's own
-/// directory when the engine block says `session_home: host`. A child is never
-/// given the primary's token.
+/// `CLAUDE_CONFIG_DIR` and `HOME` set to the session's home, or to the user's
+/// own directory and home when the engine block says `session_home: host`. A
+/// child is never given the primary's token.
 fn environment(
     engine: &Claude,
     interactive: bool,
@@ -299,8 +300,11 @@ fn environment(
         .filter(|(name, _)| passes(name))
         .map(|(name, value)| (name.clone(), value.clone()))
         .collect();
-    let config_dir = match settings.session_home {
-        SessionHome::Session => request.home.clone(),
+    // HOME is the session home (owner ruling 112, parity with opencode): what
+    // the engine's tools keep under `~` lands in the session's own directory,
+    // never in the project. Under `session_home: host` it is the user's own.
+    let (home, config_dir) = match settings.session_home {
+        SessionHome::Session => (request.home.clone(), request.home.clone()),
         SessionHome::Host => {
             let home = request
                 .env
@@ -309,9 +313,10 @@ fn environment(
                 .ok_or_else(|| EngineError::NoHostHome {
                     engine: NAME.to_string(),
                 })?;
-            format!("{home}/{}", LOGIN_DIR)
+            (home.clone(), format!("{home}/{}", LOGIN_DIR))
         }
     };
+    env.insert("HOME".to_string(), home);
     env.insert("CLAUDE_CONFIG_DIR".to_string(), config_dir);
     Ok(env)
 }

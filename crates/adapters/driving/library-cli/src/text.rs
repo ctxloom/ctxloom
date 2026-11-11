@@ -564,6 +564,9 @@ pub fn agent_show(out: &mut dyn Write, show: &AgentShow) -> io::Result<()> {
     Ok(())
 }
 
+/// A permission mode nobody set: the engine's own.
+const NO_MODE: &str = "engine default, no mode set";
+
 /// The lines of an agent's settings, each with the layer that said it. A
 /// runtime that replaces another layer's says what it replaced and how the
 /// two differ; a model or effort nobody set says no flag is passed.
@@ -591,11 +594,15 @@ fn settings_lines(out: &mut dyn Write, s: &AgentSettings, indent: &str) -> io::R
             )?,
         }
     }
+    let permissions = if s.permissions.value.is_empty() {
+        NO_MODE
+    } else {
+        s.permissions.value.as_str()
+    };
     writeln!(
         out,
-        "{indent}{}: {} ({})",
+        "{indent}{}: {permissions} ({})",
         key("permissions"),
-        s.permissions.value,
         s.permissions.source
     )?;
     writeln!(
@@ -966,10 +973,17 @@ fn dry_run_settings(
             .unwrap_or("engine default, no flag passed");
         row(out, key, value, place(setting.source, true))?;
     }
+    // No permission mode reaches the engine yet: the row says the mode the
+    // config names, and that it is not passed.
+    let permissions = if s.permissions.value.is_empty() {
+        NO_MODE.to_string()
+    } else {
+        format!("{}, not passed to the engine yet", s.permissions.value)
+    };
     row(
         out,
         "permissions",
-        &s.permissions.value,
+        &permissions,
         place(s.permissions.source, true),
     )?;
     let mut at = place(s.runtime.source, false);

@@ -1021,16 +1021,17 @@ Feature: run — assembling a project's context and handing it to an engine
         | permissions.approval_timeout       | 90s       | permissions                |
         | agents.default.permissions.network | open      | agents.default.permissions |
 
-  # Owner rulings 135, 137: an agent's `agents.<n>.engines.claude-code.
+  # Owner rulings 135, 137, 145: an agent's `agents.<n>.engines.claude-code.
   # permissions` IS claude's own permissions document, copied verbatim and not
-  # checked by ctxloom. It is the `permissions` object of the settings file
-  # ctxloom already hands claude with `--settings` (the session's, which holds
-  # ctxloom's hooks); the hooks stay as ctxloom wrote them. No
+  # checked by ctxloom. It is the `permissions` object of the user-scope
+  # settings of the session's own claude config dir, a file of its own: never
+  # the `--settings` file that holds ctxloom's hooks, because claude refuses a
+  # settings file whole for one invalid value, hooks and all (ruling 145). No
   # `--permission-mode` is passed (ruling 137 retires ruling 116's flag):
   # claude's mode is the document's `defaultMode`. An agent with no block runs
   # on ctxloom's default document for claude, `{defaultMode: acceptEdits}`; a
   # block she writes replaces it whole.
-  Rule: The agent's claude permissions reach claude verbatim, in the settings it is handed
+  Rule: The agent's claude permissions reach claude verbatim, in a settings file apart from ctxloom's hooks
 
     Scenario: A child's turn on the default agent runs on ctxloom's default document
       # new: owner rulings 133, 137 (2026-11-11)

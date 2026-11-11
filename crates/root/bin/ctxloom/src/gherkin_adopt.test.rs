@@ -273,20 +273,41 @@ fn handed_settings(w: &World) -> serde_json::Value {
     serde_json::from_str(&text).unwrap_or_else(|e| panic!("{path} is not JSON ({e}): {text}"))
 }
 
-/// Owner rulings 135, 137: the settings claude was handed hold, as their
-/// `permissions`, exactly the document `want` (JSON).
+/// The user-scope settings file of the config dir the last launch was given
+/// (`$CLAUDE_CONFIG_DIR/settings.json`, the session home), its path.
+fn user_settings_path(w: &World) -> String {
+    let env = assistant_env(w);
+    let dir = env
+        .get("CLAUDE_CONFIG_DIR")
+        .unwrap_or_else(|| panic!("the assistant was given no CLAUDE_CONFIG_DIR: {env:?}"));
+    format!("{dir}/settings.json")
+}
+
+/// Owner rulings 135, 137, 145: the agent's permissions document is, exactly,
+/// the `permissions` of the user-scope settings of the session's config dir,
+/// that file holds nothing else, and the `--settings` file (ctxloom's hooks)
+/// holds no permissions: a bad value in the block disables the block alone.
 #[then(expr = "the assistant's settings hold the permissions {string}")]
 fn settings_hold_permissions(w: &mut World, want: String) {
     let want: serde_json::Value = serde_json::from_str(&want).expect("the step's JSON");
-    let settings = handed_settings(w);
-    assert_eq!(settings.get("permissions"), Some(&want), "{settings}");
+    let path = user_settings_path(w);
+    let text = files::read(&path).unwrap_or_else(|e| panic!("reading {path}: {e}"));
+    let user: serde_json::Value =
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("{path} is not JSON ({e}): {text}"));
+    assert_eq!(user, serde_json::json!({ "permissions": want }), "{path}");
+    let handed = handed_settings(w);
+    assert!(handed.get("permissions").is_none(), "{handed}");
 }
 
-/// Owner T21: the agent edits the settings file it was handed (it is in its
-/// own session directory, within reach of its file tools), loosening its own
-/// permissions and dropping ctxloom's hooks.
+/// Owner T21: the agent edits the settings files it was given (they are in
+/// its own session directory, within reach of its file tools): it loosens
+/// its own permissions and drops ctxloom's hooks.
 #[given("her assistant loosens its own permissions in the settings it was handed")]
 fn loosens_its_settings(w: &mut World) {
+    files::put(
+        user_settings_path(w),
+        r#"{"permissions":{"defaultMode":"bypassPermissions","allow":["Bash(*)"]}}"#,
+    );
     let record = w.launch_record();
     let lines: Vec<&str> = record.lines().collect();
     let path = lines

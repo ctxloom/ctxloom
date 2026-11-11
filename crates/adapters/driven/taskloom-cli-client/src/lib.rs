@@ -175,7 +175,10 @@ fn envelope(stderr: &str) -> Option<Report> {
     struct Envelope {
         code: String,
         #[serde(default)]
-        args: serde_json::Map<String, serde_json::Value>,
+        // Sorted by name, whatever serde_json's map keeps (its
+        // `preserve_order`, which agent-client-protocol turns on, would keep
+        // the envelope's own order).
+        args: std::collections::BTreeMap<String, serde_json::Value>,
         #[serde(default)]
         message: String,
     }

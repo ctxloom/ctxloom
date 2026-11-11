@@ -69,4 +69,8 @@ fn a_lines_keys_are_sorted_whatever_the_map_keeps() {
         "{\"engine\":\"opencode\",\"entry\":{\"content\":\"hi\",\"type\":\"user\"},\"harp\":\"h\",\
          \"kind\":\"entry\",\"seq\":0,\"session_id\":\"s\",\"ts\":\"1970-01-01T00:00:00Z\",\"v\":1}\n"
     );
+    assert_eq!(
+        sorted(serde_json::json!({"z": [{"b": 1, "a": 2}], "a": null})).to_string(),
+        r#"{"a":null,"z":[{"a":2,"b":1}]}"#
+    );
 }

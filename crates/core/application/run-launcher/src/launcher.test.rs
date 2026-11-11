@@ -258,6 +258,26 @@ async fn the_session_home_is_seeded_with_the_users_git_identity_once() {
     );
 }
 
+// Owner ruling 113: an engine that keeps its own state in a home file is
+// handed what the home holds of it (a resumed session's home has it), and the
+// directory it runs in, so it merges its keys in rather than replace the file.
+#[tokio::test]
+async fn an_engine_is_handed_the_home_files_it_merges_into() {
+    use run_ports::SessionRecords;
+    let mut rig = rig(
+        crate::fakes::Merging(ScriptedEngine::answering("A", None)),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    );
+    rig.records.write(HARP, "home/state.json", b"KEPT").unwrap();
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    assert_eq!(
+        rig.records.text(HARP, "home/state.json").as_deref(),
+        Some("KEPT+/work/proj")
+    );
+}
+
 #[tokio::test]
 async fn no_known_git_identity_seeds_no_gitconfig() {
     let mut rig = rig(

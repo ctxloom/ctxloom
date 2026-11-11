@@ -47,6 +47,13 @@ pub struct PrepareRequest {
     /// The home is the human's terminal session's, not a child's turn: the
     /// engine installs its hooks in it.
     pub interactive: bool,
+    /// The directory the engine runs in (the project's), which an engine may
+    /// mark trusted in its own state (owner ruling 113); none, none is.
+    pub cwd: Option<String>,
+    /// What the home holds now of the files [`Engine::merges`] names, by
+    /// their path relative to it; a file not there is absent. The engine
+    /// merges into these instead of replacing them.
+    pub existing: BTreeMap<String, Vec<u8>>,
 }
 
 /// What [`Engine::prepare`] answers: the session home's surfaces.
@@ -231,6 +238,15 @@ pub trait Engine: Send + Sync {
     /// An engine whose hooks report it (claude's SessionEnd) leaves it to them.
     fn session_ends_with_exit(&self) -> bool {
         false
+    }
+
+    /// The home files (relative to it) the engine merges its own keys into
+    /// rather than writes whole, because the engine itself keeps state in
+    /// them (claude's `.claude.json`, owner ruling 113): the launcher reads
+    /// each before [`Engine::prepare`] and hands it in
+    /// [`PrepareRequest::existing`].
+    fn merges(&self) -> &'static [&'static str] {
+        &[]
     }
 }
 

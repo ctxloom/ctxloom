@@ -117,11 +117,14 @@ fn preparing_a_home_writes_the_context_file_it_names() {
             context: "the context".to_string(),
             offered: vec!["settings.json".to_string(), ".credentials.json".to_string()],
             interactive: false,
+            cwd: None,
+            existing: Default::default(),
         })
         .unwrap();
     assert_eq!(prepared.context_path, format!("/h/{CONTEXT_PROMPT_FILE}"));
-    // The context, and the settings that register the turn's hooks.
-    assert_eq!(prepared.files.len(), 2);
+    // The context, the settings that register the turn's hooks, and claude's
+    // own state (ruling 113).
+    assert_eq!(prepared.files.len(), 3);
     assert_eq!(prepared.files[0].rel, CONTEXT_PROMPT_FILE);
     assert_eq!(prepared.files[0].bytes, b"the context");
     // Nothing of the user's own configuration is on the allowlist yet.
@@ -204,6 +207,8 @@ fn prepared(interactive: bool) -> run_ports::Prepared {
             context: "the context".to_string(),
             offered: Vec::new(),
             interactive,
+            cwd: None,
+            existing: Default::default(),
         })
         .unwrap()
 }
@@ -760,4 +765,91 @@ fn a_childs_turn_reads_the_session_dirs_settings_in_both_home_modes() {
 #[test]
 fn test_its_session_end_is_its_hooks_not_its_exit() {
     assert!(!Claude::new().session_ends_with_exit());
+}
+
+/// claude's own state file, `prepare`d for a home whose `.claude.json` holds
+/// `existing` (none: not there), for a session run in `cwd`.
+fn claude_state(existing: Option<&str>, cwd: Option<&str>) -> Option<String> {
+    let prepared = Claude::new()
+        .prepare(&PrepareRequest {
+            home: "/h".to_string(),
+            context: "the context".to_string(),
+            offered: Vec::new(),
+            interactive: true,
+            cwd: cwd.map(String::from),
+            existing: existing
+                .map(|text| {
+                    BTreeMap::from([(".claude.json".to_string(), text.as_bytes().to_vec())])
+                })
+                .unwrap_or_default(),
+        })
+        .unwrap();
+    prepared
+        .files
+        .iter()
+        .find(|file| file.rel == ".claude.json")
+        .map(|file| String::from_utf8(file.bytes.clone()).unwrap())
+}
+
+fn json(text: &str) -> serde_json::Value {
+    serde_json::from_str(text).unwrap()
+}
+
+// Owner ruling 113: a session home's `.claude.json` (claude's state, in its
+// config dir) is seeded with the minimal keys claude 2.1.322 reads: the
+// onboarding done (no theme picker, no security notes) and the session's
+// project directory trusted (no "is this a project you trust?" prompt, whose
+// default is "No, exit"). Verified live in a fresh config dir.
+#[test]
+fn a_fresh_home_is_seeded_with_onboarding_done_and_the_project_trusted() {
+    assert_eq!(Claude::new().merges(), [".claude.json"]);
+    let state = claude_state(None, Some("/p")).expect("seeded");
+    assert_eq!(
+        json(&state),
+        serde_json::json!({
+            "hasCompletedOnboarding": true,
+            "projects": {"/p": {"hasTrustDialogAccepted": true}}
+        })
+    );
+    // No project directory named: the onboarding alone.
+    assert_eq!(
+        json(&claude_state(None, None).unwrap()),
+        serde_json::json!({"hasCompletedOnboarding": true})
+    );
+}
+
+// What claude keeps there itself (a resumed session's home has it) is kept:
+// the two keys are merged in, never the file replaced.
+#[test]
+fn the_seed_merges_into_what_claude_keeps_there() {
+    let existing = r#"{
+  "numStartups": 3,
+  "hasCompletedOnboarding": false,
+  "projects": {
+    "/elsewhere": {"hasTrustDialogAccepted": false},
+    "/p": {"allowedTools": ["Bash"], "hasTrustDialogAccepted": false}
+  },
+  "tipsHistory": {"x": 1}
+}"#;
+    let state = claude_state(Some(existing), Some("/p")).unwrap();
+    assert_eq!(
+        json(&state),
+        serde_json::json!({
+            "numStartups": 3,
+            "hasCompletedOnboarding": true,
+            "projects": {
+                "/elsewhere": {"hasTrustDialogAccepted": false},
+                "/p": {"allowedTools": ["Bash"], "hasTrustDialogAccepted": true}
+            },
+            "tipsHistory": {"x": 1}
+        })
+    );
+}
+
+// A state file that is not a JSON object is claude's to deal with: it is left
+// exactly as it is (the home gets no `.claude.json` to write).
+#[test]
+fn a_state_file_that_is_not_an_object_is_left_as_it_is() {
+    assert_eq!(claude_state(Some("{not json"), Some("/p")), None);
+    assert_eq!(claude_state(Some("[1, 2]"), Some("/p")), None);
 }

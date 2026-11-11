@@ -1248,6 +1248,7 @@ dependencies = [
  "ctxloom-ports",
  "mutants",
  "run-ports",
+ "serde_json",
  "surface-ports",
 ]
 

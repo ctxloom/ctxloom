@@ -464,6 +464,8 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
                 // Nothing of the user's own engine configuration is offered.
                 offered: Vec::new(),
                 interactive: order.interactive,
+                cwd: order.cwd.clone(),
+                existing: Default::default(),
             })
             .map_err(|e| e.to_string())?;
         for file in &prepared.files {

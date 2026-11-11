@@ -187,10 +187,12 @@ impl Deps {
             .read_bundle(&pin.url, &pin.hash, &remote.bundle)?
             .ok_or_else(|| {
                 format!(
-                    "bundle {} not found in {} at {}",
+                    "bundle {} not found in {} at {}: there is no {}/{}/ at that commit",
                     remote.bundle,
                     pin.url,
-                    pin.hash.get(..7).unwrap_or(&pin.hash)
+                    pin.hash.get(..7).unwrap_or(&pin.hash),
+                    deps_ports::BUNDLES_IN_REPOSITORY,
+                    remote.bundle
                 )
             })?;
         if !tree.contains_key("bundle.yaml") {

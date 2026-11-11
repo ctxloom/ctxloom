@@ -180,9 +180,32 @@ fn output_beyond_the_bound_is_discarded_and_said_so() {
     assert_eq!(output.exit.code, Some(0));
 }
 
+/// A helper that holds the command's pipes after it exits, until the file
+/// `release` appears beside the script (or 30 seconds, its own bound), its
+/// pid in `helper`. A program that exits normally is not killed with what it
+/// started (run-within: the descendant may be meant to stay), so the test
+/// lets it go itself.
+const HELD: &str = "d=$(dirname \"$0\")\n\
+    ( i=0; while [ ! -e \"$d/release\" ] && [ \"$i\" -lt 3000 ]; do sleep 0.01; i=$((i+1)); done ) &\n\
+    echo $! > \"$d/helper\"\n";
+
+/// Lets a [`HELD`] helper go when dropped, whether the test passed or not.
+struct Release<'a>(&'a Rooted);
+
+impl Drop for Release<'_> {
+    fn drop(&mut self) {
+        let _ = self.0.write_atomic(
+            &os::fixture("/release"),
+            b"",
+            file_system::Perms::Exact(os::Mode::FILE),
+        );
+    }
+}
+
 #[test]
 fn a_helper_that_outlives_the_command_does_not_hold_the_launch() {
-    let (_dir, command) = program("#!/bin/sh\nsleep 5 &\necho done\n");
+    let (dir, command) = program(&format!("#!/bin/sh\n{HELD}echo done\n"));
+    let release = Release(&dir);
     let mut quick = limits();
     quick.drain_grace = Duration::from_millis(50);
     let started = Instant::now();
@@ -190,6 +213,13 @@ fn a_helper_that_outlives_the_command_does_not_hold_the_launch() {
     assert_eq!(output.stdout, b"done\n");
     assert!(output.drain_incomplete);
     assert!(started.elapsed() < Duration::from_secs(4));
+    let pid = dir.read_to_string(&os::fixture("/helper")).unwrap();
+    assert!(
+        !run_within::process_gone(pid.trim()),
+        "the helper held the pipes"
+    );
+    drop(release);
+    assert!(gone_soon(pid.trim()), "the helper {pid} outlived the test");
 }
 
 #[test]

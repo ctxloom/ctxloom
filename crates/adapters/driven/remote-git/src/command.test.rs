@@ -74,18 +74,49 @@ fn gone_soon(pid: &str) -> bool {
     true
 }
 
+/// A helper that holds git's pipes after git exits, until the file `release`
+/// appears beside the script (or 30 seconds, its own bound), its pid in
+/// `helper`. A git that exits normally is not killed with what it started
+/// (run-within: the descendant may be meant to stay), so the test lets it go
+/// itself.
+const HELD: &str = "d=$(dirname \"$0\")\n\
+    ( i=0; while [ ! -e \"$d/release\" ] && [ \"$i\" -lt 3000 ]; do sleep 0.01; i=$((i+1)); done ) &\n\
+    echo $! > \"$d/helper\"\n";
+
+/// Lets a [`HELD`] helper in this directory go when dropped, whether the
+/// test passed or not.
+struct Release(std::path::PathBuf);
+
+impl Drop for Release {
+    fn drop(&mut self) {
+        let _ = fs().write_atomic(
+            &self.0.join("release"),
+            b"",
+            file_system::Perms::Exact(os::Mode::FILE),
+        );
+    }
+}
+
 #[test]
 fn a_helper_that_outlives_a_finished_git_does_not_hold_the_caller() {
     if !runs_scripts() {
         return;
     }
-    let (dir, _) = stub("#!/bin/sh\nsleep 5 &\necho fetched\n");
+    let (dir, _) = stub(&format!("#!/bin/sh\n{HELD}echo fetched\n"));
+    let release = Release(dir.root().to_path_buf());
     let git = Git::new(dir.root().join("git"), Duration::from_secs(30), env())
         .drain_grace(Duration::from_millis(50));
     let started = Instant::now();
     let out = git.run(Some(dir.root()), &["fetch"], None).unwrap();
     assert_eq!(out, b"fetched\n");
     assert!(started.elapsed() < Duration::from_secs(4));
+    let pid = slurp(dir.root().join("helper"));
+    assert!(
+        !run_within::process_gone(pid.trim()),
+        "the helper held the pipes"
+    );
+    drop(release);
+    assert!(gone_soon(pid.trim()), "the helper {pid} outlived the test");
 }
 
 #[test]

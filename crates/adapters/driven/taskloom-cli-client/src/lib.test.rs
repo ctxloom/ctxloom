@@ -509,14 +509,47 @@ fn a_helper_that_never_goes_is_a_survivor_at_the_bound() {
     assert!(started.elapsed() >= Duration::from_millis(30));
 }
 
+/// A helper that holds the taskloom's pipes after it exits, until the file
+/// `release` appears beside the script (or 30 seconds, its own bound), its
+/// pid in `helper`. A program that exits normally is not killed with what it
+/// started (run-within: the descendant may be meant to stay), so the test
+/// lets it go itself.
+const HELD: &str = "d=$(dirname \"$0\")\n\
+    ( i=0; while [ ! -e \"$d/release\" ] && [ \"$i\" -lt 3000 ]; do sleep 0.01; i=$((i+1)); done ) &\n\
+    echo $! > \"$d/helper\"\n";
+
+/// Lets a [`HELD`] helper go when dropped, whether the test passed or not.
+struct Release<'a>(&'a Rooted);
+
+impl Drop for Release<'_> {
+    fn drop(&mut self) {
+        let _ = self.0.write_atomic(
+            &os::fixture("/release"),
+            b"",
+            file_system::Perms::Exact(os::Mode::FILE),
+        );
+    }
+}
+
 #[test]
 fn a_helper_that_outlives_taskloom_does_not_hold_the_caller() {
     if !runs_scripts() {
         return;
     }
-    let (_dir, cli) = stub("#!/bin/sh\nsleep 5 &\necho '[]'\n");
+    let (dir, cli) = stub(&format!("#!/bin/sh\n{HELD}echo '[]'\n"));
+    let release = Release(&dir);
     let cli = cli.with_drain_grace(Duration::from_millis(50));
     let started = std::time::Instant::now();
     assert_eq!(cli.deferred().unwrap(), vec![]);
     assert!(started.elapsed() < Duration::from_secs(4));
+    let pid = read(&dir, "helper");
+    assert!(
+        !run_within::process_gone(pid.trim()),
+        "the helper held the pipes"
+    );
+    drop(release);
+    assert!(
+        gone_within(pid.trim(), GONE_BOUND, run_within::process_gone),
+        "the helper {pid} outlived the test"
+    );
 }

@@ -18,7 +18,7 @@ use session_index::{Retained, Retention, SessionRecord};
 use session_ports::{Liveness, LockState, ProjectStores, SessionFiles};
 use sessions::{
     claim_root, validate_rename, BindEngineSession, ClaimName, NameClaimAggregate,
-    NameClaimCommand, ReleaseName, RenameSession, SessionAggregate, SessionCommand,
+    NameClaimCommand, ReleaseName, RenameSession, SessionAggregate, SessionCommand, SessionRef,
     SessionRejection, SetKept, NAMES_DOMAIN, SESSION_DOMAIN,
 };
 
@@ -376,6 +376,7 @@ where
                 roots.push((runs::RUN_DOMAIN, run));
             }
         }
+        self.unlink(project, record).await?;
         let store = self.read.stores.open(project).await.map_err(failed)?;
         for (domain, root) in roots {
             removal.events_destroyed += purge(store, StreamRef::main(domain, root)).await?;
@@ -388,6 +389,69 @@ where
         removal.applied = true;
         removal.dead_letters = std::mem::take(self.dead_letters);
         Ok(removal)
+    }
+
+    /// Before a destroy's purge (rulings 94, 98; D28 K3, M3): a purge emits
+    /// no event, so each child `record` holds is closed and its owner forgets
+    /// it first, each a keyed command (`owner-destroyed:<session>:<child>`,
+    /// `destroy:<session>`) in the store of the project it names (D19). A
+    /// project with no store here is passed over, as is a refusal (a child
+    /// already destroyed holds no session): either way nothing is left to
+    /// tell.
+    async fn unlink(&mut self, project: &Project, record: &SessionRecord) -> Result<(), AppError> {
+        let target = SessionRef {
+            project_id: project.id.clone(),
+            session: record.id.clone(),
+        };
+        let plan = session_policies::destroy(&target, record.owner.as_ref(), &record.children);
+        let close = plan
+            .close
+            .iter()
+            .map(|keyed| (keyed.project_id.clone(), keyed.book(), keyed.command_id()));
+        let forget = plan
+            .forget
+            .iter()
+            .map(|keyed| (keyed.project_id.clone(), keyed.book(), keyed.command_id()));
+        for (project_id, book, command_id) in close.chain(forget).collect::<Vec<_>>() {
+            let Some(there) = self.project_named(project, &project_id)? else {
+                continue;
+            };
+            let Some(store) = self
+                .read
+                .stores
+                .open_existing(&there)
+                .await
+                .map_err(failed)?
+            else {
+                continue;
+            };
+            let mut runner = Runner {
+                registry: self.read.registry,
+                clock: &mut Port(&mut *self.clock),
+                delay: &mut Port(&mut *self.delay),
+                retry: self.retry,
+                dead_letters: &mut *self.dead_letters,
+            };
+            // A refusal (no such session any more) is passed over.
+            let _refused =
+                typed::run::<SessionAggregate, _, _, _>(&mut runner, store, book, &command_id)
+                    .await?;
+        }
+        Ok(())
+    }
+
+    /// The project `id` names: `here`, or another of this user's.
+    fn project_named(&mut self, here: &Project, id: &str) -> Result<Option<Project>, AppError> {
+        if here.id == id {
+            return Ok(Some(here.clone()));
+        }
+        Ok(self
+            .read
+            .identity
+            .every_project()
+            .map_err(AppError::Identity)?
+            .into_iter()
+            .find(|project| project.id == id))
     }
 
     /// What removing `harp` destroys of its files: the whole directory, the

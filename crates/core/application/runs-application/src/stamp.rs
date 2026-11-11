@@ -4,7 +4,9 @@
 //! it. The daemon's listener (a later part) calls this on each command its
 //! orchestration scope admits; nothing reads a requester from a payload.
 
-use sessions::{SessionCommand, SessionRef};
+use sessions::{
+    ClearChild, CloseSession, LaunchChild, SendMessage, SessionCommand, SessionRef, StopSession,
+};
 
 use crate::identity::Identity;
 
@@ -26,8 +28,19 @@ impl Identity {
 /// owner rule guards (close, send, clear, launch, stop); any other command as
 /// it was.
 pub fn stamped(command: SessionCommand, requester: &SessionRef) -> SessionCommand {
-    let _ = requester;
-    command
+    let requester = Some(requester.clone());
+    match command {
+        SessionCommand::CloseSession(close) => CloseSession { requester, ..close }.into(),
+        SessionCommand::SendMessage(send) => SendMessage { requester, ..send }.into(),
+        SessionCommand::ClearChild(clear) => ClearChild { requester, ..clear }.into(),
+        SessionCommand::LaunchChild(launch) => LaunchChild {
+            requester,
+            ..launch
+        }
+        .into(),
+        SessionCommand::StopSession(stop) => StopSession { requester, ..stop }.into(),
+        other => other,
+    }
 }
 
 #[cfg(test)]

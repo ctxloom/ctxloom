@@ -1516,13 +1516,14 @@ fn at_session(project: &str, id: u8) -> sessions::SessionRef {
 }
 
 /// Session `owner` (of HERE) launches session `child` of `child_project`,
-/// which is minted for it, finished as `finished` leaves one.
+/// which is minted for it, finished as `finished` leaves one (each command at
+/// its own second: the fake keys a command by its second).
 fn launched_child(svc: &mut Svc, owner: u8, child: u8, child_project: &str, harp: &str) {
     let store = svc.stores.stores.get(HERE).unwrap();
     crate::fakes::run(
         store,
         owner,
-        NOW - 70 * DAY + 30,
+        NOW - 70 * DAY + 30 + i64::from(child) * 3,
         sessions::LaunchChild {
             child_project_id: child_project.to_string(),
             child_session: id_text(child),
@@ -1545,7 +1546,7 @@ fn launched_child(svc: &mut Svc, owner: u8, child: u8, child_project: &str, harp
     crate::fakes::run(
         store,
         child,
-        NOW - 70 * DAY + 40,
+        NOW - 70 * DAY + 31 + i64::from(child) * 3,
         sessions::MintSession {
             harp: harp.to_string(),
             project_id: child_project.to_string(),
@@ -1558,7 +1559,12 @@ fn launched_child(svc: &mut Svc, owner: u8, child: u8, child_project: &str, harp
             owner: Some(at_session(HERE, owner)),
         },
     );
-    ended(store, child, NOW - 70 * DAY + 50, NOW - 60 * DAY);
+    ended(
+        store,
+        child,
+        NOW - 70 * DAY + 32 + i64::from(child) * 3,
+        NOW - 60 * DAY,
+    );
     svc.liveness.0.insert(harp.to_string(), LockState::Free);
     svc.files.last_active.insert(
         harp.to_string(),

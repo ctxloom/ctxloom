@@ -452,3 +452,25 @@ fn test_a_shadowed_built_in_name_is_not_added() {
     assert!(!cat.is_builtin("ctxloom"));
     assert!(cat.lookup("ctxloom").is_err());
 }
+
+// A reference that selects an item (`#<kind>/<name>`) names no bundle:
+// `lookup` refuses it in every spelling (it once dropped the selector of a
+// canonical reference and answered the whole bundle, the trap behind handtest
+// D1), saying it is an item reference; `lookup_item` is its own path.
+#[test]
+fn test_lookup_refuses_an_item_reference_in_every_spelling() {
+    let cat = installed_catalog();
+    for ask in [
+        "alpha#fragments/rules",
+        "ctxloom+local:alpha#fragments/rules",
+        "ctxloom+file:///srv/o.git//bundles/kit#fragments/x",
+        "ctxloom+file:///srv/o.git//bundles/kit@v1.0.0#mcp/db",
+    ] {
+        let err = cat.lookup(ask).expect_err(ask);
+        assert_eq!(
+            angzarr_diagnostic::Diagnostic::code(&err),
+            "library-catalog-item-not-bundle",
+            "{ask}"
+        );
+    }
+}

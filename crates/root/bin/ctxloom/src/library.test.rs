@@ -273,7 +273,25 @@ impl Project {
         self.spawn(dir, &[], args)
     }
 
+    /// As [`run_with`](Project::run_with), started and not waited for: its
+    /// output piped, for the caller to wait for.
+    pub(crate) fn start_with(&self, env: &[(&str, &str)], args: &[&str]) -> std::process::Child {
+        let mut all = vec![("CTXLOOM_ROOT", self.project.to_str().expect("utf-8"))];
+        all.extend_from_slice(env);
+        self.process(&self.project, &all, args)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("ctxloom starts")
+    }
+
     fn spawn(&self, cwd: &Path, env: &[(&str, &str)], args: &[&str]) -> Ran {
+        Ran::of(self.process(cwd, env, args).output().expect("ctxloom runs"))
+    }
+
+    /// `ctxloom args` from `cwd`, in the project's home, with `env`.
+    fn process(&self, cwd: &Path, env: &[(&str, &str)], args: &[&str]) -> Command {
         let mut command = Command::new(binary());
         command
             .args(args)
@@ -290,7 +308,7 @@ impl Project {
         for (name, value) in env {
             command.env(name, value);
         }
-        Ran::of(command.output().expect("ctxloom runs"))
+        command
     }
 
     /// What a run printed with the project's and the home's paths written

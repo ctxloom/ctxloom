@@ -19,9 +19,15 @@
 //! [`HostLauncher::stopped_by`] ends it: only the DIRECT child is killed, not
 //! its descendants. Unix is what is tested; macOS and Windows are not.
 //!
+//! The same [`Stop`] ends a turn (ruling 114): its whole process tree is
+//! asked to stop (SIGTERM to its group), given `run-within`'s stop grace
+//! (five seconds) to exit, then killed, so a caller that heard a signal asking
+//! it to stop leaves no engine behind.
+//!
 //! Limits (`run-within`'s): a descendant of a turn that calls `setsid` or
 //! `setpgid` escapes the kill, and a turn runs in a process group of its own,
-//! so a Ctrl-C at the terminal does not reach it.
+//! so a Ctrl-C at the terminal does not reach it: the caller hears it and
+//! requests the [`Stop`].
 
 use std::cell::Cell;
 use std::sync::mpsc;
@@ -29,7 +35,7 @@ use std::thread::JoinHandle;
 
 use run_ports::{Exit, LaunchFailure, Limits, RunnerLauncher, Running, TurnCommand, TurnOutput};
 pub use run_within::Stop;
-use run_within::{run_terminal, run_within_started, RunError, Spec, Within};
+use run_within::{run_terminal, run_within_stopped_by, RunError, Spec, Within};
 
 /// Launches a command on this host.
 #[derive(Clone, Debug, Default)]
@@ -38,7 +44,9 @@ pub struct HostLauncher {
 }
 
 impl HostLauncher {
-    /// A launcher whose terminal sessions end when `stop` is requested.
+    /// A launcher whose turns and terminal sessions end when `stop` is
+    /// requested: a turn's tree asked to stop, then killed after the grace; a
+    /// terminal session's direct child killed.
     pub fn stopped_by(stop: Stop) -> HostLauncher {
         HostLauncher { stop }
     }
@@ -125,6 +133,8 @@ fn exit_of(status: std::process::ExitStatus) -> Exit {
 }
 
 impl RunnerLauncher for HostLauncher {
+    // Its only mutant, a Default `Running`, does not type-check.
+    #[cfg_attr(test, mutants::skip)]
     fn launch(
         &self,
         command: &TurnCommand,
@@ -134,8 +144,9 @@ impl RunnerLauncher for HostLauncher {
         let within = Within::new(limits.deadline)
             .drain_grace(limits.drain_grace)
             .max_bytes(limits.max_bytes);
+        let stop = self.stop.clone();
         spawn_on_thread(move |started| {
-            run_within_started(&spec, &within, started).map(|outcome| TurnOutput {
+            run_within_stopped_by(&spec, &within, &stop, started).map(|outcome| TurnOutput {
                 exit: outcome.status.map_or(
                     Exit {
                         code: None,

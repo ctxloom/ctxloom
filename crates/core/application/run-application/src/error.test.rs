@@ -88,6 +88,19 @@ fn what_cannot_be_run_is_refused_and_what_went_wrong_in_a_run_failed() {
     }
 }
 
+// A run a signal stopped (ruling 114) exits as a shell reports a process that
+// signal ended, and says which signal it was.
+#[test]
+fn a_run_stopped_by_a_signal_exits_with_its_status_and_names_it() {
+    let stopped = RunError::Stopped {
+        signal: "SIGHUP".to_string(),
+        status: 129,
+    };
+    assert_eq!(stopped.exit_code(), 129);
+    assert_eq!(stopped.code(), "run-application-stopped");
+    assert!(matches!(&stopped.args()[..], [("signal", Arg::Str(s))] if s == "SIGHUP"));
+}
+
 #[test]
 fn each_turn_failure_class_has_a_code_of_its_own() {
     let code_of = |class| {

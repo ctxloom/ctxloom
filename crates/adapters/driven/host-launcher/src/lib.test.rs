@@ -395,6 +395,34 @@ fn a_requested_stop_kills_the_terminal_sessions_direct_child() {
     assert!(began.elapsed() < Duration::from_secs(20));
 }
 
+// A stop requested from outside ends a turn too (ruling 114): its tree is
+// asked to stop (SIGTERM), not killed outright, and the turn is over long
+// before its deadline. Forced, not waited for: the stop is requested once the
+// spawn is heard; a SIGTERM before the script's `exec` ends the shell the same
+// way.
+#[test]
+fn a_requested_stop_asks_a_turns_tree_to_stop() {
+    let (_dir, mut command) = program("#!/bin/sh\nexec sleep 30\n");
+    command
+        .env
+        .insert("PATH".to_string(), "/usr/bin:/bin".to_string());
+    let stop = Stop::new();
+    let launcher = HostLauncher::stopped_by(stop.clone());
+    let running = launcher.launch(&command, &limits()).unwrap();
+    let began = Instant::now();
+    stop.request();
+    let output = running.finish().unwrap();
+    assert_eq!(
+        output.exit,
+        Exit {
+            code: None,
+            signal: Some(15)
+        }
+    );
+    assert!(!output.timed_out);
+    assert!(began.elapsed() < Duration::from_secs(20));
+}
+
 // --- inherited stdio, proved in a process whose stdio the test owns (a test
 // process has no terminal to give)
 

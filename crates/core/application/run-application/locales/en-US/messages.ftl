@@ -14,3 +14,4 @@ run-application-engine-failed = the engine failed: { $detail }
 run-application-interrupted = the turn was interrupted: { $detail }
 run-application-empty-answer = the engine answered nothing
 run-application-not-ended = the run { $run } did not end
+run-application-stopped = the run was stopped by { $signal }: its engine was stopped and the run's end recorded

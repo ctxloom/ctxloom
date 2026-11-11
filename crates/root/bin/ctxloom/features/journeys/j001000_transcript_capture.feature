@@ -129,3 +129,21 @@ Feature: Cross-engine transcript capture — every engine's conversation becomes
       """
     Then the assistant's reply is printed
     And the session's transcript holds no prompt and no words of the assistant's
+
+  # Ruling 114: a ctxloom asked to stop while its assistant works (a SIGTERM,
+  # a SIGHUP, or a SIGINT for a one-shot) passes the stop on to the assistant,
+  # gives it a bounded grace to exit, records the session's end and exits as
+  # a shell reports the signal, instead of dying and leaving the assistant
+  # working with no one listening.
+  Scenario: A one-shot asked to stop stops its assistant first and ends its session
+    # new: signal forwarding, with a stub engine on PATH.
+    Given Alice has a project that has never used ctxloom
+    And Alice has exported her assistant's token
+    And Alice has set ctxloom up in her project
+    When Alice asks her assistant one thing, and stops ctxloom with a SIGTERM while the assistant works:
+      """
+      ctxloom run --one-shot "Run the shell command: sleep 30"
+      """
+    Then the assistant was asked to stop, and was gone before ctxloom exited
+    And ctxloom exited 143, saying the run was stopped by SIGTERM
+    And after it ended, its session is listed as ended under its own name

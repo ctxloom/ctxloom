@@ -47,16 +47,22 @@ pub enum RunError {
     EmptyAnswer,
     /// The launch ended with no end to the run in the stream.
     NotEnded { run: String },
+    /// A signal asked ctxloom to stop while the run went on (ruling 114): the
+    /// engine was stopped, the run's end recorded, and the process exits with
+    /// `status`, the one a shell gives a process `signal` ended.
+    Stopped { signal: String, status: u8 },
 }
 
 impl RunError {
     /// The process exit code: what `PlanError` says for its own, 3 for a
     /// refusal with the plan's fatal findings among its failures (ruling 73a:
     /// the most severe wins), 2 for a refusal before anything ran (an ask
-    /// that cannot be run, a refusal of the kernel), 1 otherwise.
+    /// that cannot be run, a refusal of the kernel), the signal's status for a
+    /// run a signal stopped (128 plus its number), 1 otherwise.
     pub fn exit_code(&self) -> u8 {
         match self {
             RunError::Plan(error) => error.exit_code(),
+            RunError::Stopped { status, .. } => *status,
             RunError::Refused(RunRejection::LaunchRefused { fatal_findings, .. })
                 if *fatal_findings > 0 =>
             {
@@ -121,6 +127,7 @@ impl Diagnostic for RunError {
             },
             RunError::EmptyAnswer => code!("empty-answer"),
             RunError::NotEnded { .. } => code!("not-ended"),
+            RunError::Stopped { .. } => code!("stopped"),
         }
     }
 
@@ -141,6 +148,7 @@ impl Diagnostic for RunError {
                 vec![("detail", detail.as_str().into())]
             }
             RunError::NotEnded { run } => vec![("run", run.as_str().into())],
+            RunError::Stopped { signal, .. } => vec![("signal", signal.as_str().into())],
         }
     }
 }
@@ -178,6 +186,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(RunError::EmptyAnswer),
         Box::new(RunError::NotEnded {
             run: "r".to_string(),
+        }),
+        Box::new(RunError::Stopped {
+            signal: "SIGTERM".to_string(),
+            status: 143,
         }),
     ]
 }

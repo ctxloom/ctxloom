@@ -35,6 +35,18 @@ Feature: run — assembling a project's context and handing it to an engine
   opencode scenario at the end, whose scripted engine records what it was
   launched with and exits.
 
+  A RUN ASKED TO STOP STOPS ITS ENGINE FIRST (ruling 114). For the whole run
+  ctxloom hears SIGHUP, SIGINT and SIGTERM, so none ends it by its default
+  and leaves the engine working with no one listening. A one-shot stops on
+  any of the three: the turn's process tree is asked to stop (SIGTERM),
+  given five seconds, then killed. The session stops on SIGHUP or SIGTERM:
+  its engine (the direct child) is killed; a SIGINT is the terminal's Ctrl-C,
+  which reaches the engine itself, and ctxloom lets it pass. Either way the
+  run's end is recorded as for any engine that exited, and the command exits
+  with 128 plus the signal's number (129, 130, 143), the error
+  `run-application-stopped` naming the signal. j001000 proves the one-shot's
+  SIGTERM end to end.
+
   EVERY OTHER SCENARIO HERE DRIVES THE MOCK ENGINE, never a real one. That is not a
   compromise — it is what makes the full path OBSERVABLE. The mock records the
   setup payload that actually crossed the launch wire, so a scenario can assert

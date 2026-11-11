@@ -10,6 +10,13 @@
 //!   placement under the home and the [`ProjectStores`] port. A store from
 //!   before the embedded store is refused ([`OpenError::PredatesEmbedded`]).
 //! - Errors are the opener's and the project id's, each under its own code.
+//! - A store is closed, never dropped, where its file matters after (ruling
+//!   131): [`SqliteStore::close`] waits for the connection's close, so when
+//!   it returns the file holds every commit with no log beside it. A store
+//!   dropped instead is closed on the driver's thread whenever that runs,
+//!   which a process that exits first never lets it do. [`SqliteStores`]
+//!   closes a store it gives up for another, and [`SqliteStores::close`] the
+//!   one it holds; whoever [`Stores::open`]s one closes it.
 
 mod error;
 
@@ -91,7 +98,9 @@ impl Stores {
 /// [`SqliteStores::open`] opens it to write, making its directory and file
 /// (migrated if need be); [`SqliteStores::open_existing`] opens it read-only
 /// and never creates it, finding no store where there is no file. A store
-/// held to write serves a read.
+/// held to write serves a read. A store given up for another (another
+/// project's, or a read's reopened to write) is closed before the next is
+/// opened, and [`SqliteStores::close`] closes the one held (ruling 131).
 pub struct SqliteStores {
     stores: Stores,
     held: Option<Held>,
@@ -113,20 +122,40 @@ impl SqliteStores {
             held: None,
         }
     }
+
+    /// Close the store held, if any, and wait for it (ruling 131): when this
+    /// returns its file holds every commit, with no log beside it (a write's
+    /// close is the last read-write one, which checkpoints the log and
+    /// removes it; a read's connection is read-only, which SQLite never lets
+    /// remove an empty log). Nothing is held after; a later open opens anew.
+    pub async fn close(&mut self) -> Result<(), StoreError> {
+        match self.held.take() {
+            Some(held) => release(held).await,
+            None => Ok(()),
+        }
+    }
+}
+
+/// `held`, closed and waited for: a store given up (for another, or by
+/// [`SqliteStores::close`]) is done with its file before anything else is.
+async fn release(held: Held) -> Result<(), StoreError> {
+    let _ = held;
+    todo!("ruling 131: close the store given up and wait")
 }
 
 impl ProjectStores for SqliteStores {
     type Store = SqliteStore;
 
     /// The project's store, opened to write: its directory and file made and
-    /// migrated if need be. Held after.
+    /// migrated if need be. Held after; a store held for another project, or
+    /// read-only, is closed first.
     async fn open(&mut self, project: &Project) -> Result<&SqliteStore, StoreError> {
-        let held = self
-            .held
-            .take()
-            .filter(|h| h.project == project.id && h.writable);
-        if let Some(held) = held {
-            return Ok(&self.held.insert(held).store);
+        match self.held.take() {
+            Some(held) if held.project == project.id && held.writable => {
+                return Ok(&self.held.insert(held).store);
+            }
+            Some(other) => release(other).await?,
+            None => {}
         }
         let store = self
             .stores
@@ -144,13 +173,18 @@ impl ProjectStores for SqliteStores {
     }
 
     /// The project's store, held or opened read-only; `None` if there is no
-    /// file, and nothing is made.
+    /// file, and nothing is made. Another project's store held is closed
+    /// first.
     async fn open_existing(
         &mut self,
         project: &Project,
     ) -> Result<Option<&SqliteStore>, StoreError> {
-        if let Some(held) = self.held.take().filter(|h| h.project == project.id) {
-            return Ok(Some(&self.held.insert(held).store));
+        match self.held.take() {
+            Some(held) if held.project == project.id => {
+                return Ok(Some(&self.held.insert(held).store));
+            }
+            Some(other) => release(other).await?,
+            None => {}
         }
         let Some(store) = self.stores.open_existing(&project.id).await? else {
             return Ok(None);

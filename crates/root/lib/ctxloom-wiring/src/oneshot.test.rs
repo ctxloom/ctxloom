@@ -171,6 +171,10 @@ async fn the_core_serves_the_catalog_of_its_domains() {
             .any(|d| d == sessions::SESSION_DOMAIN),
         "the sessions domain is registered"
     );
+    // Closed, not dropped (ruling 131), once the core is let go.
+    let closer = core.closer();
+    drop(core);
+    closer.close().await.unwrap();
 }
 
 // Owner ruling 2026-11-08: the engine is given ctxloom's home by name. The

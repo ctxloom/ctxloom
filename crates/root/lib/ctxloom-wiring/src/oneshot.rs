@@ -10,10 +10,10 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::CoreStores;
 use angzarr_diagnostic::Report;
 use angzarr_embedded::angzarr_store_sqlite::SqliteStore;
 use angzarr_embedded::Catalog;
-use angzarr_embedded_host::stores::OneStore;
 use credentials::OsTokenSource;
 use ctxloom_store_sqlite::Stores;
 use embedded_edge::EmbeddedEdge;
@@ -35,14 +35,17 @@ use session_files::SessionDirs;
 use system::System;
 
 use crate::signals::{self, Heard};
-use crate::{InProcessCore, Wiring};
+use crate::{Closer, InProcessCore, Wiring};
 
 /// How long one turn has before its command, and everything it started, is
 /// killed.
 pub(crate) const TURN_DEADLINE: Duration = Duration::from_secs(30 * 60);
 
+/// The run use cases as this process wires them.
+type TheRuns = Runs<InProcessCore<SqliteStore>, OsTokenSource, HostLauncher, SessionDirs>;
+
 impl Core for InProcessCore<SqliteStore> {
-    type Edge = EmbeddedEdge<OneStore<SqliteStore>>;
+    type Edge = EmbeddedEdge<CoreStores<SqliteStore>>;
     type Store = SqliteStore;
 
     fn edge(&self) -> Arc<Self::Edge> {
@@ -108,14 +111,14 @@ impl<'a> OneShots<'a> {
         self
     }
 
-    /// The use case over the project the process is in.
+    /// The use case over the project the process is in, and what closes its
+    /// store once the use case is let go (ruling 131).
     async fn assemble(
         &self,
         library: Library,
         output_dir: &str,
         stop: host_launcher::Stop,
-    ) -> Result<Runs<InProcessCore<SqliteStore>, OsTokenSource, HostLauncher, SessionDirs>, RunError>
-    {
+    ) -> Result<(TheRuns, Closer<SqliteStore>), RunError> {
         let wiring = self.wiring;
         let env = wiring.env();
         let environment = Environment {
@@ -137,6 +140,7 @@ impl<'a> OneShots<'a> {
             .await
             .map_err(|e| unmade(&e))?;
         let core = InProcessCore::start(store).await;
+        let closer = core.closer();
         let project_dir = wiring.project_dir();
         let orders = Arc::new(Orders::new());
         let claude: Arc<dyn Engine> = Arc::new(engine_claude::Claude::new());
@@ -157,7 +161,7 @@ impl<'a> OneShots<'a> {
         let hooks = Box::new(Hooks { edge: core.edge() });
         let enqueuer = Enqueuer::new(core.edge(), Arc::new(OsTokenSource));
         let output_root = output_root(&project_dir, output_dir);
-        Ok(Runs::new(Parts {
+        let runs = Runs::new(Parts {
             core,
             planner: Box::new(library),
             identity: Box::new(Told(project)),
@@ -183,7 +187,8 @@ impl<'a> OneShots<'a> {
             locks: Box::new(liveness::LockFiles::new(wiring.fs(), project_dir.clone())),
             run_locks,
             git_user: git_user(wiring, &project_dir),
-        }))
+        });
+        Ok((runs, closer))
     }
 }
 
@@ -343,9 +348,7 @@ impl OneShots<'_> {
         &mut self,
         flags: &Flags,
         stop_on: &'static [os::Signal],
-        use_case: impl AsyncFnOnce(
-            &mut Runs<InProcessCore<SqliteStore>, OsTokenSource, HostLauncher, SessionDirs>,
-        ) -> Done<T>,
+        use_case: impl AsyncFnOnce(&mut TheRuns) -> Done<T>,
     ) -> Done<T> {
         let refused = |reason: String| Done {
             result: Err(RunError::Session(CoreError::Failed { reason })),
@@ -386,7 +389,19 @@ impl OneShots<'_> {
                 }
             };
             let mut done = match self.assemble(library, &output_dir, stop).await {
-                Ok(mut runs) => use_case(&mut runs).await,
+                Ok((mut runs, closer)) => {
+                    let mut done = use_case(&mut runs).await;
+                    // The use case, its core and every edge let go, the store
+                    // is closed before the process exits (ruling 131). The
+                    // run is over and its facts committed, so a close that
+                    // fails is said, and the run's answer stands.
+                    drop(runs);
+                    if let Err(unclosed) = closer.close().await {
+                        done.notices
+                            .push(library_application::Notice::text(unclosed.to_string()));
+                    }
+                    done
+                }
                 Err(error) => Done {
                     result: Err(error),
                     notices: Vec::new(),

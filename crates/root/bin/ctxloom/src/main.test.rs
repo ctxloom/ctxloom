@@ -296,6 +296,9 @@ mod post_tool_hooks;
 #[path = "session_start.test.rs"]
 mod session_start;
 
+#[path = "store_close.test.rs"]
+mod store_close;
+
 #[path = "surfaces.test.rs"]
 mod surfaces;
 

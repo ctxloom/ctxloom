@@ -31,7 +31,7 @@ impl TokenSource for Counting {
 }
 
 type Core = InProcessCore<FaultyStore<MemoryStore>>;
-type TheEdge = EmbeddedEdge<angzarr_embedded_host::stores::OneStore<FaultyStore<MemoryStore>>>;
+type TheEdge = EmbeddedEdge<crate::CoreStores<FaultyStore<MemoryStore>>>;
 
 struct World {
     core: Core,
@@ -394,4 +394,64 @@ async fn the_core_serves_the_catalog_of_its_registered_domains() {
         .catalog()
         .domains()
         .any(|d| d == sessions::SESSION_DOMAIN));
+}
+
+// ------------------------------------------------ the store closed (ruling 131)
+//
+// A run's store is closed once the core and every edge taken from it are let
+// go, so the run exits with its log checkpointed into the file. Looked at the
+// moment the close returns, with no wait; the RED stub panics, so these fail
+// without timing.
+
+/// A project's real store under a temporary home, and what is beside its
+/// file there.
+async fn sqlite_core() -> (
+    Arc<file_system::Rooted>,
+    InProcessCore<angzarr_embedded::angzarr_store_sqlite::SqliteStore>,
+) {
+    let fs = Arc::new(file_system::Rooted::temp().unwrap());
+    let store = ctxloom_store_sqlite::Stores::new(fs.clone(), "/home/u")
+        .open("calm-otter")
+        .await
+        .unwrap();
+    (fs, InProcessCore::start(store).await)
+}
+
+fn beside(fs: &file_system::Rooted) -> Vec<&'static str> {
+    use file_system::Fs;
+    let dir = std::path::Path::new("/home/u/.ctxloom/projects/calm-otter");
+    ["ctxloom.db-wal", "ctxloom.db-shm"]
+        .into_iter()
+        .filter(|name| fs.exists(&dir.join(name)).unwrap())
+        .collect()
+}
+
+#[tokio::test]
+async fn test_the_core_s_store_is_closed_once_the_core_is_let_go() {
+    let (fs, core) = sqlite_core().await;
+    let closer = core.closer();
+    let edge = core.edge();
+    drop(core);
+    drop(edge);
+    closer.close().await.unwrap();
+    assert_eq!(beside(&fs), Vec::<&str>::new(), "closed: nothing beside");
+}
+
+#[tokio::test]
+async fn test_a_core_s_store_still_held_is_not_closed() {
+    let (_fs, core) = sqlite_core().await;
+    let closer = core.closer();
+    // The edge still holds the application, and so the store.
+    let edge = core.edge();
+    drop(core);
+    let unclosed = closer.close().await;
+    assert!(
+        matches!(unclosed, Err(crate::Unclosed::Held)),
+        "{unclosed:?}"
+    );
+    assert_eq!(
+        crate::Unclosed::Held.to_string(),
+        "the run's store is still held, and was not closed"
+    );
+    drop(edge);
 }

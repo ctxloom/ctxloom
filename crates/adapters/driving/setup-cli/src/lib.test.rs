@@ -547,8 +547,10 @@ fn init_prompt_does_not_guide() {
     assert_eq!(r.err, "");
 }
 
+// Owner rulings 110, 111: a new project's default content is built in, so
+// a first init pulls nothing and says nothing of pulling.
 #[test]
-fn init_of_a_new_project_says_what_it_made_and_pulled() {
+fn init_of_a_new_project_says_what_it_made_and_pulls_nothing() {
     let r = go(&["init"], Format::Text, |world, fixture| {
         world.fresh.store(true, std::sync::atomic::Ordering::SeqCst);
         let url = "file:///srv/origin.git";
@@ -556,10 +558,7 @@ fn init_of_a_new_project_says_what_it_made_and_pulled() {
         fixture.profile("dev", &[&Fixture::reference(url, "demo")]);
     });
     assert_eq!(r.exit.unwrap(), 0);
-    assert_eq!(
-        r.out,
-        "Created ctxloom directory: /work/.ctxloom\nPulled 1 dependencies\n"
-    );
+    assert_eq!(r.out, "Created ctxloom directory: /work/.ctxloom\n");
 }
 
 // Rulings 89, 106: a first init at a terminal asks where a session's outputs

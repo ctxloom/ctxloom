@@ -117,3 +117,39 @@ Owner bypassed the unattended stop conditions on this branch for tonight (review
 - **Decision:** each of the four sorts its keys explicitly (a `BTreeMap` collect, or a recursive `sorted`), so the bytes are what they were under either serde_json map; a guard test per output asserts the exact sorted bytes (it fails under the unified build without the fix: shown for the transcript line). cargo-deny passes: `multiple-versions = "warn"` already admits the new duplicates (a second derive_more, darling, hashbrown, indexmap, schemars, foldhash), and every licence is allowed.
 - **Also noted:** agent-client-protocol itself turns on its schema crate's `unstable_proxy_chains` (not ours to turn off; nothing of it is used).
 - **Alternatives:** the schema crate alone (M3; still `preserve_order`, and a hand-written JSON-RPC client); STOP (the change was four small sites).
+
+### D-N24. The ACP connection runs on futures' executor, on a thread the child owns
+- **Decision:** engine-opencode's child runs the crate's own connection (`Client.v1()`, its `Lines` transport) under `futures::executor::block_on` on a thread of the child's. Std pipes are bridged by threads: a reader thread turns stdout into the transport's incoming `Stream` (an unbounded futures channel), and the outgoing `Sink` writes each line to stdin (blocking, small lines; stdout is always drained, so opencode never blocks the other way). The control (sync, any thread) and the connection decide under one lock and post every call to one channel, so calls are made in the order decided (an interrupt decided before a held prompt is written is sent before it).
+- **Alternatives:** a tokio runtime owned by the adapter (tokio is in the workspace, but the crate needs no runtime and the claude child is std threads); a runtime the caller provides (the port is synchronous: the daemon's caller has nothing to hand in); the crate's `process` feature (refused by D21).
+- **Why:** no runtime dependency, the claude child's shape (threads, one lock), and the crate's own JSON-RPC (ids, routing, the permission request's reply).
+
+### D-N25. The input's end is a notification of ctxloom's own, never written
+- **Decision:** `end` and the control's `Drop` send `_ctxloom/end_of_input` through the connection; the outgoing sink never writes it and closes stdin instead. A line the engine can no longer take is dropped, not an error, so the connection keeps reading.
+- **Why:** the crate queues what is sent; closing stdin from the control could beat the queued `session/cancel` to the pipe. Through the sink the end is ordered after every line before it, and the connection still reads opencode's `cancelled` reply and its exit (the spike: `dispose` runs on EOF, exit in 64 ms).
+
+### D-N26. Steer mid-turn is the native join; `interrupt` then steer is the hard stop (D20)
+- **Decision:** `send(steer)` to a turn in flight writes the prompt at once (`Queued::Written`; opencode takes it at the next step boundary); each prompt's reply ends ITS messages' turn, both answered with the joined turn's last agent message (the spike: both prompts reply `end_turn` together, "the first prompt never gets its own answer"). After `interrupt()` (`session/cancel`), a steer is held first (`Queued::Interrupting`) and written when the cancelled prompts have replied. Wake mid-turn and inform are held (an inform rides on the next prompt, D30). `InterruptAnswered{accepted}` is said at the first reply after a cancel: `cancelled` is accepted, a turn that outran it is not (ACP's cancel has no answer of its own). `TurnStarted` is said when the prompt is sent (ACP has no echo).
+- **Alternatives:** steer always cancel-then-prompt (claude's outcome exactly: the turn in flight would end `Interrupted`); the join only (no hard stop).
+- **Why:** D20 names both; the port's `interrupt` is the caller's hard stop, and per-prompt ends keep D-N16's run gate whole (the steer's queued turn is freed by its own end).
+
+### D-N27. The model is set by opencode's `session/set_model`, as a custom request
+- **Decision:** after `session/new` (and after each clear's), the child sends `session/set_model {sessionId, modelId}` (a `JsonRpcRequest` derived in engine-opencode); the opening (or clear) is done only when it answers. A failure to set it ends the child (its exit's detail says why) rather than running another model.
+- **Alternatives:** ACP v1's stable `session/set_config_option {configId: "model"}` (in the schema, unverified against opencode); `-m` on `opencode acp` (unverified).
+- **Why:** the spike verified `session/set_model` live on opencode 1.18.4; nothing else is.
+
+### D-N28. A child's permission requests are answered by a new `ChildSpec.permissions`
+- **Decision:** `run_ports::ChildPermissions { Refuse (default), Allow }` on the `ChildSpec`; opencode answers `session/request_permission` with the `reject_once` / `allow_once` option, else `cancelled`; never an "always" (nothing outlives the request). The daemon maps the agent's permission posture onto it (not built: no caller builds a `ChildSpec` yet).
+- **Why:** no posture reached the child port; a child has no human to ask, so the default fails closed.
+
+### D-N29. Resume is `session/load`; `ChildSpec.session_id` has no opencode meaning
+- **Decision:** a `resume` loads the session (`session/load`, advertised as `loadSession`); its replayed updates arrive before the load's answer and are ignored (no turn is in flight). `session_id` (claude's clear-by-restart id) is ignored: opencode names its own sessions, and its clear is `session/new` on the same process.
+
+### D-N30. Replies are ordered behind the updates before them; a reply never given is the exit's
+- **Decision:** every request is sent with `prepare_request(..).on_receiving_result(..)`, so its reply's handler holds the crate's dispatch order (an eager `send_request` may route a fast reply ahead of the `agent_message_chunk`s before it: seen in the tests, the answer came out empty). A reply the crate fails because the engine's output ended (`is_incoming_transport_closed`, `is_connection_terminated`) is dropped, so the turn in flight ends as the exit says ("the engine exited mid-turn: <stderr>"), as claude's does.
+- **Residual:** after the output ends, the main task drains what was already heard; a reply whose handler the crate had not yet run is lost to the exit's failure (a turn reported failed that opencode answered as it died).
+
+### Not done (opencode ACP child)
+- No caller: the daemon builds no `ChildSpec` yet, so nothing maps the agent's permission posture onto `ChildPermissions`, and the wiring registers no `ChildEngine` for opencode.
+- Not verified live: the whole driver runs against a fake `opencode acp` (the spike's lines); `session/load` resume, a `max_tokens`/`refusal` stop, and `request_permission` against real opencode are unprobed.
+- The effort level is not passed (no flag verified, as for a turn). `ChildSpec.session_id` is ignored (D-N29).
+- `end` still uses `terminate_tree` (SIGTERM then kill) after the grace: by then the turn was cancelled and the input closed, so a server still there is not busy; a tool that ran under `setsid` escapes the group either way (the spike's orphan hazard, unchanged).

@@ -265,10 +265,6 @@ impl Conversation {
 
     /// Something the engine answered.
     pub(crate) fn hear(&mut self, heard: Heard) -> (Vec<ChildObservation>, Vec<Act>) {
-        // Red: nothing heard is understood yet.
-        if self.opening.cwd.len() < usize::MAX {
-            return (Vec::new(), Vec::new());
-        }
         match heard {
             Heard::Initialized(Ok(())) => (Vec::new(), self.open_session()),
             Heard::SessionReady(Ok(session)) => {

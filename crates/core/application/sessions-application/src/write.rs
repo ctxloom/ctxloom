@@ -539,7 +539,7 @@ where
 
 /// Whether `handled` recorded any event: a decision with none (a bind that
 /// changes nothing) is applied and empty.
-fn recorded(handled: &Handled) -> bool {
+pub(crate) fn recorded(handled: &Handled) -> bool {
     // A fact answered DUPLICATE (a repeat bind, owner ruling 2026-11-04, S5
     // review item 8) recorded nothing new, though it re-reads its events.
     matches!(handled, Handled::Applied(_))

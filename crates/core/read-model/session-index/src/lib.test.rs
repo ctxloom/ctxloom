@@ -639,6 +639,7 @@ fn a_record_carries_its_owner_its_close_and_the_children_it_holds() {
         },
         delegation_limit: 4,
         requester: None,
+        prompt: String::new(),
     };
     let mut project = Project::new();
     let mut index = SessionIndex::catch_up();

@@ -128,6 +128,16 @@ impl Library {
         })
     }
 
+    /// How `engine` is run, from the configuration alone (no agent's
+    /// block): its `command`, `session_home`, `auth` and `env` passthrough,
+    /// what the user daemon starts a child with. None where the
+    /// configuration cannot be read or the engine is not one.
+    pub fn engine_drive(&self, flags: &Flags, engine: &str) -> Option<crate::Drive> {
+        let mut notices = Vec::new();
+        let config = config::load(self.files.as_ref(), &self.environ, flags, &mut notices).ok()?;
+        library::config::engines::engine_drive(&config.value, engine).ok()
+    }
+
     /// The format the configuration prefers off a terminal
     /// (`non_tty_format`), if it says.
     pub fn preferred_format(&self, flags: &Flags) -> Option<String> {

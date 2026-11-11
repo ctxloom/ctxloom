@@ -900,6 +900,7 @@ dependencies = [
  "ctxloom-ports",
  "ctxloom-store-sqlite",
  "ctxloom-wiring",
+ "daemon-board",
  "deps",
  "deps-application",
  "deps-cli",
@@ -932,6 +933,7 @@ dependencies = [
  "mutants",
  "os",
  "pending-launches",
+ "pending-messages",
  "ports",
  "process-env",
  "project-dir",
@@ -949,6 +951,7 @@ dependencies = [
  "serde",
  "session-cli",
  "session-files",
+ "session-policies",
  "session-ports",
  "sessions",
  "sessions-application",
@@ -1022,6 +1025,17 @@ dependencies = [
  "nom_locate",
  "regex",
  "regex-syntax 0.7.5",
+]
+
+[[package]]
+name = "daemon-board"
+version = "0.1.0"
+dependencies = [
+ "angzarr-embedded",
+ "mutants",
+ "runs",
+ "sessions",
+ "uuid",
 ]
 
 [[package]]
@@ -3757,6 +3771,7 @@ name = "session-policies"
 version = "0.1.0"
 dependencies = [
  "angzarr-embedded",
+ "daemon-board",
  "mutants",
  "pending-messages",
  "runs",

@@ -118,10 +118,17 @@ impl Commands {
             // A hook is a process of its own: it delivers to the run's
             // listener, named by its environment. With none to reach it fails
             // open (stderr says each observation was not recorded).
-            let sink = HookSink::from_environment(
+            let spawned = HookSink::from_environment(
                 self.env.utf8(run_ports::ENDPOINT_VARIABLE),
                 self.env.utf8(run_ports::BEARER_VARIABLE),
                 self.env.utf8(run_ports::TLS_CERT_VARIABLE),
+            );
+            // The user daemon, rediscovered at each hook (B1, D27), before
+            // the endpoint the run was spawned with.
+            let sink = HookSink::rediscovered(
+                crate::daemon::discovery(&self.env),
+                self.env.utf8(run_ports::BEARER_VARIABLE),
+                spawned,
             );
             // The run names its session, by id, in the engine's environment.
             let ids = RunIds::from_environment(self.env.utf8(run_ports::SESSION_VARIABLE));

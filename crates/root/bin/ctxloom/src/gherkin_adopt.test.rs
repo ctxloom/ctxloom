@@ -235,6 +235,17 @@ fn resumed_on(w: &mut World, native: String) {
     );
 }
 
+/// Owner ruling 116: the last launch was handed `flag` and then `value`, two
+/// arguments in a row (the stub records each on a line).
+#[then(expr = "the assistant was launched with {string} {string}")]
+fn launched_with(w: &mut World, flag: String, value: String) {
+    let record = w.launch_record();
+    assert!(
+        record.contains(&format!("{flag}\n{value}\n")),
+        "no {flag} {value}: {record}"
+    );
+}
+
 #[then("her assistant was handed ctxloom's built-in default content")]
 fn handed_built_in_default(w: &mut World) {
     let record = w.launch_record();

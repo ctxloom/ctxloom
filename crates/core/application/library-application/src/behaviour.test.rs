@@ -1166,6 +1166,30 @@ fn test_a_dry_run_carries_the_agent_s_model_and_effort() {
     assert_eq!((bare.model.as_str(), bare.effort.as_str()), ("", ""));
 }
 
+// Owner ruling 116: the plan names the agent's permission mode on the run's
+// engine (its block's `permissions.mode`, else the engine's default, which
+// is claude's `acceptEdits` and opencode's none); a launch with no agent
+// names none.
+#[test]
+fn test_a_dry_run_carries_the_agent_s_permission_mode() {
+    let layers = ["schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        permissions:\n          mode: plan\n  bare:\n    engine: claude-code\n  oc:\n    engine: opencode\n"];
+    let library = with(&[], &layers).library();
+    let plan = |agent: &str| {
+        ok(library.dry_run(
+            &plain(),
+            &crate::RunRequest {
+                agent: agent.to_string(),
+                ..crate::RunRequest::default()
+            },
+        ))
+        .plan
+        .permission_mode
+    };
+    assert_eq!(plan("dev"), "plan");
+    assert_eq!(plan("bare"), "acceptEdits");
+    assert_eq!(plan("oc"), "");
+}
+
 // Ruling 57 (amends 54): `run --engine X` plans the agent on X: its block for
 // X (model, effort), else X's defaults (no flag); its runtime and env are
 // kept; X's engine block drives it.

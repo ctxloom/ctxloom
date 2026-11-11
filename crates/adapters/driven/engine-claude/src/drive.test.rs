@@ -4,7 +4,9 @@ use run_ports::{
     AuthSetting, Engine, EngineError, EngineSettings, PrepareRequest, SessionHome, TurnRequest,
 };
 
-use crate::drive::{COPY_IN_ALLOWLIST, EFFORT_LEVELS, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST};
+use crate::drive::{
+    COPY_IN_ALLOWLIST, EFFORT_LEVELS, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST, PERMISSION_MODES,
+};
 use crate::{Claude, CONTEXT_PROMPT_FILE};
 
 fn request() -> TurnRequest {
@@ -17,6 +19,7 @@ fn request() -> TurnRequest {
         cwd: Some("/p".to_string()),
         model: String::new(),
         effort: String::new(),
+        permission_mode: String::new(),
         settings: EngineSettings::default(),
     }
 }
@@ -525,6 +528,77 @@ fn an_effort_claude_does_not_take_is_refused_before_launch() {
                 engine: "claude-code".to_string(),
                 level: "extreme".to_string(),
                 known: "low, medium, high, xhigh, max".to_string(),
+            })
+        );
+    }
+}
+
+// Owner ruling 116: `claude --permission-mode <mode>` (acceptEdits, auto,
+// bypassPermissions, manual, dontAsk, plan; `claude --help`, 2.1.322):
+// passed for a turn and for the terminal session; none named, or the
+// config's `default` (the engine's own default mode), is no flag; a mode
+// claude does not take is refused before it is launched.
+#[test]
+fn a_configured_permission_mode_is_passed_to_claude_for_a_turn_and_for_the_terminal() {
+    for mode in PERMISSION_MODES {
+        let mut asked = request();
+        asked.permission_mode = mode.to_string();
+        for command in [
+            Claude::new().drive_turn(&asked).unwrap(),
+            Claude::new().drive_interactive(&asked).unwrap(),
+        ] {
+            let at = command
+                .args
+                .iter()
+                .position(|a| a == "--permission-mode")
+                .unwrap_or_else(|| panic!("{mode}: {command:?}"));
+            assert_eq!(command.args[at + 1], mode);
+        }
+    }
+}
+
+#[test]
+fn the_terminals_prompt_stays_last_beside_a_permission_mode() {
+    let mut asked = request();
+    asked.permission_mode = "plan".to_string();
+    let terminal = Claude::new().drive_interactive(&asked).unwrap();
+    assert_eq!(
+        terminal.args.last().map(String::as_str),
+        Some("what does this project expect of me?")
+    );
+}
+
+#[test]
+fn no_permission_mode_and_the_default_mode_are_no_permission_mode_flag() {
+    for mode in ["", "default"] {
+        let mut asked = request();
+        asked.permission_mode = mode.to_string();
+        for command in [
+            Claude::new().drive_turn(&asked).unwrap(),
+            Claude::new().drive_interactive(&asked).unwrap(),
+        ] {
+            assert!(
+                !command.args.iter().any(|a| a == "--permission-mode"),
+                "{mode:?}: {command:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_permission_mode_claude_does_not_take_is_refused_before_launch() {
+    let mut asked = request();
+    asked.permission_mode = "nonsense".to_string();
+    for refused in [
+        Claude::new().drive_turn(&asked),
+        Claude::new().drive_interactive(&asked),
+    ] {
+        assert_eq!(
+            refused,
+            Err(EngineError::UnknownPermissionMode {
+                engine: "claude-code".to_string(),
+                mode: "nonsense".to_string(),
+                known: "acceptEdits, auto, bypassPermissions, manual, dontAsk, plan".to_string(),
             })
         );
     }

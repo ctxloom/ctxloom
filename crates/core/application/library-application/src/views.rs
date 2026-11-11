@@ -548,6 +548,12 @@ pub struct DryRun {
     /// not shown by a dry run.
     #[serde(skip)]
     pub effort: String,
+    /// The agent's permission mode on the run's engine (its block's
+    /// `permissions.mode`, else the engine's default; owner ruling 116),
+    /// empty when there is none: handed to the engine, shown by a dry run's
+    /// settings.
+    #[serde(skip)]
+    pub permission_mode: String,
     /// How the engine is run (its block's program, session home and
     /// credential source, the passthrough the agent settled on): handed to the
     /// engine, not shown by a dry run.

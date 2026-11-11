@@ -175,6 +175,7 @@ impl Engine for Claude {
         // The turn's hooks: the session dir's settings, as the terminal's.
         push_settings(&mut command.args, request);
         push_model_and_effort(&mut command.args, request)?;
+        push_permission_mode(&mut command.args, request)?;
         if let Some(native_id) = &request.resume {
             command.args.push("--resume".to_string());
             command.args.push(native_id.clone());
@@ -216,6 +217,7 @@ impl Engine for Claude {
         command.args.push(request.context_path.clone());
         push_settings(&mut command.args, request);
         push_model_and_effort(&mut command.args, request)?;
+        push_permission_mode(&mut command.args, request)?;
         if let Some(native_id) = &request.resume {
             command.args.push("--resume".to_string());
             command.args.push(native_id.clone());
@@ -273,6 +275,24 @@ fn push_settings(args: &mut Vec<String>, request: &TurnRequest) {
 
 /// The effort levels `claude --effort` takes (`claude --help`, 2.1.321).
 pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
+/// The permission modes `claude --permission-mode` takes (`claude --help`,
+/// 2.1.322: "choices: acceptEdits, auto, bypassPermissions, manual, dontAsk,
+/// plan"; owner ruling 116).
+pub const PERMISSION_MODES: [&str; 6] = [
+    "acceptEdits",
+    "auto",
+    "bypassPermissions",
+    "manual",
+    "dontAsk",
+    "plan",
+];
+
+/// RED stub (ruling 116): passes nothing yet.
+fn push_permission_mode(_args: &mut [String], request: &TurnRequest) -> Result<(), EngineError> {
+    let _ = (&request.permission_mode, PERMISSION_MODES);
+    Ok(())
+}
 
 /// `--model <model>` and `--effort <level>` when the agent names them; none
 /// named is no flag (the engine's own default). A level claude does not take

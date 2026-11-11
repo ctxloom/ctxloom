@@ -869,6 +869,7 @@ fn plan() -> DryRun {
         axes: (st("worktree"), st("host")),
         model: String::new(),
         effort: String::new(),
+        permission_mode: String::new(),
         drive: Default::default(),
         settings: None,
         settings_agent: st("dev"),
@@ -976,7 +977,7 @@ fn test_a_dry_run_shows_each_setting_with_the_place_that_said_it() {
             "\n=== Settings ===\n",
             "  model        sonnet  (agents.dev.engines.claude-code)\n",
             "  effort       engine default, no flag passed  (default)\n",
-            "  permissions  acceptEdits, not passed to the engine yet  (default)\n",
+            "  permissions  acceptEdits  (default)\n",
             "  runtime      host  (agents.dev; replaces engines.claude-code container-rootless: weakens isolation)\n",
             "  env          HTTPS_PROXY  (engines.claude-code), ALPHA  (agents.dev)\n",
             "\n=== Profiles ===\n",
@@ -1072,7 +1073,10 @@ fn test_a_dry_run_of_the_default_agent_names_its_place_in_full() {
 }
 
 // hand-test 2 2026-11-11: the dry run showed `permissions acceptEdits
-// (default)` although no permission mode reaches the engine yet; it says so.
+// (default)` although no permission mode reached the engine. Owner ruling
+// 116 passes claude's (`--permission-mode`), so its row is the mode alone,
+// and its `default` is said as no flag; opencode's is still not passed, and
+// its row says so.
 // A mode nobody set (opencode's) is said as the engine's own, never as an
 // empty value; `engine show` and `agent show` say the same.
 #[test]
@@ -1104,19 +1108,35 @@ fn test_a_permission_mode_is_said_honestly() {
             keys: Vec::new(),
         },
     };
-    let plan_of = |mode: &str| {
+    let on = |engine: &str, mode: &str| {
         shown(|out| {
             dry_run(
                 out,
                 &DryRun {
+                    engine: st(engine),
                     settings: Some(settings(mode)),
                     ..plan()
                 },
             )
         })
     };
-    assert!(plan_of("acceptEdits")
-        .contains("  permissions  acceptEdits, not passed to the engine yet  (default)\n"));
+    let plan_of = |mode: &str| on("claude-code", mode);
+    let claude = plan_of("acceptEdits");
+    assert!(
+        claude.contains("  permissions  acceptEdits  (default)\n"),
+        "{claude}"
+    );
+    assert!(!claude.contains("not passed"), "{claude}");
+    let claude_default = plan_of("default");
+    assert!(
+        claude_default.contains("  permissions  default, no flag passed  (default)\n"),
+        "{claude_default}"
+    );
+    let opencode = on("opencode", "plan");
+    assert!(
+        opencode.contains("  permissions  plan, not passed to the engine yet  (default)\n"),
+        "{opencode}"
+    );
     let unset = plan_of("");
     assert!(
         unset.contains("  permissions  engine default, no mode set  (default)\n"),

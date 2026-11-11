@@ -27,6 +27,7 @@ fn request() -> TurnRequest {
         cwd: Some("/p".to_string()),
         model: String::new(),
         effort: String::new(),
+        permission_mode: String::new(),
         settings: EngineSettings::default(),
     }
 }
@@ -87,6 +88,17 @@ fn test_a_model_is_passed_and_an_effort_is_not() {
     );
     chosen.prompt = String::new();
     assert_eq!(terminal(&chosen).args, ["-m", "opencode/big-pickle"]);
+}
+
+// Owner ruling 116 passes claude's permission mode; opencode has no verified
+// flag for one, so a mode is not passed, and is not refused either.
+#[test]
+fn test_a_permission_mode_is_not_passed() {
+    let mut chosen = request();
+    chosen.permission_mode = "plan".to_string();
+    assert_eq!(turn(&chosen).args, ["run", "--format", "json"]);
+    chosen.prompt = String::new();
+    assert!(terminal(&chosen).args.is_empty());
 }
 
 #[test]

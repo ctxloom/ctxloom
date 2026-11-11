@@ -1052,3 +1052,48 @@ Feature: run — assembling a project's context and handing it to an engine
         """
       Then the command succeeds
       And an assistant was launched
+
+  Rule: The agent's permission mode reaches claude, and a mode claude does not take is refused before it starts
+
+    An agent's claude permission mode (`agents.<n>.engines.claude-code.
+    permissions.mode`, `acceptEdits` when nobody set one) is passed to claude
+    as `--permission-mode <mode>`, a child's turn and her interactive session
+    alike (owner ruling 116). claude's `default` is its own default, passed as
+    no flag. A mode claude does not take (claude 2.1.322 takes acceptEdits,
+    auto, bypassPermissions, manual, dontAsk and plan) is refused before
+    claude is started, naming those it takes.
+
+    Scenario: A child's turn runs in the default agent's permission mode
+      # new: owner ruling 116 (2026-11-11).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice runs a child agent on her default agent:
+        """
+        ctxloom run --one-shot hello
+        """
+      Then the command succeeds
+      And the assistant was launched with "--permission-mode" "acceptEdits"
+
+    Scenario: Her session runs in the permission mode she chose
+      # new: owner ruling 116 (2026-11-11).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice starts her session in plan mode:
+        """
+        ctxloom --config-set agents.default.engines.claude-code.permissions.mode=plan run
+        """
+      Then the command succeeds
+      And the assistant was launched with "--permission-mode" "plan"
+
+    Scenario: A permission mode claude does not take is refused before claude starts
+      # new: owner ruling 116 (2026-11-11).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice runs a child agent in a mode claude does not take:
+        """
+        ctxloom --config-set agents.default.engines.claude-code.permissions.mode=nonsense run --one-shot hello
+        """
+      Then the command fails
+      And the output contains "nonsense"
+      And the output contains "acceptEdits, auto, bypassPermissions, manual, dontAsk, plan"
+      And no assistant was launched

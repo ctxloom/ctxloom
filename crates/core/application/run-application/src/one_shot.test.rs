@@ -187,6 +187,7 @@ struct ScriptedPlan {
     fatal: Vec<FindingRow>,
     model: String,
     effort: String,
+    permission_mode: String,
     drive: library_application::Drive,
     posture: library_application::Posture,
     error: Option<fn() -> PlanError>,
@@ -220,6 +221,7 @@ impl Planner for ScriptedPlan {
             axes: (String::new(), "host".to_string()),
             model: self.model.clone(),
             effort: self.effort.clone(),
+            permission_mode: self.permission_mode.clone(),
             drive: self.drive.clone(),
             settings: None,
             settings_agent: String::new(),
@@ -561,6 +563,8 @@ struct Script {
     /// The model and effort the plan resolved.
     model: &'static str,
     effort: &'static str,
+    /// The permission mode the plan resolved (owner ruling 116).
+    permission_mode: &'static str,
     /// How the plan says the engine is run.
     drive: library_application::Drive,
     /// The posture the plan says the run claims.
@@ -594,6 +598,7 @@ impl Script {
             fatal: Vec::new(),
             model: "",
             effort: "",
+            permission_mode: "",
             drive: Default::default(),
             posture: Default::default(),
             plan_error: None,
@@ -664,6 +669,7 @@ fn rig(script: Script) -> Rig {
             fatal: script.fatal,
             model: script.model.to_string(),
             effort: script.effort.to_string(),
+            permission_mode: script.permission_mode.to_string(),
             drive: script.drive.clone(),
             posture: script.posture.clone(),
             error: script.plan_error,
@@ -1675,6 +1681,7 @@ async fn the_bearer_is_in_no_debug_or_error_rendering() {
                 interactive: true,
                 model: String::new(),
                 effort: String::new(),
+                permission_mode: String::new(),
                 settings: Default::default(),
                 owned: Vec::new(),
                 git_user: None,
@@ -1971,6 +1978,52 @@ async fn the_plans_model_and_effort_are_handed_to_the_engine_for_a_turn_and_for_
     let args = rig.runner.seen_terminal.lock().unwrap()[0].args.clone();
     assert!(args.contains(&"--model=haiku".to_string()), "{args:?}");
     assert!(args.contains(&"--effort=low".to_string()), "{args:?}");
+}
+
+// Owner ruling 116: the agent's permission mode the plan resolved is the
+// order's, for the turn and for the terminal session, as its effort is; a
+// plan with none gives the engine none.
+#[tokio::test]
+async fn the_plans_permission_mode_is_handed_to_the_engine_for_a_turn_and_for_the_terminal() {
+    let mut script = Script::answering();
+    script.permission_mode = "plan";
+    let mut rig = rig(script);
+    rig.runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let args = rig.runner.seen.lock().unwrap()[0].args.clone();
+    assert!(
+        args.contains(&"--permission-mode=plan".to_string()),
+        "{args:?}"
+    );
+
+    let mut script = Script::answering();
+    script.permission_mode = "plan";
+    let mut rig = rig_again_with(script);
+    rig.runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let args = rig.runner.seen_terminal.lock().unwrap()[0].args.clone();
+    assert!(
+        args.contains(&"--permission-mode=plan".to_string()),
+        "{args:?}"
+    );
+
+    let mut rig = rig_again_with(Script::answering());
+    rig.runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let args = rig.runner.seen.lock().unwrap()[0].args.clone();
+    assert!(
+        !args.iter().any(|a| a.contains("permission-mode")),
+        "{args:?}"
+    );
 }
 
 // Rulings 35-37: the run's certificate is minted for every address the child

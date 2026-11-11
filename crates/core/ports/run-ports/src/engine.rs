@@ -58,10 +58,13 @@ pub struct PrepareRequest {
     /// order it was written (owner rulings 135, 137: the engine's own
     /// document, copied verbatim and never checked by ctxloom); none, no
     /// document, and the engine writes none. The engine puts it where it
-    /// reads its permissions (claude: the `permissions` of the settings file
-    /// it is handed; opencode: the `permission` of its config), and never
-    /// over a key of its own.
+    /// reads its permissions (claude: the `permissions` of its config dir's
+    /// user settings, a file apart from its hooks, owner ruling 145; opencode:
+    /// the `permission` of its config), and never over a key of its own.
     pub permissions: Option<String>,
+    /// Whose engine configuration directory the run gets (`session_home`):
+    /// under `host` it is the user's own, which an engine never writes.
+    pub session_home: crate::settings::SessionHome,
 }
 
 /// What [`Engine::prepare`] answers: the session home's surfaces.

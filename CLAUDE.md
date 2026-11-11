@@ -239,7 +239,7 @@ MERGED into what is there (`Engine::merges` names the files an engine merges
 into, and the launcher hands their bytes in `PrepareRequest::existing` with
 the run's `cwd`; one that is not a JSON object is left as it is). It is
 claude's undocumented state: a release that changes it shows the onboarding
-again (visible, not harmful). The session home's `settings.json` calls `ctxloom
+again (visible, not harmful). The session home's `ctxloom-hooks.json` calls `ctxloom
 hook claude-code execute <Event>`. The interactive home registers the session,
 turn, message, tool-batch and compaction (`PreCompact`, `PostCompact`) events.
 A one-shot CHILD's home (owner ruling 51) registers the per-turn ones only:
@@ -439,14 +439,21 @@ order it was written (`DryRun::permissions`, `library_application::json::
 document_text`), the order and the launcher hand it to `Engine::prepare`
 (`PrepareRequest::permissions`), and the config writer keeps it in its own
 order (`library::write::section::sorted_section`; the rest of the agents
-section is sorted as ever). engine-claude makes it the `permissions` key of
-the session's `settings.json`, the `--settings` file beside ctxloom's hooks,
-which it never overwrites; no `--permission-mode` is passed, claude's mode is
-the document's `defaultMode`. A profile's `deny_tools` is not merged into it:
-it stays `permissions.deny` of the project's `.claude/settings.json` (surface
-apply), and claude merges the two files' lists itself (a list never replaces
-another file's; for a single value such as `defaultMode` the `--settings`
-file wins). engine-opencode writes the session home's `opencode.json`
+section is sorted as ever). engine-claude writes it as `{"permissions":
+<block>}`, the whole of the session home's user-scope `settings.json` (the
+home is the session's `CLAUDE_CONFIG_DIR`; `{}` with none), APART from
+ctxloom's hooks, which are `ctxloom-hooks.json`, the file `--settings` names
+(owner ruling 145: claude 2.1.322 refuses a settings file whole for one
+invalid value, hooks included, so a bad value disables the block alone; the
+probe is in the ruling-145 commits). User scope is claude's lowest: a single
+value the project's `.claude/settings.json` also sets is the project's, lists
+merge, and it is where `defaultMode: auto|bypassPermissions` may take effect.
+Under `session_home: host` (the config dir is the user's own `~/.claude`,
+never written) the block stays the `permissions` of the hooks file, with the
+cost that a bad value there disables the hooks too. No `--permission-mode` is
+passed, claude's mode is the document's `defaultMode`. A profile's
+`deny_tools` stays `permissions.deny` of the project's `.claude/settings.json`
+(surface apply), and claude merges the files' lists itself. engine-opencode writes the session home's `opencode.json`
 (`OPENCODE_CONFIG_DIR`, which opencode 1.18.4 reads after the project's) with
 the document as its `permission` object (`{}` with none, so no earlier run's
 lingers; read from the 1.18.4 bundle, not run live). A document that is not
@@ -533,10 +540,11 @@ XDG base under `session_home: host` (passed through, not relocated). Claude
 stays token-only on Windows (ruling 82); `session_home: host` sets `CLAUDE_CONFIG_DIR`
 to `$HOME/.claude` (no `HOME` is `run-ports-engine-no-host-home`), links no
 login there; the hooks still fire, because the launch (the terminal's and a
-child's turn) passes `--settings <session dir>/settings.json` (the ctxloom-owned file `prepare` writes,
+child's turn) passes `--settings <session dir>/ctxloom-hooks.json` (the ctxloom-owned file `prepare` writes,
 in both home modes, never into the user's `~/.claude`; claude adds its hooks to the
 config dir's own, and honours one `--settings`; the agent's permissions
-document is its `permissions` key, beside the hooks (rulings 135, 137);
+document is not in it but in the session home's own `settings.json` (ruling
+145);
 verified with a fake program only, not a
 live interactive TUI, nor with `--setting-sources user`; in a container the flag
 must name the in-container path, a follow-up). A child's turn passes the same

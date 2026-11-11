@@ -120,6 +120,7 @@ fn preparing_a_home_writes_the_context_file_it_names() {
             cwd: None,
             existing: Default::default(),
             permissions: None,
+            session_home: run_ports::SessionHome::Session,
         })
         .unwrap();
     assert_eq!(prepared.context_path, format!("/h/{CONTEXT_PROMPT_FILE}"));
@@ -212,6 +213,7 @@ fn prepared(interactive: bool) -> run_ports::Prepared {
             cwd: None,
             existing: Default::default(),
             permissions: None,
+            session_home: run_ports::SessionHome::Session,
         })
         .unwrap()
 }
@@ -561,6 +563,7 @@ fn prepare_home(
             cwd: None,
             existing,
             permissions: permissions.map(String::from),
+            session_home: run_ports::SessionHome::Session,
         })
         .unwrap()
 }
@@ -692,6 +695,7 @@ fn a_document_that_is_not_json_is_refused() {
         cwd: None,
         existing: Default::default(),
         permissions: Some("{not json".to_string()),
+        session_home: run_ports::SessionHome::Session,
     });
     assert!(
         matches!(&refused, Err(EngineError::BadPermissions { engine, .. }) if engine == "claude-code"),
@@ -972,6 +976,7 @@ fn claude_state(existing: Option<&str>, cwd: Option<&str>) -> Option<String> {
                 })
                 .unwrap_or_default(),
             permissions: None,
+            session_home: run_ports::SessionHome::Session,
         })
         .unwrap();
     prepared
@@ -1042,4 +1047,53 @@ fn the_seed_merges_into_what_claude_keeps_there() {
 fn a_state_file_that_is_not_an_object_is_left_as_it_is() {
     assert_eq!(claude_state(Some("{not json"), Some("/p")), None);
     assert_eq!(claude_state(Some("[1, 2]"), Some("/p")), None);
+}
+
+// Owner ruling 145, under `session_home: host`: the config dir is the user's
+// own `~/.claude`, whose `settings.json` ctxloom never writes, so no
+// user-scope file is written at all and the agent's document stays the
+// `permissions` of ctxloom's hooks file (the cost, said in the docs: one
+// invalid value there disables the hooks too). A document that is not JSON
+// is refused in both modes.
+#[test]
+fn under_a_host_home_the_block_stays_in_the_hooks_file_and_no_user_settings_are_written() {
+    const DOCUMENT: &str = r#"{"defaultMode":"plan","allow":["Read"]}"#;
+    for interactive in [false, true] {
+        let prepared = Claude::new()
+            .prepare(&PrepareRequest {
+                home: "/h".to_string(),
+                context: "c".to_string(),
+                offered: Vec::new(),
+                interactive,
+                cwd: None,
+                existing: Default::default(),
+                permissions: Some(DOCUMENT.to_string()),
+                session_home: SessionHome::Host,
+            })
+            .unwrap();
+        assert_eq!(file_of(&prepared, "settings.json"), None);
+        let hooks = file_of(&prepared, HOOKS_FILE).expect("the hooks file");
+        let doc = surface_ports::Json::parse(&hooks).unwrap();
+        assert_eq!(
+            doc.get("permissions"),
+            Some(&surface_ports::Json::parse(DOCUMENT).unwrap())
+        );
+        assert!(crate::hooks::has_callback(&doc), "{hooks}");
+    }
+    for home in [SessionHome::Session, SessionHome::Host] {
+        let refused = Claude::new().prepare(&PrepareRequest {
+            home: "/h".to_string(),
+            context: "c".to_string(),
+            offered: Vec::new(),
+            interactive: false,
+            cwd: None,
+            existing: Default::default(),
+            permissions: Some("{nope".to_string()),
+            session_home: home,
+        });
+        assert!(
+            matches!(&refused, Err(EngineError::BadPermissions { .. })),
+            "{home:?}: {refused:?}"
+        );
+    }
 }

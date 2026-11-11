@@ -30,6 +30,7 @@ fn prepared_with(
         cwd: None,
         existing: Default::default(),
         permissions: permissions.map(String::from),
+        session_home: run_ports::SessionHome::Session,
     })
 }
 
@@ -84,6 +85,7 @@ fn test_the_config_is_regenerated_whatever_the_home_holds() {
                 br#"{"permission":"allow"}"#.to_vec(),
             )]),
             permissions: Some(r#"{"edit":"ask"}"#.to_string()),
+            session_home: run_ports::SessionHome::Session,
         })
         .unwrap();
     assert_eq!(

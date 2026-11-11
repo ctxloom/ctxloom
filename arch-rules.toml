@@ -130,3 +130,14 @@ from = "hook-listener"
 to = "sessions"
 kind = "dev"
 reason = "test-only: registers the sessions aggregate and builds the facts and commands its domain defines"
+
+# session-cli depends on itself, as a dev-dependency, with `session-destroy`
+# (rulings 94b, 98, 99): the destroy compiles only under that feature, and the
+# crate's own tests and mutants must see it with no feature rule; a plain build
+# builds no dev-dependency, so the shipped binary stays without it
+# (scripts/plain-destroy-check.sh).
+[[exception]]
+from = "session-cli"
+to = "session-cli"
+kind = "dev"
+reason = "test-only: the crate's own tests compile the session-destroy feature (ruling 99) through a self dev-dependency, so no feature rule is needed and the plain binary stays without the destroy"

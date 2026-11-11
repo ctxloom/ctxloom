@@ -149,7 +149,7 @@ Feature: init — the setup interview, and what it does to a project that alread
         """
       Then the command fails
       And the output contains "bundle \"testing\" is built into ctxloom (ctxloom/default) and is read-only"
-      And the output contains "fix: copy it into the project and change that copy: ctxloom bundle export testing "
+      And the output contains "copy it into the project and change that copy: ctxloom bundle export testing "
       And the file ".ctxloom/content/bundles/v2/testing" does not exist
       When I run "ctxloom bundle export testing .ctxloom/content/bundles/v2"
       Then the command succeeds

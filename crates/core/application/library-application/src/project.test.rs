@@ -226,7 +226,7 @@ fn test_every_write_to_a_built_in_bundle_is_refused_and_writes_nothing() {
     assert_eq!(code, "library-application-write-builtin-read-only");
     assert_eq!(
         said,
-        "bundle \"testing\" is built into ctxloom (ctxloom/default) and is read-only"
+        "bundle \"testing\" is built into ctxloom (ctxloom/default) and is read-only; a project bundle of its name, in /p/.ctxloom/content/bundles/v2, overrides it"
     );
 }
 

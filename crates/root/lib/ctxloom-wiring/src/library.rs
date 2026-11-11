@@ -111,15 +111,33 @@ pub(crate) fn build(
         environ,
     )
     .with_write_ports(ports)
-    // ctxloom's default content, built in (owner rulings 110, 111).
-    .with_builtins()
     .with_companions(Arc::new(ProcessCompanions::new(ProcessProbe::standard(
         Arc::clone(wiring.env()),
     ))));
+    // ctxloom's default content, built in (owner rulings 110, 111).
+    let library = if builtins_withheld(wiring.env()) {
+        library
+    } else {
+        library.with_builtins()
+    };
     Ok(match remotes {
         Some(remotes) => library.with_remotes(remotes),
         None => library,
     })
+}
+
+/// Under `test-support`, `CTXLOOM_TEST_NO_BUILTINS` withholds the built-in
+/// bundles, so the Go-parity tests hold the catalog Go had; it is compiled
+/// out of the shipped binary.
+#[cfg(feature = "test-support")]
+fn builtins_withheld(env: &EnvSnapshot) -> bool {
+    env.non_empty("CTXLOOM_TEST_NO_BUILTINS").is_some()
+}
+
+/// The shipped binary always has its built-in bundles.
+#[cfg(not(feature = "test-support"))]
+fn builtins_withheld(_: &EnvSnapshot) -> bool {
+    false
 }
 
 impl Extension for LibraryCommands {

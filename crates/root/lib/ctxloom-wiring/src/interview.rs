@@ -96,21 +96,26 @@ fn answered(line: Option<&str>) -> bool {
 /// The interactive sessions of `init`.
 pub(crate) struct SetupSessions<'a> {
     pub(crate) env: &'a Arc<EnvSnapshot>,
-    pub(crate) deps: &'a Rc<Deps>,
     pub(crate) flags: &'a Flags,
 }
 
 impl SetupSessions<'_> {
     /// One interactive session of the default agent, opened with `prompt`
-    /// (none: nothing), over the project as it is now.
+    /// (none: nothing), over the project as it is now: its library and its
+    /// dependency use cases both (those of the process's start saw no
+    /// project on a first init, and would read the home's remotes and
+    /// installs, not the ones the interview made).
     fn launch(&self, prompt: &str) -> Result<Ended, LaunchFailure> {
         let wiring =
             Wiring::new(Arc::clone(self.env)).map_err(|e| LaunchFailure::failed(Box::new(e)))?;
-        let remotes: Rc<dyn deps_ports::RemoteLibrary> = self.deps.clone();
+        let deps: Rc<Deps> = Rc::new(
+            crate::commands::build_deps(&wiring).map_err(|e| LaunchFailure::failed(Box::new(e)))?,
+        );
+        let remotes: Rc<dyn deps_ports::RemoteLibrary> = deps.clone();
         let library = crate::library::build(&wiring, Some(remotes))
             .map_err(|e| LaunchFailure::failed(Box::new(e)))?;
-        let mut sessions = OneShots::new(&wiring, library)
-            .with_puller(Rc::new(crate::commands::DepsPuller(Rc::clone(self.deps))));
+        let mut sessions =
+            OneShots::new(&wiring, library).with_puller(Rc::new(crate::commands::DepsPuller(deps)));
         let request = OneShot {
             run: RunRequest {
                 prompt: prompt.to_string(),

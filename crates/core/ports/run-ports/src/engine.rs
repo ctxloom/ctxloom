@@ -245,6 +245,8 @@ pub trait Engine: Send + Sync {
     /// them (claude's `.claude.json`, owner ruling 113): the launcher reads
     /// each before [`Engine::prepare`] and hands it in
     /// [`PrepareRequest::existing`].
+    // Equivalent: `Vec::leak(Vec::new())` is the same empty slice as `&[]`.
+    #[cfg_attr(test, mutants::skip)]
     fn merges(&self) -> &'static [&'static str] {
         &[]
     }

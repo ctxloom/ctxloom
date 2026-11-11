@@ -805,8 +805,9 @@ where
         let facts = runs_application::Facts::new(self.core.edge());
         let _ = facts.launch_failed(run, false, error.code()).await;
         self.orders.release(session, incarnation);
-        // A resume's incarnation was owed before its run was enqueued.
-        if minted || incarnation > 1 {
+        // A resume's incarnation was owed before its run was enqueued: its
+        // callers pass `minted` for it.
+        if minted {
             self.incarnation_ended(session, incarnation, LAUNCH_FAILED)
                 .await;
         }

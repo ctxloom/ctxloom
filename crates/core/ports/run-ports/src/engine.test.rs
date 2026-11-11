@@ -59,6 +59,13 @@ impl Engine for Plain {
     }
 }
 
+// Ruling 113: an engine that keeps no state of its own in its home merges
+// into no file there (the launcher reads none for it).
+#[test]
+fn an_engine_that_says_nothing_merges_into_no_home_file() {
+    assert!(Plain.merges().is_empty());
+}
+
 #[test]
 fn an_engine_that_says_nothing_asks_for_no_credential() {
     let none = Plain.credentials();

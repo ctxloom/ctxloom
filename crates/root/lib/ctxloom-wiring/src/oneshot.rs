@@ -191,7 +191,7 @@ const GIT_USER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5)
 
 /// The user's git identity in the project (owner ruling 112), asked of git in
 /// the caller's own environment; none when git knows neither part.
-fn git_user(wiring: &Wiring, project_dir: &Path) -> Option<run_ports::GitUser> {
+pub(crate) fn git_user(wiring: &Wiring, project_dir: &Path) -> Option<run_ports::GitUser> {
     let git = worktree_git::Git::new(
         wiring.fs(),
         "git",

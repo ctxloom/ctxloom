@@ -402,7 +402,7 @@ fn test_the_companions_asks_follow_the_reference_then_the_fragment_name() {
 // the project's, under their own names, and a local name reaches them.
 #[test]
 fn test_the_built_in_bundles_join_the_catalog_and_a_local_name_finds_them() {
-    let cat = corpus().with_builtins();
+    let cat = corpus().with_builtins(&|_| false);
     let listed: Vec<&str> = cat.entries().iter().map(|e| e.name.as_str()).collect();
     assert_eq!(
         listed,
@@ -438,7 +438,7 @@ fn test_a_project_bundle_of_a_built_in_name_overrides_it() {
         "testing",
         "version: 9.9.9\nfragments:\n  ours:\n    content: Our own testing rules.\n",
     )])
-    .with_builtins();
+    .with_builtins(&|name| name == "git");
     let named: Vec<&Entry> = cat
         .entries()
         .iter()
@@ -449,5 +449,9 @@ fn test_a_project_bundle_of_a_built_in_name_overrides_it() {
     let found = cat.lookup("testing").expect("the project's");
     assert_eq!(found.bundle.version, "9.9.9");
     assert!(cat.read_fragment("testing#fragments/tdd").is_err());
-    assert!(cat.is_builtin("git"));
+    // One that is shadowed (a project bundle there that cannot be read) is
+    // not added either.
+    assert!(!cat.is_builtin("git"));
+    assert!(cat.lookup("git").is_err());
+    assert!(cat.is_builtin("ai-developer"));
 }

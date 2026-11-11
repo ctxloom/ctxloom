@@ -112,9 +112,18 @@ pub fn files(name: &str) -> Option<Files> {
 /// name is not in `taken`, read, by name. A built-in bundle reads (its test
 /// holds it), so none is left out for a fault.
 pub fn entries(taken: &dyn Fn(&str) -> bool) -> Vec<Entry> {
-    // RED: not yet read.
-    let _ = (taken, tree::read_tree, manifest_path);
-    Vec::new()
+    FILES
+        .iter()
+        .filter(|(name, _)| !taken(name))
+        .filter_map(|(name, _)| {
+            let bundle = tree::read_tree(name, &files(name)?).ok()?;
+            Some(Entry {
+                name: name.to_string(),
+                manifest_path: manifest_path(name),
+                bundle,
+            })
+        })
+        .collect()
 }
 
 /// The profiles the built-in bundles not in `taken` ship, by the key a

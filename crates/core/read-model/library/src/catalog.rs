@@ -106,12 +106,13 @@ impl Catalog {
     }
 
     /// The catalog with ctxloom's built-in bundles added (rulings 110, 111):
-    /// each whose name no entry here has. A project bundle of a built-in
-    /// one's name overrides it, so a name always finds one bundle.
-    pub fn with_builtins(mut self) -> Catalog {
+    /// each whose name no entry here has and `shadowed` does not claim (a
+    /// project bundle that is there and cannot be read). A project bundle of
+    /// a built-in one's name overrides it, so a name always finds one bundle.
+    pub fn with_builtins(mut self, shadowed: &dyn Fn(&str) -> bool) -> Catalog {
         let taken: std::collections::BTreeSet<String> =
             self.entries.iter().map(|e| e.name.clone()).collect();
-        for entry in crate::builtin::entries(&|name| taken.contains(name)) {
+        for entry in crate::builtin::entries(&|name| taken.contains(name) || shadowed(name)) {
             self.builtins.insert(entry.name.clone());
             self.entries.push(entry);
         }

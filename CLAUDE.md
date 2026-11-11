@@ -451,7 +451,10 @@ file wins). engine-opencode writes the session home's `opencode.json`
 the document as its `permission` object (`{}` with none, so no earlier run's
 lingers; read from the 1.18.4 bundle, not run live). A document that is not
 JSON is `run-ports-engine-bad-permissions` (ctxloom's own rendering, so a
-bug). ctxloom chooses no opencode agent (`build`/`plan`): no flag for one.
+bug). Both files are rewritten whole from the order at EVERY launch (T21: a
+fresh session, a turn, a resume; neither is in `Engine::merges`), so an
+agent's edit of its own permissions never survives into a launch. ctxloom
+chooses no opencode agent (`build`/`plan`): no flag for one.
 Gone (hard migrate): ctxloom's mode lists and launch check (ruling 125),
 `--permission-mode` (ruling 116), `run-ports-engine-unknown-permission-mode`,
 every `permission_mode` field, and `agent create|edit --permissions` (ruling

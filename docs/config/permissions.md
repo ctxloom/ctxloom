@@ -37,6 +37,11 @@ ctxloom's own keys in those files (claude's `hooks`, and anything else
 ctxloom writes there) are never overwritten by the block: the block becomes
 the one key, `permissions` or `permission`, and nothing else.
 
+Both files are in the session's own directory, where the agent's own file
+tools can reach them, so ctxloom writes each one again, whole, from your
+config at every launch (a new session, a child's turn, a resume). An edit the
+agent makes to its own permissions never carries into a launch.
+
 ## claude-code
 
 The block is claude's `permissions` settings object, exactly as claude's own

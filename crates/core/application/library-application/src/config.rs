@@ -77,7 +77,7 @@ pub fn load(
                 )));
             }
         }
-        let found = judged(layer, &value, notices);
+        let found = judged(layer, &value, flags.degraded, notices);
         shape_failure |= found.iter().any(Violation::is_shape);
         if flags.degraded {
             drop_unknown_keys(&mut value, &found);
@@ -146,9 +146,19 @@ fn read_layer(layer: &LayerText, notices: &mut Vec<Notice>) -> Result<Value, App
     Ok(read.value)
 }
 
-/// A layer's violations of the schema, each also said as a warning.
-fn judged(layer: &LayerText, value: &Value, notices: &mut Vec<Notice>) -> Vec<Violation> {
+/// A layer's violations of the schema. Under `--degraded` the run goes on
+/// past them, so each is said as a warning; otherwise the refusal names each
+/// one, and a warning beside it would say it twice.
+fn judged(
+    layer: &LayerText,
+    value: &Value,
+    degraded: bool,
+    notices: &mut Vec<Notice>,
+) -> Vec<Violation> {
     let found = schema::validate(value);
+    if !degraded {
+        return found;
+    }
     for violation in &found {
         notices.push(Notice::Finding {
             text: violation.text(&layer.path),

@@ -46,9 +46,19 @@ fn row(
 
 /// `SETUP-MARKER-e5`: the project's `.ctxloom` and the config in it. A config
 /// that will not parse is a finding, never a reason to stop the diagnosis.
-pub fn setup_marker(has_project: bool, config: Option<&str>) -> Check {
+///
+/// `refused` is what every run would refuse the config with (its message and
+/// fix), read as a run reads it: a `fail` row, since no run can start.
+pub fn setup_marker(
+    has_project: bool,
+    config: Option<&str>,
+    refused: Option<(&str, &str)>,
+) -> Check {
     const M: &str = "DOCTOR-CHECK-SETUP-MARKER-e5";
     const N: &str = "setup marker";
+    if let Some((message, fix)) = refused {
+        return row(M, N, Status::Fail, message, fix);
+    }
     if !has_project {
         return row(
             M,
@@ -288,7 +298,9 @@ pub fn hooks(settings: &[(String, String)]) -> Check {
 
 /// `GITIGNORE-f6`: a blanket `.ctxloom` ignore rule predates content moving
 /// into `.ctxloom/`; left in place it un-tracks the project's own content.
-pub fn gitignore(text: Option<&str>) -> Check {
+/// And the other half: ctxloom's private state that git can see
+/// (`unignored`, the patterns no ignore file covers).
+pub fn gitignore(text: Option<&str>, unignored: &[&str]) -> Check {
     const M: &str = "DOCTOR-CHECK-GITIGNORE-f6";
     const N: &str = ".gitignore posture";
     let blanket = text
@@ -318,7 +330,23 @@ pub fn gitignore(text: Option<&str>) -> Check {
             ),
             "ctxloom manage gitignore install",
         ),
-        None => row(M, N, Status::Ok, "no blanket .ctxloom ignore rule", ""),
+        None if !unignored.is_empty() => row(
+            M,
+            N,
+            Status::Warn,
+            &format!(
+                "git can see ctxloom's private state under .ctxloom ({}): neither .ctxloom/.gitignore nor .gitignore ignores it, so `git status` lists session homes, which hold an engine's login state",
+                unignored.join(", ")
+            ),
+            "ctxloom manage gitignore install",
+        ),
+        None => row(
+            M,
+            N,
+            Status::Ok,
+            "no blanket .ctxloom ignore rule, and ctxloom's private state is ignored",
+            "",
+        ),
     }
 }
 

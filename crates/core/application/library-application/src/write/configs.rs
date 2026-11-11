@@ -22,8 +22,9 @@ impl Library {
             .ok_or_else(|| WriteError::NotWired {}.into())
     }
 
-    /// `config create [--engine E]`: the config, the default remotes registry
-    /// and the seeded default profile; it refuses an existing config.
+    /// `config create [--engine E]`: the config, the default remotes registry,
+    /// the seeded default profile and the nested `.gitignore` of ctxloom's
+    /// private state; it refuses an existing config.
     pub fn config_create(&self, engine: &str) -> Outcome<ConfigCreated> {
         Outcome {
             result: self.created(engine),
@@ -57,6 +58,11 @@ impl Library {
         let manifest = format!("{bundle}/bundle.yaml");
         if !scaffold.exists(&manifest).map_err(AppError::Cause)? {
             files.push(Put::file(manifest, new_envelope("1.0.0", "")));
+        }
+        // ctxloom's private state (sessions, cache, the project id) out of
+        // git from the start; one that is there is the project's.
+        if !scaffold.exists(".gitignore").map_err(AppError::Cause)? {
+            files.push(Put::file(".gitignore", scaffold::nested_gitignore()));
         }
         let seed = format!("{bundle}/{}", profile_path(SEED_NAME));
         if !scaffold.exists(&seed).map_err(AppError::Cause)? {

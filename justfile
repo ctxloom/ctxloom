@@ -187,6 +187,7 @@ selftest:
     @{{TOP}}/scripts/closeout.selftest.sh
     @{{TOP}}/scripts/ltk-rules-check.sh
     @{{TOP}}/scripts/output-budget.selftest.sh
+    @{{TOP}}/scripts/tests-exit.selftest.sh
     @{{TOP}}/scripts/exec-mode-check.selftest.sh
     @{{TOP}}/scripts/dev-local.selftest.sh
     @{{TOP}}/scripts/path-deps-check.selftest.sh

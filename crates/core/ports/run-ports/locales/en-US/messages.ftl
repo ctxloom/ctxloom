@@ -27,3 +27,7 @@ run-ports-bind-no-bridge-gateway = the { $runtime } child's bridge network has n
 run-ports-bind-no-bridge-gateway-fix = create the run's user-defined bridge network first, then retry
 run-ports-bind-unspecified = the hook listener would bind { $addr }, an address on every interface
 run-ports-bind-told-other-than-bound = the child would be told to dial { $told }, which is not the listener's address { $bind }, so its token would go to an interface the listener is not on
+run-ports-child-not-started = could not start the child's engine { $program }: { $ext_err_txt }
+run-ports-child-not-started-fix = check that { $program } is installed and on the PATH ctxloom runs it with (or set engines.<engine>.command)
+run-ports-child-closed = the child has ended, or its engine has exited: it takes no more messages
+run-ports-child-io = could not reach the child's engine: { $ext_err_txt }

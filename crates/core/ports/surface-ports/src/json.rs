@@ -119,6 +119,14 @@ impl Json {
     }
 }
 
+impl Json {
+    /// The document on one line, with no whitespace between tokens: a line of
+    /// a JSON-lines stream (a newline in a string is written `\n`).
+    pub fn compact(&self) -> String {
+        unimplemented!("RED: diabolic-karate")
+    }
+}
+
 impl Serialize for Json {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {

@@ -217,7 +217,7 @@ impl Engine for Claude {
 /// modes and both kinds of run; nothing is written into the user's own
 /// directory. (In a container this path must be the in-container one: a
 /// follow-up.)
-fn push_settings(args: &mut Vec<String>, request: &TurnRequest) {
+pub(crate) fn push_settings(args: &mut Vec<String>, request: &TurnRequest) {
     args.push("--settings".to_string());
     args.push(format!("{}/{SETTINGS_FILE}", request.home));
 }
@@ -228,7 +228,10 @@ pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 /// `--model <model>` and `--effort <level>` when the agent names them; none
 /// named is no flag (the engine's own default). A level claude does not take
 /// is refused here, before it is launched.
-fn push_model_and_effort(args: &mut Vec<String>, request: &TurnRequest) -> Result<(), EngineError> {
+pub(crate) fn push_model_and_effort(
+    args: &mut Vec<String>,
+    request: &TurnRequest,
+) -> Result<(), EngineError> {
     if !request.model.is_empty() {
         args.push("--model".to_string());
         args.push(request.model.clone());
@@ -248,7 +251,7 @@ fn push_model_and_effort(args: &mut Vec<String>, request: &TurnRequest) -> Resul
 }
 
 /// The program: the engine block's `command`, else `claude` on the `PATH`.
-fn program(request: &TurnRequest) -> &str {
+pub(crate) fn program(request: &TurnRequest) -> &str {
     match request.settings.command.as_str() {
         "" => PROGRAM,
         configured => configured,
@@ -270,7 +273,7 @@ fn grantable(name: &str, interactive: bool) -> bool {
 /// `CLAUDE_CONFIG_DIR` set to the session's home, or to the user's own
 /// directory when the engine block says `session_home: host`. A child is never
 /// given the primary's token.
-fn environment(
+pub(crate) fn environment(
     engine: &Claude,
     interactive: bool,
     request: &TurnRequest,

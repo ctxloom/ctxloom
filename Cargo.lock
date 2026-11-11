@@ -1246,8 +1246,12 @@ name = "engine-claude"
 version = "0.1.0"
 dependencies = [
  "ctxloom-ports",
+ "file-system",
+ "fixture-program",
  "mutants",
+ "os",
  "run-ports",
+ "run-within",
  "surface-ports",
 ]
 

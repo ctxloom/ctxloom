@@ -187,3 +187,23 @@ fn test_a_value_json_cannot_hold_says_what_it_expected() {
     let err = Json::deserialize(BytesDeserializer::<Error>::new(b"x")).unwrap_err();
     assert!(err.to_string().contains("expected a JSON value"), "{err}");
 }
+
+#[test]
+fn test_a_compact_document_is_one_line_in_its_written_order() {
+    let doc = Json::object([
+        ("type", Json::text("user")),
+        (
+            "message",
+            Json::object([
+                ("role", Json::text("user")),
+                ("content", Json::text("a\nb \"c\"")),
+            ]),
+        ),
+        ("n", Json::Number("12345678901234567890".to_string())),
+    ]);
+    assert_eq!(
+        doc.compact(),
+        r#"{"type":"user","message":{"role":"user","content":"a\nb \"c\""},"n":12345678901234567890}"#
+    );
+    assert_eq!(Json::parse(&doc.compact()).unwrap(), doc);
+}

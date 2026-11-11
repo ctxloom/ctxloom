@@ -1,6 +1,7 @@
 //! Claude Code's two halves. The drive half (`drive`, step 1b-i) is a child
 //! agent's turn-as-command: what one `claude -p` turn is handed and how its
-//! stream is read. The surface half (S9; Go's `internal/engines/claude`
+//! stream is read; and (`child`, `conversation`, D15) a long-lived child, one
+//! streaming `claude -p` process for many turns, behind `run_ports::ChildEngine`. The surface half (S9; Go's `internal/engines/claude`
 //! `definition.go`, `surfaces.go`, `commandfiles.go`, `hookcodec.go`) is
 //! below.
 //!
@@ -14,8 +15,10 @@
 //! session), so `.mcp.json` carries only the servers the profiles' bundles
 //! ship, and no file is conjured for none.
 
+mod child;
 mod codec;
 mod commands;
+mod conversation;
 mod drive;
 mod hooks;
 mod skills;

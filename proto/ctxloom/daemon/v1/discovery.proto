@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+// DRAFT for the owner's review (ruling 132, design-by-test). No build.rs
+// lists this file, so nothing is generated from it yet; it is the contract
+// the daemon's rework is written against.
+//
+// The discovery file (T3, T12): what the user's daemon writes, once it
+// serves, so that a client can find it, pin it and present the user's
+// credential. It is `~/.ctxloom/daemon/daemon.endpoint` under ctxloom's home
+// (`CTXLOOM_HOME` first, then `HOME`), a 0600 file in the 0700 daemon
+// directory, written atomically (a temporary file renamed over it), holding
+// one `Discovery` in protobuf's binary encoding (spec call S5).
+package ctxloom.daemon.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// The serving daemon, as its file says it.
+message Discovery {
+  // The file's own format; this is 1. A reader that finds another refuses
+  // the file as unreadable and treats the daemon as absent (T5: client and
+  // daemon are one build, so a mismatch means a stale file).
+  uint32 format = 1;
+
+  // The daemon's process id. A client that finds the election lock free
+  // treats the file as stale whatever this says (the pid is for `daemon
+  // status` and the log, never a liveness proof: rulings 85, 86).
+  uint32 pid = 2;
+
+  // `https://127.0.0.1:<port>`: TLS only, never port 0 (run-ports'
+  // `endpoint` builder and parser, as for the per-run listener before it).
+  string endpoint = 3;
+
+  // The daemon's PUBLIC certificate, DER. A client pins it as its sole trust
+  // root (no system roots, no fallback to plaintext). Minted at each start
+  // (D-N24: a month's window), its key in the daemon's memory alone.
+  bytes certificate = 4;
+
+  // The USER bearer (T12): 256 bits, 64 lowercase hex, minted at each start.
+  // A CLI call presents it as `authorization: Bearer <this>`. The daemon
+  // keeps only its SHA-256 in memory; nothing but this file holds the token,
+  // and it is never logged, journaled, put in an error or rendered by a
+  // Debug. A run's, a child's and a hook's calls never present it: each holds
+  // its own narrower per-run credential (the launch's environment).
+  string bearer = 5;
+
+  // When this daemon started serving (for `daemon status`).
+  google.protobuf.Timestamp started_at = 6;
+
+  // The build that serves (ctxloom's version), for `daemon status` and the
+  // log only. Not a negotiation (T5): nothing refuses on it.
+  string version = 7;
+}

@@ -1,0 +1,146 @@
+syntax = "proto3";
+
+// DRAFT for the owner's review (ruling 132, design-by-test). No build.rs
+// lists this file, so nothing is generated from it yet.
+//
+// THE USER'S DAEMON (T1-T12), its own service and the rules every service
+// shares. The services of the daemon's ONE TLS listener:
+//
+//   ctxloom.daemon.v1.Cli          every command, as the user (cli.proto)
+//   ctxloom.daemon.v1.Frontend     an interactive run's terminal (frontend.proto)
+//   ctxloom.daemon.v1.Children     the child lifecycle (children.proto)
+//   ctxloom.daemon.v1.Daemon       this file: status, stop
+//   io.angzarr.transport.distributed.v1.CommandHandlerCoordinatorService
+//                                  HOOK DELIVERY, unchanged: `Handle` of a
+//                                  capture fact (sessions/v1/capture.proto)
+//                                  with the run's hook bearer, as the
+//                                  per-run listener took it before (that
+//                                  listener is gone, T1)
+//   grpc.health.v1.Health          liveness, for a client's discovery probe
+//
+// CREDENTIALS (T12; rulings 31-38). The listener is TLS only, its
+// certificate the discovery file's. A call presents
+// `authorization: Bearer <token>`:
+//   - the USER bearer (discovery.proto) on `Cli` and `Daemon`;
+//   - a run's RUNNER bearer on `Frontend`;
+//   - a run's HOOK bearer on `Handle` (the capture scope) and on `Children`
+//     (the orchestration scope, D25: its own children only);
+//   - each hosted child has its own run, so its own bearers.
+// A bearer the daemon does not hold is answered UNAUTHENTICATED, saying
+// nothing of why (no oracle); that is the transport's answer, not a typed
+// refusal.
+//
+// ROUTING (T8). Every call but `Cli`'s and `Daemon`'s names the project and
+// the session it is for, as request metadata (spec call S4), so that
+// angzarr's `Handle` is reused unchanged:
+//   ctxloom-project: <project id>
+//   ctxloom-session: <the session's stable id>
+// The daemon routes by the project id to that project's store (opened
+// lazily, kept open while it serves; only the daemon opens it, T1), and the
+// gate refuses a session the bearer's run does not own (`SessionNotOwned`).
+// A `Frontend` call carries the same pair in its `LaunchAt` too; they must
+// agree.
+//
+// REFUSALS. A typed RPC of these services refuses with ONE refusal message
+// below: the call is answered with the gRPC status its `(refusal_status)`
+// declares and the message packed in the status's details (spec call S11).
+// `Cli.Invoke` refuses nothing itself: a command's refusals are rendered by
+// the daemon onto the stream and its exit code, as every command's are.
+package ctxloom.daemon.v1;
+
+import "google/protobuf/timestamp.proto";
+import "io/angzarr/v1/options.proto";
+
+service Daemon {
+  // Whether this daemon serves, and what it hosts. Never the bearer.
+  rpc Status(StatusRequest) returns (DaemonStatus);
+  // Ask the daemon to exit. Refused while it hosts a live run
+  // (`DaemonHosting`), unless `even_if_live` (spec call S12).
+  rpc Stop(StopRequest) returns (Stopping);
+}
+
+message StatusRequest {}
+
+// One run the daemon hosts or follows.
+message HostedRun {
+  string project_id = 1;
+  string harp = 2;
+  string run = 3;
+  // `terminal` (a frontend's), `one-shot`, `child`.
+  string kind = 4;
+}
+
+message DaemonStatus {
+  uint32 pid = 1;
+  string endpoint = 2;
+  google.protobuf.Timestamp started_at = 3;
+  string version = 4;
+  repeated HostedRun runs = 5;
+  // The open client streams (`Hold`s, `Invoke`s).
+  uint32 clients = 6;
+  // Seconds of idleness so far, and the idle time after which it exits.
+  uint64 idle_seconds = 7;
+  uint64 idle_limit_seconds = 8;
+}
+
+message StopRequest {
+  // Stop even with live runs: their hosted engines are ended; a frontend's
+  // TUI lives on and its next call starts another daemon (T4).
+  bool even_if_live = 1;
+}
+
+message Stopping {}
+
+// region refusals
+
+// The call names a session the bearer's run does not own (T8).
+message SessionNotOwned {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_PERMISSION_DENIED;
+
+  string project_id = 1;
+  string session = 2;
+}
+
+// The call names no project, or no session, where one is needed (S4's
+// metadata missing, or disagreeing with the `LaunchAt`).
+message RoutingMissing {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  // `ctxloom-project` or `ctxloom-session`.
+  string key = 1;
+}
+
+// The project has no store under this home (the daemon never makes one for a
+// call that names it: only a command run in the project does).
+message ProjectUnknown {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
+
+  string project_id = 1;
+}
+
+// A report or a hold for a run that is not a terminal run, or has ended.
+message RunNotOpen {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string run = 1;
+}
+
+// A child whose hand-off file is missing or unreadable cannot be started
+// again (a re-host after a restart): its incarnation ends `launch-failed`
+// with this, and its owner is told.
+message HandOffMissing {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string harp = 1;
+}
+
+// `Stop` while the daemon hosts live runs.
+message DaemonHosting {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  // How many, and their harps.
+  uint64 runs = 1;
+  repeated string harps = 2;
+}
+
+// endregion refusals

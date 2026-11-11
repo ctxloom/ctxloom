@@ -35,15 +35,27 @@ Feature: run — assembling a project's context and handing it to an engine
   opencode scenario at the end, whose scripted engine records what it was
   launched with and exits.
 
+  A RUN IS THE USER'S DAEMON'S WORK (cli/daemon.feature). `run` is a
+  client: the daemon plans the run, assembles its context, enqueues it,
+  mints its session and writes its session home. A one-shot's engine is then
+  started by the DAEMON, which hosts it, holds its session's lock and
+  streams its reply back to the command; the interactive session's TUI is
+  started by the command itself, on the user's terminal, from the launch the
+  daemon computed (the one launch type both use), and the command holds its
+  session's lock and reports the TUI's start and exit to the daemon. A `run`
+  that can neither find nor start a daemon fails before anything is planned
+  or started.
+
   A RUN ASKED TO STOP STOPS ITS ENGINE FIRST (ruling 114). For the whole run
   ctxloom hears SIGHUP, SIGINT and SIGTERM, so none ends it by its default
   and leaves the engine working with no one listening. A one-shot stops on
-  any of the three: the turn's process tree is asked to stop (SIGTERM),
-  given five seconds, then killed. The session stops on SIGHUP or SIGTERM:
-  its engine (the direct child) is killed; a SIGINT is the terminal's Ctrl-C,
-  which reaches the engine itself, and ctxloom lets it pass. Either way the
-  run's end is recorded as for any engine that exited, and the command exits
-  with 128 plus the signal's number (129, 130, 143), the error
+  any of the three: the command asks the daemon to stop it, and the daemon
+  asks the turn's process tree to stop (SIGTERM), gives it five seconds,
+  then kills it. The session stops on SIGHUP or SIGTERM: the command kills
+  its engine (the direct child); a SIGINT is the terminal's Ctrl-C, which
+  reaches the engine itself, and ctxloom lets it pass. Either way the run's
+  end is recorded as for any engine that exited, and the command exits with
+  128 plus the signal's number (129, 130, 143), the error
   `run-application-stopped` naming the signal. j001000 proves the one-shot's
   SIGTERM end to end.
 
@@ -576,8 +588,12 @@ Feature: run — assembling a project's context and handing it to an engine
   Rule: A run holds its session's lock for as long as it runs, so its session reads live
 
     The lock is `.ctxloom/sessions/<harp>.lock`, beside the session's
-    directory: an exclusive file lock the run takes once its session is
-    minted and lets go after its engine exits. Another process probes it
+    directory: an exclusive file lock taken once its session is minted, by
+    the process that starts its engine (the command on the user's terminal
+    for an interactive session, the user's daemon for a one-shot or a
+    child), and let go after its engine exits. So a session outlives its
+    daemon: a daemon killed while the session runs finds it live again, by
+    its lock, when it comes back. Another process probes it
     without holding it: held is live, free is ended. So while a session runs,
     ctxloom will not move it from under its engine (a rename waits for its
     end) and will not remove it without `--even-if-live`; once it has ended a
@@ -1111,3 +1127,87 @@ Feature: run — assembling a project's context and handing it to an engine
       And the output contains "manual"
       And the output contains "is not a claude mode (known: default|acceptEdits|plan|bypassPermissions)"
       And no assistant was launched
+
+  Rule: run is a client of the user's daemon, which hosts a one-shot and prepares a session
+
+    The daemon plans every run and hosts every engine that needs no
+    terminal. A one-shot's reply is streamed from the daemon to the command,
+    which prints it. An interactive session's TUI is started by the command,
+    on the user's terminal, exactly as the daemon's launch says: its
+    program, its arguments, its whole environment, its directory. Every call
+    the command makes for the session names its project and its session.
+
+    Scenario: A one-shot is run by the daemon, and its reply printed by the command
+      # new: a one-shot is a daemon-hosted child.
+      Given Alice has a project that has never used ctxloom
+      And Alice has exported her assistant's token
+      And Alice has set ctxloom up in her project
+      When Alice asks her assistant one thing, which her daemon runs:
+        """
+        ctxloom run --one-shot "Run the shell command: echo hi"
+        """
+      Then the command succeeds
+      And the assistant's reply is printed
+      And the assistant was a child of the daemon, and its session's lock was the daemon's
+
+    Scenario Outline: A one-shot asked to stop is stopped by the daemon, and the command exits as the signal says
+      # new: the stop of a hosted one-shot.
+      Given Alice has a project that has never used ctxloom
+      And Alice has exported her assistant's token
+      And Alice has set ctxloom up in her project
+      When Alice asks her assistant one thing, and ctxloom is sent a <signal> while the assistant works:
+        """
+        ctxloom run --one-shot "Run the shell command: sleep 30"
+        """
+      Then the daemon asked the assistant to stop, and it was gone before the command exited
+      And the command exits 128 plus the signal's number, <code>, saying the run was stopped by <signal>
+
+      Examples:
+        | signal  | code |
+        | SIGHUP  | 129  |
+        | SIGINT  | 130  |
+        | SIGTERM | 143  |
+
+    Scenario: An interactive session's TUI is started by the command, exactly as the daemon's launch says
+      # new: the launch is the daemon's; the command starts the TUI.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice runs her assistant interactively, through her daemon:
+        """
+        ctxloom run
+        """
+      Then the command succeeds
+      And the assistant was started with the program, arguments, environment and directory of the daemon's launch, and nothing else
+      And the command took the session's lock before the assistant started and let it go after it exited
+      And the daemon recorded the assistant's start and its exit, each once
+
+    Scenario Outline: A run that can neither find nor start a daemon fails before anything starts
+      # new: no daemon, no run.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And no ctxloom daemon can be started for this home
+      When Alice runs:
+        """
+        <command>
+        """
+      Then the command exits with code 1
+      And the output contains "no ctxloom daemon could be started"
+      And no assistant was launched
+      And no session was minted
+
+      Examples:
+        | command                                   |
+        | ctxloom run --one-shot "Run the shell command: echo hi" |
+        | ctxloom run                               |
+
+    Scenario: An interactive session outlives its daemon, and the command finds the next one
+      # new: the frontend reconnects.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice runs her assistant interactively, and its daemon is killed outright while it works:
+        """
+        ctxloom run
+        """
+      Then the command succeeds
+      And the assistant was never stopped
+      And the command started a new daemon, and reported the assistant's exit to it once

@@ -86,6 +86,7 @@ impl CommonWorld for World {
             || capture::fires(self, step)
             || capture_opencode::forwards(self, step)
             || capture_opencode::reports_login(self, step)
+            || daemon_spec::claims(self, step)
         {
             return;
         }
@@ -318,6 +319,9 @@ mod capture;
 
 #[path = "gherkin_capture_opencode.test.rs"]
 mod capture_opencode;
+
+#[path = "gherkin_daemon.test.rs"]
+mod daemon_spec;
 
 // ------------------------------------------------------------------ given
 

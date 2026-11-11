@@ -98,7 +98,7 @@ Feature: Cross-engine transcript capture — every engine's conversation becomes
 
   # A one-shot's assistant is a child turn (`claude -p`), heard through the
   # same hooks (owner ruling 51): its session home registers the per-turn
-  # events, and the one-shot serves the listener they call back to. The stub
+  # events, which call back to Alice's daemon, as every hook does. The stub
   # engine fires them as the interactive one does, each twice.
   Scenario: The hooks a one-shot's assistant fires become the session's transcript
     # new: hook capture of a child turn, with a stub engine on PATH.

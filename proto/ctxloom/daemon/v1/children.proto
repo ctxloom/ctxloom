@@ -1,0 +1,98 @@
+syntax = "proto3";
+
+// DRAFT for the owner's review (ruling 132, design-by-test). No build.rs
+// lists this file, so nothing is generated from it yet.
+//
+// The CHILD lifecycle (T6, T7, T8; D13-D17, D25, D28): launch a child of a
+// session, send it a message, clear it, close it. Two kinds of caller reach
+// the same use cases:
+//
+// - the ORCHESTRATOR (the owner agent, through ctxloom's MCP server in its
+//   session) presenting its run's credential under the orchestration scope
+//   (D25, D-N28): the gate stamps the requester from the credential, and
+//   the session aggregate refuses a child that is not the requester's own
+//   (`sessions-not-owner`);
+// - the USER, as `ctxloom session launch|send|clear|close` (cli.proto's
+//   `Invoke`, the user bearer): no requester, the user's authority (ruling
+//   37).
+//
+// A launch writes the child's HAND-OFF file (T6): the environment the
+// launching client sent, 0600 in the 0700 `~/.ctxloom/daemon/launch/`, named
+// by the child's stable id. The DAEMON writes it, never the client (spec
+// call S10). It lives for the child's LIFE: every start of the child (its
+// first, and each re-host after a daemon restart, which resumes its native
+// session) reads its environment from it, and it is deleted when the child
+// is ENDED (closed, or its launch failed). A file whose child is no longer
+// open is swept. The child process sees only its environment, never the
+// file. Accepted cost: a credential at rest for the child's life (ruling 37).
+package ctxloom.daemon.v1;
+
+import "ctxloom/daemon/v1/launch.proto";
+import "ctxloom/sessions/v1/daemon.proto";
+
+service Children {
+  rpc Launch(LaunchChildRequest) returns (ChildLaunched);
+  rpc Send(SendRequest) returns (MessageSent);
+  rpc Clear(ClearRequest) returns (ClearSent);
+  rpc Close(CloseRequest) returns (ChildClosed);
+}
+
+message LaunchChildRequest {
+  // The owner session (an orchestrator's own; the user may name any).
+  ctxloom.sessions.v1.SessionRef owner = 1;
+  // The child's agent in its project (none: the project's default agent),
+  // and an engine other than the agent's (`--engine`).
+  string agent = 2;
+  string engine = 3;
+  // The child's harp; none mints one.
+  string name = 4;
+  // The child's first task (D-N25): its first turn. None: the child waits
+  // for its first message.
+  string prompt = 5;
+  // Where it works: a directory of the owner's project (a worktree), or of
+  // another repository (D18, D19: that repository's store, config and
+  // context, once it passes the trust check).
+  string root = 6;
+  // The launcher's environment, the hand-off's content: never journaled,
+  // logged or rendered.
+  repeated EnvVar env = 7;
+}
+
+message ChildLaunched {
+  ctxloom.sessions.v1.SessionRef child = 1;
+  string harp = 2;
+}
+
+message SendRequest {
+  ctxloom.sessions.v1.SessionRef to = 1;
+  // The message's id; none mints one. The same id again is DUPLICATE.
+  string message_id = 2;
+  ctxloom.sessions.v1.Urgency urgency = 3;
+  string text = 4;
+}
+
+message MessageSent {
+  string message_id = 1;
+  bool duplicate = 2;
+}
+
+message ClearRequest {
+  ctxloom.sessions.v1.SessionRef child = 1;
+  string clear_id = 2;
+}
+
+message ClearSent {
+  string clear_id = 1;
+}
+
+message CloseRequest {
+  ctxloom.sessions.v1.SessionRef child = 1;
+  string cause = 2;
+}
+
+// Answered once the session is CLOSED (K1); its engine is ended by the
+// daemon afterwards (the launch's `StopPolicy`), and its hand-off deleted.
+message ChildClosed {
+  // It was already closed.
+  bool already = 1;
+}

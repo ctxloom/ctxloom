@@ -1093,7 +1093,8 @@ drives. A failing gate is a finding: fix the cause and commit again; never
    excluded (`.cargo/mutants.toml`). Each mutant runs only its own crate's
    tests (`test_workspace = false`), under `cargo test`: a dependent's
    tests, the binary's acceptance tests included, kill nothing, so a crate
-   kills its own mutants. A mutant judged equivalent or untestable gets
+   kills its own mutants. An unviable mutant (one that does not build)
+   needs no skip: it counts neither way. A mutant judged equivalent or untestable gets
    `#[cfg_attr(test, mutants::skip)]` on its function, with `mutants` a
    dev-dependency (`mutants.workspace = true`, so nothing new is linked)
    and a one-line comment above it saying why; never an exclude in
@@ -1110,8 +1111,10 @@ drives. A failing gate is a finding: fix the cause and commit again; never
    mutant's file and summary, and `total_mutants`) and its exit code, no log
    read: it fails the red baseline (exit 4, kept), a run that ended before a
    verdict, fewer tested than found, a file under no threshold, a tier below
-   its threshold, and a tier that found mutants and judged none (every one
-   unviable). No feature reaches the mutation run: `mutants-staged` refuses
+   its threshold, and a run that found mutants and judged none of them at
+   all (every one unviable; owner ruling 120, amending 99: the whole run's
+   rule, so a tier all unviable beside one that judged passes, its row
+   saying `none judged`). No feature reaches the mutation run: `mutants-staged` refuses
    a non-empty `feature_rules` (`_mutants-no-features`), so a crate whose
    tests need a feature of its own dev-depends on itself with it (as
    `session-cli` does for `session-destroy`). Both are held by

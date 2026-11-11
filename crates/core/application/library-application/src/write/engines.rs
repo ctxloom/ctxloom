@@ -28,8 +28,9 @@ fn family(engine: &str) -> Option<&'static str> {
     }
 }
 
-/// The permission modes of `engine`, in its order.
-pub(crate) fn postures(engine: &str) -> &'static [&'static str] {
+/// The permission modes of `engine`, in its order: ctxloom's own vocabulary,
+/// which governs a write and a launch alike (owner ruling 125).
+pub fn postures(engine: &str) -> &'static [&'static str] {
     match family(engine) {
         Some("claude") => &["default", "acceptEdits", "plan", "bypassPermissions"],
         Some("opencode") => &["build", "plan", "auto"],

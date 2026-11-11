@@ -32,6 +32,26 @@ fn test_a_session_that_is_no_uuid_has_no_run() {
     assert!(run_id("jolly-mute-magma", 1).is_err());
 }
 
+// Owner ruling 125: ctxloom's own vocabulary of claude modes governs; claude's
+// list (`claude --help`, in engine-claude) only checks that every word
+// ctxloom passes is one claude takes. `default` is passed as no flag.
+#[test]
+fn test_every_claude_mode_ctxloom_passes_is_one_claude_takes() {
+    let passed: Vec<&str> = library_application::write::permission_modes("claude-code")
+        .iter()
+        .copied()
+        .filter(|mode| *mode != "default")
+        .collect();
+    assert!(!passed.is_empty());
+    for mode in passed {
+        assert!(
+            engine_claude::PERMISSION_MODES.contains(&mode),
+            "{mode} is not in claude's list {:?}",
+            engine_claude::PERMISSION_MODES
+        );
+    }
+}
+
 // ---------------------------------------------------------------- characterization
 //
 // Pinned before the process's environment is read in one place (A0): every

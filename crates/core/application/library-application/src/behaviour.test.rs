@@ -1193,6 +1193,55 @@ fn test_a_dry_run_carries_the_agent_s_permission_mode() {
 // Ruling 57 (amends 54): `run --engine X` plans the agent on X: its block for
 // X (model, effort), else X's defaults (no flag); its runtime and env are
 // kept; X's engine block drives it.
+// Owner ruling 125: ctxloom's own vocabulary governs a claude agent's mode at
+// a launch as at a write: a mode outside it is refused before anything is
+// launched, with the write path's own words (a retired spelling, any case,
+// points at the approver it is now; claude's `manual` is not ctxloom's); a
+// mode in it is passed in its own spelling. opencode's mode is not checked.
+#[test]
+fn test_a_dry_run_refuses_a_claude_mode_outside_ctxloom_s_vocabulary() {
+    let plan = |mode: &str, engine: &str| {
+        let layers = [format!(
+            "schema_version: 9\nagents:\n  dev:\n    engine: {engine}\n    engines:\n      {engine}:\n        permissions:\n          mode: {mode}\n"
+        )];
+        let layers: Vec<&str> = layers.iter().map(String::as_str).collect();
+        with(&[], &layers).library().dry_run(
+            &plain(),
+            &crate::RunRequest {
+                agent: "dev".to_string(),
+                ..crate::RunRequest::default()
+            },
+        )
+    };
+    for (mode, says) in [
+        ("auto", "claude permissions: mode \"auto\" is declared as approver: reviewer"),
+        ("DontAsk", "claude permissions: mode \"DontAsk\" is declared as approver: none"),
+        ("manual", "claude permissions: mode \"manual\" is not a claude mode (known: default|acceptEdits|plan|bypassPermissions)"),
+    ] {
+        let Err(refused) = plan(mode, "claude-code").result else {
+            panic!("{mode} was not refused");
+        };
+        assert_eq!(say(&refused), "library-application-write-permissions", "{mode}");
+        assert_eq!(
+            refused.to_string(),
+            format!("agent \"dev\": {says}"),
+            "{mode}"
+        );
+    }
+    assert_eq!(
+        ok(plan("acceptedits", "claude-code")).plan.permission_mode,
+        "acceptEdits"
+    );
+    assert_eq!(
+        ok(plan("default", "claude-code")).plan.permission_mode,
+        "default"
+    );
+    assert_eq!(
+        ok(plan("anything", "opencode")).plan.permission_mode,
+        "anything"
+    );
+}
+
 #[test]
 fn test_a_dry_run_on_another_engine_takes_the_agent_s_block_for_it() {
     let layers = ["schema_version: 9\nengines:\n  opencode:\n    auth: none\nagents:\n  dev:\n    engine: claude-code\n    runtime: container-rootless\n    env: [ALPHA]\n    engines:\n      claude-code:\n        model: haiku\n        effort: low\n      opencode:\n        model: opencode/big-pickle\n  lone:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: haiku\n"];

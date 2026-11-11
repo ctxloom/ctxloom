@@ -506,6 +506,27 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       Then the command succeeds
       And the output contains "permissions  plan, not passed to the engine yet  (agents.dev.engines.opencode)"
 
+    # Owner ruling 125: a hand-written claude mode is held to the words a write
+    # takes, at the dry run as at the launch, and refused in the write's words.
+    Scenario: The dry run refuses a hand-written claude mode a write would refuse
+      # new: owner ruling 125 (2026-11-11)
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        agents:
+          dev:
+            engine: claude-code
+            engines:
+              claude-code:
+                permissions:
+                  mode: dontAsk
+        """
+      When I run "ctxloom run --dry-run --agent dev hello --format text"
+      Then the command exits with code 2
+      And the output contains "dontAsk"
+      And the output contains "is declared as approver: none"
+
     # Ruling 67 (2026-11-10): what you see is what you write. The listing and
     # the write summary show each engine block in the config's shape,
     # `engines.<e>: {...}`, never a flat model or `<engine>={mode=...}`.

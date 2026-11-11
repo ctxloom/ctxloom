@@ -34,6 +34,8 @@ impl Create for ConfigCreate {
             .map_err(|e| Box::new(e) as Failure)
     }
 
+    // Its only mutant, a Default Deps, does not type-check.
+    #[cfg_attr(test, mutants::skip)]
     fn deps(&self) -> Result<Rc<Deps>, Failure> {
         let wiring = Wiring::new(Arc::clone(&self.1)).map_err(|e| Box::new(e) as Failure)?;
         crate::commands::build_deps(&wiring)

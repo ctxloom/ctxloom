@@ -46,11 +46,12 @@ pub fn nested_gitignore() -> String {
 /// `/`), or by its `.ctxloom/` spelling in the root one; an unanchored glob
 /// (`*.lock`) is ignored by itself in either.
 pub fn unignored_private_state(root: Option<&str>, nested: Option<&str>) -> Vec<&'static str> {
+    // A blank line or a comment equals no pattern, so it ignores nothing
+    // without being filtered out.
     let lines = |text: Option<&str>| -> Vec<String> {
         text.unwrap_or_default()
             .lines()
             .map(|line| line.trim().trim_end_matches('/').to_string())
-            .filter(|line| !line.is_empty() && !line.starts_with('#'))
             .collect()
     };
     let (root, nested) = (lines(root), lines(nested));

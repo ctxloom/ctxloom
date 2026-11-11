@@ -176,3 +176,48 @@ Owner bypassed the unattended stop conditions on this branch for tonight (review
 
 ### D-N35. `session show` json names the owner link
 - **Decision:** `session show --format json` gains `owner` (the owner's stable id), `closed` (true only) and `children` (the stable ids held), each left out when empty, as `pending` is (additive; the text form is unchanged).
+
+
+## resolute-sleet: Subscribe with true push (D10, review S4)
+
+Built in angzarr core (`angzarr-ports`, `angzarr-reads`, `angzarr-coordinator`, `angzarr-coordinator-grpc`) and angzarr-embedded (`angzarr-store-sqlite`), then the family re-pinned. All of it is generic and ctxloom-free.
+
+### S-N1. The push is the store port's, signalled by the store adapter, not the kernel
+- **Decision:** `angzarr_ports::CommitNotify` (opt-in, like `Watch`), on a runtime-free `CommitSignal` / `CommitWait` (std `Mutex` and `Waker`; it builds for wasm32). `MemoryStore` and `SqliteStore` notify after every successful commit (a write, a snapshot, a purge, dead letters drained or removed, outbox entries cleared); a refused write pushes nothing. The embedded kernel writes through the store and has no wrapper of its own, so signalling in the store covers it, and covers writers outside the kernel too.
+
+### S-N2. A wait is armed before the read
+- **Decision:** `next_commit()`, then the read, then await the wait: a commit after the arming is either in the read or resolves the wait, so none is missed. Notifications coalesce (a counter); they never queue.
+
+### S-N3. SQLite handles on one file share one signal per process
+- **Decision:** a registry by the file's canonical path holds each file's signal weakly (`CommitSignal::downgrade`, `WeakCommitSignal`): a commit through any handle wakes the followers of every other; a file no handle holds is forgotten. A store in memory has a signal of its own.
+
+### S-N4. The change token is the required fallback
+- **Decision:** it is polled every `Follow::poll` (default 500 ms) beside the push, for commits the push cannot see (another process's: a draining daemon's, a CLI fallback's). The push only cuts latency; a quiet poll reads nothing.
+
+### S-N5. No gap, no duplicate: a watermark
+- **Decision:** the subscription keeps the next sequence it owes, reads `Range{from: next}` through the GetEvents read path, drops pages below it, and moves it past the last page sent. No empty book is sent.
+
+### S-N6. Resume after a cut is the subscriber's
+- **Decision:** as the spec has it: the connection-age cap (ruling 61) ends the stream, and the subscriber re-subscribes from its last sequence + 1. Tested end to end on a listener with a 300 ms age.
+
+### S-N7. `Gate::still_valid` at the call and every few wakes
+- **Decision:** every `Follow::revalidate_every` wakes (default 4; a wake is a push or a poll, so at least every 2 s); a revoked caller's stream ends UNAUTHENTICATED.
+
+### S-N8. A stream the caller may not follow answers as an absent one that never grows
+- **Decision:** no `ReadOp::Follow`, not owned, or beyond reach: the call is accepted, nothing is delivered, and the stream stays open until the caller leaves or is revoked; the real reason goes to the audit sink. The same no-oracle rule as GetEvents' empty book at 0.
+
+### S-N9. Back-pressure: bounded and lossless
+- **Decision:** each subscriber has a bounded channel of `Follow::buffer` books (default 16). When it is full the subscription reads no further until a book is taken. Nothing is dropped: the store is the buffer, and the watermark resumes from it. A subscriber that is gone (its channel closed, e.g. by keepalive) ends its task.
+
+### S-N10. Refusals at the call, keyed by the reads engine's codes
+- **Decision:** no target, no domain, no or short root, an empty edition: INVALID_ARGUMENT; an unknown edition: NOT_FOUND (the first catch-up read happens before the call is answered). A read that fails later is the stream's last item. `CorrelationFrom` is UNIMPLEMENTED (`subscribe_correlation`).
+
+### S-N11. Served behind a feature
+- **Decision:** `angzarr-coordinator-grpc`'s `subscribe` (off by default): `Server::add_event_stream(edge)` for a read half that implements `Follows` (`ServedReads<S>` does when `S: Watch + CommitNotify`), `Edge::with_follow(Follow)` for the policy, `Session::into_principal` to carry the identified caller onto the subscription's task.
+
+### S-N12. `SqliteStore::close(self)`
+- **Decision:** closes the handle's connection and waits for it, so the last close's WAL checkpoint (and the `-wal` file's removal) is done when it returns. Dropping a handle still works and leaves that to sqlx's thread.
+
+### S-N13. Pins
+- **Decision:** one line: angzarr core 6c3175b9, angzarr-router 58cfb1d2, angzarr-embedded 46267520, angzarr-platform f2ece88c, angzarr-build 11d249c6, ctxloom-lib 3fa0344b (and `arch_lint_rev`), taskloom 2c117e8b. ctxloom serves no `Subscribe` yet: `hook-listener` keeps `["commands", "tls"]`; the daemon turns `subscribe` on when it follows a session stream.
+- **Deferred:** `CorrelationFrom`; the spec's REST/SSE routes; taskloom calling `SqliteStore::close` (the drop-checkpoint flake); the grpc crate's mutation run was judged (22/23, 95%) before the test that kills its one survivor (a quiet poll reads nothing) was added, and was not re-run after it.

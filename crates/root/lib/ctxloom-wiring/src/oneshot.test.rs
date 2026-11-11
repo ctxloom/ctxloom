@@ -496,7 +496,7 @@ mod git_identity {
         mkdirs(&home);
         mkdirs(&project);
         put_mode(home.join(".gitconfig"), config, 0o644);
-        let host = EnvSnapshot::from_process();
+        let host = crate::tests::host_snapshot();
         let path = host
             .non_empty("PATH")
             .and_then(|p| p.to_str().map(String::from))

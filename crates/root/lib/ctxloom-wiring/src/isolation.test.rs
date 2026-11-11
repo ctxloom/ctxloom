@@ -34,7 +34,7 @@ fn registered(names: &[&str], register: &[&str]) -> (file_system::Rooted, Regist
         )
         .unwrap();
     }
-    let base = EnvSnapshot::from_process();
+    let base = crate::tests::host_snapshot();
     let path = format!("{}:/usr/bin:/bin", bin.display());
     let env = Arc::new(EnvSnapshot::from_parts(
         base.flavor(),
@@ -94,7 +94,7 @@ fn engines_of(names: &[&str], config: Option<&str>) -> (file_system::Rooted, Eng
     if let Some(config) = config {
         put_mode(work.join(".ctxloom/config.yaml"), config, 0o644);
     }
-    let base = EnvSnapshot::from_process();
+    let base = crate::tests::host_snapshot();
     let env = Arc::new(EnvSnapshot::from_parts(
         base.flavor(),
         Ok(work),

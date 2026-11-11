@@ -1,0 +1,68 @@
+# cargo-nextest (https://nexte.st), the one test runner (owner ruling 144):
+# `just test`, `test-staged`, `test-pkg` (gates/gates.just `_tests`) and the
+# mutation run (.cargo/mutants.toml `test_tool = "nextest"`) all read this
+# file. Each test runs in a process of its own
+# (https://nexte.st/docs/design/why-process-per-test/).
+
+# The version this file is written for: setup scripts as configured below.
+nextest-version = { required = "0.9.98", recommended = "0.9.146" }
+
+# Setup scripts are experimental in nextest
+# (https://nexte.st/docs/configuration/setup-scripts/); they are nextest's
+# documented way to do work once per run and hand its result to the tests.
+experimental = ["setup-scripts"]
+
+# Build the programs the `ctxloom` package's acceptance tests run, once per
+# run, and name them to the tests (CTXLOOM_TEST_BINARY,
+# CTXLOOM_TEST_COMPANION_STUB). Without it each test process built them
+# itself: about 2.3 s of cargo per test, 406 tests in about 57-80 s. A cold
+# build takes minutes, so the script is only reported slow, never killed.
+[scripts.setup.build-binaries]
+command = 'scripts/nextest-build-binaries.sh'
+slow-timeout = { period = "120s" }
+leak-timeout = { period = "1s", result = "fail" }
+capture-stdout = true
+capture-stderr = true
+
+[[profile.default.scripts]]
+filter = 'package(ctxloom)'
+setup = 'build-binaries'
+
+[profile.default]
+# Retries stay OFF (ruling 144): a retry passes a flaky test ("treated as
+# ultimately successful", https://nexte.st/docs/features/retries/), which
+# would have hidden the port race of ad31aa071. A flake is a finding.
+retries = 0
+
+# A test is SLOW after 30 s and terminated after 4 periods, 120 s
+# (https://nexte.st/docs/features/slow-tests/). Measured on 2026-11-11 (the
+# whole workspace, 3,853 tests, 20 cores): the longest test takes 5.0 s
+# (`gherkin_features::every_feature_runs`), then 3.1 s (companion_assembly,
+# hook-listener's held connection); every other under 2.3 s. 30 s is six
+# times the longest, room for a loaded machine or a mutant; a test past 120 s
+# is hung, and once hung the pre-commit hook until a person intervened. Its
+# process group is sent SIGTERM, then SIGKILL after the grace.
+slow-timeout = { period = "30s", terminate-after = 4, grace-period = "10s" }
+
+# A test that returns while a child it started still holds its stdout or
+# stderr fails (https://nexte.st/docs/features/leaky-tests/); only children
+# that inherit them are seen (run-within pipes its programs' output).
+leak-timeout = { period = "200ms", result = "fail" }
+
+# The tests that bind a TCP port in the test process, or bind one, free it
+# and dial it expecting nobody there (`closed_url`, `closed_endpoint`), run
+# one at a time across every test binary: ports are system-wide, and another
+# test's port-0 bind taking the freed port was the race of ad31aa071
+# (https://nexte.st/docs/configuration/test-groups/).
+[test-groups]
+ports = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = '''
+    package(hook-listener)
+    | package(hook-sink-grpc)
+    | package(forge-github)
+    | (package(ctxloom-wiring) & test(/^(oneshot::tests::hooks::|capture::tests::)/))
+    | (package(ctxloom) & test(/^tests::hook::/))
+'''
+test-group = 'ports'

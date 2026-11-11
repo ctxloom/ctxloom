@@ -9,7 +9,7 @@ use super::LibraryCommands;
 
 #[test]
 fn the_nouns_are_the_library_clis() {
-    let commands = LibraryCommands::new(Arc::new(EnvSnapshot::from_process()));
+    let commands = LibraryCommands::new(Arc::new(crate::tests::host_snapshot()));
     let ours: Vec<String> = commands
         .nouns()
         .iter()

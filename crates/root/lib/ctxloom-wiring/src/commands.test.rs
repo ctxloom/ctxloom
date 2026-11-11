@@ -15,7 +15,7 @@ fn verbs(noun: &Command) -> Vec<String> {
 
 #[test]
 fn test_the_nouns_are_the_librarys_and_the_dependency_ones() {
-    let nouns = Commands::new(Arc::new(EnvSnapshot::from_process())).nouns();
+    let nouns = Commands::new(Arc::new(crate::tests::host_snapshot())).nouns();
     let names: Vec<&str> = nouns.iter().map(Command::get_name).collect();
     for noun in ["bundle", "fragment", "profile", "search", "remote", "deps"] {
         assert!(names.contains(&noun), "{noun} in {names:?}");
@@ -25,7 +25,7 @@ fn test_the_nouns_are_the_librarys_and_the_dependency_ones() {
 
 #[test]
 fn test_only_the_bundle_noun_gains_the_publishing_verbs() {
-    let nouns = Commands::new(Arc::new(EnvSnapshot::from_process())).nouns();
+    let nouns = Commands::new(Arc::new(crate::tests::host_snapshot())).nouns();
     let find = |name: &str| nouns.iter().find(|n| n.get_name() == name).expect(name);
     let bundle = verbs(find("bundle"));
     assert!(bundle.contains(&"push".to_string()) && bundle.contains(&"move".to_string()));
@@ -59,7 +59,7 @@ impl World {
         let dir = temp.root().to_path_buf();
         crate::fixtures::mkdirs(dir.join("home"));
         crate::fixtures::mkdirs(dir.join("work"));
-        let base = EnvSnapshot::from_process();
+        let base = crate::tests::host_snapshot();
         let mut world = World {
             _root: temp,
             dir,

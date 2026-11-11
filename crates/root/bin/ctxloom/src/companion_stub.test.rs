@@ -10,9 +10,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
-use crate::tests::files;
+use crate::tests::{files, prebuilt};
 
-/// The compiled stub, built once per test run.
+/// The compiled stub: the one nextest's setup script built for the run
+/// (`prebuilt`, owner ruling 144), else built once per test process.
 pub(crate) fn binary() -> &'static Path {
     static BINARY: OnceLock<PathBuf> = OnceLock::new();
     BINARY.get_or_init(|| {
@@ -22,6 +23,9 @@ pub(crate) fn binary() -> &'static Path {
             .parent()
             .and_then(Path::parent)
             .expect("<target>/<profile>");
+        if let Some(built) = prebuilt("CTXLOOM_TEST_COMPANION_STUB", profile_dir) {
+            return built;
+        }
         let target_dir = profile_dir.parent().expect("<target>");
         let mut build = Command::new(env!("CARGO"));
         build

@@ -51,8 +51,19 @@ use ::process_env::EnvSnapshot;
 use super::{LibError, Wiring};
 use crate::fixtures::{canonical, exists, fs, mkdirs, put_mode, remove_dir, root, unix};
 
-/// The process's environment is one: tests that set it take this first.
+/// The process's environment is one: tests that set it take this first, and
+/// tests that read it read it through `host_snapshot`, never while an `Env`
+/// holds it changed (one with PATH unset finds no `git`).
 pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The process's environment and working directory, read under `ENV_LOCK`
+/// (owner ruling 144): what a test that changes neither starts from. A test
+/// holding an `Env` reads them through `from_process` instead (the lock is
+/// not reentrant).
+pub(crate) fn host_snapshot() -> EnvSnapshot {
+    let _held = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    EnvSnapshot::from_process()
+}
 
 /// A hold on the process's environment and working directory: what a test
 /// sets is put back when it ends, however it ends.

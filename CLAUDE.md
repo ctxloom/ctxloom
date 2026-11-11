@@ -39,9 +39,13 @@ beside the code they test, but out of the source file, so reading the code
 does not mean reading its tests too.
 
 Acceptance tests drive the real binary: `crates/root/bin/ctxloom/src/*.test.rs`
-build it once (with its `test-support` feature, which turns on the hidden
-`ctxloom test ...` commands and the `mock` engines) and run it as a separate
-process in a temporary home. The `mock` and `mock-*` engines exist only under
+run it as a separate process in a temporary home, built (with its
+`test-support` feature, which turns on the hidden `ctxloom test ...` commands
+and the `mock` engines) ONCE per nextest run by the setup script
+`scripts/nextest-build-binaries.sh` (`.config/nextest.toml`), which names it
+and the companion stub in `CTXLOOM_TEST_BINARY` and
+`CTXLOOM_TEST_COMPANION_STUB`; `binary()` builds for itself only without
+them (owner ruling 144: once per test PROCESS cost about 2.3 s a test). The `mock` and `mock-*` engines exist only under
 `test-support` (`library::config::schema::ENGINES` and the wiring's
 `engines()`): a plain build knows claude-code and opencode alone, and `just
 build` proves it by running `scripts/plain-engines-check.sh` against the plain
@@ -1073,7 +1077,8 @@ isolation.
 ## Use `just`
 
 `just --list` shows the public recipes by group. The checks are `just build`,
-`just test` (cargo-nextest, required: a missing nextest fails the gate),
+`just test` (cargo-nextest, the one test runner, mutation included, owner
+ruling 144; required: a missing nextest fails the gate),
 `just lint` (clippy, warnings denied), `just lint-deps` (cargo-deny) and
 `just lint-os`; `just test-pkg <crate>...` is the quick loop, `just fmt` and
 `just fmt-check` cover this workspace's crates only, `just run` runs the
@@ -1089,6 +1094,23 @@ target/logs/<gate>.log)` and at most 40 lines of extract (only failing tests,
 the first 20 diagnostics, survivors capped, each with a `+K more` tail).
 `scripts/output-budget.selftest.sh` holds that budget. Read the log for the
 rest; `VERBOSE=1 just <gate>` shows the full output.
+
+nextest's committed config is `.config/nextest.toml` (workspace-wide): each
+test in a process of its own; SLOW at 30 s and killed at 120 s
+(`terminate-after`; the longest test takes about 5 s); a test that leaves a
+child holding its stdout or stderr past 200 ms FAILS (`leak-timeout`
+`result = "fail"`); retries 0 (a retry would pass a flake, and a flake is a
+finding); the `ports` test group runs the tests that bind a port, or free
+one and dial it, one at a time across binaries (hook-listener,
+hook-sink-grpc, forge-github, the wiring's `oneshot::tests::hooks` and
+`capture`, the binary's `tests::hook`); and the setup script above. The
+wiring's tests read the process environment through `host_snapshot()`,
+under the `ENV_LOCK` its `Env` tests hold while they change it. `_tests`
+exits with codes of its own, never nextest's passed through (nextest's 102
+is "cargo metadata failed"): 0 passed, 100 a test failed, 101 not built, 120
+a doc test failed, 121 nextest failed otherwise (`nextest exited <code>` in
+the log); 100 and 120 are red tests, 101 and 121 are refused on every
+branch (`scripts/tests-exit.selftest.sh`).
 
 ## The pre-commit gates are in gates/; the justfile gives their parameters
 
@@ -1140,7 +1162,10 @@ drives. A failing gate is a finding: fix the cause and commit again; never
    90% or more; the composition root is listed but not held (the justfile's
    `mutation_thresholds` has every tier); the generated wire code is
    excluded (`.cargo/mutants.toml`). Each mutant runs only its own crate's
-   tests (`test_workspace = false`), under `cargo test`: a dependent's
+   tests (`test_workspace = false`), under cargo-nextest (`test_tool =
+   "nextest"`, owner ruling 144: the runner and `.config/nextest.toml` of
+   every other test gate; `--no-tests=pass`, so a crate with no tests
+   catches nothing; no doc test is lost, the workspace has none runnable): a dependent's
    tests, the binary's acceptance tests included, kill nothing, so a crate
    kills its own mutants. An unviable mutant (one that does not build)
    needs no skip: it counts neither way. A mutant judged equivalent or untestable gets

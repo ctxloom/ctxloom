@@ -538,6 +538,43 @@ Feature: bundle — the container authored content lives in, and everything that
       When I run "ctxloom deps unhold demo"
       Then the command succeeds
 
+  Rule: ctxloom's built-in bundles are listed under their origin, read-only, and a project bundle of the same name overrides one
+
+    The bundles a new project's default profile inherits ship in the binary
+    (owner rulings 110, 111): `ai-developer`, `ai-coding-general`, `testing`
+    and `git`, under the BUILT-IN origin `ctxloom/default`. Every project's
+    listing carries them beside its own bundles and those installed from
+    remotes, each marked with its origin (`origin` in json, `[built-in
+    ctxloom/default]` in text), with or without a bundles directory; `show`,
+    `view` and `export` read them as they ship. They are read-only: every
+    write to one (`bundle edit`, `bundle remove`, an item's create, edit or
+    remove, a profile's modify, edit or remove, an MCP server's or a skill's)
+    is refused before anything is written, naming the directory where a
+    project bundle of its name would go and the export that makes one. That
+    project bundle overrides the built-in one whole, profiles and all: a name
+    always finds one bundle. An import of a built-in name is no write to it:
+    it makes the overriding project bundle. cli/init.feature runs this
+    contract on a freshly initialized project.
+
+    Scenario: A built-in bundle is listed, refuses a write, and is overridden by the project's copy
+      # new: owner rulings 110, 111.
+      Given an initialized ctxloom project
+      When Alice lists the bundles of a project that has none of its own:
+        """
+        ctxloom bundle list --format text
+        """
+      Then the command succeeds
+      And the output contains "testing (v1.0.0) [built-in ctxloom/default]"
+      When I run "ctxloom bundle remove testing --yes"
+      Then the command fails
+      And the output contains "is built into ctxloom (ctxloom/default) and is read-only"
+      When I run "ctxloom bundle export testing .ctxloom/content/bundles/v2"
+      Then the command succeeds
+      When I run "ctxloom bundle remove testing --yes"
+      Then the command succeeds
+      When I run "ctxloom bundle list --format text"
+      Then the output contains "testing (v1.0.0) [built-in ctxloom/default]"
+
   Rule: Removal reports first and destroys only when told to
 
     `remove` is the destroyer, and its bare form is a preview: it names what

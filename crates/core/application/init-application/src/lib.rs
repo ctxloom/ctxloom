@@ -8,9 +8,9 @@
 //!
 //! `init` of a directory with no `.ctxloom`: it scaffolds the project (the
 //! `Create` port, as `config create` does): the config, a remotes registry
-//! that seeds no remote, and the default profile inheriting the developer
-//! profile ctxloom ships built in (owner rulings 110, 111). Nothing is pulled:
-//! the default content is in the binary, and a fresh project works offline.
+//! that seeds no remote, and a BARE default profile that inherits nothing
+//! (owner rulings 110, 111, 117). Nothing is pulled, and a fresh project
+//! works offline.
 //! It writes nothing outside `.ctxloom`: the engine files wait for a session
 //! home.
 //!
@@ -39,12 +39,14 @@ pub use interview::{
     RESTART_QUESTION,
 };
 
-/// The setup interview's body: ctxloom's own words, copied byte for byte
-/// from Go ctxloom's `resources/commands/ctxloom-init.md` (release/0.7,
-/// f36e8dfb21; the file's blob is 702251f0877f), its front matter dropped.
-/// D24: the owner's text, never edited here. It names `agent_run`, an MCP tool
+/// The setup interview's body: ctxloom's own words, the built-in bundle's
+/// `ctxloom#prompts/setup-interview` (owner ruling 117; the one copy in the
+/// binary). It was Go ctxloom's `resources/commands/ctxloom-init.md`
+/// (release/0.7, f36e8dfb21; the file's blob is 702251f0877f), its front
+/// matter dropped, and is the owner's text (D24; its lines on the agent-roles
+/// fragments reworded by ruling 119). It names `agent_run`, an MCP tool
 /// whose place in the cut list (D8) is still open.
-pub const SETUP_INTERVIEW: &str = include_str!("../resources/setup-interview.md");
+pub use library::builtin::SETUP_INTERVIEW;
 
 /// Scaffolds a project's `.ctxloom`: the config, the remotes registry and the
 /// seeded default profile; it refuses a directory that has a config.

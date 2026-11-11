@@ -84,9 +84,17 @@ fn test_the_distill_prompt_is_the_owner_s_text() {
 // agent-roles fragments, and still offers an equivalent.
 #[test]
 fn test_the_interview_claims_no_content_that_does_not_ship() {
-    assert!(!SETUP_INTERVIEW.contains("ctxloom-default ships"));
-    assert!(SETUP_INTERVIEW.contains("or author an equivalent"));
-    assert!(SETUP_INTERVIEW.contains("or an equivalent)"));
+    let words = SETUP_INTERVIEW
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(!words.contains("ctxloom-default ships"));
+    assert!(words.contains(
+        "(a remote's, such as `agent-roles#fragments/developer-escalation`, or author an equivalent)"
+    ));
+    assert!(words.contains(
+        "a finder fragment (a remote's, such as `agent-roles#fragments/finder`, or an equivalent)"
+    ));
 }
 
 // A project bundle of the same name overrides it: the built-in one is not

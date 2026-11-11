@@ -1,20 +1,18 @@
-//! The bundles ctxloom ships built in (owner rulings 110, 111): the default
-//! content a new project's seeded profile inherits, compiled into the binary
-//! so a fresh project has it with nothing pulled, nothing written under
-//! `.ctxloom/cache`, and no network.
+//! The bundle ctxloom ships built in (owner rulings 110, 111, narrowed by
+//! 117 and 123): ctxloom's OPERATIONAL prompts, compiled into the binary.
 //!
-//! They are the catalog's BUILT-IN origin, [`ORIGIN`], beside the project's
-//! own bundles and those installed from remotes. Each keeps the name it has
-//! in the repository it was taken from (`ai-developer`, `testing`, ...), so
-//! the shipped profiles read as written; a project bundle of the same name
-//! overrides it whole (its profiles with it), and the built-in one is then
-//! not in the catalog at all. They are read-only: no write targets them.
+//! It is [`BUNDLE`], under the catalog's BUILT-IN origin, [`ORIGIN`], beside
+//! the project's own bundles and those installed from remotes. It holds two
+//! prompts: [`SETUP_INTERVIEW`], the interview `ctxloom init` opens with,
+//! and [`DISTILL_PROMPT`], for the distill activity. It is not generally
+//! injected: it carries no fragment, profile or tag, so no profile inherits
+//! from it, no premise index offers it and no tag selection reaches it. A
+//! project bundle of the same name overrides it whole in the catalog, and the
+//! built-in one is then not in the catalog at all. It is read-only: no write
+//! targets it.
 //!
-//! The files are `resources/builtin/<bundle>/`, byte for byte the
-//! repository's at [`SOURCE_COMMIT`] (`resources/builtin/README.md` says how
-//! to refresh them, and the licence they ship under is beside them).
-
-use std::collections::BTreeMap;
+//! The files are `resources/builtin/ctxloom/`; `resources/builtin/README.md`
+//! says what each is.
 
 use crate::catalog::Entry;
 use crate::tree::{self, Files};
@@ -22,20 +20,17 @@ use crate::tree::{self, Files};
 /// The name the built-in origin is shown under.
 pub const ORIGIN: &str = "ctxloom/default";
 
-/// RED (ruling 117): the one built-in bundle's name.
-pub const BUNDLE: &str = "";
+/// The one built-in bundle's name.
+pub const BUNDLE: &str = "ctxloom";
 
-/// RED (ruling 117): the setup interview, `ctxloom#prompts/setup-interview`.
-pub const SETUP_INTERVIEW: &str = "";
+/// The setup interview, `ctxloom#prompts/setup-interview`: the owner's
+/// words, used as they are.
+pub const SETUP_INTERVIEW: &str =
+    include_str!("../resources/builtin/ctxloom/prompts/setup-interview.md");
 
-/// RED (rulings 117, 123): the distill prompt, `ctxloom#prompts/distill`.
-pub const DISTILL_PROMPT: &str = "";
-
-/// The repository the built-in bundles were taken from.
-pub const SOURCE_REPOSITORY: &str = "https://github.com/ctxloom/ctxloom-default";
-
-/// The commit of [`SOURCE_REPOSITORY`] they are a copy of.
-pub const SOURCE_COMMIT: &str = "6129ccb9b173f957d05ceb956aa078462f86e697";
+/// The distill prompt, `ctxloom#prompts/distill`: the owner's own text
+/// (ruling 123).
+pub const DISTILL_PROMPT: &str = include_str!("../resources/builtin/ctxloom/prompts/distill.md");
 
 /// Where a built-in bundle's manifest is said to be: no file of the project's
 /// or the home's, so nothing reads it as one.
@@ -59,47 +54,11 @@ macro_rules! bundle {
 pub type Shipped = (&'static str, &'static [(&'static str, &'static [u8])]);
 
 /// Every built-in bundle, by name.
-pub const FILES: [Shipped; 4] = [
-    bundle!("ai-coding-general":
-        "bundle.yaml",
-        "fragments/concurrency-warnings.distilled.md",
-        "fragments/concurrency-warnings.md",
-        "fragments/context-engineering.distilled.md",
-        "fragments/context-engineering.md",
-        "fragments/human-review-checklist.distilled.md",
-        "fragments/human-review-checklist.md",
-        "fragments/is-this-a-standard.distilled.md",
-        "fragments/is-this-a-standard.md",
-        "fragments/mutation-as-test-validator.distilled.md",
-        "fragments/mutation-as-test-validator.md",
-        "fragments/no-provenance-comments.distilled.md",
-        "fragments/no-provenance-comments.md",
-        "fragments/tdd-for-llm.distilled.md",
-        "fragments/tdd-for-llm.md",
-        "fragments/version-source-of-truth.distilled.md",
-        "fragments/version-source-of-truth.md",
-        "fragments/warning-suppression.distilled.md",
-        "fragments/warning-suppression.md",
-    ),
-    bundle!("ai-developer":
-        "bundle.yaml",
-        "profiles/developer.yaml",
-    ),
-    bundle!("git":
-        "bundle.yaml",
-        "fragments/git.distilled.md",
-        "fragments/git.md",
-    ),
-    bundle!("testing":
-        "bundle.yaml",
-        "fragments/mutation-testing.distilled.md",
-        "fragments/mutation-testing.md",
-        "fragments/tdd.distilled.md",
-        "fragments/tdd.md",
-        "fragments/test-coverage.distilled.md",
-        "fragments/test-coverage.md",
-    ),
-];
+pub const FILES: [Shipped; 1] = [bundle!("ctxloom":
+    "bundle.yaml",
+    "prompts/distill.md",
+    "prompts/setup-interview.md",
+)];
 
 /// The names of the built-in bundles, by name.
 pub fn names() -> Vec<&'static str> {
@@ -118,8 +77,8 @@ pub fn files(name: &str) -> Option<Files> {
 }
 
 /// The built-in bundles a project's own do not override: every one whose
-/// name is not in `taken`, read, by name. A built-in bundle reads (its test
-/// holds it), so none is left out for a fault.
+/// name is not in `taken`, read, by name. The built-in bundle reads (its
+/// test holds it), so it is not left out for a fault.
 pub fn entries(taken: &dyn Fn(&str) -> bool) -> Vec<Entry> {
     FILES
         .iter()
@@ -130,23 +89,6 @@ pub fn entries(taken: &dyn Fn(&str) -> bool) -> Vec<Entry> {
                 name: name.to_string(),
                 manifest_path: manifest_path(name),
                 bundle,
-            })
-        })
-        .collect()
-}
-
-/// The profiles the built-in bundles not in `taken` ship, by the key a
-/// profile of a bundle of that name has (`ctxloom+local:<bundle>#profiles/<name>`),
-/// each named by its key.
-pub fn profiles(taken: &dyn Fn(&str) -> bool) -> BTreeMap<String, crate::profile::Profile> {
-    entries(taken)
-        .into_iter()
-        .flat_map(|entry| {
-            entry.bundle.profiles.into_iter().map(move |(name, body)| {
-                let key = format!("ctxloom+local:{}#profiles/{name}", entry.name);
-                let mut body = body;
-                body.name.clone_from(&key);
-                (key, body)
             })
         })
         .collect()

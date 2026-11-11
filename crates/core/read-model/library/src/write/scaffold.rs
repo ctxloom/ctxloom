@@ -2,9 +2,9 @@
 //! `operations.InitializeProject`, `BuildInitialConfig`): the config, the
 //! remotes registry and the seeded default profile. The two texts were Go's
 //! `resources/` at release/0.7 ca14d6046; they diverge from Go by owner
-//! rulings 110 and 111: the registry seeds no remote (Go's seeded
-//! `ctxloom-default`), and the profile's parent is the built-in
-//! `ai-developer#profiles/developer` ([`crate::builtin`]). And the nested
+//! rulings 110, 111 and 117: the registry seeds no remote (Go's seeded
+//! `ctxloom-default`), and the profile is bare: it inherits nothing. And the
+//! nested
 //! `.ctxloom/.gitignore` of ctxloom's private state, which `manage gitignore
 //! install` writes too, and which doctor checks for.
 

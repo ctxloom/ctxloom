@@ -1797,6 +1797,7 @@ fn the_user_launches_a_child_of_an_owner() {
         engine: "claude-code".to_string(),
         prompt: "port the parser".to_string(),
         delegation_limit: 4,
+        session: String::new(),
     }))
     .unwrap();
     assert!(launched.recorded);
@@ -1819,9 +1820,39 @@ fn the_user_launches_a_child_of_an_owner() {
         engine: "claude-code".to_string(),
         prompt: String::new(),
         delegation_limit: 1,
+        session: String::new(),
     }))
     .unwrap_err();
     assert_eq!(limited.code(), "sessions-delegation-limit");
+}
+
+// D-N37: the caller may name the child's stable id (what it hands the daemon
+// for the child is keyed by it); it is the child the owner holds.
+#[test]
+fn a_launch_takes_the_childs_id_the_caller_names() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
+    let named = "0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b0b";
+    let launched = ready(svc.launch_child(crate::LaunchRequest {
+        project: None,
+        owner: "amber-swift-owl".to_string(),
+        harp: "lone-wolf-pup".to_string(),
+        engine: "claude-code".to_string(),
+        prompt: String::new(),
+        delegation_limit: 4,
+        session: named.to_string(),
+    }))
+    .unwrap();
+    assert_eq!(launched.id, named);
+    let view = ready(svc.show(ShowQuery {
+        project: None,
+        harp: "amber-swift-owl".to_string(),
+    }))
+    .unwrap();
+    assert_eq!(
+        view.record.children[0].session.as_ref().unwrap().session,
+        named
+    );
 }
 
 // M1: the user asks a session to clear; the clear is recorded by its id.

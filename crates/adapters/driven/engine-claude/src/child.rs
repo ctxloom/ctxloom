@@ -87,6 +87,17 @@ pub(crate) fn child_command(spec: &ChildSpec) -> Result<TurnCommand, EngineError
     Ok(command)
 }
 
+/// What a launching client sends the user daemon as a child's environment
+/// (S6, D-N37).
+pub fn launcher_environment(
+    settings: &run_ports::EngineSettings,
+    caller: &std::collections::BTreeMap<String, String>,
+) -> std::collections::BTreeMap<String, String> {
+    // RED: the whole environment, as the daemon's own is passed today.
+    let _ = settings;
+    caller.clone()
+}
+
 /// What the control and the reader share.
 struct Shared {
     conversation: Conversation,

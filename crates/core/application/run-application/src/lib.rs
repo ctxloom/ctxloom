@@ -10,10 +10,12 @@
 
 mod credential;
 mod error;
+mod hosted;
 mod one_shot;
 
 pub use credential::{credential_evidence, links_on, share_login};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{RunError, EN_US};
+pub use hosted::{hosted_child, HostedChild};
 pub use one_shot::{Answer, Core, Done, Ended, OneShot, Parts, Place, Planner, RunService, Runs};

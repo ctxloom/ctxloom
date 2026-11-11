@@ -29,6 +29,7 @@ use surface_ports::{
     SurfaceStore, Wiring,
 };
 
+pub use child::launcher_environment;
 pub use codec::Codec;
 pub use drive::{CONTEXT_PROMPT_FILE, COPY_IN_ALLOWLIST, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST};
 

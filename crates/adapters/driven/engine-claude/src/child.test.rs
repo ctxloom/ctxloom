@@ -223,6 +223,96 @@ fn the_child_command_takes_a_childs_environment_and_its_model() {
     ));
 }
 
+// Ruling 78 on a daemon's child (S6): the launcher's CTXLOOM_PERMIT_<NAME>
+// reaches the child as <NAME>, never over a name ctxloom sets for it.
+#[test]
+fn a_childs_command_follows_its_launchers_permits() {
+    let mut asked = spec("");
+    for (name, value) in [
+        ("CTXLOOM_PERMIT_ACME_TOKEN", "acme"),
+        ("CTXLOOM_PERMIT_PATH", "/evil"),
+        ("CTXLOOM_PERMIT_HOME", "/evil"),
+        ("CTXLOOM_PERMIT_CLAUDE_CONFIG_DIR", "/evil"),
+        ("CTXLOOM_PERMIT_CTXLOOM_RUN", "forged"),
+    ] {
+        asked.env.insert(name.to_string(), value.to_string());
+    }
+    let command = child_command(&asked).unwrap();
+    assert_eq!(
+        command.env.get("ACME_TOKEN").map(String::as_str),
+        Some("acme")
+    );
+    assert_eq!(
+        command.env.get("PATH").map(String::as_str),
+        Some("/usr/bin:/bin")
+    );
+    assert!(!command.env.contains_key("HOME"));
+    assert!(!command.env.contains_key("CTXLOOM_RUN"));
+    assert_eq!(
+        command.env.get("CLAUDE_CONFIG_DIR").map(String::as_str),
+        Some("/nowhere/home")
+    );
+    assert!(
+        command
+            .env
+            .keys()
+            .all(|name| !name.starts_with("CTXLOOM_PERMIT_")),
+        "{:?}",
+        command.env.keys().collect::<Vec<_>>()
+    );
+}
+
+// S6: what a launching client sends the daemon for a child is what a child
+// may be given (the allowlist, the engine block's env, the configured
+// credential's variables) and its permits; never the primary's token, the
+// caller's own hook variables (the daemon sets the child's), its HOME, or
+// anything else.
+#[test]
+fn the_environment_a_launcher_sends_is_what_a_child_may_be_given() {
+    let settings = EngineSettings {
+        env: vec!["EXTRA".to_string()],
+        auth: run_ports::AuthSetting::Source {
+            env: vec!["ACME_KEY".to_string()],
+            file: None,
+        },
+        ..EngineSettings::default()
+    };
+    let caller: BTreeMap<String, String> = [
+        ("PATH", "/bin"),
+        ("LANG", "C"),
+        ("EXTRA", "e"),
+        ("ACME_KEY", "a"),
+        ("CLAUDE_CODE_OAUTH_TOKEN", "t"),
+        ("CTXLOOM_PERMIT_FOO", "f"),
+        ("ANTHROPIC_AUTH_TOKEN", "primary"),
+        ("SECRET_ELSE", "x"),
+        ("HOME", "/home/u"),
+        ("CTXLOOM_HOME", "/home/u"),
+        ("CTXLOOM_ENDPOINT", "https://127.0.0.1:1"),
+        ("CTXLOOM_BEARER", "b"),
+        ("CTXLOOM_RUN", "r"),
+        ("CTXLOOM_TLS_CERT", "c"),
+        ("CTXLOOM_SESSION", "s"),
+        ("CTXLOOM_SESSION_HARP", "h"),
+    ]
+    .iter()
+    .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+    .collect();
+    let sent = crate::launcher_environment(&settings, &caller);
+    assert_eq!(
+        sent.keys().map(String::as_str).collect::<Vec<_>>(),
+        [
+            "ACME_KEY",
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            "CTXLOOM_PERMIT_FOO",
+            "EXTRA",
+            "LANG",
+            "PATH"
+        ]
+    );
+    assert_eq!(sent["ACME_KEY"], "a");
+}
+
 #[test]
 fn a_child_carries_many_turns_in_one_process() {
     let mut running = run(STUB);

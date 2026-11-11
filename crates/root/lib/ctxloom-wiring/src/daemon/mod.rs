@@ -304,6 +304,7 @@ pub(crate) fn run(
                     engine,
                     prompt,
                     delegation_limit: DELEGATION_LIMIT,
+                    session: String::new(),
                 })
                 .await
         })?,

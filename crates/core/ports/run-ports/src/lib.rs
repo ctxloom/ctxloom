@@ -28,8 +28,8 @@ mod token;
 
 pub use bind::{bind_for, BindPlan, BindRefusal, ContainerRuntime, PlatformFacts, Probe, Runtime};
 pub use child::{
-    ChildControl, ChildEngine, ChildError, ChildMessage, ChildObservation, ChildSpec, Ended,
-    Queued, StartedChild, Urgency,
+    ChildControl, ChildEngine, ChildError, ChildMessage, ChildObservation, ChildPermissions,
+    ChildSpec, Ended, Queued, StartedChild, Urgency,
 };
 pub use edge::{Arrival, Edge, Unserved};
 pub use engine::{

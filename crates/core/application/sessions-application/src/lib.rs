@@ -56,6 +56,8 @@ pub use session_index::{
 };
 /// A pending message's urgency, and its word (D12), for a renderer.
 pub use sessions::{urgency_word, Urgency};
+/// A record's owner link and the children it holds (D26), for a renderer.
+pub use sessions::{Child, SessionRef};
 pub use types::{
     BindRequest, Bound, Class, FilePlan, KeepRequest, Kept, ListQuery, PlanItem, Removal,
     RemoveRequest, RenameRequest, Renamed, SearchQuery, ShowQuery, TranscriptQuery, TranscriptRow,

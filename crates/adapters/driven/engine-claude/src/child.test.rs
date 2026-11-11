@@ -174,7 +174,7 @@ fn the_child_command_streams_both_ways_and_echoes_what_it_is_given() {
             "--append-system-prompt-file",
             "/nowhere/home/ctxloom-context.md",
             "--settings",
-            "/nowhere/home/settings.json",
+            "/nowhere/home/ctxloom-hooks.json",
         ]
     );
     assert!(command.stdin.is_empty());

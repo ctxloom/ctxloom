@@ -350,8 +350,9 @@ fn an_owners_child_runs_its_turns_tells_its_owner_and_ends_with_the_owners_close
     });
     assert_eq!(world.show(OWNER)["closed"], Value::Bool(true));
     let refused = world.run(&["daemon", "send", CHILD, "too late", "--format", "json"]);
-    // A refusal against state exits 1, as every session command's does.
-    assert_eq!(refused.code, 1, "{}", refused.said());
+    // A refusal against state exits 20, as every session command's does
+    // (ruling 152).
+    assert_eq!(refused.code, 20, "{}", refused.said());
     assert!(
         refused.stderr.contains("sessions-session-closed"),
         "{}",
@@ -394,5 +395,6 @@ fn the_daemon_noun_is_hidden_and_a_stop_with_no_daemon_does_nothing() {
     let status = world.run(&["daemon", "status", "--format", "text"]);
     assert_eq!(status.stdout.trim(), "not serving");
     let bad = world.run(&["daemon", "send", OWNER, "x", "--urgency", "shout"]);
-    assert_eq!(bad.code, 2, "{}", bad.said());
+    // A usage error is refused, 20 (ruling 152).
+    assert_eq!(bad.code, 20, "{}", bad.said());
 }

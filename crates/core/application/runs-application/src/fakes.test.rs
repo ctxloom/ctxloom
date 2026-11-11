@@ -323,13 +323,6 @@ impl World {
                 },
                 fatal_findings: 0,
                 launcher_lock: String::new(),
-                posture: runs::PostureEvidence {
-                    runtime: "host".to_string(),
-                    network: String::new(),
-                    sandbox: String::new(),
-                    enforced_network: Vec::new(),
-                    enforced_sandbox: Vec::new(),
-                },
             },
         ))
         .await

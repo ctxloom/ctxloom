@@ -735,7 +735,6 @@ where
             drivable_engines: self.launcher.engines(),
             credential: self.credential(engine, settings, interactive),
             fatal_findings: u32::try_from(previewed.fatal.len()).unwrap_or(u32::MAX),
-            posture: posture_of(&previewed.plan),
         };
         // The run's own lock, taken before its enqueue is visible (ruling 92):
         // no other process ever sees it owed a runner with its lock free.
@@ -897,7 +896,7 @@ where
                 interactive,
                 model: plan.model,
                 effort: plan.effort,
-                permission_mode: plan.permission_mode,
+                permissions: plan.permissions,
                 settings,
                 owned,
                 git_user: self.git_user.clone(),
@@ -1183,17 +1182,3 @@ fn text(uuid: &Uuid) -> String {
 #[cfg(test)]
 #[path = "one_shot.test.rs"]
 mod tests;
-
-/// The posture a run claims, as its plan says, and what the runtime it is
-/// launched on enforces (owner rulings 59, 109), for the run to judge.
-fn posture_of(plan: &library_application::DryRun) -> runs_application::PostureEvidence {
-    let runtime = plan.axes.1.clone();
-    let enforced = run_ports::enforced(&runtime);
-    runs_application::PostureEvidence {
-        runtime,
-        network: plan.posture.network.clone(),
-        sandbox: plan.posture.sandbox.clone(),
-        enforced_network: enforced.network,
-        enforced_sandbox: enforced.sandbox,
-    }
-}

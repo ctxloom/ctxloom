@@ -418,7 +418,10 @@ fn test_an_agent_write_refuses_what_it_cannot_honour_and_writes_nothing() {
             vec!["--runtime", "weird"],
             "unknown runtime axis \"weird\" (known: host|container-rootless|container-rootful)",
         ),
-        (vec!["--permissions", "plan"], "unknown flag: --permissions"),
+        (
+            vec!["--permissions", "plan"],
+            "unexpected argument '--permissions' found",
+        ),
         (
             vec!["--engine", "", "--profiles", ""],
             "an agent needs an engine or at least one profile",

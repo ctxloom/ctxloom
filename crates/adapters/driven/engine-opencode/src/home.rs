@@ -1,8 +1,10 @@
 //! The session home opencode is given (`OPENCODE_CONFIG_DIR`): the context,
-//! the plugin, and the pre-seed that keeps opencode from installing its plugin
-//! package from the network into each config directory it reads.
+//! the plugin, the config that carries the agent's permissions, and the
+//! pre-seed that keeps opencode from installing its plugin package from the
+//! network into each config directory it reads.
 
 use run_ports::HomeFile;
+use surface_ports::Json;
 
 /// The context file, in the session home: opencode reads `AGENTS.md` in a
 /// config directory.
@@ -24,6 +26,11 @@ pub const PRESEED_LOCK: &str = concat!(
     "\n"
 );
 
+/// The config file of the session home: opencode 1.18.4 reads `opencode.json`
+/// (and `.jsonc`) of `OPENCODE_CONFIG_DIR`, after the project's, so what it
+/// says is the session's own (read from the 1.18.4 bundle, not run).
+pub const CONFIG_FILE: &str = "opencode.json";
+
 /// opencode's global config directory under `XDG_CONFIG_HOME`: a config
 /// directory opencode reads (and installs its plugin package into) too.
 const GLOBAL_CONFIG: &str = "xdg/config/opencode";
@@ -32,9 +39,23 @@ const GLOBAL_CONFIG: &str = "xdg/config/opencode";
 /// session file can only be a file.
 const NODE_MODULES_MARKER: &str = "node_modules/.ctxloom";
 
-/// The files of a session home, `context` its `AGENTS.md`: the same for a
-/// child's turn and the human's session (each is heard through the plugin).
-pub(crate) fn files(context: &str) -> Vec<HomeFile> {
+/// The session home's config: the agent's permissions document, exactly as
+/// handed, as its `permission` object (owner rulings 135, 137: opencode's own
+/// words, never checked; 1.18.4 reads the keyed `permission` object and makes
+/// its rule list from it); none, an empty config, so a document an earlier run
+/// of the session wrote does not outlive the one that took it out.
+pub(crate) fn config(permissions: Option<&Json>) -> String {
+    let doc = match permissions {
+        Some(document) => Json::object([("permission", document.clone())]),
+        None => Json::Object(Vec::new()),
+    };
+    format!("{}\n", doc.pretty())
+}
+
+/// The files of a session home, `context` its `AGENTS.md` and `config` its
+/// `opencode.json`: the same for a child's turn and the human's session (each
+/// is heard through the plugin).
+pub(crate) fn files(context: &str, config: &str) -> Vec<HomeFile> {
     let file = |rel: String, bytes: &[u8]| HomeFile {
         rel,
         bytes: bytes.to_vec(),
@@ -42,6 +63,7 @@ pub(crate) fn files(context: &str) -> Vec<HomeFile> {
     let mut files = vec![
         file(CONTEXT_FILE.to_string(), context.as_bytes()),
         file(PLUGIN_FILE.to_string(), PLUGIN.as_bytes()),
+        file(CONFIG_FILE.to_string(), config.as_bytes()),
     ];
     for dir in ["", GLOBAL_CONFIG] {
         let at = |rel: &str| {

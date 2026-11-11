@@ -16,6 +16,4 @@ runs-no-prompt = nothing to run: give a prompt as arguments, with --prompt, with
 runs-no-prompt-fix = ask the model something, e.g. ctxloom run --one-shot "what does this project expect of me?"
 runs-unknown-engine = no engine named { $name } can be driven here; this build drives: { $known }
 runs-unknown-engine-fix = name one of them with --engine, or leave --engine off for the default agent's
-runs-unenforced-posture = permissions.{ $key } says { $value }, and the { $runtime } runtime does not enforce it (what it gives is { $key }: { $honest }): the agent would trust a fence that is not there
-runs-unenforced-posture-fix = set permissions.{ $key }: { $honest }, which is what the { $runtime } runtime gives; no runtime ctxloom launches enforces { $key }: { $value } yet (not the container runtimes either: a run on one still runs on the host)
 runs-launch-refused = the run was not started: { $count } of its checks failed

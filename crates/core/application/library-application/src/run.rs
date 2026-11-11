@@ -73,7 +73,7 @@ struct Launch {
     engine: String,
     model: String,
     effort: String,
-    permission_mode: String,
+    permissions: Option<String>,
     runtime: Option<String>,
     drive: Drive,
     settings: Option<crate::AgentSettings>,
@@ -99,24 +99,6 @@ impl Project {
                 "host",
             ),
         )
-    }
-
-    /// The posture a run claims (owner rulings 59, 70, 109): each of
-    /// `permissions.network` and `permissions.sandbox` the agent's, else the
-    /// project's, else unset (which claims nothing).
-    fn posture_of(&self, agent: Option<&Agent>) -> crate::Posture {
-        let key = |name: &str| {
-            agent
-                .and_then(|a| a.permissions.get(name))
-                .and_then(angzarr_yaml::Value::as_str)
-                .map(ToString::to_string)
-                .filter(|v| !v.is_empty())
-                .unwrap_or_else(|| self.config.text(&format!("permissions.{name}")))
-        };
-        crate::Posture {
-            network: key("network"),
-            sandbox: key("sandbox"),
-        }
     }
 
     /// The prompt: the one given, else the saved command's body.
@@ -223,7 +205,7 @@ impl Project {
         request: &RunRequest,
         agent: Option<&Agent>,
     ) -> Result<Launch, AppError> {
-        // An agent's engine, model, effort and permission mode are its own; a
+        // An agent's engine, model, effort and permissions are its own; a
         // launch with no agent takes the default engine and passes none of them.
         // `--engine` runs the agent on that engine, with its block for it
         // (owner ruling 57); its runtime and env are kept.
@@ -241,23 +223,19 @@ impl Project {
                 if let Some(notice) = runtime_notice(&effective) {
                     self.notices.push(notice);
                 }
-                // A claude mode is held to ctxloom's own words, as a write
-                // holds it (owner ruling 125), before anything is launched.
-                let permission_mode = crate::write::engines::launch_mode(
-                    &effective.engine.value,
-                    &effective.permissions.value,
-                )
-                .map_err(|detail| crate::WriteError::Permissions {
-                    subject: format!("agent \"{}\"", agent.name),
-                    detail,
-                })?;
+                // The engine's own permissions document, as written: passed
+                // on verbatim and never checked (owner rulings 135, 137).
+                let permissions = effective
+                    .permissions
+                    .as_ref()
+                    .map(|document| crate::json::document_text(&document.value));
                 let drive = Drive::from(&effective);
                 let settings = crate::engine_noun::settings_of(&effective);
                 Ok(Launch {
                     engine: effective.engine.value,
                     model: effective.model.map(|m| m.value).unwrap_or_default(),
                     effort: effective.effort.map(|e| e.value).unwrap_or_default(),
-                    permission_mode,
+                    permissions,
                     runtime: Some(effective.runtime.value),
                     drive,
                     settings: Some(settings),
@@ -277,7 +255,7 @@ impl Project {
                     engine,
                     model: String::new(),
                     effort: String::new(),
-                    permission_mode: String::new(),
+                    permissions: None,
                     runtime: None,
                     drive,
                     settings: None,
@@ -324,7 +302,7 @@ impl Project {
             engine,
             model,
             effort,
-            permission_mode,
+            permissions,
             runtime,
             drive,
             settings,
@@ -366,7 +344,7 @@ impl Project {
             axes: self.axes(request, runtime),
             model,
             effort,
-            permission_mode,
+            permissions,
             drive,
             settings,
             settings_agent: selection
@@ -374,7 +352,6 @@ impl Project {
                 .as_ref()
                 .map(|a| a.name.clone())
                 .unwrap_or_default(),
-            posture: self.posture_of(selection.agent.as_ref()),
         };
         Ok(Previewed { plan, fatal })
     }

@@ -559,7 +559,6 @@ fn agent_request(sub: &ArgMatches) -> Result<AgentRequest, Failure> {
         runtime: given(sub, "runtime"),
         surfaces: given_pairs(sub, "surface")?,
         roots: given_pairs(sub, "root")?,
-        permissions: given(sub, "permissions"),
         env: given_list(sub, "env"),
     })
 }
@@ -587,11 +586,17 @@ pub(crate) fn agent(
                 if !row.runtime.is_empty() {
                     parts.push(format!("runtime: {}", row.runtime));
                 }
-                if !row.permissions_line.is_empty() {
-                    parts.push(format!("permissions: {}", row.permissions_line));
+                // Ruling 67: what is shown is what is written; ruling 139:
+                // permissions are said to be passed on unchecked.
+                for line in &row.engine_lines {
+                    parts.push(line.line.clone());
                 }
-                // Ruling 67: what is shown is what is written.
-                parts.extend(row.engine_lines.iter().cloned());
+                for line in row.engine_lines.iter().filter(|l| l.permissions) {
+                    parts.push(format!(
+                        "permissions {}",
+                        library_application::passed_verbatim(&line.engine)
+                    ));
+                }
                 if !row.env.is_empty() {
                     parts.push(format!("env: {}", row.env.join(", ")));
                 }

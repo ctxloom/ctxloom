@@ -188,30 +188,65 @@ fn agent_row(engine: &str) -> AgentRow {
         engine: engine.to_string(),
         profiles: vec!["p1".to_string(), "p2".to_string()],
         runtime: "host".to_string(),
-        permissions: serde_json::json!({}),
         driving: String::new(),
         env: Vec::new(),
         engines: serde_json::json!({}),
-        permissions_line: String::new(),
         engine_lines: Vec::new(),
     }
 }
 
+fn line(engine: &str, line: &str, permissions: bool) -> library_application::EngineLine {
+    library_application::EngineLine {
+        engine: st(engine),
+        line: st(line),
+        permissions,
+    }
+}
+
 // Ruling 67: the listing shows each engine block as the config holds it,
-// `engines.<e>: {...}`, and the neutral posture as `permissions: {...}`.
+// `engines.<e>: {...}`; ruling 139: a block holding permissions says they are
+// passed to that engine verbatim and unchecked. No neutral posture (134).
 #[test]
 fn test_an_agent_listing_shows_the_engine_blocks_in_the_config_s_shape() {
     let row = AgentRow {
-        permissions_line: "{approver: human}".to_string(),
         engine_lines: vec![
-            "engines.claude-code: {model: haiku, permissions: {mode: plan}}".to_string(),
-            "engines.opencode: {effort: high}".to_string(),
+            line(
+                "claude-code",
+                "engines.claude-code: {model: haiku, permissions: {defaultMode: plan}}",
+                true,
+            ),
+            line("opencode", "engines.opencode: {effort: high}", false),
         ],
         ..agent_row("claude-code")
     };
     assert_eq!(
         shown(|out| agent_list(out, &[row])),
-        "Agents (1):\n  dev (engine: claude-code)\n    profiles: p1, p2\n    runtime: host\n    permissions: {approver: human}\n    engines.claude-code: {model: haiku, permissions: {mode: plan}}\n    engines.opencode: {effort: high}\n"
+        "Agents (1):\n  dev (engine: claude-code)\n    profiles: p1, p2\n    runtime: host\n    engines.claude-code: {model: haiku, permissions: {defaultMode: plan}}\n      permissions passed to claude-code verbatim; ctxloom does not check it\n    engines.opencode: {effort: high}\n"
+    );
+}
+
+// An agent show that did not resolve prints the blocks as written, and says
+// of one with permissions that they are passed on unchecked.
+#[test]
+fn test_an_unresolved_agent_show_says_its_permissions_are_passed_verbatim() {
+    let show = AgentShow {
+        definition: AgentRow {
+            engine_lines: vec![line(
+                "opencode",
+                "engines.opencode: {permissions: {edit: deny}}",
+                true,
+            )],
+            ..agent_row("opencode")
+        },
+        resolved: None,
+        resolution_error: st("nope"),
+        requirements: Vec::new(),
+        requirements_error: String::new(),
+    };
+    let text = shown(|out| agent_show(out, &show));
+    assert!(
+        text.contains("engines.opencode: {permissions: {edit: deny}}\n  permissions passed to opencode verbatim; ctxloom does not check it\n"),
+        "{text}"
     );
 }
 
@@ -250,27 +285,6 @@ fn test_an_agent_listing_says_project_default_for_no_engine() {
     assert!(shown(|out| agent_list(out, &[])).starts_with("No agents defined.\n"));
 }
 
-// agent.go headlessPosture: who answers what the posture leaves open.
-#[test]
-fn test_the_headless_posture_says_where_an_ask_goes() {
-    assert_eq!(
-        headless("claude-code", "acceptEdits", "human"),
-        "acceptEdits, approver human \u{2014} asks go to the root's approvals modal; denied at once when the root is unattended (one-shot, --plain-terminal, headless)"
-    );
-    assert_eq!(
-        headless("claude-code", "bypassPermissions", "human"),
-        "bypassPermissions, approver human \u{2014} nothing is asked"
-    );
-    assert_eq!(
-        headless("mock", "", "none"),
-        "approver none \u{2014} asks are denied at once"
-    );
-    assert_eq!(
-        headless("mock", "", "reviewer"),
-        "approver reviewer \u{2014} the engine's reviewer decides asks"
-    );
-}
-
 // agent.go renderAgentShow: a resolution that failed ends the view.
 #[test]
 fn test_agent_show_says_a_resolution_failed_and_carries_on() {
@@ -296,8 +310,6 @@ fn test_agent_show_says_a_resolution_failed_and_carries_on() {
             settings: settings(Some("o1")),
             context: String::new(),
             fragments: vec!["a".to_string()],
-            effective_permissions: String::new(),
-            approver: "human".to_string(),
             driving: String::new(),
             session_home: "session".to_string(),
             command: String::new(),
@@ -665,9 +677,10 @@ fn test_a_profile_show_prints_every_section_it_has() {
     );
 }
 
-// agent_show.go: a resolved agent with no headless posture says nothing of one.
+// agent_show.go: a resolved agent says no headless posture (ruling 134: ctxloom
+// has none of its own).
 #[test]
-fn test_an_agent_show_without_an_approver_prints_no_posture() {
+fn test_an_agent_show_prints_no_posture() {
     use library_application::{Requirement, RequirementSource, ResolvedAgent};
     let show = AgentShow {
         definition: agent_row("claude-code"),
@@ -678,8 +691,6 @@ fn test_an_agent_show_without_an_approver_prints_no_posture() {
             settings: settings(None),
             context: String::new(),
             fragments: sv(&["a", "b"]),
-            effective_permissions: String::new(),
-            approver: String::new(),
             driving: String::new(),
             session_home: String::new(),
             command: String::new(),
@@ -834,11 +845,10 @@ fn plan() -> DryRun {
         axes: (st("worktree"), st("host")),
         model: String::new(),
         effort: String::new(),
-        permission_mode: String::new(),
+        permissions: None,
         drive: Default::default(),
         settings: None,
         settings_agent: st("dev"),
-        posture: Default::default(),
     }
 }
 
@@ -878,9 +888,10 @@ fn test_a_dry_run_shows_each_setting_with_the_place_that_said_it() {
             value: None,
             source: "default",
         },
-        permissions: SourcedValue {
-            value: st("acceptEdits"),
+        permissions: library_application::PermissionsSetting {
+            value: Some(serde_json::json!({"defaultMode": "acceptEdits"})),
             source: "default",
+            line: st("{defaultMode: acceptEdits}"),
         },
         runtime: RuntimeSetting {
             value: st("host"),
@@ -919,7 +930,8 @@ fn test_a_dry_run_shows_each_setting_with_the_place_that_said_it() {
             "\n=== Settings ===\n",
             "  model        sonnet  (agents.dev.engines.claude-code)\n",
             "  effort       engine default, no flag passed  (default)\n",
-            "  permissions  acceptEdits  (default)\n",
+            "  permissions  {defaultMode: acceptEdits}  (default)\n",
+            "               passed to claude-code verbatim; ctxloom does not check it\n",
             "  runtime      host  (agents.dev; replaces engines.claude-code container-rootless: weakens isolation)\n",
             "  env          HTTPS_PROXY  (engines.claude-code), ALPHA  (agents.dev)\n",
             "\n=== Profiles ===\n",
@@ -974,9 +986,10 @@ fn test_a_dry_run_of_the_default_agent_names_its_place_in_full() {
             value: None,
             source: "default",
         },
-        permissions: SourcedValue {
-            value: st("acceptEdits"),
+        permissions: library_application::PermissionsSetting {
+            value: Some(serde_json::json!({"defaultMode": "acceptEdits"})),
             source: "default",
+            line: st("{defaultMode: acceptEdits}"),
         },
         runtime: RuntimeSetting {
             value: st("host"),
@@ -1014,17 +1027,14 @@ fn test_a_dry_run_of_the_default_agent_names_its_place_in_full() {
     assert!(!shown_plan.contains("=== Agent ==="), "{shown_plan}");
 }
 
-// hand-test 2 2026-11-11: the dry run showed `permissions acceptEdits
-// (default)` although no permission mode reached the engine. Owner ruling
-// 116 passes claude's (`--permission-mode`), so its row is the mode alone,
-// and its `default` is said as no flag; opencode's is still not passed, and
-// its row says so.
-// A mode nobody set (opencode's) is said as the engine's own, never as an
-// empty value; `engine show` and `agent show` say the same.
+// Owner rulings 135, 137, 139: the dry run, `engine show` and `agent show`
+// print the permissions document as written (flow form), from where it was
+// said, and the line that ctxloom passes it to the engine verbatim and checks
+// nothing; with none, they say nothing is passed (and no such line).
 #[test]
-fn test_a_permission_mode_is_said_honestly() {
-    use library_application::{EnvSetting, RuntimeSetting, SourcedValue};
-    let settings = |mode: &str| library_application::AgentSettings {
+fn test_a_permissions_document_is_shown_as_written_and_said_unchecked() {
+    use library_application::{EnvSetting, PermissionsSetting, RuntimeSetting, SourcedValue};
+    let settings = |line: Option<&str>, source: &'static str| library_application::AgentSettings {
         model: SourcedValue {
             value: None,
             source: "default",
@@ -1033,9 +1043,10 @@ fn test_a_permission_mode_is_said_honestly() {
             value: None,
             source: "default",
         },
-        permissions: SourcedValue {
-            value: st(mode),
-            source: "default",
+        permissions: PermissionsSetting {
+            value: line.map(|_| serde_json::json!({"any": "thing"})),
+            source,
+            line: line.map(ToString::to_string).unwrap_or_default(),
         },
         runtime: RuntimeSetting {
             value: st("host"),
@@ -1050,50 +1061,55 @@ fn test_a_permission_mode_is_said_honestly() {
             keys: Vec::new(),
         },
     };
-    let on = |engine: &str, mode: &str| {
+    let on = |engine: &str, s: library_application::AgentSettings| {
         shown(|out| {
             dry_run(
                 out,
                 &DryRun {
                     engine: st(engine),
-                    settings: Some(settings(mode)),
+                    settings: Some(s),
                     ..plan()
                 },
             )
         })
     };
-    let plan_of = |mode: &str| on("claude-code", mode);
-    let claude = plan_of("acceptEdits");
+    let claude = on(
+        "claude-code",
+        settings(Some("{defaultMode: acceptEdits}"), "default"),
+    );
     assert!(
-        claude.contains("  permissions  acceptEdits  (default)\n"),
+        claude.contains("  permissions  {defaultMode: acceptEdits}  (default)\n               passed to claude-code verbatim; ctxloom does not check it\n"),
         "{claude}"
     );
-    assert!(!claude.contains("not passed"), "{claude}");
-    let claude_default = plan_of("default");
+    let opencode = on("opencode", settings(Some("{edit: deny}"), "agent"));
     assert!(
-        claude_default.contains("  permissions  default, no flag passed  (default)\n"),
-        "{claude_default}"
-    );
-    let opencode = on("opencode", "plan");
-    assert!(
-        opencode.contains("  permissions  plan, not passed to the engine yet  (default)\n"),
+        opencode.contains("  permissions  {edit: deny}  (agents.dev.engines.opencode)\n               passed to opencode verbatim; ctxloom does not check it\n"),
         "{opencode}"
     );
-    let unset = plan_of("");
+    let unset = on("opencode", settings(None, "default"));
     assert!(
-        unset.contains("  permissions  engine default, no mode set  (default)\n"),
+        unset.contains("  permissions  none, nothing passed  (default)\n"),
         "{unset}"
     );
-    let engine = shown(|out| settings_lines(out, &settings(""), "      "));
+    assert!(!unset.contains("verbatim"), "{unset}");
+    let engine = shown(|out| {
+        settings_lines(
+            out,
+            &settings(Some("{defaultMode: plan}"), "agent"),
+            "claude-code",
+            "      ",
+        )
+    });
     assert!(
-        engine.contains("      permissions: engine default, no mode set (default)\n"),
+        engine.contains("      permissions: {defaultMode: plan} (agent)\n        passed to claude-code verbatim; ctxloom does not check it\n"),
         "{engine}"
     );
-    let agent = shown(|out| settings_lines(out, &settings(""), ""));
+    let agent = shown(|out| settings_lines(out, &settings(None, "default"), "opencode", ""));
     assert!(
-        agent.contains("Permissions: engine default, no mode set (default)\n"),
+        agent.contains("Permissions: none, nothing passed (default)\n"),
         "{agent}"
     );
+    assert!(!agent.contains("verbatim"), "{agent}");
 }
 
 fn found(remote: &str, name: &str, tags: &[&str]) -> library_application::RemoteFound {
@@ -1186,9 +1202,10 @@ fn settings(model: Option<&str>) -> library_application::AgentSettings {
             value: None,
             source: "default",
         },
-        permissions: SourcedValue {
-            value: String::new(),
+        permissions: library_application::PermissionsSetting {
+            value: None,
             source: "default",
+            line: String::new(),
         },
         runtime: RuntimeSetting {
             value: "host".to_string(),

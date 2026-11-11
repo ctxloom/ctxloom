@@ -104,8 +104,19 @@ impl Engine for Opencode {
     }
 
     fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
+        let permissions = match &request.permissions {
+            Some(document) => {
+                Some(surface_ports::Json::parse(document).map_err(|ext_err_txt| {
+                    EngineError::BadPermissions {
+                        engine: NAME.to_string(),
+                        ext_err_txt,
+                    }
+                })?)
+            }
+            None => None,
+        };
         Ok(Prepared {
-            files: home::files(&request.context),
+            files: home::files(&request.context, &home::config(permissions.as_ref())),
             // Nothing of the user's own opencode configuration crosses.
             copy_in: Vec::new(),
             context_path: format!("{}/{CONTEXT_FILE}", request.home),

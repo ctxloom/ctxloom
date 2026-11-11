@@ -96,10 +96,6 @@ write_errors! {
     UnknownEngine { name, engine, valid } = "write-unknown-engine";
     /// A runtime that is no axis.
     UnknownRuntime { name, value } = "write-unknown-runtime";
-    /// A permission mode its engine does not take.
-    Permissions { subject, detail } = "write-permissions";
-    /// A permission mode with no engine to check it against.
-    PermissionsNeedEngine { name } = "write-permissions-need-engine";
     /// An agent that binds nothing.
     AgentWithoutEngine { name } = "write-agent-without-engine";
     /// An env declaration that would not do what it says.

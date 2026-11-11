@@ -4,9 +4,7 @@ use run_ports::{
     AuthSetting, Engine, EngineError, EngineSettings, PrepareRequest, SessionHome, TurnRequest,
 };
 
-use crate::drive::{
-    COPY_IN_ALLOWLIST, EFFORT_LEVELS, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST, PERMISSION_MODES,
-};
+use crate::drive::{COPY_IN_ALLOWLIST, EFFORT_LEVELS, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST};
 use crate::{Claude, CONTEXT_PROMPT_FILE};
 
 fn request() -> TurnRequest {
@@ -19,7 +17,6 @@ fn request() -> TurnRequest {
         cwd: Some("/p".to_string()),
         model: String::new(),
         effort: String::new(),
-        permission_mode: String::new(),
         settings: EngineSettings::default(),
     }
 }
@@ -122,6 +119,7 @@ fn preparing_a_home_writes_the_context_file_it_names() {
             interactive: false,
             cwd: None,
             existing: Default::default(),
+            permissions: None,
         })
         .unwrap();
     assert_eq!(prepared.context_path, format!("/h/{CONTEXT_PROMPT_FILE}"));
@@ -212,6 +210,7 @@ fn prepared(interactive: bool) -> run_ports::Prepared {
             interactive,
             cwd: None,
             existing: Default::default(),
+            permissions: None,
         })
         .unwrap()
 }
@@ -533,73 +532,144 @@ fn an_effort_claude_does_not_take_is_refused_before_launch() {
     }
 }
 
-// Owner ruling 116: `claude --permission-mode <mode>` (acceptEdits, auto,
-// bypassPermissions, manual, dontAsk, plan; `claude --help`, 2.1.322):
-// passed for a turn and for the terminal session; none named, or the
-// config's `default` (the engine's own default mode), is no flag; a mode
-// claude does not take is refused before it is launched.
+// Owner rulings 135, 137: the agent's permissions document is the
+// `permissions` object of the settings the command names with `--settings`,
+// exactly as handed (its order and its words, the retired `mode` among them:
+// nothing is checked), beside ctxloom's hooks, which a document can never
+// overwrite (it is one key, even one holding a `hooks` of its own).
 #[test]
-fn a_configured_permission_mode_is_passed_to_claude_for_a_turn_and_for_the_terminal() {
-    for mode in PERMISSION_MODES {
-        let mut asked = request();
-        asked.permission_mode = mode.to_string();
-        for command in [
-            Claude::new().drive_turn(&asked).unwrap(),
-            Claude::new().drive_interactive(&asked).unwrap(),
-        ] {
-            let at = command
-                .args
-                .iter()
-                .position(|a| a == "--permission-mode")
-                .unwrap_or_else(|| panic!("{mode}: {command:?}"));
-            assert_eq!(command.args[at + 1], mode);
-        }
+fn the_permissions_document_is_the_settings_permissions_beside_the_hooks() {
+    const DOCUMENT: &str = r#"{"mode":"nonsense","defaultMode":"plan","deny":["WebFetch","Bash(rm *)"],"allow":["Read"],"hooks":{"Stop":[]},"blockWritesOutsideWorkingDirectories":true,"n":7}"#;
+    for interactive in [false, true] {
+        let prepared = Claude::new()
+            .prepare(&PrepareRequest {
+                home: "/h".to_string(),
+                context: "c".to_string(),
+                offered: Vec::new(),
+                interactive,
+                cwd: None,
+                existing: Default::default(),
+                permissions: Some(DOCUMENT.to_string()),
+            })
+            .unwrap();
+        let settings = prepared
+            .files
+            .iter()
+            .find(|f| f.rel == "settings.json")
+            .expect("settings.json in the home");
+        let text = std::str::from_utf8(&settings.bytes).unwrap();
+        let doc = surface_ports::Json::parse(text).unwrap();
+        // The document, whole and in its order.
+        let permissions = doc.get("permissions").expect("permissions");
+        assert_eq!(
+            permissions,
+            &surface_ports::Json::parse(DOCUMENT).unwrap(),
+            "{text}"
+        );
+        let keys: Vec<&str> = match permissions {
+            surface_ports::Json::Object(members) => {
+                members.iter().map(|(k, _)| k.as_str()).collect()
+            }
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            keys,
+            [
+                "mode",
+                "defaultMode",
+                "deny",
+                "allow",
+                "hooks",
+                "blockWritesOutsideWorkingDirectories",
+                "n"
+            ]
+        );
+        // ctxloom's hooks are as they are without a document.
+        assert_eq!(
+            doc.get("hooks"),
+            {
+                let bare = prepared_with(interactive, None);
+                surface_ports::Json::parse(&bare)
+                    .unwrap()
+                    .get("hooks")
+                    .cloned()
+            }
+            .as_ref()
+        );
+        assert!(crate::hooks::has_callback(&doc), "{text}");
+        let top: Vec<&str> = match &doc {
+            surface_ports::Json::Object(members) => {
+                members.iter().map(|(k, _)| k.as_str()).collect()
+            }
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(top, ["hooks", "permissions"]);
     }
 }
 
+/// The settings file `prepare` writes for a home, given `permissions`.
+fn prepared_with(interactive: bool, permissions: Option<&str>) -> String {
+    let prepared = Claude::new()
+        .prepare(&PrepareRequest {
+            home: "/h".to_string(),
+            context: "c".to_string(),
+            offered: Vec::new(),
+            interactive,
+            cwd: None,
+            existing: Default::default(),
+            permissions: permissions.map(String::from),
+        })
+        .unwrap();
+    let file = prepared
+        .files
+        .iter()
+        .find(|f| f.rel == "settings.json")
+        .expect("settings.json in the home");
+    String::from_utf8(file.bytes.clone()).unwrap()
+}
+
+// No document, no `permissions` key: the settings are ctxloom's hooks alone.
 #[test]
-fn the_terminals_prompt_stays_last_beside_a_permission_mode() {
-    let mut asked = request();
-    asked.permission_mode = "plan".to_string();
-    let terminal = Claude::new().drive_interactive(&asked).unwrap();
-    assert_eq!(
-        terminal.args.last().map(String::as_str),
-        Some("what does this project expect of me?")
+fn with_no_document_the_settings_hold_no_permissions() {
+    for interactive in [false, true] {
+        let text = prepared_with(interactive, None);
+        let doc = surface_ports::Json::parse(&text).unwrap();
+        assert!(doc.get("permissions").is_none(), "{text}");
+        assert!(crate::hooks::has_callback(&doc), "{text}");
+    }
+}
+
+// A document that is not JSON (ctxloom's own rendering, so a caller's bug) is
+// refused before anything is written, in words.
+#[test]
+fn a_document_that_is_not_json_is_refused() {
+    let refused = Claude::new().prepare(&PrepareRequest {
+        home: "/h".to_string(),
+        context: "c".to_string(),
+        offered: Vec::new(),
+        interactive: false,
+        cwd: None,
+        existing: Default::default(),
+        permissions: Some("{not json".to_string()),
+    });
+    assert!(
+        matches!(&refused, Err(EngineError::BadPermissions { engine, .. }) if engine == "claude-code"),
+        "{refused:?}"
     );
 }
 
+// Ruling 137 retires ruling 116's flag: no `--permission-mode` is passed, for
+// a turn or for the terminal, whatever the document says.
 #[test]
-fn no_permission_mode_and_the_default_mode_are_no_permission_mode_flag() {
-    for mode in ["", "default"] {
-        let mut asked = request();
-        asked.permission_mode = mode.to_string();
-        for command in [
-            Claude::new().drive_turn(&asked).unwrap(),
-            Claude::new().drive_interactive(&asked).unwrap(),
-        ] {
-            assert!(
-                !command.args.iter().any(|a| a == "--permission-mode"),
-                "{mode:?}: {command:?}"
-            );
-        }
-    }
-}
-
-#[test]
-fn a_permission_mode_claude_does_not_take_is_refused_before_launch() {
-    let mut asked = request();
-    asked.permission_mode = "nonsense".to_string();
-    for refused in [
-        Claude::new().drive_turn(&asked),
-        Claude::new().drive_interactive(&asked),
+fn no_permission_mode_flag_is_ever_passed() {
+    let asked = request();
+    for command in [
+        Claude::new().drive_turn(&asked).unwrap(),
+        Claude::new().drive_interactive(&asked).unwrap(),
     ] {
-        assert_eq!(
-            refused,
-            Err(EngineError::UnknownPermissionMode {
-                engine: "claude-code".to_string(),
-                mode: "nonsense".to_string(),
-                known: "acceptEdits, auto, bypassPermissions, manual, dontAsk, plan".to_string(),
-            })
+        assert!(
+            !command.args.iter().any(|a| a.contains("permission")),
+            "{command:?}"
         );
     }
 }
@@ -860,6 +930,7 @@ fn claude_state(existing: Option<&str>, cwd: Option<&str>) -> Option<String> {
                     BTreeMap::from([(".claude.json".to_string(), text.as_bytes().to_vec())])
                 })
                 .unwrap_or_default(),
+            permissions: None,
         })
         .unwrap();
     prepared

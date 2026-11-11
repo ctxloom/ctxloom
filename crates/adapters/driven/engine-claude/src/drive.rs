@@ -144,7 +144,7 @@ impl Engine for Claude {
             },
             HomeFile {
                 rel: SETTINGS_FILE.to_string(),
-                bytes: crate::hooks::home_settings(request.interactive).into_bytes(),
+                bytes: home_settings(request)?.into_bytes(),
             },
         ];
         let existing = request.existing.get(STATE_FILE).map(Vec::as_slice);
@@ -175,7 +175,6 @@ impl Engine for Claude {
         // The turn's hooks: the session dir's settings, as the terminal's.
         push_settings(&mut command.args, request);
         push_model_and_effort(&mut command.args, request)?;
-        push_permission_mode(&mut command.args, request)?;
         if let Some(native_id) = &request.resume {
             command.args.push("--resume".to_string());
             command.args.push(native_id.clone());
@@ -217,7 +216,6 @@ impl Engine for Claude {
         command.args.push(request.context_path.clone());
         push_settings(&mut command.args, request);
         push_model_and_effort(&mut command.args, request)?;
-        push_permission_mode(&mut command.args, request)?;
         if let Some(native_id) = &request.resume {
             command.args.push("--resume".to_string());
             command.args.push(native_id.clone());
@@ -229,6 +227,34 @@ impl Engine for Claude {
         command.cwd = request.cwd.clone();
         Ok(command)
     }
+}
+
+/// The session's settings file, which the command names with `--settings`:
+/// ctxloom's hooks (the terminal's events or a child's turn's), and, as its
+/// `permissions`, the agent's permissions document exactly as it was handed
+/// (owner rulings 135, 137: claude's own words, never checked; the mode is
+/// its `defaultMode`, and no `--permission-mode` is passed). The document is
+/// that one key and nothing else, so ctxloom's own keys (`hooks`) are never
+/// overwritten by it.
+///
+/// A profile's `deny_tools` is not merged in here: it is written, as
+/// `permissions.deny`, into the project's own `.claude/settings.json` at
+/// surface apply, and claude merges the lists of the two files itself
+/// (a list key of one file never replaces another's), while for a single
+/// value such as `defaultMode` this file, the command line's, wins.
+fn home_settings(request: &PrepareRequest) -> Result<String, EngineError> {
+    let hooks = crate::hooks::home_settings(request.interactive);
+    let Some(document) = &request.permissions else {
+        return Ok(hooks);
+    };
+    let bad = |ext_err_txt: String| EngineError::BadPermissions {
+        engine: NAME.to_string(),
+        ext_err_txt,
+    };
+    let permissions = Json::parse(document).map_err(bad)?;
+    let mut settings = Json::parse(&hooks).map_err(bad)?;
+    settings.set("permissions", permissions);
+    Ok(format!("{}\n", settings.pretty()))
 }
 
 /// claude's state file with the onboarding marked done and `cwd` trusted
@@ -275,42 +301,6 @@ fn push_settings(args: &mut Vec<String>, request: &TurnRequest) {
 
 /// The effort levels `claude --effort` takes (`claude --help`, 2.1.321).
 pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
-
-/// The permission modes `claude --permission-mode` takes (`claude --help`,
-/// 2.1.322: "choices: acceptEdits, auto, bypassPermissions, manual, dontAsk,
-/// plan"; owner ruling 116).
-pub const PERMISSION_MODES: [&str; 6] = [
-    "acceptEdits",
-    "auto",
-    "bypassPermissions",
-    "manual",
-    "dontAsk",
-    "plan",
-];
-
-/// The config's word for claude's own default mode, passed as no flag
-/// (claude 2.1.322 no longer takes `default` as a choice).
-const DEFAULT_MODE: &str = "default";
-
-/// `--permission-mode <mode>` when the agent's mode names one (owner ruling
-/// 116); none, or `default`, is no flag (claude's own default). A mode claude
-/// does not take is refused here, before it is launched.
-fn push_permission_mode(args: &mut Vec<String>, request: &TurnRequest) -> Result<(), EngineError> {
-    let mode = request.permission_mode.as_str();
-    if mode.is_empty() || mode == DEFAULT_MODE {
-        return Ok(());
-    }
-    if !PERMISSION_MODES.contains(&mode) {
-        return Err(EngineError::UnknownPermissionMode {
-            engine: NAME.to_string(),
-            mode: mode.to_string(),
-            known: PERMISSION_MODES.join(", "),
-        });
-    }
-    args.push("--permission-mode".to_string());
-    args.push(mode.to_string());
-    Ok(())
-}
 
 /// `--model <model>` and `--effort <level>` when the agent names them; none
 /// named is no flag (the engine's own default). A level claude does not take

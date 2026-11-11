@@ -430,18 +430,22 @@ pub fn agent_list(out: &mut dyn Write, rows: &[AgentRow]) -> io::Result<()> {
         if !row.profiles.is_empty() {
             writeln!(out, "    profiles: {}", row.profiles.join(", "))?;
         }
-        for (key, value) in [
-            ("runtime", &row.runtime),
-            ("permissions", &row.permissions_line),
-            ("driving", &row.driving),
-        ] {
+        for (key, value) in [("runtime", &row.runtime), ("driving", &row.driving)] {
             if !value.is_empty() {
                 writeln!(out, "    {key}: {value}")?;
             }
         }
-        // Ruling 67: each engine block as the config holds it.
+        // Ruling 67: each engine block as the config holds it; ruling 139:
+        // one that holds permissions says they are passed on unchecked.
         for line in &row.engine_lines {
-            writeln!(out, "    {line}")?;
+            writeln!(out, "    {}", line.line)?;
+            if line.permissions {
+                writeln!(
+                    out,
+                    "      permissions {}",
+                    library_application::passed_verbatim(&line.engine)
+                )?;
+            }
         }
     }
     Ok(())
@@ -458,27 +462,6 @@ fn plain_bullets(out: &mut dyn Write, heading: &str, items: &[String]) -> io::Re
     Ok(())
 }
 
-/// How a headless run of the agent meets a call its posture leaves open.
-fn headless(backend: &str, posture: &str, approver: &str) -> String {
-    let lead = if posture.is_empty() {
-        format!("approver {approver}")
-    } else {
-        format!("{posture}, approver {approver}")
-    };
-    let asks_nobody = backend == "claude-code" && posture == "bypassPermissions";
-    if asks_nobody {
-        format!("{lead} \u{2014} nothing is asked")
-    } else if approver == "none" {
-        format!("{lead} \u{2014} asks are denied at once")
-    } else if approver == "reviewer" {
-        format!("{lead} \u{2014} the engine's reviewer decides asks")
-    } else {
-        format!(
-            "{lead} \u{2014} asks go to the root's approvals modal; denied at once when the root is unattended (one-shot, --plain-terminal, headless)"
-        )
-    }
-}
-
 /// `agent show`.
 pub fn agent_show(out: &mut dyn Write, show: &AgentShow) -> io::Result<()> {
     let def = &show.definition;
@@ -489,16 +472,20 @@ pub fn agent_show(out: &mut dyn Write, show: &AgentShow) -> io::Result<()> {
         writeln!(out, "Engine (declared): {}", def.engine)?;
     }
     match show.resolved.as_ref() {
-        Some(resolved) => settings_lines(out, &resolved.settings, "")?,
+        Some(resolved) => settings_lines(out, &resolved.settings, &resolved.engine, "")?,
         None => {
             if !def.runtime.is_empty() {
                 writeln!(out, "Runtime: {}", def.runtime)?;
             }
-            if !def.permissions_line.is_empty() {
-                writeln!(out, "Permissions: {}", def.permissions_line)?;
-            }
             for line in &def.engine_lines {
-                writeln!(out, "{line}")?;
+                writeln!(out, "{}", line.line)?;
+                if line.permissions {
+                    writeln!(
+                        out,
+                        "  permissions {}",
+                        library_application::passed_verbatim(&line.engine)
+                    )?;
+                }
             }
         }
     }
@@ -519,24 +506,6 @@ pub fn agent_show(out: &mut dyn Write, show: &AgentShow) -> io::Result<()> {
                 write!(out, " (model: {model})")?;
             }
             writeln!(out)?;
-            if !resolved.effective_permissions.is_empty() {
-                writeln!(
-                    out,
-                    "Resolved permissions: {}",
-                    resolved.effective_permissions
-                )?;
-            }
-            if !resolved.approver.is_empty() {
-                writeln!(
-                    out,
-                    "Headless posture: {}",
-                    headless(
-                        &resolved.engine,
-                        &resolved.effective_permissions,
-                        &resolved.approver
-                    )
-                )?;
-            }
             if !resolved.session_home.is_empty() {
                 writeln!(out, "Session home: {}", resolved.session_home)?;
             }
@@ -561,13 +530,21 @@ pub fn agent_show(out: &mut dyn Write, show: &AgentShow) -> io::Result<()> {
     Ok(())
 }
 
-/// A permission mode nobody set: the engine's own.
-const NO_MODE: &str = "engine default, no mode set";
+/// An agent with no permissions document for its engine: nothing is passed,
+/// and the engine's own defaults stand.
+const NO_PERMISSIONS: &str = "none, nothing passed";
 
-/// The lines of an agent's settings, each with the layer that said it. A
-/// runtime that replaces another layer's says what it replaced and how the
-/// two differ; a model or effort nobody set says no flag is passed.
-fn settings_lines(out: &mut dyn Write, s: &AgentSettings, indent: &str) -> io::Result<()> {
+/// The lines of an agent's settings on `engine`, each with the layer that
+/// said it. A runtime that replaces another layer's says what it replaced and
+/// how the two differ; a model or effort nobody set says no flag is passed;
+/// the permissions document is shown as written, and said to be passed to
+/// the engine unchecked (owner ruling 139).
+fn settings_lines(
+    out: &mut dyn Write,
+    s: &AgentSettings,
+    engine: &str,
+    indent: &str,
+) -> io::Result<()> {
     let capital = indent.is_empty();
     let key = |word: &str| {
         if capital {
@@ -591,10 +568,10 @@ fn settings_lines(out: &mut dyn Write, s: &AgentSettings, indent: &str) -> io::R
             )?,
         }
     }
-    let permissions = if s.permissions.value.is_empty() {
-        NO_MODE
+    let permissions = if s.permissions.value.is_none() {
+        NO_PERMISSIONS
     } else {
-        s.permissions.value.as_str()
+        s.permissions.line.as_str()
     };
     writeln!(
         out,
@@ -602,6 +579,13 @@ fn settings_lines(out: &mut dyn Write, s: &AgentSettings, indent: &str) -> io::R
         key("permissions"),
         s.permissions.source
     )?;
+    if s.permissions.value.is_some() {
+        writeln!(
+            out,
+            "{indent}  {}",
+            library_application::passed_verbatim(engine)
+        )?;
+    }
     writeln!(
         out,
         "{indent}{}: {}",
@@ -707,7 +691,7 @@ pub fn engine_show(out: &mut dyn Write, row: &EngineRow) -> io::Result<()> {
     writeln!(out, "  agents:")?;
     for agent in &row.agents {
         writeln!(out, "    {}", agent.name)?;
-        settings_lines(out, &agent.settings, "      ")?;
+        settings_lines(out, &agent.settings, &row.name, "      ")?;
     }
     Ok(())
 }
@@ -931,9 +915,6 @@ pub fn dry_run(out: &mut dyn Write, plan: &DryRun) -> io::Result<()> {
     }
 }
 
-/// The engine a permission mode is passed to (`--permission-mode`, owner
-/// ruling 116); opencode has no verified flag for one.
-const MODE_PASSED_TO: &str = "claude-code";
 /// Ruling 72: each setting a run takes, with the place in the config that
 /// said it (the JSON's `settings` says the same by word).
 fn dry_run_settings(
@@ -962,20 +943,27 @@ fn dry_run_settings(
             .unwrap_or("engine default, no flag passed");
         row(out, key, value, place(setting.source, true))?;
     }
-    // claude is given the mode (owner ruling 116), its `default` as no flag;
-    // no other engine is yet, and its row says so.
-    let permissions = match (engine, s.permissions.value.as_str()) {
-        (_, "") => NO_MODE.to_string(),
-        (MODE_PASSED_TO, "default") => "default, no flag passed".to_string(),
-        (MODE_PASSED_TO, mode) => mode.to_string(),
-        (_, mode) => format!("{mode}, not passed to the engine yet"),
+    // The engine's own document, as written, and said to be passed on
+    // unchecked (owner rulings 135, 137, 139).
+    let permissions = if s.permissions.value.is_none() {
+        NO_PERMISSIONS
+    } else {
+        s.permissions.line.as_str()
     };
     row(
         out,
         "permissions",
-        &permissions,
+        permissions,
         place(s.permissions.source, true),
     )?;
+    if s.permissions.value.is_some() {
+        writeln!(
+            out,
+            "  {:<11}  {}",
+            "",
+            library_application::passed_verbatim(engine)
+        )?;
+    }
     let mut at = place(s.runtime.source, false);
     if let (Some(replaced), Some(change)) = (&s.runtime.overrides, s.runtime.change) {
         let how = change_words(change);

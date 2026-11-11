@@ -348,17 +348,30 @@ fn test_companions_are_read_by_name_with_their_commands() {
     assert!(config("companions: [acme]\n").companions().is_empty());
 }
 
-// Ruling 67: an agent that declares no neutral posture has no permissions
-// line in the listing (not an empty `{}`); one that declares it has it.
+// Ruling 67, 139: each engine block is one line in flow form, and says
+// whether it holds the engine's own permissions document.
 #[test]
-fn test_an_agent_without_a_neutral_posture_lists_no_permissions_line() {
-    let bare = super::Agent::of("a", &parse("engine: claude-code\n").expect("a document"));
-    assert_eq!(bare.row().permissions_line, "");
-    let empty = super::Agent::of("a", &parse("permissions: {}\n").expect("a document"));
-    assert_eq!(empty.row().permissions_line, "");
-    let posture = super::Agent::of(
+fn test_each_engine_block_is_a_line_that_says_whether_it_holds_permissions() {
+    let agent = super::Agent::of(
         "a",
-        &parse("permissions:\n  approver: human\n").expect("a document"),
+        &parse("engines:\n  opencode:\n    model: m\n  claude-code:\n    permissions:\n      defaultMode: plan\n")
+            .expect("a document"),
     );
-    assert_eq!(posture.row().permissions_line, "{approver: human}");
+    assert_eq!(
+        agent.row().engine_lines,
+        [
+            crate::EngineLine {
+                engine: "claude-code".to_string(),
+                line: "engines.claude-code: {permissions: {defaultMode: plan}}".to_string(),
+                permissions: true,
+            },
+            crate::EngineLine {
+                engine: "opencode".to_string(),
+                line: "engines.opencode: {model: m}".to_string(),
+                permissions: false,
+            },
+        ]
+    );
+    let bare = super::Agent::of("a", &parse("engine: claude-code\n").expect("a document"));
+    assert!(bare.row().engine_lines.is_empty());
 }

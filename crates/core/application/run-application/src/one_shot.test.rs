@@ -187,9 +187,8 @@ struct ScriptedPlan {
     fatal: Vec<FindingRow>,
     model: String,
     effort: String,
-    permission_mode: String,
+    permissions: Option<String>,
     drive: library_application::Drive,
-    posture: library_application::Posture,
     error: Option<fn() -> PlanError>,
     asked: Arc<Mutex<Vec<RunRequest>>>,
 }
@@ -220,11 +219,10 @@ impl Planner for ScriptedPlan {
             axes: (String::new(), "host".to_string()),
             model: self.model.clone(),
             effort: self.effort.clone(),
-            permission_mode: self.permission_mode.clone(),
+            permissions: self.permissions.clone(),
             drive: self.drive.clone(),
             settings: None,
             settings_agent: String::new(),
-            posture: self.posture.clone(),
         };
         Outcome {
             result: Ok(Previewed {
@@ -562,12 +560,10 @@ struct Script {
     /// The model and effort the plan resolved.
     model: &'static str,
     effort: &'static str,
-    /// The permission mode the plan resolved (owner ruling 116).
-    permission_mode: &'static str,
+    /// The permissions document the plan resolved (owner rulings 135, 137).
+    permissions: Option<&'static str>,
     /// How the plan says the engine is run.
     drive: library_application::Drive,
-    /// The posture the plan says the run claims.
-    posture: library_application::Posture,
     plan_error: Option<fn() -> PlanError>,
     project_error: Option<Report>,
     names: Vec<&'static str>,
@@ -597,9 +593,8 @@ impl Script {
             fatal: Vec::new(),
             model: "",
             effort: "",
-            permission_mode: "",
+            permissions: None,
             drive: Default::default(),
-            posture: Default::default(),
             plan_error: None,
             project_error: None,
             names: vec!["amber-swift-owl", "calm-quiet-fox", "wild-brave-elk"],
@@ -668,9 +663,8 @@ fn rig(script: Script) -> Rig {
             fatal: script.fatal,
             model: script.model.to_string(),
             effort: script.effort.to_string(),
-            permission_mode: script.permission_mode.to_string(),
+            permissions: script.permissions.map(ToString::to_string),
             drive: script.drive.clone(),
-            posture: script.posture.clone(),
             error: script.plan_error,
             asked: Arc::clone(&asked),
         }),
@@ -1680,7 +1674,7 @@ async fn the_bearer_is_in_no_debug_or_error_rendering() {
                 interactive: true,
                 model: String::new(),
                 effort: String::new(),
-                permission_mode: String::new(),
+                permissions: None,
                 settings: Default::default(),
                 owned: Vec::new(),
                 git_user: None,
@@ -1979,49 +1973,57 @@ async fn the_plans_model_and_effort_are_handed_to_the_engine_for_a_turn_and_for_
     assert!(args.contains(&"--effort=low".to_string()), "{args:?}");
 }
 
-// Owner ruling 116: the agent's permission mode the plan resolved is the
-// order's, for the turn and for the terminal session, as its effort is; a
-// plan with none gives the engine none.
+// Owner rulings 135, 137: the agent's permissions document the plan
+// resolved is the order's, handed to the engine's home verbatim for the turn
+// and for the terminal session; a plan with none gives the engine none, and
+// no flag carries it.
 #[tokio::test]
-async fn the_plans_permission_mode_is_handed_to_the_engine_for_a_turn_and_for_the_terminal() {
+async fn the_plans_permissions_are_handed_to_the_engine_for_a_turn_and_for_the_terminal() {
+    const DOCUMENT: &str = r#"{"defaultMode":"plan","allow":["Read"]}"#;
     let mut script = Script::answering();
-    script.permission_mode = "plan";
+    script.permissions = Some(DOCUMENT);
     let mut rig = rig(script);
-    rig.runs
+    let answer = rig
+        .runs
         .one_shot(&Flags::default(), &ask())
         .await
         .result
         .unwrap();
-    let args = rig.runner.seen.lock().unwrap()[0].args.clone();
-    assert!(
-        args.contains(&"--permission-mode=plan".to_string()),
-        "{args:?}"
+    assert_eq!(
+        rig.records
+            .text(&answer.harp, "home/permissions.json")
+            .as_deref(),
+        Some(DOCUMENT)
     );
+    let args = rig.runner.seen.lock().unwrap()[0].args.clone();
+    assert!(!args.iter().any(|a| a.contains("permission")), "{args:?}");
 
     let mut script = Script::answering();
-    script.permission_mode = "plan";
+    script.permissions = Some(DOCUMENT);
     let mut rig = rig_again_with(script);
-    rig.runs
+    let ended = rig
+        .runs
         .interactive(&Flags::default(), &ask())
         .await
         .result
         .unwrap();
-    let args = rig.runner.seen_terminal.lock().unwrap()[0].args.clone();
-    assert!(
-        args.contains(&"--permission-mode=plan".to_string()),
-        "{args:?}"
+    assert_eq!(
+        rig.records
+            .text(&ended.harp, "home/permissions.json")
+            .as_deref(),
+        Some(DOCUMENT)
     );
 
     let mut rig = rig_again_with(Script::answering());
-    rig.runs
+    let answer = rig
+        .runs
         .one_shot(&Flags::default(), &ask())
         .await
         .result
         .unwrap();
-    let args = rig.runner.seen.lock().unwrap()[0].args.clone();
-    assert!(
-        !args.iter().any(|a| a.contains("permission-mode")),
-        "{args:?}"
+    assert_eq!(
+        rig.records.text(&answer.harp, "home/permissions.json"),
+        None
     );
 }
 
@@ -2926,43 +2928,6 @@ async fn a_run_whose_command_never_started_closes_its_incarnation_as_launch_fail
     assert_eq!(
         incarnations_ended(&rig, &session).await,
         [(1, "launch-failed".to_string())]
-    );
-}
-
-// Owner rulings 59, 109: the enqueue is judged on the posture the plan says
-// the run claims and on what its runtime enforces (the host: nothing), so a
-// `network: none` on the host is the run's own refusal, before anything is
-// served or launched.
-#[tokio::test]
-async fn the_enqueue_is_judged_on_the_claimed_posture_and_what_the_runtime_enforces() {
-    let mut script = Script::answering();
-    script.posture = library_application::Posture {
-        network: "none".to_string(),
-        sandbox: "read-only".to_string(),
-    };
-    let mut rig = rig(script);
-    let error = rig
-        .runs
-        .one_shot(&Flags::default(), &ask())
-        .await
-        .result
-        .unwrap_err();
-    let evidence = rig.runs.core.0.enqueued.lock().unwrap().clone();
-    let posture = evidence.expect("an enqueue was sent").posture;
-    assert_eq!(posture.runtime, "host");
-    assert_eq!(
-        (posture.network.as_str(), posture.sandbox.as_str()),
-        ("none", "read-only")
-    );
-    assert!(posture.enforced_network.is_empty() && posture.enforced_sandbox.is_empty());
-    assert!(
-        matches!(&error, RunError::Refused(runs::RunRejection::LaunchRefused { refusals, .. })
-            if refusals.len() == 2),
-        "{error:?}"
-    );
-    assert!(
-        rig.runner.seen.lock().unwrap().is_empty(),
-        "nothing was launched"
     );
 }
 

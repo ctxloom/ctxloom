@@ -58,7 +58,7 @@ fn test_create_records_every_axis_the_config_sorted_and_answers_the_binding() {
         "dev2",
         &AgentRequest {
             runtime: Some("container-rootless".to_string()),
-            permissions: Some("plan".to_string()),
+            model: Some("haiku".to_string()),
             surfaces: Some(vec![("context".to_string(), "system-prompt".to_string())]),
             roots: Some(vec![("mcp".to_string(), "project-root".to_string())]),
             env: Some(vec!["A".to_string(), "B".to_string()]),
@@ -73,58 +73,41 @@ fn test_create_records_every_axis_the_config_sorted_and_answers_the_binding() {
     assert_eq!(row.profiles, ["dev"]);
     assert_eq!(row.runtime, "container-rootless");
     assert_eq!(row.env, ["A", "B"]);
-    // ruling 67: the mode is in the engine's block, as written
+    // ruling 67: the model is in the engine's block, as written
     assert_eq!(
         row.engines,
-        serde_json::json!({"claude-code": {"permissions": {"mode": "plan"}}})
+        serde_json::json!({"claude-code": {"model": "haiku"}})
     );
-    assert_eq!(row.permissions, serde_json::json!({}));
     assert_eq!(
         mem.config(Scope::Project).unwrap(),
-        "schema_version: 9\nagents:\n  dev2:\n    engine: claude-code\n    engines:\n      claude-code:\n        permissions:\n          mode: plan\n    env:\n      - A\n      - B\n    profiles:\n      - dev\n    roots:\n      mcp: project-root\n    runtime: container-rootless\n    surfaces:\n      context: system-prompt\n"
+        "schema_version: 9\nagents:\n  dev2:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: haiku\n    env:\n      - A\n      - B\n    profiles:\n      - dev\n    roots:\n      mcp: project-root\n    runtime: container-rootless\n    surfaces:\n      context: system-prompt\n"
     );
 }
 
-// operations.SetAgent: a mode the engine takes is written in its canonical spelling
+// Owner rulings 135, 138: no write touches an engine's permissions
+// document; a block written by hand is kept exactly as it was by an edit of
+// another key of the same engine block.
 #[test]
-fn test_a_permission_mode_is_written_into_the_engines_block_in_its_spelling() {
-    let (library, mem) = world();
-    write(
+fn test_a_hand_written_permissions_document_survives_an_edit_untouched() {
+    let (library, mem) = world_with("schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        permissions:\n          mode: anything\n          deny:\n            - WebFetch\n");
+    let row = write(
         &library,
-        "a",
+        "dev",
         &AgentRequest {
-            permissions: Some("ACCEPTEDITS".to_string()),
-            ..dev()
-        },
-        false,
-    )
-    .result
-    .unwrap();
-    assert!(mem.config(Scope::Project).unwrap().contains(
-        "    engines:\n      claude-code:\n        permissions:\n          mode: acceptEdits\n"
-    ));
-    // The block is named for the engine the agent binds.
-    let (library, mem) = Setup {
-        layers: &["schema_version: 9\n"],
-        ..Setup::default()
-    }
-    .fixture();
-    write(
-        &library,
-        "m",
-        &AgentRequest {
-            engine: Some("mock".to_string()),
-            permissions: Some("bypass".to_string()),
+            model: Some("haiku".to_string()),
             ..AgentRequest::default()
         },
-        false,
+        true,
     )
     .result
     .unwrap();
-    assert!(mem
-        .config(Scope::Project)
-        .unwrap()
-        .contains("    engines:\n      mock:\n        permissions:\n          mode: bypass\n"));
+    assert_eq!(
+        row.engines,
+        serde_json::json!({"claude-code": {"model": "haiku", "permissions": {"mode": "anything", "deny": ["WebFetch"]}}})
+    );
+    assert!(mem.config(Scope::Project).unwrap().contains(
+        "        permissions:\n          mode: anything\n          deny:\n            - WebFetch\n"
+    ));
 }
 
 // agent.feature: Create refuses an existing name, and leaves the live binding untouched
@@ -146,7 +129,7 @@ fn test_an_edit_changes_only_the_axes_it_names() {
         "developer",
         &AgentRequest {
             runtime: Some("host".to_string()),
-            permissions: Some("plan".to_string()),
+            model: Some("haiku".to_string()),
             profiles: Some(vec!["dev".to_string(), "ops".to_string()]),
             ..dev()
         },
@@ -168,12 +151,11 @@ fn test_an_edit_changes_only_the_axes_it_names() {
     assert_eq!(row.runtime, "container-rootless");
     assert_eq!(row.engine, "claude-code");
     assert_eq!(row.profiles, ["dev", "ops"]);
-    // ruling 67: the mode is in the engine's block, as written
+    // ruling 67: the model is in the engine's block, as written
     assert_eq!(
         row.engines,
-        serde_json::json!({"claude-code": {"permissions": {"mode": "plan"}}})
+        serde_json::json!({"claude-code": {"model": "haiku"}})
     );
-    assert_eq!(row.permissions, serde_json::json!({}));
     let text = mem.config(Scope::Project).unwrap();
     assert!(text.contains("runtime: container-rootless"));
 }
@@ -219,18 +201,6 @@ fn test_a_flag_named_empty_clears_its_axis_and_only_that_one() {
     .result
     .unwrap();
     assert_eq!(row.runtime, "");
-    let row = write(
-        &library,
-        "d",
-        &AgentRequest {
-            permissions: Some(String::new()),
-            ..AgentRequest::default()
-        },
-        true,
-    )
-    .result
-    .unwrap();
-    assert_eq!(row.permissions, serde_json::json!({}));
     let row = write(
         &library,
         "d",
@@ -287,22 +257,6 @@ fn test_every_scalar_axis_is_checked_before_anything_is_written() {
             },
             true,
             "UnknownRuntime",
-        ),
-        (
-            AgentRequest {
-                permissions: text("weird"),
-                ..r()
-            },
-            true,
-            "Permissions",
-        ),
-        (
-            AgentRequest {
-                permissions: text("bypass"),
-                ..r()
-            },
-            true,
-            "declared as mode: bypassPermissions",
         ),
         (
             AgentRequest {
@@ -364,7 +318,7 @@ fn test_env_roots_and_surfaces_are_checked_before_anything_is_written() {
 }
 
 #[test]
-fn test_a_mode_a_surface_and_a_root_need_the_engine_they_are_checked_against() {
+fn test_a_surface_and_a_root_need_the_engine_they_are_checked_against() {
     let (library, mem) = world();
     let profiles = Some(vec!["dev".to_string()]);
     let no_engine = |r: AgentRequest| {
@@ -379,11 +333,6 @@ fn test_a_mode_a_surface_and_a_root_need_the_engine_they_are_checked_against() {
         ))
     };
     assert!(no_engine(AgentRequest {
-        permissions: Some("plan".to_string()),
-        ..AgentRequest::default()
-    })
-    .contains("PermissionsNeedEngine"));
-    assert!(no_engine(AgentRequest {
         surfaces: Some(vec![("context".to_string(), "system-prompt".to_string())]),
         ..AgentRequest::default()
     })
@@ -394,27 +343,6 @@ fn test_a_mode_a_surface_and_a_root_need_the_engine_they_are_checked_against() {
     })
     .contains("RootNeedsEngine"));
     assert_eq!(mem.writes(), 0);
-}
-
-#[test]
-fn test_an_engine_checks_the_mode_against_its_own_vocabulary() {
-    let (library, _mem) = Setup {
-        layers: &["schema_version: 9\n"],
-        ..Setup::default()
-    }
-    .fixture();
-    let request = |mode: &str| AgentRequest {
-        engine: Some("mock".to_string()),
-        permissions: Some(mode.to_string()),
-        ..AgentRequest::default()
-    };
-    // mock's modes, not claude's.
-    assert!(write(&library, "a", &request("acceptEdits"), false)
-        .result
-        .is_err());
-    assert!(write(&library, "a", &request("bypass"), false)
-        .result
-        .is_ok());
 }
 
 // agent.feature: Binding an unknown engine is refused with the engines named
@@ -634,11 +562,11 @@ fn test_env_names_need_no_other_setting() {
     assert!(!written.contains("env_host"), "{written}");
 }
 
-// Ruling 57: `--engine` given with `--model/--effort/--permissions` names the
+// Ruling 57: `--engine` given with `--model/--effort` names the
 // block they are written into (and the agent's engine); without it, the
 // agent's own engine's block. Other engines' blocks are left as they are.
 #[test]
-fn test_model_effort_and_permissions_go_into_the_block_of_the_engine_named() {
+fn test_model_and_effort_go_into_the_block_of_the_engine_named() {
     let (library, mem) = world_with("schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: haiku\n");
     write(
         &library,
@@ -646,7 +574,6 @@ fn test_model_effort_and_permissions_go_into_the_block_of_the_engine_named() {
         &AgentRequest {
             engine: text("opencode"),
             model: text("opencode/big-pickle"),
-            permissions: text("plan"),
             ..AgentRequest::default()
         },
         true,
@@ -656,7 +583,7 @@ fn test_model_effort_and_permissions_go_into_the_block_of_the_engine_named() {
     let written = mem.config(Scope::Project).unwrap();
     assert_eq!(
         written,
-        "schema_version: 9\nagents:\n  dev:\n    engine: opencode\n    engines:\n      claude-code:\n        model: haiku\n      opencode:\n        model: opencode/big-pickle\n        permissions:\n          mode: plan\n"
+        "schema_version: 9\nagents:\n  dev:\n    engine: opencode\n    engines:\n      claude-code:\n        model: haiku\n      opencode:\n        model: opencode/big-pickle\n"
     );
     // an edit naming no engine writes the block of the engine the agent binds
     let row = write(
@@ -747,42 +674,19 @@ fn test_an_engine_taken_out_writes_the_model_into_the_default_engines_block() {
     );
 }
 
-// A mode written into a permission block keeps what else the block holds.
-#[test]
-fn test_a_mode_written_keeps_the_rest_of_the_engines_permission_block() {
-    let (library, mem) = world_with("schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        permissions:\n          mode: plan\n          other: x\n");
-    write(
-        &library,
-        "dev",
-        &AgentRequest {
-            permissions: text("acceptEdits"),
-            ..AgentRequest::default()
-        },
-        true,
-    )
-    .result
-    .unwrap();
-    let written = mem.config(Scope::Project).unwrap();
-    assert!(
-        written.contains("        permissions:\n          mode: acceptEdits\n          other: x\n"),
-        "{written}"
-    );
-}
-
 // Ruling 67: a written agent is answered in the config's shape: each engine's
-// block under `engines` (JSON) and as an `engines.<e>: {...}` line (text);
-// `permissions` holds the engine-neutral posture alone; no flat model or
-// effort, nor the old `<engine>={mode=...}` permissions line.
+// block under `engines` (JSON) and as an `engines.<e>: {...}` line (text),
+// which says whether it holds a permissions document (ruling 139); no
+// engine-neutral `permissions` (ruling 134), no flat model or effort.
 #[test]
 fn test_the_written_row_is_in_the_config_s_shape() {
-    let (library, _mem) = world_with("schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    permissions:\n      approver: human\n    engines:\n      opencode:\n        model: opencode/big-pickle\n");
+    let (library, _mem) = world_with("schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        permissions:\n          mode: plan\n      opencode:\n        model: opencode/big-pickle\n");
     let row = write(
         &library,
         "dev",
         &AgentRequest {
             model: text("haiku"),
             effort: text("low"),
-            permissions: text("plan"),
             ..AgentRequest::default()
         },
         true,
@@ -796,17 +700,23 @@ fn test_the_written_row_is_in_the_config_s_shape() {
             "opencode": {"model": "opencode/big-pickle"},
         })
     );
-    assert_eq!(row.permissions, serde_json::json!({"approver": "human"}));
-    assert_eq!(row.permissions_line, "{approver: human}");
+    let lines: Vec<(&str, bool)> = row
+        .engine_lines
+        .iter()
+        .map(|l| (l.line.as_str(), l.permissions))
+        .collect();
     assert_eq!(
-        row.engine_lines,
+        lines,
         [
-            "engines.claude-code: {effort: low, model: haiku, permissions: {mode: plan}}",
-            "engines.opencode: {model: opencode/big-pickle}",
+            (
+                "engines.claude-code: {effort: low, model: haiku, permissions: {mode: plan}}",
+                true
+            ),
+            ("engines.opencode: {model: opencode/big-pickle}", false),
         ]
     );
     let doc = serde_json::to_value(&row).unwrap();
-    for gone in ["model", "effort", "engine_lines", "permissions_line"] {
+    for gone in ["model", "effort", "engine_lines", "permissions"] {
         assert!(doc.get(gone).is_none(), "{gone}: {doc}");
     }
     assert_eq!(doc["engines"]["claude-code"]["permissions"]["mode"], "plan");

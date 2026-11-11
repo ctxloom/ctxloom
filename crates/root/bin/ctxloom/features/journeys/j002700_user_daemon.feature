@@ -51,7 +51,7 @@ Feature: One daemon of her own does ctxloom's work, wherever Alice types
       ctxloom run
       """
     Then both sessions were served by the one daemon
-    And every call each session made named its own project and its own session
+    And each session's record is its own project's, in the one store her daemon keeps
     And each project lists its own session, and not the other's
 
   # The command Alice types for a session only puts her assistant on her

@@ -1,28 +1,28 @@
 syntax = "proto3";
 
-// DRAFT for the owner's review (ruling 142, design-by-test). No build.rs
-// lists this file, so nothing is generated from it yet.
+// DRAFT for the owner's review (rulings 142, 132; design-by-test). No
+// build.rs lists this file, so nothing is generated from it yet.
 //
 // TRUST: a person's verdict on a project (its project layer's project-only
-// settings, and a project `ctxloom` bundle overriding the setup prompts,
-// ruling 128) or on a remote's content. An angzarr aggregate, one stream
-// per subject, in the USER's store (spec call S22); the daemon CHECKS it as
-// policy: the plan gathers it as evidence and the runs aggregate refuses a
-// launch whose project-only settings are not trusted
-// (`runs-untrusted-project-settings`, runs.proto when built).
+// settings: `engines.<e>.command`, `engines.<e>.auth.file`,
+// `engines.<e>.session_home: host`; and a project `ctxloom` bundle
+// overriding the setup prompts, ruling 128) or on a remote's content. An
+// angzarr aggregate, one stream per subject, in the one per-user store
+// (T14); the daemon CHECKS it as policy: the plan gathers it as evidence and
+// a launch whose project-only settings are not trusted is refused
+// (`runs-untrusted-project-settings`).
 //
-// What is trusted is WHAT THE PERSON SAW (spec call S23): the digest of the
-// subject's trust-relevant content, as `Daemon.PreviewTrust` showed it. A
-// later change (a pull that edits `engines.<e>.command`) no longer matches,
-// and needs trust again.
+// A trust covers the subject UNTIL IT IS REVOKED (owner, S23), not a digest:
+// a later upstream change applies without asking again (accepted cost). The
+// preview (`Ctxloom.GetTrust`) carries an etag of what it showed, and the
+// grant names it, so what is applied is what was shown (API Q5).
 //
-// Only the USER may trust or revoke: the orchestration and capture scopes
-// never admit these commands (an agent cannot trust its own repository).
-// The actor is STAMPED by the daemon's gate from the credential; the time
-// is the event's own recorded instant.
+// Only the USER may trust or revoke: the run scopes never admit these
+// commands. The actor and the current etag are STAMPED by the daemon's gate
+// (S21); a client sets the subject and the etag it saw. The time is the
+// event's own recorded instant.
 //
-// Commands go through angzarr's coordinator (`HandleSync`, projector
-// `trust-index`); reads through `Daemon.ListTrust` and `PreviewTrust`.
+// Through angzarr's coordinator: `HandleSync`, projector `trust-index`.
 package ctxloom.trust.v1;
 
 import "io/angzarr/v1/options.proto";
@@ -44,15 +44,6 @@ message Actor {
   string user = 1;
 }
 
-// One trust-relevant setting, named by its dotted path (`engines.claude-code.command`,
-// `engines.claude-code.auth.file`, `engines.<e>.session_home`, `bundles.ctxloom`).
-message Setting {
-  string path = 1;
-  // Its value as the preview showed it (a path or a word; never a secret:
-  // the project-only keys hold none).
-  string value = 2;
-}
-
 message TrustState {
   option (io.angzarr.v1.component) = {
     component_name: "trust"
@@ -61,33 +52,28 @@ message TrustState {
 
   Subject subject = 1;
   bool trusted = 2;
-  // The digest of what was trusted.
-  string digest = 3;
-  repeated Setting settings = 4;
-  Actor actor = 5;
+  Actor actor = 3;
 }
 
 // region commands
 
-// Trust the subject as previewed. Refused when the subject's content no
-// longer has `digest` (`TrustStale`: the gate stamps `current_digest`).
-// Trusting what is already trusted at this digest records nothing.
+// Trust the subject until revoked. Refused `PlanStale` when what the
+// preview showed has changed; trusting what is trusted records nothing.
 message GrantTrust {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.trust.v1.TrustState"
     emits: ["ctxloom.trust.v1.TrustGranted"]
-    refuses: "ctxloom.trust.v1.TrustStale"
+    refuses: "ctxloom.trust.v1.PlanStale"
     refuses: "ctxloom.trust.v1.NotTheUser"
   };
 
   Subject subject = 1;
-  // The digest the person saw, and the settings it covers.
-  string digest = 2;
-  repeated Setting settings = 3;
-  // STAMPED evidence: the subject's digest now.
-  string current_digest = 4;
+  // The etag the preview showed.
+  string etag = 2;
+  // STAMPED: the etag of the subject now.
+  string current_etag = 3;
   // STAMPED: absent when the caller is not the user.
-  Actor actor = 5;
+  Actor actor = 4;
 }
 
 // Take trust back (`ctxloom trust --undo`). Revoking what is not trusted
@@ -111,9 +97,7 @@ message TrustGranted {
   option (io.angzarr.v1.event) = {component: "ctxloom.trust.v1.TrustState"};
 
   Subject subject = 1;
-  string digest = 2;
-  repeated Setting settings = 3;
-  Actor actor = 4;
+  Actor actor = 2;
 }
 
 message TrustRevoked {
@@ -127,15 +111,15 @@ message TrustRevoked {
 
 // region refusals
 
-// The subject changed since the person looked: preview it again.
-message TrustStale {
+// What the preview showed has changed: preview it again.
+message PlanStale {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 
   string seen = 1;
   string now = 2;
 }
 
-// Trust is the user's alone: an agent's credential asked.
+// Trust is the user's alone.
 message NotTheUser {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_PERMISSION_DENIED;
 }

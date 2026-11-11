@@ -7,8 +7,10 @@ Feature: session approvals — a child's permission ask, answered by the user or
   A child runs with no one at its terminal. When its engine's own
   permissions say to ask before a tool runs, the ask becomes an approval
   request: listed under the root of its session tree (where the human is),
-  answerable by the child's owner agent or by the user, and denied when
-  nobody answers in time. The child's tool waits for the answer.
+  answered by the user alone (never an agent, the owner included), and
+  denied when nobody answers in time (300 seconds). The child's tool waits
+  for the answer. Asks are rare: an agent's own engine permissions let its
+  routine work run without asking.
 
   Surfaces covered here:
 
@@ -22,7 +24,8 @@ Feature: session approvals — a child's permission ask, answered by the user or
   WHERE AN ASK IS HEARD, by engine:
 
     claude-code child   `--permission-prompt-tool mcp__ctxloom__approval_prompt`,
-                        a tool of ctxloom's MCP server, answered through the daemon
+                        a tool of the ctxloom MCP server the child already runs,
+                        which waits on the daemon for the answer
     opencode child      ACP `session/request_permission`, answered by the daemon
                         with the request's allow-once or reject-once option
     no hook point       a per-turn `opencode run` child (unverified), the mock
@@ -44,7 +47,7 @@ Feature: session approvals — a child's permission ask, answered by the user or
       And a child "brisk-copper-moth" of "amber-quiet-heron" whose engine has asked to run "Bash" with "rm -rf build/"
       When I run "ctxloom session approvals amber-quiet-heron --format json"
       Then the command succeeds
-      And the output reports "approvals[0].child" as "brisk-copper-moth"
+      And the output reports "approvals[0].child" containing "/sessions/brisk-copper-moth"
       And the output reports "approvals[0].tool_name" as "Bash"
       And the output reports "approvals[0].input_excerpt" containing "rm -rf build/"
 
@@ -78,22 +81,20 @@ Feature: session approvals — a child's permission ask, answered by the user or
       Then the child's engine was told not to run it, because no answer came in time
       And no ask is waiting under "amber-quiet-heron"
 
-  Rule: The owner agent may answer its own children's asks, and no one else's
+  Rule: Only the human answers an ask
 
-    Scenario: The owner agent answers its child's ask through ctxloom's MCP server
-      # new: the owner answers.
-      Given an initialized ctxloom project
-      And a child "brisk-copper-moth" of "amber-quiet-heron" whose engine has asked to run "Bash" with "rm -rf build/"
-      When the assistant of "amber-quiet-heron" answers the ask allow, with its own credential
-      Then the child's engine was told to run the tool
-
-    Scenario: Another session's agent cannot answer the ask
-      # new: only the owner.
+    Scenario Outline: An agent's answer is refused, even its owner's, and the ask still waits
+      # new: no agent answers.
       Given an initialized ctxloom project
       And a child "brisk-copper-moth" of "amber-quiet-heron" whose engine has asked to run "Bash" with "rm -rf build/"
       And a session "quiet-amber-fox" that is still running
-      When the assistant of "quiet-amber-fox" answers the ask allow, with its own credential
+      When the assistant of "<agent>" answers the ask allow, with its own credential
       Then the answer is refused as not the approver's, and the ask still waits
+
+      Examples:
+        | agent             |
+        | amber-quiet-heron |
+        | quiet-amber-fox   |
 
   Rule: Each engine is asked through its own hook point
 

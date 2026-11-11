@@ -5,30 +5,46 @@
 Feature: daemon — the one per-user process every ctxloom command is a client of
 
   Every `ctxloom` execution is a client of the user's daemon: it finds the
-  daemon, or starts one, and lets it do the work. The daemon alone opens each
-  project's store (`~/.ctxloom/projects/<id>/ctxloom.db`); it plans runs,
+  daemon, or starts one, and lets it do the work. The daemon alone opens the
+  ONE store that holds every project's sessions (`~/.ctxloom/ctxloom.db`;
+  taskloom's `state.db` stays taskloom's); it plans runs,
   assembles context, applies policy, hosts one-shots and children, takes
   every hook's facts and answers every read from its warm read models. The
   one thing it never does is put an engine on a terminal: the `ctxloom run`
   the user typed starts the interactive TUI, from the launch the daemon
   computed.
 
-  TWO PATHS, AND NO OTHER. A command parses its own command line (so `-h`,
-  a usage error and `daemon status|stop` need no daemon). A domain write (a
-  message sent, a session closed or kept, a child launched) is the domain's
-  own command, sent through the daemon's command coordinator, which waits
-  for the read models the command's output is rendered from and returns
-  them. Everything else (a read, a library file's create or remove, a plan,
-  a launch, a destroy, the daemon's own status) is one call of the daemon's
-  service. The command renders what comes back, as text or JSON; the work
-  is the daemon's. Every write carries an id the command chose, so a
-  command whose daemon died under it starts another and sends the write
-  once more, and a write that had already applied is not applied twice.
+  THE API IS THE COMMAND LINE. A command parses its own command line (so
+  `-h`, a usage error and `daemon status|stop` need no daemon). The CLI's
+  nouns are the daemon's resources and its verbs their methods: a session
+  is got, listed, searched and deleted; a bundle is got, listed, created,
+  updated, deleted, exported and imported. A domain write (a message sent,
+  a session closed, kept or renamed, a child launched, a trust given, an
+  ask answered) is the domain's own command, sent through the daemon's
+  command coordinator, which waits for the read models the output is
+  rendered from and returns them. The command renders what comes back, as
+  text or as JSON; the work is the daemon's. Every write carries an id the
+  command chose, so a command whose daemon died under it starts another and
+  sends the write once more, and a write that had already applied is not
+  applied twice.
 
-  QUESTIONS. When the daemon needs an answer (a confirmation, a choice, an
-  edit in `$EDITOR`), it asks the client, and the client presents the
-  question: the CLI at the terminal, an MCP client as an elicitation to its
-  engine. A command with no terminal is asked nothing.
+  QUESTIONS ARE PART OF THE PREVIEW. A write is previewed first: the
+  preview says what it would do, what a person must answer first (a
+  confirmation, a choice, a value, an edited document) and a tag of what it
+  was planned against. The client presents the questions (the CLI at the
+  terminal, an MCP client as elicitations to its engine) and then applies,
+  sending the answers and the tag; if what the preview was planned against
+  has changed, the apply is refused as stale and the person previews again.
+  `--yes` is one call that plans and applies. Off a terminal without
+  `--yes`, the preview is printed, nothing is applied and the command exits
+  4. Nothing pauses a call.
+
+  JSON. `--format json` prints the resource the daemon answered, as its
+  standard proto3 JSON, with snake_case field names. The existing features
+  whose JSON assertions change with that when the daemon lands: running,
+  cli/agent, auth, command, container, doctor, engine, fragment, init,
+  manage, mcp, profile, run and skill; pending, cli/bundle, companion,
+  config, deps, fragment_draft_premise, remote, search, session and version.
 
   Surfaces covered here:
 
@@ -42,8 +58,10 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
   `~/.ctxloom/daemon/daemon.discovery` under ctxloom's home: the daemon's
   endpoint (`https://127.0.0.1:<port>`), its public certificate, the user
   bearer and its pid, written when it serves (0600, in the 0700 daemon
-  directory). Whoever holds `~/.ctxloom/daemon/daemon.lock` serves; a file
-  whose lock is free is stale. With none serving, the client starts
+  directory). Whoever holds `~/.ctxloom/daemon/daemon.lock` serves, and a
+  serving daemon answers the standard gRPC health check; a file whose lock
+  is free, or whose daemon does not answer, is stale. With none serving,
+  the client starts
   `ctxloom daemon serve` detached, in a session of its own, its output in
   `~/.ctxloom/daemon/daemon.log`, waits for the discovery file, then calls.
 
@@ -51,7 +69,9 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
   certificate; a run, a hosted child and a hook present their own narrower
   per-run credentials instead. Each daemon start mints a new certificate and
   a new bearer; the daemon keeps only the bearer's digest, and nothing but
-  the discovery file holds the bearer.
+  the discovery file holds the bearer. The per-run credentials' narrower
+  scopes are GUARDRAILS, not a security boundary: an assistant running as
+  the user can read the discovery file, and with it act as her.
 
   KILLED AT ANY INSTANT. Everything the daemon knows is in the stores, the
   locks and the files it owns, and every write it makes is keyed, so a
@@ -174,7 +194,7 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
       When I run "ctxloom daemon status --format json"
       Then the command succeeds
       And the output reports "runs[0].harp" as "brisk-copper-moth"
-      And the output reports "runs[0].kind" as "child"
+      And the output reports "runs[0].kind" as "RUN_KIND_CHILD"
       And the output reports "idle_limit_seconds" as "600"
 
     Scenario: Stopping a daemon that hosts nothing ends it, and the next command starts another
@@ -218,7 +238,7 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
         | an interactive session running        |
         | a child it hosts                      |
         | a one-shot it hosts                   |
-        | a command's stream open               |
+        | a session's frontend subscribed       |
 
   Rule: A hook delivers to the daemon, starting one if it must, and never fails the engine
 
@@ -270,6 +290,26 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
       Then the command succeeds
       And the run the killed daemon hosted ended lost, and its turn in flight ended failed, with its owner told
       And "brisk-copper-moth" runs again as its session's next incarnation, in its own conversation
+      And its incarnation was recorded with the cause "rehost"
+
+    Scenario: A child re-hosted past its budget ends lost, and its owner is told
+      # new: re-hosting is budgeted, 60 per child per hour.
+      Given an initialized ctxloom project
+      And a child "brisk-copper-moth" of "amber-quiet-heron" that has been re-hosted 60 times in the last hour
+      And the daemon will be killed outright while a turn is in flight
+      When I run "ctxloom session list"
+      Then the command succeeds
+      And "brisk-copper-moth" was not re-hosted again, and ended runner-lost
+      And "amber-quiet-heron" was told that its child ended
+
+    Scenario: Every launch and re-host writes the session's settings again from the user's config
+      # new: an agent's edit to its own settings never survives.
+      Given an initialized ctxloom project
+      And a child "brisk-copper-moth" whose session settings its agent has edited
+      And the daemon will be killed outright while a turn is in flight
+      When I run "ctxloom session list"
+      Then the command succeeds
+      And the re-hosted child's session settings are the ones the user's config makes, and its agent's edit is gone
 
   Rule: A write is sent once more to a new daemon, and is applied once
 
@@ -289,10 +329,10 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
         | ctxloom session close brisk-copper-moth                     |
         | ctxloom bundle create notes --description "my notes"        |
 
-  Rule: The daemon asks, and the client presents the question
+  Rule: The preview carries the questions, and the apply answers them
 
-    Scenario: At her terminal, the CLI asks Alice the daemon's confirmation, and applies her answer
-      # new: a client with no elicitation presents the prompt itself.
+    Scenario: At her terminal, the CLI asks Alice the preview's confirmation, and applies her answer
+      # new: a client with no elicitation presents the needs itself.
       Given an initialized ctxloom project
       And a finished session "amber-swift-owl" whose transcript retention has passed
       When Alice removes it at her terminal, and answers yes when asked:
@@ -300,10 +340,44 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
         ctxloom session remove amber-swift-owl
         """
       Then the daemon's confirmation was asked at her terminal, and the session is gone
+      And the removal was previewed first, and applied with her answer and the preview's tag
 
-    Scenario: A client that supports elicitation passes the daemon's question through to its engine
-      # new: an MCP client passes the prompt on as an elicitation.
+    Scenario: A client that supports elicitation passes the preview's questions through to its engine
+      # new: an MCP client turns needs into elicitations.
       Given an initialized ctxloom project
       And a session "amber-quiet-heron" that is still running
       When its orchestrator calls a ctxloom tool whose daemon call asks for confirmation
       Then the question reached its engine as an MCP elicitation, and the engine's answer reached the daemon
+
+    Scenario: A change between the preview and the answer is refused as stale, and previewed again
+      # new: what was shown is what is applied.
+      Given an initialized ctxloom project
+      And a bundle "notes" exists
+      And the bundle "notes" changes after its removal is previewed and before Alice answers
+      When Alice removes it at her terminal, and answers yes when asked:
+        """
+        ctxloom bundle remove notes
+        """
+      Then the apply was refused as stale, and the CLI previewed the removal again
+
+  Rule: One store holds every project's sessions
+
+    Scenario: Two projects' sessions are kept in the one store, each listed under its own project
+      # new: one per-user store.
+      Given an initialized ctxloom project with a recorded session "amber-swift-owl"
+      And a second initialized project with a recorded session "brisk-copper-moth"
+      When I run "ctxloom session list --format json"
+      Then the command succeeds
+      And the output reports "sessions[0].name" containing "/sessions/amber-swift-owl"
+      And the output does not contain "brisk-copper-moth"
+      And both sessions are in the one store under ctxloom's home, and no project has a store of its own
+
+    Scenario: A store of one project's own, from before, is refused with the fix to remove it
+      # new: no import of the per-project stores.
+      Given an initialized ctxloom project
+      And the project has a store of its own from before the one store
+      When I run "ctxloom session list"
+      Then the command exits with code 2
+      And the output contains "projects/"
+      And the output contains "remove"
+      And nothing was imported from it

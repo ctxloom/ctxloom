@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+// DRAFT for the owner's review (ruling 132, design-by-test). No build.rs
+// lists this file, so nothing is generated from it yet.
+//
+// NEEDS AND ANSWERS (owner, API Q2, Q12; S9). The daemon owns every
+// question; the client presents it; nothing pauses a call. A write method's
+// preview (`validate_only = true`, AIP-163) answers what the change would do
+// and the `Need`s a person must answer first, with an `etag` (AIP-154) of
+// what it was planned against. The apply is the same method with
+// `validate_only = false`, the `etag` and an `Answer` per need; a stale
+// `etag` is refused `PlanStale`, a missing answer `NeedsUnanswered`, and the
+// person previews again. `--yes` is one call with no etag and no answers:
+// the daemon plans and applies (API Q6).
+//
+// How each client presents a need:
+//   - the CLI at a terminal asks (confirm, choose, ask), or, for an `Edit`
+//     with `can_launch`, starts the need's EDITOR `Launch` (T10) and sends
+//     the file's text back;
+//   - an eliciting client (ctxloom's MCP server, T20) turns each into an
+//     MCP elicitation; an `Edit` is answered with the new document text
+//     (API Q12);
+//   - a CLI off a terminal shows the preview and applies nothing (exit 4).
+package ctxloom.daemon.v1;
+
+import "ctxloom/daemon/v1/launch.proto";
+
+// What the caller can present (sent on every write request).
+message Presentable {
+  // It can ask a person: a CLI on a TTY, an eliciting MCP client.
+  bool can_ask = 1;
+  // It can put a program on a person's terminal: a CLI on a TTY only.
+  bool can_launch = 2;
+}
+
+// A message argument, for a client that renders its own text.
+message NeedArg {
+  string name = 1;
+  string value = 2;
+}
+
+// Confirm what the preview shows (a destroyer, an overwrite, a trust).
+message Confirm {
+  string text = 1;
+  string code = 2;
+  repeated NeedArg args = 3;
+}
+
+// Choose one of several.
+message Choose {
+  string text = 1;
+  string code = 2;
+  repeated NeedArg args = 3;
+  repeated string choices = 4;
+}
+
+// Type a value, with a suggestion (init's `output.dir`).
+message Ask {
+  string text = 1;
+  string code = 2;
+  repeated NeedArg args = 3;
+  string suggestion = 4;
+}
+
+// Edit a document. The text is always carried (API Q12); the EDITOR launch
+// only when the request said `can_launch`.
+message Edit {
+  // The document's file name, for an editor's highlighting.
+  string file_name = 1;
+  string text = 2;
+  Launch launch = 3;
+}
+
+message Need {
+  // Unique within the preview.
+  string id = 1;
+  oneof kind {
+    Confirm confirm = 2;
+    Choose choose = 3;
+    Ask ask = 4;
+    Edit edit = 5;
+  }
+}
+
+message Answer {
+  string need_id = 1;
+  oneof answer {
+    bool confirmed = 2;
+    string chosen = 3;
+    string text = 4;
+    // The edited document.
+    string edited = 5;
+  }
+}
+
+// A notice said beside a result (a permit ignored, a stale distilled form).
+message Notice {
+  string code = 1;
+  repeated NeedArg args = 2;
+  string text = 3;
+}

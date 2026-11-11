@@ -49,7 +49,7 @@ Feature: session launch, send, clear and close — a child of a session, run by 
       And a session "amber-quiet-heron" that is still running
       When I run 'ctxloom session launch amber-quiet-heron --name brisk-copper-moth --format json "review the change"'
       Then the command succeeds
-      And the output reports "harp" as "brisk-copper-moth"
+      And the output reports "name" containing "/sessions/brisk-copper-moth"
       And the child "brisk-copper-moth" of "amber-quiet-heron" ran its first turn on "review the change"
       And the child's hand-off file is readable by its owner alone while the child is open
 

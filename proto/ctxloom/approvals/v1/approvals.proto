@@ -4,18 +4,22 @@ syntax = "proto3";
 // lists this file, so nothing is generated from it yet.
 //
 // APPROVALS: a CHILD's permission ask, routed as an approval request to the
-// human or its owner, answered once, or denied when its time runs out. An
-// angzarr aggregate, one stream per ask, in the child's project's store; the
-// daemon checks it as policy (the ask waits on it).
+// HUMAN (owner, S25: no owner agent answers), answered once, or denied when
+// its time runs out (300 s, S26). Asks are expected to be rare: an agent's
+// engine permissions (rulings 133-137) let routine work run unasked. An
+// angzarr aggregate, one stream per ask, in the one per-user store (T14);
+// the daemon checks it as policy (the ask waits on it).
 //
 // An ask happens only where the child's engine's OWN permissions document
 // says ask (rulings 133-137: per engine, passed raw); ctxloom decides none
 // of it. Where the ask is heard is per engine:
 //
 //   claude-code, a hosted child (stream-json `-p`): the child is launched
-//     with `--permission-prompt-tool mcp__ctxloom__approval_prompt` and its
-//     session home's MCP config names ctxloom's MCP server; that tool is
-//     served by `ctxloom mcp` and answered through the daemon. Its input is
+//     with `--permission-prompt-tool mcp__ctxloom__approval_prompt`, a tool
+//     of the ctxloom MCP server the child already runs (owner, S27; T20:
+//     `ctxloom mcp serve`, a thin client of the daemon's API), which waits
+//     on `Ctxloom.WaitApproval`. No stdio control-protocol path; a bounded
+//     live probe precedes building. Its input is
 //     `{tool_name, input, tool_use_id}`; its answer the JSON text
 //     `{"behavior":"allow","updatedInput":<input>}` or
 //     `{"behavior":"deny","message":<text>}`. The flag is listed by claude
@@ -32,20 +36,18 @@ syntax = "proto3";
 //     interactive TUI (claude's, opencode's): the human answers on the
 //     terminal, and nothing is routed.
 //
-// ROUTING (spec call S25): the ask is listed under the session tree's ROOT
-// (the human's primary), and answerable by the child's OWNER (an agent,
-// through its orchestration scope, its own children's asks only) or by the
-// user. The owner agent is told by a message (an inform, else a wake) naming
-// the ask.
+// ROUTING (owner, S25): the ask is listed under the session tree's ROOT (the
+// human's primary) and answered by the USER alone: an answer with any run's
+// credential is refused `NotApprover`.
 //
-// TIMEOUT (spec call S26): the ask arms the scheduler's alarm
+// TIMEOUT (S26): the ask arms the scheduler's alarm
 // (`io.angzarr.scheduler.v1.ArmAlarm`, key `approval-expiry:<ask>`); when it
 // fires, `RecordApprovalExpired` denies it. Default 300 seconds.
 //
 // Writes go through angzarr's coordinator: the ask a FACT (`Handle`, from the
 // daemon, which hosts the child), the answer a COMMAND (`HandleSync`,
-// projector `pending-approvals`). Reads through `Daemon.ListApprovals`, and
-// the waiting tool through `Daemon.AwaitApproval`.
+// projector `pending-approvals`). Reads through `Ctxloom.ListApprovals`, and
+// the waiting tool through `Ctxloom.WaitApproval`.
 package ctxloom.approvals.v1;
 
 import "io/angzarr/v1/options.proto";
@@ -115,8 +117,8 @@ message RecordApprovalExpired {
 
 // region commands
 
-// Answer the ask. The answerer is STAMPED: absent, the user; a session, the
-// owner agent (its run's orchestration credential).
+// Answer the ask: the user alone (S25). The answerer is STAMPED: absent, the
+// user; a session (any run's credential) is refused `NotApprover`.
 message AnswerApproval {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.approvals.v1.ApprovalState"
@@ -186,7 +188,7 @@ message ApprovalSettled {
   string how = 2;
 }
 
-// A session that is not the asking child's owner answered.
+// A run's credential answered: only the human answers (S25).
 message NotApprover {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_PERMISSION_DENIED;
 

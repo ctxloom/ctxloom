@@ -67,8 +67,9 @@ message StopPolicy {
   bool close_stdin_first = 3;
 }
 
-// Where the run it starts lives (T8): what the frontend sends back with
-// every call it makes for this run, and what the daemon routes by.
+// Which run the launch starts: the streams the frontend's facts and its
+// `Subscribe` name. One store holds them all (T14): nothing routes by the
+// project id, which names the project the session belongs to.
 message LaunchAt {
   string project_id = 1;
   // The session's stable id (its stream root, UUID text).

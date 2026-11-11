@@ -12,8 +12,8 @@ Feature: A project Alice cloned runs on its own settings only once she trusts it
 
   So ctxloom holds them back until Alice has looked at them and trusts the
   project. Trusting it is her act, recorded with her name and the time, and
-  it covers what she saw: if a later pull changes those settings, they wait
-  for her again. She can take her trust back at any time.
+  it lasts until she takes it back: what the project says later applies
+  under the trust she gave.
 
   Background:
     # new: trust, from Alice's side.
@@ -44,17 +44,18 @@ Feature: A project Alice cloned runs on its own settings only once she trusts it
     Then the command succeeds
     And her assistant ran as the program the project names
 
-  # She trusted what she saw. A pull changes it, so it waits for her again.
-  Scenario: A change to what Alice trusted waits for her trust again
-    # new: trust covers what she saw.
+  # She trusted the project, not one version of it. A pull changes the
+  # program it names, and her next run uses the new one without asking.
+  Scenario: A later change to a project Alice trusts applies under her trust
+    # new: trust lasts until revoked.
     Given Alice has trusted the cloned project
     And a pull changes the program the project names
     When Alice runs her assistant in the cloned project:
       """
       ctxloom run --one-shot "hello"
       """
-    Then the command exits with code 2
-    And she is told the project's own settings changed since she trusted them
+    Then the command succeeds
+    And her assistant ran as the program the project names now
 
   # She changes her mind.
   Scenario: Alice takes her trust back, and the project's own settings wait again

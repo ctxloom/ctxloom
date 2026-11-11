@@ -3,427 +3,501 @@ syntax = "proto3";
 // DRAFT for the owner's review (ruling 132, design-by-test). No build.rs
 // lists this file, so nothing is generated from it yet.
 //
-// THE USER'S DAEMON (T1-T12) and the owner's rulings on the spec calls
-// (S1-S20, 2026-11-11). A client reaches it on TWO paths, and no others
-// (owner, S1 amended):
+// THE USER'S DAEMON'S API (T1-T30; the owner's API rulings Q1-Q13; rulings
+// 146, 147). It MIRRORS THE COMMAND LINE (T22): the CLI's nouns are AIP
+// resources (AIP-121, 122) and its verbs their standard methods (AIP-131
+// Get, 132 List, 133 Create, 134 Update, 135 Delete) or custom methods
+// (AIP-136). It is ONE service, `Ctxloom`, below.
 //
-// 1. EVERY DOMAIN WRITE AND FACT is a ctxloom command or fact proto
-//    (`proto/ctxloom/sessions/v1`, `proto/ctxloom/runs/v1`) sent through
-//    angzarr's own coordinator,
-//    `io.angzarr.transport.distributed.v1.CommandHandlerCoordinatorService`:
-//    `Handle`, or `HandleSync` when the client renders the result.
-//    `HandleSync` waits for the projectors its request names and returns
-//    their projections beside the events (`CommandSyncResult`); that is what
-//    the CLI renders. No write is wrapped in a ctxloom RPC. A write's
-//    idempotency is its command id, chosen by the client (S8): the client
-//    retries a call once on a respawned daemon with the same id, and a
-//    retry that already applied answers DUPLICATE with the events re-read.
+// DOMAIN WRITES ARE NOT HERE (T16, S1 amended). A write to the store is a
+// ctxloom command or fact proto sent through angzarr's own coordinator,
+// `io.angzarr.transport.distributed.v1.CommandHandlerCoordinatorService`
+// (`HandleSync` when the client renders the result, else `Handle`), never
+// wrapped in a method here. Its id is the command id the client chose
+// (`CommandPage.command_id`), so the one retry on a respawned daemon (S8)
+// is a DUPLICATE. A domain command's evidence is STAMPED by the daemon's
+// gate on admission (S21); a client sets only its intent.
 //
-//    What sends what (each a command id the client mints once per
-//    invocation; the projectors a HandleSync names in brackets):
-//      session send <harp> <urgency> <text>   SendMessage      [pending-messages]
-//      session clear <harp>                   ClearChild       [session-index]
-//      session close <harp>                   CloseSession     [session-index]
-//      session launch <owner> ...             LaunchChild      [session-index]
-//                                             (after `HandOff`, below)
-//      session keep <harp> [--undo]           SetKept          [session-index]
-//      session stop <harp>                    StopSession      [session-index]
-//      the frontend (an interactive run)      RunnerStarted, RunExited,
-//                                             LaunchFailed      (Handle, facts)
-//      a hook                                 the capture facts (Handle)
-//      the orchestrator (ctxloom's MCP)       SendMessage, ClearChild,
-//                                             CloseSession, LaunchChild
-//                                             (HandleSync, as the CLI)
-//      trust [--remote <name>] (--yes)        GrantTrust       [trust-index]
-//      trust --undo                           RevokeTrust      [trust-index]
-//      session approvals answer <ask> <d>     AnswerApproval   [pending-approvals]
-//      the owner agent (ctxloom's MCP)        AnswerApproval   [pending-approvals]
-//      a child's ask (the daemon, hosting it) RecordApprovalAsked (Handle, fact)
-//      the ask's alarm                        RecordApprovalExpired (Handle, fact)
-//    (trust/v1/trust.proto and approvals/v1/approvals.proto, ruling 142.)
-//    A command whose decision needs evidence only the daemon has
-//    (SendMessage's `supported`, LaunchChild's `trust` and
-//    `delegation_limit`, RenameSession's lock, GrantTrust's current digest
-//    and actor) is STAMPED with it by the
-//    daemon's gate on admission, as the requester is (D-N22); what the
-//    client put there is overwritten.
+//   the CLI verb                          the command               HandleSync waits for
+//   session edit <harp> --name <new>      sessions.RenameSession    session-index
+//   session keep <harp> [--undo]          sessions.SetKept          session-index
+//   session send <harp> <urgency> <text>  sessions.SendMessage      pending-messages
+//   session clear <harp>                  sessions.ClearChild       session-index
+//   session close <harp>                  sessions.CloseSession     session-index
+//   session stop <harp>                   sessions.StopSession      session-index
+//   session launch <owner> ...            sessions.LaunchChild      session-index
+//                                         (after CreateHandOff)
+//   session approvals answer <ask> <d>    approvals.AnswerApproval  pending-approvals
+//   trust [--remote <name>]               trust.GrantTrust          trust-index
+//   trust --undo                          trust.RevokeTrust         trust-index
+//   a one-shot's signal (API Q11)         runs.RequestStop          (Handle)
+//   the frontend's TUI start and exit     runs.RunnerStarted,       (Handle, facts)
+//                                         RunExited, LaunchFailed
+//   a hook                                the capture facts         (Handle, facts)
+//   the daemon, hosting a child's ask     approvals.RecordApprovalAsked (Handle, fact)
+// A rename and a remove are T28 sequences the daemon runs after the
+// command (a remove has no command: `DeleteSession` below runs it). A
+// `HandleSync` projection IS the resource message the matching `Get` returns
+// (one renderer per resource).
 //
-// 2. EVERYTHING ELSE is ONE ctxloom service, `Daemon`, below: pure reads of
-//    the read models, library file operations, plan and launch (T10), the
-//    prompts (S9) and the daemon's own status and stop. There is no
-//    separate query service.
+// WHAT GOES WITH THEM (T16): the frontend follows its session with angzarr's
+// `EventStreamService.Subscribe` and holds the session lock; liveness is
+// `grpc.health.v1.Health`. There is no hold stream and no routing: one
+// per-user store (T14), so a stream reference is its root alone.
 //
-// Nothing of ctxloom is in angzarr's proto tree, and nothing in it changes
-// for ctxloom: this file imports angzarr's, never the other way.
+// CREDENTIALS (T15). One TCP+TLS listener, its certificate the discovery
+// file's. The CLI and the MCP server present the USER bearer; a run's
+// runner and hook bearers carry narrower scopes on `Handle`. Those scopes
+// are GUARDRAILS, not a security boundary: a model running as the user can
+// read the user bearer (ruling 37).
 //
-// CREDENTIALS (T12; rulings 31-38). One TLS listener, its certificate the
-// discovery file's. A call presents `authorization: Bearer <token>`: the
-// USER bearer (the CLI, `Daemon` and the user's writes), a run's RUNNER
-// bearer (the frontend's facts and `Hold`), a run's HOOK bearer (the capture
-// facts; the orchestration scope's commands, D25). An unknown bearer is a
-// bare UNAUTHENTICATED (no oracle).
+// THE AIP FIELDS, AT FIXED NUMBERS IN EVERY REQUEST (API Q13):
+//   1        `name` (or `parent`)
+//   2..79    the resource's own fields
+//   80, 81   `page_size`, `page_token` (AIP-158; every List); 80
+//            `next_page_token` in every List response
+//   90       `request_id` (AIP-155; every write): the client's id, sent
+//            again unchanged on the one retry; a retry that already
+//            applied returns the first response
+//   91       `etag` (AIP-154; every confirmed write): what the preview was
+//            planned against; stale is `PlanStale`
+//   92       `validate_only` (AIP-163; every write): the preview, returning
+//            the `needs` (needs.proto) the apply then answers
+//   93       `answers`
+//   94       `env`: the caller's WHOLE environment, where the call needs it
+//            (S7), held in memory for the call's life
+//   95       `presentable`
+//   96       `globals` (--degraded, --config-set, --no-companions)
+// and in every write response: 90 `needs`, 91 `etag`, 92 `notices`.
 //
-// ROUTING (S4). Every call that names a project or a session says so as
-// request metadata, never in angzarr's messages: `ctxloom-project: <id>`,
-// `ctxloom-session: <stable id>`. A CLI command finds both with
-// `Daemon.Locate` first (S6: the daemon finds the project from the cwd).
+// JSON (ruling 146): `--format json` prints the response message's proto3
+// JSON, snake_case field names (`preserving_proto_field_names`).
 //
-// ENVIRONMENT (S7). Each request that needs the caller's environment (the
-// plan, a launch, a hand-off, `auth status`, an editor) carries the WHOLE
-// environment, held in the daemon's memory for the call's life; the
-// allowlists apply in the daemon.
+// LINT (ruling 147): written to the AIPs by reading them; `api-linter` is
+// not installed here. Departures, each to be a commented exception at its
+// site once the linter gates: resource patterns are COMMENTS, not
+// `google.api.resource` annotations, and fields carry no
+// `google.api.field_behavior` (angzarr's vendored `google/api` holds
+// annotations and http only, and adding googleapis is a dependency change:
+// spec call S36); write responses carry `needs` (AIP-163 returns the
+// would-be response alone: needs are ctxloom's, API Q2); streaming custom
+// methods (AIP-136 allows them; no LRO, since `google/longrunning` is not
+// vendored).
 //
-// WRITES ON THIS SERVICE (S8). Every RPC here that writes (a file operation,
-// a destroy, a hand-off, a run's enqueue) carries a client-chosen
-// `request_id`, and is retried once on a respawned daemon with the same id;
-// a retry that already applied answers as the first did, `duplicate` set.
-//
-// REFUSALS (S11). A refused RPC here is answered with the gRPC status its
-// refusal message's `(refusal_status)` declares, the message packed in the
-// status's details. A refused command through `Handle` is angzarr's answer,
-// as today.
+// REFUSALS (S11): a refused method is answered with the gRPC status its
+// refusal message's `(refusal_status)` declares, the message packed in
+// `google.rpc.Status.details`.
 package ctxloom.daemon.v1;
 
+import "google/protobuf/field_mask.proto";
 import "google/protobuf/timestamp.proto";
 import "io/angzarr/v1/options.proto";
 import "ctxloom/daemon/v1/launch.proto";
-import "ctxloom/daemon/v1/prompt.proto";
+import "ctxloom/daemon/v1/needs.proto";
 
-service Daemon {
-  // region the daemon itself (answered by a client locally when none
-  // serves, S14)
-  rpc Status(StatusRequest) returns (DaemonStatus);
-  // Refused while it hosts live runs (`DaemonHosting`) unless
+service Ctxloom {
+  // region daemon: `daemon` (a singleton, AIP-156). With none serving, the
+  // client answers `daemon status|stop` itself (S14).
+  rpc GetDaemon(GetDaemonRequest) returns (Daemon);
+  // `daemon stop`: refused `DaemonHosting` while it hosts live runs, unless
   // `even_if_live`, which ends the hosted engines cleanly first (S12).
-  rpc Stop(StopRequest) returns (Stopping);
+  rpc StopDaemon(StopDaemonRequest) returns (Daemon);
   // endregion
 
-  // region where a command is
-  // The project of a directory, and a session of it by harp (S6): what a
-  // CLI command routes its writes by.
-  rpc Locate(LocateRequest) returns (Located);
+  // region projects: `projects/{project}`
+  // The project of a directory (S6): names only, never routing (T14).
+  rpc ResolveProject(ResolveProjectRequest) returns (Project);
+  rpc GetProject(GetProjectRequest) returns (Project);
+  // `init` (API Q7): the preview's need asks `output.dir`; the apply returns
+  // a continuation (the setup session's launch, then the restart offer's
+  // request to preview when it ends).
+  rpc InitProject(InitProjectRequest) returns (InitProjectResponse);
+  // `context assemble`: the context a run would get (T30: each distilled
+  // form's digest checked at this use).
+  rpc AssembleContext(AssembleContextRequest) returns (AssembledContext);
   // endregion
 
-  // region session reads (the warm read models)
-  rpc ListSessions(ListSessionsRequest) returns (SessionList);
-  rpc SearchSessions(SearchSessionsRequest) returns (SessionList);
-  rpc ShowSession(ShowSessionRequest) returns (SessionView);
-  rpc ListTranscripts(ListTranscriptsRequest) returns (TranscriptList);
-  rpc ShowTranscript(ShowTranscriptRequest) returns (Transcript);
-  // The transcript's lines as they are delivered, until the caller leaves.
-  rpc WatchTranscript(ShowTranscriptRequest) returns (stream TranscriptLine);
-  rpc ListWorktrees(ListWorktreesRequest) returns (WorktreeList);
+  // region sessions: `projects/{project}/sessions/{session}` (the harp);
+  // `projects/-/sessions` lists every project's (`--all`, AIP-159)
+  rpc GetSession(GetSessionRequest) returns (Session);
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  rpc SearchSessions(SearchSessionsRequest) returns (ListSessionsResponse);
+  // `session remove`: the T28 sequence (the session's directory, lock
+  // inside, renamed to trash; then the purge; then the trash removed).
+  rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
+  // `session sweep`.
+  rpc SweepSessions(SweepSessionsRequest) returns (SweepSessionsResponse);
+  // `session transcript show`; `transcript list` is `ListSessions` with
+  // `has_transcript`.
+  rpc GetTranscript(GetTranscriptRequest) returns (Transcript);
+  // `session transcript watch`: its lines as they are delivered.
+  rpc WatchTranscript(WatchTranscriptRequest) returns (stream TranscriptLine);
+  rpc ListWorktrees(ListWorktreesRequest) returns (ListWorktreesResponse);
+  // A child's hand-off (T6, S10): `projects/{project}/handOffs/{child}`,
+  // created before `LaunchChild`.
+  rpc CreateHandOff(CreateHandOffRequest) returns (HandOff);
   // endregion
 
-  // region session store operations (not domain commands: a destroy purges
-  // streams and removes a directory, after sending its own CloseSession and
-  // ForgetChild through the coordinator)
-  rpc RemoveSessions(stream RemoveIn) returns (stream RemoveOut);
+  // region runs: `projects/{project}/runs/{run}`
+  // `run --dry-run` is `validate_only`; `run --one-shot` creates a hosted
+  // run (then `WatchRun`); `run` creates a TERMINAL run, whose `Run` holds
+  // the `Launch` the frontend starts and the runner bearer.
+  rpc CreateRun(CreateRunRequest) returns (Run);
+  rpc GetRun(GetRunRequest) returns (Run);
+  // A one-shot's notices, reply and end.
+  rpc WatchRun(WatchRunRequest) returns (stream RunEvent);
   // endregion
 
-  // region run: plan and launch (T10)
-  // `run --dry-run`: the plan, nothing written.
-  rpc PlanRun(RunRequest) returns (RunPlan);
-  // `run --one-shot`: hosted by the daemon (T7). The client sends the
-  // request, then any signal it hears (ruling 114); the daemon streams the
-  // reply and ends with the exit.
-  rpc RunOneShot(stream OneShotIn) returns (stream OneShotOut);
-  // `run` (interactive): planned, enqueued, minted, the session home
-  // written; answered with the `Launch` the frontend starts (S3: spawn and
-  // wait) and the run's runner bearer. Its start and exit are then facts
-  // through `Handle`.
-  rpc OpenSession(RunRequest) returns (SessionOpened);
-  // The frontend's open stream for its session's life (the idle rule
-  // counts it). The daemon sends `Stop` when the session is closed (S20):
-  // the frontend stops the TUI gracefully, then kills it after the grace.
-  rpc Hold(HoldRequest) returns (stream HoldSignal);
+  // region approvals: `projects/{project}/approvals/{approval}`
+  rpc GetApproval(GetApprovalRequest) returns (Approval);
+  rpc ListApprovals(ListApprovalsRequest) returns (ListApprovalsResponse);
+  // ctxloom's MCP approval tool waits here (S27): answered once settled.
+  rpc WaitApproval(WaitApprovalRequest) returns (Approval);
   // endregion
 
-  // region trust (ruling 142; trust/v1/trust.proto)
-  // What trusting a project (or a remote) would allow: its trust-relevant
-  // settings and their digest, which `GrantTrust` then names (what the
-  // person saw is what is trusted).
-  rpc PreviewTrust(PreviewTrustRequest) returns (TrustPreview);
-  // Every trust the user has given, with its actor and time.
-  rpc ListTrust(ListTrustRequest) returns (TrustList);
+  // region trusts: `trusts/{trust}` (`project-{id}`, `remote-{id}`)
+  // The preview of `trust`: what it allows, and the etag `GrantTrust` names.
+  rpc GetTrust(GetTrustRequest) returns (Trust);
+  rpc ListTrusts(ListTrustsRequest) returns (ListTrustsResponse);
   // endregion
 
-  // region approvals (ruling 142; approvals/v1/approvals.proto)
-  // The asks waiting for an answer: under a root session, or all of them.
-  rpc ListApprovals(ListApprovalsRequest) returns (ApprovalList);
-  // The waiting side of an ask (ctxloom's MCP `approval_prompt` tool, the
-  // daemon's own ACP client): answered once the ask is settled, answered,
-  // or expired.
-  rpc AwaitApproval(AwaitApprovalRequest) returns (ApprovalSettledReply);
+  // region bundles: `projects/{project}/bundles/{bundle}`, the worked
+  // example of the library
+  rpc GetBundle(GetBundleRequest) returns (Bundle);
+  rpc ListBundles(ListBundlesRequest) returns (ListBundlesResponse);
+  rpc CreateBundle(CreateBundleRequest) returns (BundleWrite);
+  // `bundle edit`: ONE change per call (T29): `update_mask` names one path.
+  rpc UpdateBundle(UpdateBundleRequest) returns (BundleWrite);
+  rpc DeleteBundle(DeleteBundleRequest) returns (BundleWrite);
+  rpc ExportBundle(ExportBundleRequest) returns (BundleWrite);
+  rpc ImportBundle(ImportBundleRequest) returns (BundleWrite);
   // endregion
 
-  // region children
-  // A child's hand-off (T6, S10): the environment it is launched with,
-  // written by the daemon (0600 in the 0700 `~/.ctxloom/daemon/launch/`),
-  // before the client sends `LaunchChild`. A hand-off whose child is never
-  // launched, or no longer open, is swept. From the CLI it is the user's
-  // environment; from the orchestrator it is the owner engine's curated
-  // environment only (its engine block's `env`, or a permit), never the
-  // daemon's own.
-  rpc HandOff(HandOffRequest) returns (HandedOff);
+  // region fragments: `projects/{project}/bundles/{bundle}/fragments/{fragment}`
+  rpc GetFragment(GetFragmentRequest) returns (Fragment);
+  rpc ListFragments(ListFragmentsRequest) returns (ListFragmentsResponse);
+  rpc CreateFragment(CreateFragmentRequest) returns (FragmentWrite);
+  // `fragment edit`: writes the `.md` alone (T30); with no fields, the
+  // preview's need is an `Edit` of the document.
+  rpc UpdateFragment(UpdateFragmentRequest) returns (FragmentWrite);
+  rpc DeleteFragment(DeleteFragmentRequest) returns (FragmentWrite);
+  // `fragment distill`: the `.distilled.md` alone, recording the source's
+  // digest (T30); `clear` removes it.
+  rpc DistillFragment(DistillFragmentRequest) returns (FragmentWrite);
   // endregion
 
-  // region library (file operations and reads). The worked example is the
-  // bundle; every other library noun follows it, one RPC per verb, a write
-  // carrying `request_id` and, where it may prompt, a bidirectional stream
-  // (S9). Named here, drafted with the milestone that ports each:
-  //   items (fragment, command, skill, mcp-server, hook): ListItems,
-  //     ShowItem, CreateItem, EditItem, RemoveItem;
-  //   profiles: ListProfiles, ShowProfile, CreateProfile, EditProfile,
-  //     RemoveProfile; agents: ListAgents, ShowAgent, CreateAgent, EditAgent,
-  //     RemoveAgent, DefaultAgent; config: GetConfig, SetConfig, ShowConfig;
-  //   engines: ListEngines, ShowEngine; remotes: ListRemotes, AddRemote,
-  //     RemoveRemote, CheckRemote; deps: PullDeps, UpgradeDeps, CheckDeps,
-  //     WhyDep, HoldDep; companions: ListCompanions, AddCompanion,
-  //     RemoveCompanion, EnableCompanion, DisableCompanion;
-  //   AuthStatus, Doctor, Init, InstallManage, UninstallManage, CheckManage,
-  //     Materialize, Search, AssembleContext.
-  rpc ListBundles(ListBundlesRequest) returns (BundleList);
-  rpc ShowBundle(ShowBundleRequest) returns (BundleView);
-  rpc CreateBundle(stream CreateBundleIn) returns (stream CreateBundleOut);
-  rpc RemoveBundle(stream RemoveBundleIn) returns (stream RemoveBundleOut);
+  // region config: `projects/{project}/config` (a singleton)
+  rpc GetConfig(GetConfigRequest) returns (Config);
+  // `config set`: one key per call (T29).
+  rpc UpdateConfig(UpdateConfigRequest) returns (ConfigWrite);
   // endregion
+
+  // The rest of the CLI, drafted with the milestone that ports each, by
+  // these rules (S33): commands (as fragments); skills (as fragments, plus
+  // Export and Import, the skill one directory, T27); mcpServers (one yaml
+  // each, T27); hooks; profiles; agents (plus SetDefaultAgent); engines
+  // (Get, List); remotes (plus CheckRemote, DiscoverRemotes,
+  // SetDefaultRemote); dependencies (List, PullDependencies,
+  // UpgradeDependency, CheckDependencies, ExplainDependency, Hold,
+  // Unhold); companions (plus Enable, Disable); PushBundle, MoveBundle
+  // (T26 sequences); InstallManage, UninstallManage, CheckManage;
+  // Materialize (T26, its record written first); Clean; RunDoctor;
+  // GetAuthStatus; containers (Build and Prune as streaming custom
+  // methods, Scaffold, Check); SearchLibrary; GetLoadout.
 }
 
 // region shared
 
+// The caller's environment (S7).
 message EnvVars {
   repeated EnvVar vars = 1;
 }
 
-// Where a call is made from (S6): the daemon finds the project from it.
-message Where {
-  string cwd = 1;
-}
-
-// A write's own id (S8), chosen by the client once per invocation and sent
-// again unchanged on the one retry.
-message RequestId {
-  string id = 1;
-}
-
-// What a write did: applied now, or already applied by an earlier delivery
-// of the same request id.
-message WriteOutcome {
-  bool duplicate = 1;
+// The global flags (`library_application::Flags`).
+message Globals {
+  bool degraded = 1;
+  bool no_companions = 2;
+  repeated string config_set = 3;
 }
 
 // endregion
 
-// region the daemon itself
+// region daemon
 
-message StatusRequest {}
+message GetDaemonRequest {
+  // `daemon`.
+  string name = 1;
+}
+
+enum RunKind {
+  RUN_KIND_UNSPECIFIED = 0;
+  RUN_KIND_TERMINAL = 1;
+  RUN_KIND_ONE_SHOT = 2;
+  RUN_KIND_CHILD = 3;
+}
 
 message HostedRun {
-  string project_id = 1;
+  // `projects/{project}/sessions/{session}`.
+  string session = 1;
   string harp = 2;
+  // `projects/{project}/runs/{run}`.
   string run = 3;
-  // `terminal` (a frontend's), `one-shot`, `child`.
-  string kind = 4;
+  RunKind kind = 4;
 }
 
-message DaemonStatus {
-  uint32 pid = 1;
-  string endpoint = 2;
-  google.protobuf.Timestamp started_at = 3;
-  string version = 4;
-  repeated HostedRun runs = 5;
-  // The open client streams.
-  uint32 clients = 6;
-  uint64 idle_seconds = 7;
-  uint64 idle_limit_seconds = 8;
+// The daemon (a singleton). Never its bearer.
+message Daemon {
+  string name = 1;
+  uint32 pid = 2;
+  string endpoint = 3;
+  google.protobuf.Timestamp start_time = 4;
+  string version = 5;
+  repeated HostedRun runs = 6;
+  uint32 clients = 7;
+  uint64 idle_seconds = 8;
+  uint64 idle_limit_seconds = 9;
 }
 
-message StopRequest {
-  bool even_if_live = 1;
-}
-
-message Stopping {}
-
-// endregion
-
-// region where a command is
-
-message LocateRequest {
-  Where where = 1;
-  // A session to find by its name in that project, if the command names one.
-  string harp = 2;
-}
-
-message Located {
-  string project_id = 1;
-  string project_dir = 2;
-  // The session's stable id, when `harp` named one.
-  string session = 3;
+message StopDaemonRequest {
+  string name = 1;
+  bool even_if_live = 2;
+  string request_id = 90;
 }
 
 // endregion
 
-// region session reads (the views are the session index's, as `session
-// list|show --format json` print them today)
+// region projects
 
-message ListSessionsRequest {
-  Where where = 1;
-  // `live`, `ended`, `unknown`; none: every state.
-  string state = 2;
-  // Every project (`--all`).
-  bool all = 3;
+message ResolveProjectRequest {
+  string cwd = 2;
 }
 
-message SearchSessionsRequest {
-  Where where = 1;
-  repeated string words = 2;
-  string state = 3;
+message Project {
+  // `projects/{project}` (the project id).
+  string name = 1;
+  string root = 2;
 }
 
-message SessionRow {
-  string harp = 1;
-  string session = 2;
-  string state = 3;
-  string engine = 4;
-  string summary = 5;
-  google.protobuf.Timestamp started_at = 6;
-  google.protobuf.Timestamp ended_at = 7;
-  bool kept = 8;
-  string owner = 9;
-  bool closed = 10;
+message GetProjectRequest {
+  string name = 1;
 }
 
-message SessionList {
-  repeated SessionRow sessions = 1;
+message InitProjectRequest {
+  string name = 1;
+  string cwd = 2;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  EnvVars env = 94;
+  Presentable presentable = 95;
+  Globals globals = 96;
 }
 
-message ShowSessionRequest {
-  Where where = 1;
-  string harp = 2;
+// What a client does next, decided by the daemon (API Q7).
+message Continuation {
+  // Start this on the terminal (the setup session), and wait for it.
+  Launch launch = 1;
+  // Then preview this.
+  InitProjectRequest next = 2;
+}
+
+message InitProjectResponse {
+  repeated string written = 1;
+  Continuation then = 2;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+message AssembleContextRequest {
+  string name = 1;
+  string agent = 2;
+  repeated string profiles = 3;
+  EnvVars env = 94;
+  Globals globals = 96;
+}
+
+// One fragment as the assembly used it.
+message AssembledFragment {
+  // `projects/{project}/bundles/{bundle}/fragments/{fragment}`.
+  string fragment = 1;
+  // `distilled` (its digest matched) or `original`.
+  string form = 2;
+}
+
+message AssembledContext {
+  string context = 1;
+  uint64 tokens = 2;
+  repeated AssembledFragment fragments = 3;
+  // `stale-distilled` for each distilled form whose digest did not match.
+  repeated Notice notices = 92;
+}
+
+// endregion
+
+// region sessions
+
+enum SessionState {
+  SESSION_STATE_UNSPECIFIED = 0;
+  SESSION_STATE_LIVE = 1;
+  SESSION_STATE_ENDED = 2;
+  SESSION_STATE_UNKNOWN = 3;
 }
 
 message PendingMessage {
   string message_id = 1;
   string urgency = 2;
   string text = 3;
+  // A sender session's resource name; absent, the user.
   string sender = 4;
 }
 
-message SessionView {
-  SessionRow row = 1;
-  repeated string children = 2;
-  repeated PendingMessage pending = 3;
+// A session (the session index's record).
+message Session {
+  // `projects/{project}/sessions/{session}`.
+  string name = 1;
+  // The stream root (UUID text), what a command's cover names.
+  string uid = 2;
+  SessionState state = 3;
+  string engine = 4;
+  string summary = 5;
+  google.protobuf.Timestamp start_time = 6;
+  google.protobuf.Timestamp end_time = 7;
+  bool kept = 8;
+  // The owner session's resource name.
+  string owner = 9;
+  bool closed = 10;
+  repeated string children = 11;
+  repeated PendingMessage pending = 12;
+  uint32 incarnation = 13;
+  string etag = 14;
 }
 
-message ListTranscriptsRequest {
-  Where where = 1;
-  string harp = 2;
+message GetSessionRequest {
+  string name = 1;
 }
 
-message TranscriptList {
-  repeated string harps = 1;
+message ListSessionsRequest {
+  // `projects/{project}`, or `projects/-` for every project.
+  string parent = 1;
+  SessionState state = 2;
+  bool has_transcript = 3;
+  int32 page_size = 80;
+  string page_token = 81;
 }
 
-message ShowTranscriptRequest {
-  Where where = 1;
-  string harp = 2;
+message ListSessionsResponse {
+  repeated Session sessions = 1;
+  string next_page_token = 80;
 }
 
-// One D27 line: `v, harp, session_id, engine, seq, ts, kind` and its body,
-// as JSON text (the line is the record's own envelope).
+message SearchSessionsRequest {
+  string parent = 1;
+  repeated string words = 2;
+  SessionState state = 3;
+  int32 page_size = 80;
+  string page_token = 81;
+}
+
+message DeleteSessionRequest {
+  // One session; or `older_than` over the parent (`--older-than`).
+  string name = 1;
+  bool even_if_live = 2;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  Presentable presentable = 95;
+}
+
+message DeleteSessionResponse {
+  string name = 1;
+  // The files a person wrote that the removal destroys (the notice).
+  repeated string authored = 2;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+message SweepSessionsRequest {
+  string parent = 1;
+  string older_than = 2;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  Presentable presentable = 95;
+}
+
+message SweepSessionsResponse {
+  repeated DeleteSessionResponse sessions = 1;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+message GetTranscriptRequest {
+  // `projects/{project}/sessions/{session}/transcript`.
+  string name = 1;
+}
+
+// One D27 line, as its JSON envelope.
 message TranscriptLine {
   string json = 1;
 }
 
 message Transcript {
-  repeated TranscriptLine lines = 1;
+  string name = 1;
+  repeated TranscriptLine lines = 2;
 }
 
-message ListWorktreesRequest {
-  Where where = 1;
-  string harp = 2;
+message WatchTranscriptRequest {
+  string name = 1;
 }
 
 message Worktree {
-  string harp = 1;
+  // `projects/{project}/sessions/{session}/worktrees/{worktree}`.
+  string name = 1;
   string path = 2;
   string branch = 3;
   bool dirty = 4;
 }
 
-message WorktreeList {
+message ListWorktreesRequest {
+  string parent = 1;
+  int32 page_size = 80;
+  string page_token = 81;
+}
+
+message ListWorktreesResponse {
   repeated Worktree worktrees = 1;
+  string next_page_token = 80;
+}
+
+message CreateHandOffRequest {
+  // `projects/{project}`.
+  string parent = 1;
+  // The child's stable id, minted by the client; `LaunchChild` names it.
+  string hand_off_id = 2;
+  string request_id = 90;
+  // The child's environment (S7, S10).
+  EnvVars env = 94;
+}
+
+// The hand-off, by name only: its content never leaves the daemon.
+message HandOff {
+  string name = 1;
 }
 
 // endregion
 
-// region session store operations
+// region runs
 
-message RemoveRequest {
-  Where where = 1;
-  RequestId request = 2;
-  // One session, or every one older than `older_than` (`--older-than`).
-  string harp = 3;
-  string older_than = 4;
-  bool yes = 5;
-  bool even_if_live = 6;
-  Presentable presentable = 7;
-}
-
-message RemoveIn {
-  oneof frame {
-    RemoveRequest request = 1;
-    PromptAnswer answer = 2;
-  }
-}
-
-message Removed {
-  repeated string harps = 1;
-  // Not applied: previewed only (exit 4 off a TTY without --yes).
-  bool applied = 2;
-  // The files a person wrote that the removal destroys (the notice).
-  repeated string authored = 3;
-  WriteOutcome outcome = 4;
-}
-
-message RemoveOut {
-  oneof frame {
-    Prompt prompt = 1;
-    Removed removed = 2;
-  }
-}
-
-// endregion
-
-// region run
-
-message RunRequest {
-  Where where = 1;
-  // A write (the run's enqueue, its name's claim, its mint): its id (S8).
-  RequestId request = 2;
-  // The words of `run` after its flags were parsed by the client (S14):
-  // the prompt, and the flags by name.
-  string prompt = 3;
-  string agent = 4;
-  string engine = 5;
-  repeated string profiles = 6;
-  string session = 7;
-  bool degraded = 8;
-  // The caller's whole environment (S7).
-  EnvVars env = 9;
-  Presentable presentable = 10;
-}
-
-// What `run --dry-run` shows, as its json does today (the plan's view).
-message RunPlan {
-  string agent = 1;
-  string engine = 2;
-  repeated string profiles = 3;
-  string context = 4;
-  uint64 tokens = 5;
-  repeated Finding findings = 6;
-  repeated Setting settings = 7;
+enum RunMode {
+  RUN_MODE_UNSPECIFIED = 0;
+  RUN_MODE_ONE_SHOT = 1;
+  RUN_MODE_TERMINAL = 2;
 }
 
 message Finding {
@@ -434,307 +508,445 @@ message Finding {
 }
 
 message Setting {
-  string name = 1;
+  string path = 1;
   string value = 2;
-  // The place that said it (`agents.<a>.engines.<e>`, `engines.<e>`, ...).
   string source = 3;
 }
 
-// A signal the client heard (ruling 114).
-message Signal {
-  uint32 signal = 1;
+// A run: its plan, and once created its session and (TERMINAL) its launch.
+message Run {
+  // `projects/{project}/runs/{run}`.
+  string name = 1;
+  RunMode mode = 2;
+  // `projects/{project}/sessions/{session}`.
+  string session = 3;
+  string agent = 4;
+  string engine = 5;
+  repeated string profiles = 6;
+  string context = 7;
+  uint64 tokens = 8;
+  repeated Finding findings = 9;
+  repeated Setting settings = 10;
+  // TERMINAL only: what the frontend starts, and its runner bearer
+  // (returned this once; never in a log or a Debug).
+  Launch launch = 11;
+  string runner_bearer = 12;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
 }
 
-message OneShotIn {
-  oneof frame {
-    RunRequest request = 1;
-    Signal signal = 2;
-    PromptAnswer answer = 3;
-  }
+message CreateRunRequest {
+  string parent = 1;
+  RunMode mode = 2;
+  string prompt = 3;
+  string agent = 4;
+  string engine = 5;
+  repeated string profiles = 6;
+  // `run --session <harp>`: resume.
+  string session = 7;
+  string request_id = 90;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  EnvVars env = 94;
+  Presentable presentable = 95;
+  Globals globals = 96;
 }
 
-// A notice to say before or beside the reply (a permit ignored, a weakened
-// runtime), as code, args and en-US text.
-message Notice {
-  string code = 1;
-  repeated PromptArg args = 2;
-  string text = 3;
+message GetRunRequest {
+  string name = 1;
 }
 
-message OneShotReply {
-  string harp = 1;
-  string reply = 2;
+message WatchRunRequest {
+  string name = 1;
 }
 
-// The one-shot's end. A stop by signal is exit 128 plus its number and the
-// error `run-application-stopped`; a refusal is its typed refusal (S11).
-message OneShotEnd {
+// A one-shot's end. Stopped by `RequestStop`: exit 128 plus the signal's
+// number, `run-application-stopped`.
+message RunEnd {
   int32 exit = 1;
   string code = 2;
-  repeated PromptArg args = 3;
+  repeated NeedArg args = 3;
   string text = 4;
 }
 
-message OneShotOut {
-  oneof frame {
+message RunEvent {
+  oneof event {
     Notice notice = 1;
-    Prompt prompt = 2;
-    OneShotReply reply = 3;
-    OneShotEnd end = 4;
+    string reply = 2;
+    RunEnd end = 3;
   }
-}
-
-message SessionOpened {
-  Launch launch = 1;
-  // `<run-id>.<64 hex>`, returned this once; the frontend's facts and
-  // `Hold` present it, never the user bearer.
-  string runner_bearer = 2;
-  repeated Notice notices = 3;
-  WriteOutcome outcome = 4;
-}
-
-message HoldRequest {
-  LaunchAt at = 1;
-}
-
-// Stop the TUI as the launch's `StopPolicy` says: gracefully, then killed
-// after the grace (S20).
-message StopTerminal {
-  string cause = 1;
-}
-
-message HoldSignal {
-  oneof signal {
-    StopTerminal stop = 1;
-  }
-}
-
-// endregion
-
-// region children
-
-message HandOffRequest {
-  RequestId request = 1;
-  // The project and the child's stable id, minted by the client (the
-  // `LaunchChild` it sends next names the same id).
-  string project_id = 2;
-  string child_session = 3;
-  // The environment the child is launched with (S10).
-  EnvVars env = 4;
-}
-
-message HandedOff {
-  WriteOutcome outcome = 1;
-}
-
-// endregion
-
-// region trust
-
-message PreviewTrustRequest {
-  Where where = 1;
-  // A remote by name, instead of the project.
-  string remote = 2;
-}
-
-message TrustSetting {
-  string path = 1;
-  string value = 2;
-}
-
-message TrustPreview {
-  // `project:<id>` or `remote:<url>`.
-  string subject = 1;
-  repeated TrustSetting settings = 2;
-  string digest = 3;
-  // Trusted now, at this digest.
-  bool trusted = 4;
-}
-
-message ListTrustRequest {}
-
-message TrustRow {
-  string subject = 1;
-  string digest = 2;
-  string actor = 3;
-  google.protobuf.Timestamp at = 4;
-}
-
-message TrustList {
-  repeated TrustRow trusts = 1;
 }
 
 // endregion
 
 // region approvals
 
-message ListApprovalsRequest {
-  Where where = 1;
-  // Under one root session's tree; none: every ask of the project.
-  string harp = 2;
-}
-
-message ApprovalRow {
-  string ask_id = 1;
-  // The asking child, by harp, and its owner.
+// A child's permission ask (approvals/v1/approvals.proto's state).
+message Approval {
+  // `projects/{project}/approvals/{approval}`.
+  string name = 1;
+  // The asking child's and its root's session resource names.
   string child = 2;
-  string owner = 3;
+  string root = 3;
   string engine = 4;
   string tool_name = 5;
   string input_excerpt = 6;
-  google.protobuf.Timestamp asked_at = 7;
-  google.protobuf.Timestamp expires_at = 8;
+  google.protobuf.Timestamp ask_time = 7;
+  google.protobuf.Timestamp expire_time = 8;
+  // Empty while it waits; `allow`, `deny` or `expired`.
+  string decision = 9;
+  string message = 10;
 }
 
-message ApprovalList {
-  repeated ApprovalRow approvals = 1;
+message GetApprovalRequest {
+  string name = 1;
 }
 
-message AwaitApprovalRequest {
-  string ask_id = 1;
+message ListApprovalsRequest {
+  string parent = 1;
+  // Only those under this root session's tree.
+  string root = 2;
+  bool waiting = 3;
+  int32 page_size = 80;
+  string page_token = 81;
 }
 
-message ApprovalSettledReply {
-  // `allow`, `deny`, or `expired` (which the engine is told as a deny).
-  string decision = 1;
-  string message = 2;
+message ListApprovalsResponse {
+  repeated Approval approvals = 1;
+  string next_page_token = 80;
+}
+
+message WaitApprovalRequest {
+  string name = 1;
 }
 
 // endregion
 
-// region library: the bundle, the worked example
+// region trusts
+
+message TrustSetting {
+  string path = 1;
+  string value = 2;
+}
+
+// A trust: a project's or a remote's, until revoked (S23).
+message Trust {
+  // `trusts/project-{id}` or `trusts/remote-{id}`.
+  string name = 1;
+  bool trusted = 2;
+  // What it allows (the project-only settings, a `ctxloom` bundle).
+  repeated TrustSetting settings = 3;
+  string actor = 4;
+  google.protobuf.Timestamp grant_time = 5;
+  // What `GrantTrust` names (API Q5).
+  string etag = 6;
+}
+
+message GetTrustRequest {
+  string name = 1;
+}
+
+message ListTrustsRequest {
+  int32 page_size = 80;
+  string page_token = 81;
+}
+
+message ListTrustsResponse {
+  repeated Trust trusts = 1;
+  string next_page_token = 80;
+}
+
+// endregion
+
+// region bundles
+
+enum BundleView {
+  BUNDLE_VIEW_UNSPECIFIED = 0;
+  // `bundle list`, `bundle show`.
+  BUNDLE_VIEW_BASIC = 1;
+  // `bundle view`: every item's body.
+  BUNDLE_VIEW_FULL = 2;
+}
+
+message Bundle {
+  // `projects/{project}/bundles/{bundle}`.
+  string name = 1;
+  // `project`, `ctxloom/builtin`, `<remote>`.
+  string origin = 2;
+  string description = 3;
+  repeated string fragments = 4;
+  repeated string commands = 5;
+  repeated string skills = 6;
+  repeated string mcp_servers = 7;
+  repeated string hooks = 8;
+  string etag = 9;
+}
+
+message GetBundleRequest {
+  string name = 1;
+  BundleView view = 2;
+}
 
 message ListBundlesRequest {
-  Where where = 1;
+  string parent = 1;
+  BundleView view = 2;
+  int32 page_size = 80;
+  string page_token = 81;
 }
 
-message BundleRow {
-  string name = 1;
-  // `project`, `ctxloom/default` (built in), `<remote>`.
-  string origin = 2;
-  uint32 fragments = 3;
-  uint32 commands = 4;
-  uint32 skills = 5;
-  uint32 mcp_servers = 6;
-  uint32 hooks = 7;
-}
-
-message BundleList {
-  repeated BundleRow bundles = 1;
-}
-
-message ShowBundleRequest {
-  Where where = 1;
-  string bundle = 2;
-}
-
-message BundleView {
-  BundleRow row = 1;
-  string description = 2;
-  repeated string items = 3;
+message ListBundlesResponse {
+  repeated Bundle bundles = 1;
+  string next_page_token = 80;
 }
 
 message CreateBundleRequest {
-  Where where = 1;
-  RequestId request = 2;
-  string bundle = 3;
-  string description = 4;
-  bool home = 5;
-  // The caller's environment, for `$EDITOR` when nothing is given (S7).
-  EnvVars env = 6;
-  Presentable presentable = 7;
+  string parent = 1;
+  string bundle_id = 2;
+  Bundle bundle = 3;
+  // `--home`.
+  bool home = 4;
+  string request_id = 90;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  EnvVars env = 94;
+  Presentable presentable = 95;
 }
 
-message CreateBundleIn {
-  oneof frame {
-    CreateBundleRequest request = 1;
-    PromptAnswer answer = 2;
-  }
+message UpdateBundleRequest {
+  Bundle bundle = 1;
+  // Exactly ONE path (T29); more is refused `OneChangePerCall`.
+  google.protobuf.FieldMask update_mask = 2;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  Presentable presentable = 95;
 }
 
-message BundleWritten {
+message DeleteBundleRequest {
+  string name = 1;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  Presentable presentable = 95;
+}
+
+message ExportBundleRequest {
+  string name = 1;
+  string to = 2;
+  string request_id = 90;
+  bool validate_only = 92;
+}
+
+message ImportBundleRequest {
+  string parent = 1;
+  string from = 2;
+  bool force = 3;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  Presentable presentable = 95;
+}
+
+// A bundle write's result: the bundle after it, and the one atomic
+// operation it was (T25: a file replaced, a staged directory renamed in, or
+// one move).
+message BundleWrite {
+  Bundle bundle = 1;
+  string path = 2;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// endregion
+
+// region fragments
+
+enum DistilledState {
+  DISTILLED_STATE_UNSPECIFIED = 0;
+  // No distilled form.
+  DISTILLED_STATE_NONE = 1;
+  // Its recorded source digest matches the `.md` now.
+  DISTILLED_STATE_FRESH = 2;
+  // It does not, or records none (T30).
+  DISTILLED_STATE_STALE = 3;
+}
+
+message Fragment {
+  // `projects/{project}/bundles/{bundle}/fragments/{fragment}`.
+  string name = 1;
+  string body = 2;
+  repeated string tags = 3;
+  repeated string premises = 4;
+  DistilledState distilled = 5;
+  string etag = 6;
+}
+
+message GetFragmentRequest {
+  string name = 1;
+}
+
+message ListFragmentsRequest {
+  string parent = 1;
+  repeated string tags = 2;
+  int32 page_size = 80;
+  string page_token = 81;
+}
+
+message ListFragmentsResponse {
+  repeated Fragment fragments = 1;
+  string next_page_token = 80;
+}
+
+message CreateFragmentRequest {
+  string parent = 1;
+  string fragment_id = 2;
+  Fragment fragment = 3;
+  string request_id = 90;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  EnvVars env = 94;
+  Presentable presentable = 95;
+}
+
+message UpdateFragmentRequest {
+  Fragment fragment = 1;
+  google.protobuf.FieldMask update_mask = 2;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  EnvVars env = 94;
+  Presentable presentable = 95;
+}
+
+message DeleteFragmentRequest {
+  string name = 1;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  Presentable presentable = 95;
+}
+
+message DistillFragmentRequest {
+  string name = 1;
+  // Remove the distilled form instead.
+  bool clear = 2;
+  string request_id = 90;
+  bool validate_only = 92;
+  EnvVars env = 94;
+}
+
+message FragmentWrite {
+  Fragment fragment = 1;
+  string path = 2;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// endregion
+
+// region config
+
+message ConfigValue {
   string path = 1;
-  WriteOutcome outcome = 2;
+  string value = 2;
+  // The layer that said it.
+  string source = 3;
 }
 
-message CreateBundleOut {
-  oneof frame {
-    Prompt prompt = 1;
-    BundleWritten written = 2;
-  }
+message Config {
+  // `projects/{project}/config`.
+  string name = 1;
+  repeated ConfigValue values = 2;
+  string etag = 3;
 }
 
-message RemoveBundleRequest {
-  Where where = 1;
-  RequestId request = 2;
-  string bundle = 3;
-  bool yes = 4;
-  Presentable presentable = 5;
+message GetConfigRequest {
+  string name = 1;
 }
 
-message RemoveBundleIn {
-  oneof frame {
-    RemoveBundleRequest request = 1;
-    PromptAnswer answer = 2;
-  }
+message UpdateConfigRequest {
+  string name = 1;
+  // ONE key (T29).
+  string path = 2;
+  string value = 3;
+  bool home = 4;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
 }
 
-message BundleRemoved {
-  bool applied = 1;
-  WriteOutcome outcome = 2;
-}
-
-message RemoveBundleOut {
-  oneof frame {
-    Prompt prompt = 1;
-    BundleRemoved removed = 2;
-  }
+message ConfigWrite {
+  Config config = 1;
+  string path = 2;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
 }
 
 // endregion
 
 // region refusals
 
-// The call names a session the bearer's run does not own (T8).
+// The etag no longer matches what the preview was planned against (API Q5).
+message PlanStale {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string seen = 1;
+  string now = 2;
+}
+
+// An apply that does not answer every need of its preview.
+message NeedsUnanswered {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  repeated string need_ids = 1;
+}
+
+// An edit that names more than one change (T29).
+message OneChangePerCall {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  repeated string paths = 1;
+}
+
+// The call names a session the bearer's run does not own (T8, a guardrail).
 message SessionNotOwned {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_PERMISSION_DENIED;
 
-  string project_id = 1;
-  string session = 2;
+  string session = 1;
 }
 
-// The call names no project, or no session, where one is needed (S4's
-// metadata missing, or disagreeing with a `LaunchAt`).
-message RoutingMissing {
-  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
-
-  // `ctxloom-project` or `ctxloom-session`.
-  string key = 1;
-}
-
-// The directory is in no ctxloom project, or the project has no store here.
+// The directory is in no ctxloom project.
 message ProjectUnknown {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
 
-  string where = 1;
+  string cwd = 1;
 }
 
-// A hold for a run that is not a terminal run, or has ended.
-message RunNotOpen {
+// A per-project store from before the one store (T17): refused, its fix
+// naming the file to remove; nothing is imported.
+message PerProjectStore {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 
-  string run = 1;
+  string path = 1;
 }
 
-// A child whose hand-off is missing or unreadable cannot be started again
-// (a re-host): its incarnation ends `launch-failed`, and its owner is told.
+// A child whose hand-off is missing cannot be started again.
 message HandOffMissing {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 
   string harp = 1;
 }
 
-// `Stop` while the daemon hosts live runs (S12).
+// `StopDaemon` while it hosts live runs (S12).
 message DaemonHosting {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 

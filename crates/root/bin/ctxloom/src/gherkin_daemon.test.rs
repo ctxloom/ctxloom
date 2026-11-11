@@ -3,7 +3,9 @@
 //! `cli/session_children.feature` and the daemon Rule of `cli/run.feature`,
 //! as the owner's rulings on the spec calls (S1-S20, 2026-11-11) shaped them;
 //! and trust and approvals (ruling 142): `journeys/j002800_trusting_a_project.feature`,
-//! `cli/trust.feature` and `cli/session_approvals.feature`.
+//! `cli/trust.feature` and `cli/session_approvals.feature`; and the
+//! architecture rulings T13-T30: `cli/mcp_serve.feature` and
+//! `cli/atomic_writes.feature`.
 //!
 //! RED BY DESIGN. The spec is committed before the daemon is reworked to
 //! it, so every step here that the existing harness cannot already take is a
@@ -195,9 +197,9 @@ fn one_daemon(_: &mut World) {
     red("both sessions were served by the one daemon")
 }
 
-#[then("every call each session made named its own project and its own session")]
-fn calls_named(_: &mut World) {
-    red("every call each session made named its own project and its own session")
+#[then("each session's record is its own project's, in the one store her daemon keeps")]
+fn records_in_one_store(_: &mut World) {
+    red("each session's record is its own project's, in the one store")
 }
 
 #[then("each project lists its own session, and not the other's")]
@@ -642,9 +644,9 @@ fn pull_changes(_: &mut World) {
     red("a pull changes the program the project names")
 }
 
-#[then("she is told the project's own settings changed since she trusted them")]
-fn told_stale(_: &mut World) {
-    red("she is told the project's settings changed since she trusted them")
+#[then("her assistant ran as the program the project names now")]
+fn ran_projects_program_now(_: &mut World) {
+    red("her assistant ran as the program the project names now")
 }
 
 #[given(expr = "an initialized ctxloom project whose project config says {string}")]
@@ -778,4 +780,249 @@ fn sees_ask(_: &mut World, _child: String, _tool: String, _input: String) {
 #[then(regex = r#"^"([^"]+)" ran "([^"]*)", and nothing waits for her any more$"#)]
 fn ran_after_allow(_: &mut World, _child: String, _input: String) {
     red("the child ran the allowed tool, and nothing waits")
+}
+
+// ------------------------------------- the architecture rulings T13-T30
+
+#[then("the removal was previewed first, and applied with her answer and the preview's tag")]
+fn previewed_then_applied(_: &mut World) {
+    red("the removal was previewed, then applied with the answer and tag")
+}
+
+#[given(
+    expr = "the bundle {string} changes after its removal is previewed and before Alice answers"
+)]
+fn bundle_changes_mid(_: &mut World, _b: String) {
+    red("the bundle changes between preview and answer")
+}
+
+#[then("the apply was refused as stale, and the CLI previewed the removal again")]
+fn refused_stale(_: &mut World) {
+    red("the apply was refused as stale")
+}
+
+#[given(expr = "an initialized ctxloom project with a recorded session {string}")]
+fn project_with_session(_: &mut World, _h: String) {
+    red("a project with a recorded session")
+}
+
+#[given(expr = "a second initialized project with a recorded session {string}")]
+fn second_project_session(_: &mut World, _h: String) {
+    red("a second project with a recorded session")
+}
+
+#[then("both sessions are in the one store under ctxloom's home, and no project has a store of its own")]
+fn one_store(_: &mut World) {
+    red("both sessions are in the one store")
+}
+
+#[given("the project has a store of its own from before the one store")]
+fn per_project_store(_: &mut World) {
+    red("the project has a per-project store")
+}
+
+#[then("nothing was imported from it")]
+fn nothing_imported(_: &mut World) {
+    red("nothing was imported from the per-project store")
+}
+
+#[then(regex = r#"^its incarnation was recorded with the cause "([^"]+)"$"#)]
+fn incarnation_cause(_: &mut World, _c: String) {
+    red("its incarnation was recorded with the cause")
+}
+
+#[given(expr = "a child {string} of {string} that has been re-hosted {int} times in the last hour")]
+fn rehosted_n(_: &mut World, _c: String, _o: String, _n: i64) {
+    red("a child re-hosted n times in the last hour")
+}
+
+#[then(regex = r#"^"([^"]+)" was not re-hosted again, and ended runner-lost$"#)]
+fn past_budget(_: &mut World, _c: String) {
+    red("the child was not re-hosted past its budget")
+}
+
+#[then(regex = r#"^"([^"]+)" was told that its child ended$"#)]
+fn owner_told(_: &mut World, _o: String) {
+    red("the owner was told its child ended")
+}
+
+#[given(expr = "a child {string} whose session settings its agent has edited")]
+fn settings_edited(_: &mut World, _c: String) {
+    red("a child whose session settings its agent edited")
+}
+
+#[then("the re-hosted child's session settings are the ones the user's config makes, and its agent's edit is gone")]
+fn settings_regenerated(_: &mut World) {
+    red("the re-hosted child's settings were regenerated")
+}
+
+#[given(regex = r"^a (child|interactive) session on (claude-code|opencode)$")]
+fn session_on_engine(_: &mut World, _k: String, _e: String) {
+    red("a session on an engine")
+}
+
+#[then(expr = "its session home registers {string} as the MCP server {string}")]
+fn registers_mcp(_: &mut World, _cmd: String, _n: String) {
+    red("its session home registers ctxloom's MCP server")
+}
+
+#[when("its engine lists the tools of ctxloom's MCP server")]
+fn lists_tools(_: &mut World) {
+    red("its engine lists ctxloom's MCP tools")
+}
+
+#[then(regex = r"^the tools are (.+)$")]
+fn tools_are(_: &mut World, _t: String) {
+    red("the MCP tools are the spec's")
+}
+
+#[when(
+    regex = r#"^the engine of "([^"]+)" calls "([^"]+)" for "([^"]+)" with (inform|wake|steer) "([^"]*)"$"#
+)]
+fn tool_send(_: &mut World, _o: String, _t: String, _c: String, _u: String, _x: String) {
+    red("an engine calls a ctxloom tool with a message")
+}
+
+#[then("the tool answered with the child's session as the daemon's read model has it after the message")]
+fn tool_answered_view(_: &mut World) {
+    red("the tool answered with the read model's session")
+}
+
+#[then("the message was sent once, under the id the server chose")]
+fn sent_once(_: &mut World) {
+    red("the message was sent once, under the server's id")
+}
+
+#[when(regex = r#"^the engine of "([^"]+)" calls "([^"]+)" for "([^"]+)"$"#)]
+fn tool_call(_: &mut World, _o: String, _t: String, _c: String) {
+    red("an engine calls a ctxloom tool")
+}
+
+#[then("the tool answered once the new daemon had the close, and the close was applied once")]
+fn tool_retried(_: &mut World) {
+    red("the tool retried once on a new daemon")
+}
+
+#[when("its engine calls a tool whose change asks for an edited document, and answers the elicitation with new text")]
+fn tool_edit(_: &mut World) {
+    red("an engine answers an edit need with text")
+}
+
+#[then("the daemon applied the new text, and no editor was started")]
+fn applied_text(_: &mut World) {
+    red("the daemon applied the new text without an editor")
+}
+
+#[given(
+    regex = r#"^a claude child "([^"]+)" of "([^"]+)" whose engine calls "approval_prompt" for "([^"]+)" with "([^"]*)"$"#
+)]
+fn approval_prompt_called(_: &mut World, _c: String, _o: String, _t: String, _i: String) {
+    red("a claude child calls approval_prompt")
+}
+
+#[when(regex = r#"^(Alice runs "[^"]+"|nobody answers within the ask's time)$"#)]
+fn approval_answered_by(_: &mut World, _w: String) {
+    red("the ask is answered, or times out")
+}
+
+#[then(regex = r"^the tool answered the engine (.+)$")]
+fn tool_answered_engine(_: &mut World, _a: String) {
+    red("the approval tool answered the engine")
+}
+
+#[given(expr = "a child {string} whose engine runs in a container")]
+fn child_in_container(_: &mut World, _c: String) {
+    red("a child whose engine runs in a container")
+}
+
+#[then("the container holds no ctxloom binary of the host's, and its MCP server and hooks reach the daemon over TCP and TLS")]
+fn container_path(_: &mut World) {
+    red("the container reaches the daemon through its MCP server")
+}
+
+#[then("the change is in the tree whole, once, and every bundle still reads")]
+fn change_whole(_: &mut World) {
+    red("the change is in the tree whole, once")
+}
+
+#[given(expr = "another process creates the bundle {string} while its creation is staged")]
+fn concurrent_create(_: &mut World, _b: String) {
+    red("another process creates the bundle meanwhile")
+}
+
+#[then(
+    regex = r#"^the other process's "([^"]+)" is untouched, and nothing staged is left behind$"#
+)]
+fn other_untouched(_: &mut World, _b: String) {
+    red("the other process's bundle is untouched")
+}
+
+#[then(
+    regex = r#"^the skill "([^"]+)" is the one directory "([^"]+)" of the bundle "([^"]+)", holding its "\.meta\.yaml"$"#
+)]
+fn skill_one_dir(_: &mut World, _s: String, _d: String, _b: String) {
+    red("the skill is one directory with its metadata inside")
+}
+
+#[given(expr = "a fragment {string} in bundle {string} with a fresh distilled form")]
+fn fresh_distilled(_: &mut World, _f: String, _b: String) {
+    red("a fragment with a fresh distilled form")
+}
+
+#[then(regex = r#"^only "([^"]+)" of the bundle "([^"]+)" changed$"#)]
+fn only_changed(_: &mut World, _p: String, _b: String) {
+    red("only the source file changed")
+}
+
+#[then(regex = r#"^"([^"]+)" says its distilled form is stale$"#)]
+fn says_stale(_: &mut World, _c: String) {
+    red("fragment show says the distilled form is stale")
+}
+
+#[given(expr = "the source of {string} is edited by hand")]
+fn source_edited(_: &mut World, _f: String) {
+    red("the source is edited by hand")
+}
+
+#[then(
+    regex = r#"^the assembled context holds the original text of "([^"]+)", not its distilled form$"#
+)]
+fn serves_original(_: &mut World, _f: String) {
+    red("assembly served the original")
+}
+
+#[given(
+    expr = "a fragment {string} in bundle {string} whose distilled form records no source digest"
+)]
+fn no_digest(_: &mut World, _f: String, _b: String) {
+    red("a distilled form with no digest")
+}
+
+#[then(expr = "the assembled context holds the distilled form of {string}")]
+fn serves_distilled(_: &mut World, _f: String) {
+    red("assembly served the distilled form")
+}
+
+#[then(
+    regex = r#"^the session's directory, its lock inside it, and its output folder are under "([^"]+)"$"#
+)]
+fn renamed_whole(_: &mut World, _h: String) {
+    red("the session's directory, lock and output moved")
+}
+
+#[then(
+    regex = r#"^the directory, lock and output folder are under "([^"]+)", and its name is claimed once$"#
+)]
+fn rename_converged(_: &mut World, _h: String) {
+    red("the rename converged")
+}
+
+#[then(regex = r#"^nothing lists "([^"]+)", its streams are purged and no trash is left$"#)]
+fn remove_converged(_: &mut World, _h: String) {
+    red("the remove converged")
+}
+
+#[then("the files it writes are as one uninterrupted run would leave them")]
+fn foreign_converged(_: &mut World) {
+    red("the foreign writer converged")
 }

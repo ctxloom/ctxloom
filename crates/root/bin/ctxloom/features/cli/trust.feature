@@ -20,19 +20,23 @@ Feature: trust — the user's verdict on a project's own settings, or a remote's
     ctxloom trust --undo [--remote <name>] [--yes]
     ctxloom trust list
 
-  TRUST IS WHAT THE USER SAW. The preview names each trust-relevant setting
-  and a digest of them; the trust is recorded at that digest, with the
-  user's name and the time. A change to them (a pull) no longer matches, and
-  is held back again. A trust that is already given at that digest records
-  nothing more.
+  A trust is recorded with the user's name and the time; a trust already
+  given records nothing more.
 
   ONLY THE USER. Trust is a command of the trust aggregate, sent through the
   daemon's command coordinator with the user's credential; an agent's
   credential (the capture or orchestration scope) is refused, so no
   assistant can trust its own repository.
 
-  CONFIRMATION. Trust is previewed first: at a terminal the CLI asks, off
-  one it previews, changes nothing and exits 4 without `--yes`.
+  CONFIRMATION. Trust is previewed first (the daemon's trust resource,
+  naming what it would allow, and a tag of what it showed): at a terminal
+  the CLI asks, off one it prints the preview, changes nothing and exits 4
+  without `--yes`. The grant names the tag, so a change between the preview
+  and the answer is refused as stale.
+
+  UNTIL REVOKED. A trust covers the project until the user takes it back,
+  whatever its settings later say: a pull that changes them applies without
+  asking again.
 
   Rule: The project's own settings are held back until trust is given
 
@@ -67,7 +71,7 @@ Feature: trust — the user's verdict on a project's own settings, or a remote's
       When I run "ctxloom trust --format json"
       Then the command exits with code 4
       And the output reports "settings[0].path" as "engines.claude-code.command"
-      And the output reports "applied" as "false"
+      And the output reports "name" containing "trusts/project-"
       And the project is not trusted
 
     Scenario: Trust with --yes is recorded with the user and the time, and listed
@@ -85,7 +89,7 @@ Feature: trust — the user's verdict on a project's own settings, or a remote's
       And the project's settings change after the preview and before the answer
       When I run "ctxloom trust --yes"
       Then the command exits with code 2
-      And the refusal is "trust-trust-stale"
+      And the refusal is "trust-plan-stale"
 
     Scenario: An assistant's own credential cannot trust its project
       # new: an agent never trusts.

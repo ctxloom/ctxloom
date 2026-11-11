@@ -97,9 +97,11 @@ impl Project {
             .collect()
     }
 
-    /// The servers the profiles' bundles ship, a name claimed by two
+    /// The servers the profiles' whole bundles ship, a name claimed by two
     /// different bundles withheld from the second; those the profiles
-    /// exclude left out. A bundle that cannot be read is a finding.
+    /// exclude left out. A bundle that cannot be read is a finding; an
+    /// item-scoped reference (`<bundle>#fragments/<f>`) ships none and is
+    /// none (`ResolvedProfile::whole_bundles`).
     pub(crate) fn served(
         &self,
         set: &[ResolvedProfile],
@@ -130,7 +132,7 @@ impl Project {
         let companions = catalog.companion_entries();
         let profile_bundles = set
             .iter()
-            .flat_map(|p| &p.bundles)
+            .flat_map(ResolvedProfile::whole_bundles)
             .map(|reference| (reference.as_str(), catalog.lookup(reference)));
         let companions = companions
             .into_iter()
@@ -282,7 +284,7 @@ impl Project {
     fn requirements(&self, set: &[ResolvedProfile]) -> (Vec<Requirement>, String) {
         let mut found: BTreeMap<String, BTreeSet<(String, String)>> = BTreeMap::new();
         for profile in set {
-            for reference in &profile.bundles {
+            for reference in profile.whole_bundles() {
                 match self.catalog.lookup(reference) {
                     Ok(entry) => {
                         for command in &entry.bundle.requires_commands {

@@ -874,3 +874,20 @@ fn test_a_profile_still_carrying_llm_is_refused_as_an_unknown_key() {
         "{refusal:?}"
     );
 }
+
+// Go's reportBundleRefLoadFailure: an item-scoped `bundles:` entry selects
+// its item alone; the whole-bundle entries are the rest, in order.
+#[test]
+fn test_whole_bundles_are_the_entries_without_an_item_selector_in_order() {
+    let resolved = ResolvedProfile {
+        bundles: vec![
+            "roles#fragments/dev".to_string(),
+            "b".to_string(),
+            "ctxloom+local:roles#fragments/x".to_string(),
+            "a".to_string(),
+        ],
+        ..ResolvedProfile::default()
+    };
+    let whole: Vec<&String> = resolved.whole_bundles().collect();
+    assert_eq!(whole, ["b", "a"]);
+}

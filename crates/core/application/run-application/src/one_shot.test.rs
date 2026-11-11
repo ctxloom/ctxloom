@@ -572,6 +572,8 @@ struct Script {
     /// A reason the hook server refuses to serve, if it does.
     hooks_refuse: Option<&'static str>,
     certs_refuse: Option<&'static str>,
+    /// The user's git identity, if known.
+    git_user: Option<run_ports::GitUser>,
 }
 
 impl Script {
@@ -596,6 +598,7 @@ impl Script {
             program_dir: "/opt/ctxloom/bin",
             hooks_refuse: None,
             certs_refuse: None,
+            git_user: None,
         }
     }
 }
@@ -683,6 +686,7 @@ fn rig(script: Script) -> Rig {
         certs: Box::new(certs.clone()),
         locks: Box::new(locks.clone()),
         run_locks: Arc::new(run_locks.clone()),
+        git_user: script.git_user.clone(),
     });
     Rig {
         run_locks,
@@ -701,6 +705,30 @@ fn rig(script: Script) -> Rig {
 
 fn ask() -> OneShot {
     OneShot::default()
+}
+
+// Owner ruling 112: the engine's HOME is its session home, which the run seeds
+// with the user's git identity, so a commit its tools make has an author.
+#[tokio::test]
+async fn the_session_home_is_seeded_with_the_users_git_identity() {
+    let user = run_ports::GitUser {
+        name: "Alice Example".to_string(),
+        email: "alice@example.com".to_string(),
+    };
+    let mut script = Script::answering();
+    script.git_user = Some(user.clone());
+    let mut rig = rig(script);
+    let answer = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    assert_eq!(
+        rig.records.text(&answer.harp, "home/.gitconfig"),
+        run_ports::git_config(&user)
+    );
+    assert!(rig.records.text(&answer.harp, "home/.gitconfig").is_some());
 }
 
 #[tokio::test]
@@ -1639,6 +1667,7 @@ async fn the_bearer_is_in_no_debug_or_error_rendering() {
                 effort: String::new(),
                 settings: Default::default(),
                 owned: Vec::new(),
+                git_user: None,
             }
         ),
     ] {

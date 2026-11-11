@@ -165,10 +165,22 @@ fn test_without_home_the_home_is_the_ctxloom_home_variable() {
     assert_eq!(wiring.home(), env.dir.join("elsewhere"));
 }
 
+// Owner ruling 112: an engine's HOME is its session home, so a hook process
+// (and any ctxloom its tools run) sees HOME set to the session's directory;
+// ctxloom's own home is CTXLOOM_HOME, which the run names, and it wins.
 #[test]
-fn test_the_home_variable_wins_over_the_ctxloom_one() {
-    let mut env = Env::new("homewins");
+fn test_the_ctxloom_home_variable_wins_over_home() {
+    let mut env = Env::new("ctxloomwins");
     env.set("CTXLOOM_HOME", env.dir.join("elsewhere"));
+    let wiring = from_process().ok().unwrap();
+    assert_eq!(wiring.home(), env.dir.join("elsewhere"));
+}
+
+// An empty CTXLOOM_HOME names nothing: HOME is the home.
+#[test]
+fn test_an_empty_ctxloom_home_falls_back_to_home() {
+    let mut env = Env::new("emptyfallsback");
+    env.set("CTXLOOM_HOME", "");
     let wiring = from_process().ok().unwrap();
     assert_eq!(wiring.home(), env.home());
 }

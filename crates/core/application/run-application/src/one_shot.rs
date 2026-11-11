@@ -169,6 +169,7 @@ pub struct Runs<K: Core, T: run_ports::TokenSource, L: RunnerLauncher, R: Sessio
     pub(crate) certs: Box<dyn CertMint>,
     pub(crate) locks: Box<dyn session_ports::SessionLock>,
     pub(crate) run_locks: Arc<dyn run_ports::RunLocks>,
+    pub(crate) git_user: Option<run_ports::GitUser>,
 }
 
 /// What an engine is told of the run's listener: its URL and the public part
@@ -268,6 +269,9 @@ pub struct Parts<K: Core, T: run_ports::TokenSource, L: RunnerLauncher, R: Sessi
     /// The run's own lock, which this process holds from before the enqueue
     /// is visible until the runner is started (rulings 86, 92).
     pub run_locks: Arc<dyn run_ports::RunLocks>,
+    /// The user's git identity in the project, which a session home is
+    /// seeded with (owner ruling 112); none known, none is seeded.
+    pub git_user: Option<run_ports::GitUser>,
 }
 
 impl<K, T, L, R> Runs<K, T, L, R>
@@ -296,6 +300,7 @@ where
             certs: parts.certs,
             locks: parts.locks,
             run_locks: parts.run_locks,
+            git_user: parts.git_user,
         }
     }
 
@@ -682,6 +687,7 @@ where
                 effort: plan.effort,
                 settings,
                 owned,
+                git_user: self.git_user.clone(),
             },
         );
         Started {

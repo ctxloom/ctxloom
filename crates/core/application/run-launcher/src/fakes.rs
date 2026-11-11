@@ -620,6 +620,7 @@ pub fn order(engine: &str) -> Order {
         effort: String::new(),
         settings: Default::default(),
         owned: Vec::new(),
+        git_user: None,
     }
 }
 

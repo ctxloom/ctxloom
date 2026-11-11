@@ -180,8 +180,29 @@ impl<'a> OneShots<'a> {
             certs: Box::new(hook_tls::Minter::new(hook_tls::SystemClock)),
             locks: Box::new(liveness::LockFiles::new(wiring.fs(), project_dir.clone())),
             run_locks,
+            git_user: git_user(wiring, &project_dir),
         }))
     }
+}
+
+/// How long the git identity is asked for: a git that hangs delays the run's
+/// start by no more than this.
+const GIT_USER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The user's git identity in the project (owner ruling 112), asked of git in
+/// the caller's own environment; none when git knows neither part.
+fn git_user(wiring: &Wiring, project_dir: &Path) -> Option<run_ports::GitUser> {
+    let git = worktree_git::Git::new(
+        wiring.fs(),
+        "git",
+        GIT_USER_DEADLINE,
+        Arc::clone(wiring.env()),
+    );
+    let user = git.user(project_dir);
+    (!user.name.is_empty() || !user.email.is_empty()).then_some(run_ports::GitUser {
+        name: user.name,
+        email: user.email,
+    })
 }
 
 /// The run's hook listener over the core's edge: `Handle` on the run's loopback port

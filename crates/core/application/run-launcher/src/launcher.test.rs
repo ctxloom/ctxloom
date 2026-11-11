@@ -216,6 +216,60 @@ async fn the_session_home_holds_what_the_engine_prepared() {
     );
 }
 
+// Owner ruling 112: the engine's HOME is its session home, so the home is
+// seeded with the user's git identity (`.gitconfig`, `[user]` only), and one
+// already there (a tool may have written it in an earlier run) is left as it
+// is.
+#[tokio::test]
+async fn the_session_home_is_seeded_with_the_users_git_identity_once() {
+    let user = run_ports::GitUser {
+        name: "Alice Example".to_string(),
+        email: "alice@example.com".to_string(),
+    };
+    let mut seeded = order("fake");
+    seeded.git_user = Some(user.clone());
+    let mut first = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(seeded.clone()),
+    );
+    enqueued(&first.edge, SESSION, HARP).await;
+    first.step().await;
+    assert_eq!(
+        first.records.text(HARP, "home/.gitconfig"),
+        run_ports::git_config(&user)
+    );
+    assert!(run_ports::git_config(&user).is_some());
+
+    let mut kept = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(seeded),
+    );
+    use run_ports::SessionRecords;
+    kept.records
+        .write(HARP, "home/.gitconfig", b"[credential]\n\thelper = store\n")
+        .unwrap();
+    enqueued(&kept.edge, SESSION, HARP).await;
+    kept.step().await;
+    assert_eq!(
+        kept.records.text(HARP, "home/.gitconfig").as_deref(),
+        Some("[credential]\n\thelper = store\n")
+    );
+}
+
+#[tokio::test]
+async fn no_known_git_identity_seeds_no_gitconfig() {
+    let mut rig = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    );
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    assert_eq!(rig.records.text(HARP, "home/.gitconfig"), None);
+}
+
 // Owner rulings 26 and 51: a child's hooks are the ONLY source of its prompt
 // and its words. The launcher records neither (it would be a second copy, under
 // other ids), so a turn whose hooks never fire has no conversation in its

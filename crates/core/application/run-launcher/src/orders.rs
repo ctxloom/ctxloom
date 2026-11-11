@@ -35,6 +35,10 @@ pub struct Order {
     /// The names the run itself set in `env` for the engine (owner ruling
     /// 78b): no permit replaces them (`run_ports::apply_permits`).
     pub owned: Vec<String>,
+    /// The user's git identity, seeded into the session home's `.gitconfig`
+    /// when it has none (owner ruling 112: the engine's HOME is the session
+    /// home); none known, nothing is seeded.
+    pub git_user: Option<run_ports::GitUser>,
 }
 
 impl fmt::Debug for Order {
@@ -52,6 +56,7 @@ impl fmt::Debug for Order {
             .field("effort", &self.effort)
             .field("settings", &self.settings)
             .field("owned", &self.owned)
+            .field("git_user", &self.git_user)
             .finish()
     }
 }

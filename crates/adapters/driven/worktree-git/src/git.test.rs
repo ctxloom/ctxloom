@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use super::{environment, is_local, local_variables, Git, GitError, DEFAULT_TIMEOUT};
+use super::{environment, is_local, local_variables, Git, GitError, User, DEFAULT_TIMEOUT};
 use crate::fixtures::{env, exists, fs, put, root, runs_scripts, slurp};
 
 /// A "git" that is a script, in a directory of its own.
@@ -199,4 +199,45 @@ fn a_git_that_finishes_within_its_limit_is_not_disturbed() {
 #[test]
 fn the_default_limit_is_gos_thirty_seconds() {
     assert_eq!(DEFAULT_TIMEOUT, Duration::from_secs(30));
+}
+
+// Owner ruling 112: the identity a session home is seeded with is git's own
+// answer for the directory, asked one key at a time.
+#[test]
+fn the_user_is_gits_name_and_email_for_the_directory() {
+    let (dir, git, _) = stub(
+        r#"case "$*" in
+  "config --get user.name") echo "Alice Example" ;;
+  "config --get user.email") echo "alice@example.com" ;;
+  *) exit 1 ;;
+esac"#,
+    );
+    // The stub's tiny limit is for the timeout tests: this one answers.
+    let _ = git;
+    let git = Git::new(fs(), dir.root().join("git"), DEFAULT_TIMEOUT, env());
+    assert_eq!(
+        git.user(dir.root()),
+        User {
+            name: "Alice Example".to_string(),
+            email: "alice@example.com".to_string(),
+        }
+    );
+}
+
+#[test]
+fn a_key_git_does_not_know_is_empty() {
+    let (dir, _, _) = stub(
+        r#"case "$*" in
+  "config --get user.email") echo "a@x" ;;
+  *) exit 1 ;;
+esac"#,
+    );
+    let git = Git::new(fs(), dir.root().join("git"), DEFAULT_TIMEOUT, env());
+    assert_eq!(
+        git.user(dir.root()),
+        User {
+            name: String::new(),
+            email: "a@x".to_string(),
+        }
+    );
 }

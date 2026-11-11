@@ -11,6 +11,7 @@
 mod bind;
 mod edge;
 mod engine;
+mod git;
 mod hook;
 mod launcher;
 mod locks;
@@ -30,6 +31,7 @@ pub use engine::{
     copy_in, Credentials, Engine, EngineError, FailureClass, HomeFile, PrepareRequest, Prepared,
     TurnOutcome, TurnRequest, HOME_VARIABLE,
 };
+pub use git::{git_config, GitUser, GIT_CONFIG_FILE};
 pub use hook::{
     endpoint_url, hook_environment, parse_endpoint, Bearer, BearerError, Dial, EndpointError,
     RedactedEnv, BEARER_VARIABLE, ENDPOINT_VARIABLE, HARP_VARIABLE, HOOK_VARIABLES, RUN_VARIABLE,

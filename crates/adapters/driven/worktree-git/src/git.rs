@@ -207,6 +207,25 @@ impl Git {
     }
 }
 
+/// The identity git uses for commits in a directory: its `user.name` and
+/// `user.email` as git resolves them there (the repository's, else the
+/// user's global or system configuration, includes followed). Either is
+/// empty when git knows none, or cannot be asked.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct User {
+    pub name: String,
+    pub email: String,
+}
+
+impl Git {
+    /// The identity git would commit with in `dir` (owner ruling 112: a
+    /// session home is seeded with it).
+    pub fn user(&self, dir: &Path) -> User {
+        let _ = dir;
+        User::default()
+    }
+}
+
 #[cfg(test)]
 #[path = "git.test.rs"]
 mod tests;

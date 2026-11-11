@@ -95,15 +95,18 @@ fn only_the_allowlisted_environment_is_passed_on() {
     ]);
     let command = Claude::new().drive_turn(&asked).unwrap();
     let names: Vec<&str> = command.env.keys().map(String::as_str).collect();
+    // HOME is the session home (owner ruling 112), never the caller's.
     assert_eq!(
         names,
         vec![
             "CLAUDE_CODE_OAUTH_TOKEN",
             "CLAUDE_CONFIG_DIR",
+            "HOME",
             "HTTPS_PROXY",
             "PATH"
         ]
     );
+    assert_eq!(command.env["HOME"], "/p/.ctxloom/sessions/h/home");
 }
 
 #[test]
@@ -144,7 +147,7 @@ fn the_interactive_run_is_the_terminal_command_with_the_context_and_no_print_mod
     assert!(command.stdin.is_empty());
     assert_eq!(command.cwd.as_deref(), Some("/p"));
     let names: Vec<&str> = command.env.keys().map(String::as_str).collect();
-    assert_eq!(names, vec!["CLAUDE_CONFIG_DIR", "PATH"]);
+    assert_eq!(names, vec!["CLAUDE_CONFIG_DIR", "HOME", "PATH"]);
     assert_eq!(
         command.env.get("CLAUDE_CONFIG_DIR").map(String::as_str),
         Some("/p/.ctxloom/sessions/h/home")
@@ -166,32 +169,32 @@ fn the_run_engine_is_named_claude_code() {
     assert_eq!(Engine::name(&Claude::new()), "claude-code");
 }
 
-// Owner ruling 2026-11-08: the terminal session's hook processes run without
-// HOME, so it is given ctxloom's home by name; a child's turn is not, and
-// neither is given HOME.
+// Owner ruling 112 (2026-11-10): the engine's HOME is its session home, the
+// terminal's and a child's turn alike (parity with opencode, ruling 58), so
+// what its tools write under `~` lands in the session's own directory and
+// never in the project (the hand test found gh's `.local/state` there, made
+// relative to the working directory with no HOME). ctxloom's own home still
+// reaches the hook processes by name, as CTXLOOM_HOME.
 #[test]
-fn the_interactive_run_is_given_ctxloom_home_and_still_no_home() {
+fn the_engines_home_is_the_session_home_and_ctxlooms_home_is_named() {
     let mut asked = request();
     asked.env = env(&[
         ("PATH", "/usr/bin"),
         ("HOME", "/home/alice"),
         ("CTXLOOM_HOME", "/home/alice"),
     ]);
-    let command = Claude::new().drive_interactive(&asked).unwrap();
-    let names: Vec<&str> = command.env.keys().map(String::as_str).collect();
-    assert_eq!(names, vec!["CLAUDE_CONFIG_DIR", "CTXLOOM_HOME", "PATH"]);
-    assert_eq!(
-        command.env.get("CTXLOOM_HOME").map(String::as_str),
-        Some("/home/alice")
-    );
-    // Ruling 51: a child's hooks run without HOME too, so its turn is given
-    // ctxloom's home by name as well; neither is given HOME.
-    let turn = Claude::new().drive_turn(&asked).unwrap();
-    assert_eq!(
-        turn.env.get("CTXLOOM_HOME").map(String::as_str),
-        Some("/home/alice")
-    );
-    assert!(!turn.env.contains_key("HOME"));
+    for command in [
+        Claude::new().drive_interactive(&asked).unwrap(),
+        Claude::new().drive_turn(&asked).unwrap(),
+    ] {
+        let names: Vec<&str> = command.env.keys().map(String::as_str).collect();
+        assert_eq!(
+            names,
+            vec!["CLAUDE_CONFIG_DIR", "CTXLOOM_HOME", "HOME", "PATH"]
+        );
+        assert_eq!(command.env["HOME"], "/p/.ctxloom/sessions/h/home");
+        assert_eq!(command.env["CTXLOOM_HOME"], "/home/alice");
+    }
 }
 
 fn prepared(interactive: bool) -> run_ports::Prepared {
@@ -621,7 +624,10 @@ fn only_the_allowlist_and_the_listed_names_are_passed() {
         Claude::new().drive_interactive(&asked).unwrap(),
     ] {
         let names: Vec<&str> = command.env.keys().map(String::as_str).collect();
-        assert_eq!(names, vec!["ALPHA_TOKEN", "CLAUDE_CONFIG_DIR", "PATH"]);
+        assert_eq!(
+            names,
+            vec!["ALPHA_TOKEN", "CLAUDE_CONFIG_DIR", "HOME", "PATH"]
+        );
         assert_eq!(
             command.env["CLAUDE_CONFIG_DIR"],
             "/p/.ctxloom/sessions/h/home"
@@ -657,8 +663,8 @@ fn a_host_session_home_is_the_users_own_claude_directory() {
         Claude::new().drive_interactive(&asked).unwrap(),
     ] {
         assert_eq!(command.env["CLAUDE_CONFIG_DIR"], "/home/alice/.claude");
-        // HOME itself is still not handed over.
-        assert!(!command.env.contains_key("HOME"));
+        // The user's own home is the engine's, as opencode's is (ruling 112).
+        assert_eq!(command.env["HOME"], "/home/alice");
     }
 }
 

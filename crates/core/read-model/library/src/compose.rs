@@ -264,7 +264,8 @@ fn unresolved(findings: &mut Vec<Finding>, reference: &str, why: &str) {
     let finding = Finding::warn(
         "bundle",
         format!("skipping unresolved bundle \"{reference}\": {why}"),
-    );
+    )
+    .about(reference);
     if !findings.contains(&finding) {
         findings.push(finding);
     }

@@ -316,8 +316,12 @@ impl Project {
             settings,
         } = self.launch_of(request, selection.agent.as_ref())?;
         let degraded = self.flags.degraded;
-        for finding in &findings {
-            self.notices.push(Notice::finding(finding));
+        // Each finding is said once: a fatal one by the refusal that lists
+        // it, any other as a warning.
+        for finding in library::findings::said(&findings) {
+            if degraded || finding.class != Class::Fail {
+                self.notices.push(Notice::finding(finding));
+            }
         }
         let rows: Vec<FindingRow> = findings
             .iter()
@@ -408,7 +412,7 @@ impl Project {
             selection
         };
         let package = self.compose(&selection, &mut findings)?;
-        for finding in &findings {
+        for finding in library::findings::said(&findings) {
             self.notices.push(Notice::finding(finding));
         }
         let missing_fragments = package

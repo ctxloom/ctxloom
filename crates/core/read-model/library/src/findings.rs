@@ -62,7 +62,15 @@ impl Finding {
 /// The findings worth saying: each but a warning about what a failing
 /// finding of its kind is also about (the failure says it).
 pub fn said(findings: &[Finding]) -> Vec<&Finding> {
-    findings.iter().collect()
+    let failed = |warning: &Finding| {
+        findings
+            .iter()
+            .any(|f| f.class == Class::Fail && f.kind == warning.kind && f.about == warning.about)
+    };
+    findings
+        .iter()
+        .filter(|f| f.class == Class::Fail || f.about.is_empty() || !failed(f))
+        .collect()
 }
 
 #[cfg(test)]

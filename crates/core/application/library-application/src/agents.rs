@@ -144,7 +144,7 @@ impl Project {
                         "failed to load bundle \"{reference}\"; the MCP servers and hooks it ships are not applied: bundle not found: {reference}"
                     ),
                     "run `ctxloom deps pull` or fix the bundle ref, or pass --degraded",
-                ));
+                ).about(reference));
                 continue;
             };
             let source = catalog.source_of(entry);

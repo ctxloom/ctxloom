@@ -111,7 +111,7 @@ fn test_a_push_that_cannot_go_is_refused_naming_why() {
     ));
     assert!(matches!(
         refuses(push("authored", "nope")),
-        AppError::Cause(_)
+        AppError::Declined(_)
     ));
     assert!(matches!(
         refuses(push("missing", "team")),

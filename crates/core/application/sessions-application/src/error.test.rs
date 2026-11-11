@@ -30,7 +30,7 @@ fn no_session_names_the_harp() {
     };
     assert_eq!(error.code(), "sessions-application-no-session");
     assert_eq!(error.args().len(), 1);
-    assert_eq!(error.exit(), Exit::FAILED);
+    assert_eq!(error.exit(), Exit::REFUSED);
 }
 
 // A wrapper is its cause's diagnostic.
@@ -66,7 +66,7 @@ fn exit_codes_follow_the_rule() {
         (invalid.exit(), too_long.exit()),
         (Exit::REFUSED, Exit::REFUSED)
     );
-    assert_eq!(none.exit(), Exit::FAILED);
+    assert_eq!(none.exit(), Exit::REFUSED);
     assert_eq!(AppError::Failed(Report::new("x")).exit(), Exit::FAILED);
 }
 

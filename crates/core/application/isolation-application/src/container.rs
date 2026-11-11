@@ -5,7 +5,7 @@
 //! `isolation/diagnose.go` (release/0.7). `build` and `prune` act on a live
 //! runtime and its images; what is hermetic is their refusals: a backend
 //! that is none of the engines, a runtime ctxloom does not know, and a
-//! machine with none (exit 21).
+//! machine with none (exit 20).
 
 use ctxloom_ports::UserFiles;
 use isolation_ports::{Backends, Companions, ContainerRuntimes, RuntimeFacts, RUNTIMES};
@@ -201,7 +201,7 @@ impl<R: ContainerRuntimes, B: Backends, C: Companions, U: UserFiles> Containers<
     }
 
     /// `container prune`: a `--runtime` that is none of the runtimes ctxloom
-    /// knows is refused, and so is a machine with none (exit 21). With one,
+    /// knows is refused, and so is a machine with none (exit 20). With one,
     /// the plan over its images is the live lane's, not ported: this always
     /// answers the refusal.
     pub fn prune(&self, runtime: Option<&str>, yes: bool) -> IsolationError {

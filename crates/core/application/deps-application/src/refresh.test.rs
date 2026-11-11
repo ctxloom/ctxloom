@@ -130,7 +130,7 @@ fn test_a_consented_pull_writes_the_refresh_and_has_nothing_to_skip() {
 }
 
 // behaviour-changes-0.7.0: a refused consented refresh lands the pull and
-// exits 21 naming the finding.
+// exits 20 naming the finding.
 #[test]
 fn test_a_consented_refresh_that_is_refused_fails_the_command_but_not_the_pull() {
     let fx = unpulled();
@@ -142,7 +142,7 @@ fn test_a_consented_refresh_that_is_refused_fails_the_command_but_not_the_pull()
         .unwrap();
     assert_eq!(pulled.report.installed, 1);
     let failure = pulled.failure.expect("a failure");
-    assert_eq!(failure.exit(), Exit::FATAL_FINDINGS);
+    assert_eq!(failure.exit(), Exit::REFUSED);
     assert!(failure.to_string().contains("refusal"), "{failure}");
 }
 

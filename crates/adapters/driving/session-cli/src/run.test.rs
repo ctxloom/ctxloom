@@ -508,7 +508,7 @@ fn a_failure_of_the_use_case_is_the_commands_failure_with_its_exit_code() {
         failure.failure.cause.code(),
         "sessions-application-no-session"
     );
-    assert_eq!(failure.failure.exit, Exit::FAILED);
+    assert_eq!(failure.failure.exit, Exit::REFUSED);
 }
 
 // ------------------------------------------------------------------------ keep
@@ -1362,7 +1362,7 @@ fn a_session_with_no_directory_fails_the_listing() {
         failure.failure.cause.code(),
         "isolation-application-no-session"
     );
-    assert_eq!(failure.failure.exit, Exit::FAILED);
+    assert_eq!(failure.failure.exit, Exit::REFUSED);
 }
 
 // ----------------------------------------------------------------------- sweep

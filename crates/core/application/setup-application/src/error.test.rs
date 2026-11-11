@@ -120,6 +120,6 @@ fn test_the_exit_ladder_separates_refused_from_failed_from_fatal() {
         of(SetupError::TargetNotDirectory {
             path: String::new()
         }),
-        Exit::FAILED
+        Exit::REFUSED
     );
 }

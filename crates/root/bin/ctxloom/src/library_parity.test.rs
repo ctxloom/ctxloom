@@ -40,14 +40,16 @@ use serde_json::Value;
 use super::library::{fixtures, Project};
 use crate::tests::files;
 
-/// Go's exit code as this build's (rulings 149, 152, 153): 1 failed is 10,
-/// 2 refused 20, 3 fatal findings 21; 0 is 0.
-fn ours(go_exit: i32) -> i32 {
+/// Whether `code` is this build's for Go's `go_exit` (rulings 149, 152,
+/// 153): Go's 1 was every error, and this build says which it is, failed
+/// (10) or declined (20); Go's 2 refused is 20, its 3 fatal findings 21, its
+/// 0 is 0.
+fn agrees(go_exit: i32, code: i32) -> bool {
     match go_exit {
-        1 => 10,
-        2 => 20,
-        3 => 21,
-        other => other,
+        1 => code == 10 || code == 20,
+        2 => code == 20,
+        3 => code == 21,
+        other => code == other,
     }
 }
 
@@ -231,19 +233,15 @@ fn mismatch(row: &Row, project: &Project) -> Option<String> {
         return (ran.code != 20 || !ran.stdout.trim().is_empty())
             .then(|| format!("want a refusal (exit 20, no answer): {}", ran.said()));
     }
-    let want_exit = if USAGE_REFUSALS.contains(&row.id.as_str())
-        || CONFIG_REFUSALS.contains(&row.id.as_str())
-    {
-        20
+    let refusal =
+        USAGE_REFUSALS.contains(&row.id.as_str()) || CONFIG_REFUSALS.contains(&row.id.as_str());
+    let agreed = if refusal {
+        ran.code == 20
     } else {
-        ours(go_exit)
+        agrees(go_exit, ran.code)
     };
-    if ran.code != want_exit {
-        return Some(format!(
-            "exit {} (Go {go_exit}, want {want_exit}): {}",
-            ran.code,
-            ran.said()
-        ));
+    if !agreed {
+        return Some(format!("exit {} (Go {go_exit}): {}", ran.code, ran.said()));
     }
     let want = as_changed(&golden(&row.id, "stdout"));
     if !is_dry_run(&row.id) && carries_retired_llm(&want) {

@@ -174,7 +174,7 @@ fn test_a_missing_file_is_refused_by_name() {
     let err = compare(&w, &request("nowhere.md")).unwrap_err();
     assert_eq!(err.code(), "setup-application-diff-file-missing");
     assert!(err.to_string().contains("nowhere.md"), "{err}");
-    assert_eq!(err.exit(), Exit::FAILED);
+    assert_eq!(err.exit(), Exit::REFUSED);
 }
 
 #[test]

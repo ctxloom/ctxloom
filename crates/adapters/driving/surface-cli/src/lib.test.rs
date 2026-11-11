@@ -600,7 +600,7 @@ mod commands_run {
             &[],
         );
         let failure = ran.exit.expect_err("a missing file");
-        assert_eq!(failure.exit, Exit::FAILED);
+        assert_eq!(failure.exit, Exit::REFUSED);
         assert_eq!(failure.cause.code(), "setup-application-diff-file-missing");
         assert_eq!(ran.out, "");
     }
@@ -638,7 +638,7 @@ mod commands_run {
             &mut Vec::new(),
         )
         .expect_err("fails");
-        assert_eq!(failure.exit, Exit::FAILED);
+        assert_eq!(failure.exit, Exit::REFUSED);
         let out = String::from_utf8(out).unwrap();
         assert!(
             out.contains("error: "),

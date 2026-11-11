@@ -114,7 +114,7 @@ fn a_configuration_that_cannot_be_read_fails_the_sweep() {
     };
     let error = purge_cutoff(None, &mut config, NOW).unwrap_err();
     assert!(matches!(error, ReclaimError::Config(_)), "{error:?}");
-    assert_eq!(error.exit(), Exit::FAILED);
+    assert_eq!(error.exit(), Exit::REFUSED);
 }
 
 #[test]

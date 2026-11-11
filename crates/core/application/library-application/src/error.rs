@@ -18,8 +18,11 @@ pub const EN_US: (&str, &str) = (
 /// A command that did not complete.
 #[derive(Debug)]
 pub enum AppError {
-    /// An error of the read model or an adapter, as itself.
+    /// An adapter's error, as itself: something broke (I/O, a store).
     Cause(Box<dyn Diagnostic>),
+    /// A refusal of the read model or of a write, as itself: the request or
+    /// the content forbids it (ruling 152: a decline, exit 20).
+    Declined(Box<dyn Diagnostic>),
     /// A config layer that is not YAML.
     ConfigUnparsable {
         path: String,
@@ -138,9 +141,10 @@ pub enum AppError {
 }
 
 impl AppError {
-    /// An error of another crate, as itself.
+    /// A refusal of another crate (the read model's, a write's), as itself:
+    /// a decline. An adapter's error is [`AppError::Cause`].
     pub fn cause(error: impl Diagnostic + 'static) -> AppError {
-        AppError::Cause(Box::new(error))
+        AppError::Declined(Box::new(error))
     }
 
     /// Fatal findings, after the plan was shown: the run is refused.
@@ -164,24 +168,16 @@ impl AppError {
 }
 
 impl ExitClass for AppError {
-    /// How a command this ends exits (rulings 149, 152, 153): refused (20)
-    /// before any state was read (a config the strict decode refuses is one),
-    /// fatal findings (21), failed (10) otherwise.
+    /// How a command this ends exits (rulings 149, 152, 153): failed (10)
+    /// when an adapter broke, fatal findings (21) for the run plan's, and
+    /// refused (20) for every other: each declines the request against the
+    /// line, the config or the content (a name nobody has, an unreadable
+    /// config or bundle, a reference that is no reference).
     fn exit(&self) -> Exit {
         match self {
-            AppError::AgentExclusive { .. }
-            | AppError::ConfigNewer { .. }
-            | AppError::ConfigOlder { .. }
-            | AppError::ConfigCompanionsBare { .. }
-            | AppError::ConfigVersionUnreadable { .. }
-            | AppError::ConfigUnknownKey { .. }
-            | AppError::ConfigBreaksSchema { .. }
-            | AppError::RunNeedsDryRun
-            | AppError::SearchRemote
-            | AppError::OperationalPromptMissing { .. }
-            | AppError::Workspace { .. } => Exit::REFUSED,
+            AppError::Cause(_) => Exit::FAILED,
             AppError::StartupAborted { .. } => Exit::FATAL_FINDINGS,
-            _ => Exit::FAILED,
+            _ => Exit::REFUSED,
         }
     }
 }
@@ -197,7 +193,7 @@ impl std::error::Error for AppError {}
 impl Diagnostic for AppError {
     fn code(&self) -> &str {
         match self {
-            AppError::Cause(cause) => cause.code(),
+            AppError::Cause(cause) | AppError::Declined(cause) => cause.code(),
             AppError::ConfigUnparsable { .. } => code!("config-unparsable"),
             AppError::ConfigNewer { .. } => code!("config-newer"),
             AppError::ConfigOlder { .. } => code!("config-older"),
@@ -244,7 +240,7 @@ impl Diagnostic for AppError {
     #[allow(clippy::too_many_lines)]
     fn args(&self) -> Vec<(&str, Arg)> {
         match self {
-            AppError::Cause(cause) => cause.args(),
+            AppError::Cause(cause) | AppError::Declined(cause) => cause.args(),
             AppError::ConfigUnparsable { path, cause } => vec![
                 ("path", path.as_str().into()),
                 ("cause", Arg::Nested(cause.clone())),

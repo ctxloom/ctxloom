@@ -248,12 +248,12 @@ fn prune_of_an_unknown_runtime_is_refused_naming_the_known_ones() {
 // prune: "With no container runtime on this machine, prune exits 3 rather
 // than reporting a clean sweep".
 #[test]
-fn prune_with_no_runtime_exits_fatal_findings() {
+fn prune_with_no_runtime_is_refused() {
     let files = Files::default();
     for yes in [false, true] {
         let error = containers(no_machine(), engines(), &files).prune(None, yes);
         assert!(matches!(error, IsolationError::NoPruneRuntime));
-        assert_eq!(error.exit(), Exit::FATAL_FINDINGS);
+        assert_eq!(error.exit(), Exit::REFUSED);
     }
 }
 
@@ -344,15 +344,15 @@ fn podman() -> Machine {
     }
 }
 
-// Build with no runtime is refused as prune is: exit 21, not a clean build.
+// Build with no runtime is refused as prune is: exit 20, not a clean build.
 #[test]
-fn build_with_no_runtime_exits_fatal_findings() {
+fn build_with_no_runtime_is_refused() {
     let files = Files::default();
     let error = containers(no_machine(), engines(), &files)
         .build(Some("mock"), None)
         .unwrap_err();
     assert!(matches!(error, IsolationError::NoBuildRuntime));
-    assert_eq!(error.exit(), Exit::FATAL_FINDINGS);
+    assert_eq!(error.exit(), Exit::REFUSED);
 }
 
 // plan 5.6: the image build and the prune plan are the live lane's. With a
@@ -366,7 +366,7 @@ fn build_and_prune_with_a_runtime_refuse_as_not_ported() {
     assert!(matches!(built, IsolationError::NotPorted { .. }));
     let pruned = containers(podman(), engines(), &files).prune(None, true);
     assert!(matches!(pruned, IsolationError::NotPorted { .. }));
-    assert_eq!(pruned.exit(), Exit::FAILED);
+    assert_eq!(pruned.exit(), Exit::REFUSED);
 }
 
 fn machine_of(runtimes: &[(&str, bool)]) -> Machine {

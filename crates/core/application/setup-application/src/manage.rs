@@ -165,7 +165,7 @@ impl Setup {
             let engine = request.engine.clone().unwrap_or_default();
             let created = self.library.config_create(&engine);
             notices.extend(created.notices);
-            created.result.map_err(SetupError::cause)?;
+            created.result.map_err(SetupError::classed)?;
         }
         let (status, written) = self.write_nested_gitignore()?;
         let pull = self.pull(request);
@@ -342,7 +342,7 @@ impl Setup {
                 profiles: profiles.to_vec(),
             },
         );
-        let package = outcome.result.map_err(SetupError::cause)?;
+        let package = outcome.result.map_err(SetupError::classed)?;
         let events = HOOK_EVENTS
             .iter()
             .filter(|e| event.is_none_or(|wanted| wanted == **e))
@@ -375,7 +375,7 @@ impl Setup {
     /// statusline; it takes effect at the next materialize or run.
     pub fn set_statusline(&self, enabled: bool, flags: &Flags) -> Result<Done<bool>, SetupError> {
         let outcome = self.library.set_statusline(flags, enabled);
-        outcome.result.map_err(SetupError::cause)?;
+        outcome.result.map_err(SetupError::classed)?;
         Ok(Done {
             value: enabled,
             notices: outcome.notices,

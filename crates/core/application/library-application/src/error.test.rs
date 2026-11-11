@@ -176,3 +176,28 @@ fn the_applications_own_refusals_have_samples() {
         "{codes:?}"
     );
 }
+
+// Ruling 152: an adapter's error broke (10); a refusal of the read model or a
+// write, and every other error but the plan's fatal findings, declines (20);
+// the plan's fatal findings are 21. A write whose ports were not wired broke.
+#[test]
+fn test_an_error_is_failed_declined_or_fatal_by_its_kind() {
+    use exit_code::{Exit, ExitClass};
+    let broke = AppError::Cause(Box::new(AppError::NoBundlesDir));
+    assert_eq!(broke.exit(), Exit::FAILED);
+    assert_eq!(
+        AppError::cause(AppError::NoBundlesDir).exit(),
+        Exit::REFUSED
+    );
+    assert_eq!(AppError::NoBundlesDir.exit(), Exit::REFUSED);
+    assert_eq!(AppError::LaunchNoAgents.exit(), Exit::REFUSED);
+    assert_eq!(AppError::aborted(&[]).exit(), Exit::FATAL_FINDINGS);
+    let unwired: AppError = crate::write::WriteError::NotWired {}.into();
+    assert_eq!(unwired.exit(), Exit::FAILED);
+    let taken: AppError = crate::write::WriteError::AgentExists {
+        name: "a".to_string(),
+    }
+    .into();
+    assert_eq!(taken.exit(), Exit::REFUSED);
+    assert_eq!(taken.code(), "library-application-write-agent-exists");
+}

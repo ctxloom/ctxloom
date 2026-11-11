@@ -36,7 +36,8 @@ impl ExitClass for ReclaimError {
             ReclaimError::BadAge { .. } => Exit::REFUSED,
             ReclaimError::Sessions(error) => error.exit(),
             ReclaimError::Isolation(error) => error.exit(),
-            ReclaimError::Cache(_) | ReclaimError::Config(_) => Exit::FAILED,
+            ReclaimError::Cache(_) => Exit::FAILED,
+            ReclaimError::Config(_) => Exit::REFUSED,
         }
     }
 }

@@ -51,37 +51,18 @@ impl AppError {
 }
 
 impl ExitClass for AppError {
-    /// How a command this ends exits: refused (20) when the request is
-    /// invalid on its own content (a name no session may have), failed (10)
-    /// when it ran against state and the answer was negative.
+    /// How a command this ends exits (ruling 152): refused (20) when the
+    /// request declines against the line or the state (a name no session may
+    /// have, a taken name, a live session, a session nobody has, any refusal
+    /// of the domain); failed (10) when something broke (the store, the
+    /// kernel, the project's identity, a session's files, the retry budget).
     fn exit(&self) -> Exit {
         match self {
             AppError::DeadLettered { error, .. } => error.exit(),
-            AppError::Rejected(cause) => {
-                let invalid = [
-                    SessionRejection::HarpInvalid {
-                        harp: String::new(),
-                        reason: String::new(),
-                    }
-                    .code()
-                    .to_string(),
-                    SessionRejection::HarpTooLong {
-                        harp: String::new(),
-                        limit: 0,
-                        length: 0,
-                    }
-                    .code()
-                    .to_string(),
-                ];
-                if invalid.iter().any(|code| code == cause.code()) {
-                    Exit::REFUSED
-                } else {
-                    Exit::FAILED
-                }
-            }
-            AppError::NoSession { .. }
-            | AppError::NoCapturedTranscript { .. }
-            | AppError::Failed(_)
+            AppError::Rejected(_)
+            | AppError::NoSession { .. }
+            | AppError::NoCapturedTranscript { .. } => Exit::REFUSED,
+            AppError::Failed(_)
             | AppError::Identity(_)
             | AppError::Files(_)
             | AppError::GaveUp { .. } => Exit::FAILED,

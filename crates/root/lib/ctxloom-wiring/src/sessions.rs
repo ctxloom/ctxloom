@@ -39,6 +39,12 @@ fn failed(cause: Box<dyn Diagnostic>) -> Failure {
     Failure::boxed(cause, Exit::FAILED)
 }
 
+/// A hook the service refused (an engine the registry does not know, a
+/// payload its codec cannot read): a decline, exit 20 (ruling 152).
+fn declined(cause: Box<dyn Diagnostic>) -> Failure {
+    Failure::boxed(cause, Exit::REFUSED)
+}
+
 impl Commands {
     /// The sessions use cases, built when a command first needs them: a
     /// command that needs none (the statusline hook) works where there is no
@@ -142,7 +148,7 @@ impl Commands {
                 &recording,
             )
         }
-        .map_err(failed)?;
+        .map_err(declined)?;
         if let Some((harp, native_id, transcript)) = asked.0 {
             Bind(self)
                 .bind(&harp, &native_id, &transcript)

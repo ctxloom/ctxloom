@@ -170,7 +170,7 @@ fn test_config_show_prints_the_effective_configuration_a_section_or_the_raw_laye
     assert!(text_of(&["config"]).contains("default_agent: dev\n"));
     assert_eq!(
         go(&["config", "show", "nosuch"], JSON, BARE).refused(),
-        "library-application-unknown-section:10"
+        "library-application-unknown-section:20"
     );
 }
 
@@ -204,7 +204,7 @@ fn test_bundle_list_show_and_view() {
     assert_eq!(short["content"], "# (distilled version)\nshort form\n");
     assert_eq!(
         go(&["bundle", "show", "nosuch"], JSON, BARE).refused(),
-        "library-catalog-bundle-not-found:10"
+        "library-catalog-bundle-not-found:20"
     );
 }
 
@@ -221,7 +221,7 @@ fn test_fragment_and_command_list_show_and_premises() {
     );
     assert_eq!(
         go(&["fragment", "list", "--bundle", "nosuch"], JSON, BARE).refused(),
-        "library-application-no-bundle-named:10"
+        "library-application-no-bundle-named:20"
     );
     assert!(text_of(&["fragment", "list"]).starts_with("Fragments (4):\n"));
     let commands = json_of(&["command", "list"]);
@@ -255,7 +255,7 @@ fn test_fragment_and_command_list_show_and_premises() {
 #[test]
 fn test_an_item_show_refuses_an_asked_for_json_but_not_a_default_one() {
     let asked = go(&["fragment", "show", "demo#fragments/golang"], JSON, BARE);
-    assert_eq!(asked.refused(), "library-application-unsupported-format:10");
+    assert_eq!(asked.refused(), "library-application-unsupported-format:20");
     let by_default = How {
         explicit: None,
         terminal: false,
@@ -270,7 +270,7 @@ fn test_an_item_show_refuses_an_asked_for_json_but_not_a_default_one() {
     assert_eq!(ran.out, "golang\n\nGO-RULES\n");
     assert_eq!(
         go(&["command", "show", "demo#commands/review"], JSON, BARE).refused(),
-        "library-application-unsupported-format:10"
+        "library-application-unsupported-format:20"
     );
 }
 
@@ -391,7 +391,7 @@ fn test_context_assemble_takes_profiles_fragments_and_tags() {
         JSON,
         BARE,
     );
-    assert_eq!(by_tag.refused(), "library-application-no-fragments:10");
+    assert_eq!(by_tag.refused(), "library-application-no-fragments:20");
     assert_eq!(json_of(&["context"]), by_profile);
     assert!(text_of(&["context", "assemble", "-p", "dev"]).ends_with("short form\n"));
 }

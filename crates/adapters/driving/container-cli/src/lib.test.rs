@@ -187,7 +187,7 @@ fn prune_refusals_carry_their_exit_codes() {
         failure.cause.code(),
         "isolation-application-no-prune-runtime"
     );
-    assert_eq!(failure.exit, Exit::FATAL_FINDINGS);
+    assert_eq!(failure.exit, Exit::REFUSED);
     assert!(out.is_empty());
     let (result, _) = go(&fake(), &["container", "prune", "--runtime", "rkt"], None);
     assert_eq!(result.unwrap_err().exit, Exit::REFUSED);

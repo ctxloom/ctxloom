@@ -637,7 +637,7 @@ a full commit. The angzarr pins are one line, one per family member:
 - angzarr-build `558cde5f` (the markup generator, `angzarr-build` and
   `angzarr-codegen`, its own repository);
 - angzarr-platform `da6a3ee3`;
-- taskloom's crates `ff760778` and ctxloom-lib's `438bd847`, built on the
+- taskloom's crates `ff760778` and ctxloom-lib's `466132c7`, built on the
   same line,
 
 so moving one moves all. The lock holds one of every angzarr crate. The platform crates (`os`, `file-system`, `file-lock`) are
@@ -785,20 +785,30 @@ carries an `Exit`; `ctxloom_cli::run` turns it into the status with
   drop; `clean` without `--yes` with a target present; `session remove`
   without `--yes` that is not refused; `session sweep` without `--yes`
   with a planned destroy;
-- **10** failed: ctxloom tried and something broke (I/O, the store, an
-  engine, git), and a state-negative answer the sessions use cases give
-  (no such session, a taken name: still 10, as the old 1);
-- **20** refused: the request forbids it (a usage error, clap's own 2
-  mapped; an unknown format or verb; a config the strict decode refuses);
-- **21** fatal findings: the plan found the content cannot produce a
-  working session (also doctor's `fail` row, a container verb with no
-  runtime, a consented refresh refused); a launch both refused and with
-  fatal findings is 21;
+- **10** failed: ctxloom tried and something broke (an adapter's error,
+  I/O, the store or the kernel, an engine, git, a clone, a fetch, a
+  publish, a pull, the retry budget);
+- **20** refused, a decline: the request or the state forbids it, by kind,
+  whatever Go said (owner ruling 152): a usage error (clap's own 2
+  mapped), an unknown format or verb, a config the strict decode refuses
+  or that does not read, a name nobody has (a session, a bundle, an item,
+  a profile, an agent, a remote), a taken name, a live session, any
+  refusal of a domain or the read model or a write, a container verb with
+  no runtime, a refused consented refresh, a refused delivery, a hook its
+  service refused, and doctor's `fail` row (the refusal it guarantees);
+- **21** fatal findings: ONLY the run plan's (a dry run's or a launch's
+  startup abort, materialize's strict refusal, a fatal isolation finding);
+  a launch both refused and with fatal findings is 21;
 - **128+n** stopped by signal n (ruling 114).
 
-An engine's own status (an interactive session's, init's interview) is
-said in these classes, never passed through: 0 ok, 128+n the signal, any
-other failed (10).
+Each application error says its class in its `ExitClass` impl. An error
+wrapping another crate's says which it is: `AppError::Cause` (an adapter's:
+10) and `AppError::Declined` (`AppError::cause`, a read-model or write
+refusal: 20) in library- and deps-application; `SetupError::Classed` keeps
+a library error's own class. An engine's own status (an interactive
+session's, init's interview) is said in these classes by
+`Exit::from_child_status`, never passed through: 0 ok, 128+n the signal,
+any other failed (10).
 
 ## Remotes and dependencies (slice S3)
 

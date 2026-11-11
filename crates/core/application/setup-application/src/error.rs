@@ -17,8 +17,14 @@ pub const EN_US: (&str, &str) = (
 /// A command that did not complete.
 #[derive(Debug)]
 pub enum SetupError {
-    /// An error of the library or an adapter, as itself.
+    /// An adapter's error, as itself: something broke.
     Cause(Box<dyn Diagnostic>),
+    /// An error of the library, as itself, with the class it says of itself
+    /// (a library refusal declines, ruling 152).
+    Classed {
+        cause: Box<dyn Diagnostic>,
+        exit: Exit,
+    },
     /// `materialize` with no `--target` and no `--yes`.
     NoTarget { engines: String, dir: String },
     /// A `--target` that is a file.
@@ -46,23 +52,41 @@ pub enum SetupError {
 }
 
 impl SetupError {
-    /// An error of the library or an adapter, as itself.
+    /// An adapter's error, as itself.
     pub fn cause(error: impl Diagnostic + 'static) -> SetupError {
         SetupError::Cause(Box::new(error))
+    }
+
+    /// An error of the library, as itself, keeping the class it says.
+    pub fn classed(error: impl Diagnostic + ExitClass + 'static) -> SetupError {
+        let exit = error.exit();
+        SetupError::Classed {
+            cause: Box::new(error),
+            exit,
+        }
     }
 }
 
 impl ExitClass for SetupError {
-    /// How a command this ends exits: refused (20) before any state was
-    /// read, fatal findings (21), failed (10) otherwise.
+    /// How a command this ends exits (ruling 152): a library error's own
+    /// class; fatal findings (21) for the plan's that a strict run refuses
+    /// over; failed (10) when an adapter broke or a file could not be read;
+    /// refused (20) for every other, each a decline of the request.
     fn exit(&self) -> Exit {
         match self {
+            SetupError::Classed { exit, .. } => *exit,
+            SetupError::Refused { .. } => Exit::FATAL_FINDINGS,
+            SetupError::Cause(_) | SetupError::DiffFileUnreadable { .. } => Exit::FAILED,
             SetupError::NoTarget { .. }
+            | SetupError::TargetNotDirectory { .. }
             | SetupError::Request { .. }
             | SetupError::UnknownEngine { .. }
-            | SetupError::UnknownEvent { .. } => Exit::REFUSED,
-            SetupError::Refused { .. } => Exit::FATAL_FINDINGS,
-            _ => Exit::FAILED,
+            | SetupError::EngineNotApplied { .. }
+            | SetupError::EmptyContext { .. }
+            | SetupError::UnknownHookEngine { .. }
+            | SetupError::UnknownEvent { .. }
+            | SetupError::ConfigWrite { .. }
+            | SetupError::DiffFileMissing { .. } => Exit::REFUSED,
         }
     }
 }
@@ -78,7 +102,7 @@ impl std::error::Error for SetupError {}
 impl Diagnostic for SetupError {
     fn code(&self) -> &str {
         match self {
-            SetupError::Cause(cause) => cause.code(),
+            SetupError::Cause(cause) | SetupError::Classed { cause, .. } => cause.code(),
             SetupError::NoTarget { .. } => code!("no-target"),
             SetupError::TargetNotDirectory { .. } => code!("target-not-directory"),
             SetupError::Request { .. } => code!("request"),
@@ -96,7 +120,7 @@ impl Diagnostic for SetupError {
 
     fn args(&self) -> Vec<(&str, Arg)> {
         match self {
-            SetupError::Cause(cause) => cause.args(),
+            SetupError::Cause(cause) | SetupError::Classed { cause, .. } => cause.args(),
             SetupError::NoTarget { engines, dir } => {
                 vec![
                     ("engines", engines.as_str().into()),

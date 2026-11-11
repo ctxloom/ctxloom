@@ -44,7 +44,7 @@ fn ok<T>(outcome: crate::Outcome<T>) -> T {
 /// What a refusal says: its code and its English.
 fn refusal<T>(outcome: crate::Outcome<T>) -> (String, String) {
     match outcome.result {
-        Err(AppError::Cause(e)) => (e.code().to_string(), e.english()),
+        Err(AppError::Declined(e)) => (e.code().to_string(), e.english()),
         Err(other) => panic!("not a write refusal: {other:?}"),
         Ok(_) => panic!("not refused"),
     }

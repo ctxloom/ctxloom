@@ -238,7 +238,7 @@ fn test_execute_under_an_unknown_engine_is_refused_listing_the_known_ones() {
         "{}",
         &[],
     );
-    assert_eq!(ran.code, 10, "{}", ran.said());
+    assert_eq!(ran.code, 20, "{}", ran.said());
     assert_eq!(ran.stdout, "");
     let err = ran.err_json();
     assert_eq!(err["code"], "setup-application-unknown-hook-engine");

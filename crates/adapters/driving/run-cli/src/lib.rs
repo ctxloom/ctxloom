@@ -140,7 +140,7 @@ fn request_of(run: &ArgMatches, prompt: String) -> OneShot {
 /// `run` without `--one-shot`: the human's session. The engine is given her
 /// terminal, so nothing is read from standard input and nothing is printed
 /// here; what the plan noticed is said on the error stream, and the exit is
-/// the engine's, as ctxloom's classes say it ([`exit_of_engine`]).
+/// the engine's, as ctxloom's classes say it (`Exit::from_child_status`).
 pub fn session<S: RunService>(
     service: &mut S,
     run: &ArgMatches,
@@ -153,20 +153,7 @@ pub fn session<S: RunService>(
     let done = service.interactive(&call.globals, &request);
     say_notices(&done.notices, PROG, call.format(), catalog, err);
     let ended = done.result.map_err(failed)?;
-    Ok(exit_of_engine(ended.code))
-}
-
-/// The exit a session ends with, from its engine's status (rulings 152,
-/// 153): ok for 0, the signal for a shell's 128 plus a signal's number,
-/// failed (10) for any other status or none. An engine's own codes are not
-/// ctxloom's, so none is passed through as it is (its 1 would read as a
-/// success).
-fn exit_of_engine(code: Option<i32>) -> Exit {
-    match code {
-        Some(0) => Exit::OK,
-        Some(status @ 129..=255) => Exit::signal((status - 128) as u8),
-        _ => Exit::FAILED,
-    }
+    Ok(Exit::from_child_status(ended.code, None))
 }
 
 fn write_answer(format: Format, answer: &Answer, out: &mut dyn Write) -> io::Result<()> {

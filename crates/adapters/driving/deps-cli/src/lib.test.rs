@@ -170,7 +170,7 @@ fn test_remote_create_says_what_was_added_and_warns_of_a_clone_that_failed() {
         .expect("words")
         .starts_with("gone: clone failed: "));
     let refused = go(&fx, &["remote", "create", "again", URL], TEXT);
-    assert_eq!(refused.refused(), ("deps-same-repository", 10));
+    assert_eq!(refused.refused(), ("deps-same-repository", 20));
 }
 
 #[test]
@@ -195,7 +195,7 @@ fn test_remote_edit_reads_a_flag_given_even_when_it_is_empty() {
     let fx = Fixture::new();
     fx.register("origin", URL);
     let nothing = go(&fx, &["remote", "edit", "origin"], TEXT);
-    assert_eq!(nothing.refused(), ("deps-nothing-to-edit", 10));
+    assert_eq!(nothing.refused(), ("deps-nothing-to-edit", 20));
     let same = go(&fx, &["remote", "edit", "origin", "--name", "origin"], TEXT);
     assert_eq!(same.ok().out, "remote \"origin\" unchanged\n");
     let rebound = go(
@@ -259,11 +259,11 @@ fn test_remote_remove_previews_and_then_removes() {
     );
     assert_eq!(
         go(&fx, &["remote", "remove", "origin"], TEXT).refused(),
-        ("deps-application-no-remote-named", 10)
+        ("deps-application-no-remote-named", 20)
     );
     assert_eq!(
         go(&fx, &["remote", "remove", "origin", "-y"], JSON).refused(),
-        ("deps-remote-not-found", 10)
+        ("deps-remote-not-found", 20)
     );
 }
 
@@ -777,7 +777,7 @@ fn test_deps_check_of_one_reference() {
     );
     assert_eq!(
         go(&fx, &["deps", "check", "demo"], TEXT).refused(),
-        ("deps-application-not-remote-reference", 10)
+        ("deps-application-not-remote-reference", 20)
     );
 }
 
@@ -862,7 +862,7 @@ fn test_hold_and_unhold_say_what_they_did() {
     assert!(local.err.contains("nothing to hold"), "{}", local.err);
     assert_eq!(
         go(&fx, &["deps", "hold", "typo"], TEXT).refused(),
-        ("deps-application-nothing-to-hold", 10)
+        ("deps-application-nothing-to-hold", 20)
     );
 }
 
@@ -930,7 +930,7 @@ fn test_bundle_push_and_move_say_where_the_bundle_went() {
     );
     assert_eq!(
         go(&fx, &["bundle", "move", "ghost", "--to", "team"], JSON).refused(),
-        ("deps-application-bundle-not-found", 10)
+        ("deps-application-bundle-not-found", 20)
     );
 }
 
@@ -1156,10 +1156,10 @@ fn test_a_pull_with_yes_asks_for_the_write_and_carries_no_note() {
     assert!(json.json().get("refresh_skipped").is_none());
 }
 
-// behaviour-changes-0.7.0: a refused consented refresh exits 21, the pull
+// behaviour-changes-0.7.0: a refused consented refresh exits 20, the pull
 // having landed.
 #[test]
-fn test_a_pull_with_yes_whose_refresh_is_refused_exits_21_after_the_pull() {
+fn test_a_pull_with_yes_whose_refresh_is_refused_exits_20_after_the_pull() {
     let fx = Fixture::new();
     fx.origin("origin", URL);
     fx.profile("dev", &[&demo_ref()]);
@@ -1168,6 +1168,6 @@ fn test_a_pull_with_yes_whose_refresh_is_refused_exits_21_after_the_pull() {
         ..FakeRefresh::default()
     };
     let ran = go_refreshing(&fx, &refresh, &["deps", "pull", "--yes"], JSON);
-    assert_eq!(ran.refused(), ("deps-application-refresh-aborted", 21));
+    assert_eq!(ran.refused(), ("deps-application-refresh-aborted", 20));
     assert_eq!(ran.json()["installed"], 1);
 }

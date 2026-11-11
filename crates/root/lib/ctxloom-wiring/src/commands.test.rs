@@ -264,7 +264,7 @@ fn test_auth_status_reads_the_launch_environment_and_never_its_values() {
 fn test_doctor_fails_without_the_token_and_passes_with_it() {
     let mut world = World::new("doctor-credentials");
     let (code, out, _) = run_line(&mut world.commands(), &["doctor"]);
-    assert_eq!(code, 21);
+    assert_eq!(code, 20);
     assert!(out.contains("DOCTOR-CHECK-CREDENTIALS-m5"), "{out}");
     world.set("CLAUDE_CODE_OAUTH_TOKEN", "x");
     let (code, _, _) = run_line(&mut world.commands(), &["doctor"]);

@@ -141,11 +141,11 @@ fn test_a_session_start_with_no_harp_is_silent() {
 }
 
 #[test]
-fn test_a_hook_for_an_engine_nobody_knows_fails_with_exit_10() {
+fn test_a_hook_for_an_engine_nobody_knows_is_refused_with_exit_20() {
     let failure = run(&mut commands(), &["hook", "nosuch", "execute", "Stop"])
         .err()
         .unwrap();
-    assert_eq!(failure.exit, Exit::FAILED);
+    assert_eq!(failure.exit, Exit::REFUSED);
 }
 
 // `session list` runs on the sessions use cases over the world's home: no

@@ -392,9 +392,9 @@ fn doctor_prints_its_report_and_exits_zero_when_no_row_failed() {
 // doctor.feature: "A missing agent credential is a fail row with run's fix,
 // and exit 3": the whole report is written first.
 #[test]
-fn doctor_exits_fatal_findings_after_the_whole_report_when_a_credential_is_missing() {
+fn doctor_exits_refused_after_the_whole_report_when_a_credential_is_missing() {
     let r = go(&["doctor"], Format::Text, none);
-    assert_eq!(r.exit.unwrap(), Exit::FATAL_FINDINGS);
+    assert_eq!(r.exit.unwrap(), Exit::REFUSED);
     assert!(
         r.out.contains("[fail] DOCTOR-CHECK-CREDENTIALS-m5"),
         "{}",
@@ -403,7 +403,7 @@ fn doctor_exits_fatal_findings_after_the_whole_report_when_a_credential_is_missi
     assert!(r.out.contains("claude setup-token"), "{}", r.out);
     assert!(r.out.contains("DOCTOR-CHECK-INGESTION-q7") || r.out.contains("[warn]"));
     let json = go(&["doctor"], Format::Json, none);
-    assert_eq!(json.exit.unwrap(), Exit::FATAL_FINDINGS);
+    assert_eq!(json.exit.unwrap(), Exit::REFUSED);
     assert!(
         json.out
             .contains("\"marker\": \"DOCTOR-CHECK-CREDENTIALS-m5\""),
@@ -464,7 +464,7 @@ fn the_exit_of_a_report_is_three_only_when_a_row_failed() {
         exit_of(&Report {
             checks: vec![row(Status::Ok), row(Status::Fail)]
         }),
-        Exit::FATAL_FINDINGS
+        Exit::REFUSED
     );
 }
 

@@ -158,7 +158,7 @@ impl Setup {
             },
         );
         let notices = outcome.notices;
-        let package = outcome.result.map_err(SetupError::cause)?;
+        let package = outcome.result.map_err(SetupError::classed)?;
         let names = self.engines_of(request, &package.configured_engines)?;
         if !explicit && !request.yes {
             return Err(SetupError::NoTarget {

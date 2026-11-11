@@ -247,9 +247,10 @@ fn materialize(
     }
     emit(cx, out, &done.value, |w| text::materialize(w, &done.value))?;
     // A delivery that was refused leaves the file as it was, and the command
-    // failed: a script gating on the exit code must not believe it landed.
+    // is refused (ruling 152): a script gating on the exit code must not
+    // believe it landed.
     match done.value.failures.into_iter().next() {
-        Some(first) => Err(Failure::new(first, Exit::FAILED)),
+        Some(first) => Err(Failure::new(first, Exit::REFUSED)),
         None => Ok(Exit::OK),
     }
 }

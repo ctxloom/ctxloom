@@ -168,8 +168,13 @@ impl fmt::Display for WriteError {
 
 impl std::error::Error for WriteError {}
 
+/// A write that was refused declines the request (ruling 152); one whose
+/// ports were not wired broke.
 impl From<WriteError> for crate::AppError {
     fn from(error: WriteError) -> crate::AppError {
-        crate::AppError::cause(error)
+        match error {
+            WriteError::NotWired {} => crate::AppError::Cause(Box::new(error)),
+            refused => crate::AppError::cause(refused),
+        }
     }
 }

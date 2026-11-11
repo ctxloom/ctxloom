@@ -69,7 +69,7 @@ fn the_catalog_has_a_message_for_every_sample() {
 #[test]
 fn an_unreadable_configuration_exits_failed_with_its_causes_code_and_args() {
     let error = ReclaimError::Config(Box::new(bad_age()));
-    assert_eq!(error.exit(), Exit::FAILED);
+    assert_eq!(error.exit(), Exit::REFUSED);
     assert_eq!(error.code(), "reclaim-application-bad-age");
     assert_eq!(error.args().len(), 3);
 }

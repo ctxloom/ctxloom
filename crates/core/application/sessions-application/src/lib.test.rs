@@ -1044,7 +1044,7 @@ fn a_rename_onto_a_name_another_session_holds_is_refused_and_changes_nothing() {
     claim(svc.store(HERE), HERE, "brisk-copper-moth", &id_text(2)).unwrap();
     let error = ready(svc.rename(rename("amber-swift-owl", "brisk-copper-moth"))).unwrap_err();
     assert_eq!(error.code(), "sessions-names-taken");
-    assert_eq!(error.exit(), Exit::FAILED);
+    assert_eq!(error.exit(), Exit::REFUSED);
     assert!(svc.files.moves.is_empty());
     assert_eq!(holder(svc.store(HERE), HERE, "amber-swift-owl"), id_text(1));
     assert_eq!(

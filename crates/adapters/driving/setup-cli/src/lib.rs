@@ -11,7 +11,7 @@
 //! - `clean [--yes]`: reports the cache it would remove and says outright
 //!   that it removed nothing, until `--yes`.
 //! - `doctor [--all] [--deps] [--fix]`: one row per check, each with its
-//!   `DOCTOR-CHECK-*` marker; json is `{checks: [...]}`. Exit 21 when a row
+//!   `DOCTOR-CHECK-*` marker; json is `{checks: [...]}`. Exit 20 when a row
 //!   failed, after the whole report. The text report lists the warnings;
 //!   `--all` lists every check.
 //! - `init` and `init prompt` print text whatever the format: the prompt is
@@ -179,11 +179,12 @@ fn doctor(
     Ok(exit_of(&report))
 }
 
-/// The exit a report ends the run with: fatal findings (21) when a row
-/// failed.
+/// The exit a report ends the run with: refused (20) when a row failed, the
+/// status of the run's refusal that row guarantees (ruling 152: 21 is the run
+/// plan's fatal findings alone).
 fn exit_of(report: &doctor_checks::Report) -> Exit {
     if report.failed() {
-        Exit::FATAL_FINDINGS
+        Exit::REFUSED
     } else {
         Exit::OK
     }
@@ -277,20 +278,10 @@ fn init(
             .map_err(output)?;
             Exit::OK
         }
-        Outcome::Interrupted { code } | Outcome::Restarted { code } => exit_of_session(code),
+        Outcome::Interrupted { code } | Outcome::Restarted { code } => {
+            Exit::from_child_status(code, None)
+        }
     })
-}
-
-/// The exit a session ended with, from the engine's status: ok for 0, the
-/// signal for a shell's 128 plus a signal's number, failed (10) for any other
-/// status or none (a signal ended it unreported). An engine's own codes are
-/// not ctxloom's (rulings 152, 153), so none is passed through as it is.
-fn exit_of_session(code: Option<i32>) -> Exit {
-    match code {
-        Some(0) => Exit::OK,
-        Some(status @ 129..=255) => Exit::signal((status - 128) as u8),
-        _ => Exit::FAILED,
-    }
 }
 
 #[cfg(test)]

@@ -112,8 +112,9 @@ fn test_showing_an_unreadable_bundle_names_the_fault_and_a_missing_one_is_not_fo
     let unreadable = library.bundle_show(&plain(), "empty").result.unwrap_err();
     assert!(matches!(unreadable, AppError::BundleUnreadable { .. }));
     let missing = library.bundle_show(&plain(), "nosuch").result.unwrap_err();
-    assert!(matches!(missing, AppError::Cause(_)));
-    assert_eq!(missing.exit(), Exit::FAILED);
+    assert!(matches!(missing, AppError::Declined(_)));
+    // Ruling 152: a bundle nobody has declines the request.
+    assert_eq!(missing.exit(), Exit::REFUSED);
 }
 
 // config.feature / fault_tolerance.feature: an unknown key is refused naming

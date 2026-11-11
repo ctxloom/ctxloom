@@ -191,7 +191,7 @@ fn push_model(args: &mut Vec<String>, request: &TurnRequest) {
 }
 
 /// The program: the engine block's `command`, else `opencode` on the `PATH`.
-fn program(request: &TurnRequest) -> &str {
+pub(crate) fn program(request: &TurnRequest) -> &str {
     match request.settings.command.as_str() {
         "" => PROGRAM,
         configured => configured,
@@ -199,7 +199,7 @@ fn program(request: &TurnRequest) -> &str {
 }
 
 /// The command's whole environment.
-fn environment(
+pub(crate) fn environment(
     engine: &Opencode,
     request: &TurnRequest,
 ) -> Result<BTreeMap<String, String>, EngineError> {

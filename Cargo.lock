@@ -1418,9 +1418,14 @@ dependencies = [
  "agent-client-protocol",
  "file-system",
  "fixture-program",
+ "futures",
+ "getrandom 0.3.4",
  "mutants",
  "os",
  "run-ports",
+ "run-within",
+ "serde",
+ "serde_json",
  "surface-ports",
 ]
 

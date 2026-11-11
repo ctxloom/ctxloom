@@ -138,7 +138,7 @@ fn detail_of(error: &Json) -> String {
 }
 
 /// `text`, cut to [`STDERR_DETAIL`] bytes at a character boundary.
-fn bounded(text: &str) -> &str {
+pub(crate) fn bounded(text: &str) -> &str {
     let mut end = text.len().min(STDERR_DETAIL);
     while !text.is_char_boundary(end) {
         end -= 1;

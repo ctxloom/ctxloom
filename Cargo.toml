@@ -198,6 +198,9 @@ tokio = { version = "1", features = ["rt", "time"] }
 # official SDK, client side only, pinned exactly (a major every 1-3 months),
 # default features off: no `process` (run-within spawns) and no `unstable_*`.
 agent-client-protocol = { version = "=5.2.0", default-features = false }
+# Its connection is futures' (no runtime): engine-opencode runs it on
+# futures' executor, on a thread of the child's.
+futures = "0.3"
 uuid = { version = "1", features = ["v5", "v7"] }
 
 [workspace.lints.clippy]

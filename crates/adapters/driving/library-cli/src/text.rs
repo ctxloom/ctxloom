@@ -354,6 +354,9 @@ pub fn profile_list(out: &mut dyn Write, list: &ProfileList) -> io::Result<()> {
         if row.default {
             write!(out, " (default)")?;
         }
+        if !row.origin.is_empty() {
+            write!(out, " [built-in {}]", f(&row.origin))?;
+        }
         writeln!(out)?;
         if !row.description.is_empty() {
             writeln!(out, "    {}", row.description)?;
@@ -909,7 +912,18 @@ pub fn dry_run(out: &mut dyn Write, plan: &DryRun) -> io::Result<()> {
     writeln!(out, "\n=== Profiles ===")?;
     listed(out, &plan.profiles, "(no profiles)")?;
     writeln!(out, "\n=== Fragments Loaded ===")?;
-    listed(out, &plan.fragments, "(no fragments)")?;
+    let fragments: Vec<String> = plan
+        .fragments_listed
+        .iter()
+        .map(|item| {
+            if item.origin.is_empty() {
+                item.name.clone()
+            } else {
+                format!("{} [built-in {}]", item.name, f(&item.origin))
+            }
+        })
+        .collect();
+    listed(out, &fragments, "(no fragments)")?;
     writeln!(out, "\n=== Assembled Context (~{} tokens) ===", plan.tokens)?;
     if plan.context.is_empty() {
         writeln!(out, "(no context)")?;

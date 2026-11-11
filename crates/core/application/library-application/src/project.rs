@@ -305,9 +305,19 @@ impl Project {
     /// bundle): a built-in bundle's item by its bundle's name, under the
     /// built-in origin; any other as it is.
     pub(crate) fn listed(&self, reference: &str) -> crate::views::Listed {
-        crate::views::Listed {
-            name: reference.to_string(),
-            origin: String::new(),
+        let built_in = reference.strip_prefix("ctxloom+local:").filter(|rest| {
+            let bundle = rest.split_once('#').map_or(*rest, |(bundle, _)| bundle);
+            self.catalog.is_builtin(bundle)
+        });
+        match built_in {
+            Some(name) => crate::views::Listed {
+                name: name.to_string(),
+                origin: library::builtin::ORIGIN.to_string(),
+            },
+            None => crate::views::Listed {
+                name: reference.to_string(),
+                origin: String::new(),
+            },
         }
     }
 

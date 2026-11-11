@@ -157,6 +157,40 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
       And the output does not contain "DOCTOR-CHECK-AGENTS-b2"
       And the output does not contain "DOCTOR-CHECK-HOOKS-TRUST-d4"
 
+    # The identity is the one git commits with in the project, asked of git in
+    # her own environment (owner ruling 112's, which a session home is seeded
+    # with): her HOME's configuration, not ctxloom's home's, which
+    # CTXLOOM_HOME may put elsewhere.
+    Scenario: The git identity is hers, read where git reads it, wherever ctxloom's home is
+      # new: the owner's first use, under CTXLOOM_HOME, was told git had no
+      # identity because doctor read <ctxloom home>/.gitconfig
+      Given an initialized ctxloom project
+      And the home already has the file ".gitconfig":
+        """
+        [user]
+          name = Alice
+          email = alice@example.com
+        """
+      And ctxloom's home is "ctxloom-home" in her home
+      When I run "ctxloom doctor --deps --all --format text"
+      Then the command succeeds
+      And the output contains "git is on the PATH and has an identity"
+      And the output does not contain "has no identity"
+
+    Scenario: A .gitconfig in ctxloom's home is no identity of hers
+      # new: the converse; git never reads ctxloom's home
+      Given an initialized ctxloom project
+      And ctxloom's home is "ctxloom-home" in her home
+      And the home already has the file "ctxloom-home/.gitconfig":
+        """
+        [user]
+          name = Nobody
+          email = nobody@example.com
+        """
+      When I run "ctxloom doctor --deps --format text"
+      Then the command succeeds
+      And the output contains "git is there but has no identity"
+
   Rule: A finding is reported at full volume and still exits 0
 
     A blanket `.ctxloom` ignore rule predates version-controlled content moving

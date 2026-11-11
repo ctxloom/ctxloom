@@ -248,6 +248,56 @@ fn launched_with(w: &mut World, flag: String, value: String) {
     );
 }
 
+/// The last launch was never handed `flag` (the stub records each argument
+/// on a line of its own).
+#[then(expr = "the assistant was launched without {string}")]
+fn launched_without(w: &mut World, flag: String) {
+    let record = w.launch_record();
+    assert!(!record.is_empty(), "no assistant was launched");
+    assert!(
+        !record.lines().any(|line| line == flag),
+        "the launch was handed {flag}: {record}"
+    );
+}
+
+/// The settings file the last launch was handed with `--settings`, parsed.
+fn handed_settings(w: &World) -> serde_json::Value {
+    let record = w.launch_record();
+    let lines: Vec<&str> = record.lines().collect();
+    let path = lines
+        .iter()
+        .rposition(|line| *line == "--settings")
+        .and_then(|at| lines.get(at + 1))
+        .unwrap_or_else(|| panic!("the launch was handed no --settings: {record}"));
+    let text = files::read(path).unwrap_or_else(|e| panic!("reading {path}: {e}"));
+    serde_json::from_str(&text).unwrap_or_else(|e| panic!("{path} is not JSON ({e}): {text}"))
+}
+
+/// Owner rulings 135, 137: the settings claude was handed hold, as their
+/// `permissions`, exactly the document `want` (JSON).
+#[then(expr = "the assistant's settings hold the permissions {string}")]
+fn settings_hold_permissions(w: &mut World, want: String) {
+    let want: serde_json::Value = serde_json::from_str(&want).expect("the step's JSON");
+    let settings = handed_settings(w);
+    assert_eq!(settings.get("permissions"), Some(&want), "{settings}");
+}
+
+/// ctxloom's own keys of the handed settings are never overwritten by the
+/// passthrough: its hooks still call `ctxloom hook claude-code execute`.
+#[then("the assistant's settings still register ctxloom's hooks")]
+fn settings_keep_hooks(w: &mut World) {
+    let settings = handed_settings(w);
+    let hooks = settings
+        .get("hooks")
+        .and_then(serde_json::Value::as_object)
+        .unwrap_or_else(|| panic!("no hooks: {settings}"));
+    assert!(!hooks.is_empty(), "no hook registered: {settings}");
+    assert!(
+        settings.to_string().contains("claude-code"),
+        "the hooks are not ctxloom's: {settings}"
+    );
+}
+
 #[then("her assistant was handed none of ctxloom's own prompts")]
 fn handed_no_operational_prompt(w: &mut World) {
     let record = w.launch_record();

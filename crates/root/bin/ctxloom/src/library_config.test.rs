@@ -174,7 +174,9 @@ fn test_the_retired_config_booleans_are_refused_and_their_words_read() {
         ),
         ("config:\n  statusline: false\n", "config.statusline"),
         ("sync:\n  auto_sync: true\n", "sync.auto_sync"),
-        ("permissions:\n  network: false\n", "permissions.network"),
+        // Owner ruling 134: the neutral posture is gone whole, so its
+        // section is the unknown key.
+        ("permissions:\n  network: none\n", "permissions"),
         ("output_dir: /var/out\n", "output_dir"),
     ] {
         project.write(".ctxloom/config.yaml", &format!("schema_version: 9\n{doc}"));
@@ -188,7 +190,7 @@ fn test_the_retired_config_booleans_are_refused_and_their_words_read() {
     }
     project.write(
         ".ctxloom/config.yaml",
-        "schema_version: 9\nconfig:\n  content_form: original\n  statusline: none\nsync:\n  on_run: none\npermissions:\n  network: none\noutput:\n  dir: docs/sessions\n",
+        "schema_version: 9\nconfig:\n  content_form: original\n  statusline: none\nsync:\n  on_run: none\noutput:\n  dir: docs/sessions\n",
     );
     let doc = project
         .run(&["config", "show", "--format", "json"])
@@ -197,7 +199,6 @@ fn test_the_retired_config_booleans_are_refused_and_their_words_read() {
     assert_eq!(reports_as(&doc, "config.content_form"), "original");
     assert_eq!(reports_as(&doc, "config.statusline"), "none");
     assert_eq!(reports_as(&doc, "sync.on_run"), "none");
-    assert_eq!(reports_as(&doc, "permissions.network"), "none");
     assert_eq!(reports_as(&doc, "output.dir"), "docs/sessions");
 }
 

@@ -104,8 +104,8 @@ fn test_a_binding_is_written_with_sorted_keys_and_the_rest_of_the_file_is_kept()
             "dev,dev-base",
             "--runtime",
             "container-rootless",
-            "--permissions",
-            "plan",
+            "--model",
+            "haiku",
             "--surface",
             "context=system-prompt",
             "--root",
@@ -123,7 +123,7 @@ fn test_a_binding_is_written_with_sorted_keys_and_the_rest_of_the_file_is_kept()
             "agents:\n",
             "  dev2:\n",
             "    engine: claude-code\n",
-            "    engines:\n      claude-code:\n        permissions:\n          mode: plan\n",
+            "    engines:\n      claude-code:\n        model: haiku\n",
             "    env:\n      - A\n      - B\n",
             "    profiles:\n      - dev\n      - dev-base\n",
             "    roots:\n      mcp: project-root\n",
@@ -144,7 +144,8 @@ fn test_a_binding_is_written_with_sorted_keys_and_the_rest_of_the_file_is_kept()
         .json();
     assert_eq!(reports_as(&doc, "name"), "dev3");
     assert!(contains_value(&doc, "profiles", "dev"));
-    assert_eq!(doc["permissions"], serde_json::json!({}));
+    // Owner ruling 134: an agent has no engine-neutral posture any more.
+    assert_eq!(doc.get("permissions"), None, "{doc}");
     let text = project.run(&[
         "agent",
         "edit",
@@ -156,7 +157,7 @@ fn test_a_binding_is_written_with_sorted_keys_and_the_rest_of_the_file_is_kept()
     ]);
     assert_eq!(
         text.stdout,
-        "Updated agent \"dev2\" (engine: claude-code, profiles: dev, dev-base, runtime: host, engines.claude-code: {permissions: {mode: plan}}, env: A, B)\n"
+        "Updated agent \"dev2\" (engine: claude-code, profiles: dev, dev-base, runtime: host, engines.claude-code: {model: haiku}, env: A, B)\n"
     );
 }
 
@@ -238,8 +239,8 @@ fn test_an_edit_naming_only_runtime_leaves_every_other_axis_intact() {
                 "dev,ops",
                 "--runtime",
                 "host",
-                "--permissions",
-                "plan",
+                "--model",
+                "haiku",
             ])
             .succeeds();
         let ran = with_flags(
@@ -259,7 +260,7 @@ fn test_an_edit_naming_only_runtime_leaves_every_other_axis_intact() {
                 .contains("runtime: container-rootless")
                 .contains("engine: claude-code")
                 .contains("profiles: dev, ops")
-                .contains("engines.claude-code: {permissions: {mode: plan}}");
+                .contains("engines.claude-code: {model: haiku}");
         } else {
             assert_eq!(reports_as(&ran.json(), "name"), "developer");
         }
@@ -275,11 +276,8 @@ fn test_an_edit_naming_only_runtime_leaves_every_other_axis_intact() {
         assert!(contains_value(&listed, "[name=developer].profiles", "dev"));
         assert!(contains_value(&listed, "[name=developer].profiles", "ops"));
         assert_eq!(
-            reports_as(
-                &listed,
-                "[name=developer].engines.claude-code.permissions.mode"
-            ),
-            "plan"
+            reports_as(&listed, "[name=developer].engines.claude-code.model"),
+            "haiku"
         );
     }
 }
@@ -393,8 +391,9 @@ fn test_there_is_no_flag_that_gives_an_agent_an_auth_mode() {
 
 // operations.SetAgent (documented conditions): what an agent write refuses
 // and writes nothing for: an engine nothing defines, a runtime that is not
-// an axis, a permission mode its engine does not take, a binding with neither
-// an engine nor a profile, an env that would not do what it says.
+// an axis, a binding with neither an engine nor a profile, an env that would
+// not do what it says, and the `--permissions` flag, which is gone (owner
+// ruling 138: the engine's own document is written in the config).
 #[test]
 fn test_an_agent_write_refuses_what_it_cannot_honour_and_writes_nothing() {
     let project = with_dev();
@@ -411,13 +410,24 @@ fn test_an_agent_write_refuses_what_it_cannot_honour_and_writes_nothing() {
         .succeeds();
     let before = project.read(CONFIG);
     for (args, said) in [
-        (vec!["--engine", "nosuch"], "unknown engine \"nosuch\"; valid engines: "),
-        (vec!["--runtime", "weird"], "unknown runtime axis \"weird\" (known: host|container-rootless|container-rootful)"),
-        (vec!["--permissions", "weird"], "mode \"weird\" is not a claude mode (known: default|acceptEdits|plan|bypassPermissions)"),
-        (vec!["--permissions", "bypass"], "mode \"bypass\" is declared as mode: bypassPermissions"),
-        (vec!["--engine", "", "--profiles", ""], "an agent needs an engine or at least one profile"),
+        (
+            vec!["--engine", "nosuch"],
+            "unknown engine \"nosuch\"; valid engines: ",
+        ),
+        (
+            vec!["--runtime", "weird"],
+            "unknown runtime axis \"weird\" (known: host|container-rootless|container-rootful)",
+        ),
+        (vec!["--permissions", "plan"], "unknown flag: --permissions"),
+        (
+            vec!["--engine", "", "--profiles", ""],
+            "an agent needs an engine or at least one profile",
+        ),
         (vec!["--env", "A=1"], "A=1"),
-        (vec!["--root", "context=bogus"], "\"bogus\" is not a root (session-home, project-root, work-dir)"),
+        (
+            vec!["--root", "context=bogus"],
+            "\"bogus\" is not a root (session-home, project-root, work-dir)",
+        ),
         (vec!["--surface", "context=nosuch"], "context=nosuch"),
     ] {
         let mut all = vec!["agent", "edit", "dev2"];
@@ -425,19 +435,6 @@ fn test_an_agent_write_refuses_what_it_cannot_honour_and_writes_nothing() {
         project.run(&all).fails().contains(said);
         assert_eq!(project.read(CONFIG), before, "{args:?} wrote something");
     }
-    // A permission mode needs the engine it is checked against.
-    project
-        .run(&[
-            "agent",
-            "create",
-            "noengine",
-            "--profiles",
-            "dev",
-            "--permissions",
-            "plan",
-        ])
-        .fails()
-        .contains("set --engine in the same command");
     project
         .run(&["agent", "create", "empty"])
         .fails()
@@ -654,37 +651,32 @@ fn test_removing_a_binding_nobody_defined_fails_rather_than_reporting_success() 
 #[test]
 fn test_the_listing_and_the_write_summary_show_the_engine_blocks_in_the_config_s_shape() {
     let project = with_dev();
+    // Owner ruling 138: the permissions block is written in the config by
+    // hand; ruling 139: whatever shows it says it is passed on verbatim.
+    project.write(
+        CONFIG,
+        "schema_version: 9\nagents:\n  reviewer:\n    engine: claude-code\n    profiles:\n      - dev\n    engines:\n      claude-code:\n        permissions:\n          defaultMode: plan\n",
+    );
     let ran = project.run(&[
-        "agent",
-        "create",
-        "reviewer",
-        "--engine",
-        "claude-code",
-        "--model",
-        "haiku",
-        "--permissions",
-        "plan",
-        "--profiles",
-        "dev",
-        "--format",
-        "text",
+        "agent", "edit", "reviewer", "--model", "haiku", "--format", "text",
     ]);
     ran.succeeds();
     assert_eq!(
         ran.stdout,
-        "Created agent \"reviewer\" (engine: claude-code, profiles: dev, engines.claude-code: {model: haiku, permissions: {mode: plan}})\n"
+        "Updated agent \"reviewer\" (engine: claude-code, profiles: dev, engines.claude-code: {model: haiku, permissions: {defaultMode: plan}}, permissions passed to claude-code verbatim; ctxloom does not check it)\n"
     );
     project
         .run(&["agent", "list", "--format", "text"])
         .succeeds()
-        .contains("  reviewer (engine: claude-code)\n    profiles: dev\n    engines.claude-code: {model: haiku, permissions: {mode: plan}}\n")
+        .contains("  reviewer (engine: claude-code)\n    profiles: dev\n    engines.claude-code: {model: haiku, permissions: {defaultMode: plan}}\n      permissions passed to claude-code verbatim; ctxloom does not check it\n")
         .lacks("claude-code={mode=plan}");
     let listed = project.run(&["agent", "list", "--format", "json"]).json();
     assert_eq!(
         listed[0]["engines"],
-        serde_json::json!({"claude-code": {"model": "haiku", "permissions": {"mode": "plan"}}})
+        serde_json::json!({"claude-code": {"model": "haiku", "permissions": {"defaultMode": "plan"}}})
     );
-    assert_eq!(listed[0]["permissions"], serde_json::json!({}));
+    // Owner ruling 134: no engine-neutral posture is listed.
+    assert!(listed[0].get("permissions").is_none(), "{listed}");
     assert!(listed[0].get("model").is_none(), "{listed}");
 }
 

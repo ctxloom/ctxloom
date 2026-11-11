@@ -42,9 +42,12 @@ feature file; it belongs in git history.
 ### Names (vocabulary doc §1-5)
 - **engine** is only the program: claude-code, opencode, mock. It is a fixed set; an engine has
   many agents.
-  - Model, effort and permissions are per-engine defaults in an `engines:` config block
-    (`config set engines.claude-code.model opus`), overridden per agent (`--model`, `--effort`,
-    `--permissions`).
+  - Model, effort and permissions are an agent's, per engine, in its block
+    `agents.<n>.engines.<e>` (rulings 57, 136); `--model` and `--effort` write them.
+  - **Permissions are the engine's own document** (owner rulings 133-139): the block's
+    `permissions` is copied verbatim, unchecked, into claude's `--settings` `permissions`
+    and opencode's `opencode.json` `permission`; no `--permission-mode` flag, no ctxloom
+    mode list, no `--permissions` flag. See `docs/config/permissions.md`.
   - A read-only `ctxloom engine` noun (`list`, `show <engine>`) shows each engine's effective
     defaults and the surfaces and hook events it carries.
   - The `llm` noun, its labels (`claude-fast`, `big`), `--llm`, `--backend` and `--type` (for
@@ -147,15 +150,15 @@ feature file; it belongs in git history.
 - **Words, never booleans** (owner rulings 59, 60, 106, 108; hard migrate, no alias):
   `config.content_form: distilled|original` (was `use_distilled`), `config.statusline:
   ctxloom|none`, `sync.on_run: none|missing` (was `auto_sync`; default `missing`: a run
-  installs what its profiles reference and is not installed), `permissions.network:
-  none|open` (default `open`); `config.silence_unsupported` is deleted.
+  installs what its profiles reference and is not installed); `config.silence_unsupported`
+  is deleted.
 - **Outputs** (rulings 89, 106): `output.dir` (default `ctxloom/`, relative to the project
   root, absolute allowed, not gitignored) holds each session's `<harp>/` folder; a first
   init at a terminal asks for it.
-- **Posture** (rulings 59, 109): a launch refuses (`runs-unenforced-posture`) a `network`
-  or `sandbox` word that claims more than its runtime enforces. The honest defaults are
-  `network: open` and `sandbox: full`; no runtime enforces `none`, `read-only` or
-  `workspace-write` yet.
+- **No posture of ctxloom's own** (ruling 134, superseding 59, 70, 106-109 and 125 as far
+  as permissions go): `permissions.approver`, `approval_timeout`, `sandbox` and `network`
+  are deleted at project and agent level (unknown keys, refused), and with them the
+  launch's `runs-unenforced-posture` check. `runtime` stays, as process isolation.
 
 ### Content
 

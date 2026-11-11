@@ -349,9 +349,12 @@ Feature: init — the setup interview, and what it does to a project that alread
     a child's worktree is carved from it, reaching the parent's branch only
     once the child has started; the child's on its own branch when its run
     ends), and,
-    in another, which headless posture the default agent takes and how to
-    change it. The project it leaves has a default agent whose headless runs
-    accept file edits without asking.
+    in another, which permissions document the default agent's engine is
+    given and where to change it (its block in the config,
+    `agents.default.engines.<e>.permissions`, passed to the engine verbatim;
+    owner rulings 133-139). The project it leaves has a default agent whose
+    claude runs accept file edits without asking (ctxloom's default document,
+    `{defaultMode: acceptEdits}`).
 
     Init asks where a session's outputs go (`output.dir`), suggesting
     `ctxloom/` in the project and saying it is not gitignored, so what a
@@ -379,9 +382,9 @@ Feature: init — the setup interview, and what it does to a project that alread
       Then init told her which engine it chose, "Using claude-code (only available engine)"
       And no engine ran during the interview
       And the file ".ctxloom/config.yaml" contains "type: claude-code"
-      And the default agent's headless posture is "acceptEdits"
+      And the default agent's claude permissions are '{"defaultMode": "acceptEdits"}'
       And init's terminal output says "Delegation commits: before a delegated agent's worktree is carved"
-      And init's terminal output says "ctxloom agent edit default --permissions <posture>"
+      And init's terminal output says "agents.default.engines.claude-code.permissions"
 
     Scenario: A first init adds the companions she names, and refuses one she does not have
       # new: init offers to add companions by name.

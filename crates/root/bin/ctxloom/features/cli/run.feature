@@ -993,80 +993,47 @@ Feature: run — assembling a project's context and handing it to an engine
       Then the command succeeds
       And the session that answered is ended and says when it ended
 
-  # Owner rulings 59 and 109: a posture is a claim about the fence around the
-  # agent, and a launch refuses one that claims more than its runtime
-  # enforces. Today every run is launched on the host, which fences neither
-  # the network nor the files, so `network: none` and a restrictive `sandbox`
-  # (`read-only`, `workspace-write`) are refused before anything starts; the
-  # honest words, `network: open` (the default) and `sandbox: full` (no
-  # sandbox, the default), run. The refusal is the run's own, and joins
-  # `runs-launch-refused` with the other checks.
-  Rule: A launch refuses a posture its runtime does not enforce
+  # Owner rulings 133-139 (2026-11-11): permissions are per engine, in the
+  # engine's own words. ctxloom has no posture of its own any more: the
+  # engine-neutral `permissions.approver`, `approval_timeout`, `sandbox` and
+  # `network` are gone (ruling 134, unknown keys, refused like any other), and
+  # with them the launch's check of a posture against its runtime
+  # (`runs-unenforced-posture`).
+  Rule: The engine-neutral posture keys are gone
 
-    Scenario: A child run that claims no network on the host is refused, naming the honest word
-      # new: owner rulings 59, 109.
+    Scenario Outline: A neutral posture key is an unknown key, at the project and on an agent
+      # new: owner ruling 134 (hard migrate, no alias)
       Given Alice has a project that has never used ctxloom
       And Alice has set ctxloom up in her project
-      When Alice runs a child agent that claims it cannot reach the network:
+      When Alice runs a child agent with a posture key ctxloom no longer has:
         """
-        ctxloom --config-set permissions.network=none run --one-shot hello
+        ctxloom --config-set <path>=<value> run --one-shot hello
         """
       Then the command exits with code 2
-      And the refusal is "runs-unenforced-posture"
-      And the refusal's fix says "permissions.network: open"
+      And the output contains "unknown key `<unknown>"
       And no assistant was launched
 
-    Scenario: Her session that claims a read-only sandbox on the host is refused
-      # new: owner rulings 59, 109.
-      Given Alice has a project that has never used ctxloom
-      And Alice has set ctxloom up in her project
-      When Alice starts her session claiming a read-only sandbox:
-        """
-        ctxloom --config-set permissions.sandbox=read-only run
-        """
-      Then the command exits with code 2
-      And the refusal is "runs-unenforced-posture"
-      And the refusal's fix says "permissions.sandbox: full"
-      And no assistant was launched
+      Examples:
+        | path                               | value     | unknown                    |
+        | permissions.network                | none      | permissions                |
+        | permissions.sandbox                | read-only | permissions                |
+        | permissions.approver               | human     | permissions                |
+        | permissions.approval_timeout       | 90s       | permissions                |
+        | agents.default.permissions.network | open      | agents.default.permissions |
 
-    Scenario: An unenforced posture joins the other failed checks
-      # new: owner rulings 73b, 109.
-      Given Alice has a project that has never used ctxloom
-      And Alice has set ctxloom up in her project
-      When Alice runs a child agent on an engine that does not exist, claiming no network:
-        """
-        ctxloom --config-set permissions.network=none run --one-shot --engine bogus-engine hello
-        """
-      Then the command exits with code 2
-      And the refusal is "runs-launch-refused"
-      And the refusals are "runs-unknown-engine, runs-unenforced-posture"
-      And no assistant was launched
+  # Owner rulings 135, 137: an agent's `agents.<n>.engines.claude-code.
+  # permissions` IS claude's own permissions document, copied verbatim and not
+  # checked by ctxloom. It is the `permissions` object of the settings file
+  # ctxloom already hands claude with `--settings` (the session's, which holds
+  # ctxloom's hooks); the hooks stay as ctxloom wrote them. No
+  # `--permission-mode` is passed (ruling 137 retires ruling 116's flag):
+  # claude's mode is the document's `defaultMode`. An agent with no block runs
+  # on ctxloom's default document for claude, `{defaultMode: acceptEdits}`; a
+  # block she writes replaces it whole.
+  Rule: The agent's claude permissions reach claude verbatim, in the settings it is handed
 
-    Scenario: The honest words run
-      # new: owner rulings 59, 109.
-      Given Alice has a project that has never used ctxloom
-      And Alice has set ctxloom up in her project
-      When Alice runs a child agent saying what the host gives:
-        """
-        ctxloom --config-set permissions.network=open --config-set permissions.sandbox=full run --one-shot hello
-        """
-      Then the command succeeds
-      And an assistant was launched
-
-  Rule: The agent's permission mode reaches claude, and a mode claude does not take is refused before it starts
-
-    An agent's claude permission mode (`agents.<n>.engines.claude-code.
-    permissions.mode`, `acceptEdits` when nobody set one) is passed to claude
-    as `--permission-mode <mode>`, a child's turn and her interactive session
-    alike (owner ruling 116). ctxloom's own words govern (owner ruling 125):
-    default, acceptEdits, plan and bypassPermissions, the words a write
-    takes; `default` is claude's own default, passed as no flag. Any other
-    mode is refused before claude is started, in the write's own words: a
-    retired spelling (`auto`, `dontAsk`) is pointed at the approver it is
-    now, and claude's other words (`manual`) are not ctxloom's.
-
-    Scenario: A child's turn runs in the default agent's permission mode
-      # new: owner ruling 116 (2026-11-11).
+    Scenario: A child's turn on the default agent runs on ctxloom's default document
+      # new: owner rulings 133, 137 (2026-11-11)
       Given Alice has a project that has never used ctxloom
       And Alice has set ctxloom up in her project
       When Alice runs a child agent on her default agent:
@@ -1074,40 +1041,32 @@ Feature: run — assembling a project's context and handing it to an engine
         ctxloom run --one-shot hello
         """
       Then the command succeeds
-      And the assistant was launched with "--permission-mode" "acceptEdits"
+      And the assistant's settings hold the permissions '{"defaultMode": "acceptEdits"}'
+      And the assistant's settings still register ctxloom's hooks
+      And the assistant was launched without "--permission-mode"
 
-    Scenario: Her session runs in the permission mode she chose
-      # new: owner ruling 116 (2026-11-11).
+    Scenario: Her session runs on the document she wrote, as she wrote it
+      # new: owner rulings 135, 137 (2026-11-11)
       Given Alice has a project that has never used ctxloom
       And Alice has set ctxloom up in her project
-      When Alice starts her session in plan mode:
+      When Alice starts her session in plan mode, with two rules of claude's:
         """
-        ctxloom --config-set agents.default.engines.claude-code.permissions.mode=plan run
+        ctxloom --config-set agents.default.engines.claude-code.permissions.defaultMode=plan --config-set agents.default.engines.claude-code.permissions.allow=Read,Grep run
         """
       Then the command succeeds
-      And the assistant was launched with "--permission-mode" "plan"
+      And the assistant's settings hold the permissions '{"defaultMode": "plan", "allow": ["Read", "Grep"]}'
+      And the assistant's settings still register ctxloom's hooks
+      And the assistant was launched without "--permission-mode"
 
-    Scenario: A retired spelling of a mode is refused before claude starts, naming the approver it is now
-      # new: owner rulings 116, 125 (2026-11-11).
+    Scenario: A word ctxloom does not know is passed on unchecked
+      # new: owner ruling 135 (a typo reaches the engine, the accepted cost);
+      # this replaces ruling 125's refusal of a mode ctxloom did not have.
       Given Alice has a project that has never used ctxloom
       And Alice has set ctxloom up in her project
-      When Alice runs a child agent in a retired mode:
+      When Alice runs a child agent with the mode key ctxloom used to have:
         """
         ctxloom --config-set agents.default.engines.claude-code.permissions.mode=auto run --one-shot hello
         """
-      Then the command exits with code 1
-      And the output contains "is declared as approver: reviewer"
-      And no assistant was launched
-
-    Scenario: A mode that is claude's but not ctxloom's is refused before claude starts
-      # new: owner ruling 125 (2026-11-11).
-      Given Alice has a project that has never used ctxloom
-      And Alice has set ctxloom up in her project
-      When Alice starts her session in a mode ctxloom does not have:
-        """
-        ctxloom --config-set agents.default.engines.claude-code.permissions.mode=manual run
-        """
-      Then the command exits with code 1
-      And the output contains "manual"
-      And the output contains "is not a claude mode (known: default|acceptEdits|plan|bypassPermissions)"
-      And no assistant was launched
+      Then the command succeeds
+      And the assistant's settings hold the permissions '{"mode": "auto"}'
+      And the assistant was launched without "--permission-mode"

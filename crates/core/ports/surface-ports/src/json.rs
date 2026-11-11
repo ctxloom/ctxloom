@@ -123,7 +123,8 @@ impl Json {
     /// The document on one line, with no whitespace between tokens: a line of
     /// a JSON-lines stream (a newline in a string is written `\n`).
     pub fn compact(&self) -> String {
-        unimplemented!("RED: diabolic-karate")
+        // As `pretty`: writing a `Json` cannot fail.
+        serde_json::to_string(self).unwrap_or_default()
     }
 }
 

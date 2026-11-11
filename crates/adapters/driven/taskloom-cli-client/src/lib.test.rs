@@ -449,9 +449,17 @@ const GONE_BOUND: Duration = Duration::from_secs(10);
 /// taskloom, not its descendants: a helper dies when the kernel next runs it,
 /// which can be just after the run returned (it was caught in state `R`), so
 /// one look at that instant can see a helper that is already doomed.
-fn gone_within(pid: &str, _bound: Duration, mut look: impl FnMut(&str) -> bool) -> bool {
-    // RED: one look at the instant the run returned, the check that raced.
-    look(pid)
+fn gone_within(pid: &str, bound: Duration, mut look: impl FnMut(&str) -> bool) -> bool {
+    let until = Instant::now() + bound;
+    loop {
+        if look(pid) {
+            return true;
+        }
+        if Instant::now() >= until {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
 }
 
 // The interleaving that failed under load, forced: the helper is seen alive

@@ -61,6 +61,10 @@ pub struct LaunchRequest {
     pub prompt: String,
     /// How many open children the owner may hold.
     pub delegation_limit: u32,
+    /// The child session's stable id, as UUID text: the caller's mint, so
+    /// what it hands the user daemon for the child is keyed by it (D-N45).
+    /// Empty mints one.
+    pub session: String,
 }
 
 /// What an orchestration command did.
@@ -212,7 +216,10 @@ where
             .read
             .find(request.project.as_deref(), &request.owner)
             .await?;
-        let child = fresh(&self.clock.command_id());
+        let child = match request.session.is_empty() {
+            true => fresh(&self.clock.command_id()),
+            false => request.session.clone(),
+        };
         let command = LaunchChild {
             child_project_id: project.id.clone(),
             child_session: child.clone(),

@@ -543,6 +543,72 @@ fn show_lists_the_pending_messages_after_the_record() {
     assert!(!none.out.contains("pending:"), "{}", none.out);
 }
 
+fn child_ref(id: &str) -> sessions_application::Child {
+    sessions_application::Child {
+        session: Some(sessions_application::SessionRef {
+            project_id: "p1".to_string(),
+            session: id.to_string(),
+        }),
+        root: id.to_string(),
+    }
+}
+
+// D-N35, in text as in json: the owner link, the close and the children held,
+// each left out when unset.
+#[test]
+fn show_in_text_names_the_owner_the_close_and_the_children() {
+    let mut v = view("amber-swift-owl", State::Ended);
+    v.record.owner = Some(sessions_application::SessionRef {
+        project_id: "p1".to_string(),
+        session: "owner-id".to_string(),
+    });
+    v.record.closed = true;
+    v.record.children = vec![child_ref("child-1"), child_ref("child-2")];
+    v.pending = vec![pending("m1", sessions_application::Urgency::Wake, "go on")];
+    let mut fake = Fake {
+        views: vec![v],
+        ..Fake::default()
+    };
+    let ran = go(&mut fake, Format::Text, &["show", "amber-swift-owl"]);
+    assert!(
+        ran.out.ends_with(
+            "owner:    owner-id\nclosed:   yes\nchildren: 2 held\n  child-1\n  child-2\npending:  1 message no turn has carried yet\n  m1 (wake): go on\n"
+        ),
+        "{}",
+        ran.out
+    );
+    let none = go(
+        &mut Fake {
+            views: vec![view("amber-swift-owl", State::Ended)],
+            ..Fake::default()
+        },
+        Format::Text,
+        &["show", "amber-swift-owl"],
+    );
+    for absent in ["owner:", "closed:", "children:"] {
+        assert!(!none.out.contains(absent), "{absent}: {}", none.out);
+    }
+}
+
+#[test]
+fn show_in_json_names_the_owner_the_close_and_the_children() {
+    let mut v = view("amber-swift-owl", State::Ended);
+    v.record.owner = Some(sessions_application::SessionRef {
+        project_id: "p1".to_string(),
+        session: "owner-id".to_string(),
+    });
+    v.record.closed = true;
+    v.record.children = vec![child_ref("child-1")];
+    let mut fake = Fake {
+        views: vec![v],
+        ..Fake::default()
+    };
+    let doc = json_of(&go(&mut fake, Format::Json, &["show", "amber-swift-owl"]));
+    assert_eq!(doc["owner"], "owner-id");
+    assert_eq!(doc["closed"], true);
+    assert_eq!(doc["children"], json!(["child-1"]));
+}
+
 #[test]
 fn show_in_json_lists_the_pending_messages_and_leaves_out_none() {
     let mut v = view("amber-swift-owl", State::Ended);

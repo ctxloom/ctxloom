@@ -39,7 +39,8 @@ use run_ports::{
 };
 use runs::{RunMode, TurnUrgency};
 use runs_application::{
-    EnqueueRequest, Enqueuer, Evidence, Facts, Identity, OrchestratorGate, Principal, RunnerFact,
+    EnqueueError, EnqueueRequest, Enqueuer, Facts, Identity, OrchestratorGate, Principal,
+    RunnerFact,
 };
 use session_files::SessionDirs;
 use session_policies::{plan, Fed, RunAt, Scene, Sent, Step};
@@ -90,6 +91,10 @@ struct Hosted {
     who: Identity,
     control: Box<dyn ChildControl>,
     turns: BTreeMap<String, u64>,
+    /// Where its engine writes its transcripts (`transcripts_of`): a bind
+    /// names the transcript of its native id, as the engine's hook would, so a
+    /// clear's rotation displaces the binding (D-N51).
+    transcripts: Option<String>,
     _lock: HeldLock,
 }
 
@@ -101,9 +106,11 @@ pub(crate) struct Daemon {
     fs: Arc<dyn Fs>,
     home: PathBuf,
     temp: PathBuf,
-    /// The daemon's own environment: a child's is made from it (S6, a
-    /// deferral: the client's resolved environment is not sent yet).
-    env: BTreeMap<String, String>,
+    /// Each hosted child's environment, by its session's stable id: its
+    /// launcher's, taken from the hand-off at its first start (S6, D-N45),
+    /// held for its life (a relaunch reuses it), dropped at its end. Never
+    /// the daemon's own; never logged.
+    envs: BTreeMap<String, BTreeMap<String, String>>,
     files: DaemonFiles,
     routes: Arc<Routes<ProjectEdge>>,
     projects: Vec<Project>,
@@ -126,7 +133,6 @@ pub(crate) struct Daemon {
 pub(crate) fn serve(
     fs: Arc<dyn Fs>,
     place: Place,
-    env: BTreeMap<String, String>,
     pace: Pace,
     say: Box<dyn FnMut(&str)>,
 ) -> Result<(), String> {
@@ -173,7 +179,7 @@ pub(crate) fn serve(
             fs,
             home: home.to_path_buf(),
             temp: place.temp.clone(),
-            env,
+            envs: BTreeMap::new(),
             files,
             routes,
             projects: Vec::new(),
@@ -421,13 +427,13 @@ impl Daemon {
                 },
                 None => Taken::Again,
             },
-            Step::End { at, .. } => match self.hosted.get(&at.run()) {
-                Some(hosted) => {
+            Step::End { at, .. } => {
+                self.envs.remove(&at.session);
+                if let Some(hosted) = self.hosted.get(&at.run()) {
                     let _ = hosted.control.end(END_GRACE);
-                    Taken::Done
                 }
-                None => Taken::Done,
-            },
+                Taken::Done
+            }
         }
     }
 
@@ -455,10 +461,13 @@ impl Daemon {
         Taken::Done
     }
 
-    /// Host a run for the child `at` names: enqueue it (its three tokens
-    /// minted), prepare its session home, start its engine and record the
-    /// runner started. A child that cannot start ends its run and its
-    /// incarnation, so nothing is left owed.
+    /// Host a run for the child `at` names: plan it by its project (D18),
+    /// enqueue it judged on its launcher's environment (its three tokens
+    /// minted; rulings 53, 73e), prepare its session home, start its engine
+    /// and record the runner started. A child that cannot be planned or is
+    /// refused ends its incarnation and is released by its owner (D-N47); one
+    /// that cannot start ends its run and its incarnation, so nothing is left
+    /// owed.
     async fn start(
         &mut self,
         project_id: &str,
@@ -479,6 +488,15 @@ impl Daemon {
                 .await;
             return Taken::Done;
         }
+        let env = self.child_env(&at.session);
+        let child = match self.plan_child(engine, project_dir, &env) {
+            Ok(child) => child,
+            Err(code) => {
+                (self.say)(&format!("{harp}: not planned: {code}"));
+                self.launch_refused(project_id, &at, &code).await;
+                return Taken::Done;
+            }
+        };
         let lock = match self.run_locks.hold_run(&run) {
             Ok(lock) => lock,
             Err(report) => {
@@ -491,15 +509,23 @@ impl Daemon {
                 session: at.session.clone(),
                 incarnation: at.incarnation,
                 mode: RunMode::Structured,
-                evidence: Evidence::passing(engine),
+                evidence: child.evidence.clone(),
                 launcher_lock: lock.path().to_string(),
             })
             .await;
         let enqueued = match enqueued {
             Ok(enqueued) => enqueued,
-            Err(error) => {
+            // Judged as any child is (rulings 53, 73e): refused for good.
+            Err(EnqueueError::Refused(rejection)) => {
+                let code = angzarr_diagnostic::Diagnostic::code(&rejection).to_string();
+                (self.say)(&format!("{harp}: refused: {code}"));
+                drop(lock);
+                self.launch_refused(project_id, &at, &code).await;
+                return Taken::Done;
+            }
+            Err(EnqueueError::Failed(error)) => {
                 (self.say)(&format!("{harp}: not enqueued: {error:?}"));
-                return Taken::Refused;
+                return Taken::Again;
             }
         };
         let who = Identity {
@@ -510,9 +536,9 @@ impl Daemon {
             depth: 1,
             principal: Principal::Runner,
         };
-        let started = self.spawn_child(&at, harp, project_dir, &enqueued.hook_token);
-        let child = match started {
-            Ok(child) => child,
+        let started = self.spawn_child(&at, harp, project_dir, &child, &env, &enqueued.hook_token);
+        let (child, transcripts) = match started {
+            Ok(started) => started,
             Err(detail) => {
                 (self.say)(&format!("{harp}: not started: {detail}"));
                 let _ = facts.launch_failed(&who.run, false, &detail).await;
@@ -533,6 +559,24 @@ impl Daemon {
                 }),
             )
             .await;
+        (self.say)(&format!("{harp}: started, pid {pid}"));
+        self.host(child, transcripts, project_id, at, who, lock);
+        Taken::Done
+    }
+
+    /// Hold the started `child`: its observations passed to the daemon's
+    /// channel from a thread of their own, its control and its run's lock
+    /// kept for its life.
+    fn host(
+        &mut self,
+        child: run_ports::StartedChild,
+        transcripts: Option<String>,
+        project_id: &str,
+        at: RunAt,
+        who: Identity,
+        lock: HeldLock,
+    ) {
+        let run = at.run();
         let tell = self.tell.clone();
         let heard_of = run.clone();
         let observations = child.observations;
@@ -543,7 +587,6 @@ impl Daemon {
                 }
             }
         });
-        (self.say)(&format!("{harp}: started, pid {pid}"));
         self.hosted.insert(
             run,
             Hosted {
@@ -552,30 +595,100 @@ impl Daemon {
                 who,
                 control: child.control,
                 turns: BTreeMap::new(),
+                transcripts,
                 _lock: lock,
             },
         );
-        Taken::Done
     }
 
-    /// The child's session home prepared and its engine started, told the
-    /// daemon's listener for its hooks.
+    /// The hosted child of `project_dir` on `engine`, planned by its
+    /// project's dry run and judged on `env` (D-N46, D-N47); the plan's error
+    /// code where it cannot be planned.
+    fn plan_child(
+        &self,
+        engine: &str,
+        project_dir: &str,
+        env: &BTreeMap<String, String>,
+    ) -> Result<run_application::HostedChild, String> {
+        let previewed = super::child_plan(&self.home, &self.temp, project_dir, env)?;
+        Ok(run_application::hosted_child(
+            &previewed,
+            engine,
+            &[session_policies::CHILD_ENGINE.to_string()],
+            engine_claude::Claude::new().credentials(),
+            env,
+        ))
+    }
+
+    /// The environment the child `session` is started with: the one held,
+    /// else its launcher's hand-off (taken, D-N45), else none at all (a child
+    /// no launcher handed anything is judged with no credential).
+    fn child_env(&mut self, session: &str) -> BTreeMap<String, String> {
+        if let Some(env) = self.envs.get(session) {
+            return env.clone();
+        }
+        let env = self.files.take_hand_off(session).unwrap_or_default();
+        self.envs.insert(session.to_string(), env.clone());
+        env
+    }
+
+    /// A child that could not be started (`code`, a refusal's or a plan's):
+    /// its incarnation ended, and, for its launch (its first incarnation),
+    /// its owner told the launch failed (K2's compensation), so nothing is
+    /// left owed and the owner holds it no longer.
+    async fn launch_refused(&mut self, project_id: &str, at: &RunAt, code: &str) {
+        let Some(edge) = self.edge(project_id) else {
+            return;
+        };
+        let facts = Facts::new(edge);
+        let _ = facts
+            .incarnation_ended(&at.session, at.incarnation, "launch-failed")
+            .await;
+        if at.incarnation != 1 {
+            return;
+        }
+        let owner = self
+            .projects
+            .iter()
+            .find(|p| p.id == project_id)
+            .and_then(|p| {
+                p.board
+                    .projector()
+                    .board()
+                    .session(&at.session)
+                    .and_then(|s| s.owner.clone())
+            });
+        let child = sessions::SessionRef {
+            project_id: project_id.to_string(),
+            session: at.session.clone(),
+        };
+        if let Some(failed) = owner
+            .as_ref()
+            .and_then(|owner| session_policies::launch_failed(owner, &child, code))
+        {
+            let _ = self.send(&Sent::from(failed)).await;
+        }
+    }
+
+    /// The child's session home prepared with its project's context and its
+    /// engine started with its launcher's environment, told the daemon's
+    /// listener for its hooks.
     fn spawn_child(
         &self,
         at: &RunAt,
         harp: &str,
         project_dir: &str,
+        child: &run_application::HostedChild,
+        sent: &BTreeMap<String, String>,
         hook_token: &run_ports::Token,
-    ) -> Result<run_ports::StartedChild, String> {
+    ) -> Result<(run_ports::StartedChild, Option<String>), String> {
         let claude = engine_claude::Claude::new();
         let mut dirs = SessionDirs::new(Arc::clone(&self.fs), PathBuf::from(project_dir));
         let home = format!("{}/home", SessionRecords::dir(&dirs, harp));
         let prepared = claude
             .prepare(&PrepareRequest {
                 home: home.clone(),
-                // The child's context is not assembled yet (a deferral): it
-                // is given its task as its first message.
-                context: String::new(),
+                context: child.context.clone(),
                 offered: Vec::new(),
                 interactive: false,
             })
@@ -584,7 +697,7 @@ impl Daemon {
             dirs.write(harp, &format!("home/{}", file.rel), &file.bytes)
                 .map_err(|e| e.to_string())?;
         }
-        let mut env = self.env.clone();
+        let mut env = sent.clone();
         env.insert(
             run_ports::HOME_VARIABLE.to_string(),
             self.home.to_string_lossy().into_owned(),
@@ -593,7 +706,7 @@ impl Daemon {
             .ok()
             .and_then(|exe| exe.parent().map(Path::to_path_buf))
         {
-            let path = match env.get("PATH") {
+            let path = match env.get("PATH").filter(|path| !path.is_empty()) {
                 Some(path) => format!("{}:{path}", dir.display()),
                 None => dir.display().to_string(),
             };
@@ -607,22 +720,21 @@ impl Daemon {
             &self.cert,
         ));
         env.insert(run_ports::HARP_VARIABLE.to_string(), harp.to_string());
-        let settings = super::engine_settings(&self.home, &self.temp, project_dir, &self.env);
-        claude
-            .start(&ChildSpec {
-                home,
-                context_path: prepared.context_path,
-                env,
-                cwd: Some(project_dir.to_string()),
-                model: String::new(),
-                effort: String::new(),
-                settings,
-                resume: None,
-                session_id: None,
-                // claude asks no permission over its stream: unused here.
-                permissions: run_ports::ChildPermissions::default(),
-            })
-            .map_err(|e| e.to_string())
+        let spec = ChildSpec {
+            home,
+            context_path: prepared.context_path,
+            env,
+            cwd: Some(project_dir.to_string()),
+            model: child.model.clone(),
+            effort: child.effort.clone(),
+            settings: child.settings.clone(),
+            resume: None,
+            session_id: None,
+            // claude asks no permission over its stream: unused here.
+            permissions: run_ports::ChildPermissions::default(),
+        };
+        let started = claude.start(&spec).map_err(|e| e.to_string())?;
+        Ok((started, engine_claude::transcripts_of(&spec)))
     }
 
     /// Record what the children said; whether any said anything.
@@ -654,8 +766,12 @@ impl Daemon {
                 native_id: Some(native_id),
             } => Some(RunnerFact::EngineSessionBound(
                 sessions::BindEngineSession {
+                    transcript_path: hosted
+                        .transcripts
+                        .as_ref()
+                        .map(|dir| format!("{dir}/{native_id}.jsonl"))
+                        .unwrap_or_default(),
                     native_id,
-                    transcript_path: String::new(),
                     engine_version: None,
                 },
             )),

@@ -1,12 +1,15 @@
 //! The user daemon end to end (D18, D2, D25, D28, D29): the real binary, a
 //! temporary home, a fake claude that speaks the probe's stream-json. An
 //! owner session launches a child; the daemon mints it, starts it (a
-//! long-lived streaming child), hands it its first task; the child's turn
+//! long-lived streaming child) with the environment its LAUNCHER sent (S6)
+//! and its project's context (D18), hands it its first task; the child's turn
 //! ends and the owner is told (a pending inform, D30); a wake to the child
-//! is its second turn; the owner's close cascades to the child, which the
-//! daemon ends. Nothing is timed: each step waits for what the store, or the
-//! fake's own log, says happened (bounded, so a hang fails), and the daemon
-//! is stopped and seen gone at the end.
+//! is its second turn; a clear rotates its conversation (D17) and the next
+//! wake runs on the new one; the owner's close cascades to the child, which
+//! the daemon ends. A child launched with no credential is refused as any
+//! child is (ruling 53). Nothing is timed: each step waits for what the
+//! store, or the fake's own logs, says happened (bounded, so a hang fails),
+//! and the daemon is stopped and seen gone at the end.
 
 use std::time::{Duration, Instant};
 
@@ -16,21 +19,46 @@ use super::files;
 use super::library::Project;
 
 /// The fake claude (engine-claude's child stub): an init, the echo of each
-/// message given, a result; every line it is given appended to `input.log`
-/// beside it; `exited` written when its input ends (the daemon's end
-/// closes it).
+/// message given, a result; a `/clear` rotates its session id (S1, then S2)
+/// as claude's does. Beside it: every line it is given, after the session id
+/// it was given under, in `input.log`; its environment in `env-<harp>.log`
+/// and its context file in `context-<harp>.log`; `exited` once its input
+/// ends (the daemon's end closes it).
 const STUB: &str = r#"#!/bin/sh
 here=$(dirname "$0")
+harp=$CTXLOOM_SESSION_HARP
 sid=S1
+env | sort > "$here/env-$harp.log"
+ctx=""
+prev=""
+for a in "$@"; do
+  [ "$prev" = "--append-system-prompt-file" ] && ctx=$a
+  prev=$a
+done
+[ -n "$ctx" ] && cat "$ctx" > "$here/context-$harp.log"
 printf '{"type":"system","subtype":"init","cwd":"/work","session_id":"%s","tools":[]}\n' "$sid"
 while IFS= read -r line; do
-  printf '%s\n' "$line" >> "$here/input.log"
-  text=$(printf '%s' "$line" | sed 's/.*"content":"\([^"]*\)".*/\1/')
-  printf '{"type":"user","message":{"role":"user","content":"%s"},"session_id":"%s","isReplay":true}\n' "$text" "$sid"
-  printf '{"type":"result","subtype":"success","is_error":false,"result":"re: %s","session_id":"%s"}\n' "$text" "$sid"
+  printf '%s %s\n' "$sid" "$line" >> "$here/input.log"
+  case "$line" in
+    *'"content":"/clear"'*)
+      sid=S2
+      printf '{"type":"conversation_reset","new_conversation_id":"c2","trigger":"clear","session_id":"S1"}\n'
+      printf '{"type":"system","subtype":"init","cwd":"/work","session_id":"%s","tools":[]}\n' "$sid"
+      printf '{"type":"result","subtype":"success","is_error":false,"num_turns":0,"result":"","session_id":"%s"}\n' "$sid"
+      ;;
+    *)
+      text=$(printf '%s' "$line" | sed 's/.*"content":"\([^"]*\)".*/\1/')
+      printf '{"type":"user","message":{"role":"user","content":"%s"},"session_id":"%s","isReplay":true}\n' "$text" "$sid"
+      printf '{"type":"result","subtype":"success","is_error":false,"result":"re: %s","session_id":"%s"}\n' "$text" "$sid"
+      ;;
+  esac
 done
 printf 'done' > "$here/exited"
 "#;
+
+/// The project's config: a default agent whose profile selects the demo
+/// bundle, so a child's context is that project's (D18).
+const PROJECT_CONFIG: &str = "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    profiles:\n      - dev\ndefault_agent: dev\n";
 
 const OWNER: &str = "amber-swift-owl";
 const CHILD: &str = "lone-wolf-pup";
@@ -47,6 +75,10 @@ struct World {
 impl World {
     fn new() -> World {
         let project = Project::initialized();
+        project.write(".ctxloom/config.yaml", PROJECT_CONFIG);
+        project.bundle("demo");
+        project.fragment("demo", "testing");
+        project.profile("dev", "demo");
         let stub_dir = project.home().join("fake-claude");
         files::put_program(stub_dir.join("claude"), STUB);
         project.write_home(
@@ -61,6 +93,18 @@ impl World {
 
     fn run(&self, args: &[&str]) -> super::Ran {
         self.project.run_with(&ENV, args)
+    }
+
+    /// Run `args` with `more` in the environment beside [`ENV`].
+    fn run_also(&self, more: &[(&str, &str)], args: &[&str]) -> super::Ran {
+        let mut env = ENV.to_vec();
+        env.extend_from_slice(more);
+        self.project.run_with(&env, args)
+    }
+
+    /// What the fake claude of `harp` wrote to `what-<harp>.log`.
+    fn of(&self, what: &str, harp: &str) -> Option<String> {
+        files::read(self.stub_dir.join(format!("{what}-{harp}.log"))).ok()
     }
 
     fn ok(&self, args: &[&str]) -> Value {
@@ -133,6 +177,105 @@ impl Drop for World {
     }
 }
 
+/// A client whose environment is not the launcher's spawns the daemon (an
+/// inform to the owner, which takes one); then the user launches a child
+/// with its first task (K2), from an environment of its own. The child's id.
+fn spawn_then_launch(world: &World) -> String {
+    // A client whose environment is not the launcher's spawns the daemon
+    // (an inform to the owner, which takes one).
+    let spawned = world.run_also(
+        &[
+            ("DAEMON_ONLY", "spawner"),
+            ("ANTHROPIC_API_KEY", "spawners-key"), // gitleaks:allow
+        ],
+        &["daemon", "send", OWNER, "hello", "--urgency", "inform"],
+    );
+    assert_eq!(spawned.code, 0, "{}", spawned.said());
+    assert!(world.serving(), "the send spawned the daemon");
+
+    // K2: the user launches a child with its first task.
+    let launched = world.run_also(
+        &[
+            ("ANTHROPIC_API_KEY", "launchers-key"), // gitleaks:allow
+            ("SECRET_ELSE", "not-for-a-child"),
+            ("CTXLOOM_PERMIT_ACME_TOKEN", "permitted"),
+        ],
+        &[
+            "daemon",
+            "launch",
+            "--owner",
+            OWNER,
+            "--name",
+            CHILD,
+            "--prompt",
+            "first task",
+            "--format",
+            "json",
+        ],
+    );
+    assert_eq!(launched.code, 0, "{}\n{}", launched.said(), world.log());
+    let launched = launched.json();
+    assert_eq!(launched["harp"], OWNER);
+    assert_eq!(launched["recorded"], Value::Bool(true));
+    launched["id"].as_str().unwrap().to_string()
+}
+
+/// S6 and D18: what the child started with.
+fn sees_its_launchers_environment_and_its_projects_context(world: &World) {
+    // S6: the child's environment is its launcher's (what a child may be
+    // given, and its permits), never the daemon's own.
+    let env = world
+        .of("env", CHILD)
+        .expect("the child wrote its environment");
+    assert!(env.contains("ANTHROPIC_API_KEY=launchers-key\n"), "{env}"); // gitleaks:allow
+    assert!(env.contains("ACME_TOKEN=permitted\n"), "{env}");
+    for never in ["spawner", "spawners-key", "SECRET_ELSE", "CTXLOOM_PERMIT_"] {
+        assert!(!env.contains(never), "{never}: {env}");
+    }
+    // Nothing the launcher sent is left at rest for the daemon to read.
+    let handed = world.project.home().join(".ctxloom/daemon/launch");
+    assert!(files::children(&handed).is_empty(), "the hand-off is taken");
+    // D18: the child's context is its project's, as a one-shot child's.
+    let context = world.of("context", CHILD).expect("the child had a context");
+    assert!(context.contains("FRAGMENT-BODY-testing"), "{context}");
+}
+
+/// M1, D17: a clear, its rotation, and the wake after it.
+fn clears_and_runs_on_the_new_conversation(world: &World) {
+    // M1, D17: a clear is the engine's own `/clear`; its rotation is bound
+    // to the session, and the next wake runs on the new conversation.
+    world.ok(&["daemon", "clear", CHILD, "--format", "json"]);
+    world.until("the clear's rotation bound", |w| {
+        (w.show(CHILD)["native_session"] == "S2").then_some(())
+    });
+    world.ok(&[
+        "daemon",
+        "send",
+        CHILD,
+        "third task",
+        "--id",
+        "m3",
+        "--format",
+        "json",
+    ]);
+    let third = world.until("the third notice", |w| {
+        let notices = w.notices();
+        (notices.len() == 3).then(|| notices[2].clone())
+    });
+    assert_eq!(third, format!("child {CHILD} finished its turn for m3"));
+    let input = world.input();
+    let lines: Vec<&str> = input.lines().collect();
+    assert_eq!(lines.len(), 4, "{input}");
+    assert!(
+        lines[2].starts_with("S1 ") && lines[2].contains("/clear"),
+        "{input}"
+    );
+    assert!(
+        lines[3].starts_with("S2 ") && lines[3].contains("third task"),
+        "{input}"
+    );
+}
+
 #[test]
 fn an_owners_child_runs_its_turns_tells_its_owner_and_ends_with_the_owners_close() {
     let world = World::new();
@@ -141,24 +284,7 @@ fn an_owners_child_runs_its_turns_tells_its_owner_and_ends_with_the_owners_close
     let owner_id = seeded.stdout.trim().to_string();
     assert!(!world.serving(), "no daemon before a client needs one");
 
-    // K2: the user launches a child with its first task; the daemon is
-    // spawned on demand.
-    let launched = world.ok(&[
-        "daemon",
-        "launch",
-        "--owner",
-        OWNER,
-        "--name",
-        CHILD,
-        "--prompt",
-        "first task",
-        "--format",
-        "json",
-    ]);
-    assert_eq!(launched["harp"], OWNER);
-    assert_eq!(launched["recorded"], Value::Bool(true));
-    let child_id = launched["id"].as_str().unwrap().to_string();
-    assert!(world.serving(), "the launch spawned the daemon");
+    let child_id = spawn_then_launch(&world);
 
     // The child is minted for its owner, started, and runs its first turn;
     // its turn's end is told to the owner, who takes no wake yet (D7): an
@@ -182,6 +308,8 @@ fn an_owners_child_runs_its_turns_tells_its_owner_and_ends_with_the_owners_close
         world.show(OWNER)["children"],
         Value::Array(vec![Value::String(child_id.clone())])
     );
+
+    sees_its_launchers_environment_and_its_projects_context(&world);
 
     // D12: a wake to the child is its second turn, in the same process.
     let sent = world.ok(&[
@@ -207,6 +335,8 @@ fn an_owners_child_runs_its_turns_tells_its_owner_and_ends_with_the_owners_close
     assert_eq!(lines.len(), 2, "one process carried both turns: {input}");
     assert!(lines[0].contains("first task") && lines[1].contains("second task"));
 
+    clears_and_runs_on_the_new_conversation(&world);
+
     // D29: the owner's close cascades: the child is closed, the daemon ends
     // it, and the owner holds it no more.
     world.ok(&["daemon", "close", OWNER, "--format", "json"]);
@@ -231,6 +361,27 @@ fn an_owners_child_runs_its_turns_tells_its_owner_and_ends_with_the_owners_close
     // The daemon drains and exits when asked.
     assert_eq!(world.run(&["daemon", "stop"]).code, 0);
     world.until("the daemon gone", |w| (!w.serving()).then_some(()));
+}
+
+// Rulings 53, 69, 88: a child the daemon hosts is judged at its enqueue on
+// the credential its launcher sent, as any child is: with none, the run is
+// refused (`runs-no-credential`), nothing is started, and its owner holds it
+// no longer (K2's compensation, naming the refusal).
+#[test]
+fn a_child_launched_with_no_credential_is_refused_and_its_owner_released() {
+    let world = World::new();
+    let seeded = world.run(&["test", "seed-session", OWNER]);
+    assert_eq!(seeded.code, 0, "{}", seeded.said());
+    world.ok(&[
+        "daemon", "launch", "--owner", OWNER, "--name", CHILD, "--prompt", "a task", "--format",
+        "json",
+    ]);
+    world.until("the launch refused", |w| {
+        let released = w.show(OWNER).get("children").is_none();
+        (released && w.log().contains("runs-no-credential")).then_some(())
+    });
+    assert!(world.of("env", CHILD).is_none(), "nothing was started");
+    assert!(world.input().is_empty(), "{}", world.input());
 }
 
 #[test]

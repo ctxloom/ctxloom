@@ -266,6 +266,32 @@ fn grantable(name: &str, interactive: bool) -> bool {
     interactive || name != PRIMARY_ONLY
 }
 
+/// Whether the caller's variable `name` passes to a command: grantable, and
+/// on `curated`, the engine block's `env` or the credential's variables.
+fn passes(
+    name: &str,
+    interactive: bool,
+    curated: &[&str],
+    settings: &run_ports::EngineSettings,
+    credential: &[String],
+) -> bool {
+    grantable(name, interactive)
+        && (curated.contains(&name)
+            || settings.env.iter().any(|n| n == name)
+            || credential.iter().any(|n| n == name))
+}
+
+/// Whether a CHILD's command under `settings` may be given the caller's
+/// variable `name` (what a launching client sends the daemon, D-N45).
+pub(crate) fn child_may_have(
+    engine: &Claude,
+    settings: &run_ports::EngineSettings,
+    name: &str,
+) -> bool {
+    let policy = settings.credentials(engine.credentials());
+    passes(name, false, ENV_ALLOWLIST, settings, &policy.child_env)
+}
+
 /// The command's whole environment: `caller`'s variables on the curated
 /// allowlist, on the engine block's `env` and on the configured credential
 /// source: a bounded, enumerable set (the container runtime reads it), never
@@ -290,12 +316,7 @@ pub(crate) fn environment(
     } else {
         ENV_ALLOWLIST
     };
-    let passes = |name: &str| {
-        grantable(name, interactive)
-            && (curated.contains(&name)
-                || settings.env.iter().any(|n| n == name)
-                || credential.iter().any(|n| n == name))
-    };
+    let passes = |name: &str| passes(name, interactive, curated, settings, credential);
     let mut env: BTreeMap<String, String> = request
         .env
         .iter()

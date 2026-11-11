@@ -7,13 +7,17 @@
 //! human's `run` (Plan step 3): the same plan and launch with her terminal
 //! given to the engine. A saved session's resume and the dry run are not here:
 //! the library answers the last, and the other arrives with its step.
+//! [`hosted_child`] is how the user daemon plans and judges a child it hosts,
+//! the same way a one-shot child is (D18, rulings 53, 73e).
 
 mod credential;
 mod error;
+mod hosted;
 mod one_shot;
 
 pub use credential::{credential_evidence, links_on, share_login};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{RunError, EN_US};
+pub use hosted::{hosted_child, HostedChild};
 pub use one_shot::{Answer, Core, Done, Ended, OneShot, Parts, Place, Planner, RunService, Runs};

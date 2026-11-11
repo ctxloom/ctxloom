@@ -218,6 +218,25 @@ pub(crate) fn show_text(view: &View, out: &mut dyn Write) -> io::Result<()> {
             "kept:     its transcript is kept at any age (`ctxloom session keep --undo` releases it)"
         )?;
     }
+    // The owner link, the close and the children (D-N35), as the json has
+    // them: each left out when unset.
+    if let Some(owner) = &record.owner {
+        writeln!(out, "owner:    {}", owner.session)?;
+    }
+    if record.closed {
+        writeln!(out, "closed:   yes")?;
+    }
+    let children: Vec<&str> = record
+        .children
+        .iter()
+        .filter_map(|c| c.session.as_ref().map(|s| s.session.as_str()))
+        .collect();
+    if !children.is_empty() {
+        writeln!(out, "children: {} held", children.len())?;
+        for child in children {
+            writeln!(out, "  {child}")?;
+        }
+    }
     if !view.pending.is_empty() {
         let count = view.pending.len();
         let plural = if count == 1 { "" } else { "s" };

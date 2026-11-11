@@ -45,6 +45,10 @@ pub struct Catalog {
     /// The entries that are a companion's loadout, by name, each to the
     /// companion's binary name: the entry's provenance.
     companions: std::collections::BTreeMap<String, String>,
+    /// The entries that are ctxloom's built-in bundles ([`crate::builtin`]),
+    /// by name: read-only, and not there when the project has its own of
+    /// the name.
+    builtins: std::collections::BTreeSet<String>,
 }
 
 /// A fragment or command as a listing shows it.
@@ -97,7 +101,28 @@ impl Catalog {
             entries,
             origins: std::collections::BTreeMap::new(),
             companions: std::collections::BTreeMap::new(),
+            builtins: std::collections::BTreeSet::new(),
         }
+    }
+
+    /// The catalog with ctxloom's built-in bundles added (rulings 110, 111):
+    /// each whose name no entry here has. A project bundle of a built-in
+    /// one's name overrides it, so a name always finds one bundle.
+    pub fn with_builtins(mut self) -> Catalog {
+        let taken: std::collections::BTreeSet<String> =
+            self.entries.iter().map(|e| e.name.clone()).collect();
+        for entry in crate::builtin::entries(&|name| taken.contains(name)) {
+            self.builtins.insert(entry.name.clone());
+            self.entries.push(entry);
+        }
+        self.entries.sort_by(|a, b| a.name.cmp(&b.name));
+        self
+    }
+
+    /// Whether the entry `name` is one of ctxloom's built-in bundles: shown
+    /// under the built-in origin, and read-only.
+    pub fn is_builtin(&self, name: &str) -> bool {
+        self.builtins.contains(name)
     }
 
     /// The catalog with the `run:` bundles of companions added, each as
@@ -178,8 +203,8 @@ impl Catalog {
         self.origins.get(name)
     }
 
-    /// Whether `name` is a bundle of this project (not one installed from a
-    /// remote).
+    /// Whether `name` is a bundle a local name reaches: the project's own, or
+    /// a built-in one it does not override (not one installed from a remote).
     pub fn is_local(&self, name: &str) -> bool {
         !self.origins.contains_key(name) && self.entries.iter().any(|e| e.name == name)
     }

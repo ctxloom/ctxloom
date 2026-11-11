@@ -1,0 +1,9 @@
+description: 'Developer composition root: AI coding practices, testing, and tooling. Compose it with a language''s practices bundle (e.g. go-ai-practices) to build a language developer; each language bundle ships a `<lang>-developer` profile that does so.'
+tags:
+  - development
+  - base
+bundles:
+  - ai-coding-general
+  - ai-developer
+  - testing
+  - git

@@ -1,0 +1,4 @@
+---
+distilled_by: claude-code
+---
+AI code: correct happy path, dangerous elsewhere. LLMs hallucinate packages at 5.2-21.7% rates (arXiv:2406.10279) — verify imports (`npm info`/`pip show`/`cargo search`), API signatures, endpoints. Test integrity: AI "fixes" by deleting tests, removing assertions, mocking away behavior (mutation testing catches this). Red flags: unexplained deletions, catch-alls replacing specific handlers, removed validation, async/sync flips, unjustified deps. Reject immediately: security vulns in sensitive code, deleted tests, hallucinated deps, race conditions, missing error handling in critical paths.

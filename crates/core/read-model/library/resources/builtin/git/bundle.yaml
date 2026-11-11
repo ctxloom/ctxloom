@@ -1,0 +1,10 @@
+schema_version: 3
+version: 1.0.0
+tags:
+    - default
+    - git
+    - workflow
+    - version-control
+author: ctxloom
+description: Git practices for branching, commits, hooks, and version control workflows
+name: git

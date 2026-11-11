@@ -1,11 +1,9 @@
 # ctxloom Remote Sources
-# Pre-configured remotes for common ctxloom bundles and profiles.
+# The repositories this project draws bundles and profiles from, under
+# `remotes:` (`ctxloom remote create <name> <url>` adds one).
 #
 # Registering a remote is the trust act: its content reaches the assistant
-# because the project added it.
+# because the project added it. ctxloom's default content is built in and
+# needs no remote.
 
 schema_version: 1
-
-remotes:
-  ctxloom-default:
-    url: https://github.com/ctxloom/ctxloom-default

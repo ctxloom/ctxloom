@@ -980,6 +980,7 @@ fn says_stale(_: &mut World, _c: String) {
 }
 
 #[given(expr = "the source of {string} is edited by hand")]
+#[when(expr = "the source of {string} is edited by hand")]
 fn source_edited(_: &mut World, _f: String) {
     red("the source is edited by hand")
 }
@@ -1025,4 +1026,33 @@ fn remove_converged(_: &mut World, _h: String) {
 #[then("the files it writes are as one uninterrupted run would leave them")]
 fn foreign_converged(_: &mut World) {
     red("the foreign writer converged")
+}
+
+// ------------------------------------- the rulings after T30 (S42, S53)
+
+#[then("nothing was applied, and the daemon answered the preview")]
+fn preview_only(_: &mut World) {
+    red("nothing was applied, and the daemon answered the preview")
+}
+
+#[then("the session's directory, lock and output folder were not moved")]
+fn not_moved(_: &mut World) {
+    red("a title change moves nothing")
+}
+
+#[then(
+    regex = r#"^the output reports "([^"]+)" as the project's harp and the session's, "([^"]+)"$"#
+)]
+fn six_word_name(_: &mut World, _path: String, _shape: String) {
+    red("a session's name is its project's harp and its own")
+}
+
+#[then(regex = r#"^its lock is "([^"]+)", inside its directory$"#)]
+fn lock_inside(_: &mut World, _path: String) {
+    red("the session's lock is inside its directory")
+}
+
+#[then(regex = r#"^the bundle "([^"]+)" is the imported one, whole, and no trash is left$"#)]
+fn import_converged(_: &mut World, _bundle: String) {
+    red("bundle import --force converged")
 }

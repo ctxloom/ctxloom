@@ -1167,7 +1167,7 @@ Feature: run — assembling a project's context and handing it to an engine
         """
         <command>
         """
-      Then the command exits with code 1
+      Then the command exits with code 10
       And the output contains "no ctxloom daemon could be started"
       And no assistant was launched
       And no session was minted

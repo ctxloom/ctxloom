@@ -15,11 +15,15 @@ syntax = "proto3";
 // (`HandleSync` when the client renders the result, else `Handle`), never
 // wrapped in a method here. Its id is the command id the client chose
 // (`CommandPage.command_id`), so the one retry on a respawned daemon (S8)
-// is a DUPLICATE. A domain command's evidence is STAMPED by the daemon's
-// gate on admission (S21); a client sets only its intent.
+// is a DUPLICATE. S21 and S41 (owner, reconciled): this service's messages
+// carry the client's INTENT only, never evidence; a domain command sent
+// through `Handle` keeps its evidence fields, which the daemon's gate
+// STAMPS on admission, overwriting whatever the client put there.
 //
 //   the CLI verb                          the command               HandleSync waits for
-//   session edit <harp> --name <new>      sessions.RenameSession    session-index
+//   session rename <harp> <title>         sessions.SetSessionTitle  session-index
+//                                         (new with the rework: harps are
+//                                         permanent, S42; RenameSession goes)
 //   session keep <harp> [--undo]          sessions.SetKept          session-index
 //   session send <harp> <urgency> <text>  sessions.SendMessage      pending-messages
 //   session clear <harp>                  sessions.ClearChild       session-index
@@ -35,8 +39,9 @@ syntax = "proto3";
 //                                         RunExited, LaunchFailed
 //   a hook                                the capture facts         (Handle, facts)
 //   the daemon, hosting a child's ask     approvals.RecordApprovalAsked (Handle, fact)
-// A rename and a remove are T28 sequences the daemon runs after the
-// command (a remove has no command: `DeleteSession` below runs it). A
+// A remove is a T28 sequence (`DeleteSession` below runs it: the directory,
+// lock inside, to trash, then the purge), as is `bundle import --force`
+// (the old bundle to trash, then the new one in; S52). A
 // `HandleSync` projection IS the resource message the matching `Get` returns
 // (one renderer per resource).
 //
@@ -73,16 +78,28 @@ syntax = "proto3";
 // JSON (ruling 146): `--format json` prints the response message's proto3
 // JSON, snake_case field names (`preserving_proto_field_names`).
 //
-// LINT (ruling 147): written to the AIPs by reading them; `api-linter` is
-// not installed here. Departures, each to be a commented exception at its
-// site once the linter gates: resource patterns are COMMENTS, not
-// `google.api.resource` annotations, and fields carry no
-// `google.api.field_behavior` (angzarr's vendored `google/api` holds
-// annotations and http only, and adding googleapis is a dependency change:
-// spec call S36); write responses carry `needs` (AIP-163 returns the
-// would-be response alone: needs are ctxloom's, API Q2); streaming custom
-// methods (AIP-136 allows them; no LRO, since `google/longrunning` is not
-// vendored).
+// LINT (ruling 147; S36, S37 owner): googleapis' annotation and
+// longrunning protos are vendored into `proto/third_party/google/...`
+// (pinned, Apache-2.0) and api-linter gates these drafts, both at
+// implementation.
+// TODO(S36): until the vendored protos land, resource patterns are COMMENTS
+// (`// <pattern>` beside each resource), not `google.api.resource`
+// annotations, and fields carry no `google.api.field_behavior`; the only
+// local copies are tool caches with no pinned upstream commit.
+// Departures, each a commented exception at its site once the linter
+// gates: write responses carry `needs` (AIP-163 returns the would-be
+// response alone; needs are ctxloom's, API Q2, S38); `WatchTranscript` and
+// `WatchRun` are daemon-folded streams (S44).
+//
+// NAMES (S42, owner): user-addressable things are HARPS, minted once and
+// never changed. A project is `projects/{project}` by ITS harp; a session
+// `projects/{project}/sessions/{session}`, six words. The project id and a
+// session's stream root are fields (`uid`).
+//
+// EXIT CODES (rulings 149, 152, 153): 0 ok (an apply or a preview); 1 a
+// preview that would change something, only with `--detailed-exitcode`; 10
+// failed; 20 refused (usage errors included); 21 fatal findings; 128+n a
+// signal.
 //
 // REFUSALS (S11): a refused method is answered with the gRPC status its
 // refusal message's `(refusal_status)` declares, the message packed in
@@ -104,7 +121,7 @@ service Ctxloom {
   rpc StopDaemon(StopDaemonRequest) returns (Daemon);
   // endregion
 
-  // region projects: `projects/{project}`
+  // region projects: `projects/{project}` (the project's harp)
   // The project of a directory (S6): names only, never routing (T14).
   rpc ResolveProject(ResolveProjectRequest) returns (Project);
   rpc GetProject(GetProjectRequest) returns (Project);
@@ -117,7 +134,7 @@ service Ctxloom {
   rpc AssembleContext(AssembleContextRequest) returns (AssembledContext);
   // endregion
 
-  // region sessions: `projects/{project}/sessions/{session}` (the harp);
+  // region sessions: `projects/{project}/sessions/{session}` (both harps);
   // `projects/-/sessions` lists every project's (`--all`, AIP-159)
   rpc GetSession(GetSessionRequest) returns (Session);
   rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
@@ -155,7 +172,7 @@ service Ctxloom {
   rpc WaitApproval(WaitApprovalRequest) returns (Approval);
   // endregion
 
-  // region trusts: `trusts/{trust}` (`project-{id}`, `remote-{id}`)
+  // region trusts: `trusts/{trust}` (`project-{project}`, `remote-{id}`)
   // The preview of `trust`: what it allows, and the etag `GrantTrust` names.
   rpc GetTrust(GetTrustRequest) returns (Trust);
   rpc ListTrusts(ListTrustsRequest) returns (ListTrustsResponse);
@@ -273,9 +290,11 @@ message ResolveProjectRequest {
 }
 
 message Project {
-  // `projects/{project}` (the project id).
+  // `projects/{project}`, the project's permanent harp (S42).
   string name = 1;
   string root = 2;
+  // The project id (the store's, and a session's claim namespace).
+  string uid = 3;
 }
 
 message GetProjectRequest {
@@ -372,6 +391,8 @@ message Session {
   repeated PendingMessage pending = 12;
   uint32 incarnation = 13;
   string etag = 14;
+  // The free-text title `session rename` sets (S42); the harp never changes.
+  string title = 15;
 }
 
 message GetSessionRequest {
@@ -632,7 +653,7 @@ message TrustSetting {
 
 // A trust: a project's or a remote's, until revoked (S23).
 message Trust {
-  // `trusts/project-{id}` or `trusts/remote-{id}`.
+  // `trusts/project-{project}` (the project's harp) or `trusts/remote-{id}`.
   string name = 1;
   bool trusted = 2;
   // What it allows (the project-only settings, a `ctxloom` bundle).

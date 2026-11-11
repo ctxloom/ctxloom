@@ -22,7 +22,11 @@ Feature: ctxloom's own MCP server — an engine's way to the daemon, through the
   its MCP server and the hook endpoint, over TCP and TLS, never through a
   ctxloom binary on the host.
 
-  `ctxloom mcp serve` is hidden: an engine starts it, nobody types it.
+  `ctxloom mcp serve` is hidden: an engine starts it, nobody types it. It is
+  built on `rmcp`, the official Rust MCP SDK, pinned exactly, its default
+  features trimmed to the stdio transport; before it is adopted its licence
+  is checked against the deny list, its elicitation support confirmed, and
+  its dependencies held to ring (no aws-lc).
 
   Rule: Every session's engine is given ctxloom's MCP server
 

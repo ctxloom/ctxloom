@@ -70,7 +70,7 @@ Feature: session approvals — a child's permission ask, answered by the user or
       Given an initialized ctxloom project
       And a child "brisk-copper-moth" of "amber-quiet-heron" whose ask has been answered
       When I run "ctxloom session approvals answer brisk-copper-moth allow"
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the refusal is "approvals-approval-settled"
 
     Scenario: An ask nobody answers in time is denied, and the engine is told so

@@ -30,8 +30,8 @@ Feature: trust — the user's verdict on a project's own settings, or a remote's
 
   CONFIRMATION. Trust is previewed first (the daemon's trust resource,
   naming what it would allow, and a tag of what it showed): at a terminal
-  the CLI asks, off one it prints the preview, changes nothing and exits 4
-  without `--yes`. The grant names the tag, so a change between the preview
+  the CLI asks, off one it prints the preview, changes nothing and exits 0
+  without `--yes` (1 with `--detailed-exitcode`). The grant names the tag, so a change between the preview
   and the answer is refused as stale.
 
   UNTIL REVOKED. A trust covers the project until the user takes it back,
@@ -45,7 +45,7 @@ Feature: trust — the user's verdict on a project's own settings, or a remote's
       Given an initialized ctxloom project whose project config says "<setting>"
       And Alice has exported her assistant's token
       When I run 'ctxloom run --one-shot "hello"'
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the refusal is "runs-untrusted-project-settings"
       And the output contains "<path>"
       And the output contains "ctxloom trust"
@@ -68,8 +68,8 @@ Feature: trust — the user's verdict on a project's own settings, or a remote's
     Scenario: Off a terminal, trust previews what it would allow and changes nothing
       # new: trust confirms.
       Given an initialized ctxloom project whose project config says "engines.claude-code.command: /opt/their-claude"
-      When I run "ctxloom trust --format json"
-      Then the command exits with code 4
+      When I run "ctxloom trust --format json --detailed-exitcode"
+      Then the command exits with code 1
       And the output reports "settings[0].path" as "engines.claude-code.command"
       And the output reports "name" containing "trusts/project-"
       And the project is not trusted
@@ -88,7 +88,7 @@ Feature: trust — the user's verdict on a project's own settings, or a remote's
       Given an initialized ctxloom project whose project config says "engines.claude-code.command: /opt/their-claude"
       And the project's settings change after the preview and before the answer
       When I run "ctxloom trust --yes"
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the refusal is "trust-plan-stale"
 
     Scenario: An assistant's own credential cannot trust its project

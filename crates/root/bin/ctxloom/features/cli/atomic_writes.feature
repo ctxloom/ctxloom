@@ -17,11 +17,12 @@ Feature: writes — every change to ctxloom's own trees is whole or absent, and 
   caller retries the whole sequence after a failure and it converges. It is
   one mechanism, used by:
 
-    session edit <harp> --name <new>   the session's directory (its lock inside
-                                       it, `sessions/<harp>/session.lock`) in
-                                       one rename, then its output folder
-    session remove <harp>              the directory renamed to trash, then the
-                                       purge, then the trash removed
+    session remove <harp>              the session's directory (its lock inside
+                                       it, `sessions/<harp>/session.lock`)
+                                       renamed to trash, then the purge, then
+                                       the trash removed
+    bundle import --force              the old bundle renamed to trash, then the
+                                       new one renamed in
     materialize, doctor --fix,         other tools' files: each step ordered so a
     manage uninstall, bundle move      re-run converges (materialize writes its
                                        record first)
@@ -45,9 +46,11 @@ Feature: writes — every change to ctxloom's own trees is whole or absent, and 
 
   The existing contracts these change when they are built: run.feature's
   and session_remove.feature's session lock beside the directory, which
-  moves inside it; the skill and MCP server layouts in mcp.feature and
-  deps.feature; content_distill.feature's distilled files, which gain the
-  digest; and bundle.feature's `bundle edit` with several items at once.
+  moves inside it, and run.feature's and session.feature's rename of a
+  harp (harps are permanent; a rename sets a title); the skill and MCP
+  server layouts in mcp.feature and deps.feature; content_distill.feature's
+  distilled files, which gain the digest; and bundle.feature's `bundle
+  edit` with several items at once.
 
   Rule: A write to ctxloom's own trees is whole or absent
 
@@ -72,7 +75,7 @@ Feature: writes — every change to ctxloom's own trees is whole or absent, and 
       Given an initialized ctxloom project
       And another process creates the bundle "notes" while its creation is staged
       When I run 'ctxloom bundle create notes --description "my notes"'
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the other process's "notes" is untouched, and nothing staged is left behind
 
     Scenario: A skill is one directory, its metadata inside it
@@ -90,7 +93,7 @@ Feature: writes — every change to ctxloom's own trees is whole or absent, and 
       Given an initialized ctxloom project
       And a bundle "demo" exists
       When I run "ctxloom bundle edit demo --add-fragment a --add-fragment b"
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the output contains "one change per call"
 
     Scenario: A fragment edit writes its source alone, and leaves its distilled form stale
@@ -103,6 +106,18 @@ Feature: writes — every change to ctxloom's own trees is whole or absent, and 
       And "ctxloom fragment show demo#fragments/rules" says its distilled form is stale
 
   Rule: A distilled form is used only while it matches its source
+
+    Scenario: The digest is checked at each use, so a verdict from an earlier assembly is never kept
+      # new: no cached verdict.
+      Given an initialized ctxloom project
+      And a fragment "rules" in bundle "demo" with a fresh distilled form
+      And a profile "dev" with bundle "demo"
+      When I run "ctxloom context assemble --profile dev --format json"
+      Then the assembled context holds the distilled form of "rules"
+      When the source of "rules" is edited by hand
+      And I run "ctxloom context assemble --profile dev --format json"
+      Then the assembled context holds the original text of "rules", not its distilled form
+      And the output reports "notices[0].code" as "library-application-stale-distilled"
 
     Scenario: After its source is edited, assembly serves the original and says the distilled form is stale
       # new: the digest is checked at every use.
@@ -136,13 +151,11 @@ Feature: writes — every change to ctxloom's own trees is whole or absent, and 
 
   Rule: A multi-step write is a retryable atomic sequence, and a retry converges
 
-    Scenario: A rename moves the session's directory with its lock in one step, then its output folder
+    Scenario: A session's lock is inside its directory, so the two move as one
       # new: the lock inside the directory.
       Given an initialized ctxloom project
-      And a finished session "amber-swift-owl" with a transcript
-      When I run "ctxloom session edit amber-swift-owl --name quiet-amber-fox"
-      Then the command succeeds
-      And the session's directory, its lock inside it, and its output folder are under "quiet-amber-fox"
+      And a session "amber-swift-owl" that is still running
+      Then its lock is "sessions/amber-swift-owl/session.lock", inside its directory
 
     Scenario Outline: A sequence killed between its steps converges when the command is run again
       # new: the crash-mid-sequence retry.
@@ -156,8 +169,8 @@ Feature: writes — every change to ctxloom's own trees is whole or absent, and 
 
       Examples:
         | between                                          | command                                                    | outcome                                                                         |
-        | after the session's directory moved, before its output folder | ctxloom session edit amber-swift-owl --name quiet-amber-fox | the directory, lock and output folder are under "quiet-amber-fox", and its name is claimed once |
         | after the session's directory moved to trash, before the purge | ctxloom session remove amber-swift-owl --yes --even-if-live | nothing lists "amber-swift-owl", its streams are purged and no trash is left    |
+        | after the old bundle moved to trash, before the new one moved in | ctxloom bundle import exported/notes --force --yes          | the bundle "notes" is the imported one, whole, and no trash is left              |
 
     Scenario Outline: Another tool's files are written in steps that converge, whichever step is killed
       # new: the foreign-file writers.

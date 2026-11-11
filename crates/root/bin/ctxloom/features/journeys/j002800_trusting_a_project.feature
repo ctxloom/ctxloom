@@ -29,7 +29,7 @@ Feature: A project Alice cloned runs on its own settings only once she trusts it
       """
       ctxloom run --one-shot "hello"
       """
-    Then the command exits with code 2
+    Then the command exits with code 20
     And she is told the project's own "engines.claude-code.command" waits for her trust, and that `ctxloom trust` is how to give it
     When Alice looks at what trusting the project allows, and says yes at her terminal:
       """
@@ -70,5 +70,5 @@ Feature: A project Alice cloned runs on its own settings only once she trusts it
       """
       ctxloom run --one-shot "hello"
       """
-    Then the command exits with code 2
+    Then the command exits with code 20
     And she is told the project's own "engines.claude-code.command" waits for her trust, and that `ctxloom trust` is how to give it

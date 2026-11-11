@@ -11,6 +11,7 @@ use angzarr_embedded::markup::{
 use angzarr_embedded_macros::{aggregate, applies, handles_cmd, handles_fact};
 
 use crate::refusal::refuse;
+use crate::InterruptRequested;
 use crate::{
     apply, run_root, EndCause, EnqueueRun, FinalReported, FinalReportedRecorded, LaunchFailed,
     LaunchOrphaned, QueueTurn, RequestStop, RunCommand, RunEnded, RunEnqueued, RunEvent, RunExited,
@@ -69,6 +70,8 @@ impl RunAggregate {
         Ok(TurnQueued {
             prompt_ref: cmd.prompt_ref,
             resume: cmd.resume,
+            message_ids: cmd.message_ids,
+            urgency: cmd.urgency,
         })
     }
 
@@ -390,10 +393,10 @@ impl RunAggregate {
     #[handles_fact(TurnStarted)]
     fn turn_started(&self, fact: TurnStarted, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
-        recorded(
-            self.live()
-                .then_some(TurnStartedRecorded { turn: fact.turn }),
-        )
+        recorded(self.live().then_some(TurnStartedRecorded {
+            turn: fact.turn,
+            message_ids: fact.message_ids,
+        }))
     }
 
     #[handles_fact(TurnCompleted)]
@@ -404,6 +407,7 @@ impl RunAggregate {
             native_key: fact.native_key,
             answer_ref: fact.answer_ref,
             exit_code: fact.exit_code,
+            message_ids: fact.message_ids,
         }))
     }
 
@@ -414,6 +418,7 @@ impl RunAggregate {
             turn: fact.turn,
             class: fact.class,
             detail: fact.detail,
+            message_ids: fact.message_ids,
         }))
     }
 
@@ -496,6 +501,11 @@ impl RunAggregate {
     // A turn starting changes nothing the run decides on: its fold is empty, so
     // replacing it with nothing is the same function.
     #[cfg_attr(test, mutants::skip)]
+    #[applies(InterruptRequested)]
+    fn interrupt_requested(&mut self, event: InterruptRequested, page: &PageContext) {
+        apply(&mut self.run, &event.into(), page.sequence);
+    }
+
     #[applies(TurnStartedRecorded)]
     fn turn_started_recorded(&mut self, event: TurnStartedRecorded, page: &PageContext) {
         apply(&mut self.run, &event.into(), page.sequence);
@@ -534,4 +544,4 @@ impl RunAggregate {
 
 #[cfg(test)]
 #[path = "aggregate.test.rs"]
-mod tests;
+pub(crate) mod tests;

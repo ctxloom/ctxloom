@@ -174,17 +174,22 @@ impl RunnerFact {
                 workspace: "/w".to_string(),
                 pid: 7,
             }),
-            RunnerFact::TurnStarted(runs::TurnStarted { turn: 1 }),
+            RunnerFact::TurnStarted(runs::TurnStarted {
+                turn: 1,
+                message_ids: Vec::new(),
+            }),
             RunnerFact::TurnCompleted(runs::TurnCompleted {
                 turn: 1,
                 native_key: String::new(),
                 answer_ref: String::new(),
                 exit_code: 0,
+                message_ids: Vec::new(),
             }),
             RunnerFact::TurnFailed(runs::TurnFailed {
                 turn: 1,
                 class: runs::TurnFailureClass::EngineError,
                 detail: String::new(),
+                message_ids: Vec::new(),
             }),
             RunnerFact::RunExited(runs::RunExited { code: 0, signal: 0 }),
             RunnerFact::EngineSessionBound(sessions::BindEngineSession {

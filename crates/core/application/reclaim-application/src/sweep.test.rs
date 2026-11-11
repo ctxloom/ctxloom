@@ -53,10 +53,14 @@ fn view(harp: &str, state: State, ended_days_ago: i64, kept: bool) -> View {
             ended_at: Some(at(NOW - ended_days_ago * DAY)),
             incarnation: 1,
             last_captured: None,
+            owner: None,
+            closed: false,
+            children: Vec::new(),
         },
         state,
         title: None,
         captured: Some(Captured { bytes: 10 }),
+        pending: Vec::new(),
     }
 }
 

@@ -201,6 +201,7 @@ fn view(harp: &str, state: State) -> View {
         state,
         title: Some(format!("Seeded prompt for {harp}.")),
         captured: None,
+        pending: Vec::new(),
     }
 }
 

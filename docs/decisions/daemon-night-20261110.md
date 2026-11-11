@@ -76,3 +76,25 @@ Owner bypassed the unattended stop conditions on this branch for tonight (review
 
 ### D-N15. `ClearChild` → `ClearRequested{clear_id}` on the child
 - **Decision:** the clear names a `clear_id` (the requester's), keyed `clear:<session>:<clear_id>`; refused `NoSession`, `SessionIsClosed`, `NotOwner`. The rotation itself stays `BindEngineSession` (the driver maps `conversation_reset`), unchanged.
+
+### D-N16. The run's turn gate keyed by message ids (S-b)
+- **Decision:** `QueueTurn{prompt_ref, resume, message_ids, urgency: TurnUrgency}`; `TurnQueued` carries the ids and urgency. The run folds `turns` (every turn queued and not ended, oldest first; `turn_in_flight` stays, the first of them). A steer while a turn is in flight emits `InterruptRequested{turn, message_ids}` (once per turn in flight) then `TurnQueued`, in one decision (an `Emit` continuation); a wake or an inform is refused `TurnInFlight` naming the turn in flight (it stays pending). A steer to an idle run is just queued.
+- **Ends:** `TurnStarted`/`TurnCompleted`/`TurnFailed` (and their events) gain `message_ids`. An end naming message ids frees the open turn holding the first of them; one naming none frees the open turn of its number (the M1 one-shot's turn 1, never queued, frees nothing and records as before). External ids: `turn:<run>:<first message id>:<phase>`, else `turn:<run>:<turn>:<phase>` as before (a numeric message id could collide with a turn number: message ids are UUIDs or policy keys, never bare numbers).
+- **`TurnUrgency`** is the runs proto's own enum (inform, wake, steer), mapped from the session's `Urgency` by the delivery policy, so `runs.proto` imports no sessions proto.
+- **`urgency` is required** (the markup has no unspecified value): every `QueueTurn` now names one. Nothing in production sent `QueueTurn` before (the one-shot launcher records turn facts without queueing), so no caller changed behaviour.
+
+### D-N17. The pending messages: a projection of MessageSent minus TurnQueued's ids (K3)
+- **Decision:** `crates/core/read-model/pending-messages` (`Pending`, `PendingMessages` on the projector port, `catch_up()` over the sessions and runs domains), shaped like `pending-launches`. Consumption is kept per RUN stream (its session from `RunEnqueued`, the ids its `TurnQueued`s carried), and a message is pending when no run of its session carried it, so the cross-stream order of a catch-up (S-d) cannot resurrect a consumed message. A book from 0 rebuilds a stream; a purged one leaves.
+- **A closed session has nothing pending** (no turn will carry it; the `MessageSent` stays in its stream as the record). `owed()` lists the sessions with something pending, what a driver acts on.
+
+### D-N18. The owner-to-children view is the session index's record
+- **Decision:** `SessionRecord` gains `owner`, `closed` and `children` (copied from the folded session, so the view per owner stream is the owner's own `ChildLaunched` minus ended, forgotten and failed). No separate crate: the index already folds every session stream with the aggregate. `View` gains `pending` (filled by `show` only, D30).
+
+### D-N19. The policies are pure functions in `session-policies` (application)
+- **Decision:** `crates/core/application/session-policies`: `Keyed<C>{project_id, cover, key, command}` (its `book()` is `sessions::keyed_book`, its command id `command_id(key)`) and `KeyedFact<F>{.., external_id, fact}`. A policy acts with the user's authority: no requester (D-N9).
+  - `deliver(RunGate{session, incarnation, live, in_flight}, pending)`: no live run, nothing; idle, every pending message in the order sent if any is a wake or steer (informs alone wait, D30), urgency steer if any steer else wake; in flight, the pending informs and steers (the steer's turn is the next turn), wakes wait. Key `send:<first wake or steer carried>`. `resume: true`. The gate is the run's own folded state, never a read model.
+  - `cascade(owner, children)` → `CloseSession{cause: "owner-closed"}` per child, `cascade:<owner>:<child>`; `child_ended(child, owner, closed)` → `EndChild` on the owner, `child-ended:<owner>:<child>` (added: without it the owner would hold a closed child until destroyed).
+  - `notice(child, harp, owner, ended, supported)`: on `notice_parent`, `SendMessage` to the owner, a wake when the owner's engine takes one, else an inform, else nothing; message id = key = `notice:<child>:<incarnation>`.
+  - `launch(owner, launched, output_dir)` → the child's `ClaimName` (`claim:<owner>:<child>`, on the target's claim stream) and `MintSession{owner, origin: agent, depth}` (`mint:<owner>:<child>`) in the TARGET store (D19); `launch_failed(owner, child, reason)` → the fact `RecordChildLaunchFailed`, `launch-failed:<owner>:<child>`.
+  - `destroy(target, owner, children)` → `CloseSession{cause: "owner-destroyed"}` per child (`owner-destroyed:<target>:<child>`) and `ForgetChild{target}` on its owner (`destroy:<target>`).
+- **Races:** two policies closing one child (cascade, destroy) record one `SessionClosed` (the second finds it closed); a redelivered key is DUPLICATE (tested through the aggregate).

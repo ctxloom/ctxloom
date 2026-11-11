@@ -98,6 +98,8 @@ mod domains {
         let queue = runs::RunCommand::from(runs::QueueTurn {
             prompt_ref: "p".to_string(),
             resume: false,
+            message_ids: Vec::new(),
+            urgency: runs::TurnUrgency::Wake,
         });
         assert_eq!(
             refused(to("runs", queue)).await,

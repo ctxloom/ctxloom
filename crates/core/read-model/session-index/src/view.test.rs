@@ -25,6 +25,7 @@ fn view(harp: &str, title: Option<&str>) -> View {
         state: State::Ended,
         title: title.map(str::to_string),
         captured: None,
+        pending: Vec::new(),
     }
 }
 

@@ -611,3 +611,79 @@ fn a_transcripts_lines_after_a_rename_carry_the_new_name() {
         .collect();
     assert_eq!(harps, ["amber-swift-owl", "bright-keen-hawk"]);
 }
+
+// ------------------------------------------------------------ owner link
+
+// D26, K2: the record carries the owner a child was minted for, its close,
+// and the children an owner holds (the owner-to-children view, per owner
+// stream): launched minus ended.
+#[test]
+fn a_record_carries_its_owner_its_close_and_the_children_it_holds() {
+    let owner = sessions::SessionRef {
+        project_id: "calm-otter".to_string(),
+        session: id_text(FIRST),
+    };
+    let child = |n: u8| sessions::SessionRef {
+        project_id: "calm-otter".to_string(),
+        session: id_text(n),
+    };
+    let launch = |n: u8| sessions::LaunchChild {
+        child_project_id: "calm-otter".to_string(),
+        child_session: id_text(n),
+        child_root: format!("/w/{n}"),
+        harp: format!("kid-{n}"),
+        engine: "claude-code".to_string(),
+        trust: sessions::TargetTrust {
+            same_project: true,
+            trusted: false,
+        },
+        delegation_limit: 4,
+        requester: None,
+    };
+    let mut project = Project::new();
+    let mut index = SessionIndex::catch_up();
+    project.run(&mut index, FIRST, mint("owner-owl"));
+    project.run(&mut index, FIRST, launch(SECOND));
+    project.run(&mut index, FIRST, launch(3));
+    project.run(
+        &mut index,
+        FIRST,
+        sessions::EndChild {
+            child: Some(child(3)),
+            cause: "closed".to_string(),
+        },
+    );
+    project.run(
+        &mut index,
+        SECOND,
+        MintSession {
+            owner: Some(owner.clone()),
+            depth: 1,
+            ..mint("kid-2")
+        },
+    );
+    project.run(
+        &mut index,
+        SECOND,
+        sessions::CloseSession {
+            cause: "done".to_string(),
+            requester: None,
+        },
+    );
+    let index = project.rebuilt();
+    let found = |harp: &str| index.projector().index().find(harp).unwrap();
+    let held = found("owner-owl");
+    assert_eq!(held.owner, None);
+    assert!(!held.closed);
+    assert_eq!(
+        held.children,
+        vec![sessions::Child {
+            session: Some(child(SECOND)),
+            root: "/w/2".to_string(),
+        }]
+    );
+    let kid = found("kid-2");
+    assert_eq!(kid.owner, Some(owner));
+    assert!(kid.closed);
+    assert!(kid.children.is_empty());
+}

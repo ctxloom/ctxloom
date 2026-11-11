@@ -142,6 +142,7 @@ where
             state,
             title,
             captured,
+            pending: Vec::new(),
         }
     }
 

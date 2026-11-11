@@ -189,7 +189,10 @@ fn a_sign_of_life_without_a_start_does_not_clear_the_launch() {
             2,
             1,
             1,
-            RunEvent::TurnStartedRecorded(TurnStartedRecorded { turn: 1 }),
+            RunEvent::TurnStartedRecorded(TurnStartedRecorded {
+                turn: 1,
+                message_ids: Vec::new(),
+            }),
         ),
     ]);
     assert_eq!(
@@ -311,6 +314,7 @@ fn a_book_after_the_first_page_does_not_start_its_stream_afresh() {
         turn: 1,
         class: runs::TurnFailureClass::RateLimited,
         detail: String::new(),
+        message_ids: Vec::new(),
     });
     let model = fold(&[enqueued(1, 1, RunMode::OneShot), later(1, 1, 1, failed)]);
     assert_eq!(

@@ -9,6 +9,8 @@ publish.workspace = true
 
 [dependencies]
 angzarr-embedded.workspace = true
+# A session's pending messages, as `show` lists them (D30).
+pending-messages.workspace = true
 sessions.workspace = true
 # Instants formatted for the rows: pure calendar arithmetic, no clock.
 time.workspace = true

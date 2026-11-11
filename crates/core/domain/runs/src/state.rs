@@ -1,6 +1,6 @@
 //! The run, folded from its events.
 
-use crate::{EndCause, RunEvent, RunMode, RunnerStartedRecorded};
+use crate::{EndCause, RunEvent, RunMode, RunnerStartedRecorded, TurnUrgency};
 
 /// The runs domain's name: every run stream's `Cover.domain`.
 pub const RUN_DOMAIN: &str = "runs";
@@ -31,8 +31,12 @@ pub struct RunState {
     /// pid), once it did.
     pub runner_started: Option<RunnerStartedRecorded>,
     /// The sequence of the `TurnQueued` event of the turn in flight (plan
-    /// 4.3: the turn number is a per-stream position, the cause).
+    /// 4.3: the turn number is a per-stream position, the cause): the first
+    /// of `turns`.
     pub turn_in_flight: Option<u64>,
+    /// Every turn queued and not yet ended, oldest first (S-b): the one in
+    /// flight, then the steers queued behind it.
+    pub turns: Vec<OpenTurn>,
     pub stop_requested: bool,
     /// How many summary claims the model has recorded: advisory evidence, no
     /// transition (owner ruling 2026-11-04, item 16).
@@ -41,6 +45,18 @@ pub struct RunState {
     /// stays live, its credentials valid and its next turn queueable.
     pub final_reported: Option<u64>,
     pub ended: Option<EndCause>,
+}
+
+/// A turn queued and not yet ended (S-b).
+#[derive(Clone, Debug, PartialEq)]
+pub struct OpenTurn {
+    /// The sequence of its `TurnQueued` event.
+    pub turn: u64,
+    /// The session's messages it carries: its key.
+    pub message_ids: Vec<String>,
+    pub urgency: TurnUrgency,
+    /// Whether a steer asked it to be interrupted.
+    pub interrupt_requested: bool,
 }
 
 /// Fold `event`, the page at `sequence` of the run's stream, into `state`:
@@ -60,7 +76,7 @@ pub fn apply(state: &mut RunState, event: &RunEvent, sequence: u64) {
         RunEvent::RunnerStartedRecorded(started) => state.runner_started = Some(started.clone()),
         // The turn in flight is the sequence of its `TurnQueued` event (plan 4.3).
         RunEvent::TurnQueued(_) => state.turn_in_flight = Some(sequence),
-        RunEvent::TurnStartedRecorded(_) => {}
+        RunEvent::InterruptRequested(_) | RunEvent::TurnStartedRecorded(_) => {}
         RunEvent::TurnCompletedRecorded(completed) => free_the_gate(state, completed.turn),
         RunEvent::TurnFailedRecorded(failed) => free_the_gate(state, failed.turn),
         RunEvent::StopRequested(_) => state.stop_requested = true,

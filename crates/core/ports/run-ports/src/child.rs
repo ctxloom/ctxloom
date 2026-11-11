@@ -229,10 +229,8 @@ impl From<EngineError> for ChildError {
 
 impl fmt::Display for ChildError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ChildError::Engine(error) => fmt::Display::fmt(error, f),
-            _ => angzarr_diagnostic::display(self, f),
-        }
+        // An engine error's code and args are its own, so its words are too.
+        angzarr_diagnostic::display(self, f)
     }
 }
 

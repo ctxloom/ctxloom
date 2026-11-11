@@ -162,10 +162,7 @@ fn start(command: &TurnCommand) -> Result<StartedChild, ChildError> {
             Ok(Err(error)) => (no_exit(), error.to_string()),
             Err(_) => (no_exit(), String::new()),
         };
-        let detail = match stderr.recv_timeout(DRAIN_GRACE) {
-            Ok(text) if failure.is_empty() => text,
-            _ => failure,
-        };
+        let detail = detail_of(failure, stderr.recv_timeout(DRAIN_GRACE).ok());
         let observations = {
             let mut shared = lock(&reader_shared);
             shared.stdin = None;
@@ -221,6 +218,16 @@ fn keep_stderr(stderr: impl Read + Send + 'static) -> mpsc::Receiver<String> {
         let _ = told.send(stream::bounded(text.trim()).to_string());
     });
     kept
+}
+
+/// The exit's detail: a wait that failed says so; else the start of stderr
+/// (none when its reader did not finish).
+fn detail_of(failure: String, stderr: Option<String>) -> String {
+    if failure.is_empty() {
+        stderr.unwrap_or_default()
+    } else {
+        failure
+    }
 }
 
 fn not_started(command: &TurnCommand, error: &RunError) -> ChildError {

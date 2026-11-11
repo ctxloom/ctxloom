@@ -14,7 +14,7 @@ use run_ports::{
     FailureClass, Queued, StartedChild, TurnOutcome, Urgency,
 };
 
-use crate::child::child_command;
+use crate::child::{child_command, detail_of};
 use crate::Claude;
 
 /// The fake claude. Its session id is `S1`, `S2` after a `/clear`; it
@@ -22,6 +22,7 @@ use crate::Claude;
 const STUB: &str = r#"#!/bin/sh
 here=$(dirname "$0")
 sid=S1
+printf '%s' "$$" > "$here/pid"
 printf '{"type":"system","subtype":"init","cwd":"/work","session_id":"%s","tools":[]}\n' "$sid"
 while IFS= read -r line; do
   printf '%s\n' "$line" >> "$here/input.log"
@@ -501,4 +502,57 @@ fn a_dropped_control_closes_the_engines_input_and_it_exits() {
         ),
         "{rest:?}"
     );
+}
+
+#[test]
+fn the_exit_detail_is_a_failed_wait_else_stderr() {
+    assert_eq!(detail_of(String::new(), Some("said".to_string())), "said");
+    assert_eq!(detail_of(String::new(), None), "");
+    assert_eq!(
+        detail_of("wait broke".to_string(), Some("said".to_string())),
+        "wait broke"
+    );
+}
+
+#[test]
+fn the_pid_is_the_engines_own() {
+    let mut running = run(STUB);
+    // The init is written after the pid file.
+    assert!(matches!(running.next(), ChildObservation::Started { .. }));
+    // The fake claude is exec'd by its shim, so its `$$` is the spawn's pid.
+    let written = running.dir.read_to_string(&os::fixture("/pid")).unwrap();
+    let pid = running.child.control.pid();
+    assert_eq!(written, pid.to_string());
+    let shown = format!("{:?}", running.child);
+    assert!(shown.contains(&format!("pid: {pid}")), "{shown}");
+}
+
+#[test]
+fn an_interrupt_asks_a_turn_in_flight_and_nothing_when_idle() {
+    let mut running = run(STUB);
+    running.next();
+    assert!(!running.child.control.interrupt().unwrap());
+    running
+        .child
+        .control
+        .send(message("m-1", "LONG count"), Urgency::Wake)
+        .unwrap();
+    assert_eq!(running.next(), started("m-1"));
+    assert!(running.child.control.interrupt().unwrap());
+    assert!(!running.child.control.interrupt().unwrap());
+    let seen = running.until(ended(&["m-1"]));
+    assert_eq!(
+        seen[0],
+        ChildObservation::InterruptAnswered { accepted: true }
+    );
+    assert!(matches!(
+        &seen[1],
+        ChildObservation::TurnEnded {
+            outcome: TurnOutcome::Failed {
+                class: FailureClass::Interrupted,
+                ..
+            },
+            ..
+        }
+    ));
 }

@@ -260,5 +260,5 @@ fn test_an_import_of_a_built_in_name_makes_the_overriding_project_bundle() {
     ok(library.bundle_export(&plain(), "git", "out", ""));
     let imported = ok(library.bundle_import(&plain(), "out/git", false));
     assert_eq!(imported.dest, "/p/.ctxloom/content/bundles/v2/git");
-    assert_eq!(mem.log(), ["claim git", "apply git"]);
+    assert_eq!(mem.log(), ["write_tree out/git", "claim git", "apply git"]);
 }

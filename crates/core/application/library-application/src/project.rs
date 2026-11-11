@@ -93,8 +93,7 @@ impl Library {
     /// every project's catalog, under the read-only built-in origin, where the
     /// project has no bundle of the name (owner rulings 110, 111).
     pub fn with_builtins(mut self) -> Library {
-        // RED: not yet joined.
-        self.builtins = false;
+        self.builtins = true;
         self
     }
 

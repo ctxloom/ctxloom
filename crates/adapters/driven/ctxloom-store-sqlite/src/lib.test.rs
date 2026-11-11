@@ -487,3 +487,49 @@ async fn test_a_store_held_to_read_is_closed_before_it_is_reopened_to_write() {
     stores.close().await.unwrap();
     assert_eq!(beside(&fs, "p"), Vec::<&str>::new());
 }
+
+// ------------------------------------------------ a held store is reused, not reopened
+//
+// A second open of the held project is served by the held store: nothing is
+// closed and nothing opened afresh. Seen from the file: once the database is
+// unlinked under the held connection, a reuse leaves it gone (the connection
+// keeps its inode), where a close and reopen would make the file again (to
+// write) or find none (to read).
+
+const HELD_DB: &str = "/home/u/.ctxloom/projects/p/ctxloom.db";
+
+#[tokio::test]
+async fn test_a_second_open_to_write_of_the_held_project_reuses_its_store() {
+    let fs = Arc::new(Rooted::temp().unwrap());
+    let mut stores = super::SqliteStores::new(fs.clone(), "/home/u");
+    ProjectStores::open(&mut stores, &project("p"))
+        .await
+        .unwrap();
+    fs.remove_file(Path::new(HELD_DB)).unwrap();
+    ProjectStores::open(&mut stores, &project("p"))
+        .await
+        .unwrap();
+    assert!(
+        !fs.exists(Path::new(HELD_DB)).unwrap(),
+        "reused: not reopened, so no file was made again"
+    );
+    stores.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_a_read_of_the_held_project_reuses_its_store() {
+    let fs = Arc::new(Rooted::temp().unwrap());
+    let mut stores = super::SqliteStores::new(fs.clone(), "/home/u");
+    ProjectStores::open(&mut stores, &project("p"))
+        .await
+        .unwrap();
+    fs.remove_file(Path::new(HELD_DB)).unwrap();
+    assert!(
+        ProjectStores::open_existing(&mut stores, &project("p"))
+            .await
+            .unwrap()
+            .is_some(),
+        "reused: a reopen would find no file"
+    );
+    stores.close().await.unwrap();
+}

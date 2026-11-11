@@ -227,20 +227,29 @@ impl Project {
         }
     }
 
+    /// The files of `entry` that carry an execute bit: a remote one's as
+    /// installed, none of a built-in one's, the project's as on disk.
+    pub(crate) fn executables_of(
+        &self,
+        entry: &library::catalog::Entry,
+    ) -> Result<std::collections::BTreeSet<String>, AppError> {
+        match self.catalog.origin(&entry.name) {
+            Some(origin) => Ok(origin.executable.clone()),
+            // A built-in bundle ships no executable file.
+            None if self.catalog.is_builtin(&entry.name) => Ok(Default::default()),
+            None => self
+                .content
+                .executable_files(&entry.name)
+                .map_err(AppError::Cause),
+        }
+    }
+
     /// Every skill of every bundle that loads, by bundle then name.
     fn skills(&mut self) -> Result<Vec<LoadedSkill>, AppError> {
         let mut out = Vec::new();
         let mut withheld = Vec::new();
         for entry in self.catalog.entries() {
-            let executable = match self.catalog.origin(&entry.name) {
-                Some(origin) => origin.executable.clone(),
-                // A built-in bundle ships no executable file.
-                None if self.catalog.is_builtin(&entry.name) => Default::default(),
-                None => self
-                    .content
-                    .executable_files(&entry.name)
-                    .map_err(AppError::Cause)?,
-            };
+            let executable = self.executables_of(entry)?;
             for (name, skill) in &entry.bundle.skills {
                 match load_skill(&entry.name, &entry.bundle.tags, name, skill, &executable) {
                     Ok(loaded) => out.push(loaded),

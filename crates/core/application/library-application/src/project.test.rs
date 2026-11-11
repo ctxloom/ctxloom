@@ -262,3 +262,31 @@ fn test_an_import_of_a_built_in_name_makes_the_overriding_project_bundle() {
     assert_eq!(imported.dest, "/p/.ctxloom/content/bundles/v2/git");
     assert_eq!(mem.log(), ["write_tree out/git", "claim git", "apply git"]);
 }
+
+// A built-in bundle has no executable file, whatever the project's files say.
+#[test]
+fn test_a_built_in_bundle_has_no_executable_file() {
+    let library = Setup {
+        layers: &[CONFIG],
+        executable: &["fragments/tdd.md"],
+        builtins: true,
+        ..Setup::default()
+    }
+    .library();
+    let found = library.run(&plain(), |p| {
+        let entry = p.catalog.lookup("testing").expect("built in").clone();
+        p.executables_of(&entry)
+    });
+    assert!(ok(found).is_empty());
+}
+
+// An import of a name no bundle has is made, whatever other bundles (the
+// built-in ones among them) the project holds.
+#[test]
+fn test_an_import_of_a_new_name_beside_other_bundles_is_not_refused() {
+    let (library, mem) = world(&[("demo", &[ENVELOPE])]);
+    mem.put_user("in/mine/bundle.yaml", ENVELOPE.1.as_bytes(), false);
+    let imported = ok(library.bundle_import(&plain(), "in/mine", false));
+    assert_eq!(imported.dest, "/p/.ctxloom/content/bundles/v2/mine");
+    assert_eq!(mem.log(), ["claim mine", "apply mine"]);
+}

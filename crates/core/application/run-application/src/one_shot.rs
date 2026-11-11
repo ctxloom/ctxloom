@@ -570,6 +570,16 @@ where
         {
             Ok(enqueued) => enqueued,
             Err(error) => {
+                if matches!(error, RunError::Refused(_)) {
+                    // The plan's fatal findings, beside a refusal of other
+                    // checks, are said as warnings (the preview leaves them
+                    // to the refusal that lists them, which this one does
+                    // not).
+                    notices.extend(previewed.fatal.iter().map(|f| Notice::Finding {
+                        text: f.text.clone(),
+                        remedy: f.remedy.clone(),
+                    }));
+                }
                 if resume.is_some() {
                     self.incarnation_ended(&session, incarnation, LAUNCH_FAILED)
                         .await;

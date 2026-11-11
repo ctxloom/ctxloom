@@ -2358,7 +2358,8 @@ async fn two_failing_checks_are_refused_together_in_check_order() {
 }
 
 // Ruling 73a: fatal findings beside a refusal make the exit 3; the findings
-// are the plan's notices (said as they always are), the refusal the run's.
+// are said as warnings beside it (the plan leaves a fatal finding to the
+// refusal that lists it, and this one does not), the refusal is the run's.
 #[tokio::test]
 async fn fatal_findings_beside_a_refusal_are_exit_3_and_the_refusal_is_kept() {
     let mut script = needing_a_token();
@@ -2373,7 +2374,13 @@ async fn fatal_findings_beside_a_refusal_are_exit_3_and_the_refusal_is_kept() {
     );
     assert_eq!(error.exit_code(), 3);
     assert_eq!(codes_of(&error), ["runs-no-credential"]);
-    assert_eq!(done.notices.len(), 1, "the plan's notices are still said");
+    let said: Vec<String> = done.notices.iter().map(|n| format!("{n:?}")).collect();
+    assert_eq!(said.len(), 2, "{said:?}");
+    assert!(
+        said[0].contains("a finding the plan proceeded past"),
+        "{said:?}"
+    );
+    assert!(said[1].contains("no such bundle"), "{said:?}");
 }
 
 // A single failing check is the plain refusal it always was (rulings 73a,

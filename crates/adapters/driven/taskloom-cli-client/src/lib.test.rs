@@ -434,9 +434,79 @@ fn a_helper_taskloom_started_is_killed_with_it() {
     assert!(started.elapsed() < Duration::from_secs(40));
     let pid = read(&dir, "helper");
     assert!(
-        run_within::process_gone(pid.trim()),
+        gone_within(pid.trim(), GONE_BOUND, run_within::process_gone),
         "the helper {pid} outlived taskloom"
     );
+}
+
+/// How long a killed helper has to be gone once the run that killed it has
+/// returned: far longer than the dying takes (well under a millisecond), so
+/// only a helper the kill did not reach is still there at the end of it.
+const GONE_BOUND: Duration = Duration::from_secs(10);
+
+/// Whether `look` finds the process `pid` gone within `bound`. A run past
+/// its limit sends SIGKILL to taskloom's whole process group and reaps
+/// taskloom, not its descendants: a helper dies when the kernel next runs it,
+/// which can be just after the run returned (it was caught in state `R`), so
+/// one look at that instant can see a helper that is already doomed.
+fn gone_within(pid: &str, bound: Duration, mut look: impl FnMut(&str) -> bool) -> bool {
+    let until = Instant::now() + bound;
+    loop {
+        if look(pid) {
+            return true;
+        }
+        if Instant::now() >= until {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+// The interleaving that failed under load, forced: the helper is seen alive
+// at the first look, and the kill lands only after it. One look (the check
+// the test made before) calls that helper a survivor; the bounded look finds
+// it gone.
+#[test]
+fn a_helper_seen_alive_before_its_kill_lands_is_gone_within_the_bound() {
+    if !runs_scripts() {
+        return;
+    }
+    let mut helper = std::process::Command::new("sleep")
+        .arg("30")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = helper.id().to_string();
+    let mut looks = 0;
+    let gone = gone_within(&pid, GONE_BOUND, |pid| {
+        looks += 1;
+        let seen = run_within::process_gone(pid);
+        if looks == 1 {
+            assert!(!seen, "the helper is alive before its kill");
+            helper.kill().unwrap();
+        }
+        seen
+    });
+    helper.wait().unwrap();
+    assert!(gone, "a doomed helper is gone within the bound");
+    assert!(looks > 1, "the first look saw it alive: {looks}");
+}
+
+// A helper the kill never reached (one that left the group) is still a
+// survivor: the bound ends the wait, it does not excuse it.
+#[test]
+fn a_helper_that_never_goes_is_a_survivor_at_the_bound() {
+    let started = Instant::now();
+    let mut looks = 0;
+    let gone = gone_within("1", Duration::from_millis(30), |_| {
+        looks += 1;
+        false
+    });
+    assert!(!gone);
+    assert!(looks > 1, "it looked again before the bound: {looks}");
+    assert!(started.elapsed() >= Duration::from_millis(30));
 }
 
 #[test]

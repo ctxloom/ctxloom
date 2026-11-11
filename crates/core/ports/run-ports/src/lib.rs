@@ -17,7 +17,6 @@ mod launcher;
 mod locks;
 mod login;
 mod permit;
-mod posture;
 mod records;
 mod serving;
 mod settings;
@@ -44,7 +43,6 @@ pub use launcher::{
 pub use locks::{HeldLock, LockProbe, RunLocks};
 pub use login::{LinkState, LoginLinks};
 pub use permit::{apply_permits, permits, Ignored, Permits, PERMIT_PREFIX};
-pub use posture::{enforced, Enforced};
 pub use records::{check_rel, RecordsError, SessionRecords};
 pub use serving::{BoxFuture, HookServer, Serving};
 pub use settings::{AuthSetting, CredentialPolicy, EngineSettings, SessionHome};
@@ -68,13 +66,12 @@ pub fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
         level: "extreme".to_string(),
         known: "low, medium, high".to_string(),
     }));
-    samples.push(Box::new(EngineError::UnknownPermissionMode {
-        engine: "claude-code".to_string(),
-        mode: "nonsense".to_string(),
-        known: "acceptEdits, plan".to_string(),
-    }));
     samples.push(Box::new(EngineError::NoHostHome {
         engine: "claude-code".to_string(),
+    }));
+    samples.push(Box::new(EngineError::BadPermissions {
+        engine: "claude-code".to_string(),
+        ext_err_txt: "expected value at line 1".to_string(),
     }));
     samples.push(Box::new(RecordsError::BadPath {
         rel: "..".to_string(),

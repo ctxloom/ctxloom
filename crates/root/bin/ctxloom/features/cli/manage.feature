@@ -92,10 +92,9 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # The project-side copy is an explicit materialize's, so it is spelled
     # out after the scaffold.
     #
-    # The scaffold's seed profile inherits the developer profile ctxloom ships
-    # built in (owner rulings 110, 111), so a strict materialize delivers it
-    # with nothing pulled; --no-pull keeps the cell off the network all the
-    # same.
+    # The scaffold's seed profile is bare (owner ruling 117), so a strict
+    # materialize has nothing to pull; --no-pull keeps the cell off the
+    # network all the same.
     Scenario Outline: Alice wires an empty project for her engine
       Given an empty project directory
       When Alice installs ctxloom for <engine> and wires its files in:

@@ -1,120 +1,110 @@
-//! Owner rulings 110, 111: the built-in bundles, compiled in.
+//! Owner rulings 110, 111, narrowed by 117 and 123: ctxloom's one built-in
+//! bundle holds its operational prompts, compiled in.
 
 use super::*;
 
-/// `resources/builtin/SHA256SUMS`: each file's digest and its path below
-/// `resources/builtin/`.
-const SUMS: &str = include_str!("../resources/builtin/SHA256SUMS");
-
-fn compiled() -> BTreeMap<String, String> {
-    FILES
-        .iter()
-        .flat_map(|(bundle, files)| {
-            files
-                .iter()
-                .map(move |(path, bytes)| (format!("{bundle}/{path}"), crate::sha256::hex(bytes)))
-        })
-        .collect()
-}
-
-// The compiled table is the copy of the source the manifest lists: every file
-// of it, each with the bytes it was taken with (the text is the owner's).
+// Ruling 117: one bundle, ctxloom's own, and none of ctxloom-default's.
 #[test]
-fn test_the_compiled_files_are_the_ones_the_manifest_lists_byte_for_byte() {
-    let listed: BTreeMap<String, String> = SUMS
-        .lines()
-        .map(|line| {
-            let (digest, path) = line.split_once("  ").expect("sha256sum lines");
-            (path.to_string(), digest.to_string())
-        })
-        .collect();
-    assert_eq!(listed.len(), 31);
-    assert_eq!(compiled(), listed);
-}
-
-#[test]
-fn test_the_source_is_named_by_its_repository_and_full_commit() {
-    assert_eq!(ORIGIN, "ctxloom/default");
+fn test_the_one_built_in_bundle_is_ctxloom_s_operational_prompts() {
+    assert_eq!(names(), [BUNDLE]);
+    assert_eq!(BUNDLE, "ctxloom");
+    assert_eq!(ORIGIN, "ctxloom/builtin");
+    assert_eq!(SETUP_INTERVIEW_NAME, "setup-interview");
+    assert_eq!(DISTILL_NAME, "distill");
+    for gone in ["ai-developer", "ai-coding-general", "testing", "git"] {
+        assert!(files(gone).is_none(), "{gone} is no longer built in");
+    }
     assert_eq!(
-        SOURCE_REPOSITORY,
-        "https://github.com/ctxloom/ctxloom-default"
-    );
-    assert_eq!(SOURCE_COMMIT.len(), 40);
-    assert!(SOURCE_COMMIT.bytes().all(|b| b.is_ascii_hexdigit()));
-}
-
-// What the seeded profile resolves through, and nothing more.
-#[test]
-fn test_the_built_in_bundles_are_the_ones_the_developer_profile_names() {
-    assert_eq!(
-        names(),
-        ["ai-coding-general", "ai-developer", "git", "testing"]
-    );
-    let developer = &profiles(&|_| false)["ctxloom+local:ai-developer#profiles/developer"];
-    assert_eq!(
-        developer.bundles,
-        ["ai-coding-general", "ai-developer", "testing", "git"]
-    );
-    assert_eq!(
-        developer.name,
-        "ctxloom+local:ai-developer#profiles/developer"
-    );
-}
-
-#[test]
-fn test_every_built_in_bundle_reads_with_its_items() {
-    let read = entries(&|_| false);
-    let counts: Vec<(&str, usize, usize)> = read
-        .iter()
-        .map(|e| {
-            (
-                e.name.as_str(),
-                e.bundle.fragments.len(),
-                e.bundle.profiles.len(),
-            )
-        })
-        .collect();
-    assert_eq!(
-        counts,
-        [
-            ("ai-coding-general", 9, 0),
-            ("ai-developer", 0, 1),
-            ("git", 1, 0),
-            ("testing", 3, 0),
-        ]
-    );
-    let tdd = &read[3].bundle.fragments["tdd"];
-    assert!(tdd
-        .body
-        .content
-        .starts_with("# Test-Driven Development (TDD)"));
-    assert!(!tdd.body.distilled.is_empty());
-    assert_eq!(
-        read[1].manifest_path,
-        "<built-in ctxloom/default>/ai-developer/bundle.yaml"
-    );
-}
-
-// A project bundle of the same name overrides one: the built-in one is not
-// read at all, and its profiles go with it.
-#[test]
-fn test_a_name_the_project_has_leaves_that_built_in_bundle_out() {
-    let taken = |name: &str| name == "testing" || name == "ai-developer";
-    let left: Vec<String> = entries(&taken).into_iter().map(|e| e.name).collect();
-    assert_eq!(left, ["ai-coding-general", "git"]);
-    assert!(profiles(&taken).is_empty());
-}
-
-#[test]
-fn test_the_files_of_a_built_in_bundle_and_of_no_other_name() {
-    let git = files("git").expect("git is built in");
-    assert_eq!(
-        git.keys().collect::<Vec<_>>(),
+        files(BUNDLE).expect("built in").keys().collect::<Vec<_>>(),
         [
             "bundle.yaml",
-            "fragments/git.distilled.md",
-            "fragments/git.md"
+            "prompts/distill.md",
+            "prompts/setup-interview.md"
         ]
     );
+}
+
+// Ruling 117: it is NOT generally injected. It ships no profile (so nothing
+// inherits one of its), no fragment (so no premise index offers it) and no
+// tag (so no tag selection reaches it): only the activity that names one of
+// its prompts gets it.
+#[test]
+fn test_the_built_in_bundle_offers_itself_to_no_session() {
+    let read = entries(&|_| false);
+    assert_eq!(read.len(), 1);
+    let bundle = &read[0].bundle;
+    assert!(bundle.profiles.is_empty());
+    assert!(bundle.fragments.is_empty());
+    assert!(bundle.skills.is_empty());
+    assert!(bundle.mcp.is_empty());
+    assert!(bundle.hooks.is_empty());
+    assert!(bundle.tags.is_empty());
+    assert_eq!(
+        bundle.commands.keys().collect::<Vec<_>>(),
+        ["distill", "setup-interview"]
+    );
+    for command in bundle.commands.values() {
+        assert!(command.body.tags.is_empty());
+    }
+    assert_eq!(read[0].manifest_path, "<built-in>/ctxloom/bundle.yaml");
+}
+
+// The prompts the activities use are the bundle's, as they are read from it.
+#[test]
+fn test_the_prompts_are_the_bundle_s_items_as_read() {
+    let read = entries(&|_| false);
+    let commands = &read[0].bundle.commands;
+    assert_eq!(commands[SETUP_INTERVIEW_NAME].body.content, SETUP_INTERVIEW);
+    assert_eq!(commands[DISTILL_NAME].body.content, DISTILL_PROMPT);
+    // The file is Go's, its front matter dropped: it opens with the blank
+    // line that followed it.
+    assert!(SETUP_INTERVIEW
+        .starts_with("\nWelcome to ctxloom! You are running the ctxloom **setup interview**"));
+}
+
+// Ruling 123: the distill prompt is the owner's own text (it was
+// ctxloom-default's skills/distill.yaml `content`), shipped as ctxloom's:
+// no third-party notice beside it.
+#[test]
+fn test_the_distill_prompt_is_the_owner_s_text() {
+    assert!(DISTILL_PROMPT.starts_with(
+        "You are a text compression assistant. The user message contains content wrapped in <content_to_compress> tags.\n"
+    ));
+    assert!(DISTILL_PROMPT.contains(
+        "- PRESERVE all mustache template variables exactly as written (e.g., {{variable_name}})"
+    ));
+    assert!(DISTILL_PROMPT.ends_with(
+        "Start directly with the compressed content. First character of output should be from the actual content.\n"
+    ));
+    assert!(!DISTILL_PROMPT.contains("    "), "its yaml indent is gone");
+}
+
+// Ruling 119: the interview no longer says ctxloom-default ships the
+// agent-roles fragments, and still offers an equivalent.
+#[test]
+fn test_the_interview_claims_no_content_that_does_not_ship() {
+    let words = SETUP_INTERVIEW
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(!words.contains("ctxloom-default ships"));
+    assert!(words.contains(
+        "(a remote's, such as `agent-roles#fragments/developer-escalation`, or author an equivalent)"
+    ));
+    assert!(words.contains(
+        "a finder fragment (a remote's, such as `agent-roles#fragments/finder`, or an equivalent)"
+    ));
+}
+
+// A project bundle of the same name overrides it: the built-in one is not
+// read at all.
+#[test]
+fn test_a_name_the_project_has_leaves_the_built_in_bundle_out() {
+    assert!(entries(&|name| name == BUNDLE).is_empty());
+    assert_eq!(entries(&|name| name == "other").len(), 1);
+}
+
+#[test]
+fn test_no_other_name_has_files() {
     assert!(files("project").is_none());
 }

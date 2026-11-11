@@ -44,7 +44,7 @@ fn test_the_llm_noun_is_gone() {
 }
 
 #[test]
-fn test_an_agent_is_written_with_engine_model_effort_and_permissions() {
+fn test_an_agent_is_written_with_engine_model_and_effort() {
     for verb in ["create", "edit"] {
         let matches = parse(&[
             "agent",
@@ -56,8 +56,6 @@ fn test_an_agent_is_written_with_engine_model_effort_and_permissions() {
             "haiku",
             "--effort",
             "low",
-            "--permissions",
-            "plan",
         ])
         .unwrap_or_else(|e| panic!("{verb}: {e}"));
         let (_, agent) = matches.subcommand().unwrap();
@@ -74,10 +72,9 @@ fn test_an_agent_is_written_with_engine_model_effort_and_permissions() {
             sub.get_one::<String>("effort").map(String::as_str),
             Some("low")
         );
-        assert_eq!(
-            sub.get_one::<String>("permissions").map(String::as_str),
-            Some("plan")
-        );
+        // Owner ruling 138: `--permissions` is gone, an unknown flag.
+        let argv = ["agent", verb, "dev", "--permissions", "plan"];
+        assert!(parse(&argv).is_err(), "{verb} --permissions still parses");
     }
 }
 

@@ -100,6 +100,9 @@ fn as_changed(golden: &str) -> String {
         .replace("use_distilled: false", "content_form: original")
         .replace("schema_version: 8", "schema_version: 9")
         .replace("\"schema_version\": 8", "\"schema_version\": 9")
+        // Owner ruling 134: an agent has no engine-neutral `permissions` (Go
+        // listed an empty one).
+        .replace(",\n    \"permissions\": {}", "")
         .replace(
             "Use 'ctxloom companion add <name>' to register one.",
             "Use 'ctxloom companion add <name> --command <program> [args...]' to register one.",

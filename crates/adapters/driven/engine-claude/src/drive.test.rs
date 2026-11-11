@@ -4,9 +4,7 @@ use run_ports::{
     AuthSetting, Engine, EngineError, EngineSettings, PrepareRequest, SessionHome, TurnRequest,
 };
 
-use crate::drive::{
-    COPY_IN_ALLOWLIST, EFFORT_LEVELS, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST, PERMISSION_MODES,
-};
+use crate::drive::{COPY_IN_ALLOWLIST, EFFORT_LEVELS, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST};
 use crate::{Claude, CONTEXT_PROMPT_FILE};
 
 fn request() -> TurnRequest {
@@ -19,7 +17,6 @@ fn request() -> TurnRequest {
         cwd: Some("/p".to_string()),
         model: String::new(),
         effort: String::new(),
-        permission_mode: String::new(),
         settings: EngineSettings::default(),
     }
 }
@@ -45,7 +42,7 @@ fn a_turn_is_one_print_command_that_streams_json() {
             "--append-system-prompt-file",
             "/p/.ctxloom/sessions/h/home/ctxloom-context.md",
             "--settings",
-            "/p/.ctxloom/sessions/h/home/settings.json",
+            "/p/.ctxloom/sessions/h/home/ctxloom-hooks.json",
         ]
     );
     assert_eq!(command.cwd.as_deref(), Some("/p"));
@@ -122,12 +119,15 @@ fn preparing_a_home_writes_the_context_file_it_names() {
             interactive: false,
             cwd: None,
             existing: Default::default(),
+            permissions: None,
+            session_home: run_ports::SessionHome::Session,
         })
         .unwrap();
     assert_eq!(prepared.context_path, format!("/h/{CONTEXT_PROMPT_FILE}"));
-    // The context, the settings that register the turn's hooks, and claude's
+    // The context, ctxloom's hooks (the `--settings` file), the user-scope
+    // settings that hold the agent's permissions (ruling 145), and claude's
     // own state (ruling 113).
-    assert_eq!(prepared.files.len(), 3);
+    assert_eq!(prepared.files.len(), 4);
     assert_eq!(prepared.files[0].rel, CONTEXT_PROMPT_FILE);
     assert_eq!(prepared.files[0].bytes, b"the context");
     // Nothing of the user's own configuration is on the allowlist yet.
@@ -147,7 +147,7 @@ fn the_interactive_run_is_the_terminal_command_with_the_context_and_no_print_mod
             "--append-system-prompt-file",
             "/p/.ctxloom/sessions/h/home/ctxloom-context.md",
             "--settings",
-            "/p/.ctxloom/sessions/h/home/settings.json"
+            "/p/.ctxloom/sessions/h/home/ctxloom-hooks.json"
         ]
     );
     assert!(command.stdin.is_empty());
@@ -212,6 +212,8 @@ fn prepared(interactive: bool) -> run_ports::Prepared {
             interactive,
             cwd: None,
             existing: Default::default(),
+            permissions: None,
+            session_home: run_ports::SessionHome::Session,
         })
         .unwrap()
 }
@@ -224,8 +226,8 @@ fn an_interactive_home_gets_settings_whose_hooks_call_ctxloom_execute() {
     let settings = prepared
         .files
         .iter()
-        .find(|f| f.rel == "settings.json")
-        .expect("settings.json in the home");
+        .find(|f| f.rel == HOOKS_FILE)
+        .expect("ctxloom's hooks file in the home");
     let doc = surface_ports::Json::parse(std::str::from_utf8(&settings.bytes).unwrap()).unwrap();
     assert!(crate::hooks::has_callback(&doc), "{doc:?}");
     let hooks = doc.get("hooks").unwrap();
@@ -265,8 +267,8 @@ fn registered_events(prepared: &run_ports::Prepared) -> Vec<String> {
     let settings = prepared
         .files
         .iter()
-        .find(|f| f.rel == "settings.json")
-        .expect("settings.json in the home");
+        .find(|f| f.rel == HOOKS_FILE)
+        .expect("ctxloom's hooks file in the home");
     let doc = surface_ports::Json::parse(std::str::from_utf8(&settings.bytes).unwrap()).unwrap();
     let Some(surface_ports::Json::Object(events)) = doc.get("hooks").cloned() else {
         panic!("no hooks in {doc:?}");
@@ -309,8 +311,8 @@ fn a_childs_home_registers_the_per_turn_events_and_not_the_per_process_ones() {
     let prepared = prepared(false);
     assert_eq!(
         prepared.files.len(),
-        3,
-        "the context, the settings and claude's state (ruling 113)"
+        4,
+        "the context, the hooks, the permissions settings and claude's state (ruling 113)"
     );
     assert_eq!(
         registered_events(&prepared),
@@ -533,73 +535,186 @@ fn an_effort_claude_does_not_take_is_refused_before_launch() {
     }
 }
 
-// Owner ruling 116: `claude --permission-mode <mode>` (acceptEdits, auto,
-// bypassPermissions, manual, dontAsk, plan; `claude --help`, 2.1.322):
-// passed for a turn and for the terminal session; none named, or the
-// config's `default` (the engine's own default mode), is no flag; a mode
-// claude does not take is refused before it is launched.
+/// ctxloom's own settings file in the session home: the hooks, which the
+/// command names with `--settings` (owner ruling 145).
+const HOOKS_FILE: &str = "ctxloom-hooks.json";
+
+/// The file of a prepared home at `rel`, as text.
+fn file_of(prepared: &run_ports::Prepared, rel: &str) -> Option<String> {
+    prepared
+        .files
+        .iter()
+        .find(|f| f.rel == rel)
+        .map(|f| String::from_utf8(f.bytes.clone()).unwrap())
+}
+
+/// A session-home `prepare`, given `permissions` and what the home holds.
+fn prepare_home(
+    interactive: bool,
+    permissions: Option<&str>,
+    existing: BTreeMap<String, Vec<u8>>,
+) -> run_ports::Prepared {
+    Claude::new()
+        .prepare(&PrepareRequest {
+            home: "/h".to_string(),
+            context: "c".to_string(),
+            offered: Vec::new(),
+            interactive,
+            cwd: None,
+            existing,
+            permissions: permissions.map(String::from),
+            session_home: run_ports::SessionHome::Session,
+        })
+        .unwrap()
+}
+
+// Owner rulings 135, 137, 145: the agent's permissions document is the
+// `permissions` object of the user-scope `settings.json` of the session home
+// (the session's CLAUDE_CONFIG_DIR), exactly as handed (its order and its
+// words, the retired `mode` among them: nothing is checked), and NOT in the
+// `--settings` file that holds ctxloom's hooks: claude refuses a settings file
+// whole for one invalid value, hooks included, so a bad value in the block
+// must disable the block alone. Probe (claude 2.1.322, no credentials, no
+// model call; `env -i PATH HOME=<tmp> CLAUDE_CONFIG_DIR=<tmp>/cfg claude -p
+// --settings <tmp>/hooks.json hi`), with `{"permissions":{"defaultMode":
+// "bogusMode"}}` in <tmp>/cfg/settings.json:
+//   These settings files did not load, so nothing in them is in effect,
+//   including hooks and permission rules. [...]
+//     <tmp>/cfg/settings.json (permissions.defaultMode): Invalid value.
+//     Expected one of: "acceptEdits", "auto", "bypassPermissions", "default",
+//     "dontAsk", "plan"
+// (only that file is named: the hooks file loads); the same block inside the
+// hooks file names the hooks file, so its hooks are off.
 #[test]
-fn a_configured_permission_mode_is_passed_to_claude_for_a_turn_and_for_the_terminal() {
-    for mode in PERMISSION_MODES {
-        let mut asked = request();
-        asked.permission_mode = mode.to_string();
-        for command in [
-            Claude::new().drive_turn(&asked).unwrap(),
-            Claude::new().drive_interactive(&asked).unwrap(),
-        ] {
-            let at = command
-                .args
-                .iter()
-                .position(|a| a == "--permission-mode")
-                .unwrap_or_else(|| panic!("{mode}: {command:?}"));
-            assert_eq!(command.args[at + 1], mode);
-        }
+fn the_permissions_document_is_the_user_settings_and_never_the_hooks_file() {
+    const DOCUMENT: &str = r#"{"mode":"nonsense","defaultMode":"plan","deny":["WebFetch","Bash(rm *)"],"allow":["Read"],"hooks":{"Stop":[]},"blockWritesOutsideWorkingDirectories":true,"n":7}"#;
+    for interactive in [false, true] {
+        let prepared = prepare_home(interactive, Some(DOCUMENT), BTreeMap::new());
+        let text = file_of(&prepared, "settings.json").expect("settings.json in the home");
+        let doc = surface_ports::Json::parse(&text).unwrap();
+        // The file is the document as its `permissions`, and nothing else.
+        assert_eq!(
+            doc,
+            surface_ports::Json::object([(
+                "permissions",
+                surface_ports::Json::parse(DOCUMENT).unwrap()
+            )]),
+            "{text}"
+        );
+        let keys: Vec<&str> = match doc.get("permissions") {
+            Some(surface_ports::Json::Object(members)) => {
+                members.iter().map(|(k, _)| k.as_str()).collect()
+            }
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            keys,
+            [
+                "mode",
+                "defaultMode",
+                "deny",
+                "allow",
+                "hooks",
+                "blockWritesOutsideWorkingDirectories",
+                "n"
+            ]
+        );
+        // The hooks file holds ctxloom's hooks alone, as with no document.
+        let hooks = file_of(&prepared, HOOKS_FILE).expect("the hooks file");
+        assert_eq!(
+            Some(hooks.clone()),
+            file_of(
+                &prepare_home(interactive, None, BTreeMap::new()),
+                HOOKS_FILE
+            )
+        );
+        let hooks = surface_ports::Json::parse(&hooks).unwrap();
+        assert!(hooks.get("permissions").is_none(), "{hooks:?}");
+        assert!(crate::hooks::has_callback(&hooks), "{hooks:?}");
     }
 }
 
+// Owner T21: both files are written whole from what the launch is handed,
+// never merged into what the home holds (neither is a file claude merges
+// into), so an agent that loosened its own settings finds them regenerated at
+// its next launch, a terminal's, a turn's and a resume's.
 #[test]
-fn the_terminals_prompt_stays_last_beside_a_permission_mode() {
-    let mut asked = request();
-    asked.permission_mode = "plan".to_string();
-    let terminal = Claude::new().drive_interactive(&asked).unwrap();
-    assert_eq!(
-        terminal.args.last().map(String::as_str),
-        Some("what does this project expect of me?")
-    );
-}
-
-#[test]
-fn no_permission_mode_and_the_default_mode_are_no_permission_mode_flag() {
-    for mode in ["", "default"] {
-        let mut asked = request();
-        asked.permission_mode = mode.to_string();
-        for command in [
-            Claude::new().drive_turn(&asked).unwrap(),
-            Claude::new().drive_interactive(&asked).unwrap(),
-        ] {
-            assert!(
-                !command.args.iter().any(|a| a == "--permission-mode"),
-                "{mode:?}: {command:?}"
+fn the_settings_are_regenerated_whatever_the_home_holds() {
+    for rel in ["settings.json", HOOKS_FILE] {
+        assert!(!Claude::new().merges().contains(&rel));
+    }
+    let loosened = br#"{"permissions":{"defaultMode":"bypassPermissions"}}"#.to_vec();
+    let edited = BTreeMap::from([
+        ("settings.json".to_string(), loosened.clone()),
+        (HOOKS_FILE.to_string(), loosened),
+    ]);
+    for interactive in [false, true] {
+        let fresh = prepare_home(
+            interactive,
+            Some(r#"{"defaultMode":"acceptEdits"}"#),
+            BTreeMap::new(),
+        );
+        let again = prepare_home(
+            interactive,
+            Some(r#"{"defaultMode":"acceptEdits"}"#),
+            edited.clone(),
+        );
+        for rel in ["settings.json", HOOKS_FILE] {
+            assert_eq!(
+                file_of(&again, rel),
+                file_of(&fresh, rel),
+                "{rel} interactive={interactive}"
             );
         }
     }
 }
 
+// No document: the user-scope settings are empty (so nothing an agent wrote
+// there lingers), and the hooks file holds no permissions.
 #[test]
-fn a_permission_mode_claude_does_not_take_is_refused_before_launch() {
-    let mut asked = request();
-    asked.permission_mode = "nonsense".to_string();
-    for refused in [
-        Claude::new().drive_turn(&asked),
-        Claude::new().drive_interactive(&asked),
+fn with_no_document_the_settings_hold_no_permissions() {
+    for interactive in [false, true] {
+        let prepared = prepare_home(interactive, None, BTreeMap::new());
+        assert_eq!(file_of(&prepared, "settings.json").as_deref(), Some("{}\n"));
+        let hooks = file_of(&prepared, HOOKS_FILE).expect("the hooks file");
+        let doc = surface_ports::Json::parse(&hooks).unwrap();
+        assert!(doc.get("permissions").is_none(), "{hooks}");
+        assert!(crate::hooks::has_callback(&doc), "{hooks}");
+    }
+}
+
+// A document that is not JSON (ctxloom's own rendering, so a caller's bug) is
+// refused before anything is written, in words.
+#[test]
+fn a_document_that_is_not_json_is_refused() {
+    let refused = Claude::new().prepare(&PrepareRequest {
+        home: "/h".to_string(),
+        context: "c".to_string(),
+        offered: Vec::new(),
+        interactive: false,
+        cwd: None,
+        existing: Default::default(),
+        permissions: Some("{not json".to_string()),
+        session_home: run_ports::SessionHome::Session,
+    });
+    assert!(
+        matches!(&refused, Err(EngineError::BadPermissions { engine, .. }) if engine == "claude-code"),
+        "{refused:?}"
+    );
+}
+
+// Ruling 137 retires ruling 116's flag: no `--permission-mode` is passed, for
+// a turn or for the terminal, whatever the document says.
+#[test]
+fn no_permission_mode_flag_is_ever_passed() {
+    let asked = request();
+    for command in [
+        Claude::new().drive_turn(&asked).unwrap(),
+        Claude::new().drive_interactive(&asked).unwrap(),
     ] {
-        assert_eq!(
-            refused,
-            Err(EngineError::UnknownPermissionMode {
-                engine: "claude-code".to_string(),
-                mode: "nonsense".to_string(),
-                known: "acceptEdits, auto, bypassPermissions, manual, dontAsk, plan".to_string(),
-            })
+        assert!(
+            !command.args.iter().any(|a| a.contains("permission")),
+            "{command:?}"
         );
     }
 }
@@ -792,7 +907,7 @@ fn the_terminal_session_reads_the_session_dirs_settings_in_both_home_modes() {
         assert_eq!(flags.len(), 1, "host={host}: {:?}", command.args);
         assert_eq!(
             command.args[flags[0] + 1],
-            "/p/.ctxloom/sessions/h/home/settings.json",
+            "/p/.ctxloom/sessions/h/home/ctxloom-hooks.json",
             "host={host}"
         );
         // the prompt stays the last word
@@ -832,7 +947,7 @@ fn a_childs_turn_reads_the_session_dirs_settings_in_both_home_modes() {
             assert_eq!(flags.len(), 1, "host={host}: {:?}", command.args);
             assert_eq!(
                 command.args[flags[0] + 1],
-                "/p/.ctxloom/sessions/h/home/settings.json",
+                "/p/.ctxloom/sessions/h/home/ctxloom-hooks.json",
                 "host={host}"
             );
         }
@@ -860,6 +975,8 @@ fn claude_state(existing: Option<&str>, cwd: Option<&str>) -> Option<String> {
                     BTreeMap::from([(".claude.json".to_string(), text.as_bytes().to_vec())])
                 })
                 .unwrap_or_default(),
+            permissions: None,
+            session_home: run_ports::SessionHome::Session,
         })
         .unwrap();
     prepared
@@ -930,4 +1047,53 @@ fn the_seed_merges_into_what_claude_keeps_there() {
 fn a_state_file_that_is_not_an_object_is_left_as_it_is() {
     assert_eq!(claude_state(Some("{not json"), Some("/p")), None);
     assert_eq!(claude_state(Some("[1, 2]"), Some("/p")), None);
+}
+
+// Owner ruling 145, under `session_home: host`: the config dir is the user's
+// own `~/.claude`, whose `settings.json` ctxloom never writes, so no
+// user-scope file is written at all and the agent's document stays the
+// `permissions` of ctxloom's hooks file (the cost, said in the docs: one
+// invalid value there disables the hooks too). A document that is not JSON
+// is refused in both modes.
+#[test]
+fn under_a_host_home_the_block_stays_in_the_hooks_file_and_no_user_settings_are_written() {
+    const DOCUMENT: &str = r#"{"defaultMode":"plan","allow":["Read"]}"#;
+    for interactive in [false, true] {
+        let prepared = Claude::new()
+            .prepare(&PrepareRequest {
+                home: "/h".to_string(),
+                context: "c".to_string(),
+                offered: Vec::new(),
+                interactive,
+                cwd: None,
+                existing: Default::default(),
+                permissions: Some(DOCUMENT.to_string()),
+                session_home: SessionHome::Host,
+            })
+            .unwrap();
+        assert_eq!(file_of(&prepared, "settings.json"), None);
+        let hooks = file_of(&prepared, HOOKS_FILE).expect("the hooks file");
+        let doc = surface_ports::Json::parse(&hooks).unwrap();
+        assert_eq!(
+            doc.get("permissions"),
+            Some(&surface_ports::Json::parse(DOCUMENT).unwrap())
+        );
+        assert!(crate::hooks::has_callback(&doc), "{hooks}");
+    }
+    for home in [SessionHome::Session, SessionHome::Host] {
+        let refused = Claude::new().prepare(&PrepareRequest {
+            home: "/h".to_string(),
+            context: "c".to_string(),
+            offered: Vec::new(),
+            interactive: false,
+            cwd: None,
+            existing: Default::default(),
+            permissions: Some("{nope".to_string()),
+            session_home: home,
+        });
+        assert!(
+            matches!(&refused, Err(EngineError::BadPermissions { .. })),
+            "{home:?}: {refused:?}"
+        );
+    }
 }

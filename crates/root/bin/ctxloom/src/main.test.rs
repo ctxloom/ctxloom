@@ -2,7 +2,8 @@
 //!
 //! S0's red tests (`port/foundation`). The tests live beside the code (no
 //! `tests/` directory), where cargo does not build the binary for them; so
-//! the first test to need it builds it, once, with the cargo running these
+//! nextest's setup script builds it once per run (`prebuilt`), and a test
+//! run without it builds it, once per process, with the cargo running these
 //! tests, into the same target directory and profile.
 //!
 //! THE TEST-ONLY SURFACE this file proposes (built only with the binary's
@@ -50,8 +51,20 @@ use std::sync::OnceLock;
 
 use serde_json::Value;
 
-/// The `ctxloom` binary, built once per test run with its test-only
-/// commands.
+/// The program nextest's setup script built for this run (owner ruling 144:
+/// the binaries are built ONCE per test run, not once per test process), as
+/// the variable `name` it set says, when it is in this test's own profile
+/// directory (cargo's path and the test executable's are both absolute, from
+/// the one target directory); else `None`, and the caller builds it. The
+/// script is `scripts/nextest-build-binaries.sh`, run by `.config/nextest.toml`
+/// (https://nexte.st/docs/configuration/setup-scripts/).
+pub(crate) fn prebuilt(name: &str, profile_dir: &Path) -> Option<PathBuf> {
+    let path = PathBuf::from(host_var(name)?);
+    (path.parent() == Some(profile_dir)).then_some(path)
+}
+
+/// The `ctxloom` binary with its test-only commands: the one nextest's setup
+/// script built for the run (`prebuilt`), else built once per test process.
 pub(crate) fn binary() -> &'static Path {
     static BINARY: OnceLock<PathBuf> = OnceLock::new();
     BINARY.get_or_init(|| {
@@ -61,6 +74,9 @@ pub(crate) fn binary() -> &'static Path {
             .parent()
             .and_then(Path::parent)
             .expect("<target>/<profile>");
+        if let Some(built) = prebuilt("CTXLOOM_TEST_BINARY", profile_dir) {
+            return built;
+        }
         let target_dir = profile_dir.parent().expect("<target>");
         let mut build = Command::new(env!("CARGO"));
         build

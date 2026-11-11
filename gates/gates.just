@@ -232,8 +232,8 @@ test-staged: (_require-nextest "test-staged")
 
 # The tests of a commit: lefthook's pre-commit `tests` step, and its
 # pre-merge-commit one. `test-staged`, under the red-on-branches rule: red
-# tests (a failing test, nextest's 100, or a failing doc test, `_tests`' 102)
-# are committed on any branch but the default one (`_red-allowed`), with a
+# tests (`_tests`' 100, a failing test, or 120, a failing doc test) are
+# committed on any branch but the default one (`_red-allowed`), with a
 # warning that the branch cannot merge until they pass, and refused on the
 # default branch. Red tests are a step on the way and belong on a branch;
 # `push-check` and `merge-check` keep them out of the default branch. Any
@@ -250,7 +250,7 @@ test-commit:
     just --justfile '{{gates_root}}/justfile' test-staged || rc=$?
     case "$rc" in
         0) exit 0 ;;
-        100|102) ;;
+        100|120) ;;
         *) exit "$rc" ;;
     esac
     if where=$(just --justfile '{{gates_root}}/justfile' _red-allowed); then
@@ -324,9 +324,17 @@ _test-affected:
 # cannot run, once the rest pass. `feature_rules` turns on the features of the
 # packages selected (all of them for --workspace), after `features_prepare`.
 # The tests are built first by cargo, whose short messages nextest has no
-# form of. Exits 101 if they did not build, else with nextest's code if it
-# failed (100: a test failed), else 102 if a doc test failed. 100 and 102 are
-# red tests, which `test-commit` allows off the default branch; 101 is not.
+# form of. Its exit is its own, never nextest's passed through (nextest's
+# codes, https://docs.rs/nextest-metadata/latest/nextest_metadata/enum.NextestExitCode.html,
+# give 102 to "cargo metadata failed", 105 to a failed setup script):
+#   0    every test passed;
+#   100  a test failed (nextest's TEST_RUN_FAILED);
+#   101  the tests did not build (cargo's, or nextest's BUILD_FAILED);
+#   120  a doc test failed (once every other test passed);
+#   121  nextest failed some other way (any other code, a signal included),
+#        named in the log on a line `nextest exited <code>`.
+# 100 and 120 are red tests, which `test-commit` allows off the default
+# branch; 101 and 121 are not. Its self-test is scripts/tests-exit.selftest.sh.
 [positional-arguments]
 [no-exit-message]
 _tests +packages:
@@ -364,11 +372,19 @@ _tests +packages:
     rc=0
     cargo nextest run --manifest-path "$root/Cargo.toml" --no-fail-fast --no-tests=pass "${terse[@]}" \
         "${selection[@]}" "${features[@]}" || rc=$?
+    case "$rc" in
+        0|100|101) ;;
+        *)
+            echo "nextest exited $rc: not a test failure (its codes:" \
+                "https://docs.rs/nextest-metadata/latest/nextest_metadata/enum.NextestExitCode.html)"
+            exit 121
+            ;;
+    esac
     # After a failed test, the doc tests would only bury it. Everything they
     # need was built above, so their failing is a red doc test (one that does
-    # not compile included), not a build failure: 102, not cargo's 101.
+    # not compile included), not a build failure: 120, not cargo's 101.
     if [ "$rc" -eq 0 ] && [ "${#doc[@]}" -gt 0 ]; then
-        cargo test --manifest-path "$root/Cargo.toml" --doc "${cargo_terse[@]}" "${doc[@]}" "${features[@]}" || rc=102
+        cargo test --manifest-path "$root/Cargo.toml" --doc "${cargo_terse[@]}" "${doc[@]}" "${features[@]}" || rc=120
     fi
     exit "$rc"
 
@@ -437,8 +453,10 @@ _mutants-affected:
 
 # Mutate the staged diff in place (the tree is throwaway), with no feature
 # but the crates' own, and judge each tier's kill rate (`_mutants-verdict`).
-# Mutants run under `cargo test`, not nextest:
-# a process per test only slows a run that rebuilds for each mutant.
+# Mutants run under cargo-nextest (owner ruling 144; .cargo/mutants.toml's
+# `test_tool`, with `--no-tests=pass` as `_tests` gives it), each test in a
+# process of its own under .config/nextest.toml, the runner every other test
+# gate uses; its setup script builds the acceptance binaries once per run.
 #
 # cargo mutants runs in a session of its own (setsid), and whatever is left
 # in that session when it ends, or when the gate is interrupted, is killed
@@ -886,7 +904,8 @@ _extract-tests log rc:
     case "$2" in
         100) echo "tests failed: $(grep -m1 -E '^ *Summary \[' "$1" | sed 's/^.*\] *//')" ;;
         101) echo "the tests did not build ($(grep -cE '^[^ ]+:[0-9]+:[0-9]+: error' "$1" || true) errors)" ;;
-        102) echo "doc tests failed: $(grep -m1 -E '^test result: FAILED' "$1" || echo 'see the log')" ;;
+        120) echo "doc tests failed: $(grep -m1 -E '^test result: FAILED' "$1" || echo 'see the log')" ;;
+        121) echo "the test runner failed, not a test: $(grep -m1 -oE '^nextest exited [0-9]+' "$1" || echo 'see the log')" ;;
         *) echo "the test run failed (exit $2)" ;;
     esac
     # The failing tests' names first (never a passing one), then their output;

@@ -338,6 +338,7 @@ impl Commands {
             init: &wired.setup.init,
             terminal: &terminal,
             sessions: &sessions,
+            prompts: &sessions,
         };
         setup_cli::run(&uses, noun, call, catalog, out, err)
     }

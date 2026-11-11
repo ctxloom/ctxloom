@@ -15,7 +15,7 @@ use angzarr_embedded::markup::TypedRefusal;
 use crate::{
     AlreadyEnqueued, CredentialHashInvalid, CredentialsNotDistinct, Ended, FileOnlyCredential,
     LaunchRefused, NoCredential, NoPrompt, NoRun, NotItsStream, RunRejection, TurnInFlight,
-    UnenforcedPosture, UnknownEngine,
+    UnknownEngine,
 };
 
 /// What a command handler fails with for `rejection`: the typed refusal
@@ -83,29 +83,10 @@ impl TryFrom<&TypedRefusal> for RunRejection {
         if let Some(UnknownEngine { name, known }) = refusal.object() {
             return Ok(RunRejection::UnknownEngine { name, known });
         }
-        if let Some(posture) = refusal.object::<UnenforcedPosture>() {
-            return Ok(unenforced(posture));
-        }
         if let Some(aggregate) = refusal.object::<LaunchRefused>() {
             return Ok(launch_refused(aggregate));
         }
         Err(NotOurs)
-    }
-}
-
-/// The rejection of a posture its runtime does not enforce.
-fn unenforced(posture: UnenforcedPosture) -> RunRejection {
-    let UnenforcedPosture {
-        runtime,
-        key,
-        value,
-        honest,
-    } = posture;
-    RunRejection::UnenforcedPosture {
-        runtime,
-        key,
-        value,
-        honest,
     }
 }
 
@@ -118,7 +99,6 @@ fn launch_refused(aggregate: LaunchRefused) -> RunRejection {
         no_credential,
         file_only_credential,
         fatal_findings,
-        unenforced_posture,
     } = aggregate;
     let refusals =
         no_prompt
@@ -147,7 +127,6 @@ fn launch_refused(aggregate: LaunchRefused) -> RunRejection {
                     variables,
                 },
             ))
-            .chain(unenforced_posture.into_iter().map(unenforced))
             .collect();
     RunRejection::LaunchRefused {
         refusals,

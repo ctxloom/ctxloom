@@ -10,7 +10,8 @@
 //!   typed `init:` section.
 //! - [`profile`]: profiles, and their resolution with parents.
 //! - [`catalog`]: the project's bundles and the lookups over them;
-//!   [`builtin`]: the bundles ctxloom ships built in (rulings 110, 111).
+//!   [`builtin`]: the bundle ctxloom ships built in, its operational prompts
+//!   (rulings 110, 111, 117).
 //! - [`compose`]: selection (bookend, priority, dedupe) and assembly of the
 //!   context; [`mustache`] substitutes the profile's variables.
 //! - [`premise`]: the premise index (D24); [`tokens`]: the token estimate;

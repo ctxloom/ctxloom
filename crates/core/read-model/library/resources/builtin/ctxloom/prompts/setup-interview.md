@@ -264,12 +264,12 @@ Lead with the standard trio, bound to the phase-3 profiles:
   `agent_run`. Most powerful engine.
 - **developer** — the implementer the orchestrator delegates to. Powerful
   engine, plus an escalation-discipline fragment
-  (ctxloom-default ships `agent-roles#fragments/developer-escalation`, or
+  (a remote's, such as `agent-roles#fragments/developer-escalation`, or
   author an equivalent) so structural/interface changes get escalated back
   up rather than decided alone.
 - **finder** — cheap, parallel, terse: look something up and report
-  straight back, no elaboration. Cheap engine, the
-  `agent-roles#fragments/finder` fragment (or an equivalent).
+  straight back, no elaboration. Cheap engine, a finder fragment (a
+  remote's, such as `agent-roles#fragments/finder`, or an equivalent).
 
 Then the open palette. **Code reviewers** are the notable one: create one
 reviewer per language THIS project uses now and persist them, so the

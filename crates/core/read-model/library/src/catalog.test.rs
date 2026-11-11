@@ -398,60 +398,57 @@ fn test_the_companions_asks_follow_the_reference_then_the_fragment_name() {
     assert!(cat.companion_fragments().is_empty());
 }
 
-// Owner rulings 110, 111: ctxloom's built-in bundles join the catalog beside
-// the project's, under their own names, and a local name reaches them.
+// Owner rulings 110, 111 (narrowed by 117): ctxloom's built-in bundle joins
+// the catalog beside the project's, under its own name, and a local name
+// reaches it.
 #[test]
-fn test_the_built_in_bundles_join_the_catalog_and_a_local_name_finds_them() {
+fn test_the_built_in_bundle_joins_the_catalog_and_a_local_name_finds_it() {
     let cat = corpus().with_builtins(&|_| false);
     let listed: Vec<&str> = cat.entries().iter().map(|e| e.name.as_str()).collect();
-    assert_eq!(
-        listed,
-        [
-            "ai-coding-general",
-            "ai-developer",
-            "alpha",
-            "beta",
-            "git",
-            "testing"
-        ]
-    );
-    for name in ["ai-coding-general", "ai-developer", "git", "testing"] {
-        assert!(cat.is_builtin(name), "{name}");
-        assert!(cat.origin(name).is_none(), "{name} is no remote's");
-    }
+    assert_eq!(listed, ["alpha", "beta", "ctxloom"]);
+    assert!(cat.is_builtin("ctxloom"));
+    assert!(cat.origin("ctxloom").is_none(), "it is no remote's");
     assert!(!cat.is_builtin("alpha"));
     assert_eq!(
-        cat.lookup("ctxloom+local:testing").map(|e| e.name.as_str()),
-        Ok("testing")
+        cat.lookup("ctxloom+local:ctxloom").map(|e| e.name.as_str()),
+        Ok("ctxloom")
     );
     let read = cat
-        .read_fragment("testing#fragments/tdd")
-        .expect("a built-in fragment");
-    assert_eq!(read[0].item_ref, "ctxloom+local:testing#fragments/tdd");
+        .read_command("ctxloom#prompts/setup-interview")
+        .expect("a built-in prompt");
+    assert_eq!(
+        read[0].item_ref,
+        "ctxloom+local:ctxloom#prompts/setup-interview"
+    );
+    assert_eq!(read[0].content, crate::builtin::SETUP_INTERVIEW);
 }
 
-// A project bundle of a built-in one's name overrides it: one entry of the
+// A project bundle of the built-in one's name overrides it: one entry of the
 // name, the project's, and it is not built in.
 #[test]
-fn test_a_project_bundle_of_a_built_in_name_overrides_it() {
+fn test_a_project_bundle_of_the_built_in_name_overrides_it() {
     let cat = catalog_of(&[(
-        "testing",
-        "version: 9.9.9\nfragments:\n  ours:\n    content: Our own testing rules.\n",
+        "ctxloom",
+        "version: 9.9.9\nfragments:\n  ours:\n    content: Our own rules.\n",
     )])
-    .with_builtins(&|name| name == "git");
+    .with_builtins(&|_| false);
     let named: Vec<&Entry> = cat
         .entries()
         .iter()
-        .filter(|e| e.name == "testing")
+        .filter(|e| e.name == "ctxloom")
         .collect();
     assert_eq!(named.len(), 1);
-    assert!(!cat.is_builtin("testing"));
-    let found = cat.lookup("testing").expect("the project's");
+    assert!(!cat.is_builtin("ctxloom"));
+    let found = cat.lookup("ctxloom").expect("the project's");
     assert_eq!(found.bundle.version, "9.9.9");
-    assert!(cat.read_fragment("testing#fragments/tdd").is_err());
-    // One that is shadowed (a project bundle there that cannot be read) is
-    // not added either.
-    assert!(!cat.is_builtin("git"));
-    assert!(cat.lookup("git").is_err());
-    assert!(cat.is_builtin("ai-developer"));
+    assert!(cat.read_command("ctxloom#prompts/setup-interview").is_err());
+}
+
+// One that is shadowed (a project bundle there that cannot be read) is not
+// added either.
+#[test]
+fn test_a_shadowed_built_in_name_is_not_added() {
+    let cat = corpus().with_builtins(&|name| name == "ctxloom");
+    assert!(!cat.is_builtin("ctxloom"));
+    assert!(cat.lookup("ctxloom").is_err());
 }

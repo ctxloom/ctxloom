@@ -1,5 +1,5 @@
 //! The setup interview on a terminal: the mechanism only (the interview's
-//! words are [`crate::SETUP_INTERVIEW`], the owner's, used as they are).
+//! words are the project's catalog's, [`crate::Prompts`], used as they are).
 //!
 //! On a terminal, `init` hands the project to the engine once, as an
 //! interactive session whose opening prompt is the interview. That session
@@ -11,7 +11,7 @@
 
 use ctxloom_ports::Failure;
 
-use crate::SETUP_INTERVIEW;
+use crate::Prompts;
 
 /// The command that starts the configured session later.
 pub const RESTART_COMMAND: &str = "ctxloom run";
@@ -105,6 +105,7 @@ pub struct Interviewed {
 pub fn interview(
     terminal: &dyn Terminal,
     sessions: &dyn Sessions,
+    prompts: &dyn Prompts,
 ) -> Result<Interviewed, LaunchFailure> {
     if !terminal.is_terminal() {
         return Ok(Interviewed {
@@ -112,7 +113,13 @@ pub fn interview(
             notices: Vec::new(),
         });
     }
-    let mut ended = sessions.interview(SETUP_INTERVIEW)?;
+    // Read as the project is now, after the scaffold; a refusal launches
+    // nothing and asks nothing.
+    let opening = prompts.setup_interview().map_err(|refused| LaunchFailure {
+        cause: refused.cause,
+        exit: refused.exit,
+    })?;
+    let mut ended = sessions.interview(&opening)?;
     let mut notices = std::mem::take(&mut ended.notices);
     let outcome = if !ended.clean() {
         Outcome::Interrupted { code: ended.code }

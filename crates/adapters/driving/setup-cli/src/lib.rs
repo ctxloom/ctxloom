@@ -29,7 +29,7 @@ use clap::ArgMatches;
 use cli_support::{say_notices, say_warning};
 use deps_application::Notice;
 use doctor_checks::Doctor;
-use init_application::{interview, Init, InitRequest, Outcome, Sessions, Terminal};
+use init_application::{interview, Init, InitRequest, Outcome, Prompts, Sessions, Terminal};
 use reclaim_application::Cleaner;
 use sessions_application::RemovedNothing;
 
@@ -50,6 +50,9 @@ pub struct UseCases<'a> {
     pub terminal: &'a dyn Terminal,
     /// The interactive sessions the interview launches.
     pub sessions: &'a dyn Sessions,
+    /// The setup interview, read through the project's catalog (owner
+    /// ruling 128).
+    pub prompts: &'a dyn Prompts,
 }
 
 fn failure(cause: impl Diagnostic + 'static, exit: u8) -> Failure {
@@ -193,7 +196,9 @@ fn init(
     err: &mut dyn Write,
 ) -> Result<u8, Failure> {
     if sub.subcommand_matches("prompt").is_some() {
-        write!(out, "{}", init_application::prompt()).map_err(output)?;
+        let body = init_application::prompt(uses.prompts)
+            .map_err(|refused| Failure::boxed(refused.cause, refused.exit))?;
+        write!(out, "{body}").map_err(output)?;
         return Ok(0);
     }
     let request = InitRequest {
@@ -240,7 +245,7 @@ fn init(
     say_notices(&uses.auth.file_only(&layers), PROG, format, catalog, err);
     // On a terminal, the setup interview, and the offer to restart into the
     // session it configured. Off one, nothing is launched and nothing asked.
-    let interviewed = interview(uses.terminal, uses.sessions)
+    let interviewed = interview(uses.terminal, uses.sessions, uses.prompts)
         .map_err(|launch| Failure::boxed(launch.cause, launch.exit))?;
     for notice in &interviewed.notices {
         say_warning(notice.as_ref(), PROG, Format::Text, catalog, err);

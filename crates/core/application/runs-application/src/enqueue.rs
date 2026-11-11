@@ -45,21 +45,6 @@ pub struct Evidence {
     /// How many fatal startup findings the plan refused the run for (ruling
     /// 73h: a count; the findings themselves stay the library's).
     pub fatal_findings: u32,
-    /// The posture the run claims and what its runtime enforces (owner
-    /// rulings 59, 109).
-    pub posture: PostureEvidence,
-}
-
-/// The posture a run claims and what its runtime enforces (rulings 59,
-/// 109): the configured words (empty: unset, which claims nothing) and the
-/// restrictive words the runtime enforces.
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
-pub struct PostureEvidence {
-    pub runtime: String,
-    pub network: String,
-    pub sandbox: String,
-    pub enforced_network: Vec<String>,
-    pub enforced_sandbox: Vec<String>,
 }
 
 /// What a child's run authenticates with (ruling 53).
@@ -85,7 +70,6 @@ impl Evidence {
             drivable_engines: vec![engine.to_string()],
             credential: None,
             fatal_findings: 0,
-            posture: PostureEvidence::default(),
         }
     }
 }
@@ -147,7 +131,6 @@ impl<E: Edge, T: TokenSource> Enqueuer<E, T> {
             credential: credential(request.evidence.credential.unwrap_or_default()),
             fatal_findings: request.evidence.fatal_findings,
             launcher_lock: request.launcher_lock,
-            posture: posture(request.evidence.posture),
         };
         let book = CommandBook::command_of(cover, &runs::RunCommand::from(enqueue));
         self.edge.handle(book).await.map_err(refused)?;
@@ -189,14 +172,3 @@ fn refused(failure: Failure<Rejected>) -> EnqueueError {
 #[cfg(test)]
 #[path = "enqueue.test.rs"]
 mod tests;
-
-/// The posture evidence as the run's command carries it.
-fn posture(evidence: PostureEvidence) -> runs::PostureEvidence {
-    runs::PostureEvidence {
-        runtime: evidence.runtime,
-        network: evidence.network,
-        sandbox: evidence.sandbox,
-        enforced_network: evidence.enforced_network,
-        enforced_sandbox: evidence.enforced_sandbox,
-    }
-}

@@ -48,6 +48,66 @@ fn test_sorted_orders_every_mapping_by_bytes_and_keeps_list_order() {
     assert_eq!(sorted(&scalar("x")), scalar("x"));
 }
 
+// Owner rulings 135, 137: an agent's engine permissions document is the
+// engine's own and is written back in its own order; everything around it is
+// sorted as ever, and another section is sorted all the way down.
+#[test]
+fn test_an_agents_section_keeps_each_engine_permissions_document_in_its_order() {
+    let rules = map(&[
+        ("z", scalar("deny")),
+        ("*", scalar("ask")),
+        ("a", map(&[("y", scalar("1")), ("b", scalar("2"))])),
+    ]);
+    let agents = map(&[
+        (
+            "zed",
+            map(&[
+                ("runtime", scalar("host")),
+                (
+                    "engines",
+                    map(&[(
+                        "opencode",
+                        map(&[("permissions", rules.clone()), ("model", scalar("m"))]),
+                    )]),
+                ),
+                ("engine", scalar("opencode")),
+            ]),
+        ),
+        ("abe", map(&[("engine", scalar("claude-code"))])),
+    ]);
+    assert_eq!(
+        sorted_section("agents", &agents),
+        map(&[
+            ("abe", map(&[("engine", scalar("claude-code"))])),
+            (
+                "zed",
+                map(&[
+                    ("engine", scalar("opencode")),
+                    (
+                        "engines",
+                        map(&[(
+                            "opencode",
+                            map(&[("model", scalar("m")), ("permissions", rules.clone())]),
+                        )]),
+                    ),
+                    ("runtime", scalar("host")),
+                ]),
+            ),
+        ])
+    );
+    // Any other section, and a `permissions` key elsewhere, is sorted.
+    let other = map(&[(
+        "permissions",
+        map(&[("z", scalar("1")), ("a", scalar("2"))]),
+    )]);
+    assert_eq!(sorted_section("companions", &other), sorted(&other));
+    let text = set_section("schema_version: 9\n", "agents", &agents).expect("written");
+    assert!(
+        text.contains("        permissions:\n          z: deny\n          \"*\": ask\n          a:\n            y: 1\n            b: 2\n    runtime: host\n"),
+        "{text}"
+    );
+}
+
 // Go's fresh document: keys sorted, block style (config_save.go)
 #[test]
 fn test_render_sorted_writes_a_fresh_document_sorted_in_block_style() {

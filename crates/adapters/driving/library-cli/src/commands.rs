@@ -468,10 +468,6 @@ fn agent_write(name: &'static str, about: &'static str) -> Command {
             "Delivery preference: kind=approach (repeatable)",
         ))
         .arg(each("root", "Root selection: kind=root (repeatable)"))
-        .arg(named(
-            "permissions",
-            "Permission mode, in the vocabulary of the engine this agent binds (empty clears it)",
-        ))
         .arg(each(
             "env",
             "Bare variable name passed through to the engine (repeatable; '' clears the list)",

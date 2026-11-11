@@ -29,6 +29,72 @@ pub fn sorted(value: &Value) -> Value {
     }
 }
 
+/// The section `key` with its mappings sorted, except an agent's engine
+/// permissions documents (`agents.<n>.engines.<e>.permissions`), which are the
+/// engine's own and are kept exactly as written, their order included (owner
+/// rulings 135, 137: a verbatim copy; an engine may read its rules in order,
+/// as opencode's last matching rule wins).
+pub fn sorted_section(key: &str, value: &Value) -> Value {
+    if key != "agents" {
+        return sorted(value);
+    }
+    let Value::Map(agents) = value else {
+        return sorted(value);
+    };
+    let mut out: Vec<(String, Value)> = agents
+        .iter()
+        .map(|(name, binding)| (name.clone(), sorted_binding(binding)))
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Value::Map(out)
+}
+
+/// An agent binding sorted, its engine blocks' `permissions` kept as written.
+fn sorted_binding(binding: &Value) -> Value {
+    let Value::Map(entries) = binding else {
+        return sorted(binding);
+    };
+    let mut out: Vec<(String, Value)> = entries
+        .iter()
+        .map(|(key, inner)| {
+            let inner = match (key.as_str(), inner) {
+                ("engines", Value::Map(blocks)) => {
+                    let mut blocks: Vec<(String, Value)> = blocks
+                        .iter()
+                        .map(|(engine, block)| (engine.clone(), sorted_block(block)))
+                        .collect();
+                    blocks.sort_by(|a, b| a.0.cmp(&b.0));
+                    Value::Map(blocks)
+                }
+                _ => sorted(inner),
+            };
+            (key.clone(), inner)
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Value::Map(out)
+}
+
+/// One engine block sorted, its `permissions` kept as written.
+fn sorted_block(block: &Value) -> Value {
+    let Value::Map(entries) = block else {
+        return sorted(block);
+    };
+    let mut out: Vec<(String, Value)> = entries
+        .iter()
+        .map(|(key, inner)| {
+            let inner = if key == "permissions" {
+                inner.clone()
+            } else {
+                sorted(inner)
+            };
+            (key.clone(), inner)
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Value::Map(out)
+}
+
 /// A fresh document: `doc`'s mappings sorted all the way down, written in
 /// block style.
 pub fn render_sorted(doc: &Value) -> String {
@@ -97,12 +163,13 @@ pub fn stamped(existing: &str) -> Result<String, ConfigError> {
     )
 }
 
-/// `existing` with the top-level `key` set to `value` (its mappings sorted):
+/// `existing` with the top-level `key` set to `value` (its mappings sorted, as
+/// [`sorted_section`] sorts them):
 /// replaced in place where it is, appended where it is not. Only the entry's
 /// own lines change, and none when the section already holds `value`. Refused
 /// if `existing` does not parse, or its root is not a mapping.
 pub fn set_section(existing: &str, key: &str, value: &Value) -> Result<String, ConfigError> {
-    let value = sorted(value);
+    let value = sorted_section(key, value);
     let (marker, root, mut doc) = read(existing)?;
     if root == Value::Null {
         let mut text = existing.to_string();
@@ -115,7 +182,7 @@ pub fn set_section(existing: &str, key: &str, value: &Value) -> Result<String, C
         ));
         return Ok(text);
     }
-    if root.get(key).map(sorted).as_ref() == Some(&value) {
+    if root.get(key).map(|held| sorted_section(key, held)).as_ref() == Some(&value) {
         return Ok(existing.to_string());
     }
     doc.set(&[], key, &value, usize::MAX)

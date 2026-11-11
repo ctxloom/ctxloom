@@ -54,6 +54,17 @@ pub struct PrepareRequest {
     /// their path relative to it; a file not there is absent. The engine
     /// merges into these instead of replacing them.
     pub existing: BTreeMap<String, Vec<u8>>,
+    /// The agent's permissions document for this engine, JSON text in the
+    /// order it was written (owner rulings 135, 137: the engine's own
+    /// document, copied verbatim and never checked by ctxloom); none, no
+    /// document, and the engine writes none. The engine puts it where it
+    /// reads its permissions (claude: the `permissions` of its config dir's
+    /// user settings, a file apart from its hooks, owner ruling 145; opencode:
+    /// the `permission` of its config), and never over a key of its own.
+    pub permissions: Option<String>,
+    /// Whose engine configuration directory the run gets (`session_home`):
+    /// under `host` it is the user's own, which an engine never writes.
+    pub session_home: crate::settings::SessionHome,
 }
 
 /// What [`Engine::prepare`] answers: the session home's surfaces.
@@ -86,9 +97,6 @@ pub struct TurnRequest {
     /// The effort level to run at; empty names none, and the engine passes no
     /// flag.
     pub effort: String,
-    /// The permission mode to run in (owner ruling 116); empty names none,
-    /// and the engine passes no flag.
-    pub permission_mode: String,
     /// How the config says the engine is run (program, home, credential
     /// source, environment passthrough).
     pub settings: crate::settings::EngineSettings,
@@ -106,7 +114,6 @@ impl fmt::Debug for TurnRequest {
             .field("cwd", &self.cwd)
             .field("model", &self.model)
             .field("effort", &self.effort)
-            .field("permission_mode", &self.permission_mode)
             .field("settings", &self.settings)
             .finish()
     }
@@ -279,15 +286,13 @@ pub enum EngineError {
         level: String,
         known: String,
     },
-    /// A permission mode the engine does not take (owner ruling 116).
-    UnknownPermissionMode {
-        engine: String,
-        mode: String,
-        known: String,
-    },
     /// `session_home: host` is configured but the caller's environment names
     /// no home to use.
     NoHostHome { engine: String },
+    /// The permissions document handed to the engine is not JSON
+    /// ([`PrepareRequest::permissions`] is ctxloom's own rendering, so this is
+    /// a bug of the caller, said rather than written).
+    BadPermissions { engine: String, ext_err_txt: String },
 }
 
 impl fmt::Display for EngineError {
@@ -301,10 +306,8 @@ impl Diagnostic for EngineError {
         match self {
             EngineError::NotYet { .. } => code!("engine-not-yet"),
             EngineError::UnknownEffort { .. } => code!("engine-unknown-effort"),
-            EngineError::UnknownPermissionMode { .. } => {
-                code!("engine-unknown-permission-mode")
-            }
             EngineError::NoHostHome { .. } => code!("engine-no-host-home"),
+            EngineError::BadPermissions { .. } => code!("engine-bad-permissions"),
         }
     }
 
@@ -323,16 +326,14 @@ impl Diagnostic for EngineError {
                 ("level", level.as_str().into()),
                 ("known", known.as_str().into()),
             ],
-            EngineError::UnknownPermissionMode {
+            EngineError::NoHostHome { engine } => vec![("engine", engine.as_str().into())],
+            EngineError::BadPermissions {
                 engine,
-                mode,
-                known,
+                ext_err_txt,
             } => vec![
                 ("engine", engine.as_str().into()),
-                ("mode", mode.as_str().into()),
-                ("known", known.as_str().into()),
+                ("ext_err_txt", ext_err_txt.as_str().into()),
             ],
-            EngineError::NoHostHome { engine } => vec![("engine", engine.as_str().into())],
         }
     }
 }

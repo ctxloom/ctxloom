@@ -3,7 +3,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use angzarr_diagnostic::Diagnostic;
-use angzarr_yaml::Value;
 use library::config::engines::{self, AuthError, Effective, EngineError};
 use library::model::McpServer;
 use library::profile::ResolvedProfile;
@@ -264,7 +263,6 @@ impl Project {
         let set = self.resolve_profiles(&names, &mut findings)?;
         let assembled = self.assemble_set(&set, &[], &[], &mut findings);
         let effective = self.effective_of(agent)?;
-        let approver = approver_of(&agent.permissions, &self.config.value);
         let resolved = ResolvedAgent {
             name: agent.name.clone(),
             profiles: agent.profiles.clone(),
@@ -272,8 +270,6 @@ impl Project {
             settings: crate::engine_noun::settings_of(&effective),
             context: assembled.context.clone(),
             fragments: assembled.loaded.clone(),
-            effective_permissions: effective.permissions.value.clone(),
-            approver,
             driving: agent.driving.clone(),
             session_home: effective.session_home.value.clone(),
             command: effective.command.value.clone(),
@@ -334,21 +330,6 @@ impl Project {
             .collect();
         (requirements, String::new())
     }
-}
-
-/// Who answers what the posture leaves open in a headless run: the binding's
-/// declaration, then the project's, else the human.
-fn approver_of(binding: &Value, config: &Value) -> String {
-    let declared = |block: Option<&Value>| -> Option<String> {
-        block
-            .and_then(|b| b.get("approver"))
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-            .map(ToString::to_string)
-    };
-    declared(Some(binding))
-        .or_else(|| declared(config.get("permissions")))
-        .unwrap_or_else(|| "human".to_string())
 }
 
 /// Why an agent did not resolve, in the words Go gives.

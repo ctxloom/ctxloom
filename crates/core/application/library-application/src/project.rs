@@ -40,7 +40,7 @@ pub struct Library {
     remotes: Option<Rc<dyn RemoteLibrary>>,
     pub(crate) companions: Option<Arc<dyn CompanionLoadouts>>,
     /// ctxloom's built-in bundles join every project's catalog.
-    builtins: bool,
+    pub(crate) builtins: bool,
 }
 
 /// A project opened.
@@ -298,26 +298,6 @@ impl Project {
         match &self.remotes {
             Some(remotes) => remotes.canonical(reference, &|base| self.catalog.is_local(base)),
             None => reference.to_string(),
-        }
-    }
-
-    /// An item's reference as a listing names it (as `bundle list` names a
-    /// bundle): a built-in bundle's item by its bundle's name, under the
-    /// built-in origin; any other as it is.
-    pub(crate) fn listed(&self, reference: &str) -> crate::views::Listed {
-        let built_in = reference.strip_prefix("ctxloom+local:").filter(|rest| {
-            let bundle = rest.split_once('#').map_or(*rest, |(bundle, _)| bundle);
-            self.catalog.is_builtin(bundle)
-        });
-        match built_in {
-            Some(name) => crate::views::Listed {
-                name: name.to_string(),
-                origin: library::builtin::ORIGIN.to_string(),
-            },
-            None => crate::views::Listed {
-                name: reference.to_string(),
-                origin: String::new(),
-            },
         }
     }
 

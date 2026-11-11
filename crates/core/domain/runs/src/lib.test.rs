@@ -71,7 +71,7 @@ fn rejections_display_their_code_and_the_samples_are_not_empty() {
         RunRejection::TurnInFlight { turn: 4 }.to_string(),
         "runs-turn-in-flight turn=4"
     );
-    assert_eq!(diagnostic_samples().len(), 13);
+    assert_eq!(diagnostic_samples().len(), 12);
 }
 
 // Closeout survivor on main f5e9f713f (`RunRejection::refusals` answered with

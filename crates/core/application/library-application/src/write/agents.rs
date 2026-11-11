@@ -131,14 +131,15 @@ impl Project {
         engines::known(&label).then_some(label)
     }
 
-    /// The axes of a request, judged before anything is written; the mode in
-    /// the spelling its engine writes it.
+    /// The axes of a request, judged before anything is written. An engine's
+    /// permissions are never among them: they are the engine's own document,
+    /// written in the config by hand (owner ruling 138).
     fn check_agent(
         &self,
         name: &str,
         request: &AgentRequest,
         held: &Value,
-    ) -> Result<Option<String>, AppError> {
+    ) -> Result<(), AppError> {
         if let Some(engine) = request.engine.as_deref().filter(|l| !l.is_empty()) {
             if !engines::known(engine) {
                 return Err(WriteError::UnknownEngine {
@@ -160,26 +161,7 @@ impl Project {
         }
         let backend = self.resulting_backend(name, request, held);
         self.check_surfaces(name, request, backend.as_deref())?;
-        self.check_roots(name, request, backend.as_deref())?;
-        let Some(mode) = request.permissions.as_deref() else {
-            return Ok(None);
-        };
-        let Some(backend) = backend else {
-            return Err(WriteError::PermissionsNeedEngine {
-                name: name.to_string(),
-            }
-            .into());
-        };
-        if mode.is_empty() {
-            return Ok(Some(String::new()));
-        }
-        engines::mode(&backend, mode).map(Some).map_err(|detail| {
-            WriteError::Permissions {
-                subject: format!("agent \"{name}\""),
-                detail,
-            }
-            .into()
-        })
+        self.check_roots(name, request, backend.as_deref())
     }
 
     fn check_surfaces(
@@ -294,8 +276,8 @@ impl Project {
         // the update, where it is held, so they are made there.
         self.update_config(Scope::Project, "agents", |current| {
             let held = layer_held(&current);
-            let mode = self.check_agent(name, request, &held)?;
-            let entry = self.agent_entry(name, request, held, mode)?;
+            self.check_agent(name, request, &held)?;
+            let entry = self.agent_entry(name, request, held)?;
             written = Some(Agent::of(name, &entry).row());
             if request.runtime.as_deref().is_some_and(|r| !r.is_empty()) {
                 said.extend(self.runtime_notice(name, &entry));
@@ -373,7 +355,6 @@ impl Project {
         name: &str,
         request: &AgentRequest,
         mut entry: Value,
-        mode: Option<String>,
     ) -> Result<Value, AppError> {
         if !matches!(entry, Value::Map(_)) {
             entry = Value::Map(Vec::new());
@@ -424,42 +405,8 @@ impl Project {
                 (!matches!(&list, Value::Seq(l) if l.is_empty())).then_some(list),
             );
         }
-        if let Some(mode) = mode {
-            self.set_mode(name, request, &mut entry, &mode);
-        }
         self.check_written(name, &entry)?;
         Ok(entry)
-    }
-
-    /// The mode written into (or taken out of) the permission block of the
-    /// engine named, else of the engine the agent binds.
-    fn set_mode(&self, name: &str, request: &AgentRequest, entry: &mut Value, mode: &str) {
-        let label = request
-            .engine
-            .clone()
-            .or_else(|| {
-                entry
-                    .get("engine")
-                    .and_then(Value::as_str)
-                    .map(ToString::to_string)
-            })
-            .or_else(|| self.config.agent(name).map(|a| a.engine))
-            .unwrap_or_default();
-        let Some(backend) = engines::known(&label).then_some(label) else {
-            return;
-        };
-        // The permission block of the engine's own block (ruling 57).
-        let mut block = match entry
-            .get("engines")
-            .and_then(|blocks| blocks.get(&backend))
-            .and_then(|b| b.get("permissions"))
-        {
-            Some(map @ Value::Map(_)) => map.clone(),
-            _ => Value::Map(Vec::new()),
-        };
-        put(&mut block, "mode", some_text(mode));
-        let empty = matches!(&block, Value::Map(m) if m.is_empty());
-        put_in_block(entry, &backend, "permissions", (!empty).then_some(block));
     }
 
     /// A record that cannot launch as written is refused.

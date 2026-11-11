@@ -2,7 +2,6 @@
 
 use std::sync::Arc;
 
-use ::process_env::EnvSnapshot;
 use angzarr_presentation::{Catalog, Format};
 use clap::Command;
 use ctxloom_cli::{Call, Extension};
@@ -11,7 +10,7 @@ use crate::commands::tests::World;
 use crate::Commands;
 
 fn commands() -> Commands {
-    Commands::new(Arc::new(EnvSnapshot::from_process()))
+    Commands::new(Arc::new(crate::tests::host_snapshot()))
 }
 
 /// Run `line` as the command line would: the nouns parsed, then handed over.

@@ -61,3 +61,22 @@ fn test_a_value_in_flow_form_sorts_its_keys_as_written() {
     assert_eq!(flow(&doc("a:\n")), "{a: null}");
     assert_eq!(flow(&angzarr_yaml::Value::Null), "null");
 }
+
+// Owner rulings 135, 137: an engine's permissions document is handed on as
+// JSON in the order it was written, nesting and lists kept, each scalar as
+// what it reads as; a key or a text that needs escaping is escaped.
+#[test]
+fn test_a_document_is_json_text_in_the_order_it_was_written() {
+    use super::{document, document_text};
+    let written = doc(
+        "z: deny\n\"*\": ask\nallow: [Read, \"Bash(git *)\"]\nflag: true\nn: 7\nnested:\n  b: 1\n  a: [x]\nquote: 'say \"hi\"'\n",
+    );
+    let text = document_text(&written);
+    assert_eq!(
+        text,
+        r#"{"z":"deny","*":"ask","allow":["Read","Bash(git *)"],"flag":true,"n":7,"nested":{"b":1,"a":["x"]},"quote":"say \"hi\""}"#
+    );
+    // The same document, read back, is the JSON of [`document`].
+    let parsed: serde_json::Value = serde_json::from_str(&text).expect("JSON");
+    assert_eq!(parsed, document(&written));
+}

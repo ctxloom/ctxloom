@@ -10,21 +10,104 @@ use os::Mode;
 use run_ports::{Engine, PrepareRequest};
 use surface_ports::{HookCodec, Json};
 
-use crate::{Codec, Opencode, CONTEXT_FILE, PLUGIN, PLUGIN_FILE, PRESEED_LOCK};
+use crate::{Codec, Opencode, CONFIG_FILE, CONTEXT_FILE, PLUGIN, PLUGIN_FILE, PRESEED_LOCK};
 
 const HOME: &str = "/p/.ctxloom/sessions/h/home";
 
 fn prepared(interactive: bool) -> run_ports::Prepared {
-    Opencode::new()
+    prepared_with(interactive, None).unwrap()
+}
+
+fn prepared_with(
+    interactive: bool,
+    permissions: Option<&str>,
+) -> Result<run_ports::Prepared, run_ports::EngineError> {
+    Opencode::new().prepare(&PrepareRequest {
+        home: HOME.to_string(),
+        context: "the project's context".to_string(),
+        offered: vec!["auth.json".to_string(), "opencode.json".to_string()],
+        interactive,
+        cwd: None,
+        existing: Default::default(),
+        permissions: permissions.map(String::from),
+        session_home: run_ports::SessionHome::Session,
+    })
+}
+
+/// The session home's `opencode.json`, as written.
+fn config_of(prepared: &run_ports::Prepared) -> String {
+    let file = prepared
+        .files
+        .iter()
+        .find(|f| f.rel == CONFIG_FILE)
+        .expect("opencode.json in the home");
+    String::from_utf8(file.bytes.clone()).unwrap()
+}
+
+// Owner rulings 135, 137: the agent's permissions document is opencode's
+// config `permission` object, exactly as handed: its words (unchecked) and its
+// order (opencode's last matching rule wins), for a child's turn and the
+// session alike; the document is that one key.
+#[test]
+fn test_the_permissions_document_is_the_configs_permission_object_as_handed() {
+    const DOCUMENT: &str = r#"{"edit":"ask","bash":{"*":"ask","git status *":"allow","git push *":"deny"},"webfetch":"deny","mode":"plan"}"#;
+    for interactive in [false, true] {
+        let text = config_of(&prepared_with(interactive, Some(DOCUMENT)).unwrap());
+        let doc = Json::parse(&text).unwrap();
+        assert_eq!(
+            doc,
+            Json::object([("permission", Json::parse(DOCUMENT).unwrap())]),
+            "{text}"
+        );
+        let Some(Json::Object(rules)) = doc.get("permission").and_then(|p| p.get("bash")) else {
+            panic!("{text}");
+        };
+        let order: Vec<&str> = rules.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(order, ["*", "git status *", "git push *"]);
+    }
+}
+
+// Owner T21: opencode.json is written whole at every launch from what the
+// launch is handed, never merged into what the home holds, so an agent's edit
+// of its own config does not survive into its next launch.
+#[test]
+fn test_the_config_is_regenerated_whatever_the_home_holds() {
+    assert!(Opencode::new().merges().is_empty());
+    let prepared = Opencode::new()
         .prepare(&PrepareRequest {
             home: HOME.to_string(),
-            context: "the project's context".to_string(),
-            offered: vec!["auth.json".to_string(), "opencode.json".to_string()],
-            interactive,
+            context: "c".to_string(),
+            offered: Vec::new(),
+            interactive: true,
             cwd: None,
-            existing: Default::default(),
+            existing: std::collections::BTreeMap::from([(
+                CONFIG_FILE.to_string(),
+                br#"{"permission":"allow"}"#.to_vec(),
+            )]),
+            permissions: Some(r#"{"edit":"ask"}"#.to_string()),
+            session_home: run_ports::SessionHome::Session,
         })
-        .unwrap()
+        .unwrap();
+    assert_eq!(
+        Json::parse(&config_of(&prepared)).unwrap(),
+        Json::object([("permission", Json::object([("edit", Json::text("ask"))]))])
+    );
+}
+
+// No document: the config is empty, so nothing of an earlier run's lingers.
+#[test]
+fn test_with_no_document_the_config_is_empty() {
+    assert_eq!(config_of(&prepared(false)), "{}\n");
+}
+
+// A document that is not JSON is refused before anything is written.
+#[test]
+fn test_a_document_that_is_not_json_is_refused() {
+    let refused = prepared_with(false, Some("[nope"));
+    assert!(
+        matches!(&refused, Err(run_ports::EngineError::BadPermissions { engine, .. }) if engine == "opencode"),
+        "{refused:?}"
+    );
 }
 
 #[test]
@@ -42,6 +125,7 @@ fn test_a_session_home_holds_the_context_the_plugin_and_the_preseed_and_nothing_
             [
                 ("AGENTS.md", b"the project's context".as_slice()),
                 ("node_modules/.ctxloom", b"".as_slice()),
+                ("opencode.json", b"{}\n".as_slice()),
                 ("package-lock.json", PRESEED_LOCK.as_bytes()),
                 ("plugins/ctxloom.js", PLUGIN.as_bytes()),
                 ("xdg/config/opencode/node_modules/.ctxloom", b"".as_slice()),

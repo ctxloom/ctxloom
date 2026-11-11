@@ -12,16 +12,21 @@ fn test_the_default_remotes_seed_no_remote() {
     assert!(!DEFAULT_REMOTES.contains("ctxloom-default"));
 }
 
-// Owner rulings 110, 111: the seeded profile (Go's resources/profiles/default.yaml
-// at ca14d6046) inherits the built-in developer profile, not the remote's.
+// Owner ruling 117 (narrowing 110, 111): the seeded profile is BARE. It
+// inherits nothing and names no bundle, built in or a remote's: a fresh
+// project starts with no coding guidance until a remote is added.
 #[test]
-fn test_the_seed_profile_inherits_the_built_in_developer_profile() {
+fn test_the_seed_profile_is_bare() {
     let seeded = crate::profile::Profile::decode(SEED_PROFILE).expect("it decodes");
-    assert_eq!(seeded.parents, ["ai-developer#profiles/developer"]);
+    assert!(seeded.parents.is_empty());
+    assert!(seeded.bundles.is_empty());
+    assert!(seeded.bundle_items.is_empty());
+    assert!(seeded.fragments.is_empty());
+    assert!(seeded.commands.is_empty());
+    assert!(seeded.select_tags.is_empty());
+    assert!(!SEED_PROFILE.contains("ai-developer"));
     assert!(!SEED_PROFILE.contains("ctxloom-default"));
     assert!(!SEED_PROFILE.contains("ctxloom+git"));
-    assert!(crate::builtin::profiles(&|_| false)
-        .contains_key(&crate::profile::canonical_key(&seeded.parents[0]).expect("a key")));
     assert_eq!(seeded.tags, ["default"]);
     assert_eq!(SEED_NAME, "default");
 }

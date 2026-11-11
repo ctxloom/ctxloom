@@ -20,10 +20,15 @@ Feature: engine — the programs ctxloom drives, and the settings they share
     env            the host environment names an agent of it is given
 
   Model, effort and permissions are NOT in that block. They are an agent's
-  settings (`agent create --model --effort --permissions`), because two agents
-  on one engine rightly differ in them (owner rulings 40-44, 2026-11-09).
-  Each reaches claude as its flag (`--model`, `--effort`, `--permission-mode`,
-  owner ruling 116), unset being no flag; opencode is given the model alone.
+  settings, in its block for the engine (`agents.<n>.engines.<e>`), because
+  two agents on one engine rightly differ in them (owner rulings 40-44,
+  2026-11-09; 136). The model and effort reach claude as its flags (`--model`,
+  `--effort`), unset being no flag; opencode is given the model alone. The
+  permissions are the engine's OWN document, copied verbatim and not checked
+  by ctxloom (owner rulings 133-139): claude's `permissions` object of the
+  settings it is handed, opencode's `permission` object of its config. They
+  are written in the config by hand (`agent create --model --effort` writes
+  the rest; there is no `--permissions`, ruling 138).
 
   Every value `engine show` prints carries the layer that said it: `agent`,
   `engine`, `project` or `default`. A value nobody set is printed as the
@@ -147,7 +152,8 @@ Feature: engine — the programs ctxloom drives, and the settings they share
       And the output contains "a project's config cannot set it"
 
     Scenario: An agent's own settings are listed with their sources, unset ones as the engine's own default
-      # new: model and effort unset pass no flag; permissions has a ctxloom default
+      # new: model and effort unset pass no flag; claude's permissions have a
+      # ctxloom default document (owner ruling 137)
       Given an initialized ctxloom project
       And the project already has the file ".ctxloom/config.yaml":
         """
@@ -168,14 +174,15 @@ Feature: engine — the programs ctxloom drives, and the settings they share
       And the output reports "agents[name=reviewer].model.source" as "agent"
       And the output reports "agents[name=reviewer].effort.value" as "low"
       And the output reports "agents[name=plain].model.source" as "default"
-      And the output reports "agents[name=plain].permissions.value" as "acceptEdits"
+      And the output reports "agents[name=plain].permissions.value.defaultMode" as "acceptEdits"
       And the output reports "agents[name=plain].permissions.source" as "default"
       When I run "ctxloom engine show claude-code --format text"
       Then the command succeeds
       And the output contains "reviewer"
       And the output contains "model: haiku (agent)"
       And the output contains "model: engine default, no flag passed (default)"
-      And the output contains "permissions: acceptEdits (default)"
+      And the output contains "permissions: {defaultMode: acceptEdits} (default)"
+      And the output contains "passed to claude-code verbatim; ctxloom does not check it"
 
     # An agent's model, effort and permission mode are per engine (ruling 57):
     # an engine lists the agents with a block for it too, since they run on it
@@ -403,7 +410,7 @@ Feature: engine — the programs ctxloom drives, and the settings they share
       And the output contains "unknown key `agents.developer.engine_home`"
 
     Scenario Outline: A model, effort or permissions in the engine block is refused as an unknown key
-      # new: ruling 40, these three are the agent's
+      # new: ruling 40, these three are the agent's (136: permissions too)
       Given an initialized ctxloom project
       And the project already has the file ".ctxloom/config.yaml":
         """

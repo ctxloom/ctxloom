@@ -1,22 +1,38 @@
 //! `init`. Go: `cli/init.feature` (release/0.7, f36e8dfb21).
 
-use crate::{personal_name, prompt, SETUP_INTERVIEW};
+use std::cell::RefCell;
 
-// init.feature: "Init prompt emits the whole setup interview body": the
-// headings from both ends of it.
-#[test]
-fn the_prompt_carries_the_phase_headings_from_both_ends() {
-    let text = prompt();
-    for heading in [
-        "Phase 1 \u{2014} Open, orient, scan",
-        "Phase 2 \u{2014} Companions",
-        "Phase 4 \u{2014} Agents",
-        "Phase 5 \u{2014} Close",
-    ] {
-        assert!(text.contains(heading), "{heading}");
+use crate::{personal_name, prompt, PromptFailure, Prompts};
+
+/// A catalog holding `text` as the setup interview, else refusing.
+struct Catalog(Option<&'static str>, RefCell<u32>);
+
+impl Prompts for Catalog {
+    fn setup_interview(&self) -> Result<String, PromptFailure> {
+        *self.1.borrow_mut() += 1;
+        self.0.map(str::to_string).ok_or_else(|| PromptFailure {
+            cause: Box::new(deps_application::AppError::DefaultNeedsName),
+            exit: 2,
+        })
     }
-    assert!(text.ends_with(&format!("{SETUP_INTERVIEW}\n")));
-    assert!(!text.starts_with("---"), "the front matter is dropped");
+}
+
+// init.feature: "Init prompt emits the whole setup interview body", as the
+// project's catalog holds it (owner ruling 128), a line after it as Go
+// prints it.
+#[test]
+fn the_prompt_is_the_catalog_s_setup_interview() {
+    let catalog = Catalog(Some("THE BODY"), RefCell::default());
+    assert_eq!(prompt(&catalog).expect("held"), "THE BODY\n");
+    assert_eq!(*catalog.1.borrow(), 1);
+}
+
+// One the catalog lacks is its refusal, exit and all: no fallback.
+#[test]
+fn a_prompt_the_catalog_lacks_is_refused() {
+    let refused = prompt(&Catalog(None, RefCell::default())).expect_err("refused");
+    assert_eq!(refused.exit, 2);
+    assert_eq!(refused.cause.code(), "deps-application-default-needs-name");
 }
 
 // init.feature: the personal remote is "personal"; the next are numbered.

@@ -926,6 +926,7 @@ dependencies = [
  "init-application",
  "isolation-application",
  "isolation-ports",
+ "library",
  "library-application",
  "library-cli",
  "liveness",

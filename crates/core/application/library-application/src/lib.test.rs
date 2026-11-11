@@ -652,8 +652,10 @@ fn test_agent_show_reports_the_declaration_the_resolution_and_a_failure_to_resol
         "no model named is no flag"
     );
     assert_eq!(resolved.command, "claude");
-    assert_eq!(resolved.effective_permissions, "acceptEdits");
-    assert_eq!(resolved.approver, "human");
+    assert_eq!(
+        resolved.settings.permissions.value,
+        Some(serde_json::json!({"defaultMode": "acceptEdits"}))
+    );
     assert_eq!(resolved.session_home, "session");
     assert_eq!(good.requirements.len(), 1);
     assert_eq!(good.requirements[0].command, "tree-sitter");

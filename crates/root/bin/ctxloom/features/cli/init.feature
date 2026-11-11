@@ -2,17 +2,17 @@
 # Ported from cli/init.feature (rev f36e8dfb2)
 # NOT ported: the Rules tagged @pending: the first-init rule (it asks its
 #   questions over a pty).
-# Divergence from Go (owner rulings 110, 111): a first init seeds no remote and
-#   pulls nothing; its default content is built in.
+# Divergence from Go (owner rulings 110, 111, 117): a first init seeds no
+#   remote, pulls nothing, and seeds a bare default profile.
 @doc
 Feature: init — the setup interview, and what it does to a project that already has one
 
   Covers: `ctxloom init` and `ctxloom init prompt`.
 
   `init` is the command someone runs once. On a directory with no `.ctxloom` it
-  scaffolds the project: its config, an empty remotes registry, and a default
-  profile inheriting the developer profile ctxloom ships BUILT IN, so nothing
-  is cloned or pulled and it works offline. Then — on a terminal — it hands
+  scaffolds the project: its config, an empty remotes registry, and a BARE
+  default profile that inherits nothing, so nothing is cloned or pulled and
+  it works offline. Then — on a terminal — it hands
   the whole thing to your engine for one setup interview:
   companions, then profiles and content, then agents bound to them. It writes
   no engine file into the project: the interview, like every `ctxloom run`, is
@@ -25,10 +25,10 @@ Feature: init — the setup interview, and what it does to a project that alread
   closed input (end of input, no one to answer) declines, as does anything else.
 
   WHAT THIS FILE COVERS, AND WHAT IT DELIBERATELY DOES NOT. A first-time init
-  on a NEW `.ctxloom` reaches no network: the default content is built in
-  (owner rulings 110, 111). The fresh-project scenarios here run off a
-  terminal, so no question is asked and no session launched: they prove what
-  the scaffold leaves and that its default content is there with nothing
+  on a NEW `.ctxloom` reaches no network: its default profile is bare and
+  its setup interview is built in (owner rulings 110, 111, 117). The
+  fresh-project scenarios here run off a terminal, so no question is asked
+  and no session launched: they prove what the scaffold leaves, with nothing
   fetched. The pending fresh-project rule answers init's questions over a real
   pty with the setup session skipped (`--skip-launch`). The other scenarios
   run against a project that ALREADY has a `.ctxloom` directory, which takes
@@ -58,7 +58,7 @@ Feature: init — the setup interview, and what it does to a project that alread
     # "no scaffold ran over it", which a file-exists check cannot distinguish.
     #
     # The lockfile is no network assertion any more (a first init pulls
-    # nothing, owner rulings 110, 111); it still says nothing was written
+    # nothing, owner rulings 110, 111, 117); it still says nothing was written
     # beside the config.
     Scenario: A second init reports the directory and leaves the configuration alone
       # substitution: the stamp asserted is this port's, 9 (a companion is registered with the command that runs it), where Go's is 8.
@@ -102,20 +102,22 @@ Feature: init — the setup interview, and what it does to a project that alread
       Then the command succeeds
       And the output contains "personal"
 
-  Rule: A first init's default content is built in, and nothing is fetched for it
+  Rule: A first init seeds a bare default profile, and nothing is fetched for it
 
-    The bundles the seeded default profile inherits (`ai-developer` and the
-    `ai-coding-general`, `testing` and `git` bundles its developer profile
-    names) ship in the binary, under the read-only BUILT-IN origin
-    `ctxloom/default` (owner rulings 110, 111). A first init seeds no remote,
-    clones nothing, pulls nothing and writes nothing under `.ctxloom/cache`;
-    the project's catalog lists the built-in bundles beside its own, and a
-    run's plan resolves the seeded profile with nothing missing. The
-    `ctxloom-default` repository stays an ordinary remote for whoever wants
-    its other content.
+    The default profile a first init seeds inherits nothing and names no
+    bundle (owner ruling 117, narrowing 110 and 111): a fresh project starts
+    with no coding guidance until she adds a remote. A first init seeds no
+    remote, clones nothing, pulls nothing and writes nothing under
+    `.ctxloom/cache`, and a run's plan resolves the seeded profile with
+    nothing missing. The one bundle ctxloom ships, `ctxloom` under the
+    read-only BUILT-IN origin `ctxloom/builtin`, holds its operational prompts
+    (the setup interview and the distill prompt): it is listed beside the
+    project's own bundles, but no profile includes it and no session is handed
+    it; only init and distill use it. The `ctxloom-default` repository stays an
+    ordinary remote for whoever wants its content.
 
-    Scenario: A first init leaves a project whose default content is built in
-      # new: owner rulings 110, 111 (hand-test defects 1 and 2: a fresh project's plan had its default content missing).
+    Scenario: A first init leaves a bare default profile, and ctxloom's own prompts built in
+      # new: owner rulings 110, 111, 117.
       Given an empty project directory
       And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-acceptance-fixture-not-real"
       When Alice sets ctxloom up on a project, off a terminal:
@@ -125,52 +127,49 @@ Feature: init — the setup interview, and what it does to a project that alread
       Then the command succeeds
       And the output does not contain "Pulled"
       And the file ".ctxloom/remotes.yaml" does not contain "ctxloom-default"
-      And the file ".ctxloom/content/bundles/v2/project/profiles/default.yaml" contains "  - ai-developer#profiles/developer"
+      And the file ".ctxloom/content/bundles/v2/project/profiles/default.yaml" exists
+      And the file ".ctxloom/content/bundles/v2/project/profiles/default.yaml" does not contain "parents:"
+      And the file ".ctxloom/content/bundles/v2/project/profiles/default.yaml" does not contain "ai-developer"
       And the file ".ctxloom/cache" does not exist
       And the file ".ctxloom/lock.yaml" does not exist
       When I run "ctxloom bundle list --format text"
       Then the command succeeds
-      And the output contains "ai-developer (v1.0.0) [built-in ctxloom/default]"
-      And the output contains "testing (v1.0.0) [built-in ctxloom/default]"
+      And the output contains "ctxloom (v1.0.0) [built-in]"
+      And the output does not contain "ai-developer"
+      And the output does not contain "testing (v1.0.0)"
       When I run "ctxloom run --dry-run --format json hello"
       Then the command succeeds
-      And the output contains "ctxloom+local:testing#fragments/tdd"
       And the output does not contain "not installed"
+      And the output does not contain "ctxloom+local:ctxloom"
       And the file ".ctxloom/cache" does not exist
-      # hand-test 2 2026-11-11: every listing names a built-in item as the
-      # bundle listing names its bundle, under the built-in origin.
       When I run "ctxloom profile list --format text"
       Then the command succeeds
-      And the output contains "ai-developer#profiles/developer [built-in ctxloom/default]"
-      And the output does not contain "ctxloom+local:ai-developer"
-      When I run "ctxloom run --dry-run --format text hello"
-      Then the command succeeds
-      And the output contains "  testing#fragments/tdd [built-in ctxloom/default]"
-      And the output does not contain "ctxloom+local:testing"
+      And the output does not contain "[built-in]"
 
-    # Read-only, and the refusal says how to change one: a project bundle of
-    # its name overrides it whole, and an export is how to make one from it.
-    Scenario: A built-in bundle refuses a write, and a project bundle of its name overrides it
-      # new: owner rulings 110, 111.
+    # Read-only, and the refusal says how to change it: a project bundle of
+    # its name overrides it whole in the catalog, and an export is how to make
+    # one from it.
+    Scenario: The built-in bundle refuses a write, and a project bundle of its name overrides it
+      # new: owner rulings 110, 111, 117.
       Given an initialized ctxloom project
-      When Alice adds a fragment to a bundle ctxloom ships:
+      When Alice adds a fragment to the bundle ctxloom ships:
         """
-        ctxloom fragment create testing house-rules
+        ctxloom fragment create ctxloom house-rules
         """
       Then the command fails
-      And the output contains "bundle \"testing\" is built into ctxloom (ctxloom/default) and is read-only"
-      And the output contains "copy it into the project and change that copy: ctxloom bundle export testing "
-      And the file ".ctxloom/content/bundles/v2/testing" does not exist
-      When I run "ctxloom bundle export testing .ctxloom/content/bundles/v2"
+      And the output contains "bundle \"ctxloom\" is built into ctxloom (ctxloom/builtin) and is read-only"
+      And the output contains "copy it into the project and change that copy: ctxloom bundle export ctxloom "
+      And the file ".ctxloom/content/bundles/v2/ctxloom" does not exist
+      When I run "ctxloom bundle export ctxloom .ctxloom/content/bundles/v2"
       Then the command succeeds
-      When I run "ctxloom fragment create testing house-rules"
+      And the file ".ctxloom/content/bundles/v2/ctxloom/prompts/setup-interview.md" exists
+      And the file ".ctxloom/content/bundles/v2/ctxloom/prompts/distill.md" exists
+      When I run "ctxloom fragment create ctxloom house-rules"
       Then the command succeeds
-      And the file ".ctxloom/content/bundles/v2/testing/fragments/house-rules.md" exists
-      And the file ".ctxloom/content/bundles/v2/testing/fragments/tdd.md" exists
+      And the file ".ctxloom/content/bundles/v2/ctxloom/fragments/house-rules.md" exists
       When I run "ctxloom bundle list --format text"
       Then the command succeeds
-      And the output does not contain "testing (v1.0.0) [built-in"
-      And the output contains "git (v1.0.0) [built-in ctxloom/default]"
+      And the output does not contain "[built-in"
 
   Rule: Init never takes the agent token; without one it says how to create and export it, and carries on
 
@@ -257,8 +256,9 @@ Feature: init — the setup interview, and what it does to a project that alread
 
     `init prompt` emits the same five-phase setup body `ctxloom init` hands the
     engine at bootstrap and `/ctxloom-init` loads in any ordinary session. It
-    is a re-entry pointer, not a second copy: one body, reachable three ways,
-    so they can never drift. Skipped the interview, or want to reconfigure? It
+    is a re-entry pointer, not a second copy: one body, the built-in bundle's
+    `ctxloom#prompts/setup-interview` (owner ruling 117), reachable three
+    ways, so they can never drift. Skipped the interview, or want to reconfigure? It
     is how you get back into it without re-running setup.
 
     # PHASE HEADINGS, NOT A WORD. Asserting a single token like "SCAN" is
@@ -278,6 +278,68 @@ Feature: init — the setup interview, and what it does to a project that alread
       And the output contains "Phase 4 — Agents"
       And the output contains "Phase 5 — Close"
 
+    # Owner ruling 128: init reads the interview THROUGH the catalog. A
+    # project bundle named `ctxloom` overrides the built-in one whole: what it
+    # holds is what init opens with (a trust cost the owner accepted), and a
+    # setup interview it lacks is refused, naming the prompt, never taken
+    # from the built-in bundle.
+    Scenario: A project bundle named ctxloom replaces the interview init opens with
+      # new: owner ruling 128.
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/content/bundles/v2/ctxloom/bundle.yaml":
+        """
+        schema_version: 4
+        version: 9.9.9
+        """
+      And the project already has the file ".ctxloom/content/bundles/v2/ctxloom/prompts/setup-interview.md":
+        """
+        OUR-OWN-SETUP-INTERVIEW
+        """
+      When Alice asks for the setup interview her project holds:
+        """
+        ctxloom init prompt
+        """
+      Then the command succeeds
+      And the output contains "OUR-OWN-SETUP-INTERVIEW"
+      And the output does not contain "Phase 1 — Open, orient, scan"
+
+    Scenario: A project bundle named ctxloom without the interview is refused, naming it
+      # new: owner ruling 128.
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/content/bundles/v2/ctxloom/bundle.yaml":
+        """
+        schema_version: 4
+        version: 9.9.9
+        """
+      And the project already has the file ".ctxloom/content/bundles/v2/ctxloom/prompts/distill.md":
+        """
+        OUR-OWN-DISTILL-PROMPT
+        """
+      When Alice asks for the setup interview her project holds:
+        """
+        ctxloom init prompt
+        """
+      Then the command exits with code 2
+      And the output contains "overrides ctxloom's built-in one whole, and has no prompt \"setup-interview\""
+      And the output contains "add prompts/setup-interview.md to it, or rename that bundle to use ctxloom's own"
+      And the output does not contain "Phase 1 — Open, orient, scan"
+
+    # One body: the built-in bundle's prompt is what `init prompt` prints.
+    Scenario: The setup interview is the built-in bundle's prompt
+      # new: owner ruling 117.
+      Given an initialized ctxloom project
+      When Alice reads the prompt ctxloom ships for it:
+        """
+        ctxloom command show ctxloom#prompts/setup-interview
+        """
+      Then the command succeeds
+      And the output contains "Phase 1 — Open, orient, scan"
+      And the output contains "Phase 5 — Close"
+      # Distill is not built yet; its prompt resolves all the same.
+      When I run "ctxloom command show ctxloom#prompts/distill"
+      Then the command succeeds
+      And the output contains "You are a text compression assistant."
+
   @pending
   Rule: A first init asks its questions at the terminal, and says what it chose for the rest
 
@@ -287,9 +349,12 @@ Feature: init — the setup interview, and what it does to a project that alread
     a child's worktree is carved from it, reaching the parent's branch only
     once the child has started; the child's on its own branch when its run
     ends), and,
-    in another, which headless posture the default agent takes and how to
-    change it. The project it leaves has a default agent whose headless runs
-    accept file edits without asking.
+    in another, which permissions document the default agent's engine is
+    given and where to change it (its block in the config,
+    `agents.default.engines.<e>.permissions`, passed to the engine verbatim;
+    owner rulings 133-139). The project it leaves has a default agent whose
+    claude runs accept file edits without asking (ctxloom's default document,
+    `{defaultMode: acceptEdits}`).
 
     Init asks where a session's outputs go (`output.dir`), suggesting
     `ctxloom/` in the project and saying it is not gitignored, so what a
@@ -317,9 +382,9 @@ Feature: init — the setup interview, and what it does to a project that alread
       Then init told her which engine it chose, "Using claude-code (only available engine)"
       And no engine ran during the interview
       And the file ".ctxloom/config.yaml" contains "type: claude-code"
-      And the default agent's headless posture is "acceptEdits"
+      And the default agent's claude permissions are '{"defaultMode": "acceptEdits"}'
       And init's terminal output says "Delegation commits: before a delegated agent's worktree is carved"
-      And init's terminal output says "ctxloom agent edit default --permissions <posture>"
+      And init's terminal output says "agents.default.engines.claude-code.permissions"
 
     Scenario: A first init adds the companions she names, and refuses one she does not have
       # new: init offers to add companions by name.

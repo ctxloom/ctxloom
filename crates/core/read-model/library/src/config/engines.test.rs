@@ -20,19 +20,25 @@ fn text(value: &str, source: Source) -> Sourced<String> {
     sourced(value.to_string(), source)
 }
 
+/// ctxloom's default document for claude, said by nobody.
+fn claude_default() -> Option<Sourced<Value>> {
+    Some(sourced(cfg("defaultMode: acceptEdits\n"), Source::Default))
+}
+
 fn names(list: &[&str]) -> Vec<String> {
     list.iter().map(ToString::to_string).collect()
 }
 
-// ruling 42: unset model and effort pass no flag; permissions is an explicit
-// ctxloom default; nothing else is invented
+// ruling 42: unset model and effort pass no flag; claude's permissions are
+// ctxloom's default document (rulings 133-139 keep acceptEdits); nothing else
+// is invented
 #[test]
 fn test_an_agent_that_says_nothing_runs_on_the_built_in_defaults() {
     let got = of("agents:\n  dev:\n    profiles: [p]\n", "dev");
     assert_eq!(got.engine, text("claude-code", Source::Default));
     assert_eq!(got.model, None);
     assert_eq!(got.effort, None);
-    assert_eq!(got.permissions, text("acceptEdits", Source::Default));
+    assert_eq!(got.permissions, claude_default());
     assert_eq!(got.runtime, text("host", Source::Default));
     assert_eq!(got.runtime_override, Override::Inherited);
     assert_eq!(got.env, sourced(Vec::new(), Source::Default));
@@ -45,17 +51,25 @@ fn test_an_agent_that_says_nothing_runs_on_the_built_in_defaults() {
 }
 
 // ruling 40, in ruling 57's shape: model, effort and permissions are the
-// agent's, in its block for the engine it runs on
+// agent's, in its block for the engine it runs on; the permissions are the
+// engine's own document, taken whole and unread (rulings 135, 137): a key
+// ctxloom does not know, the retired `mode` among them, is kept as written
 #[test]
 fn test_an_agent_s_model_effort_and_permissions_are_its_own() {
     let got = of(
-        "agents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: haiku\n        effort: low\n        permissions:\n          mode: plan\n",
+        "agents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: haiku\n        effort: low\n        permissions:\n          mode: plan\n          allow: [Read, Grep]\n          deny:\n            - WebFetch\n",
         "dev",
     );
     assert_eq!(got.engine, text("claude-code", Source::Agent));
     assert_eq!(got.model, Some(text("haiku", Source::Agent)));
     assert_eq!(got.effort, Some(text("low", Source::Agent)));
-    assert_eq!(got.permissions, text("plan", Source::Agent));
+    assert_eq!(
+        got.permissions,
+        Some(sourced(
+            cfg("mode: plan\nallow: [Read, Grep]\ndeny:\n  - WebFetch\n"),
+            Source::Agent
+        ))
+    );
 }
 
 // Ruling 57, hard migrate: the flat keys and the engine-keyed permissions
@@ -69,7 +83,7 @@ fn test_an_agent_s_flat_model_effort_and_permissions_map_are_not_read() {
     );
     assert_eq!(got.model, None);
     assert_eq!(got.effort, None);
-    assert_eq!(got.permissions, text("acceptEdits", Source::Default));
+    assert_eq!(got.permissions, claude_default());
 }
 
 // Ruling 57: only the block of the engine run on is read; another engine's
@@ -81,7 +95,7 @@ fn test_only_the_block_of_the_engine_run_on_is_read() {
         "dev",
     );
     assert_eq!(got.model, None);
-    assert_eq!(got.permissions, text("acceptEdits", Source::Default));
+    assert_eq!(got.permissions, claude_default());
 }
 
 /// An agent bound to claude-code, with a block for each engine and a runtime
@@ -98,7 +112,7 @@ fn test_an_agent_on_another_engine_takes_its_block_for_that_engine() {
     assert_eq!(got.engine.value, "opencode");
     assert_eq!(got.model, Some(text("opencode/big-pickle", Source::Agent)));
     assert_eq!(got.effort, None);
-    assert_eq!(got.permissions, text("", Source::Default));
+    assert_eq!(got.permissions, None);
     assert_eq!(got.runtime, text("host", Source::Agent));
     // Ruling 66: the engine's env applies to any run on it, and the agent's
     // own names are added to it (agent > engine, key by key).
@@ -121,7 +135,7 @@ fn test_an_agent_on_another_engine_takes_its_block_for_that_engine() {
 }
 
 // Ruling 57: with no block for X, X's defaults apply: no model, no effort,
-// X's own permission default.
+// X's own default permissions document.
 #[test]
 fn test_an_agent_with_no_block_for_the_engine_runs_on_its_defaults() {
     let config = cfg(
@@ -131,7 +145,7 @@ fn test_an_agent_with_no_block_for_the_engine_runs_on_its_defaults() {
     assert_eq!(got.engine.value, "claude-code");
     assert_eq!(got.model, None);
     assert_eq!(got.effort, None);
-    assert_eq!(got.permissions, text("acceptEdits", Source::Default));
+    assert_eq!(got.permissions, claude_default());
 }
 
 // Its own engine, asked for by name, is the same as asked for by none.
@@ -402,9 +416,24 @@ fn test_a_refused_auth_in_the_engine_block_refuses_the_agents_on_it() {
 }
 
 #[test]
-fn test_an_engine_without_a_permission_model_has_no_permission_mode() {
+fn test_an_engine_without_a_default_document_passes_none() {
     let got = of("agents:\n  o:\n    engine: opencode\n", "o");
-    assert_eq!(got.permissions, text("", Source::Default));
+    assert_eq!(got.permissions, None);
+    assert_eq!(default_permissions("opencode"), None);
+}
+
+// An empty block is the agent's (it replaces the default whole), never the
+// default.
+#[test]
+fn test_an_empty_block_replaces_the_default_document() {
+    let got = of(
+        "agents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        permissions: {}\n",
+        "dev",
+    );
+    assert_eq!(
+        got.permissions,
+        Some(sourced(Value::Map(Vec::new()), Source::Agent))
+    );
 }
 
 // ---- auth: a source, never a value ----

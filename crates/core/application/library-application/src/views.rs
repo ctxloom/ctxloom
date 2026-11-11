@@ -268,19 +268,6 @@ pub struct ProfileRow {
     pub is_remote: bool,
     #[serde(skip_serializing_if = "no_text")]
     pub bundle: String,
-    /// The built-in origin a profile ctxloom ships is listed under, as its
-    /// bundle is (`ctxloom/default`); empty for any other.
-    #[serde(skip_serializing_if = "no_text")]
-    pub origin: String,
-}
-
-/// An item as a listing names it: a built-in one by its bundle's name, under
-/// the built-in origin (as `bundle list` names the bundle); any other by its
-/// reference, with no origin.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Listed {
-    pub name: String,
-    pub origin: String,
 }
 
 /// What `profile list` answers.
@@ -325,8 +312,6 @@ pub struct AgentRow {
     pub profiles: Vec<String>,
     #[serde(skip_serializing_if = "no_text")]
     pub runtime: String,
-    /// The engine-neutral posture (`agents.<n>.permissions`), `{}` for none.
-    pub permissions: serde_json::Value,
     #[serde(skip_serializing_if = "no_text")]
     pub driving: String,
     #[serde(skip_serializing_if = "no_items")]
@@ -335,12 +320,27 @@ pub struct AgentRow {
     /// (`agents.<n>.engines`, owner rulings 57 and 67); absent when none.
     #[serde(skip_serializing_if = "no_blocks")]
     pub engines: serde_json::Value,
-    /// The neutral posture on one line in flow form, for the listing.
+    /// Each engine block on one line, `engines.<e>: {...}`, for the listing,
+    /// with the engine it is for and whether it holds a `permissions`
+    /// document (passed to that engine verbatim, owner ruling 139).
     #[serde(skip)]
-    pub permissions_line: String,
-    /// Each engine block on one line, `engines.<e>: {...}`, for the listing.
-    #[serde(skip)]
-    pub engine_lines: Vec<String>,
+    pub engine_lines: Vec<EngineLine>,
+}
+
+/// One engine block of an agent, on one line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EngineLine {
+    pub engine: String,
+    /// `engines.<e>: {...}`, in YAML's flow form.
+    pub line: String,
+    /// The block holds a `permissions` document.
+    pub permissions: bool,
+}
+
+/// What every display of an engine's permissions document says of it (owner
+/// ruling 139): ctxloom passes it on as written and checks nothing in it.
+pub fn passed_verbatim(engine: &str) -> String {
+    format!("passed to {engine} verbatim; ctxloom does not check it")
 }
 
 fn no_blocks(value: &serde_json::Value) -> bool {
@@ -361,10 +361,6 @@ pub struct ResolvedAgent {
     pub context: String,
     #[serde(skip_serializing_if = "no_items")]
     pub fragments: Vec<String>,
-    #[serde(rename = "effectivePermissions", skip_serializing_if = "no_text")]
-    pub effective_permissions: String,
-    #[serde(skip_serializing_if = "no_text")]
-    pub approver: String,
     #[serde(skip_serializing_if = "no_text")]
     pub driving: String,
     /// The engine block's `session_home`.
@@ -529,9 +525,6 @@ pub struct DryRun {
     pub engine: String,
     pub profiles: Vec<String>,
     pub fragments: Vec<String>,
-    /// `fragments` as a listing names them (the text's list).
-    #[serde(skip)]
-    pub fragments_listed: Vec<Listed>,
     pub context: String,
     pub tokens: u64,
     #[serde(skip_serializing_if = "no_text")]
@@ -548,12 +541,13 @@ pub struct DryRun {
     /// not shown by a dry run.
     #[serde(skip)]
     pub effort: String,
-    /// The agent's permission mode on the run's engine (its block's
-    /// `permissions.mode`, else the engine's default; owner ruling 116),
-    /// empty when there is none: handed to the engine, shown by a dry run's
+    /// The agent's permissions document for the run's engine, as written
+    /// (its block's `permissions`, else the engine's default document; owner
+    /// rulings 135, 137), as JSON text in the order it was written; none when
+    /// there is none: handed to the engine verbatim, shown by a dry run's
     /// settings.
     #[serde(skip)]
-    pub permission_mode: String,
+    pub permissions: Option<String>,
     /// How the engine is run (its block's program, session home and
     /// credential source, the passthrough the agent settled on): handed to the
     /// engine, not shown by a dry run.
@@ -569,19 +563,6 @@ pub struct DryRun {
     /// whose `settings` say their places by word.
     #[serde(skip)]
     pub settings_agent: String,
-    /// The posture the run claims (owner rulings 59, 109): judged by the run
-    /// against what its runtime enforces, not shown by a dry run.
-    #[serde(skip)]
-    pub posture: Posture,
-}
-
-/// The posture a run claims: `permissions.network` and `permissions.sandbox`
-/// as configured (the agent's, else the project's), empty where unset, which
-/// claims nothing (`open`, `full`).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Posture {
-    pub network: String,
-    pub sandbox: String,
 }
 
 /// What `context assemble` answers (Go's `assemble_context` result).

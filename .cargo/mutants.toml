@@ -1,5 +1,6 @@
 # cargo-mutants (https://mutants.rs): `just mutants-staged` runs it over the
-# staged diff, from lefthook's pre-commit. The kill-rate thresholds are not
+# staged diff, driven at close-out by `just mutants-batch` (no git hook runs
+# it). The kill-rate thresholds are not
 # here but in the justfile's `mutation_thresholds`, which judges the run.
 
 # core/wire is generated prost code by rule (CLAUDE.md: "Generated code is
@@ -13,3 +14,18 @@ exclude_globs = ["crates/core/wire/**"]
 # thresholds judge whether a crate tests itself; a dependent's tests killing
 # a mutant would credit the crate with coverage it does not have.
 test_workspace = false
+
+# Mutants run under cargo-nextest (https://mutants.rs/nextest.html), the one
+# test runner (owner ruling 144): each test in a process of its own, as `just
+# test` runs them, so a mutant is judged by the runner, isolation,
+# timeouts and leak rule (.config/nextest.toml) the gates hold the tests to,
+# and a race that only shows when tests share a process cannot kill or spare
+# one. nextest runs no doc tests, and that kills nothing here: the workspace
+# has none runnable (its only fences are `text` blocks).
+test_tool = "nextest"
+
+# A crate with no tests must not "catch" every mutant: nextest exits 4
+# (NO_TESTS_RUN) where `cargo test` passes, and cargo-mutants counts any
+# failing exit as caught. With it the crate's mutants are missed, as they
+# are. The gates' `_tests` passes the same flag.
+additional_cargo_test_args = ["--no-tests=pass"]

@@ -437,8 +437,10 @@ _mutants-affected:
 
 # Mutate the staged diff in place (the tree is throwaway), with no feature
 # but the crates' own, and judge each tier's kill rate (`_mutants-verdict`).
-# Mutants run under `cargo test`, not nextest:
-# a process per test only slows a run that rebuilds for each mutant.
+# Mutants run under cargo-nextest (owner ruling 144; .cargo/mutants.toml's
+# `test_tool`, with `--no-tests=pass` as `_tests` gives it), each test in a
+# process of its own under .config/nextest.toml, the runner every other test
+# gate uses; its setup script builds the acceptance binaries once per run.
 #
 # cargo mutants runs in a session of its own (setsid), and whatever is left
 # in that session when it ends, or when the gate is interrupted, is killed

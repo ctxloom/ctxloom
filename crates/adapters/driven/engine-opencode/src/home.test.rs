@@ -66,6 +66,32 @@ fn test_the_permissions_document_is_the_configs_permission_object_as_handed() {
     }
 }
 
+// Owner T21: opencode.json is written whole at every launch from what the
+// launch is handed, never merged into what the home holds, so an agent's edit
+// of its own config does not survive into its next launch.
+#[test]
+fn test_the_config_is_regenerated_whatever_the_home_holds() {
+    assert!(Opencode::new().merges().is_empty());
+    let prepared = Opencode::new()
+        .prepare(&PrepareRequest {
+            home: HOME.to_string(),
+            context: "c".to_string(),
+            offered: Vec::new(),
+            interactive: true,
+            cwd: None,
+            existing: std::collections::BTreeMap::from([(
+                CONFIG_FILE.to_string(),
+                br#"{"permission":"allow"}"#.to_vec(),
+            )]),
+            permissions: Some(r#"{"edit":"ask"}"#.to_string()),
+        })
+        .unwrap();
+    assert_eq!(
+        Json::parse(&config_of(&prepared)).unwrap(),
+        Json::object([("permission", Json::object([("edit", Json::text("ask"))]))])
+    );
+}
+
 // No document: the config is empty, so nothing of an earlier run's lingers.
 #[test]
 fn test_with_no_document_the_config_is_empty() {

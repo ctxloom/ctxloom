@@ -1070,3 +1070,19 @@ Feature: run — assembling a project's context and handing it to an engine
       Then the command succeeds
       And the assistant's settings hold the permissions '{"mode": "auto"}'
       And the assistant was launched without "--permission-mode"
+
+    # Owner T21 (2026-11-11): the settings file sits in the session's own
+    # directory, where the agent's file tools reach it, so it is regenerated
+    # from her config at every launch (a fresh session, a child's turn, a
+    # resume): an agent's edit of its own permissions never survives into a
+    # launch.
+    Scenario: An agent's edit of its own settings does not survive into the next launch
+      # new: owner T21 (2026-11-11)
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And Alice has started her assistant through ctxloom
+      And her assistant loosens its own permissions in the settings it was handed
+      When Alice takes another turn on that session with "and now?"
+      Then the command succeeds
+      And the assistant's settings hold the permissions '{"defaultMode": "acceptEdits"}'
+      And the assistant's settings still register ctxloom's hooks

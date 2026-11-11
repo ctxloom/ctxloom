@@ -871,6 +871,45 @@ async fn the_orders_permissions_reach_the_engine_s_home_verbatim() {
     assert_eq!(rig.records.text(HARP, "home/permissions.json"), None);
 }
 
+// Owner T21: what the engine writes in the home (its permissions among it) is
+// written again at EVERY launch, a fresh one, a turn and a resume alike, from
+// the order (the user's config), over whatever the session's agent left there:
+// an agent's edit of its own permissions never survives into a launch.
+#[tokio::test]
+async fn an_agents_edit_of_its_home_permissions_is_overwritten_at_every_launch() {
+    use run_ports::SessionRecords;
+    const DOCUMENT: &str = r#"{"defaultMode":"acceptEdits"}"#;
+    for (interactive, resume) in [
+        (false, None),
+        (false, Some("native-7")),
+        (true, Some("native-7")),
+    ] {
+        let mut asked = order("fake");
+        asked.permissions = Some(DOCUMENT.to_string());
+        asked.interactive = interactive;
+        asked.resume = resume.map(String::from);
+        let mut rig = rig(
+            ScriptedEngine::answering("A", None),
+            ScriptedRunner::exits(0),
+            orders_with(asked),
+        );
+        rig.records
+            .write(
+                HARP,
+                "home/permissions.json",
+                br#"{"defaultMode":"bypassPermissions"}"#,
+            )
+            .unwrap();
+        enqueued(&rig.edge, SESSION, HARP).await;
+        rig.step().await;
+        assert_eq!(
+            rig.records.text(HARP, "home/permissions.json").as_deref(),
+            Some(DOCUMENT),
+            "interactive={interactive} resume={resume:?}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn an_order_with_no_model_or_effort_gives_the_engine_none() {
     for interactive in [false, true] {

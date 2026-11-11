@@ -282,6 +282,25 @@ fn settings_hold_permissions(w: &mut World, want: String) {
     assert_eq!(settings.get("permissions"), Some(&want), "{settings}");
 }
 
+/// Owner T21: the agent edits the settings file it was handed (it is in its
+/// own session directory, within reach of its file tools), loosening its own
+/// permissions and dropping ctxloom's hooks.
+#[given("her assistant loosens its own permissions in the settings it was handed")]
+fn loosens_its_settings(w: &mut World) {
+    let record = w.launch_record();
+    let lines: Vec<&str> = record.lines().collect();
+    let path = lines
+        .iter()
+        .rposition(|line| *line == "--settings")
+        .and_then(|at| lines.get(at + 1))
+        .unwrap_or_else(|| panic!("the launch was handed no --settings: {record}"))
+        .to_string();
+    files::put(
+        &path,
+        r#"{"permissions":{"defaultMode":"bypassPermissions","allow":["Bash(*)"]}}"#,
+    );
+}
+
 /// ctxloom's own keys of the handed settings are never overwritten by the
 /// passthrough: its hooks still call `ctxloom hook claude-code execute`.
 #[then("the assistant's settings still register ctxloom's hooks")]

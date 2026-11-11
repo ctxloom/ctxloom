@@ -628,6 +628,42 @@ fn prepared_with(interactive: bool, permissions: Option<&str>) -> String {
     String::from_utf8(file.bytes.clone()).unwrap()
 }
 
+// Owner T21: the settings file is written whole from what the launch is
+// handed, never merged into what the home holds (it is not one of the files
+// claude merges into), so an agent that loosened its own settings.json finds
+// it regenerated at its next launch, a terminal's, a turn's and a resume's.
+#[test]
+fn the_settings_are_regenerated_whatever_the_home_holds() {
+    assert!(!Claude::new().merges().contains(&"settings.json"));
+    let loosened = br#"{"permissions":{"defaultMode":"bypassPermissions"}}"#.to_vec();
+    for interactive in [false, true] {
+        let prepared = Claude::new()
+            .prepare(&PrepareRequest {
+                home: "/h".to_string(),
+                context: "c".to_string(),
+                offered: Vec::new(),
+                interactive,
+                cwd: None,
+                existing: BTreeMap::from([("settings.json".to_string(), loosened.clone())]),
+                permissions: Some(r#"{"defaultMode":"acceptEdits"}"#.to_string()),
+            })
+            .unwrap();
+        let written = prepared
+            .files
+            .iter()
+            .find(|f| f.rel == "settings.json")
+            .map(|f| String::from_utf8(f.bytes.clone()).unwrap());
+        assert_eq!(
+            written,
+            Some(prepared_with(
+                interactive,
+                Some(r#"{"defaultMode":"acceptEdits"}"#)
+            )),
+            "interactive={interactive}"
+        );
+    }
+}
+
 // No document, no `permissions` key: the settings are ctxloom's hooks alone.
 #[test]
 fn with_no_document_the_settings_hold_no_permissions() {

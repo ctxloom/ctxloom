@@ -8,7 +8,9 @@ use std::io::{self, Write};
 use angzarr_diagnostic::{Arg, Diagnostic};
 use angzarr_presentation::text;
 use serde::Serialize;
-use sessions_application::{stamp, ImportReport, Renamed, TranscriptRow, View, NO_SUMMARY};
+use sessions_application::{
+    stamp, urgency_word, ImportReport, Renamed, TranscriptRow, View, NO_SUMMARY,
+};
 #[cfg(feature = "session-destroy")]
 use sessions_application::{Class, FilePlan, PlanItem, Removal};
 
@@ -116,6 +118,19 @@ pub(crate) struct ShowDoc {
     output_dir: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     rotations: Vec<RotationDoc>,
+    /// The messages no turn has carried yet (D30); left out when none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pending: Vec<PendingDoc>,
+}
+
+#[derive(Serialize)]
+struct PendingDoc {
+    message_id: String,
+    urgency: &'static str,
+    text: String,
+    /// The stable id of the session that sent it; left out for the user.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sender: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -150,6 +165,16 @@ impl ShowDoc {
                     rotated_at: r.rotated_at.map(stamp::rfc3339).unwrap_or_default(),
                 })
                 .collect(),
+            pending: view
+                .pending
+                .iter()
+                .map(|m| PendingDoc {
+                    message_id: m.message_id.clone(),
+                    urgency: urgency_word(m.urgency),
+                    text: m.text.clone(),
+                    sender: m.sender.as_ref().map(|s| s.session.clone()),
+                })
+                .collect(),
         }
     }
 }
@@ -175,6 +200,23 @@ pub(crate) fn show_text(view: &View, out: &mut dyn Write) -> io::Result<()> {
             out,
             "kept:     its transcript is kept at any age (`ctxloom session keep --undo` releases it)"
         )?;
+    }
+    if !view.pending.is_empty() {
+        let count = view.pending.len();
+        let plural = if count == 1 { "" } else { "s" };
+        writeln!(
+            out,
+            "pending:  {count} message{plural} no turn has carried yet"
+        )?;
+        for message in &view.pending {
+            let first = message.text.lines().next().unwrap_or_default();
+            writeln!(
+                out,
+                "  {} ({}): {first}",
+                message.message_id,
+                urgency_word(message.urgency)
+            )?;
+        }
     }
     Ok(())
 }

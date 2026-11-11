@@ -67,6 +67,7 @@ impl<E: Edge> AgentRequests<E> {
                 sessions::SessionCommand::from(sessions::StopSession {
                     requester_depth: who.depth,
                     reason,
+                    requester: None,
                 }),
                 who.session_cover(),
             ),

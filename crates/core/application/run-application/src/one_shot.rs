@@ -823,6 +823,7 @@ where
             },
             started_at: None,
             depth: 0,
+            owner: None,
         }
         .into();
         let root = uuid::Uuid::parse_str(session).map_or_else(

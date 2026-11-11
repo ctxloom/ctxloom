@@ -14,6 +14,7 @@ mod aggregate;
 mod refusal;
 mod rejection;
 mod state;
+mod turns;
 
 /// The run aggregate's commands, one variant per command type.
 pub type RunCommand = RunStateCommand;
@@ -26,7 +27,7 @@ pub use refusal::NotOurs;
 #[cfg(any(test, feature = "test-support"))]
 pub use rejection::diagnostic_samples;
 pub use rejection::{RunRejection, EN_US};
-pub use state::{apply, RunState, RUN_DOMAIN};
+pub use state::{apply, OpenTurn, RunState, RUN_DOMAIN};
 
 /// The root of the run stream for `session`'s `incarnation`: UUIDv5 of the
 /// incarnation's decimal text in the session's own UUID namespace. FIXED once

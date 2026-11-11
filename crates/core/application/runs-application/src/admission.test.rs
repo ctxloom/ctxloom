@@ -121,6 +121,8 @@ async fn a_command_envelope_of_any_type_is_refused_on_the_agent_listener() {
                 runs::QueueTurn {
                     prompt_ref: "x".to_string(),
                     resume: false,
+                    message_ids: Vec::new(),
+                    urgency: runs::TurnUrgency::Wake,
                 },
             ),
             command_book(
@@ -128,6 +130,7 @@ async fn a_command_envelope_of_any_type_is_refused_on_the_agent_listener() {
                 sessions::StopSession {
                     requester_depth: 0,
                     reason: "as a generic command".to_string(),
+                    requester: None,
                 },
             ),
         ];
@@ -265,6 +268,8 @@ async fn authentication_is_checked_before_anything_else() {
         runs::QueueTurn {
             prompt_ref: String::new(),
             resume: false,
+            message_ids: Vec::new(),
+            urgency: runs::TurnUrgency::Wake,
         },
     );
     let refused = admission

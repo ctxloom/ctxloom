@@ -8,7 +8,9 @@
 use angzarr_diagnostic::Report;
 use angzarr_embedded::Registry;
 use ports::{Project, ProjectIdentity};
-use session_index::{only_state, title_of, Captured, SessionIndex, SessionRecord, State, View};
+use session_index::{
+    only_state, title_of, Captured, PendingMessage, SessionIndex, SessionRecord, State, View,
+};
 use session_ports::{Liveness, LockState, ProjectStores, SessionFiles};
 
 /// A session as its store records it, and its transcript.
@@ -142,6 +144,7 @@ where
             state,
             title,
             captured,
+            pending: Vec::new(),
         }
     }
 
@@ -176,11 +179,38 @@ where
             .collect())
     }
 
+    /// One session, with the messages it was sent that no turn has carried
+    /// (D30).
     pub(crate) async fn show(&mut self, query: ShowQuery) -> Result<View, AppError> {
-        let (_, held) = self
+        let (project, held) = self
             .find_held(query.project.as_deref(), &query.harp)
             .await?;
-        Ok(self.view(held))
+        let session = held.record.id.clone();
+        let mut view = self.view(held);
+        view.pending = self.pending(&project, &session).await?;
+        Ok(view)
+    }
+
+    /// The messages `session` (its id) in `project` was sent and no turn has
+    /// carried: the pending messages, caught up fresh from the store.
+    async fn pending(
+        &mut self,
+        project: &Project,
+        session: &str,
+    ) -> Result<Vec<PendingMessage>, AppError> {
+        let Some(store) = self.stores.open_existing(project).await.map_err(failed)? else {
+            return Ok(Vec::new());
+        };
+        let mut catch_up = pending_messages::catch_up();
+        let caught = catch_up
+            .step(store, self.registry.catalog())
+            .await
+            .map_err(|error| AppError::Failed(Report::of(&error)))?;
+        if let Some((_, error)) = caught.failures().first() {
+            return Err(AppError::Failed(Report::of(error)));
+        }
+        let pending = catch_up.projector().pending().pending(session);
+        Ok(pending)
     }
 
     pub(crate) async fn transcripts(

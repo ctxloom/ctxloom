@@ -22,6 +22,7 @@ mod generated {
     include!(concat!(env!("OUT_DIR"), "/ctxloom.sessions.v1.domain.rs"));
 }
 mod aggregate;
+mod daemon;
 mod harp;
 mod lifeline;
 mod names;
@@ -41,6 +42,7 @@ pub type NameClaimCommand = NameClaimStateCommand;
 pub type NameClaimEvent = NameClaimStateEvent;
 
 pub use aggregate::SessionAggregate;
+pub use daemon::{command_id, keyed_book, urgency_word};
 pub use generated::*;
 pub use harp::{validate, validate_rename, MAX_NAME_LEN};
 pub use names::{claim_root, project_namespace, NameClaimAggregate};
@@ -48,7 +50,7 @@ pub use refusal::NotOurs;
 #[cfg(any(test, feature = "test-support"))]
 pub use rejection::diagnostic_samples;
 pub use rejection::{SessionRejection, EN_US};
-pub use state::{NameClaimState, SessionState, NAMES_DOMAIN, SESSION_DOMAIN};
+pub use state::{Child, NameClaimState, SessionState, NAMES_DOMAIN, SESSION_DOMAIN};
 
 /// Fold `event`, recorded at `recorded_at` (its page's
 /// `EventMeta.recorded_at`), into `state`: what the aggregate's appliers do,
@@ -67,6 +69,7 @@ pub fn apply(state: &mut SessionState, event: &SessionEvent, recorded_at: Timest
             state.origin = Some(minted.origin);
             state.started_at = minted.started_at.unwrap_or(recorded_at);
             state.depth = minted.depth;
+            state.owner = minted.owner.clone();
         }
         SessionEvent::EngineSessionBound(bound) => {
             if let Some(displaced) = &bound.displaced {
@@ -117,6 +120,14 @@ pub fn apply(state: &mut SessionState, event: &SessionEvent, recorded_at: Timest
         SessionEvent::IncarnationOwed(_)
         | SessionEvent::IncarnationEnded(_)
         | SessionEvent::StopOrdered(_) => lifeline::apply(state, event),
+        // A message and a clear are the read side's (the pending messages,
+        // the delivery and clear policies): no state of the session.
+        SessionEvent::MessageSent(_) | SessionEvent::ClearRequested(_) => {}
+        SessionEvent::SessionClosed(_)
+        | SessionEvent::ChildLaunched(_)
+        | SessionEvent::ChildLaunchFailed(_)
+        | SessionEvent::ChildEnded(_)
+        | SessionEvent::ChildForgotten(_) => daemon::apply(state, event),
     }
 }
 
@@ -160,6 +171,7 @@ fn session_minted(
         origin: mint.origin,
         started_at: mint.started_at,
         depth: mint.depth,
+        owner: mint.owner.clone(),
     })
 }
 

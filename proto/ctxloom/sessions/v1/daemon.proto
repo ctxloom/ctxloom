@@ -1,0 +1,304 @@
+syntax = "proto3";
+
+// The daemon's domain model on the SESSION (owner D28, the corrected CQRS/ES
+// model; the decisions are docs/decisions/daemon-night-20261110.md D-N9 on):
+// a session's terminal close, the one message type (mail and the wake, D11,
+// D12) with its urgency, the clear (D16, D17), and the owner link (D19, D26):
+// a child is launched by a command on its OWNER's stream, which then holds
+// the child until it ends or is forgotten, and the child holds its owner
+// from its mint. "Only its own children" is a domain rule (S-f): the
+// listener stamps the requester from the credential into the command, and
+// the aggregate judges it. A requester left out is the USER (the human, or
+// a policy of the user's daemon, acting with the user's authority, ruling
+// 37): it may do anything a session may.
+package ctxloom.sessions.v1;
+
+import "io/angzarr/v1/options.proto";
+
+// A session as another names it: its project and its stable id (the session
+// stream's root as UUID text). Owner links cross stores (D19), so the
+// project is part of the reference.
+message SessionRef {
+  string project_id = 1;
+  string session = 2;
+}
+
+// How soon a message is to be acted on (D12). The engine's adapter maps each
+// to what it can do; one it cannot honour is refused on the evidence of what
+// it can (S-c).
+enum Urgency {
+  URGENCY_UNSPECIFIED = 0;
+  // With the next turn, whoever starts it; never starts one (D30).
+  URGENCY_INFORM = 1;
+  // Start a turn when the session is idle; wait while one is in flight.
+  URGENCY_WAKE = 2;
+  // Redirect the turn in progress: interrupt it, then this.
+  URGENCY_STEER = 3;
+}
+
+// One child the owner holds: the child session, and the directory it works
+// in (its repository's root, or a worktree of it).
+message Child {
+  optional SessionRef session = 1;
+  string root = 2;
+}
+
+// What the launching application found of the target repository (D26, S8):
+// a child in ANOTHER repository runs on that repository's config, which must
+// first pass a trust check.
+message TargetTrust {
+  // The child works in the owner's own project (a worktree shares its id).
+  bool same_project = 1;
+  // The target passed the trust check (posture, MCP servers).
+  bool trusted = 2;
+}
+
+// region commands
+
+// Close the session: TERMINAL (K1). No message, clear or new incarnation is
+// taken after it. A second close records nothing. Keyed by its cause:
+// `close:<session>` (a human's), `cascade:<owner>:<child>` (the owner's
+// close, D29), `owner-destroyed:<owner>:<child>` (the owner's destroy).
+message CloseSession {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.SessionClosed"]
+    refuses: "ctxloom.sessions.v1.NoSession"
+    refuses: "ctxloom.sessions.v1.NotOwner"
+  };
+
+  string cause = 1;
+  // STAMPED by the listener from the credential, never read from a payload.
+  optional SessionRef requester = 2;
+}
+
+// Send the session a message (D11, D12, D28). The command id is derived from
+// `message_id`, so a redelivery is DUPLICATE. A wake to an open session with
+// no open incarnation also owes the next one, in the same decision (M2).
+message SendMessage {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.MessageSent", "ctxloom.sessions.v1.IncarnationOwed"]
+    refuses: "ctxloom.sessions.v1.NoSession"
+    refuses: "ctxloom.sessions.v1.SessionIsClosed"
+    refuses: "ctxloom.sessions.v1.NotOwner"
+    refuses: "ctxloom.sessions.v1.UrgencyUnsupported"
+  };
+
+  string message_id = 1;
+  Urgency urgency = 2;
+  // Journaled (M4: message text is not a secret).
+  string text = 3;
+  // STAMPED by the listener from the credential.
+  optional SessionRef requester = 4;
+  // The EVIDENCE (S-c): the urgencies the recipient's engine can honour, as
+  // the sending application asked its adapter. None proves nothing: every
+  // urgency is refused.
+  repeated Urgency supported = 5;
+}
+
+// Ask the session to clear its conversation between tasks (D16, D17, M1):
+// a policy sends the engine's own clear, and the driver records the rotation
+// (`BindEngineSession`). Keyed `clear:<session>:<clear_id>`.
+message ClearChild {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.ClearRequested"]
+    refuses: "ctxloom.sessions.v1.NoSession"
+    refuses: "ctxloom.sessions.v1.SessionIsClosed"
+    refuses: "ctxloom.sessions.v1.NotOwner"
+  };
+
+  string clear_id = 1;
+  optional SessionRef requester = 2;
+}
+
+// Launch a child of this session, the OWNER (K2): recorded on the owner's
+// stream, then a launch policy mints the child in its target store. Keyed
+// `launch:<owner>:<child_root>`. The child's stable id is minted by the
+// caller (minting is random; decide is deterministic).
+message LaunchChild {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.ChildLaunched"]
+    refuses: "ctxloom.sessions.v1.NoSession"
+    refuses: "ctxloom.sessions.v1.OwnerClosed"
+    refuses: "ctxloom.sessions.v1.NoOpenIncarnation"
+    refuses: "ctxloom.sessions.v1.DelegationLimit"
+    refuses: "ctxloom.sessions.v1.UntrustedTarget"
+    refuses: "ctxloom.sessions.v1.NotOwner"
+  };
+
+  string child_project_id = 1;
+  string child_session = 2;
+  string child_root = 3;
+  // The child's name and engine, for its mint.
+  string harp = 4;
+  string engine = 5;
+  TargetTrust trust = 6;
+  // How many open children this owner may hold (the config's, as the
+  // application read it). Fail closed: 0 allows none.
+  uint32 delegation_limit = 7;
+  // STAMPED by the listener: only the owner session itself (or the user)
+  // may launch its children (D25).
+  optional SessionRef requester = 8;
+}
+
+// The owner's child ended (its session closed): the owner stops holding it.
+// Keyed `child-ended:<owner>:<child>`. A child the owner does not hold
+// records nothing.
+message EndChild {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.ChildEnded"]
+    refuses: "ctxloom.sessions.v1.NoSession"
+  };
+
+  optional SessionRef child = 1;
+  string cause = 2;
+}
+
+// The owner's child is being destroyed (M3): the owner stops holding it,
+// before its purge. Keyed `destroy:<child>`.
+message ForgetChild {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.ChildForgotten"]
+    refuses: "ctxloom.sessions.v1.NoSession"
+  };
+
+  optional SessionRef child = 1;
+}
+
+// endregion commands
+
+// region facts
+
+// The launch policy could not mint the child (K2's compensation): the owner
+// stops holding it. Keyed `launch-failed:<owner>:<child>`.
+message RecordChildLaunchFailed {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.ChildLaunchFailed"]
+  };
+
+  optional SessionRef child = 1;
+  // The refusal's code, never a credential or a secret (M4).
+  string reason = 2;
+}
+
+// endregion facts
+
+// region events
+
+message SessionClosed {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  string cause = 1;
+}
+
+message MessageSent {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  string message_id = 1;
+  Urgency urgency = 2;
+  string text = 3;
+  // Who sent it, when a session did; absent: the user.
+  optional SessionRef sender = 4;
+}
+
+message ClearRequested {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  string clear_id = 1;
+}
+
+message ChildLaunched {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  optional SessionRef child = 1;
+  string child_root = 2;
+  string harp = 3;
+  string engine = 4;
+  // The child's depth: the owner's plus one.
+  uint32 depth = 5;
+}
+
+message ChildLaunchFailed {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  optional SessionRef child = 1;
+  string reason = 2;
+}
+
+message ChildEnded {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  optional SessionRef child = 1;
+  string cause = 2;
+}
+
+message ChildForgotten {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  optional SessionRef child = 1;
+}
+
+// endregion events
+
+// region refusals
+
+// A command from a session that is not the target's owner (S-f, D25).
+message NotOwner {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_PERMISSION_DENIED;
+
+  // The requester's stable id.
+  string requester = 1;
+}
+
+// A message, a clear or a wake to a session that is closed (K1).
+message SessionIsClosed {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string harp = 1;
+}
+
+// A child launched by an owner that is closed.
+message OwnerClosed {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string harp = 1;
+}
+
+// A child launched by an owner with no incarnation running: nothing would
+// orchestrate it.
+message NoOpenIncarnation {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string harp = 1;
+}
+
+// A child past the owner's delegation limit.
+message DelegationLimit {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  uint64 limit = 1;
+  uint64 open = 2;
+}
+
+// A child in another repository that has not passed the trust check (D26).
+message UntrustedTarget {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string root = 1;
+}
+
+// An urgency the recipient's engine cannot honour (S-c); `urgency` is its
+// word (`inform`, `wake` or `steer`).
+message UrgencyUnsupported {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string urgency = 1;
+}
+
+// endregion refusals

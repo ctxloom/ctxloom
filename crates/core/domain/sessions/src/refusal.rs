@@ -13,8 +13,9 @@
 use angzarr_embedded::markup::TypedRefusal;
 
 use crate::{
-    ChildCannotStop, HarpInvalid, HarpTooLong, NamesTaken, NoClaim, NoSession, NotHolder,
-    SessionExists, SessionLive, SessionRejection,
+    ChildCannotStop, DelegationLimit, HarpInvalid, HarpTooLong, NamesTaken, NoClaim,
+    NoOpenIncarnation, NoSession, NotHolder, NotOwner, OwnerClosed, SessionExists, SessionIsClosed,
+    SessionLive, SessionRejection, UntrustedTarget, UrgencyUnsupported,
 };
 
 /// What a command handler fails with for `rejection`: the typed refusal
@@ -85,8 +86,34 @@ impl TryFrom<&TypedRefusal> for SessionRejection {
         if let Some(SessionLive { harp }) = refusal.object() {
             return Ok(SessionRejection::SessionLive { harp });
         }
-        Err(NotOurs)
+        daemon_rejection(refusal).ok_or(NotOurs)
     }
+}
+
+/// The rejection a refusal of the daemon's commands (D28) is, by its type.
+fn daemon_rejection(refusal: &TypedRefusal) -> Option<SessionRejection> {
+    if let Some(NotOwner { requester }) = refusal.object() {
+        return Some(SessionRejection::NotOwner { requester });
+    }
+    if let Some(SessionIsClosed { harp }) = refusal.object() {
+        return Some(SessionRejection::SessionClosed { harp });
+    }
+    if let Some(OwnerClosed { harp }) = refusal.object() {
+        return Some(SessionRejection::OwnerClosed { harp });
+    }
+    if let Some(NoOpenIncarnation { harp }) = refusal.object() {
+        return Some(SessionRejection::NoOpenIncarnation { harp });
+    }
+    if let Some(DelegationLimit { limit, open }) = refusal.object() {
+        return Some(SessionRejection::DelegationLimit { limit, open });
+    }
+    if let Some(UntrustedTarget { root }) = refusal.object() {
+        return Some(SessionRejection::UntrustedTarget { root });
+    }
+    if let Some(UrgencyUnsupported { urgency }) = refusal.object() {
+        return Some(SessionRejection::UrgencyUnsupported { urgency });
+    }
+    None
 }
 
 #[cfg(test)]

@@ -95,6 +95,7 @@ fn mint(harp: &str) -> MintSession {
         origin: sessions::Origin::Session,
         started_at: None,
         depth: 0,
+        owner: None,
     }
 }
 
@@ -226,6 +227,7 @@ fn the_mint_and_rename_refusals_are_told_by_their_type() {
             false,
             to_session(StopSession {
                 reason: "end".to_string(),
+                requester: None,
                 requester_depth: 1,
             }),
         ),

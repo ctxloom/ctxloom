@@ -84,6 +84,7 @@ scheduler-loop = { path = "crates/core/application/scheduler-loop" }
 scheduler-fixture = { path = "crates/core/domain/scheduler-fixture" }
 scheduler-due = { path = "crates/core/read-model/scheduler-due" }
 pending-launches = { path = "crates/core/read-model/pending-launches" }
+pending-messages = { path = "crates/core/read-model/pending-messages" }
 trees = { path = "crates/core/domain/trees" }
 run-ports = { path = "crates/core/ports/run-ports" }
 runs-application = { path = "crates/core/application/runs-application" }
@@ -96,6 +97,7 @@ session-ports = { path = "crates/core/ports/session-ports" }
 sessions-proto = { path = "crates/core/wire/sessions-proto" }
 sessions = { path = "crates/core/domain/sessions" }
 session-index = { path = "crates/core/read-model/session-index" }
+session-policies = { path = "crates/core/application/session-policies" }
 liveness = { path = "crates/adapters/driven/liveness" }
 session-files = { path = "crates/adapters/driven/session-files" }
 session-cli = { path = "crates/adapters/driving/session-cli" }

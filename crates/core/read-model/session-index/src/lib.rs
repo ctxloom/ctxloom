@@ -36,8 +36,11 @@ use angzarr_embedded::v1::{event_page, Cover, EventBook};
 use angzarr_embedded::{
     CatchUp, Domain, PageContext, Payload, PayloadError, ProjectorHandler, Timestamp,
 };
-use sessions::{Origin, Rotation, SessionAggregate, SessionEvent, SESSION_DOMAIN};
+use sessions::{
+    Child, Origin, Rotation, SessionAggregate, SessionEvent, SessionRef, SESSION_DOMAIN,
+};
 
+pub use pending_messages::PendingMessage;
 pub use projection::Projection;
 pub use retention::{ended, Retained, Retention};
 pub use title::{first_line_summary, title_of, TITLE_BYTES};
@@ -70,6 +73,14 @@ pub struct SessionRecord {
     /// When its hooks last delivered something to its transcript: the newest
     /// capture event's instant (owner ruling 87a: its last activity).
     pub last_captured: Option<Timestamp>,
+    /// The owner a child was minted for (D26); `None` for a top-level
+    /// session.
+    pub owner: Option<SessionRef>,
+    /// Whether it is closed (K1).
+    pub closed: bool,
+    /// The children it holds as an owner (K2): the owner-to-children view,
+    /// per owner stream.
+    pub children: Vec<Child>,
 }
 
 /// One index of a project's sessions.
@@ -299,6 +310,9 @@ fn record_of(root: &[u8], session: &SessionAggregate) -> SessionRecord {
         ended_at: state.ended_at,
         incarnation: state.incarnation,
         last_captured: None,
+        owner: state.owner.clone(),
+        closed: state.closed,
+        children: state.children.clone(),
     }
 }
 

@@ -28,7 +28,10 @@ fn identity() -> Identity {
 const RUN: &str = "a1a1a1a1-0000-5000-8000-000000000001";
 
 fn turn_started(turn: u64) -> RunnerFact {
-    RunnerFact::TurnStarted(runs::TurnStarted { turn })
+    RunnerFact::TurnStarted(runs::TurnStarted {
+        turn,
+        message_ids: Vec::new(),
+    })
 }
 
 fn exited() -> RunnerFact {
@@ -43,6 +46,38 @@ fn bound(native_id: &str) -> RunnerFact {
     })
 }
 
+// NEW-DESIGN (D28 S-b): a turn of the session's messages is keyed by them,
+// `turn:<run>:<first message id>:<phase>`, so the delivery's redelivery and
+// the driver's are DUPLICATE whatever number the turn carries.
+#[test]
+fn a_turn_of_messages_is_identified_by_its_first_message() {
+    let who = identity();
+    let ids = vec!["m1".to_string(), "m2".to_string()];
+    let started = RunnerFact::TurnStarted(runs::TurnStarted {
+        turn: 4,
+        message_ids: ids.clone(),
+    });
+    let completed = RunnerFact::TurnCompleted(runs::TurnCompleted {
+        turn: 4,
+        native_key: String::new(),
+        answer_ref: String::new(),
+        exit_code: 0,
+        message_ids: ids.clone(),
+    });
+    let failed = RunnerFact::TurnFailed(runs::TurnFailed {
+        turn: 9,
+        class: runs::TurnFailureClass::Interrupted,
+        detail: String::new(),
+        message_ids: ids,
+    });
+    assert_eq!(started.external_id(&who), format!("turn:{RUN}:m1:started"));
+    assert_eq!(
+        completed.external_id(&who),
+        format!("turn:{RUN}:m1:completed")
+    );
+    assert_eq!(failed.external_id(&who), format!("turn:{RUN}:m1:failed"));
+}
+
 // NEW-DESIGN (plan 4.3 table): the external_id is derived from the fact's
 // cause, never from a counter, so a retry after any crash rebuilds the same id.
 #[test]
@@ -53,11 +88,13 @@ fn turn_facts_are_identified_by_run_and_turn() {
         native_key: String::new(),
         answer_ref: String::new(),
         exit_code: 0,
+        message_ids: Vec::new(),
     });
     let failed = RunnerFact::TurnFailed(runs::TurnFailed {
         turn: 4,
         class: runs::TurnFailureClass::EngineError,
         detail: String::new(),
+        message_ids: Vec::new(),
     });
     assert_eq!(
         turn_started(4).external_id(&who),
@@ -366,6 +403,8 @@ async fn every_agent_fact_applies_in_every_state() {
                 let queue = runs::QueueTurn {
                     prompt_ref: "p".to_string(),
                     resume: false,
+                    message_ids: Vec::new(),
+                    urgency: runs::TurnUrgency::Wake,
                 };
                 world
                     .edge
@@ -377,6 +416,7 @@ async fn every_agent_fact_applies_in_every_state() {
                 let stop = sessions::StopSession {
                     requester_depth: 0,
                     reason: "x".to_string(),
+                    requester: None,
                 };
                 world
                     .edge

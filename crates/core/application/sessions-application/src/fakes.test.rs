@@ -225,6 +225,12 @@ pub fn run(store: &MemoryStore, id: u8, seconds: i64, command: impl Into<Session
     run_book(store, seconds, book);
 }
 
+/// Send `book`, keyed already (its command id set), to its session stream
+/// directly, sampled at `seconds`: a redelivery is answered DUPLICATE.
+pub fn run_keyed(store: &MemoryStore, seconds: i64, book: CommandBook) {
+    run_book(store, seconds, book);
+}
+
 /// Send `book` to its session stream directly, sampled at `seconds`.
 fn run_book(store: &MemoryStore, seconds: i64, book: CommandBook) {
     let registry = crate::registry();
@@ -259,6 +265,7 @@ pub fn minted(store: &MemoryStore, id: u8, harp: &str, project_dir: &str, starte
             origin: Origin::Session,
             started_at: None,
             depth: 0,
+            owner: None,
         },
     );
 }

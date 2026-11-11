@@ -868,6 +868,7 @@ fn an_internal_one_shot_is_reclaimable_at_any_age() {
             origin: sessions::Origin::Oneshot,
             started_at: None,
             depth: 0,
+            owner: None,
         },
     );
     ended(store, 1, NOW - HOUR, NOW - HOUR);
@@ -1202,6 +1203,7 @@ fn a_session_with_no_output_folder_renames_without_moving_one() {
             origin: sessions::Origin::Session,
             started_at: None,
             depth: 0,
+            owner: None,
         },
     );
     let renamed = ready(svc.rename(rename("amber-swift-owl", "bright-keen-hawk"))).unwrap();
@@ -1502,4 +1504,181 @@ fn a_purge_that_conflicts_is_tried_again_three_times_then_fails() {
         ready(crate::write::purge(&store, stream)).is_err(),
         "a fourth conflict is the failure"
     );
+}
+
+// ------------------------------------------------- the daemon's model (D28)
+
+fn at_session(project: &str, id: u8) -> sessions::SessionRef {
+    sessions::SessionRef {
+        project_id: project.to_string(),
+        session: id_text(id),
+    }
+}
+
+/// Session `owner` (of HERE) launches session `child` of `child_project`,
+/// which is minted for it, finished as `finished` leaves one (each command at
+/// its own second: the fake keys a command by its second).
+fn launched_child(svc: &mut Svc, owner: u8, child: u8, child_project: &str, harp: &str) {
+    let store = svc.stores.stores.get(HERE).unwrap();
+    crate::fakes::run(
+        store,
+        owner,
+        NOW - 70 * DAY + 30 + i64::from(child) * 3,
+        sessions::LaunchChild {
+            child_project_id: child_project.to_string(),
+            child_session: id_text(child),
+            child_root: format!("/work/{child_project}"),
+            harp: harp.to_string(),
+            engine: "claude-code".to_string(),
+            trust: sessions::TargetTrust {
+                same_project: child_project == HERE,
+                trusted: true,
+            },
+            delegation_limit: 4,
+            requester: None,
+        },
+    );
+    let store = svc
+        .stores
+        .stores
+        .entry(child_project.to_string())
+        .or_default();
+    crate::fakes::run(
+        store,
+        child,
+        NOW - 70 * DAY + 31 + i64::from(child) * 3,
+        sessions::MintSession {
+            harp: harp.to_string(),
+            project_id: child_project.to_string(),
+            project_dir: format!("/work/{child_project}"),
+            output_dir: String::new(),
+            engine: "claude-code".to_string(),
+            origin: sessions::Origin::Agent,
+            started_at: None,
+            depth: 1,
+            owner: Some(at_session(HERE, owner)),
+        },
+    );
+    ended(
+        store,
+        child,
+        NOW - 70 * DAY + 32 + i64::from(child) * 3,
+        NOW - 60 * DAY,
+    );
+    svc.liveness.0.insert(harp.to_string(), LockState::Free);
+    svc.files.last_active.insert(
+        harp.to_string(),
+        crate::Timestamp {
+            seconds: NOW - 60 * DAY,
+            nanos: 0,
+        },
+    );
+}
+
+fn record_of(svc: &mut Svc, harp: &str) -> session_index::SessionRecord {
+    ready(svc.list(all()))
+        .unwrap()
+        .into_iter()
+        .find(|view| view.record.harp == harp)
+        .unwrap_or_else(|| panic!("{harp} is listed"))
+        .record
+}
+
+// Rulings 94, 98, D28 K3/M3: a purge emits no event, so a destroy closes each
+// child its session holds BEFORE it purges, in the child's own store (D19).
+#[test]
+fn a_destroy_closes_the_children_of_the_session_first() {
+    let mut svc = service();
+    finished(&mut svc, 1, "amber-swift-owl");
+    launched_child(&mut svc, 1, 2, HERE, "kid-near");
+    launched_child(&mut svc, 1, 3, ELSEWHERE, "kid-far");
+    assert_eq!(record_of(&mut svc, "amber-swift-owl").children.len(), 2);
+    let destroyed = ready(svc.remove(destroy("amber-swift-owl"))).unwrap();
+    assert!(destroyed.applied);
+    for kid in ["kid-near", "kid-far"] {
+        let record = record_of(&mut svc, kid);
+        assert!(record.closed, "{kid} is closed");
+    }
+    // A redelivered destroy step (its keyed command again) records nothing.
+    let again = session_policies::destroy(
+        &at_session(HERE, 1),
+        None,
+        &[sessions::Child {
+            session: Some(at_session(HERE, 2)),
+            root: String::new(),
+        }],
+    );
+    let before = head(
+        &mut svc,
+        sessions::SESSION_DOMAIN,
+        uuid::Uuid::from_bytes([2; 16]),
+    );
+    crate::fakes::run_keyed(svc.store(HERE), NOW, again.close[0].book());
+    assert_eq!(
+        head(
+            &mut svc,
+            sessions::SESSION_DOMAIN,
+            uuid::Uuid::from_bytes([2; 16])
+        ),
+        before,
+        "a duplicate"
+    );
+}
+
+// M3: a destroyed child is forgotten by its owner before its purge.
+#[test]
+fn a_destroyed_child_is_forgotten_by_its_owner() {
+    let mut svc = service();
+    finished(&mut svc, 1, "amber-swift-owl");
+    launched_child(&mut svc, 1, 2, HERE, "kid-near");
+    ready(svc.remove(destroy("kid-near"))).unwrap();
+    assert!(record_of(&mut svc, "amber-swift-owl").children.is_empty());
+    assert!(!record_of(&mut svc, "amber-swift-owl").closed);
+}
+
+// A destroy that is only reported sends nothing to the children.
+#[test]
+fn a_destroy_reported_and_not_applied_closes_no_child() {
+    let mut svc = service();
+    finished(&mut svc, 1, "amber-swift-owl");
+    launched_child(&mut svc, 1, 2, HERE, "kid-near");
+    ready(svc.remove(remove("amber-swift-owl", false))).unwrap();
+    assert!(!record_of(&mut svc, "kid-near").closed);
+}
+
+// D30: `session show` lists the messages the session was sent that no turn
+// has carried; an inform to an idle session stays there, visibly.
+#[test]
+fn show_lists_the_pending_messages() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
+    let store = svc.stores.stores.get(HERE).unwrap();
+    crate::fakes::run(
+        store,
+        1,
+        NOW - DAY + 10,
+        sessions::SendMessage {
+            message_id: "m1".to_string(),
+            urgency: sessions::Urgency::Inform,
+            text: "when you are next on".to_string(),
+            requester: None,
+            supported: vec![sessions::Urgency::Inform],
+        },
+    );
+    let shown = ready(svc.show(ShowQuery {
+        project: None,
+        harp: "amber-swift-owl".to_string(),
+    }))
+    .unwrap();
+    assert_eq!(
+        shown.pending,
+        vec![session_index::PendingMessage {
+            message_id: "m1".to_string(),
+            urgency: sessions::Urgency::Inform,
+            text: "when you are next on".to_string(),
+            sender: None,
+        }]
+    );
+    let listed = ready(svc.list(all())).unwrap();
+    assert!(listed[0].pending.is_empty(), "a listing does not fill it");
 }

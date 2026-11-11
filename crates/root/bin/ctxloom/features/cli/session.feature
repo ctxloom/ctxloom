@@ -88,6 +88,19 @@ Feature: session — the record of what your assistant did, and the tools to pru
       When I run "ctxloom session list --format json"
       Then the JSON output array "$" contains an object whose "harp" is "amber-swift-owl" and whose "summary" is "Seeded prompt for amber-swift-owl."
 
+    # D30: a message sent a session waits until a turn carries it (an inform
+    # to an idle session stays there, visibly), and `show` lists what waits,
+    # each with its urgency and the first line of its text; none, no line.
+    Scenario: Showing a session lists the messages no turn has carried yet
+      # new: the daemon's one message type (D12, D28) and its pending list (D30); Go had an inbox instead
+      Given an initialized ctxloom project
+      And a recorded session "amber-swift-owl"
+      And the session "amber-swift-owl" was sent an inform "m1" saying "when you are next on"
+      When I run "ctxloom session show amber-swift-owl --format text"
+      Then the command succeeds
+      And the output contains "pending:  1 message no turn has carried yet"
+      And the output contains "m1 (inform): when you are next on"
+
     # The index says ended; the lock says running. The lock wins in the
     # listing too: ended_at is when the LAST run ended and a resume keeps it,
     # so it is no answer to "is this running now". The state is the lock's

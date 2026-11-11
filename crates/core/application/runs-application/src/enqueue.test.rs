@@ -40,6 +40,7 @@ async fn minted(edge: &KernelEdge) {
             origin: sessions::Origin::Session,
             started_at: None,
             depth: 0,
+            owner: None,
         },
     ))
     .await

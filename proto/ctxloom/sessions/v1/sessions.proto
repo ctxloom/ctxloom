@@ -10,6 +10,7 @@ syntax = "proto3";
 package ctxloom.sessions.v1;
 
 import "google/protobuf/timestamp.proto";
+import "ctxloom/sessions/v1/daemon.proto";
 import "io/angzarr/v1/options.proto";
 
 // The session, folded from its events. Derived values (its title, its
@@ -59,6 +60,14 @@ message SessionState {
   reserved 19, 21;
   reserved "relaunches", "inbox";
   bool stopped = 20;
+  // The daemon's model (D28): the owner a child was minted for (absent: no
+  // owner, a top-level session), whether it is closed and why, and the
+  // children this session holds as an owner (launched, not yet ended,
+  // failed or forgotten).
+  optional SessionRef owner = 22;
+  bool closed = 23;
+  string closed_cause = 24;
+  repeated Child children = 25;
 }
 
 // Who a session was minted for (Go's Origin): an empty origin reads as a
@@ -124,6 +133,9 @@ message MintSession {
   // The session's depth in its tree (owner ruling 2026-11-04, S5 review Q2
   // (b): minimal lineage now; parent and may_delegate are S10's).
   uint32 depth = 8;
+  // The owner a child is minted for, by the launch policy (K2, D26); absent
+  // for a top-level session.
+  optional SessionRef owner = 9;
 }
 
 // Record what the SessionStart hook bound: the engine's session id and
@@ -227,6 +239,7 @@ message SessionMinted {
   // session's start is the page's `recorded_at`.
   optional google.protobuf.Timestamp started_at = 7;
   uint32 depth = 8;
+  optional SessionRef owner = 9;
 }
 
 // The binding the session holds after a bind. A bind that displaced an
@@ -281,19 +294,23 @@ message EndRecorded {
 // Go's `run_ends[]` is NOT kept here: it is the `run-ends` read model over
 // the run streams.
 
-// Order every live run of the session to stop. `requester_depth` is STAMPED
-// from the caller's identity, never read from its payload; refused from a
-// child (Go's I2).
+// Order every live run of the session to stop. `requester_depth` and
+// `requester` are STAMPED from the caller's identity, never read from its
+// payload. A session requester is judged by the owner rule (D25, S-f): the
+// target's owner may stop it, any other session is NotOwner. With no session
+// requester the depth rule stands: refused from a child (Go's I2).
 message StopSession {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.sessions.v1.SessionState"
     emits: ["ctxloom.sessions.v1.StopOrdered"]
     refuses: "ctxloom.sessions.v1.NoSession"
     refuses: "ctxloom.sessions.v1.ChildCannotStop"
+    refuses: "ctxloom.sessions.v1.NotOwner"
   };
 
   uint32 requester_depth = 1;
   string reason = 2;
+  optional SessionRef requester = 3;
 }
 
 // A run's end, told to its session by the run application (a fact).

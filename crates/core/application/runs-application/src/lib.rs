@@ -34,6 +34,7 @@ mod hook_commands;
 mod hook_gate;
 mod identity;
 mod requests;
+mod stamp;
 
 pub use admission::Admission;
 pub use capture::{delivery_budget, observe, Attempt, Capture, Observation, Report};
@@ -53,6 +54,7 @@ pub use requests::{AgentRequest, AgentRequests, Requested};
 /// The edge port the listener serves the kernel through, for the driving adapter
 /// that holds one without depending on the ports.
 pub use run_ports::Edge;
+pub use stamp::stamped;
 
 #[cfg(test)]
 #[path = "fakes.test.rs"]

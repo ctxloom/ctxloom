@@ -25,7 +25,7 @@ const RUNNER_HASH: [u8; 32] = [0xab; 32];
 const MODEL_HASH: [u8; 32] = [0xcd; 32];
 const HOOK_HASH: [u8; 32] = [0xef; 32];
 
-type Said = (String, BTreeMap<String, String>);
+pub(crate) type Said = (String, BTreeMap<String, String>);
 
 /// The domain's rejection a typed refusal is, by its type.
 fn refused(rejected: &angzarr_embedded::Rejected) -> RunRejection {
@@ -60,12 +60,12 @@ fn cover() -> Cover {
     }
 }
 
-struct Run {
+pub(crate) struct Run {
     harness: Harness<RunAggregate>,
 }
 
 impl Run {
-    fn new() -> Run {
+    pub(crate) fn new() -> Run {
         let mut registry = Registry::new();
         registry
             .aggregate::<RunAggregate>(RunAggregate::default)
@@ -75,7 +75,7 @@ impl Run {
         }
     }
 
-    fn enqueued() -> Run {
+    pub(crate) fn enqueued() -> Run {
         let mut run = Run::new();
         run.command(enqueue()).unwrap();
         run
@@ -89,7 +89,10 @@ impl Run {
         }
     }
 
-    fn command(&mut self, command: impl Into<RunCommand>) -> Result<Vec<RunEvent>, Said> {
+    pub(crate) fn command(
+        &mut self,
+        command: impl Into<RunCommand>,
+    ) -> Result<Vec<RunEvent>, Said> {
         match self.harness.when(command).result() {
             Ok(events) => Ok(events),
             Err(Failure::Rejected(rejected)) => Err(said(&refused(&rejected))),
@@ -99,13 +102,13 @@ impl Run {
 
     /// A fact, delivered as the listener delivers one: a Fact body with its
     /// derived `external_id`.
-    fn fact(&mut self, fact: impl DomainMessage, external_id: &str) -> Vec<RunEvent> {
+    pub(crate) fn fact(&mut self, fact: impl DomainMessage, external_id: &str) -> Vec<RunEvent> {
         self.harness
             .when_book(fact_book(fact, external_id))
             .events()
     }
 
-    fn state(&self) -> RunState {
+    pub(crate) fn state(&self) -> RunState {
         self.harness.state().state().clone()
     }
 
@@ -227,6 +230,8 @@ fn queue_turn() -> QueueTurn {
     QueueTurn {
         prompt_ref: "prompt:1".to_string(),
         resume: false,
+        message_ids: Vec::new(),
+        urgency: crate::TurnUrgency::Wake,
     }
 }
 
@@ -379,24 +384,38 @@ fn the_turn_in_flight_is_the_sequence_of_its_turn_queued_event() {
 fn two_turns_of_one_runner_are_one_run_enqueued_and_one_run_ended() {
     let mut run = Run::enqueued();
     run.command(queue_turn()).unwrap();
-    run.fact(TurnStarted { turn: 1 }, "turn:r:1:started");
+    run.fact(
+        TurnStarted {
+            turn: 1,
+            message_ids: Vec::new(),
+        },
+        "turn:r:1:started",
+    );
     run.fact(
         TurnCompleted {
             turn: 1,
             native_key: "k".to_string(),
             answer_ref: String::new(),
             exit_code: 0,
+            message_ids: Vec::new(),
         },
         "turn:r:1:completed",
     );
     run.command(queue_turn()).unwrap();
-    run.fact(TurnStarted { turn: 3 }, "turn:r:3:started");
+    run.fact(
+        TurnStarted {
+            turn: 3,
+            message_ids: Vec::new(),
+        },
+        "turn:r:3:started",
+    );
     run.fact(
         TurnCompleted {
             turn: 3,
             native_key: "k".to_string(),
             answer_ref: String::new(),
             exit_code: 0,
+            message_ids: Vec::new(),
         },
         "turn:r:3:completed",
     );
@@ -430,6 +449,7 @@ fn a_completed_turn_frees_the_gate() {
             native_key: String::new(),
             answer_ref: String::new(),
             exit_code: 0,
+            message_ids: Vec::new(),
         },
         "turn:r:1:completed",
     );
@@ -448,6 +468,7 @@ fn a_failed_turn_records_its_class_and_frees_the_gate() {
             turn: 1,
             class: TurnFailureClass::RateLimited,
             detail: "429".to_string(),
+            message_ids: Vec::new(),
         },
         "turn:r:1:failed",
     );
@@ -712,6 +733,81 @@ fn final_claim(turn: u64) -> FinalReported {
     }
 }
 
+/// One book of every fact the run takes, and its name.
+fn facts() -> Vec<(CommandBook, &'static str)> {
+    vec![
+        (
+            fact_book(
+                RunnerAttached {
+                    runner_id: "r".to_string(),
+                    protocol: "v1".to_string(),
+                },
+                "attach",
+            ),
+            "attach",
+        ),
+        (
+            fact_book(
+                RunnerStarted {
+                    runtime: "claude-code".to_string(),
+                    workspace: "/w".to_string(),
+                    pid: 7,
+                },
+                "runner-started",
+            ),
+            "runner-started",
+        ),
+        (
+            fact_book(
+                TurnStarted {
+                    turn: 1,
+                    message_ids: Vec::new(),
+                },
+                "started",
+            ),
+            "started",
+        ),
+        (
+            fact_book(
+                TurnCompleted {
+                    turn: 1,
+                    native_key: String::new(),
+                    answer_ref: String::new(),
+                    exit_code: 0,
+                    message_ids: Vec::new(),
+                },
+                "completed",
+            ),
+            "completed",
+        ),
+        (
+            fact_book(
+                TurnFailed {
+                    turn: 1,
+                    class: TurnFailureClass::EngineError,
+                    detail: String::new(),
+                    message_ids: Vec::new(),
+                },
+                "failed",
+            ),
+            "failed",
+        ),
+        (fact_book(exited(0), "exit"), "exit"),
+        (
+            fact_book(
+                LaunchFailed {
+                    deterministic: false,
+                    detail: String::new(),
+                },
+                "launch",
+            ),
+            "launch",
+        ),
+        (fact_book(summary(1, 0), "summary"), "summary"),
+        (fact_book(final_claim(1), "final"), "final"),
+    ]
+}
+
 // NEW-DESIGN, owner ruling 2026-11-04 (item 16, totality): a fact is what
 // already happened, so no fact handler may reject, in ANY state of the run:
 // never enqueued, enqueued, a turn in flight, a stop requested, ended. A fact
@@ -719,68 +815,6 @@ fn final_claim(turn: u64) -> FinalReported {
 // compiling when a fact is added without being listed here.
 #[test]
 fn every_fact_applies_in_every_state() {
-    fn facts() -> Vec<(CommandBook, &'static str)> {
-        vec![
-            (
-                fact_book(
-                    RunnerAttached {
-                        runner_id: "r".to_string(),
-                        protocol: "v1".to_string(),
-                    },
-                    "attach",
-                ),
-                "attach",
-            ),
-            (
-                fact_book(
-                    RunnerStarted {
-                        runtime: "claude-code".to_string(),
-                        workspace: "/w".to_string(),
-                        pid: 7,
-                    },
-                    "runner-started",
-                ),
-                "runner-started",
-            ),
-            (fact_book(TurnStarted { turn: 1 }, "started"), "started"),
-            (
-                fact_book(
-                    TurnCompleted {
-                        turn: 1,
-                        native_key: String::new(),
-                        answer_ref: String::new(),
-                        exit_code: 0,
-                    },
-                    "completed",
-                ),
-                "completed",
-            ),
-            (
-                fact_book(
-                    TurnFailed {
-                        turn: 1,
-                        class: TurnFailureClass::EngineError,
-                        detail: String::new(),
-                    },
-                    "failed",
-                ),
-                "failed",
-            ),
-            (fact_book(exited(0), "exit"), "exit"),
-            (
-                fact_book(
-                    LaunchFailed {
-                        deterministic: false,
-                        detail: String::new(),
-                    },
-                    "launch",
-                ),
-                "launch",
-            ),
-            (fact_book(summary(1, 0), "summary"), "summary"),
-            (fact_book(final_claim(1), "final"), "final"),
-        ]
-    }
     // The domain's facts are not an enum the compiler can match on; the count
     // is the guard: a new fact in runs.proto fails here until it is added above.
     assert_eq!(facts().len(), 9, "one case per fact of the runs proto");

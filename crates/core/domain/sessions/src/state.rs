@@ -3,7 +3,7 @@
 
 use angzarr_embedded::{Timestamp, WireError};
 
-use crate::{Origin, Rotation};
+use crate::{Origin, Rotation, SessionRef};
 
 /// The sessions domain's name: every session stream's `Cover.domain`.
 pub const SESSION_DOMAIN: &str = "sessions";
@@ -39,6 +39,16 @@ pub struct SessionState {
     pub open_incarnation: Option<u32>,
     /// Set by a stop order; no incarnation is owed after it.
     pub stopped: bool,
+    /// The owner a child was minted for (D26); `None` for a top-level
+    /// session.
+    pub owner: Option<SessionRef>,
+    /// Set by `SessionClosed`, terminal (K1): no message, clear or new
+    /// incarnation after it.
+    pub closed: bool,
+    pub closed_cause: String,
+    /// The children this session holds as an owner, oldest first: launched
+    /// and not yet ended, failed or forgotten (K2).
+    pub children: Vec<Child>,
 }
 
 impl From<SessionState> for sessions_proto::v1::SessionState {
@@ -65,6 +75,14 @@ impl From<SessionState> for sessions_proto::v1::SessionState {
             incarnation: value.incarnation,
             open_incarnation: value.open_incarnation,
             stopped: value.stopped,
+            owner: value.owner.map(sessions_proto::v1::SessionRef::from),
+            closed: value.closed,
+            closed_cause: value.closed_cause,
+            children: value
+                .children
+                .into_iter()
+                .map(sessions_proto::v1::Child::from)
+                .collect(),
         }
     }
 }
@@ -108,6 +126,43 @@ impl TryFrom<sessions_proto::v1::SessionState> for SessionState {
             incarnation: value.incarnation,
             open_incarnation: value.open_incarnation,
             stopped: value.stopped,
+            owner: value.owner.map(SessionRef::try_from).transpose()?,
+            closed: value.closed,
+            closed_cause: value.closed_cause,
+            children: value
+                .children
+                .into_iter()
+                .map(Child::try_from)
+                .collect::<Result<Vec<_>, _>>()?,
+        })
+    }
+}
+
+/// One child an owner holds (K2): the child session and the directory it
+/// works in. Hand-written: no command or event carries it whole, so the
+/// markup generates none.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Child {
+    pub session: Option<SessionRef>,
+    pub root: String,
+}
+
+impl From<Child> for sessions_proto::v1::Child {
+    fn from(value: Child) -> Self {
+        sessions_proto::v1::Child {
+            session: value.session.map(sessions_proto::v1::SessionRef::from),
+            root: value.root,
+        }
+    }
+}
+
+impl TryFrom<sessions_proto::v1::Child> for Child {
+    type Error = WireError;
+
+    fn try_from(value: sessions_proto::v1::Child) -> Result<Self, WireError> {
+        Ok(Child {
+            session: value.session.map(SessionRef::try_from).transpose()?,
+            root: value.root,
         })
     }
 }

@@ -328,11 +328,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             .await?;
         // Started: the run's own lock has done its work (ruling 92).
         self.orders.release(&launch.session, launch.incarnation);
-        self.record(
-            &who,
-            RunnerFact::TurnStarted(runs::TurnStarted { turn: TURN }),
-        )
-        .await?;
+        self.record(&who, turn_started()).await?;
         let output = match running.finish() {
             Ok(output) => output,
             Err(failure) => return self.never_started(&who, failure, done).await,
@@ -352,6 +348,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
                         // No file holds the answer (ruling 87a).
                         answer_ref: String::new(),
                         exit_code: code,
+                        message_ids: Vec::new(),
                     }),
                 )
                 .await?;
@@ -368,6 +365,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
                         turn: TURN,
                         class: failure_class(class),
                         detail: detail.clone(),
+                        message_ids: Vec::new(),
                     }),
                 )
                 .await?;
@@ -541,6 +539,15 @@ fn runner_started(order: &Order, pid: u32) -> RunnerFact {
         runtime: order.engine.clone(),
         workspace: order.cwd.clone().unwrap_or_default(),
         pid,
+    })
+}
+
+/// The one-shot's turn started: its turn 1, queued by no message (D28 S-b
+/// keys it by its number).
+fn turn_started() -> RunnerFact {
+    RunnerFact::TurnStarted(runs::TurnStarted {
+        turn: TURN,
+        message_ids: Vec::new(),
     })
 }
 

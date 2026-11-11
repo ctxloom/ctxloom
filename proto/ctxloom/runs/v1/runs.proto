@@ -51,6 +51,16 @@ enum EndCause {
   reserved "END_CAUSE_FINAL_REPORTED";
 }
 
+// How soon a turn's messages are to be acted on: the session's message
+// urgency (`ctxloom.sessions.v1.Urgency`, D12) as the run's turn gate judges
+// it (S-b). Its own enum, so the runs protos import no sessions proto.
+enum TurnUrgency {
+  TURN_URGENCY_UNSPECIFIED = 0;
+  TURN_URGENCY_INFORM = 1;
+  TURN_URGENCY_WAKE = 2;
+  TURN_URGENCY_STEER = 3;
+}
+
 enum TurnFailureClass {
   TURN_FAILURE_CLASS_UNSPECIFIED = 0;
   TURN_FAILURE_CLASS_RATE_LIMITED = 1;
@@ -160,12 +170,16 @@ message CredentialEvidence {
   bool accepted_set = 4;
 }
 
-// Queue the next turn. Refused while one is in flight and after the run's
-// end (the end fence: there is no courier, D5 Q4).
+// Queue the next turn, for the session's messages `message_ids` (the turn's
+// key, S-b): the delivery policy sends it, keyed `send:<message_id>`. Refused
+// after the run's end (the end fence: there is no courier, D5 Q4). While a
+// turn is in flight a STEER is queued and asks the turn in flight to be
+// interrupted, once; a wake or an inform is refused `TurnInFlight` (they wait
+// in the pending messages until the turn ends).
 message QueueTurn {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.runs.v1.RunState"
-    emits: ["ctxloom.runs.v1.TurnQueued"]
+    emits: ["ctxloom.runs.v1.InterruptRequested", "ctxloom.runs.v1.TurnQueued"]
     refuses: "ctxloom.runs.v1.NoRun"
     refuses: "ctxloom.runs.v1.Ended"
     refuses: "ctxloom.runs.v1.TurnInFlight"
@@ -173,6 +187,8 @@ message QueueTurn {
 
   string prompt_ref = 1;
   bool resume = 2;
+  repeated string message_ids = 3;
+  TurnUrgency urgency = 4;
 }
 
 // Ask the run to stop (the policy session to run, on `StopOrdered`).
@@ -217,6 +233,9 @@ message RunnerStarted {
 }
 
 // `turn` is the sequence of the TurnQueued event it answers (plan 4.3).
+// `message_ids` are the turn's messages (S-b): the turn is keyed by them,
+// `turn:<run>:<first message id>:<phase>`; a turn queued by no message (the
+// one-shot's) is keyed by its number, `turn:<run>:<turn>:<phase>`.
 message TurnStarted {
   option (io.angzarr.v1.fact) = {
     component: "ctxloom.runs.v1.RunState"
@@ -224,6 +243,7 @@ message TurnStarted {
   };
 
   uint64 turn = 1;
+  repeated string message_ids = 2;
 }
 
 message TurnCompleted {
@@ -236,6 +256,7 @@ message TurnCompleted {
   string native_key = 2;
   string answer_ref = 3;
   int32 exit_code = 4;
+  repeated string message_ids = 5;
 }
 
 message TurnFailed {
@@ -247,6 +268,7 @@ message TurnFailed {
   uint64 turn = 1;
   TurnFailureClass class = 2;
   string detail = 3;
+  repeated string message_ids = 4;
 }
 
 // The runner (or the launcher, on process exit) ended. The FIRST terminal
@@ -367,12 +389,28 @@ message TurnQueued {
 
   string prompt_ref = 1;
   bool resume = 2;
+  // The session's messages this turn carries, and their urgency (S-b): the
+  // pending messages they were consume here.
+  repeated string message_ids = 3;
+  TurnUrgency urgency = 4;
+}
+
+// A steer asked the turn in flight to be interrupted (S-b): the driver sends
+// the engine's interrupt; the interrupted turn ends as it ends (a
+// TurnFailed, class INTERRUPTED, or TurnCompleted if it beat the interrupt).
+message InterruptRequested {
+  option (io.angzarr.v1.event) = {component: "ctxloom.runs.v1.RunState"};
+
+  // The sequence of the TurnQueued of the turn to interrupt, and its messages.
+  uint64 turn = 1;
+  repeated string message_ids = 2;
 }
 
 message TurnStartedRecorded {
   option (io.angzarr.v1.event) = {component: "ctxloom.runs.v1.RunState"};
 
   uint64 turn = 1;
+  repeated string message_ids = 2;
 }
 
 // A turn completed; the run is idle again.
@@ -383,6 +421,7 @@ message TurnCompletedRecorded {
   string native_key = 2;
   string answer_ref = 3;
   int32 exit_code = 4;
+  repeated string message_ids = 5;
 }
 
 message TurnFailedRecorded {
@@ -391,6 +430,7 @@ message TurnFailedRecorded {
   uint64 turn = 1;
   TurnFailureClass class = 2;
   string detail = 3;
+  repeated string message_ids = 4;
 }
 
 message StopRequested {

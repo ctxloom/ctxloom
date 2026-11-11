@@ -15,9 +15,13 @@ angzarr-yaml.workspace = true
 # Each command run through the kernel, as every context runs one.
 angzarr-embedded-runner.workspace = true
 ports.workspace = true
+# A session's pending messages, for `show` (D30).
+pending-messages.workspace = true
 runs.workspace = true
 session-index.workspace = true
 serde.workspace = true
+# The destroy's commands to the children and the owner (M3).
+session-policies.workspace = true
 session-ports.workspace = true
 sessions.workspace = true
 # Go's instants are RFC 3339 text.

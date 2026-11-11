@@ -13,7 +13,7 @@
 //! - one `#[applies]` per event, folding at its page's `recorded_at`;
 //! - no snapshot: a session's stream is short, and every load replays it.
 
-use angzarr_embedded::markup::{Bug, Context, FactEmit, Failed, PageContext, Refuses};
+use angzarr_embedded::markup::{Bug, Context, Emit, FactEmit, Failed, PageContext, Refuses};
 use angzarr_embedded_macros::{aggregate, applies, handles_cmd, handles_fact};
 
 use crate::refusal::refuse;
@@ -24,6 +24,12 @@ use crate::{
     MintSession, NoSession, RecordEnd, RecordIncarnationEnded, RenameSession, RenamedTo,
     SessionAdopted, SessionCommand, SessionEvent, SessionExists, SessionLive, SessionMinted,
     SessionRejection, SessionState, SetKept, StopOrdered, StopSession,
+};
+use crate::{
+    daemon, ChildEnded, ChildForgotten, ChildLaunchFailed, ChildLaunched, ClearChild,
+    ClearRequested, CloseSession, DelegationLimit, EndChild, ForgetChild, LaunchChild, MessageSent,
+    NoOpenIncarnation, NotOwner, OwnerClosed, RecordChildLaunchFailed, SendMessage, SessionClosed,
+    SessionIsClosed, UntrustedTarget, UrgencyUnsupported,
 };
 use crate::{
     AssistantTextShown, Compacted, PromptSubmitted, RecordAssistantText, RecordCompaction,
@@ -161,8 +167,9 @@ impl SessionAggregate {
         })
     }
 
-    /// Order the session's runs to stop; refused from a child.
-    #[handles_cmd(StopSession, refuses(NoSession, ChildCannotStop))]
+    /// Order the session's runs to stop; refused from a session that is not
+    /// its owner, else from a child.
+    #[handles_cmd(StopSession, refuses(NoSession, ChildCannotStop, NotOwner))]
     fn stop_session(
         &self,
         cmd: StopSession,
@@ -174,9 +181,154 @@ impl SessionAggregate {
                 SessionRejection,
                 rejection,
                 Refuses<Self, StopSession>,
-                [NoSession => NoSession, ChildCannotStop{depth} => ChildCannotStop]
+                [NoSession => NoSession, ChildCannotStop{depth} => ChildCannotStop, NotOwner{requester} => NotOwner]
             )
         })
+    }
+
+    /// Close the session: terminal (K1); nothing on one already closed.
+    #[handles_cmd(CloseSession, refuses(NoSession, NotOwner))]
+    fn close_session(
+        &self,
+        cmd: CloseSession,
+        ctx: &Context,
+    ) -> Result<Option<SessionClosed>, Failed<Refuses<Self, CloseSession>>> {
+        let _ = ctx;
+        daemon::closed(&self.session, &cmd).map_err(|rejection| {
+            refuse!(
+                SessionRejection,
+                rejection,
+                Refuses<Self, CloseSession>,
+                [NoSession => NoSession, NotOwner{requester} => NotOwner]
+            )
+        })
+    }
+
+    /// Send the session a message (D12); a wake to a session with no run
+    /// open owes the next incarnation in the same decision (M2).
+    #[handles_cmd(
+        SendMessage,
+        refuses(NoSession, SessionIsClosed, NotOwner, UrgencyUnsupported)
+    )]
+    fn send_message(
+        &self,
+        cmd: SendMessage,
+        ctx: &Context,
+    ) -> Result<Emit<Self>, Failed<Refuses<Self, SendMessage>>> {
+        let _ = ctx;
+        let (sent, owed) = daemon::message_sent(&self.session, &cmd).map_err(|rejection| {
+            refuse!(
+                SessionRejection,
+                rejection,
+                Refuses<Self, SendMessage>,
+                [NoSession => NoSession, SessionClosed{harp} => SessionIsClosed, NotOwner{requester} => NotOwner, UrgencyUnsupported{urgency} => UrgencyUnsupported]
+            )
+        })?;
+        let emit = Emit::of(sent);
+        Ok(match owed {
+            Some(owed) => emit.then(move |_: &Self, _: &Context| {
+                Ok::<_, Failed<Refuses<Self, SendMessage>>>(owed)
+            }),
+            None => emit,
+        })
+    }
+
+    /// Ask the session to clear its conversation (M1).
+    #[handles_cmd(ClearChild, refuses(NoSession, SessionIsClosed, NotOwner))]
+    fn clear_child(
+        &self,
+        cmd: ClearChild,
+        ctx: &Context,
+    ) -> Result<ClearRequested, Failed<Refuses<Self, ClearChild>>> {
+        let _ = ctx;
+        daemon::clear_requested(&self.session, &cmd).map_err(|rejection| {
+            refuse!(
+                SessionRejection,
+                rejection,
+                Refuses<Self, ClearChild>,
+                [NoSession => NoSession, SessionClosed{harp} => SessionIsClosed, NotOwner{requester} => NotOwner]
+            )
+        })
+    }
+
+    /// Launch a child of this session, its owner (K2).
+    #[handles_cmd(
+        LaunchChild,
+        refuses(
+            NoSession,
+            OwnerClosed,
+            NoOpenIncarnation,
+            DelegationLimit,
+            UntrustedTarget,
+            NotOwner
+        )
+    )]
+    fn launch_child(
+        &self,
+        cmd: LaunchChild,
+        ctx: &Context,
+    ) -> Result<ChildLaunched, Failed<Refuses<Self, LaunchChild>>> {
+        let me = ctx
+            .root()
+            .and_then(|root| uuid::Uuid::from_slice(&root.value).ok())
+            .map(|id| id.hyphenated().to_string())
+            .unwrap_or_default();
+        daemon::child_launched(&self.session, &me, &cmd).map_err(|rejection| {
+            refuse!(
+                SessionRejection,
+                rejection,
+                Refuses<Self, LaunchChild>,
+                [NoSession => NoSession, OwnerClosed{harp} => OwnerClosed, NoOpenIncarnation{harp} => NoOpenIncarnation, DelegationLimit{limit, open} => DelegationLimit, UntrustedTarget{root} => UntrustedTarget, NotOwner{requester} => NotOwner]
+            )
+        })
+    }
+
+    /// The owner's child ended; nothing for a child it does not hold.
+    #[handles_cmd(EndChild, refuses(NoSession))]
+    fn end_child(
+        &self,
+        cmd: EndChild,
+        ctx: &Context,
+    ) -> Result<Option<ChildEnded>, Failed<Refuses<Self, EndChild>>> {
+        let _ = ctx;
+        daemon::child_ended(&self.session, &cmd).map_err(|rejection| {
+            refuse!(
+                SessionRejection,
+                rejection,
+                Refuses<Self, EndChild>,
+                [NoSession => NoSession]
+            )
+        })
+    }
+
+    /// The owner forgets its child, before the child's purge (M3).
+    #[handles_cmd(ForgetChild, refuses(NoSession))]
+    fn forget_child(
+        &self,
+        cmd: ForgetChild,
+        ctx: &Context,
+    ) -> Result<Option<ChildForgotten>, Failed<Refuses<Self, ForgetChild>>> {
+        let _ = ctx;
+        daemon::child_forgotten(&self.session, &cmd).map_err(|rejection| {
+            refuse!(
+                SessionRejection,
+                rejection,
+                Refuses<Self, ForgetChild>,
+                [NoSession => NoSession]
+            )
+        })
+    }
+
+    /// The launch policy could not mint the child (a fact, K2's
+    /// compensation).
+    #[handles_fact(RecordChildLaunchFailed)]
+    fn record_child_launch_failed(
+        &self,
+        fact: RecordChildLaunchFailed,
+        ctx: &Context,
+    ) -> Result<FactEmit<Self>, Bug> {
+        let _ = ctx;
+        record(daemon::launch_failed(&self.session, &fact))
     }
 
     /// A run's end, told by the run application (a fact).
@@ -373,6 +525,47 @@ impl SessionAggregate {
 
     #[applies(StopOrdered)]
     fn stop_ordered(&mut self, event: StopOrdered, page: &PageContext) {
+        fold(&mut self.session, event.into(), page);
+    }
+
+    #[applies(SessionClosed)]
+    fn session_closed(&mut self, event: SessionClosed, page: &PageContext) {
+        fold(&mut self.session, event.into(), page);
+    }
+
+    // Equivalent: a message is the read side's; `crate::apply` changes no
+    // state for it.
+    #[cfg_attr(test, mutants::skip)]
+    #[applies(MessageSent)]
+    fn message_sent(&mut self, event: MessageSent, page: &PageContext) {
+        fold(&mut self.session, event.into(), page);
+    }
+
+    // Equivalent: a clear is the read side's; `crate::apply` changes no state
+    // for it.
+    #[cfg_attr(test, mutants::skip)]
+    #[applies(ClearRequested)]
+    fn clear_requested(&mut self, event: ClearRequested, page: &PageContext) {
+        fold(&mut self.session, event.into(), page);
+    }
+
+    #[applies(ChildLaunched)]
+    fn child_launched(&mut self, event: ChildLaunched, page: &PageContext) {
+        fold(&mut self.session, event.into(), page);
+    }
+
+    #[applies(ChildLaunchFailed)]
+    fn child_launch_failed(&mut self, event: ChildLaunchFailed, page: &PageContext) {
+        fold(&mut self.session, event.into(), page);
+    }
+
+    #[applies(ChildEnded)]
+    fn child_ended(&mut self, event: ChildEnded, page: &PageContext) {
+        fold(&mut self.session, event.into(), page);
+    }
+
+    #[applies(ChildForgotten)]
+    fn child_forgotten(&mut self, event: ChildForgotten, page: &PageContext) {
         fold(&mut self.session, event.into(), page);
     }
 }

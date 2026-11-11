@@ -2764,6 +2764,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pending-messages"
+version = "0.1.0"
+dependencies = [
+ "angzarr-embedded",
+ "mutants",
+ "runs",
+ "sessions",
+ "uuid",
+]
+
+[[package]]
 name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3734,10 +3745,23 @@ version = "0.1.0"
 dependencies = [
  "angzarr-embedded",
  "mutants",
+ "pending-messages",
  "serde",
  "serde_json",
  "sessions",
  "time",
+]
+
+[[package]]
+name = "session-policies"
+version = "0.1.0"
+dependencies = [
+ "angzarr-embedded",
+ "mutants",
+ "pending-messages",
+ "runs",
+ "sessions",
+ "uuid",
 ]
 
 [[package]]
@@ -3772,11 +3796,13 @@ dependencies = [
  "angzarr-embedded-runner",
  "angzarr-yaml",
  "mutants",
+ "pending-messages",
  "ports",
  "runs",
  "serde",
  "serde_json",
  "session-index",
+ "session-policies",
  "session-ports",
  "sessions",
  "time",

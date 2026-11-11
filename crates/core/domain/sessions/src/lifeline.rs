@@ -25,14 +25,17 @@ pub(crate) fn first_owed() -> IncarnationOwed {
     }
 }
 
-/// What a stop order records: refused from a child (Go's I2); a second order
-/// records nothing.
+/// What a stop order records: refused from a session that is not the
+/// target's owner (D25, S-f), else, with no session requester, from a child
+/// (Go's I2); a second order records nothing.
 pub(crate) fn stop_ordered(
     held: &SessionState,
     stop: &StopSession,
 ) -> Result<Option<StopOrdered>, SessionRejection> {
     let held = live(held)?;
-    if stop.requester_depth > 0 {
+    if stop.requester.is_some() {
+        crate::daemon::stop_may(held, stop)?;
+    } else if stop.requester_depth > 0 {
         return Err(SessionRejection::ChildCannotStop {
             depth: u64::from(stop.requester_depth),
         });

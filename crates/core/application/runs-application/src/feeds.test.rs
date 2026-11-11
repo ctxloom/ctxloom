@@ -11,7 +11,10 @@ use crate::{AppError, Cursor, Feeds, Why};
 async fn fact(world: &World, id: &str, turn: u64) {
     let book = fact_book(
         world.me.identity.run_cover(),
-        runs::TurnStarted { turn },
+        runs::TurnStarted {
+            turn,
+            message_ids: Vec::new(),
+        },
         id,
     );
     world.edge.handle(book).await.unwrap();

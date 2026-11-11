@@ -29,6 +29,8 @@ pub struct Order {
     pub model: String,
     /// The agent's effort level; empty names none.
     pub effort: String,
+    /// The agent's permission mode (owner ruling 116); empty names none.
+    pub permission_mode: String,
     /// How the config says the engine is run: program, session home,
     /// credential source, environment passthrough (names and paths only).
     pub settings: run_ports::EngineSettings,
@@ -57,6 +59,7 @@ impl fmt::Debug for Order {
             .field("interactive", &self.interactive)
             .field("model", &self.model)
             .field("effort", &self.effort)
+            .field("permission_mode", &self.permission_mode)
             .field("settings", &self.settings)
             .field("owned", &self.owned)
             .field("git_user", &self.git_user)

@@ -427,6 +427,11 @@ impl Engine for ScriptedEngine {
         if !request.effort.is_empty() {
             command.args.push(format!("--effort={}", request.effort));
         }
+        if !request.permission_mode.is_empty() {
+            command
+                .args
+                .push(format!("--permission-mode={}", request.permission_mode));
+        }
         command.env = request.env.clone();
         command.stdin = request.prompt.clone().into_bytes();
         command.cwd = request.cwd.clone();
@@ -452,6 +457,11 @@ impl Engine for ScriptedEngine {
         }
         if !request.effort.is_empty() {
             command.args.push(format!("--effort={}", request.effort));
+        }
+        if !request.permission_mode.is_empty() {
+            command
+                .args
+                .push(format!("--permission-mode={}", request.permission_mode));
         }
         command.env = request.env.clone();
         command.cwd = request.cwd.clone();
@@ -689,6 +699,7 @@ pub fn order(engine: &str) -> Order {
         interactive: false,
         model: String::new(),
         effort: String::new(),
+        permission_mode: String::new(),
         settings: Default::default(),
         owned: Vec::new(),
         git_user: None,

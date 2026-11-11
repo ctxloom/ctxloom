@@ -838,6 +838,36 @@ async fn the_orders_model_reaches_the_engines_turn_and_terminal_command() {
     }
 }
 
+// Owner ruling 116: the order's permission mode reaches the engine's command,
+// for a turn and for the terminal session alike, as its effort does.
+#[tokio::test]
+async fn the_orders_permission_mode_reaches_the_engines_turn_and_terminal_command() {
+    for interactive in [false, true] {
+        let mut asked = order("fake");
+        asked.permission_mode = "acceptEdits".to_string();
+        asked.interactive = interactive;
+        let mut rig = rig(
+            ScriptedEngine::answering("A", None),
+            ScriptedRunner::exits(0),
+            orders_with(asked),
+        );
+        enqueued(&rig.edge, SESSION, HARP).await;
+        rig.step().await;
+        let seen = if interactive {
+            rig.runner.seen_terminal.lock().unwrap()
+        } else {
+            rig.runner.seen.lock().unwrap()
+        };
+        assert!(
+            seen[0]
+                .args
+                .contains(&"--permission-mode=acceptEdits".to_string()),
+            "interactive={interactive}: {:?}",
+            seen[0].args
+        );
+    }
+}
+
 #[tokio::test]
 async fn an_order_with_no_model_or_effort_gives_the_engine_none() {
     for interactive in [false, true] {
@@ -856,10 +886,9 @@ async fn an_order_with_no_model_or_effort_gives_the_engine_none() {
             rig.runner.seen.lock().unwrap()
         };
         assert!(
-            !seen[0]
-                .args
-                .iter()
-                .any(|a| a.contains("model") || a.contains("effort")),
+            !seen[0].args.iter().any(|a| a.contains("model")
+                || a.contains("effort")
+                || a.contains("permission-mode")),
             "interactive={interactive}: {:?}",
             seen[0].args
         );

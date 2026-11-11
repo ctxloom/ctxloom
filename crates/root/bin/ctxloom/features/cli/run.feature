@@ -1052,3 +1052,62 @@ Feature: run — assembling a project's context and handing it to an engine
         """
       Then the command succeeds
       And an assistant was launched
+
+  Rule: The agent's permission mode reaches claude, and a mode claude does not take is refused before it starts
+
+    An agent's claude permission mode (`agents.<n>.engines.claude-code.
+    permissions.mode`, `acceptEdits` when nobody set one) is passed to claude
+    as `--permission-mode <mode>`, a child's turn and her interactive session
+    alike (owner ruling 116). ctxloom's own words govern (owner ruling 125):
+    default, acceptEdits, plan and bypassPermissions, the words a write
+    takes; `default` is claude's own default, passed as no flag. Any other
+    mode is refused before claude is started, in the write's own words: a
+    retired spelling (`auto`, `dontAsk`) is pointed at the approver it is
+    now, and claude's other words (`manual`) are not ctxloom's.
+
+    Scenario: A child's turn runs in the default agent's permission mode
+      # new: owner ruling 116 (2026-11-11).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice runs a child agent on her default agent:
+        """
+        ctxloom run --one-shot hello
+        """
+      Then the command succeeds
+      And the assistant was launched with "--permission-mode" "acceptEdits"
+
+    Scenario: Her session runs in the permission mode she chose
+      # new: owner ruling 116 (2026-11-11).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice starts her session in plan mode:
+        """
+        ctxloom --config-set agents.default.engines.claude-code.permissions.mode=plan run
+        """
+      Then the command succeeds
+      And the assistant was launched with "--permission-mode" "plan"
+
+    Scenario: A retired spelling of a mode is refused before claude starts, naming the approver it is now
+      # new: owner rulings 116, 125 (2026-11-11).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice runs a child agent in a retired mode:
+        """
+        ctxloom --config-set agents.default.engines.claude-code.permissions.mode=auto run --one-shot hello
+        """
+      Then the command exits with code 1
+      And the output contains "is declared as approver: reviewer"
+      And no assistant was launched
+
+    Scenario: A mode that is claude's but not ctxloom's is refused before claude starts
+      # new: owner ruling 125 (2026-11-11).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice starts her session in a mode ctxloom does not have:
+        """
+        ctxloom --config-set agents.default.engines.claude-code.permissions.mode=manual run
+        """
+      Then the command exits with code 1
+      And the output contains "manual"
+      And the output contains "is not a claude mode (known: default|acceptEdits|plan|bypassPermissions)"
+      And no assistant was launched

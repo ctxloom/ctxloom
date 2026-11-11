@@ -429,7 +429,23 @@ directory exists, unclaimed, within `NAME_TRIES` (then `sessions-names-taken`). 
 agent's `model` and `effort` reach the engine as the order's `model` and
 `effort` (`--model`, `--effort` for claude, a turn and the terminal alike;
 unset is no flag; claude takes `low|medium|high|xhigh|max`, any other level is
-refused before launch).
+refused before launch). Its permission mode (`agents.<n>.engines.claude-code.
+permissions.mode`, else the engine's default, claude's `acceptEdits`) reaches
+claude the same way, as the order's `permission_mode` (owner ruling 116):
+`--permission-mode <mode>`, a turn and the terminal alike; none, or the
+config's `default` (claude's own default mode), is no flag. ctxloom's own
+words govern (owner ruling 125): the plan holds a claude mode to the write
+path's `postures` (`default|acceptEdits|plan|bypassPermissions`, any case,
+passed in their spelling) through the same `write::engines::mode`, so a
+dry run or launch refuses any other in the write's words
+(`library-application-write-permissions`; a retired `auto`/`dontAsk` names
+the approver it is now; claude's `manual` is not ctxloom's) before anything
+is enqueued. claude's own list (2.1.322's `--help`:
+`acceptEdits|auto|bypassPermissions|manual|dontAsk|plan`, engine-claude's
+`PERMISSION_MODES`, whose drive still refuses a word outside it,
+`run-ports-engine-unknown-permission-mode`) is only a check: a wiring test
+holds `postures` minus `default` to be a subset of it. opencode is given no mode (no
+flag verified), and the dry run's row says it is not passed.
 
 A run's pre-launch checks are DECIDED by the runs aggregate, in `EnqueueRun`'s
 `decide` (owner rulings 73, 73a-73i), on evidence fields the run application
@@ -505,8 +521,9 @@ to `$HOME/.claude` (no `HOME` is `run-ports-engine-no-host-home`), links no
 login there; the hooks still fire, because the launch (the terminal's and a
 child's turn) passes `--settings <session dir>/settings.json` (the ctxloom-owned file `prepare` writes,
 in both home modes, never into the user's `~/.claude`; claude adds its hooks to the
-config dir's own, and honours one `--settings`; no posture settings are passed
-yet, so there was nothing to merge; verified with a fake program only, not a
+config dir's own, and honours one `--settings`; no posture settings are written
+into it (the permission mode is the `--permission-mode` flag, ruling 116), so
+there was nothing to merge; verified with a fake program only, not a
 live interactive TUI, nor with `--setting-sources user`; in a container the flag
 must name the in-container path, a follow-up). A child's turn passes the same
 single `--settings` (ruling 51; verified with a fake program only, not a live

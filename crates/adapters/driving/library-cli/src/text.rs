@@ -931,6 +931,9 @@ pub fn dry_run(out: &mut dyn Write, plan: &DryRun) -> io::Result<()> {
     }
 }
 
+/// The engine a permission mode is passed to (`--permission-mode`, owner
+/// ruling 116); opencode has no verified flag for one.
+const MODE_PASSED_TO: &str = "claude-code";
 /// Ruling 72: each setting a run takes, with the place in the config that
 /// said it (the JSON's `settings` says the same by word).
 fn dry_run_settings(
@@ -959,12 +962,13 @@ fn dry_run_settings(
             .unwrap_or("engine default, no flag passed");
         row(out, key, value, place(setting.source, true))?;
     }
-    // No permission mode reaches the engine yet: the row says the mode the
-    // config names, and that it is not passed.
-    let permissions = if s.permissions.value.is_empty() {
-        NO_MODE.to_string()
-    } else {
-        format!("{}, not passed to the engine yet", s.permissions.value)
+    // claude is given the mode (owner ruling 116), its `default` as no flag;
+    // no other engine is yet, and its row says so.
+    let permissions = match (engine, s.permissions.value.as_str()) {
+        (_, "") => NO_MODE.to_string(),
+        (MODE_PASSED_TO, "default") => "default, no flag passed".to_string(),
+        (MODE_PASSED_TO, mode) => mode.to_string(),
+        (_, mode) => format!("{mode}, not passed to the engine yet"),
     };
     row(
         out,

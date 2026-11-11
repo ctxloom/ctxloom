@@ -73,6 +73,7 @@ struct Launch {
     engine: String,
     model: String,
     effort: String,
+    permission_mode: String,
     runtime: Option<String>,
     drive: Drive,
     settings: Option<crate::AgentSettings>,
@@ -222,8 +223,8 @@ impl Project {
         request: &RunRequest,
         agent: Option<&Agent>,
     ) -> Result<Launch, AppError> {
-        // An agent's engine, model and effort are its own; a launch with no
-        // agent takes the default engine and passes no model or effort.
+        // An agent's engine, model, effort and permission mode are its own; a
+        // launch with no agent takes the default engine and passes none of them.
         // `--engine` runs the agent on that engine, with its block for it
         // (owner ruling 57); its runtime and env are kept.
         match agent {
@@ -240,12 +241,23 @@ impl Project {
                 if let Some(notice) = runtime_notice(&effective) {
                     self.notices.push(notice);
                 }
+                // A claude mode is held to ctxloom's own words, as a write
+                // holds it (owner ruling 125), before anything is launched.
+                let permission_mode = crate::write::engines::launch_mode(
+                    &effective.engine.value,
+                    &effective.permissions.value,
+                )
+                .map_err(|detail| crate::WriteError::Permissions {
+                    subject: format!("agent \"{}\"", agent.name),
+                    detail,
+                })?;
                 let drive = Drive::from(&effective);
                 let settings = crate::engine_noun::settings_of(&effective);
                 Ok(Launch {
                     engine: effective.engine.value,
                     model: effective.model.map(|m| m.value).unwrap_or_default(),
                     effort: effective.effort.map(|e| e.value).unwrap_or_default(),
+                    permission_mode,
                     runtime: Some(effective.runtime.value),
                     drive,
                     settings: Some(settings),
@@ -265,6 +277,7 @@ impl Project {
                     engine,
                     model: String::new(),
                     effort: String::new(),
+                    permission_mode: String::new(),
                     runtime: None,
                     drive,
                     settings: None,
@@ -311,6 +324,7 @@ impl Project {
             engine,
             model,
             effort,
+            permission_mode,
             runtime,
             drive,
             settings,
@@ -352,6 +366,7 @@ impl Project {
             axes: self.axes(request, runtime),
             model,
             effort,
+            permission_mode,
             drive,
             settings,
             settings_agent: selection

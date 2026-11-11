@@ -68,6 +68,11 @@ pub fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
         level: "extreme".to_string(),
         known: "low, medium, high".to_string(),
     }));
+    samples.push(Box::new(EngineError::UnknownPermissionMode {
+        engine: "claude-code".to_string(),
+        mode: "nonsense".to_string(),
+        known: "acceptEdits, plan".to_string(),
+    }));
     samples.push(Box::new(EngineError::NoHostHome {
         engine: "claude-code".to_string(),
     }));

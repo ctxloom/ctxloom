@@ -175,6 +175,7 @@ impl Engine for Claude {
         // The turn's hooks: the session dir's settings, as the terminal's.
         push_settings(&mut command.args, request);
         push_model_and_effort(&mut command.args, request)?;
+        push_permission_mode(&mut command.args, request)?;
         if let Some(native_id) = &request.resume {
             command.args.push("--resume".to_string());
             command.args.push(native_id.clone());
@@ -216,6 +217,7 @@ impl Engine for Claude {
         command.args.push(request.context_path.clone());
         push_settings(&mut command.args, request);
         push_model_and_effort(&mut command.args, request)?;
+        push_permission_mode(&mut command.args, request)?;
         if let Some(native_id) = &request.resume {
             command.args.push("--resume".to_string());
             command.args.push(native_id.clone());
@@ -273,6 +275,42 @@ fn push_settings(args: &mut Vec<String>, request: &TurnRequest) {
 
 /// The effort levels `claude --effort` takes (`claude --help`, 2.1.321).
 pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
+/// The permission modes `claude --permission-mode` takes (`claude --help`,
+/// 2.1.322: "choices: acceptEdits, auto, bypassPermissions, manual, dontAsk,
+/// plan"; owner ruling 116).
+pub const PERMISSION_MODES: [&str; 6] = [
+    "acceptEdits",
+    "auto",
+    "bypassPermissions",
+    "manual",
+    "dontAsk",
+    "plan",
+];
+
+/// The config's word for claude's own default mode, passed as no flag
+/// (claude 2.1.322 no longer takes `default` as a choice).
+const DEFAULT_MODE: &str = "default";
+
+/// `--permission-mode <mode>` when the agent's mode names one (owner ruling
+/// 116); none, or `default`, is no flag (claude's own default). A mode claude
+/// does not take is refused here, before it is launched.
+fn push_permission_mode(args: &mut Vec<String>, request: &TurnRequest) -> Result<(), EngineError> {
+    let mode = request.permission_mode.as_str();
+    if mode.is_empty() || mode == DEFAULT_MODE {
+        return Ok(());
+    }
+    if !PERMISSION_MODES.contains(&mode) {
+        return Err(EngineError::UnknownPermissionMode {
+            engine: NAME.to_string(),
+            mode: mode.to_string(),
+            known: PERMISSION_MODES.join(", "),
+        });
+    }
+    args.push("--permission-mode".to_string());
+    args.push(mode.to_string());
+    Ok(())
+}
 
 /// `--model <model>` and `--effort <level>` when the agent names them; none
 /// named is no flag (the engine's own default). A level claude does not take

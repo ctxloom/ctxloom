@@ -86,6 +86,9 @@ pub struct TurnRequest {
     /// The effort level to run at; empty names none, and the engine passes no
     /// flag.
     pub effort: String,
+    /// The permission mode to run in (owner ruling 116); empty names none,
+    /// and the engine passes no flag.
+    pub permission_mode: String,
     /// How the config says the engine is run (program, home, credential
     /// source, environment passthrough).
     pub settings: crate::settings::EngineSettings,
@@ -103,6 +106,7 @@ impl fmt::Debug for TurnRequest {
             .field("cwd", &self.cwd)
             .field("model", &self.model)
             .field("effort", &self.effort)
+            .field("permission_mode", &self.permission_mode)
             .field("settings", &self.settings)
             .finish()
     }
@@ -275,6 +279,12 @@ pub enum EngineError {
         level: String,
         known: String,
     },
+    /// A permission mode the engine does not take (owner ruling 116).
+    UnknownPermissionMode {
+        engine: String,
+        mode: String,
+        known: String,
+    },
     /// `session_home: host` is configured but the caller's environment names
     /// no home to use.
     NoHostHome { engine: String },
@@ -291,6 +301,9 @@ impl Diagnostic for EngineError {
         match self {
             EngineError::NotYet { .. } => code!("engine-not-yet"),
             EngineError::UnknownEffort { .. } => code!("engine-unknown-effort"),
+            EngineError::UnknownPermissionMode { .. } => {
+                code!("engine-unknown-permission-mode")
+            }
             EngineError::NoHostHome { .. } => code!("engine-no-host-home"),
         }
     }
@@ -308,6 +321,15 @@ impl Diagnostic for EngineError {
             } => vec![
                 ("engine", engine.as_str().into()),
                 ("level", level.as_str().into()),
+                ("known", known.as_str().into()),
+            ],
+            EngineError::UnknownPermissionMode {
+                engine,
+                mode,
+                known,
+            } => vec![
+                ("engine", engine.as_str().into()),
+                ("mode", mode.as_str().into()),
                 ("known", known.as_str().into()),
             ],
             EngineError::NoHostHome { engine } => vec![("engine", engine.as_str().into())],

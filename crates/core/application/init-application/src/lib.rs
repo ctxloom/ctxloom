@@ -139,8 +139,15 @@ impl Init {
             pulled: 0,
             notices: Vec::new(),
         };
+        // The use cases over the project as it is: a new one's once it is
+        // written (those built before saw no project and found the home).
+        let mut deps = Rc::clone(&self.deps);
         if !existed {
             self.create.create().map_err(InitError::Create)?;
+            deps = self.create.deps().map_err(InitError::Create)?;
+            // NOT YET: the seeded pull still goes through the use cases built
+            // before the project (what a new project pulls is being
+            // redesigned: the default content is to ship in the binary).
             let pulled = self.deps.pull(false, true);
             done.notices.extend(pulled.notices);
             match pulled.result {
@@ -151,7 +158,7 @@ impl Init {
             }
         }
         for (index, url) in request.remotes.iter().enumerate() {
-            let outcome = self.deps.remote_create(&CreateRequest {
+            let outcome = deps.remote_create(&CreateRequest {
                 name: personal_name(index),
                 url: url.clone(),
                 forge: request.forge.clone(),

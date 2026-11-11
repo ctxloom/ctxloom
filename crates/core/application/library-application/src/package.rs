@@ -391,14 +391,12 @@ impl Project {
 
     fn set_output_dir(&mut self, dir: &str) -> Result<String, AppError> {
         self.require_project()?;
-        self.update_config(Scope::Project, "output", |held| {
-            let mut entries = match held {
-                Some(Value::Map(entries)) => entries,
-                _ => Vec::new(),
-            };
-            entries.retain(|(key, _)| key != "dir");
-            entries.push(("dir".to_string(), Value::Scalar(dir.to_string())));
-            Ok(Some(Value::Map(entries)))
+        // The section holds `dir` alone, so it is written whole.
+        self.update_config(Scope::Project, "output", |_| {
+            Ok(Some(Value::Map(vec![(
+                "dir".to_string(),
+                Value::Scalar(dir.to_string()),
+            )])))
         })
     }
 

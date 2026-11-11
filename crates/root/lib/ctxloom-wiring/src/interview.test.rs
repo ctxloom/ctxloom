@@ -32,3 +32,33 @@ fn a_closed_input_is_a_no_though_a_bare_enter_is_a_yes() {
     assert!(!answered(None));
     assert!(answered(Some("\n")));
 }
+
+// A session init launches is the run's own: one the run refuses (a config of a
+// newer generation) is a launch failure with the run's exit, 2, never a
+// session that ended.
+#[test]
+fn a_session_the_run_refuses_is_a_launch_failure_with_its_exit() {
+    use std::rc::Rc;
+    use std::sync::Arc;
+
+    use init_application::Sessions;
+
+    let world = crate::commands::tests::world_without_programs("interview-refused");
+    crate::fixtures::put_mode(
+        world.dir().join("work/.ctxloom/config.yaml"),
+        "schema_version: 99\n",
+        0o644,
+    );
+    let env = world.env();
+    let wiring = crate::Wiring::new(Arc::clone(&env)).unwrap();
+    let deps = Rc::new(crate::commands::build_deps(&wiring).unwrap());
+    let flags = library_application::Flags::default();
+    let sessions = super::SetupSessions {
+        env: &env,
+        deps: &deps,
+        flags: &flags,
+    };
+    let failure = sessions.configured().expect_err("refused");
+    assert_eq!(failure.exit, 2);
+    assert_eq!(failure.cause.code(), "library-application-config-newer");
+}

@@ -19,6 +19,9 @@ pub struct Enforced {
 }
 
 /// What `runtime` enforces: nothing, for every runtime today.
+// Equivalent to `Default::default()` while no runtime enforces a word (the
+// test pins that); the first enforcing runtime gives it a row to mutate.
+#[cfg_attr(test, mutants::skip)]
 pub fn enforced(runtime: &str) -> Enforced {
     let _ = runtime;
     Enforced::default()

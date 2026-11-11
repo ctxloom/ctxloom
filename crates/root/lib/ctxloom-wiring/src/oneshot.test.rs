@@ -389,3 +389,62 @@ fn a_run_installs_the_missing_dependencies_at_its_start_unless_on_run_is_none() 
         )]
     );
 }
+
+// Rulings 59, 60: a run's start pulls through its puller unless
+// `sync.on_run: none`, and what the pull did is said with the run's notices.
+mod start_sync {
+    use std::cell::Cell;
+    use std::rc::Rc;
+    use std::sync::Arc;
+
+    use library_application::Flags;
+    use run_application::{OneShot, RunService};
+
+    use crate::oneshot::OneShots;
+
+    struct Counting(Cell<u32>);
+
+    impl setup_application::Puller for Counting {
+        fn pull(&self) -> Result<u64, String> {
+            self.0.set(self.0.get() + 1);
+            Ok(2)
+        }
+    }
+
+    fn pulls(on_run: &str) -> (u32, bool) {
+        let world = crate::commands::tests::world_without_programs("start-sync");
+        let config = format!(
+            "schema_version: 9\nsync:\n  on_run: {on_run}\nagents:\n  dev:\n    engine: claude-code\n    profiles: [dev]\n    runtime: host\ndefault_agent: dev\n"
+        );
+        crate::fixtures::put_mode(
+            world.dir().join("work/.ctxloom/config.yaml"),
+            &config,
+            0o644,
+        );
+        let wiring = crate::Wiring::new(Arc::clone(&world.env())).unwrap();
+        let library = crate::library::build(&wiring, None).unwrap();
+        let puller = Rc::new(Counting(Cell::new(0)));
+        let mut runs = OneShots::new(&wiring, library).with_puller(puller.clone());
+        // An engine nobody drives: refused after the start's pull.
+        let request = OneShot {
+            run: library_application::RunRequest {
+                prompt: "hello".to_string(),
+                ..library_application::RunRequest::default()
+            },
+            engine: "nope".to_string(),
+        };
+        let done = runs.one_shot(&Flags::default(), &request);
+        assert!(done.result.is_err());
+        let said = done.notices.iter().any(|n| {
+            matches!(n, library_application::Notice::Finding { text, .. }
+                if text.starts_with("installed 2 missing dependencies"))
+        });
+        (puller.0.get(), said)
+    }
+
+    #[test]
+    fn a_run_pulls_at_its_start_unless_on_run_is_none() {
+        assert_eq!(pulls("missing"), (1, true));
+        assert_eq!(pulls("none"), (0, false));
+    }
+}

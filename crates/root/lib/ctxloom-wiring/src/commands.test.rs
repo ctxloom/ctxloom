@@ -106,7 +106,7 @@ impl World {
     }
 
     /// The world's environment as the program takes it.
-    fn env(&self) -> Arc<EnvSnapshot> {
+    pub(crate) fn env(&self) -> Arc<EnvSnapshot> {
         Arc::new(EnvSnapshot::from_parts(
             self.base.flavor(),
             Ok(self.dir.join("work")),
@@ -450,7 +450,7 @@ fn test_a_bundle_publishing_verb_is_run_by_the_dependency_commands() {
 }
 
 /// A world in which no engine's program can be found, so nothing is launched.
-fn world_without_programs(name: &str) -> World {
+pub(crate) fn world_without_programs(name: &str) -> World {
     let mut world = World::new(name);
     let empty = world.dir.join("no-programs");
     crate::fixtures::mkdirs(empty.clone());

@@ -415,6 +415,14 @@ fn test_the_output_directory_is_written_to_the_projects_config() {
         library.run_settings(&plain()).map(|s| s.output_dir),
         Some("docs/sessions".to_string())
     );
+    // A second answer replaces the first: one `dir`, the new one.
+    library
+        .set_output_dir(&plain(), "notes")
+        .result
+        .expect("written");
+    let config = mem.config(ctxloom_ports::Scope::Project).unwrap();
+    assert!(config.contains("output:\n  dir: notes\n"), "{config}");
+    assert!(!config.contains("docs/sessions"), "{config}");
 }
 
 // ---- companion loadouts in the package (virtuous-word, companions slice 2) ----

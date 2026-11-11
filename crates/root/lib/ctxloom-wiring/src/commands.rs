@@ -34,7 +34,7 @@ const OWN_NOUNS: [&str; 2] = ["remote", "deps"];
 
 /// The dependency use cases over the process's home, working directory and
 /// project.
-fn build_deps(wiring: &Wiring) -> Result<Deps, LibError> {
+pub(crate) fn build_deps(wiring: &Wiring) -> Result<Deps, LibError> {
     let fs = wiring.fs();
     let env = Arc::clone(wiring.env());
     let (_, app) = wiring.locate();

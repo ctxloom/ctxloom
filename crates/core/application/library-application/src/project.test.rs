@@ -1,17 +1,18 @@
-//! Owner rulings 110, 111: ctxloom's built-in bundles in a project's
-//! catalog, read-only, overridden by a project bundle of the same name.
+//! Owner rulings 110, 111, narrowed by 117: ctxloom's built-in bundle (its
+//! operational prompts) in a project's catalog, read-only, overridden by a
+//! project bundle of the same name, and in no session's context.
 
 use angzarr_diagnostic::Diagnostic;
 
 use crate::fakes::{plain, Mem, Setup, CONFIG, ENVELOPE};
-use crate::{AppError, AssembleRequest, ItemKind, Library, ProfileEdit, WriteError};
+use crate::{AppError, AssembleRequest, ItemKind, Library, WriteError};
 
 use std::sync::Arc;
 
 angzarr_presentation::english_for!(&[crate::EN_US.1]);
 
 /// The project bundle `ctxloom init` seeds: its `default` profile, as
-/// scaffolded, inheriting the built-in developer profile.
+/// scaffolded, bare (ruling 117).
 const PROJECT: &[(&str, &str)] = &[
     ENVELOPE,
     (
@@ -20,7 +21,7 @@ const PROJECT: &[(&str, &str)] = &[
     ),
 ];
 
-const BUILT_IN: [&str; 4] = ["ai-coding-general", "ai-developer", "git", "testing"];
+const BUILT_IN: [&str; 1] = ["ctxloom"];
 
 fn world(bundles: &[(&str, &[(&str, &str)])]) -> (Library, Arc<Mem>) {
     Setup {
@@ -58,7 +59,7 @@ fn read_only(bundle: &str) -> (String, String) {
     (refused.code().to_string(), refused.english())
 }
 
-// A project lists the built-in bundles under their origin, whether or not it
+// A project lists the built-in bundle under its origin, whether or not it
 // has a bundles directory of its own; with no project there are none.
 #[test]
 fn test_a_project_lists_the_built_in_bundles_under_their_origin() {
@@ -70,7 +71,7 @@ fn test_a_project_lists_the_built_in_bundles_under_their_origin() {
     }
     .fixture();
     let list = ok(library.bundle_list(&plain()));
-    assert!(!list.no_root, "the built-in bundles are there");
+    assert!(!list.no_root, "the built-in bundle is there");
     let rows: Vec<[String; 4]> = list
         .rows
         .iter()
@@ -95,11 +96,11 @@ fn test_a_project_lists_the_built_in_bundles_under_their_origin() {
         })
         .collect();
     assert_eq!(rows, want);
-    let shown = ok(library.bundle_show(&plain(), "testing"));
-    assert_eq!(shown.fragments.len(), 3);
-    let viewed = ok(library.bundle_view(&plain(), "git", false));
+    let shown = ok(library.bundle_show(&plain(), "ctxloom"));
+    assert_eq!(shown.fragments.len(), 0);
+    let viewed = ok(library.bundle_view(&plain(), "ctxloom", false));
     assert!(
-        viewed.content.contains("fragments/git.md"),
+        viewed.content.contains("prompts/setup-interview.md"),
         "{}",
         viewed.content
     );
@@ -130,23 +131,24 @@ fn test_the_built_in_bundles_join_only_a_library_composed_with_them() {
 fn test_a_project_bundle_of_the_same_name_overrides_the_built_in_one() {
     let ours: &[(&str, &str)] = &[
         ("bundle.yaml", "schema_version: 4\nversion: 9.9.9\n"),
-        ("fragments/ours.md", "Our testing rules.\n"),
+        ("fragments/ours.md", "Our own rules.\n"),
     ];
-    let (library, _) = world(&[("testing", ours)]);
+    let (library, _) = world(&[("ctxloom", ours)]);
     let list = ok(library.bundle_list(&plain()));
-    let testing: Vec<_> = list.rows.iter().filter(|r| r.name == "testing").collect();
-    assert_eq!(testing.len(), 1);
-    assert_eq!(testing[0].version, "9.9.9");
-    assert_eq!(testing[0].origin, "");
-    let fragments = ok(library.item_list(&plain(), ItemKind::Fragment, "testing"));
+    let named: Vec<_> = list.rows.iter().filter(|r| r.name == "ctxloom").collect();
+    assert_eq!(named.len(), 1);
+    assert_eq!(named[0].version, "9.9.9");
+    assert_eq!(named[0].origin, "");
+    let fragments = ok(library.item_list(&plain(), ItemKind::Fragment, "ctxloom"));
     let names: Vec<&str> = fragments.rows.iter().map(|r| r.name.as_str()).collect();
     assert_eq!(names, ["ours"]);
 }
 
-// The seeded profile assembles from the built-in bundles, with nothing pulled
-// and nothing missing.
+// Ruling 117: the seeded profile is bare, and the built-in bundle is in no
+// session's context: the default profile assembles nothing, the operational
+// prompts least of all, with nothing pulled and nothing missing.
 #[test]
-fn test_the_seeded_profile_assembles_from_the_built_in_bundles() {
+fn test_the_seeded_profile_assembles_nothing_and_no_operational_prompt() {
     let (library, mem) = world(&[("project", PROJECT)]);
     let out = library.assemble(
         &plain(),
@@ -158,67 +160,33 @@ fn test_the_seeded_profile_assembles_from_the_built_in_bundles() {
     let notices = format!("{:?}", out.notices);
     let assembled = ok(out);
     assert!(
-        assembled
-            .fragments_loaded
-            .contains(&"ctxloom+local:testing#fragments/tdd".to_string()),
+        assembled.fragments_loaded.is_empty(),
         "{:?}",
         assembled.fragments_loaded
     );
-    assert_eq!(assembled.fragments_loaded.len(), 13);
-    assert!(assembled.context.contains("Red-green-refactor"));
+    assert!(!assembled.context.contains("setup interview"));
+    assert!(!assembled.context.contains("text compression assistant"));
     assert!(!notices.contains("not installed"), "{notices}");
     assert!(!notices.contains("does not exist"), "{notices}");
     assert_eq!(mem.writes(), 0);
-}
-
-// hand-test 2 2026-11-11: `bundle list` named a built-in bundle under its
-// origin, but `profile list` and the dry run's fragments named its items
-// `ctxloom+local:...`. Every listing names a built-in item as the bundle
-// listing does: its bundle's name, under the built-in origin; what the run
-// resolves (the JSON's fragments) is unchanged.
-#[test]
-fn test_listings_name_a_built_in_item_by_the_built_in_origin() {
-    let (library, _) = world(&[("project", PROJECT)]);
-    let list = ok(library.profile_list(&plain()));
-    let developer = list
-        .rows
-        .iter()
-        .find(|r| r.display_name == "developer")
-        .expect("the built-in developer profile is listed");
-    assert_eq!(
-        (
-            developer.name.as_str(),
-            developer.bundle.as_str(),
-            developer.origin.as_str()
-        ),
-        (
-            "ai-developer#profiles/developer",
-            "ai-developer",
-            "ctxloom/default"
-        )
-    );
-    let own = list.rows.iter().find(|r| r.name == "default").unwrap();
-    assert_eq!(own.origin, "");
-    let shown = ok(library.profile_show(&plain(), &developer.name));
-    assert_eq!(shown.name, developer.name, "the listed name reaches it");
-
     let request = crate::RunRequest {
         profile: "default".to_string(),
         ..crate::RunRequest::default()
     };
     let plan = ok(library.dry_run(&plain(), &request)).plan;
-    assert!(plan
-        .fragments
-        .contains(&"ctxloom+local:testing#fragments/tdd".to_string()));
-    assert_eq!(plan.fragments_listed.len(), plan.fragments.len());
-    assert!(
-        plan.fragments_listed.contains(&crate::Listed {
-            name: "testing#fragments/tdd".to_string(),
-            origin: "ctxloom/default".to_string(),
-        }),
-        "{:?}",
-        plan.fragments_listed
-    );
+    assert!(plan.fragments.is_empty(), "{:?}", plan.fragments);
+    let list = ok(library.profile_list(&plain()));
+    let names: Vec<&str> = list.rows.iter().map(|r| r.name.as_str()).collect();
+    assert_eq!(names, ["default"], "no built-in profile ships");
+}
+
+// A built-in prompt is listed by its bundle's name, and read as it ships.
+#[test]
+fn test_the_built_in_prompts_are_listed_and_read_as_they_ship() {
+    let (library, _) = world(&[("project", PROJECT)]);
+    let prompts = ok(library.item_list(&plain(), ItemKind::Command, "ctxloom"));
+    let names: Vec<&str> = prompts.rows.iter().map(|r| r.name.as_str()).collect();
+    assert_eq!(names, ["distill", "setup-interview"]);
 }
 
 // No write reaches a built-in bundle: each is refused, naming where a project
@@ -228,55 +196,45 @@ fn test_every_write_to_a_built_in_bundle_is_refused_and_writes_nothing() {
     let (library, mem) = world(&[("project", PROJECT)]);
     let flags = plain();
     assert_eq!(
-        refusal(library.item_create(&flags, ItemKind::Fragment, "testing", "mine")),
-        read_only("testing")
+        refusal(library.item_create(&flags, ItemKind::Fragment, "ctxloom", "mine")),
+        read_only("ctxloom")
     );
     assert_eq!(
-        refusal(library.item_remove(&flags, ItemKind::Fragment, "testing#fragments/tdd", true)),
-        read_only("testing")
+        refusal(library.item_remove(&flags, ItemKind::Command, "ctxloom#prompts/distill", true)),
+        read_only("ctxloom")
     );
     assert_eq!(
-        refusal(library.item_edit(&flags, ItemKind::Fragment, "git#fragments/git", false)),
-        read_only("git")
+        refusal(library.item_edit(
+            &flags,
+            ItemKind::Command,
+            "ctxloom#prompts/setup-interview",
+            false
+        )),
+        read_only("ctxloom")
     );
     for yes in [false, true] {
         assert_eq!(
-            refusal(library.bundle_remove(&flags, "testing", yes)),
-            read_only("testing")
-        );
-        assert_eq!(
-            refusal(library.profile_remove(&flags, "ai-developer#profiles/developer", yes)),
-            read_only("ai-developer")
+            refusal(library.bundle_remove(&flags, "ctxloom", yes)),
+            read_only("ctxloom")
         );
     }
     assert_eq!(
         refusal(library.bundle_edit(
             &flags,
             &crate::BundleEditRequest {
-                name: "git".to_string(),
+                name: "ctxloom".to_string(),
                 description: Some("mine".to_string()),
                 ..Default::default()
             }
         )),
-        read_only("git")
-    );
-    assert_eq!(
-        refusal(library.profile_modify(
-            &flags,
-            "ai-developer#profiles/developer",
-            &ProfileEdit {
-                add_bundles: vec!["project".to_string()],
-                ..ProfileEdit::default()
-            }
-        )),
-        read_only("ai-developer")
+        read_only("ctxloom")
     );
     assert_eq!(mem.writes(), 0);
-    let (code, said) = read_only("testing");
+    let (code, said) = read_only("ctxloom");
     assert_eq!(code, "library-application-write-builtin-read-only");
     assert_eq!(
         said,
-        "bundle \"testing\" is built into ctxloom (ctxloom/default) and is read-only; a project bundle of its name, in /p/.ctxloom/content/bundles/v2, overrides it"
+        "bundle \"ctxloom\" is built into ctxloom (ctxloom/default) and is read-only; a project bundle of its name, in /p/.ctxloom/content/bundles/v2, overrides it"
     );
 }
 
@@ -285,20 +243,17 @@ fn test_every_write_to_a_built_in_bundle_is_refused_and_writes_nothing() {
 #[test]
 fn test_a_built_in_bundle_exports_its_shipped_files() {
     let (library, mem) = world(&[]);
-    let done = ok(library.bundle_export(&plain(), "testing", "out", ""));
-    assert_eq!(done.dest, "out/testing");
+    let done = ok(library.bundle_export(&plain(), "ctxloom", "out", ""));
+    assert_eq!(done.dest, "out/ctxloom");
     assert_eq!(
         done.source,
-        "<built-in ctxloom/default>/testing/bundle.yaml"
+        "<built-in ctxloom/default>/ctxloom/bundle.yaml"
     );
     let paths = mem.user_paths();
-    assert_eq!(paths.len(), 7, "{paths:?}");
+    assert_eq!(paths.len(), 3, "{paths:?}");
     assert_eq!(
-        mem.user_text("out/testing/fragments/tdd.md").as_deref(),
-        std::str::from_utf8(
-            &library::builtin::files("testing").expect("built in")["fragments/tdd.md"]
-        )
-        .ok()
+        mem.user_text("out/ctxloom/prompts/distill.md").as_deref(),
+        Some(library::builtin::DISTILL_PROMPT)
     );
 }
 
@@ -307,10 +262,13 @@ fn test_a_built_in_bundle_exports_its_shipped_files() {
 #[test]
 fn test_an_import_of_a_built_in_name_makes_the_overriding_project_bundle() {
     let (library, mem) = world(&[]);
-    ok(library.bundle_export(&plain(), "git", "out", ""));
-    let imported = ok(library.bundle_import(&plain(), "out/git", false));
-    assert_eq!(imported.dest, "/p/.ctxloom/content/bundles/v2/git");
-    assert_eq!(mem.log(), ["write_tree out/git", "claim git", "apply git"]);
+    ok(library.bundle_export(&plain(), "ctxloom", "out", ""));
+    let imported = ok(library.bundle_import(&plain(), "out/ctxloom", false));
+    assert_eq!(imported.dest, "/p/.ctxloom/content/bundles/v2/ctxloom");
+    assert_eq!(
+        mem.log(),
+        ["write_tree out/ctxloom", "claim ctxloom", "apply ctxloom"]
+    );
 }
 
 // A built-in bundle has no executable file, whatever the project's files say.
@@ -318,13 +276,13 @@ fn test_an_import_of_a_built_in_name_makes_the_overriding_project_bundle() {
 fn test_a_built_in_bundle_has_no_executable_file() {
     let library = Setup {
         layers: &[CONFIG],
-        executable: &["fragments/tdd.md"],
+        executable: &["prompts/distill.md"],
         builtins: true,
         ..Setup::default()
     }
     .library();
     let found = library.run(&plain(), |p| {
-        let entry = p.catalog.lookup("testing").expect("built in").clone();
+        let entry = p.catalog.lookup("ctxloom").expect("built in").clone();
         p.executables_of(&entry)
     });
     assert!(ok(found).is_empty());

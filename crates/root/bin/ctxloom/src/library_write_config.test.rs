@@ -22,8 +22,8 @@ const CONFIG: &str = ".ctxloom/config.yaml";
 /// (owner ruling 111).
 const DEFAULT_REMOTES: &str = library::write::scaffold::DEFAULT_REMOTES;
 
-/// `resources/profiles/default.yaml` at ca14d6046, inheriting the built-in
-/// developer profile (owner rulings 110, 111).
+/// `resources/profiles/default.yaml` at ca14d6046, bare: it inherits nothing
+/// (owner ruling 117).
 const SEED_PROFILE: &str = library::write::scaffold::SEED_PROFILE;
 
 const CLAUDE_CONFIG: &str = "agents:\n  default:\n    engine: claude-code\n    profiles:\n      - default\n    runtime: host\ndefault_agent: default\nschema_version: 9\n";
@@ -47,7 +47,8 @@ fn test_create_scaffolds_the_config_the_remotes_registry_and_the_seeded_profile(
         Some(DEFAULT_REMOTES)
     );
     assert!(!DEFAULT_REMOTES.contains("ctxloom-default"));
-    assert!(SEED_PROFILE.contains("\n  - ai-developer#profiles/developer\n"));
+    assert!(!SEED_PROFILE.contains("parents:"));
+    assert!(!SEED_PROFILE.contains("ai-developer"));
     assert_eq!(
         project
             .read(".ctxloom/content/bundles/v2/project/bundle.yaml")

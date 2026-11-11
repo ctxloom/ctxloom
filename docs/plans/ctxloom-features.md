@@ -159,18 +159,19 @@ feature file; it belongs in git history.
 
 ### Content
 
-- **The default content is built in** (owner rulings 110, 111). The bundles a new
-  project's seeded `default` profile inherits (`ai-developer#profiles/developer`, and the
-  `ai-coding-general`, `testing` and `git` bundles it names) ship in the binary, a copy of
-  `github.com/ctxloom/ctxloom-default` at a recorded commit (`library::builtin`). The
-  catalog lists them under the read-only built-in origin `ctxloom/default`, beside the
-  project's own bundles and those installed from remotes; a project bundle of the same
-  name overrides one whole. Nothing is pulled for them, nothing is written under
-  `.ctxloom/cache`, and they work offline. A write to one is refused
+- **ctxloom's operational prompts are built in** (owner rulings 110, 111, narrowed by
+  117, 123). One bundle, `ctxloom`, ships in the binary (`library::builtin`): the setup
+  interview `init` opens with (`prompts/setup-interview`) and the distill prompt
+  (`prompts/distill`, the owner's own text). It is not generally injected: no profile
+  includes it and no session is handed it; only init and distill use it. The catalog
+  lists it under the read-only built-in origin `ctxloom/default`, beside the project's
+  own bundles and those installed from remotes; a project bundle of the same name
+  overrides it whole. A write to it is refused
   (`library-application-write-builtin-read-only`), naming the override (`bundle export`
-  into the project's bundles directory). Init and the scaffold seed no remote;
-  `ctxloom-default` stays an ordinary remote for whoever wants its other content. Their
-  content changes only with a ctxloom release.
+  into the project's bundles directory). Init and the scaffold seed no remote and a
+  BARE `default` profile, which inherits nothing: a fresh project has no coding
+  guidance until a remote is added. `ctxloom-default` stays an ordinary remote for
+  whoever wants its content. The prompts change only with a ctxloom release.
 
 ### Specs
 - **Journeys are use cases; cli features are contracts.** A journey (`features/journeys/`)

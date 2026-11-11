@@ -2,11 +2,10 @@
 //! the base World: Alice runs `ctxloom init` on an empty project directory,
 //! looks at what it did, and leaves by deleting `.ctxloom`.
 //!
-//! Hermetic: ctxloom's default content, which the seeded default profile
-//! inherits, is built into the binary (owner rulings 110, 111), so nothing
-//! reaches the network and no fixture stands in for it. A session "was
-//! handed" it when the stub's launch record carries [`BUILT_IN_MARKER`], a
-//! line of the built-in `testing#fragments/tdd` in both its forms.
+//! Hermetic: the seeded default profile is bare (owner ruling 117), so
+//! nothing reaches the network and no fixture stands in for content. The one
+//! built-in bundle holds ctxloom's operational prompts, which no ordinary
+//! session is handed: the stub's launch record carries no line of either.
 //!
 //! Claude Code is a stub first on `PATH`, so the engine init finds is the
 //! same on every machine. It records what it was launched with: its
@@ -25,9 +24,12 @@ use super::super::gherkin_common::CommonWorld;
 use super::World;
 use crate::tests::files;
 
-/// What the built-in default content's `testing#fragments/tdd` says, in its
-/// original and its distilled form alike.
-const BUILT_IN_MARKER: &str = "Red-green-refactor is mandatory";
+/// A line of each of ctxloom's built-in prompts (the setup interview, the
+/// distill prompt), which no ordinary session's launch carries.
+const OPERATIONAL_MARKERS: [&str; 2] = [
+    "You are running the ctxloom **setup interview**",
+    "You are a text compression assistant.",
+];
 
 /// The stub engine: records its launch beside itself, and replies as claude
 /// does under `--output-format stream-json`: its session's `init` and a
@@ -235,23 +237,30 @@ fn resumed_on(w: &mut World, native: String) {
     );
 }
 
-#[then("her assistant was handed ctxloom's built-in default content")]
-fn handed_built_in_default(w: &mut World) {
+#[then("her assistant was handed none of ctxloom's own prompts")]
+fn handed_no_operational_prompt(w: &mut World) {
     let record = w.launch_record();
     assert!(
-        record.contains(BUILT_IN_MARKER),
-        "the session's launch carried no built-in default content: {record}"
+        record.contains("what does this project expect of me?"),
+        "the session's launch was not recorded: {record}"
     );
-    for form in ["fragments/tdd.md", "fragments/tdd.distilled.md"] {
-        let shipped = library::builtin::files("testing").expect("built in")[form].clone();
+    let shipped = [
+        library::builtin::SETUP_INTERVIEW,
+        library::builtin::DISTILL_PROMPT,
+    ];
+    for (marker, prompt) in OPERATIONAL_MARKERS.iter().zip(shipped) {
         assert!(
-            String::from_utf8_lossy(&shipped).contains(BUILT_IN_MARKER),
-            "{form} no longer carries the marker"
+            prompt.contains(marker),
+            "the prompt no longer says {marker:?}"
+        );
+        assert!(
+            !record.contains(marker),
+            "the session's launch carried a built-in prompt ({marker:?}): {record}"
         );
     }
     assert!(
         !files::exists(w.common.project.dir().join(".ctxloom/cache")),
-        "nothing was fetched for it"
+        "nothing was fetched"
     );
 }
 

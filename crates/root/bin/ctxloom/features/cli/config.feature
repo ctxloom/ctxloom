@@ -261,7 +261,7 @@ Feature: config — the project's one configuration document, read and scaffolde
       And the file ".ctxloom/config.yaml" is valid YAML
       And the file ".ctxloom/config.yaml" contains "engine: claude-code"
       And the file ".ctxloom/remotes.yaml" contains "schema_version: 1"
-      # Owner ruling 111: the scaffold seeds no remote; the default content is built in.
+      # Owner rulings 111, 117: the scaffold seeds no remote, and its default profile is bare.
       And the file ".ctxloom/remotes.yaml" does not contain "ctxloom-default"
       And the file ".ctxloom/content/bundles/v2/project/profiles/default.yaml" exists
       And the file ".ctxloom/.gitignore" contains "/sessions"

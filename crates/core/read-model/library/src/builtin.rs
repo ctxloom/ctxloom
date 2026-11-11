@@ -22,6 +22,15 @@ use crate::tree::{self, Files};
 /// The name the built-in origin is shown under.
 pub const ORIGIN: &str = "ctxloom/default";
 
+/// RED (ruling 117): the one built-in bundle's name.
+pub const BUNDLE: &str = "";
+
+/// RED (ruling 117): the setup interview, `ctxloom#prompts/setup-interview`.
+pub const SETUP_INTERVIEW: &str = "";
+
+/// RED (rulings 117, 123): the distill prompt, `ctxloom#prompts/distill`.
+pub const DISTILL_PROMPT: &str = "";
+
 /// The repository the built-in bundles were taken from.
 pub const SOURCE_REPOSITORY: &str = "https://github.com/ctxloom/ctxloom-default";
 

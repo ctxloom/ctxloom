@@ -754,34 +754,38 @@ library's `bundle` noun and owns `remote` and `deps`.
   withheld red tests for them are `#[ignore]`d in `bundle_remote.test.rs`.
   angzarr-yaml cannot read Go's `? key` form for lock keys over 128 bytes.
 
-## Built-in content (owner rulings 110, 111)
+## Built-in content (owner rulings 110, 111, narrowed by 117, 123)
 
-ctxloom's default content ships in the binary: the bundles a new project's
-seeded `default` profile inherits (`ai-developer#profiles/developer`, and the
-`ai-coding-general`, `testing` and `git` bundles it names), a byte-for-byte
-copy of `github.com/ctxloom/ctxloom-default` at the commit
-`library::builtin::SOURCE_COMMIT` records, in
-`crates/core/read-model/library/resources/builtin/` (with its BSD-3-Clause
-`LICENSE`, a `SHA256SUMS` the tests hold the compiled table to, and a README
-on refreshing it). The text is the owner's: never edited here. The catalog
-lists them under the read-only built-in origin `ctxloom/default`
+ctxloom ships ONE bundle in the binary, `ctxloom`, its operational prompts:
+`prompts/setup-interview.md` (the interview `ctxloom init` opens with and
+`init prompt` prints; `library::builtin::SETUP_INTERVIEW`, which
+init-application re-exports) and `prompts/distill.md` (the owner's own text,
+ruling 123, once ctxloom-default's `skills/distill.yaml`; no third-party
+notice or licence ships with it; `library::builtin::DISTILL_PROMPT`, for the
+distill activity, which is not built yet), in
+`crates/core/read-model/library/resources/builtin/ctxloom/`. It is NOT
+generally injected: it carries no fragment, profile or tag, no profile
+includes it, and no session is handed it; only init and distill use it. The
+four ctxloom-default bundles are no longer built in, and `init` and `config
+create` seed a BARE `default` profile that inherits nothing (accepted cost: a
+fresh project has no coding guidance until a remote is added). The catalog
+lists the bundle under the read-only built-in origin `ctxloom/default`
 (`Catalog::with_builtins`, joined by the composition root through
-`Library::with_builtins`; `bundle list` gives `origin` in json and `[built-in
-ctxloom/default]` in text) under their own names, so `ctxloom+local:<name>`
-reaches the project's bundle of that name, else the built-in one: a project
-bundle of the same name (readable or not) overrides it whole. The deps
-closure walks the built-in profiles as the project's own, so nothing is
-fetched, pinned or written under `.ctxloom/cache` for them, offline included.
-Every write to one is refused (`library-application-write-builtin-read-only`),
-its fix naming the override (`bundle export <name> <bundles dir>`); an
-export, and an import of the name (which makes the overriding project
-bundle), are not writes to it. Under `test-support` only,
-`CTXLOOM_TEST_NO_BUILTINS` withholds them, so the Go-parity and Go-ported
-tests (`Project::on_gos_catalog`) hold the catalog Go had. `init` and
-`config create` seed no remote (the registry is empty) and `init` pulls
-nothing. Divergence from Go: Go seeded and cloned the `ctxloom-default`
-remote and pulled the profile's dependencies; that repository stays an
-ordinary remote.
+`Library::with_builtins`; `bundle list` gives `origin` in json and
+`[built-in ctxloom/default]` in text), so `ctxloom+local:ctxloom` reaches a
+project bundle named `ctxloom`, else the built-in one: a project bundle of
+that name (readable or not) overrides it whole in the catalog (init and
+distill still read the embedded prompts). The deps closure counts it as the
+project's own, so nothing is fetched, pinned or written under
+`.ctxloom/cache` for it. Every write to it is refused
+(`library-application-write-builtin-read-only`), its fix naming the override
+(`bundle export ctxloom <bundles dir>`); an export, and an import of the
+name, are not writes to it. Under `test-support` only,
+`CTXLOOM_TEST_NO_BUILTINS` withholds it, so the Go-parity and Go-ported tests
+(`Project::on_gos_catalog`) hold the catalog Go had. `init` and `config
+create` seed no remote (the registry is empty) and `init` pulls nothing.
+Divergence from Go: Go seeded and cloned the `ctxloom-default` remote and
+pulled the profile's dependencies; that repository stays an ordinary remote.
 
 ## Hook capture: the transcript is the session's events
 

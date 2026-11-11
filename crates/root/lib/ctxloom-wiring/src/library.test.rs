@@ -23,8 +23,8 @@ fn the_nouns_are_the_library_clis() {
     assert_eq!(ours, theirs);
 }
 
-// Owner rulings 110, 111: the composed library lists ctxloom's built-in
-// bundles in a project; the test-only variable withholds them.
+// Owner rulings 110, 111 (narrowed by 117): the composed library lists
+// ctxloom's built-in bundle in a project; the test-only variable withholds it.
 #[test]
 fn the_composed_library_has_the_built_in_bundles_unless_the_tests_withhold_them() {
     let mut world = crate::commands::tests::world_without_programs("builtins");
@@ -41,7 +41,8 @@ fn the_composed_library_has_the_built_in_bundles_unless_the_tests_withhold_them(
             .collect()
     };
     let listed = names(world.env());
-    assert!(listed.contains(&"testing".to_string()), "{listed:?}");
+    assert!(listed.contains(&"ctxloom".to_string()), "{listed:?}");
+    assert!(!listed.contains(&"testing".to_string()), "{listed:?}");
     assert!(listed.contains(&"demo".to_string()), "{listed:?}");
     world.set("CTXLOOM_TEST_NO_BUILTINS", "1");
     assert_eq!(names(world.env()), ["demo", "project"]);

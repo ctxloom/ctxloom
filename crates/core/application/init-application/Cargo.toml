@@ -11,6 +11,7 @@ publish.workspace = true
 angzarr-diagnostic.workspace = true
 ctxloom-ports.workspace = true
 deps-application.workspace = true
+library.workspace = true
 serde.workspace = true
 
 [dev-dependencies]

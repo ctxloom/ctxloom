@@ -19,6 +19,13 @@ fn the_prompt_carries_the_phase_headings_from_both_ends() {
     assert!(!text.starts_with("---"), "the front matter is dropped");
 }
 
+// Owner ruling 117: the interview is the built-in bundle's
+// `ctxloom#prompts/setup-interview`, the one copy of its text in the binary.
+#[test]
+fn the_interview_is_the_built_in_bundle_s_prompt() {
+    assert_eq!(SETUP_INTERVIEW, library::builtin::SETUP_INTERVIEW);
+}
+
 // init.feature: the personal remote is "personal"; the next are numbered.
 #[test]
 fn the_remotes_are_named_personal_then_numbered() {

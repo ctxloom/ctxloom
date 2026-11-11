@@ -8,7 +8,14 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+agent-client-protocol.workspace = true
+futures.workspace = true
+# The child's listener password (D24).
+getrandom.workspace = true
 run-ports.workspace = true
+run-within.workspace = true
+# The ACP methods of opencode's own (`session/set_model`) and ctxloom's.
+serde.workspace = true
 surface-ports.workspace = true
 
 [dev-dependencies]
@@ -16,6 +23,9 @@ fixture-program.workspace = true
 file-system = { workspace = true, features = ["test-support"] }
 mutants.workspace = true
 os = { workspace = true, features = ["test-support"] }
+run-within = { workspace = true, features = ["test-support"] }
+# The spike's lines, read into the ACP schema's types.
+serde_json.workspace = true
 
 [lints]
 workspace = true

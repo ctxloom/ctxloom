@@ -1,6 +1,6 @@
 //! The user daemon's files under the ctxloom home (D-N23): the election lock,
 //! the discovery file (0600), the stop request, and a launching client's
-//! hand-off of a child's environment (0600, D-N37: taken by the daemon at the
+//! hand-off of a child's environment (0600, D-N45: taken by the daemon at the
 //! child's start). Every one through the
 //! file-system seam, so a test's temporary home is the only place touched.
 

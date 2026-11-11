@@ -1,4 +1,4 @@
-//! What the user daemon starts a hosted child with (D18, D-N37, D-N38): the
+//! What the user daemon starts a hosted child with (D18, D-N45, D-N46): the
 //! child's plan (its project's dry run, as a one-shot child's run plans it)
 //! read for the engine's settings, the context, the model and the effort, and
 //! the evidence the child's enqueue is judged on (rulings 53, 73e, 73f), made

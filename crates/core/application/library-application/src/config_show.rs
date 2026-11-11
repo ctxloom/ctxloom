@@ -89,8 +89,15 @@ fn json(value: &Typed) -> serde_json::Value {
             .map_or(serde_json::Value::Null, serde_json::Value::Number),
         Typed::Str(s) => serde_json::Value::String(s.clone()),
         Typed::Seq(items) => serde_json::Value::Array(items.iter().map(json).collect()),
-        Typed::Map(entries) => {
-            serde_json::Value::Object(entries.iter().map(|(k, v)| (k.clone(), json(v))).collect())
-        }
+        // Sorted by key, whatever serde_json's map keeps (its
+        // `preserve_order` would keep the document's order).
+        Typed::Map(entries) => serde_json::Value::Object(
+            entries
+                .iter()
+                .map(|(k, v)| (k.clone(), json(v)))
+                .collect::<std::collections::BTreeMap<_, _>>()
+                .into_iter()
+                .collect(),
+        ),
     }
 }

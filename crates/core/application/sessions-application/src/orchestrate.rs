@@ -62,7 +62,7 @@ pub struct LaunchRequest {
     /// How many open children the owner may hold.
     pub delegation_limit: u32,
     /// The child session's stable id, as UUID text: the caller's mint, so
-    /// what it hands the user daemon for the child is keyed by it (D-N37).
+    /// what it hands the user daemon for the child is keyed by it (D-N45).
     /// Empty mints one.
     pub session: String,
 }

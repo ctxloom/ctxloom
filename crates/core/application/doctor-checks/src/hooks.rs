@@ -73,6 +73,28 @@ fn parse(text: &str) -> Option<Value> {
     serde_json::from_str(text).ok()
 }
 
+/// `value` with every object's members in key order, as the rewrite has
+/// always written them, whatever serde_json's map keeps (its
+/// `preserve_order`, which agent-client-protocol turns on across the build,
+/// would keep the file's own order).
+// Without `preserve_order` (a crate's own `cargo test`, as mutation runs
+// it) the map sorts anyway, so a mutant that drops the object arm is
+// equivalent there; the unified workspace build is where the guard bites.
+#[cfg_attr(test, mutants::skip)]
+fn sorted(value: Value) -> Value {
+    match value {
+        Value::Object(members) => {
+            let members: std::collections::BTreeMap<String, Value> = members
+                .into_iter()
+                .map(|(key, inner)| (key, sorted(inner)))
+                .collect();
+            Value::Object(members.into_iter().collect())
+        }
+        Value::Array(items) => Value::Array(items.into_iter().map(sorted).collect()),
+        other => other,
+    }
+}
+
 /// The `(event, command)` of every hook entry in a settings document.
 fn entries(doc: &Value) -> Vec<(String, String)> {
     let mut found = Vec::new();
@@ -161,7 +183,7 @@ pub fn strip(text: &str) -> Option<(String, Vec<Stale>)> {
     if gone.is_empty() {
         return None;
     }
-    let mut out = serde_json::to_string_pretty(&doc).ok()?;
+    let mut out = serde_json::to_string_pretty(&sorted(doc)).ok()?;
     out.push('\n');
     Some((out, gone))
 }

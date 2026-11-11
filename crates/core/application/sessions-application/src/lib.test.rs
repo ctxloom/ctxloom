@@ -1826,7 +1826,7 @@ fn the_user_launches_a_child_of_an_owner() {
     assert_eq!(limited.code(), "sessions-delegation-limit");
 }
 
-// D-N37: the caller may name the child's stable id (what it hands the daemon
+// D-N45: the caller may name the child's stable id (what it hands the daemon
 // for the child is keyed by it); it is the child the owner holds.
 #[test]
 fn a_launch_takes_the_childs_id_the_caller_names() {

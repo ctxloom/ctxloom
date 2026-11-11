@@ -40,7 +40,7 @@ pub(crate) const NOUN: &str = "daemon";
 /// delegation limit's evidence, D-N14; no config key yet).
 const DELEGATION_LIMIT: u32 = 4;
 
-/// The variables a spawned daemon is given of its spawner's (D-N37).
+/// The variables a spawned daemon is given of its spawner's (D-N45).
 const DAEMON_ENV: [&str; 8] = [
     "HOME",
     run_ports::HOME_VARIABLE,
@@ -314,7 +314,7 @@ pub(crate) fn run(
 }
 
 /// `launch`: the child's id minted here, the environment a child may be
-/// given handed off to the daemon under it (S6, D-N37) BEFORE the launch is
+/// given handed off to the daemon under it (S6, D-N45) BEFORE the launch is
 /// recorded, and withdrawn if the launch is refused.
 fn launch(
     wiring: &Wiring,
@@ -464,7 +464,7 @@ fn ensure(wiring: &Wiring, env: &EnvSnapshot) {
         command.args(["--idle-seconds", idle]);
     }
     // The daemon's own environment is what it needs to run, nothing more: a
-    // child's is its launcher's (S6, D-N37), so no spawner's credential
+    // child's is its launcher's (S6, D-N45), so no spawner's credential
     // lives in the daemon.
     let kept = env
         .vars()
@@ -490,7 +490,7 @@ fn ensure(wiring: &Wiring, env: &EnvSnapshot) {
     }
 }
 
-/// The plan of a child of the project at `project_dir` (D18, D-N38): that
+/// The plan of a child of the project at `project_dir` (D18, D-N46): that
 /// project's dry run, for its default agent on the child's engine, read as a
 /// process in that project would, with `env` (the environment its launcher
 /// sent, S6) and ctxloom's `home`. Where it cannot be planned, the error's

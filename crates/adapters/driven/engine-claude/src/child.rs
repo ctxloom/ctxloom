@@ -117,7 +117,7 @@ pub fn transcripts_of(spec: &ChildSpec) -> Option<String> {
 }
 
 /// What a launching client sends the user daemon as a child's environment
-/// (S6, D-N37): the variables of `caller` a child may be given under
+/// (S6, D-N45): the variables of `caller` a child may be given under
 /// `settings` (the curated allowlist, the engine block's `env`, the
 /// configured credential's variables) and its `CTXLOOM_PERMIT_*` permits
 /// (ruling 78); never the primary's token, nor `HOME` or the caller's own

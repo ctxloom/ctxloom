@@ -82,7 +82,7 @@ fn env(pairs: &[(&str, &str)]) -> std::collections::BTreeMap<String, String> {
         .collect()
 }
 
-// D-N37: a launcher's hand-off reads back whole, values with lines,
+// D-N45: a launcher's hand-off reads back whole, values with lines,
 // backslashes and `=` alike.
 #[test]
 fn a_hand_off_reads_back_what_was_written() {
@@ -101,7 +101,7 @@ fn a_hand_off_reads_back_what_was_written() {
     assert_eq!(super::decode_env("ctxloom-launch-env 1\nA=end\\\n"), None);
 }
 
-// D-N37: the hand-off is the user's alone, taken once (nothing left at
+// D-N45: the hand-off is the user's alone, taken once (nothing left at
 // rest), withdrawn on a refusal, and only ever named by a child's UUID.
 #[test]
 fn a_hand_off_is_the_users_alone_and_taken_once() {

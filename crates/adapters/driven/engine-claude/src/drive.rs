@@ -282,7 +282,7 @@ fn passes(
 }
 
 /// Whether a CHILD's command under `settings` may be given the caller's
-/// variable `name` (what a launching client sends the daemon, D-N37).
+/// variable `name` (what a launching client sends the daemon, D-N45).
 pub(crate) fn child_may_have(
     engine: &Claude,
     settings: &run_ports::EngineSettings,

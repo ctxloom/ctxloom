@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use file_system::{Fs, Rooted};
 use run_ports::{
-    ChildEngine, ChildError, ChildMessage, ChildObservation, ChildSpec, EngineSettings, Exit,
-    FailureClass, Queued, StartedChild, TurnOutcome, Urgency,
+    ChildEngine, ChildError, ChildMessage, ChildObservation, ChildPermissions, ChildSpec,
+    EngineSettings, Exit, FailureClass, Queued, StartedChild, TurnOutcome, Urgency,
 };
 
 use crate::child::{child_command, detail_of};
@@ -84,6 +84,7 @@ fn spec(program: &str) -> ChildSpec {
         },
         resume: None,
         session_id: None,
+        permissions: ChildPermissions::default(),
     }
 }
 
@@ -313,7 +314,7 @@ fn the_environment_a_launcher_sends_is_what_a_child_may_be_given() {
     assert_eq!(sent["ACME_KEY"], "a");
 }
 
-// D-N43: the runner's bind names the transcript as claude's hooks would, so
+// D-N51: the runner's bind names the transcript as claude's hooks would, so
 // a clear's rotation displaces the binding.
 #[test]
 fn a_childs_transcripts_are_under_its_config_dir_by_its_working_directory() {

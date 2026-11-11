@@ -93,7 +93,7 @@ struct Hosted {
     turns: BTreeMap<String, u64>,
     /// Where its engine writes its transcripts (`transcripts_of`): a bind
     /// names the transcript of its native id, as the engine's hook would, so a
-    /// clear's rotation displaces the binding (D-N43).
+    /// clear's rotation displaces the binding (D-N51).
     transcripts: Option<String>,
     _lock: HeldLock,
 }
@@ -107,7 +107,7 @@ pub(crate) struct Daemon {
     home: PathBuf,
     temp: PathBuf,
     /// Each hosted child's environment, by its session's stable id: its
-    /// launcher's, taken from the hand-off at its first start (S6, D-N37),
+    /// launcher's, taken from the hand-off at its first start (S6, D-N45),
     /// held for its life (a relaunch reuses it), dropped at its end. Never
     /// the daemon's own; never logged.
     envs: BTreeMap<String, BTreeMap<String, String>>,
@@ -465,7 +465,7 @@ impl Daemon {
     /// enqueue it judged on its launcher's environment (its three tokens
     /// minted; rulings 53, 73e), prepare its session home, start its engine
     /// and record the runner started. A child that cannot be planned or is
-    /// refused ends its incarnation and is released by its owner (D-N39); one
+    /// refused ends its incarnation and is released by its owner (D-N47); one
     /// that cannot start ends its run and its incarnation, so nothing is left
     /// owed.
     async fn start(
@@ -602,7 +602,7 @@ impl Daemon {
     }
 
     /// The hosted child of `project_dir` on `engine`, planned by its
-    /// project's dry run and judged on `env` (D-N38, D-N39); the plan's error
+    /// project's dry run and judged on `env` (D-N46, D-N47); the plan's error
     /// code where it cannot be planned.
     fn plan_child(
         &self,
@@ -621,7 +621,7 @@ impl Daemon {
     }
 
     /// The environment the child `session` is started with: the one held,
-    /// else its launcher's hand-off (taken, D-N37), else none at all (a child
+    /// else its launcher's hand-off (taken, D-N45), else none at all (a child
     /// no launcher handed anything is judged with no credential).
     fn child_env(&mut self, session: &str) -> BTreeMap<String, String> {
         if let Some(env) = self.envs.get(session) {
@@ -730,6 +730,8 @@ impl Daemon {
             settings: child.settings.clone(),
             resume: None,
             session_id: None,
+            // claude asks no permission over its stream: unused here.
+            permissions: run_ports::ChildPermissions::default(),
         };
         let started = claude.start(&spec).map_err(|e| e.to_string())?;
         Ok((started, engine_claude::transcripts_of(&spec)))

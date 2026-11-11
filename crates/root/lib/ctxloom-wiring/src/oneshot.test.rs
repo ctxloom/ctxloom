@@ -179,7 +179,7 @@ fn the_core_serves_the_catalog_of_its_domains() {
         "the sessions domain is registered"
     );
     // Closed, not dropped (ruling 131), as a run's end closes it.
-    core.close(runtime).unwrap();
+    runtime.block_on(core.close()).unwrap();
 }
 
 // Owner ruling 2026-11-08: the engine is given ctxloom's home by name. The
@@ -300,10 +300,13 @@ mod hooks {
             }
         }
 
-        /// The run's end: the core and its runtime consumed, the store
-        /// closed, and nothing left beside its file.
+        /// The run's end: the core consumed, the store closed on the
+        /// runtime the run served on (left running, as a run's is until
+        /// the process ends), and nothing left beside its file.
         fn end(self) {
-            self.core.close(self.runtime).expect("the store closes");
+            self.runtime
+                .block_on(self.core.close())
+                .expect("the store closes");
             use file_system::Fs;
             let dir = std::path::Path::new("/home/u/.ctxloom/projects/calm-otter");
             let beside: Vec<&str> = ["ctxloom.db-wal", "ctxloom.db-shm"]
@@ -441,12 +444,13 @@ mod hooks {
     /// The race ruling 131's close must not lose: a hook call still in the
     /// listener when the engine exits. Forced, not hoped for: the edge never
     /// answers it and the test is told it is in the handler, so the
-    /// listener's stop really runs out its grace (`hook_listener::STOP_GRACE`)
-    /// and the call's connection task (tonic's own, which the stop does not
-    /// join) still holds the edge, and through it the store, after the
-    /// listener is stopped and the run's hooks let go. The run's end must
-    /// let it go (the runtime's shutdown drops it) before the store is
-    /// closed: nothing is left beside the file, and the close is not refused.
+    /// listener's stop really runs out its grace (`hook_listener::STOP_GRACE`).
+    /// The stop must end the call's connection and return only once every
+    /// copy of the listener's service, and so the edge, is released (ruling
+    /// 140, angzarr's `Running::shutdown_within`): the moment it returns, the
+    /// core alone holds its edge, and the run's end closes the store with the
+    /// runtime still running (nothing shuts it down for the close), leaving
+    /// nothing beside the file. The hook's call was cut, never applied.
     #[test]
     fn a_hook_call_held_past_the_listeners_grace_is_let_go_before_the_store_closes() {
         let run = Run::new();
@@ -476,13 +480,18 @@ mod hooks {
             .recv_timeout(Duration::from_secs(30))
             .expect("the call is in the handler");
         // The engine exited: the run stops its listener, which runs out its
-        // grace, and lets its hooks go.
+        // grace and ends the held call's connection, and lets its hooks go.
+        let started = std::time::Instant::now();
         run.runtime.block_on(serving.stop());
+        assert!(
+            started.elapsed() >= hook_listener::STOP_GRACE,
+            "the stop ran out its grace"
+        );
         drop(hooks);
         assert_eq!(
             run.core.edge_holders(),
-            2,
-            "past the listener's stop, the held call still holds the edge"
+            1,
+            "once the listener's stop returns, the held call holds nothing"
         );
         run.end();
         let delivered = hook.join().expect("the hook thread ends");

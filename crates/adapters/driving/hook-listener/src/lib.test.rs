@@ -615,11 +615,13 @@ impl run_ports::Edge for Stalling {
 /// A call that is held in the handler holds a connection open, which a
 /// graceful shutdown waits for. The call is held by the test (the edge never
 /// answers) and the test is told when it is in the handler over the TLS
-/// connection, so the wait is forced, never hoped for: the stop must end past
-/// its grace ([`crate::STOP_GRACE`], three seconds, really elapsed) with the
-/// typed timeout, and the listener must be aborted (nobody listens).
-/// Nobody is judged by this listener's own certificate, minted for this test
-/// alone ([`stopped`]).
+/// connection, so the wait is forced, never hoped for. The stop must end past
+/// its grace ([`crate::STOP_GRACE`], three seconds, really elapsed), end the
+/// held connection (its caller sees it fail) and return only once every copy
+/// of the service, and so of the edge it holds, is released (rulings 131,
+/// 140: a run closes its store on the stop's word). Then nobody listens,
+/// judged by this listener's own certificate, minted for this test alone
+/// ([`stopped`]).
 #[tokio::test(flavor = "current_thread")]
 async fn a_client_that_holds_a_connection_open_cannot_hold_the_stop() {
     let world = World::new().await;
@@ -629,7 +631,7 @@ async fn a_client_that_holds_a_connection_open_cannot_hold_the_stop() {
         inner: Arc::clone(&world.edge),
         arrived,
     });
-    let listener = HookListener::serve_tcp(edge, LOOPBACK_ANY_PORT, identity_of(&own))
+    let listener = HookListener::serve_tcp(Arc::clone(&edge), LOOPBACK_ANY_PORT, identity_of(&own))
         .await
         .expect("the listener starts");
     let addr = listener.local_addr();
@@ -643,18 +645,22 @@ async fn a_client_that_holds_a_connection_open_cannot_hold_the_stop() {
             .await
     });
     in_handler.recv().await.expect("the call is in the handler");
-    let error = listener
+    let started = std::time::Instant::now();
+    listener
         .stop()
         .await
-        .expect_err("the held connection outlasts the grace");
-    assert_eq!(
-        error,
-        crate::ListenerError::StopTimedOut {
-            endpoint: world.addr().to_string(),
-            grace_ms: 3_000,
-        }
+        .expect("the held call is cut, and the stop ends");
+    assert!(
+        started.elapsed() >= crate::STOP_GRACE,
+        "the grace ran out first"
     );
-    held.abort();
+    assert_eq!(
+        Arc::strong_count(&edge),
+        1,
+        "once the stop returns, nothing the listener served holds the edge"
+    );
+    let cut = held.await.expect("the caller's task ends");
+    assert!(cut.is_err(), "the held call was cut: {cut:?}");
     stopped(addr, &own, "nobody listens").await;
 }
 

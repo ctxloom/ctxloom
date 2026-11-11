@@ -369,7 +369,7 @@ impl OneShots<'_> {
         };
         let (stop, heard) = (host_launcher::Stop::new(), Heard::default());
         let mut notices = synced;
-        let (mut done, core) = runtime.block_on(async {
+        let mut done = runtime.block_on(async {
             // Made on the runtime, before anything is launched.
             let hearing = match self.wiring.fs().os().signals(&signals::HEARD) {
                 Ok(signals) => Some(tokio::spawn(signals::forward(
@@ -385,41 +385,37 @@ impl OneShots<'_> {
                     None
                 }
             };
-            let (done, core) = match self.assemble(library, &output_dir, stop).await {
+            let done = match self.assemble(library, &output_dir, stop).await {
                 Ok(mut runs) => {
-                    let done = use_case(&mut runs).await;
-                    // Every part but the core let go, with their edges.
-                    (done, Some(runs.into_core()))
+                    let mut done = use_case(&mut runs).await;
+                    // The store closed, not dropped, before the process exits
+                    // (rulings 131, 140): every part but the core let go with
+                    // their edges (the listener was stopped by the use case,
+                    // its connections ended and its service released), then
+                    // the core consumed and the store taken by value. A close
+                    // that fails fails the run.
+                    if let Err(unclosed) = runs.into_core().close().await {
+                        let reason = unclosed.to_string();
+                        match &done.result {
+                            Ok(_) => {
+                                done.result =
+                                    Err(RunError::Session(CoreError::Failed { reason }));
+                            }
+                            Err(_) => done.notices.push(library_application::Notice::text(reason)),
+                        }
+                    }
+                    done
                 }
-                Err(error) => (
-                    Done {
-                        result: Err(error),
-                        notices: Vec::new(),
-                    },
-                    None,
-                ),
+                Err(error) => Done {
+                    result: Err(error),
+                    notices: Vec::new(),
+                },
             };
             if let Some(hearing) = hearing {
                 hearing.abort();
             }
-            (done, core)
+            done
         });
-        // The store closed, not dropped, before the process exits (ruling
-        // 131): the core and the runtime it served on are both consumed
-        // first, the runtime's tasks (a hook call the listener's grace cut
-        // short, still holding the edge) dropped with it. A close that fails
-        // fails the run.
-        if let Some(core) = core {
-            if let Err(unclosed) = core.close(runtime) {
-                let reason = unclosed.to_string();
-                match &done.result {
-                    Ok(_) => {
-                        done.result = Err(RunError::Session(CoreError::Failed { reason }));
-                    }
-                    Err(_) => done.notices.push(library_application::Notice::text(reason)),
-                }
-            }
-        }
         heard.overrule(&mut done.result);
         notices.append(&mut done.notices);
         done.notices = notices;

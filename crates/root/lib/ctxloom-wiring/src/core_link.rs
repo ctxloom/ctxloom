@@ -6,8 +6,8 @@
 //!
 //! The core keeps its store in an `Arc` of its own ([`CoreStores`]), not
 //! angzarr-embedded-host's `OneStore`, so the store can be had back once
-//! every holder is let go and closed ([`InProcessCore::close`], ruling
-//! 131): a store dropped is closed on the driver's thread whenever that
+//! every holder is let go and closed ([`InProcessCore::close`], rulings
+//! 131, 140): a store dropped is closed on the driver's thread whenever that
 //! runs, which a process that exits first never lets it do.
 
 use std::sync::Arc;
@@ -85,13 +85,11 @@ where
 /// Why a core's store was not closed: either is an error the run reports.
 #[derive(Debug)]
 pub enum Unclosed {
-    /// Something outside the core and the runtime it served on still holds
-    /// the store: an edge leaked past both. Never expected: everything the
-    /// run made is consumed or joined before the close (see
-    /// [`InProcessCore::close`]).
+    /// Something outside the core still holds the store at the close: an
+    /// edge leaked past the run's end, or a task still running with one.
+    /// Never expected: everything the run made is consumed or joined before
+    /// the close (see [`InProcessCore::close`]).
     StillHeld { holders: usize },
-    /// No runtime could be made to wait for the close on.
-    NoRuntime(std::io::Error),
     /// The close failed.
     Failed(StoreError),
 }
@@ -103,7 +101,6 @@ impl std::fmt::Display for Unclosed {
                 f,
                 "the run's store is still held ({holders} holders past the run's end) and was not closed"
             ),
-            Unclosed::NoRuntime(e) => write!(f, "the run's store was not closed: no runtime: {e}"),
             Unclosed::Failed(e) => write!(f, "the run's store did not close: {e}"),
         }
     }
@@ -116,31 +113,23 @@ impl InProcessCore<SqliteStore> {
     /// and wait for it: when this returns its file holds every commit with
     /// no log beside it.
     ///
-    /// The holders are let go in order, each by a move: the core's own
-    /// application and edge (the core is consumed; the edges the use cases
-    /// took went with them, `Runs::into_core`); then `served_on`, the
-    /// runtime the core served on, is shut down, which drops every task it
-    /// ran (the hook listener's connection and stream tasks, which keep the
-    /// coordinator, and so the edge, until they are dropped: a call held
-    /// past the listener's grace outlives its stop). Only then is the store
-    /// taken by value and closed, on a runtime of its own. Called outside
-    /// any runtime (a runtime cannot be shut down from within one).
-    pub fn close(self, served_on: tokio::runtime::Runtime) -> Result<(), Unclosed> {
+    /// The holders are let go first, each by a move: the edges the use
+    /// cases took (`Runs::into_core`), and the hook listener's, whose stop
+    /// (`HookListener::stop`, angzarr's `Running::shutdown_within`, ruling
+    /// 140) ends every connection and returns only once every copy of its
+    /// service, and so of the edge, is released; then the core's own
+    /// application and edge (the core is consumed). Only then is the store
+    /// taken by value and closed. The runtime the core served on is not
+    /// shut down for it: nothing it runs may still hold the store. A holder
+    /// that does is [`Unclosed::StillHeld`], an error.
+    pub async fn close(self) -> Result<(), Unclosed> {
         let InProcessCore { app, edge, store } = self;
         drop(edge);
         drop(app);
-        // Joined: the runtime's shutdown waits for its workers, which drop
-        // every task they ran (their futures, and what those hold).
-        drop(served_on);
         let store = Arc::try_unwrap(store).map_err(|still| Unclosed::StillHeld {
             holders: Arc::strong_count(&still),
         })?;
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(Unclosed::NoRuntime)?
-            .block_on(store.close())
-            .map_err(Unclosed::Failed)
+        store.close().await.map_err(Unclosed::Failed)
     }
 }
 

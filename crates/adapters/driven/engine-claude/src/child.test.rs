@@ -247,7 +247,11 @@ fn a_childs_command_follows_its_launchers_permits() {
         command.env.get("PATH").map(String::as_str),
         Some("/usr/bin:/bin")
     );
-    assert!(!command.env.contains_key("HOME"));
+    // HOME is the session home (ruling 112), never the permit's.
+    assert_eq!(
+        command.env.get("HOME").map(String::as_str),
+        Some("/nowhere/home")
+    );
     assert!(!command.env.contains_key("CTXLOOM_RUN"));
     assert_eq!(
         command.env.get("CLAUDE_CONFIG_DIR").map(String::as_str),

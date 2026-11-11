@@ -1,16 +1,19 @@
 # world: base
 # Ported from cli/init.feature (rev f36e8dfb2)
-# NOT ported: the Rules tagged @pending: the first-init rule (it clones the
-#   seeded remote over the network and asks its questions over a pty).
+# NOT ported: the Rules tagged @pending: the first-init rule (it asks its
+#   questions over a pty).
+# Divergence from Go (owner rulings 110, 111): a first init seeds no remote and
+#   pulls nothing; its default content is built in.
 @doc
 Feature: init — the setup interview, and what it does to a project that already has one
 
   Covers: `ctxloom init` and `ctxloom init prompt`.
 
   `init` is the command someone runs once. On a directory with no `.ctxloom` it
-  scaffolds the project, seeds and CLONES the trusted `ctxloom-default` remote,
-  pulls the dependencies the seeded default profile resolves through, and — on
-  a terminal — hands the whole thing to your engine for one setup interview:
+  scaffolds the project: its config, an empty remotes registry, and a default
+  profile inheriting the developer profile ctxloom ships BUILT IN, so nothing
+  is cloned or pulled and it works offline. Then — on a terminal — it hands
+  the whole thing to your engine for one setup interview:
   companions, then profiles and content, then agents bound to them. It writes
   no engine file into the project: the interview, like every `ctxloom run`, is
   a session carrying ctxloom's hooks and MCP server in its own session home. It is a solo core verb
@@ -22,16 +25,16 @@ Feature: init — the setup interview, and what it does to a project that alread
   closed input (end of input, no one to answer) declines, as does anything else.
 
   WHAT THIS FILE COVERS, AND WHAT IT DELIBERATELY DOES NOT. A first-time init
-  on a NEW `.ctxloom` clones the seeded default remote and pulls its
-  dependencies, so it reaches the NETWORK. The one fresh-project scenario here
-  answers init's questions over a real pty with the network refused and the
-  setup session skipped (`--skip-launch`): it proves what the QUESTIONS write,
-  not what the clone or the setup session do. Every other scenario runs
-  against a project that ALREADY has a `.ctxloom` directory, which takes
-  init's already-exists branch: no questions, no scaffold, no clone, no
-  dependency pull. That branch is not a lesser case — it is what every re-run
-  of `init` does, and it is where the flags that were once silently ignored
-  live. The setup session itself is launched with a terminal stood in, against
+  on a NEW `.ctxloom` reaches no network: the default content is built in
+  (owner rulings 110, 111). The fresh-project scenarios here run off a
+  terminal, so no question is asked and no session launched: they prove what
+  the scaffold leaves and that its default content is there with nothing
+  fetched. The pending fresh-project rule answers init's questions over a real
+  pty with the setup session skipped (`--skip-launch`). The other scenarios
+  run against a project that ALREADY has a `.ctxloom` directory, which takes
+  init's already-exists branch: no questions, no scaffold. That branch is not
+  a lesser case — it is what every re-run of `init` does, and it is where the
+  flags that were once silently ignored live. The setup session itself is launched with a terminal stood in, against
   a stub engine, in j000200_setup.feature — on a new project, where init's one
   built question (where a session's outputs go, owner rulings 89, 106) is
   answered before the interview.
@@ -54,11 +57,9 @@ Feature: init — the setup interview, and what it does to a project that alread
     # only the scaffold writes — so the pair says "your config survived" AND
     # "no scaffold ran over it", which a file-exists check cannot distinguish.
     #
-    # The lockfile is the NETWORK assertion, and the reason it is here: on the
-    # fresh branch init clones remotes and pulls the seeded dependencies, which
-    # is what writes `.ctxloom/lock.yaml`. Its absence — with the "Seeded
-    # remote" line absent too — is how this scenario proves it stayed on the
-    # hermetic branch rather than merely happening to pass offline.
+    # The lockfile is no network assertion any more (a first init pulls
+    # nothing, owner rulings 110, 111); it still says nothing was written
+    # beside the config.
     Scenario: A second init reports the directory and leaves the configuration alone
       # substitution: the stamp asserted is this port's, 9 (a companion is registered with the command that runs it), where Go's is 8.
       Given an initialized ctxloom project
@@ -100,6 +101,66 @@ Feature: init — the setup interview, and what it does to a project that alread
       When I run "ctxloom remote list"
       Then the command succeeds
       And the output contains "personal"
+
+  Rule: A first init's default content is built in, and nothing is fetched for it
+
+    The bundles the seeded default profile inherits (`ai-developer` and the
+    `ai-coding-general`, `testing` and `git` bundles its developer profile
+    names) ship in the binary, under the read-only BUILT-IN origin
+    `ctxloom/default` (owner rulings 110, 111). A first init seeds no remote,
+    clones nothing, pulls nothing and writes nothing under `.ctxloom/cache`;
+    the project's catalog lists the built-in bundles beside its own, and a
+    run's plan resolves the seeded profile with nothing missing. The
+    `ctxloom-default` repository stays an ordinary remote for whoever wants
+    its other content.
+
+    Scenario: A first init leaves a project whose default content is built in
+      # new: owner rulings 110, 111 (hand-test defects 1 and 2: a fresh project's plan had its default content missing).
+      Given an empty project directory
+      And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-acceptance-fixture-not-real"
+      When Alice sets ctxloom up on a project, off a terminal:
+        """
+        ctxloom init
+        """
+      Then the command succeeds
+      And the output does not contain "Pulled"
+      And the file ".ctxloom/remotes.yaml" does not contain "ctxloom-default"
+      And the file ".ctxloom/content/bundles/v2/project/profiles/default.yaml" contains "  - ai-developer#profiles/developer"
+      And the file ".ctxloom/cache" does not exist
+      And the file ".ctxloom/lock.yaml" does not exist
+      When I run "ctxloom bundle list --format text"
+      Then the command succeeds
+      And the output contains "ai-developer (v1.0.0) [built-in ctxloom/default]"
+      And the output contains "testing (v1.0.0) [built-in ctxloom/default]"
+      When I run "ctxloom run --dry-run --format json hello"
+      Then the command succeeds
+      And the output contains "ctxloom+local:testing#fragments/tdd"
+      And the output does not contain "not installed"
+      And the file ".ctxloom/cache" does not exist
+
+    # Read-only, and the refusal says how to change one: a project bundle of
+    # its name overrides it whole, and an export is how to make one from it.
+    Scenario: A built-in bundle refuses a write, and a project bundle of its name overrides it
+      # new: owner rulings 110, 111.
+      Given an initialized ctxloom project
+      When Alice adds a fragment to a bundle ctxloom ships:
+        """
+        ctxloom fragment create testing house-rules
+        """
+      Then the command fails
+      And the output contains "bundle \"testing\" is built into ctxloom (ctxloom/default) and is read-only"
+      And the output contains "fix: copy it into the project and change that copy: ctxloom bundle export testing "
+      And the file ".ctxloom/content/bundles/v2/testing" does not exist
+      When I run "ctxloom bundle export testing .ctxloom/content/bundles/v2"
+      Then the command succeeds
+      When I run "ctxloom fragment create testing house-rules"
+      Then the command succeeds
+      And the file ".ctxloom/content/bundles/v2/testing/fragments/house-rules.md" exists
+      And the file ".ctxloom/content/bundles/v2/testing/fragments/tdd.md" exists
+      When I run "ctxloom bundle list --format text"
+      Then the command succeeds
+      And the output does not contain "testing (v1.0.0) [built-in"
+      And the output contains "git (v1.0.0) [built-in ctxloom/default]"
 
   Rule: Init never takes the agent token; without one it says how to create and export it, and carries on
 

@@ -55,6 +55,8 @@ pub(crate) struct Project {
     _root: file_system::Rooted,
     project: PathBuf,
     home: PathBuf,
+    /// Its runs see the catalog Go had: no built-in bundles.
+    gos_catalog: bool,
 }
 
 impl Project {
@@ -81,6 +83,7 @@ impl Project {
             _root: root,
             project,
             home,
+            gos_catalog: false,
         }
     }
 
@@ -97,6 +100,16 @@ impl Project {
 
     pub(crate) fn dir(&self) -> &Path {
         &self.project
+    }
+
+    /// The project as a Go-ported test holds it: its runs see the catalog Go
+    /// had, with no built-in bundle (owner rulings 110, 111 added them; their
+    /// own contract is `cli/init.feature`'s), so a listing or a search is
+    /// held to the project's own content, whatever a ctxloom release ships.
+    /// The binary's `test-support` variable `CTXLOOM_TEST_NO_BUILTINS` does it.
+    pub(crate) fn on_gos_catalog(mut self) -> Project {
+        self.gos_catalog = true;
+        self
     }
 
     pub(crate) fn home(&self) -> &Path {
@@ -304,6 +317,9 @@ impl Project {
             if let Some(value) = crate::tests::host_var(name) {
                 command.env(name, value);
             }
+        }
+        if self.gos_catalog {
+            command.env("CTXLOOM_TEST_NO_BUILTINS", "1");
         }
         for (name, value) in env {
             command.env(name, value);

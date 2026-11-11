@@ -27,7 +27,7 @@ const DEMO: &str = ".ctxloom/content/bundles/v2/demo";
 /// Go's `a bundle "demo" exists`: `ctxloom bundle create demo -d "acceptance
 /// fixture bundle"`, through the binary this time.
 fn demo() -> Project {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project
         .run(&[
             "bundle",
@@ -46,7 +46,7 @@ fn demo() -> Project {
 // seeded content
 #[test]
 fn test_creating_a_bundle_writes_a_manifest_carrying_its_seeded_content() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project
         .run(&[
             "bundle",
@@ -76,7 +76,7 @@ fn test_creating_a_bundle_writes_a_manifest_carrying_its_seeded_content() {
 #[test]
 fn test_creating_a_bundle_answers_in_json_and_in_text() {
     for flags in FORMATS {
-        let project = Project::initialized();
+        let project = Project::initialized().on_gos_catalog();
         let ran = with_flags(&project, &["bundle", "create", "demo", "-d", "x"], flags);
         ran.succeeds();
         let manifest = project.dir().join(DEMO).join("bundle.yaml");
@@ -120,7 +120,7 @@ fn test_creating_a_bundle_that_exists_is_refused_and_leaves_it_alone() {
 // nothing.
 #[test]
 fn test_a_bundle_name_may_be_nested_but_never_climbs_out() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.run(&["bundle", "create", "team/rules"]).succeeds();
     assert!(project.exists(".ctxloom/content/bundles/v2/team/rules/bundle.yaml"));
     for bad in ["../evil", "/abs", "a/../b"] {
@@ -611,7 +611,7 @@ fn test_removing_a_bundle_with_yes_takes_the_file_and_the_listing_entry() {
             assert_eq!(reports_as(&doc, "[name=keep].name"), "keep");
         }
     }
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project
         .run(&["bundle", "remove", "nosuch", "--yes"])
         .fails()

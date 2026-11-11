@@ -30,7 +30,7 @@ const DEV_YAML: &str = ".ctxloom/content/bundles/v2/project/profiles/dev.yaml";
 
 /// Go's `a bundle "demo" exists` and `a profile "dev" with bundle "demo"`.
 fn demo_and_dev() -> Project {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.bundle("demo");
     project.profile("dev", "demo");
     project
@@ -50,7 +50,7 @@ fn assembled(project: &Project, profile: &str) -> String {
 #[test]
 fn test_creating_a_profile_writes_its_definition_and_it_is_listed_back() {
     for flags in FORMATS {
-        let project = Project::initialized();
+        let project = Project::initialized().on_gos_catalog();
         project.bundle("demo");
         project
             .run(&[
@@ -90,7 +90,7 @@ fn test_creating_a_profile_writes_its_definition_and_it_is_listed_back() {
 // keys it writes in the order Go writes them, and what it will not write.
 #[test]
 fn test_create_says_what_it_wrote_and_refuses_what_it_must() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.bundle("demo");
     let ran = project.run(&[
         "profile",
@@ -179,7 +179,7 @@ fn test_create_says_what_it_wrote_and_refuses_what_it_must() {
 // parent is refused
 #[test]
 fn test_a_profile_that_names_neither_a_bundle_nor_a_parent_is_refused() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.bundle("demo");
     project
         .run(&["profile", "create", "dev", "--include", "demo"])
@@ -234,7 +234,7 @@ fn test_inheriting_from_a_profile_that_does_not_exist_is_refused_at_creation() {
 // again, and the assembled context follows (read from `context assemble`)
 #[test]
 fn test_a_bundle_is_attached_to_a_profile_and_detached_again_and_the_assembled_context_follows() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.bundle("house-style");
     project.fragment("house-style", "house-rules");
     project.bundle("demo");
@@ -266,7 +266,7 @@ fn test_a_bundle_is_attached_to_a_profile_and_detached_again_and_the_assembled_c
 #[test]
 fn test_a_parent_profiles_content_is_inherited_and_detaching_the_parent_takes_it_away() {
     for flags in FORMATS {
-        let project = Project::initialized();
+        let project = Project::initialized().on_gos_catalog();
         project.bundle("house-style");
         project.fragment("house-style", "house-rules");
         project.profile("base", "house-style");
@@ -313,7 +313,7 @@ fn test_a_parent_profiles_content_is_inherited_and_detaching_the_parent_takes_it
 // vocabulary review 2026-11-06: `edit` patches by flag and replaces `modify`
 #[test]
 fn test_edit_with_flags_patches_the_profile_without_an_editor() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.bundle("house-style");
     project.fragment("house-style", "house-rules");
     project.bundle("demo");
@@ -375,7 +375,7 @@ fn test_a_modify_that_was_told_to_change_nothing_says_so() {
 // context and let back in (read from `context assemble`)
 #[test]
 fn test_a_fragment_is_masked_out_of_the_assembled_context_and_let_back_in() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.bundle("demo");
     project.fragment("demo", "testing");
     project.profile("dev", "demo");
@@ -400,7 +400,7 @@ fn test_a_fragment_is_masked_out_of_the_assembled_context_and_let_back_in() {
 // .mcp.json is S9's)
 #[test]
 fn test_an_mcp_server_is_masked_out_of_the_registry_and_let_back_in() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.bundle("demo");
     project
         .run(&[
@@ -430,7 +430,7 @@ fn test_an_mcp_server_is_masked_out_of_the_registry_and_let_back_in() {
 // round-trips into the file
 #[test]
 fn test_editing_a_profile_in_the_configured_editor_round_trips_into_the_file() {
-    let project = Project::with_editor(Editor::Description);
+    let project = Project::with_editor(Editor::Description).on_gos_catalog();
     project.bundle("demo");
     project.profile("dev", "demo");
     let ran = project.run(&["profile", "edit", "dev"]);
@@ -442,7 +442,7 @@ fn test_editing_a_profile_in_the_configured_editor_round_trips_into_the_file() {
         .contains("EDITED-BY-TEST");
     // An editor that changes nothing says so; one that writes a profile the
     // schema refuses is refused and the file survives.
-    let plain = Project::initialized();
+    let plain = Project::initialized().on_gos_catalog();
     plain.bundle("demo");
     plain.profile("dev", "demo");
     let before = plain.read(DEV_YAML);
@@ -451,7 +451,7 @@ fn test_editing_a_profile_in_the_configured_editor_round_trips_into_the_file() {
         "No changes made.\n"
     );
     assert_eq!(plain.read(DEV_YAML), before);
-    let marker = Project::with_editor(Editor::Marker);
+    let marker = Project::with_editor(Editor::Marker).on_gos_catalog();
     marker.bundle("demo");
     marker.profile("dev", "demo");
     let before = marker.read(DEV_YAML);
@@ -509,7 +509,7 @@ fn test_a_profile_has_no_preferred_engine_any_more() {
 // author left it.
 #[test]
 fn test_modify_names_each_change_and_leaves_the_rest_of_the_file_alone() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.bundle("demo");
     project.profile("dev", "demo");
     project.write(
@@ -674,7 +674,7 @@ fn test_export_and_import_refuse_what_they_must() {
 // the content it composes)
 #[test]
 fn test_export_carries_the_definition() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.bundle("demo");
     project.fragment("demo", "testing");
     project.profile("dev", "demo");

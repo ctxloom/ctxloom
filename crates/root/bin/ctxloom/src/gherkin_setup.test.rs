@@ -1,6 +1,6 @@
 //! The steps of j000200 (setting up ctxloom and the context she trusts), as a
 //! child of the base World, after j000100's: the same stub assistant on
-//! `PATH`, the same published default within reach, the same fixture token.
+//! `PATH`, the same fixture token, and ctxloom's default content built in.
 //!
 //! The two repositories Alice names are bare git repositories in the
 //! scenario's temporary directory. The addresses the feature text names
@@ -82,23 +82,17 @@ impl World {
     }
 }
 
-/// A project that has never seen ctxloom, with her assistant, her token and
-/// ctxloom's published default (which `init` seeds) within reach. Her
+/// A project that has never seen ctxloom, with her assistant and her token
+/// (ctxloom's default content, which `init` seeds, is built in). Her
 /// commands find the project as hers do, from the directory she types them
 /// in: no `CTXLOOM_ROOT` (an empty one is none), so a first `init` must find
 /// the project it has just created.
 #[given("Alice has a project that has never used ctxloom")]
 fn never_used(w: &mut World) {
-    fresh_machine(w);
-    w.common.set_env("CTXLOOM_ROOT", String::new());
-}
-
-/// The machine of [`never_used`], the project still named by `CTXLOOM_ROOT`.
-fn fresh_machine(w: &mut World) {
     w.common_mut().project = crate::tests::library::Project::bare();
     super::adopt::claude_code(w);
     super::adopt::token(w);
-    super::adopt::published_default(w);
+    w.common.set_env("CTXLOOM_ROOT", String::new());
 }
 
 #[given("Alice has a personal ctxloom repository")]
@@ -187,7 +181,7 @@ impl World {
     /// already made it so.
     fn machine(&mut self) {
         if !files::exists(self.adopt_scratch().join("bin/claude")) {
-            fresh_machine(self);
+            never_used(self);
         }
     }
 
@@ -239,13 +233,15 @@ fn accepts_restart(w: &mut World) {
     let ctxloom = crate::tests::binary().display().to_string();
     let home = w.common.project.home().display().to_string();
     let project = w.common.project.dir().display().to_string();
+    // The assistant runs ctxloom as her shell would: in the project, which
+    // it finds from there, no `CTXLOOM_ROOT` naming it.
     let script: String = w
         .setup
         .interview
         .iter()
         .map(|args| {
             format!(
-                "  HOME='{home}' CTXLOOM_ROOT='{project}' '{ctxloom}' {args} >> \"$rec\" 2>&1 || exit 1\n"
+                "  (cd '{project}' && env -u CTXLOOM_ROOT HOME='{home}' '{ctxloom}' {args}) >> \"$rec\" 2>&1 || exit 1\n"
             )
         })
         .collect();

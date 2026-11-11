@@ -37,7 +37,7 @@ fn demo(project: &Project) {
 // listing; the resource is MCP's)
 #[test]
 fn test_alice_creates_a_fragment_and_it_lands_in_the_manifest_and_the_listing() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project
         .run(&[
             "bundle",
@@ -69,7 +69,7 @@ fn test_alice_creates_a_fragment_and_it_lands_in_the_manifest_and_the_listing() 
 #[test]
 fn test_creating_an_item_answers_and_refuses_what_it_must() {
     for flags in FORMATS {
-        let project = Project::initialized();
+        let project = Project::initialized().on_gos_catalog();
         demo(&project);
         let manifest = project.dir().join(DEMO).join("bundle.yaml");
         let ran = with_flags(&project, &["fragment", "create", "demo", "testing"], flags);
@@ -87,7 +87,7 @@ fn test_creating_an_item_answers_and_refuses_what_it_must() {
             assert_eq!(reports_as(&doc, "path"), manifest.to_string_lossy());
         }
     }
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     demo(&project);
     project.fragment("demo", "kept");
     project
@@ -109,7 +109,7 @@ fn test_creating_an_item_answers_and_refuses_what_it_must() {
 #[test]
 fn test_bare_fragment_remove_reports_and_destroys_nothing() {
     for flags in FORMATS {
-        let project = Project::initialized();
+        let project = Project::initialized().on_gos_catalog();
         demo(&project);
         project.fragment("demo", "testing");
         let before = project.tree(".ctxloom");
@@ -150,7 +150,7 @@ fn test_bare_fragment_remove_reports_and_destroys_nothing() {
 #[test]
 fn test_removing_a_fragment_removes_exactly_it() {
     for flags in FORMATS {
-        let project = Project::initialized();
+        let project = Project::initialized().on_gos_catalog();
         demo(&project);
         project.fragment("demo", "testing");
         project.fragment("demo", "other");
@@ -194,7 +194,7 @@ fn test_removing_a_fragment_removes_exactly_it() {
             .succeeds()
             .lacks("testing");
     }
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     demo(&project);
     for yes in [vec![], vec!["--yes"]] {
         let mut args = vec!["fragment", "remove", "demo#fragments/nope"];
@@ -212,7 +212,7 @@ fn test_removing_a_fragment_removes_exactly_it() {
 // exposed to the agent (the file and the listing)
 #[test]
 fn test_alice_creates_a_command_and_it_is_listed() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     demo(&project);
     project
         .run(&["command", "create", "demo", "review"])
@@ -239,7 +239,7 @@ fn test_alice_creates_a_command_and_it_is_listed() {
 #[test]
 fn test_bare_command_remove_reports_and_destroys_nothing() {
     for flags in FORMATS {
-        let project = Project::initialized();
+        let project = Project::initialized().on_gos_catalog();
         demo(&project);
         project.command("demo", "review");
         let before = project.tree(".ctxloom");
@@ -264,7 +264,7 @@ fn test_bare_command_remove_reports_and_destroys_nothing() {
 // the listing, and the agent's resource (the file and the listing)
 #[test]
 fn test_removing_a_command_removes_exactly_it() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     demo(&project);
     project.command("demo", "review");
     let others = project.tree(".ctxloom/content/bundles/v2/demo/fragments");
@@ -295,7 +295,7 @@ fn test_removing_a_command_removes_exactly_it() {
 #[test]
 fn test_editing_with_no_distill_warns_instead_of_leaving_a_stale_distillation_unmentioned() {
     for flags in FORMATS {
-        let project = Project::with_editor(Editor::Marker);
+        let project = Project::with_editor(Editor::Marker).on_gos_catalog();
         demo(&project);
         project.command("demo", "review");
         project.write(
@@ -325,7 +325,7 @@ fn test_editing_with_no_distill_warns_instead_of_leaving_a_stale_distillation_un
 // than emptying the command
 #[test]
 fn test_an_editor_that_returns_nothing_is_refused_rather_than_emptying_the_command() {
-    let project = Project::with_editor(Editor::Empties);
+    let project = Project::with_editor(Editor::Empties).on_gos_catalog();
     demo(&project);
     project.command("demo", "review");
     project
@@ -342,7 +342,7 @@ fn test_an_editor_that_returns_nothing_is_refused_rather_than_emptying_the_comma
 // RAW and the command says so)
 #[test]
 fn test_editing_a_fragment_lands_the_change_across_axes() {
-    let project = Project::with_editor(Editor::Marker);
+    let project = Project::with_editor(Editor::Marker).on_gos_catalog();
     demo(&project);
     project.fragment("demo", "testing");
     project
@@ -355,7 +355,7 @@ fn test_editing_a_fragment_lands_the_change_across_axes() {
 // editing.feature: Scenario: Editing a prompt lands the change in the bundle
 #[test]
 fn test_editing_a_prompt_lands_the_change_in_the_bundle() {
-    let project = Project::with_editor(Editor::Marker);
+    let project = Project::with_editor(Editor::Marker).on_gos_catalog();
     demo(&project);
     project.command("demo", "review");
     project
@@ -372,7 +372,7 @@ fn test_editing_a_prompt_lands_the_change_in_the_bundle() {
 // nothing; an item nobody has is refused.
 #[test]
 fn test_an_edit_keeps_the_front_matter_and_says_when_nothing_changed() {
-    let project = Project::with_editor(Editor::Marker);
+    let project = Project::with_editor(Editor::Marker).on_gos_catalog();
     demo(&project);
     project.write(
         &format!("{DEMO}/fragments/withmeta.md"),
@@ -435,7 +435,7 @@ fn test_an_edit_keeps_the_front_matter_and_says_when_nothing_changed() {
 fn test_an_editor_that_changes_nothing_says_so() {
     for flags in FORMATS {
         // The home's editor is `true`, which leaves the file as it found it.
-        let project = Project::initialized();
+        let project = Project::initialized().on_gos_catalog();
         demo(&project);
         project.fragment("demo", "testing");
         let before = project.tree(DEMO);

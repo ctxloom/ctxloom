@@ -18,3 +18,18 @@ fn test_omitempty_predicates_say_empty_only_for_empty() {
     assert!(is_zero(&0));
     assert!(!is_zero(&1));
 }
+
+// Owner ruling 139: every display of an engine's permissions document says,
+// in these words, that ctxloom passes it to that engine as written and checks
+// nothing in it.
+#[test]
+fn test_passed_verbatim_names_the_engine_and_says_ctxloom_does_not_check_it() {
+    assert_eq!(
+        super::passed_verbatim("claude-code"),
+        "passed to claude-code verbatim; ctxloom does not check it"
+    );
+    assert_eq!(
+        super::passed_verbatim("opencode"),
+        "passed to opencode verbatim; ctxloom does not check it"
+    );
+}

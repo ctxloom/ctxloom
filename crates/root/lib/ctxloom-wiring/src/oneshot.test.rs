@@ -432,6 +432,7 @@ mod start_sync {
                 ..library_application::RunRequest::default()
             },
             engine: "nope".to_string(),
+            session: String::new(),
         };
         let done = runs.one_shot(&Flags::default(), &request);
         assert!(done.result.is_err());

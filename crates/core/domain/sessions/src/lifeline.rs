@@ -12,8 +12,8 @@
 use angzarr_embedded::markup::{pack_message, Bug, FactEmit};
 
 use crate::{
-    live, IncarnationEnded, IncarnationOwed, RecordIncarnationEnded, SessionAggregate,
-    SessionEvent, SessionRejection, SessionState, StopOrdered, StopSession,
+    live, IncarnationEnded, IncarnationOwed, RecordIncarnationEnded, ResumeSession,
+    SessionAggregate, SessionEvent, SessionRejection, SessionState, StopOrdered, StopSession,
 };
 
 /// The incarnation a mint owes: the first (owner ruling 2026-11-04, S5
@@ -23,6 +23,24 @@ pub(crate) fn first_owed() -> IncarnationOwed {
         incarnation: 1,
         reason: "first".to_string(),
     }
+}
+
+/// Why an incarnation a resume owes is owed.
+pub(crate) const RESUMED: &str = "resume";
+
+/// What a resume records (owner ruling 115): the session's next incarnation
+/// owed. Refused for a stream holding no session (a destroyed one: the
+/// caller asks only for a claimed name), while an incarnation is open, before
+/// the engine bound a native session, and for another engine.
+pub(crate) fn resumed(
+    held: &SessionState,
+    resume: &ResumeSession,
+) -> Result<IncarnationOwed, SessionRejection> {
+    let _ = (held, resume);
+    Ok(IncarnationOwed {
+        incarnation: 0,
+        reason: RESUMED.to_string(),
+    })
 }
 
 /// What a stop order records: refused from a child (Go's I2); a second order

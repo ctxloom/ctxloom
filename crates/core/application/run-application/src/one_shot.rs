@@ -54,6 +54,9 @@ pub struct OneShot {
     pub run: RunRequest,
     /// `--engine`: the engine to drive instead of the plan's.
     pub engine: String,
+    /// `--session <harp>`: the session to resume (owner ruling 115); empty
+    /// is a new session.
+    pub session: String,
 }
 
 /// What a one-shot answered.

@@ -458,6 +458,8 @@ struct RunLocks {
     runner: Option<ScriptedRunner>,
     /// Each let-go: the launches seen by then.
     released: Arc<Mutex<Vec<usize>>>,
+    /// The harps whose session lock another process holds.
+    live: Arc<Mutex<Vec<String>>>,
 }
 
 /// The path the fake run lock is at.
@@ -492,8 +494,12 @@ impl run_ports::RunLocks for RunLocks {
         run_ports::LockProbe::Unproven
     }
 
-    fn session(&self, _: &str, _: &str) -> run_ports::LockProbe {
-        run_ports::LockProbe::Unproven
+    fn session(&self, _: &str, harp: &str) -> run_ports::LockProbe {
+        if self.live.lock().unwrap().iter().any(|h| h == harp) {
+            run_ports::LockProbe::Held
+        } else {
+            run_ports::LockProbe::Unproven
+        }
     }
 }
 
@@ -824,6 +830,7 @@ async fn the_plan_is_asked_with_the_request_and_its_notices_come_back() {
             ..RunRequest::default()
         },
         engine: String::new(),
+        session: String::new(),
     };
     let done = rig.runs.one_shot(&Flags::default(), &request).await;
     assert_eq!(rig.asked.lock().unwrap()[0].profile, "dev");
@@ -976,6 +983,7 @@ async fn a_driven_engine_named_on_the_line_is_planned_as_named() {
             engine: "fake".to_string(),
             ..RunRequest::default()
         },
+        session: String::new(),
     };
     rig.runs
         .one_shot(&Flags::default(), &request)
@@ -2399,6 +2407,7 @@ async fn an_undriven_engine_is_planned_and_the_prompt_still_judged() {
             engine: "bogus-engine".to_string(),
             ..RunRequest::default()
         },
+        session: String::new(),
     };
     let error = rig
         .runs
@@ -2893,4 +2902,206 @@ async fn the_enqueue_is_judged_on_the_claimed_posture_and_what_the_runtime_enfor
         rig.runner.seen.lock().unwrap().is_empty(),
         "nothing was launched"
     );
+}
+
+/// `run --session <harp>`, a one-shot on `prompt`.
+fn resume(harp: &str) -> OneShot {
+    OneShot {
+        session: harp.to_string(),
+        ..OneShot::default()
+    }
+}
+
+/// The run of `session`'s `incarnation`, its events.
+async fn incarnation_events(
+    edge: &TestEdge,
+    session: &str,
+    incarnation: u32,
+) -> Vec<runs::RunEvent> {
+    use angzarr_embedded::Payload;
+    use run_ports::Edge;
+    let cover = Cover {
+        domain: runs::RUN_DOMAIN.to_string(),
+        root: Some(runs::run_root(session, incarnation)),
+        edition: None,
+    };
+    edge.events(&cover, 0)
+        .await
+        .unwrap()
+        .iter()
+        .filter_map(|page| match &page.body {
+            Some(event_page::Body::Event(any)) => Some(runs::RunEvent::from_any(any).unwrap()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The refusal code of a run's error, when it is a session refusal.
+fn refused_code(error: &RunError) -> String {
+    match error {
+        RunError::Session(CoreError::Refused { code, .. }) => code.clone(),
+        other => panic!("not a session refusal: {other:?}"),
+    }
+}
+
+// Owner ruling 115: `run --session <harp>` resumes the session: the engine is
+// handed its native session (claude's `--resume`), in the same session home,
+// as a new incarnation (the second) on the same session stream, whose run is
+// the stream UUIDv5(session, 2).
+#[tokio::test]
+async fn a_resume_is_the_next_incarnation_of_the_same_session_resuming_its_native_one() {
+    let mut rig = rig(Script::answering());
+    let first = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let again = rig
+        .runs
+        .one_shot(&Flags::default(), &resume(&first.harp))
+        .await
+        .result
+        .unwrap();
+    assert_eq!(
+        (again.harp.as_str(), again.session.as_str()),
+        (first.harp.as_str(), first.session.as_str())
+    );
+    assert_eq!(again.answer, "THE-ANSWER");
+    let seen = rig.runner.seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 2);
+    assert!(!seen[0].args.iter().any(|a| a.starts_with("--resume")));
+    assert!(
+        seen[1].args.contains(&"--resume=native-7".to_string()),
+        "{:?}",
+        seen[1].args
+    );
+    // The same session home.
+    assert_eq!(seen[0].args[0], seen[1].args[0]);
+    let events = session_events(&rig.edge, &first.session).await;
+    assert!(events.iter().any(|e| matches!(e,
+        sessions::SessionEvent::IncarnationOwed(o) if o.incarnation == 2 && o.reason == "resume")));
+    assert!(events.iter().any(|e| matches!(e,
+        sessions::SessionEvent::IncarnationEnded(o) if o.incarnation == 2)));
+    let second = incarnation_events(&rig.edge, &first.session, 2).await;
+    assert!(
+        second
+            .iter()
+            .any(|e| matches!(e, runs::RunEvent::RunEnded(_))),
+        "{second:?}"
+    );
+    // No second session was minted.
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, sessions::SessionEvent::SessionMinted(_)))
+            .count(),
+        1
+    );
+}
+
+// The human's terminal resumes the same way: its command resumes the native
+// session.
+#[tokio::test]
+async fn an_interactive_resume_hands_the_terminal_the_native_session() {
+    let mut rig = rig(Script::answering());
+    let first = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let ended = rig
+        .runs
+        .interactive(&Flags::default(), &resume(&first.harp))
+        .await
+        .result
+        .unwrap();
+    assert_eq!(ended.harp, first.harp);
+    let terminal = rig.runner.seen_terminal.lock().unwrap().clone();
+    assert!(
+        terminal[0].args.contains(&"--resume=native-7".to_string()),
+        "{:?}",
+        terminal[0].args
+    );
+}
+
+#[tokio::test]
+async fn a_resume_of_a_name_no_session_holds_is_refused_and_launches_nothing() {
+    let mut rig = rig(Script::answering());
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &resume("no-such-heron"))
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(refused_code(&error), "sessions-session-unknown");
+    assert!(rig.runner.seen.lock().unwrap().is_empty());
+}
+
+// A destroyed session's name stays claimed (ruling 94c); its stream is gone.
+#[tokio::test]
+async fn a_resume_of_a_destroyed_session_is_refused() {
+    let mut rig = rig(Script::answering());
+    claim(
+        &rig.edge,
+        "gone-grey-heron",
+        "5f0c7a52-4444-5444-8444-000000000001",
+    )
+    .await;
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &resume("gone-grey-heron"))
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(refused_code(&error), "sessions-session-destroyed");
+    assert!(rig.runner.seen.lock().unwrap().is_empty());
+}
+
+// A session whose lock another process holds is live: not resumed.
+#[tokio::test]
+async fn a_resume_of_a_live_session_is_refused() {
+    let mut rig = rig(Script::answering());
+    let first = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    rig.run_locks.live.lock().unwrap().push(first.harp.clone());
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &resume(&first.harp))
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(refused_code(&error), "sessions-session-running");
+    assert_eq!(rig.runner.seen.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_resume_of_a_session_with_no_native_id_is_refused() {
+    let mut rig = rig(Script {
+        engine: ScriptedEngine::answering("THE-ANSWER", None),
+        ..Script::answering()
+    });
+    let first = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &resume(&first.harp))
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(refused_code(&error), "sessions-no-native-session");
+    assert_eq!(rig.runner.seen.lock().unwrap().len(), 1);
+    // Refused before anything was owed: the next resume is still the second.
+    let events = session_events(&rig.edge, &first.session).await;
+    assert!(!events.iter().any(|e| matches!(e,
+        sessions::SessionEvent::IncarnationOwed(o) if o.incarnation == 2)));
 }

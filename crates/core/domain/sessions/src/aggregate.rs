@@ -20,10 +20,12 @@ use crate::refusal::refuse;
 use crate::{
     adopted, end_recorded, engine_bound, kept_changed, lifeline, live, record, renamed,
     session_minted, AdoptRotations, BindEngineSession, ChildCannotStop, EndRecorded,
-    EngineSessionBound, HarpInvalid, HarpTooLong, IncarnationEnded, IncarnationOwed, KeptChanged,
-    MintSession, NoSession, RecordEnd, RecordIncarnationEnded, RenameSession, RenamedTo,
-    SessionAdopted, SessionCommand, SessionEvent, SessionExists, SessionLive, SessionMinted,
-    SessionRejection, SessionState, SetKept, StopOrdered, StopSession,
+    EngineMismatch, EngineSessionBound, HarpInvalid, HarpTooLong, IncarnationEnded,
+    IncarnationOwed, KeptChanged, MintSession, NoNativeSession, NoSession, RecordEnd,
+    RecordIncarnationEnded, RenameSession, RenamedTo, ResumeSession, SessionAdopted,
+    SessionCommand, SessionDestroyed, SessionEvent, SessionExists, SessionLive, SessionMinted,
+    SessionRejection, SessionRunning, SessionState, SessionUnknown, SetKept, StopOrdered,
+    StopSession,
 };
 use crate::{
     AssistantTextShown, Compacted, PromptSubmitted, RecordAssistantText, RecordCompaction,
@@ -175,6 +177,33 @@ impl SessionAggregate {
                 rejection,
                 Refuses<Self, StopSession>,
                 [NoSession => NoSession, ChildCannotStop{depth} => ChildCannotStop]
+            )
+        })
+    }
+
+    /// Resume the session (owner ruling 115): owe its next incarnation.
+    #[handles_cmd(
+        ResumeSession,
+        refuses(
+            SessionUnknown,
+            SessionDestroyed,
+            SessionRunning,
+            NoNativeSession,
+            EngineMismatch
+        )
+    )]
+    fn resume(
+        &self,
+        cmd: ResumeSession,
+        ctx: &Context,
+    ) -> Result<IncarnationOwed, Failed<Refuses<Self, ResumeSession>>> {
+        let _ = ctx;
+        lifeline::resumed(&self.session, &cmd).map_err(|rejection| {
+            refuse!(
+                SessionRejection,
+                rejection,
+                Refuses<Self, ResumeSession>,
+                [SessionUnknown{harp} => SessionUnknown, SessionDestroyed{harp} => SessionDestroyed, SessionRunning{harp} => SessionRunning, NoNativeSession{harp} => NoNativeSession, EngineMismatch{harp, engine, asked} => EngineMismatch]
             )
         })
     }

@@ -70,6 +70,8 @@ pub(super) struct State {
     assistant_before: Option<BTreeMap<String, Vec<u8>>>,
     /// Every file of her home, then.
     home_before: Option<BTreeMap<String, Vec<u8>>>,
+    /// The session the last turn was taken on, by its harp.
+    harp: Option<String>,
 }
 
 /// Every file below `path` (or `path` itself, a file), by its path.
@@ -239,6 +241,44 @@ fn started_through_ctxloom(w: &mut World) {
         "",
     );
     w.ran().succeeds();
+}
+
+/// Owner ruling 115: another turn on the session the last one-shot made
+/// (its reply, json off a terminal, names it), by `run --session`.
+#[when(expr = "Alice takes another turn on that session with {string}")]
+fn another_turn(w: &mut World, prompt: String) {
+    let harp = w.json()["harp"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the last reply names its session: {}", w.ran().said()))
+        .to_string();
+    w.adopt.harp = Some(harp.clone());
+    w.before_run();
+    w.common.run_lines(
+        &format!("ctxloom run --one-shot \"{prompt}\" --session {harp}"),
+        "",
+    );
+}
+
+#[then("the reply names the same session")]
+fn same_session(w: &mut World) {
+    let harp = w.adopt.harp.clone().expect("a turn was taken on a session");
+    assert_eq!(
+        w.json()["harp"].as_str(),
+        Some(harp.as_str()),
+        "{}",
+        w.ran().said()
+    );
+}
+
+/// The stub's launch record holds each argument on a line: the last launch
+/// was handed `--resume` and the engine's own session id.
+#[then(expr = "the assistant was resumed on its own session {string}")]
+fn resumed_on(w: &mut World, native: String) {
+    let record = w.launch_record();
+    assert!(
+        record.contains(&format!("--resume\n{native}\n")),
+        "no resume of {native}: {record}"
+    );
 }
 
 #[then("her assistant was handed ctxloom's published default content")]

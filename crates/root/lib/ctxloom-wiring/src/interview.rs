@@ -117,6 +117,7 @@ impl SetupSessions<'_> {
                 ..RunRequest::default()
             },
             engine: String::new(),
+            session: String::new(),
         };
         let done = sessions.interactive(self.flags, &request);
         let notices = done

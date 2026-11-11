@@ -25,6 +25,7 @@ Feature: run — assembling a project's context and handing it to an engine
     ctxloom run --tag/-t <tag>
     ctxloom run --command/-r <name>      (a saved command as the prompt)
     ctxloom run --agent <name>
+    ctxloom run --session <harp>         (resume a session, owner ruling 115)
 
   A RUN IS EITHER A SESSION OR A SINGLE TURN, and `--one-shot` is how a caller
   says which. The flag names the MODE, not its output: every mode prints, and
@@ -374,6 +375,41 @@ Feature: run — assembling a project's context and handing it to an engine
       Then the scripted opencode TUI ran on a terminal with the prompt as a flag, the guidance and Alice's preferences in its config dir
       And the bridge plugin in its config dir fires ctxloom's session-start and mail-drain for opencode, and the TUI is told its wake socket
 
+  # Owner ruling 115 (2026-11-10): `run --session <harp>` resumes a session,
+  # a one-shot's or the terminal's: its engine is handed its own session
+  # (claude's `--resume <id>`, opencode's `--session <id>`), in the same
+  # session home, as the session's next incarnation on the same stream (a run
+  # of its own, UUIDv5(session, incarnation)). A session that is running (its
+  # lock held, or its last run not ended), one whose engine never named its
+  # own session, one `session remove` destroyed, a name no session holds, and
+  # another engine than the session's are each refused, before anything is
+  # launched.
+  Rule: run --session resumes a session in its engine's own session, as its next incarnation
+
+    Scenario: Another turn on a session resumes the engine's own session in the same session
+      # new: owner ruling 115 (2026-11-10).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And Alice has started her assistant through ctxloom
+      When Alice takes another turn on that session with "and then?"
+      Then the command succeeds
+      And the reply names the same session
+      And the assistant was resumed on its own session "00000000-0000-4000-8000-0000000000aa"
+
+    Scenario: A name no session holds is refused, and nothing is launched
+      # new: owner ruling 115 (2026-11-10).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice resumes a session that does not exist:
+        """
+        ctxloom run --one-shot "again" --session no-such-heron
+        """
+      Then the command exits with code 2
+      And the refusal is "sessions-session-unknown"
+      And no assistant was launched
+
+  # Superseded by ruling 115 above (resume is the engine's own session, not a
+  # context fold); kept pending as Go's design.
   @pending
   Rule: Resuming a session folds in its recorded conversation, and leaves the record as it was
 

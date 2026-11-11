@@ -344,7 +344,7 @@ and the told host, so a runtime's host alias is a DNS name), and the client's
 an environment or in an error. A hook that finds the listener named but the
 certificate missing or garbled refuses (`HookSink::Refused`, `hook-cli-not-recorded`
 naming `CTXLOOM_TLS_CERT`) and sends nothing. The listener's limits are
-angzarr's generic `Listener` defaults (core `6c3175b9`; `hook-listener` sets
+angzarr's generic `Listener` defaults (core `415b29ee`; `hook-listener` sets
 none): a TLS handshake within 10 s, an HTTP/2 keepalive ping every 60 s
 answered within 20 s, a connection closed after 1 h plus a 30 s grace (never
 zero: a zero grace is `ListenError::ZeroConnectionAgeGrace` at bind, which
@@ -630,14 +630,14 @@ The lock holds ONE `angzarr-embedded`, `angzarr-proto`, `angzarr-ports` and
 `angzarr-diagnostic` (a test reads Cargo.lock). Every pin in `Cargo.toml` is
 a full commit. The angzarr pins are one line, one per family member:
 
-- angzarr core `6c3175b9` (`angzarr-diagnostic`, `angzarr-yaml`,
+- angzarr core `415b29ee` (`angzarr-diagnostic`, `angzarr-yaml`,
   `angzarr-presentation`; `angzarr-coordinator-grpc`'s `tls` feature, which
   `hook-listener` enables, is `Listener::tls`);
-- angzarr-embedded `46267520` on angzarr-router `58cfb1d2`;
-- angzarr-build `11d249c6` (the markup generator, `angzarr-build` and
+- angzarr-embedded `640d2d07` on angzarr-router `e79400c3`;
+- angzarr-build `558cde5f` (the markup generator, `angzarr-build` and
   `angzarr-codegen`, its own repository);
-- angzarr-platform `f2ece88c`;
-- taskloom's crates `da69d5f9` and ctxloom-lib's `3fa0344b`, built on the
+- angzarr-platform `da6a3ee3`;
+- taskloom's crates `ff760778` and ctxloom-lib's `902c3f00`, built on the
   same line,
 
 so moving one moves all. The lock holds one of every angzarr crate. The platform crates (`os`, `file-system`, `file-lock`) are

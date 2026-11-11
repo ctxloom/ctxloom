@@ -35,7 +35,7 @@ use session_files::SessionDirs;
 use system::System;
 
 use crate::signals::{self, Heard};
-use crate::{Closer, InProcessCore, Wiring};
+use crate::{InProcessCore, Wiring};
 
 /// How long one turn has before its command, and everything it started, is
 /// killed.
@@ -111,14 +111,13 @@ impl<'a> OneShots<'a> {
         self
     }
 
-    /// The use case over the project the process is in, and what closes its
-    /// store once the use case is let go (ruling 131).
+    /// The use case over the project the process is in.
     async fn assemble(
         &self,
         library: Library,
         output_dir: &str,
         stop: host_launcher::Stop,
-    ) -> Result<(TheRuns, Closer<SqliteStore>), RunError> {
+    ) -> Result<TheRuns, RunError> {
         let wiring = self.wiring;
         let env = wiring.env();
         let environment = Environment {
@@ -140,7 +139,6 @@ impl<'a> OneShots<'a> {
             .await
             .map_err(|e| unmade(&e))?;
         let core = InProcessCore::start(store).await;
-        let closer = core.closer();
         let project_dir = wiring.project_dir();
         let orders = Arc::new(Orders::new());
         let claude: Arc<dyn Engine> = Arc::new(engine_claude::Claude::new());
@@ -161,7 +159,7 @@ impl<'a> OneShots<'a> {
         let hooks = Box::new(Hooks { edge: core.edge() });
         let enqueuer = Enqueuer::new(core.edge(), Arc::new(OsTokenSource));
         let output_root = output_root(&project_dir, output_dir);
-        let runs = Runs::new(Parts {
+        Ok(Runs::new(Parts {
             core,
             planner: Box::new(library),
             identity: Box::new(Told(project)),
@@ -187,8 +185,7 @@ impl<'a> OneShots<'a> {
             locks: Box::new(liveness::LockFiles::new(wiring.fs(), project_dir.clone())),
             run_locks,
             git_user: git_user(wiring, &project_dir),
-        });
-        Ok((runs, closer))
+        }))
     }
 }
 
@@ -372,7 +369,7 @@ impl OneShots<'_> {
         };
         let (stop, heard) = (host_launcher::Stop::new(), Heard::default());
         let mut notices = synced;
-        runtime.block_on(async {
+        let (mut done, core) = runtime.block_on(async {
             // Made on the runtime, before anything is launched.
             let hearing = match self.wiring.fs().os().signals(&signals::HEARD) {
                 Ok(signals) => Some(tokio::spawn(signals::forward(
@@ -388,33 +385,45 @@ impl OneShots<'_> {
                     None
                 }
             };
-            let mut done = match self.assemble(library, &output_dir, stop).await {
-                Ok((mut runs, closer)) => {
-                    let mut done = use_case(&mut runs).await;
-                    // The use case, its core and every edge let go, the store
-                    // is closed before the process exits (ruling 131). The
-                    // run is over and its facts committed, so a close that
-                    // fails is said, and the run's answer stands.
-                    drop(runs);
-                    if let Err(unclosed) = closer.close().await {
-                        done.notices
-                            .push(library_application::Notice::text(unclosed.to_string()));
-                    }
-                    done
+            let (done, core) = match self.assemble(library, &output_dir, stop).await {
+                Ok(mut runs) => {
+                    let done = use_case(&mut runs).await;
+                    // Every part but the core let go, with their edges.
+                    (done, Some(runs.into_core()))
                 }
-                Err(error) => Done {
-                    result: Err(error),
-                    notices: Vec::new(),
-                },
+                Err(error) => (
+                    Done {
+                        result: Err(error),
+                        notices: Vec::new(),
+                    },
+                    None,
+                ),
             };
             if let Some(hearing) = hearing {
                 hearing.abort();
             }
-            heard.overrule(&mut done.result);
-            notices.append(&mut done.notices);
-            done.notices = notices;
-            done
-        })
+            (done, core)
+        });
+        // The store closed, not dropped, before the process exits (ruling
+        // 131): the core and the runtime it served on are both consumed
+        // first, the runtime's tasks (a hook call the listener's grace cut
+        // short, still holding the edge) dropped with it. A close that fails
+        // fails the run.
+        if let Some(core) = core {
+            if let Err(unclosed) = core.close(runtime) {
+                let reason = unclosed.to_string();
+                match &done.result {
+                    Ok(_) => {
+                        done.result = Err(RunError::Session(CoreError::Failed { reason }));
+                    }
+                    Err(_) => done.notices.push(library_application::Notice::text(reason)),
+                }
+            }
+        }
+        heard.overrule(&mut done.result);
+        notices.append(&mut done.notices);
+        done.notices = notices;
+        done
     }
 }
 

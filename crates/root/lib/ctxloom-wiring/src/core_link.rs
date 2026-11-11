@@ -6,9 +6,9 @@
 //!
 //! The core keeps its store in an `Arc` of its own ([`CoreStores`]), not
 //! angzarr-embedded-host's `OneStore`, so the store can be had back once
-//! the application is let go and closed ([`Closer`], ruling 131): a store
-//! dropped is closed on the driver's thread whenever that runs, which a
-//! process that exits first never lets it do.
+//! every holder is let go and closed ([`InProcessCore::close`], ruling
+//! 131): a store dropped is closed on the driver's thread whenever that
+//! runs, which a process that exits first never lets it do.
 
 use std::sync::Arc;
 
@@ -82,16 +82,16 @@ where
     store: Arc<S>,
 }
 
-/// The core's store, to be closed once everything that reached it is let go
-/// (ruling 131): the core, and every edge taken from it.
-pub struct Closer<S>(Arc<S>);
-
-/// Why a core's store was not closed.
+/// Why a core's store was not closed: either is an error the run reports.
 #[derive(Debug)]
 pub enum Unclosed {
-    /// Something still holds the core (an edge, the application): the store
-    /// is left to its drop.
-    Held,
+    /// Something outside the core and the runtime it served on still holds
+    /// the store: an edge leaked past both. Never expected: everything the
+    /// run made is consumed or joined before the close (see
+    /// [`InProcessCore::close`]).
+    StillHeld { holders: usize },
+    /// No runtime could be made to wait for the close on.
+    NoRuntime(std::io::Error),
     /// The close failed.
     Failed(StoreError),
 }
@@ -99,21 +99,35 @@ pub enum Unclosed {
 impl std::fmt::Display for Unclosed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Unclosed::Held => f.write_str("the run's store is still held, and was not closed"),
+            Unclosed::StillHeld { holders } => write!(
+                f,
+                "the run's store is still held ({holders} holders past the run's end) and was not closed"
+            ),
+            Unclosed::NoRuntime(e) => write!(f, "the run's store was not closed: no runtime: {e}"),
             Unclosed::Failed(e) => write!(f, "the run's store did not close: {e}"),
         }
     }
 }
 
-impl Closer<SqliteStore> {
-    /// Close the store and wait for it: when this returns its file holds
-    /// every commit with no log beside it. Refused, the store left to its
-    /// drop, while anything else holds it.
-    pub async fn close(self) -> Result<(), Unclosed> {
-        match Arc::try_unwrap(self.0) {
-            Ok(store) => store.close().await.map_err(Unclosed::Failed),
-            Err(_held) => Err(Unclosed::Held),
-        }
+impl std::error::Error for Unclosed {}
+
+impl InProcessCore<SqliteStore> {
+    /// Close the core's store, once nothing else can hold it (ruling 131),
+    /// and wait for it: when this returns its file holds every commit with
+    /// no log beside it.
+    ///
+    /// The holders are let go in order, each by a move: the core's own
+    /// application and edge (the core is consumed; the edges the use cases
+    /// took went with them, `Runs::into_core`); then `served_on`, the
+    /// runtime the core served on, is shut down, which drops every task it
+    /// ran (the hook listener's connection and stream tasks, which keep the
+    /// coordinator, and so the edge, until they are dropped: a call held
+    /// past the listener's grace outlives its stop). Only then is the store
+    /// taken by value and closed, on a runtime of its own. Called outside
+    /// any runtime (a runtime cannot be shut down from within one).
+    pub fn close(self, served_on: tokio::runtime::Runtime) -> Result<(), Unclosed> {
+        let _ = (self, served_on);
+        todo!("ruling 131: let every holder go, then close the store by value")
     }
 }
 
@@ -179,10 +193,12 @@ where
         &self.store
     }
 
-    /// What closes the store once the core, and every edge taken from it,
-    /// is let go (ruling 131).
-    pub fn closer(&self) -> Closer<S> {
-        Closer(Arc::clone(&self.store))
+    /// How many hold the core's edge: the core itself, and every use case,
+    /// listener or task still reaching the store through it (ruling 131's
+    /// tests force a holder past the run's end and look).
+    #[cfg(test)]
+    pub(crate) fn edge_holders(&self) -> usize {
+        Arc::strong_count(&self.edge)
     }
 
     /// The catalog of the registered domains, which a catch-up upcasts by.

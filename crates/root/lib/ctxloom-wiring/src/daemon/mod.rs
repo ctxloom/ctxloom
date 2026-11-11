@@ -27,7 +27,6 @@ use ctxloom_cli::{shaped, Call, CliError, Failure};
 use file_system::{Fs, Open};
 use os::Mode;
 use process_env::EnvSnapshot;
-use run_ports::{AuthSetting, EngineSettings, SessionHome};
 use serde::Serialize;
 use sessions_application::{ClearRequest, CloseRequest, LaunchRequest, Ordered, SendRequest};
 
@@ -40,6 +39,18 @@ pub(crate) const NOUN: &str = "daemon";
 /// How many open children an owner may hold when nothing says (the
 /// delegation limit's evidence, D-N14; no config key yet).
 const DELEGATION_LIMIT: u32 = 4;
+
+/// The variables a spawned daemon is given of its spawner's (D-N37).
+const DAEMON_ENV: [&str; 8] = [
+    "HOME",
+    run_ports::HOME_VARIABLE,
+    "PATH",
+    "TMPDIR",
+    "LANG",
+    "LC_ALL",
+    "USERPROFILE",
+    "SystemRoot",
+];
 
 /// How long a client waits for a daemon it spawned to advertise itself.
 const SPAWN_WAIT: Duration = Duration::from_secs(15);
@@ -295,23 +306,67 @@ pub(crate) fn run(
             prompt,
             engine,
             name,
-        } => orchestrate(&wiring, async |sessions| {
-            sessions
-                .launch_child(LaunchRequest {
-                    project: None,
-                    owner,
-                    harp: name.unwrap_or_else(crate::session_name),
-                    engine,
-                    prompt,
-                    delegation_limit: DELEGATION_LIMIT,
-                    session: String::new(),
-                })
-                .await
-        })?,
+        } => launch(&wiring, env, &files, owner, prompt, engine, name)?,
     };
     ensure(&wiring, env);
     output(render(out, format, &Done::from(ordered)))?;
     Ok(0)
+}
+
+/// `launch`: the child's id minted here, the environment a child may be
+/// given handed off to the daemon under it (S6, D-N37) BEFORE the launch is
+/// recorded, and withdrawn if the launch is refused.
+fn launch(
+    wiring: &Wiring,
+    env: &EnvSnapshot,
+    files: &DaemonFiles,
+    owner: String,
+    prompt: String,
+    engine: String,
+    name: Option<String>,
+) -> Result<Ordered, Failure> {
+    let session = uuid::Uuid::now_v7().hyphenated().to_string();
+    let caller: BTreeMap<String, String> = env.vars_utf8().into_iter().collect();
+    let settings = child_plan(
+        wiring.home(),
+        env.temp_dir(),
+        &wiring.project_dir().to_string_lossy(),
+        &caller,
+    )
+    .map(|previewed| {
+        run_application::hosted_child(
+            &previewed,
+            &engine,
+            &[],
+            run_ports::Credentials::NONE,
+            &BTreeMap::new(),
+        )
+        .settings
+    })
+    .unwrap_or_default();
+    let sent = engine_claude::launcher_environment(&settings, &caller);
+    files.hand_off(&session, &sent).map_err(|e| {
+        failed(CliError::Output {
+            detail: e.to_string(),
+        })
+    })?;
+    let launched = orchestrate(wiring, async |sessions| {
+        sessions
+            .launch_child(LaunchRequest {
+                project: None,
+                owner,
+                harp: name.unwrap_or_else(crate::session_name),
+                engine,
+                prompt,
+                delegation_limit: DELEGATION_LIMIT,
+                session: session.clone(),
+            })
+            .await
+    });
+    if launched.is_err() {
+        files.withdraw_hand_off(&session);
+    }
+    launched
 }
 
 /// `serve`: this process is the daemon until it exits.
@@ -322,12 +377,11 @@ fn be_the_daemon(
     pace: serve::Pace,
 ) -> Result<u8, Failure> {
     let say = logger(wiring.fs(), files.log_path());
-    let vars: BTreeMap<String, String> = env.vars_utf8().into_iter().collect();
     let place = serve::Place {
         home: wiring.home().to_path_buf(),
         temp: env.temp_dir().to_path_buf(),
     };
-    serve::serve(wiring.fs(), place, vars, pace, say)
+    serve::serve(wiring.fs(), place, pace, say)
         .map_err(|detail| failed(LibError::NoRuntime { detail }))?;
     Ok(0)
 }
@@ -409,9 +463,15 @@ fn ensure(wiring: &Wiring, env: &EnvSnapshot) {
     if let Some(idle) = env.utf8(IDLE_VARIABLE) {
         command.args(["--idle-seconds", idle]);
     }
+    // The daemon's own environment is what it needs to run, nothing more: a
+    // child's is its launcher's (S6, D-N37), so no spawner's credential
+    // lives in the daemon.
+    let kept = env
+        .vars()
+        .filter(|(name, _)| DAEMON_ENV.iter().any(|kept| name == kept));
     command
         .env_clear()
-        .envs(env.vars())
+        .envs(kept)
         .current_dir(wiring.home())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -430,19 +490,20 @@ fn ensure(wiring: &Wiring, env: &EnvSnapshot) {
     }
 }
 
-/// How the daemon starts a child of the project at `project_dir`: its
-/// engine's block of that project's configuration (D18: the child is run
-/// with its own repository's settings), read as a process in that project
-/// would; the engine's built-ins where it cannot be read.
-pub(crate) fn engine_settings(
+/// The plan of a child of the project at `project_dir` (D18, D-N38): that
+/// project's dry run, for its default agent on the child's engine, read as a
+/// process in that project would, with `env` (the environment its launcher
+/// sent, S6) and ctxloom's `home`. Where it cannot be planned, the error's
+/// code.
+pub(crate) fn child_plan(
     home: &Path,
     temp: &Path,
     project_dir: &str,
     env: &BTreeMap<String, String>,
-) -> EngineSettings {
+) -> Result<library_application::Previewed, String> {
     let mut vars: Vec<(OsString, OsString)> = env
         .iter()
-        .filter(|(name, _)| name.as_str() != "CTXLOOM_ROOT")
+        .filter(|(name, _)| !matches!(name.as_str(), "CTXLOOM_ROOT" | "HOME"))
         .map(|(name, value)| (name.into(), value.into()))
         .collect();
     vars.push(("CTXLOOM_ROOT".into(), project_dir.into()));
@@ -453,34 +514,15 @@ pub(crate) fn engine_settings(
         temp.to_path_buf(),
         vars,
     );
-    let drive = Wiring::new(Arc::new(snapshot))
-        .ok()
-        .and_then(|wiring| crate::library::build(&wiring, None).ok())
-        .and_then(|library| {
-            library.engine_drive(
-                &library_application::Flags::default(),
-                session_policies::CHILD_ENGINE,
-            )
-        });
-    let Some(drive) = drive else {
-        return EngineSettings::default();
+    let code = |e: &dyn angzarr_diagnostic::Diagnostic| e.code().to_string();
+    let wiring = Wiring::new(Arc::new(snapshot)).map_err(|e| code(&e))?;
+    let library = crate::library::build(&wiring, None).map_err(|e| code(&e))?;
+    let request = library_application::RunRequest {
+        engine: session_policies::CHILD_ENGINE.to_string(),
+        ..library_application::RunRequest::default()
     };
-    EngineSettings {
-        command: drive.command,
-        session_home: match drive.session_home.as_str() {
-            "host" => SessionHome::Host,
-            _ => SessionHome::Session,
-        },
-        auth: match (&drive.auth.source, &drive.auth.value) {
-            (library_application::Source::Default, _) => AuthSetting::Builtin,
-            (_, library_application::AuthSource::None) => AuthSetting::None,
-            (_, library_application::AuthSource::Login) => AuthSetting::Login,
-            (_, library_application::AuthSource::Token) => AuthSetting::Builtin,
-            (_, library_application::AuthSource::Credential { env, file }) => AuthSetting::Source {
-                env: env.clone(),
-                file: file.clone(),
-            },
-        },
-        env: drive.env,
-    }
+    library
+        .dry_run(&library_application::Flags::default(), &request)
+        .result
+        .map_err(|e| code(&e))
 }

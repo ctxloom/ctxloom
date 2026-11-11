@@ -13,6 +13,9 @@ use library_application::Previewed;
 use run_ports::{Credentials, EngineSettings};
 use runs_application::Evidence;
 
+use crate::credential::credential_evidence;
+use crate::one_shot::{posture_of, settings_of};
+
 /// How a hosted child is started, and what its enqueue is judged on.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HostedChild {
@@ -37,14 +40,29 @@ pub fn hosted_child(
     base: Credentials,
     env: &BTreeMap<String, String>,
 ) -> HostedChild {
-    // RED: today's daemon child, passing evidence and nothing planned.
-    let _ = (previewed, drivable, base, env);
+    let plan = &previewed.plan;
+    let settings = settings_of(plan, engine);
+    let policy = settings.credentials(base);
+    let evidence = Evidence {
+        prompt_given: true,
+        engine: engine.to_string(),
+        drivable_engines: drivable.to_vec(),
+        credential: Some(credential_evidence(
+            engine,
+            &settings.auth,
+            &base,
+            &policy,
+            env,
+        )),
+        fatal_findings: u32::try_from(previewed.fatal.len()).unwrap_or(u32::MAX),
+        posture: posture_of(plan),
+    };
     HostedChild {
-        context: String::new(),
-        model: String::new(),
-        effort: String::new(),
-        settings: EngineSettings::default(),
-        evidence: Evidence::passing(engine),
+        context: plan.context.clone(),
+        model: plan.model.clone(),
+        effort: plan.effort.clone(),
+        settings,
+        evidence,
     }
 }
 

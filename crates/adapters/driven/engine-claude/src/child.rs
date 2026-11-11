@@ -14,6 +14,7 @@
 //! The control's `Drop` closes the engine's input, so a child no one holds
 //! ends after the turn it is on (claude exits on its input's end).
 
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{ChildStdin, ExitStatus};
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -36,6 +37,9 @@ const DRAIN_GRACE: Duration = Duration::from_secs(2);
 
 /// How often [`ChildControl::end`] looks whether the engine has exited.
 const POLL: Duration = Duration::from_millis(10);
+
+/// The names a child's host sets for it, which no permit replaces.
+const OWNED: [&str; 2] = ["HOME", "PATH"];
 
 /// The most of stderr kept for the exit's detail.
 const STDERR_KEPT: usize = 4096;
@@ -83,19 +87,59 @@ pub(crate) fn child_command(spec: &ChildSpec) -> Result<TurnCommand, EngineError
         command.args.push(session_id.clone());
     }
     command.env = drive::environment(&Claude::new(), false, &request)?;
+    // The launcher's permits reach the child as a turn's do (ruling 78),
+    // never over a name ctxloom sets: the adapter's, and the HOME and PATH
+    // its host sets (the one-shot's own).
+    let owned: Vec<String> = OWNED.map(String::from).to_vec();
+    let _ = run_ports::apply_permits(&spec.env, &mut command.env, &owned);
     command.cwd = request.cwd.clone();
     Ok(command)
 }
 
+/// Where claude writes the transcripts of a child started from `spec`: its
+/// config dir's `projects/<cwd>`, the working directory with every character
+/// that is not an ASCII letter, digit or `-` made a `-` (claude's own layout,
+/// the path its hooks name as `transcript_path`; seen for `/`, not verified
+/// live for other characters). A transcript is `<this>/<native id>.jsonl`.
+/// None for a spec with no working directory or whose command cannot be made.
+pub fn transcripts_of(spec: &ChildSpec) -> Option<String> {
+    let cwd = spec.cwd.as_deref()?;
+    let command = child_command(spec).ok()?;
+    let config = command.env.get("CLAUDE_CONFIG_DIR")?;
+    let slug: String = cwd
+        .chars()
+        .map(|c| match c.is_ascii_alphanumeric() || c == '-' {
+            true => c,
+            false => '-',
+        })
+        .collect();
+    Some(format!("{config}/projects/{slug}"))
+}
+
 /// What a launching client sends the user daemon as a child's environment
-/// (S6, D-N37).
+/// (S6, D-N37): the variables of `caller` a child may be given under
+/// `settings` (the curated allowlist, the engine block's `env`, the
+/// configured credential's variables) and its `CTXLOOM_PERMIT_*` permits
+/// (ruling 78); never the primary's token, nor `HOME` or the caller's own
+/// `CTXLOOM_*` home and hook variables, which the daemon sets for the child.
 pub fn launcher_environment(
     settings: &run_ports::EngineSettings,
-    caller: &std::collections::BTreeMap<String, String>,
-) -> std::collections::BTreeMap<String, String> {
-    // RED: the whole environment, as the daemon's own is passed today.
-    let _ = settings;
-    caller.clone()
+    caller: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let theirs: Vec<&str> = run_ports::HOOK_VARIABLES
+        .iter()
+        .copied()
+        .chain([run_ports::HOME_VARIABLE, run_ports::HARP_VARIABLE])
+        .collect();
+    caller
+        .iter()
+        .filter(|(name, _)| {
+            name.starts_with(run_ports::PERMIT_PREFIX)
+                || (!theirs.contains(&name.as_str())
+                    && drive::child_may_have(&Claude::new(), settings, name))
+        })
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect()
 }
 
 /// What the control and the reader share.

@@ -7,6 +7,8 @@
 //! human's `run` (Plan step 3): the same plan and launch with her terminal
 //! given to the engine. A saved session's resume and the dry run are not here:
 //! the library answers the last, and the other arrives with its step.
+//! [`hosted_child`] is how the user daemon plans and judges a child it hosts,
+//! the same way a one-shot child is (D18, rulings 53, 73e).
 
 mod credential;
 mod error;

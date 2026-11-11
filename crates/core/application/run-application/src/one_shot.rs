@@ -207,7 +207,10 @@ fn chosen_engine(plan: &library_application::DryRun, request: &OneShot) -> Strin
 /// asked for the engine the caller forces (`run --engine`, ruling 57), so it
 /// resolved that engine's settings; a plan for another engine (a caller that
 /// did not ask it) runs on the forced engine's built-ins.
-fn settings_of(plan: &library_application::DryRun, engine: &str) -> run_ports::EngineSettings {
+pub(crate) fn settings_of(
+    plan: &library_application::DryRun,
+    engine: &str,
+) -> run_ports::EngineSettings {
     if plan.engine != engine {
         return run_ports::EngineSettings::default();
     }
@@ -908,7 +911,7 @@ mod tests;
 
 /// The posture a run claims, as its plan says, and what the runtime it is
 /// launched on enforces (owner rulings 59, 109), for the run to judge.
-fn posture_of(plan: &library_application::DryRun) -> runs_application::PostureEvidence {
+pub(crate) fn posture_of(plan: &library_application::DryRun) -> runs_application::PostureEvidence {
     let runtime = plan.axes.1.clone();
     let enforced = run_ports::enforced(&runtime);
     runs_application::PostureEvidence {

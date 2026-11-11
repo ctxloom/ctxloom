@@ -216,7 +216,10 @@ where
             .read
             .find(request.project.as_deref(), &request.owner)
             .await?;
-        let child = fresh(&self.clock.command_id());
+        let child = match request.session.is_empty() {
+            true => fresh(&self.clock.command_id()),
+            false => request.session.clone(),
+        };
         let command = LaunchChild {
             child_project_id: project.id.clone(),
             child_session: child.clone(),

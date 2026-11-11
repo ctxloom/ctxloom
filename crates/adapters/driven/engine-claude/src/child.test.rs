@@ -313,6 +313,25 @@ fn the_environment_a_launcher_sends_is_what_a_child_may_be_given() {
     assert_eq!(sent["ACME_KEY"], "a");
 }
 
+// D-N43: the runner's bind names the transcript as claude's hooks would, so
+// a clear's rotation displaces the binding.
+#[test]
+fn a_childs_transcripts_are_under_its_config_dir_by_its_working_directory() {
+    let mut asked = spec("");
+    assert_eq!(crate::transcripts_of(&asked), None, "no working directory");
+    asked.cwd = Some("/work/my_proj.v2".to_string());
+    assert_eq!(
+        crate::transcripts_of(&asked).as_deref(),
+        Some("/nowhere/home/projects/-work-my-proj-v2")
+    );
+    asked.env.insert("HOME".to_string(), "/home/u".to_string());
+    asked.settings.session_home = run_ports::SessionHome::Host;
+    assert_eq!(
+        crate::transcripts_of(&asked).as_deref(),
+        Some("/home/u/.claude/projects/-work-my-proj-v2")
+    );
+}
+
 #[test]
 fn a_child_carries_many_turns_in_one_process() {
     let mut running = run(STUB);

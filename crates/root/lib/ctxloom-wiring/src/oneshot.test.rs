@@ -273,27 +273,53 @@ mod hooks {
             .unwrap()
     }
 
+    /// What a hook delivering to `port`, pinning `cert`, is answered: the
+    /// wiring's own sink, with a bearer no run holds. The listener presenting
+    /// `cert` answers it (the gate refuses the run); anyone else on the port
+    /// (another test's listener, once the port is freed and given again)
+    /// fails the pinned handshake, and nobody refuses the connection: both are
+    /// unavailable.
+    async fn delivered(port: u16, cert: &run_ports::PublicCert) -> run_ports::Delivery {
+        use run_ports::FactSink;
+        let sink = hook_sink_grpc::GrpcSink::new(
+            run_ports::endpoint_url("127.0.0.1", port).unwrap(),
+            run_ports::Bearer::compose("no-such-run", &run_ports::Token::from_bytes([7; 32])),
+            cert.clone(),
+        );
+        tokio::task::spawn_blocking(move || {
+            sink.deliver(
+                angzarr_embedded::v1::CommandBook::default(),
+                std::time::Duration::from_secs(10),
+            )
+        })
+        .await
+        .unwrap()
+    }
+
+    // Stopped is judged by THIS run's certificate, never by the port staying
+    // free: under one process (cargo test, the mutation run) a freed port can
+    // be given at once to another test's listener, which a plain connect
+    // would take for this one.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn the_run_use_case_serves_and_stops_the_listener_through_the_port() {
         let hooks = hooks().await;
+        let identity = identity();
         let serving = hooks
-            .serve_tcp(IpAddr::V4(Ipv4Addr::LOCALHOST), &identity())
+            .serve_tcp(IpAddr::V4(Ipv4Addr::LOCALHOST), &identity)
             .await
             .expect("serves");
         let port = serving.port();
         assert_ne!(port, 0, "the port the system gave is reported");
+        let answered = delivered(port, identity.public()).await;
         assert!(
-            tokio::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port))
-                .await
-                .is_ok(),
-            "bound when serve_tcp returns"
+            matches!(answered, run_ports::Delivery::Refused { .. }),
+            "served when serve_tcp returns: {answered:?}"
         );
         serving.stop().await;
+        let stopped = delivered(port, identity.public()).await;
         assert!(
-            tokio::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port))
-                .await
-                .is_err(),
-            "closed on stop"
+            matches!(stopped, run_ports::Delivery::Unavailable { .. }),
+            "closed on stop: {stopped:?}"
         );
     }
 

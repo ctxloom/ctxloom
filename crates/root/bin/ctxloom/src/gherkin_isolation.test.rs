@@ -8,6 +8,10 @@
 //!   command line is clap's, not cobra's).
 //! - "no container runtime is installed" hides docker and podman by giving
 //!   the process a PATH with neither, as Go's mask does.
+//! - "the host's container runtimes are hidden behind stubs" gives it a PATH
+//!   of one directory holding a fixture `docker` and `podman` that write down
+//!   each call and never answer, so a probe reaches no runtime of the host's
+//!   (which would write its own state outside the test's home).
 //!
 //! The worktree scenarios (cli/session_worktrees.feature and the sweep) run
 //! in gherkin.test.rs beside the session steps they share.
@@ -29,6 +33,8 @@ struct World {
     common: Common,
     /// Fake companions, and the empty directory that hides the runtimes.
     bin: Option<file_system::Rooted>,
+    /// Where the stub runtimes write down each call, when they are the PATH.
+    asked: Option<std::path::PathBuf>,
     recorded: Option<BTreeMap<String, Vec<u8>>>,
 }
 
@@ -53,6 +59,7 @@ impl World {
         World {
             common: Common::new(),
             bin: None,
+            asked: None,
             recorded: None,
         }
     }
@@ -104,6 +111,80 @@ fn no_runtime(w: &mut World) {
     let path = empty.root().to_string_lossy().into_owned();
     w.bin = Some(empty);
     w.common.set_env("PATH", path);
+}
+
+/// The runtimes `container check` looks for on the PATH.
+const RUNTIMES: [&str; 2] = ["docker", "podman"];
+
+#[given("the host's container runtimes are hidden behind stubs")]
+fn stub_runtimes(w: &mut World) {
+    // PATH is this one directory: a docker and a podman that write down each
+    // call and never answer, and nothing else.
+    let dir = files::root();
+    let asked = dir.root().join("asked");
+    for name in RUNTIMES {
+        let script = format!(
+            "#!/bin/sh\necho \"{name} $*\" >> '{}'\nexit 1\n",
+            asked.display()
+        );
+        files::put_program(dir.root().join(name), &script);
+    }
+    w.common
+        .set_env("PATH", dir.root().to_string_lossy().into_owned());
+    w.bin = Some(dir);
+    w.asked = Some(asked);
+}
+
+/// The calls the stub runtimes were given, one per line; none when there
+/// were none. The run's PATH must be the stubs' directory alone, which holds
+/// nothing but them, so no runtime of the host's could have been found.
+fn stub_calls(w: &World) -> Vec<String> {
+    let bin = w.bin.as_ref().expect("stub runtimes").root();
+    let path = w
+        .common
+        .env
+        .iter()
+        .find(|(name, _)| name == "PATH")
+        .map(|(_, value)| value.as_str());
+    assert_eq!(path, bin.to_str(), "the PATH is the stubs' directory alone");
+    let mut held: Vec<String> = files::fs()
+        .read_dir(bin)
+        .expect("the stubs' directory")
+        .into_iter()
+        .map(|entry| entry.name.to_string_lossy().into_owned())
+        .filter(|name| name != "asked")
+        .collect();
+    held.sort();
+    let mut expected: Vec<String> = RUNTIMES
+        .iter()
+        .flat_map(|name| [name.to_string(), format!("{name}.body")])
+        .collect();
+    expected.sort();
+    assert_eq!(held, expected, "the stubs' directory holds the stubs alone");
+    let asked = w.asked.as_ref().expect("stub runtimes");
+    if !files::exists(asked) {
+        return Vec::new();
+    }
+    files::read(asked)
+        .expect("the stubs' calls")
+        .lines()
+        .map(String::from)
+        .collect()
+}
+
+#[then("the runtimes probed were the stubs alone")]
+fn probed_the_stubs(w: &mut World) {
+    let calls = stub_calls(w);
+    for name in RUNTIMES {
+        let info = format!("{name} info");
+        assert!(calls.contains(&info), "{info} was not asked: {calls:?}");
+    }
+}
+
+#[then("no container runtime was asked anything")]
+fn asked_nothing(w: &mut World) {
+    let calls = stub_calls(w);
+    assert!(calls.is_empty(), "the runtimes were asked {calls:?}");
 }
 
 #[given(

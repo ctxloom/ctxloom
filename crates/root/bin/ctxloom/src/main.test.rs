@@ -209,6 +209,9 @@ pub(crate) mod companion_stub;
 #[path = "companion_assembly.test.rs"]
 mod companion_assembly;
 
+#[path = "daemon.test.rs"]
+mod daemon;
+
 #[path = "deps.test.rs"]
 mod deps;
 

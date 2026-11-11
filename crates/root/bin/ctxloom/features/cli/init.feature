@@ -110,7 +110,7 @@ Feature: init — the setup interview, and what it does to a project that alread
     remote, clones nothing, pulls nothing and writes nothing under
     `.ctxloom/cache`, and a run's plan resolves the seeded profile with
     nothing missing. The one bundle ctxloom ships, `ctxloom` under the
-    read-only BUILT-IN origin `ctxloom/default`, holds its operational prompts
+    read-only BUILT-IN origin `ctxloom/builtin`, holds its operational prompts
     (the setup interview and the distill prompt): it is listed beside the
     project's own bundles, but no profile includes it and no session is handed
     it; only init and distill use it. The `ctxloom-default` repository stays an
@@ -134,7 +134,7 @@ Feature: init — the setup interview, and what it does to a project that alread
       And the file ".ctxloom/lock.yaml" does not exist
       When I run "ctxloom bundle list --format text"
       Then the command succeeds
-      And the output contains "ctxloom (v1.0.0) [built-in ctxloom/default]"
+      And the output contains "ctxloom (v1.0.0) [built-in]"
       And the output does not contain "ai-developer"
       And the output does not contain "testing (v1.0.0)"
       When I run "ctxloom run --dry-run --format json hello"
@@ -144,7 +144,7 @@ Feature: init — the setup interview, and what it does to a project that alread
       And the file ".ctxloom/cache" does not exist
       When I run "ctxloom profile list --format text"
       Then the command succeeds
-      And the output does not contain "[built-in ctxloom/default]"
+      And the output does not contain "[built-in]"
 
     # Read-only, and the refusal says how to change it: a project bundle of
     # its name overrides it whole in the catalog, and an export is how to make
@@ -157,7 +157,7 @@ Feature: init — the setup interview, and what it does to a project that alread
         ctxloom fragment create ctxloom house-rules
         """
       Then the command fails
-      And the output contains "bundle \"ctxloom\" is built into ctxloom (ctxloom/default) and is read-only"
+      And the output contains "bundle \"ctxloom\" is built into ctxloom (ctxloom/builtin) and is read-only"
       And the output contains "copy it into the project and change that copy: ctxloom bundle export ctxloom "
       And the file ".ctxloom/content/bundles/v2/ctxloom" does not exist
       When I run "ctxloom bundle export ctxloom .ctxloom/content/bundles/v2"
@@ -278,6 +278,52 @@ Feature: init — the setup interview, and what it does to a project that alread
       And the output contains "Phase 4 — Agents"
       And the output contains "Phase 5 — Close"
 
+    # Owner ruling 128: init reads the interview THROUGH the catalog. A
+    # project bundle named `ctxloom` overrides the built-in one whole: what it
+    # holds is what init opens with (a trust cost the owner accepted), and a
+    # setup interview it lacks is refused, naming the prompt, never taken
+    # from the built-in bundle.
+    Scenario: A project bundle named ctxloom replaces the interview init opens with
+      # new: owner ruling 128.
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/content/bundles/v2/ctxloom/bundle.yaml":
+        """
+        schema_version: 4
+        version: 9.9.9
+        """
+      And the project already has the file ".ctxloom/content/bundles/v2/ctxloom/prompts/setup-interview.md":
+        """
+        OUR-OWN-SETUP-INTERVIEW
+        """
+      When Alice asks for the setup interview her project holds:
+        """
+        ctxloom init prompt
+        """
+      Then the command succeeds
+      And the output contains "OUR-OWN-SETUP-INTERVIEW"
+      And the output does not contain "Phase 1 — Open, orient, scan"
+
+    Scenario: A project bundle named ctxloom without the interview is refused, naming it
+      # new: owner ruling 128.
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/content/bundles/v2/ctxloom/bundle.yaml":
+        """
+        schema_version: 4
+        version: 9.9.9
+        """
+      And the project already has the file ".ctxloom/content/bundles/v2/ctxloom/prompts/distill.md":
+        """
+        OUR-OWN-DISTILL-PROMPT
+        """
+      When Alice asks for the setup interview her project holds:
+        """
+        ctxloom init prompt
+        """
+      Then the command exits with code 2
+      And the output contains "the project's bundle \"ctxloom\" overrides ctxloom's built-in one whole, and has no prompt \"setup-interview\""
+      And the output contains "fix: "
+      And the output does not contain "Phase 1 — Open, orient, scan"
+
     # One body: the built-in bundle's prompt is what `init prompt` prints.
     Scenario: The setup interview is the built-in bundle's prompt
       # new: owner ruling 117.
@@ -289,6 +335,10 @@ Feature: init — the setup interview, and what it does to a project that alread
       Then the command succeeds
       And the output contains "Phase 1 — Open, orient, scan"
       And the output contains "Phase 5 — Close"
+      # Distill is not built yet; its prompt resolves all the same.
+      When I run "ctxloom command show ctxloom#prompts/distill"
+      Then the command succeeds
+      And the output contains "You are a text compression assistant."
 
   @pending
   Rule: A first init asks its questions at the terminal, and says what it chose for the rest

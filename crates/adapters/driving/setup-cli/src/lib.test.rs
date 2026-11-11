@@ -64,6 +64,23 @@ struct Launches {
     interview_code: Option<i32>,
     restart_code: Option<i32>,
     launched: Mutex<Vec<&'static str>>,
+    /// The project's catalog has no setup interview (owner ruling 128).
+    no_prompt: bool,
+}
+
+/// The setup interview the fake catalog holds.
+const INTERVIEW: &str = "THE CATALOG'S SETUP INTERVIEW";
+
+impl init_application::Prompts for Launches {
+    fn setup_interview(&self) -> Result<String, init_application::PromptFailure> {
+        if self.no_prompt {
+            return Err(init_application::PromptFailure {
+                cause: Box::new(deps_application::AppError::DefaultNeedsName),
+                exit: 2,
+            });
+        }
+        Ok(INTERVIEW.to_string())
+    }
 }
 
 impl Launches {
@@ -275,6 +292,7 @@ fn go_with(
         init: &init,
         terminal: person,
         sessions,
+        prompts: sessions,
     };
     let mut full = vec!["ctxloom"];
     full.extend(line);
@@ -645,8 +663,32 @@ fn init_adds_each_remote_and_reports_one_that_would_not_register_as_a_warning() 
 fn init_prompt_prints_the_interview_and_nothing_else() {
     let r = go(&["init", "prompt"], Format::Json, none);
     assert_eq!(r.exit.unwrap(), 0);
-    assert_eq!(r.out, init_application::prompt());
+    assert_eq!(r.out, format!("{INTERVIEW}\n"));
     assert_eq!(r.err, "");
+}
+
+// Owner ruling 128: a catalog with no setup interview (a project bundle
+// `ctxloom` without one) is refused, with the refusal's exit, and prints no
+// interview.
+#[test]
+fn init_prompt_the_catalog_lacks_is_refused() {
+    let sessions = Launches {
+        no_prompt: true,
+        ..Launches::default()
+    };
+    let mut out = Vec::new();
+    let r = go_with(
+        &["init", "prompt"],
+        Format::Text,
+        none,
+        &mut out,
+        &Person::default(),
+        &sessions,
+    );
+    let failure = r.exit.expect_err("refused");
+    assert_eq!(failure.exit, 2);
+    assert_eq!(failure.cause.code(), "deps-application-default-needs-name");
+    assert!(out.is_empty());
 }
 
 #[test]
@@ -677,6 +719,7 @@ fn a_noun_the_line_does_not_carry_is_a_usage_failure() {
         init: &init,
         terminal: &Person::default(),
         sessions: &Launches::default(),
+        prompts: &Launches::default(),
     };
     let matches = nouns()
         .into_iter()

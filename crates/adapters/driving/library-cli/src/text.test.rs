@@ -1243,12 +1243,12 @@ fn settings(model: Option<&str>) -> library_application::AgentSettings {
     }
 }
 
-// Owner rulings 110, 111: a built-in bundle is listed under its origin.
+// Owner rulings 110, 111, 127: a built-in bundle is labelled `[built-in]`.
 #[test]
 fn test_a_built_in_bundle_is_listed_under_its_origin() {
     let list = BundleList {
         rows: vec![BundleRow {
-            origin: "ctxloom/default".to_string(),
+            origin: "ctxloom/builtin".to_string(),
             ..bundle("testing", 3, 0, 0)
         }],
         no_root: false,
@@ -1257,8 +1257,5 @@ fn test_a_built_in_bundle_is_listed_under_its_origin() {
     let mut out = Vec::new();
     bundle_list(&mut out, &list).unwrap();
     let text = String::from_utf8(out).unwrap();
-    assert!(
-        text.contains("  testing (v1.2.0) [built-in ctxloom/default]\n"),
-        "{text}"
-    );
+    assert!(text.contains("  testing (v1.2.0) [built-in]\n"), "{text}");
 }

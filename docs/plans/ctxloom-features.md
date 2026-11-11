@@ -164,9 +164,10 @@ feature file; it belongs in git history.
   interview `init` opens with (`prompts/setup-interview`) and the distill prompt
   (`prompts/distill`, the owner's own text). It is not generally injected: no profile
   includes it and no session is handed it; only init and distill use it. The catalog
-  lists it under the read-only built-in origin `ctxloom/default`, beside the project's
-  own bundles and those installed from remotes; a project bundle of the same name
-  overrides it whole. A write to it is refused
+  lists it under the read-only built-in origin `ctxloom/builtin` (`[built-in]` in text),
+  beside the project's own bundles and those installed from remotes; a project bundle
+  of the same name overrides it whole, and init reads its interview through the
+  catalog, so the project's copy is what it opens with (one without it is refused). A write to it is refused
   (`library-application-write-builtin-read-only`), naming the override (`bundle export`
   into the project's bundles directory). Init and the scaffold seed no remote and a
   BARE `default` profile, which inherits nothing: a fresh project has no coding

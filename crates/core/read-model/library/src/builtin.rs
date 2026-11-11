@@ -28,6 +28,12 @@ pub const BUNDLE: &str = "ctxloom";
 pub const SETUP_INTERVIEW: &str =
     include_str!("../resources/builtin/ctxloom/prompts/setup-interview.md");
 
+/// RED (ruling 128): the setup interview's name in [`BUNDLE`].
+pub const SETUP_INTERVIEW_NAME: &str = "";
+
+/// RED (ruling 128): the distill prompt's name in [`BUNDLE`].
+pub const DISTILL_NAME: &str = "";
+
 /// The distill prompt, `ctxloom#prompts/distill`: the owner's own text
 /// (ruling 123).
 pub const DISTILL_PROMPT: &str = include_str!("../resources/builtin/ctxloom/prompts/distill.md");

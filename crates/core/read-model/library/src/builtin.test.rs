@@ -8,7 +8,9 @@ use super::*;
 fn test_the_one_built_in_bundle_is_ctxloom_s_operational_prompts() {
     assert_eq!(names(), [BUNDLE]);
     assert_eq!(BUNDLE, "ctxloom");
-    assert_eq!(ORIGIN, "ctxloom/default");
+    assert_eq!(ORIGIN, "ctxloom/builtin");
+    assert_eq!(SETUP_INTERVIEW_NAME, "setup-interview");
+    assert_eq!(DISTILL_NAME, "distill");
     for gone in ["ai-developer", "ai-coding-general", "testing", "git"] {
         assert!(files(gone).is_none(), "{gone} is no longer built in");
     }
@@ -44,10 +46,7 @@ fn test_the_built_in_bundle_offers_itself_to_no_session() {
     for command in bundle.commands.values() {
         assert!(command.body.tags.is_empty());
     }
-    assert_eq!(
-        read[0].manifest_path,
-        "<built-in ctxloom/default>/ctxloom/bundle.yaml"
-    );
+    assert_eq!(read[0].manifest_path, "<built-in>/ctxloom/bundle.yaml");
 }
 
 // The prompts the activities use are the bundle's, as they are read from it.
@@ -55,8 +54,8 @@ fn test_the_built_in_bundle_offers_itself_to_no_session() {
 fn test_the_prompts_are_the_bundle_s_items_as_read() {
     let read = entries(&|_| false);
     let commands = &read[0].bundle.commands;
-    assert_eq!(commands["setup-interview"].body.content, SETUP_INTERVIEW);
-    assert_eq!(commands["distill"].body.content, DISTILL_PROMPT);
+    assert_eq!(commands[SETUP_INTERVIEW_NAME].body.content, SETUP_INTERVIEW);
+    assert_eq!(commands[DISTILL_NAME].body.content, DISTILL_PROMPT);
     // The file is Go's, its front matter dropped: it opens with the blank
     // line that followed it.
     assert!(SETUP_INTERVIEW

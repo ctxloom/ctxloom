@@ -70,6 +70,13 @@ pub enum AppError {
         name: String,
         available: String,
     },
+    /// An operational prompt (owner ruling 128) the project's own bundle of
+    /// the built-in one's name lacks: it overrides the built-in one whole.
+    OperationalPromptMissing {
+        bundle: String,
+        prompt: String,
+        dir: String,
+    },
     /// A reference that is not `bundle#<kind>/name`.
     BadReference { expected: String, got: String },
     /// A reference of the wrong kind for the command.
@@ -200,6 +207,7 @@ impl Diagnostic for AppError {
             AppError::ViewMissing { .. } => code!("view-missing"),
             AppError::NotViewable { .. } => code!("not-viewable"),
             AppError::ItemMissing { .. } => code!("item-missing"),
+            AppError::OperationalPromptMissing { .. } => code!("operational-prompt-missing"),
             AppError::BadReference { .. } => code!("bad-reference"),
             AppError::WrongKind { .. } => code!("wrong-kind"),
             AppError::UnsupportedFormat { .. } => code!("unsupported-format"),
@@ -270,6 +278,15 @@ impl Diagnostic for AppError {
                 ("kind", kind.as_str().into()),
                 ("name", name.as_str().into()),
                 ("available", available.as_str().into()),
+            ],
+            AppError::OperationalPromptMissing {
+                bundle,
+                prompt,
+                dir,
+            } => vec![
+                ("bundle", bundle.as_str().into()),
+                ("prompt", prompt.as_str().into()),
+                ("dir", dir.as_str().into()),
             ],
             AppError::BadReference { expected, got } => vec![
                 ("expected", expected.as_str().into()),
@@ -576,6 +593,11 @@ fn error_samples() -> Vec<Box<dyn Diagnostic>> {
             kind: s("fragment"),
             name: s("nope"),
             available: s("example"),
+        }),
+        Box::new(AppError::OperationalPromptMissing {
+            bundle: s("ctxloom"),
+            prompt: s("distill"),
+            dir: s("/p/.ctxloom/content/bundles/v2/ctxloom"),
         }),
         Box::new(AppError::BadReference {
             expected: s("bundle#fragments/name"),

@@ -53,7 +53,7 @@ fn refusal<T>(outcome: crate::Outcome<T>) -> (String, String) {
 fn read_only(bundle: &str) -> (String, String) {
     let refused = WriteError::BuiltinReadOnly {
         bundle: bundle.to_string(),
-        origin: "ctxloom/default".to_string(),
+        origin: "ctxloom/builtin".to_string(),
         dir: "/p/.ctxloom/content/bundles/v2".to_string(),
     };
     (refused.code().to_string(), refused.english())
@@ -89,9 +89,9 @@ fn test_a_project_lists_the_built_in_bundles_under_their_origin() {
         .map(|name| {
             [
                 name.to_string(),
-                "ctxloom/default".to_string(),
+                "ctxloom/builtin".to_string(),
                 format!("ctxloom+local:{name}"),
-                format!("<built-in ctxloom/default>/{name}/bundle.yaml"),
+                format!("<built-in>/{name}/bundle.yaml"),
             ]
         })
         .collect();
@@ -234,7 +234,7 @@ fn test_every_write_to_a_built_in_bundle_is_refused_and_writes_nothing() {
     assert_eq!(code, "library-application-write-builtin-read-only");
     assert_eq!(
         said,
-        "bundle \"ctxloom\" is built into ctxloom (ctxloom/default) and is read-only; a project bundle of its name, in /p/.ctxloom/content/bundles/v2, overrides it"
+        "bundle \"ctxloom\" is built into ctxloom (ctxloom/builtin) and is read-only; a project bundle of its name, in /p/.ctxloom/content/bundles/v2, overrides it"
     );
 }
 
@@ -245,10 +245,7 @@ fn test_a_built_in_bundle_exports_its_shipped_files() {
     let (library, mem) = world(&[]);
     let done = ok(library.bundle_export(&plain(), "ctxloom", "out", ""));
     assert_eq!(done.dest, "out/ctxloom");
-    assert_eq!(
-        done.source,
-        "<built-in ctxloom/default>/ctxloom/bundle.yaml"
-    );
+    assert_eq!(done.source, "<built-in>/ctxloom/bundle.yaml");
     let paths = mem.user_paths();
     assert_eq!(paths.len(), 3, "{paths:?}");
     assert_eq!(
@@ -297,4 +294,107 @@ fn test_an_import_of_a_new_name_beside_other_bundles_is_not_refused() {
     let imported = ok(library.bundle_import(&plain(), "in/mine", false));
     assert_eq!(imported.dest, "/p/.ctxloom/content/bundles/v2/mine");
     assert_eq!(mem.log(), ["claim mine", "apply mine"]);
+}
+
+/// The `ctxloom` bundle a project holds of its own, with `prompts`.
+fn own_ctxloom(prompts: &[(&'static str, &'static str)]) -> Vec<(&'static str, &'static str)> {
+    let mut files = vec![("bundle.yaml", "schema_version: 4\nversion: 9.9.9\n")];
+    files.extend_from_slice(prompts);
+    files
+}
+
+// Owner ruling 128: an activity reads its prompt THROUGH the catalog. With no
+// project bundle of the name, it is the built-in one's, as it ships.
+#[test]
+fn test_an_operational_prompt_is_the_built_in_one_as_it_ships() {
+    let (library, mem) = world(&[("project", PROJECT)]);
+    for (name, text) in [
+        (
+            library::builtin::SETUP_INTERVIEW_NAME,
+            library::builtin::SETUP_INTERVIEW,
+        ),
+        (
+            library::builtin::DISTILL_NAME,
+            library::builtin::DISTILL_PROMPT,
+        ),
+    ] {
+        assert_eq!(ok(library.operational_prompt(&plain(), name)), text);
+    }
+    assert_eq!(mem.writes(), 0);
+}
+
+// With no project (the home's configuration alone), there is nothing to
+// override it: `init prompt` anywhere is the built-in one.
+#[test]
+fn test_an_operational_prompt_outside_a_project_is_the_built_in_one() {
+    let library = Setup {
+        layers: &[CONFIG],
+        home_only: true,
+        builtins: true,
+        ..Setup::default()
+    }
+    .library();
+    assert_eq!(
+        ok(library.operational_prompt(&plain(), library::builtin::SETUP_INTERVIEW_NAME)),
+        library::builtin::SETUP_INTERVIEW
+    );
+}
+
+// A project bundle named `ctxloom` that holds the prompt replaces the
+// embedded text (the trust cost the owner accepted).
+#[test]
+fn test_a_project_bundle_of_the_name_replaces_the_prompt() {
+    let ours = own_ctxloom(&[("prompts/setup-interview.md", "OUR OWN INTERVIEW\n")]);
+    let (library, _) = world(&[("ctxloom", &ours)]);
+    assert_eq!(
+        ok(library.operational_prompt(&plain(), "setup-interview")),
+        "OUR OWN INTERVIEW\n"
+    );
+}
+
+// It overrides the built-in one WHOLE: a prompt it lacks is not taken from
+// the built-in bundle. It is refused, naming the prompt and where it goes.
+#[test]
+fn test_a_project_bundle_of_the_name_lacking_the_prompt_is_refused() {
+    let ours = own_ctxloom(&[("prompts/setup-interview.md", "OUR OWN INTERVIEW\n")]);
+    let (library, _) = world(&[("ctxloom", &ours)]);
+    let refused = library.operational_prompt(&plain(), "distill").result;
+    let Err(e) = refused else {
+        panic!("not refused: {refused:?}")
+    };
+    assert_eq!(e.code(), "library-application-operational-prompt-missing");
+    assert_eq!(e.exit_code(), 2);
+    assert_eq!(
+        e.english(),
+        "the project's bundle \"ctxloom\" overrides ctxloom's built-in one whole, and has no prompt \"distill\""
+    );
+}
+
+// One that is there and cannot be read overrides it too: refused for what it
+// is, never answered with the built-in text.
+#[test]
+fn test_an_unreadable_project_bundle_of_the_name_is_refused() {
+    let broken: &[(&str, &str)] = &[("bundle.yaml", "schema_version: 4\nversion: [\n")];
+    let (library, _) = world(&[("ctxloom", broken)]);
+    let refused = library
+        .operational_prompt(&plain(), "setup-interview")
+        .result;
+    let Err(e) = refused else {
+        panic!("not refused: {refused:?}")
+    };
+    assert_eq!(e.code(), "library-application-bundle-unreadable");
+}
+
+// Distill is not built yet; its prompt resolves through the catalog, as the
+// command listing reads it.
+#[test]
+fn test_the_distill_prompt_resolves() {
+    let (library, _) = world(&[("project", PROJECT)]);
+    let shown = ok(library.item_show(
+        &plain(),
+        ItemKind::Command,
+        "ctxloom#prompts/distill",
+        false,
+    ));
+    assert_eq!(shown.content, library::builtin::DISTILL_PROMPT);
 }

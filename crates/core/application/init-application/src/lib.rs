@@ -39,14 +39,24 @@ pub use interview::{
     RESTART_QUESTION,
 };
 
-/// The setup interview's body: ctxloom's own words, the built-in bundle's
-/// `ctxloom#prompts/setup-interview` (owner ruling 117; the one copy in the
-/// binary). It was Go ctxloom's `resources/commands/ctxloom-init.md`
-/// (release/0.7, f36e8dfb21; the file's blob is 702251f0877f), its front
-/// matter dropped, and is the owner's text (D24; its lines on the agent-roles
-/// fragments reworded by ruling 119). It names `agent_run`, an MCP tool
-/// whose place in the cut list (D8) is still open.
-pub use library::builtin::SETUP_INTERVIEW;
+/// What the setup interview is read through: the project's catalog, as it is
+/// when it is read (owner ruling 128). The interview is ctxloom's built-in
+/// bundle's `ctxloom#prompts/setup-interview` (the owner's words, once Go
+/// ctxloom's `resources/commands/ctxloom-init.md`), unless the project has a
+/// bundle of its own named `ctxloom`, which overrides it whole.
+pub trait Prompts {
+    /// The setup interview's body, or why there is none to read (a project
+    /// `ctxloom` bundle without one, or that cannot be read).
+    fn setup_interview(&self) -> Result<String, PromptFailure>;
+}
+
+/// A prompt that could not be read: why, and the exit code that reason
+/// carries (a refusal 2, any other failure 1).
+#[derive(Debug)]
+pub struct PromptFailure {
+    pub cause: Failure,
+    pub exit: u8,
+}
 
 /// Scaffolds a project's `.ctxloom`: the config, the remotes registry and the
 /// seeded default profile; it refuses a directory that has a config.
@@ -191,8 +201,10 @@ impl Init {
 }
 
 /// `init prompt`: the interview body, as Go prints it (a line after it).
-pub fn prompt() -> String {
-    format!("{SETUP_INTERVIEW}\n")
+pub fn prompt(prompts: &dyn Prompts) -> Result<String, PromptFailure> {
+    // RED: the port is not read.
+    let _ = prompts;
+    Ok(String::new())
 }
 
 #[cfg(test)]

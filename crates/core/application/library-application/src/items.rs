@@ -73,6 +73,15 @@ impl Library {
         self.run(flags, |p| p.item_show(kind, reference, distilled))
     }
 
+    /// The prompt `name` of ctxloom's operational bundle
+    /// ([`library::builtin::BUNDLE`]) as the project's catalog holds it
+    /// (owner ruling 128): what init and distill open with.
+    pub fn operational_prompt(&self, flags: &Flags, name: &str) -> Outcome<String> {
+        // RED: the embedded text, whatever the catalog holds.
+        let _ = name;
+        self.run(flags, |_| Ok(library::builtin::SETUP_INTERVIEW.to_string()))
+    }
+
     /// `fragment premises`.
     pub fn premises(&self, flags: &Flags) -> Outcome<Premises> {
         self.run(flags, |p| Ok(p.premises()))

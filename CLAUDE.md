@@ -754,33 +754,37 @@ library's `bundle` noun and owns `remote` and `deps`.
   withheld red tests for them are `#[ignore]`d in `bundle_remote.test.rs`.
   angzarr-yaml cannot read Go's `? key` form for lock keys over 128 bytes.
 
-## Built-in content (owner rulings 110, 111, narrowed by 117, 123)
+## Built-in content (owner rulings 110, 111, narrowed by 117, 123, 126-128)
 
 ctxloom ships ONE bundle in the binary, `ctxloom`, its operational prompts:
 `prompts/setup-interview.md` (the interview `ctxloom init` opens with and
-`init prompt` prints; `library::builtin::SETUP_INTERVIEW`, which
-init-application re-exports) and `prompts/distill.md` (the owner's own text,
-ruling 123, once ctxloom-default's `skills/distill.yaml`; no third-party
-notice or licence ships with it; `library::builtin::DISTILL_PROMPT`, for the
-distill activity, which is not built yet), in
-`crates/core/read-model/library/resources/builtin/ctxloom/`. It is NOT
-generally injected: it carries no fragment, profile or tag, no profile
-includes it, and no session is handed it; only init and distill use it. The
-four ctxloom-default bundles are no longer built in, and `init` and `config
+`init prompt` prints) and `prompts/distill.md` (the owner's own text, ruling
+123, once ctxloom-default's `skills/distill.yaml`; no third-party notice or
+licence ships with it; for the distill activity, which is not built yet), in
+`crates/core/read-model/library/resources/builtin/ctxloom/`
+(`library::builtin`). It is listed and NEVER injected (ruling 126): it
+carries no fragment, profile or tag, no profile includes it, and no session
+is handed it; only the init and distill activities read it. The four
+ctxloom-default bundles are no longer built in, and `init` and `config
 create` seed a BARE `default` profile that inherits nothing (accepted cost: a
 fresh project has no coding guidance until a remote is added). The catalog
-lists the bundle under the read-only built-in origin `ctxloom/default`
-(`Catalog::with_builtins`, joined by the composition root through
-`Library::with_builtins`; `bundle list` gives `origin` in json and
-`[built-in ctxloom/default]` in text), so `ctxloom+local:ctxloom` reaches a
-project bundle named `ctxloom`, else the built-in one: a project bundle of
-that name (readable or not) overrides it whole in the catalog (init and
-distill still read the embedded prompts). The deps closure counts it as the
-project's own, so nothing is fetched, pinned or written under
-`.ctxloom/cache` for it. Every write to it is refused
-(`library-application-write-builtin-read-only`), its fix naming the override
-(`bundle export ctxloom <bundles dir>`); an export, and an import of the
-name, are not writes to it. Under `test-support` only,
+lists it under the read-only built-in origin `ctxloom/builtin` (ruling 127;
+`Catalog::with_builtins`, joined by the composition root through
+`Library::with_builtins`; `bundle list` gives `origin: ctxloom/builtin` in
+json and `[built-in]` in text; only the bundle is labelled, as no built-in
+profile or fragment exists). A project bundle named `ctxloom` (readable or
+not) overrides it whole, and init reads its interview THROUGH the catalog
+(ruling 128: `Library::operational_prompt`, behind init-application's
+`Prompts` port, and outside a project the built-in one): the project's
+`prompts/setup-interview.md` is what init opens with, and one that lacks it
+is refused, `library-application-operational-prompt-missing` (exit 2),
+never answered from the embedded text. Trust cost, accepted by the owner:
+a project's content can rewrite the prompt ctxloom's own setup runs on. The
+deps closure counts the bundle as the project's own, so nothing is fetched,
+pinned or written under `.ctxloom/cache` for it. Every write to it is
+refused (`library-application-write-builtin-read-only`), its fix naming the
+override (`bundle export ctxloom <bundles dir>`); an export, and an import of
+the name, are not writes to it. Under `test-support` only,
 `CTXLOOM_TEST_NO_BUILTINS` withholds it, so the Go-parity and Go-ported tests
 (`Project::on_gos_catalog`) hold the catalog Go had. `init` and `config
 create` seed no remote (the registry is empty) and `init` pulls nothing.

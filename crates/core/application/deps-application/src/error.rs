@@ -5,6 +5,7 @@
 use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
+use exit_code::{Exit, ExitClass};
 
 /// This crate's en-US messages (`locales/en-US/messages.ftl`, ids under the
 /// crate's name).
@@ -71,17 +72,20 @@ impl AppError {
     pub fn cause(error: impl Diagnostic + 'static) -> AppError {
         AppError::Cause(Box::new(error))
     }
+}
 
-    /// The exit code: 1 failed, 2 refused before any state was read, 3 the
-    /// project refresh was refused.
-    pub fn exit_code(&self) -> u8 {
+impl ExitClass for AppError {
+    /// How a command this ends exits: refused (20) before any state was
+    /// read, fatal findings (21) when the project refresh was refused, failed
+    /// (10) otherwise.
+    fn exit(&self) -> Exit {
         match self {
-            AppError::RefreshAborted { .. } => 3,
+            AppError::RefreshAborted { .. } => Exit::FATAL_FINDINGS,
             AppError::Required { .. }
             | AppError::DefaultNeedsName
             | AppError::PullRequestNeedsForge { .. }
-            | AppError::DiscoverSource { .. } => 2,
-            _ => 1,
+            | AppError::DiscoverSource { .. } => Exit::REFUSED,
+            _ => Exit::FAILED,
         }
     }
 }

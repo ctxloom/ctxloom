@@ -2,6 +2,7 @@
 //! sessions use cases over their default adapters, and the engines'
 //! callbacks, run as the extension's nouns.
 
+use cli_support::Exit;
 use std::io::Write;
 use std::sync::Arc;
 
@@ -33,9 +34,9 @@ fn matches_of<'a>(call: &Call<'a>, noun: &str) -> &'a ArgMatches {
         .unwrap_or_else(|| unreachable!("the line named {noun}"))
 }
 
-/// A failure of the command line itself: exit 1.
+/// A failure of the command line itself: exit 10.
 fn failed(cause: Box<dyn Diagnostic>) -> Failure {
-    Failure::boxed(cause, 1)
+    Failure::boxed(cause, Exit::FAILED)
 }
 
 impl Commands {
@@ -61,7 +62,7 @@ impl Commands {
         catalog: &Catalog,
         out: &mut dyn Write,
         err: &mut dyn Write,
-    ) -> Result<u8, Failure> {
+    ) -> Result<Exit, Failure> {
         let command = session_cli::Session::from_arg_matches(matches_of(call, "session"))
             .unwrap_or_else(|e| unreachable!("clap parsed it: {e}"));
         let format = call.format();
@@ -74,7 +75,11 @@ impl Commands {
                 for notice in &done.notices {
                     say_warning(&**notice, PROG, format, catalog, err);
                 }
-                Ok(0)
+                Ok(if done.would_change {
+                    Exit::WOULD_CHANGE
+                } else {
+                    Exit::OK
+                })
             }
             Err(failure) => {
                 for line in &failure.lines {
@@ -95,7 +100,7 @@ impl Commands {
         catalog: &Catalog,
         out: &mut dyn Write,
         err: &mut dyn Write,
-    ) -> Result<u8, Failure> {
+    ) -> Result<Exit, Failure> {
         let hook = hook_cli::Hook::from_arg_matches(matches_of(call, "hook"))
             .unwrap_or_else(|e| unreachable!("clap parsed it: {e}"));
         let format: Format = call.format();
@@ -152,10 +157,10 @@ impl Commands {
                 CliError::Output {
                     detail: e.to_string(),
                 },
-                1,
+                Exit::FAILED,
             )
         })?;
-        Ok(0)
+        Ok(Exit::OK)
     }
 }
 

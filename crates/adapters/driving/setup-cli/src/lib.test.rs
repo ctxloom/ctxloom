@@ -60,7 +60,7 @@ impl Terminal for Person {
 struct Launches {
     /// The launch of this session (`interview`, `configured`) fails with
     /// this exit code.
-    refuses: Option<(&'static str, u8)>,
+    refuses: Option<(&'static str, Exit)>,
     interview_code: Option<i32>,
     restart_code: Option<i32>,
     launched: Mutex<Vec<&'static str>>,
@@ -76,7 +76,7 @@ impl init_application::Prompts for Launches {
         if self.no_prompt {
             return Err(init_application::PromptFailure {
                 cause: Box::new(deps_application::AppError::DefaultNeedsName),
-                exit: 2,
+                exit: Exit::REFUSED,
             });
         }
         Ok(INTERVIEW.to_string())
@@ -228,7 +228,7 @@ impl Executables for Git {
 }
 
 struct Run {
-    exit: Result<u8, Failure>,
+    exit: Result<Exit, Failure>,
     out: String,
     err: String,
     world: Arc<World>,
@@ -342,7 +342,8 @@ fn cached(world: &World, _: &Fixture) {
 #[test]
 fn clean_without_yes_reports_removes_nothing_and_says_so_on_the_error_stream() {
     let r = go(&["clean"], Format::Text, cached);
-    assert_eq!(r.exit.unwrap(), 0);
+    // Ruling 153: a target `--yes` would remove: it would change something.
+    assert_eq!(r.exit.unwrap(), Exit::WOULD_CHANGE);
     assert!(r.out.contains("would remove 2.0 KB"), "{}", r.out);
     assert!(r.err.starts_with("ctxloom: removed nothing"), "{}", r.err);
     assert!(r.err.contains("ctxloom clean --yes"), "{}", r.err);
@@ -350,9 +351,15 @@ fn clean_without_yes_reports_removes_nothing_and_says_so_on_the_error_stream() {
 }
 
 #[test]
+fn clean_without_yes_with_nothing_cached_is_ok() {
+    let r = go(&["clean"], Format::Text, |_, _| {});
+    assert_eq!(r.exit.unwrap(), Exit::OK);
+}
+
+#[test]
 fn clean_with_yes_removes_and_is_quiet_on_the_error_stream() {
     let r = go(&["clean", "--yes"], Format::Text, cached);
-    assert_eq!(r.exit.unwrap(), 0);
+    assert_eq!(r.exit.unwrap(), Exit::OK);
     assert!(r.out.contains("ctxloom removed 2.0 KB"), "{}", r.out);
     assert_eq!(r.err, "");
     assert!(r.world.trees.lock().unwrap().is_empty());
@@ -361,7 +368,7 @@ fn clean_with_yes_removes_and_is_quiet_on_the_error_stream() {
 #[test]
 fn clean_in_json_writes_the_report_and_a_json_warning() {
     let r = go(&["clean"], Format::Json, cached);
-    assert_eq!(r.exit.unwrap(), 0);
+    assert_eq!(r.exit.unwrap(), Exit::WOULD_CHANGE);
     assert!(r.out.contains("\"applied\": false"), "{}", r.out);
     assert!(
         r.err
@@ -374,7 +381,7 @@ fn clean_in_json_writes_the_report_and_a_json_warning() {
 #[test]
 fn doctor_prints_its_report_and_exits_zero_when_no_row_failed() {
     let r = go(&["doctor"], Format::Text, token);
-    assert_eq!(r.exit.unwrap(), 0);
+    assert_eq!(r.exit.unwrap(), Exit::OK);
     assert!(r.out.starts_with("ctxloom doctor\n"), "{}", r.out);
     assert!(r.out.contains("[warn] DOCTOR-CHECK-"), "{}", r.out);
     assert!(!r.out.contains("[ok]"), "{}", r.out);
@@ -385,9 +392,9 @@ fn doctor_prints_its_report_and_exits_zero_when_no_row_failed() {
 // doctor.feature: "A missing agent credential is a fail row with run's fix,
 // and exit 3": the whole report is written first.
 #[test]
-fn doctor_exits_three_after_the_whole_report_when_a_credential_is_missing() {
+fn doctor_exits_fatal_findings_after_the_whole_report_when_a_credential_is_missing() {
     let r = go(&["doctor"], Format::Text, none);
-    assert_eq!(r.exit.unwrap(), 3);
+    assert_eq!(r.exit.unwrap(), Exit::FATAL_FINDINGS);
     assert!(
         r.out.contains("[fail] DOCTOR-CHECK-CREDENTIALS-m5"),
         "{}",
@@ -396,7 +403,7 @@ fn doctor_exits_three_after_the_whole_report_when_a_credential_is_missing() {
     assert!(r.out.contains("claude setup-token"), "{}", r.out);
     assert!(r.out.contains("DOCTOR-CHECK-INGESTION-q7") || r.out.contains("[warn]"));
     let json = go(&["doctor"], Format::Json, none);
-    assert_eq!(json.exit.unwrap(), 3);
+    assert_eq!(json.exit.unwrap(), Exit::FATAL_FINDINGS);
     assert!(
         json.out
             .contains("\"marker\": \"DOCTOR-CHECK-CREDENTIALS-m5\""),
@@ -409,7 +416,7 @@ fn doctor_exits_three_after_the_whole_report_when_a_credential_is_missing() {
 #[test]
 fn doctor_deps_checks_only_the_machine_and_json_lists_the_checks() {
     let r = go(&["doctor", "--deps"], Format::Json, none);
-    assert_eq!(r.exit.unwrap(), 0);
+    assert_eq!(r.exit.unwrap(), Exit::OK);
     assert!(r.out.contains("DOCTOR-CHECK-DEPS-a1"), "{}", r.out);
     assert!(!r.out.contains("DOCTOR-CHECK-SETUP-MARKER"), "{}", r.out);
 }
@@ -425,7 +432,7 @@ fn doctor_fix_removes_a_stale_entry_and_names_it_on_the_error_stream() {
             .unwrap()
             .insert("/work/.claude/settings.json".to_string(), stale.to_string());
     });
-    assert_eq!(r.exit.unwrap(), 0);
+    assert_eq!(r.exit.unwrap(), Exit::OK);
     assert_eq!(
         r.err,
         "removed stale hook entry: SessionStart runs `ctxloom hook inject-context` in .claude/settings.json\n"
@@ -451,20 +458,20 @@ fn the_exit_of_a_report_is_three_only_when_a_row_failed() {
         exit_of(&Report {
             checks: vec![row(Status::Warn)]
         }),
-        0
+        Exit::OK
     );
     assert_eq!(
         exit_of(&Report {
             checks: vec![row(Status::Ok), row(Status::Fail)]
         }),
-        3
+        Exit::FATAL_FINDINGS
     );
 }
 
 #[test]
 fn init_says_the_directory_exists_and_exits_zero() {
     let r = go(&["init"], Format::Text, token);
-    assert_eq!(r.exit.unwrap(), 0);
+    assert_eq!(r.exit.unwrap(), Exit::OK);
     assert_eq!(r.out, "ctxloom directory already exists: /work/.ctxloom\n");
     assert_eq!(r.err, "");
 }
@@ -475,7 +482,7 @@ fn init_says_the_directory_exists_and_exits_zero() {
 fn init_with_no_token_guides_to_claude_setup_token_and_still_exits_zero() {
     for format in [Format::Text, Format::Json] {
         let r = go(&["init"], format, none);
-        assert_eq!(r.exit.unwrap(), 0);
+        assert_eq!(r.exit.unwrap(), Exit::OK);
         assert_eq!(r.out, "ctxloom directory already exists: /work/.ctxloom\n");
         assert!(r.err.contains("delegated agents need a token"), "{}", r.err);
         assert!(r.err.contains("claude setup-token"), "{}", r.err);
@@ -499,7 +506,7 @@ fn init_with_an_api_key_exported_needs_no_guide() {
             .unwrap()
             .push("ANTHROPIC_API_KEY".to_string());
     });
-    assert_eq!(r.exit.unwrap(), 0);
+    assert_eq!(r.exit.unwrap(), Exit::OK);
     assert_eq!(r.err, "");
 }
 
@@ -515,7 +522,7 @@ fn init_warns_of_an_engine_whose_source_is_a_file_alone() {
                     .to_string(),
             );
         });
-        assert_eq!(r.exit.unwrap(), 0);
+        assert_eq!(r.exit.unwrap(), Exit::OK);
         assert_eq!(r.out, "ctxloom directory already exists: /work/.ctxloom\n");
         assert!(
             r.err.contains("engines.claude-code.auth names only a file"),
@@ -575,7 +582,7 @@ fn init_of_a_new_project_says_what_it_made_and_pulls_nothing() {
         fixture.origin("origin", url);
         fixture.profile("dev", &[&Fixture::reference(url, "demo")]);
     });
-    assert_eq!(r.exit.unwrap(), 0);
+    assert_eq!(r.exit.unwrap(), Exit::OK);
     assert_eq!(r.out, "Created ctxloom directory: /work/.ctxloom\n");
 }
 
@@ -602,7 +609,7 @@ fn a_first_init_at_a_terminal_asks_for_the_output_directory_and_says_where_outpu
         },
     );
     let out = String::from_utf8(out).unwrap();
-    assert_eq!(r.exit.unwrap(), 1, "the interview's own exit");
+    assert_eq!(r.exit.unwrap(), Exit::FAILED, "the interview's own exit");
     assert!(
         out.contains("Session outputs go to docs/sessions (not gitignored: they can be committed)"),
         "{out}"
@@ -649,7 +656,7 @@ fn init_adds_each_remote_and_reports_one_that_would_not_register_as_a_warning() 
         Format::Text,
         |_, f| f.remotes.serve("https://example.com/a/b.git"),
     );
-    assert_eq!(r.exit.unwrap(), 0);
+    assert_eq!(r.exit.unwrap(), Exit::OK);
     assert!(
         r.out
             .contains("Added remote \"personal\": https://example.com/a/b.git"),
@@ -662,7 +669,7 @@ fn init_adds_each_remote_and_reports_one_that_would_not_register_as_a_warning() 
 #[test]
 fn init_prompt_prints_the_interview_and_nothing_else() {
     let r = go(&["init", "prompt"], Format::Json, none);
-    assert_eq!(r.exit.unwrap(), 0);
+    assert_eq!(r.exit.unwrap(), Exit::OK);
     assert_eq!(r.out, format!("{INTERVIEW}\n"));
     assert_eq!(r.err, "");
 }
@@ -686,7 +693,7 @@ fn init_prompt_the_catalog_lacks_is_refused() {
         &sessions,
     );
     let failure = r.exit.expect_err("refused");
-    assert_eq!(failure.exit, 2);
+    assert_eq!(failure.exit, Exit::REFUSED);
     assert_eq!(failure.cause.code(), "deps-application-default-needs-name");
     assert!(out.is_empty());
 }
@@ -737,7 +744,7 @@ fn a_noun_the_line_does_not_carry_is_a_usage_failure() {
         &mut Vec::new(),
     )
     .expect_err("fails");
-    assert_eq!(failure.exit, 2);
+    assert_eq!(failure.exit, Exit::REFUSED);
     assert_eq!(failure.cause.code(), "setup-cli-no-such-command");
 }
 
@@ -756,7 +763,7 @@ fn an_unwritable_answer_is_an_output_failure_with_exit_one() {
         let failure = go_to(line, Format::Text, cached, &mut Broken)
             .exit
             .expect_err("fails");
-        assert_eq!(failure.exit, 1, "{line:?}");
+        assert_eq!(failure.exit, Exit::FAILED, "{line:?}");
         assert_eq!(failure.cause.code(), "setup-cli-output", "{line:?}");
     }
 }
@@ -765,7 +772,7 @@ fn an_unwritable_answer_is_an_output_failure_with_exit_one() {
 #[test]
 fn auth_status_reports_an_exported_token_present_and_never_prints_a_value() {
     let r = go(&["auth", "status"], Format::Text, token);
-    assert_eq!(r.exit.unwrap(), 0);
+    assert_eq!(r.exit.unwrap(), Exit::OK);
     assert_eq!(
         r.out,
         concat!(
@@ -780,7 +787,7 @@ fn auth_status_reports_an_exported_token_present_and_never_prints_a_value() {
 #[test]
 fn auth_status_names_how_to_mint_and_export_a_missing_token() {
     let r = go(&["auth", "status"], Format::Text, none);
-    assert_eq!(r.exit.unwrap(), 0);
+    assert_eq!(r.exit.unwrap(), Exit::OK);
     assert_eq!(
         r.out,
         concat!(
@@ -793,7 +800,7 @@ fn auth_status_names_how_to_mint_and_export_a_missing_token() {
 #[test]
 fn auth_status_in_json_is_the_rows_by_variable_name() {
     let r = go(&["auth", "status"], Format::Json, token);
-    assert_eq!(r.exit.unwrap(), 0);
+    assert_eq!(r.exit.unwrap(), Exit::OK);
     let rows: serde_json::Value = serde_json::from_str(&r.out).unwrap();
     assert_eq!(rows[0]["engine"], "claude-code");
     assert_eq!(rows[0]["mode"], "token");
@@ -809,7 +816,7 @@ fn auth_status_in_json_is_the_rows_by_variable_name() {
 fn a_bare_auth_is_auth_status() {
     let bare = go(&["auth"], Format::Text, token);
     let status = go(&["auth", "status"], Format::Text, token);
-    assert_eq!(bare.exit.unwrap(), 0);
+    assert_eq!(bare.exit.unwrap(), Exit::OK);
     assert_eq!(bare.out, status.out);
 }
 
@@ -840,7 +847,7 @@ fn at_a_terminal(
 #[test]
 fn init_at_a_terminal_interviews_then_restarts_on_a_yes_and_exits_as_the_session_did() {
     let (person, sessions, run) = at_a_terminal(true, Some(0), Some(3));
-    assert_eq!(run.exit.expect("ran"), 3);
+    assert_eq!(run.exit.expect("ran"), Exit::FAILED);
     assert_eq!(
         *sessions.launched.lock().unwrap(),
         ["interview", "configured"]
@@ -852,20 +859,21 @@ fn init_at_a_terminal_interviews_then_restarts_on_a_yes_and_exits_as_the_session
 #[test]
 fn init_at_a_terminal_names_the_command_to_run_later_on_a_no() {
     let (_, sessions, run) = at_a_terminal(false, Some(0), Some(3));
-    assert_eq!(run.exit.expect("ran"), 0);
+    assert_eq!(run.exit.expect("ran"), Exit::OK);
     assert_eq!(*sessions.launched.lock().unwrap(), ["interview"]);
     assert!(run.out.contains("ctxloom run"), "{}", run.out);
 }
 
 // An interview that was cut short exits with its status and offers nothing.
 #[test]
-fn init_at_a_terminal_whose_interview_failed_exits_so_and_asks_nothing() {
+fn init_at_a_terminal_whose_interview_failed_exits_failed_and_asks_nothing() {
     let (person, sessions, run) = at_a_terminal(true, Some(4), Some(0));
-    assert_eq!(run.exit.expect("ran"), 4);
+    // The engine's own 4 is not one of ctxloom's codes (rulings 152, 153): failed.
+    assert_eq!(run.exit.expect("ran"), Exit::FAILED);
     assert!(person.asked.lock().unwrap().is_empty());
     assert_eq!(*sessions.launched.lock().unwrap(), ["interview"]);
     let (_, _, run) = at_a_terminal(true, None, Some(0));
-    assert_eq!(run.exit.expect("ran"), 1);
+    assert_eq!(run.exit.expect("ran"), Exit::FAILED);
 }
 
 // Off a terminal init is what it was: no session, no question.
@@ -884,7 +892,7 @@ fn init_off_a_terminal_launches_nothing() {
         &person,
         &sessions,
     );
-    assert_eq!(run.exit.expect("ran"), 0);
+    assert_eq!(run.exit.expect("ran"), Exit::OK);
     assert!(sessions.launched.lock().unwrap().is_empty());
     assert!(person.asked.lock().unwrap().is_empty());
 }
@@ -895,10 +903,10 @@ fn init_off_a_terminal_launches_nothing() {
 #[test]
 fn init_whose_launch_is_refused_exits_with_the_launchs_own_code() {
     for (session, exit) in [
-        ("interview", 2),
-        ("interview", 3),
-        ("interview", 1),
-        ("configured", 2),
+        ("interview", Exit::REFUSED),
+        ("interview", Exit::FATAL_FINDINGS),
+        ("interview", Exit::FAILED),
+        ("configured", Exit::REFUSED),
     ] {
         let person = Person {
             terminal: true,

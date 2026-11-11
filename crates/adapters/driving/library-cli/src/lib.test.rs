@@ -124,7 +124,8 @@ fn go(line: &[&str], how: How, layers: &[&str]) -> Ran {
     let catalog = Catalog::en_us(&[library_application::EN_US]).unwrap();
     let (mut out, mut err) = (Vec::new(), Vec::new());
     let exit = run(&setup.library(), &noun, &call, &catalog, &mut out, &mut err)
-        .map_err(|f| format!("{}:{}", f.cause.code(), f.exit));
+        .map(|exit| exit.code(true))
+        .map_err(|f| format!("{}:{}", f.cause.code(), f.exit.code(true)));
     Ran {
         exit,
         out: String::from_utf8(out).unwrap(),
@@ -134,15 +135,17 @@ fn go(line: &[&str], how: How, layers: &[&str]) -> Ran {
 
 const BARE: &[&str] = &[AGENTS];
 
+/// A success's json: ok, or a dry run's would-launch (ruling 153), which its
+/// own test holds to its code.
 fn json_of(line: &[&str]) -> serde_json::Value {
     let ran = go(line, JSON, BARE);
-    assert_eq!(ran.code(), 0, "{line:?}");
+    assert!(ran.code() < 10, "{line:?}: a success");
     ran.json()
 }
 
 fn text_of(line: &[&str]) -> String {
     let ran = go(line, TEXT, BARE);
-    assert_eq!(ran.code(), 0, "{line:?}");
+    assert!(ran.code() < 10, "{line:?}: a success");
     ran.out
 }
 
@@ -167,7 +170,7 @@ fn test_config_show_prints_the_effective_configuration_a_section_or_the_raw_laye
     assert!(text_of(&["config"]).contains("default_agent: dev\n"));
     assert_eq!(
         go(&["config", "show", "nosuch"], JSON, BARE).refused(),
-        "library-application-unknown-section:1"
+        "library-application-unknown-section:10"
     );
 }
 
@@ -201,7 +204,7 @@ fn test_bundle_list_show_and_view() {
     assert_eq!(short["content"], "# (distilled version)\nshort form\n");
     assert_eq!(
         go(&["bundle", "show", "nosuch"], JSON, BARE).refused(),
-        "library-catalog-bundle-not-found:1"
+        "library-catalog-bundle-not-found:10"
     );
 }
 
@@ -218,7 +221,7 @@ fn test_fragment_and_command_list_show_and_premises() {
     );
     assert_eq!(
         go(&["fragment", "list", "--bundle", "nosuch"], JSON, BARE).refused(),
-        "library-application-no-bundle-named:1"
+        "library-application-no-bundle-named:10"
     );
     assert!(text_of(&["fragment", "list"]).starts_with("Fragments (4):\n"));
     let commands = json_of(&["command", "list"]);
@@ -252,7 +255,7 @@ fn test_fragment_and_command_list_show_and_premises() {
 #[test]
 fn test_an_item_show_refuses_an_asked_for_json_but_not_a_default_one() {
     let asked = go(&["fragment", "show", "demo#fragments/golang"], JSON, BARE);
-    assert_eq!(asked.refused(), "library-application-unsupported-format:1");
+    assert_eq!(asked.refused(), "library-application-unsupported-format:10");
     let by_default = How {
         explicit: None,
         terminal: false,
@@ -267,7 +270,7 @@ fn test_an_item_show_refuses_an_asked_for_json_but_not_a_default_one() {
     assert_eq!(ran.out, "golang\n\nGO-RULES\n");
     assert_eq!(
         go(&["command", "show", "demo#commands/review"], JSON, BARE).refused(),
-        "library-application-unsupported-format:1"
+        "library-application-unsupported-format:10"
     );
 }
 
@@ -353,7 +356,7 @@ fn test_search_filters_by_tag_and_type_and_refuses_remote() {
     );
     assert_eq!(
         go(&["search", "--remote", "x"], JSON, BARE).refused(),
-        "library-application-search-remote:2"
+        "library-application-search-remote:20"
     );
     assert!(text_of(&["search", "golang"]).starts_with("Results (1):\n"));
 }
@@ -388,9 +391,18 @@ fn test_context_assemble_takes_profiles_fragments_and_tags() {
         JSON,
         BARE,
     );
-    assert_eq!(by_tag.refused(), "library-application-no-fragments:1");
+    assert_eq!(by_tag.refused(), "library-application-no-fragments:10");
     assert_eq!(json_of(&["context"]), by_profile);
     assert!(text_of(&["context", "assemble", "-p", "dev"]).ends_with("short form\n"));
+}
+
+// Ruling 153: a dry run whose plan found nothing fatal would launch, the
+// distinguishing success 1 (said only under `--detailed-exitcode`).
+#[test]
+fn test_a_dry_run_that_would_launch_would_change() {
+    assert_eq!(go(&["run", "--dry-run", "hello"], JSON, BARE).code(), 1);
+    assert_eq!(go(&["run", "--dry-run", "hello"], TEXT, BARE).code(), 1);
+    assert_eq!(go(&["context"], JSON, BARE).code(), 0, "a read is ok");
 }
 
 // run.feature: `run --dry-run` previews; without it this build refuses.
@@ -435,16 +447,16 @@ fn test_a_dry_run_carries_its_arguments_into_the_plan() {
     assert!(text_of(&["run", "--dry-run", "--agent", "dev"]).starts_with("=== Agent ===\ndev ("));
     assert_eq!(
         go(&["run"], JSON, BARE).refused(),
-        "library-application-run-needs-dry-run:2"
+        "library-application-run-needs-dry-run:20"
     );
 }
 
-// fault_tolerance.feature: fatal findings abort a preview (exit 3) after the
+// fault_tolerance.feature: fatal findings abort a preview (exit 21) after the
 // plan is printed; --degraded previews past them.
 #[test]
 fn test_fatal_findings_print_the_plan_and_abort() {
     let ran = go(&["run", "--dry-run", "-p", "broken"], JSON, BARE);
-    assert_eq!(ran.refused(), "library-application-startup-aborted:3");
+    assert_eq!(ran.refused(), "library-application-startup-aborted:21");
     assert_eq!(ran.json()["findings"][0]["fatal"], true);
     // hand-test 2 2026-11-11: the refusal alone names the fatal finding; no
     // warning says it first.
@@ -454,7 +466,7 @@ fn test_fatal_findings_print_the_plan_and_abort() {
         ..JSON
     };
     let past = go(&["run", "--dry-run", "-p", "broken"], degraded, BARE);
-    assert_eq!(past.code(), 0);
+    assert_eq!(past.code(), 1, "past its findings it would launch");
     assert_eq!(past.json()["findings"][0]["fatal"], false);
 }
 
@@ -577,7 +589,7 @@ impl Write for Broken {
     }
 }
 
-// An answer that cannot be written is a failure with its own code and exit 1.
+// An answer that cannot be written is a failure with its own code and exit 10.
 #[test]
 fn test_an_answer_that_cannot_be_written_fails_with_its_cause() {
     let program = Command::new("ctxloom").subcommands(nouns());
@@ -604,7 +616,7 @@ fn test_an_answer_that_cannot_be_written_fails_with_its_cause() {
         &mut Vec::new(),
     )
     .unwrap_err();
-    assert_eq!(failure.exit, 1);
+    assert_eq!(failure.exit, Exit::FAILED);
     assert_eq!(failure.cause.code(), "ctxloom-cli-output");
     let args = failure.cause.args();
     assert_eq!(args.len(), 1);

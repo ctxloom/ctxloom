@@ -161,7 +161,7 @@ fn test_an_unknown_key_is_refused_naming_it_and_degraded_carries_on() {
 }
 
 // Owner rulings 59, 60, 106 and 108 (hard migrate): a config still holding a
-// retired boolean, or the old top-level `output_dir`, is refused (exit 2)
+// retired boolean, or the old top-level `output_dir`, is refused (exit 20)
 // naming the key, as any unknown key is; its replacement reads.
 #[test]
 fn test_the_retired_config_booleans_are_refused_and_their_words_read() {
@@ -181,7 +181,7 @@ fn test_the_retired_config_booleans_are_refused_and_their_words_read() {
     ] {
         project.write(".ctxloom/config.yaml", &format!("schema_version: 9\n{doc}"));
         let refused = project.run(&["config", "show", "--format", "json"]);
-        assert_eq!(refused.code, 2, "{key}: {}", refused.said());
+        assert_eq!(refused.code, 20, "{key}: {}", refused.said());
         assert!(
             refused.stderr.contains(&format!("`{key}`")),
             "{key}: {}",
@@ -204,7 +204,7 @@ fn test_the_retired_config_booleans_are_refused_and_their_words_read() {
 
 // hand-test 2026-11-10: a `--config-set` saying what a config file may not
 // (a retired key, a word the schema does not allow) is refused as the file
-// is, with the same diagnostic and exit 2, naming the flag; it was a warning
+// is, with the same diagnostic and exit 20, naming the flag; it was a warning
 // and the command ran on. `--degraded` still carries on, as for a file.
 #[test]
 fn test_a_config_set_the_schema_refuses_is_refused_as_the_file_is() {
@@ -222,7 +222,7 @@ fn test_a_config_set_the_schema_refuses_is_refused_as_the_file_is() {
         ),
     ] {
         let ran = project.run(&["--config-set", set, "config", "show", "--format", "json"]);
-        assert_eq!(ran.code, 2, "{set}: {}", ran.said());
+        assert_eq!(ran.code, 20, "{set}: {}", ran.said());
         assert!(
             ran.stdout.is_empty(),
             "{set}: no answer is given: {}",
@@ -276,7 +276,7 @@ fn test_a_schema_7_config_migrates_in_memory_dropping_essence_max_chars() {
 // 2026-11-03. Go warned about a layer of another generation and read it as
 // written; a config newer than this binary reads, older than it migrates,
 // unstamped or stamped with no number is REFUSED, naming the file and the
-// generation, with exit 2 and a fix.
+// generation, with exit 20 and a fix.
 #[test]
 fn test_a_config_of_another_generation_is_refused() {
     for (config, said) in [
@@ -300,7 +300,7 @@ fn test_a_config_of_another_generation_is_refused() {
         let project = Project::initialized();
         project.write(".ctxloom/config.yaml", config);
         let ran = project.run(&["config", "show", "editor", "--format", "json"]);
-        assert_eq!(ran.code, 2, "{config:?}: {}", ran.said());
+        assert_eq!(ran.code, 20, "{config:?}: {}", ran.said());
         ran.contains(said);
         assert!(ran.stdout.is_empty(), "no answer is given: {}", ran.stdout);
         project
@@ -404,7 +404,7 @@ fn test_a_bare_name_companions_list_is_refused_telling_how_to_register_again() {
             &format!("schema_version: {generation}\ncompanions: [acme, ltk]\n"),
         );
         let ran = project.run(&["config", "show", "editor", "--format", "text"]);
-        assert_eq!(ran.code, 2, "{}", ran.said());
+        assert_eq!(ran.code, 20, "{}", ran.said());
         ran.contains("companions acme, ltk are registered by name alone")
             .contains("ctxloom companion add <name> --command <program>");
         assert!(ran.stdout.is_empty(), "no answer is given: {}", ran.stdout);

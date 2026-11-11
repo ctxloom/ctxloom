@@ -4,6 +4,7 @@
 //! release/0.7), or says it is design.
 
 use angzarr_diagnostic::Diagnostic;
+use exit_code::{Exit, ExitClass};
 use session_ports::LockState;
 
 use crate::fakes::{
@@ -1043,7 +1044,7 @@ fn a_rename_onto_a_name_another_session_holds_is_refused_and_changes_nothing() {
     claim(svc.store(HERE), HERE, "brisk-copper-moth", &id_text(2)).unwrap();
     let error = ready(svc.rename(rename("amber-swift-owl", "brisk-copper-moth"))).unwrap_err();
     assert_eq!(error.code(), "sessions-names-taken");
-    assert_eq!(error.exit_code(), 1);
+    assert_eq!(error.exit(), Exit::FAILED);
     assert!(svc.files.moves.is_empty());
     assert_eq!(holder(svc.store(HERE), HERE, "amber-swift-owl"), id_text(1));
     assert_eq!(
@@ -1078,7 +1079,7 @@ fn a_rename_to_a_name_no_session_may_have_claims_nothing() {
     svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
     for bad in ["../../etc", "a/b", " lead", &"x".repeat(25)] {
         let error = ready(svc.rename(rename("amber-swift-owl", bad))).unwrap_err();
-        assert_eq!(error.exit_code(), 2, "{bad:?}");
+        assert_eq!(error.exit(), Exit::REFUSED, "{bad:?}");
         assert_eq!(holder(svc.store(HERE), HERE, bad), "", "{bad:?}");
     }
     assert!(svc.files.moves.is_empty());

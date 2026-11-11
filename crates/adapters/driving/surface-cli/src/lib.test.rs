@@ -126,11 +126,11 @@ fn test_a_failure_carries_the_exit_code_of_the_error() {
     let refused = failed(SetupError::Request {
         detail: "d".to_string(),
     });
-    assert_eq!(refused.exit, 2);
+    assert_eq!(refused.exit, Exit::REFUSED);
     let fatal = failed(SetupError::Refused {
         findings: String::new(),
     });
-    assert_eq!(fatal.exit, 3);
+    assert_eq!(fatal.exit, Exit::FATAL_FINDINGS);
 }
 
 fn words(f: impl FnOnce(&mut dyn Write) -> io::Result<()>) -> String {
@@ -214,7 +214,7 @@ mod commands_run {
     use crate::world::{world, World, CONFIG};
 
     struct Ran {
-        exit: Result<u8, Failure>,
+        exit: Result<Exit, Failure>,
         out: String,
         err: String,
         world: World,
@@ -286,7 +286,7 @@ mod commands_run {
             &mut Vec::new(),
         )
         .expect_err("refused");
-        assert_eq!(failure.exit, 2);
+        assert_eq!(failure.exit, Exit::REFUSED);
         assert!(
             failure
                 .cause
@@ -342,7 +342,7 @@ mod commands_run {
     fn manage_check_and_a_bare_hooks_report_the_project() {
         for line in [&["manage", "check"][..], &["manage", "hooks"]] {
             let ran = go(line, Format::Text);
-            assert_eq!(ran.exit.unwrap(), 0, "{line:?}");
+            assert_eq!(ran.exit.unwrap(), Exit::OK, "{line:?}");
             assert!(
                 ran.out.starts_with("Project: /p\n"),
                 "{line:?}: {}",
@@ -356,7 +356,7 @@ mod commands_run {
     #[test]
     fn manage_hooks_list_lists_the_events() {
         let ran = go(&["manage", "hooks", "list"], Format::Text);
-        assert_eq!(ran.exit.unwrap(), 0);
+        assert_eq!(ran.exit.unwrap(), Exit::OK);
         assert!(ran.out.contains("(none)"), "{}", ran.out);
         assert!(!ran.out.contains("Project:"), "{}", ran.out);
     }
@@ -364,7 +364,7 @@ mod commands_run {
     #[test]
     fn manage_install_print_plans_and_a_plain_install_installs() {
         let plan = go(&["manage", "install", "--print"], Format::Text);
-        assert_eq!(plan.exit.unwrap(), 0);
+        assert_eq!(plan.exit.unwrap(), Exit::OK);
         assert!(
             plan.out.starts_with("manage install would:\n"),
             "{}",
@@ -372,7 +372,7 @@ mod commands_run {
         );
         assert!(plan.world.mem.scaffold_paths().is_empty());
         let done = go(&["manage", "install", "--no-pull"], Format::Text);
-        assert_eq!(done.exit.unwrap(), 0);
+        assert_eq!(done.exit.unwrap(), Exit::OK);
         assert!(
             done.out.contains("Initialized ctxloom directory: "),
             "{}",
@@ -385,7 +385,7 @@ mod commands_run {
     #[test]
     fn manage_uninstall_names_what_it_removed() {
         let ran = go(&["manage", "uninstall"], Format::Text);
-        assert_eq!(ran.exit.unwrap(), 0);
+        assert_eq!(ran.exit.unwrap(), Exit::OK);
         assert!(
             ran.out.starts_with("Removed ctxloom harness from: "),
             "{}",
@@ -396,7 +396,7 @@ mod commands_run {
     #[test]
     fn manage_statusline_install_and_uninstall_say_the_new_state() {
         let on = go(&["manage", "statusline", "install"], Format::Text);
-        assert_eq!(on.exit.unwrap(), 0);
+        assert_eq!(on.exit.unwrap(), Exit::OK);
         assert_eq!(
             on.out,
             "ctxloom HUD statusline: enabled\nRun 'ctxloom run' or 'ctxloom materialize' to apply the change.\n"
@@ -411,17 +411,17 @@ mod commands_run {
         assert!(json.out.contains("\"status\": \"enabled\""), "{}", json.out);
         assert!(json.out.contains("\"statusline\": true"), "{}", json.out);
         let bare = go(&["manage", "statusline"], Format::Text);
-        assert_eq!((bare.exit.unwrap(), bare.out.as_str()), (0, ""));
+        assert_eq!((bare.exit.unwrap(), bare.out.as_str()), (Exit::OK, ""));
     }
 
     #[test]
     fn manage_gitignore_install_writes_the_rules_and_a_bare_gitignore_does_nothing() {
         let ran = go(&["manage", "gitignore", "install"], Format::Text);
-        assert_eq!(ran.exit.unwrap(), 0);
+        assert_eq!(ran.exit.unwrap(), Exit::OK);
         assert!(ran.out.starts_with("Wrote "), "{}", ran.out);
         assert!(ran.world.mem.scaffold_text(".gitignore").is_some());
         let bare = go(&["manage", "gitignore"], Format::Text);
-        assert_eq!((bare.exit.unwrap(), bare.out.as_str()), (0, ""));
+        assert_eq!((bare.exit.unwrap(), bare.out.as_str()), (Exit::OK, ""));
         assert!(bare.world.mem.scaffold_text(".gitignore").is_none());
     }
 
@@ -430,7 +430,7 @@ mod commands_run {
         let ran = go(&["manage"], Format::Text);
         assert_eq!(
             (ran.exit.unwrap(), ran.out.as_str(), ran.err.as_str()),
-            (0, "", "")
+            (Exit::OK, "", "")
         );
     }
 
@@ -447,7 +447,7 @@ mod commands_run {
             ],
             Format::Text,
         );
-        assert_eq!(delivered.exit.unwrap(), 0);
+        assert_eq!(delivered.exit.unwrap(), Exit::OK);
         assert!(
             delivered.out.starts_with("Target: /out\n"),
             "{}",
@@ -467,7 +467,7 @@ mod commands_run {
             ],
             Format::Text,
         );
-        assert_eq!(planned.exit.unwrap(), 0);
+        assert_eq!(planned.exit.unwrap(), Exit::OK);
         assert!(
             planned.world.store.state().claims.is_empty(),
             "--dry-run must not deliver"
@@ -516,7 +516,7 @@ mod commands_run {
             Format::Text,
             &[("/p/bob.md", "BOB-ONLY-LINE\n")],
         );
-        assert_eq!(ran.exit.unwrap(), 0);
+        assert_eq!(ran.exit.unwrap(), Exit::OK);
         assert!(
             ran.out.starts_with(
                 "Comparing the default agent's materialized context with bob.md \u{2014} content present on one side and absent on the other:\n--- bob.md\n+++ the default agent (materialized here)\n@@ -1 +1,"
@@ -560,7 +560,7 @@ mod commands_run {
             Format::Text,
             &[("/p/bob.md", &context)],
         );
-        assert_eq!(same.exit.unwrap(), 0);
+        assert_eq!(same.exit.unwrap(), Exit::OK);
         assert_eq!(
             same.out,
             "dev's materialized context matches bob.md: no difference.\n"
@@ -581,7 +581,7 @@ mod commands_run {
             Format::Json,
             &[("/p/bob.md", "x")],
         );
-        assert_eq!(ran.exit.unwrap(), 0);
+        assert_eq!(ran.exit.unwrap(), Exit::OK);
         let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
         assert_eq!(json["profiles"], serde_json::json!(["dev"]));
         assert_eq!(json["compared_to"], "bob.md");
@@ -600,7 +600,7 @@ mod commands_run {
             &[],
         );
         let failure = ran.exit.expect_err("a missing file");
-        assert_eq!(failure.exit, 1);
+        assert_eq!(failure.exit, Exit::FAILED);
         assert_eq!(failure.cause.code(), "setup-application-diff-file-missing");
         assert_eq!(ran.out, "");
     }
@@ -638,7 +638,7 @@ mod commands_run {
             &mut Vec::new(),
         )
         .expect_err("fails");
-        assert_eq!(failure.exit, 1);
+        assert_eq!(failure.exit, Exit::FAILED);
         let out = String::from_utf8(out).unwrap();
         assert!(
             out.contains("error: "),
@@ -659,7 +659,7 @@ mod commands_run {
         }
         let (ran, _) = go_to(&["manage", "check"], Format::Text, &mut Broken);
         let failure = ran.exit.expect_err("fails");
-        assert_eq!(failure.exit, 2);
+        assert_eq!(failure.exit, Exit::REFUSED);
         let (ran, _) = go_to(&["manage", "check"], Format::Json, &mut Broken);
         assert!(ran.exit.is_err());
     }
@@ -699,7 +699,7 @@ mod commands_run {
             line: &[&str],
             patch: &str,
             format: Format,
-        ) -> (Result<u8, Failure>, String, Arc<Files>) {
+        ) -> (Result<Exit, Failure>, String, Arc<Files>) {
             let files = Arc::new(Files::default());
             let setup = world(CONFIG).setup.with_foreign(files.clone());
             let matches = parse(line);
@@ -720,7 +720,7 @@ mod commands_run {
         #[test]
         fn config_write_merges_the_patch_from_the_input() {
             let (exit, out, files) = util_with(WRITE, r#"{"a": {"b": 1}}"#, Format::Text);
-            assert_eq!(exit.unwrap(), 0);
+            assert_eq!(exit.unwrap(), Exit::OK);
             assert_eq!(out, "Merged a into /x.json (created)\n");
             assert!(files.files.lock().unwrap().contains_key("/x.json"));
             let (_, json, _) = util_with(WRITE, r#"{"a": 1}"#, Format::Json);
@@ -768,7 +768,10 @@ mod commands_run {
                     panic!("nothing to read")
                 }
             }
-            assert_eq!(util(&cx, sub, &mut Never, &mut Vec::new()).unwrap(), 0);
+            assert_eq!(
+                util(&cx, sub, &mut Never, &mut Vec::new()).unwrap(),
+                Exit::OK
+            );
         }
     }
 }

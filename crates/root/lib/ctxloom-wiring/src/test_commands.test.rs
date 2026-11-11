@@ -21,7 +21,7 @@ fn block<T>(future: impl std::future::Future<Output = T>) -> T {
 
 fn failure(world: &World, line: &[&str]) -> (u8, String) {
     let failed = try_line(&mut world.commands(), Format::Json, line).unwrap_err();
-    (failed.exit, failed.cause.code().to_string())
+    (failed.exit.code(true), failed.cause.code().to_string())
 }
 
 #[test]
@@ -52,11 +52,11 @@ fn refuse_is_a_refusal_with_a_remedy_and_findings_are_fatal() {
     let world = World::new("test-ladder");
     assert_eq!(
         failure(&world, &["test", "refuse"]),
-        (2, "ctxloom-wiring-test-refused".to_string())
+        (20, "ctxloom-wiring-test-refused".to_string())
     );
     assert_eq!(
         failure(&world, &["test", "findings"]),
-        (3, "ctxloom-wiring-test-findings".to_string())
+        (21, "ctxloom-wiring-test-findings".to_string())
     );
 }
 
@@ -83,7 +83,7 @@ fn the_sample_list_is_two_rows_or_none_in_json_and_in_text() {
 }
 
 #[test]
-fn an_answer_that_cannot_be_written_is_a_failure_with_exit_1() {
+fn an_answer_that_cannot_be_written_is_a_failure_with_exit_10() {
     struct Broken;
     impl Write for Broken {
         fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
@@ -114,7 +114,7 @@ fn an_answer_that_cannot_be_written_is_a_failure_with_exit_1() {
     .unwrap_err();
     assert_eq!(
         (failed.exit, failed.cause.code()),
-        (1, "ctxloom-cli-output")
+        (Exit::FAILED, "ctxloom-cli-output")
     );
 }
 
@@ -166,7 +166,7 @@ fn a_run_id_is_the_runs_uuid_and_a_bad_session_is_refused() {
     assert_ne!(out, format!("{}\n", crate::run_id(session, 4).unwrap()));
     assert_eq!(
         failure(&world, &["test", "run-id", "not-a-uuid", "1"]),
-        (1, "ctxloom-wiring-bad-session".to_string())
+        (10, "ctxloom-wiring-bad-session".to_string())
     );
 }
 
@@ -179,7 +179,7 @@ fn open_store_prints_the_path_of_the_projects_database() {
     assert!(path.starts_with(world.home()), "{path:?}");
     assert_eq!(
         failure(&world, &["test", "open-store", "../escape"]),
-        (1, "ctxloom-wiring-store".to_string())
+        (10, "ctxloom-wiring-store".to_string())
     );
 }
 
@@ -207,7 +207,7 @@ fn a_seed_that_cannot_plant_ends_in_a_failure() {
     run_line(&mut world.commands(), &line);
     assert_eq!(
         failure(&world, &line),
-        (1, "ctxloom-wiring-seed".to_string())
+        (10, "ctxloom-wiring-seed".to_string())
     );
 }
 

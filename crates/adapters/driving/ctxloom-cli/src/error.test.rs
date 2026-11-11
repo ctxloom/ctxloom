@@ -1,6 +1,7 @@
 //! The command line's own errors: their codes, args and exit codes (D28).
 
 use angzarr_diagnostic::Diagnostic;
+use cli_support::{Exit, ExitClass};
 
 use super::CliError;
 
@@ -9,7 +10,10 @@ fn a_usage_error_is_a_refusal_with_its_detail() {
     let error = CliError::Usage {
         detail: "unexpected argument".to_string(),
     };
-    assert_eq!((error.code(), error.exit_code()), ("ctxloom-cli-usage", 2));
+    assert_eq!(
+        (error.code(), error.exit()),
+        ("ctxloom-cli-usage", Exit::REFUSED)
+    );
     assert_eq!(error.args()[0].0, "ext_err_txt");
 }
 
@@ -21,8 +25,8 @@ fn an_unknown_verb_and_an_unknown_format_are_refusals() {
         choices: "version".to_string(),
     };
     assert_eq!(
-        (verb.code(), verb.exit_code()),
-        ("ctxloom-cli-unknown-verb", 2)
+        (verb.code(), verb.exit()),
+        ("ctxloom-cli-unknown-verb", Exit::REFUSED)
     );
     let names: Vec<&str> = verb.args().into_iter().map(|(n, _)| n).collect();
     assert_eq!(names, ["verb", "command", "choices"]);
@@ -30,8 +34,8 @@ fn an_unknown_verb_and_an_unknown_format_are_refusals() {
         value: "yaml".to_string(),
     };
     assert_eq!(
-        (format.code(), format.exit_code()),
-        ("ctxloom-cli-unknown-format", 2)
+        (format.code(), format.exit()),
+        ("ctxloom-cli-unknown-format", Exit::REFUSED)
     );
     assert_eq!(format.args()[0].0, "value");
 }
@@ -41,7 +45,10 @@ fn an_output_error_fails_with_1() {
     let error = CliError::Output {
         detail: "broken pipe".to_string(),
     };
-    assert_eq!((error.code(), error.exit_code()), ("ctxloom-cli-output", 1));
+    assert_eq!(
+        (error.code(), error.exit()),
+        ("ctxloom-cli-output", Exit::FAILED)
+    );
 }
 
 // A command's own failure is its diagnostic, with the exit code it asks for.
@@ -52,9 +59,9 @@ fn a_commands_failure_is_its_diagnostic_and_its_exit_code() {
     };
     let error = CliError::Command {
         error: Box::new(inner),
-        exit: 7,
+        exit: Exit::failed(17),
     };
-    assert_eq!(error.exit_code(), 7);
+    assert_eq!(error.exit(), Exit::failed(17));
     assert_eq!(error.code(), "ctxloom-cli-unknown-format");
     assert_eq!(error.args().len(), 1);
 }

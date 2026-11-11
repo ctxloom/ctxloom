@@ -49,18 +49,18 @@ fn both(config: &str) -> [(i32, Value); 2] {
 }
 
 #[test]
-fn test_a_refused_launch_exits_2_from_run_and_from_init_at_a_terminal() {
+fn test_a_refused_launch_exits_20_from_run_and_from_init_at_a_terminal() {
     let [(run_exit, run), (init_exit, init)] = both("schema_version: 99\n");
-    assert_eq!((run_exit, init_exit), (2, 2), "{run} {init}");
+    assert_eq!((run_exit, init_exit), (20, 20), "{run} {init}");
     assert_eq!(run["code"], "library-application-config-newer");
     assert_eq!(init["code"], run["code"], "the same refusal");
 }
 
 #[test]
-fn test_a_failed_launch_exits_1_from_run_and_from_init_at_a_terminal() {
+fn test_a_failed_launch_exits_10_from_run_and_from_init_at_a_terminal() {
     let [(run_exit, run), (init_exit, init)] = both(
         "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    profiles: [ghost]\n    runtime: host\ndefault_agent: dev\n",
     );
-    assert_eq!((run_exit, init_exit), (1, 1), "{run} {init}");
+    assert_eq!((run_exit, init_exit), (10, 10), "{run} {init}");
     assert_eq!(init["code"], run["code"], "the same failure");
 }

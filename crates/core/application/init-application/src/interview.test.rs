@@ -3,6 +3,8 @@
 
 use std::cell::RefCell;
 
+use exit_code::Exit;
+
 use super::{interview, Ended, LaunchFailure, Outcome, Sessions, Terminal, RESTART_QUESTION};
 use crate::{PromptFailure, Prompts};
 
@@ -21,7 +23,7 @@ impl Prompts for Catalog {
         *self.asked.borrow_mut() += 1;
         self.text.map(str::to_string).ok_or_else(|| PromptFailure {
             cause: Box::new(deps_application::AppError::DefaultNeedsName),
-            exit: 2,
+            exit: Exit::REFUSED,
         })
     }
 }
@@ -70,7 +72,7 @@ impl Sessions for Launches {
         if self.refuses {
             return Err(LaunchFailure {
                 cause: Box::new(deps_application::AppError::DefaultNeedsName),
-                exit: 2,
+                exit: Exit::REFUSED,
             });
         }
         Ok(Ended {
@@ -165,7 +167,7 @@ fn an_interview_that_cannot_start_fails() {
         ..launches(Some(0))
     };
     let failure = interview(&who, &sessions, &catalog()).expect_err("cannot start");
-    assert_eq!(failure.exit, 2, "the launch's own code is kept");
+    assert_eq!(failure.exit, Exit::REFUSED, "the launch's own code is kept");
     assert!(who.asked.borrow().is_empty());
 }
 
@@ -181,7 +183,7 @@ fn an_interview_the_catalog_lacks_launches_nothing() {
         asked: RefCell::default(),
     };
     let failure = interview(&who, &sessions, &prompts).expect_err("refused");
-    assert_eq!(failure.exit, 2);
+    assert_eq!(failure.exit, Exit::REFUSED);
     assert!(sessions.launched.borrow().is_empty());
     assert!(who.asked.borrow().is_empty());
     assert_eq!(*prompts.asked.borrow(), 1);

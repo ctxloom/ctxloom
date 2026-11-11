@@ -596,7 +596,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
             model: haiku
         """
       When I run "ctxloom agent show reviewer"
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the output contains "unknown key `agents.reviewer.model`"
 
     Scenario: An agent that sets neither model nor effort passes no flag, and says so
@@ -646,7 +646,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
               <key>: <value>
         """
       When I run "ctxloom agent show reviewer"
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the output contains "unknown key `agents.reviewer.permissions`"
 
       Examples:

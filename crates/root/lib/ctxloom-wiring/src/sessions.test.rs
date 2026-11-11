@@ -1,5 +1,6 @@
 //! The mounted `session` and `hook` nouns.
 
+use cli_support::Exit;
 use std::sync::Arc;
 
 use angzarr_presentation::{Catalog, Format};
@@ -48,7 +49,7 @@ fn run_with(
         commands.run(&noun, &call, &catalog, &mut out, &mut err)?
     };
     Ok((
-        code,
+        code.code(true),
         String::from_utf8(out).unwrap(),
         String::from_utf8(err).unwrap(),
     ))
@@ -140,11 +141,11 @@ fn test_a_session_start_with_no_harp_is_silent() {
 }
 
 #[test]
-fn test_a_hook_for_an_engine_nobody_knows_fails_with_exit_1() {
+fn test_a_hook_for_an_engine_nobody_knows_fails_with_exit_10() {
     let failure = run(&mut commands(), &["hook", "nosuch", "execute", "Stop"])
         .err()
         .unwrap();
-    assert_eq!(failure.exit, 1);
+    assert_eq!(failure.exit, Exit::FAILED);
 }
 
 // `session list` runs on the sessions use cases over the world's home: no

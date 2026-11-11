@@ -31,6 +31,7 @@ use std::sync::Arc;
 
 pub use ctxloom_ports::{Failure, Scaffold, UserFiles};
 use deps_application::{CreateRequest, Deps, Notice};
+use exit_code::Exit;
 use serde::Serialize;
 
 pub use error::InitError;
@@ -51,11 +52,11 @@ pub trait Prompts {
 }
 
 /// A prompt that could not be read: why, and the exit code that reason
-/// carries (a refusal 2, any other failure 1).
+/// carries (refused 20, any other failure 10).
 #[derive(Debug)]
 pub struct PromptFailure {
     pub cause: Failure,
-    pub exit: u8,
+    pub exit: Exit,
 }
 
 /// Scaffolds a project's `.ctxloom`: the config, the remotes registry and the

@@ -5,6 +5,7 @@
 use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
+use exit_code::{Exit, ExitClass};
 use library::{BundleError, ProfileError, RefError};
 
 /// This crate's en-US messages (`locales/en-US/messages.ftl`, ids under the
@@ -160,10 +161,13 @@ impl AppError {
             findings: lines,
         }
     }
+}
 
-    /// The process exit code: 2 refused before any state was read (a config
-    /// the strict decode refuses is one), 3 fatal findings, 1 otherwise.
-    pub fn exit_code(&self) -> u8 {
+impl ExitClass for AppError {
+    /// How a command this ends exits (rulings 149, 152, 153): refused (20)
+    /// before any state was read (a config the strict decode refuses is one),
+    /// fatal findings (21), failed (10) otherwise.
+    fn exit(&self) -> Exit {
         match self {
             AppError::AgentExclusive { .. }
             | AppError::ConfigNewer { .. }
@@ -175,9 +179,9 @@ impl AppError {
             | AppError::RunNeedsDryRun
             | AppError::SearchRemote
             | AppError::OperationalPromptMissing { .. }
-            | AppError::Workspace { .. } => 2,
-            AppError::StartupAborted { .. } => 3,
-            _ => 1,
+            | AppError::Workspace { .. } => Exit::REFUSED,
+            AppError::StartupAborted { .. } => Exit::FATAL_FINDINGS,
+            _ => Exit::FAILED,
         }
     }
 }

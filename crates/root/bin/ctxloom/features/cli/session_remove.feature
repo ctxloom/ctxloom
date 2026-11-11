@@ -59,7 +59,7 @@ Feature: session remove — the one destroyer, and a removed session is gone
       # new: the built refusal; `--even-if-live` is the one override (owner ruling 104).
       Given a finished session "amber-swift-owl" with a transcript but no session lock
       When I run "ctxloom session remove amber-swift-owl --yes"
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the output contains "cannot be proven dead"
       And the output contains "ctxloom session remove amber-swift-owl --yes --even-if-live"
       When I run "ctxloom session list --all"
@@ -77,7 +77,7 @@ Feature: session remove — the one destroyer, and a removed session is gone
       # new: the index says ended; the lock says running, and the lock wins.
       Given a session "amber-swift-owl" with a transcript that is running again
       When I run "ctxloom session remove amber-swift-owl --yes"
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the output contains "owner is alive"
       And the output contains "--even-if-live"
 
@@ -93,7 +93,7 @@ Feature: session remove — the one destroyer, and a removed session is gone
       # new: the built retention refusal.
       Given a session "brisk-copper-moth" with a transcript that finished an hour ago
       When I run "ctxloom session remove brisk-copper-moth --yes"
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the output contains "retention"
       When I run "ctxloom session list --all"
       Then the output contains "brisk-copper-moth"
@@ -102,7 +102,7 @@ Feature: session remove — the one destroyer, and a removed session is gone
       # new: keep and its release, then the removal.
       Given a finished session "amber-swift-owl" marked keep
       When I run "ctxloom session remove amber-swift-owl --yes"
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the output contains "ctxloom session keep amber-swift-owl --undo"
       When I run "ctxloom session keep amber-swift-owl --undo"
       Then the command succeeds

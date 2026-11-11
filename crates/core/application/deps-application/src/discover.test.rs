@@ -1,6 +1,7 @@
 //! `remote discover` over the fakes.
 
 use deps_ports::{Endpoint, ForgeRepo};
+use exit_code::{Exit, ExitClass};
 
 use crate::fakes::Fixture;
 use crate::{AppError, DiscoverRequest, Notice};
@@ -147,7 +148,7 @@ fn test_discover_searches_only_github_and_refuses_any_other_source() {
         AppError::DiscoverSource { source } => assert_eq!(source, "gitlab"),
         other => panic!("{other:?}"),
     }
-    assert_eq!(refused.exit_code(), 2);
+    assert_eq!(refused.exit(), Exit::REFUSED);
     assert_eq!(fx.forge.searches().len(), searched, "nothing was searched");
 }
 
@@ -184,7 +185,7 @@ fn test_a_search_that_failed_is_an_error_with_the_reason_as_a_warning() {
     );
     let refused = outcome.result.expect_err("failed");
     assert!(matches!(refused, AppError::DiscoverFailed), "{refused:?}");
-    assert_eq!(refused.exit_code(), 1);
+    assert_eq!(refused.exit(), Exit::FAILED);
 }
 
 #[test]

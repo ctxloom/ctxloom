@@ -2,6 +2,7 @@
 //! text Go printed. A verb Go answers in text only (its format debt) refuses
 //! an explicit `--format json` before it asks the use case anything.
 
+use cli_support::Exit;
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 
@@ -71,7 +72,7 @@ fn finish<T: Serialize>(
     out: &mut dyn Write,
     err: &mut dyn Write,
     text: impl FnOnce(&T, &mut dyn Write, &mut Vec<String>) -> io::Result<()>,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     crate::answer(cx, outcome, out, err, |value, out, notes| {
         emit(cx.format, out, &value, |out| text(&value, out, notes))
     })
@@ -84,9 +85,9 @@ fn finish_text<T>(
     out: &mut dyn Write,
     err: &mut dyn Write,
     text: impl FnOnce(&T, &mut dyn Write, &mut Vec<String>) -> io::Result<()>,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     crate::answer(cx, outcome, out, err, |value, out, notes| {
-        text(&value, out, notes).map(|()| 0)
+        text(&value, out, notes).map(|()| Exit::OK)
     })
 }
 
@@ -97,11 +98,24 @@ fn removal<T: Serialize>(
     out: &mut dyn Write,
     err: &mut dyn Write,
     done: impl FnOnce(&T, &mut dyn Write) -> io::Result<()>,
-) -> Result<u8, Failure> {
-    finish(cx, outcome, out, err, |value, out, _| match value {
-        Removal::Preview(preview) => preview_text(out, preview),
-        Removal::Done(removed) => done(removed, out),
+) -> Result<Exit, Failure> {
+    crate::answer(cx, outcome, out, err, |value, out, _| {
+        emit(cx.format, out, &value, |out| match &value {
+            Removal::Preview(preview) => preview_text(out, preview),
+            Removal::Done(removed) => done(removed, out),
+        })?;
+        Ok(removal_exit(&value))
     })
+}
+
+/// A removal's exit (ruling 153): its preview would change something (the
+/// thing it names is there to remove), so it is the distinguishing success
+/// 1 under `--detailed-exitcode`; a removal done is ok.
+fn removal_exit<T>(removal: &Removal<T>) -> Exit {
+    match removal {
+        Removal::Preview(_) => Exit::WOULD_CHANGE,
+        Removal::Done(_) => Exit::OK,
+    }
 }
 
 fn preview_text(out: &mut dyn Write, preview: &Preview) -> io::Result<()> {
@@ -127,7 +141,7 @@ pub(crate) fn config(
     (verb, sub): (&str, &ArgMatches),
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<Option<u8>, Failure> {
+) -> Result<Option<Exit>, Failure> {
     match verb {
         "create" => {
             text_only(cx, "config create")?;
@@ -151,7 +165,7 @@ pub(crate) fn bundle(
     (verb, sub): (&str, &ArgMatches),
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<Option<u8>, Failure> {
+) -> Result<Option<Exit>, Failure> {
     let name = text_arg(sub, "name");
     let code = match verb {
         "create" => {
@@ -233,7 +247,7 @@ pub(crate) fn item(
     (verb, sub): (&str, &ArgMatches),
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<Option<u8>, Failure> {
+) -> Result<Option<Exit>, Failure> {
     let reference = text_arg(sub, "ref");
     let code = match verb {
         "create" => {
@@ -312,7 +326,7 @@ pub(crate) fn skill(
     (verb, sub): (&str, &ArgMatches),
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<Option<u8>, Failure> {
+) -> Result<Option<Exit>, Failure> {
     let reference = text_arg(sub, "ref");
     let code = match verb {
         "create" => {
@@ -383,7 +397,7 @@ pub(crate) fn mcp(
     (verb, sub): (&str, &ArgMatches),
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<Option<u8>, Failure> {
+) -> Result<Option<Exit>, Failure> {
     let reference = text_arg(sub, "ref");
     match verb {
         "edit" => {
@@ -454,7 +468,7 @@ pub(crate) fn profile(
     (verb, sub): (&str, &ArgMatches),
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<Option<u8>, Failure> {
+) -> Result<Option<Exit>, Failure> {
     let name = text_arg(sub, "name");
     let code = match verb {
         "create" => {
@@ -568,7 +582,7 @@ pub(crate) fn agent(
     (verb, sub): (&str, &ArgMatches),
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<Option<u8>, Failure> {
+) -> Result<Option<Exit>, Failure> {
     let name = text_arg(sub, "name");
     let code = match verb {
         "create" | "edit" => {
@@ -639,7 +653,7 @@ pub(crate) fn companion(
     (verb, sub): (&str, &ArgMatches),
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<Option<u8>, Failure> {
+) -> Result<Option<Exit>, Failure> {
     let name = text_arg(sub, "name");
     let code = match verb {
         "add" => {
@@ -686,12 +700,12 @@ pub(crate) fn companion(
 
 /// `loadout`: the one fixed YAML document. The value of `--format` is a
 /// document format here, and yaml is the only one there is.
-pub(crate) fn loadout(sub: &ArgMatches, out: &mut dyn Write) -> Result<u8, Failure> {
+pub(crate) fn loadout(sub: &ArgMatches, out: &mut dyn Write) -> Result<Exit, Failure> {
     let asked = given(sub, "format");
     if let Some(format) = asked.filter(|f| f != "yaml") {
         return Err(AppError::from(WriteError::LoadoutFormat { format }).into_failure());
     }
     out.write_all(LOADOUT.as_bytes())
         .map_err(crate::output_failure)?;
-    Ok(0)
+    Ok(Exit::OK)
 }

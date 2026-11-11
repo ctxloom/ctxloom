@@ -2,6 +2,8 @@
 
 use std::cell::RefCell;
 
+use exit_code::Exit;
+
 use crate::{personal_name, prompt, PromptFailure, Prompts};
 
 /// A catalog holding `text` as the setup interview, else refusing.
@@ -12,7 +14,7 @@ impl Prompts for Catalog {
         *self.1.borrow_mut() += 1;
         self.0.map(str::to_string).ok_or_else(|| PromptFailure {
             cause: Box::new(deps_application::AppError::DefaultNeedsName),
-            exit: 2,
+            exit: Exit::REFUSED,
         })
     }
 }
@@ -31,7 +33,7 @@ fn the_prompt_is_the_catalog_s_setup_interview() {
 #[test]
 fn a_prompt_the_catalog_lacks_is_refused() {
     let refused = prompt(&Catalog(None, RefCell::default())).expect_err("refused");
-    assert_eq!(refused.exit, 2);
+    assert_eq!(refused.exit, Exit::REFUSED);
     assert_eq!(refused.cause.code(), "deps-application-default-needs-name");
 }
 

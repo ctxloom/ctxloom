@@ -28,9 +28,9 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
   a genuinely broken project assert `the command succeeds` deliberately. A
   `fail` row is different: it is a finding that guarantees `ctxloom run`
   refuses (today, an agent credential no run can authenticate with), and it
-  makes doctor exit 3, run's status for a fatal startup finding, after the
+  makes doctor exit 21, run's status for a fatal startup finding, after the
   whole report is written. A USAGE error (a --format this build cannot render)
-  exits 1.
+  exits 10.
 
   EVERY CHECK NEEDS BOTH HALVES. A check that fired on every project would be
   indistinguishable from one that works and would teach a reader to skip the
@@ -44,13 +44,14 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
   Rule: A credential no run can authenticate with is a fail row, and fails doctor
 
     Scenario: A missing agent credential is a fail row with run's fix, and exit 3
+      # substitution: exit codes per rulings 149, 152, 153 (10 failed, 20 refused, 21 fatal findings; Go's 1, 2, 3).
       Given an initialized ctxloom project
       And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to ""
       When Alice asks for the diagnosis in a form a script can parse:
         """
         ctxloom --format json doctor
         """
-      Then the command exits with code 3
+      Then the command exits with code 21
       And the output is valid JSON
       And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-CREDENTIALS-m5" and whose "status" is "fail"
       And the output contains "claude setup-token"
@@ -238,9 +239,9 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
 
     Doctor reads the config as a run does. A key the schema does not know is
     refused by every run, so doctor says so in the run's own words, as a
-    `fail` row, and exits 3.
+    `fail` row, and exits 21.
 
-    Scenario: An unknown config key is a fail row in the run's words, and exit 3
+    Scenario: An unknown config key is a fail row in the run's words, and exit 21
       # new: hand-test 2026-11-10 (doctor said ".ctxloom and its config.yaml read" of a config every run refused).
       Given an initialized ctxloom project
       And the project already has the file ".ctxloom/config.yaml":
@@ -250,7 +251,7 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
           auto_sync: true
         """
       When I run "ctxloom --format json doctor"
-      Then the command exits with code 3
+      Then the command exits with code 21
       And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-SETUP-MARKER-e5" and whose "status" is "fail"
       And the output contains "unknown key `sync.auto_sync`"
       And the output contains "remove or rename the key in config.yaml"

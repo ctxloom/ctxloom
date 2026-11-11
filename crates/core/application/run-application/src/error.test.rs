@@ -1,4 +1,5 @@
 use angzarr_diagnostic::{Arg, Diagnostic};
+use exit_code::{Exit, ExitClass};
 use library_application::AppError as PlanError;
 use run_ports::FailureClass;
 use runs_application::AppError as CoreError;
@@ -35,8 +36,8 @@ fn every_diagnostic_has_a_message_using_exactly_its_args() {
     }
 }
 
-// The conflict of flags is the library's, with its own code and its exit 2;
-// the startup abort its exit 3.
+// The conflict of flags is the library's, with its own code and its exit 20;
+// the startup abort its exit 21.
 #[test]
 fn a_plan_error_keeps_its_own_code_and_exit() {
     let conflict = RunError::Plan(Box::new(PlanError::AgentExclusive {
@@ -49,27 +50,30 @@ fn a_plan_error_keeps_its_own_code_and_exit() {
         }
         .code()
     );
-    assert_eq!(conflict.exit_code(), 2);
+    assert_eq!(conflict.exit(), Exit::REFUSED);
     let aborted = RunError::Plan(Box::new(PlanError::StartupAborted {
         count: 1,
         findings: "x".to_string(),
     }));
-    assert_eq!(aborted.exit_code(), 3);
+    assert_eq!(aborted.exit(), Exit::FATAL_FINDINGS);
 }
 
 #[test]
 fn what_cannot_be_run_is_refused_and_what_went_wrong_in_a_run_failed() {
-    assert_eq!(RunError::Refused(RunRejection::NoPrompt).exit_code(), 2);
+    assert_eq!(
+        RunError::Refused(RunRejection::NoPrompt).exit(),
+        Exit::REFUSED
+    );
     let unknown = RunError::Refused(RunRejection::UnknownEngine {
         name: "x".to_string(),
         known: "y".to_string(),
     });
-    assert_eq!(unknown.exit_code(), 2);
+    assert_eq!(unknown.exit(), Exit::REFUSED);
     let refused = RunError::Session(CoreError::Refused {
         code: "sessions-names-taken".to_string(),
         args: Default::default(),
     });
-    assert_eq!(refused.exit_code(), 2);
+    assert_eq!(refused.exit(), Exit::REFUSED);
     assert!(matches!(&refused.args()[0].1, Arg::Str(reason) if reason == "sessions-names-taken"));
     for failed in [
         RunError::EmptyAnswer,
@@ -84,7 +88,7 @@ fn what_cannot_be_run_is_refused_and_what_went_wrong_in_a_run_failed() {
             reason: "r".to_string(),
         }),
     ] {
-        assert_eq!(failed.exit_code(), 1, "{failed:?}");
+        assert_eq!(failed.exit(), Exit::FAILED, "{failed:?}");
     }
 }
 
@@ -96,7 +100,7 @@ fn a_run_stopped_by_a_signal_exits_with_its_status_and_names_it() {
         signal: "SIGHUP".to_string(),
         status: 129,
     };
-    assert_eq!(stopped.exit_code(), 129);
+    assert_eq!(stopped.exit(), Exit::signal(1));
     assert_eq!(stopped.code(), "run-application-stopped");
     assert!(matches!(&stopped.args()[..], [("signal", Arg::Str(s))] if s == "SIGHUP"));
 }
@@ -172,10 +176,10 @@ fn no_prompt_and_an_unknown_engine_are_no_codes_of_this_crate() {
 }
 
 // Ruling 73a: most severe wins. An aggregate with the plan's fatal findings
-// among its failures is exit 3, without them exit 2; every refusal it holds
+// among its failures is exit 21, without them exit 20; every refusal it holds
 // is said, in check order. A single refusal holds no list (ruling 73b).
 #[test]
-fn an_aggregate_is_exit_3_with_fatal_findings_and_says_each_refusal_in_order() {
+fn an_aggregate_is_exit_21_with_fatal_findings_and_says_each_refusal_in_order() {
     let aggregate = |fatal_findings| {
         RunError::Refused(RunRejection::LaunchRefused {
             refusals: vec![
@@ -188,8 +192,8 @@ fn an_aggregate_is_exit_3_with_fatal_findings_and_says_each_refusal_in_order() {
             fatal_findings,
         })
     };
-    assert_eq!(aggregate(0).exit_code(), 2);
-    assert_eq!(aggregate(1).exit_code(), 3);
+    assert_eq!(aggregate(0).exit(), Exit::REFUSED);
+    assert_eq!(aggregate(1).exit(), Exit::FATAL_FINDINGS);
     let codes: Vec<String> = aggregate(1)
         .refusals()
         .iter()
@@ -211,7 +215,7 @@ fn a_resume_refused_is_the_session_domains_own_refusal() {
         harp: "no-such-heron".to_string(),
     });
     assert_eq!(error.code(), "sessions-session-unknown");
-    assert_eq!(error.exit_code(), 2);
+    assert_eq!(error.exit(), Exit::REFUSED);
     let args: Vec<String> = error.args().iter().map(|(n, _)| n.to_string()).collect();
     assert_eq!(args, ["harp"]);
 }

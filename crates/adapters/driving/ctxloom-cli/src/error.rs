@@ -1,9 +1,10 @@
-//! Why a command did not complete, and its exit code (D28: 1 failed, 2
-//! refused before any state was read, 3 fatal findings).
+//! Why a command did not complete, and how it exits (rulings 149, 152, 153:
+//! 10 failed, 20 refused, 21 fatal findings; cli-support's `Exit`).
 
 use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
+use cli_support::{Exit, ExitClass};
 
 /// This crate's en-US messages (`locales/en-US/messages.ftl`, ids under the
 /// crate's name).
@@ -30,18 +31,21 @@ pub enum CliError {
     /// diagnostic, and the exit code it asks for.
     Command {
         error: Box<dyn Diagnostic>,
-        exit: u8,
+        exit: Exit,
     },
     /// What an extension's command said: its own diagnostic and exit code.
     Extension(crate::extension::Failure),
 }
 
-impl CliError {
-    /// The process exit code.
-    pub fn exit_code(&self) -> u8 {
+impl ExitClass for CliError {
+    /// How the command exits: a usage error is refused (20, never clap's 2),
+    /// an answer that could not be written failed (10).
+    fn exit(&self) -> Exit {
         match self {
-            CliError::Usage { .. } | CliError::UnknownVerb { .. } | CliError::Format { .. } => 2,
-            CliError::Output { .. } => 1,
+            CliError::Usage { .. } | CliError::UnknownVerb { .. } | CliError::Format { .. } => {
+                Exit::REFUSED
+            }
+            CliError::Output { .. } => Exit::FAILED,
             CliError::Command { exit, .. } => *exit,
             CliError::Extension(failure) => failure.exit,
         }

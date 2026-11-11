@@ -6,6 +6,7 @@
 //! the id mints, the store open and the seed, reached through the binary
 //! because no real command does them.
 
+use cli_support::Exit;
 use std::io::Write;
 
 use angzarr_diagnostic::Diagnostic;
@@ -25,9 +26,9 @@ pub type Samples = fn() -> Vec<Box<dyn Diagnostic>>;
 
 #[derive(Subcommand, Debug)]
 enum TestVerb {
-    /// Refuse (exit 2)
+    /// Refuse (exit 20)
     Refuse,
-    /// Report fatal findings (exit 3)
+    /// Report fatal findings (exit 21)
     Findings,
     /// Print a sample list
     Sample {
@@ -149,9 +150,9 @@ impl Render for Sample {
     }
 }
 
-/// A failure of the command line itself: exit 1.
+/// A failure of the command line itself: exit 10.
 fn failed(cause: impl Diagnostic + 'static) -> Failure {
-    Failure::new(cause, 1)
+    Failure::new(cause, Exit::FAILED)
 }
 
 fn output(written: std::io::Result<()>) -> Result<(), Failure> {
@@ -169,7 +170,7 @@ pub(crate) fn run(
     call: &Call<'_>,
     catalog: &Catalog,
     out: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let matches = call
         .matches
         .subcommand_matches(NOUN)
@@ -182,9 +183,12 @@ pub(crate) fn run(
             TestError::Refused {
                 verb: "refuse".to_string(),
             },
-            2,
+            Exit::REFUSED,
         )),
-        TestVerb::Findings => Err(Failure::new(TestError::Findings { count: 1 }, 3)),
+        TestVerb::Findings => Err(Failure::new(
+            TestError::Findings { count: 1 },
+            Exit::FATAL_FINDINGS,
+        )),
         TestVerb::Sample { empty } => output(render(out, format, &Sample(sample(empty)))),
         TestVerb::Diagnostics => output(diagnostics(samples, catalog, out)),
         TestVerb::SessionId => output(writeln!(out, "{}", crate::session_name())),
@@ -207,7 +211,7 @@ pub(crate) fn run(
             output(writeln!(out, "{}", path.display()))
         }
     }
-    .map(|()| 0)
+    .map(|()| Exit::OK)
 }
 
 fn sample(empty: bool) -> Vec<Row> {

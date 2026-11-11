@@ -9,6 +9,7 @@
 mod commands;
 mod text;
 
+use cli_support::{Exit, ExitClass};
 use std::io::{self, Read, Write};
 
 use angzarr_presentation::{Catalog, Format};
@@ -37,7 +38,7 @@ trait IntoFailure {
 
 impl IntoFailure for SetupError {
     fn into_failure(self) -> Failure {
-        let exit = self.exit_code();
+        let exit = self.exit();
         Failure::new(self, exit)
     }
 }
@@ -61,7 +62,7 @@ pub fn run(
     catalog: &Catalog,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let format = call.explicit_format.unwrap_or(if call.stdout_is_terminal {
         Format::Text
     } else {
@@ -107,9 +108,9 @@ fn manage(
     sub: &ArgMatches,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let Some((verb, args)) = sub.subcommand() else {
-        return Ok(0);
+        return Ok(Exit::OK);
     };
     match verb {
         "install" if flag(args, "print") => {
@@ -159,7 +160,7 @@ fn manage(
         "statusline" => {
             let enabled = matches!(args.subcommand_name(), Some("install"));
             if args.subcommand_name().is_none() {
-                return Ok(0);
+                return Ok(Exit::OK);
             }
             let done = cx
                 .setup
@@ -186,7 +187,7 @@ fn manage(
             }
         }
     }
-    Ok(0)
+    Ok(Exit::OK)
 }
 
 #[derive(Serialize)]
@@ -206,7 +207,7 @@ fn materialize(
     args: &ArgMatches,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let surfaces = many(args, "surface")
         .iter()
         .map(|s| SurfaceSpec::parse(s))
@@ -226,7 +227,7 @@ fn materialize(
         emit(cx, out, &done.value, |w| {
             text::materialize_diff(w, &done.value)
         })?;
-        return Ok(0);
+        return Ok(Exit::OK);
     }
     let request = MaterializeRequest {
         profiles: many(args, "profiles"),
@@ -248,8 +249,8 @@ fn materialize(
     // A delivery that was refused leaves the file as it was, and the command
     // failed: a script gating on the exit code must not believe it landed.
     match done.value.failures.into_iter().next() {
-        Some(first) => Err(Failure::new(first, 1)),
-        None => Ok(0),
+        Some(first) => Err(Failure::new(first, Exit::FAILED)),
+        None => Ok(Exit::OK),
     }
 }
 
@@ -260,9 +261,9 @@ fn util(
     sub: &ArgMatches,
     input: &mut dyn Read,
     out: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let Some(("config-write", args)) = sub.subcommand() else {
-        return Ok(0);
+        return Ok(Exit::OK);
     };
     let mut patch = String::new();
     input.read_to_string(&mut patch).map_err(|e| {
@@ -284,7 +285,7 @@ fn util(
             if done.created { "created" } else { "updated" }
         )
     })?;
-    Ok(0)
+    Ok(Exit::OK)
 }
 
 #[cfg(test)]

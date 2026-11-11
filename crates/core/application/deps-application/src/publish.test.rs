@@ -1,6 +1,7 @@
 //! `bundle push` and `bundle move` over the fakes.
 
 use deps_ports::Endpoint;
+use exit_code::{Exit, ExitClass};
 
 use crate::fakes::Fixture;
 use crate::{AppError, MoveRequest, Outcome, PushRequest};
@@ -407,7 +408,7 @@ fn test_push_with_pr_to_a_plain_git_remote_is_refused_and_opens_nothing() {
         }
         other => panic!("{other:?}"),
     }
-    assert_eq!(refused.exit_code(), 2);
+    assert_eq!(refused.exit(), Exit::REFUSED);
     assert!(fx.forge.opened().is_empty());
     assert_eq!(fx.remotes.head(URL), head, "nothing was pushed either");
 }

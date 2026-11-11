@@ -429,7 +429,7 @@ Feature: run — assembling a project's context and handing it to an engine
         """
         ctxloom run --one-shot "again" --session no-such-heron
         """
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the refusal is "sessions-session-unknown"
       And no assistant was launched
 
@@ -479,7 +479,7 @@ Feature: run — assembling a project's context and handing it to an engine
     rescues a lost container: each outline's two rows differ only in the flag,
     and a single row could not tell "--degraded is ignored" from "--degraded
     was never passed". Each gate keeps its own outcome step, which asserts its
-    own finding and the other gates' absence, since every row exits 3 and the
+    own finding and the other gates' absence, since every row exits 21 and the
     wording is all that tells the gates apart.
 
     # A dry run does not stop at the refusal: it renders the plan it could
@@ -608,6 +608,7 @@ Feature: run — assembling a project's context and handing it to an engine
   Rule: A child run needs a credential in its environment, and either the token or an API key is one
 
     Scenario: A child run with no credential at all is refused, naming claude setup-token
+      #   and exit codes per rulings 149, 152, 153 (10 failed, 20 refused, 21 fatal findings; Go's 1, 2, 3).
       # substitution: Go refused with "auth: token" for a token session; the refusal is the typed `runs-no-credential` and its fix names the token flow.
       Given Alice has a project that has never used ctxloom
       And Alice has set ctxloom up in her project
@@ -616,7 +617,7 @@ Feature: run — assembling a project's context and handing it to an engine
         """
         ctxloom run --one-shot "hello"
         """
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the refusal is "runs-no-credential"
       And the refusal holds no list of refusals
       And the refusal's fix says "claude setup-token"
@@ -624,7 +625,7 @@ Feature: run — assembling a project's context and handing it to an engine
         """
         ctxloom run --one-shot "hello" --format text
         """
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the output contains "claude setup-token"
       And no assistant was launched
 
@@ -668,7 +669,7 @@ Feature: run — assembling a project's context and handing it to an engine
         """
         ctxloom run --one-shot "hello"
         """
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the refusal is "runs-file-only-credential"
       And the refusal's fix says "engines.claude-code.auth.env"
       And the output contains "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY"
@@ -693,7 +694,7 @@ Feature: run — assembling a project's context and handing it to an engine
         """
         ctxloom run --engine opencode --one-shot "hello"
         """
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the refusal is "runs-file-only-credential"
       And the refusal's fix says "engines.opencode.auth.env"
       And the output contains "ANTHROPIC_API_KEY, OPENAI_API_KEY"
@@ -879,7 +880,7 @@ Feature: run — assembling a project's context and handing it to an engine
     that fails more than one says them all in one refusal, `runs-launch-refused`,
     in that order (each the refusal it would be alone: its code, args, message
     and fix), so she fixes them together instead of one per attempt. One
-    failure is its own refusal, exactly as before. The exit is 2, or 3 when
+    failure is its own refusal, exactly as before. The exit is 20, or 21 when
     the plan's fatal findings are among the failures (they are said as
     warnings beside the refusal, as a run past them always said them). An
     engine nobody drives is still planned, so the plan and the prompt are
@@ -895,7 +896,7 @@ Feature: run — assembling a project's context and handing it to an engine
         """
         ctxloom run --one-shot
         """
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the refusal is "runs-launch-refused"
       And the refusals are "runs-no-prompt, runs-no-credential"
       And each refusal carries its own message and fix
@@ -905,7 +906,7 @@ Feature: run — assembling a project's context and handing it to an engine
         """
         ctxloom run --one-shot --format text
         """
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the output contains "nothing to run"
       And the output contains "claude setup-token"
 
@@ -918,13 +919,13 @@ Feature: run — assembling a project's context and handing it to an engine
         """
         ctxloom run --one-shot --engine bogus-engine
         """
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the refusal is "runs-launch-refused"
       And the refusals are "runs-no-prompt, runs-unknown-engine"
       And the output contains "bogus-engine"
       And no assistant was launched
 
-    Scenario: A fatal finding beside a refused credential is exit 3, and both are said
+    Scenario: A fatal finding beside a refused credential is exit 21, and both are said
       # new: owner rulings 73a, 73c.
       Given Alice has a project that has never used ctxloom
       And Alice has set ctxloom up in her project
@@ -939,7 +940,7 @@ Feature: run — assembling a project's context and handing it to an engine
         """
         ctxloom run --one-shot --profile broken hello
         """
-      Then the command exits with code 3
+      Then the command exits with code 21
       And the refusal is "runs-launch-refused"
       And the refusals are "runs-no-credential"
       And the output contains "does-not-exist"
@@ -1009,7 +1010,7 @@ Feature: run — assembling a project's context and handing it to an engine
         """
         ctxloom --config-set <path>=<value> run --one-shot hello
         """
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the output contains "unknown key `<unknown>"
       And no assistant was launched
 

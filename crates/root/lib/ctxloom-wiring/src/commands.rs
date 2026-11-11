@@ -4,6 +4,7 @@
 //! relocate them), and the library reads the remotes through the dependency
 //! use cases, so both are built together.
 
+use cli_support::Exit;
 use std::io::Write;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -73,10 +74,11 @@ fn one_shot(
     catalog: &Catalog,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
-    let wiring = Wiring::new(Arc::clone(env)).map_err(|e| Failure::new(e, 1))?;
+) -> Result<Exit, Failure> {
+    let wiring = Wiring::new(Arc::clone(env)).map_err(|e| Failure::new(e, Exit::FAILED))?;
     let remotes: Rc<dyn deps_ports::RemoteLibrary> = deps.clone();
-    let library = crate::library::build(&wiring, Some(remotes)).map_err(|e| Failure::new(e, 1))?;
+    let library =
+        crate::library::build(&wiring, Some(remotes)).map_err(|e| Failure::new(e, Exit::FAILED))?;
     let mut uses = crate::oneshot::OneShots::new(&wiring, library)
         .with_puller(Rc::new(DepsPuller(Rc::clone(deps))));
     if !run_cli::is_one_shot(run) {
@@ -323,9 +325,9 @@ impl Commands {
         catalog: &Catalog,
         out: &mut dyn Write,
         err: &mut dyn Write,
-    ) -> Result<u8, Failure> {
+    ) -> Result<Exit, Failure> {
         let env = Arc::clone(&self.env);
-        let wired = self.wired().map_err(|e| Failure::new(e, 1))?;
+        let wired = self.wired().map_err(|e| Failure::new(e, Exit::FAILED))?;
         let terminal = crate::interview::StdTerminal::new(&env);
         let sessions = crate::interview::SetupSessions {
             env: &env,
@@ -377,7 +379,7 @@ impl Extension for Commands {
         catalog: &Catalog,
         out: &mut dyn Write,
         err: &mut dyn Write,
-    ) -> Result<u8, Failure> {
+    ) -> Result<Exit, Failure> {
         #[cfg(feature = "test-support")]
         if noun == crate::test_commands::NOUN {
             let env = Arc::clone(&self.env);
@@ -411,7 +413,7 @@ impl Extension for Commands {
             .unwrap_or_default()
             .to_string();
         let env = Arc::clone(&self.env);
-        let wired = self.wired().map_err(|e| Failure::new(e, 1))?;
+        let wired = self.wired().map_err(|e| Failure::new(e, Exit::FAILED))?;
         if noun == "run" {
             let run = call.matches.subcommand_matches("run");
             if let Some(run) = run.filter(|m| !cli_support::flag(m, "dry-run")) {

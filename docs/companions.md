@@ -42,7 +42,7 @@ Go ctxloom reads schema 8 only, where `companions` is a list of bare names
 readable by Go, and ctxloom does not write schema 8.
 
 A schema 7 or 8 file that lists bare names is refused, naming the file and the
-names, with exit 2: a name alone says nothing of what to run, so ctxloom does
+names, with exit 20: a name alone says nothing of what to run, so ctxloom does
 not convert it. Register each companion again with `companion add --command`,
 then remove the old list. A file with no companions (or an empty list) loads
 as before and is read as schema 9 in memory; it is not rewritten.

@@ -5,6 +5,7 @@
 //! j002200_isolation.feature's refusal rows, and plan 5.5.
 
 use super::{decide, Demand, Facts, Finding, Ownership, Plan, Runtime, Warning, Workspace};
+use exit_code::Exit;
 
 const WORKSPACES: [Workspace; 2] = [Workspace::None, Workspace::Worktree];
 const RUNTIMES: [Runtime; 3] = [
@@ -89,7 +90,7 @@ fn a_container_with_no_runtime_is_fatal_in_both_modes_and_never_lands_on_the_hos
                     }),
                     "{ownership:?} x {workspace:?} degraded={degraded}"
                 );
-                assert_eq!(found.unwrap_err().exit_code(), 3);
+                assert_eq!(found.unwrap_err().exit(), Exit::FATAL_FINDINGS);
             }
         }
     }

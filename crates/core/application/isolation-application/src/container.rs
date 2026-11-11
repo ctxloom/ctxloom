@@ -5,7 +5,7 @@
 //! `isolation/diagnose.go` (release/0.7). `build` and `prune` act on a live
 //! runtime and its images; what is hermetic is their refusals: a backend
 //! that is none of the engines, a runtime ctxloom does not know, and a
-//! machine with none (exit 3).
+//! machine with none (exit 21).
 
 use ctxloom_ports::UserFiles;
 use isolation_ports::{Backends, Companions, ContainerRuntimes, RuntimeFacts, RUNTIMES};
@@ -154,7 +154,7 @@ impl<R: ContainerRuntimes, B: Backends, C: Companions, U: UserFiles> Containers<
         };
         let Some(runtime) = chosen else {
             report.guidance.push(
-                "no container runtime is reachable: `runtime: container-rootless` / `runtime: container-rootful` agents abort startup (exit 3), even under --degraded - install docker or podman and start it, or declare `runtime: host` on an agent that should run unsandboxed"
+                "no container runtime is reachable: `runtime: container-rootless` / `runtime: container-rootful` agents abort startup (exit 21), even under --degraded - install docker or podman and start it, or declare `runtime: host` on an agent that should run unsandboxed"
                     .to_string(),
             );
             return Ok(report);
@@ -164,7 +164,7 @@ impl<R: ContainerRuntimes, B: Backends, C: Companions, U: UserFiles> Containers<
         if !runtime.reachable {
             report.shared_fs = format!("unprobed: the {} daemon did not answer", runtime.name);
             report.guidance.push(format!(
-                "{} is installed but its daemon did not answer: start it, or `runtime: container-rootless` / `runtime: container-rootful` agents abort startup (exit 3), even under --degraded",
+                "{} is installed but its daemon did not answer: start it, or `runtime: container-rootless` / `runtime: container-rootful` agents abort startup (exit 21), even under --degraded",
                 runtime.name
             ));
             return Ok(report);
@@ -201,7 +201,7 @@ impl<R: ContainerRuntimes, B: Backends, C: Companions, U: UserFiles> Containers<
     }
 
     /// `container prune`: a `--runtime` that is none of the runtimes ctxloom
-    /// knows is refused, and so is a machine with none (exit 3). With one,
+    /// knows is refused, and so is a machine with none (exit 21). With one,
     /// the plan over its images is the live lane's, not ported: this always
     /// answers the refusal.
     pub fn prune(&self, runtime: Option<&str>, yes: bool) -> IsolationError {

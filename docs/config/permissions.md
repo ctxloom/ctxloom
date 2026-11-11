@@ -125,7 +125,7 @@ flag for it yet.
 ## Migrating an older config
 
 These are hard migrations: the old keys are unknown keys and the config is
-refused (exit 2) until they are moved.
+refused (exit 20) until they are moved.
 
 - `agents.<n>.engines.claude-code.permissions.mode: X` becomes
   `agents.<n>.engines.claude-code.permissions.defaultMode: X`. A block that

@@ -10,6 +10,8 @@ use library_application::Flags;
 use serde::Serialize;
 
 use crate::commands::{command, Cli, Verb, PROG};
+use cli_support::{Exit, ExitClass};
+
 use crate::error::CliError;
 use crate::extension::{Call, Extension};
 
@@ -28,7 +30,9 @@ pub trait Services {
     fn extension(&mut self) -> &mut dyn Extension;
 }
 
-/// Run `args` and answer: the exit code.
+/// Run `args` and answer: the process's exit status, the command's
+/// [`Exit`] under the line's `--detailed-exitcode` (without it every success
+/// is 0).
 pub fn run(
     args: impl IntoIterator<Item = OsString>,
     context: &Context,
@@ -43,20 +47,40 @@ pub fn run(
     let command = command(&context.version, nouns);
     let matches = match command.clone().try_get_matches_from(&args) {
         Ok(matches) => matches,
-        Err(e) => return refused(e, &command, &args, context, catalog, out, err),
+        Err(e) => return refused(e, &command, &args, context, catalog, out, err).code(false),
     };
+    let detailed = cli_support::detailed_exitcode(&matches);
+    answer(
+        &matches, &names, &command, &args, context, catalog, services, out, err,
+    )
+    .code(detailed)
+}
+
+/// Answer the parsed line: how the command ended.
+#[allow(clippy::too_many_arguments)]
+fn answer(
+    matches: &clap::ArgMatches,
+    names: &[String],
+    command: &Command,
+    args: &[OsString],
+    context: &Context,
+    catalog: &Catalog,
+    services: &mut impl Services,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Exit {
     if let Some(noun) = matches
         .subcommand_name()
         .filter(|name| names.iter().any(|n| n == name))
     {
-        return extended(noun, &matches, &args, context, catalog, services, out, err);
+        return extended(noun, matches, args, context, catalog, services, out, err);
     }
-    let Ok(cli) = Cli::from_arg_matches(&matches) else {
-        return 2;
+    let Ok(cli) = Cli::from_arg_matches(matches) else {
+        return Exit::REFUSED;
     };
     let format = match chosen(cli.globals.format.as_deref(), context) {
         Ok(format) => format,
-        Err(e) => return report(&e, asked_format(&args, context), catalog, err),
+        Err(e) => return report(&e, asked_format(args, context), catalog, err),
     };
     let _ = cli.globals.verbose;
     let answered = match cli.command {
@@ -69,7 +93,7 @@ pub fn run(
         None => Ok(()),
     };
     match answered {
-        Ok(()) => 0,
+        Ok(()) => Exit::OK,
         Err(e) => report(&e, format, catalog, err),
     }
 }
@@ -85,7 +109,7 @@ fn extended(
     services: &mut impl Services,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> u8 {
+) -> Exit {
     // `loadout --format` names a document format (yaml), not an output
     // format: the command reads and judges the value itself.
     let asked = matches
@@ -186,16 +210,16 @@ fn refused(
     catalog: &Catalog,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> u8 {
+) -> Exit {
     match e.kind() {
         // Go's cobra line, which the VS Code extension's probe reads.
         ErrorKind::DisplayVersion => {
             let _ = writeln!(out, "{PROG} version {}", context.version);
-            0
+            Exit::OK
         }
         ErrorKind::DisplayHelp | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand => {
             let _ = write!(out, "{}", e.render());
-            0
+            Exit::OK
         }
         ErrorKind::InvalidSubcommand => {
             let unknown = unknown_verb(&e, command, args);
@@ -257,7 +281,7 @@ fn locate<'a>(root: &'a Command, args: &[OsString]) -> (&'a Command, String) {
     (at, path)
 }
 
-/// Say `error` on `err` in `format`; its exit code. As json, the envelope
+/// Say `error` on `err` in `format`; its exit. As json, the envelope
 /// `{code, args, message}`, the remedy as `fix` where the catalog has the
 /// `<code>-fix` id (the key left out otherwise), and, for an extension's
 /// failure that holds refusals, `refusals`, each reported the same way, in
@@ -268,11 +292,11 @@ pub(crate) fn report(
     format: Format,
     catalog: &Catalog,
     err: &mut dyn Write,
-) -> u8 {
+) -> Exit {
     let refusals: &[Box<dyn angzarr_diagnostic::Diagnostic>] = match error {
         CliError::Extension(failure) => &failure.refusals,
         _ => &[],
     };
     let _ = cli_support::say_failure(PROG, format, catalog, error, refusals, err);
-    error.exit_code()
+    error.exit()
 }

@@ -1,6 +1,7 @@
 //! A run's signals, forced with the platform's fake (`os::Signals::fake`):
 //! no signal is sent to the test process.
 
+use cli_support::{Exit, ExitClass};
 use std::time::Duration;
 
 use host_launcher::Stop;
@@ -97,9 +98,9 @@ fn test_a_stopped_run_ends_as_the_signal_says_and_one_not_stopped_as_it_did() {
         matches!(&ended, RunError::Stopped { signal, status: 143 } if signal == "SIGTERM"),
         "{ended:?}"
     );
-    assert_eq!(ended.exit_code(), 143);
+    assert_eq!(ended.exit(), Exit::signal(15));
     // The signal is the cause even of a run that failed after it.
     let mut failed = Err::<u8, RunError>(RunError::EmptyAnswer);
     heard.overrule(&mut failed);
-    assert_eq!(failed.unwrap_err().exit_code(), 143);
+    assert_eq!(failed.unwrap_err().exit(), Exit::signal(15));
 }

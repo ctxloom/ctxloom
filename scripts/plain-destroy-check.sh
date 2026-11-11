@@ -25,7 +25,7 @@ help=$(ctxloom session --help 2>&1) || true
 for verb in remove purge sweep; do
     rc=0
     said=$(ctxloom session "$verb" amber-swift-owl --yes --format text 2>&1) || rc=$?
-    if [ "$rc" -ne 2 ] || ! grep -qi "unrecognized subcommand\|unknown verb\|did you mean\|unexpected argument" <<< "$said"; then
+    if [ "$rc" -ne 20 ] || ! grep -qi "unrecognized subcommand\|unknown verb\|did you mean\|unexpected argument" <<< "$said"; then
         echo "plain build: session $verb is not an unknown verb (exit $rc)"
         echo "$said"
         exit 1

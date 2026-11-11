@@ -11,7 +11,7 @@
 //! - `clean [--yes]`: reports the cache it would remove and says outright
 //!   that it removed nothing, until `--yes`.
 //! - `doctor [--all] [--deps] [--fix]`: one row per check, each with its
-//!   `DOCTOR-CHECK-*` marker; json is `{checks: [...]}`. Exit 3 when a row
+//!   `DOCTOR-CHECK-*` marker; json is `{checks: [...]}`. Exit 21 when a row
 //!   failed, after the whole report. The text report lists the warnings;
 //!   `--all` lists every check.
 //! - `init` and `init prompt` print text whatever the format: the prompt is
@@ -20,6 +20,7 @@
 mod commands;
 mod text;
 
+use cli_support::Exit;
 use std::io::Write;
 
 use angzarr_diagnostic::Diagnostic;
@@ -55,7 +56,7 @@ pub struct UseCases<'a> {
     pub prompts: &'a dyn Prompts,
 }
 
-fn failure(cause: impl Diagnostic + 'static, exit: u8) -> Failure {
+fn failure(cause: impl Diagnostic + 'static, exit: Exit) -> Failure {
     Failure::new(cause, exit)
 }
 
@@ -64,7 +65,7 @@ fn output(error: std::io::Error) -> Failure {
         CliFault::Output {
             ext_err_txt: error.to_string(),
         },
-        1,
+        Exit::FAILED,
     )
 }
 
@@ -81,14 +82,14 @@ pub fn run<G>(
     catalog: &Catalog,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let format = call.explicit_format.unwrap_or(call.default_format);
     let sub = call.matches.subcommand_matches(noun).ok_or_else(|| {
         failure(
             CliFault::NoSuchCommand {
                 noun: noun.to_string(),
             },
-            2,
+            Exit::REFUSED,
         )
     })?;
     match noun {
@@ -100,14 +101,14 @@ pub fn run<G>(
 }
 
 /// `auth` and `auth status`: the credential report.
-fn auth(uses: &UseCases<'_>, format: Format, out: &mut dyn Write) -> Result<u8, Failure> {
+fn auth(uses: &UseCases<'_>, format: Format, out: &mut dyn Write) -> Result<Exit, Failure> {
     let rows = uses.auth.status(&uses.doctor.layer_texts());
     match format {
         Format::Json => write_json(out, &rows),
         Format::Text => text::auth(&rows, out),
     }
     .map_err(output)?;
-    Ok(0)
+    Ok(Exit::OK)
 }
 
 fn clean(
@@ -117,9 +118,12 @@ fn clean(
     catalog: &Catalog,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let yes = sub.get_flag("yes");
-    let report = uses.cleaner.clean(yes).map_err(|e| failure(e, 1))?;
+    let report = uses
+        .cleaner
+        .clean(yes)
+        .map_err(|e| failure(e, Exit::FAILED))?;
     match format {
         Format::Json => write_json(out, &report),
         Format::Text => text::clean(&report, out),
@@ -135,8 +139,13 @@ fn clean(
             catalog,
             err,
         );
+        // Ruling 153: a preview with a target present that `--yes` would
+        // remove.
+        if report.targets.iter().any(|target| target.present) {
+            return Ok(Exit::WOULD_CHANGE);
+        }
     }
-    Ok(0)
+    Ok(Exit::OK)
 }
 
 fn doctor(
@@ -145,9 +154,12 @@ fn doctor(
     format: Format,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     if sub.get_flag("fix") {
-        let removed = uses.doctor.fix().map_err(|e| Failure::boxed(e, 1))?;
+        let removed = uses
+            .doctor
+            .fix()
+            .map_err(|e| Failure::boxed(e, Exit::FAILED))?;
         for r in &removed {
             let _ = writeln!(
                 err,
@@ -167,12 +179,13 @@ fn doctor(
     Ok(exit_of(&report))
 }
 
-/// The exit status a report ends the run with.
-fn exit_of(report: &doctor_checks::Report) -> u8 {
+/// The exit a report ends the run with: fatal findings (21) when a row
+/// failed.
+fn exit_of(report: &doctor_checks::Report) -> Exit {
     if report.failed() {
-        3
+        Exit::FATAL_FINDINGS
     } else {
-        0
+        Exit::OK
     }
 }
 
@@ -194,12 +207,12 @@ fn init(
     catalog: &Catalog,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     if sub.subcommand_matches("prompt").is_some() {
         let body = init_application::prompt(uses.prompts)
             .map_err(|refused| Failure::boxed(refused.cause, refused.exit))?;
         write!(out, "{body}").map_err(output)?;
-        return Ok(0);
+        return Ok(Exit::OK);
     }
     let request = InitRequest {
         remotes: sub
@@ -208,7 +221,10 @@ fn init(
             .unwrap_or_default(),
         forge: sub.get_one::<String>("forge").cloned().unwrap_or_default(),
     };
-    let done = uses.init.init(&request).map_err(|e| failure(e, 1))?;
+    let done = uses
+        .init
+        .init(&request)
+        .map_err(|e| failure(e, Exit::FAILED))?;
     if done.existed {
         writeln!(out, "ctxloom directory already exists: {}", done.app_dir).map_err(output)?;
     } else {
@@ -218,7 +234,7 @@ fn init(
         if let Some(dir) = uses
             .init
             .choose_output_dir(uses.terminal)
-            .map_err(|e| failure(e, 1))?
+            .map_err(|e| failure(e, Exit::FAILED))?
         {
             writeln!(
                 out,
@@ -251,7 +267,7 @@ fn init(
         say_warning(notice.as_ref(), PROG, Format::Text, catalog, err);
     }
     Ok(match interviewed.outcome {
-        Outcome::NotATerminal => 0,
+        Outcome::NotATerminal => Exit::OK,
         Outcome::Declined => {
             writeln!(
                 out,
@@ -259,16 +275,22 @@ fn init(
                 init_application::RESTART_COMMAND
             )
             .map_err(output)?;
-            0
+            Exit::OK
         }
         Outcome::Interrupted { code } | Outcome::Restarted { code } => exit_of_session(code),
     })
 }
 
-/// The exit status a session ended with: the engine's, 1 where a signal
-/// ended it or it is not a status.
-fn exit_of_session(code: Option<i32>) -> u8 {
-    code.and_then(|code| u8::try_from(code).ok()).unwrap_or(1)
+/// The exit a session ended with, from the engine's status: ok for 0, the
+/// signal for a shell's 128 plus a signal's number, failed (10) for any other
+/// status or none (a signal ended it unreported). An engine's own codes are
+/// not ctxloom's (rulings 152, 153), so none is passed through as it is.
+fn exit_of_session(code: Option<i32>) -> Exit {
+    match code {
+        Some(0) => Exit::OK,
+        Some(status @ 129..=255) => Exit::signal((status - 128) as u8),
+        _ => Exit::FAILED,
+    }
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 //! The one-shot over the real aggregates in an in-memory store, with the
 //! plan, the project, the names and the engine scripted.
 
+use exit_code::{Exit, ExitClass};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -852,7 +853,7 @@ async fn a_plan_that_is_refused_starts_nothing_and_keeps_its_error() {
         &error,
         RunError::Plan(plan) if matches!(**plan, PlanError::AgentExclusive { .. })
     ));
-    assert_eq!(error.exit_code(), 2);
+    assert_eq!(error.exit(), Exit::REFUSED);
     assert_eq!(done.notices.len(), 1, "what the plan noticed is still said");
     assert!(rig.runner.seen.lock().unwrap().is_empty());
 }
@@ -874,7 +875,7 @@ async fn a_fatal_startup_finding_refuses_the_run_before_any_session() {
         .await
         .result
         .unwrap_err();
-    assert_eq!(error.exit_code(), 3);
+    assert_eq!(error.exit(), Exit::FATAL_FINDINGS);
     assert!(matches!(
         &error,
         RunError::Plan(plan) if matches!(**plan, PlanError::StartupAborted { .. })
@@ -904,7 +905,7 @@ async fn a_one_shot_with_no_prompt_refuses_before_a_session_exists() {
             "{prompt:?}: {error:?}"
         );
         assert_eq!(error.code(), "runs-no-prompt");
-        assert_eq!(error.exit_code(), 2);
+        assert_eq!(error.exit(), Exit::REFUSED);
         assert!(rig.records.names("amber-swift-owl").is_empty());
         assert!(rig.runner.seen.lock().unwrap().is_empty());
     }
@@ -929,7 +930,7 @@ async fn an_engine_that_cannot_be_driven_is_refused_naming_it_and_the_ones_that_
         other => panic!("{other:?}"),
     }
     assert_eq!(error.code(), "runs-unknown-engine");
-    assert_eq!(error.exit_code(), 2);
+    assert_eq!(error.exit(), Exit::REFUSED);
     assert!(rig.runner.seen.lock().unwrap().is_empty());
 }
 
@@ -1066,7 +1067,7 @@ async fn names_that_are_all_taken_refuse_the_run_with_the_kernels_refusal() {
         matches!(&error, RunError::Session(CoreError::Refused { code, .. }) if code == "sessions-names-taken"),
         "{error:?}"
     );
-    assert_eq!(error.exit_code(), 2);
+    assert_eq!(error.exit(), Exit::REFUSED);
     assert!(rig.runner.seen.lock().unwrap().is_empty());
     // The run was enqueued before the names were tried, so it is ended; nothing
     // was served.
@@ -1102,7 +1103,7 @@ async fn a_rate_limited_turn_is_that_error_and_the_run_still_ended() {
     assert!(
         matches!(&error, RunError::Turn { class: FailureClass::RateLimited, detail } if detail == "slow down")
     );
-    assert_eq!(error.exit_code(), 1);
+    assert_eq!(error.exit(), Exit::FAILED);
 }
 
 #[tokio::test]
@@ -1374,7 +1375,7 @@ async fn a_one_shot_with_no_env_credential_is_refused_before_anything_is_made() 
         "{error:?}"
     );
     assert_eq!(error.code(), "runs-no-credential");
-    assert_eq!(error.exit_code(), 2);
+    assert_eq!(error.exit(), Exit::REFUSED);
     assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 0);
     assert!(rig.runner.seen.lock().unwrap().is_empty());
 }
@@ -1431,7 +1432,7 @@ async fn a_one_shot_on_a_file_only_source_is_refused_before_its_listener_or_sess
         "{error:?}"
     );
     assert_eq!(error.code(), "runs-file-only-credential");
-    assert_eq!(error.exit_code(), 2);
+    assert_eq!(error.exit(), Exit::REFUSED);
     assert!(
         rig.hooks.log.lock().unwrap().is_empty(),
         "no listener served"
@@ -1718,7 +1719,7 @@ async fn a_listener_that_cannot_start_stops_the_run_before_its_engine() {
         matches!(&error, RunError::Listener(report) if report.code() == "hook-listener-bind"),
         "{error:?}"
     );
-    assert_eq!(error.exit_code(), 1);
+    assert_eq!(error.exit(), Exit::FAILED);
     assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
 }
 
@@ -2390,7 +2391,7 @@ fn no_credential_of_fake() -> runs::RunRejection {
 }
 
 // Rulings 73, 73b: a one-shot with no prompt and no credential is refused for
-// both at once, in check order, as one refusal: exit 2.
+// both at once, in check order, as one refusal: exit 20.
 #[tokio::test]
 async fn two_failing_checks_are_refused_together_in_check_order() {
     let mut script = needing_a_token();
@@ -2408,15 +2409,15 @@ async fn two_failing_checks_are_refused_together_in_check_order() {
         "{error:?}"
     );
     assert_eq!(error.code(), "runs-launch-refused");
-    assert_eq!(error.exit_code(), 2);
+    assert_eq!(error.exit(), Exit::REFUSED);
     assert_eq!(codes_of(&error), ["runs-no-prompt", "runs-no-credential"]);
 }
 
-// Ruling 73a: fatal findings beside a refusal make the exit 3; the findings
+// Ruling 73a: fatal findings beside a refusal make the exit 21; the findings
 // are said as warnings beside it (the plan leaves a fatal finding to the
 // refusal that lists it, and this one does not), the refusal is the run's.
 #[tokio::test]
-async fn fatal_findings_beside_a_refusal_are_exit_3_and_the_refusal_is_kept() {
+async fn fatal_findings_beside_a_refusal_are_exit_21_and_the_refusal_is_kept() {
     let mut script = needing_a_token();
     script.fatal = a_fatal_finding();
     let mut rig = rig(script);
@@ -2427,7 +2428,7 @@ async fn fatal_findings_beside_a_refusal_are_exit_3_and_the_refusal_is_kept() {
             if *refusals == [no_credential_of_fake()]),
         "{error:?}"
     );
-    assert_eq!(error.exit_code(), 3);
+    assert_eq!(error.exit(), Exit::FATAL_FINDINGS);
     assert_eq!(codes_of(&error), ["runs-no-credential"]);
     let said: Vec<String> = done.notices.iter().map(|n| format!("{n:?}")).collect();
     assert_eq!(said.len(), 2, "{said:?}");
@@ -2439,7 +2440,7 @@ async fn fatal_findings_beside_a_refusal_are_exit_3_and_the_refusal_is_kept() {
 }
 
 // A single failing check is the plain refusal it always was (rulings 73a,
-// 73c): its own code, exit 2, standing for itself alone.
+// 73c): its own code, exit 20, standing for itself alone.
 #[tokio::test]
 async fn one_failing_check_is_its_own_refusal_standing_for_itself() {
     let mut rig = rig(needing_a_token());
@@ -2450,7 +2451,7 @@ async fn one_failing_check_is_its_own_refusal_standing_for_itself() {
         .result
         .unwrap_err();
     assert_eq!(error.code(), "runs-no-credential");
-    assert_eq!(error.exit_code(), 2);
+    assert_eq!(error.exit(), Exit::REFUSED);
     assert!(
         error.refusals().is_empty(),
         "no list: its own plain envelope"
@@ -2486,11 +2487,11 @@ async fn an_undriven_engine_is_planned_and_the_prompt_still_judged() {
         "on the agent's own engine, which the library knows"
     );
     assert_eq!(codes_of(&error), ["runs-no-prompt", "runs-unknown-engine"]);
-    assert_eq!(error.exit_code(), 2);
+    assert_eq!(error.exit(), Exit::REFUSED);
 }
 
 // Ruling 73d: at most three failures in one run, the fatal findings, the
-// prompt and the engine; with the findings among them, exit 3.
+// prompt and the engine; with the findings among them, exit 21.
 #[tokio::test]
 async fn the_findings_the_prompt_and_the_engine_fail_together() {
     let mut script = needing_a_token();
@@ -2508,7 +2509,7 @@ async fn the_findings_the_prompt_and_the_engine_fail_together() {
         .result
         .unwrap_err();
     assert_eq!(codes_of(&error), ["runs-no-prompt", "runs-unknown-engine"]);
-    assert_eq!(error.exit_code(), 3);
+    assert_eq!(error.exit(), Exit::FATAL_FINDINGS);
 }
 
 // The proposal for ruling 73f's residue: the enqueue is sent before a name is
@@ -2964,11 +2965,11 @@ async fn incarnation_events(
 }
 
 /// The refusal code of a run's error, when it is a resume's refusal: the
-/// session domain's own, exit 2.
+/// session domain's own, exit 20.
 fn refused_code(error: &RunError) -> String {
     match error {
         RunError::Resume(rejection) => {
-            assert_eq!(error.exit_code(), 2);
+            assert_eq!(error.exit(), Exit::REFUSED);
             rejection.code().to_string()
         }
         other => panic!("not a resume's refusal: {other:?}"),

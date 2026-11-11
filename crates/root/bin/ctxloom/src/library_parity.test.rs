@@ -30,7 +30,7 @@
 //!   retired `llm` noun itself are gone with it.
 //! - Error texts. A failing command's stdout is empty in both and its exit
 //!   code is compared; the words are asserted in `library_cli.test.rs` from
-//!   the Gherkin. A usage error is exit 2 here (D28, ruled), where Go's
+//!   the Gherkin. A usage error is exit 20 here (D28, ruled), where Go's
 //!   cobra gave 1: `USAGE_REFUSALS`.
 
 use std::collections::BTreeMap;
@@ -40,8 +40,19 @@ use serde_json::Value;
 use super::library::{fixtures, Project};
 use crate::tests::files;
 
+/// Go's exit code as this build's (rulings 149, 152, 153): 1 failed is 10,
+/// 2 refused 20, 3 fatal findings 21; 0 is 0.
+fn ours(go_exit: i32) -> i32 {
+    match go_exit {
+        1 => 10,
+        2 => 20,
+        3 => 21,
+        other => other,
+    }
+}
+
 /// Rows where Go's exit 1 is clap's usage refusal in this binary: D28 maps
-/// those to 2.
+/// those to 20.
 const USAGE_REFUSALS: [&str; 2] = ["config-misspelled-subcommand", "run-dry-agent-and-profile"];
 
 /// Rows where Go's exit 1 is the strict decode's refusal of a config (an
@@ -66,7 +77,7 @@ const CONFIG_REFUSALS: [&str; 14] = [
 
 /// Rows where the owner overrides Go (D15, 2026-11-03): a config whose
 /// `schema_version` is newer, older, unstamped or not a number is refused with
-/// exit 2, where Go warned and read on (`config_version_refusal_test.go`).
+/// exit 20, where Go warned and read on (`config_version_refusal_test.go`).
 const OWNER_REFUSALS: [&str; 8] = [
     "cfg-newer-show-json",
     "cfg-newer-bundle-list",
@@ -81,7 +92,7 @@ const OWNER_REFUSALS: [&str; 8] = [
 /// Fixtures Go reads that register companions by bare name (`companions:
 /// [acme]`, schema 8): from schema 9 a companion is a name and the command
 /// that runs it, and the bare list is refused, never migrated (virtuous-word,
-/// owner ruling 2026-11-06). Their rows hold the refusal (exit 2, no answer)
+/// owner ruling 2026-11-06). Their rows hold the refusal (exit 20, no answer)
 /// where Go answered; the new shape's behaviour is held by `library_config`'s
 /// layering test on `cfg/layers9`, and by `library_cli`'s companion tests.
 const BARE_COMPANION_FIXTURES: [&str; 3] = ["cfg/v8", "cfg/layers", "cfg/layers-empty-companions"];
@@ -217,15 +228,15 @@ fn mismatch(row: &Row, project: &Project) -> Option<String> {
         || BARE_COMPANION_FIXTURES.contains(&row.fixture.as_str())
     {
         // owner override of Go, D15, 2026-11-03
-        return (ran.code != 2 || !ran.stdout.trim().is_empty())
-            .then(|| format!("want a refusal (exit 2, no answer): {}", ran.said()));
+        return (ran.code != 20 || !ran.stdout.trim().is_empty())
+            .then(|| format!("want a refusal (exit 20, no answer): {}", ran.said()));
     }
     let want_exit = if USAGE_REFUSALS.contains(&row.id.as_str())
         || CONFIG_REFUSALS.contains(&row.id.as_str())
     {
-        2
+        20
     } else {
-        go_exit
+        ours(go_exit)
     };
     if ran.code != want_exit {
         return Some(format!(

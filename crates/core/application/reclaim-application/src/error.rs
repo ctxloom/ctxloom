@@ -5,6 +5,7 @@ use std::fmt;
 use angzarr_diagnostic::{code, Arg, Diagnostic};
 use ctxloom_ports::Failure;
 use duration_text::DurationError;
+use exit_code::{Exit, ExitClass};
 use isolation_application::IsolationError;
 use sessions_application::AppError;
 
@@ -26,15 +27,16 @@ pub enum ReclaimError {
     Isolation(IsolationError),
 }
 
-impl ReclaimError {
-    /// The process exit code: 2 for a flag that is invalid on its own
-    /// content, else what the sessions use case asks for, else 1.
-    pub fn exit_code(&self) -> u8 {
+impl ExitClass for ReclaimError {
+    /// How a command this ends exits: refused (20) for a flag that is
+    /// invalid on its own content, else what the sessions or isolation use
+    /// case says, else failed (10).
+    fn exit(&self) -> Exit {
         match self {
-            ReclaimError::BadAge { .. } => 2,
-            ReclaimError::Sessions(error) => error.exit_code(),
-            ReclaimError::Isolation(error) => error.exit_code(),
-            ReclaimError::Cache(_) | ReclaimError::Config(_) => 1,
+            ReclaimError::BadAge { .. } => Exit::REFUSED,
+            ReclaimError::Sessions(error) => error.exit(),
+            ReclaimError::Isolation(error) => error.exit(),
+            ReclaimError::Cache(_) | ReclaimError::Config(_) => Exit::FAILED,
         }
     }
 }

@@ -5,6 +5,7 @@
 use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
+use exit_code::{Exit, ExitClass};
 
 /// This crate's en-US messages (`locales/en-US/messages.ftl`, ids under the
 /// crate's name).
@@ -49,17 +50,19 @@ impl SetupError {
     pub fn cause(error: impl Diagnostic + 'static) -> SetupError {
         SetupError::Cause(Box::new(error))
     }
+}
 
-    /// The exit code: 1 failed, 2 refused before any state was read, 3 fatal
-    /// findings.
-    pub fn exit_code(&self) -> u8 {
+impl ExitClass for SetupError {
+    /// How a command this ends exits: refused (20) before any state was
+    /// read, fatal findings (21), failed (10) otherwise.
+    fn exit(&self) -> Exit {
         match self {
             SetupError::NoTarget { .. }
             | SetupError::Request { .. }
             | SetupError::UnknownEngine { .. }
-            | SetupError::UnknownEvent { .. } => 2,
-            SetupError::Refused { .. } => 3,
-            _ => 1,
+            | SetupError::UnknownEvent { .. } => Exit::REFUSED,
+            SetupError::Refused { .. } => Exit::FATAL_FINDINGS,
+            _ => Exit::FAILED,
         }
     }
 }

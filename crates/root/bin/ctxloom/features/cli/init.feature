@@ -319,7 +319,7 @@ Feature: init — the setup interview, and what it does to a project that alread
         """
         ctxloom init prompt
         """
-      Then the command exits with code 2
+      Then the command exits with code 20
       And the output contains "overrides ctxloom's built-in one whole, and has no prompt \"setup-interview\""
       And the output contains "add prompts/setup-interview.md to it, or rename that bundle to use ctxloom's own"
       And the output does not contain "Phase 1 — Open, orient, scan"

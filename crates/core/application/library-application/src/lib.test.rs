@@ -4,6 +4,7 @@
 
 use crate::fakes::{plain, Setup, CONFIG, ENVELOPE};
 use crate::{AppError, AssembleRequest, ItemKind, Notice, RunRequest, SearchRequest};
+use exit_code::{Exit, ExitClass};
 
 const DEMO: &[(&str, &str)] = &[
     ENVELOPE,
@@ -112,7 +113,7 @@ fn test_showing_an_unreadable_bundle_names_the_fault_and_a_missing_one_is_not_fo
     assert!(matches!(unreadable, AppError::BundleUnreadable { .. }));
     let missing = library.bundle_show(&plain(), "nosuch").result.unwrap_err();
     assert!(matches!(missing, AppError::Cause(_)));
-    assert_eq!(missing.exit_code(), 1);
+    assert_eq!(missing.exit(), Exit::FAILED);
 }
 
 // config.feature / fault_tolerance.feature: an unknown key is refused naming
@@ -152,7 +153,7 @@ fn test_an_unknown_config_key_is_refused_and_degraded_drops_it_with_a_warning() 
 
 // config_version_refusal_test.go: owner override of Go, D15, 2026-11-03: a
 // layer of another generation (newer, older, unstamped, not a number) is
-// refused, naming it, with exit 2.
+// refused, naming it, with exit 20.
 #[test]
 fn test_a_config_of_another_generation_is_refused() {
     for layer in [
@@ -177,7 +178,7 @@ fn test_a_config_of_another_generation_is_refused() {
             ),
             "{layer:?}: {refused:?}"
         );
-        assert_eq!(refused.exit_code(), 2);
+        assert_eq!(refused.exit(), Exit::REFUSED);
     }
 }
 
@@ -202,7 +203,7 @@ fn test_a_config_registering_companions_by_bare_name_is_refused_not_migrated() {
             }
             other => panic!("{other:?}"),
         }
-        assert_eq!(refused.exit_code(), 2);
+        assert_eq!(refused.exit(), Exit::REFUSED);
     }
 }
 
@@ -462,12 +463,8 @@ fn test_a_search_ranks_names_before_tags_and_refuses_what_it_cannot_answer() {
         ..SearchRequest::default()
     };
     assert_eq!(
-        library
-            .search(&plain(), &remote)
-            .result
-            .unwrap_err()
-            .exit_code(),
-        2
+        library.search(&plain(), &remote).result.unwrap_err().exit(),
+        Exit::REFUSED
     );
 }
 
@@ -505,7 +502,7 @@ fn test_a_dry_run_carries_the_composed_context_and_refuses_what_run_refuses() {
         ..RunRequest::default()
     };
     let refused = library.dry_run(&plain(), &both).result.err().unwrap();
-    assert_eq!(refused.exit_code(), 2);
+    assert_eq!(refused.exit(), Exit::REFUSED);
     let tag = RunRequest {
         tags: vec!["no-such-tag".to_string()],
         ..RunRequest::default()
@@ -548,7 +545,7 @@ fn test_fatal_findings_are_fatal_unless_degraded() {
     assert_eq!(past.plan.findings.len(), 1);
     assert!(!past.plan.findings[0].fatal);
     let aborted = AppError::aborted(&strict.fatal);
-    assert_eq!(aborted.exit_code(), 3);
+    assert_eq!(aborted.exit(), Exit::FATAL_FINDINGS);
 }
 
 // hand-test 2 2026-11-11: a missing bundle was reported three times in one

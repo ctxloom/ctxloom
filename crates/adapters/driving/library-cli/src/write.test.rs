@@ -57,7 +57,8 @@ fn run_on(library: &Library, line: &[&str], how: How) -> Ran {
     let catalog = Catalog::en_us(&[library_application::EN_US]).unwrap();
     let (mut out, mut err) = (Vec::new(), Vec::new());
     let exit = run(library, &noun, &call, &catalog, &mut out, &mut err)
-        .map_err(|f| format!("{}:{}", f.cause.code(), f.exit));
+        .map(|exit| exit.code(true))
+        .map_err(|f| format!("{}:{}", f.cause.code(), f.exit.code(true)));
     Ran {
         exit,
         out: String::from_utf8(out).unwrap(),
@@ -65,15 +66,17 @@ fn run_on(library: &Library, line: &[&str], how: How) -> Ran {
     }
 }
 
+/// A success's text: ok, or a preview's would-change (ruling 153), which its
+/// own tests hold to its code.
 fn text(library: &Library, line: &[&str]) -> String {
     let ran = run_on(library, line, TEXT);
-    assert_eq!(ran.code(), 0, "{line:?}: {}", ran.err);
+    assert!(ran.code() < 10, "{line:?}: a success: {}", ran.err);
     ran.out
 }
 
 fn json(library: &Library, line: &[&str]) -> serde_json::Value {
     let ran = run_on(library, line, JSON);
-    assert_eq!(ran.code(), 0, "{line:?}: {}", ran.err);
+    assert!(ran.code() < 10, "{line:?}: a success: {}", ran.err);
     ran.json()
 }
 
@@ -190,6 +193,26 @@ fn test_bundle_remove_previews_until_yes() {
     assert!(!mem.has_bundle("demo"));
     let doc = json(&library, &["bundle", "del", "project", "-y"]);
     assert_eq!(doc["status"], "deleted");
+}
+
+// Ruling 153: a removal's preview would change something, the
+// distinguishing success 1 (said only under `--detailed-exitcode`); the
+// removal done is ok, 0.
+#[test]
+fn test_a_removals_preview_would_change_and_the_removal_done_is_ok() {
+    let (library, _) = world();
+    assert_eq!(
+        run_on(&library, &["bundle", "remove", "demo"], TEXT).code(),
+        1
+    );
+    assert_eq!(
+        run_on(&library, &["bundle", "remove", "demo"], JSON).code(),
+        1
+    );
+    assert_eq!(
+        run_on(&library, &["bundle", "remove", "demo", "--yes"], TEXT).code(),
+        0
+    );
 }
 
 // A preview without detail is a sentence, not a list.

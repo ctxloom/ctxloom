@@ -3,6 +3,7 @@
 //! project bundle of the same name, and in no session's context.
 
 use angzarr_diagnostic::Diagnostic;
+use exit_code::{Exit, ExitClass};
 
 use crate::fakes::{plain, Mem, Setup, CONFIG, ENVELOPE};
 use crate::{AppError, AssembleRequest, ItemKind, Library, WriteError};
@@ -363,7 +364,7 @@ fn test_a_project_bundle_of_the_name_lacking_the_prompt_is_refused() {
         panic!("not refused: {refused:?}")
     };
     assert_eq!(e.code(), "library-application-operational-prompt-missing");
-    assert_eq!(e.exit_code(), 2);
+    assert_eq!(e.exit(), Exit::REFUSED);
     assert_eq!(
         e.english(),
         "the project's bundle \"ctxloom\" (/p/.ctxloom/content/bundles/v2/ctxloom) overrides ctxloom's built-in one whole, and has no prompt \"distill\""

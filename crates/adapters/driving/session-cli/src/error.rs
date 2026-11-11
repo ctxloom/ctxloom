@@ -4,6 +4,7 @@
 use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
+use cli_support::{Exit, ExitClass};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum CliFault {
@@ -20,12 +21,15 @@ pub enum CliFault {
     SweepFailed { count: u64 },
 }
 
-impl CliFault {
-    /// The process exit code: 2, a request invalid on its own content, or 1.
-    pub fn exit_code(&self) -> u8 {
+impl ExitClass for CliFault {
+    /// How the command exits: refused (20), a request invalid on its own
+    /// content, or failed (10).
+    fn exit(&self) -> Exit {
         match self {
-            CliFault::BadState { .. } | CliFault::EditNothing { .. } => 2,
-            CliFault::Runtime { .. } | CliFault::Output { .. } | CliFault::SweepFailed { .. } => 1,
+            CliFault::BadState { .. } | CliFault::EditNothing { .. } => Exit::REFUSED,
+            CliFault::Runtime { .. } | CliFault::Output { .. } | CliFault::SweepFailed { .. } => {
+                Exit::FAILED
+            }
         }
     }
 }

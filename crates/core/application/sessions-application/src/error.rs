@@ -3,6 +3,7 @@
 use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
+use exit_code::{Exit, ExitClass};
 
 use sessions::SessionRejection;
 
@@ -47,13 +48,15 @@ impl AppError {
             _ => &[],
         }
     }
+}
 
-    /// The process exit code: 2 when the request is invalid on its own
-    /// content (a name no session may have), 1 when it ran against state and
-    /// the answer was negative.
-    pub fn exit_code(&self) -> u8 {
+impl ExitClass for AppError {
+    /// How a command this ends exits: refused (20) when the request is
+    /// invalid on its own content (a name no session may have), failed (10)
+    /// when it ran against state and the answer was negative.
+    fn exit(&self) -> Exit {
         match self {
-            AppError::DeadLettered { error, .. } => error.exit_code(),
+            AppError::DeadLettered { error, .. } => error.exit(),
             AppError::Rejected(cause) => {
                 let invalid = [
                     SessionRejection::HarpInvalid {
@@ -71,9 +74,9 @@ impl AppError {
                     .to_string(),
                 ];
                 if invalid.iter().any(|code| code == cause.code()) {
-                    2
+                    Exit::REFUSED
                 } else {
-                    1
+                    Exit::FAILED
                 }
             }
             AppError::NoSession { .. }
@@ -81,7 +84,7 @@ impl AppError {
             | AppError::Failed(_)
             | AppError::Identity(_)
             | AppError::Files(_)
-            | AppError::GaveUp { .. } => 1,
+            | AppError::GaveUp { .. } => Exit::FAILED,
         }
     }
 }
@@ -144,7 +147,7 @@ impl From<angzarr_embedded_runner::Unrun> for AppError {
 }
 
 /// Why `session remove` refused, after printing its plan: the answer ends with
-/// what was NOT done (Go: `harpPurgeRefusal`), and exits 2.
+/// what was NOT done (Go: `harpPurgeRefusal`), and exits 20.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Refusal {
     /// The session's lock does not prove its owner dead: held, or no lock at

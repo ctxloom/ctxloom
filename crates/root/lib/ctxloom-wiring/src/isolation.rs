@@ -2,6 +2,7 @@
 //! sessions' locks and git, and `container` over the machine's runtimes, the
 //! engines, the registered companions and the project's files.
 
+use cli_support::Exit;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -83,8 +84,8 @@ pub(crate) fn container(
     call: &Call<'_>,
     _catalog: &Catalog,
     out: &mut dyn std::io::Write,
-) -> Result<u8, Failure> {
-    let wired = |e: LibError| Failure::boxed(Box::new(e), 1);
+) -> Result<Exit, Failure> {
+    let wired = |e: LibError| Failure::boxed(Box::new(e), Exit::FAILED);
     let wiring = Wiring::new(Arc::clone(env)).map_err(wired)?;
     let library = Rc::new(crate::library::build(&wiring, None).map_err(wired)?);
     let flags = call.globals.clone();

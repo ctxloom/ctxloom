@@ -9,6 +9,7 @@
 //! project as it is then, which is what makes the restart see what the
 //! interview configured.
 
+use cli_support::{Exit, ExitClass};
 use std::io::{BufRead, IsTerminal, Write};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -133,7 +134,7 @@ impl SetupSessions<'_> {
             .collect();
         // The launch's own exit code, as `ctxloom run` ends with it.
         let ended = done.result.map_err(|e| {
-            let exit = e.exit_code();
+            let exit = e.exit();
             LaunchFailure {
                 cause: Box::new(e),
                 exit,
@@ -161,14 +162,17 @@ impl Prompts for SetupSessions<'_> {
     /// bundle `ctxloom` overrides the built-in one whole), read from a library
     /// built when it is asked, so a first init's reads the new project.
     fn setup_interview(&self) -> Result<String, PromptFailure> {
-        let failed = |cause: init_application::Failure| PromptFailure { cause, exit: 1 };
+        let failed = |cause: init_application::Failure| PromptFailure {
+            cause,
+            exit: Exit::FAILED,
+        };
         let wiring = Wiring::new(Arc::clone(self.env)).map_err(|e| failed(Box::new(e)))?;
         let library = crate::library::build(&wiring, None).map_err(|e| failed(Box::new(e)))?;
         library
             .operational_prompt(self.flags, library::builtin::SETUP_INTERVIEW_NAME)
             .result
             .map_err(|e| PromptFailure {
-                exit: e.exit_code(),
+                exit: e.exit(),
                 cause: Box::new(e),
             })
     }

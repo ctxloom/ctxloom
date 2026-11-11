@@ -386,7 +386,7 @@ Feature: container — the images isolated agents run in, and the questions you 
     run unless `--yes`. What is specifiable without a container runtime is
     its two refusals: a `--runtime` that names no runtime ctxloom knows, and a
     machine with no runtime at all. The second is its own documented exit
-    status (3), distinct from "a removal failed" (1): a caller scripting prune
+    status (21), distinct from "a removal failed" (10): a caller scripting prune
     has to be able to tell "could not look" from "looked and failed", and a
     0 here would report a clean sweep of images nobody could see.
 
@@ -399,8 +399,9 @@ Feature: container — the images isolated agents run in, and the questions you 
       And the output contains "docker"
 
     Scenario: With no container runtime on this machine, prune exits 3 rather than reporting a clean sweep
+      # substitution: exit codes per rulings 149, 152, 153 (10 failed, 20 refused, 21 fatal findings; Go's 1, 2, 3).
       Given an initialized ctxloom project
       And no container runtime is installed
       When I run "ctxloom container prune"
-      Then the command exits with code 3
+      Then the command exits with code 21
       And the output contains "no container runtime is available to prune"

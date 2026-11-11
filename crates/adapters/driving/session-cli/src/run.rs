@@ -1,5 +1,6 @@
 //! Run a `session` command against the application.
 
+use cli_support::{Exit, ExitClass};
 use std::io::{self, Write};
 
 use angzarr_diagnostic::Diagnostic;
@@ -7,7 +8,6 @@ use angzarr_diagnostic::Diagnostic;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use angzarr_presentation::{write_json, Format};
-use cli_support::EXIT_REFUSED;
 use isolation_application::{IsolationError, WorktreeUse};
 use reclaim_application::SweepConfig;
 #[cfg(feature = "session-destroy")]
@@ -45,6 +45,10 @@ pub struct Done {
     /// Dead letters the kernel answered, loud lines for stderr: each almost
     /// certainly marks a bug.
     pub lines: Vec<String>,
+    /// A preview that would change something on `--yes` (ruling 153: the
+    /// command's exit is the distinguishing success 1, said only under
+    /// `--detailed-exitcode`).
+    pub would_change: bool,
 }
 
 /// A command that did not complete: why and its exit code (the shared
@@ -57,7 +61,7 @@ pub struct Failure {
 
 impl Failure {
     /// `cause`, ending the command with `exit`, with `lines` to say beside it.
-    fn new(cause: impl Diagnostic + 'static, exit: u8, lines: Vec<String>) -> Failure {
+    fn new(cause: impl Diagnostic + 'static, exit: Exit, lines: Vec<String>) -> Failure {
         Failure {
             failure: cli_support::Failure::new(cause, exit),
             lines,
@@ -85,14 +89,14 @@ pub fn run<S: SessionService + ImportService + WorktreeUse + SweepConfig>(
 
 /// A fault of the command line itself.
 fn fault(fault: CliFault) -> Failure {
-    let exit = fault.exit_code();
+    let exit = fault.exit();
     Failure::new(fault, exit, Vec::new())
 }
 
 /// A use case's failure: its diagnostic, its exit code, and the dead letters
 /// its kernel calls answered.
 fn failure(error: AppError) -> Failure {
-    let exit = error.exit_code();
+    let exit = error.exit();
     let lines = error
         .dead_letters()
         .iter()
@@ -129,6 +133,7 @@ fn dead_letters(letters: &[DeadLetter]) -> Done {
             .iter()
             .map(|l| dead_letter_line(&l.letter))
             .collect(),
+        would_change: false,
     }
 }
 
@@ -232,12 +237,12 @@ async fn execute<S: SessionService + ImportService + WorktreeUse + SweepConfig>(
 
 /// An isolation use case's failure: its diagnostic and exit code.
 fn isolation_failure(error: IsolationError) -> Failure {
-    let exit = error.exit_code();
+    let exit = error.exit();
     Failure::new(error, exit, Vec::new())
 }
 
 /// `session worktrees ...`: the scratch checkouts, listed or purged. A purge
-/// reports first, and an action that changed nothing refuses (exit 2) after
+/// reports first, and an action that changed nothing refuses (exit 20) after
 /// the report is out, so an unattended run that found nothing safe cannot be
 /// mistaken for one that cleaned up.
 fn worktree_verb<S: WorktreeUse>(
@@ -357,7 +362,7 @@ async fn remove<S: SessionService + WorktreeUse>(
     })?;
     let mut done = dead_letters(&removal.dead_letters);
     if let Some(refusal) = removal.refusal {
-        return Err(Failure::new(refusal, EXIT_REFUSED, done.lines));
+        return Err(Failure::new(refusal, Exit::REFUSED, done.lines));
     }
     // Owner ruling 104: what a person wrote goes with the session, so it is
     // named first, a warning and never a refusal; a refused removal destroys
@@ -370,6 +375,8 @@ async fn remove<S: SessionService + WorktreeUse>(
         }));
     }
     if !args.yes {
+        // Not refused, so `--yes` would destroy the session.
+        done.would_change = true;
         let flag = if args.even_if_live {
             " --even-if-live"
         } else {
@@ -428,6 +435,7 @@ async fn sweep<S: SessionService + WorktreeUse + SweepConfig>(
         return Err(fault(CliFault::SweepFailed { count: failed }));
     }
     if !args.yes {
+        done.would_change = report.counts.get("planned").copied().unwrap_or(0) > 0;
         let age = args
             .purge_older_than
             .as_ref()
@@ -448,7 +456,7 @@ async fn sweep<S: SessionService + WorktreeUse + SweepConfig>(
 /// A reclaim use case's failure: its diagnostic and exit code.
 #[cfg(feature = "session-destroy")]
 fn reclaim_failure(error: ReclaimError) -> Failure {
-    let exit = error.exit_code();
+    let exit = error.exit();
     Failure::new(error, exit, Vec::new())
 }
 

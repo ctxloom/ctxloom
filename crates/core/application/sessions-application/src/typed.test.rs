@@ -10,6 +10,7 @@ use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
 use angzarr_embedded::{Domain, Handled, OnRetryable, Payload};
 use angzarr_embedded_runner::{Refusal, Runner, Unrun};
+use exit_code::ExitClass;
 use sessions::{
     AdoptRotations, ClaimName, MintSession, NameClaimAggregate, NameClaimCommand, ReleaseName,
     RenameSession, SessionAggregate, SessionCommand, SessionRejection, SetKept, StopSession,
@@ -148,7 +149,7 @@ fn told(store: &MemoryStore, aggregate_is_claim: bool, book: CommandBook) -> Tol
         rejection,
         code: error.code().to_string(),
         args,
-        exit: error.exit_code(),
+        exit: error.exit().code(true),
     }
 }
 
@@ -178,7 +179,7 @@ fn the_mint_and_rename_refusals_are_told_by_their_type() {
         },
         "sessions-session-exists",
         &[("harp", "owl")],
-        1,
+        10,
     );
 
     expect(
@@ -193,7 +194,7 @@ fn the_mint_and_rename_refusals_are_told_by_their_type() {
         },
         "sessions-harp-invalid",
         &[("harp", "a/b"), ("reason", "separator")],
-        2,
+        20,
     );
 
     expect(
@@ -205,7 +206,7 @@ fn the_mint_and_rename_refusals_are_told_by_their_type() {
         },
         "sessions-harp-too-long",
         &[("harp", long.as_str()), ("length", "30"), ("limit", "24")],
-        2,
+        20,
     );
 
     expect(
@@ -217,7 +218,7 @@ fn the_mint_and_rename_refusals_are_told_by_their_type() {
         SessionRejection::NoSession,
         "sessions-no-session",
         &[],
-        1,
+        10,
     );
 
     expect(
@@ -232,7 +233,7 @@ fn the_mint_and_rename_refusals_are_told_by_their_type() {
         SessionRejection::ChildCannotStop { depth: 1 },
         "sessions-child-cannot-stop",
         &[("depth", "1")],
-        1,
+        10,
     );
 }
 
@@ -259,7 +260,7 @@ fn the_name_claim_refusals_are_told_by_their_type() {
         },
         "sessions-names-taken",
         &[("harp", "owl")],
-        1,
+        10,
     );
     expect(
         told(
@@ -277,7 +278,7 @@ fn the_name_claim_refusals_are_told_by_their_type() {
         },
         "sessions-not-holder",
         &[("harp", "owl")],
-        1,
+        10,
     );
     expect(
         told(
@@ -293,7 +294,7 @@ fn the_name_claim_refusals_are_told_by_their_type() {
         SessionRejection::NoClaim,
         "sessions-no-claim",
         &[],
-        1,
+        10,
     );
 }
 

@@ -9,8 +9,8 @@
 //! THE TEST-ONLY SURFACE this file proposes (built only with the binary's
 //! `test-support` feature; S0 has no real command that does these):
 //!
-//! - `ctxloom test refuse`: a refusal (exit 2) that carries a remedy.
-//! - `ctxloom test findings`: fatal findings (exit 3).
+//! - `ctxloom test refuse`: a refusal (exit 20) that carries a remedy.
+//! - `ctxloom test findings`: fatal findings (exit 21).
 //! - `ctxloom test sample [--empty]`: a sample list document. Two rows,
 //!   `{"name": "alpha", "count": 1}` and `{"name": "beta", "count": 2}`;
 //!   with `--empty`, no rows.

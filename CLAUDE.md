@@ -81,7 +81,7 @@ The whole command line is parsed by `ctxloom-cli`; a crate that owns more
 nouns joins it through its `Extension` seam (`ctxloom-wiring` wires `library-cli`
 in).
 
-Divergence from Go: a config whose `schema_version` is newer, older or unreadable is refused (exit 2, D15 strict decode); Go warns and continues. A `non_tty_format` of yaml, toml or markdown is refused (D28).
+Divergence from Go: a config whose `schema_version` is newer, older or unreadable is refused (exit 20, D15 strict decode); Go warns and continues. A `non_tty_format` of yaml, toml or markdown is refused (D28).
 
 Slice S2 (library write side) adds, in the S1 crates, a write half: `library::write`
 (pure planning: the config section merge with sorted keys, item/envelope/mcp/
@@ -344,7 +344,7 @@ and the told host, so a runtime's host alias is a DNS name), and the client's
 an environment or in an error. A hook that finds the listener named but the
 certificate missing or garbled refuses (`HookSink::Refused`, `hook-cli-not-recorded`
 naming `CTXLOOM_TLS_CERT`) and sends nothing. The listener's limits are
-angzarr's generic `Listener` defaults (core `6c3175b9`; `hook-listener` sets
+angzarr's generic `Listener` defaults (core `415b29ee`; `hook-listener` sets
 none): a TLS handshake within 10 s, an HTTP/2 keepalive ping every 60 s
 answered within 20 s, a connection closed after 1 h plus a 30 s grace (never
 zero: a zero grace is `ListenError::ZeroConnectionAgeGrace` at bind, which
@@ -491,8 +491,8 @@ with `refusals: [{code, args, message, fix?}]`, or in text the summary line then
 each refusal's `ctxloom:` and `  fix:` lines (cli-support's `Failure::refusals`
 and `say_failure`). Fatal findings alone are the library's
 `library-application-startup-aborted`, as before; beside a refusal they are the
-plan's warnings, said beside it, and the exit is 3 (the most severe wins),
-else 2. The run is enqueued FIRST (73g): plan, evidence, `EnqueueRun`, the
+plan's warnings, said beside it, and the exit is 21 (the most severe wins),
+else 20. The run is enqueued FIRST (73g): plan, evidence, `EnqueueRun`, the
 project told, a name claimed, `MintSession`, the certificate, the listener,
 the order. So a REFUSED run leaves nothing: no name, no session, no directory,
 no event, no open incarnation, no certificate, no listener. A failure after
@@ -630,14 +630,14 @@ The lock holds ONE `angzarr-embedded`, `angzarr-proto`, `angzarr-ports` and
 `angzarr-diagnostic` (a test reads Cargo.lock). Every pin in `Cargo.toml` is
 a full commit. The angzarr pins are one line, one per family member:
 
-- angzarr core `6c3175b9` (`angzarr-diagnostic`, `angzarr-yaml`,
+- angzarr core `415b29ee` (`angzarr-diagnostic`, `angzarr-yaml`,
   `angzarr-presentation`; `angzarr-coordinator-grpc`'s `tls` feature, which
   `hook-listener` enables, is `Listener::tls`);
-- angzarr-embedded `46267520` on angzarr-router `58cfb1d2`;
-- angzarr-build `11d249c6` (the markup generator, `angzarr-build` and
+- angzarr-embedded `640d2d07` on angzarr-router `e79400c3`;
+- angzarr-build `558cde5f` (the markup generator, `angzarr-build` and
   `angzarr-codegen`, its own repository);
-- angzarr-platform `f2ece88c`;
-- taskloom's crates `2c117e8b` and ctxloom-lib's `3fa0344b`, built on the
+- angzarr-platform `da6a3ee3`;
+- taskloom's crates `ff760778` and ctxloom-lib's `438bd847`, built on the
   same line,
 
 so moving one moves all. The lock holds one of every angzarr crate. The platform crates (`os`, `file-system`, `file-lock`) are
@@ -755,17 +755,50 @@ binary's `catalog()` lists every crate's `EN_US`.
 ## The command line
 
 `--format` is `json` or `text` (json off a terminal); yaml, toml and markdown
-are refused like any unknown format, exit 2. Errors are `ctxloom: <message>`
+are refused like any unknown format, exit 20. Errors are `ctxloom: <message>`
 with an optional `  fix:` line in text, and the envelope `{code, args,
 message}` on stderr in json, plus `fix` (the same text as the `  fix:` line)
 when the catalog has the error's `<code>-fix` id, the key omitted otherwise,
 and `refusals`, each refusal an aggregate refusal holds reported the same way,
 in order, the key omitted when there are none (cli-support's `Reported`, which
 `ctxloom-cli`'s `report` writes through `say_failure`; angzarr-presentation's
-`Envelope` has neither field). Exit codes: 0, 1 failed, 2 refused, 3 fatal
-findings. `-h` works at every depth, there is no `help` command, an unknown
+`Envelope` has neither field). `-h` works at every depth, there is no `help` command, an unknown
 verb says "Did you mean" and lists the verbs, `-v` is accepted everywhere
 and changes no output.
+
+Exit codes (owner rulings 149, 152, 153; a hard migrate from Go's 0, 1, 2,
+3) follow ctxloom-lib's convention, `docs/exit-codes.md` in that repository
+(blocks: 0-9 successes, 10-19 failures, 20-29 declines, 128+n signals; the
+more severe of two outcomes, the higher detailed code, wins), encoded as
+ctxloom-lib's `exit-code` crate's `Exit` (re-exported by `cli-support`). An
+application error says its class by implementing `ExitClass`; a `Failure`
+carries an `Exit`; `ctxloom_cli::run` turns it into the status with
+`Exit::code(detailed)`, the one place the collapse lives. ctxloom's codes:
+
+- **0** ok (an apply, a read, or a plan or preview that succeeded);
+- **1** would change: a plan or preview that succeeded and would act,
+  returned ONLY under the global `--detailed-exitcode` (without it, 0):
+  `run --dry-run` whose plan has no fatal finding (it would launch);
+  a removal's preview without `--yes` (`bundle|fragment|command|skill|
+  profile|agent|companion remove`); `remote remove`
+  without `--yes`; `deps upgrade` without `--yes` with a pin to move or
+  drop; `clean` without `--yes` with a target present; `session remove`
+  without `--yes` that is not refused; `session sweep` without `--yes`
+  with a planned destroy;
+- **10** failed: ctxloom tried and something broke (I/O, the store, an
+  engine, git), and a state-negative answer the sessions use cases give
+  (no such session, a taken name: still 10, as the old 1);
+- **20** refused: the request forbids it (a usage error, clap's own 2
+  mapped; an unknown format or verb; a config the strict decode refuses);
+- **21** fatal findings: the plan found the content cannot produce a
+  working session (also doctor's `fail` row, a container verb with no
+  runtime, a consented refresh refused); a launch both refused and with
+  fatal findings is 21;
+- **128+n** stopped by signal n (ruling 114).
+
+An engine's own status (an interactive session's, init's interview) is
+said in these classes, never passed through: 0 ok, 128+n the signal, any
+other failed (10).
 
 ## Remotes and dependencies (slice S3)
 
@@ -820,7 +853,7 @@ not) overrides it whole, and init reads its interview THROUGH the catalog
 (ruling 128: `Library::operational_prompt`, behind init-application's
 `Prompts` port, and outside a project the built-in one): the project's
 `prompts/setup-interview.md` is what init opens with, and one that lacks it
-is refused, `library-application-operational-prompt-missing` (exit 2),
+is refused, `library-application-operational-prompt-missing` (exit 20),
 never answered from the embedded text. Trust cost, accepted by the owner:
 a project's content can rewrite the prompt ctxloom's own setup runs on. The
 deps closure counts the bundle as the project's own, so nothing is fetched,
@@ -1040,7 +1073,7 @@ through auth-application's `FileOnly`), exit 0 as ever.
 No key a person writes is a boolean (`schema.rs` has no `Bool` node; a
 free-form engine permission document may still read `true`). Hard migrate,
 prerelease, no `schema_version` bump: each old key is an ordinary unknown key
-(refused, exit 2), with no alias, reader, migration or warning.
+(refused, exit 20), with no alias, reader, migration or warning.
 
 | old | new | default |
 |---|---|---|

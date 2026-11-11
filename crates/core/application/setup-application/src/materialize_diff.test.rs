@@ -3,6 +3,7 @@
 //! hers does not, and something compares the two".
 
 use angzarr_diagnostic::Diagnostic;
+use exit_code::{Exit, ExitClass};
 use library_application::{Flags, PackageRequest};
 
 use super::*;
@@ -173,7 +174,7 @@ fn test_a_missing_file_is_refused_by_name() {
     let err = compare(&w, &request("nowhere.md")).unwrap_err();
     assert_eq!(err.code(), "setup-application-diff-file-missing");
     assert!(err.to_string().contains("nowhere.md"), "{err}");
-    assert_eq!(err.exit_code(), 1);
+    assert_eq!(err.exit(), Exit::FAILED);
 }
 
 #[test]
@@ -208,7 +209,7 @@ fn test_release_surfaces_without_context_and_two_engines_are_refused() {
     ] {
         let err = compare(&w, &req).unwrap_err();
         assert!(err.to_string().contains(wants), "{err}");
-        assert_eq!(err.exit_code(), 2, "{wants}");
+        assert_eq!(err.exit(), Exit::REFUSED, "{wants}");
     }
     // The one configured engine is the one compared when none is named.
     assert!(compare(&w, &unnamed).is_ok());

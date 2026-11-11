@@ -14,6 +14,7 @@ mod pins;
 mod refresh;
 mod text;
 
+use cli_support::{Exit, ExitClass};
 use std::io::{self, Write};
 
 use angzarr_presentation::{Catalog, Format};
@@ -39,7 +40,7 @@ trait IntoFailure {
 
 impl IntoFailure for AppError {
     fn into_failure(self) -> Failure {
-        let exit = self.exit_code();
+        let exit = self.exit();
         Failure::new(self, exit)
     }
 }
@@ -61,7 +62,7 @@ pub fn run<G>(
     catalog: &Catalog,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let format = call.explicit_format.unwrap_or(if call.stdout_is_terminal {
         Format::Text
     } else {
@@ -121,7 +122,7 @@ fn remote(
     args: &ArgMatches,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let deps = cx.deps;
     match verb {
         "" | "list" => {
@@ -174,6 +175,10 @@ fn remote(
             emit(cx.format, out, &removed, |out| {
                 text::remote_remove(out, &removed)
             })?;
+            // Ruling 153: the preview names a remote `--yes` would remove.
+            if matches!(removed, deps_application::RemoveResult::Preview { .. }) {
+                return Ok(Exit::WOULD_CHANGE);
+            }
         }
         "default" => {
             let name = text_arg(args, "remote");
@@ -192,7 +197,7 @@ fn remote(
         }
         _ => discover(cx, args, out, err)?,
     }
-    Ok(0)
+    Ok(Exit::OK)
 }
 
 /// `remote discover`: the progress line is the stream's, closed before a
@@ -231,7 +236,7 @@ fn dependencies(
     args: &ArgMatches,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let deps = cx.deps;
     match verb {
         "" | "list" => {
@@ -275,6 +280,11 @@ fn dependencies(
             let _ = writeln!(err, "Resolving latest commits for pinned dependencies...");
             let report = answer(cx, deps.upgrade(flag(args, "yes")), err)?;
             emit(cx.format, out, &report, |out| text::upgrade(out, &report))?;
+            // Ruling 153: a preview with a pin `--yes` would move or drop.
+            let moves = !report.changes.is_empty() || !report.removed.is_empty();
+            if moves && !report.applied {
+                return Ok(Exit::WOULD_CHANGE);
+            }
         }
         verb => {
             let held = verb == "hold";
@@ -282,7 +292,7 @@ fn dependencies(
             emit(cx.format, out, &result, |out| text::hold(out, &result))?;
         }
     }
-    Ok(0)
+    Ok(Exit::OK)
 }
 
 fn check(
@@ -290,14 +300,14 @@ fn check(
     args: &ArgMatches,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let reference = text_arg(args, "reference");
     if !reference.is_empty() {
         let checked = answer(cx, cx.deps.check_reference(&reference), err)?;
         emit(cx.format, out, &checked, |out| {
             text::check_reference(out, &checked)
         })?;
-        return Ok(0);
+        return Ok(Exit::OK);
     }
     let report = answer(cx, cx.deps.check(), err)?;
     if report.entries > 0 {
@@ -311,7 +321,7 @@ fn check(
         say_notices(&warnings, PROG, cx.format, cx.catalog, err);
     }
     emit(cx.format, out, &report, |out| text::check(out, &report))?;
-    Ok(0)
+    Ok(Exit::OK)
 }
 
 /// The warning an entry that failed to be checked earns (a fact about the
@@ -337,7 +347,7 @@ fn bundle(
     args: &ArgMatches,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     if verb == "push" {
         let pushed = answer(
             cx,
@@ -363,7 +373,7 @@ fn bundle(
         )?;
         emit(cx.format, out, &moved, |out| text::moved(out, &moved))?;
     }
-    Ok(0)
+    Ok(Exit::OK)
 }
 
 #[cfg(test)]

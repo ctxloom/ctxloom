@@ -2,6 +2,7 @@
 //! every code is prefixed with the crate's name, every sample has a message,
 //! and a message uses exactly its error's args.
 
+use exit_code::{Exit, ExitClass};
 use std::collections::BTreeSet;
 
 use super::*;
@@ -81,44 +82,44 @@ fn test_display_is_the_code_and_the_args() {
 
 #[test]
 fn test_the_exit_ladder_separates_refused_from_failed_from_fatal() {
-    let of = |e: SetupError| e.exit_code();
+    let of = |e: SetupError| e.exit();
     assert_eq!(
         of(SetupError::Request {
             detail: String::new()
         }),
-        2
+        Exit::REFUSED
     );
     assert_eq!(
         of(SetupError::NoTarget {
             engines: String::new(),
             dir: String::new()
         }),
-        2
+        Exit::REFUSED
     );
     assert_eq!(
         of(SetupError::UnknownEngine {
             engine: String::new(),
             known: String::new()
         }),
-        2
+        Exit::REFUSED
     );
     assert_eq!(
         of(SetupError::UnknownEvent {
             event: String::new(),
             known: String::new()
         }),
-        2
+        Exit::REFUSED
     );
     assert_eq!(
         of(SetupError::Refused {
             findings: String::new()
         }),
-        3
+        Exit::FATAL_FINDINGS
     );
     assert_eq!(
         of(SetupError::TargetNotDirectory {
             path: String::new()
         }),
-        1
+        Exit::FAILED
     );
 }

@@ -4,6 +4,7 @@
 //! release/0.7.
 
 use angzarr_diagnostic::{Diagnostic, Report};
+use exit_code::{Exit, ExitClass};
 use sessions::SessionRejection;
 
 use super::{diagnostic_samples, AppError, Refusal, RemovedNothing, EN_US};
@@ -29,7 +30,7 @@ fn no_session_names_the_harp() {
     };
     assert_eq!(error.code(), "sessions-application-no-session");
     assert_eq!(error.args().len(), 1);
-    assert_eq!(error.exit_code(), 1);
+    assert_eq!(error.exit(), Exit::FAILED);
 }
 
 // A wrapper is its cause's diagnostic.
@@ -61,9 +62,12 @@ fn exit_codes_follow_the_rule() {
         length: 30,
     }));
     let none = AppError::Rejected(Report::of(&SessionRejection::NoSession));
-    assert_eq!((invalid.exit_code(), too_long.exit_code()), (2, 2));
-    assert_eq!(none.exit_code(), 1);
-    assert_eq!(AppError::Failed(Report::new("x")).exit_code(), 1);
+    assert_eq!(
+        (invalid.exit(), too_long.exit()),
+        (Exit::REFUSED, Exit::REFUSED)
+    );
+    assert_eq!(none.exit(), Exit::FAILED);
+    assert_eq!(AppError::Failed(Report::new("x")).exit(), Exit::FAILED);
 }
 
 #[test]
@@ -77,7 +81,7 @@ fn a_dead_lettered_error_is_its_errors_diagnostic_with_the_letters_beside_it() {
         dead_letters: vec![letter.clone()],
     };
     assert_eq!(error.code(), inner.code());
-    assert_eq!(error.exit_code(), inner.exit_code());
+    assert_eq!(error.exit(), inner.exit());
     assert_eq!(error.dead_letters(), [letter]);
 }
 

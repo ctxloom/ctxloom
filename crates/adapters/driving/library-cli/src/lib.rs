@@ -15,6 +15,7 @@ pub mod inert;
 mod text;
 mod write;
 
+use cli_support::{Exit, ExitClass};
 use std::io::{self, Write};
 
 use angzarr_diagnostic::Diagnostic;
@@ -44,7 +45,7 @@ trait IntoFailure {
 
 impl IntoFailure for AppError {
     fn into_failure(self) -> Failure {
-        let exit = self.exit_code();
+        let exit = self.exit();
         Failure::new(self, exit)
     }
 }
@@ -70,7 +71,7 @@ pub fn run(
     catalog: &Catalog,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let flags = call.globals.clone();
     let format = call.explicit_format.unwrap_or_else(|| {
         if call.stdout_is_terminal {
@@ -111,7 +112,7 @@ fn dispatch(
     sub: &ArgMatches,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     match noun {
         "config" => written(write::config(cx, verb(sub, "show"), out, err), || {
             config(cx, verb(sub, "show").1, out, err)
@@ -152,9 +153,9 @@ fn dispatch(
 
 /// A write verb's answer, or (it was not one) the read verb's.
 fn written(
-    write: Result<Option<u8>, Failure>,
-    read: impl FnOnce() -> Result<u8, Failure>,
-) -> Result<u8, Failure> {
+    write: Result<Option<Exit>, Failure>,
+    read: impl FnOnce() -> Result<Exit, Failure>,
+) -> Result<Exit, Failure> {
     match write? {
         Some(code) => Ok(code),
         None => read(),
@@ -167,8 +168,8 @@ fn answer<T>(
     outcome: library_application::Outcome<T>,
     out: &mut dyn Write,
     err: &mut dyn Write,
-    write: impl FnOnce(T, &mut dyn Write, &mut Vec<String>) -> io::Result<u8>,
-) -> Result<u8, Failure> {
+    write: impl FnOnce(T, &mut dyn Write, &mut Vec<String>) -> io::Result<Exit>,
+) -> Result<Exit, Failure> {
     say_notices(&outcome.notices, PROG, cx.format, cx.catalog, err);
     let value = outcome.result.map_err(failed)?;
     let mut inert = Vec::new();
@@ -179,7 +180,7 @@ fn answer<T>(
 }
 
 fn output_failure(error: io::Error) -> Failure {
-    Failure::new(OutputFailure(error.to_string()), 1)
+    Failure::new(OutputFailure(error.to_string()), Exit::FAILED)
 }
 
 /// The answer could not be written.
@@ -208,9 +209,9 @@ fn emit<T: Serialize>(
     out: &mut dyn Write,
     value: &T,
     text: impl FnOnce(&mut dyn Write) -> io::Result<()>,
-) -> io::Result<u8> {
+) -> io::Result<Exit> {
     cli_support::emit(format, out, value, text)?;
-    Ok(0)
+    Ok(Exit::OK)
 }
 
 fn text_arg(matches: &ArgMatches, name: &str) -> String {
@@ -222,7 +223,7 @@ fn config(
     sub: &ArgMatches,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let section = text_arg(sub, "section");
     let outcome = cx.library.config_show(
         &cx.flags,
@@ -241,7 +242,7 @@ fn bundle(
     (verb, sub): (&str, &ArgMatches),
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     match verb {
         "show" => {
             let outcome = cx.library.bundle_show(&cx.flags, &text_arg(sub, "name"));
@@ -285,7 +286,7 @@ fn items(
     (verb, sub): (&str, &ArgMatches),
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let kind_of = if kind == "fragment" {
         ItemKind::Fragment
     } else {
@@ -310,7 +311,7 @@ fn items(
                 let mut said = text::Notes(Vec::new());
                 let written = text::item_show(out, &mut said, &show);
                 notes.extend(said.0);
-                written.map(|()| 0)
+                written.map(|()| Exit::OK)
             })
         }
         "premises" => {
@@ -339,7 +340,7 @@ fn skill(
     (verb, sub): (&str, &ArgMatches),
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     if verb == "show" {
         let outcome = cx.library.skill_show(&cx.flags, &text_arg(sub, "ref"));
         return answer(cx, outcome, out, err, |show, out, notes| {
@@ -364,7 +365,7 @@ fn profile(
     (verb, sub): (&str, &ArgMatches),
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     if verb == "show" {
         let outcome = cx.library.profile_show(&cx.flags, &text_arg(sub, "name"));
         return answer(cx, outcome, out, err, |show, out, _| {
@@ -384,7 +385,7 @@ fn agent(
     (verb, sub): (&str, &ArgMatches),
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     if verb == "show" {
         let catalog = cx.catalog;
         let say = |d: &dyn Diagnostic| catalog.message(d);
@@ -406,7 +407,7 @@ fn engine(
     (verb, sub): (&str, &ArgMatches),
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     if verb == "show" {
         let outcome = cx.library.engine_show(&cx.flags, &text_arg(sub, "engine"));
         return answer(cx, outcome, out, err, |row, out, _| {
@@ -419,7 +420,7 @@ fn engine(
     })
 }
 
-fn companion(cx: &Context<'_>, out: &mut dyn Write, err: &mut dyn Write) -> Result<u8, Failure> {
+fn companion(cx: &Context<'_>, out: &mut dyn Write, err: &mut dyn Write) -> Result<Exit, Failure> {
     let outcome = cx.library.companion_list(&cx.flags);
     answer(cx, outcome, out, err, |rows, out, _| {
         emit(cx.format, out, &rows, |out| {
@@ -433,7 +434,7 @@ fn mcp(
     sub: &ArgMatches,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let Some(("server", server)) = sub.subcommand() else {
         return Err(write::mcp_bare(cx));
     };
@@ -458,7 +459,7 @@ fn search(
     sub: &ArgMatches,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let request = SearchRequest {
         query: text_arg(sub, "query"),
         tags: many(sub, "tag"),
@@ -477,7 +478,7 @@ fn context(
     sub: &ArgMatches,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     let request = AssembleRequest {
         profiles: many(sub, "profile"),
         fragments: many(sub, "fragment"),
@@ -496,7 +497,7 @@ fn run_command(
     sub: &ArgMatches,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<u8, Failure> {
+) -> Result<Exit, Failure> {
     if !flag(sub, "dry-run") {
         return Err(AppError::RunNeedsDryRun.into_failure());
     }
@@ -521,8 +522,10 @@ fn run_command(
         text::dry_run(out, &previewed.plan)
     })
     .map_err(output_failure)?;
+    // A dry run that found nothing fatal would launch (ruling 153): the
+    // distinguishing success 1, said only under `--detailed-exitcode`.
     if previewed.fatal.is_empty() {
-        return Ok(0);
+        return Ok(Exit::WOULD_CHANGE);
     }
     Err(AppError::aborted(&previewed.fatal).into_failure())
 }

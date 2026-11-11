@@ -117,6 +117,12 @@ pub enum HookSink {
     /// nothing is sent (never plaintext, never the system's roots).
     Refused(CertError),
     Unreachable(Unreachable),
+    /// The user daemon's listener, as its discovery file names it (B1,
+    /// D27): a delivery it could not take goes the environment's way.
+    Rediscovered {
+        daemon: GrpcSink,
+        fallback: Box<HookSink>,
+    },
 }
 
 impl HookSink {
@@ -143,6 +149,34 @@ impl HookSink {
     }
 }
 
+impl HookSink {
+    /// The sink of a hook process when the user daemon may serve:
+    /// `discovery` (its discovery file, read at each hook) names the
+    /// daemon's endpoint and certificate, so a restarted daemon's new port
+    /// and certificate are found; the bearer is still the run's own, from
+    /// the environment. No discovery, or no bearer, is `fallback` alone.
+    pub fn rediscovered(
+        discovery: Option<run_ports::Discovery>,
+        bearer: Option<&str>,
+        fallback: HookSink,
+    ) -> HookSink {
+        let Some(discovery) = discovery else {
+            return fallback;
+        };
+        let Some((run, token)) = bearer.and_then(|bearer| Bearer::parse(bearer).ok()) else {
+            return fallback;
+        };
+        HookSink::Rediscovered {
+            daemon: GrpcSink::new(
+                discovery.endpoint,
+                Bearer::compose(&run, &token),
+                discovery.cert,
+            ),
+            fallback: Box::new(fallback),
+        }
+    }
+}
+
 /// Why nothing was delivered for want of a usable certificate, as the hook
 /// says it: the code, what is wrong, and that nothing was sent.
 fn refusal_text(error: &CertError) -> String {
@@ -164,6 +198,14 @@ impl FactSink for HookSink {
                 detail: refusal_text(error),
             },
             HookSink::Unreachable(sink) => sink.deliver(book, within),
+            HookSink::Rediscovered { daemon, fallback } => {
+                match daemon.deliver(book.clone(), within) {
+                    Delivery::Unavailable { .. } | Delivery::TimedOut => {
+                        fallback.deliver(book, within)
+                    }
+                    delivered => delivered,
+                }
+            }
         }
     }
 }

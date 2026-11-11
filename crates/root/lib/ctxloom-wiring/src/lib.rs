@@ -11,6 +11,7 @@
 mod capture;
 mod commands;
 mod core_link;
+mod daemon;
 mod error;
 mod interview;
 mod isolation;

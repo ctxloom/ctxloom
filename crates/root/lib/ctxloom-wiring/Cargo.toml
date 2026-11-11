@@ -83,13 +83,16 @@ run-cli.workspace = true
 host-launcher.workspace = true
 credentials.workspace = true
 pending-launches.workspace = true
+pending-messages.workspace = true
+daemon-board.workspace = true
+session-policies.workspace = true
 embedded-edge.workspace = true
 hook-sink-grpc.workspace = true
 angzarr-embedded-host.workspace = true
 # Only the seed uses the session-ports directly.
 session-ports = { workspace = true, optional = true }
-# Only the test-only commands render a sample list.
-serde = { workspace = true, optional = true }
+# The test-only commands' sample list and the daemon's answers.
+serde.workspace = true
 
 [dev-dependencies]
 fixture-program.workspace = true
@@ -116,7 +119,6 @@ test-support = [
     "ctxloom-store-sqlite/test-support",
     "ctxloom-cli/test-support",
     "dep:session-ports",
-    "dep:serde",
     "dep:engine-mock",
     "library-application/test-support",
 ]

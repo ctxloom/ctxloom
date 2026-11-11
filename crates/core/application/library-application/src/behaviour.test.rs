@@ -1420,3 +1420,24 @@ fn test_a_run_reads_its_output_directory_and_start_sync_from_the_config() {
     let bad = ["schema_version: 9\nzzz: 1\n"];
     assert_eq!(with(&[], &bad).library().run_settings(&plain()), None);
 }
+
+// The user daemon starts a child with its engine's block alone (no agent).
+#[test]
+fn test_the_daemon_reads_an_engines_block_from_the_config() {
+    let set = ["schema_version: 9\nengines:\n  claude-code:\n    env: [EXTRA]\n"];
+    let drive = with(&[], &set)
+        .library()
+        .engine_drive(&plain(), "claude-code")
+        .expect("the engine's block");
+    assert_eq!(drive.env, ["EXTRA"]);
+    assert_eq!(drive.session_home, "session");
+    assert!(with(&[], &set)
+        .library()
+        .engine_drive(&plain(), "no-such-engine")
+        .is_none());
+    let bad = ["schema_version: 9\nzzz: 1\n"];
+    assert!(with(&[], &bad)
+        .library()
+        .engine_drive(&plain(), "claude-code")
+        .is_none());
+}

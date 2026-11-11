@@ -22,6 +22,7 @@ mod bridge;
 mod error;
 mod go_sidecar;
 mod import;
+mod orchestrate;
 mod read;
 mod service;
 mod typed;
@@ -44,6 +45,9 @@ pub use go_sidecar::{
 };
 pub use import::{
     imported_id, ImportReport, ImportRequest, ImportService, Imported, Importer, Left, Why,
+};
+pub use orchestrate::{
+    urgencies_of, ClearRequest, CloseRequest, LaunchRequest, Ordered, SendRequest,
 };
 pub use ports::{Project, Timestamp};
 pub use service::{registry, Service, SessionService};

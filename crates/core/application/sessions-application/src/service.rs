@@ -214,3 +214,47 @@ where
         self.with_dead_letters(result)
     }
 }
+
+/// The orchestrator's commands, as the user sends them (D25).
+impl<I, S, F, L, C, D> Service<I, S, F, L, C, D>
+where
+    I: ProjectIdentity + Send,
+    S: ProjectStores + Send,
+    F: SessionFiles + Send,
+    L: Liveness + Send,
+    C: Clock + CommandIds + Send,
+    D: Delay + Jitter + Send,
+{
+    /// Send a session a message with its urgency (D12).
+    pub async fn send(&mut self, request: crate::SendRequest) -> Result<crate::Ordered, AppError> {
+        let result = self.writing().send(request).await;
+        self.with_dead_letters(result)
+    }
+
+    /// Close a session (K1); its children are closed by the daemon (D29).
+    pub async fn close(
+        &mut self,
+        request: crate::CloseRequest,
+    ) -> Result<crate::Ordered, AppError> {
+        let result = self.writing().close(request).await;
+        self.with_dead_letters(result)
+    }
+
+    /// Ask a child to clear its conversation (M1).
+    pub async fn clear(
+        &mut self,
+        request: crate::ClearRequest,
+    ) -> Result<crate::Ordered, AppError> {
+        let result = self.writing().clear(request).await;
+        self.with_dead_letters(result)
+    }
+
+    /// Launch a child of an owner (K2); the daemon mints and runs it.
+    pub async fn launch_child(
+        &mut self,
+        request: crate::LaunchRequest,
+    ) -> Result<crate::Ordered, AppError> {
+        let result = self.writing().launch(request).await;
+        self.with_dead_letters(result)
+    }
+}

@@ -21,6 +21,7 @@ mod process_env;
 mod seed;
 mod sessions;
 mod setup;
+mod signals;
 mod sweep_config;
 #[cfg(feature = "test-support")]
 mod test_commands;

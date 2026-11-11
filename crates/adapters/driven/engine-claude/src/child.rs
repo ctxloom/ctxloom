@@ -61,6 +61,9 @@ pub(crate) fn child_command(spec: &ChildSpec) -> Result<TurnCommand, EngineError
         cwd: spec.cwd.clone(),
         model: spec.model.clone(),
         effort: spec.effort.clone(),
+        // A hosted child's spec carries no permission mode yet (ruling 125
+        // reached the turn and the terminal; the child is a follow-up).
+        permission_mode: String::new(),
         settings: spec.settings.clone(),
     };
     let mut command = TurnCommand::new(drive::program(&request));

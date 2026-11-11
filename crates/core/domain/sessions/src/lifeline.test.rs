@@ -75,6 +75,24 @@ fn an_end_closes_the_incarnation_and_notices_the_parent() {
     assert_eq!(session.state().open_incarnation, None);
 }
 
+// NEW-DESIGN (hand-test 2026-11-10; the proto's RecordEnd: "the run slice's
+// IncarnationEnded supersedes it"): the end of a run is when the session's
+// last run ended, its page's instant, so a session that ran says when it
+// ended without the importer's RecordEnd.
+#[test]
+fn an_end_records_when_the_sessions_last_run_ended() {
+    let mut session = Session::minted();
+    assert_eq!(session.state().ended_at, None, "nothing has ended yet");
+    session.fact(ended(1, "runner-exit"), "end:s:1");
+    let state = session.state();
+    let ended_at = state.ended_at.expect("the end is recorded");
+    assert!(
+        (ended_at.seconds, ended_at.nanos) >= (state.started_at.seconds, state.started_at.nanos),
+        "ended {ended_at:?} before it started {:?}",
+        state.started_at
+    );
+}
+
 // PORTED-FROM-GO: internal/core/coord/launchgate_giveup_test.go
 // TestAgentStop_OnAnEndedRunStillStopsTheRelaunch: a stop order sets the flag
 // even after the run ended.
@@ -162,4 +180,93 @@ fn an_end_for_an_incarnation_already_ended_records_nothing() {
     let mut session = first_run_ended("runner-exit");
     let events = session.fact(ended(1, "runner-exit"), "end:s:1:again");
     assert!(events.is_empty());
+}
+
+/// A session whose first run bound the engine's session `native-1` and ended.
+fn bound_and_ended() -> Session {
+    let mut session = Session::minted();
+    session
+        .bound(crate::BindEngineSession {
+            native_id: "native-1".to_string(),
+            transcript_path: String::new(),
+            engine_version: None,
+        })
+        .unwrap();
+    session.fact(ended(1, "runner-exit"), "end:s:1");
+    session
+}
+
+fn resume(engine: &str) -> crate::ResumeSession {
+    crate::ResumeSession {
+        harp: crate::aggregate::tests::HARP.to_string(),
+        engine: engine.to_string(),
+    }
+}
+
+// Owner ruling 115: `run --session <harp>` is a new incarnation on the same
+// session stream, the next after the highest owed, opened by the resume.
+#[test]
+fn a_resume_owes_the_next_incarnation_on_the_same_stream() {
+    let mut session = bound_and_ended();
+    let events = session.run(resume("")).unwrap();
+    assert_eq!(
+        events,
+        vec![SessionEvent::IncarnationOwed(IncarnationOwed {
+            incarnation: 2,
+            reason: "resume".to_string(),
+        })]
+    );
+    assert_eq!(
+        (
+            session.state().incarnation,
+            session.state().open_incarnation
+        ),
+        (2, Some(2))
+    );
+    // Its end closes it, and the next resume owes the third.
+    session.fact(ended(2, "runner-exit"), "end:s:2");
+    let events = session.run(resume("claude-code")).unwrap();
+    assert!(matches!(&events[..], [SessionEvent::IncarnationOwed(o)] if o.incarnation == 3));
+}
+
+#[test]
+fn a_resume_while_an_incarnation_is_open_is_refused_as_running() {
+    let mut session = Session::minted();
+    session
+        .bound(crate::BindEngineSession {
+            native_id: "native-1".to_string(),
+            transcript_path: String::new(),
+            engine_version: None,
+        })
+        .unwrap();
+    let (code, args) = session.run(resume("")).unwrap_err();
+    assert_eq!(code, "sessions-session-running");
+    assert_eq!(args["harp"], crate::aggregate::tests::HARP);
+    assert_eq!(session.state().incarnation, 1);
+}
+
+#[test]
+fn a_resume_before_the_engine_bound_a_session_is_refused() {
+    let mut session = first_run_ended("runner-exit");
+    let (code, _) = session.run(resume("")).unwrap_err();
+    assert_eq!(code, "sessions-no-native-session");
+}
+
+#[test]
+fn a_resume_on_another_engine_is_refused_naming_both() {
+    let mut session = bound_and_ended();
+    let (code, args) = session.run(resume("opencode")).unwrap_err();
+    assert_eq!(code, "sessions-engine-mismatch");
+    assert_eq!(args["engine"], "claude-code");
+    assert_eq!(args["asked"], "opencode");
+}
+
+// The run application asks only for a claimed name, so a stream holding no
+// session is one `session remove` destroyed (its claim is kept, ruling 94c).
+#[test]
+fn a_resume_of_a_stream_holding_no_session_is_refused_as_destroyed() {
+    let mut session = Session::new();
+    let (code, args) = session.run(resume("")).unwrap_err();
+    assert_eq!(code, "sessions-session-destroyed");
+    assert_eq!(args["harp"], crate::aggregate::tests::HARP);
 }

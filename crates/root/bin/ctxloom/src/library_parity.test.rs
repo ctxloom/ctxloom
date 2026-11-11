@@ -11,6 +11,9 @@
 //!
 //! WHAT IS NOT COMPARED, and why (each a later slice's or an owner's):
 //!
+//! - ctxloom's built-in bundles (owner rulings 110, 111): Go had none, so
+//!   every row runs on the catalog Go had (`Project::on_gos_catalog`); the
+//!   built-in origin's own contract is `cli/init.feature`'s.
 //! - Go's own companion loadout (the fragment `isolation-axes`, the `ctxloom`
 //!   MCP server) is taken out of the goldens (the script says how): its texts
 //!   are the owner's (D24) and name MCP tools whose cut list is open.
@@ -302,7 +305,7 @@ fn check(prefix: &str) {
     for row in rows().iter().filter(|r| r.fixture.starts_with(prefix)) {
         let project = projects
             .entry(row.fixture.clone())
-            .or_insert_with(|| Project::from_fixture(&row.fixture));
+            .or_insert_with(|| Project::from_fixture(&row.fixture).on_gos_catalog());
         checked += 1;
         if let Some(why) = mismatch(row, project) {
             wrong.push(format!("{}: {why}", row.id));

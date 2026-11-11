@@ -21,6 +21,8 @@ fn prepared(interactive: bool) -> run_ports::Prepared {
             context: "the project's context".to_string(),
             offered: vec!["auth.json".to_string(), "opencode.json".to_string()],
             interactive,
+            cwd: None,
+            existing: Default::default(),
         })
         .unwrap()
 }

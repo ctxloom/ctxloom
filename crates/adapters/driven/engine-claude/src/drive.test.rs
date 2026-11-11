@@ -4,7 +4,9 @@ use run_ports::{
     AuthSetting, Engine, EngineError, EngineSettings, PrepareRequest, SessionHome, TurnRequest,
 };
 
-use crate::drive::{COPY_IN_ALLOWLIST, EFFORT_LEVELS, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST};
+use crate::drive::{
+    COPY_IN_ALLOWLIST, EFFORT_LEVELS, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST, PERMISSION_MODES,
+};
 use crate::{Claude, CONTEXT_PROMPT_FILE};
 
 fn request() -> TurnRequest {
@@ -17,6 +19,7 @@ fn request() -> TurnRequest {
         cwd: Some("/p".to_string()),
         model: String::new(),
         effort: String::new(),
+        permission_mode: String::new(),
         settings: EngineSettings::default(),
     }
 }
@@ -95,15 +98,18 @@ fn only_the_allowlisted_environment_is_passed_on() {
     ]);
     let command = Claude::new().drive_turn(&asked).unwrap();
     let names: Vec<&str> = command.env.keys().map(String::as_str).collect();
+    // HOME is the session home (owner ruling 112), never the caller's.
     assert_eq!(
         names,
         vec![
             "CLAUDE_CODE_OAUTH_TOKEN",
             "CLAUDE_CONFIG_DIR",
+            "HOME",
             "HTTPS_PROXY",
             "PATH"
         ]
     );
+    assert_eq!(command.env["HOME"], "/p/.ctxloom/sessions/h/home");
 }
 
 #[test]
@@ -114,11 +120,14 @@ fn preparing_a_home_writes_the_context_file_it_names() {
             context: "the context".to_string(),
             offered: vec!["settings.json".to_string(), ".credentials.json".to_string()],
             interactive: false,
+            cwd: None,
+            existing: Default::default(),
         })
         .unwrap();
     assert_eq!(prepared.context_path, format!("/h/{CONTEXT_PROMPT_FILE}"));
-    // The context, and the settings that register the turn's hooks.
-    assert_eq!(prepared.files.len(), 2);
+    // The context, the settings that register the turn's hooks, and claude's
+    // own state (ruling 113).
+    assert_eq!(prepared.files.len(), 3);
     assert_eq!(prepared.files[0].rel, CONTEXT_PROMPT_FILE);
     assert_eq!(prepared.files[0].bytes, b"the context");
     // Nothing of the user's own configuration is on the allowlist yet.
@@ -144,7 +153,7 @@ fn the_interactive_run_is_the_terminal_command_with_the_context_and_no_print_mod
     assert!(command.stdin.is_empty());
     assert_eq!(command.cwd.as_deref(), Some("/p"));
     let names: Vec<&str> = command.env.keys().map(String::as_str).collect();
-    assert_eq!(names, vec!["CLAUDE_CONFIG_DIR", "PATH"]);
+    assert_eq!(names, vec!["CLAUDE_CONFIG_DIR", "HOME", "PATH"]);
     assert_eq!(
         command.env.get("CLAUDE_CONFIG_DIR").map(String::as_str),
         Some("/p/.ctxloom/sessions/h/home")
@@ -166,32 +175,32 @@ fn the_run_engine_is_named_claude_code() {
     assert_eq!(Engine::name(&Claude::new()), "claude-code");
 }
 
-// Owner ruling 2026-11-08: the terminal session's hook processes run without
-// HOME, so it is given ctxloom's home by name; a child's turn is not, and
-// neither is given HOME.
+// Owner ruling 112 (2026-11-10): the engine's HOME is its session home, the
+// terminal's and a child's turn alike (parity with opencode, ruling 58), so
+// what its tools write under `~` lands in the session's own directory and
+// never in the project (the hand test found gh's `.local/state` there, made
+// relative to the working directory with no HOME). ctxloom's own home still
+// reaches the hook processes by name, as CTXLOOM_HOME.
 #[test]
-fn the_interactive_run_is_given_ctxloom_home_and_still_no_home() {
+fn the_engines_home_is_the_session_home_and_ctxlooms_home_is_named() {
     let mut asked = request();
     asked.env = env(&[
         ("PATH", "/usr/bin"),
         ("HOME", "/home/alice"),
         ("CTXLOOM_HOME", "/home/alice"),
     ]);
-    let command = Claude::new().drive_interactive(&asked).unwrap();
-    let names: Vec<&str> = command.env.keys().map(String::as_str).collect();
-    assert_eq!(names, vec!["CLAUDE_CONFIG_DIR", "CTXLOOM_HOME", "PATH"]);
-    assert_eq!(
-        command.env.get("CTXLOOM_HOME").map(String::as_str),
-        Some("/home/alice")
-    );
-    // Ruling 51: a child's hooks run without HOME too, so its turn is given
-    // ctxloom's home by name as well; neither is given HOME.
-    let turn = Claude::new().drive_turn(&asked).unwrap();
-    assert_eq!(
-        turn.env.get("CTXLOOM_HOME").map(String::as_str),
-        Some("/home/alice")
-    );
-    assert!(!turn.env.contains_key("HOME"));
+    for command in [
+        Claude::new().drive_interactive(&asked).unwrap(),
+        Claude::new().drive_turn(&asked).unwrap(),
+    ] {
+        let names: Vec<&str> = command.env.keys().map(String::as_str).collect();
+        assert_eq!(
+            names,
+            vec!["CLAUDE_CONFIG_DIR", "CTXLOOM_HOME", "HOME", "PATH"]
+        );
+        assert_eq!(command.env["HOME"], "/p/.ctxloom/sessions/h/home");
+        assert_eq!(command.env["CTXLOOM_HOME"], "/home/alice");
+    }
 }
 
 fn prepared(interactive: bool) -> run_ports::Prepared {
@@ -201,6 +210,8 @@ fn prepared(interactive: bool) -> run_ports::Prepared {
             context: "the context".to_string(),
             offered: Vec::new(),
             interactive,
+            cwd: None,
+            existing: Default::default(),
         })
         .unwrap()
 }
@@ -296,7 +307,11 @@ fn registered_events(prepared: &run_ports::Prepared) -> Vec<String> {
 #[test]
 fn a_childs_home_registers_the_per_turn_events_and_not_the_per_process_ones() {
     let prepared = prepared(false);
-    assert_eq!(prepared.files.len(), 2, "the context and the settings");
+    assert_eq!(
+        prepared.files.len(),
+        3,
+        "the context, the settings and claude's state (ruling 113)"
+    );
     assert_eq!(
         registered_events(&prepared),
         [
@@ -518,6 +533,77 @@ fn an_effort_claude_does_not_take_is_refused_before_launch() {
     }
 }
 
+// Owner ruling 116: `claude --permission-mode <mode>` (acceptEdits, auto,
+// bypassPermissions, manual, dontAsk, plan; `claude --help`, 2.1.322):
+// passed for a turn and for the terminal session; none named, or the
+// config's `default` (the engine's own default mode), is no flag; a mode
+// claude does not take is refused before it is launched.
+#[test]
+fn a_configured_permission_mode_is_passed_to_claude_for_a_turn_and_for_the_terminal() {
+    for mode in PERMISSION_MODES {
+        let mut asked = request();
+        asked.permission_mode = mode.to_string();
+        for command in [
+            Claude::new().drive_turn(&asked).unwrap(),
+            Claude::new().drive_interactive(&asked).unwrap(),
+        ] {
+            let at = command
+                .args
+                .iter()
+                .position(|a| a == "--permission-mode")
+                .unwrap_or_else(|| panic!("{mode}: {command:?}"));
+            assert_eq!(command.args[at + 1], mode);
+        }
+    }
+}
+
+#[test]
+fn the_terminals_prompt_stays_last_beside_a_permission_mode() {
+    let mut asked = request();
+    asked.permission_mode = "plan".to_string();
+    let terminal = Claude::new().drive_interactive(&asked).unwrap();
+    assert_eq!(
+        terminal.args.last().map(String::as_str),
+        Some("what does this project expect of me?")
+    );
+}
+
+#[test]
+fn no_permission_mode_and_the_default_mode_are_no_permission_mode_flag() {
+    for mode in ["", "default"] {
+        let mut asked = request();
+        asked.permission_mode = mode.to_string();
+        for command in [
+            Claude::new().drive_turn(&asked).unwrap(),
+            Claude::new().drive_interactive(&asked).unwrap(),
+        ] {
+            assert!(
+                !command.args.iter().any(|a| a == "--permission-mode"),
+                "{mode:?}: {command:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_permission_mode_claude_does_not_take_is_refused_before_launch() {
+    let mut asked = request();
+    asked.permission_mode = "nonsense".to_string();
+    for refused in [
+        Claude::new().drive_turn(&asked),
+        Claude::new().drive_interactive(&asked),
+    ] {
+        assert_eq!(
+            refused,
+            Err(EngineError::UnknownPermissionMode {
+                engine: "claude-code".to_string(),
+                mode: "nonsense".to_string(),
+                known: "acceptEdits, auto, bypassPermissions, manual, dontAsk, plan".to_string(),
+            })
+        );
+    }
+}
+
 // ---- engines.<claude-code>.* (owner rulings 44, 46, 48) ----
 
 fn settings(of: impl FnOnce(&mut EngineSettings)) -> EngineSettings {
@@ -621,7 +707,10 @@ fn only_the_allowlist_and_the_listed_names_are_passed() {
         Claude::new().drive_interactive(&asked).unwrap(),
     ] {
         let names: Vec<&str> = command.env.keys().map(String::as_str).collect();
-        assert_eq!(names, vec!["ALPHA_TOKEN", "CLAUDE_CONFIG_DIR", "PATH"]);
+        assert_eq!(
+            names,
+            vec!["ALPHA_TOKEN", "CLAUDE_CONFIG_DIR", "HOME", "PATH"]
+        );
         assert_eq!(
             command.env["CLAUDE_CONFIG_DIR"],
             "/p/.ctxloom/sessions/h/home"
@@ -657,8 +746,8 @@ fn a_host_session_home_is_the_users_own_claude_directory() {
         Claude::new().drive_interactive(&asked).unwrap(),
     ] {
         assert_eq!(command.env["CLAUDE_CONFIG_DIR"], "/home/alice/.claude");
-        // HOME itself is still not handed over.
-        assert!(!command.env.contains_key("HOME"));
+        // The user's own home is the engine's, as opencode's is (ruling 112).
+        assert_eq!(command.env["HOME"], "/home/alice");
     }
 }
 
@@ -754,4 +843,91 @@ fn a_childs_turn_reads_the_session_dirs_settings_in_both_home_modes() {
 #[test]
 fn test_its_session_end_is_its_hooks_not_its_exit() {
     assert!(!Claude::new().session_ends_with_exit());
+}
+
+/// claude's own state file, `prepare`d for a home whose `.claude.json` holds
+/// `existing` (none: not there), for a session run in `cwd`.
+fn claude_state(existing: Option<&str>, cwd: Option<&str>) -> Option<String> {
+    let prepared = Claude::new()
+        .prepare(&PrepareRequest {
+            home: "/h".to_string(),
+            context: "the context".to_string(),
+            offered: Vec::new(),
+            interactive: true,
+            cwd: cwd.map(String::from),
+            existing: existing
+                .map(|text| {
+                    BTreeMap::from([(".claude.json".to_string(), text.as_bytes().to_vec())])
+                })
+                .unwrap_or_default(),
+        })
+        .unwrap();
+    prepared
+        .files
+        .iter()
+        .find(|file| file.rel == ".claude.json")
+        .map(|file| String::from_utf8(file.bytes.clone()).unwrap())
+}
+
+fn json(text: &str) -> serde_json::Value {
+    serde_json::from_str(text).unwrap()
+}
+
+// Owner ruling 113: a session home's `.claude.json` (claude's state, in its
+// config dir) is seeded with the minimal keys claude 2.1.322 reads: the
+// onboarding done (no theme picker, no security notes) and the session's
+// project directory trusted (no "is this a project you trust?" prompt, whose
+// default is "No, exit"). Verified live in a fresh config dir.
+#[test]
+fn a_fresh_home_is_seeded_with_onboarding_done_and_the_project_trusted() {
+    assert_eq!(Claude::new().merges(), [".claude.json"]);
+    let state = claude_state(None, Some("/p")).expect("seeded");
+    assert_eq!(
+        json(&state),
+        serde_json::json!({
+            "hasCompletedOnboarding": true,
+            "projects": {"/p": {"hasTrustDialogAccepted": true}}
+        })
+    );
+    // No project directory named: the onboarding alone.
+    assert_eq!(
+        json(&claude_state(None, None).unwrap()),
+        serde_json::json!({"hasCompletedOnboarding": true})
+    );
+}
+
+// What claude keeps there itself (a resumed session's home has it) is kept:
+// the two keys are merged in, never the file replaced.
+#[test]
+fn the_seed_merges_into_what_claude_keeps_there() {
+    let existing = r#"{
+  "numStartups": 3,
+  "hasCompletedOnboarding": false,
+  "projects": {
+    "/elsewhere": {"hasTrustDialogAccepted": false},
+    "/p": {"allowedTools": ["Bash"], "hasTrustDialogAccepted": false}
+  },
+  "tipsHistory": {"x": 1}
+}"#;
+    let state = claude_state(Some(existing), Some("/p")).unwrap();
+    assert_eq!(
+        json(&state),
+        serde_json::json!({
+            "numStartups": 3,
+            "hasCompletedOnboarding": true,
+            "projects": {
+                "/elsewhere": {"hasTrustDialogAccepted": false},
+                "/p": {"allowedTools": ["Bash"], "hasTrustDialogAccepted": true}
+            },
+            "tipsHistory": {"x": 1}
+        })
+    );
+}
+
+// A state file that is not a JSON object is claude's to deal with: it is left
+// exactly as it is (the home gets no `.claude.json` to write).
+#[test]
+fn a_state_file_that_is_not_an_object_is_left_as_it_is() {
+    assert_eq!(claude_state(Some("{not json"), Some("/p")), None);
+    assert_eq!(claude_state(Some("[1, 2]"), Some("/p")), None);
 }

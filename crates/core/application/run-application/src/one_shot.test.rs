@@ -187,6 +187,7 @@ struct ScriptedPlan {
     fatal: Vec<FindingRow>,
     model: String,
     effort: String,
+    permission_mode: String,
     drive: library_application::Drive,
     posture: library_application::Posture,
     error: Option<fn() -> PlanError>,
@@ -212,6 +213,7 @@ impl Planner for ScriptedPlan {
             engine: self.backend.clone(),
             profiles: Vec::new(),
             fragments: Vec::new(),
+            fragments_listed: Vec::new(),
             context: "THE-CONTEXT".to_string(),
             tokens: 0,
             prompt: self.prompt.clone(),
@@ -219,8 +221,10 @@ impl Planner for ScriptedPlan {
             axes: (String::new(), "host".to_string()),
             model: self.model.clone(),
             effort: self.effort.clone(),
+            permission_mode: self.permission_mode.clone(),
             drive: self.drive.clone(),
             settings: None,
+            settings_agent: String::new(),
             posture: self.posture.clone(),
         };
         Outcome {
@@ -458,6 +462,8 @@ struct RunLocks {
     runner: Option<ScriptedRunner>,
     /// Each let-go: the launches seen by then.
     released: Arc<Mutex<Vec<usize>>>,
+    /// The harps whose session lock another process holds.
+    live: Arc<Mutex<Vec<String>>>,
 }
 
 /// The path the fake run lock is at.
@@ -492,8 +498,12 @@ impl run_ports::RunLocks for RunLocks {
         run_ports::LockProbe::Unproven
     }
 
-    fn session(&self, _: &str, _: &str) -> run_ports::LockProbe {
-        run_ports::LockProbe::Unproven
+    fn session(&self, _: &str, harp: &str) -> run_ports::LockProbe {
+        if self.live.lock().unwrap().iter().any(|h| h == harp) {
+            run_ports::LockProbe::Held
+        } else {
+            run_ports::LockProbe::Unproven
+        }
     }
 }
 
@@ -553,6 +563,8 @@ struct Script {
     /// The model and effort the plan resolved.
     model: &'static str,
     effort: &'static str,
+    /// The permission mode the plan resolved (owner ruling 116).
+    permission_mode: &'static str,
     /// How the plan says the engine is run.
     drive: library_application::Drive,
     /// The posture the plan says the run claims.
@@ -572,6 +584,8 @@ struct Script {
     /// A reason the hook server refuses to serve, if it does.
     hooks_refuse: Option<&'static str>,
     certs_refuse: Option<&'static str>,
+    /// The user's git identity, if known.
+    git_user: Option<run_ports::GitUser>,
 }
 
 impl Script {
@@ -584,6 +598,7 @@ impl Script {
             fatal: Vec::new(),
             model: "",
             effort: "",
+            permission_mode: "",
             drive: Default::default(),
             posture: Default::default(),
             plan_error: None,
@@ -596,6 +611,7 @@ impl Script {
             program_dir: "/opt/ctxloom/bin",
             hooks_refuse: None,
             certs_refuse: None,
+            git_user: None,
         }
     }
 }
@@ -653,6 +669,7 @@ fn rig(script: Script) -> Rig {
             fatal: script.fatal,
             model: script.model.to_string(),
             effort: script.effort.to_string(),
+            permission_mode: script.permission_mode.to_string(),
             drive: script.drive.clone(),
             posture: script.posture.clone(),
             error: script.plan_error,
@@ -683,6 +700,7 @@ fn rig(script: Script) -> Rig {
         certs: Box::new(certs.clone()),
         locks: Box::new(locks.clone()),
         run_locks: Arc::new(run_locks.clone()),
+        git_user: script.git_user.clone(),
     });
     Rig {
         run_locks,
@@ -701,6 +719,30 @@ fn rig(script: Script) -> Rig {
 
 fn ask() -> OneShot {
     OneShot::default()
+}
+
+// Owner ruling 112: the engine's HOME is its session home, which the run seeds
+// with the user's git identity, so a commit its tools make has an author.
+#[tokio::test]
+async fn the_session_home_is_seeded_with_the_users_git_identity() {
+    let user = run_ports::GitUser {
+        name: "Alice Example".to_string(),
+        email: "alice@example.com".to_string(),
+    };
+    let mut script = Script::answering();
+    script.git_user = Some(user.clone());
+    let mut rig = rig(script);
+    let answer = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    assert_eq!(
+        rig.records.text(&answer.harp, "home/.gitconfig"),
+        run_ports::git_config(&user)
+    );
+    assert!(rig.records.text(&answer.harp, "home/.gitconfig").is_some());
 }
 
 #[tokio::test]
@@ -796,6 +838,7 @@ async fn the_plan_is_asked_with_the_request_and_its_notices_come_back() {
             ..RunRequest::default()
         },
         engine: String::new(),
+        session: String::new(),
     };
     let done = rig.runs.one_shot(&Flags::default(), &request).await;
     assert_eq!(rig.asked.lock().unwrap()[0].profile, "dev");
@@ -948,6 +991,7 @@ async fn a_driven_engine_named_on_the_line_is_planned_as_named() {
             engine: "fake".to_string(),
             ..RunRequest::default()
         },
+        session: String::new(),
     };
     rig.runs
         .one_shot(&Flags::default(), &request)
@@ -1637,8 +1681,11 @@ async fn the_bearer_is_in_no_debug_or_error_rendering() {
                 interactive: true,
                 model: String::new(),
                 effort: String::new(),
+                permission_mode: String::new(),
                 settings: Default::default(),
                 owned: Vec::new(),
+                git_user: None,
+                resume: None,
             }
         ),
     ] {
@@ -1931,6 +1978,52 @@ async fn the_plans_model_and_effort_are_handed_to_the_engine_for_a_turn_and_for_
     let args = rig.runner.seen_terminal.lock().unwrap()[0].args.clone();
     assert!(args.contains(&"--model=haiku".to_string()), "{args:?}");
     assert!(args.contains(&"--effort=low".to_string()), "{args:?}");
+}
+
+// Owner ruling 116: the agent's permission mode the plan resolved is the
+// order's, for the turn and for the terminal session, as its effort is; a
+// plan with none gives the engine none.
+#[tokio::test]
+async fn the_plans_permission_mode_is_handed_to_the_engine_for_a_turn_and_for_the_terminal() {
+    let mut script = Script::answering();
+    script.permission_mode = "plan";
+    let mut rig = rig(script);
+    rig.runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let args = rig.runner.seen.lock().unwrap()[0].args.clone();
+    assert!(
+        args.contains(&"--permission-mode=plan".to_string()),
+        "{args:?}"
+    );
+
+    let mut script = Script::answering();
+    script.permission_mode = "plan";
+    let mut rig = rig_again_with(script);
+    rig.runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let args = rig.runner.seen_terminal.lock().unwrap()[0].args.clone();
+    assert!(
+        args.contains(&"--permission-mode=plan".to_string()),
+        "{args:?}"
+    );
+
+    let mut rig = rig_again_with(Script::answering());
+    rig.runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let args = rig.runner.seen.lock().unwrap()[0].args.clone();
+    assert!(
+        !args.iter().any(|a| a.contains("permission-mode")),
+        "{args:?}"
+    );
 }
 
 // Rulings 35-37: the run's certificate is minted for every address the child
@@ -2319,7 +2412,8 @@ async fn two_failing_checks_are_refused_together_in_check_order() {
 }
 
 // Ruling 73a: fatal findings beside a refusal make the exit 3; the findings
-// are the plan's notices (said as they always are), the refusal the run's.
+// are said as warnings beside it (the plan leaves a fatal finding to the
+// refusal that lists it, and this one does not), the refusal is the run's.
 #[tokio::test]
 async fn fatal_findings_beside_a_refusal_are_exit_3_and_the_refusal_is_kept() {
     let mut script = needing_a_token();
@@ -2334,7 +2428,13 @@ async fn fatal_findings_beside_a_refusal_are_exit_3_and_the_refusal_is_kept() {
     );
     assert_eq!(error.exit_code(), 3);
     assert_eq!(codes_of(&error), ["runs-no-credential"]);
-    assert_eq!(done.notices.len(), 1, "the plan's notices are still said");
+    let said: Vec<String> = done.notices.iter().map(|n| format!("{n:?}")).collect();
+    assert_eq!(said.len(), 2, "{said:?}");
+    assert!(
+        said[0].contains("a finding the plan proceeded past"),
+        "{said:?}"
+    );
+    assert!(said[1].contains("no such bundle"), "{said:?}");
 }
 
 // A single failing check is the plain refusal it always was (rulings 73a,
@@ -2370,6 +2470,7 @@ async fn an_undriven_engine_is_planned_and_the_prompt_still_judged() {
             engine: "bogus-engine".to_string(),
             ..RunRequest::default()
         },
+        session: String::new(),
     };
     let error = rig
         .runs
@@ -2864,4 +2965,210 @@ async fn the_enqueue_is_judged_on_the_claimed_posture_and_what_the_runtime_enfor
         rig.runner.seen.lock().unwrap().is_empty(),
         "nothing was launched"
     );
+}
+
+/// `run --session <harp>`, a one-shot on `prompt`.
+fn resume(harp: &str) -> OneShot {
+    OneShot {
+        session: harp.to_string(),
+        ..OneShot::default()
+    }
+}
+
+/// The run of `session`'s `incarnation`, its events.
+async fn incarnation_events(
+    edge: &TestEdge,
+    session: &str,
+    incarnation: u32,
+) -> Vec<runs::RunEvent> {
+    use angzarr_embedded::Payload;
+    use run_ports::Edge;
+    let cover = Cover {
+        domain: runs::RUN_DOMAIN.to_string(),
+        root: Some(runs::run_root(session, incarnation)),
+        edition: None,
+    };
+    edge.events(&cover, 0)
+        .await
+        .unwrap()
+        .iter()
+        .filter_map(|page| match &page.body {
+            Some(event_page::Body::Event(any)) => Some(runs::RunEvent::from_any(any).unwrap()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The refusal code of a run's error, when it is a resume's refusal: the
+/// session domain's own, exit 2.
+fn refused_code(error: &RunError) -> String {
+    match error {
+        RunError::Resume(rejection) => {
+            assert_eq!(error.exit_code(), 2);
+            rejection.code().to_string()
+        }
+        other => panic!("not a resume's refusal: {other:?}"),
+    }
+}
+
+// Owner ruling 115: `run --session <harp>` resumes the session: the engine is
+// handed its native session (claude's `--resume`), in the same session home,
+// as a new incarnation (the second) on the same session stream, whose run is
+// the stream UUIDv5(session, 2).
+#[tokio::test]
+async fn a_resume_is_the_next_incarnation_of_the_same_session_resuming_its_native_one() {
+    let mut rig = rig(Script::answering());
+    let first = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let again = rig
+        .runs
+        .one_shot(&Flags::default(), &resume(&first.harp))
+        .await
+        .result
+        .unwrap();
+    assert_eq!(
+        (again.harp.as_str(), again.session.as_str()),
+        (first.harp.as_str(), first.session.as_str())
+    );
+    assert_eq!(again.answer, "THE-ANSWER");
+    let seen = rig.runner.seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 2);
+    assert!(!seen[0].args.iter().any(|a| a.starts_with("--resume")));
+    assert!(
+        seen[1].args.contains(&"--resume=native-7".to_string()),
+        "{:?}",
+        seen[1].args
+    );
+    // The same session home.
+    assert_eq!(seen[0].args[0], seen[1].args[0]);
+    let events = session_events(&rig.edge, &first.session).await;
+    assert!(events.iter().any(|e| matches!(e,
+        sessions::SessionEvent::IncarnationOwed(o) if o.incarnation == 2 && o.reason == "resume")));
+    assert!(events.iter().any(|e| matches!(e,
+        sessions::SessionEvent::IncarnationEnded(o) if o.incarnation == 2)));
+    let second = incarnation_events(&rig.edge, &first.session, 2).await;
+    assert!(
+        second
+            .iter()
+            .any(|e| matches!(e, runs::RunEvent::RunEnded(_))),
+        "{second:?}"
+    );
+    // No second session was minted.
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, sessions::SessionEvent::SessionMinted(_)))
+            .count(),
+        1
+    );
+}
+
+// The human's terminal resumes the same way: its command resumes the native
+// session.
+#[tokio::test]
+async fn an_interactive_resume_hands_the_terminal_the_native_session() {
+    let mut rig = rig(Script::answering());
+    let first = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let ended = rig
+        .runs
+        .interactive(&Flags::default(), &resume(&first.harp))
+        .await
+        .result
+        .unwrap();
+    assert_eq!(ended.harp, first.harp);
+    let terminal = rig.runner.seen_terminal.lock().unwrap().clone();
+    assert!(
+        terminal[0].args.contains(&"--resume=native-7".to_string()),
+        "{:?}",
+        terminal[0].args
+    );
+}
+
+#[tokio::test]
+async fn a_resume_of_a_name_no_session_holds_is_refused_and_launches_nothing() {
+    let mut rig = rig(Script::answering());
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &resume("no-such-heron"))
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(refused_code(&error), "sessions-session-unknown");
+    assert!(rig.runner.seen.lock().unwrap().is_empty());
+}
+
+// A destroyed session's name stays claimed (ruling 94c); its stream is gone.
+#[tokio::test]
+async fn a_resume_of_a_destroyed_session_is_refused() {
+    let mut rig = rig(Script::answering());
+    claim(
+        &rig.edge,
+        "gone-grey-heron",
+        "5f0c7a52-4444-5444-8444-000000000001",
+    )
+    .await;
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &resume("gone-grey-heron"))
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(refused_code(&error), "sessions-session-destroyed");
+    assert!(rig.runner.seen.lock().unwrap().is_empty());
+}
+
+// A session whose lock another process holds is live: not resumed.
+#[tokio::test]
+async fn a_resume_of_a_live_session_is_refused() {
+    let mut rig = rig(Script::answering());
+    let first = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    rig.run_locks.live.lock().unwrap().push(first.harp.clone());
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &resume(&first.harp))
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(refused_code(&error), "sessions-session-running");
+    assert_eq!(rig.runner.seen.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_resume_of_a_session_with_no_native_id_is_refused() {
+    let mut rig = rig(Script {
+        engine: ScriptedEngine::answering("THE-ANSWER", None),
+        ..Script::answering()
+    });
+    let first = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &resume(&first.harp))
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(refused_code(&error), "sessions-no-native-session");
+    assert_eq!(rig.runner.seen.lock().unwrap().len(), 1);
+    // Refused before anything was owed: the next resume is still the second.
+    let events = session_events(&rig.edge, &first.session).await;
+    assert!(!events.iter().any(|e| matches!(e,
+        sessions::SessionEvent::IncarnationOwed(o) if o.incarnation == 2)));
 }

@@ -28,14 +28,25 @@ fn family(engine: &str) -> Option<&'static str> {
     }
 }
 
-/// The permission modes of `engine`, in its order.
-pub(crate) fn postures(engine: &str) -> &'static [&'static str] {
+/// The permission modes of `engine`, in its order: ctxloom's own vocabulary,
+/// which governs a write and a launch alike (owner ruling 125).
+pub fn postures(engine: &str) -> &'static [&'static str] {
     match family(engine) {
         Some("claude") => &["default", "acceptEdits", "plan", "bypassPermissions"],
         Some("opencode") => &["build", "plan", "auto"],
         Some("mock") => &["default", "plan", "bypass"],
         _ => &[],
     }
+}
+
+/// The mode a launch passes `engine`, held to ctxloom's own words as a write
+/// is (owner ruling 125): a claude mode is [`mode`]'s, refused in its words;
+/// no other engine is given a mode yet, so its mode is not checked.
+pub(crate) fn launch_mode(engine: &str, value: &str) -> Result<String, String> {
+    if value.is_empty() || family(engine) != Some("claude") {
+        return Ok(value.to_string());
+    }
+    mode(engine, value)
 }
 
 /// Claude's retired spellings of a mode, and what each is now.

@@ -691,6 +691,11 @@ impl Daemon {
                 context: child.context.clone(),
                 offered: Vec::new(),
                 interactive: false,
+                cwd: Some(project_dir.to_string()),
+                // Nothing read back to merge into yet (ruling 113's merge
+                // reaches the launcher's homes; a hosted child's is a
+                // follow-up of the merge of main).
+                existing: BTreeMap::new(),
             })
             .map_err(|e| e.to_string())?;
         for file in &prepared.files {

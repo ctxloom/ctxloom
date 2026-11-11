@@ -121,8 +121,18 @@ fn test_showing_an_unreadable_bundle_names_the_fault_and_a_missing_one_is_not_fo
 fn test_an_unknown_config_key_is_refused_and_degraded_drops_it_with_a_warning() {
     let layers = ["schema_version: 9\nzzz: 1\n"];
     let library = setup(&layers).library();
-    let refused = library.bundle_list(&plain()).result;
-    match refused {
+    let refused = library.bundle_list(&plain());
+    // Hand-test 2026-11-10: the refusal names each violation; a warning of
+    // the same violation beside it said it twice.
+    assert!(
+        !refused
+            .notices
+            .iter()
+            .any(|n| matches!(n, Notice::Finding { text, .. } if text.contains("unknown key"))),
+        "the refusal is said once: {:?}",
+        refused.notices
+    );
+    match refused.result {
         Err(AppError::ConfigUnknownKey { violations }) => {
             assert!(violations.contains("unknown key `zzz`"), "{violations}");
         }
@@ -472,6 +482,14 @@ fn test_a_dry_run_carries_the_composed_context_and_refuses_what_run_refuses() {
     assert_eq!(plan.engine, "claude-code");
     assert_eq!(plan.profiles, ["dev"]);
     assert_eq!(plan.runtime, "host");
+    // hand-test 2026-11-10: the default agent's settings are said as its own
+    // (ruling 72), so the plan names whose they are though no --agent was given.
+    assert_eq!(plan.agent, "", "no --agent was given");
+    assert_eq!(plan.settings_agent, "dev");
+    assert_eq!(
+        plan.settings.as_ref().map(|s| s.runtime.source),
+        Some("agent")
+    );
     assert!(plan.context.contains("TEST-BODY"));
     assert!(
         !plan.context.contains("GO-RULES"),
@@ -531,6 +549,35 @@ fn test_fatal_findings_are_fatal_unless_degraded() {
     assert!(!past.plan.findings[0].fatal);
     let aborted = AppError::aborted(&strict.fatal);
     assert_eq!(aborted.exit_code(), 3);
+}
+
+// hand-test 2 2026-11-11: a missing bundle was reported three times in one
+// dry run (two warnings, then the fatal list). A fatal finding is said by the
+// refusal alone; under --degraded, by one warning.
+#[test]
+fn test_a_missing_bundle_is_reported_once() {
+    let layers = [CONFIG];
+    let library = setup(&layers).library();
+    let broken = RunRequest {
+        profile: "broken".to_string(),
+        ..RunRequest::default()
+    };
+    let naming = |notices: &[Notice]| -> Vec<String> {
+        notices
+            .iter()
+            .map(|n| format!("{n:?}"))
+            .filter(|n| n.contains("does-not-exist"))
+            .collect()
+    };
+    let strict = library.dry_run(&plain(), &broken);
+    assert!(naming(&strict.notices).is_empty(), "{:?}", strict.notices);
+    assert_eq!(ok(strict).fatal.len(), 1);
+    let degraded = crate::Flags {
+        degraded: true,
+        ..plain()
+    };
+    let past = library.dry_run(&degraded, &broken);
+    assert_eq!(naming(&past.notices).len(), 1, "{:?}", past.notices);
 }
 
 // launch: with no agent the run says which of the three reasons applies.

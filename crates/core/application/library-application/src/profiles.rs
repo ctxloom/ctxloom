@@ -148,20 +148,21 @@ impl Project {
         let mut rows: Vec<ProfileRow> = profiles
             .by_key
             .iter()
-            .map(|(key, (p, path))| ProfileRow {
-                name: ask_name(key),
-                display_name: display_name(key),
-                description: p.description.clone(),
-                parents: p.parents.clone(),
-                tags: p.tags.clone(),
-                bundles: p.bundles.clone(),
-                default: defaults.contains(key),
-                path: path.clone(),
-                is_remote: profiles.sources.contains_key(key),
-                bundle: key
-                    .split_once("#profiles/")
-                    .map(|(b, _)| b.to_string())
-                    .unwrap_or_default(),
+            .map(|(key, (p, path))| {
+                let (name, bundle, origin) = self.named(key);
+                ProfileRow {
+                    name,
+                    display_name: display_name(key),
+                    description: p.description.clone(),
+                    parents: p.parents.clone(),
+                    tags: p.tags.clone(),
+                    bundles: p.bundles.clone(),
+                    default: defaults.contains(key),
+                    path: path.clone(),
+                    is_remote: profiles.sources.contains_key(key),
+                    bundle,
+                    origin,
+                }
             })
             .collect();
         rows.sort_by_key(|r| r.name.to_lowercase());
@@ -189,8 +190,9 @@ impl Project {
             found.check_own_repo(url).map_err(AppError::cause)?;
         }
         let defaults = self.default_keys(&profiles);
+        let (name, bundle, _) = self.named(&key);
         Ok(ProfileShow {
-            name: ask_name(&key),
+            name,
             description: found.description.clone(),
             parents: found.parents.clone(),
             tags: found.tags.clone(),
@@ -199,12 +201,24 @@ impl Project {
             exclude_fragments: found.exclude_fragments.clone(),
             exclude_mcp: found.exclude_mcp.clone(),
             path: path.clone(),
-            bundle: key
-                .split_once("#profiles/")
-                .map(|(b, _)| b.to_string())
-                .unwrap_or_default(),
+            bundle,
             default: defaults.contains(&key),
         })
+    }
+
+    /// A profile's key as a listing names it: the name a user types, its
+    /// bundle, and the built-in origin of one ctxloom ships (named, as `bundle
+    /// list` names its bundle, by the bundle's name).
+    fn named(&self, key: &str) -> (String, String, String) {
+        let listed = self.listed(key);
+        let built_in = !listed.origin.is_empty();
+        let name = if built_in { listed.name } else { ask_name(key) };
+        let shown = if built_in { name.as_str() } else { key };
+        let bundle = shown
+            .split_once("#profiles/")
+            .map(|(b, _)| b.to_string())
+            .unwrap_or_default();
+        (name, bundle, listed.origin)
     }
 
     /// The named profiles, each resolved with its parents, in order. A name

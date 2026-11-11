@@ -13,9 +13,10 @@
 use angzarr_embedded::markup::TypedRefusal;
 
 use crate::{
-    ChildCannotStop, DelegationLimit, HarpInvalid, HarpTooLong, NamesTaken, NoClaim,
-    NoOpenIncarnation, NoSession, NotHolder, NotOwner, OwnerClosed, SessionExists, SessionIsClosed,
-    SessionLive, SessionRejection, UntrustedTarget, UrgencyUnsupported,
+    ChildCannotStop, DelegationLimit, EngineMismatch, HarpInvalid, HarpTooLong, NamesTaken,
+    NoClaim, NoNativeSession, NoOpenIncarnation, NoSession, NotHolder, NotOwner, OwnerClosed,
+    SessionDestroyed, SessionExists, SessionIsClosed, SessionLive, SessionRejection,
+    SessionRunning, SessionUnknown, UntrustedTarget, UrgencyUnsupported,
 };
 
 /// What a command handler fails with for `rejection`: the typed refusal
@@ -85,6 +86,30 @@ impl TryFrom<&TypedRefusal> for SessionRejection {
         }
         if let Some(SessionLive { harp }) = refusal.object() {
             return Ok(SessionRejection::SessionLive { harp });
+        }
+        if let Some(SessionUnknown { harp }) = refusal.object() {
+            return Ok(SessionRejection::SessionUnknown { harp });
+        }
+        if let Some(SessionDestroyed { harp }) = refusal.object() {
+            return Ok(SessionRejection::SessionDestroyed { harp });
+        }
+        if let Some(SessionRunning { harp }) = refusal.object() {
+            return Ok(SessionRejection::SessionRunning { harp });
+        }
+        if let Some(NoNativeSession { harp }) = refusal.object() {
+            return Ok(SessionRejection::NoNativeSession { harp });
+        }
+        if let Some(EngineMismatch {
+            harp,
+            engine,
+            asked,
+        }) = refusal.object()
+        {
+            return Ok(SessionRejection::EngineMismatch {
+                harp,
+                engine,
+                asked,
+            });
         }
         daemon_rejection(refusal).ok_or(NotOurs)
     }

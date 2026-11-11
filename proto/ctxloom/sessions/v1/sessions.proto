@@ -205,9 +205,10 @@ message AdoptRotations {
   repeated Rotation rotations = 1;
 }
 
-// Record when the session's last run ended. PROVISIONAL: the importer's
-// record of Go's ended_at; the run slice's IncarnationEnded supersedes it
-// (plan 9, an open question).
+// Record when the session's last run ended: the Go importer's record of
+// Go's ended_at, and nothing else's. A run's own end is IncarnationEnded
+// (ruling 85), which sets the session's end at its page's instant; RecordEnd
+// remains for the importer only.
 message RecordEnd {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.sessions.v1.SessionState"
@@ -328,6 +329,30 @@ message RecordIncarnationEnded {
   string cause = 2;
 }
 
+// Resume the session (owner ruling 115, `run --session <harp>`): owe it its
+// next incarnation, a new run on the same session stream that resumes the
+// engine's own session (its bound native id) in the same session home. Sent
+// for a harp whose name is claimed, so a stream holding no session is one
+// `session remove` destroyed. Refused while an incarnation is open (its run
+// has not ended), before the engine bound a native session, and for another
+// engine than the session's.
+message ResumeSession {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.IncarnationOwed"]
+    refuses: "ctxloom.sessions.v1.SessionUnknown"
+    refuses: "ctxloom.sessions.v1.SessionDestroyed"
+    refuses: "ctxloom.sessions.v1.SessionRunning"
+    refuses: "ctxloom.sessions.v1.NoNativeSession"
+    refuses: "ctxloom.sessions.v1.EngineMismatch"
+  };
+
+  // The name the session was asked for by.
+  string harp = 1;
+  // The engine the resume would drive; empty is the session's own.
+  string engine = 2;
+}
+
 message IncarnationOwed {
   option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
 
@@ -403,6 +428,49 @@ message ChildCannotStop {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_PERMISSION_DENIED;
 
   uint64 depth = 1;
+}
+
+// A resume of a name no session holds. The run application raises it from
+// its read of the name's claim, before the command: listed so the name has
+// one typed message, whoever raises it.
+message SessionUnknown {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
+
+  string harp = 1;
+}
+
+// A resume of a session `session remove` destroyed: its name is still
+// claimed (94c), its stream holds nothing.
+message SessionDestroyed {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
+
+  string harp = 1;
+}
+
+// A resume of a session that is running: its lock is held, or its last
+// incarnation has not ended.
+message SessionRunning {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string harp = 1;
+}
+
+// A resume of a session whose engine never bound a native session: there is
+// nothing for the engine to resume.
+message NoNativeSession {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string harp = 1;
+}
+
+// A resume on another engine than the session's: the native session is its
+// engine's alone.
+message EngineMismatch {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string harp = 1;
+  string engine = 2;
+  string asked = 3;
 }
 
 // endregion refusals

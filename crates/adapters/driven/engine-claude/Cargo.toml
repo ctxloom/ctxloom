@@ -19,6 +19,7 @@ file-system = { workspace = true, features = ["test-support"] }
 mutants.workspace = true
 os = { workspace = true, features = ["test-support"] }
 run-within = { workspace = true, features = ["test-support"] }
+serde_json.workspace = true
 
 [lints]
 workspace = true

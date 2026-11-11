@@ -1,0 +1,9 @@
+schema_version: 3
+version: 1.0.0
+tags:
+    - default
+    - testing
+    - tdd
+author: ctxloom
+description: 'Testing practices that generalise: TDD, mutation testing as the check on test quality, and coverage.'
+name: testing

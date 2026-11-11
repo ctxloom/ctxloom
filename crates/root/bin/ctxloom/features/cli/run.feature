@@ -25,6 +25,7 @@ Feature: run — assembling a project's context and handing it to an engine
     ctxloom run --tag/-t <tag>
     ctxloom run --command/-r <name>      (a saved command as the prompt)
     ctxloom run --agent <name>
+    ctxloom run --session <harp>         (resume a session, owner ruling 115)
 
   A RUN IS EITHER A SESSION OR A SINGLE TURN, and `--one-shot` is how a caller
   says which. The flag names the MODE, not its output: every mode prints, and
@@ -33,6 +34,18 @@ Feature: run — assembling a project's context and handing it to an engine
   journeys drive it over a pty (j000200_setup.feature), and so does the one
   opencode scenario at the end, whose scripted engine records what it was
   launched with and exits.
+
+  A RUN ASKED TO STOP STOPS ITS ENGINE FIRST (ruling 114). For the whole run
+  ctxloom hears SIGHUP, SIGINT and SIGTERM, so none ends it by its default
+  and leaves the engine working with no one listening. A one-shot stops on
+  any of the three: the turn's process tree is asked to stop (SIGTERM),
+  given five seconds, then killed. The session stops on SIGHUP or SIGTERM:
+  its engine (the direct child) is killed; a SIGINT is the terminal's Ctrl-C,
+  which reaches the engine itself, and ctxloom lets it pass. Either way the
+  run's end is recorded as for any engine that exited, and the command exits
+  with 128 plus the signal's number (129, 130, 143), the error
+  `run-application-stopped` naming the signal. j001000 proves the one-shot's
+  SIGTERM end to end.
 
   EVERY OTHER SCENARIO HERE DRIVES THE MOCK ENGINE, never a real one. That is not a
   compromise — it is what makes the full path OBSERVABLE. The mock records the
@@ -59,6 +72,19 @@ Feature: run — assembling a project's context and handing it to an engine
         """
       Then the command fails
       And the output contains "unknown flag"
+
+    # The help says what each spelling does: bare is the session, and the
+    # one-shot and the dry run are the flags (hand-test 2026-11-10: it still
+    # said this build takes only a one-shot or a dry run).
+    Scenario: The help names the interactive session beside the one-shot and the dry run
+      # new: the help of a bare run that is interactive.
+      Given an initialized ctxloom project
+      When I run "ctxloom run -h"
+      Then the command succeeds
+      And the output contains "a bare run is an interactive session"
+      And the output contains "--one-shot takes one turn"
+      And the output contains "--dry-run previews"
+      And the output does not contain "this build"
 
     # `--agent` names a BINDING that already carries its own composed profiles,
     # engine and runtime, so combining it with the flags that assemble context
@@ -374,6 +400,41 @@ Feature: run — assembling a project's context and handing it to an engine
       Then the scripted opencode TUI ran on a terminal with the prompt as a flag, the guidance and Alice's preferences in its config dir
       And the bridge plugin in its config dir fires ctxloom's session-start and mail-drain for opencode, and the TUI is told its wake socket
 
+  # Owner ruling 115 (2026-11-10): `run --session <harp>` resumes a session,
+  # a one-shot's or the terminal's: its engine is handed its own session
+  # (claude's `--resume <id>`, opencode's `--session <id>`), in the same
+  # session home, as the session's next incarnation on the same stream (a run
+  # of its own, UUIDv5(session, incarnation)). A session that is running (its
+  # lock held, or its last run not ended), one whose engine never named its
+  # own session, one `session remove` destroyed, a name no session holds, and
+  # another engine than the session's are each refused, before anything is
+  # launched.
+  Rule: run --session resumes a session in its engine's own session, as its next incarnation
+
+    Scenario: Another turn on a session resumes the engine's own session in the same session
+      # new: owner ruling 115 (2026-11-10).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And Alice has started her assistant through ctxloom
+      When Alice takes another turn on that session with "and then?"
+      Then the command succeeds
+      And the reply names the same session
+      And the assistant was resumed on its own session "00000000-0000-4000-8000-0000000000aa"
+
+    Scenario: A name no session holds is refused, and nothing is launched
+      # new: owner ruling 115 (2026-11-10).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice resumes a session that does not exist:
+        """
+        ctxloom run --one-shot "again" --session no-such-heron
+        """
+      Then the command exits with code 2
+      And the refusal is "sessions-session-unknown"
+      And no assistant was launched
+
+  # Superseded by ruling 115 above (resume is the engine's own session, not a
+  # context fold); kept pending as Go's design.
   @pending
   Rule: Resuming a session folds in its recorded conversation, and leaves the record as it was
 
@@ -648,8 +709,9 @@ Feature: run — assembling a project's context and handing it to an engine
     the curation says. The permit itself is not passed on, and a value is
     never shown. A permit can never replace one of the run's own `CTXLOOM_*`
     variables, nor anything else ctxloom sets for the engine (the session home
-    it relocates the engine into, the PATH it builds for the hooks, her HOME,
-    which is ctxloom's own home): it is ignored, and the run says so. An explicit permit for
+    it relocates the engine into, its HOME, which is that session home (owner
+    ruling 112), and the PATH it builds for the hooks): it is ignored, and the
+    run says so. An explicit permit for
     `ANTHROPIC_AUTH_TOKEN` gives a child the primary's token (without one it
     never reaches a child): such a child holds her token, no credential of
     its own.
@@ -717,7 +779,8 @@ Feature: run — assembling a project's context and handing it to an engine
         """
       Then the command succeeds
       And the assistant's "CLAUDE_CONFIG_DIR" was ctxloom's, not "/evil-config"
-      And the assistant's environment did not hold "HOME"
+      And the assistant's "HOME" was ctxloom's, not "/evil-home"
+      And the assistant's HOME was its session home
       And the output contains "CTXLOOM_PERMIT_CLAUDE_CONFIG_DIR was not passed on"
       And the output contains "CTXLOOM_PERMIT_HOME was not passed on"
 
@@ -913,6 +976,23 @@ Feature: run — assembling a project's context and handing it to an engine
       Then the command succeeds
       And the session that answered keeps its outputs in "notes/sessions" of her project
 
+  # A run tells its session when its incarnation ended (ruling 85), however
+  # it ended; that end is when the session's last run ended, so the listing's
+  # END and `show`'s ended_at say it once the lock is free (hand-test
+  # 2026-11-10: both were blank for every session that had ended).
+  Rule: A session whose run ended says when it ended
+
+    Scenario: A one-shot's session lists when it ended
+      # new: the session's end is its incarnation's end (ruling 85).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice asks her assistant one thing:
+        """
+        ctxloom run --one-shot --format json hello
+        """
+      Then the command succeeds
+      And the session that answered is ended and says when it ended
+
   # Owner rulings 59 and 109: a posture is a claim about the fence around the
   # agent, and a launch refuses one that claims more than its runtime
   # enforces. Today every run is launched on the host, which fences neither
@@ -972,3 +1052,62 @@ Feature: run — assembling a project's context and handing it to an engine
         """
       Then the command succeeds
       And an assistant was launched
+
+  Rule: The agent's permission mode reaches claude, and a mode claude does not take is refused before it starts
+
+    An agent's claude permission mode (`agents.<n>.engines.claude-code.
+    permissions.mode`, `acceptEdits` when nobody set one) is passed to claude
+    as `--permission-mode <mode>`, a child's turn and her interactive session
+    alike (owner ruling 116). ctxloom's own words govern (owner ruling 125):
+    default, acceptEdits, plan and bypassPermissions, the words a write
+    takes; `default` is claude's own default, passed as no flag. Any other
+    mode is refused before claude is started, in the write's own words: a
+    retired spelling (`auto`, `dontAsk`) is pointed at the approver it is
+    now, and claude's other words (`manual`) are not ctxloom's.
+
+    Scenario: A child's turn runs in the default agent's permission mode
+      # new: owner ruling 116 (2026-11-11).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice runs a child agent on her default agent:
+        """
+        ctxloom run --one-shot hello
+        """
+      Then the command succeeds
+      And the assistant was launched with "--permission-mode" "acceptEdits"
+
+    Scenario: Her session runs in the permission mode she chose
+      # new: owner ruling 116 (2026-11-11).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice starts her session in plan mode:
+        """
+        ctxloom --config-set agents.default.engines.claude-code.permissions.mode=plan run
+        """
+      Then the command succeeds
+      And the assistant was launched with "--permission-mode" "plan"
+
+    Scenario: A retired spelling of a mode is refused before claude starts, naming the approver it is now
+      # new: owner rulings 116, 125 (2026-11-11).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice runs a child agent in a retired mode:
+        """
+        ctxloom --config-set agents.default.engines.claude-code.permissions.mode=auto run --one-shot hello
+        """
+      Then the command exits with code 1
+      And the output contains "is declared as approver: reviewer"
+      And no assistant was launched
+
+    Scenario: A mode that is claude's but not ctxloom's is refused before claude starts
+      # new: owner ruling 125 (2026-11-11).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice starts her session in a mode ctxloom does not have:
+        """
+        ctxloom --config-set agents.default.engines.claude-code.permissions.mode=manual run
+        """
+      Then the command exits with code 1
+      And the output contains "manual"
+      And the output contains "is not a claude mode (known: default|acceptEdits|plan|bypassPermissions)"
+      And no assistant was launched

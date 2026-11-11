@@ -301,3 +301,122 @@ fn the_homes_auth_mode_is_read_with_the_projects_config() {
     let report = doctor_with_token(&mem, true, false).report(false);
     assert_eq!(status(&report, "DOCTOR-CHECK-CREDENTIALS-m5"), Status::Info);
 }
+
+fn row(report: &crate::Report, marker: &str) -> crate::Check {
+    report
+        .checks
+        .iter()
+        .find(|c| c.marker == marker)
+        .unwrap_or_else(|| panic!("no {marker}"))
+        .clone()
+}
+
+// Hand-test 2026-11-10: a config every run refuses (a key the schema does not
+// know) is a fail row in the run's own words, and the report fails.
+#[test]
+fn a_config_every_run_refuses_fails_the_setup_marker_in_the_runs_words() {
+    let mem = project();
+    mem.files.lock().unwrap().insert(
+        "/work/.ctxloom/config.yaml".to_string(),
+        "schema_version: 9\nsync:\n  auto_sync: true\n".to_string(),
+    );
+    let report = doctor(&mem, true).report(false);
+    let marker = row(&report, "DOCTOR-CHECK-SETUP-MARKER-e5");
+    assert_eq!(marker.status, Status::Fail, "{marker:?}");
+    assert!(
+        marker
+            .detail
+            .contains("failed to load config: the config breaks its schema")
+            && marker.detail.contains("unknown key `sync.auto_sync`")
+            && marker.detail.contains("/work/.ctxloom/config.yaml"),
+        "{}",
+        marker.detail
+    );
+    assert_eq!(
+        marker.remedy,
+        "remove or rename the key in config.yaml (ctxloom config edit)"
+    );
+    assert!(report.failed());
+}
+
+// The home's layer is read as a run reads it, too.
+#[test]
+fn a_home_config_every_run_refuses_fails_the_setup_marker() {
+    let mem = project();
+    mem.files.lock().unwrap().insert(
+        "/home/u/.ctxloom/config.yaml".to_string(),
+        "schema_version: 9\nzzz: 1\n".to_string(),
+    );
+    let marker = row(
+        &doctor(&mem, true).report(false),
+        "DOCTOR-CHECK-SETUP-MARKER-e5",
+    );
+    assert_eq!(marker.status, Status::Fail);
+    assert!(
+        marker.detail.contains("/home/u/.ctxloom/config.yaml"),
+        "{}",
+        marker.detail
+    );
+}
+
+// Hand-test 2026-11-10: a project whose private state git can see (no
+// nested `.ctxloom/.gitignore`, nothing in the root one) is a warning naming
+// what is exposed; the nested rules `manage gitignore install` writes, or
+// the same rules in the root `.gitignore`, keep it quiet.
+#[test]
+fn private_state_git_can_see_is_a_gitignore_warning() {
+    let mem = project();
+    let check = row(
+        &doctor(&mem, true).report(false),
+        "DOCTOR-CHECK-GITIGNORE-f6",
+    );
+    assert_eq!(check.status, Status::Warn, "{check:?}");
+    assert!(
+        check.detail.contains("/sessions") && check.detail.contains("/cache"),
+        "{}",
+        check.detail
+    );
+    assert_eq!(check.remedy, "ctxloom manage gitignore install");
+
+    mem.files.lock().unwrap().insert(
+        "/work/.ctxloom/.gitignore".to_string(),
+        "# ctxloom\n/cache\n/sessions\n/project-id\n/state\n*.lock\n".to_string(),
+    );
+    let check = row(
+        &doctor(&mem, true).report(false),
+        "DOCTOR-CHECK-GITIGNORE-f6",
+    );
+    assert_eq!(check.status, Status::Ok, "{check:?}");
+}
+
+#[test]
+fn private_state_ignored_from_the_root_gitignore_is_quiet() {
+    let mem = project();
+    mem.files.lock().unwrap().insert(
+        "/work/.gitignore".to_string(),
+        ".ctxloom/cache/\n/.ctxloom/sessions\n.ctxloom/project-id\n.ctxloom/state/\n*.lock\n"
+            .to_string(),
+    );
+    let check = row(
+        &doctor(&mem, true).report(false),
+        "DOCTOR-CHECK-GITIGNORE-f6",
+    );
+    assert_eq!(check.status, Status::Ok, "{check:?}");
+}
+
+// One pattern left out is named alone.
+#[test]
+fn a_private_state_pattern_left_out_is_named() {
+    let mem = project();
+    mem.files.lock().unwrap().insert(
+        "/work/.ctxloom/.gitignore".to_string(),
+        "/cache\n/project-id\n/state\n*.lock\n".to_string(),
+    );
+    let check = row(
+        &doctor(&mem, true).report(false),
+        "DOCTOR-CHECK-GITIGNORE-f6",
+    );
+    assert_eq!(check.status, Status::Warn);
+    assert!(check.detail.contains("/sessions"), "{}", check.detail);
+    assert!(!check.detail.contains("/cache"), "{}", check.detail);
+}

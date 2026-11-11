@@ -29,12 +29,21 @@ pub struct Order {
     pub model: String,
     /// The agent's effort level; empty names none.
     pub effort: String,
+    /// The agent's permission mode (owner ruling 116); empty names none.
+    pub permission_mode: String,
     /// How the config says the engine is run: program, session home,
     /// credential source, environment passthrough (names and paths only).
     pub settings: run_ports::EngineSettings,
     /// The names the run itself set in `env` for the engine (owner ruling
     /// 78b): no permit replaces them (`run_ports::apply_permits`).
     pub owned: Vec<String>,
+    /// The user's git identity, seeded into the session home's `.gitconfig`
+    /// when it has none (owner ruling 112: the engine's HOME is the session
+    /// home); none known, nothing is seeded.
+    pub git_user: Option<run_ports::GitUser>,
+    /// The engine's own session the launch resumes (owner ruling 115, `run
+    /// --session`); none, the engine starts one.
+    pub resume: Option<String>,
 }
 
 impl fmt::Debug for Order {
@@ -50,8 +59,11 @@ impl fmt::Debug for Order {
             .field("interactive", &self.interactive)
             .field("model", &self.model)
             .field("effort", &self.effort)
+            .field("permission_mode", &self.permission_mode)
             .field("settings", &self.settings)
             .field("owned", &self.owned)
+            .field("git_user", &self.git_user)
+            .field("resume", &self.resume)
             .finish()
     }
 }

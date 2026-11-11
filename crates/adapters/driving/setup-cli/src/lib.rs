@@ -208,7 +208,6 @@ fn init(
         writeln!(out, "ctxloom directory already exists: {}", done.app_dir).map_err(output)?;
     } else {
         writeln!(out, "Created ctxloom directory: {}", done.app_dir).map_err(output)?;
-        writeln!(out, "Pulled {} dependencies", done.pulled).map_err(output)?;
         // A first init at a terminal asks where a session's outputs go
         // (rulings 89, 106); off one, the default stands unasked.
         if let Some(dir) = uses

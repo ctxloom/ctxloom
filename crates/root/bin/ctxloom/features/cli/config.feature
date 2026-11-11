@@ -247,7 +247,11 @@ Feature: config — the project's one configuration document, read and scaffolde
     its content, because a scaffold that exits 0 having written empty files is
     indistinguishable from a working one by exit code alone.
 
+    # The scaffold keeps ctxloom's private state (sessions, cache, the
+    # project id) out of git from the start: the nested `.ctxloom/.gitignore`
+    # `manage gitignore install` writes (hand-test 2026-11-10).
     Scenario: Create scaffolds the config, the remotes registry and the seeded profile
+      # substitution: the nested .gitignore is asserted too; Go's init wrote it, and the port's scaffold does.
       Given an empty project directory
       When Alice turns a bare directory into a ctxloom project:
         """
@@ -256,8 +260,13 @@ Feature: config — the project's one configuration document, read and scaffolde
       Then the command succeeds
       And the file ".ctxloom/config.yaml" is valid YAML
       And the file ".ctxloom/config.yaml" contains "engine: claude-code"
-      And the file ".ctxloom/remotes.yaml" contains "ctxloom-default"
+      And the file ".ctxloom/remotes.yaml" contains "schema_version: 1"
+      # Owner ruling 111: the scaffold seeds no remote; the default content is built in.
+      And the file ".ctxloom/remotes.yaml" does not contain "ctxloom-default"
       And the file ".ctxloom/content/bundles/v2/project/profiles/default.yaml" exists
+      And the file ".ctxloom/.gitignore" contains "/sessions"
+      And the file ".ctxloom/.gitignore" contains "/cache"
+      And the file ".ctxloom/.gitignore" contains "/project-id"
       When I run "ctxloom config show"
       Then the command succeeds
       And the output contains "claude-code"

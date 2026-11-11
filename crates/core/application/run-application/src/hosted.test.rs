@@ -28,6 +28,7 @@ fn previewed(engine: &str, auth: Sourced<AuthSource>, fatal: usize) -> Previewed
             engine: engine.to_string(),
             profiles: Vec::new(),
             fragments: Vec::new(),
+            fragments_listed: Vec::new(),
             context: "THE-PROJECT-CONTEXT".to_string(),
             tokens: 0,
             prompt: String::new(),
@@ -35,6 +36,7 @@ fn previewed(engine: &str, auth: Sourced<AuthSource>, fatal: usize) -> Previewed
             axes: (String::new(), "host".to_string()),
             model: "opus".to_string(),
             effort: "high".to_string(),
+            permission_mode: String::new(),
             drive: library_application::Drive {
                 command: "/opt/claude".to_string(),
                 env: vec!["EXTRA".to_string()],
@@ -42,6 +44,7 @@ fn previewed(engine: &str, auth: Sourced<AuthSource>, fatal: usize) -> Previewed
                 ..library_application::Drive::default()
             },
             settings: None,
+            settings_agent: String::new(),
             posture: Posture {
                 network: "none".to_string(),
                 sandbox: String::new(),

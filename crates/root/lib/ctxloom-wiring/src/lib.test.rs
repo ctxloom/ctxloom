@@ -32,6 +32,26 @@ fn test_a_session_that_is_no_uuid_has_no_run() {
     assert!(run_id("jolly-mute-magma", 1).is_err());
 }
 
+// Owner ruling 125: ctxloom's own vocabulary of claude modes governs; claude's
+// list (`claude --help`, in engine-claude) only checks that every word
+// ctxloom passes is one claude takes. `default` is passed as no flag.
+#[test]
+fn test_every_claude_mode_ctxloom_passes_is_one_claude_takes() {
+    let passed: Vec<&str> = library_application::write::permission_modes("claude-code")
+        .iter()
+        .copied()
+        .filter(|mode| *mode != "default")
+        .collect();
+    assert!(!passed.is_empty());
+    for mode in passed {
+        assert!(
+            engine_claude::PERMISSION_MODES.contains(&mode),
+            "{mode} is not in claude's list {:?}",
+            engine_claude::PERMISSION_MODES
+        );
+    }
+}
+
 // ---------------------------------------------------------------- characterization
 //
 // Pinned before the process's environment is read in one place (A0): every
@@ -165,10 +185,22 @@ fn test_without_home_the_home_is_the_ctxloom_home_variable() {
     assert_eq!(wiring.home(), env.dir.join("elsewhere"));
 }
 
+// Owner ruling 112: an engine's HOME is its session home, so a hook process
+// (and any ctxloom its tools run) sees HOME set to the session's directory;
+// ctxloom's own home is CTXLOOM_HOME, which the run names, and it wins.
 #[test]
-fn test_the_home_variable_wins_over_the_ctxloom_one() {
-    let mut env = Env::new("homewins");
+fn test_the_ctxloom_home_variable_wins_over_home() {
+    let mut env = Env::new("ctxloomwins");
     env.set("CTXLOOM_HOME", env.dir.join("elsewhere"));
+    let wiring = from_process().ok().unwrap();
+    assert_eq!(wiring.home(), env.dir.join("elsewhere"));
+}
+
+// An empty CTXLOOM_HOME names nothing: HOME is the home.
+#[test]
+fn test_an_empty_ctxloom_home_falls_back_to_home() {
+    let mut env = Env::new("emptyfallsback");
+    env.set("CTXLOOM_HOME", "");
     let wiring = from_process().ok().unwrap();
     assert_eq!(wiring.home(), env.home());
 }

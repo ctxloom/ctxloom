@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use super::{environment, is_local, local_variables, Git, GitError, DEFAULT_TIMEOUT};
+use super::{environment, is_local, local_variables, Git, GitError, User, DEFAULT_TIMEOUT};
 use crate::fixtures::{env, exists, fs, put, root, runs_scripts, slurp};
 
 /// A "git" that is a script, in a directory of its own.
@@ -145,10 +145,25 @@ fn a_hook_the_git_started_is_killed_with_it() {
     }
     assert!(started.elapsed() < Duration::from_secs(40));
     let pid = slurp(dir.root().join("hook"));
-    assert!(
-        run_within::process_gone(pid.trim()),
-        "the hook {pid} outlived the git"
-    );
+    assert!(gone_soon(pid.trim()), "the hook {pid} outlived the git");
+}
+
+/// Whether the killed process `pid` is gone within ten seconds. A run past
+/// its limit sends SIGKILL to the program's whole process group and reaps the
+/// program, not its descendants: a helper dies when the kernel next runs it,
+/// which can be just after the run returned (it was caught in state `R`), so
+/// one look at that instant can see a helper that is already doomed. The
+/// bounded look is forced in taskloom-cli-client's
+/// `a_helper_seen_alive_before_its_kill_lands_is_gone_within_the_bound`.
+fn gone_soon(pid: &str) -> bool {
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !run_within::process_gone(pid) {
+        if std::time::Instant::now() >= until {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    true
 }
 
 #[test]
@@ -199,4 +214,45 @@ fn a_git_that_finishes_within_its_limit_is_not_disturbed() {
 #[test]
 fn the_default_limit_is_gos_thirty_seconds() {
     assert_eq!(DEFAULT_TIMEOUT, Duration::from_secs(30));
+}
+
+// Owner ruling 112: the identity a session home is seeded with is git's own
+// answer for the directory, asked one key at a time.
+#[test]
+fn the_user_is_gits_name_and_email_for_the_directory() {
+    let (dir, git, _) = stub(
+        r#"case "$*" in
+  "config --get user.name") echo "Alice Example" ;;
+  "config --get user.email") echo "alice@example.com" ;;
+  *) exit 1 ;;
+esac"#,
+    );
+    // The stub's tiny limit is for the timeout tests: this one answers.
+    let _ = git;
+    let git = Git::new(fs(), dir.root().join("git"), DEFAULT_TIMEOUT, env());
+    assert_eq!(
+        git.user(dir.root()),
+        User {
+            name: "Alice Example".to_string(),
+            email: "alice@example.com".to_string(),
+        }
+    );
+}
+
+#[test]
+fn a_key_git_does_not_know_is_empty() {
+    let (dir, _, _) = stub(
+        r#"case "$*" in
+  "config --get user.email") echo "a@x" ;;
+  *) exit 1 ;;
+esac"#,
+    );
+    let git = Git::new(fs(), dir.root().join("git"), DEFAULT_TIMEOUT, env());
+    assert_eq!(
+        git.user(dir.root()),
+        User {
+            name: String::new(),
+            email: "a@x".to_string(),
+        }
+    );
 }

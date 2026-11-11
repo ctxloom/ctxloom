@@ -138,6 +138,32 @@ fn command_book(cover: Cover, payload: angzarr_embedded::Any) -> CommandBook {
     }
 }
 
+/// The session's end as its engine's hook reports it (claude's SessionEnd),
+/// naming the engine's own session `native`: a fact on the session stream.
+// A test double shipped for tests only; its tests are the callers', not its own.
+#[cfg_attr(test, mutants::skip)]
+pub async fn hook_session_ended(edge: &TestEdge, session: &str, native: &str) {
+    use angzarr_embedded::markup::DomainMessage;
+    let fact = sessions::RecordSessionEnded {
+        native_session: native.to_string(),
+        reason: "prompt_input_exit".to_string(),
+    };
+    let book = CommandBook {
+        cover: Some(session_cover(session)),
+        page: Some(CommandPage {
+            body: Some(command_page::Body::Fact(angzarr_embedded::v1::Fact {
+                payload: Some(angzarr_embedded::Any::from_msg(&fact.to_wire()).unwrap()),
+                origin: Some(angzarr_embedded::v1::FactOrigin {
+                    external_id: format!("hook:end:{session}:{native}"),
+                    description: String::new(),
+                }),
+            })),
+            ..CommandPage::default()
+        }),
+    };
+    edge.handle(book).await.unwrap();
+}
+
 /// Mint `session` as `harp` and enqueue its first run, as a one-shot is.
 pub async fn enqueued(edge: &TestEdge, session: &str, harp: &str) {
     enqueued_by(edge, session, harp, "").await;
@@ -393,11 +419,19 @@ impl Engine for ScriptedEngine {
             request.settings.command.as_str()
         });
         command.args = vec![request.context_path.clone()];
+        if let Some(native) = &request.resume {
+            command.args.push(format!("--resume={native}"));
+        }
         if !request.model.is_empty() {
             command.args.push(format!("--model={}", request.model));
         }
         if !request.effort.is_empty() {
             command.args.push(format!("--effort={}", request.effort));
+        }
+        if !request.permission_mode.is_empty() {
+            command
+                .args
+                .push(format!("--permission-mode={}", request.permission_mode));
         }
         command.env = request.env.clone();
         command.stdin = request.prompt.clone().into_bytes();
@@ -416,11 +450,19 @@ impl Engine for ScriptedEngine {
             request.settings.command.as_str()
         });
         command.args = vec![request.context_path.clone(), request.prompt.clone()];
+        if let Some(native) = &request.resume {
+            command.args.push(format!("--resume={native}"));
+        }
         if !request.model.is_empty() {
             command.args.push(format!("--model={}", request.model));
         }
         if !request.effort.is_empty() {
             command.args.push(format!("--effort={}", request.effort));
+        }
+        if !request.permission_mode.is_empty() {
+            command
+                .args
+                .push(format!("--permission-mode={}", request.permission_mode));
         }
         command.env = request.env.clone();
         command.cwd = request.cwd.clone();
@@ -513,6 +555,45 @@ impl Engine for EndsByExit {
     }
     fn session_ends_with_exit(&self) -> bool {
         true
+    }
+}
+
+/// An engine that merges into its home's `state.json` (as claude does into
+/// `.claude.json`): it writes what it was handed of it, then `+` and the
+/// directory it runs in, and is otherwise `0`.
+pub struct Merging(pub ScriptedEngine);
+
+// A test double shipped for tests only; its tests are the callers' own.
+#[cfg_attr(test, mutants::skip)]
+impl Engine for Merging {
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+    fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
+        let mut prepared = self.0.prepare(request)?;
+        let mut bytes = request
+            .existing
+            .get("state.json")
+            .cloned()
+            .unwrap_or_default();
+        bytes.extend_from_slice(format!("+{}", request.cwd.clone().unwrap_or_default()).as_bytes());
+        prepared.files.push(HomeFile {
+            rel: "state.json".to_string(),
+            bytes,
+        });
+        Ok(prepared)
+    }
+    fn drive_turn(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
+        self.0.drive_turn(request)
+    }
+    fn finish_turn(&self, output: &TurnOutput) -> TurnOutcome {
+        self.0.finish_turn(output)
+    }
+    fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
+        self.0.drive_interactive(request)
+    }
+    fn merges(&self) -> &'static [&'static str] {
+        &["state.json"]
     }
 }
 
@@ -619,8 +700,11 @@ pub fn order(engine: &str) -> Order {
         interactive: false,
         model: String::new(),
         effort: String::new(),
+        permission_mode: String::new(),
         settings: Default::default(),
         owned: Vec::new(),
+        git_user: None,
+        resume: None,
     }
 }
 

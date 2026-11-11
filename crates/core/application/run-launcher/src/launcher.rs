@@ -403,6 +403,11 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             Ok(output) => output,
             Err(failure) => return self.never_started(who, failure, done).await,
         };
+        // The engine's own session its hooks named at the session's end is
+        // bound, so `run --session` can resume it (owner ruling 115).
+        if let Some(native) = self.native_session_ended(who).await? {
+            self.record(who, bound(&native)).await?;
+        }
         // An engine with no hook for its session's end (opencode, ruling 58):
         // its exit is the end, and the launcher says so.
         if self
@@ -422,6 +427,36 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         Ok(done(Outcome::Ended {
             code: output.exit.code,
         }))
+    }
+
+    /// The engine's own session the session's hooks last named at its end
+    /// (`SessionEnded.native_session`), if any.
+    async fn native_session_ended(&self, who: &Identity) -> Result<Option<String>, LaunchError> {
+        let cover = angzarr_embedded::v1::Cover {
+            domain: sessions::SESSION_DOMAIN.to_string(),
+            root: Some(who.session.clone()),
+            edition: None,
+        };
+        let pages = self
+            .edge
+            .events(&cover, 0)
+            .await
+            .map_err(|e| LaunchError::Fact {
+                reason: e.to_string(),
+            })?;
+        let mut native = None;
+        for page in &pages {
+            if let Some(angzarr_embedded::v1::event_page::Body::Event(any)) = &page.body {
+                if let Ok(sessions::SessionEvent::SessionEnded(ended)) =
+                    <sessions::SessionEvent as angzarr_embedded::Payload>::from_any(any)
+                {
+                    if !ended.native_session.is_empty() {
+                        native = Some(ended.native_session);
+                    }
+                }
+            }
+        }
+        Ok(native)
     }
 
     /// The command did not run: record why, and end the launch.
@@ -455,6 +490,18 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             .engine(&order.engine)
             .ok_or_else(|| format!("no engine named {}", order.engine))?;
         let home = format!("{}/home", self.records.dir(&order.harp));
+        // What the home holds of the files the engine merges into (ruling
+        // 113): a resumed session's home has its engine's own state there.
+        let mut existing = std::collections::BTreeMap::new();
+        for rel in engine.merges() {
+            if let Some(bytes) = self
+                .records
+                .read(&order.harp, &format!("home/{rel}"))
+                .map_err(|e| e.to_string())?
+            {
+                existing.insert((*rel).to_string(), bytes);
+            }
+        }
         let prepared = engine
             .prepare(&PrepareRequest {
                 home: home.clone(),
@@ -462,6 +509,8 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
                 // Nothing of the user's own engine configuration is offered.
                 offered: Vec::new(),
                 interactive: order.interactive,
+                cwd: order.cwd.clone(),
+                existing,
             })
             .map_err(|e| e.to_string())?;
         for file in &prepared.files {
@@ -469,15 +518,17 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
                 .write(&order.harp, &format!("home/{}", file.rel), &file.bytes)
                 .map_err(|e| e.to_string())?;
         }
+        self.seed_git_user(order)?;
         let request = TurnRequest {
             prompt: order.prompt.clone(),
             home,
             context_path: prepared.context_path,
-            resume: None,
+            resume: order.resume.clone(),
             env: order.env.clone(),
             cwd: order.cwd.clone(),
             model: order.model.clone(),
             effort: order.effort.clone(),
+            permission_mode: order.permission_mode.clone(),
             settings: order.settings.clone(),
         };
         let mut command = if order.interactive {
@@ -493,6 +544,28 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         // adapter's computed names, derived from the command, and the run's.
         *ignored = run_ports::apply_permits(&order.env, &mut command.env, &order.owned);
         Ok((engine, command))
+    }
+
+    /// Seed the session home with the user's git identity (owner ruling
+    /// 112: the engine's HOME is the session home, so git reads its global
+    /// configuration there): once, when the home has no `.gitconfig`; one
+    /// already there, which a tool of an earlier run may have written, is
+    /// left as it is.
+    fn seed_git_user(&mut self, order: &Order) -> Result<(), String> {
+        let Some(text) = order.git_user.as_ref().and_then(run_ports::git_config) else {
+            return Ok(());
+        };
+        let rel = format!("home/{}", run_ports::GIT_CONFIG_FILE);
+        let there = self
+            .records
+            .read(&order.harp, &rel)
+            .map_err(|e| e.to_string())?;
+        if there.is_none() {
+            self.records
+                .write(&order.harp, &rel, text.as_bytes())
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
     }
 
     /// Record `observation` on the session's stream.

@@ -22,6 +22,8 @@ Feature: engine — the programs ctxloom drives, and the settings they share
   Model, effort and permissions are NOT in that block. They are an agent's
   settings (`agent create --model --effort --permissions`), because two agents
   on one engine rightly differ in them (owner rulings 40-44, 2026-11-09).
+  Each reaches claude as its flag (`--model`, `--effort`, `--permission-mode`,
+  owner ruling 116), unset being no flag; opencode is given the model alone.
 
   Every value `engine show` prints carries the layer that said it: `agent`,
   `engine`, `project` or `default`. A value nobody set is printed as the

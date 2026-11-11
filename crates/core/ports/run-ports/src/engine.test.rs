@@ -59,6 +59,13 @@ impl Engine for Plain {
     }
 }
 
+// Ruling 113: an engine that keeps no state of its own in its home merges
+// into no file there (the launcher reads none for it).
+#[test]
+fn an_engine_that_says_nothing_merges_into_no_home_file() {
+    assert!(Plain.merges().is_empty());
+}
+
 #[test]
 fn an_engine_that_says_nothing_asks_for_no_credential() {
     let none = Plain.credentials();
@@ -82,11 +89,12 @@ fn a_turn_request_renders_its_env_keys_and_never_the_bearer() {
         cwd: None,
         model: String::new(),
         effort: String::new(),
+        permission_mode: String::new(),
         settings: crate::EngineSettings::default(),
     };
     assert_eq!(
         format!("{request:?}"),
-        r#"TurnRequest { prompt: "p", home: "/h", context_path: "/h/c", resume: None, env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "<redacted>"}, cwd: None, model: "", effort: "", settings: EngineSettings { command: "", session_home: Session, auth: Builtin, env: [] } }"#
+        r#"TurnRequest { prompt: "p", home: "/h", context_path: "/h/c", resume: None, env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "<redacted>"}, cwd: None, model: "", effort: "", permission_mode: "", settings: EngineSettings { command: "", session_home: Session, auth: Builtin, env: [] } }"#
     );
 }
 

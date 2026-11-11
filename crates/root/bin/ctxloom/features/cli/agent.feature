@@ -480,8 +480,52 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output contains "=== Settings ==="
       And the output contains "model        sonnet  (agents.dev.engines.claude-code)"
       And the output contains "effort       engine default, no flag passed  (default)"
+      And the output contains "permissions  acceptEdits  (default)"
+      And the output does not contain "not passed to the engine yet"
       And the output contains "runtime      host  (agents.dev)"
       And the output contains "env          HTTPS_PROXY  (engines.claude-code), ALPHA_TOKEN  (agents.dev)"
+
+    # Owner ruling 116: claude is given the agent's permission mode
+    # (`--permission-mode`); opencode has no verified flag for one, so its
+    # dry run says the mode is not passed.
+    Scenario: The dry run says opencode is not given the agent's permission mode
+      # new: owner ruling 116 (2026-11-11)
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        agents:
+          dev:
+            engine: opencode
+            engines:
+              opencode:
+                permissions:
+                  mode: plan
+        """
+      When I run "ctxloom run --dry-run --agent dev hello --format text"
+      Then the command succeeds
+      And the output contains "permissions  plan, not passed to the engine yet  (agents.dev.engines.opencode)"
+
+    # Owner ruling 125: a hand-written claude mode is held to the words a write
+    # takes, at the dry run as at the launch, and refused in the write's words.
+    Scenario: The dry run refuses a hand-written claude mode a write would refuse
+      # new: owner ruling 125 (2026-11-11)
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        agents:
+          dev:
+            engine: claude-code
+            engines:
+              claude-code:
+                permissions:
+                  mode: dontAsk
+        """
+      When I run "ctxloom run --dry-run --agent dev hello --format text"
+      Then the command exits with code 1
+      And the output contains "dontAsk"
+      And the output contains "is declared as approver: none"
 
     # Ruling 67 (2026-11-10): what you see is what you write. The listing and
     # the write summary show each engine block in the config's shape,

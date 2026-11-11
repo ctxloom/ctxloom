@@ -13,8 +13,11 @@ fn order(harp: &str) -> Order {
         interactive: false,
         model: String::new(),
         effort: String::new(),
+        permission_mode: String::new(),
         settings: Default::default(),
         owned: Vec::new(),
+        git_user: None,
+        resume: None,
     }
 }
 
@@ -59,12 +62,15 @@ fn an_order_renders_its_env_keys_and_never_the_bearer() {
         interactive: true,
         model: String::new(),
         effort: String::new(),
+        permission_mode: String::new(),
         settings: Default::default(),
         owned: Vec::new(),
+        git_user: None,
+        resume: None,
     };
     assert_eq!(
         format!("{order:?}"),
-        r#"Order { harp: "h", engine: "e", context: "c", prompt: "p", env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "<redacted>"}, cwd: None, interactive: true, model: "", effort: "", settings: EngineSettings { command: "", session_home: Session, auth: Builtin, env: [] }, owned: [] }"#
+        r#"Order { harp: "h", engine: "e", context: "c", prompt: "p", env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "<redacted>"}, cwd: None, interactive: true, model: "", effort: "", permission_mode: "", settings: EngineSettings { command: "", session_home: Session, auth: Builtin, env: [] }, owned: [], git_user: None, resume: None }"#
     );
 }
 

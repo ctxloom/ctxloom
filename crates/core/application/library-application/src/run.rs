@@ -73,6 +73,7 @@ struct Launch {
     engine: String,
     model: String,
     effort: String,
+    permission_mode: String,
     runtime: Option<String>,
     drive: Drive,
     settings: Option<crate::AgentSettings>,
@@ -222,8 +223,8 @@ impl Project {
         request: &RunRequest,
         agent: Option<&Agent>,
     ) -> Result<Launch, AppError> {
-        // An agent's engine, model and effort are its own; a launch with no
-        // agent takes the default engine and passes no model or effort.
+        // An agent's engine, model, effort and permission mode are its own; a
+        // launch with no agent takes the default engine and passes none of them.
         // `--engine` runs the agent on that engine, with its block for it
         // (owner ruling 57); its runtime and env are kept.
         match agent {
@@ -240,12 +241,23 @@ impl Project {
                 if let Some(notice) = runtime_notice(&effective) {
                     self.notices.push(notice);
                 }
+                // A claude mode is held to ctxloom's own words, as a write
+                // holds it (owner ruling 125), before anything is launched.
+                let permission_mode = crate::write::engines::launch_mode(
+                    &effective.engine.value,
+                    &effective.permissions.value,
+                )
+                .map_err(|detail| crate::WriteError::Permissions {
+                    subject: format!("agent \"{}\"", agent.name),
+                    detail,
+                })?;
                 let drive = Drive::from(&effective);
                 let settings = crate::engine_noun::settings_of(&effective);
                 Ok(Launch {
                     engine: effective.engine.value,
                     model: effective.model.map(|m| m.value).unwrap_or_default(),
                     effort: effective.effort.map(|e| e.value).unwrap_or_default(),
+                    permission_mode,
                     runtime: Some(effective.runtime.value),
                     drive,
                     settings: Some(settings),
@@ -265,6 +277,7 @@ impl Project {
                     engine,
                     model: String::new(),
                     effort: String::new(),
+                    permission_mode: String::new(),
                     runtime: None,
                     drive,
                     settings: None,
@@ -311,13 +324,18 @@ impl Project {
             engine,
             model,
             effort,
+            permission_mode,
             runtime,
             drive,
             settings,
         } = self.launch_of(request, selection.agent.as_ref())?;
         let degraded = self.flags.degraded;
-        for finding in &findings {
-            self.notices.push(Notice::finding(finding));
+        // Each finding is said once: a fatal one by the refusal that lists
+        // it, any other as a warning.
+        for finding in library::findings::said(&findings) {
+            if degraded || finding.class != Class::Fail {
+                self.notices.push(Notice::finding(finding));
+            }
         }
         let rows: Vec<FindingRow> = findings
             .iter()
@@ -340,6 +358,7 @@ impl Project {
                 .unwrap_or_default(),
             engine,
             profiles: package.selection.profiles.clone(),
+            fragments_listed: package.loaded.iter().map(|f| self.listed(f)).collect(),
             fragments: package.loaded.clone(),
             tokens: tokens::estimate(&package.context) as u64,
             context: package.context,
@@ -348,8 +367,14 @@ impl Project {
             axes: self.axes(request, runtime),
             model,
             effort,
+            permission_mode,
             drive,
             settings,
+            settings_agent: selection
+                .agent
+                .as_ref()
+                .map(|a| a.name.clone())
+                .unwrap_or_default(),
             posture: self.posture_of(selection.agent.as_ref()),
         };
         Ok(Previewed { plan, fatal })
@@ -403,7 +428,7 @@ impl Project {
             selection
         };
         let package = self.compose(&selection, &mut findings)?;
-        for finding in &findings {
+        for finding in library::findings::said(&findings) {
             self.notices.push(Notice::finding(finding));
         }
         let missing_fragments = package

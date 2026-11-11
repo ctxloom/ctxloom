@@ -329,7 +329,6 @@ impl Commands {
         let terminal = crate::interview::StdTerminal::new(&env);
         let sessions = crate::interview::SetupSessions {
             env: &env,
-            deps: &wired.deps,
             flags: &call.globals,
         };
         let uses = setup_cli::UseCases {

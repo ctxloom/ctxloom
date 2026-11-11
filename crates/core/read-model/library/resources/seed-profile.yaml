@@ -1,4 +1,4 @@
-description: "Local default coding profile scaffolded by `ctxloom init`: the project's primary implementer context, inheriting ctxloom-default's developer profile. Edit it freely; `ctxloom init prompt` re-enters the setup interview any time."
+description: "Local default coding profile scaffolded by `ctxloom init`: the project's primary implementer context, inheriting the developer profile ctxloom ships built in. Edit it freely; `ctxloom init prompt` re-enters the setup interview any time."
 tags:
   - default
 # A LOCAL profile (owned and editable in this project's .ctxloom), not a bare
@@ -10,5 +10,7 @@ tags:
 # the user includes or declines like anything else. A tag is a recommendation
 # the user answers; a seeded parent is a decision made on their behalf before
 # they arrive.
+# The parent is ctxloom's built-in `ai-developer` bundle (origin ctxloom/default,
+# read-only); a project bundle named ai-developer overrides it.
 parents:
-  - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/ai-developer@branch:main#profiles/developer
+  - ai-developer#profiles/developer

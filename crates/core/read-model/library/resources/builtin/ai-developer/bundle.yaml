@@ -1,0 +1,10 @@
+schema_version: 3
+version: 1.0.0
+tags:
+    - ai
+    - llm
+    - coding
+    - practices
+author: ctxloom
+description: Behavioral guidelines to reduce common LLM coding mistakes
+name: ai-developer

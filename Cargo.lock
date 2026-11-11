@@ -1329,10 +1329,12 @@ dependencies = [
 name = "doctor-checks"
 version = "0.1.0"
 dependencies = [
+ "angzarr-diagnostic",
  "angzarr-yaml",
  "auth-application",
  "ctxloom-ports",
  "library",
+ "library-application",
  "mutants",
  "serde",
  "serde_json",
@@ -1413,6 +1415,7 @@ dependencies = [
  "os",
  "run-ports",
  "run-within",
+ "serde_json",
  "surface-ports",
 ]
 

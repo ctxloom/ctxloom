@@ -628,6 +628,9 @@ pub struct Setup<'a> {
     /// The loadout each registered companion answers with; one not listed has no
     /// loadout (and is not said).
     pub companions: &'a [(&'a str, CompanionLoadout)],
+    /// ctxloom's built-in bundles join the project's catalog, as the
+    /// composition root has them (rulings 110, 111).
+    pub builtins: bool,
 }
 
 impl Setup<'_> {
@@ -698,6 +701,11 @@ impl Setup<'_> {
             probe: mem.clone(),
         })
         .with_companions(mem.clone());
+        let library = if self.builtins {
+            library.with_builtins()
+        } else {
+            library
+        };
         (library, mem)
     }
 

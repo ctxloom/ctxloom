@@ -34,6 +34,10 @@ pub struct BundleRow {
     pub reference: String,
     #[serde(skip_serializing_if = "no_text")]
     pub path: String,
+    /// The built-in origin a bundle ctxloom ships is listed under
+    /// (`ctxloom/default`, rulings 110, 111); empty for any other.
+    #[serde(skip_serializing_if = "no_text")]
+    pub origin: String,
     #[serde(skip_serializing_if = "no_text")]
     pub version: String,
     #[serde(skip_serializing_if = "no_text")]
@@ -264,6 +268,19 @@ pub struct ProfileRow {
     pub is_remote: bool,
     #[serde(skip_serializing_if = "no_text")]
     pub bundle: String,
+    /// The built-in origin a profile ctxloom ships is listed under, as its
+    /// bundle is (`ctxloom/default`); empty for any other.
+    #[serde(skip_serializing_if = "no_text")]
+    pub origin: String,
+}
+
+/// An item as a listing names it: a built-in one by its bundle's name, under
+/// the built-in origin (as `bundle list` names the bundle); any other by its
+/// reference, with no origin.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Listed {
+    pub name: String,
+    pub origin: String,
 }
 
 /// What `profile list` answers.
@@ -512,6 +529,9 @@ pub struct DryRun {
     pub engine: String,
     pub profiles: Vec<String>,
     pub fragments: Vec<String>,
+    /// `fragments` as a listing names them (the text's list).
+    #[serde(skip)]
+    pub fragments_listed: Vec<Listed>,
     pub context: String,
     pub tokens: u64,
     #[serde(skip_serializing_if = "no_text")]
@@ -528,6 +548,12 @@ pub struct DryRun {
     /// not shown by a dry run.
     #[serde(skip)]
     pub effort: String,
+    /// The agent's permission mode on the run's engine (its block's
+    /// `permissions.mode`, else the engine's default; owner ruling 116),
+    /// empty when there is none: handed to the engine, shown by a dry run's
+    /// settings.
+    #[serde(skip)]
+    pub permission_mode: String,
     /// How the engine is run (its block's program, session home and
     /// credential source, the passthrough the agent settled on): handed to the
     /// engine, not shown by a dry run.
@@ -538,6 +564,11 @@ pub struct DryRun {
     /// a launch with no agent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<crate::AgentSettings>,
+    /// The agent `settings` are of: `agent`, or the default agent a run with
+    /// no `--agent` takes; empty with no settings. Not shown by the JSON,
+    /// whose `settings` say their places by word.
+    #[serde(skip)]
+    pub settings_agent: String,
     /// The posture the run claims (owner rulings 59, 109): judged by the run
     /// against what its runtime enforces, not shown by a dry run.
     #[serde(skip)]

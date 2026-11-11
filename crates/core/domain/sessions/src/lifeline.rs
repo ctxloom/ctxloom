@@ -4,16 +4,17 @@
 //! What drives it (owner ruling 85): a mint owes the first incarnation, and
 //! the run application tells the session when that run ends, however it ends
 //! (`RecordIncarnationEnded`: `runner-exit`, `launch-failed`, or `orphaned`
-//! from a sweep), so no incarnation stays open. Nothing owes a later one: the
-//! relaunch was owed only when mail was pending, and the session has no inbox
-//! (owner ruling 101; mail returns as one command to the recipient session,
-//! the daemon's design).
+//! from a sweep), so no incarnation stays open. A later one is owed only by a
+//! resume (`ResumeSession`, owner ruling 115: `run --session`): never a
+//! relaunch, which was owed only when mail was pending, and the session has no
+//! inbox (owner ruling 101; mail returns as one command to the recipient
+//! session, the daemon's design).
 
 use angzarr_embedded::markup::{pack_message, Bug, FactEmit};
 
 use crate::{
-    live, IncarnationEnded, IncarnationOwed, RecordIncarnationEnded, SessionAggregate,
-    SessionEvent, SessionRejection, SessionState, StopOrdered, StopSession,
+    live, IncarnationEnded, IncarnationOwed, RecordIncarnationEnded, ResumeSession,
+    SessionAggregate, SessionEvent, SessionRejection, SessionState, StopOrdered, StopSession,
 };
 
 /// The incarnation a mint owes: the first (owner ruling 2026-11-04, S5
@@ -23,6 +24,40 @@ pub(crate) fn first_owed() -> IncarnationOwed {
         incarnation: 1,
         reason: "first".to_string(),
     }
+}
+
+/// Why an incarnation a resume owes is owed.
+pub(crate) const RESUMED: &str = "resume";
+
+/// What a resume records (owner ruling 115): the session's next incarnation
+/// owed. Refused for a stream holding no session (a destroyed one: the
+/// caller asks only for a claimed name), while an incarnation is open, before
+/// the engine bound a native session, and for another engine.
+pub(crate) fn resumed(
+    held: &SessionState,
+    resume: &ResumeSession,
+) -> Result<IncarnationOwed, SessionRejection> {
+    let harp = || resume.harp.clone();
+    if live(held).is_err() {
+        return Err(SessionRejection::SessionDestroyed { harp: harp() });
+    }
+    if held.open_incarnation.is_some() {
+        return Err(SessionRejection::SessionRunning { harp: harp() });
+    }
+    if !resume.engine.is_empty() && resume.engine != held.engine {
+        return Err(SessionRejection::EngineMismatch {
+            harp: harp(),
+            engine: held.engine.clone(),
+            asked: resume.engine.clone(),
+        });
+    }
+    if held.native_id.is_empty() {
+        return Err(SessionRejection::NoNativeSession { harp: harp() });
+    }
+    Ok(IncarnationOwed {
+        incarnation: held.incarnation + 1,
+        reason: RESUMED.to_string(),
+    })
 }
 
 /// What a stop order records: refused from a session that is not the

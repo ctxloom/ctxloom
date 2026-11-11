@@ -216,6 +216,80 @@ async fn the_session_home_holds_what_the_engine_prepared() {
     );
 }
 
+// Owner ruling 112: the engine's HOME is its session home, so the home is
+// seeded with the user's git identity (`.gitconfig`, `[user]` only), and one
+// already there (a tool may have written it in an earlier run) is left as it
+// is.
+#[tokio::test]
+async fn the_session_home_is_seeded_with_the_users_git_identity_once() {
+    let user = run_ports::GitUser {
+        name: "Alice Example".to_string(),
+        email: "alice@example.com".to_string(),
+    };
+    let mut seeded = order("fake");
+    seeded.git_user = Some(user.clone());
+    let mut first = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(seeded.clone()),
+    );
+    enqueued(&first.edge, SESSION, HARP).await;
+    first.step().await;
+    assert_eq!(
+        first.records.text(HARP, "home/.gitconfig"),
+        run_ports::git_config(&user)
+    );
+    assert!(run_ports::git_config(&user).is_some());
+
+    let mut kept = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(seeded),
+    );
+    use run_ports::SessionRecords;
+    kept.records
+        .write(HARP, "home/.gitconfig", b"[credential]\n\thelper = store\n")
+        .unwrap();
+    enqueued(&kept.edge, SESSION, HARP).await;
+    kept.step().await;
+    assert_eq!(
+        kept.records.text(HARP, "home/.gitconfig").as_deref(),
+        Some("[credential]\n\thelper = store\n")
+    );
+}
+
+// Owner ruling 113: an engine that keeps its own state in a home file is
+// handed what the home holds of it (a resumed session's home has it), and the
+// directory it runs in, so it merges its keys in rather than replace the file.
+#[tokio::test]
+async fn an_engine_is_handed_the_home_files_it_merges_into() {
+    use run_ports::SessionRecords;
+    let mut rig = rig(
+        crate::fakes::Merging(ScriptedEngine::answering("A", None)),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    );
+    rig.records.write(HARP, "home/state.json", b"KEPT").unwrap();
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    assert_eq!(
+        rig.records.text(HARP, "home/state.json").as_deref(),
+        Some("KEPT+/work/proj")
+    );
+}
+
+#[tokio::test]
+async fn no_known_git_identity_seeds_no_gitconfig() {
+    let mut rig = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    );
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    assert_eq!(rig.records.text(HARP, "home/.gitconfig"), None);
+}
+
 // Owner rulings 26 and 51: a child's hooks are the ONLY source of its prompt
 // and its words. The launcher records neither (it would be a second copy, under
 // other ids), so a turn whose hooks never fire has no conversation in its
@@ -764,6 +838,36 @@ async fn the_orders_model_reaches_the_engines_turn_and_terminal_command() {
     }
 }
 
+// Owner ruling 116: the order's permission mode reaches the engine's command,
+// for a turn and for the terminal session alike, as its effort does.
+#[tokio::test]
+async fn the_orders_permission_mode_reaches_the_engines_turn_and_terminal_command() {
+    for interactive in [false, true] {
+        let mut asked = order("fake");
+        asked.permission_mode = "acceptEdits".to_string();
+        asked.interactive = interactive;
+        let mut rig = rig(
+            ScriptedEngine::answering("A", None),
+            ScriptedRunner::exits(0),
+            orders_with(asked),
+        );
+        enqueued(&rig.edge, SESSION, HARP).await;
+        rig.step().await;
+        let seen = if interactive {
+            rig.runner.seen_terminal.lock().unwrap()
+        } else {
+            rig.runner.seen.lock().unwrap()
+        };
+        assert!(
+            seen[0]
+                .args
+                .contains(&"--permission-mode=acceptEdits".to_string()),
+            "interactive={interactive}: {:?}",
+            seen[0].args
+        );
+    }
+}
+
 #[tokio::test]
 async fn an_order_with_no_model_or_effort_gives_the_engine_none() {
     for interactive in [false, true] {
@@ -782,10 +886,9 @@ async fn an_order_with_no_model_or_effort_gives_the_engine_none() {
             rig.runner.seen.lock().unwrap()
         };
         assert!(
-            !seen[0]
-                .args
-                .iter()
-                .any(|a| a.contains("model") || a.contains("effort")),
+            !seen[0].args.iter().any(|a| a.contains("model")
+                || a.contains("effort")
+                || a.contains("permission-mode")),
             "interactive={interactive}: {:?}",
             seen[0].args
         );
@@ -891,6 +994,46 @@ async fn an_engine_whose_session_ends_with_its_exit_has_the_end_recorded_at_the_
             "interactive {interactive}: no end recorded"
         );
     }
+}
+
+// Owner ruling 115: a terminal session is resumed by its engine's own
+// session, which its hooks name at its end (claude's SessionEnd): once the
+// terminal exits, the launcher binds the last one named, as a child's turn
+// binds the one its stream names. None named, nothing is bound.
+#[tokio::test]
+async fn a_terminal_sessions_native_session_its_hooks_named_is_bound_at_its_exit() {
+    let bound = |events: Vec<SessionEvent>| -> Vec<String> {
+        events
+            .into_iter()
+            .filter_map(|e| match e {
+                SessionEvent::EngineSessionBound(b) => Some(b.native_id),
+                _ => None,
+            })
+            .collect()
+    };
+    let mut asked = order("fake");
+    asked.interactive = true;
+    let mut named = rig(
+        ScriptedEngine::answering("ok", None),
+        ScriptedRunner::exits(0),
+        orders_with(asked.clone()),
+    );
+    enqueued(&named.edge, SESSION, HARP).await;
+    crate::fakes::hook_session_ended(&named.edge, SESSION, "native-term-1").await;
+    named.step().await;
+    assert_eq!(
+        bound(session_events(&named.edge, SESSION).await),
+        ["native-term-1"]
+    );
+
+    let mut none = rig(
+        ScriptedEngine::answering("ok", None),
+        ScriptedRunner::exits(0),
+        orders_with(asked),
+    );
+    enqueued(&none.edge, SESSION, HARP).await;
+    none.step().await;
+    assert!(bound(session_events(&none.edge, SESSION).await).is_empty());
 }
 
 // Ruling 78: the caller's CTXLOOM_PERMIT_<NAME> reaches the engine's command

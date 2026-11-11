@@ -27,7 +27,7 @@ fn is_text(flags: &[&str]) -> bool {
 
 /// `bundle "demo"` with `fragment "testing"`, as the steps make them.
 fn demo_with_testing() -> Project {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.bundle("demo");
     project.fragment("demo", "testing");
     project
@@ -41,7 +41,7 @@ fn demo_with_testing() -> Project {
 #[test]
 fn test_bundle_listing_summarizes_each_bundle_by_version_and_content() {
     for flags in FORMATS {
-        let project = Project::initialized();
+        let project = Project::initialized().on_gos_catalog();
         project.bundle("demo");
         let ran = run_with_flags(&project, &["bundle", "list", "--no-companions"], flags);
         ran.succeeds();
@@ -64,7 +64,7 @@ fn test_bundle_listing_summarizes_each_bundle_by_version_and_content() {
 #[test]
 fn test_bare_bundle_lists_what_is_installed() {
     for flags in FORMATS {
-        let project = Project::initialized();
+        let project = Project::initialized().on_gos_catalog();
         project.bundle("demo");
         let ran = run_with_flags(&project, &["bundle", "--no-companions"], flags);
         ran.succeeds().lacks("Available Commands:");
@@ -168,7 +168,7 @@ fn test_a_path_selector_returns_one_items_bytes() {
 // configuration too
 #[test]
 fn test_the_selector_reaches_an_mcp_servers_configuration() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.bundle("demo");
     project.write(
         ".ctxloom/content/bundles/v2/demo/mcp/tree-sitter.yaml",
@@ -243,7 +243,7 @@ fn test_show_a_fragments_content() {
 // read_extras.feature: Scenario: Show a prompt's content
 #[test]
 fn test_show_a_prompts_content() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.bundle("demo");
     project.command("demo", "review");
     project
@@ -271,7 +271,7 @@ fn test_a_fragment_in_a_bundle_is_in_the_listing() {
 // refused, not answered empty
 #[test]
 fn test_a_command_listing_with_a_misspelled_bundle_is_refused() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.bundle("demo");
     project.command("demo", "review");
     project
@@ -285,7 +285,7 @@ fn test_a_command_listing_with_a_misspelled_bundle_is_refused() {
 // listing half)
 #[test]
 fn test_a_command_in_a_bundle_is_listed() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.bundle("demo");
     project.command("demo", "review");
     project
@@ -305,7 +305,7 @@ const SKILL_ROOT: &str = ".ctxloom/content/bundles/v2/vault";
 /// listing off its directory, so the mode is the file's, whatever a sidecar
 /// declares).
 fn vault_with_reviewer() -> Project {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.write(
         &format!("{SKILL_ROOT}/bundle.yaml"),
         "schema_version: 4\nversion: 1.0.0\n",
@@ -365,7 +365,7 @@ fn test_showing_a_skill_nobody_created_is_refused() {
 #[test]
 fn test_a_profile_is_listed_back_with_its_description() {
     for flags in FORMATS {
-        let project = Project::initialized();
+        let project = Project::initialized().on_gos_catalog();
         project.bundle("demo");
         project.write(
             ".ctxloom/content/bundles/v2/project/bundle.yaml",
@@ -391,7 +391,7 @@ fn test_a_profile_is_listed_back_with_its_description() {
 #[test]
 fn test_showing_a_profile_reads_its_composition_back() {
     for flags in FORMATS {
-        let project = Project::initialized();
+        let project = Project::initialized().on_gos_catalog();
         project.bundle("demo");
         project.profile("dev", "demo");
         let ran = run_with_flags(&project, &["profile", "show", "dev"], flags);
@@ -411,7 +411,7 @@ fn test_showing_a_profile_reads_its_composition_back() {
 #[test]
 fn test_bare_profile_lists_the_profiles_and_so_does_ls() {
     for flags in FORMATS {
-        let project = Project::initialized();
+        let project = Project::initialized().on_gos_catalog();
         project.bundle("demo");
         project.profile("dev", "demo");
         for base in [&["profile"][..], &["profile", "ls"]] {
@@ -431,7 +431,7 @@ fn test_bare_profile_lists_the_profiles_and_so_does_ls() {
 #[test]
 fn test_a_profile_show_names_its_parent() {
     for flags in FORMATS {
-        let project = Project::initialized();
+        let project = Project::initialized().on_gos_catalog();
         project.bundle("demo");
         project.profile("base", "demo");
         project.write(
@@ -452,7 +452,7 @@ fn test_a_profile_show_names_its_parent() {
 // the listing entry (the empty listing it leaves)
 #[test]
 fn test_a_project_with_no_profiles_says_so() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project
         .run(&["profile", "list", "--format", "text"])
         .succeeds()
@@ -466,7 +466,7 @@ fn test_a_project_with_no_profiles_says_so() {
 #[test]
 fn test_a_project_with_no_bindings_says_so_and_where_to_define_one() {
     for flags in FORMATS {
-        let project = Project::initialized();
+        let project = Project::initialized().on_gos_catalog();
         let ran = run_with_flags(&project, &["agent", "list"], flags);
         ran.succeeds();
         if is_text(flags) {
@@ -484,7 +484,7 @@ fn test_a_project_with_no_bindings_says_so_and_where_to_define_one() {
 #[test]
 fn test_the_listing_reads_each_axis_of_a_binding_back() {
     for flags in FORMATS {
-        let project = Project::initialized();
+        let project = Project::initialized().on_gos_catalog();
         project.bundle("dev-base");
         project.profile("dev", "dev-base");
         project.write(
@@ -513,7 +513,7 @@ fn test_the_listing_reads_each_axis_of_a_binding_back() {
 #[test]
 fn test_bare_agent_lists_the_bindings() {
     for flags in FORMATS {
-        let project = Project::initialized();
+        let project = Project::initialized().on_gos_catalog();
         project.bundle("dev-base");
         project.profile("dev", "dev-base");
         project.write(
@@ -538,7 +538,7 @@ fn test_bare_agent_lists_the_bindings() {
 #[test]
 fn test_showing_one_binding_reports_what_was_declared_and_what_it_resolves_to() {
     for flags in FORMATS {
-        let project = Project::initialized();
+        let project = Project::initialized().on_gos_catalog();
         project.bundle("dev-base");
         project.profile("dev", "dev-base");
         project.write(
@@ -573,7 +573,7 @@ fn test_showing_one_binding_reports_what_was_declared_and_what_it_resolves_to() 
 // what was asked for
 #[test]
 fn test_showing_a_binding_nobody_defined_fails_naming_it() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project
         .run(&["agent", "show", "nosuchagent"])
         .fails()
@@ -583,7 +583,7 @@ fn test_showing_a_binding_nobody_defined_fails_naming_it() {
 // agent.feature: Scenario: A binding still carrying auth is refused, naming the key
 #[test]
 fn test_a_binding_still_carrying_auth_is_refused_naming_the_key() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.write(
         ".ctxloom/config.yaml",
         "schema_version: 9\nagents:\n  developer:\n    profiles: [dev]\n    auth: login\n",
@@ -601,7 +601,7 @@ fn test_a_binding_still_carrying_auth_is_refused_naming_the_key() {
 // command
 #[test]
 fn test_mcp_server_list_names_the_servers_the_default_agents_bundles_ship() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.bundle("demo");
     project.write(
         ".ctxloom/content/bundles/v2/demo/mcp/toolserver.yaml",
@@ -624,7 +624,7 @@ fn test_mcp_server_list_names_the_servers_the_default_agents_bundles_ship() {
 #[test]
 fn test_the_config_level_mcp_write_leaves_do_not_exist() {
     for leaf in ["create", "remove"] {
-        let project = Project::initialized();
+        let project = Project::initialized().on_gos_catalog();
         project
             .run(&["mcp", "server", leaf, "tools"])
             .fails()
@@ -635,7 +635,7 @@ fn test_the_config_level_mcp_write_leaves_do_not_exist() {
 // mcp.feature: Scenario: A native mcp: block fails the load and names the key
 #[test]
 fn test_a_native_mcp_block_fails_the_load_and_names_the_key() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.write(
         ".ctxloom/config.yaml",
         "schema_version: 9\nmcp:\n    auto_register_ctxloom: true\n    servers:\n        tools:\n            command: echo\n",
@@ -652,7 +652,7 @@ fn test_a_native_mcp_block_fails_the_load_and_names_the_key() {
 // registrations
 #[test]
 fn test_a_projects_companions_are_added_to_the_home_registrations() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.write_home(
         ".ctxloom/config.yaml",
         "schema_version: 9\ncompanions:\n  acme: {command: [acme-bin]}\n",
@@ -672,7 +672,7 @@ fn test_a_projects_companions_are_added_to_the_home_registrations() {
 // home companion
 #[test]
 fn test_an_empty_project_list_does_not_unregister_a_home_companion() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.write_home(
         ".ctxloom/config.yaml",
         "schema_version: 9\ncompanions:\n  acme: {command: [acme-bin]}\n",
@@ -692,7 +692,7 @@ fn test_an_empty_project_list_does_not_unregister_a_home_companion() {
 // program is only looked for, never run.
 #[test]
 fn test_list_answers_the_command_each_registered_name_runs_and_whether_it_is_there() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     let exe = project.dir().join("bin").join("acme-bin");
     files::put_program(&exe, "#!/bin/sh\nexit 9\n");
     project.write_home(
@@ -725,7 +725,7 @@ fn test_list_answers_the_command_each_registered_name_runs_and_whether_it_is_the
 // registered)
 #[test]
 fn test_no_registered_companion_is_said_in_prose() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project
         .run(&["companion", "list", "--format", "text"])
         .succeeds()
@@ -838,7 +838,7 @@ fn test_restricting_to_a_kind_drops_the_other_kinds() {
 #[test]
 fn test_restricting_to_profiles_finds_a_composition_and_nothing_else() {
     for flags in FORMATS {
-        let project = Project::initialized();
+        let project = Project::initialized().on_gos_catalog();
         project.bundle("demo");
         project.fragment("demo", "dev-notes");
         project.profile("dev", "demo");
@@ -894,7 +894,7 @@ fn test_a_tag_search_returns_what_carries_the_tag() {
 // both decide the context
 #[test]
 fn test_an_agent_and_a_profile_cannot_both_decide_the_context() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.bundle("dev-base");
     project.profile("dev", "dev-base");
     let ran = project.run(&[
@@ -996,7 +996,7 @@ fn test_a_run_that_is_not_a_dry_run_launches_the_engine_with_the_context_and_the
 // not read around
 #[test]
 fn test_a_malformed_config_is_refused_by_name() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.bundle("demo");
     project.write(".ctxloom/config.yaml", "::: not: [valid yaml\n\tbroken");
     project
@@ -1010,7 +1010,7 @@ fn test_a_malformed_config_is_refused_by_name() {
 // is refused like a run; --degraded previews past it
 #[test]
 fn test_a_profile_referencing_a_missing_bundle_is_refused_like_a_run() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.write(
         ".ctxloom/content/bundles/v2/project/profiles/broken.yaml",
         "description: references a missing bundle\nbundles:\n  - does-not-exist\n",
@@ -1048,7 +1048,7 @@ fn test_a_profile_referencing_a_missing_bundle_is_refused_like_a_run() {
 // fault_tolerance.feature: Scenario: An unknown fragment reference fails cleanly
 #[test]
 fn test_an_unknown_fragment_reference_fails_cleanly() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.bundle("demo");
     project
         .run(&["fragment", "show", "demo#fragments/does-not-exist"])
@@ -1060,7 +1060,7 @@ fn test_an_unknown_fragment_reference_fails_cleanly() {
 // fault_tolerance.feature: Scenario: A garbage reference fails cleanly
 #[test]
 fn test_a_garbage_reference_fails_cleanly() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.bundle("demo");
     project
         .run(&["fragment", "show", "not-a-real-reference"])
@@ -1075,7 +1075,7 @@ fn test_a_garbage_reference_fails_cleanly() {
 // directory; nothing is created when a command only reads.
 #[test]
 fn test_the_project_is_the_nearest_ctxloom_up_from_the_working_directory() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.bundle("demo");
     let deeper = project.dir().join("sub/deeper");
     files::mkdirs(&deeper);
@@ -1091,7 +1091,7 @@ fn test_the_project_is_the_nearest_ctxloom_up_from_the_working_directory() {
 // docs/environment.md: the minimal config is all a project needs
 #[test]
 fn test_the_minimal_config_is_enough() {
-    let project = Project::bare();
+    let project = Project::bare().on_gos_catalog();
     project.write(".ctxloom/config.yaml", MINIMAL_CONFIG);
     project
         .run(&["bundle", "list", "--format", "json"])
@@ -1109,7 +1109,7 @@ fn test_the_minimal_config_is_enough() {
 // result's fields) is a question for the owner, in the S1 report.
 #[test]
 fn test_context_assemble_holds_a_premised_fragment_back_unless_it_is_named() {
-    let project = Project::initialized();
+    let project = Project::initialized().on_gos_catalog();
     project.bundle("demo");
     project.write(
         ".ctxloom/content/bundles/v2/demo/fragments/golang.md",

@@ -67,6 +67,9 @@ fn bundle_entry(out: &mut dyn Write, row: &BundleRow) -> io::Result<()> {
     if row.held {
         write!(out, " [held]")?;
     }
+    if !row.origin.is_empty() {
+        write!(out, " [built-in {}]", f(&row.origin))?;
+    }
     writeln!(out)?;
     if !row.description.is_empty() {
         writeln!(out, "    {}", f(&row.description))?;
@@ -351,6 +354,9 @@ pub fn profile_list(out: &mut dyn Write, list: &ProfileList) -> io::Result<()> {
         if row.default {
             write!(out, " (default)")?;
         }
+        if !row.origin.is_empty() {
+            write!(out, " [built-in {}]", f(&row.origin))?;
+        }
         writeln!(out)?;
         if !row.description.is_empty() {
             writeln!(out, "    {}", row.description)?;
@@ -558,6 +564,9 @@ pub fn agent_show(out: &mut dyn Write, show: &AgentShow) -> io::Result<()> {
     Ok(())
 }
 
+/// A permission mode nobody set: the engine's own.
+const NO_MODE: &str = "engine default, no mode set";
+
 /// The lines of an agent's settings, each with the layer that said it. A
 /// runtime that replaces another layer's says what it replaced and how the
 /// two differ; a model or effort nobody set says no flag is passed.
@@ -585,11 +594,15 @@ fn settings_lines(out: &mut dyn Write, s: &AgentSettings, indent: &str) -> io::R
             )?,
         }
     }
+    let permissions = if s.permissions.value.is_empty() {
+        NO_MODE
+    } else {
+        s.permissions.value.as_str()
+    };
     writeln!(
         out,
-        "{indent}{}: {} ({})",
+        "{indent}{}: {permissions} ({})",
         key("permissions"),
-        s.permissions.value,
         s.permissions.source
     )?;
     writeln!(
@@ -901,12 +914,23 @@ pub fn dry_run(out: &mut dyn Write, plan: &DryRun) -> io::Result<()> {
     writeln!(out, "=== Engine ===")?;
     writeln!(out, "{}", plan.engine)?;
     if let Some(settings) = &plan.settings {
-        dry_run_settings(out, settings, &plan.agent, &plan.engine)?;
+        dry_run_settings(out, settings, &plan.settings_agent, &plan.engine)?;
     }
     writeln!(out, "\n=== Profiles ===")?;
     listed(out, &plan.profiles, "(no profiles)")?;
     writeln!(out, "\n=== Fragments Loaded ===")?;
-    listed(out, &plan.fragments, "(no fragments)")?;
+    let fragments: Vec<String> = plan
+        .fragments_listed
+        .iter()
+        .map(|item| {
+            if item.origin.is_empty() {
+                item.name.clone()
+            } else {
+                format!("{} [built-in {}]", item.name, f(&item.origin))
+            }
+        })
+        .collect();
+    listed(out, &fragments, "(no fragments)")?;
     writeln!(out, "\n=== Assembled Context (~{} tokens) ===", plan.tokens)?;
     if plan.context.is_empty() {
         writeln!(out, "(no context)")?;
@@ -921,6 +945,9 @@ pub fn dry_run(out: &mut dyn Write, plan: &DryRun) -> io::Result<()> {
     }
 }
 
+/// The engine a permission mode is passed to (`--permission-mode`, owner
+/// ruling 116); opencode has no verified flag for one.
+const MODE_PASSED_TO: &str = "claude-code";
 /// Ruling 72: each setting a run takes, with the place in the config that
 /// said it (the JSON's `settings` says the same by word).
 fn dry_run_settings(
@@ -949,10 +976,18 @@ fn dry_run_settings(
             .unwrap_or("engine default, no flag passed");
         row(out, key, value, place(setting.source, true))?;
     }
+    // claude is given the mode (owner ruling 116), its `default` as no flag;
+    // no other engine is yet, and its row says so.
+    let permissions = match (engine, s.permissions.value.as_str()) {
+        (_, "") => NO_MODE.to_string(),
+        (MODE_PASSED_TO, "default") => "default, no flag passed".to_string(),
+        (MODE_PASSED_TO, mode) => mode.to_string(),
+        (_, mode) => format!("{mode}, not passed to the engine yet"),
+    };
     row(
         out,
         "permissions",
-        &s.permissions.value,
+        &permissions,
         place(s.permissions.source, true),
     )?;
     let mut at = place(s.runtime.source, false);

@@ -477,3 +477,21 @@ fn the_samples_hold_the_output_failure() {
     assert_eq!(samples.len(), 1);
     assert_eq!(samples[0].code(), "run-cli-output");
 }
+
+// Owner ruling 115: `--session <harp>` names the session a run resumes, a
+// one-shot's and the terminal's alike; without it a run is a new session.
+#[test]
+fn the_session_to_resume_is_read_from_the_line() {
+    let mut service = Double::answering("THE-REPLY");
+    let ran = go(
+        &["--one-shot", "--session", "amber-swift-owl", "again"],
+        Some(Format::Text),
+        None,
+        &mut service,
+    );
+    assert_eq!(ran.exit, Ok(0));
+    assert_eq!(service.asked[0].1.session, "amber-swift-owl");
+    let mut fresh = Double::answering("THE-REPLY");
+    go(&["--one-shot", "hi"], Some(Format::Text), None, &mut fresh);
+    assert_eq!(fresh.asked[0].1.session, "");
+}

@@ -53,10 +53,25 @@ fn a_helper_the_git_started_is_killed_with_it() {
     }
     assert!(started.elapsed() < Duration::from_secs(40));
     let pid = slurp(dir.root().join("helper"));
-    assert!(
-        run_within::process_gone(pid.trim()),
-        "the helper {pid} outlived the git"
-    );
+    assert!(gone_soon(pid.trim()), "the helper {pid} outlived the git");
+}
+
+/// Whether the killed process `pid` is gone within ten seconds. A run past
+/// its limit sends SIGKILL to the program's whole process group and reaps the
+/// program, not its descendants: a helper dies when the kernel next runs it,
+/// which can be just after the run returned (it was caught in state `R`), so
+/// one look at that instant can see a helper that is already doomed. The
+/// bounded look is forced in taskloom-cli-client's
+/// `a_helper_seen_alive_before_its_kill_lands_is_gone_within_the_bound`.
+fn gone_soon(pid: &str) -> bool {
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !run_within::process_gone(pid) {
+        if std::time::Instant::now() >= until {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    true
 }
 
 #[test]

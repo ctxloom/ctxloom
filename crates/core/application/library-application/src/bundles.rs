@@ -33,7 +33,7 @@ impl Library {
     }
 }
 
-fn row(entry: &Entry, origin: Option<&RemoteOrigin>) -> BundleRow {
+fn row(entry: &Entry, origin: Option<&RemoteOrigin>, builtin: bool) -> BundleRow {
     let bundle = &entry.bundle;
     BundleRow {
         name: entry.name.clone(),
@@ -42,6 +42,11 @@ fn row(entry: &Entry, origin: Option<&RemoteOrigin>) -> BundleRow {
             |o| o.reference.clone(),
         ),
         path: entry.manifest_path.clone(),
+        origin: if builtin {
+            library::builtin::ORIGIN.to_string()
+        } else {
+            String::new()
+        },
         version: bundle.version.clone(),
         description: bundle.description.clone(),
         tags: bundle.tags.clone(),
@@ -60,9 +65,17 @@ impl Project {
                 .catalog
                 .entries()
                 .iter()
-                .map(|entry| row(entry, self.catalog.origin(&entry.name)))
+                .map(|entry| {
+                    row(
+                        entry,
+                        self.catalog.origin(&entry.name),
+                        self.catalog.is_builtin(&entry.name),
+                    )
+                })
                 .collect(),
-            no_root: !self.has_root,
+            // The built-in bundles are listed with or without the project's
+            // own bundles directory.
+            no_root: !self.has_root && self.catalog.entries().is_empty(),
             hint: self.listing_hint(),
         }
     }
@@ -88,24 +101,32 @@ impl Project {
     }
 
     fn bundle_show(&self, ask: &str) -> Result<BundleShow, AppError> {
-        if !self.has_root {
-            return Err(AppError::NoBundlesDir);
-        }
-        let entry = self.bundle(ask)?;
+        // A built-in bundle is there with no bundles directory; any other
+        // name is refused for the want of one.
+        let entry = match self.bundle(ask) {
+            Err(_) if !self.has_root => return Err(AppError::NoBundlesDir),
+            found => found?,
+        };
         Ok(show_of(entry))
+    }
+
+    /// The files of the bundle `entry`, as it is: installed from a remote,
+    /// built in, or the project's own.
+    pub(crate) fn files_of(&self, entry: &Entry) -> Result<library::tree::Files, AppError> {
+        if let Some(origin) = self.catalog.origin(&entry.name) {
+            return Ok(origin.files.clone());
+        }
+        if self.catalog.is_builtin(&entry.name) {
+            return Ok(library::builtin::files(&entry.name).unwrap_or_default());
+        }
+        self.content.read_tree(&entry.name).map_err(AppError::Cause)
     }
 
     fn bundle_view(&self, ask: &str, distilled: bool) -> Result<BundleView, AppError> {
         let (name, item_path) = ask.split_once('#').unwrap_or((ask, ""));
         let entry = self.bundle(name)?;
         if item_path.is_empty() {
-            let files = match self.catalog.origin(&entry.name) {
-                Some(origin) => origin.files.clone(),
-                None => self
-                    .content
-                    .read_tree(&entry.name)
-                    .map_err(AppError::Cause)?,
-            };
+            let files = self.files_of(entry)?;
             return Ok(BundleView {
                 bundle: name.to_string(),
                 path: String::new(),

@@ -98,8 +98,9 @@ impl Sessions for Launches {
     }
 }
 
-/// The scaffold, which lands.
-struct Made;
+/// The scaffold, which lands, over the project the dependency use cases
+/// already see.
+struct Made(Rc<deps_application::Deps>);
 
 impl init_application::Create for Made {
     fn create(&self) -> Result<(), PortFailure> {
@@ -108,6 +109,10 @@ impl init_application::Create for Made {
 
     fn set_output_dir(&self, _: &str) -> Result<(), PortFailure> {
         Ok(())
+    }
+
+    fn deps(&self) -> Result<Rc<deps_application::Deps>, PortFailure> {
+        Ok(Rc::clone(&self.0))
     }
 }
 
@@ -256,11 +261,12 @@ fn go_with(
         "/home/u",
         "0.1.0",
     );
+    let deps = Rc::new(fixture.deps);
     let init = Init::new(
         world.clone(),
         world.clone(),
-        Rc::new(fixture.deps),
-        Box::new(Made),
+        Rc::clone(&deps),
+        Box::new(Made(deps)),
     );
     let uses = UseCases {
         auth: &auth,
@@ -541,8 +547,10 @@ fn init_prompt_does_not_guide() {
     assert_eq!(r.err, "");
 }
 
+// Owner rulings 110, 111: a new project's default content is built in, so
+// a first init pulls nothing and says nothing of pulling.
 #[test]
-fn init_of_a_new_project_says_what_it_made_and_pulled() {
+fn init_of_a_new_project_says_what_it_made_and_pulls_nothing() {
     let r = go(&["init"], Format::Text, |world, fixture| {
         world.fresh.store(true, std::sync::atomic::Ordering::SeqCst);
         let url = "file:///srv/origin.git";
@@ -550,10 +558,7 @@ fn init_of_a_new_project_says_what_it_made_and_pulled() {
         fixture.profile("dev", &[&Fixture::reference(url, "demo")]);
     });
     assert_eq!(r.exit.unwrap(), 0);
-    assert_eq!(
-        r.out,
-        "Created ctxloom directory: /work/.ctxloom\nPulled 1 dependencies\n"
-    );
+    assert_eq!(r.out, "Created ctxloom directory: /work/.ctxloom\n");
 }
 
 // Rulings 89, 106: a first init at a terminal asks where a session's outputs
@@ -658,11 +663,12 @@ fn a_noun_the_line_does_not_carry_is_a_usage_failure() {
         "/h",
         "0",
     );
+    let deps = Rc::new(fixture.deps);
     let init = Init::new(
         world.clone(),
         world.clone(),
-        Rc::new(fixture.deps),
-        Box::new(Made),
+        Rc::clone(&deps),
+        Box::new(Made(deps)),
     );
     let uses = UseCases {
         auth: &auth,
@@ -719,7 +725,11 @@ fn auth_status_reports_an_exported_token_present_and_never_prints_a_value() {
     assert_eq!(r.exit.unwrap(), 0);
     assert_eq!(
         r.out,
-        "claude-code token: present (CLAUDE_CODE_OAUTH_TOKEN)\n"
+        concat!(
+            "claude-code token: present (CLAUDE_CODE_OAUTH_TOKEN)\n",
+            // opencode's keys are optional (rulings 69, 79): it needs none.
+            "opencode token: not needed: none of ANTHROPIC_API_KEY, OPENAI_API_KEY is exported, so opencode runs keyless on its free models; export one for a provider's models\n",
+        )
     );
     assert_eq!(r.err, "");
 }
@@ -730,7 +740,10 @@ fn auth_status_names_how_to_mint_and_export_a_missing_token() {
     assert_eq!(r.exit.unwrap(), 0);
     assert_eq!(
         r.out,
-        "claude-code token: missing \u{2014} run `claude setup-token` and export CLAUDE_CODE_OAUTH_TOKEN (or store it in your secret manager)\n"
+        concat!(
+            "claude-code token: missing \u{2014} run `claude setup-token` and export CLAUDE_CODE_OAUTH_TOKEN (or store it in your secret manager)\n",
+            "opencode token: not needed: none of ANTHROPIC_API_KEY, OPENAI_API_KEY is exported, so opencode runs keyless on its free models; export one for a provider's models\n",
+        )
     );
 }
 

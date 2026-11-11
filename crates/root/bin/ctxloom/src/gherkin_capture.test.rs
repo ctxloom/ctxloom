@@ -53,7 +53,7 @@ mkdir -p "$fired"
 for v in CTXLOOM_ENDPOINT CTXLOOM_BEARER CTXLOOM_RUN CTXLOOM_HOME CLAUDE_CONFIG_DIR; do
   eval "[ -n \"\${$v:-}\" ]" || echo "$v" >> "$here/engine-missing"
 done
-[ -z "${HOME:-}" ] || echo "HOME" >> "$here/engine-had"
+[ "${HOME:-}" = "$CLAUDE_CONFIG_DIR" ] || echo "HOME" >> "$here/engine-had"
 env | grep -E '^(CTXLOOM_|CLAUDE_CONFIG_DIR=|PATH=)' > "$here/engine-env"
 pwd > "$here/engine-cwd"
 n=0
@@ -93,7 +93,7 @@ prompt="$(cat)"
 for v in CTXLOOM_ENDPOINT CTXLOOM_BEARER CTXLOOM_RUN CTXLOOM_HOME CTXLOOM_SESSION_HARP CTXLOOM_TLS_CERT CLAUDE_CONFIG_DIR; do
   eval "[ -n \"\${$v:-}\" ]" || echo "$v" >> "$here/engine-missing"
 done
-[ -z "${HOME:-}" ] || echo "HOME" >> "$here/engine-had"
+[ "${HOME:-}" = "$CLAUDE_CONFIG_DIR" ] || echo "HOME" >> "$here/engine-had"
 [ -z "${ANTHROPIC_AUTH_TOKEN:-}" ] || echo "ANTHROPIC_AUTH_TOKEN" >> "$here/engine-had"
 env | grep -E '^(CTXLOOM_|CLAUDE_CONFIG_DIR=|PATH=)' > "$here/engine-env"
 n=0
@@ -258,6 +258,8 @@ pub(super) fn fires(w: &mut World, step: &cucumber::gherkin::Step) -> bool {
         .contains("another terminal lists, renames and removes")
     {
         run_watched(w, step);
+    } else if step.value.contains("stops ctxloom with a SIGTERM") {
+        run_stopped(w, step);
     } else {
         return false;
     }
@@ -755,4 +757,100 @@ fn rename_moves_directory(w: &mut World) {
         "its lock moved with it, so it still reads ended: {}",
         listed.stdout
     );
+}
+
+// ------------------------------------------- a run asked to stop (ruling 114)
+
+/// The stub child of a run that is stopped: it says its session and its pid
+/// once its trap is set, then works until it is asked to stop, and says it
+/// was asked.
+const STOPPED_STUB: &str = r#"here="$(dirname "$0")"
+trap 'echo asked > "$here/asked"; exit 0' TERM
+echo "$CTXLOOM_SESSION_HARP" > "$here/watched-harp"
+echo "$$" > "$here/pid.tmp" && mv "$here/pid.tmp" "$here/pid"
+sleep 30 &
+wait
+"#;
+
+/// The one-shot started, a SIGTERM sent to the ctxloom process (never to the
+/// test's own) once the stub says it works, and the run waited for.
+fn run_stopped(w: &mut World, step: &cucumber::gherkin::Step) {
+    let bin = w.engine_dir();
+    files::put_program(bin.join("claude"), STOPPED_STUB);
+    let host = crate::tests::host_var("PATH").unwrap_or_default();
+    w.common.set_env(
+        "PATH",
+        format!("{}:{}", bin.display(), host.to_string_lossy()),
+    );
+    w.before_run();
+    let lines = crate::tests::gherkin_common::doc(step);
+    let args = shell_words(
+        lines
+            .trim()
+            .strip_prefix("ctxloom ")
+            .expect("a ctxloom line"),
+    );
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let env: Vec<(&str, &str)> = w
+        .common
+        .env
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let child = w.common.project.start_with(&env, &args);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while !files::exists(bin.join("pid")) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the stub never said it works"
+        );
+        std::thread::yield_now();
+    }
+    let sent = Command::new("kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .expect("kill runs");
+    assert!(sent.success(), "the SIGTERM was sent");
+    w.common.ran = Some(Ran::of(child.wait_with_output().expect("ctxloom finishes")));
+}
+
+/// The words of a command line, as the scenario writes it: double quotes
+/// group.
+fn shell_words(line: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut quoted = false;
+    let mut word = String::new();
+    for c in line.chars() {
+        match c {
+            '"' => quoted = !quoted,
+            ' ' if !quoted => words.extend((!word.is_empty()).then(|| std::mem::take(&mut word))),
+            _ => word.push(c),
+        }
+    }
+    words.extend((!word.is_empty()).then_some(word));
+    words
+}
+
+#[then("the assistant was asked to stop, and was gone before ctxloom exited")]
+fn assistant_stopped(w: &mut World) {
+    let dir = w.engine_dir();
+    assert!(
+        files::exists(dir.join("asked")),
+        "the assistant was not asked to stop: {}",
+        w.ran().said()
+    );
+    let pid = w.watched("pid");
+    let alive = Command::new("kill")
+        .args(["-0", pid.trim()])
+        .stderr(Stdio::null())
+        .status()
+        .expect("kill runs");
+    assert!(!alive.success(), "the assistant ({pid}) outlived ctxloom");
+}
+
+#[then("ctxloom exited 143, saying the run was stopped by SIGTERM")]
+fn exited_as_signalled(w: &mut World) {
+    let ran = w.ran();
+    assert_eq!(ran.code, 143, "{}", ran.said());
+    assert!(ran.stderr.contains("stopped by SIGTERM"), "{}", ran.said());
 }

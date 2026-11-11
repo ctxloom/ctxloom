@@ -45,6 +45,21 @@ pub enum SessionRejection {
     UntrustedTarget { root: String },
     /// An urgency the recipient's engine cannot honour (S-c).
     UrgencyUnsupported { urgency: String },
+    /// A resume of a name no session holds (owner ruling 115).
+    SessionUnknown { harp: String },
+    /// A resume of a session `session remove` destroyed.
+    SessionDestroyed { harp: String },
+    /// A resume of a running session: its lock is held, or its last
+    /// incarnation has not ended.
+    SessionRunning { harp: String },
+    /// A resume of a session whose engine bound no native session.
+    NoNativeSession { harp: String },
+    /// A resume on another engine than the session's.
+    EngineMismatch {
+        harp: String,
+        engine: String,
+        asked: String,
+    },
 }
 
 /// Its key and args, never English (angzarr decision 14.37).
@@ -73,6 +88,11 @@ impl Diagnostic for SessionRejection {
             SessionRejection::DelegationLimit { .. } => code!("delegation-limit"),
             SessionRejection::UntrustedTarget { .. } => code!("untrusted-target"),
             SessionRejection::UrgencyUnsupported { .. } => code!("urgency-unsupported"),
+            SessionRejection::SessionUnknown { .. } => code!("session-unknown"),
+            SessionRejection::SessionDestroyed { .. } => code!("session-destroyed"),
+            SessionRejection::SessionRunning { .. } => code!("session-running"),
+            SessionRejection::NoNativeSession { .. } => code!("no-native-session"),
+            SessionRejection::EngineMismatch { .. } => code!("engine-mismatch"),
         }
     }
 
@@ -84,7 +104,11 @@ impl Diagnostic for SessionRejection {
             | SessionRejection::SessionLive { harp }
             | SessionRejection::SessionClosed { harp }
             | SessionRejection::OwnerClosed { harp }
-            | SessionRejection::NoOpenIncarnation { harp } => vec![("harp", harp.as_str().into())],
+            | SessionRejection::NoOpenIncarnation { harp }
+            | SessionRejection::SessionUnknown { harp }
+            | SessionRejection::SessionDestroyed { harp }
+            | SessionRejection::SessionRunning { harp }
+            | SessionRejection::NoNativeSession { harp } => vec![("harp", harp.as_str().into())],
             SessionRejection::NotOwner { requester } => {
                 vec![("requester", requester.as_str().into())]
             }
@@ -95,6 +119,15 @@ impl Diagnostic for SessionRejection {
             SessionRejection::UrgencyUnsupported { urgency } => {
                 vec![("urgency", urgency.as_str().into())]
             }
+            SessionRejection::EngineMismatch {
+                harp,
+                engine,
+                asked,
+            } => vec![
+                ("harp", harp.as_str().into()),
+                ("engine", engine.as_str().into()),
+                ("asked", asked.as_str().into()),
+            ],
             SessionRejection::HarpInvalid { harp, reason } => vec![
                 ("harp", harp.as_str().into()),
                 ("reason", reason.as_str().into()),
@@ -156,6 +189,15 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         }),
         Box::new(SessionRejection::UrgencyUnsupported {
             urgency: "steer".to_string(),
+        }),
+        Box::new(SessionRejection::SessionUnknown { harp: harp() }),
+        Box::new(SessionRejection::SessionDestroyed { harp: harp() }),
+        Box::new(SessionRejection::SessionRunning { harp: harp() }),
+        Box::new(SessionRejection::NoNativeSession { harp: harp() }),
+        Box::new(SessionRejection::EngineMismatch {
+            harp: harp(),
+            engine: "claude-code".to_string(),
+            asked: "opencode".to_string(),
         }),
     ]
 }

@@ -446,9 +446,9 @@ fn test_fatal_findings_print_the_plan_and_abort() {
     let ran = go(&["run", "--dry-run", "-p", "broken"], JSON, BARE);
     assert_eq!(ran.refused(), "library-application-startup-aborted:3");
     assert_eq!(ran.json()["findings"][0]["fatal"], true);
-    assert!(ran
-        .err
-        .starts_with("{\"prog\":\"ctxloom\",\"warning\":\"failed to load bundle"));
+    // hand-test 2 2026-11-11: the refusal alone names the fatal finding; no
+    // warning says it first.
+    assert!(!ran.err.contains("\"warning\""), "{}", ran.err);
     let degraded = How {
         degraded: true,
         ..JSON
@@ -475,7 +475,14 @@ fn test_notices_are_said_as_a_json_line_or_as_words_with_their_fix() {
     let text = go(&["agent", "list"], TEXT, &ghost);
     assert!(text.err.starts_with("ctxloom: warning: agents.ghost in "));
     assert!(!text.err.contains("fix:"));
-    let broken = go(&["run", "--dry-run", "-p", "broken"], TEXT, BARE);
+    let broken = go(
+        &["run", "--dry-run", "-p", "broken"],
+        How {
+            degraded: true,
+            ..TEXT
+        },
+        BARE,
+    );
     assert!(broken
         .err
         .starts_with("ctxloom: warning: failed to load bundle \"does-not-exist\""));
@@ -637,7 +644,7 @@ fn test_engine_list_prints_every_engine_and_only_the_agents_it_has() {
     assert_eq!(ran.code(), 0);
     assert_eq!(
         ran.out,
-        "claude-code\n  command: /opt/claude (engine)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: HTTPS_PROXY (engine)\n  auth: not-needed (engine)\n  agents: dev, same, strict\nmock\n  command: mock (default)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: none (default)\n  auth: not-needed (default)\nmock-launch\n  command: mock-launch (default)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: none (default)\n  auth: not-needed (default)\nmock-lossy\n  command: mock-lossy (default)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: none (default)\n  auth: not-needed (default)\nmock-noskills\n  command: mock-noskills (default)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: none (default)\n  auth: not-needed (default)\nopencode\n  command: opencode (default)\n  session_home: host (engine)\n  runtime: container-rootless (project)\n  env: none (default)\n  auth: missing (default)\n  agents: plain\n"
+        "claude-code\n  command: /opt/claude (engine)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: HTTPS_PROXY (engine)\n  auth: not-needed (engine)\n  agents: dev, same, strict\nmock\n  command: mock (default)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: none (default)\n  auth: not-needed (default)\nmock-launch\n  command: mock-launch (default)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: none (default)\n  auth: not-needed (default)\nmock-lossy\n  command: mock-lossy (default)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: none (default)\n  auth: not-needed (default)\nmock-noskills\n  command: mock-noskills (default)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: none (default)\n  auth: not-needed (default)\nopencode\n  command: opencode (default)\n  session_home: host (engine)\n  runtime: container-rootless (project)\n  env: none (default)\n  auth: not-needed (default)\n  agents: plain\n"
     );
 }
 

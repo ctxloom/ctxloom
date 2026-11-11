@@ -22,6 +22,7 @@ mod process_env;
 mod seed;
 mod sessions;
 mod setup;
+mod signals;
 mod sweep_config;
 #[cfg(feature = "test-support")]
 mod test_commands;
@@ -231,16 +232,16 @@ pub struct Wiring {
 
 impl Wiring {
     /// The wiring over the environment the process was launched in, read
-    /// once by the composition root: its home (HOME, or USERPROFILE on
-    /// Windows; failing that CTXLOOM_HOME, the variable an interactive
-    /// engine's hook processes are given in place of HOME), and the real
-    /// filesystem over its working directory (with none when it cannot be
-    /// read: only what needs it fails).
+    /// once by the composition root: its home (CTXLOOM_HOME, the variable a
+    /// run names ctxloom's home by for its engine, whose own HOME is the
+    /// session home (owner ruling 112); failing that HOME, or USERPROFILE on
+    /// Windows), and the real filesystem over its working directory (with
+    /// none when it cannot be read: only what needs it fails).
     pub fn new(env: Arc<EnvSnapshot>) -> Result<Wiring, LibError> {
         let host = os::host();
         let home = env
-            .home()
-            .or_else(|| env.non_empty(run_ports::HOME_VARIABLE))
+            .non_empty(run_ports::HOME_VARIABLE)
+            .or_else(|| env.home())
             .map(PathBuf::from)
             .ok_or_else(|| LibError::NoHome {
                 variable: env.flavor().home_var().to_string(),

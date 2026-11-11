@@ -30,7 +30,6 @@ Feature: Adopting ctxloom without regret — the first hour, and the exit verifi
     Given an empty project directory
     And Alice's assistant is Claude Code
     And Alice has exported her assistant's token
-    And ctxloom's published default content is within reach
 
   Scenario: Alice sets ctxloom up, and it keeps to its own two directories
     # new: her first step.
@@ -41,6 +40,8 @@ Feature: Adopting ctxloom without regret — the first hour, and the exit verifi
     Then the command succeeds
     And nothing in her project outside .ctxloom was written
     And nothing in her home directory outside ~/.ctxloom was written
+    And the file ".ctxloom/.gitignore" contains "/sessions"
+    And the file ".ctxloom/.gitignore" contains "/cache"
 
   Scenario: Ten minutes in, a session started through ctxloom has her project's context
     # new: her second step.
@@ -50,7 +51,7 @@ Feature: Adopting ctxloom without regret — the first hour, and the exit verifi
       ctxloom run --one-shot "what does this project expect of me?"
       """
     Then the command succeeds
-    And her assistant was handed ctxloom's published default content
+    And her assistant was handed ctxloom's built-in default content
     And nothing in her project outside .ctxloom was written
     And nothing in her home directory outside ~/.ctxloom was written
 

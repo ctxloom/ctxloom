@@ -47,6 +47,13 @@ pub struct PrepareRequest {
     /// The home is the human's terminal session's, not a child's turn: the
     /// engine installs its hooks in it.
     pub interactive: bool,
+    /// The directory the engine runs in (the project's), which an engine may
+    /// mark trusted in its own state (owner ruling 113); none, none is.
+    pub cwd: Option<String>,
+    /// What the home holds now of the files [`Engine::merges`] names, by
+    /// their path relative to it; a file not there is absent. The engine
+    /// merges into these instead of replacing them.
+    pub existing: BTreeMap<String, Vec<u8>>,
 }
 
 /// What [`Engine::prepare`] answers: the session home's surfaces.
@@ -79,6 +86,9 @@ pub struct TurnRequest {
     /// The effort level to run at; empty names none, and the engine passes no
     /// flag.
     pub effort: String,
+    /// The permission mode to run in (owner ruling 116); empty names none,
+    /// and the engine passes no flag.
+    pub permission_mode: String,
     /// How the config says the engine is run (program, home, credential
     /// source, environment passthrough).
     pub settings: crate::settings::EngineSettings,
@@ -96,6 +106,7 @@ impl fmt::Debug for TurnRequest {
             .field("cwd", &self.cwd)
             .field("model", &self.model)
             .field("effort", &self.effort)
+            .field("permission_mode", &self.permission_mode)
             .field("settings", &self.settings)
             .finish()
     }
@@ -232,6 +243,17 @@ pub trait Engine: Send + Sync {
     fn session_ends_with_exit(&self) -> bool {
         false
     }
+
+    /// The home files (relative to it) the engine merges its own keys into
+    /// rather than writes whole, because the engine itself keeps state in
+    /// them (claude's `.claude.json`, owner ruling 113): the launcher reads
+    /// each before [`Engine::prepare`] and hands it in
+    /// [`PrepareRequest::existing`].
+    // Equivalent: `Vec::leak(Vec::new())` is the same empty slice as `&[]`.
+    #[cfg_attr(test, mutants::skip)]
+    fn merges(&self) -> &'static [&'static str] {
+        &[]
+    }
 }
 
 /// The names on `allowed` that `offered` holds, sorted, once each. A name that is not exactly on the
@@ -257,6 +279,12 @@ pub enum EngineError {
         level: String,
         known: String,
     },
+    /// A permission mode the engine does not take (owner ruling 116).
+    UnknownPermissionMode {
+        engine: String,
+        mode: String,
+        known: String,
+    },
     /// `session_home: host` is configured but the caller's environment names
     /// no home to use.
     NoHostHome { engine: String },
@@ -273,6 +301,9 @@ impl Diagnostic for EngineError {
         match self {
             EngineError::NotYet { .. } => code!("engine-not-yet"),
             EngineError::UnknownEffort { .. } => code!("engine-unknown-effort"),
+            EngineError::UnknownPermissionMode { .. } => {
+                code!("engine-unknown-permission-mode")
+            }
             EngineError::NoHostHome { .. } => code!("engine-no-host-home"),
         }
     }
@@ -290,6 +321,15 @@ impl Diagnostic for EngineError {
             } => vec![
                 ("engine", engine.as_str().into()),
                 ("level", level.as_str().into()),
+                ("known", known.as_str().into()),
+            ],
+            EngineError::UnknownPermissionMode {
+                engine,
+                mode,
+                known,
+            } => vec![
+                ("engine", engine.as_str().into()),
+                ("mode", mode.as_str().into()),
                 ("known", known.as_str().into()),
             ],
             EngineError::NoHostHome { engine } => vec![("engine", engine.as_str().into())],

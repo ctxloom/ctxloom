@@ -218,10 +218,28 @@ An engine's hooks are its adapter's: `ctxloom hook <engine> execute
 <NativeHookName>` (hidden) resolves the engine through `surface_ports::Registry`
 and its `HookCodec` decodes the payload. The settings an older ctxloom wrote
 (`hook <verb> --engine`) are stale and rewritten on the next surface apply.
-An engine env has no `HOME`: ctxloom's home reaches its hook processes as
+An engine's `HOME` is its session home (owner ruling 112, claude's as
+opencode's, a terminal's and a child's turn alike; under `session_home: host`
+the user's own), so what its tools keep under `~` lands in
+`.ctxloom/sessions/<harp>/home/`, never in the project; the cost: they see
+none of the user's dotfiles. ctxloom's home reaches its hook processes as
 `CTXLOOM_HOME` (`run_ports::HOME_VARIABLE`; the wiring takes it as the home
-when `HOME` is absent, and names the resolved home in a run's env; both
-allowlists pass it on), and the session home's `settings.json` calls `ctxloom
+FIRST, before `HOME`, and names the resolved home in a run's env; both
+allowlists pass it on). The session home is seeded, once (one there is left
+as it is), with a `.gitconfig` of the user's `[user] name/email` alone, as git
+resolves them in the project (`worktree-git`'s `Git::user`,
+`run_ports::git_config`, written by the launcher): a file, not
+`GIT_AUTHOR_*`/`GIT_COMMITTER_*` (they would outrank a repository's own
+user), and nothing else of her git configuration (no signing key, credential
+helper or alias). claude's own state file in the session home,
+`.claude.json`, is seeded (owner ruling 113) with `hasCompletedOnboarding:
+true` and `projects.<the run's directory>.hasTrustDialogAccepted: true`, the
+keys claude 2.1.322 reads (no theme picker, security notes or trust prompt),
+MERGED into what is there (`Engine::merges` names the files an engine merges
+into, and the launcher hands their bytes in `PrepareRequest::existing` with
+the run's `cwd`; one that is not a JSON object is left as it is). It is
+claude's undocumented state: a release that changes it shows the onboarding
+again (visible, not harmful). The session home's `settings.json` calls `ctxloom
 hook claude-code execute <Event>`. The interactive home registers the session,
 turn, message, tool-batch and compaction (`PreCompact`, `PostCompact`) events.
 A one-shot CHILD's home (owner ruling 51) registers the per-turn ones only:
@@ -241,9 +259,23 @@ launcher records, `Running::finish` waits), and the pending launches clear on
 it, not on the runner's first word; a command that cannot spawn is a
 `LaunchFailed` and never a `RunnerStarted`. An interactive run's terminal
 session is ended by the human (the terminal delivers Ctrl-C to the shared
-process group, so it cancels a generation inside claude); ctxloom does not
-forward SIGINT/SIGTERM yet, since a SIGTERM-only stop needs a platform signal
-`Os` does not offer (`HostLauncher::stopped_by(Stop)` is there for it).
+process group, so it cancels a generation inside claude).
+A run asked to stop stops its engine first (ruling 114): for the whole run
+`ctxloom-wiring`'s `signals` hears SIGHUP, SIGINT and SIGTERM
+(`os::Os::signals`, each named), so none ends ctxloom by its default and
+orphans the engine. A one-shot stops on any of the three; the session on
+SIGHUP or SIGTERM only (a SIGINT is the terminal's Ctrl-C, which reaches the
+engine itself, and is let pass). The stop is `HostLauncher::stopped_by(Stop)`'s
+`Stop`: a turn's tree is asked to stop (SIGTERM to its group, run-within's
+`run_within_stopped_by`), given `Within::stop_grace` (five seconds), then
+killed; a terminal session's direct child is killed. The run then ends as any
+run whose engine exited (its end facts, the listener stopped, the locks
+released), and the command exits 128 plus the signal's number, the error
+`run-application-stopped` (`RunError::Stopped`) naming the signal. A second
+signal during the grace is heard and changes nothing; a signal that cannot be
+listened for is said as a notice and the run goes on unforwarded. Tested with
+the platform's fake (`os::Signals::fake`) and, for a one-shot's SIGTERM, end
+to end in j001000.
 A run has THREE credentials, minted at enqueue with the same machinery, each
 a 256-bit token whose SHA-256 alone is journaled in `RunEnqueued`
 (`runner_`, `model_` and `hook_credential_hash`; the aggregate requires three
@@ -338,7 +370,27 @@ told; the hook credential's digest is journaled at the enqueue, so the gate
 already finds the run) and stopped if the run does not start; otherwise it is stopped, with a bounded grace, after the
 engine exits and before the run's end is last recorded
 (`ctxloom-wiring`'s `Hooks`; `run-application`'s `serve`, `ready` and `drive`,
-one path for both kinds of run). Not built: the hidden runner subcommand.
+one path for both kinds of run). `run --session <harp>` (owner ruling 115,
+a one-shot or the terminal) resumes a session: the run application reads the
+name's claim (none: `sessions-session-unknown`), folds the session's stream
+(empty: `sessions-session-destroyed`, a removed session's claim being kept),
+probes its lock (held: `sessions-session-running`), after a launcher step has
+swept other processes' dead runs; the session aggregate's `ResumeSession`
+then owes the NEXT incarnation (`IncarnationOwed{n+1, "resume"}`, refused
+while one is open, `sessions-session-running`; with no bound native id,
+`sessions-no-native-session`; for an `--engine` not the session's,
+`sessions-engine-mismatch`) BEFORE the run of `(session, n+1)` is enqueued,
+so a refused resume burns no run stream; a refused enqueue ends the owed
+incarnation (`launch-failed`). The run is planned on the session's engine,
+reuses its harp, directory and session home (no mint, no claim), and the
+`Order`'s `resume` (the native id) reaches the engine as
+`TurnRequest::resume` (claude `--resume`, opencode `--session`). A child's
+native id is bound from its turn's stream; a terminal session's is bound by
+the launcher at the terminal's exit, from the last `SessionEnded.native_session`
+its hooks recorded (claude's SessionEnd; opencode's end is the launcher's own,
+with no native id, so an interactive opencode session cannot be resumed yet).
+Not built:
+the hidden runner subcommand.
 
 The locks a run is judged by (owner rulings 85, 86, 92, 93, defects 1 and 3;
 advisory file locks through the platform's `file-lock`, taken at once or not
@@ -377,7 +429,23 @@ directory exists, unclaimed, within `NAME_TRIES` (then `sessions-names-taken`). 
 agent's `model` and `effort` reach the engine as the order's `model` and
 `effort` (`--model`, `--effort` for claude, a turn and the terminal alike;
 unset is no flag; claude takes `low|medium|high|xhigh|max`, any other level is
-refused before launch).
+refused before launch). Its permission mode (`agents.<n>.engines.claude-code.
+permissions.mode`, else the engine's default, claude's `acceptEdits`) reaches
+claude the same way, as the order's `permission_mode` (owner ruling 116):
+`--permission-mode <mode>`, a turn and the terminal alike; none, or the
+config's `default` (claude's own default mode), is no flag. ctxloom's own
+words govern (owner ruling 125): the plan holds a claude mode to the write
+path's `postures` (`default|acceptEdits|plan|bypassPermissions`, any case,
+passed in their spelling) through the same `write::engines::mode`, so a
+dry run or launch refuses any other in the write's words
+(`library-application-write-permissions`; a retired `auto`/`dontAsk` names
+the approver it is now; claude's `manual` is not ctxloom's) before anything
+is enqueued. claude's own list (2.1.322's `--help`:
+`acceptEdits|auto|bypassPermissions|manual|dontAsk|plan`, engine-claude's
+`PERMISSION_MODES`, whose drive still refuses a word outside it,
+`run-ports-engine-unknown-permission-mode`) is only a check: a wiring test
+holds `postures` minus `default` to be a subset of it. opencode is given no mode (no
+flag verified), and the dry run's row says it is not passed.
 
 A run's pre-launch checks are DECIDED by the runs aggregate, in `EnqueueRun`'s
 `decide` (owner rulings 73, 73a-73i), on evidence fields the run application
@@ -453,8 +521,9 @@ to `$HOME/.claude` (no `HOME` is `run-ports-engine-no-host-home`), links no
 login there; the hooks still fire, because the launch (the terminal's and a
 child's turn) passes `--settings <session dir>/settings.json` (the ctxloom-owned file `prepare` writes,
 in both home modes, never into the user's `~/.claude`; claude adds its hooks to the
-config dir's own, and honours one `--settings`; no posture settings are passed
-yet, so there was nothing to merge; verified with a fake program only, not a
+config dir's own, and honours one `--settings`; no posture settings are written
+into it (the permission mode is the `--permission-mode` flag, ruling 116), so
+there was nothing to merge; verified with a fake program only, not a
 live interactive TUI, nor with `--setting-sources user`; in a container the flag
 must name the in-container path, a follow-up). A child's turn passes the same
 single `--settings` (ruling 51; verified with a fake program only, not a live
@@ -572,7 +641,10 @@ Every adapter that runs a program (`remote-git`, `worktree-git`,
 `companion-probe`, `container-runtime`, `taskloom-cli-client`) runs it
 through ctxloom-lib's `run-within`: the program under a deadline, its whole
 process tree killed when the deadline passes (not only the program: a git
-hook or a shell's `sleep` would otherwise live on holding the pipes), its
+hook or a shell's `sleep` would otherwise live on holding the pipes; killed
+is SIGKILL sent to the group and the program reaped: a descendant dies when
+the kernel next runs it, which can be just after the run returns, so a test
+that checks a helper is gone waits for it, bounded), its
 output bounded per stream, and the wait for that output bounded too
 (`drain_grace`, two seconds), so a descendant that outlives a program that
 exited cannot hang the caller. The program's environment is exactly the one
@@ -580,12 +652,14 @@ the adapter gives; its tests need `run-within`'s `test-support`, which waits
 out ETXTBSY. Limits (os::process's): a descendant that calls `setsid` or
 `setpgid` escapes the kill, and the program runs in a process group of its
 own, so a Ctrl-C at the terminal does not reach it: a caller that must stop
-a run on Ctrl-C hears `Os::stop_signal` and ends the tree itself.
+a run on a signal hears it (`Os::signals`) and requests the `Stop` it ran the
+program with (`run_within_stopped_by`: the tree asked to stop, `stop_grace`,
+then killed; the outcome `stopped`).
 `run_within_started` also calls a `started(pid)` once after a successful spawn
 (never on a spawn failure). `run_terminal(spec, &Stop, started)` is the mode
 for a program that owns the terminal: inherited stdio, NOT a process group of
 its own (a Ctrl-C reaches it), no deadline, and a `Stop` (a cloneable flag the
-caller sets, e.g. from `Os::stop_signal`) that kills only the DIRECT child, not
+caller sets, e.g. from `Os::signals`) that kills only the DIRECT child, not
 its descendants. Tested on unix; macOS and Windows are not. No adapter bypasses
 `run-within` any more.
 All of ctxloom-lib's crates are pinned at one rev (`cli-support`,
@@ -697,6 +771,35 @@ library's `bundle` noun and owns `remote` and `deps`.
   withheld red tests for them are `#[ignore]`d in `bundle_remote.test.rs`.
   angzarr-yaml cannot read Go's `? key` form for lock keys over 128 bytes.
 
+## Built-in content (owner rulings 110, 111)
+
+ctxloom's default content ships in the binary: the bundles a new project's
+seeded `default` profile inherits (`ai-developer#profiles/developer`, and the
+`ai-coding-general`, `testing` and `git` bundles it names), a byte-for-byte
+copy of `github.com/ctxloom/ctxloom-default` at the commit
+`library::builtin::SOURCE_COMMIT` records, in
+`crates/core/read-model/library/resources/builtin/` (with its BSD-3-Clause
+`LICENSE`, a `SHA256SUMS` the tests hold the compiled table to, and a README
+on refreshing it). The text is the owner's: never edited here. The catalog
+lists them under the read-only built-in origin `ctxloom/default`
+(`Catalog::with_builtins`, joined by the composition root through
+`Library::with_builtins`; `bundle list` gives `origin` in json and `[built-in
+ctxloom/default]` in text) under their own names, so `ctxloom+local:<name>`
+reaches the project's bundle of that name, else the built-in one: a project
+bundle of the same name (readable or not) overrides it whole. The deps
+closure walks the built-in profiles as the project's own, so nothing is
+fetched, pinned or written under `.ctxloom/cache` for them, offline included.
+Every write to one is refused (`library-application-write-builtin-read-only`),
+its fix naming the override (`bundle export <name> <bundles dir>`); an
+export, and an import of the name (which makes the overriding project
+bundle), are not writes to it. Under `test-support` only,
+`CTXLOOM_TEST_NO_BUILTINS` withholds them, so the Go-parity and Go-ported
+tests (`Project::on_gos_catalog`) hold the catalog Go had. `init` and
+`config create` seed no remote (the registry is empty) and `init` pulls
+nothing. Divergence from Go: Go seeded and cloned the `ctxloom-default`
+remote and pulled the profile's dependencies; that repository stays an
+ordinary remote.
+
 ## Hook capture: the transcript is the session's events
 
 What the engine's hooks observe (a prompt, each MessageDisplay delta, a tool
@@ -749,8 +852,10 @@ A compaction's external id is `hook:compact:<session>:<prompt_id>:<trigger>:
 <phase>`, so two compactions of one turn (a manual and an auto) are two facts;
 two of the SAME trigger in one turn would still collide (the payload offers no
 further discriminator). The listener is a port, not a file: a run
-killed by SIGHUP or a timeout leaves nothing behind (ctxloom does not forward
-or handle SIGINT, SIGHUP or SIGTERM itself).
+killed by a timeout leaves nothing behind, and one asked to stop by SIGHUP,
+SIGINT or SIGTERM stops its engine, records its end and stops the listener
+before it exits (ruling 114, above). A SIGKILL is not heard: the engine
+outlives it.
 
 ## No path dependency leaves the repository
 
@@ -1005,7 +1110,8 @@ drives. A failing gate is a finding: fix the cause and commit again; never
    excluded (`.cargo/mutants.toml`). Each mutant runs only its own crate's
    tests (`test_workspace = false`), under `cargo test`: a dependent's
    tests, the binary's acceptance tests included, kill nothing, so a crate
-   kills its own mutants. A mutant judged equivalent or untestable gets
+   kills its own mutants. An unviable mutant (one that does not build)
+   needs no skip: it counts neither way. A mutant judged equivalent or untestable gets
    `#[cfg_attr(test, mutants::skip)]` on its function, with `mutants` a
    dev-dependency (`mutants.workspace = true`, so nothing new is linked)
    and a one-line comment above it saying why; never an exclude in
@@ -1022,8 +1128,10 @@ drives. A failing gate is a finding: fix the cause and commit again; never
    mutant's file and summary, and `total_mutants`) and its exit code, no log
    read: it fails the red baseline (exit 4, kept), a run that ended before a
    verdict, fewer tested than found, a file under no threshold, a tier below
-   its threshold, and a tier that found mutants and judged none (every one
-   unviable). No feature reaches the mutation run: `mutants-staged` refuses
+   its threshold, and a run that found mutants and judged none of them at
+   all (every one unviable; owner ruling 120, amending 99: the whole run's
+   rule, so a tier all unviable beside one that judged passes, its row
+   saying `none judged`). No feature reaches the mutation run: `mutants-staged` refuses
    a non-empty `feature_rules` (`_mutants-no-features`), so a crate whose
    tests need a feature of its own dev-depends on itself with it (as
    `session-cli` does for `session-destroy`). Both are held by

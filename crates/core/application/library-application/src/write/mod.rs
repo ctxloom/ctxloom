@@ -23,7 +23,7 @@ pub(crate) mod companions;
 mod configfile;
 mod configs;
 mod editor;
-mod engines;
+pub(crate) mod engines;
 pub(crate) mod error;
 mod items;
 mod mcp;
@@ -33,6 +33,7 @@ pub mod requests;
 mod skills;
 pub mod views;
 
+pub use engines::postures as permission_modes;
 pub use error::WriteError;
 
 /// The ports the write side needs beyond the library's: the user's own files

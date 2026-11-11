@@ -31,7 +31,10 @@ use surface_ports::{
 
 pub use child::{launcher_environment, transcripts_of};
 pub use codec::Codec;
-pub use drive::{CONTEXT_PROMPT_FILE, COPY_IN_ALLOWLIST, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST};
+pub use drive::{
+    CONTEXT_PROMPT_FILE, COPY_IN_ALLOWLIST, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST,
+    PERMISSION_MODES,
+};
 
 /// The engine's name.
 pub const NAME: &str = "claude-code";

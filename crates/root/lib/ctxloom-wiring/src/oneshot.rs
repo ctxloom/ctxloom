@@ -34,6 +34,7 @@ use runs_application::{AppError as CoreError, Enqueuer};
 use session_files::SessionDirs;
 use system::System;
 
+use crate::signals::{self, Heard};
 use crate::{InProcessCore, Wiring};
 
 /// How long one turn has before its command, and everything it started, is
@@ -112,6 +113,7 @@ impl<'a> OneShots<'a> {
         &self,
         library: Library,
         output_dir: &str,
+        stop: host_launcher::Stop,
     ) -> Result<Runs<InProcessCore<SqliteStore>, OsTokenSource, HostLauncher, SessionDirs>, RunError>
     {
         let wiring = self.wiring;
@@ -145,7 +147,7 @@ impl<'a> OneShots<'a> {
             Arc::new(liveness::RunLockFiles::new(wiring.fs(), wiring.home()));
         let launcher = Launcher::new(
             core.edge(),
-            HostLauncher::default(),
+            HostLauncher::stopped_by(stop),
             SessionDirs::new(wiring.fs(), project_dir.clone()),
             vec![claude, opencode],
             Arc::clone(&orders),
@@ -180,8 +182,29 @@ impl<'a> OneShots<'a> {
             certs: Box::new(hook_tls::Minter::new(hook_tls::SystemClock)),
             locks: Box::new(liveness::LockFiles::new(wiring.fs(), project_dir.clone())),
             run_locks,
+            git_user: git_user(wiring, &project_dir),
         }))
     }
+}
+
+/// How long the git identity is asked for: a git that hangs delays the run's
+/// start by no more than this.
+const GIT_USER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The user's git identity in the project (owner ruling 112), asked of git in
+/// the caller's own environment; none when git knows neither part.
+pub(crate) fn git_user(wiring: &Wiring, project_dir: &Path) -> Option<run_ports::GitUser> {
+    let git = worktree_git::Git::new(
+        wiring.fs(),
+        "git",
+        GIT_USER_DEADLINE,
+        Arc::clone(wiring.env()),
+    );
+    let user = git.user(project_dir);
+    (!user.name.is_empty() || !user.email.is_empty()).then_some(run_ports::GitUser {
+        name: user.name,
+        email: user.email,
+    })
 }
 
 /// The run's hook listener over the core's edge: `Handle` on the run's loopback port
@@ -313,10 +336,13 @@ fn run_runtime() -> std::io::Result<tokio::runtime::Runtime> {
 
 impl OneShots<'_> {
     /// The run use cases over the project, on a runtime of their own, for
-    /// `use_case` to drive.
+    /// `use_case` to drive, hearing the signals that ask ctxloom to stop for
+    /// the whole run and stopping the engine on one of `stop_on`
+    /// ([`crate::signals`]).
     fn with_runs<T>(
         &mut self,
         flags: &Flags,
+        stop_on: &'static [os::Signal],
         use_case: impl AsyncFnOnce(
             &mut Runs<InProcessCore<SqliteStore>, OsTokenSource, HostLauncher, SessionDirs>,
         ) -> Done<T>,
@@ -341,15 +367,35 @@ impl OneShots<'_> {
             Ok(runtime) => runtime,
             Err(e) => return refused(e.to_string()),
         };
+        let (stop, heard) = (host_launcher::Stop::new(), Heard::default());
+        let mut notices = synced;
         runtime.block_on(async {
-            let mut done = match self.assemble(library, &output_dir).await {
+            // Made on the runtime, before anything is launched.
+            let hearing = match self.wiring.fs().os().signals(&signals::HEARD) {
+                Ok(signals) => Some(tokio::spawn(signals::forward(
+                    signals,
+                    stop_on,
+                    stop.clone(),
+                    heard.clone(),
+                ))),
+                Err(e) => {
+                    notices.push(library_application::Notice::text(format!(
+                        "cannot listen for signals ({e}): a signal ends ctxloom without stopping the engine"
+                    )));
+                    None
+                }
+            };
+            let mut done = match self.assemble(library, &output_dir, stop).await {
                 Ok(mut runs) => use_case(&mut runs).await,
                 Err(error) => Done {
                     result: Err(error),
                     notices: Vec::new(),
                 },
             };
-            let mut notices = synced;
+            if let Some(hearing) = hearing {
+                hearing.abort();
+            }
+            heard.overrule(&mut done.result);
             notices.append(&mut done.notices);
             done.notices = notices;
             done
@@ -359,11 +405,15 @@ impl OneShots<'_> {
 
 impl RunService for OneShots<'_> {
     fn one_shot(&mut self, flags: &Flags, request: &OneShot) -> Done<Answer> {
-        self.with_runs(flags, async |runs| runs.one_shot(flags, request).await)
+        self.with_runs(flags, &signals::STOP_ONE_SHOT, async |runs| {
+            runs.one_shot(flags, request).await
+        })
     }
 
     fn interactive(&mut self, flags: &Flags, request: &OneShot) -> Done<Ended> {
-        self.with_runs(flags, async |runs| runs.interactive(flags, request).await)
+        self.with_runs(flags, &signals::STOP_SESSION, async |runs| {
+            runs.interactive(flags, request).await
+        })
     }
 }
 

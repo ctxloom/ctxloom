@@ -2,21 +2,17 @@
 //! the base World: Alice runs `ctxloom init` on an empty project directory,
 //! looks at what it did, and leaves by deleting `.ctxloom`.
 //!
-//! Hermetic: ctxloom's published default content (`ctxloom-default`, which
-//! the seeded default profile inherits from) is a bare repository in the
-//! scenario's temporary directory, and git reaches it through the home's own
-//! git configuration (`url.<fixture>.insteadOf`), so no ctxloom flag or
-//! variable is needed and nothing reaches the network. The fixture is laid
-//! out as `deps pull` reads a remote today: the bundle `ai-developer` with a
-//! `developer` profile, whose fragment carries [`PUBLISHED_MARKER`].
+//! Hermetic: ctxloom's default content, which the seeded default profile
+//! inherits, is built into the binary (owner rulings 110, 111), so nothing
+//! reaches the network and no fixture stands in for it. A session "was
+//! handed" it when the stub's launch record carries [`BUILT_IN_MARKER`], a
+//! line of the built-in `testing#fragments/tdd` in both its forms.
 //!
 //! Claude Code is a stub first on `PATH`, so the engine init finds is the
 //! same on every machine. It records what it was launched with: its
 //! arguments, every file an argument names, its standard input, and every
-//! file of the configuration directory it was pointed at (a session home). A
-//! session "was handed" the published default when that record carries the
-//! marker; the record's shape is to be confirmed when `run` launches an
-//! engine. Alice's own assistant configuration, in her home, is a settings
+//! file of the configuration directory it was pointed at (a session home).
+//! Alice's own assistant configuration, in her home, is a settings
 //! file and an instructions file of hers, so "exactly as it was" compares
 //! something she wrote.
 
@@ -25,16 +21,13 @@ use std::path::PathBuf;
 
 use cucumber::{given, then, when};
 
-use super::super::deps::git_in;
 use super::super::gherkin_common::CommonWorld;
 use super::World;
 use crate::tests::files;
 
-/// The address the seeded default profile's parent names.
-const PUBLISHED_DEFAULT: &str = "https://github.com/ctxloom/ctxloom-default";
-
-/// What the published default's fragment says.
-const PUBLISHED_MARKER: &str = "J000100-PUBLISHED-DEFAULT-MARKER";
+/// What the built-in default content's `testing#fragments/tdd` says, in its
+/// original and its distilled form alike.
+const BUILT_IN_MARKER: &str = "Red-green-refactor is mandatory";
 
 /// The stub engine: records its launch beside itself, and replies as claude
 /// does under `--output-format stream-json`: its session's `init` and a
@@ -70,6 +63,8 @@ pub(super) struct State {
     assistant_before: Option<BTreeMap<String, Vec<u8>>>,
     /// Every file of her home, then.
     home_before: Option<BTreeMap<String, Vec<u8>>>,
+    /// The session the last turn was taken on, by its harp.
+    harp: Option<String>,
 }
 
 /// Every file below `path` (or `path` itself, a file), by its path.
@@ -156,45 +151,6 @@ pub(super) fn claude_code(w: &mut World) {
     w.common.set_env("PATH", path);
 }
 
-#[given("ctxloom's published default content is within reach")]
-pub(super) fn published_default(w: &mut World) {
-    let root = w.adopt_scratch().join("published");
-    let (bare, work) = (root.join("ctxloom-default"), root.join("work"));
-    files::mkdirs(&root);
-    git_in(
-        &root,
-        &["init", "-q", "--bare", "-b", "main", "ctxloom-default"],
-    );
-    git_in(&root, &["init", "-q", "-b", "main", "work"]);
-    let bundle = work.join(".ctxloom/content/bundles/v2/ai-developer");
-    files::put(
-        bundle.join("bundle.yaml"),
-        "version: \"1.0.0\"\ndescription: \"ctxloom's published developer content\"\n",
-    );
-    files::put(
-        bundle.join("fragments/published-default.md"),
-        format!("{PUBLISHED_MARKER}\n"),
-    );
-    files::put(
-        bundle.join("profiles/developer.yaml"),
-        "bundles:\n  - ai-developer\n",
-    );
-    git_in(&work, &["add", "-A"]);
-    git_in(&work, &["commit", "-q", "-m", "published"]);
-    git_in(
-        &work,
-        &["push", "-q", bare.to_str().expect("utf-8"), "main"],
-    );
-    // Longest match wins, so the `.git` spelling maps to the same repository.
-    let to = format!("file://{}", bare.display());
-    w.common.project.write_home(
-        ".gitconfig",
-        &format!(
-            "[url \"{to}\"]\n\tinsteadOf = {PUBLISHED_DEFAULT}.git\n\tinsteadOf = {PUBLISHED_DEFAULT}\n"
-        ),
-    );
-}
-
 /// The token every agent authenticates with: a fixture, so init's check
 /// for it passes and no real credential is read.
 #[given("Alice has exported her assistant's token")]
@@ -241,12 +197,72 @@ fn started_through_ctxloom(w: &mut World) {
     w.ran().succeeds();
 }
 
-#[then("her assistant was handed ctxloom's published default content")]
-fn handed_published_default(w: &mut World) {
+/// Owner ruling 115: another turn on the session the last one-shot made
+/// (its reply, json off a terminal, names it), by `run --session`.
+#[when(expr = "Alice takes another turn on that session with {string}")]
+fn another_turn(w: &mut World, prompt: String) {
+    let harp = w.json()["harp"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the last reply names its session: {}", w.ran().said()))
+        .to_string();
+    w.adopt.harp = Some(harp.clone());
+    w.before_run();
+    w.common.run_lines(
+        &format!("ctxloom run --one-shot \"{prompt}\" --session {harp}"),
+        "",
+    );
+}
+
+#[then("the reply names the same session")]
+fn same_session(w: &mut World) {
+    let harp = w.adopt.harp.clone().expect("a turn was taken on a session");
+    assert_eq!(
+        w.json()["harp"].as_str(),
+        Some(harp.as_str()),
+        "{}",
+        w.ran().said()
+    );
+}
+
+/// The stub's launch record holds each argument on a line: the last launch
+/// was handed `--resume` and the engine's own session id.
+#[then(expr = "the assistant was resumed on its own session {string}")]
+fn resumed_on(w: &mut World, native: String) {
     let record = w.launch_record();
     assert!(
-        record.contains(PUBLISHED_MARKER),
-        "the session's launch carried no published default content: {record}"
+        record.contains(&format!("--resume\n{native}\n")),
+        "no resume of {native}: {record}"
+    );
+}
+
+/// Owner ruling 116: the last launch was handed `flag` and then `value`, two
+/// arguments in a row (the stub records each on a line).
+#[then(expr = "the assistant was launched with {string} {string}")]
+fn launched_with(w: &mut World, flag: String, value: String) {
+    let record = w.launch_record();
+    assert!(
+        record.contains(&format!("{flag}\n{value}\n")),
+        "no {flag} {value}: {record}"
+    );
+}
+
+#[then("her assistant was handed ctxloom's built-in default content")]
+fn handed_built_in_default(w: &mut World) {
+    let record = w.launch_record();
+    assert!(
+        record.contains(BUILT_IN_MARKER),
+        "the session's launch carried no built-in default content: {record}"
+    );
+    for form in ["fragments/tdd.md", "fragments/tdd.distilled.md"] {
+        let shipped = library::builtin::files("testing").expect("built in")[form].clone();
+        assert!(
+            String::from_utf8_lossy(&shipped).contains(BUILT_IN_MARKER),
+            "{form} no longer carries the marker"
+        );
+    }
+    assert!(
+        !files::exists(w.common.project.dir().join(".ctxloom/cache")),
+        "nothing was fetched for it"
     );
 }
 
@@ -281,6 +297,15 @@ fn assistant_env_lacks(w: &mut World, name: String) {
 fn assistant_env_ctxlooms(w: &mut World, name: String, value: String) {
     let env = assistant_env(w);
     assert_ne!(env.get(&name), Some(&value), "{name}");
+}
+
+/// Owner ruling 112: claude's HOME is its session home, its config dir.
+#[then("the assistant's HOME was its session home")]
+fn assistant_home_is_session_home(w: &mut World) {
+    let env = assistant_env(w);
+    let home = env.get("HOME").expect("a HOME");
+    assert_eq!(Some(home), env.get("CLAUDE_CONFIG_DIR"));
+    assert!(home.contains("/.ctxloom/sessions/"), "{home}");
 }
 
 #[then("an assistant was launched")]
@@ -501,4 +526,51 @@ fn outputs_kept_in(w: &mut World, rel: String) {
         Some(want.display().to_string().as_str()),
         "{doc}"
     );
+}
+
+/// The session a one-shot's json reply names is ended, and both `show` and
+/// the listing say when (its incarnation's end, ruling 85), no earlier than
+/// it started.
+#[then("the session that answered is ended and says when it ended")]
+fn says_when_it_ended(w: &mut World) {
+    let reply = w.common.json();
+    let harp = reply["harp"]
+        .as_str()
+        .expect("the reply names its session")
+        .to_string();
+    let env: Vec<(&str, &str)> = w
+        .common
+        .env
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let shown = w
+        .common
+        .project
+        .run_with(&env, &["session", "show", &harp, "--format", "json"]);
+    assert_eq!(shown.code, 0, "{}", shown.said());
+    let doc = super::super::parse_one(&shown.stdout);
+    assert_eq!(doc["state"].as_str(), Some("ended"), "{doc}");
+    let ended = doc["ended_at"].as_str().expect("show says when it ended");
+    let started = doc["started_at"]
+        .as_str()
+        .expect("show says when it started");
+    assert!(
+        ended >= started,
+        "ended {ended} before it started {started}"
+    );
+    let listed = w
+        .common
+        .project
+        .run_with(&env, &["session", "list", "--format", "json"]);
+    assert_eq!(listed.code, 0, "{}", listed.said());
+    let rows = super::super::parse_one(&listed.stdout);
+    let row = rows
+        .as_array()
+        .and_then(|rows| {
+            rows.iter()
+                .find(|r| r["harp"].as_str() == Some(harp.as_str()))
+        })
+        .unwrap_or_else(|| panic!("{harp} is not listed: {rows}"));
+    assert_eq!(row["end"].as_str(), Some(ended), "{row}");
 }

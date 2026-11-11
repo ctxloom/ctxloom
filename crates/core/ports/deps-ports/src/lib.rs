@@ -21,6 +21,10 @@ use std::collections::BTreeMap;
 mod cache;
 pub use cache::{BundleSlot, CachePath, Repository};
 
+/// Where a repository holds its bundles: `<BUNDLES_IN_REPOSITORY>/<bundle>/`
+/// at a commit is the bundle `<bundle>`.
+pub const BUNDLES_IN_REPOSITORY: &str = ".ctxloom/content/bundles/v2";
+
 use angzarr_diagnostic::Diagnostic;
 
 /// Why the library could not read what it was handed: a diagnostic of the

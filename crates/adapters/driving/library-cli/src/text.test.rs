@@ -20,6 +20,7 @@ fn bundle(name: &str, fragments: u64, commands: u64, mcp: u64) -> BundleRow {
         name: name.to_string(),
         reference: format!("ctxloom+local:{name}"),
         path: String::new(),
+        origin: String::new(),
         version: "1.2.0".to_string(),
         description: "demo bundle".to_string(),
         tags: vec!["sample".to_string()],
@@ -172,12 +173,39 @@ fn test_a_profile_listing_summarizes_each_profile() {
             path: String::new(),
             is_remote: false,
             bundle: "ctxloom+local:project".to_string(),
+            origin: String::new(),
         }],
         hint: String::new(),
     };
     assert_eq!(
         shown(|out| profile_list(out, &list)),
         "Profiles (1):\n  dev (default)\n    dev profile\n    from bundle: ctxloom+local:project, parents: base, 1 bundles\n"
+    );
+}
+
+// hand-test 2 2026-11-11: a built-in profile is named as `bundle list` names
+// its bundle, under the built-in origin.
+#[test]
+fn test_a_profile_listing_names_a_built_in_profile_under_its_origin() {
+    let list = ProfileList {
+        rows: vec![ProfileRow {
+            name: "ai-developer#profiles/developer".to_string(),
+            display_name: "developer".to_string(),
+            description: String::new(),
+            parents: Vec::new(),
+            tags: Vec::new(),
+            bundles: vec!["testing".to_string()],
+            default: false,
+            path: String::new(),
+            is_remote: false,
+            bundle: "ai-developer".to_string(),
+            origin: "ctxloom/default".to_string(),
+        }],
+        hint: String::new(),
+    };
+    assert_eq!(
+        shown(|out| profile_list(out, &list)),
+        "Profiles (1):\n  ai-developer#profiles/developer [built-in ctxloom/default]\n    from bundle: ai-developer, 1 bundles\n"
     );
 }
 
@@ -818,6 +846,13 @@ fn test_search_results_group_by_kind_and_show_tags_and_source() {
     assert_eq!(shown(|out| search(out, &none)), "No results found.\n");
 }
 
+fn listed(name: &str, origin: &str) -> library_application::Listed {
+    library_application::Listed {
+        name: st(name),
+        origin: st(origin),
+    }
+}
+
 fn plan() -> DryRun {
     DryRun {
         agent: st("dev"),
@@ -826,6 +861,7 @@ fn plan() -> DryRun {
         engine: st("claude-code"),
         profiles: sv(&["p"]),
         fragments: sv(&["f1", "f2"]),
+        fragments_listed: vec![listed("f1", ""), listed("f2", "")],
         context: st("CTX"),
         tokens: 7,
         prompt: st("go"),
@@ -833,8 +869,10 @@ fn plan() -> DryRun {
         axes: (st("worktree"), st("host")),
         model: String::new(),
         effort: String::new(),
+        permission_mode: String::new(),
         drive: Default::default(),
         settings: None,
+        settings_agent: st("dev"),
         posture: Default::default(),
     }
 }
@@ -850,6 +888,7 @@ fn test_a_dry_run_prints_its_sections_and_names_the_empty_ones() {
         agent: String::new(),
         profiles: Vec::new(),
         fragments: Vec::new(),
+        fragments_listed: Vec::new(),
         context: String::new(),
         prompt: String::new(),
         ..plan()
@@ -857,6 +896,28 @@ fn test_a_dry_run_prints_its_sections_and_names_the_empty_ones() {
     assert_eq!(
         shown(|out| dry_run(out, &empty)),
         "=== Engine ===\nclaude-code\n\n=== Profiles ===\n(no profiles)\n\n=== Fragments Loaded ===\n(no fragments)\n\n=== Assembled Context (~7 tokens) ===\n(no context)\n\n=== Prompt ===\n(interactive mode)\n"
+    );
+}
+
+// hand-test 2 2026-11-11: a built-in fragment is listed as `bundle list`
+// names its bundle, under the built-in origin.
+#[test]
+fn test_a_dry_run_lists_a_built_in_fragment_under_its_origin() {
+    let built_in = DryRun {
+        fragments: sv(&[
+            "ctxloom+local:testing#fragments/tdd",
+            "ctxloom+local:project#fragments/f",
+        ]),
+        fragments_listed: vec![
+            listed("testing#fragments/tdd", "ctxloom/default"),
+            listed("ctxloom+local:project#fragments/f", ""),
+        ],
+        ..plan()
+    };
+    assert!(
+        shown(|out| dry_run(out, &built_in)).contains(
+            "=== Fragments Loaded ===\n  testing#fragments/tdd [built-in ctxloom/default]\n  ctxloom+local:project#fragments/f\n\n"
+        )
     );
 }
 
@@ -953,6 +1014,143 @@ fn test_a_dry_run_shows_each_setting_with_the_place_that_said_it() {
             "  runtime      container-rootless  (runtime)\n  env          none  (default)\n"
         ),
         "{shown_plan}"
+    );
+}
+
+// hand-test 2026-11-10: a run with no --agent takes the default agent's
+// settings, and each is said at its full place, `agents.<name>`, not `agents.`
+// (ruling 72).
+#[test]
+fn test_a_dry_run_of_the_default_agent_names_its_place_in_full() {
+    use library_application::{EnvSetting, RuntimeSetting, SourcedValue};
+    let settings = library_application::AgentSettings {
+        model: SourcedValue {
+            value: Some(st("sonnet")),
+            source: "agent",
+        },
+        effort: SourcedValue {
+            value: None,
+            source: "default",
+        },
+        permissions: SourcedValue {
+            value: st("acceptEdits"),
+            source: "default",
+        },
+        runtime: RuntimeSetting {
+            value: st("host"),
+            source: "agent",
+            overrides: None,
+            overrides_source: None,
+            change: None,
+        },
+        env: EnvSetting {
+            value: Vec::new(),
+            source: "default",
+            keys: Vec::new(),
+        },
+    };
+    let shown_plan = shown(|out| {
+        dry_run(
+            out,
+            &DryRun {
+                agent: String::new(),
+                settings_agent: st("default"),
+                settings: Some(settings),
+                ..plan()
+            },
+        )
+    });
+    assert!(
+        shown_plan.contains("  model        sonnet  (agents.default.engines.claude-code)\n"),
+        "{shown_plan}"
+    );
+    assert!(
+        shown_plan.contains("  runtime      host  (agents.default)\n"),
+        "{shown_plan}"
+    );
+    assert!(!shown_plan.contains("(agents.)"), "{shown_plan}");
+    assert!(!shown_plan.contains("=== Agent ==="), "{shown_plan}");
+}
+
+// hand-test 2 2026-11-11: the dry run showed `permissions acceptEdits
+// (default)` although no permission mode reached the engine. Owner ruling
+// 116 passes claude's (`--permission-mode`), so its row is the mode alone,
+// and its `default` is said as no flag; opencode's is still not passed, and
+// its row says so.
+// A mode nobody set (opencode's) is said as the engine's own, never as an
+// empty value; `engine show` and `agent show` say the same.
+#[test]
+fn test_a_permission_mode_is_said_honestly() {
+    use library_application::{EnvSetting, RuntimeSetting, SourcedValue};
+    let settings = |mode: &str| library_application::AgentSettings {
+        model: SourcedValue {
+            value: None,
+            source: "default",
+        },
+        effort: SourcedValue {
+            value: None,
+            source: "default",
+        },
+        permissions: SourcedValue {
+            value: st(mode),
+            source: "default",
+        },
+        runtime: RuntimeSetting {
+            value: st("host"),
+            source: "default",
+            overrides: None,
+            overrides_source: None,
+            change: None,
+        },
+        env: EnvSetting {
+            value: Vec::new(),
+            source: "default",
+            keys: Vec::new(),
+        },
+    };
+    let on = |engine: &str, mode: &str| {
+        shown(|out| {
+            dry_run(
+                out,
+                &DryRun {
+                    engine: st(engine),
+                    settings: Some(settings(mode)),
+                    ..plan()
+                },
+            )
+        })
+    };
+    let plan_of = |mode: &str| on("claude-code", mode);
+    let claude = plan_of("acceptEdits");
+    assert!(
+        claude.contains("  permissions  acceptEdits  (default)\n"),
+        "{claude}"
+    );
+    assert!(!claude.contains("not passed"), "{claude}");
+    let claude_default = plan_of("default");
+    assert!(
+        claude_default.contains("  permissions  default, no flag passed  (default)\n"),
+        "{claude_default}"
+    );
+    let opencode = on("opencode", "plan");
+    assert!(
+        opencode.contains("  permissions  plan, not passed to the engine yet  (default)\n"),
+        "{opencode}"
+    );
+    let unset = plan_of("");
+    assert!(
+        unset.contains("  permissions  engine default, no mode set  (default)\n"),
+        "{unset}"
+    );
+    let engine = shown(|out| settings_lines(out, &settings(""), "      "));
+    assert!(
+        engine.contains("      permissions: engine default, no mode set (default)\n"),
+        "{engine}"
+    );
+    let agent = shown(|out| settings_lines(out, &settings(""), ""));
+    assert!(
+        agent.contains("Permissions: engine default, no mode set (default)\n"),
+        "{agent}"
     );
 }
 
@@ -1063,4 +1261,24 @@ fn settings(model: Option<&str>) -> library_application::AgentSettings {
             keys: Vec::new(),
         },
     }
+}
+
+// Owner rulings 110, 111: a built-in bundle is listed under its origin.
+#[test]
+fn test_a_built_in_bundle_is_listed_under_its_origin() {
+    let list = BundleList {
+        rows: vec![BundleRow {
+            origin: "ctxloom/default".to_string(),
+            ..bundle("testing", 3, 0, 0)
+        }],
+        no_root: false,
+        hint: String::new(),
+    };
+    let mut out = Vec::new();
+    bundle_list(&mut out, &list).unwrap();
+    let text = String::from_utf8(out).unwrap();
+    assert!(
+        text.contains("  testing (v1.2.0) [built-in ctxloom/default]\n"),
+        "{text}"
+    );
 }

@@ -55,6 +55,8 @@ pub(crate) struct Project {
     _root: file_system::Rooted,
     project: PathBuf,
     home: PathBuf,
+    /// Its runs see the catalog Go had: no built-in bundles.
+    gos_catalog: bool,
 }
 
 impl Project {
@@ -81,6 +83,7 @@ impl Project {
             _root: root,
             project,
             home,
+            gos_catalog: false,
         }
     }
 
@@ -97,6 +100,16 @@ impl Project {
 
     pub(crate) fn dir(&self) -> &Path {
         &self.project
+    }
+
+    /// The project as a Go-ported test holds it: its runs see the catalog Go
+    /// had, with no built-in bundle (owner rulings 110, 111 added them; their
+    /// own contract is `cli/init.feature`'s), so a listing or a search is
+    /// held to the project's own content, whatever a ctxloom release ships.
+    /// The binary's `test-support` variable `CTXLOOM_TEST_NO_BUILTINS` does it.
+    pub(crate) fn on_gos_catalog(mut self) -> Project {
+        self.gos_catalog = true;
+        self
     }
 
     pub(crate) fn home(&self) -> &Path {
@@ -273,7 +286,25 @@ impl Project {
         self.spawn(dir, &[], args)
     }
 
+    /// As [`run_with`](Project::run_with), started and not waited for: its
+    /// output piped, for the caller to wait for.
+    pub(crate) fn start_with(&self, env: &[(&str, &str)], args: &[&str]) -> std::process::Child {
+        let mut all = vec![("CTXLOOM_ROOT", self.project.to_str().expect("utf-8"))];
+        all.extend_from_slice(env);
+        self.process(&self.project, &all, args)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("ctxloom starts")
+    }
+
     fn spawn(&self, cwd: &Path, env: &[(&str, &str)], args: &[&str]) -> Ran {
+        Ran::of(self.process(cwd, env, args).output().expect("ctxloom runs"))
+    }
+
+    /// `ctxloom args` from `cwd`, in the project's home, with `env`.
+    fn process(&self, cwd: &Path, env: &[(&str, &str)], args: &[&str]) -> Command {
         let mut command = Command::new(binary());
         command
             .args(args)
@@ -287,10 +318,13 @@ impl Project {
                 command.env(name, value);
             }
         }
+        if self.gos_catalog {
+            command.env("CTXLOOM_TEST_NO_BUILTINS", "1");
+        }
         for (name, value) in env {
             command.env(name, value);
         }
-        Ran::of(command.output().expect("ctxloom runs"))
+        command
     }
 
     /// What a run printed with the project's and the home's paths written

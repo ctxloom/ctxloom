@@ -1,0 +1,4 @@
+---
+distilled_by: claude-code
+---
+Mutation testing is the deterministic check on test quality; LLM tests look plausible while hiding tautological assertions, boundary gaps, and implementation coupling. After the TDD round-trip: run mutation testing, analyze survivors, add tests that kill them or accept the gap explicitly. Tools: cargo-mutants (Rust), pitest (Java), mutmut/cosmic-ray (Python), stryker (JS/TS), gomutation/go-mutesting (Go). Kill-rate targets: 80-90% pure functions and business logic, 60-70% framework glue, logging-only paths exempt. Coverage measures execution, mutation measures verification (80-90% coverage teams routinely see 30% kill rates). Never game the score with adjacent `assert!(true)`.

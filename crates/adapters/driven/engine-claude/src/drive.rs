@@ -11,8 +11,9 @@
 //! outcome.
 //!
 //! The command's environment is built here and is all it gets: the session
-//! home as `CLAUDE_CONFIG_DIR` (the user's `~/.claude` is never named), and
-//! the caller's variables that are on [`ENV_ALLOWLIST`].
+//! home as `CLAUDE_CONFIG_DIR` and as `HOME` (owner ruling 112; the user's
+//! `~/.claude` is never named), and the caller's variables that are on
+//! [`ENV_ALLOWLIST`].
 
 use std::collections::BTreeMap;
 
@@ -21,10 +22,16 @@ use run_ports::{
     TurnCommand, TurnOutcome, TurnOutput, TurnRequest,
 };
 
+use surface_ports::Json;
+
 use crate::{stream, Claude, NAME};
 
 /// The settings file of a session home (claude's config dir).
 const SETTINGS_FILE: &str = "settings.json";
+
+/// claude's own state file in its config dir (the session home): what it
+/// keeps of its onboarding and of each project it ran in.
+pub const STATE_FILE: &str = ".claude.json";
 
 /// The context file's name in the session home.
 pub const CONTEXT_PROMPT_FILE: &str = "ctxloom-context.md";
@@ -35,11 +42,11 @@ const PROGRAM: &str = "claude";
 /// The variables of the caller's environment a turn is given: how to find
 /// programs, locale and temp space, the proxy and certificate settings a
 /// network needs, the two ways claude is handed a credential, and what the
-/// turn's hook processes need (owner ruling 51): ctxloom's home by name (they
-/// run without `HOME`), the session's harp, and the run's listener (the
-/// endpoint, the bearer, the hook principal's secret, the run and the
-/// listener's public certificate). The user's `HOME` and every other variable
-/// stay behind.
+/// turn's hook processes need (owner ruling 51): ctxloom's home by name (their
+/// `HOME` is the session home, ruling 112), the session's harp, and the run's
+/// listener (the endpoint, the bearer, the hook principal's secret, the run
+/// and the listener's public certificate). The user's `HOME` and every other
+/// variable stay behind.
 pub const ENV_ALLOWLIST: &[&str] = &[
     "PATH",
     "LANG",
@@ -130,7 +137,7 @@ impl Engine for Claude {
     fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
         // Hooks are how a session is heard, the terminal's and a child's turn
         // alike (owner ruling 51); a child registers the per-turn events only.
-        let files = vec![
+        let mut files = vec![
             HomeFile {
                 rel: CONTEXT_PROMPT_FILE.to_string(),
                 bytes: request.context.clone().into_bytes(),
@@ -140,11 +147,22 @@ impl Engine for Claude {
                 bytes: crate::hooks::home_settings(request.interactive).into_bytes(),
             },
         ];
+        let existing = request.existing.get(STATE_FILE).map(Vec::as_slice);
+        if let Some(bytes) = seeded_state(existing, request.cwd.as_deref()) {
+            files.push(HomeFile {
+                rel: STATE_FILE.to_string(),
+                bytes,
+            });
+        }
         Ok(Prepared {
             files,
             copy_in: copy_in(COPY_IN_ALLOWLIST, &request.offered),
             context_path: format!("{}/{CONTEXT_PROMPT_FILE}", request.home),
         })
+    }
+
+    fn merges(&self) -> &'static [&'static str] {
+        &[STATE_FILE]
     }
 
     fn drive_turn(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
@@ -157,6 +175,7 @@ impl Engine for Claude {
         // The turn's hooks: the session dir's settings, as the terminal's.
         push_settings(&mut command.args, request);
         push_model_and_effort(&mut command.args, request)?;
+        push_permission_mode(&mut command.args, request)?;
         if let Some(native_id) = &request.resume {
             command.args.push("--resume".to_string());
             command.args.push(native_id.clone());
@@ -198,6 +217,7 @@ impl Engine for Claude {
         command.args.push(request.context_path.clone());
         push_settings(&mut command.args, request);
         push_model_and_effort(&mut command.args, request)?;
+        push_permission_mode(&mut command.args, request)?;
         if let Some(native_id) = &request.resume {
             command.args.push("--resume".to_string());
             command.args.push(native_id.clone());
@@ -209,6 +229,37 @@ impl Engine for Claude {
         command.cwd = request.cwd.clone();
         Ok(command)
     }
+}
+
+/// claude's state file with the onboarding marked done and `cwd` trusted
+/// (owner ruling 113: the keys claude 2.1.322 reads; a release that changes
+/// them shows its onboarding again, visible and harmless), merged into what
+/// the home holds (`existing`; none, a fresh file). A file that is not a JSON
+/// object is claude's to deal with: none, the file is left as it is.
+fn seeded_state(existing: Option<&[u8]>, cwd: Option<&str>) -> Option<Vec<u8>> {
+    let mut state = match existing {
+        None => Json::Object(Vec::new()),
+        Some(bytes) => match std::str::from_utf8(bytes).ok().map(Json::parse) {
+            Some(Ok(doc @ Json::Object(_))) => doc,
+            _ => return None,
+        },
+    };
+    state.set("hasCompletedOnboarding", Json::Bool(true));
+    if let Some(dir) = cwd {
+        let project = object_at(object_at(&mut state, "projects"), dir);
+        project.set("hasTrustDialogAccepted", Json::Bool(true));
+    }
+    Some(format!("{}\n", state.pretty()).into_bytes())
+}
+
+/// The object member `key` of `parent` (an object), made an empty object
+/// when it is missing or is not one.
+fn object_at<'a>(parent: &'a mut Json, key: &str) -> &'a mut Json {
+    if !matches!(parent.get(key), Some(Json::Object(_))) {
+        parent.set(key, Json::Object(Vec::new()));
+    }
+    // Present and an object: set just above when it was not.
+    parent.get_mut(key).expect("the member was just set")
 }
 
 /// `--settings <session home>/settings.json`. claude reads one `--settings`
@@ -224,6 +275,42 @@ pub(crate) fn push_settings(args: &mut Vec<String>, request: &TurnRequest) {
 
 /// The effort levels `claude --effort` takes (`claude --help`, 2.1.321).
 pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
+/// The permission modes `claude --permission-mode` takes (`claude --help`,
+/// 2.1.322: "choices: acceptEdits, auto, bypassPermissions, manual, dontAsk,
+/// plan"; owner ruling 116).
+pub const PERMISSION_MODES: [&str; 6] = [
+    "acceptEdits",
+    "auto",
+    "bypassPermissions",
+    "manual",
+    "dontAsk",
+    "plan",
+];
+
+/// The config's word for claude's own default mode, passed as no flag
+/// (claude 2.1.322 no longer takes `default` as a choice).
+const DEFAULT_MODE: &str = "default";
+
+/// `--permission-mode <mode>` when the agent's mode names one (owner ruling
+/// 116); none, or `default`, is no flag (claude's own default). A mode claude
+/// does not take is refused here, before it is launched.
+fn push_permission_mode(args: &mut Vec<String>, request: &TurnRequest) -> Result<(), EngineError> {
+    let mode = request.permission_mode.as_str();
+    if mode.is_empty() || mode == DEFAULT_MODE {
+        return Ok(());
+    }
+    if !PERMISSION_MODES.contains(&mode) {
+        return Err(EngineError::UnknownPermissionMode {
+            engine: NAME.to_string(),
+            mode: mode.to_string(),
+            known: PERMISSION_MODES.join(", "),
+        });
+    }
+    args.push("--permission-mode".to_string());
+    args.push(mode.to_string());
+    Ok(())
+}
 
 /// `--model <model>` and `--effort <level>` when the agent names them; none
 /// named is no flag (the engine's own default). A level claude does not take
@@ -296,9 +383,9 @@ pub(crate) fn child_may_have(
 /// allowlist, on the engine block's `env` and on the configured credential
 /// source: a bounded, enumerable set (the container runtime reads it), never
 /// the whole environment, and
-/// `CLAUDE_CONFIG_DIR` set to the session's home, or to the user's own
-/// directory when the engine block says `session_home: host`. A child is never
-/// given the primary's token.
+/// `CLAUDE_CONFIG_DIR` and `HOME` set to the session's home, or to the user's
+/// own directory and home when the engine block says `session_home: host`. A
+/// child is never given the primary's token.
 pub(crate) fn environment(
     engine: &Claude,
     interactive: bool,
@@ -323,8 +410,11 @@ pub(crate) fn environment(
         .filter(|(name, _)| passes(name))
         .map(|(name, value)| (name.clone(), value.clone()))
         .collect();
-    let config_dir = match settings.session_home {
-        SessionHome::Session => request.home.clone(),
+    // HOME is the session home (owner ruling 112, parity with opencode): what
+    // the engine's tools keep under `~` lands in the session's own directory,
+    // never in the project. Under `session_home: host` it is the user's own.
+    let (home, config_dir) = match settings.session_home {
+        SessionHome::Session => (request.home.clone(), request.home.clone()),
         SessionHome::Host => {
             let home = request
                 .env
@@ -333,9 +423,10 @@ pub(crate) fn environment(
                 .ok_or_else(|| EngineError::NoHostHome {
                     engine: NAME.to_string(),
                 })?;
-            format!("{home}/{}", LOGIN_DIR)
+            (home.clone(), format!("{home}/{}", LOGIN_DIR))
         }
     };
+    env.insert("HOME".to_string(), home);
     env.insert("CLAUDE_CONFIG_DIR".to_string(), config_dir);
     Ok(env)
 }

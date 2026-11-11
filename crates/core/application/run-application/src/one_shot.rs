@@ -22,7 +22,7 @@ use std::sync::Arc;
 use angzarr_diagnostic::Diagnostic;
 
 use angzarr_embedded::v1::{Cover, Uuid};
-use angzarr_embedded::{Catalog, CommandBookExt, Failure, Processed, ReadStore, Store};
+use angzarr_embedded::{Catalog, CommandBookExt, Failure, Payload, Processed, ReadStore, Store};
 use library_application::{AppError as PlanError, Flags, Notice, Outcome, Previewed, RunRequest};
 use ports::{CommandIds, Names, Project, ProjectIdentity};
 use run_launcher::{Launched, Launcher, Order, Orders, Outcome as Turn};
@@ -31,8 +31,9 @@ use runs_application::{
     AppError as CoreError, EnqueueError, EnqueueRequest, Enqueued, Enqueuer, Evidence,
 };
 use sessions::{
-    claim_root, ClaimName, MintSession, NameClaimCommand, Origin, ReleaseName, SessionCommand,
-    SessionRejection, NAMES_DOMAIN, SESSION_DOMAIN,
+    claim_root, ClaimName, MintSession, NameClaimCommand, NameClaimEvent, Origin, ReleaseName,
+    ResumeSession, SessionCommand, SessionEvent, SessionRejection, SessionState, NAMES_DOMAIN,
+    SESSION_DOMAIN,
 };
 
 use crate::credential::{credential_evidence, share_login};
@@ -54,6 +55,9 @@ pub struct OneShot {
     pub run: RunRequest,
     /// `--engine`: the engine to drive instead of the plan's.
     pub engine: String,
+    /// `--session <harp>`: the session to resume (owner ruling 115); empty
+    /// is a new session.
+    pub session: String,
 }
 
 /// What a one-shot answered.
@@ -169,6 +173,7 @@ pub struct Runs<K: Core, T: run_ports::TokenSource, L: RunnerLauncher, R: Sessio
     pub(crate) certs: Box<dyn CertMint>,
     pub(crate) locks: Box<dyn session_ports::SessionLock>,
     pub(crate) run_locks: Arc<dyn run_ports::RunLocks>,
+    pub(crate) git_user: Option<run_ports::GitUser>,
 }
 
 /// What an engine is told of the run's listener: its URL and the public part
@@ -191,7 +196,20 @@ struct Started {
     harp: String,
     engine: String,
     run: Uuid,
+    /// The session's incarnation the run is: 1 for a new session, the next
+    /// for a resume (owner ruling 115).
+    incarnation: u32,
     lock: session_ports::Held,
+}
+
+/// A session a run resumes (owner ruling 115): its id and name, its engine,
+/// and the engine's own session the run hands it.
+#[derive(Clone, Debug)]
+struct Resume {
+    session: String,
+    harp: String,
+    engine: String,
+    native_id: String,
 }
 
 /// The engine a run is on: the one asked for, else the plan's.
@@ -271,6 +289,9 @@ pub struct Parts<K: Core, T: run_ports::TokenSource, L: RunnerLauncher, R: Sessi
     /// The run's own lock, which this process holds from before the enqueue
     /// is visible until the runner is started (rulings 86, 92).
     pub run_locks: Arc<dyn run_ports::RunLocks>,
+    /// The user's git identity in the project, which a session home is
+    /// seeded with (owner ruling 112); none known, none is seeded.
+    pub git_user: Option<run_ports::GitUser>,
 }
 
 impl<K, T, L, R> Runs<K, T, L, R>
@@ -299,16 +320,22 @@ where
             certs: parts.certs,
             locks: parts.locks,
             run_locks: parts.run_locks,
+            git_user: parts.git_user,
         }
     }
 
     /// `run --one-shot`: one turn on the prompt, and its answer.
     pub async fn one_shot(&mut self, flags: &Flags, request: &OneShot) -> Done<Answer> {
+        let (request, resume) = match self.resolve(request).await {
+            Ok(resolved) => resolved,
+            Err(error) => return refused(error),
+        };
+        let request = &request;
         let planned = self.plan(flags, request);
         let mut notices = planned.notices;
         let result = match planned.result {
             Err(error) => Err(RunError::Plan(Box::new(error))),
-            Ok(previewed) => self.run(previewed, request, &mut notices).await,
+            Ok(previewed) => self.run(previewed, request, resume, &mut notices).await,
         };
         Done {
             result,
@@ -320,16 +347,138 @@ where
     /// and the run ends when she leaves it; a prompt is optional, and opens the
     /// conversation when given.
     pub async fn interactive(&mut self, flags: &Flags, request: &OneShot) -> Done<Ended> {
+        let (request, resume) = match self.resolve(request).await {
+            Ok(resolved) => resolved,
+            Err(error) => return refused(error),
+        };
+        let request = &request;
         let planned = self.plan(flags, request);
         let mut notices = planned.notices;
         let result = match planned.result {
             Err(error) => Err(RunError::Plan(Box::new(error))),
-            Ok(previewed) => self.session(previewed, request, &mut notices).await,
+            Ok(previewed) => self.session(previewed, request, resume, &mut notices).await,
         };
         Done {
             result,
             notices: std::mem::take(&mut notices),
         }
+    }
+
+    /// The request as it is planned, and the session it resumes, if it names
+    /// one (owner ruling 115): planned on the session's own engine unless
+    /// `--engine` names one (the session's aggregate refuses another).
+    async fn resolve(&mut self, request: &OneShot) -> Result<(OneShot, Option<Resume>), RunError> {
+        if request.session.is_empty() {
+            return Ok((request.clone(), None));
+        }
+        let resume = self.resumable(&request.session).await?;
+        let mut request = request.clone();
+        if request.engine.is_empty() {
+            request.engine = resume.engine.clone();
+            request.run.engine = resume.engine.clone();
+        }
+        Ok((request, Some(resume)))
+    }
+
+    /// The session named `harp`, if it can be resumed as far as a read says:
+    /// a name no session holds is `SessionUnknown`, a claimed name whose
+    /// stream holds nothing (`session remove` destroyed it, its claim kept,
+    /// ruling 94c) `SessionDestroyed`, and a session whose lock another
+    /// process holds `SessionRunning`. Runs other processes left are swept
+    /// first (the launcher's step: an owner found dead ends its incarnation,
+    /// ruling 93), so a crashed session's open incarnation does not keep it.
+    async fn resumable(&mut self, harp: &str) -> Result<Resume, RunError> {
+        let refuse = RunError::Resume;
+        self.launch().await?;
+        let project = self.identity.for_write(None).map_err(RunError::Project)?;
+        let edge = self.core.edge();
+        let failed = |e: &dyn std::fmt::Display| {
+            RunError::Session(CoreError::Failed {
+                reason: e.to_string(),
+            })
+        };
+        let mut holder = None;
+        for any in event_bodies(
+            &edge
+                .events(&claim_cover(&project, harp), 0)
+                .await
+                .map_err(|e| failed(&e))?,
+        ) {
+            match NameClaimEvent::from_any(any).map_err(|e| failed(&e))? {
+                NameClaimEvent::Claimed(claimed) => holder = Some(claimed.session),
+                NameClaimEvent::Released(_) => holder = None,
+            }
+        }
+        let Some(session) = holder else {
+            return Err(refuse(SessionRejection::SessionUnknown {
+                harp: harp.to_string(),
+            }));
+        };
+        let state = self.session_state(&session).await?;
+        if state.harp.is_empty() {
+            return Err(refuse(SessionRejection::SessionDestroyed {
+                harp: harp.to_string(),
+            }));
+        }
+        if self.run_locks.session(&self.place.project_dir, harp) == run_ports::LockProbe::Held {
+            return Err(refuse(SessionRejection::SessionRunning {
+                harp: harp.to_string(),
+            }));
+        }
+        Ok(Resume {
+            session,
+            harp: state.harp,
+            engine: state.engine,
+            native_id: state.native_id,
+        })
+    }
+
+    /// The session `session` as its stream folds now.
+    async fn session_state(&self, session: &str) -> Result<SessionState, RunError> {
+        let failed = |e: &dyn std::fmt::Display| {
+            RunError::Session(CoreError::Failed {
+                reason: e.to_string(),
+            })
+        };
+        let pages = self
+            .core
+            .edge()
+            .events(&session_cover(session), 0)
+            .await
+            .map_err(|e| failed(&e))?;
+        let mut state = SessionState::default();
+        for page in &pages {
+            if let Some(angzarr_embedded::v1::event_page::Body::Event(any)) = &page.body {
+                let event = SessionEvent::from_any(any).map_err(|e| failed(&e))?;
+                let at = page
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| meta.recorded_at)
+                    .unwrap_or_default();
+                sessions::apply(&mut state, &event, at);
+            }
+        }
+        Ok(state)
+    }
+
+    /// Owe `resume`'s session its next incarnation on `engine` (the
+    /// aggregate's `ResumeSession`, which refuses a session running, one with
+    /// no native session, or another engine): the incarnation owed.
+    async fn owe(&self, resume: &Resume, engine: &str) -> Result<u32, RunError> {
+        let command: SessionCommand = ResumeSession {
+            harp: resume.harp.clone(),
+            engine: engine.to_string(),
+        }
+        .into();
+        self.core
+            .edge()
+            .handle(angzarr_embedded::v1::CommandBook::command_of(
+                session_cover(&resume.session),
+                &command,
+            ))
+            .await
+            .map_err(resume_refused)?;
+        Ok(self.session_state(&resume.session).await?.incarnation)
     }
 
     /// The plan of the run asked for. An engine this build does not drive is
@@ -395,39 +544,92 @@ where
         &mut self,
         previewed: Previewed,
         request: &OneShot,
+        resume: Option<Resume>,
         interactive: bool,
         notices: &mut Vec<Notice>,
     ) -> Result<(Box<dyn run_ports::Serving>, Started), RunError> {
         let engine = chosen_engine(&previewed.plan, request);
         let settings = settings_of(&previewed.plan, &engine);
-        let id = uuid::Uuid::from_slice(&self.ids.command_id().value).unwrap_or_default();
-        let session = id.hyphenated().to_string();
-        let enqueued = self
-            .enqueue(&previewed, &session, &engine, &settings, interactive)
-            .await?;
-        let made = self.make(&session, &engine, interactive).await;
+        // A resume owes its session the next incarnation before its run is
+        // enqueued (owner ruling 115), so a refused resume has burned no run
+        // stream; a new session is minted after (its first incarnation).
+        let (session, incarnation) = match &resume {
+            Some(resume) => (resume.session.clone(), self.owe(resume, &engine).await?),
+            None => {
+                let id = uuid::Uuid::from_slice(&self.ids.command_id().value).unwrap_or_default();
+                (id.hyphenated().to_string(), 1)
+            }
+        };
+        let enqueued = match self
+            .enqueue(
+                &previewed,
+                &session,
+                incarnation,
+                &engine,
+                &settings,
+                interactive,
+            )
+            .await
+        {
+            Ok(enqueued) => enqueued,
+            Err(error) => {
+                if matches!(error, RunError::Refused(_)) {
+                    // The plan's fatal findings, beside a refusal of other
+                    // checks, are said as warnings (the preview leaves them
+                    // to the refusal that lists them, which this one does
+                    // not).
+                    notices.extend(previewed.fatal.iter().map(|f| Notice::Finding {
+                        text: f.text.clone(),
+                        remedy: f.remedy.clone(),
+                    }));
+                }
+                if resume.is_some() {
+                    self.incarnation_ended(&session, incarnation, LAUNCH_FAILED)
+                        .await;
+                }
+                return Err(error);
+            }
+        };
+        let made = match &resume {
+            Some(resume) => Ok(resume.harp.clone()),
+            None => self.make(&session, &engine, interactive).await,
+        };
         let harp = match made {
             Ok(harp) => harp,
-            Err(error) => return Err(self.abandon(&enqueued.run, &session, false, error).await),
+            Err(error) => {
+                return Err(self
+                    .abandon(&enqueued.run, &session, incarnation, false, error)
+                    .await)
+            }
         };
         let lock = match self.locks.hold(&harp) {
             Ok(lock) => lock,
             Err(report) => {
                 let error = RunError::Lock(report);
-                return Err(self.abandon(&enqueued.run, &session, true, error).await);
+                return Err(self
+                    .abandon(&enqueued.run, &session, incarnation, true, error)
+                    .await);
             }
         };
         let Listening { serving, told } = match self.serve().await {
             Ok(listening) => listening,
-            Err(error) => return Err(self.abandon(&enqueued.run, &session, true, error).await),
+            Err(error) => {
+                return Err(self
+                    .abandon(&enqueued.run, &session, incarnation, true, error)
+                    .await)
+            }
         };
         let started = self.start(
             previewed,
             request,
             interactive,
             &told,
-            session,
-            harp,
+            Placed {
+                session,
+                harp,
+                incarnation,
+                resume: resume.map(|resume| resume.native_id),
+            },
             &enqueued,
             lock,
         );
@@ -463,25 +665,29 @@ where
             Turn::NotStarted { .. } => LAUNCH_FAILED,
             _ => RUNNER_EXIT,
         };
-        self.incarnation_ended(&started.session, cause).await;
+        self.incarnation_ended(&started.session, started.incarnation, cause)
+            .await;
         self.ended(&started.run).await?;
         Ok(ours)
     }
 
     /// Tell `session` its incarnation ended, for `cause`; a telling that
     /// fails leaves it to a sweep (ruling 93), and is not the run's failure.
-    async fn incarnation_ended(&self, session: &str, cause: &str) {
+    async fn incarnation_ended(&self, session: &str, incarnation: u32, cause: &str) {
         let facts = runs_application::Facts::new(self.core.edge());
-        let _ = facts.incarnation_ended(session, 1, cause).await;
+        let _ = facts.incarnation_ended(session, incarnation, cause).await;
     }
 
     async fn session(
         &mut self,
         previewed: Previewed,
         request: &OneShot,
+        resume: Option<Resume>,
         notices: &mut Vec<Notice>,
     ) -> Result<Ended, RunError> {
-        let (serving, started) = self.ready(previewed, request, true, notices).await?;
+        let (serving, started) = self
+            .ready(previewed, request, resume, true, notices)
+            .await?;
         let launched = self.drive(serving, &started).await?;
         said_permits(&launched, notices);
         let Started {
@@ -516,6 +722,7 @@ where
         &mut self,
         previewed: &Previewed,
         session: &str,
+        incarnation: u32,
         engine: &str,
         settings: &run_ports::EngineSettings,
         interactive: bool,
@@ -535,11 +742,11 @@ where
         };
         // The run's own lock, taken before its enqueue is visible (ruling 92):
         // no other process ever sees it owed a runner with its lock free.
-        let run = text(&runs::run_root(session, 1));
+        let run = text(&runs::run_root(session, incarnation));
         let lock = self.run_locks.hold_run(&run).map_err(RunError::Lock)?;
         let request = EnqueueRequest {
             session: session.to_string(),
-            incarnation: 1,
+            incarnation,
             mode,
             evidence,
             launcher_lock: lock.path().to_string(),
@@ -547,7 +754,7 @@ where
         let enqueued = self.enqueuer.enqueue(request).await;
         if enqueued.is_ok() {
             // Held until the launcher has started the runner.
-            self.orders.hold(session, 1, lock);
+            self.orders.hold(session, incarnation, lock);
         }
         enqueued.map_err(|error| match error {
             EnqueueError::Refused(runs::RunRejection::LaunchRefused { refusals, .. })
@@ -604,14 +811,18 @@ where
         &mut self,
         run: &Uuid,
         session: &str,
+        incarnation: u32,
         minted: bool,
         error: RunError,
     ) -> RunError {
         let facts = runs_application::Facts::new(self.core.edge());
         let _ = facts.launch_failed(run, false, error.code()).await;
-        self.orders.release(session, 1);
+        self.orders.release(session, incarnation);
+        // A resume's incarnation was owed before its run was enqueued: its
+        // callers pass `minted` for it.
         if minted {
-            self.incarnation_ended(session, LAUNCH_FAILED).await;
+            self.incarnation_ended(session, incarnation, LAUNCH_FAILED)
+                .await;
         }
         error
     }
@@ -625,11 +836,16 @@ where
         request: &OneShot,
         interactive: bool,
         told: &Told,
-        session: String,
-        harp: String,
+        placed: Placed,
         enqueued: &Enqueued,
         lock: session_ports::Held,
     ) -> Started {
+        let Placed {
+            session,
+            harp,
+            incarnation,
+            resume,
+        } = placed;
         let plan = previewed.plan;
         let engine = chosen_engine(&plan, request);
         let settings = settings_of(&plan, &engine);
@@ -640,9 +856,10 @@ where
         // replaced by this run's, never passed on.
         let mut env = self.env.clone();
         // What the run itself sets for the engine, which no permit replaces
-        // (ruling 78b): HOME is ctxloom's own home (its hook processes' wiring
-        // reads it first), and the PATH below; the CTXLOOM_* names are the
-        // run's whatever this says.
+        // (ruling 78b): HOME, which the engine's adapter makes the session
+        // home (ruling 112; ctxloom's own is CTXLOOM_HOME, which its hook
+        // processes' wiring reads first), and the PATH below; the CTXLOOM_*
+        // names are the run's whatever this says.
         let mut owned = vec!["HOME".to_string()];
         for name in run_ports::HOOK_VARIABLES {
             env.remove(name);
@@ -672,7 +889,7 @@ where
         ));
         self.orders.place(
             &session,
-            1,
+            incarnation,
             Order {
                 harp: harp.clone(),
                 engine: engine.clone(),
@@ -683,8 +900,11 @@ where
                 interactive,
                 model: plan.model,
                 effort: plan.effort,
+                permission_mode: plan.permission_mode,
                 settings,
                 owned,
+                git_user: self.git_user.clone(),
+                resume,
             },
         );
         Started {
@@ -692,6 +912,7 @@ where
             harp,
             engine,
             run: enqueued.run.clone(),
+            incarnation,
             lock,
         }
     }
@@ -711,9 +932,12 @@ where
         &mut self,
         previewed: Previewed,
         request: &OneShot,
+        resume: Option<Resume>,
         notices: &mut Vec<Notice>,
     ) -> Result<Answer, RunError> {
-        let (serving, started) = self.ready(previewed, request, false, notices).await?;
+        let (serving, started) = self
+            .ready(previewed, request, resume, false, notices)
+            .await?;
         let ours = self.drive(serving, &started).await?;
         said_permits(&ours, notices);
         let Started {
@@ -867,6 +1091,61 @@ where
         } else {
             Err(RunError::NotEnded { run: text(run) })
         }
+    }
+}
+
+/// Where a run's order is placed: its session, name and incarnation, and
+/// the engine's own session it resumes (none: a new one).
+struct Placed {
+    session: String,
+    harp: String,
+    incarnation: u32,
+    resume: Option<String>,
+}
+
+/// A command refused before it ran: its error, nothing noticed.
+fn refused<T>(error: RunError) -> Done<T> {
+    Done {
+        result: Err(error),
+        notices: Vec::new(),
+    }
+}
+
+/// A resume's command refused or failed: the session domain's refusal as
+/// itself (its type read back as the rejection), anything else the kernel's.
+fn resume_refused(failure: Failure<angzarr_embedded::Rejected>) -> RunError {
+    if let Failure::Rejected(rejected) = &failure {
+        let rejection = rejected
+            .rejection::<angzarr_embedded::markup::TypedRefusal>()
+            .and_then(|typed| SessionRejection::try_from(typed).ok());
+        if let Some(rejection) = rejection {
+            return RunError::Resume(rejection);
+        }
+    }
+    RunError::Session(CoreError::from_failure(failure))
+}
+
+/// The event bodies of a stream's pages, oldest first.
+fn event_bodies(pages: &[angzarr_embedded::v1::EventPage]) -> Vec<&angzarr_embedded::Any> {
+    pages
+        .iter()
+        .filter_map(|page| match &page.body {
+            Some(angzarr_embedded::v1::event_page::Body::Event(any)) => Some(any),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The stream of the session `session` (its id's text).
+fn session_cover(session: &str) -> Cover {
+    let root = uuid::Uuid::parse_str(session).map_or_else(
+        |_| Uuid::from_bytes([0; 16]),
+        |id| Uuid::from_bytes(*id.as_bytes()),
+    );
+    Cover {
+        domain: SESSION_DOMAIN.to_string(),
+        root: Some(root),
+        edition: None,
     }
 }
 

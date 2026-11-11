@@ -14,6 +14,7 @@ mod child;
 mod discovery;
 mod edge;
 mod engine;
+mod git;
 mod hook;
 mod launcher;
 mod locks;
@@ -40,6 +41,7 @@ pub use engine::{
     copy_in, Credentials, Engine, EngineError, FailureClass, HomeFile, PrepareRequest, Prepared,
     TurnOutcome, TurnRequest, HOME_VARIABLE,
 };
+pub use git::{git_config, GitUser, GIT_CONFIG_FILE};
 pub use hook::{
     endpoint_url, hook_environment, parse_endpoint, Bearer, BearerError, Dial, EndpointError,
     RedactedEnv, BEARER_VARIABLE, ENDPOINT_VARIABLE, HARP_VARIABLE, HOOK_VARIABLES, RUN_VARIABLE,
@@ -76,6 +78,11 @@ pub fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
         engine: "claude-code".to_string(),
         level: "extreme".to_string(),
         known: "low, medium, high".to_string(),
+    }));
+    samples.push(Box::new(EngineError::UnknownPermissionMode {
+        engine: "claude-code".to_string(),
+        mode: "nonsense".to_string(),
+        known: "acceptEdits, plan".to_string(),
     }));
     samples.push(Box::new(EngineError::NoHostHome {
         engine: "claude-code".to_string(),

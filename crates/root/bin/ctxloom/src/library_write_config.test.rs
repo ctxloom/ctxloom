@@ -18,11 +18,13 @@ use crate::tests::files;
 
 const CONFIG: &str = ".ctxloom/config.yaml";
 
-/// `resources/default-remotes.yaml` at ca14d6046.
-const DEFAULT_REMOTES: &str = "# ctxloom Remote Sources\n# Pre-configured remotes for common ctxloom bundles and profiles.\n#\n# Registering a remote is the trust act: its content reaches the assistant\n# because the project added it.\n\nschema_version: 1\n\nremotes:\n  ctxloom-default:\n    url: https://github.com/ctxloom/ctxloom-default\n";
+/// `resources/default-remotes.yaml` at ca14d6046, with no remote seeded
+/// (owner ruling 111).
+const DEFAULT_REMOTES: &str = library::write::scaffold::DEFAULT_REMOTES;
 
-/// `resources/profiles/default.yaml` at ca14d6046.
-const SEED_PROFILE: &str = "description: \"Local default coding profile scaffolded by `ctxloom init`: the project's primary implementer context, inheriting ctxloom-default's developer profile. Edit it freely; `ctxloom init prompt` re-enters the setup interview any time.\"\ntags:\n  - default\n# A LOCAL profile (owned and editable in this project's .ctxloom), not a bare\n# remote reference.\n#\n# The baseline-conduct parent was REMOVED with the `default` bundle it pointed\n# at. Conduct is no longer SEEDED into every project as a fixed parent; it is\n# offered by init's phase-3 survey as content carrying the `default` tag, which\n# the user includes or declines like anything else. A tag is a recommendation\n# the user answers; a seeded parent is a decision made on their behalf before\n# they arrive.\nparents:\n  - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/ai-developer@branch:main#profiles/developer\n";
+/// `resources/profiles/default.yaml` at ca14d6046, inheriting the built-in
+/// developer profile (owner rulings 110, 111).
+const SEED_PROFILE: &str = library::write::scaffold::SEED_PROFILE;
 
 const CLAUDE_CONFIG: &str = "agents:\n  default:\n    engine: claude-code\n    profiles:\n      - default\n    runtime: host\ndefault_agent: default\nschema_version: 9\n";
 
@@ -44,6 +46,8 @@ fn test_create_scaffolds_the_config_the_remotes_registry_and_the_seeded_profile(
         project.read(".ctxloom/remotes.yaml").as_deref(),
         Some(DEFAULT_REMOTES)
     );
+    assert!(!DEFAULT_REMOTES.contains("ctxloom-default"));
+    assert!(SEED_PROFILE.contains("\n  - ai-developer#profiles/developer\n"));
     assert_eq!(
         project
             .read(".ctxloom/content/bundles/v2/project/bundle.yaml")

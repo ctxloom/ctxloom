@@ -419,6 +419,27 @@ fn test_a_bundle_that_cannot_be_installed_fails_the_pull_and_is_not_locked() {
     assert!(fx.files.lock_text().is_none());
 }
 
+// Hand-test 2026-11-10: a repository whose bundle is not where ctxloom reads
+// bundles (`.ctxloom/content/bundles/v2/<bundle>/`) is refused naming that
+// place, so its owner can see what to move.
+#[test]
+fn test_a_bundle_missing_from_its_commit_names_where_it_was_looked_for() {
+    let fx = Fixture::new();
+    fx.remotes.serve(URL);
+    fx.remotes
+        .commit(URL, &[("bundles/demo/bundle.yaml", ENVELOPE.1)]);
+    fx.register("origin", URL);
+    fx.profile("dev", &[&demo_ref()]);
+    let report = pull(&fx);
+    assert_eq!(report.errors, 1);
+    let error = &report.failed[0].error;
+    assert!(error.contains("bundle demo not found in"), "{error}");
+    assert!(
+        error.contains(&format!("{BUNDLES}/demo/")),
+        "it names where it looked: {error}"
+    );
+}
+
 #[test]
 fn test_an_install_that_fails_is_reported_per_item() {
     let (fx, _) = unpulled();
@@ -704,4 +725,52 @@ fn test_a_local_parent_that_is_there_leaves_the_closure_complete() {
     let report = pull(&fx);
     assert!(!report.incomplete, "{:?}", report.unreachable);
     assert!(report.unreachable.is_empty());
+}
+
+// Owner rulings 110, 111: the seeded profile's parent is a built-in profile,
+// which a pull walks as the project's own: the closure is complete and
+// nothing is fetched, pinned or written for it.
+#[test]
+fn test_a_built_in_parent_leaves_the_closure_complete_and_pulls_nothing() {
+    let fx = Fixture::new();
+    fx.content.bundle(
+        "project",
+        &[
+            ENVELOPE,
+            (
+                "profiles/default.yaml",
+                library::write::scaffold::SEED_PROFILE,
+            ),
+        ],
+    );
+    let outcome = fx.deps.pull(false, true);
+    let report = ok(outcome);
+    assert!(!report.incomplete, "{:?}", report.unreachable);
+    assert!(report.unreachable.is_empty());
+    assert_eq!(report.installed, 0);
+    assert!(fx.files.lock_text().is_none(), "nothing to lock");
+}
+
+// A project bundle of a built-in one's name overrides it here too: its own
+// profiles are walked, the built-in one's are not.
+#[test]
+fn test_a_project_bundle_of_a_built_in_name_overrides_it_in_the_closure() {
+    let fx = Fixture::new();
+    fx.content.bundle(
+        "project",
+        &[
+            ENVELOPE,
+            (
+                "profiles/default.yaml",
+                library::write::scaffold::SEED_PROFILE,
+            ),
+        ],
+    );
+    fx.content.bundle("ai-developer", &[ENVELOPE]);
+    let report = ok(fx.deps.pull(false, true));
+    assert!(report.incomplete);
+    assert_eq!(
+        report.unreachable,
+        ["ctxloom+local:ai-developer#profiles/developer"]
+    );
 }

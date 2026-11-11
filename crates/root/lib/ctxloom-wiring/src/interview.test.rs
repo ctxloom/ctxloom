@@ -38,9 +38,6 @@ fn a_closed_input_is_a_no_though_a_bare_enter_is_a_yes() {
 // session that ended.
 #[test]
 fn a_session_the_run_refuses_is_a_launch_failure_with_its_exit() {
-    use std::rc::Rc;
-    use std::sync::Arc;
-
     use init_application::Sessions;
 
     let world = crate::commands::tests::world_without_programs("interview-refused");
@@ -50,12 +47,9 @@ fn a_session_the_run_refuses_is_a_launch_failure_with_its_exit() {
         0o644,
     );
     let env = world.env();
-    let wiring = crate::Wiring::new(Arc::clone(&env)).unwrap();
-    let deps = Rc::new(crate::commands::build_deps(&wiring).unwrap());
     let flags = library_application::Flags::default();
     let sessions = super::SetupSessions {
         env: &env,
-        deps: &deps,
         flags: &flags,
     };
     let failure = sessions.configured().expect_err("refused");

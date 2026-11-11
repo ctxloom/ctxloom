@@ -39,6 +39,8 @@ pub struct Library {
     pub(crate) ports: Option<WritePorts>,
     remotes: Option<Rc<dyn RemoteLibrary>>,
     pub(crate) companions: Option<Arc<dyn CompanionLoadouts>>,
+    /// ctxloom's built-in bundles join every project's catalog.
+    builtins: bool,
 }
 
 /// A project opened.
@@ -83,7 +85,16 @@ impl Library {
             ports: None,
             remotes: None,
             companions: None,
+            builtins: false,
         }
+    }
+
+    /// The library with ctxloom's built-in bundles ([`library::builtin`]) in
+    /// every project's catalog, under the read-only built-in origin, where the
+    /// project has no bundle of the name (owner rulings 110, 111).
+    pub fn with_builtins(mut self) -> Library {
+        self.builtins = true;
+        self
     }
 
     /// The library joining the registered companions' loadouts to every
@@ -210,9 +221,15 @@ impl Library {
             }
         }
         let origins = self.installed(&mut entries, notices);
+        let mut catalog = Catalog::new(entries).with_origins(origins);
+        // ctxloom's built-in bundles are a project's (rulings 110, 111),
+        // except where it has its own of the name, readable or not.
+        if reads_content && self.builtins {
+            catalog = catalog.with_builtins(&|name| unreadable.contains_key(name));
+        }
         Ok(Project {
             config,
-            catalog: Catalog::new(entries).with_origins(origins),
+            catalog,
             content: Arc::clone(&self.content),
             files: Arc::clone(&self.files),
             binaries: Arc::clone(&self.binaries),
@@ -294,6 +311,26 @@ impl Project {
         }
     }
 
+    /// An item's reference as a listing names it (as `bundle list` names a
+    /// bundle): a built-in bundle's item by its bundle's name, under the
+    /// built-in origin; any other as it is.
+    pub(crate) fn listed(&self, reference: &str) -> crate::views::Listed {
+        let built_in = reference.strip_prefix("ctxloom+local:").filter(|rest| {
+            let bundle = rest.split_once('#').map_or(*rest, |(bundle, _)| bundle);
+            self.catalog.is_builtin(bundle)
+        });
+        match built_in {
+            Some(name) => crate::views::Listed {
+                name: name.to_string(),
+                origin: library::builtin::ORIGIN.to_string(),
+            },
+            None => crate::views::Listed {
+                name: reference.to_string(),
+                origin: String::new(),
+            },
+        }
+    }
+
     /// Whether the configuration came from the home alone (no project).
     pub(crate) fn no_project(&self) -> bool {
         self.config.source == Source::Home
@@ -310,3 +347,7 @@ impl Project {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "project.test.rs"]
+mod tests;

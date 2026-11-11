@@ -146,9 +146,27 @@ fn a_helper_the_command_started_is_killed_with_it() {
     }
     let pid = dir.read_to_string(&os::fixture("/helper")).unwrap();
     assert!(
-        run_within::process_gone(pid.trim()),
+        gone_soon(pid.trim()),
         "the helper {pid} outlived the command"
     );
+}
+
+/// Whether the killed process `pid` is gone within ten seconds. A run past
+/// its limit sends SIGKILL to the program's whole process group and reaps the
+/// program, not its descendants: a helper dies when the kernel next runs it,
+/// which can be just after the run returned (it was caught in state `R`), so
+/// one look at that instant can see a helper that is already doomed. The
+/// bounded look is forced in taskloom-cli-client's
+/// `a_helper_seen_alive_before_its_kill_lands_is_gone_within_the_bound`.
+fn gone_soon(pid: &str) -> bool {
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !run_within::process_gone(pid) {
+        if std::time::Instant::now() >= until {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    true
 }
 
 #[test]
@@ -374,6 +392,34 @@ fn a_requested_stop_kills_the_terminal_sessions_direct_child() {
             signal: Some(9)
         }
     );
+    assert!(began.elapsed() < Duration::from_secs(20));
+}
+
+// A stop requested from outside ends a turn too (ruling 114): its tree is
+// asked to stop (SIGTERM), not killed outright, and the turn is over long
+// before its deadline. Forced, not waited for: the stop is requested once the
+// spawn is heard; a SIGTERM before the script's `exec` ends the shell the same
+// way.
+#[test]
+fn a_requested_stop_asks_a_turns_tree_to_stop() {
+    let (_dir, mut command) = program("#!/bin/sh\nexec sleep 30\n");
+    command
+        .env
+        .insert("PATH".to_string(), "/usr/bin:/bin".to_string());
+    let stop = Stop::new();
+    let launcher = HostLauncher::stopped_by(stop.clone());
+    let running = launcher.launch(&command, &limits()).unwrap();
+    let began = Instant::now();
+    stop.request();
+    let output = running.finish().unwrap();
+    assert_eq!(
+        output.exit,
+        Exit {
+            code: None,
+            signal: Some(15)
+        }
+    );
+    assert!(!output.timed_out);
     assert!(began.elapsed() < Duration::from_secs(20));
 }
 

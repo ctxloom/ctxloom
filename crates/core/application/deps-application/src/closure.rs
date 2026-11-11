@@ -27,7 +27,7 @@ use crate::{AppError, Deps, Notice};
 pub(crate) struct LocalProfiles {
     /// Every local profile, by its key `ctxloom+local:<bundle>#profiles/<name>`.
     pub by_key: BTreeMap<String, Profile>,
-    /// The names of the project's bundles.
+    /// The names of the project's bundles, and of the built-in ones.
     pub bundles: BTreeSet<String>,
     /// The bundles that are there and could not be read: whatever only they
     /// reach is unreached, not removed.
@@ -35,8 +35,24 @@ pub(crate) struct LocalProfiles {
 }
 
 impl Deps {
-    /// The project's profiles, read from its bundles.
+    /// The project's profiles, read from its bundles, and those of ctxloom's
+    /// built-in bundles it has none of the name of (rulings 110, 111): a
+    /// built-in profile is walked as the project's own, and names only
+    /// built-in bundles, so nothing is fetched or pinned for it.
     pub(crate) fn local_profiles(&self) -> Result<LocalProfiles, AppError> {
+        let mut local = self.project_profiles()?;
+        let taken = local.bundles.clone();
+        local
+            .by_key
+            .extend(library::builtin::profiles(&|name| taken.contains(name)));
+        local
+            .bundles
+            .extend(library::builtin::names().into_iter().map(str::to_string));
+        Ok(local)
+    }
+
+    /// The profiles of the project's own bundles.
+    fn project_profiles(&self) -> Result<LocalProfiles, AppError> {
         let mut local = LocalProfiles::default();
         let wrap = |e| AppError::Cause(e);
         if !self.content.has_root().map_err(wrap)? {

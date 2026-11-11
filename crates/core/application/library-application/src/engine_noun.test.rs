@@ -164,6 +164,41 @@ fn test_auth_state_reads_the_source_and_names_the_variable_never_its_value() {
     assert_eq!(missing.auth.state, "missing");
 }
 
+// hand-test 2026-11-10: opencode's built-in keys are optional (rulings 69,
+// 79), so with none exported it needs none, as `auth status` and doctor say;
+// one exported is present by its name; a source the config names is required.
+#[test]
+fn test_opencode_with_no_key_exported_needs_none() {
+    let keyless = show(
+        "schema_version: 9
+",
+        "opencode",
+    );
+    assert_eq!(keyless.auth.source, "default");
+    assert_eq!(keyless.auth.state, "not-needed");
+    assert_eq!(keyless.auth.via, None);
+    let keyed = library(
+        "schema_version: 9
+",
+        &[("OPENAI_API_KEY", "sk-fixture")],
+    )
+    .engine_show(&plain(), "opencode")
+    .result
+    .unwrap();
+    assert_eq!(keyed.auth.state, "present");
+    assert_eq!(keyed.auth.via.as_deref(), Some("OPENAI_API_KEY"));
+    let named = show(
+        "schema_version: 9
+engines:
+  opencode:
+    auth:
+      env: [TEAM_KEY]
+",
+        "opencode",
+    );
+    assert_eq!(named.auth.state, "missing");
+}
+
 // A credential file named under `~/` is the user's, found beneath HOME (and
 // never a value): the human's own session may share it.
 #[test]

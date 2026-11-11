@@ -41,6 +41,14 @@ pub fn with_one_shot(run: Command) -> Command {
             .action(ArgAction::SetTrue)
             .help("Take one turn on the prompt, print the reply and exit"),
     );
+    // `--session <harp>` resumes a session (owner ruling 115), a one-shot's
+    // or the terminal's.
+    let run = run.arg(
+        Arg::new("session")
+            .long("session")
+            .value_name("HARP")
+            .help("Resume this session: its engine's own session, in the same session home"),
+    );
     // The library's `run` names its engine already (a dry run takes it too).
     if run.get_arguments().any(|a| a.get_id() == "engine") {
         return run;
@@ -124,6 +132,7 @@ fn request_of(run: &ArgMatches, prompt: String) -> OneShot {
             workspace: one(run, "workspace").unwrap_or_default(),
         },
         engine: one(run, "engine").unwrap_or_default(),
+        session: one(run, "session").unwrap_or_default(),
     }
 }
 

@@ -432,6 +432,7 @@ mod start_sync {
                 ..library_application::RunRequest::default()
             },
             engine: "nope".to_string(),
+            session: String::new(),
         };
         let done = runs.one_shot(&Flags::default(), &request);
         assert!(done.result.is_err());
@@ -446,5 +447,74 @@ mod start_sync {
     fn a_run_pulls_at_its_start_unless_on_run_is_none() {
         assert_eq!(pulls("missing"), (1, true));
         assert_eq!(pulls("none"), (0, false));
+    }
+}
+
+// Owner ruling 112: the git identity a session home is seeded with is git's
+// own answer in the project, in the caller's environment: either part known
+// is an identity, neither is none.
+mod git_identity {
+    use std::sync::Arc;
+
+    use process_env::EnvSnapshot;
+
+    use super::super::git_user;
+    use crate::fixtures::{mkdirs, put_mode, root};
+    use crate::Wiring;
+
+    /// The identity git answers under a home whose global config is `config`.
+    fn asked(config: &str) -> Option<run_ports::GitUser> {
+        let dir = root();
+        let home = dir.root().join("home");
+        let project = dir.root().join("proj");
+        mkdirs(&home);
+        mkdirs(&project);
+        put_mode(home.join(".gitconfig"), config, 0o644);
+        let host = EnvSnapshot::from_process();
+        let path = host
+            .non_empty("PATH")
+            .and_then(|p| p.to_str().map(String::from))
+            .unwrap_or_default();
+        let env = EnvSnapshot::of([
+            ("HOME", home.to_str().unwrap()),
+            ("PATH", path.as_str()),
+            ("GIT_CONFIG_NOSYSTEM", "1"),
+        ]);
+        let wiring = Wiring::new(Arc::new(env)).unwrap();
+        git_user(&wiring, &project)
+    }
+
+    #[test]
+    fn test_both_parts_are_the_identity() {
+        assert_eq!(
+            asked("[user]\n\tname = Alice Example\n\temail = alice@example.com\n"),
+            Some(run_ports::GitUser {
+                name: "Alice Example".to_string(),
+                email: "alice@example.com".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_either_part_alone_is_an_identity() {
+        assert_eq!(
+            asked("[user]\n\tname = Alice\n"),
+            Some(run_ports::GitUser {
+                name: "Alice".to_string(),
+                email: String::new(),
+            })
+        );
+        assert_eq!(
+            asked("[user]\n\temail = a@x\n"),
+            Some(run_ports::GitUser {
+                name: String::new(),
+                email: "a@x".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_neither_part_is_none() {
+        assert_eq!(asked("[core]\n\tpager = cat\n"), None);
     }
 }

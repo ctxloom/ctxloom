@@ -15,9 +15,10 @@ use std::time::{Duration, SystemTime};
 
 use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
 use angzarr_embedded::{Kernel, Payload, Processed, ReadStore, Sampled, Store, Timestamp};
+use ctxloom_store_sqlite::SqliteStores;
 use file_system::{Open, Perms};
 use os::Mode;
-use ports::{Clock, CommandIds, ProjectIdentity};
+use ports::{Clock, CommandIds, Project, ProjectIdentity};
 use session_ports::ProjectStores;
 use sessions::{
     claim_root, BindEngineSession, ClaimName, MintSession, NameClaimAggregate, NameClaimCommand,
@@ -73,7 +74,23 @@ impl Wiring {
         let project = identity
             .for_write(seed.project.as_deref())
             .map_err(seed_error_of)?;
-        let store = stores.open(&project).await.map_err(seed_error)?;
+        let seeded = self.seed_in(&mut stores, &project, seed).await;
+        // Closed, not dropped (ruling 131): the seed's commits are in the
+        // file, with no log beside it, when the command exits.
+        let closed = stores.close().await.map_err(seed_error);
+        let id = seeded?;
+        closed?;
+        Ok(id)
+    }
+
+    /// Plant `seed` in `project`'s store, opened through `stores`.
+    async fn seed_in(
+        &self,
+        stores: &mut SqliteStores,
+        project: &Project,
+        seed: &Seed,
+    ) -> Result<String, TestError> {
+        let store = stores.open(project).await.map_err(seed_error)?;
         let cwd = self.fs.cwd().map_err(seed_error)?.to_path_buf();
         let output_dir = self.seed_output_dir(&seed.harp)?;
 

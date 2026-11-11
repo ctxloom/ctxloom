@@ -173,13 +173,17 @@ Feature: container — the images isolated agents run in, and the questions you 
 
     The rest of what `container check` promises does not depend on what this
     machine has installed, so it is asserted where no image is built and the
-    host's runtimes are hidden: a backend name is validated before anything is
-    probed, and the text report labels every axis whether or not a probe
-    answered. An explicit `--format text` is also the half of "an explicit
-    format beats the derived default" that the json rows above cannot show.
+    host's runtimes are hidden: the PATH holds only stub runtimes that write
+    down what they are asked and never answer, so no runtime of this machine's
+    is run (one would write its own state outside the test). A backend name is
+    validated before anything is probed, and the text report labels every axis
+    whether or not a probe answered. An explicit `--format text` is also the
+    half of "an explicit format beats the derived default" that the json rows
+    above cannot show.
 
     Scenario: An unknown backend is a usage error, and the real ones are named
       Given an initialized ctxloom project
+      And the host's container runtimes are hidden behind stubs
       When Alice asks about an engine that does not exist:
         """
         ctxloom container check totally-bogus-engine
@@ -188,9 +192,11 @@ Feature: container — the images isolated agents run in, and the questions you 
       And the output contains "unknown backend"
       And the output contains "totally-bogus-engine"
       And the output contains "claude-code"
+      And no container runtime was asked anything
 
     Scenario: The text report labels every axis, and writes nothing
       Given an initialized ctxloom project
+      And the host's container runtimes are hidden behind stubs
       And I record the project tree
       When Alice asks whether containerized agents could run here:
         """
@@ -202,9 +208,11 @@ Feature: container — the images isolated agents run in, and the questions you 
       And the output reports "runtime" matching "runtime:"
       And the output reports "shared_fs" matching "shared fs:"
       And the project tree is unchanged
+      And the runtimes probed were the stubs alone
 
     Scenario: With no backend named, the text report still names one
       Given an initialized ctxloom project
+      And the host's container runtimes are hidden behind stubs
       And the mock LLM responds "MOCK-REPLY-NEVER-SENT-CONTAINER-CHECK-ONLY-PROBES"
       When I run "ctxloom container check --format text"
       Then the command succeeds
@@ -212,6 +220,7 @@ Feature: container — the images isolated agents run in, and the questions you 
       And the output does not contain "(unresolved)"
       And the output reports "shared_fs" matching "shared fs:"
       And the output does not contain "MOCK-REPLY-NEVER-SENT-CONTAINER-CHECK-ONLY-PROBES"
+      And the runtimes probed were the stubs alone
 
   Rule: Build validates its backend before touching any daemon
 

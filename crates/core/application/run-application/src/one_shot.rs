@@ -321,6 +321,15 @@ where
         }
     }
 
+    /// The core, every other part let go: the enqueuer's, the launcher's and
+    /// the listener's edges dropped with them, so what reaches the core's
+    /// store afterwards is the core alone, and what its runtime still runs
+    /// (ruling 131: the composition root closes the store once both are
+    /// gone).
+    pub fn into_core(self) -> K {
+        self.core
+    }
+
     /// `run --one-shot`: one turn on the prompt, and its answer.
     pub async fn one_shot(&mut self, flags: &Flags, request: &OneShot) -> Done<Answer> {
         let (request, resume) = match self.resolve(request).await {

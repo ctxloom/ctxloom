@@ -31,7 +31,7 @@ impl TokenSource for Counting {
 }
 
 type Core = InProcessCore<FaultyStore<MemoryStore>>;
-type TheEdge = EmbeddedEdge<angzarr_embedded_host::stores::OneStore<FaultyStore<MemoryStore>>>;
+type TheEdge = EmbeddedEdge<crate::CoreStores<FaultyStore<MemoryStore>>>;
 
 struct World {
     core: Core,
@@ -394,4 +394,91 @@ async fn the_core_serves_the_catalog_of_its_registered_domains() {
         .catalog()
         .domains()
         .any(|d| d == sessions::SESSION_DOMAIN));
+}
+
+// ------------------------------------------------ the store closed (rulings 131, 140)
+//
+// A run's store is closed once the core is consumed and nothing else holds
+// it, so the run exits with its log checkpointed into the file. Looked at the
+// moment the close returns, with no wait. The holder a run's end must outlast
+// (a hook call still in the listener past its grace) is forced in
+// `oneshot.test.rs`, with the runtime left running.
+
+type SqliteCore = InProcessCore<angzarr_embedded::angzarr_store_sqlite::SqliteStore>;
+
+/// A project's real store under a temporary home, its core started on a
+/// runtime of the run's kind (multi-thread), and the runtime.
+fn sqlite_core() -> (
+    Arc<file_system::Rooted>,
+    SqliteCore,
+    tokio::runtime::Runtime,
+) {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    let fs = Arc::new(file_system::Rooted::temp().unwrap());
+    let core = runtime.block_on(async {
+        let store = ctxloom_store_sqlite::Stores::new(fs.clone(), "/home/u")
+            .open("calm-otter")
+            .await
+            .unwrap();
+        InProcessCore::start(store).await
+    });
+    (fs, core, runtime)
+}
+
+fn beside(fs: &file_system::Rooted) -> Vec<&'static str> {
+    use file_system::Fs;
+    let dir = std::path::Path::new("/home/u/.ctxloom/projects/calm-otter");
+    ["ctxloom.db-wal", "ctxloom.db-shm"]
+        .into_iter()
+        .filter(|name| fs.exists(&dir.join(name)).unwrap())
+        .collect()
+}
+
+#[test]
+fn test_the_core_s_store_is_closed_once_the_core_is_consumed() {
+    let (fs, core, runtime) = sqlite_core();
+    // An edge a use case took, let go with the use case.
+    drop(core.edge());
+    runtime.block_on(core.close()).unwrap();
+    assert_eq!(beside(&fs), Vec::<&str>::new(), "closed: nothing beside");
+}
+
+/// A task still running with an edge at the close (its runtime is not shut
+/// down for the close) is a holder: the close refuses it, said, and never
+/// drops the store quietly.
+#[test]
+fn test_a_task_still_holding_an_edge_is_a_close_error_not_a_drop() {
+    let (_fs, core, runtime) = sqlite_core();
+    let edge = core.edge();
+    runtime.spawn(async move {
+        let _held = edge;
+        std::future::pending::<()>().await;
+    });
+    assert_eq!(core.edge_holders(), 2, "the task holds the edge");
+    let unclosed = runtime.block_on(core.close());
+    assert!(
+        matches!(unclosed, Err(crate::Unclosed::StillHeld { holders: 2 })),
+        "{unclosed:?}"
+    );
+}
+
+/// An edge leaked past the run is the same error.
+#[test]
+fn test_an_edge_leaked_past_the_run_is_a_close_error_not_a_drop() {
+    let (_fs, core, runtime) = sqlite_core();
+    let leaked = core.edge();
+    let unclosed = runtime.block_on(core.close());
+    assert!(
+        matches!(unclosed, Err(crate::Unclosed::StillHeld { holders: 2 })),
+        "{unclosed:?}"
+    );
+    assert_eq!(
+        crate::Unclosed::StillHeld { holders: 2 }.to_string(),
+        "the run's store is still held (2 holders past the run's end) and was not closed"
+    );
+    drop(leaked);
 }

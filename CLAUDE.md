@@ -720,7 +720,32 @@ angzarr-embedded's `sqlite` feature), opened at
 `~/.ctxloom/projects/<project-id>/ctxloom.db` by `ctxloom-store-sqlite` (the
 file name, the placement and the port, over ctxloom-lib's `sqlite-store-opener`,
 which refuses a store from before the embedded store, `ctxloom.db.pre-embedded`
-naming its backup), beside taskloom's `state.db` and never the same file (D26). All file I/O goes
+naming its backup), beside taskloom's `state.db` and never the same file (D26).
+A store is closed, never dropped, where its file matters after (ruling 131):
+angzarr-embedded's `SqliteStore::close` waits for the connection's close, so
+the last close's checkpoint and the log's removal are over when it returns
+(dropped, they are left to sqlx's detached thread, which an exiting process
+need not let run). `SqliteStores` closes a store it gives up for another (a
+project's, or a read's reopened to write) and `SqliteStores::close` the one it
+holds; the wiring closes the sessions use cases' stores after every `session`
+command and a hook's bind (`Sessions::close`; a failed close fails a command
+that had not), the seed's and `test open-store`'s, and a run's at its end.
+A run's store has holders past the use case: the core's application and
+edge, the use cases' edges, and the hook listener's connection and stream
+tasks, which tonic spawns itself, so a call still in the handler keeps the
+coordinator, its edge, the application and the store. `HookListener::stop`
+is angzarr's `Running::shutdown_within(STOP_GRACE)` (ruling 140): past the
+grace it ends every connection still open (the call is cut) and returns only
+once every copy of the service is released. So the end lets each go before
+the close: the listener stopped (by the run use case), `Runs::into_core`
+(every part but the core, with their edges), then `InProcessCore::close`,
+which consumes the core and only then takes the store by value (the core keeps
+it in `CoreStores`, not `OneStore`, to have it back) and closes it, on the
+run's own runtime, which is not shut down for it. A holder still there is
+`Unclosed::StillHeld`, and a close that fails is `Unclosed::Failed`: either
+fails the run (exit non-zero), never a quiet drop. A read's connection is read-only, so an empty
+`-wal`/`-shm` may stay after a read; a write leaves neither
+(`store_close.test.rs`). All file I/O goes
 through the `file-system` seam, so a test under a temporary home touches
 nothing else. ctxloom writes no SQL of its own.
 

@@ -54,3 +54,23 @@ copying this change deletes its `scripts/mutants-judge.sh`, replaces its
 self-test with `scripts/mutants-verdict.selftest.sh` in `just selftest`, and
 moves any feature rule into the crate itself: a dev-dependency on itself
 with the feature on (`<crate> = { path = ".", features = ["<feature>"] }`).
+
+## One test runner: nextest, mutation included (owner ruling 144)
+
+- `.cargo/mutants.toml` sets `test_tool = "nextest"` and
+  `additional_cargo_test_args = ["--no-tests=pass"]` (nextest exits 4 for a
+  crate with no tests, which cargo-mutants counts as every mutant caught).
+- A committed `.config/nextest.toml`, listed in `workspace_wide`: retries 0,
+  `slow-timeout` with `terminate-after`, `leak-timeout` with `result =
+  "fail"`, a `max-threads = 1` test group for the tests that bind ports.
+- A test that builds a program for itself (a `OnceLock` around `cargo
+  build`) builds it once per test PROCESS under nextest: build it in a
+  nextest setup script (`experimental = ["setup-scripts"]`) that writes its
+  path to `$NEXTEST_ENV`, and take that path in the test.
+- `_tests` no longer passes nextest's exit code through (its 102 is "cargo
+  metadata failed", which `test-commit` took as red tests): it exits 0, 100
+  (a test failed), 101 (not built), 120 (a doc test failed, was 102) or 121
+  (nextest failed otherwise). `test-commit` takes 100 and 120 as red. A
+  repository copying this change replaces its `_tests`, `test-commit` and
+  `_extract-tests`, and adds `scripts/tests-exit.selftest.sh` to `just
+  selftest`.

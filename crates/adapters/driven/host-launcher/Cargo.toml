@@ -13,7 +13,6 @@ run-within.workspace = true
 
 [dev-dependencies]
 fixture-program.workspace = true
-mutants.workspace = true
 file-system = { workspace = true, features = ["test-support"] }
 os = { workspace = true, features = ["test-support"] }
 run-within = { workspace = true, features = ["test-support"] }

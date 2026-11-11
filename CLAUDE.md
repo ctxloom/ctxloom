@@ -694,7 +694,21 @@ angzarr-embedded's `sqlite` feature), opened at
 `~/.ctxloom/projects/<project-id>/ctxloom.db` by `ctxloom-store-sqlite` (the
 file name, the placement and the port, over ctxloom-lib's `sqlite-store-opener`,
 which refuses a store from before the embedded store, `ctxloom.db.pre-embedded`
-naming its backup), beside taskloom's `state.db` and never the same file (D26). All file I/O goes
+naming its backup), beside taskloom's `state.db` and never the same file (D26).
+A store is closed, never dropped, where its file matters after (ruling 131):
+angzarr-embedded's `SqliteStore::close` waits for the connection's close, so
+the last close's checkpoint and the log's removal are over when it returns
+(dropped, they are left to sqlx's detached thread, which an exiting process
+need not let run). `SqliteStores` closes a store it gives up for another (a
+project's, or a read's reopened to write) and `SqliteStores::close` the one it
+holds; the wiring closes the sessions use cases' stores after every `session`
+command and a hook's bind (`Sessions::close`; a failed close fails a command
+that had not), the seed's and `test open-store`'s, and a run's once its use
+case is let go (the core keeps its store in `CoreStores`, not `OneStore`, so
+`Closer` can have it back; one still held, or a failed close, is a notice and
+the run's answer stands). A read's connection is read-only, so an empty
+`-wal`/`-shm` may stay after a read; a write leaves neither
+(`store_close.test.rs`). All file I/O goes
 through the `file-system` seam, so a test under a temporary home touches
 nothing else. ctxloom writes no SQL of its own.
 

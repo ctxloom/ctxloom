@@ -139,8 +139,7 @@ impl SqliteStores {
 /// `held`, closed and waited for: a store given up (for another, or by
 /// [`SqliteStores::close`]) is done with its file before anything else is.
 async fn release(held: Held) -> Result<(), StoreError> {
-    let _ = held;
-    todo!("ruling 131: close the store given up and wait")
+    held.store.close().await
 }
 
 impl ProjectStores for SqliteStores {

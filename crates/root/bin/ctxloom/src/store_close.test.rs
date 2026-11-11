@@ -137,6 +137,8 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"STORE-CLOS
 #[test]
 fn test_a_one_shot_closes_its_store_before_it_exits() {
     let project = Project::initialized();
+    project.bundle("demo");
+    project.profile("dev", "demo");
     let bin = project.home().join("bin");
     files::put_program(bin.join("claude"), CHILD);
     let path = match crate::tests::host_var("PATH") {
@@ -148,10 +150,23 @@ fn test_a_one_shot_closes_its_store_before_it_exits() {
             ("PATH", &path),
             ("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-fixture-not-real"), // gitleaks:allow
         ],
-        &["run", "--one-shot", "hello", "--format", "json"],
+        &[
+            "run",
+            "--profile",
+            "dev",
+            "--one-shot",
+            "hello",
+            "--format",
+            "json",
+        ],
     );
     ok(&ran, "run --one-shot");
     assert!(ran.stdout.contains("STORE-CLOSE-REPLY"), "{}", ran.said());
+    assert!(
+        !ran.stderr.contains("was not closed") && !ran.stderr.contains("did not close"),
+        "the run's store closed, not left to its drop: {}",
+        ran.said()
+    );
     let store = store_under(project.home());
     assert_eq!(
         beside(&store),

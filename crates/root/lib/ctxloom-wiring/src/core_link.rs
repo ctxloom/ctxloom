@@ -110,8 +110,10 @@ impl Closer<SqliteStore> {
     /// every commit with no log beside it. Refused, the store left to its
     /// drop, while anything else holds it.
     pub async fn close(self) -> Result<(), Unclosed> {
-        let _ = self.0;
-        todo!("ruling 131: close the core's store once it is let go")
+        match Arc::try_unwrap(self.0) {
+            Ok(store) => store.close().await.map_err(Unclosed::Failed),
+            Err(_held) => Err(Unclosed::Held),
+        }
     }
 }
 

@@ -193,16 +193,22 @@ impl<'a> OneShots<'a> {
 /// start by no more than this.
 const GIT_USER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// The user's git identity in the project (owner ruling 112), asked of git in
-/// the caller's own environment; none when git knows neither part.
-pub(crate) fn git_user(wiring: &Wiring, project_dir: &Path) -> Option<run_ports::GitUser> {
-    let git = worktree_git::Git::new(
+/// The git that is asked the user's identity: in the caller's own
+/// environment (her `HOME`, never ctxloom's home), under
+/// [`GIT_USER_DEADLINE`].
+pub(crate) fn identity_git(wiring: &Wiring) -> worktree_git::Git {
+    worktree_git::Git::new(
         wiring.fs(),
         "git",
         GIT_USER_DEADLINE,
         Arc::clone(wiring.env()),
-    );
-    let user = git.user(project_dir);
+    )
+}
+
+/// The user's git identity in the project (owner ruling 112), asked of git in
+/// the caller's own environment; none when git knows neither part.
+pub(crate) fn git_user(wiring: &Wiring, project_dir: &Path) -> Option<run_ports::GitUser> {
+    let user = identity_git(wiring).user(project_dir);
     (!user.name.is_empty() || !user.email.is_empty()).then_some(run_ports::GitUser {
         name: user.name,
         email: user.email,

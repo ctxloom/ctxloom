@@ -9,7 +9,8 @@ use auth_application::ExportedVars;
 use clap::Command;
 use deps_application::fakes::Fixture;
 use doctor_checks::{
-    ConfigFiles, Executables, Failure as PortFailure, LayerText, Put, Scope, Source, UserFiles,
+    ConfigFiles, Executables, Failure as PortFailure, GitIdentity, LayerText, Put, Scope, Source,
+    UserFiles,
 };
 use init_application::{Ended, LaunchFailure, Scaffold};
 use reclaim_application::ProjectCache;
@@ -227,6 +228,12 @@ impl Executables for Git {
     }
 }
 
+impl GitIdentity for Git {
+    fn is_known(&self) -> bool {
+        true
+    }
+}
+
 struct Run {
     exit: Result<Exit, Failure>,
     out: String,
@@ -273,6 +280,7 @@ fn go_with(
     let doctor = Doctor::new(
         world.clone(),
         world.clone(),
+        Arc::new(Git),
         Arc::new(Git),
         Auth::new(world.clone()),
         "/home/u",
@@ -707,6 +715,7 @@ fn a_noun_the_line_does_not_carry_is_a_usage_failure() {
     let doctor = Doctor::new(
         world.clone(),
         world.clone(),
+        Arc::new(Git),
         Arc::new(Git),
         Auth::new(world.clone()),
         "/h",

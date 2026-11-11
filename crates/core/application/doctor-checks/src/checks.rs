@@ -87,8 +87,10 @@ pub fn setup_marker(
     }
 }
 
-/// `DEPS-a1`: what the machine needs whatever the project is.
-pub fn deps(git_found: bool, gitconfig: Option<&str>) -> Check {
+/// `DEPS-a1`: what the machine needs whatever the project is: git, and the
+/// identity it commits with (as git resolves it where ctxloom runs, in her
+/// own environment: `ctxloom_ports::GitIdentity`).
+pub fn deps(git_found: bool, identity_known: bool) -> Check {
     const M: &str = "DOCTOR-CHECK-DEPS-a1";
     const N: &str = "system dependencies";
     if !git_found {
@@ -100,7 +102,7 @@ pub fn deps(git_found: bool, gitconfig: Option<&str>) -> Check {
             "install git",
         );
     }
-    if !has_identity(gitconfig.unwrap_or_default()) {
+    if !identity_known {
         return row(
             M,
             N,
@@ -116,25 +118,6 @@ pub fn deps(git_found: bool, gitconfig: Option<&str>) -> Check {
         "git is on the PATH and has an identity",
         "",
     )
-}
-
-/// Whether a git config text sets `user.name` and `user.email`.
-fn has_identity(gitconfig: &str) -> bool {
-    let (mut in_user, mut name, mut email) = (false, false, false);
-    for line in gitconfig.lines().map(str::trim) {
-        if let Some(section) = line.strip_prefix('[') {
-            in_user = section
-                .trim_end_matches(']')
-                .trim()
-                .eq_ignore_ascii_case("user");
-        } else if in_user {
-            let key = line.split('=').next().unwrap_or_default().trim();
-            let set = line.contains('=');
-            name |= set && key.eq_ignore_ascii_case("name");
-            email |= set && key.eq_ignore_ascii_case("email");
-        }
-    }
-    name && email
 }
 
 /// `AGENTS-b2`: every configured agent names the engine it runs, or the

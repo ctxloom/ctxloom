@@ -6,7 +6,8 @@ use std::sync::Mutex;
 
 use auth_application::Auth;
 use ctxloom_ports::{
-    ConfigFiles, Executables, ExportedVars, Failure, LayerText, Put, Scope, Source, UserFiles,
+    ConfigFiles, Executables, ExportedVars, Failure, GitIdentity, LayerText, Put, Scope, Source,
+    UserFiles,
 };
 
 use crate::{Doctor, Status};
@@ -94,6 +95,15 @@ impl Executables for Git {
     }
 }
 
+/// Git's answer for the identity it commits with, known or not.
+struct Identity(bool);
+
+impl GitIdentity for Identity {
+    fn is_known(&self) -> bool {
+        self.0
+    }
+}
+
 /// A launch that exports the claude token, or does not.
 struct Token(bool);
 
@@ -108,10 +118,15 @@ fn doctor(mem: &Arc<Mem>, git: bool) -> Doctor {
 }
 
 fn doctor_with_token(mem: &Arc<Mem>, git: bool, token: bool) -> Doctor {
+    doctor_with(mem, git, true, token)
+}
+
+fn doctor_with(mem: &Arc<Mem>, git: bool, identity: bool, token: bool) -> Doctor {
     Doctor::new(
         mem.clone(),
         mem.clone(),
         Arc::new(Git(git)),
+        Arc::new(Identity(identity)),
         Auth::new(Arc::new(Token(token))),
         "/home/u",
         "0.1.0",
@@ -200,6 +215,30 @@ fn fix_removes_the_stale_entries_of_the_project_and_the_user_and_then_the_row_is
         kept.contains("ctxloom hook claude-code execute SessionStart")
             && !kept.contains("inject-context")
     );
+}
+
+// The identity is git's answer where ctxloom runs, in her own environment
+// (handtest D2): a `.gitconfig` in the doctor's home, which is ctxloom's home
+// (`CTXLOOM_HOME`), is not read for it, either way.
+#[test]
+fn the_git_identity_is_gits_answer_and_never_the_homes_gitconfig() {
+    let mem = project();
+    mem.files.lock().unwrap().insert(
+        "/home/u/.gitconfig".to_string(),
+        "[user]\n\tname = A\n\temail = a@b.c\n".to_string(),
+    );
+    let unknown = doctor_with(&mem, true, false, true).report(true);
+    assert_eq!(status(&unknown, "DOCTOR-CHECK-DEPS-a1"), Status::Warn);
+    assert!(unknown.checks[0].detail.contains("has no identity"));
+    let known = doctor_with(&project(), true, true, true).report(true);
+    assert_eq!(status(&known, "DOCTOR-CHECK-DEPS-a1"), Status::Ok);
+}
+
+// No git on the PATH is said as that, whatever an identity would answer.
+#[test]
+fn without_git_the_row_says_git_is_missing() {
+    let report = doctor_with(&project(), false, true, true).report(true);
+    assert!(report.checks[0].detail.contains("not on the PATH"));
 }
 
 #[test]

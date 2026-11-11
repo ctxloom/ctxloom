@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use auth_application::Auth;
-use ctxloom_ports::{ConfigFiles, Executables, Failure, Scope, Source, UserFiles};
+use ctxloom_ports::{ConfigFiles, Executables, Failure, GitIdentity, Scope, Source, UserFiles};
 use serde::Serialize;
 
 use crate::checks::{self, Check, Status};
@@ -37,6 +37,7 @@ pub struct Doctor {
     config: Arc<dyn ConfigFiles>,
     files: Arc<dyn UserFiles>,
     executables: Arc<dyn Executables>,
+    identity: Arc<dyn GitIdentity>,
     auth: Auth,
     home: String,
     version: String,
@@ -47,6 +48,7 @@ impl Doctor {
         config: Arc<dyn ConfigFiles>,
         files: Arc<dyn UserFiles>,
         executables: Arc<dyn Executables>,
+        identity: Arc<dyn GitIdentity>,
         auth: Auth,
         home: &str,
         version: &str,
@@ -55,6 +57,7 @@ impl Doctor {
             config,
             files,
             executables,
+            identity,
             auth,
             home: home.to_string(),
             version: version.to_string(),
@@ -121,8 +124,8 @@ impl Doctor {
     /// The report; with `deps_only`, the machine-capability probes alone
     /// (true or false whether anything is configured).
     pub fn report(&self, deps_only: bool) -> Report {
-        let gitconfig = self.text(&format!("{}/.gitconfig", self.home));
-        let deps = checks::deps(self.executables.find("git").is_some(), gitconfig.as_deref());
+        let git = self.executables.find("git").is_some();
+        let deps = checks::deps(git, git && self.identity.is_known());
         if deps_only {
             return Report { checks: vec![deps] };
         }

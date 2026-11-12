@@ -178,9 +178,10 @@ async fn a_failure_is_internal() {
     assert_eq!(status.code(), Code::Internal);
 }
 
-// Every RPC not served (and DeleteSession, M5) is UNIMPLEMENTED.
+// Every RPC not served (and DeleteSession, M5) is UNIMPLEMENTED, to the
+// user bearer alone.
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn an_rpc_not_served_is_unimplemented() {
+async fn an_rpc_not_served_is_unimplemented_to_the_user_bearer() {
     let mut client = CtxloomClient::new(serve(Arc::default()).await);
     let status = client
         .delete_session(with_bearer(v1::DeleteSessionRequest::default(), BEARER))
@@ -188,10 +189,43 @@ async fn an_rpc_not_served_is_unimplemented() {
         .unwrap_err();
     assert_eq!(status.code(), Code::Unimplemented);
     let status = client
-        .get_transcript(Request::new(v1::GetTranscriptRequest::default()))
+        .get_transcript(with_bearer(v1::GetTranscriptRequest::default(), BEARER))
         .await
         .unwrap_err();
     assert_eq!(status.code(), Code::Unimplemented);
+}
+
+// Gate first, everything (owner, after step 5): a call without the user
+// bearer is the same bare UNAUTHENTICATED whether its RPC is served or not,
+// so a caller that is not the user learns nothing, not even which RPCs the
+// API serves.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn an_rpc_not_served_is_a_bare_unauthenticated_without_the_user_bearer() {
+    let mut client = CtxloomClient::new(serve(Arc::default()).await);
+    let other = "22222222222222222222222222222222222222222222222222222222222222bb"; // gitleaks:allow
+    let served = client
+        .get_daemon(Request::new(v1::GetDaemonRequest::default()))
+        .await
+        .unwrap_err();
+    assert_eq!(served.code(), Code::Unauthenticated);
+    let unserved = [
+        client
+            .delete_session(Request::new(v1::DeleteSessionRequest::default()))
+            .await
+            .unwrap_err(),
+        client
+            .sweep_sessions(with_bearer(v1::SweepSessionsRequest::default(), other))
+            .await
+            .unwrap_err(),
+        client
+            .get_transcript(Request::new(v1::GetTranscriptRequest::default()))
+            .await
+            .unwrap_err(),
+    ];
+    for status in unserved {
+        assert_eq!(status.code(), Code::Unauthenticated);
+        assert_eq!(status.message(), served.message(), "nothing says which");
+    }
 }
 
 // M10: a use case that blocks its thread holds a blocking-pool thread, not

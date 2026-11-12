@@ -192,6 +192,8 @@ fn test_the_binary_reports_the_diagnostics_of_every_crate_composed_in() {
         "ctxloom-cli",
         "ctxloom-store-sqlite",
         "ctxloom-wiring",
+        "daemon-api",
+        "daemon-ports",
         "deps",
         "deps-application",
         "duration-text",

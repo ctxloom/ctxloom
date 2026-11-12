@@ -197,3 +197,24 @@ async fn the_debug_withholds_the_bearer() {
     let shown = format!("{:?}", DaemonClient::new(&found, WITHIN));
     assert!(!shown.contains(&token(0xab).to_text()), "{shown}");
 }
+
+// angzarr's own UNAUTHENTICATED carries a google.rpc.ErrorInfo detail: it is
+// no typed refusal, and reads as unauthenticated.
+#[test]
+fn an_error_info_detail_is_no_typed_refusal() {
+    let info = prost_types::Any {
+        type_url: "type.googleapis.com/google.rpc.ErrorInfo".to_string(),
+        value: vec![10, 1, 120],
+    };
+    let details = RpcStatus {
+        code: Code::Unauthenticated as i32,
+        message: "k".to_string(),
+        details: vec![info],
+    };
+    let status = Status::with_details(
+        Code::Unauthenticated,
+        "k",
+        Bytes::from(details.encode_to_vec()),
+    );
+    assert_eq!(super::called("GetDaemon", &status), Called::Unauthenticated);
+}

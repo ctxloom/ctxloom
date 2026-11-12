@@ -36,6 +36,8 @@ run-launcher.workspace = true
 run-cli.workspace = true
 hook-listener.workspace = true
 hook-tls.workspace = true
+daemon-api.workspace = true
+daemon-ports.workspace = true
 setup-application.workspace = true
 surface-ports.workspace = true
 session-cli.workspace = true
@@ -91,6 +93,8 @@ test-support = [
     "run-cli/test-support",
     "hook-listener/test-support",
     "hook-tls/test-support",
+    "daemon-api/test-support",
+    "daemon-ports/test-support",
 ]
 
 [dev-dependencies]
@@ -104,6 +108,11 @@ futures = "0.3"
 serde_json.workspace = true
 file-system = { workspace = true, features = ["test-support"] }
 os = { workspace = true, features = ["test-support"] }
+# The daemon's API, called as a client calls it (slice 2 step 5).
+daemon-client.workspace = true
+daemon-proto.workspace = true
+run-ports.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "net"] }
 
 [lints]
 workspace = true

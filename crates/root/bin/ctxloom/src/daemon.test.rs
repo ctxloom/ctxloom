@@ -724,3 +724,158 @@ fn a_daemons_exit_closes_its_store() {
         );
     }
 }
+
+/// `future`, on a runtime of its own.
+fn block_on<T>(future: impl std::future::Future<Output = T>) -> T {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(future)
+}
+
+/// `git args` in `dir`, which must succeed.
+fn git(dir: &std::path::Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_AUTHOR_NAME", "A")
+        .env("GIT_AUTHOR_EMAIL", "a@x")
+        .env("GIT_COMMITTER_NAME", "A")
+        .env("GIT_COMMITTER_EMAIL", "a@x")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git {args:?}: {out:?}");
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// A repository of one commit in the project's directory: its root commit.
+fn repository(world: &World, message: &str) -> String {
+    let dir = world.project.dir();
+    git(dir, &["init", "-q"]);
+    git(dir, &["commit", "-q", "--allow-empty", "-m", message]);
+    git(dir, &["rev-list", "--max-parents=0", "HEAD"])
+}
+
+// Slice 2 step 5: the daemon serves the `Ctxloom` service beside its
+// coordinator, on the one listener, to the user bearer alone: GetDaemon says
+// its pid, endpoint and full stamp; another bearer is a bare UNAUTHENTICATED.
+#[test]
+fn a_daemon_serves_its_api_to_the_user_bearer_alone() {
+    use daemon_ports::{Called, DaemonApi};
+    let world = World::new();
+    let (mut daemon, bytes) = served(&world);
+    let found = run_ports::Discovery::decode(&bytes).expect("a discovery file");
+    let within = Duration::from_secs(5);
+    let about = block_on(daemon_client::DaemonClient::new(&found, within).get_daemon())
+        .unwrap_or_else(|e| panic!("{e:?}; the log:\n{}", world.log()));
+    assert_eq!(about.pid, found.pid);
+    assert_eq!(about.endpoint, found.endpoint);
+    assert_eq!(about.version, found.stamp);
+    assert_eq!(about.idle_limit_seconds, 30);
+    assert!(about.runs.is_empty(), "it hosts nothing");
+    let other = run_ports::Discovery {
+        bearer: run_ports::Token::from_bytes([7; 32]),
+        ..found
+    };
+    assert_eq!(
+        block_on(daemon_client::DaemonClient::new(&other, within).get_daemon()),
+        Err(Called::Unauthenticated)
+    );
+    let _ = world.run(&["daemon", "stop"]);
+    assert_eq!(exited_within(&mut daemon, Duration::from_secs(20)), Some(0));
+}
+
+// Ruling 131 on a failed start: a daemon that cannot publish its discovery
+// file (here a directory stands at its path) closes its store before it
+// exits, as every exit does.
+#[test]
+fn a_daemon_whose_start_fails_closes_its_store() {
+    let world = World::new();
+    let dir = world
+        .project
+        .home()
+        .join(".ctxloom/daemon/daemon.discovery");
+    files::put(dir.join("in-the-way"), "");
+    let mut daemon = world
+        .project
+        .start_with(&ENV, &["daemon", "serve", "--idle-seconds", "30"]);
+    let code = exited_within(&mut daemon, Duration::from_secs(20));
+    assert_ne!(code, Some(0), "the start fails; its log:\n{}", world.log());
+    let log = world.log();
+    assert!(log.contains("the start failed"), "{log}");
+    assert!(log.contains("the store is closed"), "{log}");
+    let store = world.project.home().join(".ctxloom/ctxloom.db");
+    for beside in ["ctxloom.db-wal", "ctxloom.db-shm"] {
+        assert!(
+            !files::exists(store.with_file_name(beside)),
+            "{beside}: {log}"
+        );
+    }
+}
+
+// Project registration (owner, 2026-11-12): the first `daemon resolve` names
+// and registers the project with its repository's root commit; again, it
+// answers the same; another repository at its place is refused (exit 20),
+// naming the registered project.
+#[test]
+fn a_project_is_registered_then_rechecked_by_its_root_commit() {
+    let world = World::new();
+    let root = repository(&world, "first");
+    let first = world.run(&["daemon", "resolve", "--format", "json"]);
+    assert_eq!(first.code, 0, "{}\n{}", first.said(), world.log());
+    let project = first.json();
+    let name = project["name"].as_str().unwrap().to_string();
+    assert!(name.starts_with("projects/"), "{project}");
+    assert_eq!(project["root_commit"], root.as_str());
+    assert!(
+        project["git_common_dir"]
+            .as_str()
+            .unwrap()
+            .ends_with(".git"),
+        "{project}"
+    );
+    let again = world.run(&["daemon", "resolve", "--format", "json"]);
+    assert_eq!(again.code, 0, "{}", again.said());
+    assert_eq!(again.json()["name"], name.as_str());
+    files::remove_tree(world.project.dir().join(".git"));
+    let other = repository(&world, "another");
+    assert_ne!(other, root);
+    let refused = world.run(&["daemon", "resolve"]);
+    assert_eq!(refused.code, 20, "{}", refused.said());
+    assert!(refused.said().contains(&name), "{}", refused.said());
+    assert!(
+        refused.said().contains("not the repository"),
+        "{}",
+        refused.said()
+    );
+    let _ = world.run(&["daemon", "stop"]);
+}
+
+// M3: a client of another version finds an idle daemon, asks it, stops it
+// and starts its own.
+#[test]
+fn a_client_of_another_version_stops_an_idle_daemon_and_starts_its_own() {
+    let world = World::new();
+    let (mut daemon, bytes) = served(&world);
+    let old = run_ports::Discovery::decode(&bytes).unwrap();
+    let ran = world.run_also(
+        &[("CTXLOOM_TEST_STAMP", "0.0.0-another+build")],
+        &["daemon", "resolve"],
+    );
+    assert_eq!(ran.code, 0, "{}\n{}", ran.said(), world.log());
+    assert_eq!(
+        exited_within(&mut daemon, Duration::from_secs(20)),
+        Some(0),
+        "the old daemon was stopped; its log:\n{}",
+        world.log()
+    );
+    let path = world
+        .project
+        .home()
+        .join(".ctxloom/daemon/daemon.discovery");
+    let new = run_ports::Discovery::decode(&files::read_bytes(&path).unwrap()).unwrap();
+    assert_ne!(new.pid, old.pid, "another daemon serves");
+    let _ = world.run(&["daemon", "stop"]);
+}

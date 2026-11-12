@@ -895,7 +895,13 @@ disclosure), `deps-ports` (`Remotes`, `DepsFiles`, `RemoteLibrary`),
 under `.ctxloom/cache/repos`, read from commits only, never a checkout),
 `deps-files` (remotes.yaml, lock.yaml and the installed trees under
 `.ctxloom/cache/bundles/<segments>/<bundle>/<sha>/`; it stands where the plan
-named `content-fs` for these files), `deps-cli`. `ctxloom-wiring`'s `Commands`
+named `content-fs` for these files), `deps-cli`. A repository's
+`<segments>` (`deps::address::cache_segments`, under `cache/repos` and
+`cache/bundles` alike) are its host and path with every `:` as `_`, on every
+OS (owner ruling 2026-11-12: `host_8443`, a Windows drive's `C_`; one layout
+everywhere). The cache is regenerable: a unix cache an older ctxloom spelled
+with the `:` is orphaned and cloned again once, and `clean` removes both
+spellings, as it removes each cache tree whole. `ctxloom-wiring`'s `Commands`
 composes them with the library: it merges `bundle push|move` into the
 library's `bundle` noun and owns `remote` and `deps`.
 

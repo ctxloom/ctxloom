@@ -245,52 +245,6 @@ fn test_a_name_that_climbs_is_refused() {
     assert_eq!(err.code(), "content-fs-bad-name");
 }
 
-// The execute-bit listing reads the disk as the tree does, so it refuses the
-// same names: nothing outside the root is walked.
-#[test]
-fn test_a_name_that_climbs_has_no_executable_files_read() {
-    let (_fs, repo) = fixture_repo();
-    for bad in ["../../etc", "", "a/./b", "/abs"] {
-        let err = repo.executable_files(bad).expect_err(bad);
-        assert_eq!(err.code(), "content-fs-bad-name", "{bad}");
-    }
-}
-
-// skill.go skillManifestMode: a skill file is executable when any execute bit
-// is set on disk, whatever a sidecar declares; the listing is read off the
-// directory.
-#[test]
-fn test_the_executable_files_are_those_with_an_execute_bit() {
-    if !keeps_exec_bits() {
-        return;
-    }
-    let fs = rooted();
-    put(&fs, "vault/bundle.yaml", b"version: 1.0.0\n");
-    put(
-        &fs,
-        "vault/skills/reviewer/SKILL.md",
-        b"---\nname: reviewer\n---\n",
-    );
-    let script = app()
-        .join(BUNDLES_BELOW_APP_DIR)
-        .join("vault/skills/reviewer/scripts/run.sh");
-    fs.create_dir_all(script.parent().unwrap(), Mode::from_bits(0o755))
-        .unwrap();
-    fs.write_atomic(
-        &script,
-        b"#!/bin/sh\n",
-        file_system::Perms::Exact(Mode::from_bits(0o755)),
-    )
-    .unwrap();
-    let repo = ContentFs::new(fs, &app());
-    let found: Vec<String> = repo
-        .executable_files("vault")
-        .unwrap()
-        .into_iter()
-        .collect();
-    assert_eq!(found, ["skills/reviewer/scripts/run.sh"]);
-}
-
 // bundlewalk.go: a name is no bundle's path when it is empty, absolute, or
 // has a `.` or `..` step; each alone is enough.
 #[test]
@@ -455,13 +409,6 @@ fn test_apply_makes_a_file_executable_only_when_asked() {
     let meta = |rel: &str| fs.metadata(&bundle_file("demo", rel)).unwrap();
     assert!(meta("skills/s/scripts/run.sh").executable);
     assert!(!meta("skills/s/SKILL.md").executable);
-    assert_eq!(
-        repo.executable_files("demo")
-            .unwrap()
-            .into_iter()
-            .collect::<Vec<_>>(),
-        ["skills/s/scripts/run.sh"]
-    );
     // Rewriting the script plain takes the bit away: the write is the whole of it.
     repo.apply("demo", &[write("skills/s/scripts/run.sh", "#!/bin/sh\n")])
         .unwrap();
@@ -789,17 +736,14 @@ fn test_a_tree_is_read_whole_sorted_with_its_dotfiles_and_exec_bits() {
     // A link in the tree is not followed and not listed.
     fs.symlink_dir(Path::new("/work/t/a"), Path::new("/work/t/link"))
         .unwrap();
+    // No mode is read back (owner ruling 2026-11-12): the files alone.
     let read = user.read_tree("t").unwrap();
-    let paths: Vec<&str> = read.iter().map(|p| p.path.as_str()).collect();
+    let paths: Vec<&str> = read.keys().map(String::as_str).collect();
     assert_eq!(
         paths,
         ["a/.hidden.meta.yaml", "a/b/c.txt", "a/run.sh", "z.md"]
     );
-    if exec_bits {
-        let exec: Vec<bool> = read.iter().map(|p| p.executable).collect();
-        assert_eq!(exec, [false, false, true, false]);
-    }
-    assert_eq!(read[1].bytes, b"C");
+    assert_eq!(read["a/b/c.txt"], b"C");
 }
 
 #[test]

@@ -618,10 +618,6 @@ impl ContentRepo for FakeContent {
         format!("/p/.ctxloom/content/bundles/v2/{name}/bundle.yaml")
     }
 
-    fn executable_files(&self, _name: &str) -> Result<BTreeSet<String>, Failure> {
-        Ok(BTreeSet::new())
-    }
-
     fn apply(&self, name: &str, changes: &[Change]) -> Result<(), Failure> {
         let mut bundles = self.bundles.lock().expect("the bundles");
         let tree = bundles.entry(name.to_string()).or_default();

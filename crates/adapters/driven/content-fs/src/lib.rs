@@ -11,7 +11,7 @@
 
 mod error;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -76,35 +76,6 @@ impl ContentFs {
                 Ok(Some(Kind::File)) => out.push(rel),
                 Ok(_) => self.walk(&path, &rel, out)?,
                 Err(e) => return Err(list_failure(&path, &e)),
-            }
-        }
-        Ok(())
-    }
-
-    /// The files below `dir` with an execute bit, by their path relative to `top`.
-    fn executables(
-        &self,
-        top: &Path,
-        dir: &Path,
-        out: &mut BTreeSet<String>,
-    ) -> Result<(), Failure> {
-        for entry in self.fs.read_dir(dir).map_err(|e| list_failure(dir, &e))? {
-            let path = dir.join(&entry.name);
-            let meta = self
-                .fs
-                .metadata(&path)
-                .map_err(|e| list_failure(&path, &e))?;
-            match meta.kind {
-                Kind::Dir => self.executables(top, &path, out)?,
-                Kind::File if meta.executable => {
-                    let rel = path.strip_prefix(top).unwrap_or(&path);
-                    let rel: Vec<String> = rel
-                        .components()
-                        .map(|c| c.as_os_str().to_string_lossy().into_owned())
-                        .collect();
-                    out.insert(rel.join("/"));
-                }
-                _ => {}
             }
         }
         Ok(())
@@ -186,18 +157,6 @@ impl ContentRepo for ContentFs {
             .join(MANIFEST)
             .display()
             .to_string()
-    }
-
-    fn executable_files(&self, name: &str) -> Result<BTreeSet<String>, Failure> {
-        if climbs(name) {
-            return Err(Box::new(ContentError::BadName {
-                name: name.to_string(),
-            }));
-        }
-        let top = join_rel(&self.root, name);
-        let mut found = BTreeSet::new();
-        self.executables(&top, &top, &mut found)?;
-        Ok(found)
     }
 
     fn apply(&self, name: &str, changes: &[Change]) -> Result<(), Failure> {
@@ -364,26 +323,19 @@ impl UserFilesFs {
 }
 
 impl UserFilesFs {
-    fn walk(&self, top: &Path, dir: &Path, out: &mut BTreeMap<String, Put>) -> Result<(), Failure> {
+    fn walk(
+        &self,
+        top: &Path,
+        dir: &Path,
+        out: &mut BTreeMap<String, Vec<u8>>,
+    ) -> Result<(), Failure> {
         for entry in self.fs.read_dir(dir).map_err(|e| list_failure(dir, &e))? {
             let path = dir.join(&entry.name);
             match entry.kind {
                 Kind::Dir => self.walk(top, &path, out)?,
                 Kind::File => {
                     let bytes = self.fs.read(&path).map_err(|e| read_failure(&path, &e))?;
-                    let meta = self
-                        .fs
-                        .metadata(&path)
-                        .map_err(|e| list_failure(&path, &e))?;
-                    let rel = relative(top, &path);
-                    out.insert(
-                        rel.clone(),
-                        Put {
-                            path: rel,
-                            bytes,
-                            executable: meta.executable,
-                        },
-                    );
+                    out.insert(relative(top, &path), bytes);
                 }
                 _ => {}
             }
@@ -430,11 +382,11 @@ impl UserFiles for UserFilesFs {
             .map_err(|e| read_failure(Path::new(path), &e))
     }
 
-    fn read_tree(&self, dir: &str) -> Result<Vec<Put>, Failure> {
+    fn read_tree(&self, dir: &str) -> Result<TreeFiles, Failure> {
         let top = Path::new(dir);
         let mut found = BTreeMap::new();
         self.walk(top, top, &mut found)?;
-        Ok(found.into_values().collect())
+        Ok(found)
     }
 
     fn write_file(&self, path: &str, bytes: &[u8], overwrite: bool) -> Result<bool, Failure> {

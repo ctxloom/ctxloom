@@ -94,8 +94,4 @@ fn test_the_content_has_a_root_only_with_bundles() {
         content.manifest_path("demo"),
         "/p/.ctxloom/content/bundles/v2/demo/bundle.yaml"
     );
-    assert!(content
-        .executable_files("demo")
-        .expect("answers")
-        .is_empty());
 }

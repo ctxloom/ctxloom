@@ -72,8 +72,8 @@ impl UserFiles for Mem {
     fn read_file(&self, path: &str) -> Result<Vec<u8>, Failure> {
         Ok(self.files.lock().unwrap()[path].clone().into_bytes())
     }
-    fn read_tree(&self, _: &str) -> Result<Vec<Put>, Failure> {
-        Ok(Vec::new())
+    fn read_tree(&self, _: &str) -> Result<ctxloom_ports::TreeFiles, Failure> {
+        Ok(Default::default())
     }
     fn write_file(&self, path: &str, bytes: &[u8], _: bool) -> Result<bool, Failure> {
         self.files

@@ -400,10 +400,8 @@ fn test_export_copies_the_whole_tree_under_the_bundles_own_name() {
         mem.user_text("exported/demo/fragments/example.md").unwrap(),
         "EXAMPLE"
     );
-    assert!(
-        mem.user_file("exported/demo/skills/s/SKILL.md").unwrap().1,
-        "the exec bit travels"
-    );
+    // A mode on disk does not travel: no sidecar here declares one.
+    assert!(!mem.user_file("exported/demo/skills/s/SKILL.md").unwrap().1);
     assert!(!mem.user_file("exported/demo/bundle.yaml").unwrap().1);
 }
 
@@ -506,7 +504,12 @@ fn test_import_copies_a_tree_in_under_its_own_name() {
     }
     .fixture();
     exported_demo(&mem);
-    mem.put_user("in/demo/skills/s/run.sh", b"#!/bin/sh", true);
+    mem.put_user("in/demo/skills/s/run.sh", b"#!/bin/sh", false);
+    mem.put_user(
+        "in/demo/skills/.s.meta.yaml",
+        b"executable:\n  - run.sh\n",
+        false,
+    );
     let done = library
         .bundle_import(&plain(), "in/demo", false)
         .result
@@ -519,7 +522,7 @@ fn test_import_copies_a_tree_in_under_its_own_name() {
     assert_eq!(mem.text("demo", "fragments/example.md").unwrap(), "EXAMPLE");
     assert!(
         mem.file("demo", "skills/s/run.sh").unwrap().1,
-        "the exec bit travels"
+        "the sidecar's declaration travels"
     );
     assert_eq!(mem.log(), ["claim demo", "apply demo"]);
 }

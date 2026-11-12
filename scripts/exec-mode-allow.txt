@@ -6,7 +6,6 @@
 crates/adapters/driven/cache-files/src/lib.test.rs | chmod(&fs, "cache/readonly", 0o500) | a directory made unwritable (searchable only); never run
 crates/adapters/driven/cache-files/src/lib.test.rs | chmod(&fs, "cache/locked", 0o700) | a directory restored to usable; never run
 crates/adapters/driven/cache-files/src/lib.test.rs | chmod(&fs, "cache/readonly", 0o700) | a directory restored to usable; never run
-crates/adapters/driven/content-fs/src/lib.test.rs | file_system::Perms::Exact(Mode::from_bits(0o755)) | the execute bit is what `executable_files` lists; the script is never run
 crates/adapters/driven/remote-git/src/fixtures.test.rs | Perms::Exact(Mode::from_bits(0o755)) | a file with the execute bit for git to commit and the clone to carry; never run
 crates/core/read-model/library/src/write/archive.test.rs | .mode(0o040_755) | the mode field of an in-memory zip entry (a directory), no file written
 crates/core/read-model/library/src/write/archive.test.rs | .mode(0o104_755) | the mode field of an in-memory zip entry, no file written

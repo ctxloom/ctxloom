@@ -835,16 +835,31 @@ constant time (`TokenHash::matches`), and answers anything else (no
 credential, another bearer, a run's hook bearer, another scheme) with a
 bare UNAUTHENTICATED that says nothing of why (S11); an admitted caller is
 the user, with `user_allowlist` (every session command and fact) on every
-stream the daemon reaches. It advertises itself in the discovery file,
-`<ctxloom home>/.ctxloom/daemon/daemon.discovery`: one
+stream the daemon reaches. There is ONE daemon per OS USER, ever (owner,
+after step 3/4: no clustering): its single-instance lock, `daemon.lock`,
+is keyed to the account, never to `CTXLOOM_HOME`, at the place ONE function
+says (`daemon::files::instance_lock_path`). The platform resolves no account
+home yet (angzarr-platform's `os::user_home`, being added) and offers no
+per-user runtime place, so today that place is `<ctxloom home>/.ctxloom/
+daemon/`, and moving it to the account's is that function's one line. Under
+`test-support`, `CTXLOOM_TEST_INSTANCE_DIR` names the directory instead (each
+test's temporary home keeps its own daemon, and two homes can share one; a
+client passes it to the daemon it spawns). The daemon advertises itself in
+the discovery file beside the lock, `daemon.discovery`: one
 `ctxloom.daemon.v1.Discovery` in protobuf's binary encoding (S5;
 `daemon-proto`, `run_ports::Discovery`'s codec, format 1; the old
 `daemon.endpoint` line file is gone, hard migrate) naming the endpoint, the
-public certificate (DER), the user bearer, the pid and the binary's FULL
+public certificate (DER), the user bearer, the pid, the binary's FULL
 versionator stamp (M3; the stamp `ctxloom version` says, threaded from the
-binary, never `CARGO_PKG_VERSION`). The file is 0600 and the daemon
-directory 0700, tightened on each publish whoever made it (the single-instance
-lock may have); on Windows the platform sets no mode and the profile's
+binary, never `CARGO_PKG_VERSION`) and the ctxloom home it serves (field 8;
+a file naming none is unreadable). A client whose ctxloom home is not the
+serving daemon's is refused before it does anything, `ctxloom-wiring-daemon-
+other-home` (exit 20, naming both homes, its fix the daemon's home or a
+`daemon stop` from it), and never served by a second daemon (`daemon
+status`, `daemon stop` and the hidden verbs; a hook's rediscovery passes
+such a daemon over and delivers to its run's listener). The file is 0600
+and its directory 0700, tightened on each publish whoever made it (the
+single-instance lock may have); on Windows the platform sets no mode and the profile's
 inherited ACL stands (M8). It keeps other users out, not the user's own
 processes. `Discovery`'s `Debug` withholds the bearer, and the daemon's log
 never holds it. Addressing at the daemon (owner, after step 3/4): the
@@ -871,8 +886,14 @@ Check SERVING (T16, M11: `hook-sink-grpc`'s `serving`, tonic-health's
 client and messages, a direct dependency at the version the lock already
 held for angzarr's server, over TLS pinning the certificate the discovery
 file names, presenting no bearer, within the wiring's `HEALTH_WAIT`, one
-second). The single-instance lock (`daemon.lock`, `DaemonFiles::hold_instance`)
-says only that one daemon serves: `daemon status`, `daemon stop`, a hook's rediscovery and a
+second). The single-instance lock (`daemon.lock`,
+`DaemonFiles::hold_instance`, the platform's `file_lock::take_current`) says
+only that one daemon serves: its file is made once and never removed or
+replaced by ctxloom, and a serving daemon checks at each tick that the file
+at the lock's path is still the one it locked (`DaemonFiles::still_holds`:
+`Fs::same_file`, device and inode, volume and file index); removed or
+replaced, it excludes nobody, so the daemon exits (closing the gap of two
+daemons at once). `daemon status`, `daemon stop`, a hook's rediscovery and a
 client's `ensure` all ask the health check, never the lock, so a daemon that
 holds the lock and does not answer (stopped, hung) is not serving, and a
 stale port another process took is never handed anything. A serving daemon

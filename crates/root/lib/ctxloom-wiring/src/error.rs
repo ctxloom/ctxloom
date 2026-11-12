@@ -25,6 +25,9 @@ pub enum LibError {
     Store(StoreOpenError),
     /// The project could not be named (S54).
     Project(Report),
+    /// The user's one daemon serves another ctxloom home than this
+    /// command's: one daemon per OS user, never a second.
+    DaemonOtherHome { home: String, daemon_home: String },
 }
 
 impl fmt::Display for LibError {
@@ -43,6 +46,7 @@ impl Diagnostic for LibError {
             LibError::NoRuntime { .. } => code!("no-runtime"),
             LibError::Store(_) => code!("store"),
             LibError::Project(cause) => cause.code(),
+            LibError::DaemonOtherHome { .. } => code!("daemon-other-home"),
         }
     }
 
@@ -56,6 +60,10 @@ impl Diagnostic for LibError {
             LibError::NoRuntime { detail } => vec![("ext_err_txt", detail.as_str().into())],
             LibError::Store(cause) => vec![("error", Arg::Nested(Box::new(cause.clone())))],
             LibError::Project(cause) => cause.args(),
+            LibError::DaemonOtherHome { home, daemon_home } => vec![
+                ("home", home.as_str().into()),
+                ("daemon_home", daemon_home.as_str().into()),
+            ],
         }
     }
 }
@@ -73,6 +81,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         }),
         Box::new(LibError::NoRuntime {
             detail: "too many open files".to_string(),
+        }),
+        Box::new(LibError::DaemonOtherHome {
+            home: "/home/u/.ctxloom-other".to_string(),
+            daemon_home: "/home/u".to_string(),
         }),
         Box::new(LibError::Store(StoreOpenError::Open(
             ctxloom_store_sqlite::OpenError::Unplaced {

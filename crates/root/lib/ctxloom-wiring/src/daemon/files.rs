@@ -51,8 +51,9 @@ pub(crate) const INSTANCE_DIR_VARIABLE: &str = "CTXLOOM_TEST_INSTANCE_DIR";
 /// this function's one line. `overridden` (a test's, [`INSTANCE_DIR_VARIABLE`])
 /// is the directory instead.
 pub(crate) fn instance_lock_path(home: &Path, overridden: Option<&Path>) -> PathBuf {
-    let _ = overridden;
-    home.join(DAEMON_DIR).join(DAEMON_LOCK_FILE)
+    overridden
+        .map_or_else(|| home.join(DAEMON_DIR), Path::to_path_buf)
+        .join(DAEMON_LOCK_FILE)
 }
 
 /// The single-instance lock, held: released when dropped. It keeps a second
@@ -140,8 +141,10 @@ impl DaemonFiles {
     /// a serving daemon excludes nobody, so the daemon exits once it is not.
     /// What cannot be told is held.
     pub(crate) fn still_holds(&self, instance: &Instance) -> bool {
-        let _ = &instance.held;
-        true
+        match self.fs.same_file(&instance.held, &self.lock) {
+            Ok(same) => same,
+            Err(e) => e.kind() != std::io::ErrorKind::NotFound,
+        }
     }
 
     /// The daemon's directory, made if missing and held to 0700 whoever made

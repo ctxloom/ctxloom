@@ -76,7 +76,7 @@ impl Discovery {
     /// garbled certificate, a bearer that is not 64 hex, no stamp, no home).
     pub fn decode(bytes: &[u8]) -> Option<Discovery> {
         let wire = daemon_proto::v1::Discovery::decode(bytes).ok()?;
-        if wire.format != DISCOVERY_FORMAT || wire.stamp.is_empty() {
+        if wire.format != DISCOVERY_FORMAT || wire.stamp.is_empty() || wire.home.is_empty() {
             return None;
         }
         Some(Discovery {

@@ -72,6 +72,7 @@ fn the_samples_are_the_same_whether_or_not_test_support_is_built() {
             "ctxloom-wiring-no-home",
             "ctxloom-wiring-bad-session",
             "ctxloom-wiring-no-runtime",
+            "ctxloom-wiring-daemon-other-home",
             "ctxloom-wiring-store",
             "ctxloom-wiring-store",
         ]

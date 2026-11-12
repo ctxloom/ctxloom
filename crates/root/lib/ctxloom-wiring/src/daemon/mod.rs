@@ -288,6 +288,13 @@ pub(crate) fn run(
     let format = call.format();
     let wiring = Wiring::new(Arc::clone(env)).map_err(failed)?;
     let files = files_of(&wiring);
+    // One daemon per OS user: a command whose ctxloom home is not the
+    // serving daemon's is refused before it does anything (`serve` itself
+    // finds the lock held, and exits).
+    let serving = match verb {
+        DaemonVerb::Serve { .. } => None,
+        _ => serving(&wiring, &files)?,
+    };
     let ordered = match verb {
         DaemonVerb::Serve {
             idle_seconds,
@@ -300,11 +307,11 @@ pub(crate) fn run(
             return be_the_daemon(&wiring, env, stamp, &files, pace);
         }
         DaemonVerb::Status => {
-            output(render(out, format, &status(&files)))?;
+            output(render(out, format, &status(serving)))?;
             return Ok(Exit::OK);
         }
         DaemonVerb::Stop => {
-            if files.discovery().is_some_and(|found| live(&found)) {
+            if serving.is_some() {
                 files.request_stop().map_err(|e| {
                     failed(CliError::Output {
                         detail: e.to_string(),
@@ -482,9 +489,29 @@ fn files_of(wiring: &Wiring) -> DaemonFiles {
     DaemonFiles::with_instance(wiring.fs(), wiring.home(), instance_lock(wiring))
 }
 
-/// Whether a daemon serves, and where.
-fn status(files: &DaemonFiles) -> Status {
-    let found = files.discovery().filter(live);
+/// The live daemon `files` advertise, if one serves; refused when it serves
+/// another ctxloom home than `wiring`'s (one daemon per OS user, so this
+/// command is never given a second).
+fn serving(wiring: &Wiring, files: &DaemonFiles) -> Result<Option<run_ports::Discovery>, Failure> {
+    let Some(found) = files.discovery().filter(live) else {
+        return Ok(None);
+    };
+    let home = wiring.home().display().to_string();
+    if found.home == home {
+        Ok(Some(found))
+    } else {
+        Err(Failure::new(
+            LibError::DaemonOtherHome {
+                home,
+                daemon_home: found.home,
+            },
+            Exit::REFUSED,
+        ))
+    }
+}
+
+/// Whether a daemon serves, and where: the one `found` serving.
+fn status(found: Option<run_ports::Discovery>) -> Status {
     Status {
         serving: found.is_some(),
         endpoint: found.as_ref().map(|d| d.endpoint.clone()),
@@ -542,7 +569,8 @@ fn live(found: &run_ports::Discovery) -> bool {
 /// names: a stale file names a port nobody serves).
 pub(crate) fn discovery(env: &Arc<EnvSnapshot>) -> Option<run_ports::Discovery> {
     let wiring = Wiring::new(Arc::clone(env)).ok()?;
-    files_of(&wiring).discovery().filter(live)
+    let files = files_of(&wiring);
+    serving(&wiring, &files).ok().flatten()
 }
 
 /// Make sure the user's daemon serves: spawn one when none is live, and
@@ -553,6 +581,8 @@ pub(crate) fn discovery(env: &Arc<EnvSnapshot>) -> Option<run_ports::Discovery> 
 /// client spawns one).
 fn ensure(wiring: &Wiring, env: &EnvSnapshot) {
     let files = files_of(wiring);
+    // A live daemon, this home's or (refused before the command ran)
+    // another's: never a second.
     if files.discovery().is_some_and(|found| live(&found)) {
         return;
     }
@@ -567,7 +597,11 @@ fn ensure(wiring: &Wiring, env: &EnvSnapshot) {
     // The daemon's own environment is what it needs to run, nothing more: a
     // child's is its launcher's (S6, D-N45), so no spawner's credential
     // lives in the daemon.
-    let kept = daemon_env(env.flavor(), env.vars(), wiring.home());
+    let mut kept = daemon_env(env.flavor(), env.vars(), wiring.home());
+    // A test's place for the single-instance lock is the daemon's too.
+    if let Some(dir) = instance_override(env) {
+        kept.push((files::INSTANCE_DIR_VARIABLE.into(), dir.into_os_string()));
+    }
     command
         .env_clear()
         .envs(kept)

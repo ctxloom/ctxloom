@@ -1302,3 +1302,27 @@ drives. A failing gate is a finding: fix the cause and commit again; never
    tests need a feature of its own dev-depends on itself with it (as
    `session-cli` does for `session-destroy`). Both are held by
    `scripts/mutants-verdict.selftest.sh` (`just selftest`).
+
+A slice landing on an integration branch that carries a red spec on purpose
+(daemon/integration, its daemon scenarios red) closes out with `just
+closeout-ratchet <base>` (owner ruling 165; `scripts/closeout-ratchet.sh`):
+closeout's six gates as usual, mutation included (over merge-base(<base>,
+HEAD)..HEAD), except that the feature runner may fail where the base's does
+and nowhere else: the slice's red scenarios must be a SUBSET of the base
+tip's. It may turn red green, never add a red scenario or break a green one
+(`FAIL ratchet: N new red scenarios: B broke green, A added red`, each named,
+capped). Every other test failure fails `test` as ever. The scenario list is
+the feature runner's: `GHERKIN_RATCHET=<absolute file>` makes
+`every_feature_runs` write a line per scenario, sorted, `red<TAB><id>` or
+`green<TAB><id>` (the id `<feature path under features/> :: [<rule> ::
+]<scenario>[ :: | <example row> |]`; a failure no scenario owns is `<feature>
+:: (outside a scenario)`), and pass whatever failed, so only the ratchet's
+judge (`scripts/ratchet-judge.sh`) decides. The base's list is `just
+ratchet-base <base>` (`scripts/ratchet-base.sh`): only that test, on the
+base's tip, in a throwaway worktree `.<checkout>.ratchet-base` beside the
+checkout (target dir `target/ratchet-base`), cached by sha at
+`target/ratchet/<sha>.list`; a base from before the list gets the runner
+commit that taught it applied, and says so. On main the base has no red
+scenario, so the ratchet is the plain closeout. Exit 0, 1 (a gate, a new red,
+or no base list), 2 (usage). Held by `scripts/closeout-ratchet.selftest.sh`
+(`just selftest`).

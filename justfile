@@ -219,6 +219,25 @@ mutants-batch base="" head="HEAD":
 closeout base="":
     @{{TOP}}/scripts/closeout.sh '{{base}}'
 
+# The close-out of a slice landing on an integration branch that carries a
+# red spec (owner ruling 165): closeout's gates, but the feature runner may
+# fail where the base's does, and nowhere else (scripts/closeout-ratchet.sh;
+# the verdict is scripts/ratchet-judge.sh).
+[group('closeout')]
+[doc("Close-out on an integration branch with a red spec: closeout-ratchet <base>")]
+[no-exit-message]
+closeout-ratchet base:
+    @{{TOP}}/scripts/closeout-ratchet.sh '{{base}}'
+
+# The base's scenario list for the ratchet, cached by its sha
+# (scripts/ratchet-base.sh): the feature runner on the base's tip in a
+# throwaway worktree.
+[group('closeout')]
+[doc("The red and green scenarios of a base commit: ratchet-base <base>")]
+[no-exit-message]
+ratchet-base base:
+    @{{TOP}}/scripts/ratchet-base.sh '{{base}}'
+
 # Delete target/ (the only sanctioned `cargo clean`; ltk blocks the raw one).
 [group('setup')]
 [doc("Delete target/ (what `cargo clean` would)")]
@@ -227,12 +246,13 @@ clean-target:
 
 # The self-tests of this repository's scripts against fixture trees.
 [group('check')]
-[doc("Self-tests of the scripts: mutants-batch, closeout, ltk rules, output budget, exec-mode check, path deps")]
+[doc("Self-tests of the scripts: mutants-batch, closeout, closeout-ratchet, ltk rules, output budget, exec-mode check, path deps")]
 [no-exit-message]
 selftest:
     @{{TOP}}/scripts/mutants-batch.selftest.sh
     @{{TOP}}/scripts/mutants-verdict.selftest.sh
     @{{TOP}}/scripts/closeout.selftest.sh
+    @{{TOP}}/scripts/closeout-ratchet.selftest.sh
     @{{TOP}}/scripts/ltk-rules-check.sh
     @{{TOP}}/scripts/output-budget.selftest.sh
     @{{TOP}}/scripts/tests-exit.selftest.sh

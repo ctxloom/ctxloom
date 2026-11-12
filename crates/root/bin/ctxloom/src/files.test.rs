@@ -30,12 +30,18 @@ pub(crate) fn runs_scripts() -> bool {
 /// (a file is one it would run by its extension), so a test of what a bit on
 /// disk does is skipped there and says so, `SKIP <test>: <why>`.
 pub(crate) fn keeps_exec_bits() -> bool {
+    keeps_exec_bits_for("it sets an execute bit on disk")
+}
+
+/// [`keeps_exec_bits`] for a part of a test, `what`, the rest of which runs
+/// on every host: `SKIP <test>: <what>, ...` where the part is skipped.
+pub(crate) fn keeps_exec_bits_for(what: &str) -> bool {
     if os::host().flavor() == os::Flavor::Unix {
         return true;
     }
     let test = std::thread::current();
     eprintln!(
-        "SKIP {}: it sets an execute bit on disk, which Windows keeps none of",
+        "SKIP {}: {what}, which Windows keeps no execute bit for",
         test.name().unwrap_or("a test")
     );
     false

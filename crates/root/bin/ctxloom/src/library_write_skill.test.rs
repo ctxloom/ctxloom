@@ -295,9 +295,11 @@ fn test_a_skills_files_survive_export_and_import_byte_for_byte() {
             &format!("{LANDED}/skills/.reviewer.meta.yaml"),
             "scripts/run.sh",
         );
-        assert!(project.is_executable(&format!("{LANDED}/skills/reviewer/scripts/run.sh")));
-        assert!(!project.is_executable(&format!("{LANDED}/skills/reviewer/SKILL.md")));
-        assert!(!project.is_executable(&format!("{LANDED}/skills/reviewer/assets/blob.bin")));
+        if files::keeps_exec_bits_for("the landed files' execute bits on disk") {
+            assert!(project.is_executable(&format!("{LANDED}/skills/reviewer/scripts/run.sh")));
+            assert!(!project.is_executable(&format!("{LANDED}/skills/reviewer/SKILL.md")));
+            assert!(!project.is_executable(&format!("{LANDED}/skills/reviewer/assets/blob.bin")));
+        }
         project.file_is_absent("reviewer.zip.bak");
         project.run(&["bundle", "view", "landed"]).succeeds();
         let _ = files::fs().remove_file(&project.dir().join("reviewer.zip"));

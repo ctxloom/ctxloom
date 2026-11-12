@@ -39,6 +39,10 @@ pub(super) struct State {
     run: Option<Child>,
     /// The file whose presence lets the stub engine end.
     release: Option<PathBuf>,
+    /// What a client's call to the daemon came to.
+    called: Option<Result<(), daemon_ports::Called>>,
+    /// The discovery of a daemon since stopped.
+    old: Option<run_ports::Discovery>,
 }
 
 impl Drop for State {
@@ -172,6 +176,7 @@ while IFS= read -r line; do
   : > "$here/child-turn"
   printf '{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"S1"}\n'
 done
+: > "$here/child-exited"
 "#;
 
 /// A child the daemon hosts: launched by the user for a seeded owner, and
@@ -282,13 +287,33 @@ fn unstartable(_: &mut World) {
 }
 
 #[given("a ctxloom daemon is serving for this home")]
-fn serving(_: &mut World) {
-    red("a ctxloom daemon is serving for this home")
+fn serving(w: &mut World) {
+    start_daemon(w);
 }
 
 #[given(expr = "a ctxloom daemon is serving for this home, hosting a child {string}")]
-fn serving_hosting(_: &mut World, _child: String) {
-    red("a ctxloom daemon is serving for this home, hosting a child")
+fn serving_hosting(w: &mut World, child: String) {
+    assert_eq!(child, "brisk-copper-moth", "the child the harness hosts");
+    start_daemon(w);
+    hosted_child(w);
+}
+
+/// The discovery file the serving daemon wrote.
+fn discovery_now(w: &World) -> run_ports::Discovery {
+    let bytes = files::read_bytes(discovery_path(w)).expect("a discovery file");
+    run_ports::Discovery::decode(&bytes).expect("a discovery file it can read")
+}
+
+/// GetDaemon of the daemon `found` names, presenting `found`'s bearer.
+fn get_daemon(found: &run_ports::Discovery) -> Result<(), daemon_ports::Called> {
+    use daemon_ports::DaemonApi;
+    let client = daemon_client::DaemonClient::new(found, Duration::from_secs(5));
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(client.get_daemon())
+        .map(|_| ())
 }
 
 #[given("a ctxloom daemon is serving for this home, and has nothing running, hosted or open")]
@@ -367,13 +392,27 @@ fn two_at_once(_: &mut World, _first: String, _second: String) {
 }
 
 #[when("a client calls the daemon with a bearer it did not mint")]
-fn foreign_bearer(_: &mut World) {
-    red("a client calls the daemon with a bearer it did not mint")
+fn foreign_bearer(w: &mut World) {
+    let found = run_ports::Discovery {
+        bearer: run_ports::Token::from_bytes([0x5a; 32]),
+        ..discovery_now(w)
+    };
+    w.daemon_spec.called = Some(get_daemon(&found));
 }
 
 #[when("the daemon is stopped and the next command starts another")]
-fn restarted(_: &mut World) {
-    red("the daemon is stopped and the next command starts another")
+fn restarted(w: &mut World) {
+    let old = discovery_now(w);
+    let stopped = run_now(w, &["daemon", "stop"]);
+    assert_eq!(stopped.code, 0, "{}", stopped.said());
+    if let Some(mut daemon) = w.daemon_spec.daemon.take() {
+        let _ = daemon.wait();
+    }
+    // The next command's daemon idles out at once.
+    w.common.set_env(IDLE_VARIABLE, IDLE_SECONDS.to_string());
+    let next = run_now(w, &["daemon", "resolve"]);
+    assert_eq!(next.code, 0, "{}\n{}", next.said(), daemon_log_text(w));
+    w.daemon_spec.old = Some(old);
 }
 
 #[when("the session's assistant fires its UserPromptSubmit hook")]
@@ -575,18 +614,35 @@ fn bearer_unseen(_: &mut World) {
 }
 
 #[then("the call is refused as unauthenticated, and the refusal names no reason")]
-fn unauthenticated(_: &mut World) {
-    red("the call is refused as unauthenticated")
+fn unauthenticated(w: &mut World) {
+    // `Called::Unauthenticated` carries nothing: the daemon said no reason a
+    // typed refusal would hold.
+    assert_eq!(
+        w.daemon_spec.called.take(),
+        Some(Err(daemon_ports::Called::Unauthenticated))
+    );
 }
 
 #[then("the new discovery file holds another certificate and another bearer")]
-fn rotated(_: &mut World) {
-    red("the new discovery file holds another certificate and another bearer")
+fn rotated(w: &mut World) {
+    let old = w.daemon_spec.old.as_ref().expect("a daemon was stopped");
+    let new = discovery_now(w);
+    assert_ne!(new.pid, old.pid, "another daemon");
+    assert_ne!(new.cert, old.cert, "another certificate");
+    assert_ne!(new.bearer, old.bearer, "another bearer");
 }
 
 #[then("a client still holding the old bearer is refused")]
-fn old_bearer_refused(_: &mut World) {
-    red("a client still holding the old bearer is refused")
+fn old_bearer_refused(w: &mut World) {
+    let old = w.daemon_spec.old.clone().expect("a daemon was stopped");
+    let stale = run_ports::Discovery {
+        bearer: old.bearer,
+        ..discovery_now(w)
+    };
+    assert_eq!(
+        get_daemon(&stale),
+        Err(daemon_ports::Called::Unauthenticated)
+    );
 }
 
 #[then("the daemon has exited, and nothing says it serves")]
@@ -761,8 +817,19 @@ fn reported_to_new(_: &mut World) {
 // ---------------------------------------- the owner's rulings S8 to S20
 
 #[then("the hosted engines were ended cleanly before the daemon exited")]
-fn ended_cleanly(_: &mut World) {
-    red("the hosted engines were ended cleanly before the daemon exited")
+fn ended_cleanly(w: &mut World) {
+    // The stub's input was closed and it ran to its end, which the daemon
+    // waits for (its end grace) before it exits.
+    let exited = w.common.project.home().join("fake-claude/child-exited");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !files::exists(&exited) {
+        assert!(
+            Instant::now() < deadline,
+            "the child never ended; the daemon's log:\n{}",
+            daemon_log_text(w)
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 #[then(

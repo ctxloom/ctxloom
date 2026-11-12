@@ -12,8 +12,9 @@ use angzarr_embedded_macros::{aggregate, applies, handles_cmd};
 use crate::refusal::refuse;
 use crate::{
     validate, ClaimProjectName, HarpInvalid, NameProject, ProjectCommand, ProjectEvent,
-    ProjectNameClaimed, ProjectNameCommand, ProjectNameEvent, ProjectNameState, ProjectNameTaken,
-    ProjectNamed, ProjectRegistered, ProjectState, SessionRejection,
+    ProjectHarpMismatch, ProjectIdentityChanged, ProjectNameClaimed, ProjectNameCommand,
+    ProjectNameEvent, ProjectNameState, ProjectNameTaken, ProjectNamed, ProjectRegistered,
+    ProjectState, RegisterProject, SessionRejection, UnnamedProject,
 };
 
 /// The project aggregate: its harp, folded from its stream.
@@ -56,6 +57,68 @@ impl ProjectAggregate {
             project_id: cmd.project_id,
             harp: cmd.harp,
         }))
+    }
+
+    /// Register the project's root and VCS identity on first sight, or
+    /// recheck them (owner, 2026-11-12, project registration): `None` when
+    /// it is registered and they match. Refused for a project with no harp
+    /// yet, for a client that expected another harp, and for a root commit
+    /// that is not the one registered (another repository at its place),
+    /// each naming the registered project. Only the root commit is
+    /// rechecked: a worktree's root is another directory of the same
+    /// repository, and its common directory is its primary checkout's.
+    #[handles_cmd(
+        RegisterProject,
+        refuses(UnnamedProject, ProjectIdentityChanged, ProjectHarpMismatch)
+    )]
+    fn register(
+        &self,
+        cmd: RegisterProject,
+        ctx: &Context,
+    ) -> Result<Option<ProjectRegistered>, Failed<Refuses<Self, RegisterProject>>> {
+        let _ = ctx;
+        let state = &self.project;
+        let fail = |rejection| {
+            refuse!(
+                SessionRejection,
+                rejection,
+                Refuses<Self, RegisterProject>,
+                [
+                    ProjectNotNamed{project_id} => UnnamedProject,
+                    ProjectIdentityChanged{project, root, registered_commit, found_commit} => ProjectIdentityChanged,
+                    ProjectHarpMismatch{project, expected} => ProjectHarpMismatch,
+                ]
+            )
+        };
+        if state.harp.is_empty() {
+            return Err(fail(SessionRejection::ProjectNotNamed {
+                project_id: cmd.project_id,
+            }));
+        }
+        let project = format!("projects/{}", state.harp);
+        if !cmd.expected_harp.is_empty() && cmd.expected_harp != state.harp {
+            return Err(fail(SessionRejection::ProjectHarpMismatch {
+                project,
+                expected: cmd.expected_harp,
+            }));
+        }
+        if state.root.is_empty() {
+            return Ok(Some(ProjectRegistered {
+                project_id: cmd.project_id,
+                root: cmd.root,
+                git_common_dir: cmd.git_common_dir,
+                root_commit: cmd.root_commit,
+            }));
+        }
+        if cmd.root_commit != state.root_commit {
+            return Err(fail(SessionRejection::ProjectIdentityChanged {
+                project,
+                root: cmd.root,
+                registered_commit: state.root_commit.clone(),
+                found_commit: cmd.root_commit,
+            }));
+        }
+        Ok(None)
     }
 
     #[applies(ProjectNamed)]

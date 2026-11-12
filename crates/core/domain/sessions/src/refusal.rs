@@ -66,7 +66,7 @@ impl TryFrom<&TypedRefusal> for SessionRejection {
         if let Some(crate::ProjectNameTaken { harp }) = refusal.object() {
             return Ok(SessionRejection::ProjectNameTaken { harp });
         }
-        if let Some(crate::ProjectNotNamed { project_id }) = refusal.object() {
+        if let Some(crate::UnnamedProject { project_id }) = refusal.object() {
             return Ok(SessionRejection::ProjectNotNamed { project_id });
         }
         if let Some(crate::ProjectIdentityChanged {

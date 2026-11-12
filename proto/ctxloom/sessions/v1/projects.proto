@@ -68,7 +68,7 @@ message RegisterProject {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.sessions.v1.ProjectState"
     emits: ["ctxloom.sessions.v1.ProjectRegistered"]
-    refuses: "ctxloom.sessions.v1.ProjectNotNamed"
+    refuses: "ctxloom.sessions.v1.UnnamedProject"
     refuses: "ctxloom.sessions.v1.ProjectIdentityChanged"
     refuses: "ctxloom.sessions.v1.ProjectHarpMismatch"
   };
@@ -132,7 +132,7 @@ message ProjectNameTaken {
 }
 
 // A registration of a project that has no harp yet.
-message ProjectNotNamed {
+message UnnamedProject {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 
   string project_id = 1;

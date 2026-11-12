@@ -62,8 +62,11 @@ pub const SIGN_IN: &str = "run `opencode auth login`, then start the session aga
 /// network needs, the optional provider keys of opencode's built-in source,
 /// and what the plugin's hook
 /// processes need (ctxloom's home by name, the session's harp, the run's
-/// listener). Never `HOME`, an XDG base nor any `OPENCODE_*` variable of the
-/// caller's: `OPENCODE_PURE` would skip the plugin, and capture vanish.
+/// listener), and on Windows what a program needs to start
+/// (`run_ports::WINDOWS_STARTUP_VARIABLES`) and the user's profile
+/// directories (`run_ports::WINDOWS_PROFILE_VARIABLES`, relocated into the
+/// session home as `HOME` is; none is set on unix). Never `HOME`, an XDG base
+/// nor any `OPENCODE_*` variable of the caller's: `OPENCODE_PURE` would skip the plugin, and capture vanish.
 pub const ENV_ALLOWLIST: &[&str] = &[
     "PATH",
     "LANG",
@@ -78,6 +81,16 @@ pub const ENV_ALLOWLIST: &[&str] = &[
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
     "NODE_EXTRA_CA_CERTS",
+    "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "WINDIR",
+    "TEMP",
+    "TMP",
+    "PATHEXT",
+    "COMSPEC",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
     run_ports::HOME_VARIABLE,
@@ -109,6 +122,16 @@ pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = &[
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
     "NODE_EXTRA_CA_CERTS",
+    "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "WINDIR",
+    "TEMP",
+    "TMP",
+    "PATHEXT",
+    "COMSPEC",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
     run_ports::HOME_VARIABLE,
@@ -279,6 +302,9 @@ fn environment(
     match settings.session_home {
         SessionHome::Session => {
             env.insert("HOME".to_string(), home.clone());
+            // On Windows the profile variables with it (node's
+            // `os.homedir()` reads USERPROFILE there); none on unix.
+            env.extend(run_ports::session_profile(&home, &request.env));
             for (variable, dir) in [
                 ("XDG_CONFIG_HOME", "xdg/config"),
                 ("XDG_DATA_HOME", "xdg/data"),
@@ -289,9 +315,11 @@ fn environment(
             }
         }
         SessionHome::Host => {
+            // Her home as the composition root resolved it (USERPROFILE on
+            // Windows); her profile variables pass on as they are.
             let user = request
-                .env
-                .get("HOME")
+                .user_home
+                .as_ref()
                 .filter(|h| !h.is_empty())
                 .ok_or_else(|| EngineError::NoHostHome {
                     engine: NAME.to_string(),

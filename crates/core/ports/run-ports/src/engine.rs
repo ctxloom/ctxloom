@@ -96,6 +96,10 @@ pub struct TurnRequest {
     pub resume: Option<String>,
     /// The caller's environment: the engine passes on only what it allows.
     pub env: BTreeMap<String, String>,
+    /// The user's own home, as the composition root resolved it once (the
+    /// platform's home variable: `HOME`, `USERPROFILE` on Windows); none
+    /// when unset. What `session_home: host` gives the engine.
+    pub user_home: Option<String>,
     pub cwd: Option<String>,
     /// The model to run; empty names none, and the engine passes no flag.
     pub model: String,
@@ -116,6 +120,7 @@ impl fmt::Debug for TurnRequest {
             .field("context_path", &self.context_path)
             .field("resume", &self.resume)
             .field("env", &crate::hook::RedactedEnv(&self.env))
+            .field("user_home", &self.user_home)
             .field("cwd", &self.cwd)
             .field("model", &self.model)
             .field("effort", &self.effort)

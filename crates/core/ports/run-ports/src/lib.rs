@@ -13,6 +13,7 @@ mod edge;
 mod engine;
 mod git;
 mod hook;
+mod host;
 mod launcher;
 mod locks;
 mod login;
@@ -35,6 +36,10 @@ pub use hook::{
     endpoint_url, hook_environment, parse_endpoint, Bearer, BearerError, Dial, EndpointError,
     RedactedEnv, BEARER_VARIABLE, ENDPOINT_VARIABLE, HARP_VARIABLE, HOOK_VARIABLES, RUN_VARIABLE,
     SESSION_VARIABLE, TLS_CERT_VARIABLE,
+};
+pub use host::{
+    search_path_led_by, search_path_separator, session_profile, WINDOWS, WINDOWS_PROFILE_VARIABLES,
+    WINDOWS_STARTUP_VARIABLES,
 };
 pub use launcher::{
     Exit, Launch, LaunchEvent, LaunchFailure, Limits, RunnerLauncher, Running, TurnCommand,

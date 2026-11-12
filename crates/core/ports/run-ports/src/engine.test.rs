@@ -86,6 +86,7 @@ fn a_turn_request_renders_its_env_keys_and_never_the_bearer() {
             ("CTXLOOM_BEARER".to_string(), "run.TOPSECRET".to_string()),
             ("PATH".to_string(), "/bin".to_string()),
         ]),
+        user_home: None,
         cwd: None,
         model: String::new(),
         effort: String::new(),
@@ -93,7 +94,7 @@ fn a_turn_request_renders_its_env_keys_and_never_the_bearer() {
     };
     assert_eq!(
         format!("{request:?}"),
-        r#"TurnRequest { prompt: "p", home: "/h", context_path: "/h/c", resume: None, env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "<redacted>"}, cwd: None, model: "", effort: "", settings: EngineSettings { command: "", session_home: Session, auth: Builtin, env: [] } }"#
+        r#"TurnRequest { prompt: "p", home: "/h", context_path: "/h/c", resume: None, env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "<redacted>"}, user_home: None, cwd: None, model: "", effort: "", settings: EngineSettings { command: "", session_home: Session, auth: Builtin, env: [] } }"#
     );
 }
 

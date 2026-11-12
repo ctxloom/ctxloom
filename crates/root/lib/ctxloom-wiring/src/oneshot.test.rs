@@ -198,6 +198,43 @@ fn the_run_environment_names_the_resolved_home() {
     assert_eq!(env.get("PATH").map(String::as_str), Some("/bin"));
 }
 
+// On Windows a variable's name is compared case-insensitively, and PATH is
+// usually spelled `Path`: the run's environment keys every name as the
+// platform compares it, so the run's PATH, the engines' allowlists and the
+// permits find it.
+#[test]
+fn on_windows_the_run_environment_keys_each_name_as_the_platform_compares_it() {
+    let caller = EnvSnapshot::of([
+        ("USERPROFILE", r"C:\Users\u"),
+        ("Path", r"C:\Windows;C:\bin"),
+        ("SystemRoot", r"C:\Windows"),
+        ("ctxloom_permit_acme_token", "t"),
+    ])
+    .with_flavor(os::Flavor::Windows);
+    let env = run_env(&caller, Path::new(r"C:\Users\u\.ctxloom-rs"));
+    let names: Vec<&str> = env.keys().map(String::as_str).collect();
+    assert_eq!(
+        names,
+        [
+            "CTXLOOM_HOME",
+            "CTXLOOM_PERMIT_ACME_TOKEN",
+            "PATH",
+            "SYSTEMROOT",
+            "USERPROFILE"
+        ]
+    );
+    assert_eq!(env["PATH"], r"C:\Windows;C:\bin");
+}
+
+// On unix a name is its own: `Path` and `PATH` are two variables.
+#[test]
+fn on_unix_the_run_environment_keeps_each_name_as_it_is() {
+    let caller = EnvSnapshot::of([("Path", "/x"), ("PATH", "/bin")]).with_flavor(os::Flavor::Unix);
+    let env = run_env(&caller, Path::new("/home/u"));
+    assert_eq!(env["Path"], "/x");
+    assert_eq!(env["PATH"], "/bin");
+}
+
 // The second gap of the listener spike: the run waits for its engine in a
 // BLOCKING call, so a task spawned on the run's runtime (the listener) must
 // make progress while it waits. The test forces the interleaving: the
@@ -743,6 +780,23 @@ mod bypass_acceptance {
         assert!(!asked(None, None));
     }
 
+    // On Windows her home is USERPROFILE (the one home resolution,
+    // `Wiring::user_home`), never a HOME Git Bash set.
+    #[test]
+    fn test_on_windows_her_acceptance_is_read_under_her_profile() {
+        let dir = root();
+        let profile = dir.root().join("profile");
+        mkdirs(profile.join(".claude"));
+        put_mode(profile.join(".claude/settings.json"), ACCEPTED, 0o644);
+        let env = EnvSnapshot::of([
+            ("USERPROFILE", profile.to_str().unwrap()),
+            ("HOME", dir.root().join("msys").to_str().unwrap()),
+        ])
+        .with_flavor(os::Flavor::Windows);
+        let wiring = Wiring::new(Arc::new(env)).unwrap();
+        assert!(claude_bypass_accepted(&wiring));
+    }
+
     #[test]
     fn test_a_config_dir_she_named_is_where_claude_reads_it() {
         assert!(asked(None, Some(Some(ACCEPTED))));
@@ -802,6 +856,30 @@ mod opencode_recent_models {
             Some(HERS.as_bytes().to_vec())
         );
         assert_eq!(asked(Some(HERS), Some(None)), None);
+    }
+
+    // On Windows her home is USERPROFILE (the one home resolution,
+    // `Wiring::user_home`), never a HOME Git Bash set.
+    #[test]
+    fn test_on_windows_hers_is_read_under_her_profile() {
+        let dir = root();
+        let profile = dir.root().join("profile");
+        mkdirs(profile.join(".local/state/opencode"));
+        put_mode(
+            profile.join(".local/state/opencode/model.json"),
+            HERS,
+            0o644,
+        );
+        let env = EnvSnapshot::of([
+            ("USERPROFILE", profile.to_str().unwrap()),
+            ("HOME", dir.root().join("msys").to_str().unwrap()),
+        ])
+        .with_flavor(os::Flavor::Windows);
+        let wiring = Wiring::new(Arc::new(env)).unwrap();
+        assert_eq!(
+            opencode_recent_models(&wiring),
+            Some(HERS.as_bytes().to_vec())
+        );
     }
 
     #[test]

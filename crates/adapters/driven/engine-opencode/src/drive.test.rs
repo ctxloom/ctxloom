@@ -24,6 +24,7 @@ fn request() -> TurnRequest {
         context_path: format!("{HOME}/AGENTS.md"),
         resume: None,
         env: BTreeMap::new(),
+        user_home: None,
         cwd: Some("/p".to_string()),
         model: String::new(),
         effort: String::new(),
@@ -373,6 +374,7 @@ fn test_a_host_home_keeps_the_users_own_dirs_and_still_loads_the_plugin() {
             ("HOME", "/home/alice"),
             ("XDG_CONFIG_HOME", "/home/alice/.cfg"),
         ]),
+        user_home: Some("/home/alice".to_string()),
         settings: settings.clone(),
         ..request()
     });
@@ -487,4 +489,87 @@ fn test_the_tui_is_told_the_terminal_and_its_colours() {
         "{:?}",
         child.env.keys()
     );
+}
+
+/// A Windows caller's environment, its names as the composition root keys
+/// them (uppercase).
+fn windows_caller() -> BTreeMap<String, String> {
+    env(&[
+        ("PATH", r"C:\ctxloom;C:\Windows\system32"),
+        ("SYSTEMROOT", r"C:\Windows"),
+        ("SYSTEMDRIVE", "C:"),
+        ("WINDIR", r"C:\Windows"),
+        ("TEMP", r"C:\Users\her\AppData\Local\Temp"),
+        ("TMP", r"C:\Users\her\AppData\Local\Temp"),
+        ("PATHEXT", ".COM;.EXE;.BAT;.CMD"),
+        ("COMSPEC", r"C:\Windows\system32\cmd.exe"),
+        ("USERPROFILE", r"C:\Users\her"),
+        ("APPDATA", r"C:\Users\her\AppData\Roaming"),
+        ("LOCALAPPDATA", r"C:\Users\her\AppData\Local"),
+    ])
+}
+
+// On Windows a program cannot start without the system's directories, and
+// opencode finds its home through USERPROFILE (node's `os.homedir()`): both
+// allowlists hold every startup and profile variable.
+#[test]
+fn test_every_windows_startup_and_profile_variable_is_on_both_allowlists() {
+    let profile = run_ports::WINDOWS_PROFILE_VARIABLES.iter().map(|(n, _)| n);
+    for name in run_ports::WINDOWS_STARTUP_VARIABLES.iter().chain(profile) {
+        assert!(ENV_ALLOWLIST.contains(name), "{name} reaches a turn");
+        assert!(
+            INTERACTIVE_ENV_ALLOWLIST.contains(name),
+            "{name} reaches the TUI"
+        );
+    }
+}
+
+// Ruling 112 on Windows: the session home is the engine's USERPROFILE as it is
+// its HOME, and APPDATA and LOCALAPPDATA are where Windows puts them under it;
+// the system's variables pass on as they are.
+#[test]
+fn test_on_windows_the_profile_is_the_session_home_and_the_system_passes_on() {
+    let asked = TurnRequest {
+        env: windows_caller(),
+        ..request()
+    };
+    for command in [
+        turn(&asked),
+        Opencode::new().drive_interactive(&asked).unwrap(),
+    ] {
+        assert_eq!(command.env["USERPROFILE"], HOME);
+        assert_eq!(command.env["APPDATA"], format!("{HOME}/AppData/Roaming"));
+        assert_eq!(command.env["LOCALAPPDATA"], format!("{HOME}/AppData/Local"));
+        for name in run_ports::WINDOWS_STARTUP_VARIABLES {
+            assert_eq!(command.env[*name], asked.env[*name], "{name}");
+        }
+        assert_eq!(command.env["PATH"], asked.env["PATH"]);
+    }
+}
+
+// Under `session_home: host` her home is the one the composition root
+// resolved (USERPROFILE on Windows), never the environment's HOME (Git Bash
+// sets one of its own), and her profile variables pass on as they are.
+#[test]
+fn test_a_host_home_is_the_resolved_home_and_her_profile_passes_on() {
+    let mut caller = windows_caller();
+    caller.insert("HOME".to_string(), "/c/Users/her".to_string());
+    let asked = TurnRequest {
+        env: caller,
+        user_home: Some(r"C:\Users\her".to_string()),
+        settings: EngineSettings {
+            session_home: SessionHome::Host,
+            ..EngineSettings::default()
+        },
+        ..request()
+    };
+    for command in [
+        turn(&asked),
+        Opencode::new().drive_interactive(&asked).unwrap(),
+    ] {
+        assert_eq!(command.env["HOME"], r"C:\Users\her");
+        for (name, _) in run_ports::WINDOWS_PROFILE_VARIABLES {
+            assert_eq!(command.env[*name], asked.env[*name], "{name}");
+        }
+    }
 }

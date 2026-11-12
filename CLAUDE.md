@@ -226,7 +226,23 @@ An engine's `HOME` is its session home (owner ruling 112, claude's as
 opencode's, a terminal's and a child's turn alike; under `session_home: host`
 the user's own), so what its tools keep under `~` lands in
 `.ctxloom/sessions/<harp>/home/`, never in the project; the cost: they see
-none of the user's dotfiles. ctxloom's home reaches its hook processes as
+none of the user's dotfiles. On Windows the session home is also its
+`USERPROFILE` (node's `os.homedir()` reads it there), and `APPDATA` and
+`LOCALAPPDATA` are `<home>/AppData/Roaming` and `<home>/AppData/Local`
+(`run_ports::WINDOWS_PROFILE_VARIABLES`, `session_profile`; under `host`
+the user's own, passed on); the system's `SYSTEMROOT`, `SYSTEMDRIVE`,
+`WINDIR`, `TEMP`, `TMP`, `PATHEXT` and `COMSPEC` pass on as they are
+(`WINDOWS_STARTUP_VARIABLES`). Every one is on all four allowlists and none
+is set on unix. The run's environment is keyed as the platform compares
+names (the wiring's `run_env`, `os::Flavor::env_key`: uppercase on Windows,
+so `Path` is `PATH` to the allowlists, the run's `PATH` and the permits; the
+spelling is not kept). The user's own home is resolved ONCE, the
+platform's home variable (`HOME`, `USERPROFILE` on Windows; the wiring's
+`Wiring::user_home`), and carried as a value (`Place::user_home`,
+`Order`/`TurnRequest::user_home`): her login is found under it, her claude
+and opencode settings read from it, and a `session_home: host` engine given
+it; nothing reads the environment's `HOME` for it (Git Bash sets its own).
+ctxloom's home reaches its hook processes as
 `CTXLOOM_HOME` (`run_ports::HOME_VARIABLE`; the wiring takes it as the home
 FIRST, before `HOME`, and names the resolved home in a run's env; both
 allowlists pass it on). The session home is seeded, once (one there is left
@@ -271,7 +287,9 @@ tells the adapters as a value when it builds them (`Claude::calling`,
 (`ctxloom hook <verb>` in a bundle or ctxloom's own package) is installed
 running it (`Hook::installed_as`). An engine's `PATH` (the terminal's and a
 child's) is the directory of the running binary (`Place::program_dir`, the
-same resolution's directory), then the inherited `PATH`, so the bare name is
+same resolution's directory), then the inherited `PATH`, joined as the
+platform joins it (`run_ports::search_path_led_by`: `;` on Windows, the
+directory quoted if it holds one; `:` elsewhere), so the bare name is
 this binary. The session's own shell also sees that directory first, so a
 sibling program in it shadows the user's others (intended). Only the running
 binary's entries are its wiring (`manage hooks check`, a surface's
@@ -563,7 +581,7 @@ ignored with the same notice (said from the launch, `Launched::ignored`). A
 name the adapter merely passes through (`LANG`) stays permittable, as does an
 XDG base under `session_home: host` (passed through, not relocated). Claude
 stays token-only on Windows (ruling 82); `session_home: host` sets `CLAUDE_CONFIG_DIR`
-to `$HOME/.claude` (no `HOME` is `run-ports-engine-no-host-home`), links no
+to `<her home>/.claude` (no home is `run-ports-engine-no-host-home`), links no
 login there; the hooks still fire, because the launch (the terminal's and a
 child's turn) passes `--settings <session dir>/ctxloom-hooks.json` (the ctxloom-owned file `prepare` writes,
 in both home modes, never into the user's `~/.claude`; claude adds its hooks to the

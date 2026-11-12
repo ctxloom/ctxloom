@@ -532,6 +532,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             context_path: prepared.context_path,
             resume: order.resume.clone(),
             env: order.env.clone(),
+            user_home: order.user_home.clone(),
             cwd: order.cwd.clone(),
             model: order.model.clone(),
             effort: order.effort.clone(),

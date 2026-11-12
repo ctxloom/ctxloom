@@ -137,11 +137,13 @@ fn finding(text: String, credentials: &CredentialPolicy) -> Option<Notice> {
 /// Give the primary session of `harp` her login, where she has one and
 /// nothing else authenticates it: a link at the engine's place in the session
 /// home (`home/<home_dir>/<login_file>`) to her own file, never a copy. What
-/// it noticed and did not stop for.
+/// it noticed and did not stop for. `home` is her own home, as the
+/// composition root resolved it (`HOME`, `USERPROFILE` on Windows).
 pub fn share_login(
     links: &mut dyn LoginLinks,
     credentials: &CredentialPolicy,
     env: &BTreeMap<String, String>,
+    home: Option<&str>,
     os: &str,
     harp: &str,
 ) -> Option<Notice> {
@@ -157,7 +159,7 @@ pub fn share_login(
             credentials,
         );
     }
-    let home = env.get("HOME").filter(|home| !home.is_empty());
+    let home = home.filter(|home| !home.is_empty());
     let target = home.map(|home| match &credentials.login_source {
         Some(source) => resolve(home, source),
         None => format!("{}/{file}", user_dir(credentials, env, home)),

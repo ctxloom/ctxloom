@@ -719,6 +719,7 @@ pub fn order(engine: &str) -> Order {
         context: "THE-CONTEXT".to_string(),
         prompt: "THE-PROMPT".to_string(),
         env: BTreeMap::from([("PATH".to_string(), "/bin".to_string())]),
+        user_home: None,
         cwd: Some("/work/proj".to_string()),
         interactive: false,
         model: String::new(),

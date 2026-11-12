@@ -279,6 +279,15 @@ impl Wiring {
         &self.home
     }
 
+    /// The user's own home: the platform's home variable (`HOME`, and
+    /// `USERPROFILE` on Windows, Go's `os.UserHomeDir`), as [`Wiring::new`]
+    /// falls back to it; none when unset or empty. The one place her home is
+    /// resolved: her login, her claude and opencode settings, and the home a
+    /// `session_home: host` engine is given are found under it.
+    pub(crate) fn user_home(&self) -> Option<PathBuf> {
+        self.env.home().map(PathBuf::from)
+    }
+
     /// The environment the process was launched in.
     pub(crate) fn env(&self) -> &Arc<EnvSnapshot> {
         &self.env

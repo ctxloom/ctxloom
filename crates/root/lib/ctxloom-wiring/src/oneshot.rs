@@ -141,8 +141,11 @@ impl<'a> OneShots<'a> {
         let core = InProcessCore::start(store).await;
         let project_dir = wiring.project_dir();
         let orders = Arc::new(Orders::new());
-        let claude: Arc<dyn Engine> = Arc::new(engine_claude::Claude::new());
-        let opencode: Arc<dyn Engine> = Arc::new(engine_opencode::Opencode::new());
+        // The engines' callbacks run this binary, by its file name, and its
+        // directory leads their PATH (owner ruling 163).
+        let program = crate::program::running();
+        let claude: Arc<dyn Engine> = Arc::new(engine_claude::Claude::calling(&program.name));
+        let opencode: Arc<dyn Engine> = Arc::new(engine_opencode::Opencode::calling(&program.name));
         // The run locks: this run's own, and those another process's runs
         // are judged by (rulings 86, 92, 93).
         let run_locks: Arc<dyn run_ports::RunLocks> =
@@ -172,10 +175,7 @@ impl<'a> OneShots<'a> {
             place: Place {
                 project_dir: path_text(&project_dir),
                 output_root: path_text(&output_root),
-                program_dir: std::env::current_exe()
-                    .ok()
-                    .and_then(|exe| exe.parent().map(path_text))
-                    .unwrap_or_default(),
+                program_dir: program.dir.clone(),
             },
             env: run_env(env, wiring.home()),
             links: Box::new(SessionDirs::new(wiring.fs(), project_dir.clone())),

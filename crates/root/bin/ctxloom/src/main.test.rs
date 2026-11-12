@@ -249,6 +249,9 @@ mod gherkin_features;
 #[path = "hook.test.rs"]
 mod hook;
 
+#[path = "hook_binary_name.test.rs"]
+mod hook_binary_name;
+
 #[path = "ids.test.rs"]
 mod ids;
 

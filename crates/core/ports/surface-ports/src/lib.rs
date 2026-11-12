@@ -74,6 +74,12 @@ pub struct McpServer {
     pub headers: BTreeMap<String, String>,
 }
 
+/// The word a ctxloom callback is authored with (`ctxloom hook <verb>`, in a
+/// bundle or ctxloom's own package): the program it names is installed as
+/// the running binary's file name (owner ruling 163), which an engine is
+/// told when it is built and which is this word when nothing else is known.
+pub const CALLBACK_PROGRAM: &str = "ctxloom";
+
 /// A lifecycle hook, in a unified event.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct Hook {
@@ -92,10 +98,10 @@ pub struct Hook {
 }
 
 impl Hook {
-    /// Whether this is one of ctxloom's own callbacks: the bare `ctxloom`
-    /// executable running `hook <verb>`.
+    /// Whether this is one of ctxloom's own callbacks as authored: the bare
+    /// [`CALLBACK_PROGRAM`] running `hook <verb>`.
     pub fn is_callback(&self) -> bool {
-        self.command == "ctxloom" && self.args.first().is_some_and(|a| a == "hook")
+        self.command == CALLBACK_PROGRAM && self.args.first().is_some_and(|a| a == "hook")
     }
 
     /// The arguments a ctxloom callback is installed with, for `engine`
@@ -109,11 +115,14 @@ impl Hook {
     }
 
     /// This hook as the engine `engine` firing its `native` event installs
-    /// it: a ctxloom callback is rewritten to [`Hook::callback_args`] whatever
-    /// verb its author wrote; any other hook is unchanged.
-    pub fn installed_as(&self, engine: &str, native: &str) -> Hook {
+    /// it, for the running binary `program` (its file name, owner ruling
+    /// 163): a ctxloom callback is rewritten to run `program` with
+    /// [`Hook::callback_args`] whatever verb its author wrote; any other hook
+    /// is unchanged.
+    pub fn installed_as(&self, engine: &str, native: &str, program: &str) -> Hook {
         let mut hook = self.clone();
         if self.is_callback() {
+            let _ = program;
             hook.args = Hook::callback_args(engine, native);
         }
         hook

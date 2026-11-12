@@ -13,9 +13,8 @@
 use angzarr_embedded::markup::TypedRefusal;
 
 use crate::{
-    ChildCannotStop, EngineMismatch, HarpInvalid, HarpTooLong, NamesTaken, NoClaim,
-    NoNativeSession, NoSession, NotHolder, SessionDestroyed, SessionExists, SessionLive,
-    SessionRejection, SessionRunning, SessionUnknown,
+    ChildCannotStop, EngineMismatch, HarpInvalid, NamesTaken, NoClaim, NoNativeSession, NoSession,
+    NotHolder, SessionDestroyed, SessionExists, SessionRejection, SessionRunning, SessionUnknown,
 };
 
 /// What a command handler fails with for `rejection`: the typed refusal
@@ -59,18 +58,6 @@ impl TryFrom<&TypedRefusal> for SessionRejection {
         if let Some(HarpInvalid { harp, reason }) = refusal.object() {
             return Ok(SessionRejection::HarpInvalid { harp, reason });
         }
-        if let Some(HarpTooLong {
-            harp,
-            limit,
-            length,
-        }) = refusal.object()
-        {
-            return Ok(SessionRejection::HarpTooLong {
-                harp,
-                limit,
-                length,
-            });
-        }
         if let Some(NamesTaken { harp }) = refusal.object() {
             return Ok(SessionRejection::NamesTaken { harp });
         }
@@ -82,9 +69,6 @@ impl TryFrom<&TypedRefusal> for SessionRejection {
         }
         if let Some(ChildCannotStop { depth }) = refusal.object() {
             return Ok(SessionRejection::ChildCannotStop { depth });
-        }
-        if let Some(SessionLive { harp }) = refusal.object() {
-            return Ok(SessionRejection::SessionLive { harp });
         }
         if let Some(SessionUnknown { harp }) = refusal.object() {
             return Ok(SessionRejection::SessionUnknown { harp });

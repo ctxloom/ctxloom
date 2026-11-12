@@ -14,12 +14,6 @@ pub enum SessionRejection {
     /// `directory`, `separator`, `control`, `whitespace` (Go's
     /// `harp.Validate`).
     HarpInvalid { harp: String, reason: String },
-    /// A name a human chose that is past the bound (Go's `MaxNameLen`).
-    HarpTooLong {
-        harp: String,
-        limit: u64,
-        length: u64,
-    },
     /// A claim on a name another session holds.
     NamesTaken { harp: String },
     /// A release of a name nobody holds.
@@ -28,8 +22,6 @@ pub enum SessionRejection {
     NotHolder { harp: String },
     /// A stop ordered by a child (Go's I2); `depth` is the requester's.
     ChildCannotStop { depth: u64 },
-    /// A rename of a live session: its lock is held (owner ruling 91).
-    SessionLive { harp: String },
     /// A resume of a name no session holds (owner ruling 115).
     SessionUnknown { harp: String },
     /// A resume of a session `session remove` destroyed.
@@ -60,12 +52,10 @@ impl Diagnostic for SessionRejection {
             SessionRejection::SessionExists { .. } => code!("session-exists"),
             SessionRejection::NoSession => code!("no-session"),
             SessionRejection::HarpInvalid { .. } => code!("harp-invalid"),
-            SessionRejection::HarpTooLong { .. } => code!("harp-too-long"),
             SessionRejection::NamesTaken { .. } => code!("names-taken"),
             SessionRejection::NoClaim => code!("no-claim"),
             SessionRejection::NotHolder { .. } => code!("not-holder"),
             SessionRejection::ChildCannotStop { .. } => code!("child-cannot-stop"),
-            SessionRejection::SessionLive { .. } => code!("session-live"),
             SessionRejection::SessionUnknown { .. } => code!("session-unknown"),
             SessionRejection::SessionDestroyed { .. } => code!("session-destroyed"),
             SessionRejection::SessionRunning { .. } => code!("session-running"),
@@ -79,7 +69,6 @@ impl Diagnostic for SessionRejection {
             SessionRejection::SessionExists { harp }
             | SessionRejection::NamesTaken { harp }
             | SessionRejection::NotHolder { harp }
-            | SessionRejection::SessionLive { harp }
             | SessionRejection::SessionUnknown { harp }
             | SessionRejection::SessionDestroyed { harp }
             | SessionRejection::SessionRunning { harp }
@@ -96,15 +85,6 @@ impl Diagnostic for SessionRejection {
             SessionRejection::HarpInvalid { harp, reason } => vec![
                 ("harp", harp.as_str().into()),
                 ("reason", reason.as_str().into()),
-            ],
-            SessionRejection::HarpTooLong {
-                harp,
-                limit,
-                length,
-            } => vec![
-                ("harp", harp.as_str().into()),
-                ("limit", (*limit).into()),
-                ("length", (*length).into()),
             ],
             SessionRejection::ChildCannotStop { depth } => vec![("depth", (*depth).into())],
             SessionRejection::NoSession | SessionRejection::NoClaim => Vec::new(),
@@ -130,18 +110,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             harp: "a/b".to_string(),
             reason: "separator".to_string(),
         }),
-        Box::new(SessionRejection::HarpTooLong {
-            harp: harp(),
-            limit: 24,
-            length: 30,
-        }),
         Box::new(SessionRejection::NamesTaken { harp: harp() }),
         Box::new(SessionRejection::NoClaim),
         Box::new(SessionRejection::NotHolder { harp: harp() }),
         Box::new(SessionRejection::ChildCannotStop { depth: 1 }),
-        Box::new(SessionRejection::SessionLive {
-            harp: "amber-swift-owl".to_string(),
-        }),
         Box::new(SessionRejection::SessionUnknown { harp: harp() }),
         Box::new(SessionRejection::SessionDestroyed { harp: harp() }),
         Box::new(SessionRejection::SessionRunning { harp: harp() }),

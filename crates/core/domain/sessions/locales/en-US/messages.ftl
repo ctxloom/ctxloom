@@ -4,13 +4,10 @@
 sessions-session-exists = session { $harp } already exists
 sessions-no-session = there is no such session
 sessions-harp-invalid = { $harp } cannot be a session name: { $reason }
-sessions-harp-too-long = { $harp } is { $length } characters, the limit for a session name is { $limit }
 sessions-names-taken = the session name { $harp } is taken
 sessions-no-claim = nobody holds that session name
 sessions-not-holder = this session does not hold the name { $harp }
 sessions-child-cannot-stop = a child (depth { $depth }) cannot order a stop
-sessions-session-live = session { $harp } is running, and a rename would move its directory from under its engine
-sessions-session-live-fix = wait for the session to end, then rename it
 sessions-session-unknown = there is no session named { $harp }
 sessions-session-unknown-fix = list the sessions with `ctxloom session list`
 sessions-session-destroyed = session { $harp } was removed, and cannot be resumed

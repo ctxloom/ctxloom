@@ -365,55 +365,6 @@ fn dirs_tree(fs: &Rooted) -> Vec<String> {
     seen
 }
 
-// ------------------------------------------------------------ the output folder
-
-// session.feature: "--name renames the harp and moves its output folder": a
-// move, so the folder is at exactly one of its two names.
-#[test]
-fn an_output_folder_moves_with_its_files_and_leaves_nothing_behind() {
-    let (fs, mut dirs) = dirs();
-    let old = Path::new("/home/u/Documents/ctxloom/p/amber-swift-owl");
-    let new = Path::new("/home/u/Documents/ctxloom/p/bright-keen-hawk");
-    fs.create_dir_all(&old.join("reports"), Mode::from_bits(0o755))
-        .unwrap();
-    fs.write_atomic(
-        &old.join("essence.md"),
-        b"kept",
-        file_system::Perms::Exact(Mode::from_bits(0o600)),
-    )
-    .unwrap();
-    let moved = dirs.move_output(&old.display().to_string(), &new.display().to_string());
-    assert!(moved.unwrap());
-    assert!(!fs.exists(old).unwrap());
-    assert_eq!(fs.read_to_string(&new.join("essence.md")).unwrap(), "kept");
-    assert!(fs.exists(&new.join("reports")).unwrap());
-}
-
-// Go: renamedOutputDir: a recorded folder never written moves nothing.
-#[test]
-fn a_folder_that_was_never_written_moves_nothing() {
-    let (_, mut dirs) = dirs();
-    let moved = dirs.move_output("/home/u/Documents/p/a", "/home/u/Documents/p/b");
-    assert!(!moved.unwrap());
-}
-
-// Go: ErrOutputDirExists: "a rename whose folder cannot move is refused whole".
-#[test]
-fn a_move_onto_something_already_there_is_refused_and_moves_nothing() {
-    let (fs, mut dirs) = dirs();
-    let (old, new) = ("/home/u/Documents/p/a", "/home/u/Documents/p/b");
-    fs.create_dir_all(Path::new(old), Mode::from_bits(0o755))
-        .unwrap();
-    fs.create_dir_all(Path::new(new), Mode::from_bits(0o755))
-        .unwrap();
-    let error = dirs.move_output(old, new).unwrap_err();
-    assert_eq!(
-        angzarr_diagnostic::Diagnostic::code(&error),
-        "session-files-output-exists"
-    );
-    assert!(fs.exists(Path::new(old)).unwrap());
-}
-
 // ------------------------------------------------------- the records port
 // Step 1b-ii: the driver writes the session's directory from the events,
 // through this port.
@@ -682,53 +633,6 @@ fn a_directory_at_the_link_path_is_other_and_a_failed_look_is_not_absent() {
     assert_eq!(dirs.state(HARP, "home/never"), LinkState::Absent);
 }
 
-// ------------------------------------------- a session's move (defect 2)
-
-// Defect 2: a rename moves the session's directory and its lock file beside it
-// to the new name, leaving nothing under the old one.
-#[test]
-fn a_session_directory_and_its_lock_move_to_the_new_name() {
-    let (fs, mut dirs) = dirs();
-    write(&fs, &dirs, "home/settings.json", "{}");
-    let lock = dirs.dir(HARP).with_extension("lock");
-    fs.write_atomic(
-        &lock,
-        b"",
-        file_system::Perms::Exact(Mode::from_bits(0o600)),
-    )
-    .unwrap();
-    assert!(dirs.move_session(HARP, "bright-keen-hawk").unwrap());
-    assert!(!fs.exists(&dirs.dir(HARP)).unwrap());
-    assert!(!fs.exists(&lock).unwrap());
-    assert_eq!(
-        fs.read_to_string(&dirs.dir("bright-keen-hawk").join("home/settings.json"))
-            .unwrap(),
-        "{}"
-    );
-    assert!(fs
-        .exists(&dirs.dir("bright-keen-hawk").with_extension("lock"))
-        .unwrap());
-}
-
-#[test]
-fn a_session_with_no_directory_moves_nothing() {
-    let (_, mut dirs) = dirs();
-    assert!(!dirs.move_session(HARP, "bright-keen-hawk").unwrap());
-}
-
-// Defect 2: a directory already under the new name is never merged into.
-#[test]
-fn a_session_move_onto_a_directory_already_there_is_refused_and_moves_nothing() {
-    let (fs, mut dirs) = dirs();
-    write(&fs, &dirs, "home/settings.json", "{}");
-    fs.create_dir_all(&dirs.dir("bright-keen-hawk"), Mode::from_bits(0o755))
-        .unwrap();
-    assert!(dirs.move_session(HARP, "bright-keen-hawk").is_err());
-    assert!(fs
-        .exists(&dirs.dir(HARP).join("home/settings.json"))
-        .unwrap());
-}
-
 // Defect 3: a harp whose directory exists is taken, whatever the store says.
 #[test]
 fn a_records_harp_exists_once_its_directory_does() {
@@ -762,27 +666,6 @@ fn a_destroy_removes_the_whole_directory_and_its_lock() {
         0,
         "again: nothing there"
     );
-}
-
-// Defect 2: only a session directory that is not there moves nothing; one
-// that cannot be looked at (its parent a file) is the error, never "nothing
-// to move".
-#[test]
-fn a_session_directory_that_cannot_be_looked_at_is_the_moves_error() {
-    if !tells_a_path_through_a_file() {
-        return;
-    }
-    let (fs, mut dirs) = dirs();
-    let sessions = dirs.dir(HARP).parent().unwrap().to_path_buf();
-    fs.create_dir_all(sessions.parent().unwrap(), Mode::from_bits(0o755))
-        .unwrap();
-    fs.write_atomic(
-        &sessions,
-        b"not a directory",
-        file_system::Perms::Exact(Mode::from_bits(0o600)),
-    )
-    .unwrap();
-    assert!(dirs.move_session(HARP, "bright-keen-hawk").is_err());
 }
 
 // Ruling 94b: a lock that is not there is no failure of a destroy; one that

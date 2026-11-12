@@ -146,7 +146,7 @@ the store grows without bound (ruling 90; compaction is taskloom
   and `hud`).
 
 A session's state is its lock's verdict, never its end stamp; its title is the
-first prompt of its transcript; `hud` renders and records nothing. The
+one `session rename` set, else the first prompt of its transcript; `hud` renders and records nothing. The
 kernel's retry is `angzarr-embedded-runner`'s (the embedded pin). A read catches
 up fresh each time; nothing caches a project's index. Rows and refusals say what was not
 done and the command that would, in the message, so the json envelope carries
@@ -163,15 +163,16 @@ streams are rooted on them, so they never change:
   (`sessions_application::imported_id`). Go's `run_ends[]` and `end_reason`
   are NOT imported (they return with S10).
 
-A rename is judged by the session on what its lock said (`RenameSession`
-carries `LockEvidence`, owner ruling 91, per 73e): a held lock is refused
-`SessionLive` (`sessions-session-live`, its fix: wait for the session's end;
-an unproven lock does not refuse). Otherwise it claims the new name, moves the
-output folder and the session's directory and lock (`SessionFiles::
-move_session`, defect 2), records the name and frees the old one, each step
-undone if a later one fails; a removed or destroyed session's name stays
-claimed. The refusal code of a taken name is `sessions-names-taken` (the
-crate-prefix rule).
+`session rename <harp> <title>` sets the session's TITLE (owner S55,
+2026-11-12): `SetSessionTitle` records `TitleSet` (live or ended; the title
+it already holds records nothing, an empty one clears it), and a listing and
+`show` give the title set, else the first prompt. A harp never changes, so
+no claim, directory, lock or output folder moves. The harp-changing `session
+edit --name` is gone with `RenameSession`, `RenamedTo`, `LockEvidence`, the
+`sessions-session-live` and `sessions-harp-too-long` refusals,
+`validate_rename` and `SessionFiles::move_output`/`move_session` (hard
+migrate). A removed or destroyed session's name stays claimed. The refusal
+code of a taken name is `sessions-names-taken` (the crate-prefix rule).
 
 `session remove` DESTROYS a session (owner rulings 94, 94a-d, 98), and exists
 only under the cargo feature `session-destroy` (binary -> `ctxloom-wiring` ->
@@ -1270,7 +1271,7 @@ with; a failed pull is a notice and the run goes on (a dry run does not
 pull). A session's outputs are `<project root>/<output.dir>/<harp>`
 (`output.dir` relative to the project root unless absolute), no longer
 `~/Documents/ctxloom/<basename>/<harp>`; nothing gitignores them, and a
-rename moves the folder. A first init at a terminal asks for `output.dir`
+harp never changes, so neither does the folder. A first init at a terminal asks for `output.dir`
 before the interview (suggesting `ctxloom/`, saying outputs are committable)
 and writes the answer.
 

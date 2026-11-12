@@ -18,14 +18,13 @@ use angzarr_embedded_macros::{aggregate, applies, handles_cmd, handles_fact};
 
 use crate::refusal::refuse;
 use crate::{
-    adopted, end_recorded, engine_bound, kept_changed, lifeline, live, record, renamed,
-    session_minted, title_set, AdoptRotations, BindEngineSession, ChildCannotStop, EndRecorded,
-    EngineMismatch, EngineSessionBound, HarpInvalid, HarpTooLong, IncarnationEnded,
-    IncarnationOwed, KeptChanged, MintSession, NoNativeSession, NoSession, RecordEnd,
-    RecordIncarnationEnded, RenameSession, RenamedTo, ResumeSession, SessionAdopted,
-    SessionCommand, SessionDestroyed, SessionEvent, SessionExists, SessionLive, SessionMinted,
-    SessionRejection, SessionRunning, SessionState, SessionUnknown, SetKept, SetSessionTitle,
-    StopOrdered, StopSession, TitleSet,
+    adopted, end_recorded, engine_bound, kept_changed, lifeline, live, record, session_minted,
+    title_set, AdoptRotations, BindEngineSession, ChildCannotStop, EndRecorded, EngineMismatch,
+    EngineSessionBound, HarpInvalid, IncarnationEnded, IncarnationOwed, KeptChanged, MintSession,
+    NoNativeSession, NoSession, RecordEnd, RecordIncarnationEnded, ResumeSession, SessionAdopted,
+    SessionCommand, SessionDestroyed, SessionEvent, SessionExists, SessionMinted, SessionRejection,
+    SessionRunning, SessionState, SessionUnknown, SetKept, SetSessionTitle, StopOrdered,
+    StopSession, TitleSet,
 };
 use crate::{
     AssistantTextShown, Compacted, PromptSubmitted, RecordAssistantText, RecordCompaction,
@@ -120,27 +119,6 @@ impl SessionAggregate {
                 rejection,
                 Refuses<Self, SetSessionTitle>,
                 [NoSession => NoSession]
-            )
-        })
-    }
-
-    /// Rename the session; `None` when the name is the one held.
-    #[handles_cmd(
-        RenameSession,
-        refuses(NoSession, HarpInvalid, HarpTooLong, SessionLive)
-    )]
-    fn rename(
-        &self,
-        cmd: RenameSession,
-        ctx: &Context,
-    ) -> Result<Option<RenamedTo>, Failed<Refuses<Self, RenameSession>>> {
-        let _ = ctx;
-        renamed(&self.session, &cmd).map_err(|rejection| {
-            refuse!(
-                SessionRejection,
-                rejection,
-                Refuses<Self, RenameSession>,
-                [NoSession => NoSession, HarpInvalid{harp, reason} => HarpInvalid, HarpTooLong{harp, limit, length} => HarpTooLong, SessionLive{harp} => SessionLive]
             )
         })
     }
@@ -395,11 +373,6 @@ impl SessionAggregate {
 
     #[applies(TitleSet)]
     fn title_set(&mut self, event: TitleSet, page: &PageContext) {
-        fold(&mut self.session, event.into(), page);
-    }
-
-    #[applies(RenamedTo)]
-    fn renamed_to(&mut self, event: RenamedTo, page: &PageContext) {
         fold(&mut self.session, event.into(), page);
     }
 

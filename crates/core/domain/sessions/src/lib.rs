@@ -13,8 +13,8 @@
 //! The rules are Go's, from `internal/core/sessions` (release/0.7): its
 //! `BindSession` (a repeat of the bound id records nothing; a different id
 //! with a transcript is a rotation that keeps the displaced binding; one
-//! without never displaces), `AppendRotations`, `SetKeep`, `Rename` and
-//! `harp.Validate`.
+//! without never displaces), `AppendRotations`, `SetKeep` and `harp.Validate`;
+//! a session's title is S55's (a harp never changes).
 
 // Generated code: the event enum's conversions grow a line per event.
 #[allow(dead_code, clippy::too_many_lines)]
@@ -42,7 +42,7 @@ pub type NameClaimEvent = NameClaimStateEvent;
 
 pub use aggregate::SessionAggregate;
 pub use generated::*;
-pub use harp::{validate, validate_rename, MAX_NAME_LEN};
+pub use harp::validate;
 pub use names::{claim_root, project_namespace, NameClaimAggregate};
 pub use refusal::NotOurs;
 #[cfg(any(test, feature = "test-support"))]
@@ -86,10 +86,6 @@ pub fn apply(state: &mut SessionState, event: &SessionEvent, recorded_at: Timest
         }
         SessionEvent::KeptChanged(changed) => state.kept = changed.kept,
         SessionEvent::TitleSet(set) => state.title = set.title.clone(),
-        SessionEvent::RenamedTo(renamed) => {
-            state.harp = renamed.harp.clone();
-            state.output_dir = renamed.output_dir.clone();
-        }
         SessionEvent::SessionAdopted(adopted) => {
             for rotation in &adopted.rotations {
                 if !state
@@ -239,32 +235,9 @@ fn title_set(
     held: &SessionState,
     set: &SetSessionTitle,
 ) -> Result<Option<TitleSet>, SessionRejection> {
-    let _ = (held, set);
-    Ok(None)
-}
-
-/// What a rename records: refused with a name a human may not choose;
-/// `None` when the name is the one held.
-fn renamed(
-    held: &SessionState,
-    rename: &RenameSession,
-) -> Result<Option<RenamedTo>, SessionRejection> {
     let held = live(held)?;
-    // Owner ruling 91 (per 73e): what the session's lock said, judged here. A
-    // held lock is a live session: its engine works in the directory a rename
-    // moves. A free or unproven one does not refuse.
-    if rename.lock == crate::LockEvidence::Held {
-        return Err(SessionRejection::SessionLive {
-            harp: held.harp.clone(),
-        });
-    }
-    validate_rename(&rename.harp)?;
-    if rename.harp == held.harp {
-        return Ok(None);
-    }
-    Ok(Some(RenamedTo {
-        harp: rename.harp.clone(),
-        output_dir: rename.output_dir.clone(),
+    Ok((held.title != set.title).then(|| TitleSet {
+        title: set.title.clone(),
     }))
 }
 

@@ -4,7 +4,6 @@
 //! release/0.7), or says it is design.
 
 use angzarr_diagnostic::Diagnostic;
-use exit_code::{Exit, ExitClass};
 use session_ports::LockState;
 
 use crate::fakes::{
@@ -13,7 +12,7 @@ use crate::fakes::{
 };
 use crate::{
     AppError, BindRequest, Bound, Class, KeepRequest, ListQuery, Refusal, RemoveRequest,
-    RenameRequest, SearchQuery, Service, SessionService, ShowQuery, State, TranscriptQuery,
+    SearchQuery, Service, SessionService, ShowQuery, State, TranscriptQuery,
 };
 
 type Svc = Service<FakeIdentity, FakeStores, FakeFiles, FakeLiveness, FakeClock, FakeDelay>;
@@ -1006,7 +1005,10 @@ fn a_title_is_set_and_shown_and_nothing_moves_or_is_claimed() {
     assert_eq!(views[0].record.id, id_text(1));
     assert_eq!(views[0].record.title, "the auth refactor");
     assert_eq!(views[0].title.as_deref(), Some("the auth refactor"));
-    assert!(svc.files.moves.is_empty() && svc.files.session_moves.is_empty());
+    assert!(
+        svc.files.sessions.contains("amber-swift-owl"),
+        "its directory is where it was"
+    );
     assert_eq!(holder(svc.store(HERE), HERE, "amber-swift-owl"), id_text(1));
     let again = ready(svc.set_title(title("amber-swift-owl", "the auth refactor"))).unwrap();
     assert!(!again.changed, "the title held records nothing");
@@ -1026,188 +1028,6 @@ fn a_title_for_a_session_nobody_recorded_fails_naming_it() {
     let mut svc = service();
     assert_eq!(
         ready(svc.set_title(title("no-such-harp", "x"))).unwrap_err(),
-        AppError::NoSession {
-            harp: "no-such-harp".to_string()
-        }
-    );
-}
-
-// ---------------------------------------------------------------------- rename
-
-// plan 3.1 / D5 Q1: a rename claims the new name, records it, and frees the
-// old one; the output folder moves beside itself, to the new name; the stable
-// id never changes.
-#[test]
-fn a_rename_moves_the_claim_frees_the_old_name_and_moves_the_output_folder() {
-    let mut svc = service();
-    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
-    let old_out = "/home/Documents/ctxloom/proj/amber-swift-owl";
-    // Beside it: the same directory, the name joined as the platform joins
-    // one (`proj\bright-keen-hawk` on Windows).
-    let new_out = std::path::Path::new(old_out)
-        .with_file_name("bright-keen-hawk")
-        .display()
-        .to_string();
-    let new_out = new_out.as_str();
-    svc.files.outputs.insert(old_out.to_string());
-    claim(svc.store(HERE), HERE, "amber-swift-owl", &id_text(1)).unwrap();
-    let renamed = ready(svc.rename(rename("amber-swift-owl", "bright-keen-hawk"))).unwrap();
-    assert_eq!(
-        (
-            renamed.from.as_str(),
-            renamed.to.as_str(),
-            renamed.output_dir.as_str()
-        ),
-        ("amber-swift-owl", "bright-keen-hawk", new_out)
-    );
-    assert_eq!(
-        svc.files.moves,
-        [(old_out.to_string(), new_out.to_string())]
-    );
-    let views = ready(svc.list(all())).unwrap();
-    assert_eq!(views.len(), 1);
-    assert_eq!(views[0].record.harp, "bright-keen-hawk");
-    assert_eq!(views[0].record.output_dir, new_out);
-    assert_eq!(
-        views[0].record.id,
-        id_text(1),
-        "the stable id never changes"
-    );
-    let store = svc.store(HERE);
-    assert_eq!(holder(store, HERE, "bright-keen-hawk"), id_text(1));
-    assert_eq!(
-        holder(store, HERE, "amber-swift-owl"),
-        "",
-        "the old name is free"
-    );
-    assert!(
-        claim(store, HERE, "amber-swift-owl", &id_text(2)).is_ok(),
-        "and another may take it"
-    );
-}
-
-fn rename(from: &str, to: &str) -> RenameRequest {
-    RenameRequest {
-        harp: from.to_string(),
-        to: to.to_string(),
-        ..RenameRequest::default()
-    }
-}
-
-// D5 Q1: a name another session holds is refused, and nothing moves.
-#[test]
-fn a_rename_onto_a_name_another_session_holds_is_refused_and_changes_nothing() {
-    let mut svc = service();
-    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
-    svc.seed(HERE, 2, "brisk-copper-moth", NOW - DAY, None);
-    claim(svc.store(HERE), HERE, "amber-swift-owl", &id_text(1)).unwrap();
-    claim(svc.store(HERE), HERE, "brisk-copper-moth", &id_text(2)).unwrap();
-    let error = ready(svc.rename(rename("amber-swift-owl", "brisk-copper-moth"))).unwrap_err();
-    assert_eq!(error.code(), "sessions-names-taken");
-    assert_eq!(error.exit(), Exit::REFUSED);
-    assert!(svc.files.moves.is_empty());
-    assert_eq!(holder(svc.store(HERE), HERE, "amber-swift-owl"), id_text(1));
-    assert_eq!(
-        holder(svc.store(HERE), HERE, "brisk-copper-moth"),
-        id_text(2)
-    );
-    let mut harps = svc.harps(all());
-    harps.sort();
-    assert_eq!(harps, ["amber-swift-owl", "brisk-copper-moth"]);
-}
-
-// Go: Rename onto its own name collides with itself ("name already in use").
-#[test]
-fn a_rename_to_the_name_it_has_is_refused() {
-    let mut svc = service();
-    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
-    claim(svc.store(HERE), HERE, "amber-swift-owl", &id_text(1)).unwrap();
-    let error = ready(svc.rename(rename("amber-swift-owl", "amber-swift-owl"))).unwrap_err();
-    assert_eq!(error.code(), "sessions-names-taken");
-    assert_eq!(
-        holder(svc.store(HERE), HERE, "amber-swift-owl"),
-        id_text(1),
-        "still held"
-    );
-}
-
-// Go: TestRename_RefusesUnsafeNewName / ErrNameTooLong, before anything is
-// claimed: a refused rename leaves no claim behind.
-#[test]
-fn a_rename_to_a_name_no_session_may_have_claims_nothing() {
-    let mut svc = service();
-    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
-    for bad in ["../../etc", "a/b", " lead", &"x".repeat(25)] {
-        let error = ready(svc.rename(rename("amber-swift-owl", bad))).unwrap_err();
-        assert_eq!(error.exit(), Exit::REFUSED, "{bad:?}");
-        assert_eq!(holder(svc.store(HERE), HERE, bad), "", "{bad:?}");
-    }
-    assert!(svc.files.moves.is_empty());
-    assert_eq!(svc.harps(all()), ["amber-swift-owl"]);
-}
-
-// Go: "A refusal leaves everything where it was: each step is undone if a
-// later one fails": a folder that cannot move gives the new name back.
-#[test]
-fn a_folder_that_cannot_move_refuses_the_rename_whole() {
-    let mut svc = service();
-    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
-    claim(svc.store(HERE), HERE, "amber-swift-owl", &id_text(1)).unwrap();
-    svc.files.fail_move = true;
-    let error = ready(svc.rename(rename("amber-swift-owl", "bright-keen-hawk"))).unwrap_err();
-    assert!(matches!(error, AppError::Files(_)), "{error:?}");
-    assert_eq!(
-        holder(svc.store(HERE), HERE, "bright-keen-hawk"),
-        "",
-        "the new name is given back"
-    );
-    assert_eq!(holder(svc.store(HERE), HERE, "amber-swift-owl"), id_text(1));
-    assert_eq!(svc.harps(all()), ["amber-swift-owl"]);
-}
-
-// A session minted before claims existed holds no claim on its name: a rename
-// still works, and frees nothing it never held.
-#[test]
-fn a_session_with_no_claim_on_its_name_can_still_be_renamed() {
-    let mut svc = service();
-    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
-    ready(svc.rename(rename("amber-swift-owl", "bright-keen-hawk"))).unwrap();
-    assert_eq!(svc.harps(all()), ["bright-keen-hawk"]);
-    assert_eq!(
-        holder(svc.store(HERE), HERE, "bright-keen-hawk"),
-        id_text(1)
-    );
-}
-
-// plan 3.1: "a forgotten session's name stays claimed", so the harp is never
-// reused.
-#[test]
-fn a_removed_sessions_name_stays_claimed() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    claim(svc.store(HERE), HERE, "amber-swift-owl", &id_text(1)).unwrap();
-    assert!(
-        ready(svc.remove(remove("amber-swift-owl", true)))
-            .unwrap()
-            .applied
-    );
-    assert_eq!(svc.harps(all()), Vec::<String>::new());
-    assert_eq!(holder(svc.store(HERE), HERE, "amber-swift-owl"), id_text(1));
-    assert!(claim(svc.store(HERE), HERE, "amber-swift-owl", &id_text(2)).is_err());
-}
-
-// session.feature: "Editing a session nobody recorded fails": the harp is named,
-// whatever else is unavailable.
-#[test]
-fn a_rename_of_a_session_nobody_recorded_fails_naming_it() {
-    let mut svc = service();
-    assert_eq!(
-        ready(svc.rename(RenameRequest {
-            harp: "no-such-harp".to_string(),
-            to: "bright-keen-hawk".to_string(),
-            ..RenameRequest::default()
-        }))
-        .unwrap_err(),
         AppError::NoSession {
             harp: "no-such-harp".to_string()
         }
@@ -1243,31 +1063,6 @@ fn a_held_lock_and_a_missing_one_are_refused_for_different_reasons() {
     let none = reason(None);
     assert!(held.contains("running"), "{held}");
     assert!(none.contains("no lock"), "{none}");
-}
-
-// A session that records no output folder has none to move.
-#[test]
-fn a_session_with_no_output_folder_renames_without_moving_one() {
-    let mut svc = service();
-    let store = svc.stores.stores.entry(HERE.to_string()).or_default();
-    crate::fakes::run(
-        store,
-        1,
-        NOW - DAY,
-        sessions::MintSession {
-            harp: "amber-swift-owl".to_string(),
-            project_id: HERE.to_string(),
-            project_dir: "/work/proj".to_string(),
-            output_dir: String::new(),
-            engine: "claude-code".to_string(),
-            origin: sessions::Origin::Session,
-            started_at: None,
-            depth: 0,
-        },
-    );
-    let renamed = ready(svc.rename(rename("amber-swift-owl", "bright-keen-hawk"))).unwrap();
-    assert_eq!(renamed.output_dir, "");
-    assert!(svc.files.moves.is_empty());
 }
 
 // The sample dead letter names its component and reason (a driving adapter's
@@ -1414,7 +1209,7 @@ fn the_transcript_listing_reads_the_events_and_names_no_file() {
     );
 }
 
-// ------------------------------------------ rename and liveness (defect 2)
+// ------------------------------------------------------- session directories
 
 impl Svc {
     /// `harp`'s session directory exists, and its name is claimed by it.
@@ -1422,86 +1217,6 @@ impl Svc {
         self.files.sessions.insert(harp.to_string());
         claim(self.store(HERE), HERE, harp, &id_text(id)).unwrap();
     }
-}
-
-// Defect 2: a LIVE session (its lock held) is not renamed: its engine works in
-// its directory. Refused with a typed refusal whose fix says to wait for the
-// session's end; no name is claimed, nothing is moved, nothing is recorded.
-#[test]
-fn a_live_session_is_not_renamed_and_nothing_is_claimed_or_moved() {
-    let mut svc = service();
-    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, Some(LockState::Held));
-    svc.with_directory(1, "amber-swift-owl");
-    let old_out = "/home/Documents/ctxloom/proj/amber-swift-owl";
-    svc.files.outputs.insert(old_out.to_string());
-    let error = ready(svc.rename(rename("amber-swift-owl", "bright-keen-hawk"))).unwrap_err();
-    // PROPOSAL: the refusal `SessionLive`, code `sessions-session-live`.
-    assert_eq!(error.code(), "sessions-session-live");
-    assert!(svc.files.moves.is_empty(), "no output folder moved");
-    assert!(svc.files.session_moves.is_empty(), "no directory moved");
-    assert_eq!(holder(svc.store(HERE), HERE, "bright-keen-hawk"), "");
-    assert_eq!(holder(svc.store(HERE), HERE, "amber-swift-owl"), id_text(1));
-    assert_eq!(svc.harps(all()), ["amber-swift-owl"]);
-}
-
-// Defect 2: a rename of an ENDED session moves its session directory (and its
-// lock, beside it) to the new name, as well as its output folder: no
-// directory is left under the old name for a later session to claim.
-#[test]
-fn an_ended_sessions_rename_moves_its_session_directory_too() {
-    let mut svc = service();
-    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, Some(LockState::Free));
-    svc.with_directory(1, "amber-swift-owl");
-    ready(svc.rename(rename("amber-swift-owl", "bright-keen-hawk"))).unwrap();
-    assert_eq!(
-        svc.files.session_moves,
-        [(
-            "amber-swift-owl".to_string(),
-            "bright-keen-hawk".to_string()
-        )]
-    );
-    assert!(svc.files.sessions.contains("bright-keen-hawk"));
-    assert!(!svc.files.sessions.contains("amber-swift-owl"));
-}
-
-// Defect 2: a session directory that cannot move refuses the rename whole:
-// the new name is released, the output folder moved back, the old name kept.
-#[test]
-fn a_session_directory_that_cannot_move_refuses_the_rename_whole() {
-    let mut svc = service();
-    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, Some(LockState::Free));
-    svc.with_directory(1, "amber-swift-owl");
-    let old_out = "/home/Documents/ctxloom/proj/amber-swift-owl";
-    svc.files.outputs.insert(old_out.to_string());
-    svc.files.fail_session_move = true;
-    let error = ready(svc.rename(rename("amber-swift-owl", "bright-keen-hawk")));
-    assert!(error.is_err(), "the rename is refused");
-    assert_eq!(
-        svc.files.session_moves.len(),
-        1,
-        "the directory's move was asked for"
-    );
-    assert!(svc.files.outputs.contains(old_out), "the folder moved back");
-    assert_eq!(holder(svc.store(HERE), HERE, "bright-keen-hawk"), "");
-    assert_eq!(holder(svc.store(HERE), HERE, "amber-swift-owl"), id_text(1));
-    assert_eq!(svc.harps(all()), ["amber-swift-owl"]);
-}
-
-// PROPOSAL (defect 2): a lock that proves nothing (a session from before runs
-// held their lock) does not block a rename; only a held one does.
-#[test]
-fn a_session_whose_lock_proves_nothing_is_renamed() {
-    let mut svc = service();
-    svc.seed(
-        HERE,
-        1,
-        "amber-swift-owl",
-        NOW - DAY,
-        Some(LockState::Unproven),
-    );
-    svc.with_directory(1, "amber-swift-owl");
-    ready(svc.rename(rename("amber-swift-owl", "bright-keen-hawk"))).unwrap();
-    assert_eq!(svc.harps(all()), ["bright-keen-hawk"]);
 }
 
 /// A stream of `n` events in a store that answers its next `conflicts`

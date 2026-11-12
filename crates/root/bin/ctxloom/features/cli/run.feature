@@ -579,11 +579,11 @@ Feature: run — assembling a project's context and handing it to an engine
     directory: an exclusive file lock the run takes once its session is
     minted and lets go after its engine exits. Another process probes it
     without holding it: held is live, free is ended. So while a session runs,
-    ctxloom will not move it from under its engine (a rename waits for its
-    end) and will not remove it without `--even-if-live`; once it has ended a
-    rename moves its directory with its name.
+    ctxloom will not remove it without `--even-if-live`. A harp never changes
+    (S55): a rename sets the session's title, live or ended, and its directory
+    and lock stay under its harp.
 
-    Scenario: While her session runs another terminal sees it live, and cannot rename or remove it
+    Scenario: While her session runs another terminal sees it live, titles it, and cannot remove it
       # new: concurrent-primaries defects 1 and 2, with a stub engine on PATH
       # that runs the other terminal's commands itself, while it runs.
       Given Alice has a project that has never used ctxloom
@@ -593,10 +593,10 @@ Feature: run — assembling a project's context and handing it to an engine
         ctxloom run
         """
       Then while it ran, the listing showed its session as live
-      And while it ran, renaming its session was refused until the session ends
+      And while it ran, renaming its session set its title and moved nothing
       And while it ran, removing its session was refused because its owner is alive
       And after it ended, its session is listed as ended under its own name
-      And after it ended, renaming it moves its session's directory and lock with its name
+      And after it ended, its session's directory and lock are still under its harp
 
   # A CHILD agent (a one-shot is one) authenticates only with a credential in
   # its environment: the token the human mints with `claude setup-token` and
@@ -952,7 +952,7 @@ Feature: run — assembling a project's context and handing it to an engine
   # where they go: relative to the project root unless absolute, `ctxloom/`
   # when the config names nowhere. It is NOT gitignored: what a session leaves
   # there can be committed. Each session's outputs are `<output.dir>/<harp>/`,
-  # and a rename moves that folder with the name.
+  # and a harp never changes (S55), so neither does that folder.
   Rule: A session's outputs go under the project's output directory
 
     Scenario: A session's outputs go under ctxloom/ in her project

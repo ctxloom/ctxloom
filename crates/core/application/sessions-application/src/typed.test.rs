@@ -13,7 +13,7 @@ use angzarr_embedded_runner::{Refusal, Runner, Unrun};
 use exit_code::ExitClass;
 use sessions::{
     AdoptRotations, ClaimName, MintSession, NameClaimAggregate, NameClaimCommand, ReleaseName,
-    RenameSession, SessionAggregate, SessionCommand, SessionRejection, SetKept, StopSession,
+    SessionAggregate, SessionCommand, SessionRejection, SetKept, StopSession,
 };
 
 use super::run;
@@ -104,14 +104,6 @@ fn taken(store: &MemoryStore, harp: &str, session: &str) {
     crate::fakes::claim(store, "jolly-mute-magma", harp, session).expect("taken");
 }
 
-fn rename(harp: &str) -> RenameSession {
-    RenameSession {
-        harp: harp.to_string(),
-        output_dir: String::new(),
-        lock: sessions::LockEvidence::Free,
-    }
-}
-
 /// One refusal provoked, and what it came to: the rejection read back by the
 /// refusal's type, and what the person is told.
 struct Told {
@@ -169,8 +161,6 @@ fn expect(told: Told, rejection: SessionRejection, code: &str, args: &[(&str, &s
 /// code), whatever status each travels under.
 #[test]
 fn the_mint_and_rename_refusals_are_told_by_their_type() {
-    let long = "x".repeat(30);
-
     let store = store_with_session();
     expect(
         told(&store, false, to_session(mint("owl"))),
@@ -194,18 +184,6 @@ fn the_mint_and_rename_refusals_are_told_by_their_type() {
         },
         "sessions-harp-invalid",
         &[("harp", "a/b"), ("reason", "separator")],
-        20,
-    );
-
-    expect(
-        told(&store, false, to_session(rename(&long))),
-        SessionRejection::HarpTooLong {
-            harp: long.clone(),
-            limit: 24,
-            length: 30,
-        },
-        "sessions-harp-too-long",
-        &[("harp", long.as_str()), ("length", "30"), ("limit", "24")],
         20,
     );
 

@@ -1,7 +1,7 @@
 //! What a harp may be called. Go: `internal/shared/harp` (`Validate`,
-//! `ValidateRename`, `MaxNameLen`), release/0.7.
+//! release/0.7; its `ValidateRename` bound is gone with the rename, S55).
 
-use crate::{validate, validate_rename, SessionRejection, MAX_NAME_LEN};
+use crate::{validate, SessionRejection};
 
 fn invalid(harp: &str, reason: &str) -> SessionRejection {
     SessionRejection::HarpInvalid {
@@ -40,24 +40,4 @@ fn validate_accepts_harps_and_the_odd_name_a_person_might_choose() {
     ] {
         assert_eq!(validate(good), Ok(()), "{good:?}");
     }
-}
-
-// Go: ValidateRename adds the bound, in runes; "a name recorded before the
-// bound existed must still resolve", so Validate has none.
-#[test]
-fn validate_rename_bounds_the_length_in_characters_and_validate_does_not() {
-    assert_eq!(MAX_NAME_LEN, 24);
-    let exactly = "\u{e9}".repeat(24);
-    assert_eq!(validate_rename(&exactly), Ok(()));
-    let over = "\u{e9}".repeat(25);
-    assert_eq!(
-        validate_rename(&over),
-        Err(SessionRejection::HarpTooLong {
-            harp: over.clone(),
-            limit: 24,
-            length: 25,
-        })
-    );
-    assert_eq!(validate(&over), Ok(()));
-    assert_eq!(validate_rename("a/b"), Err(invalid("a/b", "separator")));
 }

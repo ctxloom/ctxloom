@@ -1,4 +1,4 @@
-//! Writing sessions: keep, bind, rename and remove. A write finds its session
+//! Writing sessions: keep, bind, title and remove. A write finds its session
 //! as a read does, then runs one command through angzarr-embedded's kernel
 //! (angzarr-embedded-runner's `Runner`), which retries it. A remove is a
 //! destroy (owner rulings 94, 94b, 98) and runs no command: it purges the
@@ -17,15 +17,13 @@ use ports::{Clock, CommandIds, Delay, Jitter, Project, ProjectIdentity};
 use session_index::{Retained, Retention, SessionRecord};
 use session_ports::{Liveness, LockState, ProjectStores, SessionFiles};
 use sessions::{
-    claim_root, validate_rename, BindEngineSession, ClaimName, NameClaimAggregate,
-    NameClaimCommand, ReleaseName, RenameSession, SessionAggregate, SessionCommand,
-    SessionRejection, SetKept, NAMES_DOMAIN, SESSION_DOMAIN,
+    BindEngineSession, SessionAggregate, SessionCommand, SetKept, SetSessionTitle, SESSION_DOMAIN,
 };
 
 use crate::read::Reading;
 use crate::{
     failed, AppError, BindRequest, Bound, Class, DeadLetter, FilePlan, KeepRequest, Kept, PlanItem,
-    Refusal, Removal, RemoveRequest, RenameRequest, Renamed, TitleRequest, Titled, REMOVE_VERB,
+    Refusal, Removal, RemoveRequest, TitleRequest, Titled, REMOVE_VERB,
 };
 
 /// A write's way to its sessions and the kernel, borrowed from the service
@@ -148,195 +146,25 @@ where
     /// Set a session's title (S55): one command to its stream; nothing is
     /// claimed or moved, its harp and name being permanent.
     pub(crate) async fn set_title(&mut self, request: TitleRequest) -> Result<Titled, AppError> {
-        let (_project, record) = self
-            .read
-            .find(request.project.as_deref(), &request.harp)
-            .await?;
-        Ok(Titled {
-            harp: record.harp,
-            title: request.title,
-            changed: false,
-            dead_letters: std::mem::take(self.dead_letters),
-        })
-    }
-
-    /// Run `command` on the claim stream of `harp` in `project`'s store: the
-    /// kernel's answer, a refusal typed.
-    async fn claim_command(
-        &mut self,
-        project: &Project,
-        harp: &str,
-        command: impl Into<NameClaimCommand>,
-    ) -> Result<(), AppError> {
-        self.claim_typed(project, harp, command)
-            .await?
-            .map_err(AppError::from)
-    }
-
-    /// Run `command` on the claim stream of `harp`: done, or the domain's
-    /// refusal as its typed rejection; a failure to run it at all.
-    async fn claim_typed(
-        &mut self,
-        project: &Project,
-        harp: &str,
-        command: impl Into<NameClaimCommand>,
-    ) -> Result<Result<(), angzarr_embedded_runner::Refusal<SessionRejection>>, AppError> {
-        let command = command.into();
-        let cover = Cover {
-            domain: NAMES_DOMAIN.to_string(),
-            root: Some(claim_root(&project.id, harp)),
-            edition: None,
-        };
-        let book = CommandBook::command_of(cover, &command);
-        let store = self.read.stores.open(project).await.map_err(failed)?;
-        let command_id = self.clock.command_id();
-        let mut runner = Runner {
-            registry: self.read.registry,
-            clock: &mut Port(&mut *self.clock),
-            delay: &mut Port(&mut *self.delay),
-            retry: self.retry,
-            dead_letters: &mut *self.dead_letters,
-        };
-        Ok(
-            typed::run::<NameClaimAggregate, _, _, _>(&mut runner, store, book, &command_id)
-                .await?
-                .map(drop),
-        )
-    }
-
-    /// Give `session`'s hold on `harp` back, best effort: a session minted
-    /// before claims existed holds none, and that is not a failure (the
-    /// refusal read by its type, never its code's text).
-    async fn release(
-        &mut self,
-        project: &Project,
-        harp: &str,
-        session: &str,
-    ) -> Result<(), AppError> {
-        let released = self
-            .claim_typed(
-                project,
-                harp,
-                ReleaseName {
-                    session: session.to_string(),
-                },
-            )
-            .await?;
-        let Err(refusal) = released else {
-            return Ok(());
-        };
-        // `ReleaseName` refuses only these two, so any other refusal is one a
-        // later release learned to make: an error, not "nothing to release".
-        match &refusal.rejection {
-            Some(SessionRejection::NoClaim | SessionRejection::NotHolder { .. }) => Ok(()),
-            _ => Err(AppError::from(refusal)),
-        }
-    }
-
-    /// Rename a session (plan 3.1): the session judges it on what its lock
-    /// says (owner ruling 91: a live one is refused before anything is
-    /// claimed); then claim the new name, move the output folder beside
-    /// itself and the session's directory and lock to the new name (defect
-    /// 2), record the name, free the old one; each step undone if a later one
-    /// fails, so a refusal leaves everything where it was.
-    pub(crate) async fn rename(&mut self, request: RenameRequest) -> Result<Renamed, AppError> {
         let (project, record) = self
             .read
             .find(request.project.as_deref(), &request.harp)
             .await?;
-        let to = request.to;
-        validate_rename(&to).map_err(|r| AppError::Rejected(Report::of(&r)))?;
-        if to == record.harp {
-            return Err(AppError::Rejected(Report::of(
-                &SessionRejection::NamesTaken { harp: to },
-            )));
-        }
-        let lock = match self.read.liveness.lock_state(&record.harp) {
-            LockState::Held => sessions::LockEvidence::Held,
-            LockState::Free => sessions::LockEvidence::Free,
-            LockState::Unproven => sessions::LockEvidence::Unproven,
-        };
-        if lock == sessions::LockEvidence::Held {
-            // Asked of the session itself, so the refusal is its own, and
-            // nothing is claimed or moved for a rename it refuses.
-            self.commit(
-                &project,
-                &record,
-                RenameSession {
-                    harp: to.clone(),
-                    output_dir: record.output_dir.clone(),
-                    lock,
-                },
-            )
-            .await?;
-        }
-        self.claim_command(
-            &project,
-            &to,
-            ClaimName {
-                project_id: project.id.clone(),
-                harp: to.clone(),
-                session: record.id.clone(),
-            },
-        )
-        .await?;
-        let new_output = beside(&record.output_dir, &to);
-        let moved = match self.move_output(&record.output_dir, &new_output) {
-            Ok(moved) => moved,
-            Err(error) => {
-                self.release(&project, &to, &record.id).await?;
-                return Err(error);
-            }
-        };
-        let undo_output = |files: &mut F| {
-            if moved {
-                let _ = files.move_output(&new_output, &record.output_dir);
-            }
-        };
-        let moved_dir = match self.read.files.move_session(&record.harp, &to) {
-            Ok(moved_dir) => moved_dir,
-            Err(error) => {
-                undo_output(self.read.files);
-                self.release(&project, &to, &record.id).await?;
-                return Err(AppError::Files(error));
-            }
-        };
-        let recorded = self
+        let changed = self
             .commit(
                 &project,
                 &record,
-                RenameSession {
-                    harp: to.clone(),
-                    output_dir: new_output.clone(),
-                    lock,
+                SetSessionTitle {
+                    title: request.title.clone(),
                 },
             )
-            .await;
-        if let Err(error) = recorded {
-            if moved_dir {
-                let _ = self.read.files.move_session(&to, &record.harp);
-            }
-            undo_output(self.read.files);
-            self.release(&project, &to, &record.id).await?;
-            return Err(error);
-        }
-        self.release(&project, &record.harp, &record.id).await?;
-        Ok(Renamed {
-            from: record.harp,
-            to,
-            output_dir: new_output,
+            .await?;
+        Ok(Titled {
+            harp: record.harp,
+            title: request.title,
+            changed,
             dead_letters: std::mem::take(self.dead_letters),
         })
-    }
-
-    fn move_output(&mut self, from: &str, to: &str) -> Result<bool, AppError> {
-        if from.is_empty() {
-            return Ok(false);
-        }
-        self.read
-            .files
-            .move_output(from, to)
-            .map_err(AppError::Files)
     }
 
     /// Remove a session: report its destroy, and on `yes` apply it, unless
@@ -511,14 +339,5 @@ pub(crate) async fn purge<S: EventStore + Purge>(
             Err(StoreError::Conflict { .. }) if tries < 3 => tries += 1,
             other => return other.map_err(failed),
         }
-    }
-}
-
-/// Where a session's output folder goes under the name `to`: beside itself.
-/// A session recording none has none.
-fn beside(output_dir: &str, to: &str) -> String {
-    match std::path::Path::new(output_dir).parent() {
-        Some(parent) if !output_dir.is_empty() => parent.join(to).display().to_string(),
-        _ => String::new(),
     }
 }

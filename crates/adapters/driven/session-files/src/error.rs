@@ -12,10 +12,6 @@ pub enum FilesError {
         path: String,
         ext_err_txt: String,
     },
-    /// An output directory cannot move to where something already is.
-    OutputExists { path: String },
-    /// A session directory already under the name a rename moves one to.
-    SessionExists { path: String },
 }
 
 impl FilesError {
@@ -38,8 +34,6 @@ impl Diagnostic for FilesError {
     fn code(&self) -> &str {
         match self {
             FilesError::Io { .. } => code!("io"),
-            FilesError::OutputExists { .. } => code!("output-exists"),
-            FilesError::SessionExists { .. } => code!("session-exists"),
         }
     }
 
@@ -54,9 +48,6 @@ impl Diagnostic for FilesError {
                 ("path", path.as_str().into()),
                 ("ext_err_txt", ext_err_txt.as_str().into()),
             ],
-            FilesError::OutputExists { path } | FilesError::SessionExists { path } => {
-                vec![("path", path.as_str().into())]
-            }
         }
     }
 }
@@ -70,19 +61,11 @@ pub const EN_US: (&str, &str) = (
 /// One value of every error, for the catalog test.
 #[cfg(any(test, feature = "test-support"))]
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
-    vec![
-        Box::new(FilesError::Io {
-            op: "read".to_string(),
-            path: "/home/u/.ctxloom/sessions/x".to_string(),
-            ext_err_txt: "permission denied".to_string(),
-        }),
-        Box::new(FilesError::SessionExists {
-            path: "/work/proj/.ctxloom/sessions/b".to_string(),
-        }),
-        Box::new(FilesError::OutputExists {
-            path: "/home/u/Documents/ctxloom/p/new-name".to_string(),
-        }),
-    ]
+    vec![Box::new(FilesError::Io {
+        op: "read".to_string(),
+        path: "/home/u/.ctxloom/sessions/x".to_string(),
+        ext_err_txt: "permission denied".to_string(),
+    })]
 }
 
 #[cfg(test)]

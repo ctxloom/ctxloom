@@ -3,8 +3,8 @@ syntax = "proto3";
 // The session-name claim (D5 Q1): one stream per (project, harp text), its
 // root derived from them (`ids::compute_root("session-names", ...)`), so a
 // harp is unique in a project because a stream is. A session takes its
-// name first (`ClaimName`), on a mint or a rename; a rename releases the
-// old one; a removed (destroyed) session's name is never released.
+// name first (`ClaimName`), on its mint; a harp never changes (S55), and a
+// removed (destroyed) session's name is never released.
 package ctxloom.sessions.v1;
 
 import "io/angzarr/v1/options.proto";

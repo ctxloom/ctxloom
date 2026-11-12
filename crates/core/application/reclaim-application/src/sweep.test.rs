@@ -10,8 +10,8 @@ use isolation_application::{IsolationError, Report, Row, Verdict as Worktree, Wo
 use session_index::{Captured, SessionRecord, View};
 use sessions_application::{
     AppError, BindRequest, Bound, FilePlan, KeepRequest, Kept, ListQuery, Refusal, Removal,
-    RemoveRequest, RenameRequest, Renamed, SearchQuery, SessionService, ShowQuery, State,
-    Timestamp, TranscriptQuery, TranscriptRow,
+    RemoveRequest, SearchQuery, SessionService, ShowQuery, State, Timestamp, TranscriptQuery,
+    TranscriptRow,
 };
 
 use crate::{sweep, SweepRequest, Verdict};
@@ -157,9 +157,6 @@ impl SessionService for Fake {
         &mut self,
         _: sessions_application::TitleRequest,
     ) -> Result<sessions_application::Titled, AppError> {
-        nothing()
-    }
-    async fn rename(&mut self, _: RenameRequest) -> Result<Renamed, AppError> {
         nothing()
     }
     async fn transcripts(&mut self, _: TranscriptQuery) -> Result<Vec<TranscriptRow>, AppError> {

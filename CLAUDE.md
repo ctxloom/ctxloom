@@ -1322,7 +1322,8 @@ ctxloom's go-final, for `ltk-rules-check.sh`), the gates' logs dumped and
 uploaded on a failure. Linux (`ubuntu-24.04`) runs every gate but mutation
 (closeout's): `just build`, `fmt-check`, `lint`, `lint-os`, `lint-deps`,
 `test`, `check-windows`, `selftest`. Windows (`windows-latest`, MSVC, Git
-Bash) runs `just build` and `just test` natively, the whole workspace. Every
+Bash) runs `just build` and `just test` natively, the whole workspace, and so
+does macOS (`macos-15`, arm64; protoc's osx-aarch_64 by checksum). Every
 dependency is a public https git pin, so no credential is needed. For
 Windows, nextest's setup script runs under `sh` (`cfg(windows)` entry in
 `.config/nextest.toml`; the unix one is unchanged), and the plain-binary

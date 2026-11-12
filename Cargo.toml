@@ -14,8 +14,8 @@ publish = false
 # The runtime pair: the lock holds ONE angzarr-embedded, angzarr-proto,
 # angzarr-ports and angzarr-diagnostic (and one of every angzarr crate). The
 # pins agree: angzarr-embedded 94f630a (angzarr-router bec0c2b), angzarr core
-# f6fed5e, angzarr-build 7547415 and angzarr-platform f9f1c7c are one line of
-# revs, taskloom's crates (096a3db) and ctxloom-lib's (5ed5a1a) are built on the
+# f6fed5e, angzarr-build 7547415 and angzarr-platform a35789e are one line of
+# revs, taskloom's crates (7af0580) and ctxloom-lib's (fb8e821) are built on the
 # same ones, and moving any of them moves the others with it.
 #
 # angzarr-proto, angzarr-ports and angzarr-store-sqlite are reached through
@@ -54,19 +54,19 @@ angzarr-coordinator-grpc = { default-features = false, git = "https://github.com
 # Each test's scratch directory (a short path, for a socket): a dev-dependency.
 angzarr-test-dir = { git = "https://github.com/angzarr-io/angzarr", rev = "f6fed5e53c1d17bf7d7c23c98a7b4a7df972a47e" }
 # The platform crates: os, the file-system seam, advisory locks.
-os = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "f9f1c7cbe06cd70c173ed24d4074588ce29c98a9" }
-file-system = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "f9f1c7cbe06cd70c173ed24d4074588ce29c98a9" }
-file-lock = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "f9f1c7cbe06cd70c173ed24d4074588ce29c98a9" }
+os = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "a35789efcc041bf6e697cae4a8971381e891aca3" }
+file-system = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "a35789efcc041bf6e697cae4a8971381e891aca3" }
+file-lock = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "a35789efcc041bf6e697cae4a8971381e891aca3" }
 
 # taskloom, by commit (D3 (b), D2 (a)): harp-names and the ports it implements.
-# 096a3db is taskloom's pin on the same angzarr family; only these crates are consumed.
-harp-names = { git = "https://github.com/ctxloom/taskloom", rev = "096a3dbb7cb9f3e25030b8459a452261893c8746" }
-ports = { git = "https://github.com/ctxloom/taskloom", rev = "096a3dbb7cb9f3e25030b8459a452261893c8746" }
+# 7af0580 is taskloom's pin on the same angzarr family; only these crates are consumed.
+harp-names = { git = "https://github.com/ctxloom/taskloom", rev = "7af058076b301c7f754c0258bed90dce4d956375" }
+ports = { git = "https://github.com/ctxloom/taskloom", rev = "7af058076b301c7f754c0258bed90dce4d956375" }
 # taskloom's system adapter: the clock, command ids, delay and jitter ports.
-system = { git = "https://github.com/ctxloom/taskloom", rev = "096a3dbb7cb9f3e25030b8459a452261893c8746" }
+system = { git = "https://github.com/ctxloom/taskloom", rev = "7af058076b301c7f754c0258bed90dce4d956375" }
 # taskloom's project identity (the work root, the `.project-id` marker and the
 # home registry of projects), read through, not copied (D2 (a)).
-project-registry = { git = "https://github.com/ctxloom/taskloom", rev = "096a3dbb7cb9f3e25030b8459a452261893c8746" }
+project-registry = { git = "https://github.com/ctxloom/taskloom", rev = "7af058076b301c7f754c0258bed90dce4d956375" }
 # Harp's word lists, at taskloom's rev, so the lock holds one.
 harp-core = { git = "https://github.com/benjaminabbitt/harp", rev = "e27196f5a425ffcf8e443aab95d2bf085cd2b134" }
 
@@ -148,26 +148,26 @@ container-cli = { path = "crates/adapters/driving/container-cli" }
 # ctxloom-lib, the shared substrate (S2): the driving edge's call, failure, notices
 # and argument shims. Pinned by full commit over https, as taskloom pins it;
 # its angzarr pins are the ones above.
-cli-support = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "5ed5a1a84b15ca01d8b7e317662c428e1824d9b8" }
+cli-support = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "fb8e821250b3c1935a25323a830de04bf2f844f9" }
 # process-env (S3): the environment read once into a snapshot the composition root hands down.
-process-env = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "5ed5a1a84b15ca01d8b7e317662c428e1824d9b8" }
+process-env = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "fb8e821250b3c1935a25323a830de04bf2f844f9" }
 # project-dir (S4): the ancestor walk with injected rules, and the checked project id.
-project-dir = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "5ed5a1a84b15ca01d8b7e317662c428e1824d9b8" }
+project-dir = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "fb8e821250b3c1935a25323a830de04bf2f844f9" }
 # run-within (S6): a program run under a deadline, its tree killed, its output bounded.
-run-within = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "5ed5a1a84b15ca01d8b7e317662c428e1824d9b8" }
+run-within = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "fb8e821250b3c1935a25323a830de04bf2f844f9" }
 # duration-text (S9): a span or date as an age, and the cutoff it makes.
-duration-text = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "5ed5a1a84b15ca01d8b7e317662c428e1824d9b8" }
+duration-text = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "fb8e821250b3c1935a25323a830de04bf2f844f9" }
 # sqlite-store-opener (S5): places and opens a project's SQLite store under a file name the caller
 # names, refusing a store from before the embedded store; ctxloom-store-sqlite is its adapter.
-sqlite-store-opener = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "5ed5a1a84b15ca01d8b7e317662c428e1824d9b8" }
+sqlite-store-opener = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "fb8e821250b3c1935a25323a830de04bf2f844f9" }
 
 # exit-code: the exit-code convention as a pure type (rulings 149, 152, 153), so the
 # core's errors say their class; cli-support re-exports it for the edge.
-exit-code = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "5ed5a1a84b15ca01d8b7e317662c428e1824d9b8" }
+exit-code = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "fb8e821250b3c1935a25323a830de04bf2f844f9" }
 
 # fixture-program: a test's fake program, linked to a committed shim that sh runs the
 # script through, so no file a test wrote is exec'd (ETXTBSY). A dev-dependency only.
-fixture-program = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "5ed5a1a84b15ca01d8b7e317662c428e1824d9b8" }
+fixture-program = { git = "https://github.com/ctxloom/ctxloom-lib", rev = "fb8e821250b3c1935a25323a830de04bf2f844f9" }
 
 # HTTP for forge-github (owner, 2026-11-04): the blocking client, so the
 # synchronous CLI holds no runtime of its own, and the TLS stack chosen below.

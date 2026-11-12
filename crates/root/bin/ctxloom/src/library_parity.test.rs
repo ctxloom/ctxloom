@@ -91,6 +91,27 @@ const OWNER_REFUSALS: [&str; 8] = [
     "cfg-notint-bundle-list",
 ];
 
+/// Rows where the owner overrides Go (2026-11-12): a skill file's mode is its
+/// sidecar's `executable:` declaration, on every OS, never the mode on disk
+/// Go read. The `lib` fixture's sidecar declares `scripts/run.sh`, which git
+/// checks out 0644, so Go said 0644 and this build says 0755.
+const SIDECAR_MODE_ROWS: [&str; 2] = ["skill-show-json", "skill-show-text"];
+
+/// Go's golden for a [`SIDECAR_MODE_ROWS`] row, with the declared script's
+/// mode as the sidecar says it.
+fn as_declared(id: &str, golden: String) -> String {
+    if !SIDECAR_MODE_ROWS.contains(&id) {
+        return golden;
+    }
+    const SCRIPT: &str = "sha256:299001868fb8c02fd431c336c6d058f5558c5dff5b5af5e6fe04b870a6a9cbba";
+    golden
+        .replace(
+            &format!("\"sha256\": \"{SCRIPT}\",\n      \"mode\": \"0644\""),
+            &format!("\"sha256\": \"{SCRIPT}\",\n      \"mode\": \"0755\""),
+        )
+        .replace(&format!("0644  {SCRIPT}"), &format!("0755  {SCRIPT}"))
+}
+
 /// Fixtures Go reads that register companions by bare name (`companions:
 /// [acme]`, schema 8): from schema 9 a companion is a name and the command
 /// that runs it, and the bare list is refused, never migrated (virtuous-word,
@@ -243,7 +264,7 @@ fn mismatch(row: &Row, project: &Project) -> Option<String> {
     if !agreed {
         return Some(format!("exit {} (Go {go_exit}): {}", ran.code, ran.said()));
     }
-    let want = as_changed(&golden(&row.id, "stdout"));
+    let want = as_declared(&row.id, as_changed(&golden(&row.id, "stdout")));
     if !is_dry_run(&row.id) && carries_retired_llm(&want) {
         return None;
     }

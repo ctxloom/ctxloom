@@ -5,7 +5,7 @@
 //! A move relocates the bundle, and the source goes only once the destination
 //! holds it: every failure before that leaves the source as it was.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use deps_ports::{CopyOutcome, Endpoint, PullRequest};
 
@@ -80,6 +80,12 @@ impl Deps {
         };
         let message = commit_message(&title, &body);
         let size: usize = files.values().map(Vec::len).sum();
+        // What the skills' sidecars declare is committed executable, on
+        // every OS (owner ruling 2026-11-12).
+        let executable: BTreeSet<String> = library::write::skill::declared_executables(&files)
+            .into_iter()
+            .map(|rel| format!("{target}/{rel}"))
+            .collect();
         let in_repository: BTreeMap<String, Vec<u8>> = files
             .into_iter()
             .map(|(rel, data)| (format!("{target}/{rel}"), data))
@@ -118,14 +124,14 @@ impl Deps {
                         title: fitted,
                         body: pull_request_body(&body, &overflow, &request.bundle, &target),
                         files: in_repository,
-                        executable: Default::default(),
+                        executable,
                     },
                 )
                 .map_err(published)?;
             ("pr-created", opened.commit, opened.url)
         } else {
             let commit = ByAddress(self.remotes.as_ref())
-                .publish(&remote.url, &in_repository, &Default::default(), &message)
+                .publish(&remote.url, &in_repository, &executable, &message)
                 .map_err(published)?;
             ("pushed", commit, String::new())
         };

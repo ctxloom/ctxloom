@@ -21,13 +21,12 @@ pub(crate) fn publish(
     executable: &BTreeSet<String>,
     message: &str,
 ) -> Result<String, Why> {
-    let _ = executable;
     fs.create_dir_all(cache, Mode::from_bits(0o755))
         .map_err(|e| format!("cannot make {}: {e}", cache.display()))?;
     let work = fs
         .make_temp_dir(cache, "publish-")
         .map_err(|e| format!("cannot make a working clone: {e}"))?;
-    let outcome = land(git, fs, &work, url, files, message);
+    let outcome = land(git, fs, &work, url, files, executable, message);
     let _ = fs.remove_dir_all(&work);
     outcome
 }
@@ -38,6 +37,7 @@ fn land(
     work: &Path,
     url: &str,
     files: &BTreeMap<String, Vec<u8>>,
+    executable: &BTreeSet<String>,
     message: &str,
 ) -> Result<String, Why> {
     let target = work.to_string_lossy();
@@ -62,7 +62,15 @@ fn land(
         }
         fs.write_atomic(&at, data, Perms::Exact(Mode::from_bits(0o644)))
             .map_err(|e| format!("cannot write {}: {e}", at.display()))?;
-        git.run(Some(work), &["add", "--", path], None)?;
+        // The index's mode is set as the file is added, so it is the same on
+        // every OS (Windows keeps none on disk): 100755 for what the sidecars
+        // declare, 100644 for every other (owner ruling 2026-11-12).
+        let chmod = if executable.contains(path) {
+            "--chmod=+x"
+        } else {
+            "--chmod=-x"
+        };
+        git.run(Some(work), &["add", chmod, "--", path], None)?;
     }
     // Nothing staged is nothing to publish: the commit at the tip stands.
     if git

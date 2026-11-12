@@ -630,12 +630,23 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             self.seed(order, &format!("home/{}", seed.rel), &seed.bytes)?;
         }
         self.seed_git_user(order)?;
+        // The live project, named to the engine whatever its workspace, so its
+        // hook processes and the agent's own `ctxloom` calls resolve it from
+        // a checkout (whose `.ctxloom` is the project's tracked config
+        // alone); one the caller had is replaced, and no permit replaces it.
+        let mut env = order.env.clone();
+        let mut owned = order.owned.clone();
+        env.remove(run_ports::ROOT_VARIABLE);
+        if let Some(project) = &order.cwd {
+            env.insert(run_ports::ROOT_VARIABLE.to_string(), project.clone());
+            owned.push(run_ports::ROOT_VARIABLE.to_string());
+        }
         let request = TurnRequest {
             prompt: order.prompt.clone(),
             home,
             context_path: prepared.context_path,
             resume: order.resume.clone(),
-            env: order.env.clone(),
+            env,
             user_home: order.user_home.clone(),
             cwd,
             model: order.model.clone(),
@@ -653,7 +664,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         // every command, a child's turn and the terminal's, passes.
         // Never over a name ctxloom set for the engine (ruling 78b): the
         // adapter's computed names, derived from the command, and the run's.
-        *ignored = run_ports::apply_permits(&order.env, &mut command.env, &order.owned);
+        *ignored = run_ports::apply_permits(&order.env, &mut command.env, &owned);
         // The command is complete: measured against the platform's command
         // line before it is spawned (the terminal's opening prompt is on it).
         run_ports::check_command_line(&self.os, &command).map_err(Unprepared::TooLong)?;

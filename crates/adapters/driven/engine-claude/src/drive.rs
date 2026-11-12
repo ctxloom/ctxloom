@@ -53,7 +53,8 @@ const PROGRAM: &str = "claude";
 /// programs, locale and temp space, the proxy and certificate settings a
 /// network needs, the two ways claude is handed a credential, and what the
 /// turn's hook processes need (owner ruling 51): ctxloom's home by name (their
-/// `HOME` is the session home, ruling 112), the session's harp, and the run's
+/// `HOME` is the session home, ruling 112), the live project's root
+/// (`CTXLOOM_ROOT`: the engine may work in a checkout), the session's harp, and the run's
 /// listener (the endpoint, the bearer, the hook principal's secret, the run
 /// and the listener's public certificate). On Windows,
 /// what a program needs to start (`run_ports::WINDOWS_STARTUP_VARIABLES`) and
@@ -87,6 +88,7 @@ pub const ENV_ALLOWLIST: &[&str] = &[
     "CLAUDE_CODE_OAUTH_TOKEN",
     "ANTHROPIC_API_KEY",
     run_ports::HOME_VARIABLE,
+    run_ports::ROOT_VARIABLE,
     run_ports::ENDPOINT_VARIABLE,
     run_ports::BEARER_VARIABLE,
     run_ports::RUN_VARIABLE,
@@ -129,6 +131,7 @@ pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = &[
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
     run_ports::HOME_VARIABLE,
+    run_ports::ROOT_VARIABLE,
     run_ports::ENDPOINT_VARIABLE,
     run_ports::BEARER_VARIABLE,
     run_ports::RUN_VARIABLE,

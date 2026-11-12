@@ -307,7 +307,12 @@ it; nothing reads the environment's `HOME` for it (Git Bash sets its own).
 ctxloom's home reaches its hook processes as
 `CTXLOOM_HOME` (`run_ports::HOME_VARIABLE`; the wiring takes it as the home
 FIRST, before `HOME`, and names the resolved home in a run's env; both
-allowlists pass it on). The session home is seeded, once (one there is left
+allowlists pass it on). The live project reaches them as `CTXLOOM_ROOT`
+(`run_ports::ROOT_VARIABLE`, set by `Launcher::prepare` to the order's
+project, over any the caller had, owned so no permit replaces it, on both
+engines' allowlists), so a hook or the agent's own `ctxloom` call from a
+checkout resolves the project (`find_app_dir` honours it before the walk;
+the checkout's `.ctxloom` is the tracked config alone). The session home is seeded, once (one there is left
 as it is), with a `.gitconfig` of the user's `[user] name/email` alone, as git
 resolves them in the project (`worktree-git`'s `Git::user`,
 `run_ports::git_config`, written by the launcher): a file, not

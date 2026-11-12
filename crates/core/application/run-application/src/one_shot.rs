@@ -505,6 +505,7 @@ where
         let command: SessionCommand = ResumeSession {
             harp: resume.harp.clone(),
             engine: engine.to_string(),
+            workspace: String::new(),
         }
         .into();
         self.core
@@ -1118,6 +1119,7 @@ where
             },
             started_at: None,
             depth: 0,
+            workspace: None,
         }
         .into();
         let root = uuid::Uuid::parse_str(session).map_or_else(

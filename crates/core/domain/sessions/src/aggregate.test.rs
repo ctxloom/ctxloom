@@ -185,6 +185,7 @@ pub(crate) fn mint(harp: &str) -> MintSession {
         origin: Origin::Session,
         started_at: None,
         depth: 0,
+        workspace: None,
     }
 }
 

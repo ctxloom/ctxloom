@@ -868,6 +868,7 @@ fn an_internal_one_shot_is_reclaimable_at_any_age() {
             origin: sessions::Origin::Oneshot,
             started_at: None,
             depth: 0,
+            workspace: None,
         },
     );
     ended(store, 1, NOW - HOUR, NOW - HOUR);

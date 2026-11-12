@@ -37,6 +37,12 @@ pub enum SessionRejection {
         engine: String,
         asked: String,
     },
+    /// A resume asked for another workspace axis than the session's.
+    WorkspaceMismatch {
+        harp: String,
+        workspace: String,
+        asked: String,
+    },
 }
 
 /// Its key and args, never English (angzarr decision 14.37).
@@ -61,6 +67,7 @@ impl Diagnostic for SessionRejection {
             SessionRejection::SessionRunning { .. } => code!("session-running"),
             SessionRejection::NoNativeSession { .. } => code!("no-native-session"),
             SessionRejection::EngineMismatch { .. } => code!("engine-mismatch"),
+            SessionRejection::WorkspaceMismatch { .. } => code!("workspace-mismatch"),
         }
     }
 
@@ -80,6 +87,15 @@ impl Diagnostic for SessionRejection {
             } => vec![
                 ("harp", harp.as_str().into()),
                 ("engine", engine.as_str().into()),
+                ("asked", asked.as_str().into()),
+            ],
+            SessionRejection::WorkspaceMismatch {
+                harp,
+                workspace,
+                asked,
+            } => vec![
+                ("harp", harp.as_str().into()),
+                ("workspace", workspace.as_str().into()),
                 ("asked", asked.as_str().into()),
             ],
             SessionRejection::HarpInvalid { harp, reason } => vec![
@@ -122,6 +138,11 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             harp: harp(),
             engine: "claude-code".to_string(),
             asked: "opencode".to_string(),
+        }),
+        Box::new(SessionRejection::WorkspaceMismatch {
+            harp: harp(),
+            workspace: "worktree".to_string(),
+            asked: "none".to_string(),
         }),
     ]
 }

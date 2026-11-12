@@ -219,7 +219,15 @@ impl Planner for ScriptedPlan {
             tokens: 0,
             prompt: self.prompt.clone(),
             findings: Vec::new(),
-            axes: (self.axis.clone(), "host".to_string()),
+            // The flag, else the "config's" default, as the library settles it.
+            axes: (
+                if request.workspace.is_empty() {
+                    self.axis.clone()
+                } else {
+                    request.workspace.clone()
+                },
+                "host".to_string(),
+            ),
             model: self.model.clone(),
             effort: self.effort.clone(),
             permissions: self.permissions.clone(),
@@ -3351,4 +3359,75 @@ async fn a_refused_worktree_fails_the_launch() {
         .unwrap_err();
     assert!(matches!(error, RunError::NotStarted { .. }), "{error:?}");
     assert!(rig.runner.seen.lock().unwrap().is_empty());
+}
+
+// Owner ruling 2026-11-12: the workspace axis is a session trait, recorded at
+// its mint as the plan settled it.
+#[tokio::test]
+async fn a_session_is_minted_on_the_workspace_its_plan_settled() {
+    for (axis, recorded) in [("worktree", "worktree"), ("none", "none"), ("", "none")] {
+        let (script, _) = placing(axis, run_launcher::fakes::worktree_checkout);
+        let mut rig = rig(script);
+        let answer = rig
+            .runs
+            .one_shot(&Flags::default(), &ask())
+            .await
+            .result
+            .unwrap();
+        let events = session_events(&rig.edge, &answer.session).await;
+        assert!(
+            events.iter().any(|e| matches!(e,
+                sessions::SessionEvent::SessionMinted(m) if m.workspace.as_deref() == Some(recorded))),
+            "{axis:?}"
+        );
+    }
+}
+
+// A resume works where its session worked: planned on the session's axis
+// when no `--workspace` is given, and in the same checkout for its agent.
+#[tokio::test]
+async fn a_resume_works_in_its_sessions_workspace_and_checkout() {
+    let (script, workspaces) = placing("worktree", run_launcher::fakes::worktree_checkout);
+    let mut rig = rig(script);
+    let first = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    rig.runs
+        .one_shot(&Flags::default(), &resume(&first.harp))
+        .await
+        .result
+        .unwrap();
+    assert_eq!(rig.asked.lock().unwrap()[1].workspace, "worktree");
+    let asked = workspaces.asked.lock().unwrap();
+    assert_eq!(asked.len(), 2);
+    assert_eq!(asked[0], asked[1], "the same checkout, re-entered");
+    let seen = rig.runner.seen.lock().unwrap();
+    assert_eq!(seen[0].cwd, seen[1].cwd);
+}
+
+// A resume asked for another workspace than its session's is refused by the
+// session, and owes nothing.
+#[tokio::test]
+async fn a_resume_in_another_workspace_is_refused() {
+    let (script, _) = placing("worktree", run_launcher::fakes::worktree_checkout);
+    let mut rig = rig(script);
+    let first = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let mut again = resume(&first.harp);
+    again.run.workspace = "none".to_string();
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &again)
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(refused_code(&error), "sessions-workspace-mismatch");
+    assert_eq!(rig.runner.seen.lock().unwrap().len(), 1, "nothing launched");
 }

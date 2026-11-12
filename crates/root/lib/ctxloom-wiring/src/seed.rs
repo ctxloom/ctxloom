@@ -152,6 +152,7 @@ impl Wiring {
                 },
                 started_at: Some(started),
                 depth: 0,
+                workspace: None,
             }
             .into(),
         )

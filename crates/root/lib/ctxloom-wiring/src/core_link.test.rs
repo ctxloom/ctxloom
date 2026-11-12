@@ -58,6 +58,7 @@ impl World {
             origin: sessions::Origin::Session,
             started_at: None,
             depth: 0,
+            workspace: None,
         };
         let cover = Cover {
             domain: sessions::SESSION_DOMAIN.to_string(),

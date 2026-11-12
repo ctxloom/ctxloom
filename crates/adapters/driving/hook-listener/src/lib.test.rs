@@ -224,6 +224,7 @@ impl World {
                 origin: sessions::Origin::Session,
                 started_at: None,
                 depth: 0,
+                workspace: None,
             };
             edge.handle(CommandBook::command_of(
                 cover(sessions::SESSION_DOMAIN, &uuid(session)),
@@ -510,6 +511,7 @@ async fn what_the_gate_forbids_is_answered_as_an_unknown_domain_and_writes_nothi
                     origin: sessions::Origin::Session,
                     started_at: None,
                     depth: 0,
+                    workspace: None,
                 }),
             ),
         ),

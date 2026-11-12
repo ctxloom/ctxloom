@@ -163,6 +163,7 @@ fn session_minted(
         origin: mint.origin,
         started_at: mint.started_at,
         depth: mint.depth,
+        workspace: None,
     })
 }
 

@@ -290,6 +290,7 @@ impl World {
                 origin: sessions::Origin::Session,
                 started_at: None,
                 depth,
+                workspace: None,
             },
         ))
         .await

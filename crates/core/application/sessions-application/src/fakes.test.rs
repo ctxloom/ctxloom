@@ -221,6 +221,7 @@ pub fn minted(store: &MemoryStore, id: u8, harp: &str, project_dir: &str, starte
             origin: Origin::Session,
             started_at: None,
             depth: 0,
+            workspace: None,
         },
     );
 }

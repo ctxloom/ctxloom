@@ -493,6 +493,42 @@ fn test_a_name_with_a_separator_is_that_file_and_the_path_is_not_searched() {
     assert_eq!(search.find("./tool"), None);
 }
 
+// A Windows search finds a command by PATHEXT's extensions (`git` is
+// `git.exe`), each directory in turn, in PATHEXT's order; unix's by the name
+// alone.
+#[test]
+fn test_a_windows_search_finds_a_command_by_its_pathext_extensions() {
+    let env = Env::new("pathext");
+    let (first, second) = (env.dir.join("first"), env.dir.join("second"));
+    executable(&first, "tool.cmd", 0o755);
+    executable(&second, "git.exe", 0o755);
+    executable(&second, "tool.exe", 0o755);
+    let search = |flavor: os::Flavor| super::library::PathSearch {
+        fs: fs(),
+        dirs: vec![first.clone(), second.clone()],
+        flavor,
+        // Lower case: the extensions are tried as written, and this host may
+        // tell case apart (Windows does not).
+        pathext: Some(".exe;.cmd".to_string()),
+    };
+    let windows = search(os::Flavor::Windows);
+    assert_eq!(
+        windows.find("git"),
+        Some(second.join("git.exe").display().to_string())
+    );
+    assert_eq!(
+        windows.find("tool"),
+        Some(first.join("tool.cmd").display().to_string()),
+        "the first directory with any of the names wins"
+    );
+    assert_eq!(
+        windows.find("git.exe"),
+        Some(second.join("git.exe").display().to_string())
+    );
+    assert_eq!(search(os::Flavor::Unix).find("git"), None);
+    drop(env);
+}
+
 #[test]
 fn test_with_no_path_variable_no_program_is_found() {
     let env = Env::new("nopath");

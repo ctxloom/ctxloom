@@ -338,6 +338,8 @@ impl Wiring {
         PathSearch {
             fs: Arc::clone(&self.fs),
             dirs: self.env.search_path(),
+            flavor: self.env.flavor(),
+            pathext: self.env.utf8("PATHEXT").map(String::from),
         }
     }
 

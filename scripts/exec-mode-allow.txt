@@ -17,3 +17,6 @@ crates/root/bin/ctxloom/src/library_cli.test.rs | files::set_mode(project.dir().
 crates/root/bin/ctxloom/src/library.test.rs | files::set_mode(self.project.join(rel), 0o755) | the execute bit is what a skill package's listing reports; never run
 crates/root/lib/ctxloom-wiring/src/lib.test.rs | executable(&first, "plain", 0o755) | the PATH search finds only executable files; never run
 crates/root/lib/ctxloom-wiring/src/lib.test.rs | executable(&second, "both", 0o755) | the PATH search finds only executable files; never run
+crates/root/lib/ctxloom-wiring/src/lib.test.rs | executable(&first, "tool.cmd", 0o755) | the PATH search finds only executable files, by PATHEXT; never run
+crates/root/lib/ctxloom-wiring/src/lib.test.rs | executable(&second, "git.exe", 0o755) | the PATH search finds only executable files, by PATHEXT; never run
+crates/root/lib/ctxloom-wiring/src/lib.test.rs | executable(&second, "tool.exe", 0o755) | the PATH search finds only executable files, by PATHEXT; never run

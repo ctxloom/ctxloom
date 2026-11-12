@@ -150,7 +150,10 @@ impl SessionIndex {
             let Some(event_page::Body::Event(event)) = &page.body else {
                 continue;
             };
-            let ProjectEvent::ProjectNamed(named) = ProjectEvent::from_any(event)?;
+            // A registration (owner, 2026-11-12) names nothing.
+            let ProjectEvent::ProjectNamed(named) = ProjectEvent::from_any(event)? else {
+                continue;
+            };
             self.projects
                 .entry(root.clone())
                 .or_insert((named.project_id, named.harp));

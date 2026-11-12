@@ -28,6 +28,14 @@ message ProjectState {
   string project_id = 1;
   // The project's harp; empty until it is named.
   string harp = 2;
+  // Its registration (owner, 2026-11-12, project registration), empty until
+  // a daemon client first registers it: the root path the client resolved,
+  // its git common directory (a worktree's is its primary checkout's, so
+  // a worktree is its primary's project) and the repository's root commit.
+  // Outside git the two are empty (an empty VCS identity).
+  string root = 3;
+  string git_common_dir = 4;
+  string root_commit = 5;
 }
 
 // Name the project `harp`, once. A project already named records nothing
@@ -48,6 +56,39 @@ message ProjectNamed {
 
   string project_id = 1;
   string harp = 2;
+}
+
+// Register the project's root and its VCS identity on first sight, or
+// recheck them on every later access (owner, 2026-11-12, project
+// registration): a project registered records nothing again, and is
+// refused when its root commit is not the one registered (another
+// repository at its place) or when the client expected another harp. The
+// project must be named first (S54): its harp is what a refusal names.
+message RegisterProject {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.ProjectState"
+    emits: ["ctxloom.sessions.v1.ProjectRegistered"]
+    refuses: "ctxloom.sessions.v1.ProjectNotNamed"
+    refuses: "ctxloom.sessions.v1.ProjectIdentityChanged"
+    refuses: "ctxloom.sessions.v1.ProjectHarpMismatch"
+  };
+
+  string project_id = 1;
+  string root = 2;
+  string git_common_dir = 3;
+  string root_commit = 4;
+  // The project harp the client expects (the one its session names); empty
+  // when it expects none.
+  string expected_harp = 5;
+}
+
+message ProjectRegistered {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.ProjectState"};
+
+  string project_id = 1;
+  string root = 2;
+  string git_common_dir = 3;
+  string root_commit = 4;
 }
 
 message ProjectNameState {
@@ -88,6 +129,35 @@ message ProjectNameTaken {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_ALREADY_EXISTS;
 
   string harp = 1;
+}
+
+// A registration of a project that has no harp yet.
+message ProjectNotNamed {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string project_id = 1;
+}
+
+// A recheck whose repository is not the one registered: its root commit
+// changed (another repository at the project's place). Names the
+// registered project.
+message ProjectIdentityChanged {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  // `projects/{project}`, the registered project.
+  string project = 1;
+  string root = 2;
+  string registered_commit = 3;
+  string found_commit = 4;
+}
+
+// A recheck that expected another project harp than the registered one.
+message ProjectHarpMismatch {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  // `projects/{project}`, the registered project.
+  string project = 1;
+  string expected = 2;
 }
 
 // endregion refusals

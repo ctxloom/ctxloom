@@ -13,7 +13,7 @@ use crate::refusal::refuse;
 use crate::{
     validate, ClaimProjectName, HarpInvalid, NameProject, ProjectCommand, ProjectEvent,
     ProjectNameClaimed, ProjectNameCommand, ProjectNameEvent, ProjectNameState, ProjectNameTaken,
-    ProjectNamed, ProjectState, SessionRejection,
+    ProjectNamed, ProjectRegistered, ProjectState, SessionRejection,
 };
 
 /// The project aggregate: its harp, folded from its stream.
@@ -61,10 +61,16 @@ impl ProjectAggregate {
     #[applies(ProjectNamed)]
     fn named(&mut self, event: ProjectNamed, page: &PageContext) {
         let _ = page;
-        self.project = ProjectState {
-            project_id: event.project_id,
-            harp: event.harp,
-        };
+        self.project.project_id = event.project_id;
+        self.project.harp = event.harp;
+    }
+
+    #[applies(ProjectRegistered)]
+    fn registered(&mut self, event: ProjectRegistered, page: &PageContext) {
+        let _ = page;
+        self.project.root = event.root;
+        self.project.git_common_dir = event.git_common_dir;
+        self.project.root_commit = event.root_commit;
     }
 }
 

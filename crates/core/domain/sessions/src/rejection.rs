@@ -21,6 +21,19 @@ pub enum SessionRejection {
     NamesTaken { harp: String },
     /// A claim on a project harp another project holds (S54).
     ProjectNameTaken { harp: String },
+    /// A registration of a project that has no harp yet.
+    ProjectNotNamed { project_id: String },
+    /// A recheck of a registered project whose repository's root commit is
+    /// not the one registered (owner, 2026-11-12): `project` is the
+    /// registered project's resource name.
+    ProjectIdentityChanged {
+        project: String,
+        root: String,
+        registered_commit: String,
+        found_commit: String,
+    },
+    /// A recheck that expected another harp than the registered project's.
+    ProjectHarpMismatch { project: String, expected: String },
     /// A release of a name nobody holds.
     NoClaim,
     /// A release by a session that does not hold the name.
@@ -75,6 +88,9 @@ impl Diagnostic for SessionRejection {
             SessionRejection::NameMalformed { .. } => code!("name-malformed"),
             SessionRejection::NamesTaken { .. } => code!("names-taken"),
             SessionRejection::ProjectNameTaken { .. } => code!("project-name-taken"),
+            SessionRejection::ProjectNotNamed { .. } => code!("project-not-named"),
+            SessionRejection::ProjectIdentityChanged { .. } => code!("project-identity-changed"),
+            SessionRejection::ProjectHarpMismatch { .. } => code!("project-harp-mismatch"),
             SessionRejection::NoClaim => code!("no-claim"),
             SessionRejection::NotHolder { .. } => code!("not-holder"),
             SessionRejection::ChildCannotStop { .. } => code!("child-cannot-stop"),
@@ -133,6 +149,24 @@ impl Diagnostic for SessionRejection {
                 ("name", name.as_str().into()),
                 ("reason", reason.as_str().into()),
             ],
+            SessionRejection::ProjectNotNamed { project_id } => {
+                vec![("project_id", project_id.as_str().into())]
+            }
+            SessionRejection::ProjectIdentityChanged {
+                project,
+                root,
+                registered_commit,
+                found_commit,
+            } => vec![
+                ("project", project.as_str().into()),
+                ("root", root.as_str().into()),
+                ("registered_commit", registered_commit.as_str().into()),
+                ("found_commit", found_commit.as_str().into()),
+            ],
+            SessionRejection::ProjectHarpMismatch { project, expected } => vec![
+                ("project", project.as_str().into()),
+                ("expected", expected.as_str().into()),
+            ],
             SessionRejection::ChildCannotStop { depth } => vec![("depth", (*depth).into())],
             SessionRejection::NoSession | SessionRejection::NoClaim => Vec::new(),
         }
@@ -163,6 +197,19 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         }),
         Box::new(SessionRejection::NamesTaken { harp: harp() }),
         Box::new(SessionRejection::ProjectNameTaken { harp: harp() }),
+        Box::new(SessionRejection::ProjectNotNamed {
+            project_id: "calm-otter".to_string(),
+        }),
+        Box::new(SessionRejection::ProjectIdentityChanged {
+            project: "projects/calm-otter".to_string(),
+            root: "/work/calm".to_string(),
+            registered_commit: "a".repeat(40),
+            found_commit: "b".repeat(40),
+        }),
+        Box::new(SessionRejection::ProjectHarpMismatch {
+            project: "projects/calm-otter".to_string(),
+            expected: "far-heron".to_string(),
+        }),
         Box::new(SessionRejection::NoClaim),
         Box::new(SessionRejection::NotHolder { harp: harp() }),
         Box::new(SessionRejection::ChildCannotStop { depth: 1 }),

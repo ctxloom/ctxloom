@@ -212,11 +212,16 @@ impl TryFrom<sessions_proto::v1::NameClaimState> for NameClaimState {
     }
 }
 
-/// A project, folded from its events (S54): its harp, empty until named.
+/// A project, folded from its events (S54): its harp, empty until named,
+/// and its registration (owner, 2026-11-12): the root a daemon client
+/// registered it from and its VCS identity, empty until registered.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProjectState {
     pub project_id: String,
     pub harp: String,
+    pub root: String,
+    pub git_common_dir: String,
+    pub root_commit: String,
 }
 
 impl From<ProjectState> for sessions_proto::v1::ProjectState {
@@ -224,6 +229,9 @@ impl From<ProjectState> for sessions_proto::v1::ProjectState {
         sessions_proto::v1::ProjectState {
             project_id: value.project_id,
             harp: value.harp,
+            root: value.root,
+            git_common_dir: value.git_common_dir,
+            root_commit: value.root_commit,
         }
     }
 }
@@ -235,6 +243,9 @@ impl TryFrom<sessions_proto::v1::ProjectState> for ProjectState {
         Ok(ProjectState {
             project_id: value.project_id,
             harp: value.harp,
+            root: value.root,
+            git_common_dir: value.git_common_dir,
+            root_commit: value.root_commit,
         })
     }
 }

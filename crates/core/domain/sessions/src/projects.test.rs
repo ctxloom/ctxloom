@@ -6,12 +6,15 @@ use angzarr_embedded::{Failure, Registry};
 
 use crate::{
     project_id_root, ClaimProjectName, NameProject, ProjectAggregate, ProjectEvent, ProjectName,
-    ProjectNameAggregate, ProjectNameClaimed, ProjectNameEvent, ProjectNamed, SessionName,
-    SessionRejection, PROJECTS_DOMAIN, PROJECT_NAMES_DOMAIN,
+    ProjectNameAggregate, ProjectNameClaimed, ProjectNameEvent, ProjectNamed, ProjectRegistered,
+    RegisterProject, SessionName, SessionRejection, PROJECTS_DOMAIN, PROJECT_NAMES_DOMAIN,
 };
 
 const PROJECT: &str = "calm-otter";
 const HARP: &str = "amber-swift-owl";
+const ROOT: &str = "/work/calm";
+const COMMON: &str = "/work/calm/.git";
+const COMMIT: &str = "1111111111111111111111111111111111111111";
 
 /// The domain's rejection a failure is, by its typed refusal's type.
 fn refused<T: std::fmt::Debug>(result: Result<T, Failure<angzarr_embedded::Rejected>>) -> String {
@@ -56,6 +59,29 @@ fn name(harp: &str) -> NameProject {
         project_id: PROJECT.to_string(),
         harp: harp.to_string(),
     }
+}
+
+fn register(commit: &str, expected: &str) -> RegisterProject {
+    RegisterProject {
+        project_id: PROJECT.to_string(),
+        root: ROOT.to_string(),
+        git_common_dir: COMMON.to_string(),
+        root_commit: commit.to_string(),
+        expected_harp: expected.to_string(),
+    }
+}
+
+/// The rejection a failure is, whole.
+fn rejection<T: std::fmt::Debug>(
+    result: Result<T, Failure<angzarr_embedded::Rejected>>,
+) -> SessionRejection {
+    let Err(Failure::Rejected(rejected)) = result else {
+        panic!("not a rejection: {result:?}");
+    };
+    let typed = rejected
+        .rejection::<angzarr_embedded::markup::TypedRefusal>()
+        .expect("a typed refusal");
+    SessionRejection::try_from(typed).expect("a refusal of this domain")
 }
 
 fn claim_for(project: &str) -> ClaimProjectName {
@@ -147,6 +173,122 @@ fn the_roots_are_the_project_id_and_the_projects_name() {
     assert_ne!(claim, SessionName::new(HARP, HARP).unwrap().root());
 }
 
+// Project registration (owner, 2026-11-12): the first registration of a
+// named project records its root and VCS identity.
+#[test]
+fn a_named_project_is_registered_on_first_sight() {
+    let mut project = project();
+    project.when(name(HARP)).result().unwrap();
+    let events = project.when(register(COMMIT, "")).result().unwrap();
+    assert_eq!(
+        events,
+        [ProjectEvent::ProjectRegistered(ProjectRegistered {
+            project_id: PROJECT.to_string(),
+            root: ROOT.to_string(),
+            git_common_dir: COMMON.to_string(),
+            root_commit: COMMIT.to_string(),
+        })]
+    );
+    let state = project.state().state().clone();
+    assert_eq!(
+        (state.root.as_str(), state.git_common_dir.as_str()),
+        (ROOT, COMMON)
+    );
+    assert_eq!(state.root_commit, COMMIT);
+    assert_eq!(state.harp, HARP, "the harp stays");
+}
+
+// A recheck with the same identity, and the harp expected, records nothing;
+// so does one from a worktree (another root, the same repository).
+#[test]
+fn a_recheck_that_matches_records_nothing() {
+    let mut project = project();
+    project.when(name(HARP)).result().unwrap();
+    project.when(register(COMMIT, "")).result().unwrap();
+    let before = project.pages().len();
+    assert!(project
+        .when(register(COMMIT, HARP))
+        .result()
+        .unwrap()
+        .is_empty());
+    let worktree = RegisterProject {
+        root: "/work/calm-wt".to_string(),
+        ..register(COMMIT, "")
+    };
+    assert!(project.when(worktree).result().unwrap().is_empty());
+    assert_eq!(project.pages().len(), before);
+    assert_eq!(project.state().state().root, ROOT, "the first root stays");
+}
+
+// A changed root commit is another repository at the project's place:
+// refused, naming the registered project, recording nothing.
+#[test]
+fn a_recheck_whose_root_commit_changed_is_refused_naming_the_project() {
+    let mut project = project();
+    project.when(name(HARP)).result().unwrap();
+    project.when(register(COMMIT, "")).result().unwrap();
+    let before = project.pages().len();
+    let other = "2222222222222222222222222222222222222222";
+    assert_eq!(
+        rejection(project.when(register(other, "")).result()),
+        SessionRejection::ProjectIdentityChanged {
+            project: "projects/amber-swift-owl".to_string(),
+            root: ROOT.to_string(),
+            registered_commit: COMMIT.to_string(),
+            found_commit: other.to_string(),
+        }
+    );
+    assert_eq!(project.pages().len(), before);
+}
+
+// A client that expects another harp is refused, naming the registered
+// project; at the first registration too.
+#[test]
+fn a_harp_mismatch_is_refused_naming_the_project() {
+    let mismatch = SessionRejection::ProjectHarpMismatch {
+        project: "projects/amber-swift-owl".to_string(),
+        expected: "far-heron".to_string(),
+    };
+    let mut project = project();
+    project.when(name(HARP)).result().unwrap();
+    assert_eq!(
+        rejection(project.when(register(COMMIT, "far-heron")).result()),
+        mismatch
+    );
+    project.when(register(COMMIT, "")).result().unwrap();
+    assert_eq!(
+        rejection(project.when(register(COMMIT, "far-heron")).result()),
+        mismatch
+    );
+}
+
+// A project not yet named cannot be registered: its harp is what a refusal
+// names.
+#[test]
+fn an_unnamed_project_is_not_registered() {
+    let mut project = project();
+    assert_eq!(
+        refused(project.when(register(COMMIT, "")).result()),
+        "sessions-project-not-named"
+    );
+    assert!(project.pages().is_empty());
+}
+
+// Outside git (an empty VCS identity, owner question): registered with
+// empty identity fields, and a later recheck with the same empties matches.
+#[test]
+fn a_project_outside_git_is_registered_with_an_empty_identity() {
+    let mut project = project();
+    project.when(name(HARP)).result().unwrap();
+    let outside = RegisterProject {
+        git_common_dir: String::new(),
+        ..register("", "")
+    };
+    assert_eq!(project.when(outside.clone()).result().unwrap().len(), 1);
+    assert!(project.when(outside).result().unwrap().is_empty());
+    assert_eq!(project.state().state().root_commit, "");
+}
+
 // The states round-trip through their wire messages.
 #[test]
 fn the_project_states_round_trip_through_the_wire() {
@@ -154,10 +296,21 @@ fn the_project_states_round_trip_through_the_wire() {
     let project = ProjectState {
         project_id: PROJECT.to_string(),
         harp: HARP.to_string(),
+        root: ROOT.to_string(),
+        git_common_dir: COMMON.to_string(),
+        root_commit: COMMIT.to_string(),
     };
     let wire = sessions_proto::v1::ProjectState::from(project.clone());
     assert_eq!(wire.project_id, PROJECT);
     assert_eq!(wire.harp, HARP);
+    assert_eq!(
+        (
+            wire.root.as_str(),
+            wire.git_common_dir.as_str(),
+            wire.root_commit.as_str()
+        ),
+        (ROOT, COMMON, COMMIT)
+    );
     assert_eq!(ProjectState::try_from(wire).unwrap(), project);
     let claim = ProjectNameState {
         harp: HARP.to_string(),

@@ -66,6 +66,26 @@ impl TryFrom<&TypedRefusal> for SessionRejection {
         if let Some(crate::ProjectNameTaken { harp }) = refusal.object() {
             return Ok(SessionRejection::ProjectNameTaken { harp });
         }
+        if let Some(crate::ProjectNotNamed { project_id }) = refusal.object() {
+            return Ok(SessionRejection::ProjectNotNamed { project_id });
+        }
+        if let Some(crate::ProjectIdentityChanged {
+            project,
+            root,
+            registered_commit,
+            found_commit,
+        }) = refusal.object()
+        {
+            return Ok(SessionRejection::ProjectIdentityChanged {
+                project,
+                root,
+                registered_commit,
+                found_commit,
+            });
+        }
+        if let Some(crate::ProjectHarpMismatch { project, expected }) = refusal.object() {
+            return Ok(SessionRejection::ProjectHarpMismatch { project, expected });
+        }
         if refusal.object::<NoClaim>().is_some() {
             return Ok(SessionRejection::NoClaim);
         }

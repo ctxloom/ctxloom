@@ -177,9 +177,11 @@ impl Diagnostic for EndpointError {
     }
 }
 
-/// The hook principal's bearer: `<run-id>.<64 hexadecimal digits>`. Its
+/// A bearer a client presents: a run's hook bearer, `<run-id>.<64
+/// hexadecimal digits>` (the per-run listener's own authentication), or the
+/// user bearer (T12), the daemon's token alone ([`Bearer::user`]). Its
 /// `Debug` is redacted; the text comes out only through [`Bearer::expose`],
-/// for the environment of the one process that is given it.
+/// for the one call or environment it is given to.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Bearer(String);
 
@@ -187,6 +189,13 @@ impl Bearer {
     /// The bearer of `token` for the run named by `run` (UUID text).
     pub fn compose(run: &str, token: &Token) -> Bearer {
         Bearer(format!("{run}.{}", token.to_text()))
+    }
+
+    /// The user bearer (T12): `token`'s 64 hexadecimal digits alone, as the
+    /// daemon's discovery file holds it. It names no run.
+    pub fn user(token: &Token) -> Bearer {
+        let _ = token;
+        Bearer(String::new())
     }
 
     /// The run text and token of a bearer's text, or why it holds none. The

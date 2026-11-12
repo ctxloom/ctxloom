@@ -146,6 +146,17 @@ fn the_bearer_is_the_run_and_the_token_and_parses_back() {
     assert_eq!(parsed, token());
 }
 
+// The user bearer is the token alone: no run, and nothing a run's bearer
+// parse takes for one.
+#[test]
+fn the_user_bearer_is_the_token_alone() {
+    let token = Token::from_bytes([0xab; 32]);
+    let bearer = Bearer::user(&token);
+    assert_eq!(bearer.expose(), token.to_text());
+    assert!(Bearer::parse(bearer.expose()).is_err());
+    assert_eq!(format!("{bearer:?}"), "Bearer(redacted)");
+}
+
 #[test]
 fn a_malformed_bearer_is_refused_without_echoing_it() {
     let secret = token().to_text();

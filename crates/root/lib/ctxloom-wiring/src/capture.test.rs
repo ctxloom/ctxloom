@@ -412,28 +412,81 @@ fn discovered(endpoint: &str) -> run_ports::Discovery {
     }
 }
 
-// B1, D27: a hook rediscovers the daemon; with no daemon, or no bearer, it
-// delivers as its environment says.
+// B1, D27: a hook rediscovers the daemon; with no daemon it delivers as its
+// environment says.
 #[test]
 fn a_hook_goes_to_the_daemon_it_rediscovers_and_else_as_its_environment_says() {
     let daemon = HookSink::rediscovered(
         Some(discovered(ENDPOINT)),
-        Some(A_BEARER),
         HookSink::Unreachable(Unreachable),
     );
     assert!(matches!(daemon, HookSink::Rediscovered { .. }));
     assert!(matches!(
-        HookSink::rediscovered(None, Some(A_BEARER), HookSink::Unreachable(Unreachable)),
+        HookSink::rediscovered(None, HookSink::Unreachable(Unreachable)),
         HookSink::Unreachable(_)
     ));
+}
+
+/// The daemon's listener over `edge`: the user's gate for `bearer`, on a
+/// loopback port, with a fresh certificate; and the discovery it would
+/// write.
+async fn a_daemon(
+    edge: &Arc<TheEdge>,
+    bearer: &run_ports::Token,
+) -> (hook_listener::HookListener, run_ports::Discovery) {
+    use run_ports::CertMint;
+    let names = run_ports::CertNames::new(
+        vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)],
+        Vec::new(),
+    );
+    let certificate = hook_tls::Minter::lasting(hook_tls::SystemClock, 3_600)
+        .mint(&names)
+        .unwrap();
+    let listener = hook_listener::HookListener::serve_tcp_gated(
+        Arc::clone(edge),
+        runs_application::UserGate::new(bearer),
+        "127.0.0.1:0".parse().unwrap(),
+        hook_listener::TlsIdentity::from_pem(certificate.public().to_pem(), certificate.key_pem()),
+    )
+    .await
+    .unwrap();
+    let discovery = run_ports::Discovery {
+        stamp: "v0.1.0-abc1234".to_string(),
+        pid: 1,
+        endpoint: format!("https://127.0.0.1:{}", listener.local_addr().port()),
+        cert: certificate.public().clone(),
+        bearer: bearer.clone(),
+    };
+    (listener, discovery)
+}
+
+// The separation model: at the daemon a hook presents the USER bearer its
+// discovery file names (the run's own bearer is not asked for), and a
+// discovery whose bearer the daemon did not mint delivers nothing there.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_hook_presents_the_user_bearer_its_discovery_names_to_the_daemon() {
+    let (_store, edge) = world().await;
+    let minted = run_ports::Token::from_bytes([5; 32]);
+    let (listener, discovery) = a_daemon(&edge, &minted).await;
+    let before = pages(&edge).await.len();
+    let stale = run_ports::Discovery {
+        bearer: run_ports::Token::from_bytes([6; 32]),
+        ..discovery.clone()
+    };
+    let deliver = |discovery: run_ports::Discovery, id: &'static str| {
+        tokio::task::spawn_blocking(move || {
+            HookSink::rediscovered(Some(discovery), HookSink::Unreachable(Unreachable))
+                .deliver(book_of(&prompt(id)), Duration::from_secs(10))
+        })
+    };
+    assert_eq!(deliver(discovery, "p1").await.unwrap(), Delivery::Applied);
+    assert_eq!(pages(&edge).await.len(), before + 1);
     assert!(matches!(
-        HookSink::rediscovered(
-            Some(discovered(ENDPOINT)),
-            Some("no-dot"),
-            HookSink::Unreachable(Unreachable)
-        ),
-        HookSink::Unreachable(_)
+        deliver(stale, "p2").await.unwrap(),
+        Delivery::Refused { .. }
     ));
+    assert_eq!(pages(&edge).await.len(), before + 1, "nothing more");
+    listener.stop().await.unwrap();
 }
 
 // A daemon that does not answer (it died; its port is closed) is passed
@@ -442,7 +495,6 @@ fn a_hook_goes_to_the_daemon_it_rediscovers_and_else_as_its_environment_says() {
 fn a_daemon_that_does_not_answer_falls_back_to_the_environments_way() {
     let sink = HookSink::rediscovered(
         Some(discovered(&closed_url())),
-        Some(A_BEARER),
         HookSink::Unreachable(Unreachable),
     );
     match sink.deliver(a_book(), Duration::from_secs(5)) {

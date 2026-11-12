@@ -189,12 +189,9 @@ impl Commands {
                 self.env.utf8(run_ports::TLS_CERT_VARIABLE),
             );
             // The user daemon, rediscovered at each hook (B1, D27), before
-            // the endpoint the run was spawned with.
-            let sink = HookSink::rediscovered(
-                crate::daemon::discovery(&self.env),
-                self.env.utf8(run_ports::BEARER_VARIABLE),
-                spawned,
-            );
+            // the endpoint the run was spawned with: its discovery file
+            // names the user bearer the hook presents there.
+            let sink = HookSink::rediscovered(crate::daemon::discovery(&self.env), spawned);
             // The run names its session, by id, in the engine's environment.
             let ids = RunIds::from_environment(self.env.utf8(run_ports::SESSION_VARIABLE));
             let recording = HookRecording::new(sink, ids);

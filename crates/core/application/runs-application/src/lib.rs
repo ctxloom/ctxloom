@@ -36,6 +36,7 @@ mod identity;
 mod orchestrate_gate;
 mod requests;
 mod stamp;
+mod user_gate;
 
 pub use admission::Admission;
 pub use capture::{delivery_budget, observe, Attempt, Capture, Observation, Report};
@@ -57,6 +58,7 @@ pub use requests::{AgentRequest, AgentRequests, Requested};
 /// that holds one without depending on the ports.
 pub use run_ports::Edge;
 pub use stamp::stamped;
+pub use user_gate::{user_allowlist, User, UserGate};
 
 #[cfg(test)]
 #[path = "fakes.test.rs"]

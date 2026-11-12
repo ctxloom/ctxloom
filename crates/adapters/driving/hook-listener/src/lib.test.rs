@@ -1054,3 +1054,53 @@ async fn the_daemons_gate_stamps_an_orchestration_command_with_the_bearers_sessi
     assert_ne!(refused.code(), Code::PermissionDenied);
     hooks.stop().await.unwrap();
 }
+
+// The separation model: the daemon's listener has one principal, the user.
+// Her bearer is admitted for any session's facts and commands; a run's hook
+// bearer, and a bearer it did not mint, are a bare UNAUTHENTICATED that
+// says nothing of why (S11).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_daemons_listener_admits_the_user_bearer_alone() {
+    let world = World::new().await;
+    let user = Token::from_bytes([77; 32]);
+    let gate = runs_application::UserGate::new(&user);
+    let listener =
+        HookListener::serve_tcp_gated(Arc::clone(&world.edge), gate, LOOPBACK_ANY_PORT, identity())
+            .await
+            .expect("serves");
+    let mut client = tcp_client(listener.local_addr()).await;
+    let theirs = format!("Bearer {}", user.to_text());
+    let mine = client
+        .handle(request(world.turn_ended("p1"), Some(&theirs)))
+        .await
+        .expect("the user's fact is applied")
+        .into_inner();
+    assert_eq!(mine.delivery(), DeliveryOutcome::Applied);
+    let elsewhere = client
+        .handle(request(
+            world_fact(&world.other_session, "p2"),
+            Some(&theirs),
+        ))
+        .await
+        .expect("any session's stream is the user's")
+        .into_inner();
+    assert_eq!(elsewhere.delivery(), DeliveryOutcome::Applied);
+    let held = world.watched().await;
+    let mut said = Vec::new();
+    for authorization in [
+        format!("Bearer {}", world.bearer),
+        format!("Bearer {}", Token::from_bytes([78; 32]).to_text()),
+        "Bearer garbage".to_string(),
+    ] {
+        let status = client
+            .handle(request(world.turn_ended("p3"), Some(&authorization)))
+            .await
+            .expect_err("refused");
+        assert_eq!(status.code(), Code::Unauthenticated);
+        assert!(!status.message().contains(&user.to_text()));
+        said.push(status.message().to_string());
+    }
+    assert!(said.windows(2).all(|w| w[0] == w[1]), "{said:?}");
+    assert_eq!(world.watched().await, held, "nothing was written");
+    listener.stop().await.unwrap();
+}

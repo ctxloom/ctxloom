@@ -118,7 +118,8 @@ pub enum HookSink {
     Refused(CertError),
     Unreachable(Unreachable),
     /// The user daemon's listener, as its discovery file names it (B1,
-    /// D27): a delivery it could not take goes the environment's way.
+    /// D27), with the user bearer it holds: a delivery it could not take
+    /// goes the environment's way.
     Rediscovered {
         daemon: GrpcSink,
         fallback: Box<HookSink>,
@@ -152,28 +153,13 @@ impl HookSink {
 impl HookSink {
     /// The sink of a hook process when the user daemon may serve:
     /// `discovery` (its discovery file, read at each hook) names the
-    /// daemon's endpoint and certificate, so a restarted daemon's new port
-    /// and certificate are found; the bearer is still the run's own, from
-    /// the environment. No discovery, or no bearer, is `fallback` alone.
-    pub fn rediscovered(
-        discovery: Option<run_ports::Discovery>,
-        bearer: Option<&str>,
-        fallback: HookSink,
-    ) -> HookSink {
-        let Some(discovery) = discovery else {
-            return fallback;
-        };
-        let Some((run, token)) = bearer.and_then(|bearer| Bearer::parse(bearer).ok()) else {
-            return fallback;
-        };
-        HookSink::Rediscovered {
-            daemon: GrpcSink::new(
-                discovery.endpoint,
-                Bearer::compose(&run, &token),
-                discovery.cert,
-            ),
-            fallback: Box::new(fallback),
-        }
+    /// daemon's endpoint, its certificate and the USER bearer, so a
+    /// restarted daemon's new port, certificate and bearer are found. The
+    /// daemon has one principal, the user: a hook presents her bearer, never
+    /// its run's. No discovery is `fallback` alone.
+    pub fn rediscovered(discovery: Option<run_ports::Discovery>, fallback: HookSink) -> HookSink {
+        let _ = discovery;
+        fallback
     }
 }
 

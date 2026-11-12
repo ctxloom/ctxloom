@@ -692,6 +692,9 @@ fn test_an_empty_project_list_does_not_unregister_a_home_companion() {
 // program is only looked for, never run.
 #[test]
 fn test_list_answers_the_command_each_registered_name_runs_and_whether_it_is_there() {
+    if !files::runs_scripts() {
+        return;
+    }
     let project = Project::initialized().on_gos_catalog();
     let exe = project.dir().join("bin").join("acme-bin");
     files::put_program(&exe, "#!/bin/sh\nexit 9\n");
@@ -982,6 +985,9 @@ fn test_an_explicit_tag_selection_matching_nothing_fails_loudly() {
 // engine here is a stub first on PATH, never the real one.
 #[test]
 fn test_a_run_that_is_not_a_dry_run_launches_the_engine_with_the_context_and_the_prompt() {
+    if !files::runs_scripts() {
+        return;
+    }
     let project = demo_with_testing();
     project.profile("dev", "demo");
     let bin = project.home().join("stub-bin");

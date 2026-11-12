@@ -8,6 +8,23 @@ use run_ports::{Exit, Launch, LaunchEvent, Limits, RunnerLauncher, TurnCommand};
 
 use crate::{HostLauncher, Stop};
 
+/// Whether this host runs the tests' fake programs: unix, the one flavor
+/// `fixture_program::install_program` does not refuse as `Unsupported`, with
+/// the `sh` (and links) they need. Elsewhere the asking test is skipped and
+/// says so on stderr, `SKIP <test>: <why>`, never silently; the same test
+/// runs unchanged on unix.
+pub(crate) fn runs_scripts() -> bool {
+    if os::host().flavor() == os::Flavor::Unix {
+        return true;
+    }
+    let test = std::thread::current();
+    eprintln!(
+        "SKIP {}: its fake programs are sh scripts (unix only)",
+        test.name().unwrap_or("a test")
+    );
+    false
+}
+
 /// A turn run to its end, as one answer.
 fn launch(command: &TurnCommand, limits: &Limits) -> Launch {
     answer(HostLauncher::default().launch(command, limits)).1
@@ -54,6 +71,9 @@ fn over(launch: Launch) -> run_ports::TurnOutput {
 
 #[test]
 fn a_command_that_succeeds_leaves_its_stdout() {
+    if !runs_scripts() {
+        return;
+    }
     let (_dir, command) = program("#!/bin/sh\necho J000100-REPLY\necho warned >&2\n");
     let launch = launch(&command, &limits());
     assert_eq!(
@@ -71,6 +91,9 @@ fn a_command_that_succeeds_leaves_its_stdout() {
 
 #[test]
 fn a_command_that_exits_nonzero_is_an_exit_not_a_failure_to_launch() {
+    if !runs_scripts() {
+        return;
+    }
     let (_dir, command) = program("#!/bin/sh\necho no >&2\nexit 3\n");
     let output = over(launch(&command, &limits()));
     assert_eq!(
@@ -85,6 +108,9 @@ fn a_command_that_exits_nonzero_is_an_exit_not_a_failure_to_launch() {
 
 #[test]
 fn a_command_ended_by_a_signal_reports_the_signal() {
+    if !runs_scripts() {
+        return;
+    }
     let (_dir, command) = program("#!/bin/sh\nkill -9 $$\n");
     let output = over(launch(&command, &limits()));
     assert_eq!(
@@ -99,6 +125,9 @@ fn a_command_ended_by_a_signal_reports_the_signal() {
 
 #[test]
 fn a_command_is_fed_its_stdin_and_runs_where_it_is_told() {
+    if !runs_scripts() {
+        return;
+    }
     let (dir, mut command) = program("#!/bin/sh\npwd\ncat\n");
     command.stdin = b"the prompt".to_vec();
     command.cwd = Some(dir.root().to_str().unwrap().to_string());
@@ -114,6 +143,9 @@ fn a_command_is_fed_its_stdin_and_runs_where_it_is_told() {
 
 #[test]
 fn a_command_that_outlives_its_deadline_is_killed() {
+    if !runs_scripts() {
+        return;
+    }
     let (_dir, command) = program("#!/bin/sh\nsleep 20\n");
     let started = Instant::now();
     let output = over(launch(&command, &Limits::new(Duration::from_millis(200))));
@@ -133,6 +165,9 @@ fn a_command_that_outlives_its_deadline_is_killed() {
 
 #[test]
 fn a_helper_the_command_started_is_killed_with_it() {
+    if !runs_scripts() {
+        return;
+    }
     let (dir, command) =
         program("#!/bin/sh\nsleep 30 &\necho $! > \"$(dirname \"$0\")/helper\"\nwait\n");
     // A loaded machine may not have started the helper by the first deadline:
@@ -171,6 +206,9 @@ fn gone_soon(pid: &str) -> bool {
 
 #[test]
 fn output_beyond_the_bound_is_discarded_and_said_so() {
+    if !runs_scripts() {
+        return;
+    }
     let (_dir, command) = program("#!/bin/sh\nyes | head -c 5000000\n");
     let mut bounded = limits();
     bounded.max_bytes = 1000;
@@ -204,6 +242,9 @@ impl Drop for Release<'_> {
 
 #[test]
 fn a_helper_that_outlives_the_command_does_not_hold_the_launch() {
+    if !runs_scripts() {
+        return;
+    }
     let (dir, command) = program(&format!("#!/bin/sh\n{HELD}echo done\n"));
     let release = Release(&dir);
     let mut quick = limits();
@@ -224,6 +265,9 @@ fn a_helper_that_outlives_the_command_does_not_hold_the_launch() {
 
 #[test]
 fn the_command_runs_in_exactly_the_environment_it_is_given() {
+    if !runs_scripts() {
+        return;
+    }
     // The shell adds PWD, SHLVL and `_` of its own; nothing else may be there.
     let (_dir, mut command) =
         program("#!/bin/sh\nenv | grep -v -e '^PWD=' -e '^SHLVL=' -e '^_=' -e '^OLDPWD='\n");
@@ -267,6 +311,9 @@ fn a_program_the_system_refuses_to_start_may_start_next_time() {
 
 #[test]
 fn a_terminal_session_runs_on_exactly_the_commands_environment_and_reports_its_exit() {
+    if !runs_scripts() {
+        return;
+    }
     let (_dir, mut command) =
         program("#!/bin/sh\n[ \"$ONLY\" = yes ] && [ -z \"$HOME\" ] && exit 7\nexit 5\n");
     command.env.insert("ONLY".to_string(), "yes".to_string());
@@ -292,6 +339,9 @@ fn a_terminal_session_that_cannot_start_is_not_started() {
 
 #[test]
 fn a_terminal_session_ended_by_a_signal_reports_the_signal() {
+    if !runs_scripts() {
+        return;
+    }
     let (_dir, command) = program("#!/bin/sh\nkill -9 $$\n");
     let output = over(terminal(&command));
     assert_eq!(
@@ -313,6 +363,9 @@ fn text(dir: &Rooted, name: &str) -> String {
 
 #[test]
 fn the_pid_is_the_commands_own_and_is_heard_before_the_command_is_over() {
+    if !runs_scripts() {
+        return;
+    }
     let dir = Rooted::temp().unwrap();
     let note = dir.real_path(&os::fixture("/")).unwrap().join("pid");
     // The command writes its pid, then waits for a file the test makes only
@@ -354,6 +407,9 @@ fn a_program_that_is_not_there_gives_no_pid() {
 
 #[test]
 fn a_terminal_sessions_pid_is_the_commands_own() {
+    if !runs_scripts() {
+        return;
+    }
     let dir = Rooted::temp().unwrap();
     let note = dir.real_path(&os::fixture("/")).unwrap().join("pid");
     let body = format!("#!/bin/sh\necho $$ > {}\n", note.display());
@@ -367,6 +423,9 @@ fn a_terminal_sessions_pid_is_the_commands_own() {
 
 #[test]
 fn a_terminal_session_stays_in_the_callers_process_group_and_a_turn_does_not() {
+    if !runs_scripts() {
+        return;
+    }
     // Each program in a directory of its own (kept alive by the caller).
     let groups = |dir: &Rooted| {
         let note = dir.real_path(&os::fixture("/")).unwrap().join("groups");
@@ -405,6 +464,9 @@ fn a_terminal_session_stays_in_the_callers_process_group_and_a_turn_does_not() {
 // is when the child is known to run.
 #[test]
 fn a_requested_stop_kills_the_terminal_sessions_direct_child() {
+    if !runs_scripts() {
+        return;
+    }
     let (_dir, mut command) = program("#!/bin/sh\nexec sleep 30\n");
     command
         .env
@@ -432,6 +494,9 @@ fn a_requested_stop_kills_the_terminal_sessions_direct_child() {
 // way.
 #[test]
 fn a_requested_stop_asks_a_turns_tree_to_stop() {
+    if !runs_scripts() {
+        return;
+    }
     let (_dir, mut command) = program("#!/bin/sh\nexec sleep 30\n");
     command
         .env
@@ -462,6 +527,9 @@ fn a_requested_stop_asks_a_turns_tree_to_stop() {
 #[test]
 #[ignore = "run by the parent test, which owns its stdio"]
 fn stdio_driver() {
+    if !runs_scripts() {
+        return;
+    }
     let (_dir, command) = program("#!/bin/sh\necho out\necho err >&2\nread line\necho got:$line\n");
     let output = over(terminal(&command));
     assert_eq!(output.exit.code, Some(0));
@@ -469,6 +537,9 @@ fn stdio_driver() {
 
 #[test]
 fn a_terminal_session_reads_the_callers_stdin_and_writes_the_callers_stdout_and_stderr() {
+    if !runs_scripts() {
+        return;
+    }
     use std::io::Write;
     use std::process::Stdio;
     let exe = std::env::current_exe().unwrap();

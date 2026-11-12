@@ -49,20 +49,80 @@ use std::sync::Arc;
 use ::process_env::EnvSnapshot;
 
 use super::{LibError, Wiring};
-use crate::fixtures::{canonical, exists, fs, mkdirs, put_mode, remove_dir, root, unix};
+use crate::fixtures::{canonical, exists, fs, mkdirs, put_mode, remove_dir, root, runs_scripts};
+
+/// The version stamp the wiring's tests build their commands with.
+pub(crate) const VERSION: &str = "v0.1.0-abc1234";
 
 /// The process's environment is one: tests that set it take this first, and
 /// tests that read it read it through `host_snapshot`, never while an `Env`
 /// holds it changed (one with PATH unset finds no `git`).
 pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Whether the variable `name` is one an enclosing ctxloom session gives the
+/// engine its tests may be run under (an agent's shell runs `just test`):
+/// ctxloom's own (`CTXLOOM_*`: its home, the run's listener, bearer and
+/// certificate, the session's id and harp, a permit) and the directories the
+/// engine is relocated into (`CLAUDE_CONFIG_DIR`, `OPENCODE_*`, the XDG
+/// bases). A test that kept them would read the caller's ctxloom home and
+/// deliver its hooks' facts to the caller's listener; none of them is the
+/// test's, so no test starts from them.
+pub(crate) fn enclosing_session(name: &OsStr) -> bool {
+    name.to_str().is_some_and(|name| {
+        name.starts_with("CTXLOOM_")
+            || name.starts_with("OPENCODE_")
+            || name.starts_with("XDG_")
+            || name == "CLAUDE_CONFIG_DIR"
+    })
+}
+
 /// The process's environment and working directory, read under `ENV_LOCK`
-/// (owner ruling 144): what a test that changes neither starts from. A test
-/// holding an `Env` reads them through `from_process` instead (the lock is
-/// not reentrant).
+/// (owner ruling 144): what a test that changes neither starts from, without
+/// the variables of an enclosing ctxloom session ([`enclosing_session`]), so a
+/// test passes alike inside and outside one. A test holding an `Env` reads
+/// them through `from_process` instead (the lock is not reentrant), and the
+/// `Env` has unset those variables.
 pub(crate) fn host_snapshot() -> EnvSnapshot {
     let _held = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    EnvSnapshot::from_process()
+    without_enclosing_session(&EnvSnapshot::from_process())
+}
+
+/// `process` without the variables of an enclosing ctxloom session.
+fn without_enclosing_session(process: &EnvSnapshot) -> EnvSnapshot {
+    let vars: Vec<(OsString, OsString)> = process
+        .vars()
+        .filter(|(name, _)| !enclosing_session(name))
+        .map(|(name, value)| (name.to_os_string(), value.to_os_string()))
+        .collect();
+    EnvSnapshot::from_parts(
+        process.flavor(),
+        process.cwd(),
+        process.temp_dir().to_path_buf(),
+        vars,
+    )
+}
+
+// Run inside a ctxloom session (an agent's shell running `just test`), a test
+// starts from none of its variables: not its home, nor its listener, which a
+// hook under test would deliver to.
+#[test]
+fn test_a_test_starts_from_none_of_an_enclosing_session_s_variables() {
+    let caller = EnvSnapshot::of([
+        ("CTXLOOM_HOME", "/caller/.ctxloom-rs"),
+        ("CTXLOOM_ENDPOINT", "https://127.0.0.1:4000"),
+        ("CTXLOOM_BEARER", "run.secret"),
+        ("CLAUDE_CONFIG_DIR", "/caller/session/home"),
+        ("OPENCODE_CONFIG_DIR", "/caller/session/home"),
+        ("XDG_STATE_HOME", "/caller/session/home/xdg/state"),
+        ("PATH", "/usr/bin"),
+        ("LANG", "C.UTF-8"),
+        ("HOME", "/caller/session/home"),
+    ]);
+    let names: Vec<String> = without_enclosing_session(&caller)
+        .vars()
+        .map(|(name, _)| name.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, ["PATH", "LANG", "HOME"]);
 }
 
 /// A hold on the process's environment and working directory: what a test
@@ -92,13 +152,19 @@ impl Env {
             _held: held,
         };
         env.set("HOME", env.dir.join("home"));
-        for var in [
+        // An enclosing ctxloom session's variables, whatever they are, then
+        // the rest the wiring reads.
+        let enclosing: Vec<String> = std::env::vars_os()
+            .filter(|(name, _)| enclosing_session(name))
+            .filter_map(|(name, _)| name.into_string().ok())
+            .collect();
+        for var in enclosing.iter().map(String::as_str).chain([
             "CTXLOOM_HOME",
             "CTXLOOM_ROOT",
             "CTXLOOM_PROJECT_ID",
             "CTXLOOM_DEGRADED",
             "PATH",
-        ] {
+        ]) {
             env.unset(var);
         }
         std::env::set_current_dir(env.dir.join("work")).unwrap();
@@ -357,7 +423,7 @@ fn executable(dir: &Path, name: &str, mode: u32) {
 
 #[test]
 fn test_programs_are_found_on_the_path_in_its_order_and_only_if_executable_files() {
-    if !unix() {
+    if !runs_scripts() {
         return;
     }
     let mut env = Env::new("path");
@@ -387,7 +453,7 @@ fn test_programs_are_found_on_the_path_in_its_order_and_only_if_executable_files
 
 #[test]
 fn test_a_name_with_a_separator_is_that_file_and_the_path_is_not_searched() {
-    if !unix() {
+    if !runs_scripts() {
         return;
     }
     let mut env = Env::new("pathfile");

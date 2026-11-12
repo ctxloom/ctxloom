@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 agent-client-protocol.workspace = true
+angzarr-diagnostic.workspace = true
 futures.workspace = true
 # The child's listener password (D24).
 getrandom.workspace = true
@@ -26,6 +27,10 @@ os = { workspace = true, features = ["test-support"] }
 run-within = { workspace = true, features = ["test-support"] }
 # The spike's lines, read into the ACP schema's types.
 serde_json.workspace = true
+
+[features]
+# `diagnostic_samples`, for the binary's catalog test.
+test-support = []
 
 [lints]
 workspace = true

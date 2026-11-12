@@ -13,6 +13,23 @@ use process_env::EnvSnapshot;
 
 use super::HostRuntimes;
 
+/// Whether this host runs the tests' fake programs: unix, the one flavor
+/// `fixture_program::install_program` does not refuse as `Unsupported`, with
+/// the `sh` (and links) they need. Elsewhere the asking test is skipped and
+/// says so on stderr, `SKIP <test>: <why>`, never silently; the same test
+/// runs unchanged on unix.
+pub(crate) fn runs_scripts() -> bool {
+    if os::host().flavor() == os::Flavor::Unix {
+        return true;
+    }
+    let test = std::thread::current();
+    eprintln!(
+        "SKIP {}: its fake programs are sh scripts (unix only)",
+        test.name().unwrap_or("a test")
+    );
+    false
+}
+
 /// A filesystem of the test's own, and a `bin` directory in it.
 fn machine() -> (Arc<Rooted>, PathBuf) {
     let fs = Arc::new(Rooted::temp().unwrap());
@@ -52,6 +69,9 @@ fn no_runtime_on_the_path_means_none_installed() {
 
 #[test]
 fn an_installed_runtime_is_reachable_when_info_answers() {
+    if !runs_scripts() {
+        return;
+    }
     let (fs, bin) = machine();
     script(&fs, &bin, "docker", "[ \"$1\" = info ] && exit 0; exit 1");
     assert_eq!(
@@ -65,6 +85,9 @@ fn an_installed_runtime_is_reachable_when_info_answers() {
 
 #[test]
 fn an_installed_runtime_whose_daemon_is_down_is_listed_unreachable() {
+    if !runs_scripts() {
+        return;
+    }
     let (fs, bin) = machine();
     script(&fs, &bin, "podman", "exit 1");
     assert_eq!(
@@ -79,6 +102,9 @@ fn an_installed_runtime_whose_daemon_is_down_is_listed_unreachable() {
 // A runtime that never answers is bounded, not waited on.
 #[test]
 fn a_runtime_that_never_answers_is_unreachable_within_the_bound() {
+    if !runs_scripts() {
+        return;
+    }
     let (fs, bin) = machine();
     script(&fs, &bin, "docker", "exec sleep 30");
     let slow = HostRuntimes::new(
@@ -97,6 +123,9 @@ fn a_runtime_that_never_answers_is_unreachable_within_the_bound() {
 // docker is preferred over podman (Go: runtimeCandidates order).
 #[test]
 fn docker_comes_before_podman() {
+    if !runs_scripts() {
+        return;
+    }
     let (fs, bin) = machine();
     script(&fs, &bin, "podman", "exit 0");
     script(&fs, &bin, "docker", "exit 0");
@@ -123,6 +152,9 @@ fn a_file_that_cannot_be_run_is_not_a_runtime() {
 
 #[test]
 fn an_image_is_present_when_the_runtime_inspects_it() {
+    if !runs_scripts() {
+        return;
+    }
     let (fs, bin) = machine();
     script(
         &fs,
@@ -163,6 +195,9 @@ fn the_path_of_the_environment_is_split_without_empty_entries() {
 // The runtime is run in the runtimes' environment, and only that one.
 #[test]
 fn a_runtime_runs_in_exactly_the_environment_it_was_given() {
+    if !runs_scripts() {
+        return;
+    }
     let (fs, bin) = machine();
     script(
         &fs,
@@ -187,6 +222,9 @@ fn a_runtime_runs_in_exactly_the_environment_it_was_given() {
 // What a runtime started goes with it when it is killed.
 #[test]
 fn a_helper_a_runtime_started_is_killed_with_it() {
+    if !runs_scripts() {
+        return;
+    }
     let (fs, bin) = machine();
     script(
         &fs,
@@ -371,6 +409,9 @@ impl Drop for Release<'_> {
 // is gone once let go.
 #[test]
 fn a_helper_that_outlives_the_runtime_does_not_hold_the_caller() {
+    if !runs_scripts() {
+        return;
+    }
     let (fs, bin) = machine();
     script(&fs, &bin, "docker", &format!("{HELD}exit 0"));
     let release = Release(&fs, bin.clone());

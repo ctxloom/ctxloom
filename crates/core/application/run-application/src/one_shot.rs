@@ -153,6 +153,11 @@ pub struct Place {
     /// composition root tells the engines) is it; empty when it could not be
     /// found.
     pub program_dir: String,
+    /// The user's own home, as the composition root resolved it once (the
+    /// platform's home variable: `HOME`, `USERPROFILE` on Windows); none when
+    /// unset. Her login is found under it, and `session_home: host` gives it
+    /// to the engine.
+    pub user_home: Option<String>,
 }
 
 /// The run use cases over their ports.
@@ -650,6 +655,7 @@ where
                     &mut *self.links,
                     &settings.credentials(credentials),
                     &self.env,
+                    self.place.user_home.as_deref(),
                     &self.os,
                     &started.harp,
                 ));
@@ -879,12 +885,16 @@ where
         env.insert(run_ports::HARP_VARIABLE.to_string(), harp.clone());
         // The running binary's directory leads the engine's PATH, so a hook's
         // bare program (this binary's file name, ruling 163) is this binary
-        // and not another one the user has; the inherited PATH follows it.
+        // and not another one the user has; the inherited PATH follows it,
+        // joined as the platform joins it (`;` on Windows). The caller's
+        // names are keyed as the platform compares them (`PATH` whatever its
+        // spelling on Windows), by the composition root.
         if !self.place.program_dir.is_empty() {
-            let path = match env.get("PATH").filter(|path| !path.is_empty()) {
-                Some(inherited) => format!("{}:{inherited}", self.place.program_dir),
-                None => self.place.program_dir.clone(),
-            };
+            let path = run_ports::search_path_led_by(
+                &self.os,
+                &self.place.program_dir,
+                env.get("PATH").map(String::as_str),
+            );
             env.insert("PATH".to_string(), path);
             owned.push("PATH".to_string());
         }
@@ -905,6 +915,7 @@ where
                 context: plan.context,
                 prompt: plan.prompt,
                 env,
+                user_home: self.place.user_home.clone(),
                 cwd: Some(self.place.project_dir.clone()),
                 interactive,
                 model: plan.model,

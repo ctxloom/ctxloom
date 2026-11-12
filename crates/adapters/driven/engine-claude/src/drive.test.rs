@@ -14,6 +14,7 @@ fn request() -> TurnRequest {
         context_path: "/p/.ctxloom/sessions/h/home/ctxloom-context.md".to_string(),
         resume: None,
         env: BTreeMap::new(),
+        user_home: None,
         cwd: Some("/p".to_string()),
         model: String::new(),
         effort: String::new(),
@@ -856,6 +857,7 @@ fn a_host_session_home_is_the_users_own_claude_directory() {
     let mut asked = request();
     asked.settings = settings(|s| s.session_home = SessionHome::Host);
     asked.env = env(&[("HOME", "/home/alice"), ("PATH", "/usr/bin")]);
+    asked.user_home = Some("/home/alice".to_string());
     for command in [
         Claude::new().drive_turn(&asked).unwrap(),
         Claude::new().drive_interactive(&asked).unwrap(),
@@ -891,6 +893,7 @@ fn the_terminal_session_reads_the_session_dirs_settings_in_both_home_modes() {
     for host in [false, true] {
         let mut asked = request();
         asked.env = env(&[("HOME", "/home/alice"), ("PATH", "/usr/bin")]);
+        asked.user_home = Some("/home/alice".to_string());
         asked.settings = settings(|s| {
             if host {
                 s.session_home = SessionHome::Host
@@ -929,6 +932,7 @@ fn a_childs_turn_reads_the_session_dirs_settings_in_both_home_modes() {
     for host in [false, true] {
         let mut asked = request();
         asked.env = env(&[("HOME", "/home/alice")]);
+        asked.user_home = Some("/home/alice".to_string());
         asked.settings = settings(|s| {
             if host {
                 s.session_home = SessionHome::Host
@@ -1128,4 +1132,195 @@ fn a_home_prepared_by_a_claude_calling_another_program_calls_that_program() {
         );
         assert!(!text.contains(r#""command": "ctxloom""#), "{text}");
     }
+}
+
+// The terminal session is given the terminal's type and colour depth, so
+// claude draws in colour; a child's turn writes to a pipe and needs neither.
+#[test]
+fn the_terminal_session_is_told_the_terminal_and_its_colours() {
+    let mut asked = request();
+    asked.env = env(&[("TERM", "xterm-256color"), ("COLORTERM", "truecolor")]);
+    let command = Claude::new().drive_interactive(&asked).unwrap();
+    assert_eq!(
+        command.env.get("TERM").map(String::as_str),
+        Some("xterm-256color")
+    );
+    assert_eq!(
+        command.env.get("COLORTERM").map(String::as_str),
+        Some("truecolor")
+    );
+    let turn = Claude::new().drive_turn(&asked).unwrap();
+    assert!(!turn.env.contains_key("TERM"), "{:?}", turn.env.keys());
+    assert!(!turn.env.contains_key("COLORTERM"), "{:?}", turn.env.keys());
+}
+
+/// A session-home `prepare` by a Claude told whether the user has accepted
+/// claude's bypass-permissions warning in her own settings.
+fn prepare_accepting(accepted: bool, session_home: run_ports::SessionHome) -> run_ports::Prepared {
+    Claude::new()
+        .accepting_bypass(accepted)
+        .prepare(&PrepareRequest {
+            home: "/h".to_string(),
+            context: "c".to_string(),
+            offered: Vec::new(),
+            interactive: true,
+            cwd: None,
+            existing: BTreeMap::new(),
+            permissions: Some(r#"{"defaultMode":"bypassPermissions"}"#.to_string()),
+            session_home,
+        })
+        .unwrap()
+}
+
+// Owner ruling 166: the session home is a fresh config dir, so claude would
+// ask again for the bypass-permissions warning the user already accepted in
+// her own settings (its default answer, "No, exit", ends the session). Her
+// acceptance, and nothing else of her settings, is carried into the home's
+// user-scope settings beside the agent's permissions; a user who never
+// accepted it is asked, as before.
+#[test]
+fn the_users_acceptance_of_the_bypass_warning_is_carried_into_the_session_home() {
+    let carried = file_of(
+        &prepare_accepting(true, run_ports::SessionHome::Session),
+        "settings.json",
+    )
+    .unwrap();
+    assert_eq!(
+        surface_ports::Json::parse(&carried).unwrap(),
+        surface_ports::Json::parse(
+            r#"{"permissions":{"defaultMode":"bypassPermissions"},"skipDangerousModePermissionPrompt":true}"#
+        )
+        .unwrap()
+    );
+    let asked = file_of(
+        &prepare_accepting(false, run_ports::SessionHome::Session),
+        "settings.json",
+    )
+    .unwrap();
+    assert!(
+        !asked.contains("skipDangerousModePermissionPrompt"),
+        "{asked}"
+    );
+    // Under `session_home: host` the config dir is her own, which already
+    // holds what she accepted: nothing of it is written anywhere.
+    let host = prepare_accepting(true, run_ports::SessionHome::Host);
+    for file in &host.files {
+        let text = String::from_utf8_lossy(&file.bytes);
+        assert!(
+            !text.contains("skipDangerousModePermissionPrompt"),
+            "{}",
+            file.rel
+        );
+    }
+}
+
+// Only a `true` is an acceptance: anything else, or a file that does not
+// read, is none.
+#[test]
+fn only_a_true_skip_in_the_users_settings_is_an_acceptance() {
+    use crate::drive::accepts_bypass;
+    assert!(accepts_bypass(
+        r#"{"skipDangerousModePermissionPrompt": true, "x": 1}"#
+    ));
+    for text in [
+        r#"{"skipDangerousModePermissionPrompt": false}"#,
+        r#"{"skipDangerousModePermissionPrompt": "true"}"#,
+        r#"{"permissions": {"skipDangerousModePermissionPrompt": true}}"#,
+        r#"{}"#,
+        "[true]",
+        "not json",
+        "",
+    ] {
+        assert!(!accepts_bypass(text), "{text}");
+    }
+}
+
+/// A Windows caller's environment, its names as the composition root keys
+/// them (uppercase).
+fn windows_caller() -> BTreeMap<String, String> {
+    env(&[
+        ("PATH", r"C:\ctxloom;C:\Windows\system32"),
+        ("SYSTEMROOT", r"C:\Windows"),
+        ("SYSTEMDRIVE", "C:"),
+        ("WINDIR", r"C:\Windows"),
+        ("TEMP", r"C:\Users\her\AppData\Local\Temp"),
+        ("TMP", r"C:\Users\her\AppData\Local\Temp"),
+        ("PATHEXT", ".COM;.EXE;.BAT;.CMD"),
+        ("COMSPEC", r"C:\Windows\system32\cmd.exe"),
+        ("USERPROFILE", r"C:\Users\her"),
+        ("APPDATA", r"C:\Users\her\AppData\Roaming"),
+        ("LOCALAPPDATA", r"C:\Users\her\AppData\Local"),
+    ])
+}
+
+// On Windows a program cannot start without the system's directories, and
+// claude finds its home through USERPROFILE (node's `os.homedir()`): both
+// allowlists hold every startup and profile variable.
+#[test]
+fn every_windows_startup_and_profile_variable_is_on_both_allowlists() {
+    let profile = run_ports::WINDOWS_PROFILE_VARIABLES.iter().map(|(n, _)| n);
+    for name in run_ports::WINDOWS_STARTUP_VARIABLES.iter().chain(profile) {
+        assert!(ENV_ALLOWLIST.contains(name), "{name} reaches a turn");
+        assert!(
+            INTERACTIVE_ENV_ALLOWLIST.contains(name),
+            "{name} reaches the terminal"
+        );
+    }
+}
+
+// Ruling 112 on Windows: the session home is the engine's USERPROFILE as it is
+// its HOME, and APPDATA and LOCALAPPDATA are where Windows puts them under it;
+// the system's variables pass on as they are.
+#[test]
+fn on_windows_the_profile_is_the_session_home_and_the_system_passes_on() {
+    let mut asked = request();
+    asked.env = windows_caller();
+    for command in [
+        Claude::new().drive_turn(&asked).unwrap(),
+        Claude::new().drive_interactive(&asked).unwrap(),
+    ] {
+        let home = asked.home.as_str();
+        assert_eq!(command.env["USERPROFILE"], home);
+        assert_eq!(command.env["APPDATA"], format!("{home}/AppData/Roaming"));
+        assert_eq!(command.env["LOCALAPPDATA"], format!("{home}/AppData/Local"));
+        for name in run_ports::WINDOWS_STARTUP_VARIABLES {
+            assert_eq!(command.env[*name], asked.env[*name], "{name}");
+        }
+        assert_eq!(command.env["PATH"], asked.env["PATH"]);
+    }
+}
+
+// Under `session_home: host` her home is the one the composition root
+// resolved (USERPROFILE on Windows), never the environment's HOME (Git Bash
+// sets one of its own), and her profile variables pass on as they are.
+#[test]
+fn a_host_session_home_is_the_resolved_home_and_her_profile_passes_on() {
+    let mut asked = request();
+    asked.settings = settings(|s| s.session_home = SessionHome::Host);
+    asked.env = windows_caller();
+    asked
+        .env
+        .insert("HOME".to_string(), "/c/Users/her".to_string());
+    asked.user_home = Some(r"C:\Users\her".to_string());
+    for command in [
+        Claude::new().drive_turn(&asked).unwrap(),
+        Claude::new().drive_interactive(&asked).unwrap(),
+    ] {
+        assert_eq!(command.env["HOME"], r"C:\Users\her");
+        assert_eq!(command.env["CLAUDE_CONFIG_DIR"], r"C:\Users\her/.claude");
+        for (name, _) in run_ports::WINDOWS_PROFILE_VARIABLES {
+            assert_eq!(command.env[*name], asked.env[*name], "{name}");
+        }
+    }
+}
+
+// Ruling 168: claude-code has nothing to say of a plan, a model or none.
+#[test]
+fn claude_advises_nothing_of_a_plan() {
+    use run_ports::Engine;
+    let planned = run_ports::Planned {
+        agent: "dev".to_string(),
+        ..run_ports::Planned::default()
+    };
+    assert!(Claude::new().advise(&planned).is_empty());
 }

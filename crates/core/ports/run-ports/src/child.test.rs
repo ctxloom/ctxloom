@@ -14,6 +14,7 @@ fn spec() -> ChildSpec {
             "CLAUDE_CODE_OAUTH_TOKEN".to_string(),
             "sk-ant-oat01-secret".to_string(), // gitleaks:allow
         )]),
+        user_home: None,
         cwd: Some("/p".to_string()),
         model: String::new(),
         effort: String::new(),

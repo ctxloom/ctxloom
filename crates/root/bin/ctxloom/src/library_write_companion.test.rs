@@ -84,6 +84,9 @@ fn home_companions(project: &Project) -> String {
 // and the command, which is the path it was given; doctor's execution is S12's)
 #[test]
 fn test_a_registered_companion_is_recorded_with_its_command_and_removing_it_unrecords_it() {
+    if !files::runs_scripts() {
+        return;
+    }
     let project = Project::initialized();
     let bin = Bin::new();
     let path = bin.script(
@@ -134,6 +137,9 @@ fn test_a_registered_companion_is_recorded_with_its_command_and_removing_it_unre
 // registrations
 #[test]
 fn test_a_projects_companions_are_added_to_the_home_registrations_by_add() {
+    if !files::runs_scripts() {
+        return;
+    }
     let project = Project::initialized();
     let bin = Bin::new();
     let path = bin.companion("acme");
@@ -164,6 +170,9 @@ fn test_a_projects_companions_are_added_to_the_home_registrations_by_add() {
 // home companion
 #[test]
 fn test_an_empty_project_map_does_not_unregister_a_home_companion_after_add() {
+    if !files::runs_scripts() {
+        return;
+    }
     let project = Project::initialized();
     let bin = Bin::new();
     let path = bin.companion("acme");
@@ -221,6 +230,9 @@ fn test_a_command_whose_program_does_not_exist_is_refused_naming_it() {
 // registered with the command it is given like any other.
 #[test]
 fn test_add_checks_the_companion_before_it_records_anything() {
+    if !files::runs_scripts() {
+        return;
+    }
     let project = Project::initialized();
     let bin = Bin::new();
     let sick = bin.broken("sick");
@@ -288,6 +300,9 @@ fn test_add_checks_the_companion_before_it_records_anything() {
 // probe is run once.
 #[test]
 fn test_add_answers_and_a_second_add_registers_nothing_twice() {
+    if !files::runs_scripts() {
+        return;
+    }
     let project = Project::initialized();
     let bin = Bin::new();
     let path = bin.companion("acme");
@@ -353,6 +368,9 @@ fn test_add_answers_and_a_second_add_registers_nothing_twice() {
 // and changes nothing
 #[test]
 fn test_remove_without_yes_names_the_apply_command_and_changes_nothing() {
+    if !files::runs_scripts() {
+        return;
+    }
     let project = Project::initialized();
     let bin = Bin::new();
     let path = bin.companion("acme");
@@ -411,6 +429,9 @@ fn test_remove_without_yes_names_the_apply_command_and_changes_nothing() {
 // whether its program exists (after add); the program is looked for, never run.
 #[test]
 fn test_list_answers_each_names_command_and_whether_its_program_exists_after_add() {
+    if !files::runs_scripts() {
+        return;
+    }
     let project = Project::initialized();
     let bin = Bin::new();
     let path = bin.companion("acme");
@@ -435,6 +456,9 @@ fn test_list_answers_each_names_command_and_whether_its_program_exists_after_add
 // (after add)
 #[test]
 fn test_bare_companion_lists_the_registered_companions_after_add() {
+    if !files::runs_scripts() {
+        return;
+    }
     let project = Project::initialized();
     let bin = Bin::new();
     let path = bin.companion("acme");
@@ -461,6 +485,9 @@ fn test_bare_companion_lists_the_registered_companions_after_add() {
 // never run (adding or removing a name runs only the command given)
 #[test]
 fn test_only_the_registered_command_is_ever_run_by_add() {
+    if !files::runs_scripts() {
+        return;
+    }
     let project = Project::initialized();
     let bin = Bin::new();
     let acme = bin.companion("acme");

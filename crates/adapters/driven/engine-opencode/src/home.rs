@@ -53,6 +53,34 @@ const GLOBAL_CONFIG: &str = "xdg/config/opencode";
 /// session file can only be a file.
 const NODE_MODULES_MARKER: &str = "node_modules/.ctxloom";
 
+/// The session home's seed of the user's recent models (owner ruling 167):
+/// opencode 1.18.4 keeps them in `model.json` of its state directory
+/// (`$XDG_STATE_HOME/opencode`, relocated into the home), and starts a
+/// session with no configured model and no `-m` on the first of them it
+/// still knows (`recent`); with none it picks one itself.
+pub const MODEL_SEED: &str = "xdg/state/opencode/model.json";
+
+/// opencode's state directory under the user's home (XDG's default, on every
+/// platform: 1.18.4 has no platform branch); `XDG_STATE_HOME`, set to an
+/// absolute path, moves it to `$XDG_STATE_HOME/opencode`.
+const USER_STATE_DIR: &str = ".local/state/opencode";
+
+/// The user's own `model.json`: in `$XDG_STATE_HOME/opencode` when that is an
+/// absolute path on `os` ([`run_ports::is_absolute`], as the login's
+/// directory is read), else under her `home`; none when she has neither.
+pub fn user_model_file(
+    home: Option<&str>,
+    xdg_state_home: Option<&str>,
+    os: &str,
+) -> Option<String> {
+    match xdg_state_home.filter(|dir| run_ports::is_absolute(os, dir)) {
+        Some(dir) => Some(format!("{dir}/opencode/model.json")),
+        None => home
+            .filter(|home| !home.is_empty())
+            .map(|home| format!("{home}/{USER_STATE_DIR}/model.json")),
+    }
+}
+
 /// The session home's config: the agent's permissions document, exactly as
 /// handed, as its `permission` object (owner rulings 135, 137: opencode's own
 /// words, never checked; 1.18.4 reads the keyed `permission` object and makes

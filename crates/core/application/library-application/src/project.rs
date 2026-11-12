@@ -41,6 +41,9 @@ pub struct Library {
     pub(crate) companions: Option<Arc<dyn CompanionLoadouts>>,
     /// ctxloom's built-in bundles join every project's catalog.
     pub(crate) builtins: bool,
+    /// The engines a plan is shown to, for what they say of it (owner
+    /// ruling 168, [`run_ports::Engine::advise`]).
+    pub(crate) engines: Vec<Arc<dyn run_ports::Engine>>,
 }
 
 /// A project opened.
@@ -66,6 +69,8 @@ pub struct Project {
     /// The `run:` bundles of the registered companions, asked for once per
     /// command and kept: `(registered name, bundle)`.
     pub(crate) companion_bundles: Option<Vec<(String, Bundle)>>,
+    /// The engines a plan is shown to, for what they say of it.
+    pub(crate) engines: Vec<Arc<dyn run_ports::Engine>>,
 }
 
 impl Library {
@@ -86,7 +91,16 @@ impl Library {
             remotes: None,
             companions: None,
             builtins: false,
+            engines: Vec::new(),
         }
+    }
+
+    /// The library showing a run's plan to `engines`, each saying what it
+    /// has to say of what the plan resolved for it as notices, on the dry
+    /// run and at the launch (owner ruling 168): never a refusal.
+    pub fn with_engines(mut self, engines: Vec<Arc<dyn run_ports::Engine>>) -> Library {
+        self.engines = engines;
+        self
     }
 
     /// The library with ctxloom's built-in bundles ([`library::builtin`]) in
@@ -244,6 +258,7 @@ impl Library {
             no_companions: flags.no_companions
                 || crate::companions::switch_on(&self.environ, "CTXLOOM_NO_COMPANIONS"),
             companion_bundles: None,
+            engines: self.engines.clone(),
         })
     }
 }

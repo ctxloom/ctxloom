@@ -49,7 +49,8 @@ fn the_discovery_is_published_private_and_withdrawn() {
     assert_eq!(files.discovery(), Some(sample()));
     let fs = fixtures::fs();
     let path = files.dir().join(run_ports::DISCOVERY_FILE);
-    if fixtures::unix() {
+    // Mode bits are unix's alone.
+    if os::host().flavor() == os::Flavor::Unix {
         assert_eq!(fs.metadata(&path).unwrap().mode.unwrap().bits(), 0o600);
         assert_eq!(
             fs.metadata(files.dir()).unwrap().mode.unwrap().bits(),

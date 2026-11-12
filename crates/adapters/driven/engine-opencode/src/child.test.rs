@@ -100,6 +100,7 @@ fn spec(program: &str) -> ChildSpec {
         home: "/nowhere/home".to_string(),
         context_path: "/nowhere/home/AGENTS.md".to_string(),
         env: BTreeMap::from([("PATH".to_string(), "/usr/bin:/bin".to_string())]),
+        user_home: None,
         cwd: None,
         model: String::new(),
         effort: String::new(),

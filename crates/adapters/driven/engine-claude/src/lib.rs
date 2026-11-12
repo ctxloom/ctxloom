@@ -31,7 +31,10 @@ use surface_ports::{
 
 pub use child::{launcher_environment, transcripts_of};
 pub use codec::Codec;
-pub use drive::{CONTEXT_PROMPT_FILE, COPY_IN_ALLOWLIST, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST};
+pub use drive::{
+    accepts_bypass, CONTEXT_PROMPT_FILE, COPY_IN_ALLOWLIST, ENV_ALLOWLIST,
+    INTERACTIVE_ENV_ALLOWLIST,
+};
 
 /// The engine's name.
 pub const NAME: &str = "claude-code";
@@ -54,6 +57,9 @@ pub struct Claude {
     /// The program every callback ctxloom installs runs: the running binary's
     /// file name (owner ruling 163), told by the composition root.
     program: String,
+    /// The user accepted claude's bypass-permissions warning in her own
+    /// settings (owner ruling 166), told by the composition root.
+    bypass_accepted: bool,
 }
 
 impl Default for Claude {
@@ -61,6 +67,7 @@ impl Default for Claude {
         Claude {
             codec: Codec,
             program: surface_ports::CALLBACK_PROGRAM.to_string(),
+            bypass_accepted: false,
         }
     }
 }
@@ -77,6 +84,16 @@ impl Claude {
         Claude {
             program: program.to_string(),
             ..Claude::default()
+        }
+    }
+
+    /// Claude, told whether the user accepted claude's bypass-permissions
+    /// warning in her own settings ([`accepts_bypass`]): a session
+    /// home then carries her acceptance (owner ruling 166).
+    pub fn accepting_bypass(self, accepted: bool) -> Claude {
+        Claude {
+            bypass_accepted: accepted,
+            ..self
         }
     }
 }

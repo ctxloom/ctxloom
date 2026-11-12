@@ -403,6 +403,7 @@ impl Engine for ScriptedEngine {
         Ok(Prepared {
             files,
             copy_in: Vec::new(),
+            seeds: Vec::new(),
             context_path: format!("{}/ctx.md", request.home),
         })
     }
@@ -588,6 +589,38 @@ impl Engine for Merging {
     }
 }
 
+/// An engine that seeds its home with `seed.json` (`SEED`), once.
+#[derive(Clone)]
+pub struct Seeding(pub ScriptedEngine);
+
+/// What [`Seeding`] seeds its home with.
+pub const SEED: &[u8] = b"{\"recent\":[]}";
+
+// A test double shipped for tests only; its tests are the callers' own.
+#[cfg_attr(test, mutants::skip)]
+impl Engine for Seeding {
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+    fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
+        let mut prepared = self.0.prepare(request)?;
+        prepared.seeds.push(HomeFile {
+            rel: "seed.json".to_string(),
+            bytes: SEED.to_vec(),
+        });
+        Ok(prepared)
+    }
+    fn drive_turn(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
+        self.0.drive_turn(request)
+    }
+    fn finish_turn(&self, output: &TurnOutput) -> TurnOutcome {
+        self.0.finish_turn(output)
+    }
+    fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
+        self.0.drive_interactive(request)
+    }
+}
+
 /// A file of a session directory, by its harp and relative path.
 type Files = BTreeMap<(String, String), Vec<u8>>;
 
@@ -687,6 +720,7 @@ pub fn order(engine: &str) -> Order {
         context: "THE-CONTEXT".to_string(),
         prompt: "THE-PROMPT".to_string(),
         env: BTreeMap::from([("PATH".to_string(), "/bin".to_string())]),
+        user_home: None,
         cwd: Some("/work/proj".to_string()),
         interactive: false,
         model: String::new(),

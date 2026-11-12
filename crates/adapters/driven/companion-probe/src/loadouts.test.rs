@@ -8,6 +8,7 @@ use file_system::{Fs, Rooted};
 use process_env::EnvSnapshot;
 
 use super::*;
+use crate::tests::runs_scripts;
 
 fn companions(limit: Duration) -> ProcessCompanions {
     ProcessCompanions::new(ProcessProbe::new(
@@ -34,6 +35,9 @@ const SECS: Duration = Duration::from_secs(5);
 
 #[test]
 fn a_program_that_prints_a_loadout_loads() {
+    if !runs_scripts() {
+        return;
+    }
     let (_dir, path) = program("#!/bin/sh\nprintf 'run:\\n  version: 1\\n'\n");
     assert_eq!(
         companions(SECS).loadout(&registered(&[&path])),
@@ -43,6 +47,9 @@ fn a_program_that_prints_a_loadout_loads() {
 
 #[test]
 fn the_registered_arguments_come_before_the_protocols() {
+    if !runs_scripts() {
+        return;
+    }
     let (dir, path) = program("#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/args\"\necho x\n");
     companions(SECS).loadout(&registered(&[&path, "--as", "acme"]));
     assert_eq!(
@@ -71,6 +78,9 @@ fn a_bare_name_is_left_to_the_system_to_find() {
 
 #[test]
 fn a_program_that_exits_with_a_status_offers_no_loadout() {
+    if !runs_scripts() {
+        return;
+    }
     let (_dir, path) = program("#!/bin/sh\necho oops\nexit 3\n");
     assert_eq!(
         companions(SECS).loadout(&registered(&[&path])),
@@ -80,6 +90,9 @@ fn a_program_that_exits_with_a_status_offers_no_loadout() {
 
 #[test]
 fn a_program_that_prints_nothing_has_failed() {
+    if !runs_scripts() {
+        return;
+    }
     let (_dir, path) = program("#!/bin/sh\nexit 0\n");
     assert_eq!(
         companions(SECS).loadout(&registered(&[&path])),
@@ -89,6 +102,9 @@ fn a_program_that_prints_nothing_has_failed() {
 
 #[test]
 fn a_program_killed_by_a_signal_has_failed() {
+    if !runs_scripts() {
+        return;
+    }
     let (_dir, path) = program("#!/bin/sh\nkill -9 $$\n");
     let CompanionLoadout::ProbeFailed(detail) = companions(SECS).loadout(&registered(&[&path]))
     else {
@@ -111,6 +127,9 @@ fn a_program_that_cannot_be_started_has_failed() {
 
 #[test]
 fn a_program_that_takes_too_long_has_failed() {
+    if !runs_scripts() {
+        return;
+    }
     let (_dir, path) = program("#!/bin/sh\nsleep 20\n");
     let CompanionLoadout::ProbeFailed(detail) =
         companions(Duration::from_millis(200)).loadout(&registered(&[&path]))

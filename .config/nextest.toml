@@ -24,9 +24,25 @@ leak-timeout = { period = "1s", result = "fail" }
 capture-stdout = true
 capture-stderr = true
 
+# Windows runs no `.sh` itself: there the same script is run by Git for
+# Windows' `sh` (bash; `sh`, not `bash`, because a Windows program finds
+# `bash` in System32, WSL's launcher, before it searches PATH).
+[scripts.setup.build-binaries-windows]
+command = ['sh', 'scripts/nextest-build-binaries.sh']
+slow-timeout = { period = "120s" }
+leak-timeout = { period = "1s", result = "fail" }
+capture-stdout = true
+capture-stderr = true
+
 [[profile.default.scripts]]
+platform = 'cfg(unix)'
 filter = 'package(ctxloom)'
 setup = 'build-binaries'
+
+[[profile.default.scripts]]
+platform = 'cfg(windows)'
+filter = 'package(ctxloom)'
+setup = 'build-binaries-windows'
 
 [profile.default]
 # Retries stay OFF (ruling 144): a retry passes a flaky test ("treated as

@@ -114,6 +114,7 @@ pub(crate) fn child_command(spec: &ChildSpec, password: &str) -> Result<TurnComm
         context_path: spec.context_path.clone(),
         resume: spec.resume.clone(),
         env: spec.env.clone(),
+        user_home: spec.user_home.clone(),
         cwd: spec.cwd.clone(),
         model: spec.model.clone(),
         effort: spec.effort.clone(),
@@ -129,7 +130,7 @@ pub(crate) fn child_command(spec: &ChildSpec, password: &str) -> Result<TurnComm
         "--port".to_string(),
         "0".to_string(),
     ];
-    command.env = drive::environment(&Opencode::new(), &request)?;
+    command.env = drive::environment(&Opencode::new(), drive::ENV_ALLOWLIST, &request)?;
     command
         .env
         .insert(PASSWORD_VARIABLE.to_string(), password.to_string());

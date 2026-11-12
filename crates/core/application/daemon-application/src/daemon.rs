@@ -28,11 +28,15 @@ const END_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Where the daemon is, as a child it hosts is told: ctxloom's home, the
 /// directory of the running program (its engine's `PATH` leads with it, so
-/// a hook's bare `ctxloom` resolves), and its listener.
+/// a hook's bare `ctxloom` resolves), the operating system's name (how that
+/// `PATH` is joined), the user's own home (what a `session_home: host`
+/// engine is given), and its listener.
 #[derive(Clone, Debug)]
 pub struct Place {
     pub home: String,
     pub program_dir: Option<String>,
+    pub os: String,
+    pub user_home: Option<String>,
     pub endpoint: String,
     pub cert: PublicCert,
 }
@@ -655,10 +659,14 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
                 &file.bytes,
             )?;
         }
+        // A hosted engine is composed seeding nothing (`Prepared::seeds`,
+        // the launcher's write-once seeds, rulings 112 and 167): a hosted
+        // child's seeds are a follow-up, with its git identity and merge.
         let spec = ChildSpec {
             home,
             context_path: prepared.context_path,
             env: self.child_environment(at, harp, sent, hook_token),
+            user_home: self.place.user_home.clone(),
             cwd: Some(project_dir.to_string()),
             model: child.model.clone(),
             effort: child.effort.clone(),
@@ -688,10 +696,11 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
             self.place.home.clone(),
         );
         if let Some(dir) = &self.place.program_dir {
-            let path = match env.get("PATH").filter(|path| !path.is_empty()) {
-                Some(path) => format!("{dir}:{path}"),
-                None => dir.clone(),
-            };
+            let path = run_ports::search_path_led_by(
+                &self.place.os,
+                dir,
+                env.get("PATH").map(String::as_str),
+            );
             env.insert("PATH".to_string(), path);
         }
         env.extend(run_ports::hook_environment(

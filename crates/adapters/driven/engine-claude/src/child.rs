@@ -58,6 +58,7 @@ pub(crate) fn child_command(spec: &ChildSpec) -> Result<TurnCommand, EngineError
         context_path: spec.context_path.clone(),
         resume: spec.resume.clone(),
         env: spec.env.clone(),
+        user_home: spec.user_home.clone(),
         cwd: spec.cwd.clone(),
         model: spec.model.clone(),
         effort: spec.effort.clone(),

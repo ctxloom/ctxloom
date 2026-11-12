@@ -7,6 +7,23 @@ use os::Mode;
 
 use super::*;
 
+/// Whether this host runs the tests' fake programs: unix, the one flavor
+/// `fixture_program::install_program` does not refuse as `Unsupported`, with
+/// the `sh` (and links) they need. Elsewhere the asking test is skipped and
+/// says so on stderr, `SKIP <test>: <why>`, never silently; the same test
+/// runs unchanged on unix.
+pub(crate) fn runs_scripts() -> bool {
+    if os::host().flavor() == os::Flavor::Unix {
+        return true;
+    }
+    let test = std::thread::current();
+    eprintln!(
+        "SKIP {}: its fake programs are sh scripts (unix only)",
+        test.name().unwrap_or("a test")
+    );
+    false
+}
+
 fn sh(script: &str, args: &[&str]) -> EditorCommand {
     let mut all = vec!["-c".to_string(), script.to_string()];
     all.extend(args.iter().map(ToString::to_string));
@@ -36,6 +53,9 @@ fn leftovers(fs: &Rooted) -> Vec<String> {
 // steps_fixture.go markerEditorConfig
 #[test]
 fn test_the_content_goes_in_the_editor_and_what_it_leaves_comes_back() {
+    if !runs_scripts() {
+        return;
+    }
     let (fs, editor) = editor();
     let marker = sh("printf \"\\nEDITED-BY-TEST\\n\" >> \"$1\"", &["editor"]);
     let out = editor
@@ -52,6 +72,9 @@ fn test_the_content_goes_in_the_editor_and_what_it_leaves_comes_back() {
 // emptyEditorConfig: a crashed editor is not an error here; the caller judges
 #[test]
 fn test_an_editor_that_empties_the_file_returns_nothing() {
+    if !runs_scripts() {
+        return;
+    }
     let (_fs, editor) = editor();
     let empties = sh("printf \"\" > \"$1\"", &["editor"]);
     assert_eq!(editor.edit(&empties, "x.md", "was something").unwrap(), "");
@@ -59,6 +82,9 @@ fn test_an_editor_that_empties_the_file_returns_nothing() {
 
 #[test]
 fn test_the_editor_is_given_a_file_with_the_name_asked_for_and_mode_0600() {
+    if !runs_scripts() {
+        return;
+    }
     let (fs, editor) = editor();
     let seen_at = os::fixture("/witness/seen");
     fs.create_dir_all(seen_at.parent().unwrap(), Mode::from_bits(0o755))
@@ -78,6 +104,9 @@ fn test_the_editor_is_given_a_file_with_the_name_asked_for_and_mode_0600() {
 
 #[test]
 fn test_the_editors_arguments_come_before_the_file() {
+    if !runs_scripts() {
+        return;
+    }
     let (fs, editor) = editor();
     let seen_at = os::fixture("/witness/seen");
     fs.create_dir_all(seen_at.parent().unwrap(), Mode::from_bits(0o755))
@@ -101,6 +130,9 @@ fn test_the_editors_arguments_come_before_the_file() {
 
 #[test]
 fn test_an_editor_that_fails_is_an_error_and_leaves_nothing_behind() {
+    if !runs_scripts() {
+        return;
+    }
     let (fs, editor) = editor();
     let err = editor
         .edit(&sh("exit 3", &["editor"]), "x.md", "c")
@@ -125,6 +157,9 @@ fn test_an_editor_that_cannot_be_run_is_an_error() {
 
 #[test]
 fn test_what_is_not_text_is_refused() {
+    if !runs_scripts() {
+        return;
+    }
     let (fs, editor) = editor();
     let bad = sh("printf '\\377\\376' > \"$1\"", &["editor"]);
     let err = editor.edit(&bad, "x.md", "c").unwrap_err();
@@ -134,6 +169,9 @@ fn test_what_is_not_text_is_refused() {
 
 #[test]
 fn test_a_file_name_is_one_name_not_a_path() {
+    if !runs_scripts() {
+        return;
+    }
     let (_fs, editor) = editor();
     let noop = sh("true", &["editor"]);
     for bad in ["", ".", "..", "a/b", "../x", "/abs"] {
@@ -145,6 +183,9 @@ fn test_a_file_name_is_one_name_not_a_path() {
 // config.go openInEditor: the editor edits the file where it is
 #[test]
 fn test_open_runs_the_editor_on_the_file_in_place() {
+    if !runs_scripts() {
+        return;
+    }
     let root = Rooted::temp().unwrap();
     let dir = root.root().to_path_buf();
     let fs = Arc::new(file_system::Os::new(os::host(), &dir).expect("the real filesystem"));

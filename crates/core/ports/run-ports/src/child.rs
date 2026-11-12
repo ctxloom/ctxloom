@@ -94,6 +94,10 @@ pub struct ChildSpec {
     pub context_path: String,
     /// The caller's environment: the engine passes on only what it allows.
     pub env: BTreeMap<String, String>,
+    /// The user's own home, as the composition root resolved it once (the
+    /// platform's home variable); none when unset. What `session_home: host`
+    /// gives the engine, as [`crate::TurnRequest::user_home`].
+    pub user_home: Option<String>,
     pub cwd: Option<String>,
     /// The model to run; empty names none.
     pub model: String,
@@ -119,6 +123,7 @@ impl fmt::Debug for ChildSpec {
             .field("home", &self.home)
             .field("context_path", &self.context_path)
             .field("env", &crate::hook::RedactedEnv(&self.env))
+            .field("user_home", &self.user_home)
             .field("cwd", &self.cwd)
             .field("model", &self.model)
             .field("effort", &self.effort)

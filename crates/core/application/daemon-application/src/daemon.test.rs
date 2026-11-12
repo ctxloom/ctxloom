@@ -169,6 +169,8 @@ fn daemon_saying(
         place: Place {
             home: "/home/u".to_string(),
             program_dir: None,
+            os: "linux".to_string(),
+            user_home: None,
             endpoint: "https://127.0.0.1:1".to_string(),
             cert: PublicCert::from_der(vec![0x30, 0x00]).unwrap(),
         },

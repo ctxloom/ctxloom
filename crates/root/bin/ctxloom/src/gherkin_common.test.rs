@@ -353,7 +353,10 @@ pub(crate) fn outside_id(feature: &str) -> String {
 
 /// Run one feature file with the World `W`, its pending scenarios left out:
 /// whether it passed, and each scenario's outcome. A failure no scenario
-/// owns is the feature's [`outside_id`].
+/// owns is the feature's [`outside_id`]. A scenario whose step found the host
+/// cannot run a fake program (`files::put_program`'s [`files::UNSUPPORTED`]
+/// panic, off unix) is skipped, said `SKIP <scenario>: <why>` on stderr, and
+/// fails nothing; on unix no step panics so.
 pub(crate) fn run_feature<W>(file: &Path) -> FeatureRun
 where
     W: cucumber::World + cucumber::codegen::WorldInventory + fmt::Debug,
@@ -367,10 +370,19 @@ where
         .to_string();
     let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let record = std::sync::Arc::clone(&seen);
+    let unsupported = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let skips = std::sync::Arc::clone(&unsupported);
     let named = feature.clone();
     let writer = futures::executor::block_on(
         W::cucumber()
             .after(move |feature, rule, scenario, finished, _| {
+                let id = scenario_id(&named, rule, scenario);
+                if let Some(why) = unsupported_here(finished) {
+                    eprintln!("SKIP {id}: {why}");
+                    skips.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    record.lock().expect("not poisoned").push((id, true));
+                    return async {}.boxed_local();
+                }
                 let passed = match finished {
                     ScenarioFinished::StepPassed => true,
                     // `fail_on_skipped`: a skipped step fails the scenario
@@ -383,10 +395,7 @@ where
                         false
                     }
                 };
-                record
-                    .lock()
-                    .expect("not poisoned")
-                    .push((scenario_id(&named, rule, scenario), passed));
+                record.lock().expect("not poisoned").push((id, passed));
                 async {}.boxed_local()
             })
             // The test harness's own arguments (`--exact`) are not ours.
@@ -397,12 +406,38 @@ where
                 !is_pending(feature, rule, scenario)
             }),
     );
-    let passed = !cucumber::writer::Stats::execution_has_failed(&writer);
+    // Each skipped scenario failed the one step that found the host unable.
+    let passed = {
+        use cucumber::writer::Stats as _;
+        let skipped = unsupported.load(std::sync::atomic::Ordering::SeqCst);
+        writer.failed_steps() == skipped
+            && writer.parsing_errors() == 0
+            && writer.hook_errors() == 0
+    };
     let mut scenarios = std::mem::take(&mut *seen.lock().expect("not poisoned"));
     if !passed && scenarios.iter().all(|(_, ok)| *ok) {
         scenarios.push((outside_id(&feature), false));
     }
     FeatureRun { passed, scenarios }
+}
+
+/// The reason, when a scenario failed only because its step found the host
+/// cannot run a fake program (`files::put_program` panicked with
+/// [`files::UNSUPPORTED`]).
+fn unsupported_here(finished: &cucumber::event::ScenarioFinished) -> Option<String> {
+    let cucumber::event::ScenarioFinished::StepFailed(
+        _,
+        _,
+        cucumber::event::StepError::Panic(payload),
+    ) = finished
+    else {
+        return None;
+    };
+    let text = payload
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| payload.downcast_ref::<&str>().copied())?;
+    text.strip_prefix(files::UNSUPPORTED).map(str::to_string)
 }
 
 /// A scenario's stable id: `<feature> :: [<rule> :: ]<scenario>`, the
@@ -514,4 +549,26 @@ pub(crate) fn world_of(text: &str) -> Result<&str, String> {
             "`# world:` must be one of base, surfaces, isolation, once: {other:?}"
         )),
     }
+}
+
+/// Only `put_program`'s unsupported-host panic skips a scenario: any other
+/// panic, and any other ending, is the scenario's own outcome.
+#[test]
+fn only_the_unsupported_host_panic_skips_a_scenario() {
+    use cucumber::event::{ScenarioFinished, StepError};
+    let panicked = |payload: std::sync::Arc<dyn std::any::Any + Send>| {
+        ScenarioFinished::StepFailed(None, None, StepError::Panic(payload))
+    };
+    let why = format!("{}a fixture program needs sh", files::UNSUPPORTED);
+    assert_eq!(
+        unsupported_here(&panicked(std::sync::Arc::new(why))),
+        Some("a fixture program needs sh".to_string())
+    );
+    assert_eq!(
+        unsupported_here(&panicked(std::sync::Arc::new("a program: NotFound"))),
+        None
+    );
+    assert_eq!(unsupported_here(&panicked(std::sync::Arc::new(7_u8))), None);
+    assert_eq!(unsupported_here(&ScenarioFinished::StepPassed), None);
+    assert_eq!(unsupported_here(&ScenarioFinished::StepSkipped), None);
 }

@@ -133,6 +133,7 @@ test-support = [
     "dep:session-ports",
     "dep:engine-mock",
     "library-application/test-support",
+    "engine-opencode/test-support",
 ]
 
 [lints]

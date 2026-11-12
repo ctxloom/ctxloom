@@ -277,6 +277,8 @@ fn token_vars(files: Arc<ProjectFiles>) -> remote_git::TokenVars {
 pub struct Commands {
     /// The environment the process was launched in, read once.
     pub(crate) env: Arc<EnvSnapshot>,
+    /// The binary's version stamp, as `ctxloom version` says it.
+    version: String,
     wired: Option<Wired>,
     /// The sessions use cases, built when a command first needs them.
     pub(crate) sessions: Option<Sessions>,
@@ -294,9 +296,11 @@ struct Wired {
 }
 
 impl Commands {
-    pub fn new(env: Arc<EnvSnapshot>) -> Commands {
+    /// The commands over `env`, of the binary stamped `version`.
+    pub fn new(env: Arc<EnvSnapshot>, version: &str) -> Commands {
         Commands {
             env,
+            version: version.to_string(),
             wired: None,
             sessions: None,
             #[cfg(feature = "test-support")]
@@ -324,7 +328,7 @@ impl Commands {
             let deps = Rc::new(build_deps(&wiring)?);
             let library = LibraryCommands::new(Arc::clone(&self.env)).with_remotes(deps.clone());
             let surface = build_setup(&wiring, deps.clone())?;
-            let setup = SetupUseCases::build(&wiring, deps.clone())?;
+            let setup = SetupUseCases::build(&wiring, deps.clone(), &self.version)?;
             self.wired = Some(Wired {
                 deps,
                 library,

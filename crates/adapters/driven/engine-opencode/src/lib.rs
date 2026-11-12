@@ -18,6 +18,7 @@
 //! alone, as a section of `AGENTS.md`; MCP servers, settings, hooks, commands
 //! and skills at rest are not built for opencode.
 
+mod advice;
 mod child;
 mod codec;
 mod conversation;
@@ -29,9 +30,15 @@ use surface_ports::{
     Claim, EngineSurfaces, HookCodec, Inputs, Kind, Planned, SurfaceError, SurfaceStore, Wiring,
 };
 
+#[cfg(any(test, feature = "test-support"))]
+pub use advice::diagnostic_samples;
+pub use advice::{OpencodeNotice, EN_US};
 pub use codec::Codec;
 pub use drive::{ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST, LOGIN_FILE, PROVIDER_KEYS, SIGN_IN};
-pub use home::{plugin, CONFIG_FILE, CONTEXT_FILE, PLUGIN, PLUGIN_FILE, PRESEED_LOCK};
+pub use home::{
+    plugin, user_model_file, CONFIG_FILE, CONTEXT_FILE, MODEL_SEED, PLUGIN, PLUGIN_FILE,
+    PRESEED_LOCK,
+};
 
 /// The engine's name.
 pub const NAME: &str = "opencode";
@@ -42,6 +49,9 @@ pub struct Opencode {
     /// The program the plugin runs for each event: the running binary's file
     /// name (owner ruling 163), told by the composition root.
     program: String,
+    /// The user's own `model.json`, as read, which a session home is seeded
+    /// with (owner ruling 167), told by the composition root.
+    model: Option<Vec<u8>>,
 }
 
 impl Default for Opencode {
@@ -49,6 +59,7 @@ impl Default for Opencode {
         Opencode {
             codec: Codec,
             program: surface_ports::CALLBACK_PROGRAM.to_string(),
+            model: None,
         }
     }
 }
@@ -66,6 +77,13 @@ impl Opencode {
             program: program.to_string(),
             ..Opencode::default()
         }
+    }
+
+    /// opencode, told the user's own `model.json` ([`user_model_file`]), as
+    /// read: a session home is seeded with it, once ([`MODEL_SEED`], owner
+    /// ruling 167); none, nothing is.
+    pub fn seeding_model(self, model: Option<Vec<u8>>) -> Opencode {
+        Opencode { model, ..self }
     }
 }
 

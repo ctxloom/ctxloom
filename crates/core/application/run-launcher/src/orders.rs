@@ -20,6 +20,9 @@ pub struct Order {
     pub prompt: String,
     /// The caller's environment: the engine passes on only what it allows.
     pub env: BTreeMap<String, String>,
+    /// The user's own home, as the composition root resolved it (the
+    /// platform's home variable); none when unset.
+    pub user_home: Option<String>,
     /// Where the turn's command runs.
     pub cwd: Option<String>,
     /// The human's terminal session, not a turn: the engine's command is
@@ -57,6 +60,7 @@ impl fmt::Debug for Order {
             .field("context", &self.context)
             .field("prompt", &self.prompt)
             .field("env", &run_ports::RedactedEnv(&self.env))
+            .field("user_home", &self.user_home)
             .field("cwd", &self.cwd)
             .field("interactive", &self.interactive)
             .field("model", &self.model)

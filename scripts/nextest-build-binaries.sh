@@ -21,13 +21,14 @@ set -euo pipefail
 cargo=${CARGO:-cargo}
 
 # The executable cargo built for `--bin <name>`, from its JSON messages (the
-# diagnostics are rendered to stderr, which nextest shows on a failure).
+# diagnostics are rendered to stderr, which nextest shows on a failure). A
+# Windows jq ends its line CRLF, and the CR is no part of the path.
 built() {
     local name=$1
     shift
     "$cargo" build --quiet --message-format=json-render-diagnostics "$@" --bin "$name" \
         | jq -r --arg name "$name" 'select(.reason == "compiler-artifact" and .target.name == $name
-            and .executable != null) | .executable'
+            and .executable != null) | .executable' | tr -d '\r'
 }
 
 ctxloom=$(built ctxloom --package ctxloom --features test-support,session-destroy)

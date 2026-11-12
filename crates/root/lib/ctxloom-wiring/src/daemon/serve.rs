@@ -42,10 +42,13 @@ use crate::{InProcessCore, Projectors};
 /// How long a daemon starting waits for the election.
 const ELECTION_WAIT: Duration = Duration::from_secs(5);
 
-/// Where the daemon is: the ctxloom home and the temporary root.
+/// Where the daemon is: the ctxloom home, the temporary root, the
+/// operating system's name and the user's own home (`Wiring::user_home`).
 pub(crate) struct Place {
     pub(crate) home: PathBuf,
     pub(crate) temp: PathBuf,
+    pub(crate) os: String,
+    pub(crate) user_home: Option<PathBuf>,
 }
 
 /// How the daemon paces itself.
@@ -72,7 +75,12 @@ pub(crate) fn serve(
     pace: Pace,
     say: Box<dyn FnMut(&str) + Send>,
 ) -> Result<(), String> {
-    let Place { home, temp } = place;
+    let Place {
+        home,
+        temp,
+        os,
+        user_home,
+    } = place;
     let home = home.as_path();
     let files = DaemonFiles::new(Arc::clone(&fs), home);
     let Some(_elected) = files.elect(ELECTION_WAIT) else {
@@ -134,6 +142,8 @@ pub(crate) fn serve(
                 program_dir: std::env::current_exe()
                     .ok()
                     .and_then(|exe| exe.parent().map(|dir| dir.display().to_string())),
+                os,
+                user_home: user_home.map(|home| home.to_string_lossy().into_owned()),
                 endpoint: endpoint.clone(),
                 cert: certificate.public().clone(),
             },

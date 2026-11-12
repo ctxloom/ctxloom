@@ -129,6 +129,9 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"STORE-CLOS
 
 #[test]
 fn test_a_one_shot_closes_its_store_before_it_exits() {
+    if !files::runs_scripts() {
+        return;
+    }
     let project = Project::initialized();
     project.bundle("demo");
     project.profile("dev", "demo");

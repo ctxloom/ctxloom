@@ -251,6 +251,9 @@ fn the_default_limit_is_gos_thirty_seconds() {
 // answer for the directory, asked one key at a time.
 #[test]
 fn the_user_is_gits_name_and_email_for_the_directory() {
+    if !runs_scripts() {
+        return;
+    }
     let (dir, git, _) = stub(
         r#"case "$*" in
   "config --get user.name") echo "Alice Example" ;;
@@ -272,6 +275,9 @@ esac"#,
 
 #[test]
 fn a_key_git_does_not_know_is_empty() {
+    if !runs_scripts() {
+        return;
+    }
     let (dir, _, _) = stub(
         r#"case "$*" in
   "config --get user.email") echo "a@x" ;;

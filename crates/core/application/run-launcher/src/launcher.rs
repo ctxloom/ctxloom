@@ -450,6 +450,9 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
                 .write(&order.harp, &format!("home/{}", file.rel), &file.bytes)
                 .map_err(|e| e.to_string())?;
         }
+        for seed in &prepared.seeds {
+            self.seed(order, &format!("home/{}", seed.rel), &seed.bytes)?;
+        }
         self.seed_git_user(order)?;
         let request = TurnRequest {
             prompt: order.prompt.clone(),
@@ -457,6 +460,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             context_path: prepared.context_path,
             resume: order.resume.clone(),
             env: order.env.clone(),
+            user_home: order.user_home.clone(),
             cwd: order.cwd.clone(),
             model: order.model.clone(),
             effort: order.effort.clone(),
@@ -487,13 +491,21 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             return Ok(());
         };
         let rel = format!("home/{}", run_ports::GIT_CONFIG_FILE);
+        self.seed(order, &rel, text.as_bytes())
+    }
+
+    /// Write `bytes` at `rel` of the session's directory once: when nothing
+    /// is there. One already there is left as it is: the `.gitconfig` a
+    /// tool of an earlier run wrote, the engine's seed (opencode's recent
+    /// models, owner ruling 167) the engine has rewritten since.
+    fn seed(&mut self, order: &Order, rel: &str, bytes: &[u8]) -> Result<(), String> {
         let there = self
             .records
-            .read(&order.harp, &rel)
+            .read(&order.harp, rel)
             .map_err(|e| e.to_string())?;
         if there.is_none() {
             self.records
-                .write(&order.harp, &rel, text.as_bytes())
+                .write(&order.harp, rel, bytes)
                 .map_err(|e| e.to_string())?;
         }
         Ok(())

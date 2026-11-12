@@ -75,6 +75,7 @@ fn spec(program: &str) -> ChildSpec {
         home: "/nowhere/home".to_string(),
         context_path: "/nowhere/home/ctxloom-context.md".to_string(),
         env: BTreeMap::from([("PATH".to_string(), "/usr/bin:/bin".to_string())]),
+        user_home: None,
         cwd: None,
         model: String::new(),
         effort: String::new(),
@@ -329,8 +330,14 @@ fn a_childs_transcripts_are_under_its_config_dir_by_its_working_directory() {
         crate::transcripts_of(&asked).as_deref(),
         Some("/nowhere/home/projects/-work-my-proj-v2")
     );
-    asked.env.insert("HOME".to_string(), "/home/u".to_string());
+    // Under `host` the config dir is under her home as the root resolved it,
+    // never the environment's `HOME`: with none resolved there is none.
+    asked
+        .env
+        .insert("HOME".to_string(), "/elsewhere".to_string());
     asked.settings.session_home = run_ports::SessionHome::Host;
+    assert_eq!(crate::transcripts_of(&asked), None, "no user home");
+    asked.user_home = Some("/home/u".to_string());
     assert_eq!(
         crate::transcripts_of(&asked).as_deref(),
         Some("/home/u/.claude/projects/-work-my-proj-v2")

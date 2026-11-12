@@ -611,7 +611,23 @@ impl Script {
     }
 }
 
+/// Where the scripted run is, its user's home the one the composition root
+/// resolves from the script's environment on unix.
+fn place(script: &Script) -> Place {
+    Place {
+        project_dir: "/work/proj".to_string(),
+        output_root: "/home/u/Documents/ctxloom/proj".to_string(),
+        program_dir: script.program_dir.to_string(),
+        user_home: script
+            .env
+            .iter()
+            .find(|(name, _)| *name == "HOME")
+            .map(|(_, home)| home.to_string()),
+    }
+}
+
 fn rig(script: Script) -> Rig {
+    let place = place(&script);
     let edge = Arc::new(TestEdge::new());
     let records = MemoryRecords::default();
     let orders = Arc::new(Orders::new());
@@ -678,11 +694,7 @@ fn rig(script: Script) -> Rig {
         launcher,
         dirs: Box::new(records.clone()),
         orders,
-        place: Place {
-            project_dir: "/work/proj".to_string(),
-            output_root: "/home/u/Documents/ctxloom/proj".to_string(),
-            program_dir: script.program_dir.to_string(),
-        },
+        place,
         env: script
             .env
             .iter()
@@ -1671,6 +1683,7 @@ async fn the_bearer_is_in_no_debug_or_error_rendering() {
                 context: String::new(),
                 prompt: String::new(),
                 env: command.env.clone(),
+                user_home: None,
                 cwd: None,
                 interactive: true,
                 model: String::new(),
@@ -1830,6 +1843,20 @@ async fn a_binary_whose_directory_is_unknown_leaves_the_path_as_it_was() {
     let mut unknown = Script::answering();
     unknown.program_dir = "";
     assert_eq!(interactive_path(unknown).await, "/bin");
+}
+
+// On Windows PATH's directories are joined by `;`: the running binary's
+// directory leads the inherited PATH as the platform joins it.
+#[tokio::test]
+async fn on_windows_the_running_binarys_directory_leads_the_path_with_a_semicolon() {
+    let mut windows = Script::answering();
+    windows.os = "windows";
+    windows.program_dir = r"C:\ctxloom";
+    windows.env = vec![("PATH", r"C:\Windows;C:\bin"), ("HOME", "/home/u")];
+    assert_eq!(
+        interactive_path(windows).await,
+        r"C:\ctxloom;C:\Windows;C:\bin"
+    );
 }
 
 // Ruling 51: a child's hooks are the bare `ctxloom` too, so the running

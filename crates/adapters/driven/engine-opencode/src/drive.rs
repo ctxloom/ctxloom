@@ -15,13 +15,14 @@
 //! The command's environment is built here and is all it gets: the session
 //! home as `OPENCODE_CONFIG_DIR`, every XDG base and `HOME` relocated into it
 //! (the user's own opencode config, data, state, cache and `~/.opencode` are
-//! neither read nor written), and the caller's variables on the allowlist,
+//! neither read nor written; her recent models alone seed the home, owner
+//! ruling 167), and the caller's variables on the allowlist,
 //! the engine block's `env` and the configured credential source.
 
 use std::collections::BTreeMap;
 
 use run_ports::{
-    Credentials, Engine, EngineError, PrepareRequest, Prepared, SessionHome, TurnCommand,
+    Credentials, Engine, EngineError, HomeFile, PrepareRequest, Prepared, SessionHome, TurnCommand,
     TurnOutcome, TurnOutput, TurnRequest,
 };
 
@@ -61,8 +62,11 @@ pub const SIGN_IN: &str = "run `opencode auth login`, then start the session aga
 /// network needs, the optional provider keys of opencode's built-in source,
 /// and what the plugin's hook
 /// processes need (ctxloom's home by name, the session's harp, the run's
-/// listener). Never `HOME`, an XDG base nor any `OPENCODE_*` variable of the
-/// caller's: `OPENCODE_PURE` would skip the plugin, and capture vanish.
+/// listener), and on Windows what a program needs to start
+/// (`run_ports::WINDOWS_STARTUP_VARIABLES`) and the user's profile
+/// directories (`run_ports::WINDOWS_PROFILE_VARIABLES`, relocated into the
+/// session home as `HOME` is; none is set on unix). Never `HOME`, an XDG base
+/// nor any `OPENCODE_*` variable of the caller's: `OPENCODE_PURE` would skip the plugin, and capture vanish.
 pub const ENV_ALLOWLIST: &[&str] = &[
     "PATH",
     "LANG",
@@ -77,6 +81,16 @@ pub const ENV_ALLOWLIST: &[&str] = &[
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
     "NODE_EXTRA_CA_CERTS",
+    "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "WINDIR",
+    "TEMP",
+    "TMP",
+    "PATHEXT",
+    "COMSPEC",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
     run_ports::HOME_VARIABLE,
@@ -89,8 +103,45 @@ pub const ENV_ALLOWLIST: &[&str] = &[
 ];
 
 /// The variables of the caller's environment the human's session is given:
-/// a turn's (the TUI is heard through the same plugin).
-pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = ENV_ALLOWLIST;
+/// a turn's (the TUI is heard through the same plugin), and the terminal's
+/// type and colour depth (`TERM`, `COLORTERM`), without which the TUI draws
+/// in no colour.
+pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = &[
+    "TERM",
+    "COLORTERM",
+    "PATH",
+    "LANG",
+    "LC_ALL",
+    "TMPDIR",
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "NO_PROXY",
+    "https_proxy",
+    "http_proxy",
+    "no_proxy",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "NODE_EXTRA_CA_CERTS",
+    "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "WINDIR",
+    "TEMP",
+    "TMP",
+    "PATHEXT",
+    "COMSPEC",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    run_ports::HOME_VARIABLE,
+    run_ports::ENDPOINT_VARIABLE,
+    run_ports::BEARER_VARIABLE,
+    run_ports::RUN_VARIABLE,
+    run_ports::TLS_CERT_VARIABLE,
+    run_ports::SESSION_VARIABLE,
+    run_ports::HARP_VARIABLE,
+];
 
 /// The variables a command is given whatever the config names: opencode's
 /// own, which the relocation sets, and `OPENCODE_PURE` above all.
@@ -123,6 +174,16 @@ impl Engine for Opencode {
             ),
             // Nothing of the user's own opencode configuration crosses.
             copy_in: Vec::new(),
+            // Of her state, her recent models alone, once, where the
+            // relocated state directory is (owner ruling 167); under a host
+            // home the state directory is her own.
+            seeds: match (&self.model, request.session_home) {
+                (Some(bytes), SessionHome::Session) => vec![HomeFile {
+                    rel: home::MODEL_SEED.to_string(),
+                    bytes: bytes.clone(),
+                }],
+                _ => Vec::new(),
+            },
             context_path: format!("{}/{CONTEXT_FILE}", request.home),
         })
     }
@@ -135,7 +196,7 @@ impl Engine for Opencode {
             command.args.push(native_id.clone());
         }
         push_model(&mut command.args, request);
-        command.env = environment(self, request)?;
+        command.env = environment(self, ENV_ALLOWLIST, request)?;
         command.stdin = request.prompt.clone().into_bytes();
         command.cwd = request.cwd.clone();
         Ok(command)
@@ -177,6 +238,12 @@ impl Engine for Opencode {
         true
     }
 
+    /// An agent with no model is told opencode chooses its own (owner
+    /// ruling 168).
+    fn advise(&self, planned: &run_ports::Planned) -> Vec<run_ports::Advice> {
+        crate::advice::advise(planned)
+    }
+
     /// The human's session: the TUI, given her terminal; the prompt (when she
     /// gave one) a flag.
     fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
@@ -190,7 +257,7 @@ impl Engine for Opencode {
             command.args.push("--prompt".to_string());
             command.args.push(request.prompt.clone());
         }
-        command.env = environment(self, request)?;
+        command.env = environment(self, INTERACTIVE_ENV_ALLOWLIST, request)?;
         command.cwd = request.cwd.clone();
         Ok(command)
     }
@@ -213,16 +280,18 @@ pub(crate) fn program(request: &TurnRequest) -> &str {
     }
 }
 
-/// The command's whole environment.
+/// The command's whole environment: the caller's variables on `curated`
+/// (a child's turn's list or the TUI's), the config's and the credential's.
 pub(crate) fn environment(
     engine: &Opencode,
+    curated: &[&str],
     request: &TurnRequest,
 ) -> Result<BTreeMap<String, String>, EngineError> {
     let settings = &request.settings;
     let policy = settings.credentials(engine.credentials());
     let passes = |name: &str| {
         !withheld(name)
-            && (ENV_ALLOWLIST.contains(&name)
+            && (curated.contains(&name)
                 || settings.env.iter().any(|n| n == name)
                 || policy.child_env.iter().any(|n| n == name))
     };
@@ -239,6 +308,9 @@ pub(crate) fn environment(
     match settings.session_home {
         SessionHome::Session => {
             env.insert("HOME".to_string(), home.clone());
+            // On Windows the profile variables with it (node's
+            // `os.homedir()` reads USERPROFILE there); none on unix.
+            env.extend(run_ports::session_profile(&home, &request.env));
             for (variable, dir) in [
                 ("XDG_CONFIG_HOME", "xdg/config"),
                 ("XDG_DATA_HOME", "xdg/data"),
@@ -249,9 +321,11 @@ pub(crate) fn environment(
             }
         }
         SessionHome::Host => {
+            // Her home as the composition root resolved it (USERPROFILE on
+            // Windows); her profile variables pass on as they are.
             let user = request
-                .env
-                .get("HOME")
+                .user_home
+                .as_ref()
                 .filter(|h| !h.is_empty())
                 .ok_or_else(|| EngineError::NoHostHome {
                     engine: NAME.to_string(),

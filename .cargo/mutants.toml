@@ -29,3 +29,9 @@ test_tool = "nextest"
 # failing exit as caught. With it the crate's mutants are missed, as they
 # are. The gates' `_tests` passes the same flag.
 additional_cargo_test_args = ["--no-tests=pass"]
+
+# The copy keeps the checkout's `.git` (a worktree's is a FILE naming its git
+# directory, which is how the gates' staged tree and mutants-batch's
+# throwaway worktree have it): the binary's build script stamps the build
+# with versionator, which reads git, and a build without a stamp fails.
+copy_vcs = true

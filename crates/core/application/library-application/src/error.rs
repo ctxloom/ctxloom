@@ -389,6 +389,9 @@ fn version_args(error: &AppError) -> Vec<(&str, Arg)> {
 pub enum Notice {
     /// A finding, in its own words.
     Finding { text: String, remedy: String },
+    /// What an engine says of a run's plan (owner ruling 168), in the
+    /// engine's own words: its code, args and catalog.
+    Engine(run_ports::Advice),
     /// A bundle that was skipped, and why.
     BundleSkipped {
         manifest: String,
@@ -448,6 +451,7 @@ impl Diagnostic for Notice {
     fn code(&self) -> &str {
         match self {
             Notice::Finding { .. } => code!("notice-finding"),
+            Notice::Engine(advice) => advice.code(),
             Notice::BundleSkipped { .. } => code!("notice-bundle-skipped"),
             Notice::ConfigKeyless { .. } => code!("notice-config-keyless"),
             Notice::RootIgnored { .. } => code!("notice-root-ignored"),
@@ -474,6 +478,7 @@ impl Diagnostic for Notice {
                 ("text", text.as_str().into()),
                 ("remedy", remedy.as_str().into()),
             ],
+            Notice::Engine(advice) => advice.args(),
             Notice::BundleSkipped {
                 manifest,
                 dir,

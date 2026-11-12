@@ -141,6 +141,9 @@ fn test_editing_a_project_with_no_config_says_so_and_names_the_fix() {
 // file; an editor that fails is an error.
 #[test]
 fn test_edit_opens_the_config_in_the_editor_of_the_environment() {
+    if !files::runs_scripts() {
+        return;
+    }
     let project = Project::initialized();
     let editor = project.dir().join("editor.sh");
     files::put_program(&editor, "#!/bin/sh\nprintf '# edited\\n' >> \"$1\"\n");

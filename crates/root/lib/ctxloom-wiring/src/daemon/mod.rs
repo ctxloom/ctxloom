@@ -326,7 +326,14 @@ fn launch(
     name: Option<String>,
 ) -> Result<Ordered, Failure> {
     let session = uuid::Uuid::now_v7().hyphenated().to_string();
-    let caller: BTreeMap<String, String> = env.vars_utf8().into_iter().collect();
+    // Keyed as the platform compares names (uppercase on Windows), as a
+    // run's environment is (`os::Flavor::env_key`).
+    let flavor = env.flavor();
+    let caller: BTreeMap<String, String> = env
+        .vars_utf8()
+        .into_iter()
+        .map(|(name, value)| (flavor.env_key(&name), value))
+        .collect();
     let settings = child_plan(
         wiring.home(),
         env.temp_dir(),
@@ -381,6 +388,8 @@ fn be_the_daemon(
     let place = serve::Place {
         home: wiring.home().to_path_buf(),
         temp: env.temp_dir().to_path_buf(),
+        os: wiring.os_name().to_string(),
+        user_home: wiring.user_home(),
     };
     serve::serve(wiring.fs(), place, pace, say)
         .map_err(|detail| failed(LibError::NoRuntime { detail }))?;

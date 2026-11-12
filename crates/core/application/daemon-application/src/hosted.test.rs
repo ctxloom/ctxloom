@@ -98,6 +98,7 @@ impl Engine for Scripted {
                 bytes: request.context.as_bytes().to_vec(),
             }],
             copy_in: Vec::new(),
+            seeds: Vec::new(),
             context_path: format!("{}/CONTEXT.md", request.home),
         })
     }
@@ -270,6 +271,8 @@ impl World {
             place: Place {
                 home: "/home/u".to_string(),
                 program_dir: Some("/opt/ctx".to_string()),
+                os: "linux".to_string(),
+                user_home: None,
                 endpoint: "https://127.0.0.1:1".to_string(),
                 cert: PublicCert::from_der(vec![0x30, 0x00]).unwrap(),
             },
@@ -421,9 +424,9 @@ async fn a_child_is_started_with_its_launchers_environment_and_the_runs_hooks() 
     assert_eq!(started, [4242], "recorded on the child's own run");
 }
 
-// A launcher that sent no `PATH`: the program's directory is the whole of it.
-#[tokio::test]
-async fn a_child_given_no_path_is_given_the_programs_directory_alone() {
+/// The spec a child is started with, by a daemon on `os` with the user's
+/// home `user_home`, whose launcher sent `path` as its `PATH`.
+async fn started_on(os: &str, path: &str, user_home: Option<&str>) -> run_ports::ChildSpec {
     let mut world = World::new(Box::new(Plans));
     world.daemon = Daemon::new(Ports {
         edge: Arc::clone(&world.edge),
@@ -436,7 +439,7 @@ async fn a_child_given_no_path_is_given_the_programs_directory_alone() {
         plans: Box::new(Plans),
         hand_offs: Box::new(HandOff(Mutex::new(Some(BTreeMap::from([(
             "PATH".to_string(),
-            String::new(),
+            path.to_string(),
         )]))))),
         homes: Box::new(Homes::default()),
         ears: Box::new(Listening::default()),
@@ -444,6 +447,8 @@ async fn a_child_given_no_path_is_given_the_programs_directory_alone() {
         place: Place {
             home: "/home/u".to_string(),
             program_dir: Some("/opt/ctx".to_string()),
+            os: os.to_string(),
+            user_home: user_home.map(str::to_string),
             endpoint: "https://127.0.0.1:1".to_string(),
             cert: PublicCert::from_der(vec![0x30, 0x00]).unwrap(),
         },
@@ -454,10 +459,28 @@ async fn a_child_given_no_path_is_given_the_programs_directory_alone() {
     world.mint(CHILD, "kid", Some(OWNER)).await;
     world.tick().await;
     let started = world.engine.started.lock().unwrap().clone();
+    started[0].clone()
+}
+
+// A launcher that sent no `PATH`: the program's directory is the whole of it.
+#[tokio::test]
+async fn a_child_given_no_path_is_given_the_programs_directory_alone() {
+    let spec = started_on("linux", "", None).await;
+    assert_eq!(spec.env.get("PATH").map(String::as_str), Some("/opt/ctx"));
+    assert_eq!(spec.user_home, None);
+}
+
+// On Windows the program's directory leads the `PATH` joined as Windows
+// joins it, and the user's home the root resolved (`USERPROFILE` there) is
+// the child's, as a value, never its environment's `HOME`.
+#[tokio::test]
+async fn a_childs_path_is_joined_as_its_platform_joins_it_and_it_is_told_her_home() {
+    let spec = started_on("windows", r"C:\Windows", Some(r"C:\Users\her")).await;
     assert_eq!(
-        started[0].env.get("PATH").map(String::as_str),
-        Some("/opt/ctx")
+        spec.env.get("PATH").map(String::as_str),
+        Some(r"/opt/ctx;C:\Windows")
     );
+    assert_eq!(spec.user_home.as_deref(), Some(r"C:\Users\her"));
 }
 
 // What the child says is recorded as its run's facts: its engine's session

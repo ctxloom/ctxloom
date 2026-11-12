@@ -196,6 +196,46 @@ secrets-scan-staged:
         gitleaks git --pre-commit --staged --redact --verbose --no-banner --no-color \
         --config '{{gates_root}}/.gitleaks.toml' '{{gates_root}}'
 
+# Refuse a commit message that carries an attribution trailer (owner ruling
+# 170): a line that is a `Co-Authored-By:` trailer, in any case, anywhere in
+# the message (the subject and body included, not only the trailer block),
+# leading space and a space before the colon allowed. Prose that only names
+# the words is not a trailer. What follows git's scissors line (`commit -v`'s
+# diff) is not the message, and is not judged. lefthook's commit-msg step,
+# given the message file.
+[no-exit-message]
+[private]
+[group('hook')]
+[doc("commit-msg: refuse an attribution trailer")]
+commit-msg-check msgfile:
+    @just --justfile '{{gates_root}}/justfile' _run commit-msg message trailers \
+        just --justfile '{{gates_root}}/justfile' _no-trailers '{{msgfile}}'
+
+# The judge of `commit-msg-check`: silent on a pass; on a failure, the summary
+# line, then each offending line by its number; exit 1.
+[no-exit-message]
+[private]
+[positional-arguments]
+_no-trailers msgfile:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    found=$(awk '
+        /^. -+ >8 -+$/ { exit }
+        tolower($0) ~ /^[ \t]*co-authored-by[ \t]*:/ { printf "line %d: %s\n", NR, $0 }
+    ' "$1")
+    if [ -n "$found" ]; then
+        echo "the message carries an attribution trailer (ruling 170: no attribution trailers); remove it and commit again"
+        echo "$found"
+        exit 1
+    fi
+
+# The commit-msg judge prints its own summary line, then a line per finding.
+[positional-arguments]
+_extract-trailers log rc:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cat "$1"
+
 # Every test in the workspace, by cargo-nextest (`_tests`), every feature of
 # `feature_rules` on.
 [no-exit-message]

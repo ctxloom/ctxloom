@@ -27,11 +27,55 @@ use crate::launcher::{TurnCommand, TurnOutput};
 pub const HOME_VARIABLE: &str = "CTXLOOM_HOME";
 
 /// A file to write under a session home.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct HomeFile {
     /// Slash-separated, relative to the home.
     pub rel: String,
     pub bytes: Vec<u8>,
+}
+
+impl fmt::Debug for HomeFile {
+    /// The path and the size alone: a home file can carry the user's own
+    /// engine settings, whose `env` may hold a secret (owner ruling 169).
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HomeFile")
+            .field("rel", &self.rel)
+            .field("bytes", &format!("<{} bytes>", self.bytes.len()))
+            .finish()
+    }
+}
+
+/// The user's own engine settings file, as the composition root found it
+/// (owner ruling 169): where it is, and its bytes when it read; none, a file
+/// that is there and could not be read. A file that is not there is no
+/// `UserSettings` at all. Its `Debug` names the path alone: the file's `env`
+/// may hold a secret.
+#[derive(Clone, PartialEq, Eq)]
+pub struct UserSettings {
+    pub path: String,
+    pub bytes: Option<Vec<u8>>,
+}
+
+impl fmt::Debug for UserSettings {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let bytes = match &self.bytes {
+            Some(bytes) => format!("<{} bytes>", bytes.len()),
+            None => "<unread>".to_string(),
+        };
+        f.debug_struct("UserSettings")
+            .field("path", &self.path)
+            .field("bytes", &bytes)
+            .finish()
+    }
+}
+
+/// A user's settings file a prepare left out of the session home because it
+/// is not a JSON object (or could not be read): by the engine and the file's
+/// path, never its content (owner ruling 169). The run says it as a notice.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LeftOut {
+    pub engine: String,
+    pub path: String,
 }
 
 /// What [`Engine::prepare`] is asked.
@@ -82,6 +126,9 @@ pub struct Prepared {
     pub seeds: Vec<HomeFile>,
     /// The context file's absolute path.
     pub context_path: String,
+    /// The user's own settings the engine would have started the home's
+    /// settings from and left out (owner ruling 169): the run says each.
+    pub left_out: Vec<LeftOut>,
 }
 
 /// One turn to drive.

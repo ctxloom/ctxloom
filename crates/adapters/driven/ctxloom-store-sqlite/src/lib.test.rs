@@ -581,3 +581,104 @@ async fn test_a_read_of_the_held_project_reuses_its_store() {
     );
     stores.close().await.unwrap();
 }
+
+// ------------------------------------------------------- private to its owner
+//
+// ctxloom's home directory, `<home>/.ctxloom`, is its owner's alone (0700,
+// owner ruling 2026-11-12), and so is the store (the opener's: its
+// directory 0700, the file, `-wal` and `-shm` 0600): every transcript is
+// in it. An existing one open to others is made so on the store's next
+// open, to write or to read. On Windows no mode is set (ruling M8: the
+// profile's ACL holds it), so those assertions are a named SKIP.
+
+/// Whether this host keeps mode bits; says the named SKIP when it does not.
+fn modes_kept(test: &str) -> bool {
+    if os::host().flavor() == os::Flavor::Windows {
+        println!(
+            "SKIP {test}: Windows keeps no mode bits; the profile's ACL holds the store (ruling M8)"
+        );
+        return false;
+    }
+    true
+}
+
+/// `path`'s permission bits.
+fn mode(fs: &Rooted, path: &str) -> u32 {
+    fs.metadata(Path::new(path))
+        .unwrap()
+        .mode
+        .expect("a mode on unix")
+        .bits()
+}
+
+#[tokio::test]
+async fn test_a_new_store_s_home_directory_and_file_are_its_owners_alone() {
+    let fs = Arc::new(Rooted::temp().unwrap());
+    fs.create_dir_all(Path::new("/home/u"), Mode::DIR).unwrap();
+    let store = Stores::new(fs.clone(), "/home/u")
+        .open("jolly-mute-magma")
+        .await
+        .unwrap();
+    store.close().await.unwrap();
+    if !modes_kept("test_a_new_store_s_home_directory_and_file_are_its_owners_alone") {
+        return;
+    }
+    assert_eq!(mode(&fs, "/home/u/.ctxloom"), 0o700, "ctxloom's home");
+    assert_eq!(
+        mode(&fs, "/home/u/.ctxloom/projects/jolly-mute-magma"),
+        0o700,
+        "the store's directory"
+    );
+    assert_eq!(
+        mode(&fs, "/home/u/.ctxloom/projects/jolly-mute-magma/ctxloom.db"),
+        0o600,
+        "the store"
+    );
+}
+
+#[tokio::test]
+async fn test_a_home_directory_open_to_others_is_made_its_owners_when_a_store_opens_to_write() {
+    let fs = Arc::new(Rooted::temp().unwrap());
+    // Made first by another writer, open to others.
+    fs.create_dir_all(Path::new("/home/u/.ctxloom"), Mode::DIR)
+        .unwrap();
+    let store = Stores::new(fs.clone(), "/home/u")
+        .open("jolly-mute-magma")
+        .await
+        .unwrap();
+    store.close().await.unwrap();
+    if !modes_kept(
+        "test_a_home_directory_open_to_others_is_made_its_owners_when_a_store_opens_to_write",
+    ) {
+        return;
+    }
+    assert_eq!(mode(&fs, "/home/u/.ctxloom"), 0o700);
+}
+
+#[tokio::test]
+async fn test_an_existing_store_open_to_others_is_made_its_owners_when_it_is_read() {
+    let fs = Arc::new(Rooted::temp().unwrap());
+    let stores = Stores::new(fs.clone(), "/home/u");
+    stores
+        .open("jolly-mute-magma")
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    let db = "/home/u/.ctxloom/projects/jolly-mute-magma/ctxloom.db";
+    fs.set_permissions(Path::new("/home/u/.ctxloom"), Mode::DIR)
+        .unwrap();
+    fs.set_permissions(Path::new(db), Mode::FILE).unwrap();
+    let mut port = super::SqliteStores::new(fs.clone(), "/home/u");
+    let found = ProjectStores::open_existing(&mut port, &project("jolly-mute-magma"))
+        .await
+        .unwrap();
+    assert!(found.is_some());
+    port.close().await.unwrap();
+    if !modes_kept("test_an_existing_store_open_to_others_is_made_its_owners_when_it_is_read") {
+        return;
+    }
+    assert_eq!(mode(&fs, "/home/u/.ctxloom"), 0o700, "ctxloom's home");
+    assert_eq!(mode(&fs, db), 0o600, "the store");
+}

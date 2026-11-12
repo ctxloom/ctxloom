@@ -19,8 +19,8 @@
 use std::collections::BTreeMap;
 
 use run_ports::{
-    copy_in, Credentials, Engine, EngineError, HomeFile, PrepareRequest, Prepared, SessionHome,
-    TurnCommand, TurnOutcome, TurnOutput, TurnRequest,
+    copy_in, Credentials, Engine, EngineError, HomeFile, LeftOut, PrepareRequest, Prepared,
+    SessionHome, TurnCommand, TurnOutcome, TurnOutput, TurnRequest,
 };
 
 use surface_ports::Json;
@@ -34,14 +34,10 @@ use crate::{stream, Claude, NAME};
 pub const HOOKS_FILE: &str = "ctxloom-hooks.json";
 
 /// The user-scope settings file of claude's config dir: in the session home,
-/// which is the session's CLAUDE_CONFIG_DIR, it holds the agent's
-/// permissions document and nothing else (owner ruling 145).
+/// which is the session's CLAUDE_CONFIG_DIR, it holds the user's own
+/// settings with the agent's permissions document as their `permissions`
+/// (owner rulings 145, 169), and none of ctxloom's hooks.
 pub const USER_SETTINGS_FILE: &str = "settings.json";
-
-/// The key of claude's settings that says the user accepted its
-/// bypass-permissions warning (claude 2.1.322: "Whether the user has accepted
-/// the bypass permissions mode dialog").
-pub const BYPASS_ACCEPTED_KEY: &str = "skipDangerousModePermissionPrompt";
 
 /// claude's own state file in its config dir (the session home): what it
 /// keeps of its onboarding and of each project it ran in.
@@ -166,9 +162,9 @@ pub const LOGIN_FILE: &str = ".credentials.json";
 pub const SIGN_IN: &str = "sign in with /login in the session, or run `claude setup-token` (it needs a Pro, Max, Team or Enterprise plan), then export CLAUDE_CODE_OAUTH_TOKEN";
 
 /// The files of the user's own claude configuration that are copied into a
-/// session home. None yet: which of them a child may see is the owner's to
-/// rule, and until then no file of `~/.claude` crosses (one value does: her
-/// acceptance of the bypass-permissions warning, owner ruling 166).
+/// session home as they are. None: her `settings.json` is the base of the
+/// home's own (owner ruling 169, [`Claude::over_user_settings`]), and no
+/// other file of `~/.claude` crosses.
 pub const COPY_IN_ALLOWLIST: &[&str] = &[];
 
 impl Engine for Claude {
@@ -189,10 +185,13 @@ impl Engine for Claude {
                 bytes: hooks_settings(request, &self.program)?.into_bytes(),
             },
         ];
+        let mut left_out = Vec::new();
         if request.session_home == SessionHome::Session {
+            let (base, skipped) = user_base(self.user_settings.as_ref());
+            left_out.extend(skipped);
             files.push(HomeFile {
                 rel: USER_SETTINGS_FILE.to_string(),
-                bytes: user_settings(request, self.bypass_accepted)?.into_bytes(),
+                bytes: user_settings(request, base)?.into_bytes(),
             });
         }
         let existing = request.existing.get(STATE_FILE).map(Vec::as_slice);
@@ -207,6 +206,7 @@ impl Engine for Claude {
             copy_in: copy_in(COPY_IN_ALLOWLIST, &request.offered),
             seeds: Vec::new(),
             context_path: format!("{}/{CONTEXT_PROMPT_FILE}", request.home),
+            left_out,
         })
     }
 
@@ -293,14 +293,21 @@ fn document(request: &PrepareRequest) -> Result<Option<Json>, EngineError> {
 }
 
 /// The session home's user-scope `settings.json` (claude's config dir is the
-/// session home): `{"permissions": <the agent's document>}` exactly as it was
-/// handed (owner rulings 135, 137: claude's own words, never checked; the
-/// mode is its `defaultMode`, and no `--permission-mode` is passed), else
-/// `{}`, written whole at every launch (T21). It is a file of its own, apart
-/// from the hooks (owner ruling 145): claude refuses a settings file whole for
-/// one invalid value ("These settings files did not load, so nothing in them
-/// is in effect, including hooks and permission rules", probed on 2.1.322),
-/// so a bad value here disables the block alone and the hooks still load.
+/// session home): the user's own settings (`base`, owner ruling 169: her
+/// attribution, model, env, plugins, hooks, statusline and the rest, her
+/// acceptance of the bypass-permissions warning among them, which ruling 166
+/// carried alone) with `permissions` replaced WHOLE by the agent's document
+/// exactly as it was handed (owner rulings 135, 137: claude's own words,
+/// never checked; the mode is its `defaultMode`, and no `--permission-mode`
+/// is passed), and with no document, none of hers left either. Written whole
+/// at every launch (T21), so an edit of hers reaches the next launch and the
+/// session's own does not outlive it. ctxloom's hooks and statusline are not
+/// here but in [`HOOKS_FILE`], the `--settings` file, which outranks user
+/// scope. It is a file of its own, apart from the hooks (owner ruling 145):
+/// claude refuses a settings file whole for one invalid value ("These
+/// settings files did not load, so nothing in them is in effect, including
+/// hooks and permission rules", probed on 2.1.322), so a bad value here (hers
+/// or the agent's) disables this file alone and the hooks still load.
 ///
 /// User scope is claude's lowest file scope: the project's own
 /// `.claude/settings.json` (and `.local`) override a single value of it, and
@@ -309,29 +316,41 @@ fn document(request: &PrepareRequest) -> Result<Option<Json>, EngineError> {
 /// whose `defaultMode` may be `auto` or `bypassPermissions` (those "don't take
 /// effect from project or local settings"). A profile's `deny_tools` stays the
 /// project file's `permissions.deny` (surface apply), merged by claude.
-///
-/// A fresh config dir would ask again for the bypass-permissions warning the
-/// user accepted in her own settings, whose default answer ends the session;
-/// when she accepted it (`bypass_accepted`), the file carries her acceptance
-/// beside the document, and nothing else of her settings (owner ruling 166).
-fn user_settings(request: &PrepareRequest, bypass_accepted: bool) -> Result<String, EngineError> {
-    let mut doc = match document(request)? {
-        Some(permissions) => Json::object([("permissions", permissions)]),
-        None => Json::Object(Vec::new()),
-    };
-    if bypass_accepted {
-        doc.set(BYPASS_ACCEPTED_KEY, Json::Bool(true));
+fn user_settings(request: &PrepareRequest, base: Json) -> Result<String, EngineError> {
+    let mut doc = base;
+    match document(request)? {
+        Some(permissions) => {
+            doc.set("permissions", permissions);
+        }
+        None => {
+            doc.remove("permissions");
+        }
     }
     Ok(format!("{}\n", doc.pretty()))
 }
 
-/// Whether the user's own claude settings (the text of her config dir's
-/// `settings.json`) say she accepted the bypass-permissions warning: the key
-/// at the top, `true`; anything else, or a file that does not read, is not.
-pub fn accepts_bypass(user_settings: &str) -> bool {
-    Json::parse(user_settings)
-        .ok()
-        .is_some_and(|doc| doc.get(BYPASS_ACCEPTED_KEY) == Some(&Json::Bool(true)))
+/// What the session home's settings start from (owner ruling 169): the
+/// user's own when they are a JSON object; none of hers, `{}`; one that is
+/// not an object (or could not be read), `{}` and the file named as left out.
+fn user_base(user: Option<&run_ports::UserSettings>) -> (Json, Option<LeftOut>) {
+    let Some(user) = user else {
+        return (Json::Object(Vec::new()), None);
+    };
+    let parsed = user
+        .bytes
+        .as_deref()
+        .and_then(|bytes| std::str::from_utf8(bytes).ok())
+        .and_then(|text| Json::parse(text).ok());
+    match parsed {
+        Some(doc @ Json::Object(_)) => (doc, None),
+        _ => (
+            Json::Object(Vec::new()),
+            Some(LeftOut {
+                engine: NAME.to_string(),
+                path: user.path.clone(),
+            }),
+        ),
+    }
 }
 
 /// ctxloom's hooks file, which the command names with `--settings`: the

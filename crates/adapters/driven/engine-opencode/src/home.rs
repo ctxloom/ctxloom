@@ -73,25 +73,88 @@ pub fn user_model_file(
     xdg_state_home: Option<&str>,
     os: &str,
 ) -> Option<String> {
-    match xdg_state_home.filter(|dir| run_ports::is_absolute(os, dir)) {
-        Some(dir) => Some(format!("{dir}/opencode/model.json")),
+    xdg_file(home, xdg_state_home, USER_STATE_DIR, "model.json", os)
+}
+
+/// opencode's global config directory under the user's home (XDG's default,
+/// on every platform, as its state directory); `XDG_CONFIG_HOME`, set to an
+/// absolute path, moves it to `$XDG_CONFIG_HOME/opencode`.
+const USER_CONFIG_DIR: &str = ".config/opencode";
+
+/// The user's own global `opencode.json` (owner ruling 169): in
+/// `$XDG_CONFIG_HOME/opencode` when that is an absolute path on `os`, else
+/// under her `home`; none when she has neither.
+pub fn user_config_file(
+    home: Option<&str>,
+    xdg_config_home: Option<&str>,
+    os: &str,
+) -> Option<String> {
+    xdg_file(home, xdg_config_home, USER_CONFIG_DIR, CONFIG_FILE, os)
+}
+
+/// `name` of opencode's directory under the XDG base `xdg` when that is an
+/// absolute path on `os`, else under `home`'s `default_dir`.
+fn xdg_file(
+    home: Option<&str>,
+    xdg: Option<&str>,
+    default_dir: &str,
+    name: &str,
+    os: &str,
+) -> Option<String> {
+    match xdg.filter(|dir| run_ports::is_absolute(os, dir)) {
+        Some(dir) => Some(format!("{dir}/opencode/{name}")),
         None => home
             .filter(|home| !home.is_empty())
-            .map(|home| format!("{home}/{USER_STATE_DIR}/model.json")),
+            .map(|home| format!("{home}/{default_dir}/{name}")),
     }
 }
 
-/// The session home's config: the agent's permissions document, exactly as
-/// handed, as its `permission` object (owner rulings 135, 137: opencode's own
-/// words, never checked; 1.18.4 reads the keyed `permission` object and makes
-/// its rule list from it); none, an empty config, so a document an earlier run
-/// of the session wrote does not outlive the one that took it out.
-pub(crate) fn config(permissions: Option<&Json>) -> String {
-    let doc = match permissions {
-        Some(document) => Json::object([("permission", document.clone())]),
-        None => Json::Object(Vec::new()),
-    };
+/// The session home's config (`opencode.json`): `base` (the user's own global
+/// config under a session home, owner ruling 169; `{}` otherwise) with its
+/// `permission` replaced WHOLE by the agent's permissions document, exactly
+/// as handed (owner rulings 135, 137: opencode's own words, never checked;
+/// 1.18.4 reads the keyed `permission` object and makes its rule list from
+/// it); with no document, none of hers left either. Written whole at every
+/// launch, so a document an earlier run of the session wrote does not
+/// outlive the one that took it out.
+pub(crate) fn config(base: Json, permissions: Option<&Json>) -> String {
+    let mut doc = base;
+    match permissions {
+        Some(document) => {
+            doc.set("permission", document.clone());
+        }
+        None => {
+            doc.remove("permission");
+        }
+    }
     format!("{}\n", doc.pretty())
+}
+
+/// What the session config starts from (owner ruling 169): the user's own
+/// global config when it is a JSON object; none of hers, `{}`; one that is
+/// not an object (JSONC with comments among them) or did not read, `{}` and
+/// the file named as left out.
+pub(crate) fn user_base(
+    user: Option<&run_ports::UserSettings>,
+) -> (Json, Option<run_ports::LeftOut>) {
+    let Some(user) = user else {
+        return (Json::Object(Vec::new()), None);
+    };
+    let parsed = user
+        .bytes
+        .as_deref()
+        .and_then(|bytes| std::str::from_utf8(bytes).ok())
+        .and_then(|text| Json::parse(text).ok());
+    match parsed {
+        Some(doc @ Json::Object(_)) => (doc, None),
+        _ => (
+            Json::Object(Vec::new()),
+            Some(run_ports::LeftOut {
+                engine: crate::NAME.to_string(),
+                path: user.path.clone(),
+            }),
+        ),
+    }
 }
 
 /// The files of a session home, `context` its `AGENTS.md`, `config` its

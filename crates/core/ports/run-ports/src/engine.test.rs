@@ -111,3 +111,39 @@ fn an_engine_that_says_nothing_does_not_end_its_session_by_its_exit() {
 fn an_engine_that_says_nothing_advises_nothing() {
     assert!(Plain.advise(&crate::Planned::default()).is_empty());
 }
+
+// Ruling 169: a session home's files carry the user's own engine settings,
+// whose `env` may hold a secret, so a file renders by its path and size alone.
+#[test]
+fn a_home_file_renders_its_path_and_never_its_bytes() {
+    let file = HomeFile {
+        rel: "settings.json".to_string(),
+        bytes: br#"{"env":{"TOKEN":"TOPSECRET"}}"#.to_vec(),
+    };
+    assert_eq!(
+        format!("{file:?}"),
+        r#"HomeFile { rel: "settings.json", bytes: "<29 bytes>" }"#
+    );
+}
+
+// Ruling 169: the user's own settings are named by their path; what they say
+// never renders.
+#[test]
+fn the_users_settings_render_their_path_and_never_their_bytes() {
+    let read = crate::UserSettings {
+        path: "/home/a/.claude/settings.json".to_string(),
+        bytes: Some(br#"{"env":{"TOKEN":"TOPSECRET"}}"#.to_vec()),
+    };
+    assert_eq!(
+        format!("{read:?}"),
+        r#"UserSettings { path: "/home/a/.claude/settings.json", bytes: "<29 bytes>" }"#
+    );
+    let unread = crate::UserSettings {
+        path: "/p".to_string(),
+        bytes: None,
+    };
+    assert_eq!(
+        format!("{unread:?}"),
+        r#"UserSettings { path: "/p", bytes: "<unread>" }"#
+    );
+}

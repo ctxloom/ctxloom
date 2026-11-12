@@ -42,6 +42,10 @@ pub enum RunError {
     Launch(LaunchError),
     /// The engine's command could not be started.
     NotStarted { detail: String },
+    /// The engine's command is too long for the platform to start (a
+    /// terminal session's opening prompt): refused before the spawn, in
+    /// run-ports' own words.
+    TooLong(Box<run_ports::CommandTooLong>),
     /// The turn failed, in the class the engine named.
     Turn { class: FailureClass, detail: String },
     /// The turn answered with nothing.
@@ -70,7 +74,10 @@ impl ExitClass for RunError {
             {
                 Exit::FATAL_FINDINGS
             }
-            RunError::Refused(_) | RunError::Bind(_) | RunError::Resume(_) => Exit::REFUSED,
+            RunError::Refused(_)
+            | RunError::Bind(_)
+            | RunError::Resume(_)
+            | RunError::TooLong(_) => Exit::REFUSED,
             RunError::Session(CoreError::Refused { .. }) => Exit::REFUSED,
             // Held by another process: the session or run is live (ruling
             // 152); a lock file not made is a failure, below.
@@ -124,6 +131,7 @@ impl Diagnostic for RunError {
             RunError::Refused(rejection) => rejection.code(),
             RunError::Resume(rejection) => rejection.code(),
             RunError::Bind(error) => error.code(),
+            RunError::TooLong(refusal) => refusal.code(),
             RunError::Project(_) => code!("project"),
             RunError::Listener(_) => code!("listener"),
             RunError::Lock(_) => code!("lock"),
@@ -149,6 +157,7 @@ impl Diagnostic for RunError {
             RunError::Refused(rejection) => rejection.args(),
             RunError::Resume(rejection) => rejection.args(),
             RunError::Bind(error) => error.args(),
+            RunError::TooLong(refusal) => refusal.args(),
             RunError::Project(report) => vec![("reason", report.code().into())],
             RunError::Listener(report) => vec![("reason", report.code().into())],
             RunError::Lock(error) => vec![("reason", error.report().code().into())],

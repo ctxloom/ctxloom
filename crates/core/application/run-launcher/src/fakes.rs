@@ -368,6 +368,8 @@ impl RunnerLauncher for ScriptedRunner {
 pub struct ScriptedEngine {
     pub outcome: TurnOutcome,
     pub refuses_to_drive: bool,
+    /// What its prepare says it left out of the home (owner ruling 169).
+    pub left_out: Vec<run_ports::LeftOut>,
 }
 
 impl ScriptedEngine {
@@ -378,6 +380,20 @@ impl ScriptedEngine {
                 native_id: native_id.map(String::from),
             },
             refuses_to_drive: false,
+            left_out: Vec::new(),
+        }
+    }
+
+    /// The same, saying it left the user's settings at [`LEFT_OUT`] out.
+    // A test double shipped for tests only; its tests are the callers' own.
+    #[cfg_attr(test, mutants::skip)]
+    pub fn leaving_out(self) -> ScriptedEngine {
+        ScriptedEngine {
+            left_out: vec![run_ports::LeftOut {
+                engine: "fake".to_string(),
+                path: LEFT_OUT.to_string(),
+            }],
+            ..self
         }
     }
 }
@@ -404,6 +420,7 @@ impl Engine for ScriptedEngine {
             copy_in: Vec::new(),
             seeds: Vec::new(),
             context_path: format!("{}/ctx.md", request.home),
+            left_out: self.left_out.clone(),
         })
     }
 
@@ -619,6 +636,10 @@ impl Engine for Seeding {
         self.0.drive_interactive(request)
     }
 }
+
+/// A path of the user's own settings a [`ScriptedEngine`] can say it left
+/// out of its home (owner ruling 169).
+pub const LEFT_OUT: &str = "/home/u/.fake/settings.json";
 
 /// A file of a session directory, by its harp and relative path.
 type Files = BTreeMap<(String, String), Vec<u8>>;

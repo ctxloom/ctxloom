@@ -23,6 +23,8 @@ copy: this repository holds only ctxloom.
 
 # Working rules
 
+A branch keeps CLAUDE.md true for the facts it changes, in the same branch (ruling 171).
+
 ## Tests go in `*.test.rs` files beside the code they test
 
 A source file `foo.rs` keeps its tests in `foo.test.rs` in the same
@@ -275,7 +277,8 @@ resolves them in the project (`worktree-git`'s `Git::user`,
 `run_ports::git_config`, written by the launcher): a file, not
 `GIT_AUTHOR_*`/`GIT_COMMITTER_*` (they would outrank a repository's own
 user), and nothing else of her git configuration (no signing key, credential
-helper or alias). claude's own state file in the session home,
+helper or alias); not under `session_home: host`, where the engine's
+`HOME` is hers and already holds it (`Launcher::seed_git_user`). claude's own state file in the session home,
 `.claude.json`, is seeded (owner ruling 113) with `hasCompletedOnboarding:
 true` and `projects.<the run's directory>.hasTrustDialogAccepted: true`, the
 keys claude 2.1.322 reads (no theme picker, security notes or trust prompt),
@@ -284,13 +287,44 @@ into, and the launcher hands their bytes in `PrepareRequest::existing` with
 the run's `cwd`; one that is not a JSON object is left as it is). It is
 claude's undocumented state: a release that changes it shows the onboarding
 again (visible, not harmful). The session home's user-scope `settings.json`
-also carries `skipDangerousModePermissionPrompt: true` when, and only when,
-the user's own claude settings say it (owner ruling 166: claude's config dir
-as claude finds it, `$CLAUDE_CONFIG_DIR` else `~/.claude`, read by the
-wiring's `claude_bypass_accepted` and told to `Claude::accepting_bypass`):
-a fresh config dir would otherwise ask again for the bypass-permissions
-warning she accepted, whose default answer ends the session; nothing else of
-her settings crosses. The terminal session (claude's and opencode's TUI) is
+is the USER'S OWN claude `settings.json` with ctxloom's values laid over it
+(owner ruling 169, reversing "nothing else of her settings crosses" of
+rulings 112 and 166): read from claude's config dir as claude finds it,
+`$CLAUDE_CONFIG_DIR` else `~/.claude` (the wiring's `claude_user_settings`,
+told to `Claude::over_user_settings` as a `run_ports::UserSettings`), its
+`permissions` replaced WHOLE by the agent's document (none: none of hers
+left either), everything else of hers kept (attribution, model,
+`effortLevel`, `env`, plugins, hooks, `statusLine`, and her
+`skipDangerousModePermissionPrompt`: ruling 166 is now a case of the copy).
+ctxloom's hooks and statusline stay in `ctxloom-hooks.json`, the
+`--settings` file, which outranks user scope. It is rewritten from hers at
+every launch (T21); no file of hers is a start from `{}`; one that is not a
+JSON object, or does not read, is left out (the home starts from `{}`) and
+said as the notice `library-application-notice-user-settings-left-out`
+naming its path (`Prepared::left_out`, `Launched::left_out`), never a
+refusal. Under `session_home: host` nothing is copied (the config dir IS
+hers, never written). No value of hers renders: `UserSettings`'s and
+`HomeFile`'s `Debug` show a path and a size alone (her `env` may hold a
+secret). Cost: her hooks fire in the session too, and an invalid value of
+hers disables the agent's permissions with them (one file, ruling 145's
+caveat). Every command is measured against the platform's command line
+once it is complete and before it is spawned (owner ruling, 2026-11-12;
+`run_ports::check_command_line`, called in one place, the launcher's
+prepare, `Launcher::on_os(wiring.os_name())`): the terminal session's
+opening prompt is the one piece of content on an engine's command line
+(claude's positional prompt, opencode's `--prompt`; a child's turn has it on
+stdin, which is not measured). One table of constants, no libc call:
+Windows, 32767 UTF-16 units for the whole line, its NUL included, counted as
+std quotes it (a `.cmd`/`.bat` program as if every unit were escaped);
+Linux, 131072 bytes per argument or environment string, its NUL included
+(MAX_ARG_STRLEN). Linux's total (ARG_MAX, a quarter of the stack rlimit) and
+macOS's (`kern.argmax`, a sysctl) are not constants and the platform crates
+read neither, so no total is checked: such a command fails at the spawn as
+before. A command over a limit is `run-ports-command-too-long` (exit 20,
+`RunError::TooLong`, the launch's `Outcome::TooLong`; the run ends
+launch-failed, nothing is spawned), its fix: start the session without the
+prompt and paste it, or `run --one-shot`, which reads the prompt from
+stdin. The terminal session (claude's and opencode's TUI) is
 also given `TERM` and `COLORTERM`, without which it draws in no colour; a
 child's turn is given neither. The session home's `ctxloom-hooks.json` calls `ctxloom
 hook claude-code execute <Event>`. The interactive home registers the session,
@@ -510,9 +544,10 @@ order it was written (`DryRun::permissions`, `library_application::json::
 document_text`), the order and the launcher hand it to `Engine::prepare`
 (`PrepareRequest::permissions`), and the config writer keeps it in its own
 order (`library::write::section::sorted_section`; the rest of the agents
-section is sorted as ever). engine-claude writes it as `{"permissions":
-<block>}`, the whole of the session home's user-scope `settings.json` (the
-home is the session's `CLAUDE_CONFIG_DIR`; `{}` with none), APART from
+section is sorted as ever). engine-claude writes it as the `permissions`
+of the session home's user-scope `settings.json`, over the user's own
+settings (ruling 169, above; the home is the session's `CLAUDE_CONFIG_DIR`;
+none of either, `{}`), APART from
 ctxloom's hooks, which are `ctxloom-hooks.json`, the file `--settings` names
 (owner ruling 145: claude 2.1.322 refuses a settings file whole for one
 invalid value, hooks included, so a bad value disables the block alone; the
@@ -526,8 +561,16 @@ passed, claude's mode is the document's `defaultMode`. A profile's
 `deny_tools` stays `permissions.deny` of the project's `.claude/settings.json`
 (surface apply), and claude merges the files' lists itself. engine-opencode writes the session home's `opencode.json`
 (`OPENCODE_CONFIG_DIR`, which opencode 1.18.4 reads after the project's) with
-the document as its `permission` object (`{}` with none, so no earlier run's
-lingers; read from the 1.18.4 bundle, not run live). A document that is not
+the document as its `permission` object (none, no `permission`, so no earlier
+run's lingers; read from the 1.18.4 bundle, not run live), over the user's
+own global config by analogy with claude's (ruling 169, an extension the
+owner is to confirm): `opencode.json` of `$XDG_CONFIG_HOME/opencode` when
+absolute, else `~/.config/opencode` (xdg-basedir, as its state directory;
+`engine_opencode::user_config_file`, the wiring's `opencode_user_config`,
+`Opencode::over_user_config`), its `permission` replaced whole, one that is
+not a JSON object (a JSONC file with comments among them) left out with the
+same notice; under `session_home: host` opencode reads hers itself and
+nothing is copied. Her `opencode.jsonc` and `config.json` are not read. A document that is not
 JSON is `run-ports-engine-bad-permissions` (ctxloom's own rendering, so a
 bug). Both files are rewritten whole from the order at EVERY launch (T21: a
 fresh session, a turn, a resume; neither is in `Engine::merges`), so an
@@ -788,6 +831,12 @@ angzarr-embedded's `sqlite` feature), opened at
 file name, the placement and the port, over ctxloom-lib's `sqlite-store-opener`,
 which refuses a store from before the embedded store, `ctxloom.db.pre-embedded`
 naming its backup), beside taskloom's `state.db` and never the same file (D26).
+The store is its owner's alone (owner ruling 2026-11-12): every open, to
+write or to read, sets ctxloom's home `.ctxloom` 0700 (`ctxloom-store-sqlite`)
+and the store's directory 0700 and its file, `-wal` and `-shm` 0600 (the
+opener's), so an existing store open to others is tightened on its next open;
+a mode that cannot be set fails the open (`sqlite-store-opener-restrict`). On
+Windows no mode is set: the profile's ACL holds it (ruling M8).
 A store is closed, never dropped, where its file matters after (ruling 131):
 angzarr-embedded's `SqliteStore::close` waits for the connection's close, so
 the last close's checkpoint and the log's removal are over when it returns
@@ -1381,6 +1430,18 @@ is how 280 survivors reached `main` once (2026-11-04). Nothing runs
 cargo-mutants but the `mutants-staged` gate recipe, which `mutants-batch`
 drives. A failing gate is a finding: fix the cause and commit again; never
 `--no-verify`, and never weaken a gate to get through.
+
+No commit carries an attribution trailer (owner ruling 170), and the
+`commit-msg` hook holds every commit to it: `just commit-msg-check <file>`
+(the private `_no-trailers` in `gates/gates.just`) refuses a message with a
+`Co-Authored-By:` trailer line, in any case, on any line (the subject and
+body too, leading space and a space before the colon allowed; prose that
+only names the words passes), printing `FAIL commit-msg: the message
+carries an attribution trailer ...` and each offending line by number; a
+pass is one `ok   commit-msg (message)` line. What follows git's scissors
+line (`commit -v`'s diff) is not judged. Its self-test is
+`scripts/commit-msg.selftest.sh` (`just selftest`). A clone installs the
+hook with `just hooks-install` once more (`gates/MIGRATING.md`).
 
 1. **fmt** formats the staged `*.rs` files in the index (`just
    fmt-staged`) rather than refusing an unformatted commit. A fully staged

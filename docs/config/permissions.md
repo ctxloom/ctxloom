@@ -30,11 +30,14 @@ What each engine is handed:
 
 | Engine | Where the block is merged |
 |---|---|
-| claude-code | the `permissions` object of the user-scope `settings.json` of the session's own claude config dir (the session home, which ctxloom sets as `CLAUDE_CONFIG_DIR`): a file that holds the block and nothing else, apart from `ctxloom-hooks.json`, ctxloom's hooks, which claude is handed with `--settings` |
-| opencode | the `permission` object of the `opencode.json` ctxloom writes in the session home (`OPENCODE_CONFIG_DIR`) |
+| claude-code | the `permissions` object of the user-scope `settings.json` of the session's own claude config dir (the session home, which ctxloom sets as `CLAUDE_CONFIG_DIR`): a copy of your own claude `settings.json` (from `$CLAUDE_CONFIG_DIR`, else `~/.claude`) with the block as its `permissions`, apart from `ctxloom-hooks.json`, ctxloom's hooks, which claude is handed with `--settings` |
+| opencode | the `permission` object of the `opencode.json` ctxloom writes in the session home (`OPENCODE_CONFIG_DIR`): a copy of your own global `opencode.json` (from `$XDG_CONFIG_HOME/opencode`, else `~/.config/opencode`) with the block as its `permission` |
 
-ctxloom's own keys are never overwritten by the block: the block becomes the
-one key, `permissions` or `permission`, and nothing else.
+The block replaces your own `permissions` (`permission`) WHOLE: nothing of
+yours in that key reaches the session; the rest of your settings
+(attribution, model, env, plugins, hooks, statusline, ...) do (owner ruling
+169). A file of yours that is not a JSON object is left out, and the run says
+so naming it. Under `session_home: host` nothing of yours is copied.
 
 **A bad value disables the block alone.** claude refuses a settings file
 whole when one value in it is invalid ("These settings files did not load,
@@ -42,7 +45,8 @@ so nothing in them is in effect, including hooks and permission rules"). The
 block is therefore in a file of its own: an invalid value in it turns off
 your permissions, and claude says so naming that file, while ctxloom's hooks
 (and so the session's transcript) still load (owner ruling 145). A key claude
-does not know, alone, is tolerated.
+does not know, alone, is tolerated. Your own settings share that file, so an
+invalid value of yours turns the block off too.
 
 These files are in the session's own directory, where the agent's own file
 tools can reach them, so ctxloom writes each one again, whole, from your

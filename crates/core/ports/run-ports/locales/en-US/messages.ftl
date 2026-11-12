@@ -28,3 +28,5 @@ run-ports-bind-no-bridge-gateway = the { $runtime } child's bridge network has n
 run-ports-bind-no-bridge-gateway-fix = create the run's user-defined bridge network first, then retry
 run-ports-bind-unspecified = the hook listener would bind { $addr }, an address on every interface
 run-ports-bind-told-other-than-bound = the child would be told to dial { $told }, which is not the listener's address { $bind }, so its token would go to an interface the listener is not on
+run-ports-command-too-long = the engine's command is too long to start on { $os }: its { $measure } is { $length } where at most { $limit } fit, and the session's opening prompt is the one long part of it
+run-ports-command-too-long-fix = start the session without the prompt and paste it in once it is open, or use `ctxloom run --one-shot`, which reads the prompt from stdin

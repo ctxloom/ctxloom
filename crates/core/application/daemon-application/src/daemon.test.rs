@@ -310,6 +310,92 @@ async fn the_start_sweeps_a_killed_daemons_child_and_ends_it_once() {
         .is_empty());
 }
 
+/// Enqueue `CHILD`'s first run (its lock `RUN_LOCK`), and start it when
+/// `started`.
+async fn a_run(edge: &Arc<TestEdge>, started: bool) {
+    mint(edge, CHILD, "kid", "claude-code", None).await;
+    runs_application::Enqueuer::new(Arc::clone(edge), Arc::new(Counting::default()))
+        .enqueue(runs_application::EnqueueRequest {
+            session: CHILD.to_string(),
+            incarnation: 1,
+            mode: runs::RunMode::Interactive,
+            evidence: runs_application::Evidence::passing("claude-code"),
+            launcher_lock: RUN_LOCK.to_string(),
+        })
+        .await
+        .unwrap();
+    if !started {
+        return;
+    }
+    let who = runs_application::Identity {
+        run: runs::run_root(CHILD, 1),
+        session: uuid(CHILD),
+        incarnation: 1,
+        harp: "kid".to_string(),
+        depth: 0,
+    };
+    runs_application::Facts::new(Arc::clone(edge))
+        .record(
+            &who,
+            runs_application::RunnerFact::RunnerStarted(runs::RunnerStarted {
+                runtime: "host".to_string(),
+                workspace: "/work".to_string(),
+                pid: 7,
+            }),
+        )
+        .await
+        .unwrap();
+}
+
+/// How `CHILD`'s first run ended, each time.
+async fn run_ends(edge: &TestEdge) -> Vec<runs::EndCause> {
+    let run = Cover {
+        domain: runs::RUN_DOMAIN.to_string(),
+        root: Some(runs::run_root(CHILD, 1)),
+        edition: None,
+    };
+    events(edge, &run)
+        .await
+        .into_iter()
+        .filter_map(|any| match RunEvent::from_any(&any).unwrap() {
+            RunEvent::RunEnded(ended) => Some(ended.cause),
+            _ => None,
+        })
+        .collect()
+}
+
+// M9: a run started and not ended whose owner lives (an interactive session
+// the CLI runs, not a child the daemon hosts) keeps the daemon busy.
+#[tokio::test]
+async fn a_run_another_process_started_and_has_not_ended_is_live() {
+    let edge = Arc::new(TestEdge::new());
+    a_run(&edge, true).await;
+    let mut daemon = daemon(&edge, Vec::new(), Plans::default(), LockProbe::Held);
+    assert_eq!(daemon.live_runs(&edge.store, edge.catalog()).await, Ok(1));
+    assert!(run_ends(&edge).await.is_empty(), "nothing is ended");
+}
+
+// M9: one whose owner is gone is ended as the start's sweep would, and
+// keeps nobody busy.
+#[tokio::test]
+async fn a_run_whose_owner_is_gone_is_ended_and_is_not_live() {
+    let edge = Arc::new(TestEdge::new());
+    a_run(&edge, true).await;
+    let mut daemon = daemon(&edge, Vec::new(), Plans::default(), LockProbe::Free);
+    assert_eq!(daemon.live_runs(&edge.store, edge.catalog()).await, Ok(0));
+    assert_eq!(run_ends(&edge).await, [runs::EndCause::RunnerLoss]);
+    assert_eq!(daemon.live_runs(&edge.store, edge.catalog()).await, Ok(0));
+}
+
+// M9: a run still owed a runner has not started: it is not live yet.
+#[tokio::test]
+async fn a_run_not_started_is_not_live() {
+    let edge = Arc::new(TestEdge::new());
+    a_run(&edge, false).await;
+    let mut daemon = daemon(&edge, Vec::new(), Plans::default(), LockProbe::Held);
+    assert_eq!(daemon.live_runs(&edge.store, edge.catalog()).await, Ok(0));
+}
+
 // A host still holding a child's run lock is alive: the start sweeps
 // nothing.
 #[tokio::test]

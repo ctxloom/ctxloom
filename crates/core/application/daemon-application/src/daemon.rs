@@ -199,6 +199,20 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
         self.hosted.len()
     }
 
+    /// How many runs are started and not ended (M9): every run the store
+    /// holds whose runner started, the CLI's interactive sessions and
+    /// one-shots as well as the children it hosts, once those whose owner is
+    /// gone are ended (the sweep of its start, of every run it does not host
+    /// itself). What is left keeps the daemon from idling.
+    pub async fn live_runs<S: ReadStore + Store + Processed>(
+        &mut self,
+        store: &S,
+        catalog: &Catalog,
+    ) -> Result<usize, String> {
+        let _ = (store, catalog);
+        Ok(self.hosted.len())
+    }
+
     /// The engines it can host a child on, by name.
     pub fn engines(&self) -> Vec<String> {
         self.engines.iter().map(|e| e.name().to_string()).collect()

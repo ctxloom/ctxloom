@@ -731,7 +731,9 @@ fn an_applied_removal_says_destroyed_and_adds_no_notice() {
         "session amber-swift-owl: destroyed, 7 event(s) of it and its runs; its name stays taken\n"
     ));
     assert!(without_authored(ran.result.unwrap()).is_empty());
-    assert!(fake.remove[0].yes);
+    // Planned first (its refusals asked, nothing applied), then applied.
+    let asked: Vec<bool> = fake.remove.iter().map(|r| r.yes).collect();
+    assert_eq!(asked, [false, true]);
 }
 
 /// A command's notices but the authored-files warning (owner ruling 104),

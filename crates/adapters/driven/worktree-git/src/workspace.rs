@@ -383,11 +383,19 @@ impl Workspaces for GitWorkspaces {
     }
 
     fn session_known(&self, harp: &str) -> Result<bool, Failure> {
-        Ok(is_name(harp)
-            && self
-                .fs
-                .metadata(&self.sessions.join(harp))
-                .is_ok_and(|meta| meta.kind == Kind::Dir))
+        if !is_name(harp) {
+            return Ok(false);
+        }
+        let dir = self
+            .fs
+            .metadata(&self.sessions.join(harp))
+            .is_ok_and(|meta| meta.kind == Kind::Dir);
+        let lock = || {
+            self.fs
+                .metadata(&self.sessions.join(format!("{harp}.lock")))
+                .is_ok_and(|meta| meta.kind == Kind::File)
+        };
+        Ok(dir || lock())
     }
 
     fn scratch(&self, harp: Option<&str>) -> Result<Vec<Scratch>, Failure> {

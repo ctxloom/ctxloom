@@ -187,7 +187,15 @@ it, so its tests and `--all-targets` lint compile the destroy (no
 from the store, the session's stream and each run stream UUIDv5(session,
 1..=n), each guarded by the head just read (retried on a conflict), then
 removes the session's whole directory (authored files too, a login link never
-followed) and its lock; the name's claim is kept. The streams go first, so a
+followed) and its lock; the name's claim is kept. Before any of it, `session
+remove` classifies the session's scratch worktrees, changing nothing, and
+asks the session's own refusals of a plan: a worktree spared (work in it) or
+skipped (its owner not proven ended) refuses the whole removal,
+`isolation-application-keeps-session` (exit 20, `--even-if-live` too: it
+reaches no worktree), and nothing is applied; otherwise the clean ones are
+removed, and only once each is gone is the session destroyed (F2; a
+worktree that went dirty in between is left and the session kept). `session
+sweep` keeps its own order, worktree rows first. The streams go first, so a
 failure removing the directory leaves a session nothing lists. A hook fact
 redelivered after it finds no session and records nothing. It is refused, as
 before, for a session whose lock does not prove it ended (held, or none)

@@ -97,7 +97,8 @@ pub trait Workspaces {
     /// (the `Err`), never a degrade and never adopted.
     fn prepare(&self, request: &Request) -> Result<Prepared, Failure>;
 
-    /// Whether `harp` has a session directory at all.
+    /// Whether the project holds session `harp` at all: its directory, or
+    /// the lock its state is read from.
     fn session_known(&self, harp: &str) -> Result<bool, Failure>;
 
     /// The scratch checkouts under the sessions' work directories: one

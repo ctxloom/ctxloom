@@ -8,7 +8,7 @@ use angzarr_diagnostic::Diagnostic;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use angzarr_presentation::{write_json, Format};
-use isolation_application::{IsolationError, WorktreeUse};
+use isolation_application::{IsolationError, Report, WorktreeUse};
 use reclaim_application::SweepConfig;
 #[cfg(feature = "session-destroy")]
 use reclaim_application::{purge_cutoff, ReclaimError, SweepRequest};
@@ -325,28 +325,30 @@ async fn remove<S: SessionService + WorktreeUse>(
     format: Format,
     out: &mut dyn Write,
 ) -> Result<Done, Failure> {
-    let removal = service
-        .remove(RemoveRequest {
-            project: None,
-            harp: args.harp.clone(),
-            yes: args.yes,
-            even_if_live: args.even_if_live,
-        })
-        .await
-        .map_err(failure)?;
-    // Destroying a session covers the scratch worktrees living inside it, and
-    // reaches exactly the verdicts the worktree leaf reaches on its own (Go:
-    // `session purge` drove isolation.ReapWorktrees). A refused removal
-    // touches nothing; a session with no directory has none.
-    let worktrees = if removal.refusal.is_none() {
-        match service.worktrees(Some(&args.harp), args.yes) {
-            Ok(report) => Some(report).filter(|r| !r.worktrees.is_empty()),
-            Err(IsolationError::NoSession { .. }) => None,
-            Err(error) => return Err(isolation_failure(error)),
-        }
-    } else {
-        None
+    let ask = |yes| RemoveRequest {
+        project: None,
+        harp: args.harp.clone(),
+        yes,
+        even_if_live: args.even_if_live,
     };
+    // A session goes whole or not at all (F2, session_worktrees.feature):
+    // its scratch worktrees are classified first, changing nothing, and the
+    // session's own refusals are asked of a plan, so a refused removal
+    // applies nothing. Only then are the worktrees removed, and only once
+    // every one of them is gone is the session destroyed. A session with no
+    // directory has none.
+    let mut worktrees = session_worktrees(service, &args.harp, false)?;
+    let mut removal = service.remove(ask(false)).await.map_err(failure)?;
+    let mut kept = worktrees.as_ref().and_then(|r| keeps(&args.harp, r));
+    if removal.refusal.is_none() && kept.is_none() && args.yes {
+        if worktrees.is_some() {
+            worktrees = session_worktrees(service, &args.harp, true)?;
+            kept = worktrees.as_ref().and_then(|r| keeps(&args.harp, r));
+        }
+        if kept.is_none() {
+            removal = service.remove(ask(true)).await.map_err(failure)?;
+        }
+    }
     wrote(match format {
         Format::Json => write_json(out, &RemovalDoc::of(&removal, worktrees.as_ref())),
         Format::Text => removal_text(&removal, out).and_then(|()| match &worktrees {
@@ -357,6 +359,10 @@ async fn remove<S: SessionService + WorktreeUse>(
     let mut done = dead_letters(&removal.dead_letters);
     if let Some(refusal) = removal.refusal {
         return Err(Failure::new(refusal, Exit::REFUSED, done.lines));
+    }
+    if let Some(kept) = kept {
+        let exit = kept.exit();
+        return Err(Failure::new(kept, exit, done.lines));
     }
     // Owner ruling 104: what a person wrote goes with the session, so it is
     // named first, a warning and never a refusal; a refused removal destroys
@@ -381,6 +387,33 @@ async fn remove<S: SessionService + WorktreeUse>(
         }));
     }
     Ok(done)
+}
+
+/// A session's scratch worktrees, classified (and with `apply`, the reapable
+/// ones removed); none for a session with no directory or no worktree.
+#[cfg(feature = "session-destroy")]
+fn session_worktrees<S: WorktreeUse>(
+    service: &mut S,
+    harp: &str,
+    apply: bool,
+) -> Result<Option<Report>, Failure> {
+    match service.worktrees(Some(harp), apply) {
+        Ok(report) => Ok(Some(report).filter(|r| !r.worktrees.is_empty())),
+        Err(IsolationError::NoSession { .. }) => Ok(None),
+        Err(error) => Err(isolation_failure(error)),
+    }
+}
+
+/// The refusal of a session a worktree keeps: one spared (work in it) or
+/// skipped (not provably safe to look at) is never removed, so neither is
+/// its session.
+#[cfg(feature = "session-destroy")]
+fn keeps(harp: &str, report: &Report) -> Option<IsolationError> {
+    (report.spared + report.skipped > 0).then(|| IsolationError::KeepsSession {
+        harp: harp.to_string(),
+        spared: report.spared,
+        skipped: report.skipped,
+    })
 }
 
 /// `session sweep`: report every session's fate, and with `--yes` act on

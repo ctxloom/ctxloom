@@ -146,6 +146,17 @@ fn daemon(
     plans: Plans,
     locks: LockProbe,
 ) -> Daemon<TestEdge, Counting> {
+    daemon_saying(edge, engines, plans, locks, Box::new(|_| {}))
+}
+
+/// A daemon whose log is `say`.
+fn daemon_saying(
+    edge: &Arc<TestEdge>,
+    engines: Vec<HostedEngine>,
+    plans: Plans,
+    locks: LockProbe,
+    say: Box<dyn FnMut(&str) + Send>,
+) -> Daemon<TestEdge, Counting> {
     Daemon::new(Ports {
         edge: Arc::clone(edge),
         tokens: Arc::new(Counting::default()),
@@ -162,7 +173,7 @@ fn daemon(
             cert: PublicCert::from_der(vec![0x30, 0x00]).unwrap(),
         },
         folds: Folds::default(),
-        say: Box::new(|_| {}),
+        say,
     })
 }
 
@@ -386,4 +397,100 @@ async fn a_draining_daemon_starts_no_child() {
     daemon.tick(&edge.store, edge.catalog(), true).await;
     assert!(plans.0.lock().unwrap().is_empty());
     assert!(ended(&session_events(&edge, CHILD).await).is_empty());
+}
+
+/// Send `command` to `session`'s stream.
+async fn command(edge: &TestEdge, session: &str, command: sessions::SessionCommand) {
+    let book = CommandBook::command_of(session_cover(session), &command);
+    edge.handle(book).await.unwrap();
+}
+
+/// A daemon over `OWNER`, which launched `CHILD` (an opencode child, whose
+/// incarnation has ended) with a first task: the task is a WAKE, and a
+/// child off claude takes an inform alone, so the session refuses it each
+/// time it is sent. What the daemon logs.
+async fn a_refused_first_task(
+    edge: &Arc<TestEdge>,
+) -> (Daemon<TestEdge, Counting>, Arc<Mutex<Vec<String>>>) {
+    mint(edge, OWNER, "boss", "claude-code", None).await;
+    mint(edge, CHILD, "kid", "opencode", Some(OWNER)).await;
+    runs_application::Facts::new(Arc::clone(edge))
+        .incarnation_ended(CHILD, 1, "runner-exit")
+        .await
+        .unwrap();
+    command(
+        edge,
+        OWNER,
+        sessions::SessionCommand::from(sessions::LaunchChild {
+            child_project_id: "calm-otter".to_string(),
+            child_session: CHILD.to_string(),
+            child_root: "/work".to_string(),
+            harp: "kid".to_string(),
+            engine: "opencode".to_string(),
+            trust: sessions::TargetTrust {
+                same_project: true,
+                trusted: false,
+            },
+            delegation_limit: 4,
+            requester: None,
+            prompt: "port the parser".to_string(),
+        }),
+    )
+    .await;
+    let said = Arc::new(Mutex::new(Vec::new()));
+    let log = Arc::clone(&said);
+    let daemon = daemon_saying(
+        edge,
+        Vec::new(),
+        Plans::default(),
+        LockProbe::Unproven,
+        Box::new(move |line| log.lock().unwrap().push(line.to_string())),
+    );
+    (daemon, said)
+}
+
+/// How many times the child's first task was refused.
+fn refusals(said: &Mutex<Vec<String>>) -> usize {
+    let refused = format!("launch:{CHILD} refused");
+    said.lock()
+        .unwrap()
+        .iter()
+        .filter(|line| line.starts_with(&refused))
+        .count()
+}
+
+// A step refused is not sent again while the store has not changed: a
+// second round over the same store sends nothing.
+#[tokio::test]
+async fn a_refused_step_is_not_retried_while_the_store_is_unchanged() {
+    let edge = Arc::new(TestEdge::new());
+    let (mut daemon, said) = a_refused_first_task(&edge).await;
+    assert!(daemon.tick(&edge.store, edge.catalog(), false).await);
+    assert_eq!(refusals(&said), 1);
+    assert!(!daemon.tick(&edge.store, edge.catalog(), false).await);
+    assert_eq!(refusals(&said), 1, "not retried");
+}
+
+// A step refused is sent again once the store changed: a new event on a
+// session the board folds (an inform to the child) clears the refusals.
+#[tokio::test]
+async fn a_refused_step_is_retried_once_the_store_changed() {
+    let edge = Arc::new(TestEdge::new());
+    let (mut daemon, said) = a_refused_first_task(&edge).await;
+    daemon.tick(&edge.store, edge.catalog(), false).await;
+    assert_eq!(refusals(&said), 1);
+    command(
+        &edge,
+        CHILD,
+        sessions::SessionCommand::from(sessions::SendMessage {
+            message_id: "m1".to_string(),
+            urgency: sessions::Urgency::Inform,
+            text: "an inform".to_string(),
+            requester: None,
+            supported: vec![sessions::Urgency::Inform],
+        }),
+    )
+    .await;
+    assert!(daemon.tick(&edge.store, edge.catalog(), false).await);
+    assert_eq!(refusals(&said), 2, "retried");
 }

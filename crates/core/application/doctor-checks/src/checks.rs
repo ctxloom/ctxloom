@@ -399,6 +399,11 @@ pub fn stale_hooks(stale: &[(String, Stale)]) -> Check {
     row(M, N, Status::Warn, &detail, "ctxloom doctor --fix")
 }
 
+/// `GO-ERA-HOOK-n6`: each Go-era entry left alone (red stub).
+pub fn go_era_hooks(_entries: &[(String, Stale)]) -> Vec<Check> {
+    Vec::new()
+}
+
 /// `INGESTION-q7`: the one thing no check can confirm.
 pub fn ingestion() -> Check {
     row(

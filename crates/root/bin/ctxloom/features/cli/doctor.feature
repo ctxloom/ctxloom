@@ -384,8 +384,25 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
     `ctxloom hook` subcommand the binary does not have is ctxloom's own
     leftover, in the project's settings and in the user's.
 
+    Owner ruling 162: Go ctxloom and this one coexist, and both write hook
+    entries into the user's shared `~/.claude/settings.json`. The one form
+    this ctxloom writes is `ctxloom hook <engine> execute <Event>` (the
+    Rust-era entry); every other `ctxloom hook ...` entry is Go-era, and may
+    be a LIVE hook of a Go ctxloom still installed (`ctxloom hook
+    stamp-plan`). So the home config's `legacy.go` decides: `present` (the
+    default) reports each Go-era entry as an `info` row, left alone, and
+    `--fix` never touches it; `retired` makes a Go-era entry stale, and
+    `--fix` removes it. A Rust-era entry is managed the same either way.
+    These scenarios name Go-era entries stale, so they retire Go first.
+
     Scenario: Doctor names a stale ctxloom hook entry and --fix removes exactly it
       Given an initialized ctxloom project
+      And the home already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        legacy:
+          go: retired
+        """
       And the project already has the file ".claude/settings.json":
         """
         {
@@ -446,6 +463,12 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
       # fixed the user's files under CTXLOOM_HOME)
       Given an initialized ctxloom project
       And ctxloom's home is "ctxloom-home" in her home
+      And the home already has the file "ctxloom-home/.ctxloom/config.yaml":
+        """
+        schema_version: 9
+        legacy:
+          go: retired
+        """
       And the home already has the file ".claude/settings.json":
         """
         {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "ctxloom hook inject-context abc123"}]}]}}
@@ -471,6 +494,141 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
       When I run "ctxloom doctor --fix"
       Then the command succeeds
       And the home file "ctxloom-home/.claude/settings.json" contains "inject-context"
+
+  Rule: A Go-era hook is Go ctxloom's while legacy.go says it is present
+
+    # new: owner ruling 162. Go ctxloom's live hook in the user's shared
+    # settings is not this ctxloom's leftover; deleting it breaks Go.
+    Scenario: A Go-era hook entry is reported and --fix leaves it while Go ctxloom is present
+      Given an initialized ctxloom project
+      And the home already has the file ".claude/settings.json":
+        """
+        {"hooks": {
+          "PostToolUse": [{"matcher": "Edit|Write", "hooks": [{"type": "command", "command": "ctxloom hook stamp-plan"}]}],
+          "SessionStart": [{"hooks": [{"type": "command", "command": "ctxloom hook claude-code execute SessionStart"}]}]
+        }}
+        """
+      When Alice checks her setup while Go ctxloom still runs beside this one:
+        """
+        ctxloom doctor --all
+        """
+      Then the command succeeds
+      And the output contains "DOCTOR-CHECK-GO-ERA-HOOK-n6"
+      And the output contains "Go-era hook, left alone"
+      And the output contains "PostToolUse runs `ctxloom hook stamp-plan` (~/.claude/settings.json)"
+      When I run "ctxloom --format json doctor"
+      Then the command succeeds
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-GO-ERA-HOOK-n6" and whose "status" is "info"
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-STALE-HOOKS-n5" and whose "status" is "ok"
+      When I run "ctxloom doctor --fix"
+      Then the command succeeds
+      And the home file ".claude/settings.json" contains "ctxloom hook stamp-plan"
+      And the home file ".claude/settings.json" contains "ctxloom hook claude-code execute SessionStart"
+
+    Scenario: Once Go ctxloom is retired, a Go-era hook entry is stale and --fix removes it
+      Given an initialized ctxloom project
+      And the home already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        legacy:
+          go: retired
+        """
+      And the home already has the file ".claude/settings.json":
+        """
+        {"hooks": {
+          "PostToolUse": [{"matcher": "Edit|Write", "hooks": [{"type": "command", "command": "ctxloom hook stamp-plan"}]}],
+          "SessionStart": [{"hooks": [{"type": "command", "command": "ctxloom hook claude-code execute SessionStart"}]}]
+        }}
+        """
+      When I run "ctxloom --format json doctor"
+      Then the command succeeds
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-STALE-HOOKS-n5" and whose "status" is "warn"
+      And the output does not contain "DOCTOR-CHECK-GO-ERA-HOOK-n6"
+      When I run "ctxloom doctor --fix"
+      Then the command succeeds
+      And the home file ".claude/settings.json" does not contain "stamp-plan"
+      And the home file ".claude/settings.json" contains "ctxloom hook claude-code execute SessionStart"
+
+    Scenario Outline: A Rust-era hook entry is managed alike whatever legacy.go says
+      Given an initialized ctxloom project
+      And the home already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        legacy:
+          go: <legacy>
+        """
+      And the home already has the file ".claude/settings.json":
+        """
+        {"hooks": {
+          "SessionStart": [{"hooks": [{"type": "command", "command": "ctxloom hook claude-code execute SessionStart"}]}],
+          "Stop": [{"hooks": [{"type": "command", "command": "ctxloom", "args": ["hook", "claude-code", "execute", "Stop"]}]}]
+        }}
+        """
+      When I run "ctxloom --format json doctor"
+      Then the command succeeds
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-STALE-HOOKS-n5" and whose "status" is "ok"
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-HOOKS-TRUST-d4" and whose "status" is "ok"
+      And the output does not contain "DOCTOR-CHECK-GO-ERA-HOOK-n6"
+      When I run "ctxloom doctor --fix"
+      Then the command succeeds
+      And the home file ".claude/settings.json" contains "ctxloom hook claude-code execute SessionStart"
+      And the home file ".claude/settings.json" contains '"args": ["hook", "claude-code", "execute", "Stop"]'
+
+      Examples:
+        | legacy  |
+        | present |
+        | retired |
+
+  Rule: legacy.go is a word of the home config alone
+
+    Whether Go ctxloom still runs is a fact of this machine, not of a
+    checked-out repository: a project's config that says it is refused (a
+    project could otherwise retire Go and have `doctor --fix` delete the
+    user's live Go hooks). Its values are words, never a boolean.
+
+    # new: owner ruling 162
+    Scenario: The home config says legacy.go, and a run reads it
+      Given an initialized ctxloom project
+      And the home already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        legacy:
+          go: present
+        """
+      When I run "ctxloom engine list"
+      Then the command succeeds
+
+    Scenario: A project's config cannot say legacy.go
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        legacy:
+          go: retired
+        """
+      When I run "ctxloom engine list"
+      Then the command exits with code 20
+      And the output contains "legacy.go"
+      And the output contains "home config"
+
+    Scenario Outline: legacy.go takes present or retired, nothing else
+      Given an initialized ctxloom project
+      And the home already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        legacy:
+          go: <value>
+        """
+      When I run "ctxloom engine list"
+      Then the command exits with code 20
+      And the output contains "legacy.go"
+      And the output contains '"present", "retired"'
+
+      Examples:
+        | value |
+        | true  |
+        | yes   |
+        | gone  |
 
   Rule: The report ends on a stated limit rather than going quiet
 

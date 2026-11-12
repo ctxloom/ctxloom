@@ -109,8 +109,8 @@ pub fn registered(text: &str) -> bool {
     parse(text).is_some_and(|doc| entries(&doc).iter().any(|(_, c)| hook_sub(c).is_some()))
 }
 
-/// The stale entries of a settings file.
-pub fn stale(text: &str) -> Vec<Stale> {
+/// The Go-era entries of a settings file.
+pub fn go_era(text: &str) -> Vec<Stale> {
     parse(text)
         .map(|doc| {
             entries(&doc)

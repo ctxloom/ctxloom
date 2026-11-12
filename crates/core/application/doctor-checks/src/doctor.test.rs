@@ -145,6 +145,104 @@ fn project() -> Arc<Mem> {
     mem
 }
 
+/// `mem` with a home config that says Go ctxloom is retired (ruling 162).
+fn retired(mem: Arc<Mem>) -> Arc<Mem> {
+    mem.files.lock().unwrap().insert(
+        "/home/u/.ctxloom/config.yaml".to_string(),
+        "schema_version: 9\nlegacy:\n  go: retired\n".to_string(),
+    );
+    mem
+}
+
+const GO_AND_RUST: &str = r#"{"hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"command":"ctxloom hook stamp-plan"}]}],"SessionStart":[{"hooks":[{"command":"ctxloom hook session-bind"},{"command":"ctxloom hook claude-code execute SessionStart"}]}]}}"#;
+
+// Owner ruling 162: while Go ctxloom is present (the default, and said), a
+// Go-era entry is an info row of its own, the stale row stays ok, and --fix
+// leaves the file as it was.
+#[test]
+fn a_go_era_entry_is_reported_and_left_alone_while_go_is_present() {
+    for home in [None, Some("schema_version: 9\nlegacy:\n  go: present\n")] {
+        let mem = project();
+        if let Some(home) = home {
+            mem.files
+                .lock()
+                .unwrap()
+                .insert("/home/u/.ctxloom/config.yaml".to_string(), home.to_string());
+        }
+        mem.files.lock().unwrap().insert(
+            "/home/u/.claude/settings.json".to_string(),
+            GO_AND_RUST.to_string(),
+        );
+        let doctor = doctor(&mem, true);
+        let report = doctor.report(false);
+        assert_eq!(status(&report, "DOCTOR-CHECK-STALE-HOOKS-n5"), Status::Ok);
+        let go: Vec<&crate::Check> = report
+            .checks
+            .iter()
+            .filter(|c| c.marker == "DOCTOR-CHECK-GO-ERA-HOOK-n6")
+            .collect();
+        assert_eq!(go.len(), 2, "{home:?}");
+        assert!(go.iter().all(|c| c.status == Status::Info));
+        assert!(go[0]
+            .detail
+            .contains("PostToolUse runs `ctxloom hook stamp-plan` (~/.claude/settings.json)"));
+        assert!(go[1]
+            .detail
+            .contains("SessionStart runs `ctxloom hook session-bind`"));
+        assert!(!report.failed());
+        assert!(doctor.fix().unwrap().is_empty());
+        assert_eq!(
+            mem.files.lock().unwrap()["/home/u/.claude/settings.json"],
+            GO_AND_RUST
+        );
+    }
+}
+
+// Once Go is retired, the same entries are stale, no info row is given, and
+// --fix removes them and keeps the Rust-era entry.
+#[test]
+fn a_go_era_entry_is_stale_and_fixed_once_go_is_retired() {
+    let mem = retired(project());
+    mem.files.lock().unwrap().insert(
+        "/home/u/.claude/settings.json".to_string(),
+        GO_AND_RUST.to_string(),
+    );
+    let doctor = doctor(&mem, true);
+    let report = doctor.report(false);
+    assert_eq!(status(&report, "DOCTOR-CHECK-STALE-HOOKS-n5"), Status::Warn);
+    assert!(report
+        .checks
+        .iter()
+        .all(|c| c.marker != "DOCTOR-CHECK-GO-ERA-HOOK-n6"));
+    let removed = doctor.fix().unwrap();
+    let subs: Vec<&str> = removed.iter().map(|r| r.sub.as_str()).collect();
+    assert_eq!(subs, ["stamp-plan", "session-bind"]);
+    let kept = mem.files.lock().unwrap()["/home/u/.claude/settings.json"].clone();
+    assert!(kept.contains("ctxloom hook claude-code execute SessionStart"));
+    assert!(!kept.contains("stamp-plan") && !kept.contains("session-bind"));
+}
+
+// A config no run can read retires nothing: Go is taken as present, so a
+// broken config never lets --fix delete Go's live hooks.
+#[test]
+fn a_refused_config_leaves_go_era_entries_alone() {
+    let mem = project();
+    mem.files.lock().unwrap().insert(
+        "/home/u/.ctxloom/config.yaml".to_string(),
+        "schema_version: 9\nlegacy:\n  go: retired\nnosuch: 1\n".to_string(),
+    );
+    mem.files.lock().unwrap().insert(
+        "/home/u/.claude/settings.json".to_string(),
+        GO_AND_RUST.to_string(),
+    );
+    let doctor = doctor(&mem, true);
+    assert!(doctor.fix().unwrap().is_empty());
+    assert_eq!(
+        status(&doctor.report(false), "DOCTOR-CHECK-STALE-HOOKS-n5"),
+        Status::Ok
+    );
+}
+
 fn status(report: &crate::Report, marker: &str) -> Status {
     report
         .checks
@@ -189,7 +287,7 @@ fn deps_narrows_to_the_capability_probes() {
 // exactly it" (the project's settings and the user's).
 #[test]
 fn fix_removes_the_stale_entries_of_the_project_and_the_user_and_then_the_row_is_ok() {
-    let mem = project();
+    let mem = retired(project());
     let stale = r#"{"hooks":{"SessionStart":[{"hooks":[{"command":"ctxloom hook inject-context abc"},{"command":"ctxloom hook claude-code execute SessionStart"}]}]}}"#;
     mem.files
         .lock()
@@ -464,7 +562,7 @@ fn a_private_state_pattern_left_out_is_named() {
 // another home (CTXLOOM_HOME's), which is the two-homes defect.
 #[test]
 fn without_her_home_none_of_her_files_is_read() {
-    let mem = project();
+    let mem = retired(project());
     let stale =
         r#"{"hooks":{"SessionStart":[{"hooks":[{"command":"ctxloom hook inject-context abc"}]}]}}"#;
     mem.files.lock().unwrap().insert(

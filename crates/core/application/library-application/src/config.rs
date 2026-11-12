@@ -41,6 +41,14 @@ pub enum OnRun {
     Missing,
 }
 
+/// Whether Go ctxloom still runs on this machine (`legacy.go`, owner ruling
+/// 162).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LegacyGo {
+    Present,
+    Retired,
+}
+
 /// The configuration, read.
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -398,6 +406,11 @@ impl Config {
             "none" => OnRun::None,
             _ => OnRun::Missing,
         }
+    }
+
+    /// Whether Go ctxloom still runs (red stub).
+    pub fn legacy_go(&self) -> LegacyGo {
+        LegacyGo::Present
     }
 
     /// Where a session's outputs go, as written: `output.dir`, else

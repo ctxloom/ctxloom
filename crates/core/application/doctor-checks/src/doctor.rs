@@ -143,7 +143,7 @@ impl Doctor {
         let settings = self.present(&self.settings_paths());
         let mut stale = Vec::new();
         for (file, text) in &settings {
-            stale.extend(hooks::stale(text).into_iter().map(|s| (file.clone(), s)));
+            stale.extend(hooks::go_era(text).into_iter().map(|s| (file.clone(), s)));
         }
         let mcp = self.present(&self.mcp_paths());
         let mcp_and_settings: Vec<(String, String)> =
@@ -161,7 +161,8 @@ impl Doctor {
             None => Vec::new(),
         };
         let refused = self.refusal();
-        Report {
+        let go_era = checks::go_era_hooks(&[]);
+        let mut report = Report {
             checks: vec![
                 checks::setup_marker(
                     root.is_some(),
@@ -178,7 +179,9 @@ impl Doctor {
                 checks::stale_hooks(&stale),
                 checks::ingestion(),
             ],
-        }
+        };
+        report.checks.extend(go_era);
+        report
     }
 
     /// What every run would refuse the config with, read as a run reads it

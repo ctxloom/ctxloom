@@ -182,6 +182,45 @@ fn the_stale_hooks_row_names_the_event_the_subcommand_and_the_fix() {
     }
 }
 
+// Owner ruling 162: under `legacy.go: present` each Go-era entry is an info
+// row of its own, naming its event, its subcommand and its file.
+#[test]
+fn each_go_era_entry_is_an_info_row_left_alone() {
+    let entry = |event: &str, sub: &str| Stale {
+        event: event.to_string(),
+        sub: sub.to_string(),
+    };
+    let entries = vec![
+        (
+            "~/.claude/settings.json".to_string(),
+            entry("PostToolUse", "stamp-plan"),
+        ),
+        (
+            ".claude/settings.json".to_string(),
+            entry("SessionStart", "session-bind"),
+        ),
+    ];
+    let rows = checks::go_era_hooks(&entries);
+    assert_eq!(rows.len(), 2);
+    for row in &rows {
+        assert_eq!(row.marker, "DOCTOR-CHECK-GO-ERA-HOOK-n6");
+        assert_eq!(row.status, Status::Info);
+        assert!(
+            row.detail.starts_with("Go-era hook, left alone: "),
+            "{}",
+            row.detail
+        );
+        assert!(row.remedy.contains("legacy.go: retired"), "{}", row.remedy);
+    }
+    assert!(rows[0]
+        .detail
+        .contains("PostToolUse runs `ctxloom hook stamp-plan` (~/.claude/settings.json)"));
+    assert!(rows[1]
+        .detail
+        .contains("SessionStart runs `ctxloom hook session-bind` (.claude/settings.json)"));
+    assert!(checks::go_era_hooks(&[]).is_empty());
+}
+
 #[test]
 fn the_version_row_says_the_version() {
     assert!(checks::version("1.2.3").detail.contains("1.2.3"));

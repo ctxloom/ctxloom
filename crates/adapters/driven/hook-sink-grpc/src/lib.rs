@@ -34,12 +34,12 @@
 //! it produces has the bearer's text scrubbed out.
 //!
 //! [`serving`] is the liveness of a listener (T16): the standard
-//! `grpc.health.v1.Health` Check, over the same pinned certificate, presenting
-//! no bearer (angzarr's server answers it outside its gate). A listener
+//! `grpc.health.v1.Health` Check (tonic-health's messages and client, at
+//! the version the lock holds for angzarr's server), over the same pinned
+//! certificate, presenting no bearer (angzarr's server answers it outside
+//! its gate). A listener
 //! whose certificate is not the pinned one never hears a call, so a stale
 //! port another process took is never handed anything.
-
-mod health;
 
 use std::fmt;
 use std::time::Duration;
@@ -49,10 +49,12 @@ use angzarr_proto_transport_distributed::v1::command_handler_coordinator_service
 use angzarr_proto_transport_distributed::v1::CommandResult;
 use prost::Message;
 use run_ports::{parse_endpoint, Bearer, Delivery, FactSink, PublicCert};
-use tonic::codegen::http::uri::PathAndQuery;
 use tonic::metadata::MetadataValue;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint};
 use tonic::{Code, Request, Status};
+use tonic_health::pb::health_check_response::ServingStatus;
+use tonic_health::pb::health_client::HealthClient;
+use tonic_health::pb::HealthCheckRequest;
 
 /// The reason key of a fact the kernel dead-lettered.
 const DEAD_LETTERED: &str = "ANGZARR_REASON_FACT_DEAD_LETTERED";
@@ -199,21 +201,14 @@ async fn connect(endpoint: &str, cert: &PublicCert) -> Result<Channel, Failed> {
         .map_err(|e| Failed::Transport(format!("cannot reach the listener: {}", chain(&e))))
 }
 
-/// The health check's answer over `channel`: the overall status's number.
-async fn check(channel: Channel) -> Result<i32, Failed> {
-    let mut grpc = tonic::client::Grpc::new(channel);
-    grpc.ready()
+/// The health check's answer over `channel`: the server's overall status
+/// (the empty service).
+async fn check(channel: Channel) -> Result<ServingStatus, Failed> {
+    HealthClient::new(channel)
+        .check(Request::new(HealthCheckRequest::default()))
         .await
-        .map_err(|e| Failed::Transport(format!("cannot reach the listener: {}", chain(&e))))?;
-    let codec = health::Prost::<health::HealthCheckRequest, health::HealthCheckResponse>::default();
-    grpc.unary(
-        Request::new(health::HealthCheckRequest::default()),
-        PathAndQuery::from_static(health::CHECK),
-        codec,
-    )
-    .await
-    .map(|response| response.into_inner().status)
-    .map_err(Failed::Status)
+        .map(|response| response.into_inner().status())
+        .map_err(Failed::Status)
 }
 
 /// The channel's TLS: `cert` is the ONLY root (no system roots, no webpki
@@ -300,7 +295,7 @@ pub fn serving(endpoint: &str, cert: &PublicCert, within: Duration) -> bool {
                         check(connect(endpoint, cert).await?).await
                     })
                     .await;
-                    matches!(answered, Ok(Ok(health::SERVING)))
+                    matches!(answered, Ok(Ok(ServingStatus::Serving)))
                 })
             })
             .join()

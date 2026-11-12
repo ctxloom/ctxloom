@@ -863,8 +863,9 @@ child's home gets no `Prepared::seeds`, no `.gitconfig` and no merge; those
 are follow-ups.
 
 A daemon is LIVE when it answers the standard `grpc.health.v1.Health`
-Check SERVING (T16, M11: `hook-sink-grpc`'s `serving`, written by hand as
-its other messages are, over TLS pinning the certificate the discovery
+Check SERVING (T16, M11: `hook-sink-grpc`'s `serving`, tonic-health's
+client and messages, a direct dependency at the version the lock already
+held for angzarr's server, over TLS pinning the certificate the discovery
 file names, presenting no bearer, within the wiring's `HEALTH_WAIT`, one
 second). The election's lock (`daemon.lock`, `DaemonFiles::elect`) is the
 election ALONE: `daemon status`, `daemon stop`, a hook's rediscovery and a

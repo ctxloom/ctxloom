@@ -29,15 +29,16 @@ fn sample() -> Discovery {
 }
 
 #[test]
-fn the_election_is_one_holder_and_serving_says_whether_one_holds_it() {
+fn the_election_is_one_holder_at_a_time() {
     let (root, home) = home();
     let files = files(&root, &home);
-    assert!(!files.serving(), "nobody serves yet");
     let held = files.elect(Duration::ZERO).expect("the first elected");
-    assert!(files.serving());
     assert!(files.elect(Duration::ZERO).is_none(), "a second is not");
     drop(held);
-    assert!(!files.serving(), "the lock dies with its holder");
+    assert!(
+        files.elect(Duration::ZERO).is_some(),
+        "the lock dies with its holder"
+    );
     assert!(files.dir().ends_with(".ctxloom/daemon"));
 }
 

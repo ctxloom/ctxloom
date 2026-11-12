@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use file_lock::{lock_within, LockError, Locked};
+use file_lock::{lock_within, Locked};
 use file_system::{Fs, Perms};
 use os::Mode;
 use run_ports::{Discovery, DAEMON_DIR, DAEMON_LOCK_FILE, DISCOVERY_FILE};
@@ -58,22 +58,11 @@ impl DaemonFiles {
     }
 
     /// The election (D18, S-e): the lock whoever serves holds for its life,
-    /// waited for up to `wait`; none when another holds it still.
+    /// waited for up to `wait`; none when another holds it still. It is the
+    /// election ALONE (M11): whether a daemon serves is its health check
+    /// (`daemon::live`), never this lock.
     pub(crate) fn elect(&self, wait: Duration) -> Option<Locked> {
         lock_within(self.fs.as_ref(), &self.path(DAEMON_LOCK_FILE), wait).ok()
-    }
-
-    /// Whether a daemon holds the election now. A lock that cannot be asked
-    /// (the directory cannot be made) is no daemon.
-    pub(crate) fn serving(&self) -> bool {
-        matches!(
-            lock_within(
-                self.fs.as_ref(),
-                &self.path(DAEMON_LOCK_FILE),
-                Duration::ZERO
-            ),
-            Err(LockError::Timeout { .. })
-        )
     }
 
     /// The daemon's directory, made if missing and held to 0700 whoever made
@@ -102,16 +91,17 @@ impl DaemonFiles {
         Discovery::decode(&bytes)
     }
 
-    /// Withdraw the advertisement (a daemon that exits).
-    pub(crate) fn withdraw(&self) {
+    /// Withdraw the advertisement, whoever's it is.
+    fn withdraw(&self) {
         let _ = self.fs.remove_file(&self.path(DISCOVERY_FILE));
     }
 
     /// Withdraw the advertisement only while it is still `own`: a daemon
     /// whose file another daemon's replaced leaves that one's alone.
-    #[allow(dead_code)] // RED: used once built.
     pub(crate) fn withdraw_own(&self, own: &Discovery) {
-        let _ = own;
+        if self.discovery().as_ref() == Some(own) {
+            self.withdraw();
+        }
     }
 
     /// Ask the daemon to drain and exit.

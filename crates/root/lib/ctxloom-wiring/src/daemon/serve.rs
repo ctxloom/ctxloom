@@ -13,8 +13,9 @@
 //! process's store handles (`CommitNotify`, the push) or after the poll
 //! interval, whichever is first (another process's commit reaches no
 //! in-process signal, so the poll stays, S-N4). The daemon exits when asked
-//! (`daemon stop`), or once it has hosted nothing and had nothing to do for
-//! its idle time.
+//! (`daemon stop`), when another daemon's discovery replaced its own (it
+//! lost the election), or once it has hosted nothing and had nothing to do
+//! for its idle time.
 
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -155,23 +156,22 @@ pub(crate) fn serve(
             },
             Arc::clone(&say),
         );
-        files
-            .publish(&Discovery {
-                stamp,
-                pid: std::process::id(),
-                endpoint: endpoint.clone(),
-                cert: certificate.public().clone(),
-                bearer,
-            })
-            .map_err(|e| e.to_string())?;
+        let own = Discovery {
+            stamp,
+            pid: std::process::id(),
+            endpoint: endpoint.clone(),
+            cert: certificate.public().clone(),
+            bearer,
+        };
+        files.publish(&own).map_err(|e| e.to_string())?;
         said(&say, &format!("serving at {endpoint}"));
         // The launcher's first step (T18): the runs other processes, and a
         // killed daemon, left are swept before anything is hosted.
         if let Err(detail) = launcher.start_up(core.store(), core.catalog()).await {
             said(&say, &format!("the start's sweep failed: {detail}"));
         }
-        let result = run(&mut launcher, &core, &files, pace, &say).await;
-        files.withdraw();
+        let result = run(&mut launcher, &core, (&files, &own), pace, &say).await;
+        files.withdraw_own(&own);
         launcher.end_all();
         drop(launcher);
         drop(edge);
@@ -225,21 +225,35 @@ fn launcher(
     })
 }
 
-/// Tick until the daemon is asked to stop, its discovery file is gone, or
-/// it has had nothing to do for its idle time.
+/// Tick until the daemon is asked to stop, another daemon's discovery
+/// replaced its own (`own`, in `files`), or it has had nothing to do for its
+/// idle time. A discovery file that is gone is published again: the daemon
+/// still holds the election, and a client finds it by the file (M11).
 async fn run<E: run_ports::Edge, T: run_ports::TokenSource>(
     launcher: &mut Daemon<E, T>,
     core: &InProcessCore<SqliteStore>,
-    files: &DaemonFiles,
+    (files, own): (&DaemonFiles, &Discovery),
     pace: Pace,
     say: &Say,
 ) -> Result<(), String> {
     let mut quiet_since = Instant::now();
     loop {
-        if files.discovery().is_none() {
-            // Its home is gone (or its file removed): nobody can find it.
-            said(say, "the discovery file is gone: exiting");
-            return Ok(());
+        match advertised(own, files.discovery().as_ref()) {
+            Advertised::Ours => {}
+            Advertised::Gone => match files.publish(own) {
+                Ok(()) => said(say, "the discovery file was gone: advertised again"),
+                Err(e) => said(
+                    say,
+                    &format!("the discovery file was gone, and cannot be written: {e}"),
+                ),
+            },
+            Advertised::Replaced => {
+                said(
+                    say,
+                    "another daemon's discovery replaced this one's: exiting",
+                );
+                return Ok(());
+            }
         }
         let draining = files.stop_requested();
         if draining && launcher.hosting() == 0 {
@@ -265,7 +279,6 @@ async fn run<E: run_ports::Edge, T: run_ports::TokenSource>(
 }
 
 /// What a serving daemon's discovery file says of it, at a tick.
-#[allow(dead_code)] // RED: used once built.
 #[derive(Debug, PartialEq, Eq)]
 enum Advertised {
     /// Its own advertisement: nothing to do.
@@ -279,10 +292,12 @@ enum Advertised {
 }
 
 /// What `found` (the file now) is to the daemon that advertised `own`.
-#[allow(dead_code)] // RED: used once built.
 fn advertised(own: &Discovery, found: Option<&Discovery>) -> Advertised {
-    let _ = (own, found);
-    Advertised::Ours
+    match found {
+        None => Advertised::Gone,
+        Some(found) if found == own => Advertised::Ours,
+        Some(_) => Advertised::Replaced,
+    }
 }
 
 /// A child's plan: its project's dry run, as a ctxloom process in that

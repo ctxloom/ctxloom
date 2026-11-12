@@ -40,29 +40,37 @@ pub(crate) const NOUN: &str = "daemon";
 /// delegation limit's evidence, D-N14; no config key yet).
 const DELEGATION_LIMIT: u32 = 4;
 
-/// The variables a spawned daemon is given of its spawner's (D-N45).
+/// The variables a spawned daemon is given of its spawner's (D-N45), as
+/// the platform compares names: how to find programs, temp space and locale,
+/// the user's home (`HOME`; on Windows her profile, `USERPROFILE`, `APPDATA`
+/// and `LOCALAPPDATA`), and on Windows what a program needs to start
+/// (`run_ports::WINDOWS_STARTUP_VARIABLES`, kept beside these). ctxloom's own
+/// home is not taken from here: it is the one the spawner resolved.
 const DAEMON_ENV: [&str; 8] = [
     "HOME",
-    run_ports::HOME_VARIABLE,
     "PATH",
     "TMPDIR",
     "LANG",
     "LC_ALL",
     "USERPROFILE",
-    "SystemRoot",
+    "APPDATA",
+    "LOCALAPPDATA",
 ];
-
-/// How long a client waits for a daemon it spawned to advertise itself.
-const SPAWN_WAIT: Duration = Duration::from_secs(15);
 
 /// S16: how long a hook spends, in all, reaching a daemon (rediscovering
 /// it, or spawning one and waiting) and delivering, before it fails open.
-#[allow(dead_code)] // RED: used once built.
 const HOOK_BOUND: Duration = Duration::from_secs(10);
 
 /// What a delivery is left of [`HOOK_BOUND`] after the longest spawn wait.
-#[allow(dead_code)] // RED: used once built.
 const DELIVERY_MARGIN: Duration = Duration::from_secs(2);
+
+/// How long a client waits for a daemon it spawned to answer its health
+/// check: what [`HOOK_BOUND`] leaves once a delivery has its margin.
+const SPAWN_WAIT: Duration = HOOK_BOUND.saturating_sub(DELIVERY_MARGIN);
+
+/// How long one health check of a daemon may take (a loopback TLS
+/// handshake and one call; a stale port refuses at once).
+const HEALTH_WAIT: Duration = Duration::from_secs(1);
 
 /// The environment a spawned daemon is given of its spawner's `vars`
 /// (D-N45): what it needs to run, named as `flavor` compares names (so
@@ -74,11 +82,25 @@ fn daemon_env<N: AsRef<OsStr>, V: AsRef<OsStr>>(
     vars: impl IntoIterator<Item = (N, V)>,
     home: &Path,
 ) -> Vec<(OsString, OsString)> {
-    let _ = (flavor, home);
-    vars.into_iter()
-        .filter(|(name, _)| DAEMON_ENV.iter().any(|kept| name.as_ref() == *kept))
+    let kept: Vec<String> = DAEMON_ENV
+        .iter()
+        .chain(run_ports::WINDOWS_STARTUP_VARIABLES)
+        .map(|name| flavor.env_key(name))
+        .collect();
+    let mut env: Vec<(OsString, OsString)> = vars
+        .into_iter()
+        .filter(|(name, _)| {
+            name.as_ref()
+                .to_str()
+                .is_some_and(|name| kept.contains(&flavor.env_key(name)))
+        })
         .map(|(name, value)| (name.as_ref().to_os_string(), value.as_ref().to_os_string()))
-        .collect()
+        .collect();
+    env.push((
+        run_ports::HOME_VARIABLE.into(),
+        home.as_os_str().to_os_string(),
+    ));
+    env
 }
 
 /// The variable a client passes on as the spawned daemon's idle time, in
@@ -282,7 +304,7 @@ pub(crate) fn run(
             return Ok(Exit::OK);
         }
         DaemonVerb::Stop => {
-            if files.serving() {
+            if files.discovery().is_some_and(|found| live(&found)) {
                 files.request_stop().map_err(|e| {
                     failed(CliError::Output {
                         detail: e.to_string(),
@@ -436,10 +458,9 @@ fn be_the_daemon(
 
 /// Whether a daemon serves, and where.
 fn status(files: &DaemonFiles) -> Status {
-    let serving = files.serving();
-    let found = files.discovery().filter(|_| serving);
+    let found = files.discovery().filter(live);
     Status {
-        serving,
+        serving: found.is_some(),
         endpoint: found.as_ref().map(|d| d.endpoint.clone()),
         pid: found.as_ref().map(|d| d.pid),
         version: found.map(|d| d.stamp),
@@ -483,26 +504,34 @@ fn logger(fs: Arc<dyn Fs>, path: PathBuf) -> Box<dyn FnMut(&str) + Send> {
     })
 }
 
-/// What the user daemon's discovery file says, under the home of `env`
-/// (none where there is no home, no file, or no daemon holding the
-/// election: a stale file names a port nobody serves).
-pub(crate) fn discovery(env: &Arc<EnvSnapshot>) -> Option<run_ports::Discovery> {
-    let wiring = Wiring::new(Arc::clone(env)).ok()?;
-    let files = DaemonFiles::new(wiring.fs(), wiring.home());
-    // The file first: with none, the lock is never touched (nothing made).
-    let found = files.discovery()?;
-    files.serving().then_some(found)
+/// Whether the daemon `found` names is live (T16, M11): it answers the
+/// standard health check over the certificate it advertised, pinned, within
+/// [`HEALTH_WAIT`]. The election's lock says nothing of it.
+fn live(found: &run_ports::Discovery) -> bool {
+    hook_sink_grpc::serving(&found.endpoint, &found.cert, HEALTH_WAIT)
 }
 
-/// Make sure the user's daemon serves: spawn one when none does, and wait
-/// for it to advertise itself. A daemon that cannot be spawned is not this
-/// command's failure (what it recorded stands; the next client spawns one).
+/// What the user daemon's discovery file says, under the home of `env`
+/// (none where there is no home, no file, or no live daemon at what it
+/// names: a stale file names a port nobody serves).
+pub(crate) fn discovery(env: &Arc<EnvSnapshot>) -> Option<run_ports::Discovery> {
+    let wiring = Wiring::new(Arc::clone(env)).ok()?;
+    DaemonFiles::new(wiring.fs(), wiring.home())
+        .discovery()
+        .filter(live)
+}
+
+/// Make sure the user's daemon serves: spawn one when none is live, and
+/// wait, within [`SPAWN_WAIT`], for a live one to advertise itself (the one
+/// spawned, or another client's, whichever won the election). A stale file
+/// is left for the new daemon to publish over. A daemon that cannot be
+/// spawned is not this command's failure (what it recorded stands; the next
+/// client spawns one).
 fn ensure(wiring: &Wiring, env: &EnvSnapshot) {
     let files = DaemonFiles::new(wiring.fs(), wiring.home());
-    if files.serving() {
+    if files.discovery().is_some_and(|found| live(&found)) {
         return;
     }
-    files.withdraw();
     let Ok(exe) = std::env::current_exe() else {
         return;
     };
@@ -529,7 +558,7 @@ fn ensure(wiring: &Wiring, env: &EnvSnapshot) {
     }
     let deadline = Instant::now() + SPAWN_WAIT;
     while Instant::now() < deadline {
-        if files.discovery().is_some() {
+        if files.discovery().is_some_and(|found| live(&found)) {
             return;
         }
         std::thread::sleep(Duration::from_millis(20));

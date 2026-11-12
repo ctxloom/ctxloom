@@ -193,6 +193,15 @@ fn test_the_common_directory_is_commondir_or_the_git_directory() {
 }
 
 #[test]
+fn test_an_empty_commondir_is_the_git_directory_exactly_not_joined() {
+    // `Path` equality ignores a trailing separator; joining "" adds one.
+    let git = Path::new("/main/.git/worktrees/tree");
+    for blank in ["", "  \n"] {
+        assert_eq!(common_dir(git, Some(blank)).as_os_str(), git.as_os_str());
+    }
+}
+
+#[test]
 fn test_head_names_its_branch_ref_or_none_when_detached() {
     assert_eq!(
         head_ref("ref: refs/heads/version/stamp\n"),

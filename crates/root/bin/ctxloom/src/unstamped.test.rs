@@ -23,3 +23,9 @@ fn test_an_empty_or_bare_version_is_refused_naming_it() {
         }
     }
 }
+
+#[test]
+fn test_the_refusal_displays_its_code_and_the_stamp() {
+    let shown = checked("0.1.0").unwrap_err().to_string();
+    assert_eq!(shown, "ctxloom-unstamped stamp=0.1.0");
+}

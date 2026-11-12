@@ -122,9 +122,18 @@ an event when it is delivered. `session list`, `search`, `show` and
 was delivered so far; nothing projects the events into a file (no
 `transcripts/transcript.jsonl`, `records/*.jsonl`, position file or
 `metadata.json`). A session's directory, `.ctxloom/sessions/<harp>/` in the
-project, holds what its engine needs (the session home, its native history,
-its worktree), and `<harp>.lock` beside it is held by its run for its life. A
-name is unique because its claim is. Accepted cost: a clone has no session
+project, holds what its engine needs (the session home, its native
+history), and `<harp>.lock` beside it is held by its run for its life. Its
+scratch checkouts are NOT there (owner ruling 2026-11-12, Q1): they are under
+ctxloom's home, outside the project,
+`<home>/.ctxloom/worktrees/<project-id>/<harp>/<agent>`
+(`isolation_ports::session_worktrees`, a `Request`'s `work_dir`), each on the
+session's own branch for its agent, `ctxloom/<harp>/<agent>` (F1: two
+sessions of one agent no longer collide), its path canonical (macOS's
+`/private/var`, the trust key), and every git `worktree-git` runs is `git -c
+core.longpaths=true ...`; `GitWorkspaces` lists, knows and reclaims them
+there (a session is known by its directory, its lock or its checkouts). No
+run is placed in one yet. A name is unique because its claim is. Accepted cost: a clone has no session
 history (the store is machine-local; `sessions/` was always gitignored), and
 the store grows without bound (ruling 90; compaction is taskloom
 `untried-slander`).

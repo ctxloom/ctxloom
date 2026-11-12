@@ -1,10 +1,14 @@
 //! The `Workspaces` port over the git command line (S11). Go:
 //! `isolation/worktree.go`, `worktree_reap.go` and `none.go` (release/0.7).
 //!
-//! The workspace axis: a run asking for a worktree gets a checkout on its own
-//! named branch (`ctxloom/<agent>`), in the session's work directory
-//! (`<project>/.ctxloom/sessions/<harp>/work/ctxloom-wt-<agent>`), inside the
-//! project's own `.ctxloom`, never in its working tree. The checkout's path is a pure function of the agent, so a resume
+//! The workspace axis: a run asking for a worktree gets a checkout on its
+//! session's own branch for its agent (`ctxloom/<harp>/<agent>`), in the
+//! session's checkouts directory under ctxloom's home
+//! (`<home>/.ctxloom/worktrees/<project-id>/<harp>/<agent>`, owner ruling
+//! 2026-11-12), outside the project: an engine there reads no `CLAUDE.md` of
+//! the project's above it. Its path is resolved (canonical), and every git
+//! runs with `-c core.longpaths=true`. The checkout's path is a pure function
+//! of the session and the agent, so a resume
 //! finds an earlier run's own checkout and re-enters it; anything else at
 //! that path is a refusal. The ctxloom-written config the run puts in the
 //! checkout is hidden from the project's git status by the repository's

@@ -279,8 +279,8 @@ fn the_user_is_gits_name_and_email_for_the_directory() {
     }
     let (dir, git, _) = stub(
         r#"case "$*" in
-  "config --get user.name") echo "Alice Example" ;;
-  "config --get user.email") echo "alice@example.com" ;;
+  "-c core.longpaths=true config --get user.name") echo "Alice Example" ;;
+  "-c core.longpaths=true config --get user.email") echo "alice@example.com" ;;
   *) exit 1 ;;
 esac"#,
     );
@@ -303,7 +303,7 @@ fn a_key_git_does_not_know_is_empty() {
     }
     let (dir, _, _) = stub(
         r#"case "$*" in
-  "config --get user.email") echo "a@x" ;;
+  "-c core.longpaths=true config --get user.email") echo "a@x" ;;
   *) exit 1 ;;
 esac"#,
     );

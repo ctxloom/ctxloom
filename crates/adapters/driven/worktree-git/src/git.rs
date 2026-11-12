@@ -174,7 +174,10 @@ impl Git {
             .find(|a| !a.starts_with('-'))
             .copied()
             .unwrap_or("");
+        // Paths past Windows' MAX_PATH (a deep repository's checkout); other
+        // platforms ignore it, and no repository's config changes.
         let spec = Spec::new(&self.program)
+            .args(["-c", "core.longpaths=true"])
             .args(args)
             .current_dir(dir)
             .envs(environment(&self.env));

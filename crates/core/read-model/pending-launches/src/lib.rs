@@ -60,6 +60,10 @@ pub struct StartedRun {
     /// (a rename moves its lock with its name); empty until its mint is seen.
     pub project_dir: String,
     pub harp: String,
+    /// The run's own lock, as its enqueue journaled it: a host that holds it
+    /// for the run's life (the daemon, for a child it hosts, rulings 86, 92)
+    /// is lost when it is free (T3, T18).
+    pub launcher_lock: String,
 }
 
 /// An incarnation a session owes a run for.
@@ -74,8 +78,8 @@ pub struct Owed {
 enum Stage {
     /// Enqueued, no sign of a runner: its mode and its launcher's lock.
     Waiting(RunMode, String),
-    /// Its runner was started, and it has not ended.
-    Started,
+    /// Its runner was started, and it has not ended: its launcher's lock.
+    Started(String),
     /// It ended.
     Past,
 }
@@ -173,7 +177,11 @@ impl Pending {
             RunEvent::RunnerStartedRecorded(_) => {
                 if let Some(key) = self.keys.get(root) {
                     if let Some(stage @ Stage::Waiting(..)) = self.runs.get_mut(key) {
-                        *stage = Stage::Started;
+                        let lock = match stage {
+                            Stage::Waiting(_, lock) => std::mem::take(lock),
+                            _ => String::new(),
+                        };
+                        *stage = Stage::Started(lock);
                     }
                 }
             }
@@ -222,7 +230,7 @@ impl Pending {
                     mode: *mode,
                     launcher_lock: lock.clone(),
                 }),
-                Stage::Started | Stage::Past => None,
+                Stage::Started(_) | Stage::Past => None,
             })
             .collect()
     }
@@ -233,16 +241,19 @@ impl Pending {
     pub fn started(&self) -> Vec<StartedRun> {
         self.runs
             .iter()
-            .filter(|(_, stage)| matches!(stage, Stage::Started))
-            .map(|((session, incarnation), _)| {
+            .filter_map(|((session, incarnation), stage)| {
+                let Stage::Started(lock) = stage else {
+                    return None;
+                };
                 let place = self.places.get(session).cloned().unwrap_or_default();
-                StartedRun {
+                Some(StartedRun {
                     run: runs::run_root(session, *incarnation),
                     session: session.clone(),
                     incarnation: *incarnation,
                     project_dir: place.project_dir,
                     harp: place.harp,
-                }
+                    launcher_lock: lock.clone(),
+                })
             })
             .collect()
     }

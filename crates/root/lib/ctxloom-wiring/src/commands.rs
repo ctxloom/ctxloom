@@ -186,6 +186,26 @@ pub fn engines() -> Engines {
     Engines::new(composed)
 }
 
+/// The engines the daemon hosts a child on (T18), each its `Engine` beside
+/// its `ChildEngine`, by name: claude, then opencode (its ACP child). The
+/// launcher resolves a child's engine here, never by naming an adapter.
+pub fn hosted_engines() -> Vec<daemon_application::HostedEngine> {
+    let claude = Arc::new(engine_claude::Claude::new());
+    let opencode = Arc::new(engine_opencode::Opencode::new());
+    vec![
+        daemon_application::HostedEngine {
+            engine: claude.clone(),
+            child: claude,
+            transcripts: Arc::new(engine_claude::transcripts_of),
+        },
+        daemon_application::HostedEngine {
+            engine: opencode.clone(),
+            child: opencode,
+            transcripts: Arc::new(|_| None),
+        },
+    ]
+}
+
 /// The setup use cases over the process's home, working directory and
 /// project.
 fn build_setup(wiring: &Wiring, deps: Rc<Deps>) -> Result<Setup, LibError> {

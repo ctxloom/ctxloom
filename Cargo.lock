@@ -983,6 +983,7 @@ dependencies = [
  "ctxloom-ports",
  "ctxloom-store-sqlite",
  "ctxloom-wiring",
+ "daemon-application",
  "daemon-board",
  "daemon-proto",
  "deps",
@@ -1113,6 +1114,29 @@ dependencies = [
  "nom_locate",
  "regex",
  "regex-syntax 0.7.5",
+]
+
+[[package]]
+name = "daemon-application"
+version = "0.1.0"
+dependencies = [
+ "angzarr-diagnostic",
+ "angzarr-embedded",
+ "daemon-board",
+ "library-application",
+ "mutants",
+ "pending-launches",
+ "pending-messages",
+ "run-application",
+ "run-launcher",
+ "run-ports",
+ "runs",
+ "runs-application",
+ "session-index",
+ "session-policies",
+ "sessions",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

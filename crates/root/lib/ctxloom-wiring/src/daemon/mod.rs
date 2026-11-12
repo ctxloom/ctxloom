@@ -330,6 +330,7 @@ fn launch(
     let settings = child_plan(
         wiring.home(),
         env.temp_dir(),
+        &engine,
         &wiring.project_dir().to_string_lossy(),
         &caller,
     )
@@ -421,7 +422,7 @@ fn orchestrate(
 
 /// A log line writer: each line appended to `path` with its time, through
 /// the file-system seam. Nothing it is given holds a secret.
-fn logger(fs: Arc<dyn Fs>, path: PathBuf) -> Box<dyn FnMut(&str)> {
+fn logger(fs: Arc<dyn Fs>, path: PathBuf) -> Box<dyn FnMut(&str) + Send> {
     Box::new(move |line: &str| {
         if let Some(dir) = path.parent() {
             let _ = fs.create_dir_all(dir, Mode::from_bits(0o700));
@@ -498,6 +499,7 @@ fn ensure(wiring: &Wiring, env: &EnvSnapshot) {
 pub(crate) fn child_plan(
     home: &Path,
     temp: &Path,
+    engine: &str,
     project_dir: &str,
     env: &BTreeMap<String, String>,
 ) -> Result<library_application::Previewed, String> {
@@ -518,7 +520,7 @@ pub(crate) fn child_plan(
     let wiring = Wiring::new(Arc::new(snapshot)).map_err(|e| code(&e))?;
     let library = crate::library::build(&wiring, None).map_err(|e| code(&e))?;
     let request = library_application::RunRequest {
-        engine: session_policies::CHILD_ENGINE.to_string(),
+        engine: engine.to_string(),
         ..library_application::RunRequest::default()
     };
     library

@@ -91,6 +91,7 @@ trees = { path = "crates/core/domain/trees" }
 run-ports = { path = "crates/core/ports/run-ports" }
 runs-application = { path = "crates/core/application/runs-application" }
 run-launcher = { path = "crates/core/application/run-launcher" }
+daemon-application = { path = "crates/core/application/daemon-application" }
 run-application = { path = "crates/core/application/run-application" }
 credentials = { path = "crates/adapters/driven/credentials" }
 hook-sink-grpc = { path = "crates/adapters/driven/hook-sink-grpc" }

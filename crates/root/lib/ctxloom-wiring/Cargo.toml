@@ -91,6 +91,8 @@ daemon-board.workspace = true
 session-index.workspace = true
 held-projection.workspace = true
 session-policies.workspace = true
+# The daemon's one launcher (T18), which the root only composes.
+daemon-application.workspace = true
 embedded-edge.workspace = true
 hook-sink-grpc.workspace = true
 angzarr-embedded-host.workspace = true

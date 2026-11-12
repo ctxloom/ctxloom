@@ -1593,3 +1593,43 @@ async fn a_sweep_that_finds_the_runner_started_since_records_nothing() {
     assert!(ends(&edge).await.is_empty(), "the started run is not ended");
     assert!(closed(&edge).await.is_empty());
 }
+
+// T3, T18: a STARTED run whose own lock is free has lost the host that held
+// it for the run's life (a killed daemon's child: no session lock, its run
+// lock left free): it is ended by `RunnerLost`, and its incarnation closed.
+#[tokio::test]
+async fn a_started_run_whose_own_lock_is_free_is_ended_for_runner_loss() {
+    let edge = Arc::new(TestEdge::new());
+    started_run(&edge).await;
+    let mut later = another_process(&edge, Locks::saying(Free, Unproven));
+    later.step(&edge.store, edge.catalog()).await.unwrap();
+    assert_eq!(ends(&edge).await, [lost()]);
+    assert_eq!(closed(&edge).await, [(1, "orphaned".to_string())]);
+}
+
+// T18: the sweep is the daemon's first step too, on its own: it answers the
+// runs it ended, and a second sweep of the same runs ends nothing again.
+#[tokio::test]
+async fn the_sweep_answers_the_runs_it_ended_and_a_second_ends_none() {
+    let edge = Arc::new(TestEdge::new());
+    started_run(&edge).await;
+    let mut pending = pending_launches::catch_up();
+    pending.step(&edge.store, edge.catalog()).await.unwrap();
+    let (owed, started) = {
+        let model = pending.projector().pending();
+        (model.launches(), model.started())
+    };
+    let sweeper = crate::Sweeper::new(Arc::clone(&edge), Locks::saying(Free, Unproven));
+    let swept = sweeper.sweep(&owed, &started).await.unwrap();
+    assert_eq!(
+        swept,
+        [crate::Swept {
+            run: runs::run_root(SESSION, 1),
+            session: SESSION.to_string(),
+            incarnation: 1,
+            started: true,
+        }]
+    );
+    assert!(sweeper.sweep(&owed, &started).await.unwrap().is_empty());
+    assert_eq!(ends(&edge).await, [lost()], "ended once");
+}

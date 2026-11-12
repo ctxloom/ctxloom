@@ -190,89 +190,19 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             (pending.launches(), pending.started())
         };
         let mut launched = Vec::new();
+        let mut others = Vec::new();
         for launch in owed {
-            if let Some(order) = self.orders.take(&launch.session, launch.incarnation) {
-                launched.push(self.launch(launch, order).await?);
-            } else if self.launcher_lost(&launch) {
-                self.orphaned(&launch.run, &launch.session, launch.incarnation, false)
-                    .await?;
+            match self.orders.take(&launch.session, launch.incarnation) {
+                Some(order) => launched.push(self.launch(launch, order).await?),
+                None => others.push(launch),
             }
         }
-        for run in started {
-            if self.owner_lost(&run) {
-                self.orphaned(&run.run, &run.session, run.incarnation, true)
-                    .await?;
-            }
+        if let Some(locks) = &self.locks {
+            Sweeper::new(Arc::clone(&self.edge), Arc::clone(locks))
+                .sweep(&others, &started)
+                .await?;
         }
         Ok(launched)
-    }
-
-    /// Whether the launcher of `launch` (another process's: this one holds no
-    /// order for it) has died: its run lock, journaled, is free.
-    fn launcher_lost(&self, launch: &PendingLaunch) -> bool {
-        let Some(locks) = &self.locks else {
-            return false;
-        };
-        !launch.launcher_lock.is_empty()
-            && locks.probe(&launch.launcher_lock) == run_ports::LockProbe::Free
-    }
-
-    /// Whether the owner of the started `run` has died: its session's lock is
-    /// free (ruling 93).
-    fn owner_lost(&self, run: &StartedRun) -> bool {
-        let Some(locks) = &self.locks else {
-            return false;
-        };
-        !run.harp.is_empty()
-            && locks.session(&run.project_dir, &run.harp) == run_ports::LockProbe::Free
-    }
-
-    /// End the run `run` of `session`'s `incarnation`, whose owner was found
-    /// gone, unless its stream, read again after the probe, shows its owner
-    /// got there first: its start (for a run owed a runner, unless `started`)
-    /// or its end.
-    async fn orphaned(
-        &self,
-        run: &Uuid,
-        session: &str,
-        incarnation: u32,
-        started: bool,
-    ) -> Result<(), LaunchError> {
-        let cover = angzarr_embedded::v1::Cover {
-            domain: runs::RUN_DOMAIN.to_string(),
-            root: Some(run.clone()),
-            edition: None,
-        };
-        let pages = self
-            .edge
-            .events(&cover, 0)
-            .await
-            .map_err(|e| LaunchError::Fact {
-                reason: e.to_string(),
-            })?;
-        let since = pages.iter().any(|page| match &page.body {
-            Some(angzarr_embedded::v1::event_page::Body::Event(any)) => {
-                any.type_url.ends_with(".RunEnded")
-                    || (!started && any.type_url.ends_with(".RunnerStartedRecorded"))
-            }
-            _ => false,
-        });
-        if since {
-            return Ok(());
-        }
-        let failed = |e: runs_application::AppError| LaunchError::Fact {
-            reason: e.to_string(),
-        };
-        let ended = match started {
-            true => self.facts.runner_lost(run).await,
-            false => self.facts.launch_orphaned(run).await,
-        };
-        ended.map_err(failed)?;
-        self.facts
-            .incarnation_ended(session, incarnation, ORPHANED)
-            .await
-            .map(drop)
-            .map_err(failed)
     }
 
     async fn launch(
@@ -664,6 +594,145 @@ fn failure_class(class: FailureClass) -> runs::TurnFailureClass {
         FailureClass::CredentialRefused => runs::TurnFailureClass::CredentialRefused,
         FailureClass::EngineError => runs::TurnFailureClass::EngineError,
         FailureClass::Interrupted => runs::TurnFailureClass::Interrupted,
+    }
+}
+
+/// The sweep of the runs other processes left (rulings 86, 92, 93, 95, 100):
+/// what every launcher's step runs over the runs it holds no order for, and
+/// the daemon's FIRST step at its start (T18), before it hosts anything. A
+/// run still owed a runner whose own lock is free has lost its launcher; a
+/// started run whose session's lock is free, or whose own lock (held for its
+/// life by a host such as the daemon) is free, has lost its owner. Each is
+/// ended, keyed by the run, so a second sweeper's end is a DUPLICATE.
+pub struct Sweeper<E: Edge> {
+    edge: Arc<E>,
+    facts: Facts<E>,
+    locks: Arc<dyn run_ports::RunLocks>,
+}
+
+/// A run a sweep ended, and how.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Swept {
+    pub run: Uuid,
+    pub session: String,
+    pub incarnation: u32,
+    /// It had been started (`RunnerLost`), not only owed a runner
+    /// (`LaunchOrphaned`).
+    pub started: bool,
+}
+
+impl<E: Edge> Sweeper<E> {
+    pub fn new(edge: Arc<E>, locks: Arc<dyn run_ports::RunLocks>) -> Sweeper<E> {
+        Sweeper {
+            facts: Facts::new(Arc::clone(&edge)),
+            edge,
+            locks,
+        }
+    }
+
+    /// Sweep `owed` (runs owed a runner that this process does not launch)
+    /// and `started` (runs started and not ended): the ones whose owner is
+    /// gone are ended, and answered.
+    pub async fn sweep(
+        &self,
+        owed: &[PendingLaunch],
+        started: &[StartedRun],
+    ) -> Result<Vec<Swept>, LaunchError> {
+        let mut swept = Vec::new();
+        for launch in owed.iter().filter(|launch| self.launcher_lost(launch)) {
+            if self
+                .orphaned(&launch.run, &launch.session, launch.incarnation, false)
+                .await?
+            {
+                swept.push(Swept {
+                    run: launch.run.clone(),
+                    session: launch.session.clone(),
+                    incarnation: launch.incarnation,
+                    started: false,
+                });
+            }
+        }
+        for run in started.iter().filter(|run| self.owner_lost(run)) {
+            if self
+                .orphaned(&run.run, &run.session, run.incarnation, true)
+                .await?
+            {
+                swept.push(Swept {
+                    run: run.run.clone(),
+                    session: run.session.clone(),
+                    incarnation: run.incarnation,
+                    started: true,
+                });
+            }
+        }
+        Ok(swept)
+    }
+
+    /// Whether the launcher of `launch` (another process's: this one holds no
+    /// order for it) has died: its run lock, journaled, is free.
+    fn launcher_lost(&self, launch: &PendingLaunch) -> bool {
+        !launch.launcher_lock.is_empty()
+            && self.locks.probe(&launch.launcher_lock) == run_ports::LockProbe::Free
+    }
+
+    /// Whether the owner of the started `run` has died: its session's lock is
+    /// free (ruling 93), or its own lock is (a host that held it for the
+    /// run's life is gone; a primary lets its own go, file and all, once its
+    /// runner started, which proves nothing).
+    fn owner_lost(&self, run: &StartedRun) -> bool {
+        let session = !run.harp.is_empty()
+            && self.locks.session(&run.project_dir, &run.harp) == run_ports::LockProbe::Free;
+        // RED: a host's lock is not judged yet.
+        let host = run.launcher_lock.is_empty() && run.launcher_lock.len() > 1;
+        session || host
+    }
+
+    /// End the run `run` of `session`'s `incarnation`, whose owner was found
+    /// gone, unless its stream, read again after the probe, shows its owner
+    /// got there first: its start (for a run owed a runner, unless `started`)
+    /// or its end. Whether it was ended here.
+    async fn orphaned(
+        &self,
+        run: &Uuid,
+        session: &str,
+        incarnation: u32,
+        started: bool,
+    ) -> Result<bool, LaunchError> {
+        let cover = angzarr_embedded::v1::Cover {
+            domain: runs::RUN_DOMAIN.to_string(),
+            root: Some(run.clone()),
+            edition: None,
+        };
+        let pages = self
+            .edge
+            .events(&cover, 0)
+            .await
+            .map_err(|e| LaunchError::Fact {
+                reason: e.to_string(),
+            })?;
+        let since = pages.iter().any(|page| match &page.body {
+            Some(angzarr_embedded::v1::event_page::Body::Event(any)) => {
+                any.type_url.ends_with(".RunEnded")
+                    || (!started && any.type_url.ends_with(".RunnerStartedRecorded"))
+            }
+            _ => false,
+        });
+        if since {
+            return Ok(false);
+        }
+        let failed = |e: runs_application::AppError| LaunchError::Fact {
+            reason: e.to_string(),
+        };
+        let ended = match started {
+            true => self.facts.runner_lost(run).await,
+            false => self.facts.launch_orphaned(run).await,
+        };
+        ended.map_err(failed)?;
+        self.facts
+            .incarnation_ended(session, incarnation, ORPHANED)
+            .await
+            .map(|_| true)
+            .map_err(failed)
     }
 }
 

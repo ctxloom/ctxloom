@@ -21,7 +21,7 @@ mod orders;
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{LaunchError, EN_US};
-pub use launcher::{Launched, Launcher, Outcome};
+pub use launcher::{Launched, Launcher, Outcome, Sweeper, Swept};
 pub use orders::{Order, Orders};
 
 /// In-memory ports and a world of the real aggregates, for this crate's tests

@@ -392,7 +392,9 @@ fn minted(n: u8, harp: &str, renamed: Option<&str>) -> EventBook {
 }
 
 // Ruling 93: a run started and not ended is listed with its session's
-// project and CURRENT harp (its lock moves with a rename), until it ends.
+// project and CURRENT harp (its lock moves with a rename), until it ends;
+// and with its own lock, which a host holding it for the run's life lets go
+// only with the run (T3, T18).
 #[test]
 fn a_started_run_is_listed_with_its_sessions_lock_until_it_ends() {
     let (_, session) = session_root(1);
@@ -410,6 +412,7 @@ fn a_started_run_is_listed_with_its_sessions_lock_until_it_ends() {
             incarnation: 1,
             project_dir: "/work/p1".to_string(),
             harp: "bright-keen-hawk".to_string(),
+            launcher_lock: lock_of(1),
         }]
     );
     assert!(

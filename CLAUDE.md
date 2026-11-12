@@ -1224,7 +1224,13 @@ isolation.
 `just --list` shows the public recipes by group; `just install` (group
 `install`) builds the plain binary and installs it as
 `~/.local/lib/ctxloom/ctxloom` with the wrapper `~/.local/bin/ctxloom` (ahead of a Go ctxloom in `~/go/bin` on PATH)
-(`CTXLOOM_HOME="$HOME/.ctxloom-rs"`), idempotently, one line per action. The checks are `just build`,
+(`CTXLOOM_HOME="$HOME/.ctxloom-rs"`), idempotently, one line per action. On
+Windows, under Git Bash, `just install-windows` builds the plain binary and
+installs it as `%LOCALAPPDATA%\Programs\ctxloom\ctxloom.exe`, sets the user
+variable `CTXLOOM_HOME` to `%USERPROFILE%\.ctxloom-rs` with `setx` (only when
+the registry's value differs), and says how to add the directory to the user
+`Path` when it is not on PATH (no registry edit for it); unverified on
+Windows. The checks are `just build`,
 `just test` (cargo-nextest, the one test runner, mutation included, owner
 ruling 144; required: a missing nextest fails the gate),
 `just lint` (clippy, warnings denied), `just lint-deps` (cargo-deny) and

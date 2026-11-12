@@ -130,6 +130,73 @@ install:
         echo "ok   wrote $wrapper"
     fi
 
+# Install the Rust ctxloom on Windows (owner ruling: the exe on PATH and a
+# user CTXLOOM_HOME), under Git Bash: the PLAIN binary (`cargo build` of the
+# package, no feature named), as %LOCALAPPDATA%\Programs\ctxloom\ctxloom.exe,
+# and the USER variable CTXLOOM_HOME set to %USERPROFILE%\.ctxloom-rs with
+# `setx`, only when the user's own value (HKCU\Environment) is not that
+# already. There is no wrapper: the home is the variable, which every new
+# terminal and every engine's hook process (ruling 112's CTXLOOM_HOME) sees.
+# The directory is put on nobody's PATH: when the current PATH lacks it, the
+# recipe says how to add it to the user's Path, and edits no registry key for
+# it. A running ctxloom.exe cannot be overwritten but can be renamed, so the
+# old one is moved aside first. Idempotent, one line per action, like
+# `install`. The two plain-build checks `install` runs are not run here: they
+# run the binary with `env -i`, which on Windows leaves it no SYSTEMROOT and
+# no USERPROFILE (`just install` and `just build` hold the same build to them
+# on unix). Unverified: written without a Windows machine to run it on.
+[group('install')]
+[doc("On Windows (Git Bash): install ctxloom.exe in %LOCALAPPDATA%\\Programs\\ctxloom, CTXLOOM_HOME a user variable")]
+[no-exit-message]
+install-windows:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*) ;;
+        *) echo "FAIL install-windows: run it under Git Bash on Windows; elsewhere it is \`just install\`" >&2; exit 1 ;;
+    esac
+    : "${LOCALAPPDATA:?FAIL install-windows: LOCALAPPDATA is not set}"
+    : "${USERPROFILE:?FAIL install-windows: USERPROFILE is not set}"
+    terse=(-q --message-format=short)
+    [ "${VERBOSE:-}" = 1 ] && terse=()
+    target=${CARGO_TARGET_DIR:-{{TOP}}/target}
+    built="$target/debug/ctxloom.exe"
+    just --justfile {{TOP}}/justfile _run install-build ctxloom cargo \
+        bash -c 'cargo build "${@:2}" --manifest-path "$1/Cargo.toml" --package ctxloom --bin ctxloom' \
+        install {{TOP}} "${terse[@]}"
+    win_dir="$LOCALAPPDATA\\Programs\\ctxloom"
+    dir=$(cygpath -u "$win_dir")
+    program="$dir/ctxloom.exe"
+    mkdir -p "$dir"
+    if cmp -s "$built" "$program"; then
+        echo "ok   unchanged $program"
+    else
+        rm -f "$program.old" 2>/dev/null || true
+        [ -e "$program" ] && mv -f "$program" "$program.old"
+        cp "$built" "$program.new"
+        mv -f "$program.new" "$program"
+        rm -f "$program.old" 2>/dev/null || true
+        echo "ok   installed $program"
+    fi
+    # The user's own variables, as the registry holds them (not this shell's,
+    # which an enclosing session may have set). MSYS2_ARG_CONV_EXCL keeps Git
+    # Bash from reading `/v` as a path.
+    user_var() {
+        MSYS2_ARG_CONV_EXCL='*' reg query 'HKCU\Environment' /v "$1" 2>/dev/null | tr -d '\r' |
+            awk -v name="$1" 'toupper($1) == toupper(name) { $1 = ""; $2 = ""; sub(/^ +/, ""); print }'
+    }
+    home="$USERPROFILE\\.ctxloom-rs"
+    if [ "$(user_var CTXLOOM_HOME)" = "$home" ]; then
+        echo "ok   unchanged CTXLOOM_HOME=$home (user)"
+    else
+        MSYS2_ARG_CONV_EXCL='*' setx CTXLOOM_HOME "$home" >/dev/null
+        echo "ok   set CTXLOOM_HOME=$home (user; a new terminal sees it)"
+    fi
+    case ":$PATH:" in
+        *":$dir:"*) echo "ok   on PATH $win_dir" ;;
+        *) echo "todo add $win_dir to your user Path (Settings > System > About > Advanced system settings > Environment Variables), then open a new terminal" ;;
+    esac
+
 # Install the arch-lint binary at the pinned ctxloom-lib commit, unless it is
 # there; and refuse a pin that differs from the one Cargo.toml has.
 [private]

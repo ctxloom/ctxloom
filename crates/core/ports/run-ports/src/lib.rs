@@ -35,7 +35,7 @@ pub use child::{
 pub use discovery::{
     Discovery, DAEMON_CERT_LIFETIME_SECONDS, DAEMON_DIR, DAEMON_LOCK_FILE, DISCOVERY_FILE,
 };
-pub use edge::{Arrival, Edge, Unserved};
+pub use edge::{Arrival, Edge, SyncAnswered, Unserved};
 pub use engine::{
     copy_in, Credentials, Engine, EngineError, FailureClass, HomeFile, PrepareRequest, Prepared,
     TurnOutcome, TurnRequest, HOME_VARIABLE,

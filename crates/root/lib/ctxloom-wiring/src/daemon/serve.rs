@@ -47,7 +47,7 @@ use sessions::Urgency;
 use std::future::Future as _;
 
 use super::files::DaemonFiles;
-use crate::InProcessCore;
+use crate::{InProcessCore, Projectors};
 
 type ProjectEdge = EmbeddedEdge<crate::CoreStores<SqliteStore>>;
 
@@ -106,6 +106,8 @@ pub(crate) struct Daemon {
     core: InProcessCore<SqliteStore>,
     board: CatchUp<Boards>,
     pending: CatchUp<PendingMessages>,
+    /// The session index, kept warm for the SIMPLE requests that name it.
+    index: CatchUp<session_index::SessionIndexes>,
     hosted: BTreeMap<String, Hosted>,
     done: BTreeSet<String>,
     /// Steps refused this time round: tried again once a store changes.
@@ -144,7 +146,15 @@ pub(crate) fn serve(
             .open()
             .await
             .map_err(|e| angzarr_diagnostic::Diagnostic::code(&e).to_string())?;
-        let core = InProcessCore::start(store).await;
+        // The read models are registered in the kernel (S32), so a SIMPLE
+        // request waits for them; the same folds are caught up below for
+        // what other processes commit.
+        let mut kept = Projectors::default();
+        let core = InProcessCore::start_with(store, |store| {
+            kept = Projectors::filled(store);
+            kept.clone()
+        })
+        .await;
         let edge = core.edge();
         let names = CertNames::new(
             vec![
@@ -178,8 +188,9 @@ pub(crate) fn serve(
             envs: BTreeMap::new(),
             files,
             core,
-            board: daemon_board::catch_up(),
-            pending: pending_messages::catch_up(),
+            board: daemon_board::caught_up(kept.board.clone().unwrap_or_default()),
+            pending: pending_messages::caught_up(kept.pending.clone().unwrap_or_default()),
+            index: session_index::SessionIndex::caught_up(kept.index.clone().unwrap_or_default()),
             hosted: BTreeMap::new(),
             done: BTreeSet::new(),
             refused: BTreeSet::new(),
@@ -272,6 +283,7 @@ impl Daemon {
             let catalog = self.core.catalog();
             let board = self.board.step_if_changed(store, catalog).await;
             let pending = self.pending.step_if_changed(store, catalog).await;
+            let _ = self.index.step_if_changed(store, catalog).await;
             changed |= matches!(board, Ok(Some(ref caught)) if !caught.handed().is_empty());
             changed |= matches!(pending, Ok(Some(ref caught)) if !caught.handed().is_empty());
         }

@@ -1,0 +1,18 @@
+[package]
+name = "daemon-proto"
+version = "0.1.0"
+description = "Wire types of the daemon's API and resources, generated from proto/ctxloom/daemon (the resource messages the read models project, S32)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+prost.workspace = true
+prost-types.workspace = true
+
+[build-dependencies]
+angzarr-build.workspace = true
+
+[lints]
+workspace = true

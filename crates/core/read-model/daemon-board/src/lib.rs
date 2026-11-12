@@ -1,4 +1,5 @@
-//! The user daemon's board of one project (D18, D28 S-d): every session
+//! The user daemon's board (D18, D28 S-d), of every project's streams in the
+//! one store (T14): every session
 //! stream folded as the session aggregate folds it, and every run stream as
 //! the run aggregate folds it, plus the turns each run has ended (which the
 //! run's own state forgets). The daemon's policy runner plans from it; it
@@ -11,15 +12,21 @@
 //! it leaves the board.
 //!
 //! It is HELD in memory ([`catch_up`] is a `CatchUp::new`), rebuilt from each
-//! stream's start by a daemon's first step.
+//! stream's start by a daemon's first step. On the projector port it is a
+//! [`Held`] (S32): the same instance is registered in the daemon's kernel,
+//! answering a session stream's state (`ctxloom.sessions.v1.SessionState`)
+//! as its view.
 
 use std::collections::BTreeMap;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::Arc;
 
 use angzarr_embedded::angzarr_router::error::CodedError;
 use angzarr_embedded::angzarr_router::hpb::{ProjectRequest, ProjectResponse};
-use angzarr_embedded::v1::{event_page, EventBook};
-use angzarr_embedded::{CatchUp, Domain, PageContext, Payload, PayloadError, ProjectorHandler};
+use angzarr_embedded::v1::{event_page, Cover, EventBook};
+use angzarr_embedded::{
+    Any, CatchUp, Domain, PageContext, Payload, PayloadError, ProjectorHandler,
+};
+use held_projection::{Fill, Held, Lock, Model};
 use runs::{RunEvent, RunState, RUN_DOMAIN};
 use sessions::{
     ChildLaunched, SessionAggregate, SessionEvent, SessionState, Urgency, SESSION_DOMAIN,
@@ -233,47 +240,69 @@ fn events(
     })
 }
 
-/// The board on angzarr-embedded's projector port.
-#[derive(Default)]
-pub struct Boards(Mutex<Board>);
+impl Model for Board {
+    const NAME: &'static str = "daemon-board";
+
+    fn project(&mut self, book: &EventBook) -> Result<(), PayloadError> {
+        Board::project(self, book)
+    }
+
+    /// A session stream's state, as the session aggregate folds it; a run
+    /// stream has no view here.
+    fn view(&self, cover: &Cover) -> Option<Any> {
+        if cover.domain != SESSION_DOMAIN {
+            return None;
+        }
+        let root = cover.root.as_ref()?;
+        let id = uuid::Uuid::from_slice(&root.value)
+            .ok()?
+            .hyphenated()
+            .to_string();
+        let state = sessions_proto::v1::SessionState::from(self.session(&id)?.clone());
+        Any::from_msg(&state).ok()
+    }
+}
+
+/// The board on angzarr-embedded's projector port: every clone is the same
+/// fold ([`Held`]), so one instance is both the daemon's catch-up's and its
+/// kernel's.
+#[derive(Clone, Default)]
+pub struct Boards(Held<Board>);
 
 impl Boards {
+    /// An empty board whose gaps are read through `fill`.
+    pub fn filled(fill: Arc<dyn Fill>) -> Boards {
+        Boards(Held::new(Some(fill)))
+    }
+
     /// The board, locked.
-    pub fn board(&self) -> MutexGuard<'_, Board> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    pub fn board(&self) -> Lock<'_, Board> {
+        self.0.lock()
     }
 }
 
 impl ProjectorHandler for Boards {
     fn name(&self) -> &str {
-        "daemon-board"
+        self.0.name()
     }
 
     async fn dispatch(&self, request: &ProjectRequest) -> Result<ProjectResponse, CodedError> {
-        let events = request.events.clone().unwrap_or_default();
-        self.board().project(&events).map_err(|error| bug(&error))?;
-        Ok(ProjectResponse { projection: None })
+        self.0.dispatch(request).await
     }
 }
+
+/// The domains the board folds.
+pub const SOURCES: [&str; 2] = [SESSION_DOMAIN, RUN_DOMAIN];
 
 /// An empty board on the projector port, held in memory, to catch up from a
 /// store.
 pub fn catch_up() -> CatchUp<Boards> {
-    CatchUp::new(&[SESSION_DOMAIN, RUN_DOMAIN], Boards::default())
-        .expect("the board reads the session and run domains")
+    caught_up(Boards::default())
 }
 
-/// `error`, an event the board cannot read, as the projector port's bug.
-fn bug(error: &PayloadError) -> CodedError {
-    use angzarr_embedded::angzarr_diagnostic::{Arg, Diagnostic as _};
-    let args = error
-        .args()
-        .into_iter()
-        .filter_map(|(name, arg)| match arg {
-            Arg::Str(value) => Some((name.to_string(), value)),
-            _ => None,
-        });
-    CodedError::bug(error.code(), args)
+/// `boards` caught up from a store: its catch-up, sharing its fold (S32).
+pub fn caught_up(boards: Boards) -> CatchUp<Boards> {
+    CatchUp::new(&SOURCES, boards).expect("the board reads the session and run domains")
 }
 
 #[cfg(test)]

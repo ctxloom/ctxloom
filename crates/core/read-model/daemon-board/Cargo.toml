@@ -12,10 +12,15 @@ angzarr-embedded.workspace = true
 runs.workspace = true
 sessions.workspace = true
 uuid.workspace = true
+# Its view (S32): the session's state, as the wire message; its fold on the
+# projector port.
+sessions-proto.workspace = true
+held-projection.workspace = true
 
 [dev-dependencies]
 angzarr-embedded = { workspace = true, features = ["test-support"] }
 mutants.workspace = true
+prost.workspace = true
 
 [lints]
 workspace = true

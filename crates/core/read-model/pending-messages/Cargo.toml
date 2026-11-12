@@ -12,10 +12,15 @@ angzarr-embedded.workspace = true
 runs.workspace = true
 sessions.workspace = true
 uuid.workspace = true
+# The resource message the model answers as its view (S32), and its fold on
+# the projector port.
+daemon-proto.workspace = true
+held-projection.workspace = true
 
 [dev-dependencies]
 angzarr-embedded = { workspace = true, features = ["test-support"] }
 mutants.workspace = true
+prost.workspace = true
 
 [lints]
 workspace = true

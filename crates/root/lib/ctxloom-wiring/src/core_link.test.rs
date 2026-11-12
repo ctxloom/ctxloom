@@ -16,7 +16,7 @@ use runs_application::{
     RunnerFact, RunsGate, Why,
 };
 
-use crate::{run_id, InProcessCore};
+use crate::{run_id, InProcessCore, Projectors};
 
 const SESSION: &str = "5f0c7a52-1111-5111-8111-000000000001";
 
@@ -482,4 +482,120 @@ fn test_an_edge_leaked_past_the_run_is_a_close_error_not_a_drop() {
         "the run's store is still held (2 holders past the run's end) and was not closed"
     );
     drop(leaked);
+}
+
+// ------------------------------------------------ the read models registered (S32, T16)
+
+fn mint_book(harp: &str) -> CommandBook {
+    CommandBook::command_of(
+        Cover {
+            domain: sessions::SESSION_DOMAIN.to_string(),
+            root: Some(Uuid::from_bytes(
+                *uuid::Uuid::parse_str(SESSION).unwrap().as_bytes(),
+            )),
+            edition: None,
+        },
+        &sessions::SessionCommand::from(sessions::MintSession {
+            harp: harp.to_string(),
+            project_id: "calm-otter".to_string(),
+            project_dir: "/w".to_string(),
+            output_dir: "/o".to_string(),
+            engine: "claude-code".to_string(),
+            origin: sessions::Origin::Session,
+            started_at: None,
+            depth: 0,
+            owner: None,
+        }),
+    )
+}
+
+// S32: the daemon's core registers the read models, so a SIMPLE request
+// through its edge waits for the ones it names and answers each one's view;
+// the same instances, caught up after, fold nothing twice.
+#[tokio::test]
+async fn a_simple_request_answers_the_named_read_models_views() {
+    use prost::Message as _;
+    let mut kept = Projectors::default();
+    let core = InProcessCore::start_with(MemoryStore::default(), |store| {
+        kept = Projectors::filled(store);
+        kept.clone()
+    })
+    .await;
+    let synced = core
+        .edge()
+        .serve_sync(
+            mint_book("amber-swift-owl"),
+            vec!["session-index".to_string(), "daemon-board".to_string()],
+            Arrival::Loopback,
+        )
+        .await
+        .unwrap();
+    let names: Vec<&str> = synced
+        .projections
+        .iter()
+        .map(|p| p.projector.as_str())
+        .collect();
+    assert_eq!(names, ["session-index", "daemon-board"]);
+    let session = daemon_proto::v1::Session::decode(
+        synced.projections[0]
+            .projection
+            .as_ref()
+            .expect("the index's view")
+            .value
+            .as_slice(),
+    )
+    .unwrap();
+    assert_eq!(session.uid, SESSION);
+    assert_eq!(session.engine, "claude-code");
+    let index = kept.index.clone().unwrap();
+    let mut caught = session_index::SessionIndex::caught_up(index.clone());
+    caught.step(core.store(), core.catalog()).await.unwrap();
+    assert_eq!(index.index().records().len(), 1, "folded once");
+    let board = kept.board.unwrap();
+    assert!(
+        board.board().session(SESSION).is_some(),
+        "the board folded it"
+    );
+}
+
+// A core a command runs registers no read model: a SIMPLE request naming
+// one is refused before anything runs, and records nothing.
+#[tokio::test]
+async fn a_core_with_no_read_model_refuses_a_simple_request_and_records_nothing() {
+    let core = InProcessCore::start(MemoryStore::default()).await;
+    let refused = core
+        .edge()
+        .serve_sync(
+            mint_book("amber-swift-owl"),
+            vec!["session-index".to_string()],
+            Arrival::Loopback,
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(
+            refused,
+            Unserved::Failed(Failure::Kernel(
+                KernelError::SyncProjectorNotSubscribed { .. }
+            ))
+        ),
+        "{refused:?}"
+    );
+    let cover = mint_book("x").cover.unwrap();
+    assert!(core.edge().events(&cover, 0).await.unwrap().is_empty());
+}
+
+// The exposure holds for a SIMPLE request as for any: a domain not exposed
+// to where it arrived from is hidden.
+#[tokio::test]
+async fn a_simple_request_to_a_domain_not_exposed_is_hidden() {
+    let core = InProcessCore::start_with(MemoryStore::default(), Projectors::filled).await;
+    let mut book = mint_book("amber-swift-owl");
+    book.cover.as_mut().unwrap().domain = sessions::PROJECTS_DOMAIN.to_string();
+    let refused = core
+        .edge()
+        .serve_sync(book, vec!["session-index".to_string()], Arrival::Loopback)
+        .await
+        .unwrap_err();
+    assert!(matches!(refused, Unserved::Hidden { .. }), "{refused:?}");
 }

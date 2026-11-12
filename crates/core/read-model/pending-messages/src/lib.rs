@@ -14,15 +14,20 @@
 //! (`send:<message_id>`) decide. `session show` lists it (D30).
 //!
 //! It is HELD in memory ([`catch_up`] is a `CatchUp::new`), rebuilt from each
-//! stream's start by a process's first step, like `pending-launches`.
+//! stream's start by a process's first step, like `pending-launches`. On the
+//! projector port it is a [`Held`] (S32): the same instance may also be
+//! registered in the kernel, where a `HandleSync` naming `pending-messages`
+//! is answered the stream's session as a `ctxloom.daemon.v1.Session` holding
+//! its pending messages.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::Arc;
 
 use angzarr_embedded::angzarr_router::error::CodedError;
 use angzarr_embedded::angzarr_router::hpb::{ProjectRequest, ProjectResponse};
-use angzarr_embedded::v1::{event_page, EventBook};
-use angzarr_embedded::{CatchUp, Payload, PayloadError, ProjectorHandler};
+use angzarr_embedded::v1::{event_page, Cover, EventBook};
+use angzarr_embedded::{Any, CatchUp, Payload, PayloadError, ProjectorHandler};
+use held_projection::{Fill, Held, Lock, Model};
 use runs::{RunEvent, RUN_DOMAIN};
 use sessions::{SessionEvent, SessionRef, Urgency, SESSION_DOMAIN};
 
@@ -194,51 +199,87 @@ fn events(book: &EventBook) -> impl Iterator<Item = &angzarr_embedded::Any> {
     })
 }
 
-/// The model on angzarr-embedded's projector port.
-#[derive(Default)]
-pub struct PendingMessages(Mutex<Pending>);
+/// The model's view of a stream (S32): the session it is of (a run stream's,
+/// its run's session), as the resource message, holding its pending
+/// messages. A sender is not named yet (its resource name needs its harps,
+/// which this model does not hold).
+fn view_of(pending: &Pending, cover: &Cover) -> Option<Any> {
+    let root = cover.root.as_ref().map(|r| r.value.to_vec())?;
+    let session = match cover.domain.as_str() {
+        SESSION_DOMAIN => text_of(&root),
+        RUN_DOMAIN => pending.runs.get(&root)?.session.clone(),
+        _ => return None,
+    };
+    let view = daemon_proto::v1::Session {
+        uid: session.clone(),
+        pending: pending
+            .pending(&session)
+            .into_iter()
+            .map(|message| daemon_proto::v1::PendingMessage {
+                message_id: message.message_id,
+                urgency: sessions::urgency_word(message.urgency).to_string(),
+                text: message.text,
+                sender: String::new(),
+            })
+            .collect(),
+        ..daemon_proto::v1::Session::default()
+    };
+    Any::from_msg(&view).ok()
+}
+
+impl Model for Pending {
+    const NAME: &'static str = "pending-messages";
+
+    fn project(&mut self, book: &EventBook) -> Result<(), PayloadError> {
+        Pending::project(self, book)
+    }
+
+    fn view(&self, cover: &Cover) -> Option<Any> {
+        view_of(self, cover)
+    }
+}
+
+/// The model on angzarr-embedded's projector port: every clone is the same
+/// fold ([`Held`]), so one instance can be both a catch-up's and the
+/// kernel's.
+#[derive(Clone, Default)]
+pub struct PendingMessages(Held<Pending>);
 
 impl PendingMessages {
+    /// An empty model whose gaps are read through `fill`.
+    pub fn filled(fill: Arc<dyn Fill>) -> PendingMessages {
+        PendingMessages(Held::new(Some(fill)))
+    }
+
     /// The model, locked.
-    pub fn pending(&self) -> MutexGuard<'_, Pending> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    pub fn pending(&self) -> Lock<'_, Pending> {
+        self.0.lock()
     }
 }
 
 impl ProjectorHandler for PendingMessages {
     fn name(&self) -> &str {
-        "pending-messages"
+        self.0.name()
     }
 
     async fn dispatch(&self, request: &ProjectRequest) -> Result<ProjectResponse, CodedError> {
-        let events = request.events.clone().unwrap_or_default();
-        self.pending()
-            .project(&events)
-            .map_err(|error| bug(&error))?;
-        Ok(ProjectResponse { projection: None })
+        self.0.dispatch(request).await
     }
 }
 
 /// An empty model on the projector port, held in memory, to catch up from a
 /// store.
 pub fn catch_up() -> CatchUp<PendingMessages> {
-    CatchUp::new(&[SESSION_DOMAIN, RUN_DOMAIN], PendingMessages::default())
-        .expect("the pending messages read the session and run domains")
+    caught_up(PendingMessages::default())
 }
 
-/// `error`, an event the model cannot read, as the projector port's bug: its
-/// code, and its text args (the type URL it names).
-fn bug(error: &PayloadError) -> CodedError {
-    use angzarr_embedded::angzarr_diagnostic::{Arg, Diagnostic as _};
-    let args = error
-        .args()
-        .into_iter()
-        .filter_map(|(name, arg)| match arg {
-            Arg::Str(value) => Some((name.to_string(), value)),
-            _ => None,
-        });
-    CodedError::bug(error.code(), args)
+/// `model` caught up from a store: its catch-up, sharing its fold (S32).
+pub fn caught_up(model: PendingMessages) -> CatchUp<PendingMessages> {
+    CatchUp::new(&SOURCES, model).expect("the pending messages read the session and run domains")
 }
+
+/// The domains the model folds.
+pub const SOURCES: [&str; 2] = [SESSION_DOMAIN, RUN_DOMAIN];
 
 #[cfg(test)]
 #[path = "lib.test.rs"]

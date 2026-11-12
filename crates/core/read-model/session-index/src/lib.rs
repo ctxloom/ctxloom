@@ -14,6 +14,11 @@
 //!   joins it with what only the outside knows (its state from its lock) and
 //!   its title from its transcript, and is what `session list`, `search` and
 //!   `show` render from.
+//! - On the projector port it is a [`Held`] (S32): the same instance may be
+//!   registered in the kernel, where a `HandleSync` naming `session-index` is
+//!   answered the command's session as its resource message,
+//!   `ctxloom.daemon.v1.Session`, named by its project's harp and its own
+//!   (S42, S54: the index folds the projects' streams for their harps).
 //! - A session's transcript (D27's lines) is folded from its capture events
 //!   too ([`SessionIndex::transcript`], [`Projection`]): no file holds it
 //!   (owner ruling 87a), so a read, live or not, sees what was delivered.
@@ -28,16 +33,18 @@ mod transcript;
 mod view;
 
 use std::collections::BTreeMap;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::Arc;
 
 use angzarr_embedded::angzarr_router::error::CodedError;
 use angzarr_embedded::angzarr_router::hpb::{ProjectRequest, ProjectResponse};
 use angzarr_embedded::v1::{event_page, Cover, EventBook};
 use angzarr_embedded::{
-    CatchUp, Domain, PageContext, Payload, PayloadError, ProjectorHandler, Timestamp,
+    Any, CatchUp, Domain, PageContext, Payload, PayloadError, ProjectorHandler, Timestamp,
 };
+use held_projection::{Fill, Held, Lock, Model};
 use sessions::{
-    Child, Origin, Rotation, SessionAggregate, SessionEvent, SessionRef, SESSION_DOMAIN,
+    Child, Origin, ProjectEvent, Rotation, SessionAggregate, SessionEvent, SessionRef,
+    PROJECTS_DOMAIN, SESSION_DOMAIN,
 };
 
 pub use pending_messages::PendingMessage;
@@ -92,6 +99,9 @@ pub struct SessionIndex {
     /// Each session's transcript (owner ruling 87a), by root: its folding
     /// and the text so far.
     transcripts: BTreeMap<Vec<u8>, Folded>,
+    /// Each project's harp (S54), by its project stream's root: its id and
+    /// the harp it was named with.
+    projects: BTreeMap<Vec<u8>, (String, String)>,
 }
 
 /// A session's transcript as folded so far.
@@ -110,8 +120,37 @@ impl SessionIndex {
 
     /// An empty index on the projector port, to catch up from a store.
     pub fn catch_up() -> CatchUp<SessionIndexes> {
-        CatchUp::new(&[SESSION_DOMAIN], SessionIndexes::default())
-            .expect("a session index reads the sessions domain")
+        SessionIndex::caught_up(SessionIndexes::default())
+    }
+
+    /// `index` caught up from a store: its catch-up, sharing its fold (S32).
+    pub fn caught_up(index: SessionIndexes) -> CatchUp<SessionIndexes> {
+        CatchUp::new(&SOURCES, index).expect("a session index reads the sessions and projects")
+    }
+
+    /// The harp the project `project_id` was named with (S54), if it was.
+    pub fn project_harp(&self, project_id: &str) -> Option<&str> {
+        self.projects
+            .values()
+            .find(|(id, _)| id == project_id)
+            .map(|(_, harp)| harp.as_str())
+    }
+
+    /// Fold a project stream's `book`: the harp it names its project with.
+    fn project_named(&mut self, root: Vec<u8>, book: &EventBook) -> Result<(), PayloadError> {
+        if book.pages.is_empty() && book.next_sequence == 0 {
+            self.projects.remove(&root);
+        }
+        for page in &book.pages {
+            let Some(event_page::Body::Event(event)) = &page.body else {
+                continue;
+            };
+            let ProjectEvent::ProjectNamed(named) = ProjectEvent::from_any(event)?;
+            self.projects
+                .entry(root.clone())
+                .or_insert((named.project_id, named.harp));
+        }
+        Ok(())
     }
 
     /// Fold `book`, one session stream's events after the last projected of
@@ -121,6 +160,13 @@ impl SessionIndex {
     /// domain cannot read folds nothing and is the fold's error.
     pub fn project(&mut self, book: &EventBook) -> Result<(), PayloadError> {
         let root = root(book.cover.as_ref());
+        if book
+            .cover
+            .as_ref()
+            .is_some_and(|c| c.domain == PROJECTS_DOMAIN)
+        {
+            return self.project_named(root, book);
+        }
         let Some(first) = book.pages.first() else {
             if book.next_sequence == 0 {
                 self.streams.remove(&root);
@@ -252,42 +298,107 @@ impl SessionIndex {
     }
 }
 
+/// The domains the index folds: the sessions, and the projects for their
+/// harps (S54).
+pub const SOURCES: [&str; 2] = [SESSION_DOMAIN, PROJECTS_DOMAIN];
+
+impl SessionIndex {
+    /// The resource name of `record` (S42): its project's harp and its own,
+    /// `projects/{project}/sessions/{session}`; empty while its project has
+    /// no harp.
+    pub fn name_of(&self, record: &SessionRecord) -> String {
+        self.project_harp(&record.project_id)
+            .map(|project| format!("projects/{project}/sessions/{}", record.harp))
+            .unwrap_or_default()
+    }
+
+    /// The resource name of the session `session` refers to, where the index
+    /// holds it.
+    fn name_of_ref(&self, session: &SessionRef) -> String {
+        self.find_by_id(&session.session)
+            .map(|record| self.name_of(&record))
+            .unwrap_or_default()
+    }
+
+    /// The session `record` as its resource message (S32): what a `Get` of
+    /// it returns, as far as the store says (its state is its lock's, which
+    /// no read model knows, so it is left unspecified; its title waits for
+    /// `SetSessionTitle`, S55).
+    pub fn resource(&self, record: &SessionRecord) -> daemon_proto::v1::Session {
+        let summary = self
+            .transcript(&record.id)
+            .as_deref()
+            .and_then(title_of)
+            .unwrap_or_default();
+        daemon_proto::v1::Session {
+            name: self.name_of(record),
+            uid: record.id.clone(),
+            engine: record.engine.clone(),
+            summary,
+            start_time: Some(record.started_at),
+            end_time: record.ended_at,
+            kept: record.kept,
+            owner: record
+                .owner
+                .as_ref()
+                .map(|owner| self.name_of_ref(owner))
+                .unwrap_or_default(),
+            closed: record.closed,
+            children: record
+                .children
+                .iter()
+                .filter_map(|child| child.session.as_ref())
+                .map(|child| self.name_of_ref(child))
+                .collect(),
+            incarnation: record.incarnation,
+            ..daemon_proto::v1::Session::default()
+        }
+    }
+}
+
+impl Model for SessionIndex {
+    const NAME: &'static str = "session-index";
+
+    fn project(&mut self, book: &EventBook) -> Result<(), PayloadError> {
+        SessionIndex::project(self, book)
+    }
+
+    /// A session stream's session, as its resource message.
+    fn view(&self, cover: &Cover) -> Option<Any> {
+        if cover.domain != SESSION_DOMAIN {
+            return None;
+        }
+        let record = self.find_by_id(&uuid_text(&root(Some(cover))))?;
+        Any::from_msg(&self.resource(&record)).ok()
+    }
+}
+
 /// A [`SessionIndex`] on angzarr-embedded's projector port: what a
-/// `CatchUp` hands each session stream's book.
-#[derive(Default)]
-pub struct SessionIndexes(Mutex<SessionIndex>);
+/// `CatchUp` hands each session stream's book, and, registered in a kernel,
+/// what it hands inline. Every clone is the same fold ([`Held`]).
+#[derive(Clone, Default)]
+pub struct SessionIndexes(Held<SessionIndex>);
 
 impl SessionIndexes {
+    /// An empty index whose gaps are read through `fill`.
+    pub fn filled(fill: Arc<dyn Fill>) -> SessionIndexes {
+        SessionIndexes(Held::new(Some(fill)))
+    }
+
     /// The index as projected so far.
-    pub fn index(&self) -> MutexGuard<'_, SessionIndex> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    pub fn index(&self) -> Lock<'_, SessionIndex> {
+        self.0.lock()
     }
 }
 
 impl ProjectorHandler for SessionIndexes {
     fn name(&self) -> &str {
-        "session-index"
+        self.0.name()
     }
 
     async fn dispatch(&self, request: &ProjectRequest) -> Result<ProjectResponse, CodedError> {
-        let events = request.events.clone().unwrap_or_default();
-        self.index().project(&events).map_err(|error| bug(&error))?;
-        Ok(ProjectResponse { projection: None })
+        self.0.dispatch(request).await
     }
-}
-
-/// `error`, an event the index cannot read, as the projector port's bug: its
-/// code, and its text args (the type URL it names).
-fn bug(error: &PayloadError) -> CodedError {
-    use angzarr_embedded::angzarr_diagnostic::{Arg, Diagnostic as _};
-    let args = error
-        .args()
-        .into_iter()
-        .filter_map(|(name, arg)| match arg {
-            Arg::Str(value) => Some((name.to_string(), value)),
-            _ => None,
-        });
-    CodedError::bug(error.code(), args)
 }
 
 /// The record of the session folded from the stream rooted at `root`.

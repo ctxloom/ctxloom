@@ -984,6 +984,7 @@ dependencies = [
  "ctxloom-store-sqlite",
  "ctxloom-wiring",
  "daemon-board",
+ "daemon-proto",
  "deps",
  "deps-application",
  "deps-cli",
@@ -1002,6 +1003,7 @@ dependencies = [
  "forge-github",
  "harp-core",
  "harp-names",
+ "held-projection",
  "hook-cli",
  "hook-listener",
  "hook-sink-grpc",
@@ -1022,6 +1024,7 @@ dependencies = [
  "process-env",
  "project-dir",
  "project-registry",
+ "prost",
  "reclaim-application",
  "remote-git",
  "run-application",
@@ -1035,6 +1038,7 @@ dependencies = [
  "serde",
  "session-cli",
  "session-files",
+ "session-index",
  "session-policies",
  "session-ports",
  "sessions",
@@ -1116,10 +1120,22 @@ name = "daemon-board"
 version = "0.1.0"
 dependencies = [
  "angzarr-embedded",
+ "held-projection",
  "mutants",
+ "prost",
  "runs",
  "sessions",
+ "sessions-proto",
  "uuid",
+]
+
+[[package]]
+name = "daemon-proto"
+version = "0.1.0"
+dependencies = [
+ "angzarr-build",
+ "prost",
+ "prost-types",
 ]
 
 [[package]]
@@ -1952,6 +1968,14 @@ name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
+
+[[package]]
+name = "held-projection"
+version = "0.1.0"
+dependencies = [
+ "angzarr-embedded",
+ "mutants",
+]
 
 [[package]]
 name = "hex"
@@ -3078,7 +3102,10 @@ name = "pending-messages"
 version = "0.1.0"
 dependencies = [
  "angzarr-embedded",
+ "daemon-proto",
+ "held-projection",
  "mutants",
+ "prost",
  "runs",
  "sessions",
  "uuid",
@@ -4160,8 +4187,11 @@ name = "session-index"
 version = "0.1.0"
 dependencies = [
  "angzarr-embedded",
+ "daemon-proto",
+ "held-projection",
  "mutants",
  "pending-messages",
+ "prost",
  "serde",
  "serde_json",
  "sessions",

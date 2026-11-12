@@ -331,3 +331,20 @@ fn a_session_keeps_its_launches_messages_and_clears() {
         .unwrap();
     assert!(board.launched(ID).is_empty(), "folded afresh from 0");
 }
+
+// S32: the board's view of a session stream is its state as the session
+// aggregate folds it, the wire message.
+#[test]
+fn the_projection_of_a_session_stream_is_its_state() {
+    use prost::Message as _;
+    let boards = Boards::default();
+    let request = ProjectRequest {
+        events: Some(book(SESSION_DOMAIN, root(), 0, minted(None))),
+    };
+    let view = ready(boards.dispatch(&request))
+        .unwrap()
+        .projection
+        .expect("a view");
+    let state = sessions_proto::v1::SessionState::decode(view.value.as_slice()).unwrap();
+    assert_eq!(state.harp, boards.board().session(ID).unwrap().harp);
+}

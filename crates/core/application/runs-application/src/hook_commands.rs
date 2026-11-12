@@ -6,14 +6,17 @@
 //! answer what the kernel answers: applied or duplicate, or a failure as its
 //! gRPC code and key.
 //!
-//! Only `handle` is served (the trait's other operations answer UNIMPLEMENTED
-//! by its defaults), and only the session domain is reachable.
+//! `handle` and `handle_sync` are served (the trait's other operations
+//! answer UNIMPLEMENTED by its defaults), and only the session domain is
+//! reachable. `handle_sync` (angzarr's SIMPLE mode, T16) is the kernel's:
+//! answered once the projectors it names (the read models registered in the
+//! kernel, S32) have projected its events, with what each answered.
 
 use std::sync::Arc;
 
 use angzarr_coordinator::angzarr_coordinator_base::{Answered, Code, Coded, Refusal};
 use angzarr_coordinator::angzarr_ports::BoxFuture;
-use angzarr_coordinator::{Caller, Commands, Reach, Served};
+use angzarr_coordinator::{Caller, Commands, Reach, Served, Synced};
 use angzarr_embedded::angzarr_router::error::CodedError;
 use angzarr_embedded::v1::CommandBook;
 use angzarr_embedded::{Failure, Recovery, Rejected};
@@ -118,6 +121,29 @@ impl<E: Edge> Commands for EdgeCommands<E> {
                 Ok(answered) => Ok(Answered {
                     events: answered.events,
                     delivery: answered.delivery,
+                }),
+                Err(unserved) => Err(EdgeFailure::Kernel(unserved.answer())),
+            }
+        })
+    }
+
+    fn handle_sync<'a>(
+        &'a self,
+        book: CommandBook,
+        projectors: Vec<String>,
+        caller: Caller,
+    ) -> BoxFuture<'a, Result<Synced, EdgeFailure>> {
+        let _ = caller;
+        Box::pin(async move {
+            // RED: not the edge's yet.
+            let _ = projectors;
+            match self.edge.serve_sync(book, Vec::new(), Arrival::Ip).await {
+                Ok(synced) => Ok(Synced {
+                    answered: Answered {
+                        events: synced.answered.events,
+                        delivery: synced.answered.delivery,
+                    },
+                    projections: synced.projections,
                 }),
                 Err(unserved) => Err(EdgeFailure::Kernel(unserved.answer())),
             }

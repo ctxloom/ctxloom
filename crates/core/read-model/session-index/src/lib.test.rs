@@ -385,7 +385,7 @@ fn an_event_the_index_cannot_read_is_a_bug_naming_it() {
         value: Vec::new(),
     };
     let error = sessions::SessionEvent::from_any(&any).unwrap_err();
-    let coded = super::bug(&error);
+    let coded = held_projection::bug(&error);
     assert!(format!("{coded:?}").contains("Nope"), "{coded:?}");
 }
 
@@ -687,4 +687,73 @@ fn a_record_carries_its_owner_its_close_and_the_children_it_holds() {
     assert_eq!(kid.owner, Some(owner));
     assert!(kid.closed);
     assert!(kid.children.is_empty());
+}
+
+// S32: registered in the kernel, the index is what a HandleSync waits for,
+// and it answers the command's session as its resource message, named by
+// its project's harp and its own (S42, S54); a catch-up of the same index
+// after it folds nothing twice.
+#[test]
+fn handle_sync_answers_the_session_as_its_resource_named_by_both_harps() {
+    use prost::Message as _;
+    let index = SessionIndexes::default();
+    let mut registry = Registry::new();
+    registry
+        .aggregate::<SessionAggregate>(SessionAggregate::default)
+        .unwrap();
+    registry
+        .aggregate::<sessions::ProjectAggregate>(sessions::ProjectAggregate::default)
+        .unwrap();
+    registry
+        .projector_handler(&super::SOURCES, index.clone())
+        .unwrap();
+    let store = MemoryStore::new();
+    let sampled = |n: u8| Sampled {
+        now: Timestamp {
+            seconds: 100 + i64::from(n),
+            nanos: 0,
+        },
+        command_id: Uuid::from_bytes([n; 16]),
+    };
+    let named = sessions::ProjectCommand::from(sessions::NameProject {
+        project_id: "calm-otter".to_string(),
+        harp: "calm-quiet-heron".to_string(),
+    });
+    let project = Cover {
+        domain: sessions::PROJECTS_DOMAIN.to_string(),
+        root: Some(sessions::project_root("calm-otter")),
+        edition: None,
+    };
+    let kernel = Kernel::new(&registry);
+    ready(kernel.handle_any(
+        &store,
+        angzarr_embedded::CommandBookExt::command_of(project, &named),
+        &sampled(1),
+    ))
+    .unwrap();
+    let synced = ready(kernel.handle_sync(
+        &store,
+        book(
+            FIRST,
+            SessionCommand::from(mint("amber-swift-owl")).to_any(),
+        ),
+        &["session-index".to_string()],
+        &sampled(2),
+    ))
+    .unwrap_or_else(|failure| panic!("{failure:?}"));
+    let [projection] = synced.projections.as_slice() else {
+        panic!("one projection: {:?}", synced.projections);
+    };
+    assert_eq!(projection.projector, "session-index");
+    let any = projection.projection.as_ref().expect("a view");
+    let session = daemon_proto::v1::Session::decode(any.value.as_slice()).unwrap();
+    assert_eq!(
+        session.name,
+        "projects/calm-quiet-heron/sessions/amber-swift-owl"
+    );
+    assert_eq!(session.uid, id_text(FIRST));
+    assert_eq!(session.engine, "claude-code");
+    let mut caught = SessionIndex::caught_up(index.clone());
+    ready(caught.step(&store, registry.catalog())).unwrap();
+    assert_eq!(index.index().records().len(), 1, "folded once");
 }

@@ -85,6 +85,7 @@ scheduler-fixture = { path = "crates/core/domain/scheduler-fixture" }
 scheduler-due = { path = "crates/core/read-model/scheduler-due" }
 pending-launches = { path = "crates/core/read-model/pending-launches" }
 pending-messages = { path = "crates/core/read-model/pending-messages" }
+held-projection = { path = "crates/core/read-model/held-projection" }
 daemon-board = { path = "crates/core/read-model/daemon-board" }
 trees = { path = "crates/core/domain/trees" }
 run-ports = { path = "crates/core/ports/run-ports" }
@@ -96,6 +97,7 @@ hook-sink-grpc = { path = "crates/adapters/driven/hook-sink-grpc" }
 embedded-edge = { path = "crates/adapters/driven/embedded-edge" }
 session-ports = { path = "crates/core/ports/session-ports" }
 sessions-proto = { path = "crates/core/wire/sessions-proto" }
+daemon-proto = { path = "crates/core/wire/daemon-proto" }
 sessions = { path = "crates/core/domain/sessions" }
 session-index = { path = "crates/core/read-model/session-index" }
 session-policies = { path = "crates/core/application/session-policies" }

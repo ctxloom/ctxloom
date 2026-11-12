@@ -75,6 +75,75 @@ impl<S: Store + Processed + ListStreams + Send + Sync> Stores for CoreStores<S> 
     }
 }
 
+/// The read models a core registers in its kernel's registry (S32, T16):
+/// each a handle on a fold another driver (a catch-up) may share, run inline
+/// after every commit of its sources, and what a `HandleSync` names. A core
+/// a CLI command runs registers none (its folds would be partial, and it
+/// serves no `HandleSync`); the daemon's registers all three.
+#[derive(Clone, Default)]
+pub struct Projectors {
+    pub board: Option<daemon_board::Boards>,
+    pub pending: Option<pending_messages::PendingMessages>,
+    pub index: Option<session_index::SessionIndexes>,
+}
+
+impl Projectors {
+    /// Every read model the daemon registers, each empty, its gaps read from
+    /// `store`.
+    pub fn filled<S>(store: &Arc<S>) -> Projectors
+    where
+        S: Store + Send + Sync + 'static,
+    {
+        let fill = || -> Arc<dyn held_projection::Fill> { Arc::new(StoreFill(Arc::clone(store))) };
+        Projectors {
+            board: Some(daemon_board::Boards::filled(fill())),
+            pending: Some(pending_messages::PendingMessages::filled(fill())),
+            index: Some(session_index::SessionIndexes::filled(fill())),
+        }
+    }
+
+    /// Register each read model in `registry`, on its sources.
+    fn register(self, registry: &mut Registry) {
+        // The registrations are fixed here, so a failure is a bug of this
+        // function, found by the first start.
+        if let Some(board) = self.board {
+            registry
+                .projector_handler(&daemon_board::SOURCES, board)
+                .expect("the board registers");
+        }
+        if let Some(pending) = self.pending {
+            registry
+                .projector_handler(&pending_messages::SOURCES, pending)
+                .expect("the pending messages register");
+        }
+        if let Some(index) = self.index {
+            registry
+                .projector_handler(&session_index::SOURCES, index)
+                .expect("the session index registers");
+        }
+    }
+}
+
+/// A read model's gaps, read from the core's store.
+struct StoreFill<S>(Arc<S>);
+
+impl<S: Store + Send + Sync> held_projection::Fill for StoreFill<S> {
+    fn pages<'a>(
+        &'a self,
+        cover: &'a angzarr_embedded::v1::Cover,
+        from: u64,
+        to: u64,
+    ) -> angzarr_embedded::angzarr_ports::BoxFuture<
+        'a,
+        Result<Vec<angzarr_embedded::v1::EventPage>, StoreError>,
+    > {
+        Box::pin(async move {
+            let stream = angzarr_embedded::StreamRef::try_from(cover)?;
+            Ok(self.0.read(stream, from, Some(to)).await?.pages)
+        })
+    }
+}
+
 /// The in-process core over one store.
 pub struct InProcessCore<S>
 where
@@ -145,7 +214,18 @@ where
     /// bridge reaches them) and trees to loopback; the kernel's retries off,
     /// so a fact at the race cap is parked at once.
     pub async fn start(store: S) -> InProcessCore<S> {
+        InProcessCore::start_with(store, |_| Projectors::default()).await
+    }
+
+    /// [`InProcessCore::start`], with the read models `projectors` builds
+    /// (given the store it will keep) registered in its kernel (S32).
+    pub async fn start_with(
+        store: S,
+        projectors: impl FnOnce(&Arc<S>) -> Projectors,
+    ) -> InProcessCore<S> {
+        let store = Arc::new(store);
         let mut registry = Registry::new();
+        projectors(&store).register(&mut registry);
         // The registrations are fixed here, so a failure is a bug of this
         // function, found by the first start.
         registry
@@ -180,15 +260,14 @@ where
             max_backoff: Duration::ZERO,
             jitter: 0.0,
         };
-        let store = Arc::new(store);
         let app = App::builder(CoreStores(Arc::clone(&store)), registry)
-            .exposed(exposed)
+            .exposed(exposed.clone())
             .on_retryable(retries)
             .start()
             .await;
         let app = Arc::new(app);
         InProcessCore {
-            edge: Arc::new(EmbeddedEdge::new(Arc::clone(&app), sample)),
+            edge: Arc::new(EmbeddedEdge::new(Arc::clone(&app), sample).exposed(exposed)),
             app,
             store,
         }

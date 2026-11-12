@@ -86,6 +86,10 @@ credentials.workspace = true
 pending-launches.workspace = true
 pending-messages.workspace = true
 daemon-board.workspace = true
+# The read models the daemon registers in its kernel (S32), sharing one fold
+# with its catch-ups, their gaps filled from the store.
+session-index.workspace = true
+held-projection.workspace = true
 session-policies.workspace = true
 embedded-edge.workspace = true
 hook-sink-grpc.workspace = true
@@ -96,6 +100,9 @@ session-ports = { workspace = true, optional = true }
 serde.workspace = true
 
 [dev-dependencies]
+# A projection's view, decoded (S32).
+prost.workspace = true
+daemon-proto.workspace = true
 fixture-program.workspace = true
 # Builds this crate's own `test-support` feature for its tests (the seed, bind
 # and session tests need it) without turning it on for the `ctxloom` binary:

@@ -232,3 +232,34 @@ fn the_projector_port_folds_the_book_it_is_handed() {
     assert_eq!(model.name(), "pending-messages");
     let _ = catch_up();
 }
+
+// S32: what the port answers for a stream is the session's pending messages,
+// as the resource message (`ctxloom.daemon.v1.Session`); a run stream's is
+// its run's session's.
+#[test]
+fn the_projection_is_the_sessions_pending_messages_as_its_resource() {
+    use prost::Message as _;
+    let m1 = message("m1", Urgency::Wake);
+    let m2 = message("m2", Urgency::Inform);
+    let model = PendingMessages::default();
+    let hand = |book| {
+        ready(model.dispatch(&ProjectRequest { events: Some(book) }))
+            .unwrap()
+            .projection
+            .expect("a view")
+    };
+    hand(on_session(1, 0, vec![sent(&m1), sent(&m2)]));
+    let view = hand(on_run(1, 1, 0, &[&["m1"]]));
+    assert_eq!(
+        view.type_url,
+        <daemon_proto::v1::Session as prost::Name>::type_url()
+    );
+    let resource = daemon_proto::v1::Session::decode(view.value.as_slice()).unwrap();
+    assert_eq!(resource.uid, session(1).1);
+    let pending: Vec<(&str, &str)> = resource
+        .pending
+        .iter()
+        .map(|p| (p.message_id.as_str(), p.urgency.as_str()))
+        .collect();
+    assert_eq!(pending, [("m2", "inform")]);
+}

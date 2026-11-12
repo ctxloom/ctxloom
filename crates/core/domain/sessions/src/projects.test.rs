@@ -148,3 +148,37 @@ fn the_roots_are_fixed_by_the_project_and_the_harp() {
     );
     assert_ne!(project_name_root(HARP), claim_root(PROJECT, HARP));
 }
+
+// FIXED: a project harp's claim root is UUIDv5 of the harp in the namespace
+// UUIDv5(URL, "ctxloom:project-names"); changing it frees every harp
+// claimed.
+#[test]
+fn a_project_harps_claim_root_is_fixed() {
+    let namespace = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, b"ctxloom:project-names");
+    let expected = uuid::Uuid::new_v5(&namespace, HARP.as_bytes());
+    assert_eq!(project_name_root(HARP).value, expected.as_bytes().to_vec());
+}
+
+// The states round-trip through their wire messages.
+#[test]
+fn the_project_states_round_trip_through_the_wire() {
+    use crate::{ProjectNameState, ProjectState};
+    let project = ProjectState {
+        project_id: PROJECT.to_string(),
+        harp: HARP.to_string(),
+    };
+    let wire = sessions_proto::v1::ProjectState::from(project.clone());
+    assert_eq!(wire.project_id, PROJECT);
+    assert_eq!(wire.harp, HARP);
+    assert_eq!(ProjectState::try_from(wire).unwrap(), project);
+    let claim = ProjectNameState {
+        harp: HARP.to_string(),
+        project_id: PROJECT.to_string(),
+    };
+    let wire = sessions_proto::v1::ProjectNameState::from(claim.clone());
+    assert_eq!(
+        (wire.harp.as_str(), wire.project_id.as_str()),
+        (HARP, PROJECT)
+    );
+    assert_eq!(ProjectNameState::try_from(wire).unwrap(), claim);
+}

@@ -530,3 +530,20 @@ async fn test_a_read_reuses_the_held_store() {
     );
     stores.close().await.unwrap();
 }
+
+// The samples carry every error of this crate's own (the binary's catalog
+// test renders each), the opener's beside them.
+#[test]
+fn test_the_samples_carry_this_crates_errors_and_the_openers() {
+    let codes: Vec<String> = super::diagnostic_samples()
+        .iter()
+        .map(|sample| sample.code().to_string())
+        .collect();
+    for code in [
+        "ctxloom-store-sqlite-per-project-store",
+        "ctxloom-store-sqlite-project-dir-unmade",
+        "sqlite-store-opener-predates-embedded",
+    ] {
+        assert!(codes.iter().any(|c| c == code), "{code}: {codes:?}");
+    }
+}

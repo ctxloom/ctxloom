@@ -254,6 +254,42 @@ mod through_an_app {
         assert_eq!(sequences(edge.events(&cover(), 1).await.unwrap()), [1]);
         assert!(edge.events(&cover(), 2).await.unwrap().is_empty());
     }
+
+    // A SIMPLE request is the kernel's handle_sync, behind the exposure the
+    // edge is told: a domain not exposed to the arrival is hidden; one that
+    // is, naming a projector the application does not run, is refused
+    // before anything runs and records nothing.
+    #[tokio::test]
+    async fn serve_sync_is_the_kernels_handle_sync_behind_the_exposure() {
+        let edge = edge()
+            .await
+            .exposed([(DOMAIN.to_string(), Expose::Loopback)].into());
+        let named = vec!["nobody".to_string()];
+        let hidden = edge
+            .serve_sync(on(), named.clone(), Arrival::Ip)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            hidden,
+            Unserved::Hidden {
+                domain: DOMAIN.to_string()
+            }
+        );
+        let refused = edge
+            .serve_sync(on(), named, Arrival::Loopback)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(
+                refused,
+                Unserved::Failed(angzarr_embedded::Failure::Kernel(
+                    angzarr_embedded::KernelError::SyncProjectorNotSubscribed { .. }
+                ))
+            ),
+            "{refused:?}"
+        );
+        assert!(edge.events(&cover(), 0).await.unwrap().is_empty());
+    }
 }
 
 // A SIMPLE request is held to the exposure the edge is told (T16): a domain

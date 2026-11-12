@@ -31,7 +31,7 @@ pub use bind::{bind_for, BindPlan, BindRefusal, ContainerRuntime, PlatformFacts,
 pub use edge::{Arrival, Edge, Unserved};
 pub use engine::{
     copy_in, Advice, Credentials, Engine, EngineError, FailureClass, HomeFile, LeftOut, Planned,
-    PrepareRequest, Prepared, TurnOutcome, TurnRequest, UserSettings, HOME_VARIABLE,
+    PrepareRequest, Prepared, TurnOutcome, TurnRequest, UserSettings, HOME_VARIABLE, ROOT_VARIABLE,
 };
 pub use git::{git_config, GitUser, GIT_CONFIG_FILE};
 pub use hook::{

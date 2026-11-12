@@ -26,6 +26,15 @@ use crate::launcher::{TurnCommand, TurnOutput};
 /// ctxloom's home through this one explicit variable.
 pub const HOME_VARIABLE: &str = "CTXLOOM_HOME";
 
+/// The variable that names the live project's root in an engine's
+/// environment (the terminal session's and a one-shot child's), set by the
+/// launch to the project the run is of. An engine placed in a checkout of
+/// its own works outside the project, so its hook processes, and the
+/// agent's own `ctxloom` calls, find the project through this one variable
+/// rather than from their working directory (the checkout holds the
+/// project's tracked `.ctxloom`, never its id, sessions or cache).
+pub const ROOT_VARIABLE: &str = "CTXLOOM_ROOT";
+
 /// A file to write under a session home.
 #[derive(Clone, PartialEq, Eq)]
 pub struct HomeFile {

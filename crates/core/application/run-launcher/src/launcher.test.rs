@@ -1969,3 +1969,50 @@ async fn a_launcher_with_no_workspaces_leaves_a_checkout() {
         isolation_ports::Removal::Left(_)
     ));
 }
+
+// A placed engine works outside the project: the launch names the live
+// project to it, and so to its hook processes and the agent's own `ctxloom`
+// calls, as CTXLOOM_ROOT, over any the caller had, and no permit replaces it.
+#[tokio::test]
+async fn the_engine_is_told_the_live_project_whatever_its_workspace() {
+    use crate::fakes::{worktree_checkout, worktree_order, ScriptedWorkspaces};
+    let mut order = worktree_order("fake", "reviewer");
+    order.env.insert(
+        run_ports::ROOT_VARIABLE.to_string(),
+        "/elsewhere".to_string(),
+    );
+    order.env.insert(
+        "CTXLOOM_PERMIT_CTXLOOM_ROOT".to_string(),
+        "/permitted".to_string(),
+    );
+    let workspaces = Arc::new(ScriptedWorkspaces::new(worktree_checkout));
+    let mut rig = rig_placing(order, workspaces);
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    let seen = rig.runner.seen.lock().unwrap();
+    assert_eq!(
+        seen[0]
+            .env
+            .get(run_ports::ROOT_VARIABLE)
+            .map(String::as_str),
+        Some("/work/proj")
+    );
+    assert_ne!(seen[0].cwd.as_deref(), Some("/work/proj"), "placed");
+}
+
+// An order with no project names none.
+#[tokio::test]
+async fn an_order_with_no_project_names_no_root() {
+    let mut order = order("fake");
+    order.cwd = None;
+    let mut rig = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(order),
+    );
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    assert!(!rig.runner.seen.lock().unwrap()[0]
+        .env
+        .contains_key(run_ports::ROOT_VARIABLE));
+}

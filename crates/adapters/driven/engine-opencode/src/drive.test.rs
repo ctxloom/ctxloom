@@ -230,6 +230,7 @@ fn test_only_the_curated_variables_pass_and_opencode_pure_never_does() {
         }
         assert!(list.contains(&run_ports::HOME_VARIABLE));
         assert!(list.contains(&run_ports::HARP_VARIABLE));
+        assert!(list.contains(&run_ports::ROOT_VARIABLE));
     }
 }
 

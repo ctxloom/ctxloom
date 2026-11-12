@@ -56,8 +56,10 @@ syntax = "proto3";
 // the certificate. The bearer and the pinned certificate keep non-user
 // callers off the socket (other users, web pages, containers, machines);
 // nothing separates the user's own processes, which can all read the
-// discovery file. A call addresses its run and session as plain fields (an
-// address, never an identity).
+// discovery file. A command addresses its target session once, as its
+// Cover's root, and names its `requester` in a field of its own, set by the
+// client and taken as sent (an address, never an identity). No run is sent,
+// and the daemon checks no session against a run.
 //
 // THE AIP FIELDS, AT FIXED NUMBERS IN EVERY REQUEST (API Q13):
 //   1        `name` (or `parent`)
@@ -940,14 +942,6 @@ message OneChangePerCall {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
 
   repeated string paths = 1;
-}
-
-// An addressing refusal, not a permission: the call names a session that is
-// not its run's (a fact's session must be its run's).
-message SessionNotOwned {
-  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
-
-  string session = 1;
 }
 
 // The directory is in no ctxloom project.

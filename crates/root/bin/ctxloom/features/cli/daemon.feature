@@ -84,8 +84,10 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
   and the pinned certificate keep NON-USER callers off the socket: no other
   user, web page, container or machine can speak to the daemon. Nothing
   separates the user's own processes: an assistant running as her can read
-  the discovery file, and with it do anything she can. A call names its run
-  and session as plain fields, an address and never an identity.
+  the discovery file, and with it do anything she can. A command names its
+  target session once, as its Cover's root, and its requester in a field of
+  its own, taken as sent: an address and never an identity. The daemon
+  checks no session against a run.
 
   KILLED AT ANY INSTANT. Everything the daemon knows is in the stores, the
   locks and the files it owns, and every write it makes is keyed, so a

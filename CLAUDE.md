@@ -847,11 +847,15 @@ directory 0700, tightened on each publish whoever made it (the election's
 lock may have); on Windows the platform sets no mode and the profile's
 inherited ACL stands (M8). It keeps other users out, not the user's own
 processes. `Discovery`'s `Debug` withholds the bearer, and the daemon's log
-never holds it. Not yet placed (escalated): where a call's run travels on
-the wire for the daemon to check that a fact's session is its run's and to
-stamp the requester; angzarr's `Gate::identify` sees only the arrival and
-the credential, so it is not the gate's today, and the daemon checks
-neither. A hosted child is told the user's home as a value
+never holds it. Addressing at the daemon (owner, after step 3/4): the
+target session travels ONCE, as the command's Cover root, and a command's
+`requester` is its own field, set by the client (the hidden verbs and the
+hooks from `CTXLOOM_SESSION`) and taken as sent. No run is sent to the
+daemon, and the daemon does NOT check a fact's session against a run: the
+session aggregate records nothing on a session that is not live. Accepted
+cost: a buggy client could write to the wrong live session unnoticed. The
+CLI run's own listener keeps its `HookGate` header check (a fact's session
+must be its run's) until runs are hosted. A hosted child is told the user's home as a value
 (`ChildSpec::user_home`, the daemon's `Place::user_home`, resolved once by
 `Wiring::user_home`), and its `PATH` is led by the program's directory as
 the platform joins it (`run_ports::search_path_led_by`, on the daemon's

@@ -747,6 +747,63 @@ async fn an_engine_that_will_not_drive_starts_nothing() {
     assert!(rig.runner.seen.lock().unwrap().is_empty());
 }
 
+// Owner ruling 2026-11-12: a terminal session whose opening prompt makes its
+// command too long for the platform is refused before the spawn, typed: the
+// run ends launch-failed and nothing is spawned. A prompt that fits is
+// spawned; a launcher told no OS checks nothing.
+#[tokio::test]
+async fn a_terminal_command_too_long_for_the_platform_is_refused_before_the_spawn() {
+    let launch = |os: &str, prompt_len: usize| {
+        let mut interactive = order("fake");
+        interactive.interactive = true;
+        interactive.prompt = "a".repeat(prompt_len);
+        let mut rig = rig(
+            ScriptedEngine::answering("A", None),
+            ScriptedRunner::exits(0),
+            orders_with(interactive),
+        );
+        rig.launcher = rig.launcher.on_os(os);
+        rig
+    };
+    let mut over = launch("linux", run_ports::MAX_ARG_STRLEN);
+    enqueued(&over.edge, SESSION, HARP).await;
+    let launched = over.step().await;
+    assert!(
+        matches!(&launched[0].outcome, Outcome::TooLong(refusal)
+            if refusal.os == "linux" && refusal.limit == run_ports::MAX_ARG_STRLEN),
+        "{launched:?}"
+    );
+    assert!(over.runner.seen_terminal.lock().unwrap().is_empty());
+    assert_eq!(
+        names(&run_events(&over.edge, SESSION).await),
+        ["RunEnqueued", "RunEnded"]
+    );
+
+    let mut under = launch("linux", run_ports::MAX_ARG_STRLEN - 1);
+    enqueued(&under.edge, SESSION, HARP).await;
+    let launched = under.step().await;
+    assert!(
+        matches!(launched[0].outcome, Outcome::Ended { .. }),
+        "{launched:?}"
+    );
+    assert_eq!(under.runner.seen_terminal.lock().unwrap().len(), 1);
+
+    let mut windows = launch("windows", run_ports::WINDOWS_COMMAND_LINE);
+    enqueued(&windows.edge, SESSION, HARP).await;
+    let launched = windows.step().await;
+    assert!(
+        matches!(&launched[0].outcome, Outcome::TooLong(refusal) if refusal.os == "windows"),
+        "{launched:?}"
+    );
+
+    let mut untold = launch("", run_ports::MAX_ARG_STRLEN);
+    enqueued(&untold.edge, SESSION, HARP).await;
+    assert!(matches!(
+        untold.step().await[0].outcome,
+        Outcome::Ended { .. }
+    ));
+}
+
 #[tokio::test]
 async fn a_home_that_cannot_be_written_starts_nothing() {
     let mut rig = rig(

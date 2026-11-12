@@ -8,6 +8,7 @@
 //! the host brings a gRPC stack and process supervision, which the core must
 //! not link. The driven adapter `embedded-edge` converts (review question 6).
 
+mod argv;
 mod bind;
 mod edge;
 mod engine;
@@ -25,6 +26,7 @@ mod sink;
 mod tls;
 mod token;
 
+pub use argv::{check_command_line, CommandTooLong, Measure, MAX_ARG_STRLEN, WINDOWS_COMMAND_LINE};
 pub use bind::{bind_for, BindPlan, BindRefusal, ContainerRuntime, PlatformFacts, Probe, Runtime};
 pub use edge::{Arrival, Edge, Unserved};
 pub use engine::{
@@ -61,6 +63,12 @@ pub fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
     let mut samples = token::diagnostic_samples();
     samples.extend(hook::diagnostic_samples());
     samples.extend(bind::diagnostic_samples());
+    samples.push(Box::new(CommandTooLong {
+        os: "windows".to_string(),
+        measure: Measure::CommandLine,
+        length: 40_000,
+        limit: WINDOWS_COMMAND_LINE,
+    }));
     samples.extend(tls::diagnostic_samples());
     samples.push(Box::new(EngineError::NotYet {
         engine: "claude-code".to_string(),

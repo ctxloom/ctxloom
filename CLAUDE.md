@@ -293,7 +293,24 @@ hers, never written). No value of hers renders: `UserSettings`'s and
 `HomeFile`'s `Debug` show a path and a size alone (her `env` may hold a
 secret). Cost: her hooks fire in the session too, and an invalid value of
 hers disables the agent's permissions with them (one file, ruling 145's
-caveat). The terminal session (claude's and opencode's TUI) is
+caveat). Every command is measured against the platform's command line
+once it is complete and before it is spawned (owner ruling, 2026-11-12;
+`run_ports::check_command_line`, called in one place, the launcher's
+prepare, `Launcher::on_os(wiring.os_name())`): the terminal session's
+opening prompt is the one piece of content on an engine's command line
+(claude's positional prompt, opencode's `--prompt`; a child's turn has it on
+stdin, which is not measured). One table of constants, no libc call:
+Windows, 32767 UTF-16 units for the whole line, its NUL included, counted as
+std quotes it (a `.cmd`/`.bat` program as if every unit were escaped);
+Linux, 131072 bytes per argument or environment string, its NUL included
+(MAX_ARG_STRLEN). Linux's total (ARG_MAX, a quarter of the stack rlimit) and
+macOS's (`kern.argmax`, a sysctl) are not constants and the platform crates
+read neither, so no total is checked: such a command fails at the spawn as
+before. A command over a limit is `run-ports-command-too-long` (exit 20,
+`RunError::TooLong`, the launch's `Outcome::TooLong`; the run ends
+launch-failed, nothing is spawned), its fix: start the session without the
+prompt and paste it, or `run --one-shot`, which reads the prompt from
+stdin. The terminal session (claude's and opencode's TUI) is
 also given `TERM` and `COLORTERM`, without which it draws in no colour; a
 child's turn is given neither. The session home's `ctxloom-hooks.json` calls `ctxloom
 hook claude-code execute <Event>`. The interactive home registers the session,

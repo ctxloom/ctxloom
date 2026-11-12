@@ -649,7 +649,8 @@ fn rig(script: Script) -> Rig {
         vec![Arc::new(Credentialed(script.engine, script.credentials))],
         Arc::clone(&orders),
         Limits::new(std::time::Duration::from_secs(5)),
-    );
+    )
+    .on_os(script.os);
     let hooks = Hooks {
         runner: Some(script.runner.clone()),
         refuse: script.hooks_refuse,
@@ -2297,6 +2298,29 @@ async fn the_settings_of_the_planned_engine_are_not_applied_to_another() {
     let answer = rig.runs.one_shot(&Flags::default(), &asked).await.result;
     assert!(answer.is_ok(), "{answer:?}");
     assert_eq!(rig.runner.seen.lock().unwrap()[0].program, "fake");
+}
+
+// Owner ruling 2026-11-12: a terminal session whose opening prompt is too long
+// for the platform's command line is refused before the spawn, typed and
+// crate-prefixed, exit 20, its fix naming the ways around it.
+#[tokio::test]
+async fn a_session_whose_opening_prompt_is_too_long_is_refused() {
+    let mut script = Script::answering();
+    script.prompt = Box::leak("a".repeat(run_ports::MAX_ARG_STRLEN).into_boxed_str());
+    let mut rig = rig(script);
+    let error = rig
+        .runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .expect_err("refused");
+    assert!(
+        matches!(&error, RunError::TooLong(refusal) if refusal.os == "linux"),
+        "{error:?}"
+    );
+    assert_eq!(error.code(), "run-ports-command-too-long");
+    assert_eq!(error.exit(), Exit::REFUSED);
+    assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
 }
 
 // Ruling 169: a user settings file the engine left out of its home is said,

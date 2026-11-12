@@ -87,6 +87,25 @@ pub enum Outcome {
     NotStarted {
         detail: String,
     },
+    /// Nothing was started: the engine's command is too long for the
+    /// platform to start (its terminal session's opening prompt), refused
+    /// before the spawn.
+    TooLong(run_ports::CommandTooLong),
+}
+
+/// Why a launch's preparation started nothing.
+enum Unprepared {
+    /// Its words: no engine, a home that could not be written, a command the
+    /// engine would not build.
+    Failed(String),
+    /// The command is too long for the platform (`run_ports::check_command_line`).
+    TooLong(run_ports::CommandTooLong),
+}
+
+impl From<String> for Unprepared {
+    fn from(detail: String) -> Unprepared {
+        Unprepared::Failed(detail)
+    }
 }
 
 /// A run launched, and its turn's outcome.
@@ -116,6 +135,9 @@ pub struct Launcher<E: Edge, L: RunnerLauncher, R: SessionRecords> {
     engines: Vec<Arc<dyn Engine>>,
     orders: Arc<Orders>,
     limits: Limits,
+    /// The OS name the commands are measured for (`std::env::consts::OS`,
+    /// as the composition root takes it); none, nothing is measured.
+    os: String,
     pending: CatchUp<PendingModel>,
     /// The locks other processes' runs are judged by; none: no sweep.
     locks: Option<Arc<dyn run_ports::RunLocks>>,
@@ -138,6 +160,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             engines,
             orders,
             limits,
+            os: String::new(),
             pending: catch_up(),
             locks: None,
         }
@@ -150,6 +173,13 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
     /// records it ended: `LaunchOrphaned` or `RunnerLost` (rulings 95, 100).
     pub fn with_locks(mut self, locks: Arc<dyn run_ports::RunLocks>) -> Self {
         self.locks = Some(locks);
+        self
+    }
+
+    /// The launcher, measuring each command against the command line of
+    /// `os` before it is spawned ([`run_ports::check_command_line`]).
+    pub fn on_os(mut self, os: &str) -> Self {
+        self.os = os.to_string();
         self
     }
 
@@ -310,10 +340,9 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         };
         let (engine, command) = match prepared {
             Ok(prepared) => prepared,
-            Err(detail) => {
-                self.not_started(&who, true, &detail).await?;
-                self.orders.release(&launch.session, launch.incarnation);
-                return Ok(done(Outcome::NotStarted { detail }));
+            Err(unprepared) => {
+                let outcome = self.unprepared(&who, &launch, unprepared).await?;
+                return Ok(done(outcome));
             }
         };
         self.record(&who, attached()).await?;
@@ -467,6 +496,23 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         Ok(native)
     }
 
+    /// The launch's preparation started nothing: record why (deterministic:
+    /// the same order prepares the same way), end the launch, and say it.
+    async fn unprepared(
+        &self,
+        who: &Identity,
+        launch: &PendingLaunch,
+        unprepared: Unprepared,
+    ) -> Result<Outcome, LaunchError> {
+        let (detail, outcome) = match unprepared {
+            Unprepared::Failed(detail) => (detail.clone(), Outcome::NotStarted { detail }),
+            Unprepared::TooLong(refusal) => (refusal.to_string(), Outcome::TooLong(refusal)),
+        };
+        self.not_started(who, true, &detail).await?;
+        self.orders.release(&launch.session, launch.incarnation);
+        Ok(outcome)
+    }
+
     /// The command did not run: record why, and end the launch.
     async fn never_started(
         &self,
@@ -494,7 +540,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         order: &Order,
         ignored: &mut Vec<run_ports::Ignored>,
         left_out: &mut Vec<run_ports::LeftOut>,
-    ) -> Result<(Arc<dyn Engine>, TurnCommand), String> {
+    ) -> Result<(Arc<dyn Engine>, TurnCommand), Unprepared> {
         let engine = self
             .engine(&order.engine)
             .ok_or_else(|| format!("no engine named {}", order.engine))?;
@@ -558,6 +604,9 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         // Never over a name ctxloom set for the engine (ruling 78b): the
         // adapter's computed names, derived from the command, and the run's.
         *ignored = run_ports::apply_permits(&order.env, &mut command.env, &order.owned);
+        // The command is complete: measured against the platform's command
+        // line before it is spawned (the terminal's opening prompt is on it).
+        run_ports::check_command_line(&self.os, &command).map_err(Unprepared::TooLong)?;
         Ok((engine, command))
     }
 

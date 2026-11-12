@@ -165,7 +165,10 @@ impl<'a> OneShots<'a> {
             Arc::clone(&orders),
             Limits::new(TURN_DEADLINE),
         )
-        .with_locks(Arc::clone(&run_locks));
+        .with_locks(Arc::clone(&run_locks))
+        // Each command measured against this platform's command line before
+        // it is spawned (a terminal session's opening prompt is on it).
+        .on_os(wiring.os_name());
         let hooks = Box::new(Hooks { edge: core.edge() });
         let enqueuer = Enqueuer::new(core.edge(), Arc::new(OsTokenSource));
         let output_root = output_root(&project_dir, output_dir);

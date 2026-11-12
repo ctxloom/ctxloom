@@ -769,3 +769,31 @@ fn test_a_profile_naming_the_built_in_bundle_pulls_nothing() {
     assert_eq!(report.installed, 0);
     assert!(fx.files.lock_text().is_none(), "nothing to lock");
 }
+
+// Owner ruling 2026-11-12: what the disclosure calls executable is what the
+// skills' sidecars declare, never the mode a publisher committed.
+#[test]
+fn test_the_disclosure_takes_executability_from_the_sidecar_alone() {
+    use deps_ports::{RepoFile, RepoTree};
+    let file = |data: &str, executable: bool| RepoFile {
+        data: data.as_bytes().to_vec(),
+        executable,
+    };
+    let tree: RepoTree = [
+        ("bundle.yaml", file(ENVELOPE.1, false)),
+        ("skills/s/SKILL.md", file("---\nname: s\n---\n", true)),
+        ("skills/s/go", file("#!/bin/sh\n", false)),
+        ("skills/.s.meta.yaml", file("executable:\n  - go\n", false)),
+    ]
+    .into_iter()
+    .map(|(path, f)| (path.to_string(), f))
+    .collect();
+    let disclosed = super::disclosed(&tree);
+    let executable: Vec<&str> = disclosed
+        .iter()
+        .filter(|(_, f)| f.executable)
+        .map(|(path, _)| path.as_str())
+        .collect();
+    assert_eq!(executable, ["skills/s/go"]);
+    assert_eq!(disclosed["skills/s/go"].data, b"#!/bin/sh\n");
+}

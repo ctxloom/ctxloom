@@ -988,7 +988,13 @@ fn a_rename_moves_the_claim_frees_the_old_name_and_moves_the_output_folder() {
     let mut svc = service();
     svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
     let old_out = "/home/Documents/ctxloom/proj/amber-swift-owl";
-    let new_out = "/home/Documents/ctxloom/proj/bright-keen-hawk";
+    // Beside it: the same directory, the name joined as the platform joins
+    // one (`proj\bright-keen-hawk` on Windows).
+    let new_out = std::path::Path::new(old_out)
+        .with_file_name("bright-keen-hawk")
+        .display()
+        .to_string();
+    let new_out = new_out.as_str();
     svc.files.outputs.insert(old_out.to_string());
     claim(svc.store(HERE), HERE, "amber-swift-owl", &id_text(1)).unwrap();
     let renamed = ready(svc.rename(rename("amber-swift-owl", "bright-keen-hawk"))).unwrap();

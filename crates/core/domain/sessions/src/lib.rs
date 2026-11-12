@@ -59,7 +59,7 @@ pub use generated::*;
 pub use harp::validate;
 pub use name::{project_id_root, root_of, ProjectName, SessionName, NAMESPACE};
 pub use names::NameClaimAggregate;
-pub use projects::{ProjectAggregate, ProjectNameAggregate};
+pub use projects::{fold_project, ProjectAggregate, ProjectNameAggregate};
 pub use refusal::NotOurs;
 #[cfg(any(test, feature = "test-support"))]
 pub use rejection::diagnostic_samples;

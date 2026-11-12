@@ -201,7 +201,8 @@ impl<E: Edge> Api<E> {
                 .to_string(),
         };
         let id = request.project_id.as_str();
-        if self.project(id).await?.harp.is_empty() {
+        let before = self.project(id).await?;
+        if before.harp.is_empty() {
             self.name(id).await?;
         }
         let register = RegisterProject {
@@ -211,11 +212,19 @@ impl<E: Edge> Api<E> {
             root_commit: request.root_commit,
             expected_harp: expected,
         };
-        // Keyed by all it says: the same recheck again is a DUPLICATE, and
-        // decides as it did (a harp and a registered identity never change).
+        // Keyed by all it says and the identity it is judged against: the
+        // same recheck against the same registration is a DUPLICATE, and
+        // decides as it did (a harp never changes, and an identity changes
+        // only once, when an empty one is adopted, after which the key is
+        // another and the recheck strict).
         let key = format!(
-            "register:{id}:{}:{}:{}:{}",
-            register.root, register.git_common_dir, register.root_commit, register.expected_harp
+            "register:{id}:{}:{}:{}:{}:{}:{}",
+            !before.root.is_empty(),
+            before.root_commit,
+            register.root,
+            register.git_common_dir,
+            register.root_commit,
+            register.expected_harp
         );
         self.send(keyed_book(project_cover(id), &register, &key))
             .await?;
@@ -286,17 +295,10 @@ impl<E: Edge> Api<E> {
             let Some(event_page::Body::Event(event)) = page.body else {
                 continue;
             };
-            match ProjectEvent::from_any(&event).map_err(ApiError::failed)? {
-                ProjectEvent::ProjectNamed(named) if state.harp.is_empty() => {
-                    state.harp = named.harp;
-                }
-                ProjectEvent::ProjectRegistered(registered) if state.root.is_empty() => {
-                    state.root = registered.root;
-                    state.git_common_dir = registered.git_common_dir;
-                    state.root_commit = registered.root_commit;
-                }
-                _ => {}
-            }
+            sessions::fold_project(
+                &mut state,
+                ProjectEvent::from_any(&event).map_err(ApiError::failed)?,
+            );
         }
         Ok(state)
     }

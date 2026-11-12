@@ -1053,15 +1053,20 @@ dir and its root commit (worktree-git's `Git::vcs_identity`: `rev-parse
 --path-format=absolute --git-common-dir`, `rev-list --max-parents=0 HEAD`, of
 several roots the lexically least), and optionally the project name it
 expects. The daemon names the project on first sight (S54, fresh harps),
-then sends `RegisterProject` (projects aggregate; keyed by all it says):
+then sends `RegisterProject` (projects aggregate; keyed by all it says and
+the registered identity it is judged against):
 recorded once (`ProjectRegistered`: root, common dir, root commit), and on
 every later call only the ROOT COMMIT is rechecked (a worktree's root
 differs; its common dir is the primary's): another is refused
 `ProjectIdentityChanged`, an expected name not the registered harp
 `ProjectHarpMismatch`, each naming the registered project; an unnamed
 project is refused `UnnamedProject` (`sessions-project-not-named`). Outside
-git the identity is empty, and compared as such (owner question: a project
-that later becomes a repository is then refused as changed). It answers the
+git the identity is empty, and ADOPTED (owner, after step 5): the first
+recheck with a common dir and a root commit records them,
+`ProjectIdentityAdopted` (the root stays the registered one), and the
+comparison is strict from then on (the empty identity again is refused as
+changed). Every reader folds a project's stream with the domain's one
+`sessions::fold_project` (the aggregate, the session index, the API). It answers the
 `Project` (`projects/{harp}`, the registered root, the id, the identity);
 `GetProject` reads it from the warm index (`SessionIndex::project_named_by`,
 `ProjectRow`). The hidden `ctxloom daemon resolve` is its client today;

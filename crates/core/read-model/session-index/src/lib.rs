@@ -169,21 +169,21 @@ impl SessionIndex {
                 continue;
             };
             let row = self.projects.entry(root.clone()).or_default();
-            match ProjectEvent::from_any(event)? {
-                ProjectEvent::ProjectNamed(named) if row.harp.is_empty() => {
-                    row.project_id = named.project_id;
-                    row.harp = named.harp;
-                }
-                ProjectEvent::ProjectNamed(_) => {}
-                ProjectEvent::ProjectRegistered(registered) if row.root.is_empty() => {
-                    row.project_id = registered.project_id;
-                    row.root = registered.root;
-                    row.git_common_dir = registered.git_common_dir;
-                    row.root_commit = registered.root_commit;
-                }
-                ProjectEvent::ProjectRegistered(_) => {}
-                ProjectEvent::ProjectIdentityAdopted(_) => {}
-            }
+            let mut state = sessions::ProjectState {
+                project_id: std::mem::take(&mut row.project_id),
+                harp: std::mem::take(&mut row.harp),
+                root: std::mem::take(&mut row.root),
+                git_common_dir: std::mem::take(&mut row.git_common_dir),
+                root_commit: std::mem::take(&mut row.root_commit),
+            };
+            sessions::fold_project(&mut state, ProjectEvent::from_any(event)?);
+            *row = ProjectRow {
+                project_id: state.project_id,
+                harp: state.harp,
+                root: state.root,
+                git_common_dir: state.git_common_dir,
+                root_commit: state.root_commit,
+            };
         }
         Ok(())
     }

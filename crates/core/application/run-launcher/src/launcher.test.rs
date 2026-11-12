@@ -2016,3 +2016,28 @@ async fn an_order_with_no_project_names_no_root() {
         .env
         .contains_key(run_ports::ROOT_VARIABLE));
 }
+
+// The trust entry (plan §6): an engine that keys its state by the directory
+// it runs in (claude's `.claude.json`, `projects.<cwd>.hasTrustDialogAccepted`,
+// which `seeded_state` writes from `PrepareRequest.cwd`) is prepared with the
+// checkout's path as the workspaces port gave it, which `GitWorkspaces`
+// resolves (macOS's `/private/var`), so the checkout is the directory
+// trusted, not the project.
+#[tokio::test]
+async fn the_engines_state_is_keyed_by_the_checkout_it_is_placed_in() {
+    use crate::fakes::{worktree_checkout, worktree_order, Merging, ScriptedWorkspaces, WORK_DIR};
+    let mut rig = rig(
+        Merging(ScriptedEngine::answering("A", None)),
+        ScriptedRunner::exits(0),
+        orders_with(worktree_order("fake", "reviewer")),
+    );
+    rig.launcher = rig
+        .launcher
+        .with_workspaces(Arc::new(ScriptedWorkspaces::new(worktree_checkout)));
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    assert_eq!(
+        rig.records.text(HARP, "home/state.json"),
+        Some(format!("+{WORK_DIR}/reviewer"))
+    );
+}

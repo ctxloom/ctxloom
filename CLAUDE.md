@@ -140,7 +140,9 @@ the wiring's `GitWorkspaces`), for every launch path alike: the plan's axis
 (`Order.workspace`: the axis, the session's checkouts directory from
 `Place.worktrees`, the agent), and the placed directory is the
 `PrepareRequest`'s and the `TurnRequest`'s `cwd` and `RunnerStarted.workspace`
-(`Order.cwd` stays the live project). `none` is the project; a checkout is
+(`Order.cwd` stays the live project), so claude's trust entry
+(`seeded_state`, `projects.<cwd>.hasTrustDialogAccepted`) is the checkout's
+resolved path. `none` is the project; a checkout is
 its path; one that cannot be had (not a git repository, the add failed, no
 checkouts directory or no workspaces port) is the project and the notice
 `library-application-notice-workspace-unavailable`; one the port refuses

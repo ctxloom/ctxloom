@@ -177,10 +177,18 @@ pub(crate) fn serve(
         }
         let result = run(&mut launcher, &core, (&files, &own, &held), pace, &say).await;
         files.withdraw_own(&own);
+        // Every holder of the store let go before the close (ruling 131):
+        // the launcher (its edge and its folds), the edge, the listener's
+        // connection and stream tasks (its stop returns once every copy of
+        // its service is released), and the read models kept here, each of
+        // which holds the store through its gap fill (`StoreFill`) for as
+        // long as any copy of it lives; the kernel's copies go with the
+        // core.
         launcher.end_all();
         drop(launcher);
         drop(edge);
         let _ = listener.stop().await;
+        drop(kept);
         said(&say, "exited");
         // Closed, not dropped (ruling 131).
         if let Err(unclosed) = core.close().await {

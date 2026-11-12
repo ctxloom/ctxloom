@@ -971,7 +971,11 @@ the last close's checkpoint and the log's removal are over when it returns
 need not let run). `SqliteStores` holds the one store, closes a read's before
 it reopens it to write, and `SqliteStores::close` closes the one it holds; the wiring closes the sessions use cases' stores after every `session`
 command and a hook's bind (`Sessions::close`; a failed close fails a command
-that had not), the seed's and `test open-store`'s, and a run's at its end.
+that had not), the seed's and `test open-store`'s, a run's at its end, and
+the daemon's at its exit (after the launcher, the edge and the listener,
+the read models it kept of those its kernel registers are let go too: each
+holds the store through its gap fill, `StoreFill`; a daemon whose start
+fails before it serves still drops its store, a follow-up).
 A run's store has holders past the use case: the core's application and
 edge, the use cases' edges, and the hook listener's connection and stream
 tasks, which tonic spawns itself, so a call still in the handler keeps the

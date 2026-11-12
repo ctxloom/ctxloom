@@ -189,7 +189,9 @@ impl InProcessCore<SqliteStore> {
     /// cases took (`Runs::into_core`), and the hook listener's, whose stop
     /// (`HookListener::stop`, angzarr's `Running::shutdown_within`, ruling
     /// 140) ends every connection and returns only once every copy of its
-    /// service, and so of the edge, is released; then the core's own
+    /// service, and so of the edge, is released; the read models a caller
+    /// kept of those registered (`start_with`), each holding the store
+    /// through its gap fill; then the core's own
     /// application and edge (the core is consumed). Only then is the store
     /// taken by value and closed. The runtime the core served on is not
     /// shut down for it: nothing it runs may still hold the store. A holder

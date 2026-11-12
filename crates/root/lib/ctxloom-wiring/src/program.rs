@@ -20,8 +20,9 @@ pub(crate) struct Program {
 impl Program {
     /// The program at `exe` (as `std::env::current_exe` answers it: on Linux
     /// `/proc/self/exe`, a symlink's target and never the link); none known,
-    /// the authored name and no directory.
-    pub(crate) fn at(exe: Option<&Path>) -> Program {
+    /// the authored name and no directory. `suffix` is the platform's
+    /// executable suffix (`std::env::consts::EXE_SUFFIX`).
+    pub(crate) fn at(exe: Option<&Path>, _suffix: &str) -> Program {
         let dir = exe
             .and_then(Path::parent)
             .map(|dir| dir.to_string_lossy().into_owned())
@@ -38,7 +39,12 @@ impl Program {
 /// The running binary, asked once per process.
 pub(crate) fn running() -> &'static Program {
     static RUNNING: OnceLock<Program> = OnceLock::new();
-    RUNNING.get_or_init(|| Program::at(std::env::current_exe().ok().as_deref()))
+    RUNNING.get_or_init(|| {
+        Program::at(
+            std::env::current_exe().ok().as_deref(),
+            std::env::consts::EXE_SUFFIX,
+        )
+    })
 }
 
 #[cfg(test)]

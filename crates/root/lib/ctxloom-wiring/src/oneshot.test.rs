@@ -167,7 +167,7 @@ fn the_core_serves_the_catalog_of_its_domains() {
     let fs = Arc::new(file_system::Rooted::temp().unwrap());
     let core = runtime.block_on(async {
         let store = ctxloom_store_sqlite::Stores::new(fs, "/home/u")
-            .open("calm-otter")
+            .open()
             .await
             .unwrap();
         crate::InProcessCore::start(store).await
@@ -286,7 +286,7 @@ mod hooks {
             let fs = Arc::new(file_system::Rooted::temp().unwrap());
             let core = runtime.block_on(async {
                 let store = ctxloom_store_sqlite::Stores::new(fs.clone(), "/home/u")
-                    .open("calm-otter")
+                    .open()
                     .await
                     .unwrap();
                 InProcessCore::start(store).await
@@ -308,7 +308,7 @@ mod hooks {
                 .block_on(self.core.close())
                 .expect("the store closes");
             use file_system::Fs;
-            let dir = std::path::Path::new("/home/u/.ctxloom/projects/calm-otter");
+            let dir = std::path::Path::new("/home/u/.ctxloom");
             let beside: Vec<&str> = ["ctxloom.db-wal", "ctxloom.db-shm"]
                 .into_iter()
                 .filter(|name| self.fs.exists(&dir.join(name)).unwrap())

@@ -22,18 +22,11 @@ use crate::tests::files;
 
 const HARP: &str = "amber-swift-owl";
 
-/// The one project store under `home`.
+/// The one store under `home` (T14).
 fn store_under(home: &Path) -> PathBuf {
-    let projects = home.join(".ctxloom/projects");
-    let stores: Vec<PathBuf> = files::children(&projects)
-        .into_iter()
-        .map(|dir| dir.join("ctxloom.db"))
-        .filter(|db| files::exists(db))
-        .collect();
-    let [store] = stores.as_slice() else {
-        panic!("one store under {}: {stores:?}", projects.display());
-    };
-    store.clone()
+    let store = home.join(".ctxloom/ctxloom.db");
+    assert!(files::exists(&store), "the one store: {}", store.display());
+    store
 }
 
 /// What is beside `store`: its log and its index, where left.

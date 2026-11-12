@@ -24,9 +24,9 @@
 //! - clear (M1): each clear asked of a hosted child is handed to it once;
 //! - end (D13, D14): a hosted child whose session closed is ended.
 //!
-//! Only this project's sessions are acted on: a child in another project, or
-//! an owner there, is that project's plan's (the cross-store owner link,
-//! D19, is a deferral of this slice).
+//! Only this project's sessions are acted on, though one board holds every
+//! project's (the one store, T14): a child in another project, or an owner
+//! there, is that project's plan's.
 
 use std::collections::BTreeSet;
 
@@ -154,6 +154,17 @@ pub struct Scene<'a> {
     pub done: &'a BTreeSet<String>,
 }
 
+impl<'a> Scene<'a> {
+    /// The board's sessions of this scene's project, by stable id: one board
+    /// holds every project's (T14), and a plan is its project's alone.
+    fn sessions(&self) -> impl Iterator<Item = (&'a str, &'a SessionState)> + '_ {
+        self.board
+            .sessions()
+            // RED: every project's.
+            .filter(|_| true)
+    }
+}
+
 /// The urgencies `session`'s engine takes: a child the daemon hosts takes
 /// all three (its engine's stream, D15); a primary takes only an inform,
 /// since nothing wakes a terminal session yet (D7 is not built).
@@ -186,7 +197,7 @@ pub fn plan(scene: &Scene<'_>) -> Vec<Step> {
 /// The launches owed, and each launched child's first task.
 fn launches(scene: &Scene<'_>, steps: &mut Vec<Step>) {
     let ours = |child: &SessionRef| child.project_id == scene.project_id;
-    for (owner_id, owner) in scene.board.sessions() {
+    for (owner_id, owner) in scene.sessions() {
         let owner_ref = here(scene.project_id, owner_id);
         for launched in scene.board.launched(owner_id) {
             let Some(child) = launched.child.as_ref().filter(|c| ours(c)) else {
@@ -244,7 +255,7 @@ fn prompt(child: &SessionRef, state: &SessionState, text: &str) -> Option<Sent> 
 /// The cascade of each closed owner, and the end of each closed child on its
 /// owner.
 fn closes(scene: &Scene<'_>, steps: &mut Vec<Step>) {
-    for (id, session) in scene.board.sessions().filter(|(_, s)| s.closed) {
+    for (id, session) in scene.sessions().filter(|(_, s)| s.closed) {
         let me = here(scene.project_id, id);
         let children: Vec<_> = session
             .children
@@ -279,7 +290,7 @@ fn closes(scene: &Scene<'_>, steps: &mut Vec<Step>) {
 
 /// Each turn a child's run ended, told to its open owner.
 fn notices(scene: &Scene<'_>, steps: &mut Vec<Step>) {
-    for (id, child) in scene.board.sessions() {
+    for (id, child) in scene.sessions() {
         let Some(owner_ref) = child
             .owner
             .as_ref()
@@ -334,7 +345,7 @@ fn notices(scene: &Scene<'_>, steps: &mut Vec<Step>) {
 
 /// The steps on the children's runs: start, deliver, feed, clear, end.
 fn runs(scene: &Scene<'_>, steps: &mut Vec<Step>) {
-    for (id, session) in scene.board.sessions() {
+    for (id, session) in scene.sessions() {
         if session.owner.is_none() {
             continue;
         }

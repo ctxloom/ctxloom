@@ -574,3 +574,18 @@ fn the_urgencies_a_session_takes() {
     };
     assert_eq!(supported(&primary), [Urgency::Inform]);
 }
+
+// One board holds every project's sessions (T14): a plan is its project's
+// alone, so another project's owner, closed with a child it holds, is
+// planned nothing here, and its project's own plan has its steps.
+#[test]
+fn another_projects_sessions_on_the_one_board_are_not_planned_here() {
+    let mut world = World::with_child();
+    for events in [&mut world.owner, &mut world.child] {
+        if let SessionEvent::SessionMinted(minted) = &mut events[0] {
+            minted.project_id = "far-heron".to_string();
+        }
+    }
+    world.owner.push(closed());
+    assert!(world.plan().is_empty(), "{:?}", keys(&world.plan()));
+}

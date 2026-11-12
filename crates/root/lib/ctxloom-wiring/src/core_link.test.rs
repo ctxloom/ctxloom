@@ -422,7 +422,7 @@ fn sqlite_core() -> (
     let fs = Arc::new(file_system::Rooted::temp().unwrap());
     let core = runtime.block_on(async {
         let store = ctxloom_store_sqlite::Stores::new(fs.clone(), "/home/u")
-            .open("calm-otter")
+            .open()
             .await
             .unwrap();
         InProcessCore::start(store).await
@@ -432,7 +432,7 @@ fn sqlite_core() -> (
 
 fn beside(fs: &file_system::Rooted) -> Vec<&'static str> {
     use file_system::Fs;
-    let dir = std::path::Path::new("/home/u/.ctxloom/projects/calm-otter");
+    let dir = std::path::Path::new("/home/u/.ctxloom");
     ["ctxloom.db-wal", "ctxloom.db-shm"]
         .into_iter()
         .filter(|name| fs.exists(&dir.join(name)).unwrap())

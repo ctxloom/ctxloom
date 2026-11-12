@@ -11,7 +11,6 @@
 //!   wire (review B2): the listener serves run credentials alone.
 
 mod files;
-mod route;
 mod serve;
 
 use std::collections::BTreeMap;

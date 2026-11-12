@@ -1,11 +1,11 @@
-//! `ctxloom daemon serve`: the user's daemon (D18), one per user, hosting
-//! every project whose store exists under the home (each opened when first
-//! seen). Only the holder of the election lock serves (S-e: the one policy
-//! runner): it serves the listener, runs the plan and hosts the children.
+//! `ctxloom daemon serve`: the user's daemon (D18), one per user, over the
+//! ONE store that holds every project's streams (T14). Only the holder of
+//! the election lock serves (S-e: the one policy runner): it serves the
+//! listener, runs the plan and hosts the children.
 //!
-//! Each tick, per project: the board and the pending messages catch up on
-//! the store's `change_token` (`CatchUp::step_if_changed`), the plan is made
-//! from them, and its steps are taken. The next tick comes at the first
+//! Each tick: the board and the pending messages catch up on the store's
+//! `change_token` (`CatchUp::step_if_changed`), a plan is made from them for
+//! each project on the board, and its steps are taken. The next tick comes at the first
 //! commit through this process's store handles (`CommitNotify`, the push) or
 //! after the poll interval, whichever is first: another process's commit
 //! (a CLI command's) reaches no in-process signal, so the poll stays (S-N4). A child's
@@ -47,7 +47,6 @@ use sessions::Urgency;
 use std::future::Future as _;
 
 use super::files::DaemonFiles;
-use super::route::{Routes, RoutingEdge};
 use crate::InProcessCore;
 
 type ProjectEdge = EmbeddedEdge<crate::CoreStores<SqliteStore>>;
@@ -71,14 +70,6 @@ pub(crate) struct Pace {
     pub(crate) idle: Duration,
     /// How often it looks at the stores.
     pub(crate) poll: Duration,
-}
-
-/// One project the daemon has opened.
-struct Project {
-    id: String,
-    core: InProcessCore<SqliteStore>,
-    board: CatchUp<Boards>,
-    pending: CatchUp<PendingMessages>,
 }
 
 /// A child the daemon hosts: its run, the runner's identity, its control,
@@ -111,8 +102,10 @@ pub(crate) struct Daemon {
     /// the daemon's own; never logged.
     envs: BTreeMap<String, BTreeMap<String, String>>,
     files: DaemonFiles,
-    routes: Arc<Routes<ProjectEdge>>,
-    projects: Vec<Project>,
+    /// The one store's core: every project's streams (T14).
+    core: InProcessCore<SqliteStore>,
+    board: CatchUp<Boards>,
+    pending: CatchUp<PendingMessages>,
     hosted: BTreeMap<String, Hosted>,
     done: BTreeSet<String>,
     /// Steps refused this time round: tried again once a store changes.
@@ -147,8 +140,12 @@ pub(crate) fn serve(
         .build()
         .map_err(|e| e.to_string())?;
     runtime.block_on(async move {
-        let routes: Arc<Routes<ProjectEdge>> = Arc::default();
-        let edge = Arc::new(RoutingEdge(Arc::clone(&routes)));
+        let store = Stores::new(Arc::clone(&fs), home.to_path_buf())
+            .open()
+            .await
+            .map_err(|e| angzarr_diagnostic::Diagnostic::code(&e).to_string())?;
+        let core = InProcessCore::start(store).await;
+        let edge = core.edge();
         let names = CertNames::new(
             vec![
                 IpAddr::V4(Ipv4Addr::LOCALHOST),
@@ -180,8 +177,9 @@ pub(crate) fn serve(
             temp: place.temp.clone(),
             envs: BTreeMap::new(),
             files,
-            routes,
-            projects: Vec::new(),
+            core,
+            board: daemon_board::catch_up(),
+            pending: pending_messages::catch_up(),
             hosted: BTreeMap::new(),
             done: BTreeSet::new(),
             refused: BTreeSet::new(),
@@ -205,8 +203,14 @@ pub(crate) fn serve(
         let result = daemon.run(pace).await;
         daemon.files.withdraw();
         daemon.end_all();
+        drop(edge);
         let _ = listener.stop().await;
         (daemon.say)("exited");
+        let Daemon { core, mut say, .. } = daemon;
+        // Closed, not dropped (ruling 131).
+        if let Err(unclosed) = core.close().await {
+            say(&format!("the store did not close: {unclosed}"));
+        }
         result
     })
 }
@@ -240,14 +244,9 @@ impl Daemon {
                 self.files.clear_stop();
                 return Ok(());
             }
-            self.open_projects().await;
             // Armed before the tick reads (S-N2): a commit during it is not
             // missed.
-            let commits: Vec<CommitWait> = self
-                .projects
-                .iter()
-                .map(|project| project.core.store().next_commit())
-                .collect();
+            let commits: Vec<CommitWait> = vec![self.core.store().next_commit()];
             let busy = self.tick(draining).await;
             if busy || !self.hosted.is_empty() {
                 quiet_since = Instant::now();
@@ -263,53 +262,16 @@ impl Daemon {
         }
     }
 
-    /// Open every project whose store is under the home and not yet open:
-    /// stores are opened lazily, never made.
-    async fn open_projects(&mut self) {
-        let dir = self.home.join(".ctxloom/projects");
-        let Ok(entries) = self.fs.read_dir(&dir) else {
-            return;
-        };
-        let stores = Stores::new(Arc::clone(&self.fs), self.home.clone());
-        for entry in entries {
-            let Some(id) = entry.name.to_str().map(String::from) else {
-                continue;
-            };
-            if self.projects.iter().any(|p| p.id == id) {
-                continue;
-            }
-            // Opened to write, but only where its database is: never made.
-            let there = stores
-                .path(&id)
-                .is_ok_and(|path| self.fs.exists(&path).unwrap_or(false));
-            if !there {
-                continue;
-            }
-            let Ok(store) = stores.open(&id).await else {
-                continue;
-            };
-            let core = InProcessCore::start(store).await;
-            self.routes.add(&id, core.edge());
-            (self.say)(&format!("opened project {id}"));
-            self.projects.push(Project {
-                id,
-                core,
-                board: daemon_board::catch_up(),
-                pending: pending_messages::catch_up(),
-            });
-        }
-    }
-
     /// One round: hear the children, catch up, plan, act. Whether it did
     /// anything.
     async fn tick(&mut self, draining: bool) -> bool {
         let mut busy = self.hear().await;
         let mut changed = false;
-        for project in &mut self.projects {
-            let store = project.core.store();
-            let catalog = project.core.catalog();
-            let board = project.board.step_if_changed(store, catalog).await;
-            let pending = project.pending.step_if_changed(store, catalog).await;
+        {
+            let store = self.core.store();
+            let catalog = self.core.catalog();
+            let board = self.board.step_if_changed(store, catalog).await;
+            let pending = self.pending.step_if_changed(store, catalog).await;
             changed |= matches!(board, Ok(Some(ref caught)) if !caught.handed().is_empty());
             changed |= matches!(pending, Ok(Some(ref caught)) if !caught.handed().is_empty());
         }
@@ -319,20 +281,26 @@ impl Daemon {
         let mut steps = Vec::new();
         let hosted: BTreeSet<String> = self.hosted.keys().cloned().collect();
         let skip: BTreeSet<String> = self.done.union(&self.refused).cloned().collect();
-        for project in &self.projects {
-            let board = project.board.projector().board();
-            let pending = project.pending.projector().pending();
-            steps.extend(
-                plan(&Scene {
-                    project_id: &project.id,
-                    board: &board,
-                    pending: &pending,
-                    hosted: &hosted,
-                    done: &skip,
-                })
-                .into_iter()
-                .map(|step| (project.id.clone(), step)),
-            );
+        {
+            let board = self.board.projector().board();
+            let pending = self.pending.projector().pending();
+            let projects: BTreeSet<String> = board
+                .sessions()
+                .map(|(_, session)| session.project_id.clone())
+                .collect();
+            for project in projects {
+                steps.extend(
+                    plan(&Scene {
+                        project_id: &project,
+                        board: &board,
+                        pending: &pending,
+                        hosted: &hosted,
+                        done: &skip,
+                    })
+                    .into_iter()
+                    .map(|step| (project.clone(), step)),
+                );
+            }
         }
         for (project_id, step) in steps {
             if draining && matches!(step, Step::Start { .. }) {
@@ -354,9 +322,10 @@ impl Daemon {
         busy
     }
 
-    /// The edge of `project_id`'s store, if it is open.
+    /// The edge of the one store, which holds `project_id`'s streams (T14).
     fn edge(&self, project_id: &str) -> Option<Arc<ProjectEdge>> {
-        self.routes.project(project_id)
+        let _ = project_id;
+        Some(self.core.edge())
     }
 
     /// Send `sent` to its store.
@@ -647,16 +616,11 @@ impl Daemon {
             return;
         }
         let owner = self
-            .projects
-            .iter()
-            .find(|p| p.id == project_id)
-            .and_then(|p| {
-                p.board
-                    .projector()
-                    .board()
-                    .session(&at.session)
-                    .and_then(|s| s.owner.clone())
-            });
+            .board
+            .projector()
+            .board()
+            .session(&at.session)
+            .and_then(|s| s.owner.clone());
         let child = sessions::SessionRef {
             project_id: project_id.to_string(),
             session: at.session.clone(),

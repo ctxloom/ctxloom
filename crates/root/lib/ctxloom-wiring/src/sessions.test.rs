@@ -249,9 +249,11 @@ fn project(id: &str) -> ports::Project {
     }
 }
 
-/// What is beside project `id`'s database under `home`.
+/// What is beside the one database under `home` (T14: every project's
+/// streams are in it; `id` names whose use case opened it).
 fn beside(home: &std::path::Path, id: &str) -> Vec<&'static str> {
-    let dir = home.join(".ctxloom/projects").join(id);
+    let _ = id;
+    let dir = home.join(".ctxloom");
     ["ctxloom.db-wal", "ctxloom.db-shm"]
         .into_iter()
         .filter(|name| crate::fixtures::exists(dir.join(name)))

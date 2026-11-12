@@ -395,6 +395,17 @@ impl Extension for Commands {
         if noun == crate::daemon::NOUN {
             return crate::daemon::run(&self.env, call, catalog, out);
         }
+        // A hook answers its engine whatever the store (it never fails the
+        // engine); every other command in a project that still has a store
+        // of its own is refused (T17, S48).
+        let hook = SESSION_NOUNS.contains(&noun) && noun != "session";
+        if !hook {
+            if let Ok(wiring) = Wiring::new(Arc::clone(&self.env)) {
+                wiring
+                    .refuse_per_project_store()
+                    .map_err(|refused| Failure::new(refused, Exit::REFUSED))?;
+            }
+        }
         if noun == "container" {
             return crate::isolation::container(&self.env, call, catalog, out);
         }

@@ -1,7 +1,7 @@
 [package]
 name = "ctxloom-store-sqlite"
 version = "0.1.0"
-description = "A project's ctxloom store: angzarr-store-sqlite's SQLite store at ~/.ctxloom/projects/<id>/ctxloom.db (D26), over ctxloom-lib's sqlite-store-opener"
+description = "The user's one ctxloom store: angzarr-store-sqlite's SQLite store at ~/.ctxloom/ctxloom.db (T14), over ctxloom-lib's sqlite-store-opener"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -14,6 +14,8 @@ angzarr-diagnostic.workspace = true
 angzarr-embedded = { workspace = true, features = ["sqlite"] }
 file-system.workspace = true
 project-dir.workspace = true
+# The mode of the project directory a write lists its project by.
+os.workspace = true
 # The Project the store is opened for (taskloom's ports, by commit) and the port
 # it implements.
 ports.workspace = true

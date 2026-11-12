@@ -8,8 +8,8 @@ use exit_code::{Exit, ExitClass};
 use session_ports::LockState;
 
 use crate::fakes::{
-    bound, captured, claim, ended, holder, id_text, minted, project, ready, FakeClock, FakeDelay,
-    FakeFiles, FakeIdentity, FakeLiveness, FakeStores,
+    bound, captured, claim, ended, holder, id_text, minted, minted_in, project, ready, FakeClock,
+    FakeDelay, FakeFiles, FakeIdentity, FakeLiveness, FakeStores,
 };
 use crate::{
     AppError, BindRequest, Bound, Class, KeepRequest, ListQuery, Refusal, RemoveRequest,
@@ -54,8 +54,9 @@ impl Svc {
     /// transcript captured and its lock `lock` (Go's fixtures: "a finished
     /// session ... with a transcript").
     fn seed(&mut self, project: &str, id: u8, harp: &str, started: i64, lock: Option<LockState>) {
-        let store = self.stores.stores.entry(project.to_string()).or_default();
-        minted(store, id, harp, "/work/proj", started);
+        let key = self.stores.key(project);
+        let store = self.stores.stores.entry(key).or_default();
+        minted_in(store, project, id, harp, "/work/proj", started);
         // Its hooks delivered its first prompt (ruling 87a: the transcript is
         // the session's events); an older ctxloom's transcript file is left
         // on disk too, for a removal to name.
@@ -116,6 +117,25 @@ fn a_listing_holds_the_sessions_of_the_current_project() {
         ["brisk-copper-moth", "amber-swift-owl"],
         "this project's, most recently started first"
     );
+}
+
+// T14: every project's sessions are in the one store, and a listing holds the
+// current project's alone; --all reaches the others, each found in its own.
+#[test]
+fn the_one_store_lists_each_projects_sessions_under_its_own_project() {
+    let mut svc = service();
+    svc.stores.one = true;
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - 2 * DAY, None);
+    svc.seed(ELSEWHERE, 3, "calm-dusty-wren", NOW - DAY, None);
+    assert_eq!(svc.stores.stores.len(), 1, "one store");
+    assert_eq!(svc.harps(ListQuery::default()), ["amber-swift-owl"]);
+    assert_eq!(svc.harps(all()), ["calm-dusty-wren", "amber-swift-owl"]);
+    let shown = ready(svc.show(ShowQuery {
+        project: Some(ELSEWHERE.to_string()),
+        harp: "calm-dusty-wren".to_string(),
+    }))
+    .unwrap();
+    assert_eq!(shown.record.project_id, ELSEWHERE);
 }
 
 // Design (queue-runner swap, unnamed-corsage): a read catches up fresh, so

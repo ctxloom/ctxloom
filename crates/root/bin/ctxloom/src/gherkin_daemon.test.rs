@@ -802,28 +802,105 @@ fn refused_stale(_: &mut World) {
 }
 
 #[given(expr = "an initialized ctxloom project with a recorded session {string}")]
-fn project_with_session(_: &mut World, _h: String) {
-    red("a project with a recorded session")
+fn project_with_session(w: &mut World, harp: String) {
+    w.common.project = crate::tests::library::Project::initialized();
+    w.plant(&harp, "finished");
+}
+
+/// A second project beside the first, under the same home: its directory.
+fn second_dir(w: &World) -> std::path::PathBuf {
+    w.common
+        .project
+        .dir()
+        .parent()
+        .expect("the project has a parent")
+        .join("second")
 }
 
 #[given(expr = "a second initialized project with a recorded session {string}")]
-fn second_project_session(_: &mut World, _h: String) {
-    red("a second project with a recorded session")
+fn second_project_session(w: &mut World, harp: String) {
+    let dir = second_dir(w);
+    crate::tests::files::put(
+        dir.join(".ctxloom/config.yaml"),
+        crate::tests::library::MINIMAL_CONFIG,
+    );
+    let ran = w.common.project.run_in(
+        &dir,
+        &[
+            "test",
+            "seed-session",
+            &harp,
+            "--transcript",
+            "--lock",
+            "free",
+        ],
+    );
+    assert_eq!(ran.code, 0, "seeding {harp}: {}", ran.said());
+}
+
+/// Every project's own store under the home, from before the one store.
+fn per_project_stores(home: &std::path::Path) -> Vec<std::path::PathBuf> {
+    crate::tests::files::children(home.join(".ctxloom/projects"))
+        .into_iter()
+        .map(|dir| dir.join("ctxloom.db"))
+        .filter(|db| crate::tests::files::exists(db))
+        .collect()
 }
 
 #[then("both sessions are in the one store under ctxloom's home, and no project has a store of its own")]
-fn one_store(_: &mut World) {
-    red("both sessions are in the one store")
+fn one_store(w: &mut World) {
+    let home = w.common.project.home().to_path_buf();
+    assert!(
+        crate::tests::files::exists(home.join(".ctxloom/ctxloom.db")),
+        "the one store"
+    );
+    assert_eq!(per_project_stores(&home), Vec::<std::path::PathBuf>::new());
+    let all = w
+        .common
+        .project
+        .run(&["session", "list", "--all", "--format", "json"]);
+    assert_eq!(all.code, 0, "{}", all.said());
+    for harp in ["amber-swift-owl", "brisk-copper-moth"] {
+        assert!(all.stdout.contains(harp), "{harp}: {}", all.said());
+    }
 }
 
+/// The project id the per-project store step gives the project.
+const OLD_PROJECT: &str = "old-store-project";
+
+/// What the per-project store held when it was planted.
+const OLD_BYTES: &[u8] = b"a store of the project's own, from before the one store";
+
 #[given("the project has a store of its own from before the one store")]
-fn per_project_store(_: &mut World) {
-    red("the project has a per-project store")
+fn per_project_store(w: &mut World) {
+    let project = &w.common.project;
+    project.write(".ctxloom/project-id", &format!("{OLD_PROJECT}\n"));
+    crate::tests::files::put(
+        project
+            .home()
+            .join(".ctxloom/projects")
+            .join(OLD_PROJECT)
+            .join("ctxloom.db"),
+        OLD_BYTES,
+    );
 }
 
 #[then("nothing was imported from it")]
-fn nothing_imported(_: &mut World) {
-    red("nothing was imported from the per-project store")
+fn nothing_imported(w: &mut World) {
+    let home = w.common.project.home();
+    let old = home
+        .join(".ctxloom/projects")
+        .join(OLD_PROJECT)
+        .join("ctxloom.db");
+    assert_eq!(
+        crate::tests::files::read_bytes(&old).expect("still there"),
+        OLD_BYTES,
+        "left as it was"
+    );
+    assert!(
+        !crate::tests::files::exists(home.join(".ctxloom/ctxloom.db")),
+        "no store was made from it"
+    );
 }
 
 #[then(regex = r#"^its incarnation was recorded with the cause "([^"]+)"$"#)]

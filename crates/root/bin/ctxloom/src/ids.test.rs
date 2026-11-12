@@ -1,7 +1,7 @@
 //! Ids and the store: `Names` produce harp ids of the right shapes (a
 //! session `adj-adj-noun`; a run id UUIDv5(session, incarnation), D5 Q4), and
-//! `Stores::open` opens `~/.ctxloom/projects/<id>/ctxloom.db` under a temp
-//! home, never the real one (D26).
+//! `Stores::open` opens the one store, `~/.ctxloom/ctxloom.db`, under a temp
+//! home, never the real one (T14, D26).
 //!
 //! These are the application ports' tests in the plan. They are reached
 //! through the binary's test-only commands because the ports crate
@@ -77,16 +77,12 @@ fn test_a_run_id_is_a_function_of_its_session_and_incarnation() {
 }
 
 #[test]
-fn test_the_store_opens_under_the_home_s_projects_directory() {
+fn test_the_one_store_opens_under_the_home_s_app_directory() {
     let env = Env::new();
     let project = format!("s0-store-{}", std::process::id());
     let ran = env.run(&["test", "open-store", &project]);
     assert_eq!(ran.code, 0, "{}", ran.said());
-    let db = env
-        .home()
-        .join(".ctxloom/projects")
-        .join(&project)
-        .join("ctxloom.db");
+    let db = env.home().join(".ctxloom/ctxloom.db");
     assert_eq!(
         std::path::Path::new(ran.stdout.trim_end()),
         db,
@@ -100,6 +96,10 @@ fn test_the_store_opens_under_the_home_s_projects_directory() {
         !files::exists(beside.join("state.db")),
         "taskloom's store is not ctxloom's (D26)"
     );
+    assert!(
+        !files::exists(beside.join("ctxloom.db")),
+        "no project has a store of its own (T14)"
+    );
 }
 
 #[test]
@@ -108,9 +108,8 @@ fn test_the_store_never_opens_under_the_real_home() {
     let env = Env::new();
     let ran = env.run(&["test", "open-store", &project]);
     assert_eq!(ran.code, 0, "{}", ran.said());
-    let made = env.home().join(".ctxloom/projects").join(&project);
     assert!(
-        files::exists(made.join("ctxloom.db")),
+        files::exists(env.home().join(".ctxloom/ctxloom.db")),
         "made under the temp home"
     );
     if let Some(real) = crate::tests::host_var("HOME") {

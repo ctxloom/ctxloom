@@ -78,10 +78,27 @@ impl ProjectIdentity for FakeIdentity {
 /// One in-memory store per project, absent until a write opens it. The
 /// projects opened to write (`opened`) are recorded, so a test can say a read
 /// created nothing.
+///
+/// `one` makes it the one store (T14): every project's streams in one
+/// in-memory store, keyed [`ONE`].
 #[derive(Default)]
 pub struct FakeStores {
     pub stores: BTreeMap<String, MemoryStore>,
     pub opened: Vec<String>,
+    pub one: bool,
+}
+
+/// The key of the one store, where [`FakeStores::one`].
+pub const ONE: &str = "the-one-store";
+
+impl FakeStores {
+    /// The key `project`'s streams are kept under.
+    pub fn key(&self, project: &str) -> String {
+        match self.one {
+            true => ONE.to_string(),
+            false => project.to_string(),
+        }
+    }
 }
 
 impl ProjectStores for FakeStores {
@@ -89,14 +106,15 @@ impl ProjectStores for FakeStores {
 
     async fn open(&mut self, project: &Project) -> Result<&MemoryStore, StoreError> {
         self.opened.push(project.id.clone());
-        Ok(self.stores.entry(project.id.clone()).or_default())
+        let key = self.key(&project.id);
+        Ok(self.stores.entry(key).or_default())
     }
 
     async fn open_existing(
         &mut self,
         project: &Project,
     ) -> Result<Option<&MemoryStore>, StoreError> {
-        Ok(self.stores.get(&project.id))
+        Ok(self.stores.get(&self.key(&project.id)))
     }
 }
 
@@ -252,13 +270,25 @@ fn run_book(store: &MemoryStore, seconds: i64, book: CommandBook) {
 /// A session minted in `store` at `started`, with an engine and (when
 /// `native_id` is not empty) bound.
 pub fn minted(store: &MemoryStore, id: u8, harp: &str, project_dir: &str, started: i64) {
+    minted_in(store, "jolly-mute-magma", id, harp, project_dir, started);
+}
+
+/// [`minted`], in `project`.
+pub fn minted_in(
+    store: &MemoryStore,
+    project: &str,
+    id: u8,
+    harp: &str,
+    project_dir: &str,
+    started: i64,
+) {
     run(
         store,
         id,
         started,
         MintSession {
             harp: harp.to_string(),
-            project_id: "jolly-mute-magma".to_string(),
+            project_id: project.to_string(),
             project_dir: project_dir.to_string(),
             output_dir: format!("/home/Documents/ctxloom/proj/{harp}"),
             engine: "claude-code".to_string(),

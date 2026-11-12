@@ -52,8 +52,9 @@ where
         Ok(project.into_iter().collect())
     }
 
-    /// `project`'s sessions as its store holds them now, most recently
-    /// started first; none where it has no store yet.
+    /// `project`'s sessions as the store holds them now, most recently
+    /// started first; none where there is no store yet. The one store holds
+    /// every project's (T14): only `project`'s are its.
     pub(crate) async fn records(&mut self, project: &Project) -> Result<Vec<Held>, AppError> {
         let Some(store) = self.stores.open_existing(project).await.map_err(failed)? else {
             return Ok(Vec::new());

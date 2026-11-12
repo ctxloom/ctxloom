@@ -135,7 +135,7 @@ impl<'a> OneShots<'a> {
             })
         };
         let store = Stores::new(wiring.fs(), wiring.home())
-            .open(&project.id)
+            .open_for(&project.id)
             .await
             .map_err(|e| unmade(&e))?;
         let core = InProcessCore::start(store).await;

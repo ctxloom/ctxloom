@@ -563,11 +563,7 @@ fn test_opening_a_store_makes_it_under_the_home_and_names_its_database() {
     let env = Env::new("open-store");
     let wiring = from_process().ok().unwrap();
     let path = wiring.open_store("jolly-mute-magma").ok().unwrap();
-    assert_eq!(
-        path,
-        env.home()
-            .join(".ctxloom/projects/jolly-mute-magma/ctxloom.db")
-    );
+    assert_eq!(path, env.home().join(".ctxloom/ctxloom.db"));
     assert!(exists(&path), "the database is made");
 }
 

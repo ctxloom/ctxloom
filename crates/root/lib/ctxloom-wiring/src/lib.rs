@@ -216,6 +216,7 @@ pub fn catalog_sources() -> Vec<angzarr_presentation::Source> {
         project_dir::EN_US,
         duration_text::EN_US,
         ctxloom_store_sqlite::EN_US,
+        ctxloom_store_sqlite::OPENER_EN_US,
         session_files::EN_US,
     ];
     sources.extend(sessions_application::CATALOGS);
@@ -367,8 +368,35 @@ impl Wiring {
         }
     }
 
-    /// `project`'s store opened (made, if need be) under the home; the path
-    /// of its database.
+    /// The registry's environment: the home, and the root and project id the
+    /// process was given.
+    fn environment(&self) -> Environment {
+        Environment {
+            home: Some(self.home.clone()),
+            root: self.env.non_empty("CTXLOOM_ROOT").map(PathBuf::from),
+            project_id: self
+                .env
+                .non_empty("CTXLOOM_PROJECT_ID")
+                .and_then(|v| v.to_str().map(String::from)),
+        }
+    }
+
+    /// Refused where the project this process is in still has a store of its
+    /// own from before the one store (T17, S48: per command; nothing is
+    /// imported). Nothing is refused outside a project, nor where the project
+    /// cannot be told: the command says what is wrong then.
+    pub fn refuse_per_project_store(&self) -> Result<(), StoreOpenError> {
+        use ports::ProjectIdentity as _;
+        let mut identity = registry(Arc::clone(&self.fs), self.environment(), HarpNames);
+        let Ok(Some(project)) = identity.for_read(None) else {
+            return Ok(());
+        };
+        Stores::new(Arc::clone(&self.fs), self.home.clone()).refuse_per_project(&project.id)
+    }
+
+    /// The one store opened (made, if need be) under the home for `project`
+    /// (T14), the path of its database; refused where the project still has
+    /// a store of its own (T17).
     pub fn open_store(&self, project: &str) -> Result<PathBuf, LibError> {
         let stores = Stores::new(Arc::clone(&self.fs), self.home.clone());
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -381,14 +409,14 @@ impl Wiring {
         // migrations, with no log beside it, when this returns.
         runtime
             .block_on(async {
-                let store = stores.open(project).await?;
+                let store = stores.open_for(project).await?;
                 store
                     .close()
                     .await
                     .map_err(|e| StoreOpenError::Open(OpenError::Store(e)))
             })
             .map_err(LibError::Store)?;
-        stores.path(project).map_err(LibError::Store)
+        Ok(stores.path())
     }
 }
 

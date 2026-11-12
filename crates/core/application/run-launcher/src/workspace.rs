@@ -16,7 +16,7 @@
 //! A worktree is a convenience, not a boundary: one that cannot be had runs
 //! the engine in the project, and says so.
 
-use isolation_ports::{Checkout, Failure, Workspaces};
+use isolation_ports::{Checkout, Failure, Prepared, Request, Workspaces};
 
 /// The workspace axis, as a run settles on it (`DryRun.axes.0`: the flag,
 /// else the config's default, else `none`).
@@ -80,13 +80,42 @@ pub fn place_workspace(
     agent: &str,
     workspaces: &dyn Workspaces,
 ) -> Result<Placement, Failure> {
-    let _ = (axis, work_dir, agent, workspaces);
-    Ok(Placement {
+    let live = |warning: Option<String>| Placement {
         cwd: project_dir.to_string(),
         checkout: None,
-        warning: None,
+        warning,
+    };
+    if axis == Axis::None {
+        return Ok(live(None));
+    }
+    if work_dir.is_empty() {
+        return Ok(live(Some(NO_WORK_DIR.to_string())));
+    }
+    let request = Request {
+        project_dir: project_dir.to_string(),
+        work_dir: work_dir.to_string(),
+        agent: agent.to_string(),
+        // Nothing is written into a checkout at a launch (the surfaces ride
+        // the launch), so nothing needs hiding from git.
+        artifact_patterns: Vec::new(),
+    };
+    Ok(match workspaces.prepare(&request)? {
+        Prepared::Checkout(checkout) => Placement {
+            cwd: checkout.path.clone(),
+            checkout: Some(checkout),
+            warning: None,
+        },
+        Prepared::Unavailable(why) => live(Some(why)),
     })
 }
+
+/// Why a worktree asked for of a session with no checkouts directory (a run
+/// outside any project) cannot be had.
+pub(crate) const NO_WORK_DIR: &str =
+    "worktree isolation: the session has no checkouts directory (no project)";
+
+/// Why a worktree asked for of a launcher that makes none cannot be had.
+pub(crate) const NO_WORKSPACES: &str = "worktree isolation: this launcher makes no worktrees";
 
 #[cfg(test)]
 #[path = "workspace.test.rs"]

@@ -53,6 +53,7 @@ use runs_application::{Facts, Identity, Observation, Principal, RunnerFact};
 
 use crate::error::LaunchError;
 use crate::orders::{Order, Orders};
+use crate::workspace::{place_workspace, Axis, Placement};
 
 /// The cause the session's incarnation ends with when its run's owner was
 /// lost.
@@ -348,7 +349,11 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         };
         let mut ignored = Vec::new();
         let mut left_out = Vec::new();
-        let prepared = self.prepare(&order, &mut ignored, &mut left_out);
+        let mut placed = None;
+        let prepared = self.prepare(&order, &mut ignored, &mut left_out, &mut placed);
+        let checkout = placed.as_ref().and_then(|p: &Placement| p.checkout.clone());
+        let workspace_warning = placed.as_ref().and_then(|p| p.warning.clone());
+        let cwd = placed.map(|p| p.cwd).or_else(|| order.cwd.clone());
         let done = |outcome| Launched {
             run: launch.run.clone(),
             session: launch.session.clone(),
@@ -357,8 +362,8 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             outcome,
             ignored: ignored.clone(),
             left_out: left_out.clone(),
-            checkout: None,
-            workspace_warning: None,
+            checkout: checkout.clone(),
+            workspace_warning: workspace_warning.clone(),
         };
         let (engine, command) = match prepared {
             Ok(prepared) => prepared,
@@ -372,7 +377,9 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             // The terminal session's opening prompt, like every prompt of it,
             // is its hooks' to record (the engine submits it and its prompt
             // hook fires): the launcher records the run's own facts only.
-            return self.terminal(&who, &order, &command, done).await;
+            return self
+                .terminal(&who, &order, cwd.as_deref(), &command, done)
+                .await;
         }
         // A child's turn is heard through its hooks alone (owner rulings 26
         // and 51): its prompt and its words are theirs to record, and the
@@ -381,7 +388,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             Ok(running) => running,
             Err(failure) => return self.never_started(&who, failure, done).await,
         };
-        self.record(&who, runner_started(&order, running.pid()))
+        self.record(&who, runner_started(&order, cwd.as_deref(), running.pid()))
             .await?;
         // Started: the run's own lock has done its work (ruling 92).
         self.orders.release(&launch.session, launch.incarnation);
@@ -394,15 +401,28 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             Ok(output) => output,
             Err(failure) => return self.never_started(&who, failure, done).await,
         };
-        let outcome = engine.finish_turn(&output);
+        let outcome = self.turn_ended(&who, engine.as_ref(), &output).await?;
+        Ok(done(outcome))
+    }
+
+    /// The turn's command is over: what the engine reads of it recorded (its
+    /// own session bound, the turn completed or failed), then the run's
+    /// exit.
+    async fn turn_ended(
+        &self,
+        who: &Identity,
+        engine: &dyn Engine,
+        output: &run_ports::TurnOutput,
+    ) -> Result<Outcome, LaunchError> {
+        let outcome = engine.finish_turn(output);
         let code = output.exit.code.unwrap_or(0);
         let outcome = match outcome {
             TurnOutcome::Answered { answer, native_id } => {
                 if let Some(native) = &native_id {
-                    self.record(&who, bound(native)).await?;
+                    self.record(who, bound(native)).await?;
                 }
                 self.record(
-                    &who,
+                    who,
                     RunnerFact::TurnCompleted(runs::TurnCompleted {
                         turn: TURN,
                         native_key: native_id.clone().unwrap_or_default(),
@@ -420,7 +440,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
                 native_id: _,
             } => {
                 self.record(
-                    &who,
+                    who,
                     RunnerFact::TurnFailed(runs::TurnFailed {
                         turn: TURN,
                         class: failure_class(class),
@@ -432,14 +452,14 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             }
         };
         self.record(
-            &who,
+            who,
             RunnerFact::RunExited(runs::RunExited {
                 code,
                 signal: output.exit.signal.unwrap_or(0),
             }),
         )
         .await?;
-        Ok(done(outcome))
+        Ok(outcome)
     }
 
     /// The human's session: the command is given her terminal and runs until
@@ -448,6 +468,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         &self,
         who: &Identity,
         order: &Order,
+        cwd: Option<&str>,
         command: &TurnCommand,
         done: impl Fn(Outcome) -> Launched,
     ) -> Result<Launched, LaunchError> {
@@ -455,7 +476,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             Ok(running) => running,
             Err(failure) => return self.never_started(who, failure, done).await,
         };
-        self.record(who, runner_started(order, running.pid()))
+        self.record(who, runner_started(order, cwd, running.pid()))
             .await?;
         self.orders.release(&who_session(who), who.incarnation);
         let output = match running.finish() {
@@ -554,18 +575,25 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         self.engines.iter().find(|e| e.name() == name).cloned()
     }
 
-    /// Everything a launch does before it records a sign of life: the engine,
-    /// the session home, the user's line, the command. Its error is why
-    /// nothing was started.
+    /// Everything a launch does before it records a sign of life, for every
+    /// launch path alike (the one place a launch is set up): the engine, the
+    /// workspace it works in (`placed`), the session home, the user's line,
+    /// the command. Its error is why nothing was started.
     fn prepare(
         &mut self,
         order: &Order,
         ignored: &mut Vec<run_ports::Ignored>,
         left_out: &mut Vec<run_ports::LeftOut>,
+        placed: &mut Option<Placement>,
     ) -> Result<(Arc<dyn Engine>, TurnCommand), Unprepared> {
         let engine = self
             .engine(&order.engine)
             .ok_or_else(|| format!("no engine named {}", order.engine))?;
+        *placed = self.place(order)?;
+        let cwd = placed
+            .as_ref()
+            .map(|p| p.cwd.clone())
+            .or_else(|| order.cwd.clone());
         let home = format!("{}/home", self.records.dir(&order.harp));
         // What the home holds of the files the engine merges into (ruling
         // 113): a resumed session's home has its engine's own state there.
@@ -586,7 +614,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
                 // Nothing of the user's own engine configuration is offered.
                 offered: Vec::new(),
                 interactive: order.interactive,
-                cwd: order.cwd.clone(),
+                cwd: cwd.clone(),
                 existing,
                 permissions: order.permissions.clone(),
                 session_home: order.settings.session_home,
@@ -609,7 +637,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             resume: order.resume.clone(),
             env: order.env.clone(),
             user_home: order.user_home.clone(),
-            cwd: order.cwd.clone(),
+            cwd,
             model: order.model.clone(),
             effort: order.effort.clone(),
             settings: order.settings.clone(),
@@ -630,6 +658,34 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         // line before it is spawned (the terminal's opening prompt is on it).
         run_ports::check_command_line(&self.os, &command).map_err(Unprepared::TooLong)?;
         Ok((engine, command))
+    }
+
+    /// Where the order's engine works (the workspace axis): none for an
+    /// order with no project; the project where it asks for no worktree, or
+    /// this launcher makes none (with a warning); else what
+    /// [`place_workspace`] says. A worktree refused is why nothing started.
+    fn place(&self, order: &Order) -> Result<Option<Placement>, Unprepared> {
+        let Some(project) = &order.cwd else {
+            return Ok(None);
+        };
+        let asked = &order.workspace;
+        let Some(workspaces) = &self.workspaces else {
+            return Ok(Some(Placement {
+                cwd: project.clone(),
+                checkout: None,
+                warning: (asked.axis == Axis::Worktree)
+                    .then(|| crate::workspace::NO_WORKSPACES.to_string()),
+            }));
+        };
+        place_workspace(
+            asked.axis,
+            project,
+            &asked.work_dir,
+            &asked.agent,
+            workspaces.as_ref(),
+        )
+        .map(Some)
+        .map_err(|e| Unprepared::Failed(e.to_string()))
     }
 
     /// Seed the session home with the user's git identity (owner ruling
@@ -705,11 +761,11 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
 }
 
 /// The launcher's word that the runner is spawned: the engine it runs under,
-/// where, and the pid the spawn gave.
-fn runner_started(order: &Order, pid: u32) -> RunnerFact {
+/// where (`cwd`, its placed workspace), and the pid the spawn gave.
+fn runner_started(order: &Order, cwd: Option<&str>, pid: u32) -> RunnerFact {
     RunnerFact::RunnerStarted(runs::RunnerStarted {
         runtime: order.engine.clone(),
-        workspace: order.cwd.clone().unwrap_or_default(),
+        workspace: cwd.unwrap_or_default().to_string(),
         pid,
     })
 }

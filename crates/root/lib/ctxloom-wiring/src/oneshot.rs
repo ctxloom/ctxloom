@@ -157,6 +157,15 @@ impl<'a> OneShots<'a> {
         // are judged by (rulings 86, 92, 93).
         let run_locks: Arc<dyn run_ports::RunLocks> =
             Arc::new(liveness::RunLockFiles::new(wiring.fs(), wiring.home()));
+        // The project's checkouts, under ctxloom's home (owner ruling
+        // 2026-11-12, Q1), which the launcher makes a worktree run's in.
+        let worktrees = isolation_ports::worktrees_root(wiring.home(), &project.id);
+        let workspaces = Arc::new(worktree_git::GitWorkspaces::new(
+            wiring.fs(),
+            project_dir.clone(),
+            Some(worktrees.clone()),
+            Arc::clone(wiring.env()),
+        ));
         let launcher = Launcher::new(
             core.edge(),
             HostLauncher::stopped_by(stop),
@@ -166,15 +175,13 @@ impl<'a> OneShots<'a> {
             Limits::new(TURN_DEADLINE),
         )
         .with_locks(Arc::clone(&run_locks))
+        .with_workspaces(workspaces)
         // Each command measured against this platform's command line before
         // it is spawned (a terminal session's opening prompt is on it).
         .on_os(wiring.os_name());
         let hooks = Box::new(Hooks { edge: core.edge() });
         let enqueuer = Enqueuer::new(core.edge(), Arc::new(OsTokenSource));
         let output_root = output_root(&project_dir, output_dir);
-        // The project's checkouts, under ctxloom's home (owner ruling
-        // 2026-11-12, Q1).
-        let worktrees = isolation_ports::worktrees_root(wiring.home(), &project.id);
         Ok(Runs::new(Parts {
             core,
             planner: Box::new(library),

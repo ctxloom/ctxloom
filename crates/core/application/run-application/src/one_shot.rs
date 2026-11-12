@@ -87,8 +87,9 @@ fn ours(launched: Vec<Launched>, session: &str) -> Option<Launched> {
 }
 
 /// The permits the launcher did not follow, said by the permit's name (owner
-/// rulings 78, 78b), and the user's own settings files the session home was
-/// not started from, by path (owner ruling 169).
+/// rulings 78, 78b), the user's own settings files the session home was not
+/// started from, by path (owner ruling 169), and a worktree asked for that
+/// could not be had.
 fn said_permits(launched: &Launched, notices: &mut Vec<Notice>) {
     notices.extend(
         launched
@@ -103,6 +104,15 @@ fn said_permits(launched: &Launched, notices: &mut Vec<Notice>) {
             .map(|left_out| Notice::UserSettingsLeftOut {
                 engine: left_out.engine.clone(),
                 path: left_out.path.clone(),
+            }),
+    );
+    // A worktree asked for and not had: the engine worked in the project.
+    notices.extend(
+        launched
+            .workspace_warning
+            .iter()
+            .map(|reason| Notice::WorkspaceUnavailable {
+                reason: reason.clone(),
             }),
     );
 }
@@ -877,6 +887,7 @@ where
         let plan = previewed.plan;
         let engine = chosen_engine(&plan, request);
         let settings = settings_of(&plan, &engine);
+        let workspace = self.workspace(&plan, &harp);
         // The order is placed once the run's tokens exist: the hook bearer
         // reaches the engine's environment through it (the terminal session's
         // and a one-shot child's alike, ruling 51), and the caller's own
@@ -930,7 +941,7 @@ where
                 env,
                 user_home: self.place.user_home.clone(),
                 cwd: Some(self.place.project_dir.clone()),
-                workspace: Default::default(),
+                workspace,
                 interactive,
                 model: plan.model,
                 effort: plan.effort,
@@ -948,6 +959,28 @@ where
             run: enqueued.run.clone(),
             incarnation,
             lock,
+        }
+    }
+
+    /// What the run asks of the workspace axis: the axis the plan settled
+    /// on (`axes.0`: the flag, else the config's default), the session's
+    /// checkouts directory under the project's, and the agent the checkout
+    /// is for (the plan's, else the default agent it took). The launcher
+    /// places the engine.
+    fn workspace(&self, plan: &library_application::DryRun, harp: &str) -> run_launcher::Workspace {
+        let agent = [&plan.agent, &plan.settings_agent]
+            .into_iter()
+            .find(|a| !a.is_empty())
+            .cloned()
+            .unwrap_or_default();
+        run_launcher::Workspace {
+            axis: run_launcher::Axis::of(&plan.axes.0),
+            work_dir: if self.place.worktrees.is_empty() {
+                String::new()
+            } else {
+                format!("{}/{harp}", self.place.worktrees)
+            },
+            agent,
         }
     }
 

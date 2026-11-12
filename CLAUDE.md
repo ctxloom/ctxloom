@@ -132,8 +132,19 @@ session's own branch for its agent, `ctxloom/<harp>/<agent>` (F1: two
 sessions of one agent no longer collide), its path canonical (macOS's
 `/private/var`, the trust key), and every git `worktree-git` runs is `git -c
 core.longpaths=true ...`; `GitWorkspaces` lists, knows and reclaims them
-there (a session is known by its directory, its lock or its checkouts). No
-run is placed in one yet. A name is unique because its claim is. Accepted cost: a clone has no session
+there (a session is known by its directory, its lock or its checkouts). A
+run's engine is PLACED where every launch is set up, run-launcher's
+`Launcher::prepare` (`place_workspace`, through `Launcher::with_workspaces`,
+the wiring's `GitWorkspaces`), for every launch path alike: the plan's axis
+(`DryRun.axes.0`, the flag else the config's `workspace`) rides the `Order`
+(`Order.workspace`: the axis, the session's checkouts directory from
+`Place.worktrees`, the agent), and the placed directory is the
+`PrepareRequest`'s and the `TurnRequest`'s `cwd` and `RunnerStarted.workspace`
+(`Order.cwd` stays the live project). `none` is the project; a checkout is
+its path; one that cannot be had (not a git repository, the add failed, no
+checkouts directory or no workspaces port) is the project and the notice
+`library-application-notice-workspace-unavailable`; one the port refuses
+fails the launch (`LaunchFailed`). A name is unique because its claim is. Accepted cost: a clone has no session
 history (the store is machine-local; `sessions/` was always gitignored), and
 the store grows without bound (ruling 90; compaction is taskloom
 `untried-slander`).

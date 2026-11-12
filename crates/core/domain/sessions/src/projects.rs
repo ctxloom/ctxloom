@@ -60,9 +60,7 @@ impl ProjectAggregate {
         ctx: &Context,
     ) -> Result<Option<ProjectNamed>, Failed<Refuses<Self, NameProject>>> {
         let _ = ctx;
-        // RED: nothing is named yet.
-        let red = !cmd.harp.contains("RED-unreachable");
-        if red {
+        if !self.project.harp.is_empty() {
             return Ok(None);
         }
         if let Err(rejection) = validate(&cmd.harp) {
@@ -112,9 +110,7 @@ impl ProjectNameAggregate {
         ctx: &Context,
     ) -> Result<Option<ProjectNameClaimed>, Failed<Refuses<Self, ClaimProjectName>>> {
         let _ = ctx;
-        // RED: nothing is claimed yet.
-        let red = !cmd.harp.contains("RED-unreachable");
-        if red {
+        if self.claim.project_id == cmd.project_id {
             return Ok(None);
         }
         if !self.claim.project_id.is_empty() {

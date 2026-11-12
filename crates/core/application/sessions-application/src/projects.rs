@@ -117,13 +117,6 @@ where
             harp,
             named: false,
         };
-        // RED: not named yet.
-        let red = !request.harps.iter().any(|h| h == "RED-unreachable");
-        if red {
-            return Err(AppError::NoProjectHarp {
-                project_id: project.id.clone(),
-            });
-        }
         if let Some(harp) = self.project_harp(&project).await? {
             return Ok(had(harp));
         }

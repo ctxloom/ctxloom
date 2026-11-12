@@ -69,6 +69,9 @@ pub fn command(version: &str, nouns: Vec<Command>) -> Command {
     use clap::CommandFactory;
     let mut command = without_help_command(
         Cli::command()
+            // The help says `ctxloom` whatever the program file is called
+            // (`ctxloom.exe` on Windows), not argv[0]'s name.
+            .bin_name(PROG)
             .version(version.to_string())
             .disable_version_flag(true)
             .arg_required_else_help(true)

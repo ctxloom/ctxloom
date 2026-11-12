@@ -103,6 +103,13 @@ fn test_a_bundles_executables_are_what_its_skills_sidecars_declare() {
         // Only a skill's sidecar says: a fragment's says nothing of this.
         ("fragments/.f.meta.yaml", "executable:\n  - x\n"),
         ("fragments/x", "x"),
+        // A sidecar-shaped file inside a skill's package is no skill's
+        // sidecar: only `skills/.<name>.meta.yaml` declares.
+        (
+            "skills/reviewer/.nested.meta.yaml",
+            "executable:\n  - x.sh\n",
+        ),
+        ("skills/nested/x.sh", "echo\n"),
     ]
     .into_iter()
     .map(|(path, text)| (path.to_string(), text.as_bytes().to_vec()))

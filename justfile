@@ -333,3 +333,51 @@ selftest:
 [doc("Run the ctxloom binary: run [args...]")]
 run *args:
     @cargo run -q --manifest-path {{TOP}}/Cargo.toml --bin ctxloom -- {{args}}
+
+# ===== Version (versionator, .versionator.yaml) =====
+# VERSION holds the version; the binary's build script stamps it
+# (crates/root/bin/ctxloom/build.rs): v<MAJOR.MINOR.PATCH[-pre]>-<short hash>,
+# and on a tree with a tracked change -<YYYYMMDDTHHMMSS UTC>-dirty after it.
+# A change of version also writes the binary's Cargo.toml (versionator's
+# `updates:`) and records it in Cargo.lock. No release recipe: a human cuts
+# releases.
+
+# Show the version VERSION holds.
+[group('version')]
+[doc("Show the version VERSION holds")]
+show-version:
+    @cd {{TOP}} && versionator output version
+
+# Set the version, e.g. `just set-version 0.2.0` or `0.2.0-rc.1`.
+[group('version')]
+[doc("Set the version: set-version <version>")]
+set-version version:
+    @cd {{TOP}} && versionator set {{ version }} && just --justfile {{TOP}}/justfile _version-lock
+
+# Bump the patch version (0.0.X).
+[group('version')]
+[doc("Bump the patch version (0.0.X)")]
+bump-patch:
+    @cd {{TOP}} && versionator bump patch inc && just --justfile {{TOP}}/justfile _version-lock
+
+# Bump the minor version (0.X.0).
+[group('version')]
+[doc("Bump the minor version (0.X.0)")]
+bump-minor:
+    @cd {{TOP}} && versionator bump minor inc && just --justfile {{TOP}}/justfile _version-lock
+
+# Bump the major version (X.0.0).
+[group('version')]
+[doc("Bump the major version (X.0.0)")]
+bump-major:
+    @cd {{TOP}} && versionator bump major inc && just --justfile {{TOP}}/justfile _version-lock
+
+# Bump by the conventional commits since the last tag (feat: minor, fix: patch).
+[group('version')]
+[doc("Bump by the conventional commits since the last tag")]
+bump:
+    @cd {{TOP}} && versionator bump && just --justfile {{TOP}}/justfile _version-lock
+
+# Cargo.lock records the binary's new version (versionator never touches it).
+_version-lock:
+    @cargo update --workspace --offline --quiet --manifest-path {{TOP}}/Cargo.toml

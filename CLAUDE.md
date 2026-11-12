@@ -1234,6 +1234,28 @@ words (its permissions document) and enforced by the engine; a claude
 own, a follow-up not built. `runtime` stays engine-neutral, as process
 isolation.
 
+## The version is VERSION's, stamped by versionator
+
+`VERSION` (the version, no prefix) and `.versionator.yaml` (prefix `v`,
+`dirty.ignoreUntracked: true`, and `updates:` keeping the binary's
+`crates/root/bin/ctxloom/Cargo.toml` `package.version` in step) hold it;
+`just show-version`, `set-version <v>`, `bump-patch|minor|major` and `bump`
+change it (and record it in Cargo.lock; no release recipe: a human cuts
+releases). The binary's `build.rs` runs versionator (v0.3.0 or newer: `go
+install github.com/benjaminabbitt/versionator@v0.3.0`) and passes the stamp to
+rustc as `CTXLOOM_VERSION_STAMP`, so THE BUILD NEEDS VERSIONATOR ON PATH: none,
+or a stamp not of the shape, fails it, naming why. The stamp is the Go
+family's: a clean tree `v<MAJOR.MINOR.PATCH[-pre]>-<ShortHash>` (stable, so
+clean builds cache), a tree with a TRACKED change that then
+`-<YYYYMMDDTHHMMSS, the build's UTC time>-dirty` (each dirty build its own; an
+untracked file is not a change). Its pieces are pure functions in
+`src/stamp.rs`, which build.rs includes. The build re-runs on a commit, a
+checkout, a staged change or an edit to a tracked file (the git directory
+read through a worktree's `.git` file), and at every build of a dirty tree.
+`ctxloom version`, `--version` and doctor's version row say the stamp, and the
+binary refuses to start with one not of the shape (`ctxloom-unstamped`, exit
+10). cargo-mutants copies `.git` (`copy_vcs`) so a mutant's build can stamp.
+
 ## Use `just`
 
 `just --list` shows the public recipes by group; `just install` (group

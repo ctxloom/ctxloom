@@ -700,3 +700,27 @@ fn a_daemon_whose_lock_file_is_replaced_exits() {
         world.log()
     );
 }
+
+// Ruling 131: a store is closed, never dropped. A daemon's exit lets go of
+// everything that holds its store (the listener's tasks, the launcher, the
+// read models it registered) before it closes it, so its log never says it
+// did not close, and the store's file is left with no log beside it.
+#[test]
+fn a_daemons_exit_closes_its_store() {
+    let world = World::new();
+    let (mut daemon, _) = served(&world);
+    let _ = world.run(&["daemon", "stop"]);
+    let code = exited_within(&mut daemon, Duration::from_secs(20));
+    assert_eq!(code, Some(0), "it exits; its log:\n{}", world.log());
+    let log = world.log();
+    assert!(log.contains("exited"), "{log}");
+    assert!(!log.contains("did not close"), "{log}");
+    let store = world.project.home().join(".ctxloom/ctxloom.db");
+    assert!(files::exists(&store), "the daemon's store");
+    for beside in ["ctxloom.db-wal", "ctxloom.db-shm"] {
+        assert!(
+            !files::exists(store.with_file_name(beside)),
+            "{beside} is left beside the store; the log:\n{log}"
+        );
+    }
+}

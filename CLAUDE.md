@@ -847,7 +847,20 @@ directory 0700, tightened on each publish whoever made it (the election's
 lock may have); on Windows the platform sets no mode and the profile's
 inherited ACL stands (M8). It keeps other users out, not the user's own
 processes. `Discovery`'s `Debug` withholds the bearer, and the daemon's log
-never holds it.
+never holds it. Not yet placed (escalated): where a call's run travels on
+the wire for the daemon to check that a fact's session is its run's and to
+stamp the requester; angzarr's `Gate::identify` sees only the arrival and
+the credential, so it is not the gate's today, and the daemon checks
+neither. A hosted child is told the user's home as a value
+(`ChildSpec::user_home`, the daemon's `Place::user_home`, resolved once by
+`Wiring::user_home`), and its `PATH` is led by the program's directory as
+the platform joins it (`run_ports::search_path_led_by`, on the daemon's
+`Place::os`); the environment its launcher hands off is keyed as the
+platform compares names (`os::Flavor::env_key`). The hosted engines are
+composed bare (`Claude::new`, `Opencode::new`): no callback program, no
+bypass acceptance (ruling 166) and no model seed (ruling 167), so a hosted
+child's home gets no `Prepared::seeds`, no `.gitconfig` and no merge; those
+are follow-ups.
 
 A daemon is LIVE when it answers the standard `grpc.health.v1.Health`
 Check SERVING (T16, M11: `hook-sink-grpc`'s `serving`, written by hand as
@@ -885,20 +898,7 @@ start's sweep (`Sweeper`, of every run it does not host itself); so a
 daemon exits only once it has hosted nothing, had nothing to do and known
 no live run for its idle time. The launcher runs inside the runtime's
 `block_on`, on the thread that started it, not on its two workers, which
-serve the listener (M10); no use case runs in a handler yet. Not yet placed (escalated): where a call's run travels on
-the wire for the daemon to check that a fact's session is its run's and to
-stamp the requester; angzarr's `Gate::identify` sees only the arrival and
-the credential, so it is not the gate's today, and the daemon checks
-neither. A hosted child is told the user's home as a value
-(`ChildSpec::user_home`, the daemon's `Place::user_home`, resolved once by
-`Wiring::user_home`), and its `PATH` is led by the program's directory as
-the platform joins it (`run_ports::search_path_led_by`, on the daemon's
-`Place::os`); the environment its launcher hands off is keyed as the
-platform compares names (`os::Flavor::env_key`). The hosted engines are
-composed bare (`Claude::new`, `Opencode::new`): no callback program, no
-bypass acceptance (ruling 166) and no model seed (ruling 167), so a hosted
-child's home gets no `Prepared::seeds`, no `.gitconfig` and no merge; those
-are follow-ups.
+serve the listener (M10); no use case runs in a handler yet.
 
 The daemon's kernel registers its read models as projectors (S32):
 `session-index`, `pending-messages` and `daemon-board`, by those names, so a

@@ -660,6 +660,16 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         Ok((engine, command))
     }
 
+    /// Let go of the checkout a launch placed its engine in, once the engine
+    /// is over (owner ruling 2026-11-12, Q2): a clean one is removed (its
+    /// branch with it when merged), one holding work, or that will not go,
+    /// is left, and why; never forced. A launcher that makes no worktrees
+    /// leaves it.
+    pub fn release(&self, checkout: &isolation_ports::Checkout) -> isolation_ports::Removal {
+        let _ = checkout;
+        isolation_ports::Removal::Removed
+    }
+
     /// Where the order's engine works (the workspace axis): none for an
     /// order with no project; the project where it asks for no worktree, or
     /// this launcher makes none (with a warning); else what

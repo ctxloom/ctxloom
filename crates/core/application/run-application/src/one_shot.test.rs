@@ -3431,3 +3431,76 @@ async fn a_resume_in_another_workspace_is_refused() {
     assert_eq!(refused_code(&error), "sessions-workspace-mismatch");
     assert_eq!(rig.runner.seen.lock().unwrap().len(), 1, "nothing launched");
 }
+
+// Owner ruling 2026-11-12 (Q2): a run's checkout is let go once its engine
+// has exited and its listener has stopped, while the session's lock is still
+// held: removed when clean.
+#[tokio::test]
+async fn a_runs_clean_checkout_is_removed_after_the_listener_and_before_the_lock() {
+    let (script, workspaces) = placing("worktree", run_launcher::fakes::worktree_checkout);
+    let mut rig = rig(script);
+    let (locks, hooks) = (rig.locks.clone(), rig.hooks.clone());
+    *workspaces.witness.lock().unwrap() = Some(Box::new(move || {
+        let stopped = hooks.log.lock().unwrap().iter().any(|(w, _)| w == "stop");
+        let released = locks.released.lock().unwrap().len();
+        format!("listener stopped {stopped}, locks let go {released}")
+    }));
+    let done = rig.runs.one_shot(&Flags::default(), &ask()).await;
+    let answer = done.result.unwrap();
+    let path = format!("{WORKTREES}/{}/reviewer", answer.harp);
+    assert_eq!(
+        *workspaces.removed.lock().unwrap(),
+        [("/work/proj".to_string(), path)]
+    );
+    assert_eq!(
+        *workspaces.witnessed.lock().unwrap(),
+        ["listener stopped true, locks let go 0"]
+    );
+    assert!(!done
+        .notices
+        .iter()
+        .any(|n| matches!(n, Notice::CheckoutLeft { .. })));
+}
+
+// A checkout holding work (or that would not go) is left, and the run says
+// where it is, its branch, and why.
+#[tokio::test]
+async fn a_checkout_left_at_the_runs_end_is_said_by_path_and_branch() {
+    let workspaces = Arc::new(
+        run_launcher::fakes::ScriptedWorkspaces::new(run_launcher::fakes::worktree_checkout)
+            .leaving("it has uncommitted changes; left in place to preserve WIP"),
+    );
+    let (mut script, _) = placing("worktree", run_launcher::fakes::worktree_checkout);
+    script.workspaces = Some(Arc::clone(&workspaces));
+    let mut rig = rig(script);
+    let done = rig.runs.one_shot(&Flags::default(), &ask()).await;
+    let answer = done.result.unwrap();
+    let left = done
+        .notices
+        .iter()
+        .find_map(|n| match n {
+            Notice::CheckoutLeft {
+                path,
+                branch,
+                reason,
+            } => Some((path.clone(), branch.clone(), reason.clone())),
+            _ => None,
+        })
+        .expect("the checkout left is said");
+    assert_eq!(left.0, format!("{WORKTREES}/{}/reviewer", answer.harp));
+    assert_eq!(left.1, "ctxloom/amber-swift-owl/reviewer");
+    assert!(left.2.contains("uncommitted"));
+}
+
+// A run in the project has no checkout to let go.
+#[tokio::test]
+async fn a_run_in_the_project_releases_nothing() {
+    let (script, workspaces) = placing("none", run_launcher::fakes::worktree_checkout);
+    let mut rig = rig(script);
+    rig.runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    assert!(workspaces.removed.lock().unwrap().is_empty());
+}

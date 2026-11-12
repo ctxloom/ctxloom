@@ -1924,3 +1924,48 @@ async fn a_run_in_the_project_asks_no_workspace() {
     assert_eq!(launched[0].checkout, None);
     assert_eq!(started_in(&rig.edge).await, "/work/proj");
 }
+
+// Owner ruling 2026-11-12 (Q2): a checkout is let go once its engine is over:
+// removed when clean, through the workspaces port, which removes it
+// WIP-safely and says what it left.
+#[tokio::test]
+async fn a_checkout_is_released_through_the_workspaces_port() {
+    use crate::fakes::{worktree_checkout, worktree_order, ScriptedWorkspaces};
+    let workspaces = Arc::new(ScriptedWorkspaces::new(worktree_checkout).leaving("it has work"));
+    let mut rig = rig_placing(worktree_order("fake", "reviewer"), Arc::clone(&workspaces));
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    let checkout = launched[0].checkout.clone().unwrap();
+    assert!(
+        workspaces.removed.lock().unwrap().is_empty(),
+        "not at launch"
+    );
+    assert_eq!(
+        rig.launcher.release(&checkout),
+        isolation_ports::Removal::Left("it has work".to_string())
+    );
+    assert_eq!(
+        *workspaces.removed.lock().unwrap(),
+        [(checkout.repo_dir.clone(), checkout.path.clone())]
+    );
+}
+
+// A launcher that makes no worktrees removes none.
+#[tokio::test]
+async fn a_launcher_with_no_workspaces_leaves_a_checkout() {
+    let rig = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    );
+    let checkout = isolation_ports::Checkout {
+        path: "/h/w/reviewer".to_string(),
+        branch: "ctxloom/h/reviewer".to_string(),
+        repo_dir: "/work/proj".to_string(),
+        reused: false,
+    };
+    assert!(matches!(
+        rig.launcher.release(&checkout),
+        isolation_ports::Removal::Left(_)
+    ));
+}

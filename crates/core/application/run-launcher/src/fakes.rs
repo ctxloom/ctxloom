@@ -771,7 +771,14 @@ pub struct ScriptedWorkspaces {
     pub asked: Mutex<Vec<isolation_ports::Request>>,
     /// Each removal asked: the repository and the checkout.
     pub removed: Mutex<Vec<(String, String)>>,
+    /// Asked at each removal, its answer kept in `witnessed`: what the
+    /// caller's world was then.
+    pub witness: Mutex<Option<Witness>>,
+    pub witnessed: Mutex<Vec<String>>,
 }
+
+/// What a test reads of its world at the instant a checkout is removed.
+pub type Witness = Box<dyn Fn() -> String + Send>;
 
 impl ScriptedWorkspaces {
     pub fn new(
@@ -784,6 +791,8 @@ impl ScriptedWorkspaces {
             removal: isolation_ports::Removal::Removed,
             asked: Mutex::new(Vec::new()),
             removed: Mutex::new(Vec::new()),
+            witness: Mutex::new(None),
+            witnessed: Mutex::new(Vec::new()),
         }
     }
 
@@ -823,6 +832,9 @@ impl isolation_ports::Workspaces for ScriptedWorkspaces {
             .lock()
             .unwrap()
             .push((repo_dir.to_string(), path.to_string()));
+        if let Some(witness) = &*self.witness.lock().unwrap() {
+            self.witnessed.lock().unwrap().push(witness());
+        }
         self.removal.clone()
     }
 }

@@ -39,8 +39,6 @@
 //! whose certificate is not the pinned one never hears a call, so a stale
 //! port another process took is never handed anything.
 
-// RED: used by `serving` once it is built.
-#[allow(dead_code)]
 mod health;
 
 use std::fmt;
@@ -51,8 +49,9 @@ use angzarr_proto_transport_distributed::v1::command_handler_coordinator_service
 use angzarr_proto_transport_distributed::v1::CommandResult;
 use prost::Message;
 use run_ports::{parse_endpoint, Bearer, Delivery, FactSink, PublicCert};
+use tonic::codegen::http::uri::PathAndQuery;
 use tonic::metadata::MetadataValue;
-use tonic::transport::{Certificate, ClientTlsConfig, Endpoint};
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint};
 use tonic::{Code, Request, Status};
 
 /// The reason key of a fact the kernel dead-lettered.
@@ -103,17 +102,7 @@ impl GrpcSink {
     }
 
     async fn call(&self, book: CommandBook) -> Result<CommandResult, Failed> {
-        let dial = parse_endpoint(&self.endpoint)
-            .map_err(|e| Failed::Transport(format!("the endpoint is not usable: {e}")))?;
-        let channel = Endpoint::from_shared(dial.url())
-            .map_err(|e| Failed::Transport(format!("the endpoint is not usable: {e}")))?
-            .tls_config(tls_for(&dial.host, &self.cert))
-            .map_err(|e| {
-                Failed::Transport(format!("the certificate is not usable: {}", chain(&e)))
-            })?
-            .connect()
-            .await
-            .map_err(|e| Failed::Transport(format!("cannot reach the listener: {}", chain(&e))))?;
+        let channel = connect(&self.endpoint, &self.cert).await?;
         let mut request = Request::new(book);
         let mut value = MetadataValue::try_from(format!("Bearer {}", self.bearer.expose()))
             .map_err(|_| Failed::Transport("the bearer is not valid header text".to_string()))?;
@@ -197,6 +186,36 @@ impl FactSink for GrpcSink {
     }
 }
 
+/// A channel to the listener at the URL `endpoint`, over TLS pinning `cert`.
+async fn connect(endpoint: &str, cert: &PublicCert) -> Result<Channel, Failed> {
+    let dial = parse_endpoint(endpoint)
+        .map_err(|e| Failed::Transport(format!("the endpoint is not usable: {e}")))?;
+    Endpoint::from_shared(dial.url())
+        .map_err(|e| Failed::Transport(format!("the endpoint is not usable: {e}")))?
+        .tls_config(tls_for(&dial.host, cert))
+        .map_err(|e| Failed::Transport(format!("the certificate is not usable: {}", chain(&e))))?
+        .connect()
+        .await
+        .map_err(|e| Failed::Transport(format!("cannot reach the listener: {}", chain(&e))))
+}
+
+/// The health check's answer over `channel`: the overall status's number.
+async fn check(channel: Channel) -> Result<i32, Failed> {
+    let mut grpc = tonic::client::Grpc::new(channel);
+    grpc.ready()
+        .await
+        .map_err(|e| Failed::Transport(format!("cannot reach the listener: {}", chain(&e))))?;
+    let codec = health::Prost::<health::HealthCheckRequest, health::HealthCheckResponse>::default();
+    grpc.unary(
+        Request::new(health::HealthCheckRequest::default()),
+        PathAndQuery::from_static(health::CHECK),
+        codec,
+    )
+    .await
+    .map(|response| response.into_inner().status)
+    .map_err(Failed::Status)
+}
+
 /// The channel's TLS: `cert` is the ONLY root (no system roots, no webpki
 /// roots), and the server's name is the URL's host (an IP literal or a runtime's
 /// host alias), which the certificate must name.
@@ -264,8 +283,29 @@ fn chain(error: &dyn std::error::Error) -> String {
 /// certificate, no health service, NOT_SERVING, the deadline passing) is
 /// not serving.
 pub fn serving(endpoint: &str, cert: &PublicCert, within: Duration) -> bool {
-    let _ = (endpoint, cert, within);
-    false
+    // A thread of its own, as a delivery's: the caller may be inside a
+    // runtime's thread, which cannot block on another.
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                    .enable_time()
+                    .enable_io()
+                    .build()
+                else {
+                    return false;
+                };
+                runtime.block_on(async {
+                    let answered = tokio::time::timeout(within, async {
+                        check(connect(endpoint, cert).await?).await
+                    })
+                    .await;
+                    matches!(answered, Ok(Ok(health::SERVING)))
+                })
+            })
+            .join()
+            .unwrap_or(false)
+    })
 }
 
 #[cfg(test)]

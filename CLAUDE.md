@@ -144,7 +144,13 @@ the wiring's `GitWorkspaces`), for every launch path alike: the plan's axis
 its path; one that cannot be had (not a git repository, the add failed, no
 checkouts directory or no workspaces port) is the project and the notice
 `library-application-notice-workspace-unavailable`; one the port refuses
-fails the launch (`LaunchFailed`). A name is unique because its claim is. Accepted cost: a clone has no session
+fails the launch (`LaunchFailed`). Once the engine has exited and the
+listener stopped, and before the session's lock is let go, the run lets the
+checkout go (`Launcher::release`, the port's WIP-safe `remove`, never
+forced; owner ruling 2026-11-12, Q2): a clean one is removed, its branch
+deleted when merged; one holding work, or that will not go, is left and
+said, `library-application-notice-checkout-left` (path, branch, why). A
+resume re-enters or re-creates the same path. A name is unique because its claim is. Accepted cost: a clone has no session
 history (the store is machine-local; `sessions/` was always gitignored), and
 the store grows without bound (ruling 90; compaction is taskloom
 `untried-slander`).

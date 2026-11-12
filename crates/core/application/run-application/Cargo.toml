@@ -14,6 +14,7 @@ angzarr-embedded.workspace = true
 library-application.workspace = true
 ports.workspace = true
 run-launcher.workspace = true
+isolation-ports.workspace = true
 run-ports.workspace = true
 runs.workspace = true
 runs-application.workspace = true
@@ -24,7 +25,6 @@ uuid.workspace = true
 [dev-dependencies]
 angzarr-embedded = { workspace = true, features = ["test-support"] }
 run-launcher = { workspace = true, features = ["test-support"] }
-isolation-ports.workspace = true
 mutants.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }
 

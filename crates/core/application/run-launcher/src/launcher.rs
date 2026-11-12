@@ -666,8 +666,10 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
     /// is left, and why; never forced. A launcher that makes no worktrees
     /// leaves it.
     pub fn release(&self, checkout: &isolation_ports::Checkout) -> isolation_ports::Removal {
-        let _ = checkout;
-        isolation_ports::Removal::Removed
+        match &self.workspaces {
+            Some(workspaces) => workspaces.remove(&checkout.repo_dir, &checkout.path),
+            None => isolation_ports::Removal::Left(crate::workspace::NO_WORKSPACES.to_string()),
+        }
     }
 
     /// Where the order's engine works (the workspace axis): none for an

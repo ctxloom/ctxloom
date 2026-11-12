@@ -702,18 +702,32 @@ where
     }
 
     /// Launch what is owed, stop the listener (a hook still in flight as
-    /// the engine exits is delivered before it has drained), then tell the
-    /// session its incarnation ended (ruling 85). This run's launch, its
+    /// the engine exits is delivered before it has drained), let go of the
+    /// engine's checkout, then tell the session its incarnation ended
+    /// (ruling 85). This run's launch, its
     /// run's end checked. The session's lock is let go by the caller, after.
     async fn drive(
         &mut self,
         serving: Box<dyn run_ports::Serving>,
         started: &Started,
+        notices: &mut Vec<Notice>,
     ) -> Result<Launched, RunError> {
         let launched = self.launch().await;
         serving.stop().await;
         let launched = launched?;
         let ours = ours(launched, &started.session).ok_or_else(|| not_ended(&started.session))?;
+        // The engine is over and its listener stopped: its checkout is let
+        // go while the session's lock is still held (owner ruling
+        // 2026-11-12, Q2), removed when clean, else left and said.
+        if let Some(checkout) = &ours.checkout {
+            if let isolation_ports::Removal::Left(reason) = self.launcher.release(checkout) {
+                notices.push(Notice::CheckoutLeft {
+                    path: checkout.path.clone(),
+                    branch: checkout.branch.clone(),
+                    reason,
+                });
+            }
+        }
         let cause = match ours.outcome {
             Turn::NotStarted { .. } | Turn::TooLong(_) => LAUNCH_FAILED,
             _ => RUNNER_EXIT,
@@ -741,7 +755,7 @@ where
         let (serving, started) = self
             .ready(previewed, request, resume, true, notices)
             .await?;
-        let launched = self.drive(serving, &started).await?;
+        let launched = self.drive(serving, &started, notices).await?;
         said_permits(&launched, notices);
         let Started {
             session,
@@ -1022,7 +1036,7 @@ where
         let (serving, started) = self
             .ready(previewed, request, resume, false, notices)
             .await?;
-        let ours = self.drive(serving, &started).await?;
+        let ours = self.drive(serving, &started, notices).await?;
         said_permits(&ours, notices);
         let Started {
             session,

@@ -12,9 +12,9 @@ use angzarr_embedded_macros::{aggregate, applies, handles_cmd};
 use crate::refusal::refuse;
 use crate::{
     validate, ClaimProjectName, HarpInvalid, NameProject, ProjectCommand, ProjectEvent,
-    ProjectHarpMismatch, ProjectIdentityChanged, ProjectNameClaimed, ProjectNameCommand,
-    ProjectNameEvent, ProjectNameState, ProjectNameTaken, ProjectNamed, ProjectRegistered,
-    ProjectState, RegisterProject, SessionRejection, UnnamedProject,
+    ProjectHarpMismatch, ProjectIdentityAdopted, ProjectIdentityChanged, ProjectNameClaimed,
+    ProjectNameCommand, ProjectNameEvent, ProjectNameState, ProjectNameTaken, ProjectNamed,
+    ProjectRegistered, ProjectState, RegisterProject, SessionRejection, UnnamedProject,
 };
 
 /// The project aggregate: its harp, folded from its stream.
@@ -132,6 +132,13 @@ impl ProjectAggregate {
     fn registered(&mut self, event: ProjectRegistered, page: &PageContext) {
         let _ = page;
         self.project.root = event.root;
+        self.project.git_common_dir = event.git_common_dir;
+        self.project.root_commit = event.root_commit;
+    }
+
+    #[applies(ProjectIdentityAdopted)]
+    fn adopted(&mut self, event: ProjectIdentityAdopted, page: &PageContext) {
+        let _ = page;
         self.project.git_common_dir = event.git_common_dir;
         self.project.root_commit = event.root_commit;
     }

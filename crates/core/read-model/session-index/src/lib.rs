@@ -182,6 +182,7 @@ impl SessionIndex {
                     row.root_commit = registered.root_commit;
                 }
                 ProjectEvent::ProjectRegistered(_) => {}
+                ProjectEvent::ProjectIdentityAdopted(_) => {}
             }
         }
         Ok(())

@@ -976,3 +976,45 @@ fn a_project_is_found_by_its_harp_with_its_registration() {
     );
     assert!(index.index().project_named_by("far-heron").is_none());
 }
+
+// Owner, 2026-11-12 (after step 5): a project registered outside git that
+// adopted its first VCS identity is found with it; its root stays.
+#[test]
+fn a_project_that_adopted_its_identity_is_found_with_it() {
+    use angzarr_embedded::v1::{event_page, EventPage};
+    let index = SessionIndexes::default();
+    let mut book = project_book(Some("calm-quiet-heron"), 3);
+    let events = [
+        sessions::ProjectEvent::ProjectRegistered(sessions::ProjectRegistered {
+            project_id: "calm-otter".to_string(),
+            root: "/work/calm".to_string(),
+            git_common_dir: String::new(),
+            root_commit: String::new(),
+        }),
+        sessions::ProjectEvent::ProjectIdentityAdopted(sessions::ProjectIdentityAdopted {
+            project_id: "calm-otter".to_string(),
+            git_common_dir: "/work/calm/.git".to_string(),
+            root_commit: "c0ffee".to_string(),
+        }),
+    ];
+    for (sequence, event) in (1..).zip(events) {
+        book.pages.push(EventPage {
+            sequence,
+            body: Some(event_page::Body::Event(event.to_any())),
+            meta: None,
+        });
+    }
+    hand(&index, book);
+    let row = index
+        .index()
+        .project_named_by("calm-quiet-heron")
+        .expect("found by its harp");
+    assert_eq!(
+        (
+            row.root.as_str(),
+            row.git_common_dir.as_str(),
+            row.root_commit.as_str()
+        ),
+        ("/work/calm", "/work/calm/.git", "c0ffee")
+    );
+}

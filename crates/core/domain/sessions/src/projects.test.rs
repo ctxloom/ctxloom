@@ -5,9 +5,10 @@ use angzarr_embedded::v1::Cover;
 use angzarr_embedded::{Failure, Registry};
 
 use crate::{
-    project_id_root, ClaimProjectName, NameProject, ProjectAggregate, ProjectEvent, ProjectName,
-    ProjectNameAggregate, ProjectNameClaimed, ProjectNameEvent, ProjectNamed, ProjectRegistered,
-    RegisterProject, SessionName, SessionRejection, PROJECTS_DOMAIN, PROJECT_NAMES_DOMAIN,
+    project_id_root, ClaimProjectName, NameProject, ProjectAggregate, ProjectEvent,
+    ProjectIdentityAdopted, ProjectName, ProjectNameAggregate, ProjectNameClaimed,
+    ProjectNameEvent, ProjectNamed, ProjectRegistered, RegisterProject, SessionName,
+    SessionRejection, PROJECTS_DOMAIN, PROJECT_NAMES_DOMAIN,
 };
 
 const PROJECT: &str = "calm-otter";
@@ -287,6 +288,81 @@ fn a_project_outside_git_is_registered_with_an_empty_identity() {
     assert_eq!(project.when(outside.clone()).result().unwrap().len(), 1);
     assert!(project.when(outside).result().unwrap().is_empty());
     assert_eq!(project.state().state().root_commit, "");
+}
+
+// Owner, 2026-11-12 (after step 5): a project registered outside git ADOPTS
+// the first VCS identity it is seen with, recorded as an event; its root
+// stays the one registered, and the comparison is strict from then on.
+#[test]
+fn a_project_registered_outside_git_adopts_its_first_identity_then_is_strict() {
+    let mut project = project();
+    project.when(name(HARP)).result().unwrap();
+    let outside = RegisterProject {
+        git_common_dir: String::new(),
+        ..register("", "")
+    };
+    project.when(outside.clone()).result().unwrap();
+    let inside = RegisterProject {
+        root: "/work/calm-wt".to_string(),
+        ..register(COMMIT, HARP)
+    };
+    assert_eq!(
+        project.when(inside.clone()).result().unwrap(),
+        [ProjectEvent::ProjectIdentityAdopted(
+            ProjectIdentityAdopted {
+                project_id: PROJECT.to_string(),
+                git_common_dir: COMMON.to_string(),
+                root_commit: COMMIT.to_string(),
+            }
+        )]
+    );
+    let state = project.state().state().clone();
+    assert_eq!(
+        (
+            state.root.as_str(),
+            state.git_common_dir.as_str(),
+            state.root_commit.as_str()
+        ),
+        (ROOT, COMMON, COMMIT),
+        "the root stays the registered one"
+    );
+    let before = project.pages().len();
+    assert!(project.when(inside).result().unwrap().is_empty());
+    let other = "2222222222222222222222222222222222222222";
+    for found in [other, ""] {
+        let changed = RegisterProject {
+            git_common_dir: String::new(),
+            ..register(found, "")
+        };
+        assert_eq!(
+            rejection(project.when(changed).result()),
+            SessionRejection::ProjectIdentityChanged {
+                project: "projects/amber-swift-owl".to_string(),
+                root: ROOT.to_string(),
+                registered_commit: COMMIT.to_string(),
+                found_commit: found.to_string(),
+            },
+            "strict after the adoption: {found:?}"
+        );
+    }
+    assert_eq!(project.pages().len(), before, "and nothing recorded");
+}
+
+// A git common dir with no root commit (a repository with no commit yet) is
+// no identity to adopt: it matches the empty one, recording nothing.
+#[test]
+fn a_repository_with_no_commit_yet_is_no_identity_to_adopt() {
+    let mut project = project();
+    project.when(name(HARP)).result().unwrap();
+    project
+        .when(RegisterProject {
+            git_common_dir: String::new(),
+            ..register("", "")
+        })
+        .result()
+        .unwrap();
+    assert!(project.when(register("", "")).result().unwrap().is_empty());
+    assert_eq!(project.state().state().git_common_dir, "");
 }
 
 // The states round-trip through their wire messages.

@@ -64,10 +64,15 @@ message ProjectNamed {
 // refused when its root commit is not the one registered (another
 // repository at its place) or when the client expected another harp. The
 // project must be named first (S54): its harp is what a refusal names.
+//
+// A project registered outside git (an empty VCS identity) ADOPTS the first
+// identity it is seen with, a git common dir and a root commit, as the
+// event `ProjectIdentityAdopted` (owner, 2026-11-12, after step 5); after
+// that the comparison is strict, as for a project registered inside git.
 message RegisterProject {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.sessions.v1.ProjectState"
-    emits: ["ctxloom.sessions.v1.ProjectRegistered"]
+    emits: ["ctxloom.sessions.v1.ProjectRegistered", "ctxloom.sessions.v1.ProjectIdentityAdopted"]
     refuses: "ctxloom.sessions.v1.UnnamedProject"
     refuses: "ctxloom.sessions.v1.ProjectIdentityChanged"
     refuses: "ctxloom.sessions.v1.ProjectHarpMismatch"
@@ -89,6 +94,17 @@ message ProjectRegistered {
   string root = 2;
   string git_common_dir = 3;
   string root_commit = 4;
+}
+
+// A project registered with an empty VCS identity took the first one it was
+// seen with (owner, 2026-11-12, after step 5). Its root stays the one
+// registered.
+message ProjectIdentityAdopted {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.ProjectState"};
+
+  string project_id = 1;
+  string git_common_dir = 2;
+  string root_commit = 3;
 }
 
 message ProjectNameState {

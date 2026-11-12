@@ -342,6 +342,41 @@ async fn resolve_project_with_another_root_commit_is_refused() {
     assert_eq!(changed.found_commit, other);
 }
 
+// Owner, 2026-11-12 (after step 5): a project first resolved outside git
+// adopts the identity it is next resolved with inside git, and is strict
+// after: its empty identity again is refused, as is another commit.
+#[tokio::test]
+async fn resolve_project_outside_git_adopts_its_first_identity_then_is_strict() {
+    let f = fixture(vec!["calm-quiet-heron"]);
+    let outside = v1::ResolveProjectRequest {
+        git_common_dir: String::new(),
+        ..resolve("", "")
+    };
+    let first = f.api.resolve_project(outside.clone()).await.unwrap();
+    assert_eq!(
+        (first.git_common_dir.as_str(), first.root_commit.as_str()),
+        ("", "")
+    );
+    let adopted = f.api.resolve_project(resolve(COMMIT, "")).await.unwrap();
+    assert_eq!(
+        (
+            adopted.git_common_dir.as_str(),
+            adopted.root_commit.as_str()
+        ),
+        (COMMON, COMMIT)
+    );
+    assert_eq!(adopted.name, first.name);
+    let (_, changed): (_, sessions_proto::v1::ProjectIdentityChanged) =
+        refused(f.api.resolve_project(outside).await);
+    assert_eq!(changed.project, "projects/calm-quiet-heron");
+    assert_eq!(changed.registered_commit, COMMIT);
+    assert_eq!(changed.found_commit, "");
+    let other = "2222222222222222222222222222222222222222";
+    let (_, changed): (_, sessions_proto::v1::ProjectIdentityChanged) =
+        refused(f.api.resolve_project(resolve(other, "")).await);
+    assert_eq!(changed.found_commit, other);
+}
+
 // A client that expected another project is refused, naming the registered.
 #[tokio::test]
 async fn resolve_project_expecting_another_harp_is_refused() {

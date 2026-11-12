@@ -34,7 +34,7 @@ pub mod write;
 mod yamlout;
 
 pub use agents::ENGINES;
-pub use config::{load as load_config, Flags, OnRun, OUTPUT_DIR_DEFAULT};
+pub use config::{load as load_config, Flags, LegacyGo, OnRun, OUTPUT_DIR_DEFAULT};
 pub use config_show::ConfigShown;
 pub use engine_noun::{
     AgentSettings, AuthSetting, EngineAgent, EngineRow, EnvKey, EnvSetting, PermissionsSetting,

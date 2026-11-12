@@ -141,8 +141,11 @@ impl<'a> OneShots<'a> {
         let core = InProcessCore::start(store).await;
         let project_dir = wiring.project_dir();
         let orders = Arc::new(Orders::new());
-        let claude: Arc<dyn Engine> = Arc::new(engine_claude::Claude::new());
-        let opencode: Arc<dyn Engine> = Arc::new(engine_opencode::Opencode::new());
+        // The engines' callbacks run this binary, by its file name, and its
+        // directory leads their PATH (owner ruling 163).
+        let program = crate::program::running();
+        let claude: Arc<dyn Engine> = Arc::new(engine_claude::Claude::calling(&program.name));
+        let opencode: Arc<dyn Engine> = Arc::new(engine_opencode::Opencode::calling(&program.name));
         // The run locks: this run's own, and those another process's runs
         // are judged by (rulings 86, 92, 93).
         let run_locks: Arc<dyn run_ports::RunLocks> =
@@ -172,10 +175,7 @@ impl<'a> OneShots<'a> {
             place: Place {
                 project_dir: path_text(&project_dir),
                 output_root: path_text(&output_root),
-                program_dir: std::env::current_exe()
-                    .ok()
-                    .and_then(|exe| exe.parent().map(path_text))
-                    .unwrap_or_default(),
+                program_dir: program.dir.clone(),
             },
             env: run_env(env, wiring.home()),
             links: Box::new(SessionDirs::new(wiring.fs(), project_dir.clone())),
@@ -193,16 +193,22 @@ impl<'a> OneShots<'a> {
 /// start by no more than this.
 const GIT_USER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// The user's git identity in the project (owner ruling 112), asked of git in
-/// the caller's own environment; none when git knows neither part.
-pub(crate) fn git_user(wiring: &Wiring, project_dir: &Path) -> Option<run_ports::GitUser> {
-    let git = worktree_git::Git::new(
+/// The git that is asked the user's identity: in the caller's own
+/// environment (her `HOME`, never ctxloom's home), under
+/// [`GIT_USER_DEADLINE`].
+pub(crate) fn identity_git(wiring: &Wiring) -> worktree_git::Git {
+    worktree_git::Git::new(
         wiring.fs(),
         "git",
         GIT_USER_DEADLINE,
         Arc::clone(wiring.env()),
-    );
-    let user = git.user(project_dir);
+    )
+}
+
+/// The user's git identity in the project (owner ruling 112), asked of git in
+/// the caller's own environment; none when git knows neither part.
+pub(crate) fn git_user(wiring: &Wiring, project_dir: &Path) -> Option<run_ports::GitUser> {
+    let user = identity_git(wiring).user(project_dir);
     (!user.name.is_empty() || !user.email.is_empty()).then_some(run_ports::GitUser {
         name: user.name,
         email: user.email,

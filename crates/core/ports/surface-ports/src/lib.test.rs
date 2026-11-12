@@ -173,7 +173,7 @@ fn test_only_a_callback_is_rewritten_to_the_execute_form_when_installed() {
         timeout: 15,
         ..Hook::default()
     };
-    let installed = callback.installed_as("eng", "Stop");
+    let installed = callback.installed_as("eng", "Stop", "ctxloom");
     assert_eq!(installed.args, ["hook", "eng", "execute", "Stop"]);
     assert_eq!(installed.timeout, 15);
     let foreign = Hook {
@@ -181,7 +181,24 @@ fn test_only_a_callback_is_rewritten_to_the_execute_form_when_installed() {
         args: vec!["hook".into(), "x".into()],
         ..Hook::default()
     };
-    assert_eq!(foreign.installed_as("eng", "Stop"), foreign);
+    assert_eq!(
+        foreign.installed_as("eng", "Stop", "ctxloom-other"),
+        foreign
+    );
+}
+
+// Owner ruling 163: a callback runs the binary that installed it, by its file
+// name, whatever its author called it.
+#[test]
+fn test_a_callback_is_installed_to_run_the_program_it_is_given() {
+    let callback = Hook {
+        command: CALLBACK_PROGRAM.into(),
+        args: vec!["hook".into(), "session-start".into()],
+        ..Hook::default()
+    };
+    let installed = callback.installed_as("eng", "SessionStart", "ctxloom-other");
+    assert_eq!(installed.command, "ctxloom-other");
+    assert_eq!(installed.args, ["hook", "eng", "execute", "SessionStart"]);
 }
 
 #[test]

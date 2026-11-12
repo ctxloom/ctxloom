@@ -627,3 +627,73 @@ mod companions {
         assert_eq!(p.commands.len(), 1);
     }
 }
+
+/// The package of a project whose one profile, `dev`, names `bundles` (as the
+/// profile's own YAML list), over the DEMO bundle.
+fn item_scoped_package(bundles: &'static str) -> crate::EnginePackage {
+    let profile: &'static str = Box::leak(format!("bundles: [{bundles}]\n").into_boxed_str());
+    let project: &'static [(&'static str, &'static str)] =
+        Box::leak(Box::new([ENVELOPE, ("profiles/dev.yaml", profile)]));
+    Setup {
+        bundles: &[("demo", DEMO), ("project", project)],
+        layers: &[CONFIG],
+        ..Setup::default()
+    }
+    .library()
+    .package(&plain(), &PackageRequest::default())
+    .result
+    .expect("a package")
+}
+
+// Go's `reportBundleRefLoadFailure` (internal/core/config/config_bundles.go):
+// a profile's `bundles:` entry may be ITEM-SCOPED (`<bundle>#fragments/<f>`),
+// selecting one fragment; it names no bundle to load servers and hooks from,
+// so it contributes none, and is no finding. Its fragment still loads.
+#[test]
+fn test_a_fragment_reference_in_bundles_is_no_finding_and_its_fragment_loads() {
+    let p = item_scoped_package("demo#fragments/testing");
+    assert!(p.fatal.is_empty(), "{:?}", p.fatal);
+    assert!(p.context.contains("FRAGMENT-BODY-testing"), "{}", p.context);
+}
+
+// The same rule, whichever spelling the item reference takes: a canonical one
+// reaches its bundle, but selects one fragment of it, so the bundle's
+// servers, hooks, commands and skills are not the profile's.
+#[test]
+fn test_a_fragment_reference_brings_none_of_its_bundles_servers_hooks_commands_or_skills() {
+    for reference in [
+        "demo#fragments/testing",
+        "ctxloom+local:demo#fragments/testing",
+    ] {
+        let p = item_scoped_package(reference);
+        assert!(p.fatal.is_empty(), "{reference}: {:?}", p.fatal);
+        assert!(
+            p.context.contains("FRAGMENT-BODY-testing"),
+            "{reference}: {}",
+            p.context
+        );
+        assert!(
+            !p.mcp.iter().any(|m| m.name == "tool"),
+            "{reference}: {:?}",
+            p.mcp.iter().map(|m| &m.name).collect::<Vec<_>>()
+        );
+        assert!(
+            !p.hooks.iter().any(|h| h.hook.command == "echo FIRST"),
+            "{reference}: a bundle hook leaked"
+        );
+        assert!(
+            !p.commands.iter().any(|c| c.name == "demo/example"),
+            "{reference}: a bundle command leaked"
+        );
+        assert!(p.skills.is_empty(), "{reference}: a bundle skill leaked");
+    }
+}
+
+// Beside a whole-bundle reference to the same bundle, the item reference
+// changes nothing: the whole bundle's servers are carried once.
+#[test]
+fn test_a_whole_bundle_reference_beside_its_fragment_reference_still_brings_its_servers() {
+    let p = item_scoped_package("demo#fragments/testing, demo");
+    assert!(p.fatal.is_empty(), "{:?}", p.fatal);
+    assert!(p.mcp.iter().any(|m| m.name == "tool"));
+}

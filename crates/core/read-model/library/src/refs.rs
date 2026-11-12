@@ -611,6 +611,14 @@ pub fn bundle_ref_and_version(raw: &str) -> Result<(String, String), RefError> {
     Parts::local(raw).map(|p| (p.render(false), String::new()))
 }
 
+/// The item selector `raw` carries after its `#` (`fragments/<name>`,
+/// `mcp/<name>`, ...), whichever spelling it takes (canonical, fetch address,
+/// bare name); `None` for a reference to a whole bundle. A canonical
+/// reference's selector is the one [`Parts::parse`] decodes into `fragment`.
+pub fn item_selector(raw: &str) -> Option<&str> {
+    raw.trim().split_once('#').map(|(_, selector)| selector)
+}
+
 /// The selector that addresses a fragment of a bundle.
 pub const FRAGMENT_SELECTOR: &str = "#fragments/";
 

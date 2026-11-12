@@ -338,6 +338,13 @@ fn root() -> Node {
                 "sync",
                 object(vec![("on_run", choice(&["none", "missing"]))]),
             ),
+            // Owner ruling 162: whether Go ctxloom still runs on this
+            // machine, beside this one (`present`, the default) or not
+            // (`retired`); the home config's alone (`take_home_only`).
+            (
+                "legacy",
+                object(vec![("go", choice(&["present", "retired"]))]),
+            ),
             ("workspace", choice(&["none", "worktree"])),
             ("runtime", choice(RUNTIMES)),
             // Owner ruling 134: no engine-neutral `permissions` (approver,
@@ -531,6 +538,31 @@ fn node_at(path: &[String]) -> Option<std::borrow::Cow<'static, Node>> {
 }
 
 /// Every violation of `doc`.
+/// The keys only the home config may say (owner ruling 162): `legacy.go`,
+/// whether Go ctxloom runs on this machine, which a checked-out repository
+/// cannot know.
+pub const HOME_ONLY: &[(&str, &str)] = &[("legacy", "go")];
+
+/// Take each of [`HOME_ONLY`] out of a PROJECT layer and return its dotted
+/// path, so the loader can refuse it (and `--degraded` never reads it); a
+/// section left empty goes too. Nothing else is touched.
+pub fn take_home_only(layer: &mut Value) -> Vec<String> {
+    let mut taken = Vec::new();
+    for (section, key) in HOME_ONLY {
+        let Some(block @ Value::Map(_)) = layer.get_mut(section) else {
+            continue;
+        };
+        if block.get(key).is_some() {
+            block.remove(key);
+            taken.push(format!("{section}.{key}"));
+        }
+        if block.as_map().is_some_and(<[_]>::is_empty) {
+            layer.remove(section);
+        }
+    }
+    taken
+}
+
 pub fn validate(doc: &Value) -> Vec<Violation> {
     let mut out = Vec::new();
     check(schema(), doc, &mut Vec::new(), &mut out);

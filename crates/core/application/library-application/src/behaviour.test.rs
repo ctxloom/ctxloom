@@ -846,6 +846,39 @@ fn test_requirements_name_only_the_commands_a_host_must_have() {
     assert!(shown.requirements_error.is_empty());
 }
 
+// A profile's fragment reference (`<bundle>#fragments/<f>`) names one
+// fragment, no bundle: it asks nothing of the host for its bundle's
+// `requires.commands` or servers, and is no requirements error (Go's
+// `RequiredCommandsForResolved` read it as a bundle and failed, the defect
+// its `reportBundleRefLoadFailure` already set aside for servers and hooks).
+#[test]
+fn test_a_fragment_reference_requires_nothing_of_its_bundle() {
+    let tools: &[(&str, &str)] = &[
+        (
+            "bundle.yaml",
+            "schema_version: 4\nversion: 1.0.0\nrequires:\n  commands: [git]\n",
+        ),
+        ("fragments/f.md", "F-BODY"),
+        ("mcp/run.yaml", "command: tool --flag\n"),
+    ];
+    let project: &[(&str, &str)] = &[
+        ENVELOPE,
+        ("profiles/one.yaml", "bundles: [\"tools#fragments/f\"]\n"),
+    ];
+    let layers =
+        ["schema_version: 9\nagents:\n  a:\n    engine: claude-code\n    profiles: [one]\n"];
+    let shown = ok(with(&[("tools", tools), ("project", project)], &layers)
+        .library()
+        .agent_show(&plain(), "a", &say));
+    assert!(
+        shown.requirements_error.is_empty(),
+        "{}",
+        shown.requirements_error
+    );
+    assert!(shown.requirements.is_empty(), "{:?}", shown.requirements);
+    assert!(shown.resolved.is_some(), "{}", shown.resolution_error);
+}
+
 // Owner rulings 135, 137: the permissions an agent runs with are its block's
 // for the engine it runs on, whole, else that engine's default document; a
 // block for another engine says nothing of this one.

@@ -224,7 +224,7 @@ fn test_only_a_name_that_stays_inside_is_safe_to_make_a_path_of() {
 #[test]
 fn test_a_bare_hook_is_written_as_a_command_hook_with_nothing_else() {
     assert_eq!(
-        hook_json("mock", "session_start", &Hook::default()),
+        hook_json("mock", "session_start", &Hook::default(), "ctxloom"),
         Json::object([("type", Json::text("command"))])
     );
     // A zero or negative timeout is no timeout.
@@ -234,7 +234,7 @@ fn test_a_bare_hook_is_written_as_a_command_hook_with_nothing_else() {
             ..Hook::default()
         };
         assert_eq!(
-            hook_json("mock", "session_start", &hook),
+            hook_json("mock", "session_start", &hook, "ctxloom"),
             Json::object([("type", Json::text("command"))])
         );
     }
@@ -253,7 +253,7 @@ fn test_every_field_of_a_hook_is_written_where_it_is_set() {
         ..Hook::default()
     };
     assert_eq!(
-        hook_json("mock", "session_start", &hook),
+        hook_json("mock", "session_start", &hook, "ctxloom"),
         Json::object([
             ("type", Json::text("prompt")),
             ("command", Json::text("run")),
@@ -294,7 +294,7 @@ fn test_every_field_of_a_hook_is_written_where_it_is_set() {
             },
         ),
     ] {
-        let doc = hook_json("mock", "session_start", &hook);
+        let doc = hook_json("mock", "session_start", &hook, "ctxloom");
         let Json::Object(members) = doc else { panic!() };
         assert_eq!(members.len(), 2, "{field}");
     }
@@ -309,7 +309,7 @@ fn test_only_a_callback_is_rewritten_to_execute_its_event() {
         ..Hook::default()
     };
     assert_eq!(
-        args(hook_json("mock", "turn_end", &callback)),
+        args(hook_json("mock", "turn_end", &callback, "ctxloom")),
         Some(Json::strings(["hook", "mock", "execute", "turn_end"]))
     );
     let foreign = Hook {
@@ -318,14 +318,14 @@ fn test_only_a_callback_is_rewritten_to_execute_its_event() {
         ..Hook::default()
     };
     assert_eq!(
-        args(hook_json("mock", "turn_end", &foreign)),
+        args(hook_json("mock", "turn_end", &foreign, "ctxloom")),
         Some(Json::strings(["hook"]))
     );
     let bare = Hook {
         command: "ctxloom".into(),
         ..Hook::default()
     };
-    assert_eq!(args(hook_json("mock", "turn_end", &bare)), None);
+    assert_eq!(args(hook_json("mock", "turn_end", &bare, "ctxloom")), None);
 }
 
 #[test]
@@ -521,4 +521,19 @@ fn test_the_no_skills_variant_declares_the_surface_and_exports_nothing_to_it() {
         .claims
         .is_empty());
     assert!(mock.hook_losses().is_empty());
+}
+
+// Owner ruling 163: a callback runs the program the mock was told.
+#[test]
+fn test_a_callback_runs_the_program_the_mock_calls() {
+    let callback = Hook {
+        command: "ctxloom".into(),
+        args: vec!["hook".into(), "x".into()],
+        ..Hook::default()
+    };
+    let doc = hook_json("mock", "turn_end", &callback, "ctxloom-other");
+    assert_eq!(
+        doc.get("command").and_then(Json::as_str),
+        Some("ctxloom-other")
+    );
 }

@@ -16,7 +16,7 @@ pub const IDENTITY_MARKER: &str = ".identity";
 const BELOW_APP_DIR: &str = "cache/bundles";
 
 fn root(files: &ProjectFiles) -> PathBuf {
-    files.app_dir.join(BELOW_APP_DIR)
+    crate::below(&files.app_dir, BELOW_APP_DIR)
 }
 
 /// The directory holding every commit installed for `slot`'s bundle.

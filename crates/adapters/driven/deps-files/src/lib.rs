@@ -21,6 +21,13 @@ use os::Mode;
 
 pub use installed::IDENTITY_MARKER;
 
+/// `rel`, a `/`-separated path, below `top`, a step at a time, so the host's
+/// own separator joins each step (as the path is shown).
+fn below(top: &Path, rel: &str) -> PathBuf {
+    rel.split('/')
+        .fold(top.to_path_buf(), |path, part| path.join(part))
+}
+
 /// The directories and files this feature keeps in a project's app dir.
 pub struct ProjectFiles {
     fs: Arc<dyn Fs>,

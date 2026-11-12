@@ -3,27 +3,45 @@
 //!
 //! - [`Workspaces`]: prepare, list and reclaim the workspace axis's
 //!   checkouts (`worktree-git`). A prepared workspace is a git worktree on
-//!   the agent's own branch, in the session's work directory; the scratch
-//!   checkouts a crashed run left behind are found, inspected and removed
-//!   through it.
+//!   the session's own branch for its agent, under ctxloom's home and
+//!   outside the project ([`session_worktrees`]); the scratch checkouts a
+//!   crashed run left behind are found, inspected and removed through it.
 //! - [`ContainerRuntimes`]: the runtime axis's facts about this machine
 //!   (`container-runtime`): whether this process is inside a container, which
 //!   runtimes are installed and reachable.
 //! - [`Backends`]: the engines `container` may be asked about.
 //! - [`Companions`]: the tooling the registered companions declare.
 
+use std::path::{Path, PathBuf};
+
 use angzarr_diagnostic::Diagnostic;
 
 /// Why an adapter could not do what it was asked: its own diagnostic.
 pub type Failure = Box<dyn Diagnostic>;
+
+/// Where ctxloom keeps one project's checkouts (owner ruling 2026-11-12,
+/// Q1): under its home, `<home>/.ctxloom/worktrees/<project-id>`, outside
+/// the project, so an engine in a checkout does not also read the project's
+/// own `CLAUDE.md` above it, and nothing in the project moves under it.
+/// `home` is the ctxloom home, the directory holding `.ctxloom`.
+pub fn worktrees_root(home: &Path, project_id: &str) -> PathBuf {
+    home.join(".ctxloom").join("worktrees").join(project_id)
+}
+
+/// One session's checkouts: `<worktrees_root>/<harp>`, a [`Request`]'s
+/// `work_dir`; its agent's checkout is `<that>/<agent>`.
+pub fn session_worktrees(home: &Path, project_id: &str, harp: &str) -> PathBuf {
+    worktrees_root(home, project_id).join(harp)
+}
 
 /// What a workspace is asked for.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Request {
     /// The project's directory (a git repository, or not).
     pub project_dir: String,
-    /// The session's work directory: where the checkout lives, never under
-    /// the project.
+    /// The session's checkouts directory, [`session_worktrees`]: under
+    /// ctxloom's home, `<home>/.ctxloom/worktrees/<project-id>/<harp>`,
+    /// never under the project. The agent's checkout is `<work_dir>/<agent>`.
     pub work_dir: String,
     /// The agent the checkout is for; it names the checkout and its branch.
     pub agent: String,
@@ -36,7 +54,7 @@ pub struct Request {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Checkout {
     pub path: String,
-    /// The agent's own branch (`ctxloom/<agent>`).
+    /// The session's own branch for its agent (`ctxloom/<harp>/<agent>`).
     pub branch: String,
     /// The repository it was cut from.
     pub repo_dir: String,
@@ -54,7 +72,7 @@ pub enum Prepared {
     Unavailable(String),
 }
 
-/// One scratch checkout under a session's work directory.
+/// One scratch checkout under a session's checkouts directory.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Scratch {
     pub harp: String,
@@ -101,8 +119,8 @@ pub trait Workspaces {
     /// the lock its state is read from.
     fn session_known(&self, harp: &str) -> Result<bool, Failure>;
 
-    /// The scratch checkouts under the sessions' work directories: one
-    /// session's, or every session's.
+    /// The scratch checkouts under the project's sessions' checkouts
+    /// directories ([`worktrees_root`]): one session's, or every session's.
     fn scratch(&self, harp: Option<&str>) -> Result<Vec<Scratch>, Failure>;
 
     /// What `path` is, changing nothing.
@@ -162,3 +180,7 @@ pub struct Tooling {
 pub trait Companions {
     fn tooling(&self) -> Result<Vec<Tooling>, Failure>;
 }
+
+#[cfg(test)]
+#[path = "lib.test.rs"]
+mod tests;

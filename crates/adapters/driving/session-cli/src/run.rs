@@ -8,7 +8,7 @@ use angzarr_diagnostic::Diagnostic;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use angzarr_presentation::{write_json, Format};
-use isolation_application::{IsolationError, Report, WorktreeUse};
+use isolation_application::{IsolationError, WorktreeUse};
 use reclaim_application::SweepConfig;
 #[cfg(feature = "session-destroy")]
 use reclaim_application::{purge_cutoff, ReclaimError, SweepRequest};
@@ -396,7 +396,7 @@ fn session_worktrees<S: WorktreeUse>(
     service: &mut S,
     harp: &str,
     apply: bool,
-) -> Result<Option<Report>, Failure> {
+) -> Result<Option<isolation_application::Report>, Failure> {
     match service.worktrees(Some(harp), apply) {
         Ok(report) => Ok(Some(report).filter(|r| !r.worktrees.is_empty())),
         Err(IsolationError::NoSession { .. }) => Ok(None),
@@ -408,7 +408,7 @@ fn session_worktrees<S: WorktreeUse>(
 /// skipped (not provably safe to look at) is never removed, so neither is
 /// its session.
 #[cfg(feature = "session-destroy")]
-fn keeps(harp: &str, report: &Report) -> Option<IsolationError> {
+fn keeps(harp: &str, report: &isolation_application::Report) -> Option<IsolationError> {
     (report.spared + report.skipped > 0).then(|| IsolationError::KeepsSession {
         harp: harp.to_string(),
         spared: report.spared,

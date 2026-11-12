@@ -32,7 +32,10 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
 
   # The workspace changes where the agent works, and where its work lands:
   # in the project itself, or in a checkout of its own that its session owns,
-  # inside the project's .ctxloom where she can see it and git cannot. It holds on her machine and in a container alike.
+  # under ctxloom's home and outside the project
+  # (`~/.ctxloom/worktrees/<project-id>/<session>/<agent>`), on a branch of
+  # its own (`ctxloom/<session>/<agent>`). It holds on her machine and in a
+  # container alike.
   @every-runtime
   Scenario Outline: The same run lands in the workspace its axis dictates
     # substitution: said as where the agent's work lands, on every runtime lane
@@ -45,7 +48,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     Examples:
       | workspace | where                                                      |
       | none      | the project                                                |
-      | worktree  | a checkout its session owns, inside the project's .ctxloom |
+      | worktree  | a checkout its session owns, under ctxloom's home          |
 
   # A checkout of its own is a convenience: outside a git repository there is
   # nothing to check out, so the agent works in the project instead. Losing it
@@ -60,7 +63,8 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     Then what the agent wrote is in the project
 
   # Two agents each working in a checkout of their own never share one, and
-  # neither works in the project.
+  # neither works in the project: each is under ctxloom's home, in its own
+  # session's directory there.
   Scenario: Two isolated runs share no workspace between them
     # substitution: told as the user's flow, with the commands she runs.
     When Alice runs the mock agent twice, each under workspace "worktree":
@@ -68,7 +72,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       ctxloom run --one-shot --agent mock --workspace worktree "fix the login bug"
       ctxloom run --one-shot --agent mock --workspace worktree "update the changelog"
       """
-    Then the two runs' workdirs are distinct and neither is under the project directory
+    Then the two runs' workdirs are distinct, neither is under the project directory, and each is in its own session's directory under ctxloom's home
 
   # When the agent is done, Alice's project shows nothing it did not ask for.
   Scenario: A worktree run leaves the project tree clean

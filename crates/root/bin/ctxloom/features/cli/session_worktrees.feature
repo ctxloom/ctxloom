@@ -66,7 +66,7 @@ Feature: session worktrees - the scratch checkouts a session left behind
       And session "amber-quiet-heron" left a scratch worktree holding uncommitted work
       When I run "ctxloom session remove amber-quiet-heron --yes"
       Then the command fails
-      And the output contains "ctxloom-wt-wip"
+      And the output contains "amber-quiet-heron/wip"
       And the uncommitted work is still there, spared in place
       And the scratch worktree is still registered with git
       And the machine-written bulk of "amber-quiet-heron" is still there

@@ -63,23 +63,29 @@ pub fn branch_of(checkout: &str) -> String {
     format!("{BRANCH_PREFIX}{rest}")
 }
 
-/// Workspaces under one project's sessions.
+/// Workspaces of one project's sessions.
 pub struct GitWorkspaces {
     fs: Arc<dyn Fs>,
     sessions: PathBuf,
+    #[allow(dead_code)]
+    worktrees: Option<PathBuf>,
     git: Git,
 }
 
 impl GitWorkspaces {
-    /// The sessions of the project directory `project` (`<project>/.ctxloom/sessions`), over the git
-    /// run in `env`'s environment.
+    /// The sessions of the project directory `project` (`<project>/.ctxloom/sessions`),
+    /// their checkouts under `worktrees` (`isolation_ports::worktrees_root`;
+    /// none where there is no project, and then there are none), over the
+    /// git run in `env`'s environment.
     pub fn new(
         fs: Arc<dyn Fs>,
         project: impl Into<PathBuf>,
+        worktrees: Option<PathBuf>,
         env: Arc<EnvSnapshot>,
     ) -> GitWorkspaces {
         GitWorkspaces {
             sessions: project.into().join(".ctxloom").join("sessions"),
+            worktrees,
             git: Git::on(Arc::clone(&fs), env),
             fs,
         }

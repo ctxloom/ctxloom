@@ -41,7 +41,7 @@ use file_system::{Fs, Os};
 use harp_names::HarpNames;
 use isolation_application::{IsolationError, Report, WorktreeUse, Worktrees};
 use liveness::LockFiles;
-use ports::Names;
+use ports::{Names, ProjectIdentity};
 use project_registry::{Environment, ProjectRegistry};
 use reclaim_application::SweepConfig;
 use session_files::{GoDirs, SessionDirs};
@@ -361,6 +361,14 @@ impl Wiring {
         let registry = || registry(Arc::clone(&self.fs), environment.clone(), HarpNames);
         let stores = || SqliteStores::new(Arc::clone(&self.fs), self.home.clone());
         let project = self.project_dir();
+        // The project's checkouts are under ctxloom's home, by its id (owner
+        // ruling 2026-11-12, Q1); a directory that is no project, or whose id
+        // cannot be read, has none.
+        let worktrees = registry()
+            .for_read(None)
+            .ok()
+            .flatten()
+            .map(|known| isolation_ports::worktrees_root(&self.home, &known.id));
         Sessions {
             use_cases: Service::new(
                 registry(),
@@ -378,7 +386,12 @@ impl Wiring {
                 System,
             ),
             worktrees: Worktrees::new(
-                GitWorkspaces::new(Arc::clone(&self.fs), project.clone(), Arc::clone(&self.env)),
+                GitWorkspaces::new(
+                    Arc::clone(&self.fs),
+                    project.clone(),
+                    worktrees,
+                    Arc::clone(&self.env),
+                ),
                 LockFiles::new(Arc::clone(&self.fs), project.clone()),
             ),
             settings: SweepSettings::new(

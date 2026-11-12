@@ -240,14 +240,23 @@ impl World {
         self.lock_free_dead.iter().any(|h| h == harp)
     }
 
+    /// A session's scratch checkout: under ctxloom's home, by the project's
+    /// id and the session's harp (owner ruling 2026-11-12, Q1), named by its
+    /// agent. The id is the project's marker, which the seed writes.
     fn scratch_dir(&self, harp: &str, name: &str) -> PathBuf {
-        self.session_dir(harp)
-            .join("work")
-            .join(format!("ctxloom-wt-{name}"))
+        let marker = self.common.project.dir().join(".ctxloom/project-id");
+        let id = files::read(&marker).unwrap_or_else(|e| panic!("{}: {e}", marker.display()));
+        self.common
+            .project
+            .home()
+            .join(".ctxloom/worktrees")
+            .join(id.trim())
+            .join(harp)
+            .join(name)
     }
 
     /// Plant the scratch worktrees the steps described: genuine `git
-    /// worktree add` checkouts in the sessions' work directories, and the
+    /// worktree add` checkouts in the sessions' checkouts directories, and the
     /// uncommitted work that no reaper may ever destroy.
     fn seed_scratch(&mut self) {
         if self.scratch.is_empty() && self.foreign.is_empty() {
@@ -677,8 +686,8 @@ fn worktrees_named(w: &mut World) {
     // not by the pid Go's lock file carried.
     let ran = w.ran();
     ran.succeeds()
-        .contains("ctxloom-wt-clean")
-        .contains("ctxloom-wt-wip")
+        .contains("amber-quiet-heron/clean")
+        .contains("amber-quiet-heron/wip")
         .contains("amber-quiet-heron")
         .contains("dead")
         .contains("reapable")

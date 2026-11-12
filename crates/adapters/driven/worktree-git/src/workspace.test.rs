@@ -6,7 +6,9 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use isolation_ports::{Prepared, Removal, Request, Safety, Standing, Workspaces};
+use isolation_ports::{
+    session_worktrees, worktrees_root, Prepared, Removal, Request, Safety, Standing, Workspaces,
+};
 
 use super::{
     branch_of, checkout_name, is_name, nested_under, same_path, sanitize, GitWorkspaces, Listed,
@@ -52,7 +54,10 @@ fn git(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-/// A home with a git-backed project.
+/// The project's id, which names its checkouts' directory under the home.
+const PROJECT_ID: &str = "calm-otter";
+
+/// A ctxloom home and a git-backed project beside it.
 struct Fixture {
     _root: file_system::Rooted,
     home: PathBuf,
@@ -78,15 +83,23 @@ impl Fixture {
     }
 
     fn adapter(&self) -> GitWorkspaces {
-        GitWorkspaces::new(fs(), &self.home, crate::fixtures::env())
+        GitWorkspaces::new(
+            fs(),
+            &self.project,
+            Some(worktrees_root(&self.home, PROJECT_ID)),
+            crate::fixtures::env(),
+        )
     }
 
+    /// The session's checkouts directory, under the home.
     fn work_dir(&self, harp: &str) -> PathBuf {
-        self.home
-            .join(".ctxloom")
-            .join("sessions")
-            .join(harp)
-            .join("work")
+        session_worktrees(&self.home, PROJECT_ID, harp)
+    }
+
+    /// The project's own sessions directory, where a session's directory
+    /// and its lock are.
+    fn sessions(&self) -> PathBuf {
+        self.project.join(".ctxloom").join("sessions")
     }
 
     fn request(&self, harp: &str, agent: &str) -> Request {
@@ -116,34 +129,76 @@ fn an_agent_id_becomes_one_safe_path_segment() {
     assert_eq!(sanitize("///"), "agent");
 }
 
-// Go: worktreeBranchName: the scratch prefix swapped for the ref namespace.
+// The checkout is named by the agent alone, and its branch is the session's
+// and the agent's, `ctxloom/<harp>/<agent>` (F1): a pure function of the
+// checkout's path (`<harp>/<agent>`), so whoever holds it can name the
+// branch with no side table.
 #[test]
-fn the_branch_derives_from_the_checkout_name_alone() {
-    assert_eq!(checkout_name("reviewer"), "ctxloom-wt-reviewer");
+fn the_branch_derives_from_the_checkouts_session_and_agent() {
+    assert_eq!(checkout_name("reviewer"), "reviewer");
+    assert_eq!(checkout_name("a/b c"), "a-b-c");
     assert_eq!(
-        branch_of("/home/.ctxloom/sessions/x/work/ctxloom-wt-reviewer"),
-        "ctxloom/reviewer"
+        branch_of("/home/.ctxloom/worktrees/calm-otter/amber-swift-owl/reviewer"),
+        "ctxloom/amber-swift-owl/reviewer"
     );
 }
 
 // j002200 "The same run lands in the workspace its axis dictates": a
-// worktree is a checkout of its own, on its own branch, in the session's work
-// directory and never under the project.
+// worktree is a checkout of its own, on its session's branch for its agent,
+// under ctxloom's home (owner ruling 2026-11-12, Q1) and never under the
+// project.
 #[test]
-fn a_worktree_run_gets_its_own_branch_in_the_sessions_work_dir() {
+fn a_worktree_run_gets_its_own_branch_under_the_ctxloom_home() {
     let f = Fixture::new();
     let checkout = f.prepared("amber-quiet-heron", "reviewer");
-    let expected = f.work_dir("amber-quiet-heron").join("ctxloom-wt-reviewer");
+    let expected = canonical(&f.home)
+        .join(".ctxloom/worktrees")
+        .join(PROJECT_ID)
+        .join("amber-quiet-heron/reviewer");
     assert_eq!(Path::new(&checkout.path), expected);
-    assert_eq!(checkout.branch, "ctxloom/reviewer");
+    assert_eq!(checkout.branch, "ctxloom/amber-quiet-heron/reviewer");
     assert!(!checkout.reused);
     assert!(!Path::new(&checkout.path).starts_with(&f.project));
     let branch = git(
         Path::new(&checkout.path),
         &["rev-parse", "--abbrev-ref", "HEAD"],
     );
-    assert_eq!(branch.trim(), "ctxloom/reviewer");
+    assert_eq!(branch.trim(), "ctxloom/amber-quiet-heron/reviewer");
     assert!(exists(Path::new(&checkout.path).join("README.md")));
+}
+
+// F1: two sessions of one agent each get a checkout and a branch of their
+// own; git would refuse the second a branch the first has checked out.
+#[test]
+fn two_sessions_of_one_agent_get_a_checkout_and_a_branch_each() {
+    let f = Fixture::new();
+    let one = f.prepared("amber-quiet-heron", "reviewer");
+    let two = f.prepared("brisk-copper-moth", "reviewer");
+    assert_ne!(one.path, two.path);
+    assert_ne!(one.branch, two.branch);
+    assert_eq!(two.branch, "ctxloom/brisk-copper-moth/reviewer");
+    assert!(!two.reused);
+}
+
+// macOS's temporary directories are `/var/...`, which is `/private/var/...`
+// once resolved, and an engine knows its working directory by the resolved
+// one (claude keys its trust by it): the checkout's path is canonical.
+#[test]
+fn the_checkout_path_is_the_resolved_one() {
+    let f = Fixture::new();
+    let linked = f.home.parent().unwrap().join("linked-home");
+    link(&f.home, &linked);
+    let mut request = f.request("amber-quiet-heron", "reviewer");
+    request.work_dir = session_worktrees(&linked, PROJECT_ID, "amber-quiet-heron")
+        .display()
+        .to_string();
+    let Ok(Prepared::Checkout(checkout)) = f.adapter().prepare(&request) else {
+        panic!("no checkout");
+    };
+    assert_eq!(
+        Path::new(&checkout.path),
+        canonical(&f.work_dir("amber-quiet-heron").join("reviewer"))
+    );
 }
 
 // j002200 "Two isolated runs share no workspace between them".
@@ -226,7 +281,7 @@ fn a_resume_re_enters_the_agents_own_checkout() {
 #[test]
 fn something_else_at_the_agents_path_is_refused_and_left_alone() {
     let f = Fixture::new();
-    let path = f.work_dir("amber-quiet-heron").join("ctxloom-wt-reviewer");
+    let path = f.work_dir("amber-quiet-heron").join("reviewer");
     mkdirs(&path);
     put(path.join("mine.txt"), "mine");
     let refused = f
@@ -237,15 +292,15 @@ fn something_else_at_the_agents_path_is_refused_and_left_alone() {
     assert_eq!(slurp(path.join("mine.txt")), "mine");
 }
 
-// Go: findWorkWorktrees: only ctxloom-wt-* directories directly under a
-// session's work dir; toolchain scratch and foreign trees are not candidates.
+// Go: findWorkWorktrees: only the directories directly under a session's
+// checkouts directory (the whole tree is ctxloom's); a file there and her
+// own trees elsewhere are not candidates.
 #[test]
-fn scratch_lists_only_ctxloom_checkouts_under_session_work_dirs() {
+fn scratch_lists_only_the_checkouts_under_the_sessions_directories() {
     let f = Fixture::new();
     let a = f.prepared("amber-quiet-heron", "a");
     let b = f.prepared("brisk-copper-moth", "b");
-    mkdirs(f.work_dir("amber-quiet-heron").join("ctxloom-tmp-a"));
-    put(f.work_dir("amber-quiet-heron").join("ctxloom-wt-file"), "x");
+    put(f.work_dir("amber-quiet-heron").join("a-file"), "x");
     let foreign = f.home.join("workspace/worktrees/proj--stale");
     git(
         &f.project,
@@ -262,6 +317,7 @@ fn scratch_lists_only_ctxloom_checkouts_under_session_work_dirs() {
     let all = ws.scratch(None).unwrap();
     let paths: Vec<&str> = all.iter().map(|s| s.path.as_str()).collect();
     assert_eq!(paths.len(), 2, "{paths:?}");
+    assert_eq!(all[0].harp, "amber-quiet-heron");
     assert!(paths.contains(&a.path.as_str()) && paths.contains(&b.path.as_str()));
     assert!(!paths.iter().any(|p| p.contains("stale")));
     let one = ws.scratch(Some("amber-quiet-heron")).unwrap();
@@ -279,7 +335,7 @@ fn scratch_of_a_home_where_nothing_ever_ran_is_empty() {
 #[test]
 fn a_session_is_known_by_its_directory() {
     let f = Fixture::new();
-    mkdirs(f.home.join(".ctxloom/sessions/amber-swift-owl"));
+    mkdirs(f.sessions().join("amber-swift-owl"));
     let ws = f.adapter();
     assert!(ws.session_known("amber-swift-owl").unwrap());
     assert!(!ws.session_known("nobody").unwrap());
@@ -292,11 +348,30 @@ fn a_session_is_known_by_its_directory() {
 #[test]
 fn a_session_is_known_by_its_lock_alone() {
     let f = Fixture::new();
-    mkdirs(f.home.join(".ctxloom/sessions"));
-    put(f.home.join(".ctxloom/sessions/amber-swift-owl.lock"), "");
+    mkdirs(f.sessions());
+    put(f.sessions().join("amber-swift-owl.lock"), "");
     let ws = f.adapter();
     assert!(ws.session_known("amber-swift-owl").unwrap());
     assert!(!ws.session_known("nobody").unwrap());
+}
+
+// A session whose checkouts outlive its directory in the project is still
+// known by them.
+#[test]
+fn a_session_is_known_by_its_checkouts_alone() {
+    let f = Fixture::new();
+    f.prepared("amber-swift-owl", "reviewer");
+    assert!(f.adapter().session_known("amber-swift-owl").unwrap());
+}
+
+// A wiring with no project has no checkouts directory: nothing is listed.
+#[test]
+fn workspaces_with_no_checkouts_directory_list_none() {
+    let f = Fixture::new();
+    f.prepared("amber-swift-owl", "reviewer");
+    let ws = GitWorkspaces::new(fs(), &f.project, None, crate::fixtures::env());
+    assert!(ws.scratch(None).unwrap().is_empty());
+    assert!(ws.scratch(Some("amber-swift-owl")).unwrap().is_empty());
 }
 
 // Go: unsafeToRemove: dirty, untracked and ignored-only content all make a
@@ -354,8 +429,11 @@ fn removing_a_clean_checkout_removes_it_its_registration_and_its_merged_branch()
     assert_eq!(removal, Removal::Removed);
     assert!(!exists(&checkout.path));
     let listed = git(&f.project, &["worktree", "list", "--porcelain"]);
-    assert!(!listed.contains("ctxloom-wt-clean"), "{listed}");
-    let branches = git(&f.project, &["branch", "--list", "ctxloom/clean"]);
+    assert!(!listed.contains(&checkout.path), "{listed}");
+    let branches = git(
+        &f.project,
+        &["branch", "--list", "ctxloom/amber-quiet-heron/clean"],
+    );
     assert_eq!(
         branches.trim(),
         "",
@@ -376,8 +454,14 @@ fn an_unmerged_branch_is_kept() {
         f.adapter().remove(&checkout.repo_dir, &checkout.path),
         Removal::Removed
     );
-    let branches = git(&f.project, &["branch", "--list", "ctxloom/work"]);
-    assert!(branches.contains("ctxloom/work"), "{branches}");
+    let branches = git(
+        &f.project,
+        &["branch", "--list", "ctxloom/amber-quiet-heron/work"],
+    );
+    assert!(
+        branches.contains("ctxloom/amber-quiet-heron/work"),
+        "{branches}"
+    );
 }
 
 // j001300 "THE SAFETY SCENARIO": uncommitted work is spared IN PLACE, its
@@ -392,7 +476,7 @@ fn removing_a_checkout_with_uncommitted_work_leaves_it_in_place() {
     assert!(matches!(removal, Removal::Left(_)), "{removal:?}");
     assert_eq!(slurp(&wip), "// WIP-MARKER\n");
     let listed = git(&f.project, &["worktree", "list", "--porcelain"]);
-    assert!(listed.contains("ctxloom-wt-wip"), "{listed}");
+    assert!(listed.contains(&checkout.path), "{listed}");
 }
 
 // Go: teardownWorktree: a dirty nested worktree aborts the whole teardown.
@@ -439,16 +523,19 @@ fn a_directory_outside_git_says_it_is_not_a_repository() {
 #[test]
 fn a_branch_an_earlier_run_left_is_re_entered() {
     let f = Fixture::new();
-    git(&f.project, &["branch", "ctxloom/reviewer"]);
+    git(
+        &f.project,
+        &["branch", "ctxloom/amber-quiet-heron/reviewer"],
+    );
     let checkout = f.prepared("amber-quiet-heron", "reviewer");
-    assert_eq!(checkout.branch, "ctxloom/reviewer");
+    assert_eq!(checkout.branch, "ctxloom/amber-quiet-heron/reviewer");
     assert!(!checkout.reused, "the checkout is new; the branch is not");
 }
 
 #[test]
 fn a_checkout_registered_on_another_branch_is_refused() {
     let f = Fixture::new();
-    let path = f.work_dir("amber-quiet-heron").join("ctxloom-wt-reviewer");
+    let path = f.work_dir("amber-quiet-heron").join("reviewer");
     git(
         &f.project,
         &[

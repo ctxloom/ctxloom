@@ -60,7 +60,7 @@ Feature: The close-out — the end of a workstream
     And the machine-written bulk of "amber-quiet-heron" is gone
     And the machine-written bulk of "gray-oneshot-wisp" is gone
     And the sweep kept the transcript of "brisk-copper-moth" and named "ctxloom session keep brisk-copper-moth --undo"
-    And the sweep kept the transcript of "olive-dirty-finch" and named "ctxloom-wt-wip"
+    And the sweep kept the transcript of "olive-dirty-finch" and named "wip"
     When I run "ctxloom session list --all"
     Then the output does not contain "amber-quiet-heron"
     And the output does not contain "gray-oneshot-wisp"

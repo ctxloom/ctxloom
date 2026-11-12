@@ -39,7 +39,9 @@
 # cargo-nextest, cargo-deny, cargo-mutants, gitleaks and lefthook. A missing
 # tool fails its gate; nothing skips.
 
-gates_root := justfile_directory()
+# With forward slashes: on Windows just gives `D:\a\...`, whose backslashes
+# a bash recipe would read as escapes (the logs then landed nowhere findable).
+gates_root := replace(justfile_directory(), '\', '/')
 
 # Gate output is terse, because it lands in agents' context windows. Every
 # gate runs through `_run`: a pass prints one line,

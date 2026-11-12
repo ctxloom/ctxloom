@@ -73,3 +73,23 @@ fn test_every_notice_has_a_message_using_exactly_its_args_and_a_fix() {
         .contains("ctxloom agent edit { $agent } --engine opencode --model <provider/model>"));
     assert_eq!(notice.code(), "engine-opencode-no-model");
 }
+
+// A notice displays as its code and args, as every diagnostic does (never
+// English: the catalog renders the words).
+#[test]
+fn test_a_notice_displays_as_its_code_and_args() {
+    let notice = OpencodeNotice::NoModel {
+        agent: "dev".to_string(),
+    };
+    assert_eq!(notice.to_string(), "engine-opencode-no-model agent=dev");
+}
+
+// The catalog test covers every notice only if the samples hold one of each.
+#[test]
+fn test_the_samples_hold_every_notice() {
+    let codes: Vec<String> = diagnostic_samples()
+        .iter()
+        .map(|sample| sample.code().to_string())
+        .collect();
+    assert_eq!(codes, ["engine-opencode-no-model"]);
+}

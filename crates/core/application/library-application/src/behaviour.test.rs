@@ -1542,8 +1542,8 @@ impl run_ports::Engine for Advising {
     }
     fn advise(&self, planned: &run_ports::Planned) -> Vec<run_ports::Advice> {
         vec![Box::new(Shown(format!(
-            "{} {} {} {:?}",
-            planned.agent, planned.model, planned.effort, planned.permissions
+            "{}: {} {} {} {:?}",
+            self.0, planned.agent, planned.model, planned.effort, planned.permissions
         )))]
     }
 }
@@ -1579,6 +1579,7 @@ fn test_the_plans_engine_is_shown_what_it_resolved_and_its_word_is_a_notice() {
     let layers = "schema_version: 9\nagents:\n  dev:\n    engine: opencode\n    engines:\n      opencode:\n        model: p/m\n        permissions:\n          edit: deny\n";
     let said = advised(layers, "dev", "");
     assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].contains("opencode: dev"), "{said:?}");
     assert!(
         said[0].contains(r#"dev p/m  Some(\"{\\\"edit\\\":\\\"deny\\\"}\")"#),
         "{said:?}"
@@ -1586,5 +1587,8 @@ fn test_the_plans_engine_is_shown_what_it_resolved_and_its_word_is_a_notice() {
     // On `--engine claude-code` it is claude-code's plan, and its block none.
     let on_claude = advised(layers, "dev", "claude-code");
     assert_eq!(on_claude.len(), 1, "{on_claude:?}");
-    assert!(on_claude[0].contains("dev   "), "{on_claude:?}");
+    assert!(
+        on_claude[0].contains("claude-code: dev   "),
+        "{on_claude:?}"
+    );
 }

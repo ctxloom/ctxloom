@@ -26,6 +26,21 @@ pub(crate) fn runs_scripts() -> bool {
     false
 }
 
+/// Whether this host keeps a file's execute bits: unix. Windows keeps none
+/// (a file is one it would run by its extension), so a test of what a bit on
+/// disk does is skipped there and says so, `SKIP <test>: <why>`.
+pub(crate) fn keeps_exec_bits() -> bool {
+    if os::host().flavor() == os::Flavor::Unix {
+        return true;
+    }
+    let test = std::thread::current();
+    eprintln!(
+        "SKIP {}: it sets an execute bit on disk, which Windows keeps none of",
+        test.name().unwrap_or("a test")
+    );
+    false
+}
+
 /// The host's own filesystem (no root), for real paths.
 pub(crate) fn fs() -> Arc<dyn Fs> {
     let os = os::host();

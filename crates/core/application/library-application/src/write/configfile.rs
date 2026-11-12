@@ -95,11 +95,9 @@ impl Project {
         if !self.catalog.is_builtin(name) {
             return Ok(());
         }
-        let dir = self.content.bundle_dir(name);
-        let dir = dir
-            .strip_suffix(name)
-            .map_or(dir.as_str(), |parent| parent.trim_end_matches('/'))
-            .to_string();
+        // A built-in bundle's name is one step: its directory's parent is
+        // the bundles directory.
+        let dir = crate::shown::parent(&self.content.bundle_dir(name)).to_string();
         Err(WriteError::BuiltinReadOnly {
             bundle: name.to_string(),
             origin: library::builtin::ORIGIN.to_string(),

@@ -71,7 +71,7 @@ fn test_creating_an_item_answers_and_refuses_what_it_must() {
     for flags in FORMATS {
         let project = Project::initialized().on_gos_catalog();
         demo(&project);
-        let manifest = project.dir().join(DEMO).join("bundle.yaml");
+        let manifest = project.shown(&format!("{DEMO}/bundle.yaml"));
         let ran = with_flags(&project, &["fragment", "create", "demo", "testing"], flags);
         ran.succeeds();
         if is_text(flags) {
@@ -84,7 +84,7 @@ fn test_creating_an_item_answers_and_refuses_what_it_must() {
             assert_eq!(reports_as(&doc, "status"), "created");
             assert_eq!(reports_as(&doc, "bundle"), "demo");
             assert_eq!(reports_as(&doc, "name"), "testing");
-            assert_eq!(reports_as(&doc, "path"), manifest.to_string_lossy());
+            assert_eq!(reports_as(&doc, "path"), manifest);
         }
     }
     let project = Project::initialized().on_gos_catalog();

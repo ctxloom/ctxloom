@@ -210,10 +210,9 @@ impl Project {
             name: request.name.clone(),
             parents: request.parents.clone(),
             bundles: request.bundles.clone(),
-            path: format!(
-                "{}/{}",
-                self.content.bundle_dir(&target),
-                profile_path(&request.name)
+            path: crate::shown::below(
+                &self.content.bundle_dir(&target),
+                &profile_path(&request.name),
             ),
         })
     }
@@ -310,11 +309,7 @@ impl Project {
         } else {
             self.bundle(bundle)?.name.clone()
         };
-        let dest = format!(
-            "{}/{}",
-            self.content.bundle_dir(&target),
-            profile_path(name)
-        );
+        let dest = crate::shown::below(&self.content.bundle_dir(&target), &profile_path(name));
         let key = format!("ctxloom+local:{target}#profiles/{name}");
         if self.profiles().by_key.contains_key(&key) && !force {
             return Err(WriteError::ImportExists {

@@ -85,13 +85,13 @@ fn test_alice_authors_a_skill_package_and_its_listing_and_show_reflect_the_real_
             flags,
         );
         ran.succeeds();
-        let dir = project.dir().join(VAULT).join("skills/reviewer");
+        let dir = project.shown(&format!("{VAULT}/skills/reviewer"));
         if is_text(flags) {
             assert_eq!(
                 ran.stdout,
                 format!(
                     "Created skill \"reviewer\" in bundle \"vault\"\n  {0}\nEdit {0}/SKILL.md to describe the skill\n",
-                    dir.display()
+                    dir
                 )
             );
         } else {
@@ -99,7 +99,7 @@ fn test_alice_authors_a_skill_package_and_its_listing_and_show_reflect_the_real_
             assert_eq!(reports_as(&doc, "status"), "created");
             assert_eq!(reports_as(&doc, "bundle"), "vault");
             assert_eq!(reports_as(&doc, "name"), "reviewer");
-            assert_eq!(reports_as(&doc, "dir"), dir.to_string_lossy());
+            assert_eq!(reports_as(&doc, "dir"), dir);
         }
         assert_eq!(
             project.read(&format!("{VAULT}/skills/reviewer/SKILL.md")).as_deref(),
@@ -267,13 +267,13 @@ fn test_a_skills_files_survive_export_and_import_byte_for_byte() {
             flags,
         );
         imported.succeeds();
-        let dir = project.dir().join(LANDED).join("skills/reviewer");
+        let dir = project.shown(&format!("{LANDED}/skills/reviewer"));
         if is_text(flags) {
             assert_eq!(
                 imported.stdout,
                 format!(
                     "Imported skill \"reviewer\" into bundle \"landed\" (3 file(s))\n  {}\n",
-                    dir.display()
+                    dir
                 )
             );
         } else {
@@ -281,7 +281,7 @@ fn test_a_skills_files_survive_export_and_import_byte_for_byte() {
             assert_eq!(reports_as(&doc, "status"), "imported");
             assert_eq!(reports_as(&doc, "bundle"), "landed");
             assert_eq!(reports_as(&doc, "name"), "reviewer");
-            assert_eq!(reports_as(&doc, "dir"), dir.to_string_lossy());
+            assert_eq!(reports_as(&doc, "dir"), dir);
             assert_eq!(reports_as(&doc, "file_count"), "3");
         }
         assert_eq!(
@@ -309,6 +309,9 @@ fn test_a_skills_files_survive_export_and_import_byte_for_byte() {
 // as a plain file, and lands as one.
 #[test]
 fn test_an_exec_bit_on_disk_but_not_in_the_sidecar_does_not_travel() {
+    if !files::keeps_exec_bits() {
+        return;
+    }
     let project = project_with_bundles();
     create_reviewer(&project);
     add_script(&project, "SCRIPT-MARKER-reviewer-2b7e40", false);

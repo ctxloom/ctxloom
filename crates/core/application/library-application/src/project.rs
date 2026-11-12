@@ -213,10 +213,7 @@ impl Library {
                 }),
                 Err(cause) => {
                     notices.push(Notice::BundleSkipped {
-                        dir: manifest
-                            .strip_suffix("/bundle.yaml")
-                            .unwrap_or(&manifest)
-                            .to_string(),
+                        dir: crate::shown::parent(&manifest).to_string(),
                         manifest,
                         cause: cause.clone(),
                     });

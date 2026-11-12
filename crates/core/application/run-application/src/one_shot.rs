@@ -241,6 +241,8 @@ struct Resume {
     harp: String,
     engine: String,
     native_id: String,
+    /// The workspace axis it was minted on (none recorded: `none`).
+    workspace: String,
 }
 
 /// The engine a run is on: the one asked for, else the plan's.
@@ -402,8 +404,9 @@ where
     }
 
     /// The request as it is planned, and the session it resumes, if it names
-    /// one (owner ruling 115): planned on the session's own engine unless
-    /// `--engine` names one (the session's aggregate refuses another).
+    /// one (owner ruling 115): planned on the session's own engine and
+    /// workspace unless `--engine` or `--workspace` names one (the session's
+    /// aggregate refuses another).
     async fn resolve(&mut self, request: &OneShot) -> Result<(OneShot, Option<Resume>), RunError> {
         if request.session.is_empty() {
             return Ok((request.clone(), None));
@@ -413,6 +416,11 @@ where
         if request.engine.is_empty() {
             request.engine = resume.engine.clone();
             request.run.engine = resume.engine.clone();
+        }
+        // A resume works where its session worked (owner ruling
+        // 2026-11-12); another `--workspace` is the session's to refuse.
+        if request.run.workspace.is_empty() {
+            request.run.workspace = resume.workspace.clone();
         }
         Ok((request, Some(resume)))
     }
@@ -467,6 +475,7 @@ where
             harp: state.harp,
             engine: state.engine,
             native_id: state.native_id,
+            workspace: state.workspace.unwrap_or_else(|| "none".to_string()),
         })
     }
 
@@ -498,14 +507,15 @@ where
         Ok(state)
     }
 
-    /// Owe `resume`'s session its next incarnation on `engine` (the
-    /// aggregate's `ResumeSession`, which refuses a session running, one with
-    /// no native session, or another engine): the incarnation owed.
-    async fn owe(&self, resume: &Resume, engine: &str) -> Result<u32, RunError> {
+    /// Owe `resume`'s session its next incarnation on `engine` in
+    /// `workspace` (the aggregate's `ResumeSession`, which refuses a session
+    /// running, one with no native session, another engine or another
+    /// workspace): the incarnation owed.
+    async fn owe(&self, resume: &Resume, engine: &str, workspace: &str) -> Result<u32, RunError> {
         let command: SessionCommand = ResumeSession {
             harp: resume.harp.clone(),
             engine: engine.to_string(),
-            workspace: String::new(),
+            workspace: workspace.to_string(),
         }
         .into();
         self.core
@@ -588,11 +598,15 @@ where
     ) -> Result<(Box<dyn run_ports::Serving>, Started), RunError> {
         let engine = chosen_engine(&previewed.plan, request);
         let settings = settings_of(&previewed.plan, &engine);
+        let axis = run_launcher::Axis::of(&previewed.plan.axes.0);
         // A resume owes its session the next incarnation before its run is
         // enqueued (owner ruling 115), so a refused resume has burned no run
         // stream; a new session is minted after (its first incarnation).
         let (session, incarnation) = match &resume {
-            Some(resume) => (resume.session.clone(), self.owe(resume, &engine).await?),
+            Some(resume) => (
+                resume.session.clone(),
+                self.owe(resume, &engine, axis.word()).await?,
+            ),
             None => {
                 let id = uuid::Uuid::from_slice(&self.ids.command_id().value).unwrap_or_default();
                 (id.hyphenated().to_string(), 1)
@@ -630,7 +644,7 @@ where
         };
         let made = match &resume {
             Some(resume) => Ok(resume.harp.clone()),
-            None => self.make(&session, &engine, interactive).await,
+            None => self.make(&session, &engine, axis, interactive).await,
         };
         let harp = match made {
             Ok(harp) => harp,
@@ -835,10 +849,12 @@ where
         &mut self,
         session: &str,
         engine: &str,
+        axis: run_launcher::Axis,
         interactive: bool,
     ) -> Result<String, RunError> {
         let project = self.identity.for_write(None).map_err(RunError::Project)?;
-        self.mint(&project, session, engine, interactive).await
+        self.mint(&project, session, engine, axis, interactive)
+            .await
     }
 
     /// End the enqueued `run` of `session` that `error` stopped before its
@@ -1046,6 +1062,7 @@ where
         project: &Project,
         session: &str,
         engine: &str,
+        axis: run_launcher::Axis,
         interactive: bool,
     ) -> Result<String, RunError> {
         let edge = self.core.edge();
@@ -1071,7 +1088,7 @@ where
             {
                 Ok(_) => {
                     let minted = self
-                        .mint_on(&edge, project, engine, &session, &harp, interactive)
+                        .mint_on(project, engine, &session, &harp, axis, interactive)
                         .await;
                     if minted.is_err() {
                         let release = NameClaimCommand::from(ReleaseName {
@@ -1099,11 +1116,11 @@ where
 
     async fn mint_on(
         &self,
-        edge: &Arc<K::Edge>,
         project: &Project,
         engine: &str,
         session: &str,
         harp: &str,
+        axis: run_launcher::Axis,
         interactive: bool,
     ) -> Result<(), RunError> {
         let mint: SessionCommand = MintSession {
@@ -1119,7 +1136,8 @@ where
             },
             started_at: None,
             depth: 0,
-            workspace: None,
+            // The axis is a session trait: a resume works in the same place.
+            workspace: Some(axis.word().to_string()),
         }
         .into();
         let root = uuid::Uuid::parse_str(session).map_or_else(
@@ -1131,7 +1149,9 @@ where
             root: Some(root),
             edition: None,
         };
-        edge.handle(angzarr_embedded::v1::CommandBook::command_of(cover, &mint))
+        self.core
+            .edge()
+            .handle(angzarr_embedded::v1::CommandBook::command_of(cover, &mint))
             .await
             .map(drop)
             .map_err(|failure| RunError::Session(CoreError::from_failure(failure)))

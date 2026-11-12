@@ -514,7 +514,10 @@ swept other processes' dead runs; the session aggregate's `ResumeSession`
 then owes the NEXT incarnation (`IncarnationOwed{n+1, "resume"}`, refused
 while one is open, `sessions-session-running`; with no bound native id,
 `sessions-no-native-session`; for an `--engine` not the session's,
-`sessions-engine-mismatch`) BEFORE the run of `(session, n+1)` is enqueued,
+`sessions-engine-mismatch`; for a `--workspace` not the axis the session
+was minted on, `MintSession.workspace` (none recorded reads `none`),
+`sessions-workspace-mismatch`, and with none given it is planned on the
+session's own, so it re-enters its checkout) BEFORE the run of `(session, n+1)` is enqueued,
 so a refused resume burns no run stream; a refused enqueue ends the owed
 incarnation (`launch-failed`). The run is planned on the session's engine,
 reuses its harp, directory and session home (no mint, no claim), and the

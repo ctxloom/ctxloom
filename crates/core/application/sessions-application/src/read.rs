@@ -128,8 +128,8 @@ where
     }
 
     /// A session as a listing shows it: its state from its lock (never its
-    /// end stamp), its title and its size from its transcript, as its events
-    /// hold it.
+    /// end stamp), its title (the one set, else its transcript's first
+    /// prompt) and its size from its transcript, as its events hold it.
     pub(crate) fn view(&mut self, held: Held) -> View {
         let Held { record, transcript } = held;
         let state = match self.liveness.lock_state(&record.harp) {
@@ -137,7 +137,11 @@ where
             LockState::Free => State::Ended,
             LockState::Unproven => State::Unknown,
         };
-        let title = transcript.as_deref().and_then(title_of);
+        // The title `session rename` set, else the first prompt (S55).
+        let title = match record.title.is_empty() {
+            false => Some(record.title.clone()),
+            true => transcript.as_deref().and_then(title_of),
+        };
         let captured = transcript.as_ref().map(|text| Captured {
             bytes: text.len() as u64,
         });

@@ -48,8 +48,8 @@ use reclaim_application::SweepConfig;
 use session_files::{GoDirs, SessionDirs};
 use sessions_application::{
     AppError, BindRequest, Bound, ImportReport, ImportRequest, ImportService, Importer,
-    KeepRequest, Kept, ListQuery, Removal, RemoveRequest, RenameRequest, Renamed, SearchQuery,
-    Service, SessionService, ShowQuery, TranscriptQuery, TranscriptRow, View,
+    KeepRequest, Kept, ListQuery, Removal, RemoveRequest, SearchQuery, Service, SessionService,
+    ShowQuery, TranscriptQuery, TranscriptRow, View,
 };
 use system::System;
 
@@ -182,10 +182,6 @@ impl SessionService for Sessions {
         request: sessions_application::TitleRequest,
     ) -> Result<sessions_application::Titled, AppError> {
         self.use_cases.set_title(request).await
-    }
-
-    async fn rename(&mut self, request: RenameRequest) -> Result<Renamed, AppError> {
-        self.use_cases.rename(request).await
     }
 
     async fn transcripts(

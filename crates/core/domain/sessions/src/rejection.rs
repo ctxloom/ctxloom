@@ -17,12 +17,6 @@ pub enum SessionRejection {
     /// A resource name that is not one (owner, 2026-11-12, slice 2 B3):
     /// `reason` is `shape`, or the harp grammar's for the segment.
     NameMalformed { name: String, reason: String },
-    /// A name a human chose that is past the bound (Go's `MaxNameLen`).
-    HarpTooLong {
-        harp: String,
-        limit: u64,
-        length: u64,
-    },
     /// A claim on a name another session holds.
     NamesTaken { harp: String },
     /// A claim on a project harp another project holds (S54).
@@ -33,8 +27,6 @@ pub enum SessionRejection {
     NotHolder { harp: String },
     /// A stop ordered by a child (Go's I2); `depth` is the requester's.
     ChildCannotStop { depth: u64 },
-    /// A rename of a live session: its lock is held (owner ruling 91).
-    SessionLive { harp: String },
     /// A command from a session that is not the target's owner (D25, S-f);
     /// `requester` is its stable id.
     NotOwner { requester: String },
@@ -80,14 +72,12 @@ impl Diagnostic for SessionRejection {
             SessionRejection::SessionExists { .. } => code!("session-exists"),
             SessionRejection::NoSession => code!("no-session"),
             SessionRejection::HarpInvalid { .. } => code!("harp-invalid"),
-            SessionRejection::HarpTooLong { .. } => code!("harp-too-long"),
             SessionRejection::NameMalformed { .. } => code!("name-malformed"),
             SessionRejection::NamesTaken { .. } => code!("names-taken"),
             SessionRejection::ProjectNameTaken { .. } => code!("project-name-taken"),
             SessionRejection::NoClaim => code!("no-claim"),
             SessionRejection::NotHolder { .. } => code!("not-holder"),
             SessionRejection::ChildCannotStop { .. } => code!("child-cannot-stop"),
-            SessionRejection::SessionLive { .. } => code!("session-live"),
             SessionRejection::NotOwner { .. } => code!("not-owner"),
             SessionRejection::SessionClosed { .. } => code!("session-closed"),
             SessionRejection::OwnerClosed { .. } => code!("owner-closed"),
@@ -109,7 +99,6 @@ impl Diagnostic for SessionRejection {
             | SessionRejection::NamesTaken { harp }
             | SessionRejection::ProjectNameTaken { harp }
             | SessionRejection::NotHolder { harp }
-            | SessionRejection::SessionLive { harp }
             | SessionRejection::SessionClosed { harp }
             | SessionRejection::OwnerClosed { harp }
             | SessionRejection::NoOpenIncarnation { harp }
@@ -144,15 +133,6 @@ impl Diagnostic for SessionRejection {
                 ("name", name.as_str().into()),
                 ("reason", reason.as_str().into()),
             ],
-            SessionRejection::HarpTooLong {
-                harp,
-                limit,
-                length,
-            } => vec![
-                ("harp", harp.as_str().into()),
-                ("limit", (*limit).into()),
-                ("length", (*length).into()),
-            ],
             SessionRejection::ChildCannotStop { depth } => vec![("depth", (*depth).into())],
             SessionRejection::NoSession | SessionRejection::NoClaim => Vec::new(),
         }
@@ -177,11 +157,6 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             harp: "a/b".to_string(),
             reason: "separator".to_string(),
         }),
-        Box::new(SessionRejection::HarpTooLong {
-            harp: harp(),
-            limit: 24,
-            length: 30,
-        }),
         Box::new(SessionRejection::NameMalformed {
             name: "projects/calm-otter/owl".to_string(),
             reason: "shape".to_string(),
@@ -191,9 +166,6 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(SessionRejection::NoClaim),
         Box::new(SessionRejection::NotHolder { harp: harp() }),
         Box::new(SessionRejection::ChildCannotStop { depth: 1 }),
-        Box::new(SessionRejection::SessionLive {
-            harp: "amber-swift-owl".to_string(),
-        }),
         Box::new(SessionRejection::NotOwner {
             requester: "0b0e5f4e-7c1d-4f6a-9d3e-2a1b0c9d8e7f".to_string(),
         }),

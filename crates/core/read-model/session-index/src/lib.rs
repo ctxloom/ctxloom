@@ -226,9 +226,6 @@ impl SessionIndex {
                 text: String::new(),
                 last: None,
             });
-        if let SessionEvent::RenamedTo(renamed) = event {
-            folded.projection.rename(&renamed.harp);
-        }
         let lines = folded.projection.fold(sequence, recorded.seconds, event);
         if !lines.is_empty() {
             folded.last = Some(recorded);

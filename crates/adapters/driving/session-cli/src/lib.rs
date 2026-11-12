@@ -7,7 +7,7 @@
 //! ctxloom session list [--all] [--state live|ended|unknown]
 //! ctxloom session search <word>... [--all] [--state ...]
 //! ctxloom session show <harp>
-//! ctxloom session edit <harp> --name <new>
+//! ctxloom session rename <harp> <title>
 //! ctxloom session keep <harp> [--undo]
 //! ctxloom session remove <harp> [--yes] [--even-if-live]  (session-destroy)
 //! ctxloom session sweep [--purge-older-than <age>] [--yes] (session-destroy)
@@ -22,8 +22,8 @@
 //! `session remove` DESTROYS a session (owner ruling 98): a plain build has
 //! no deleting verb, and `session purge` is gone. Go's `session adopt` and
 //! `approvals` arrive with S10 and S12; `session watch` waits on the
-//! owner's ruling on the watch lines. The old `rename` verb is gone, not
-//! hidden.
+//! owner's ruling on the watch lines. `rename` sets the title (S55): a
+//! harp is permanent, and the harp-changing `edit --name` is gone.
 //!
 //! JSON rows: `harp, summary, state, start, end?, kept?,
 //! transcript_path?, engine` (D16: Go 0.7's `harp, summary, state, start, end`
@@ -70,11 +70,11 @@ pub enum SessionVerb {
     /// Show a named session: its title, state, engine and times
     #[command(after_help = "Examples:\n  ctxloom session show amber-swift-owl")]
     Show(HarpArgs),
-    /// Assign a recorded session's fields (today: --name, which renames the session)
+    /// Set a recorded session's title; its name never changes
     #[command(
-        after_help = "Examples:\n  ctxloom session edit amber-swift-owl --name release-notes"
+        after_help = "Examples:\n  ctxloom session rename amber-swift-owl \"the auth refactor\""
     )]
-    Edit(EditArgs),
+    Rename(RenameArgs),
     /// Keep a session's transcript at any age (--undo releases it)
     #[command(
         after_help = "Examples:\n  ctxloom session keep amber-swift-owl\n  ctxloom session keep amber-swift-owl --undo"
@@ -132,13 +132,13 @@ pub struct HarpArgs {
 }
 
 #[derive(Args, Debug)]
-pub struct EditArgs {
+pub struct RenameArgs {
     /// The session's name
     #[arg(value_name = "SESSION-NAME")]
     pub harp: String,
-    /// Rename the session to this name. The engine's transcript is unaffected.
-    #[arg(long, value_name = "NAME")]
-    pub name: Option<String>,
+    /// The title, free text (empty clears it)
+    #[arg(value_name = "TITLE")]
+    pub title: String,
 }
 
 #[derive(Args, Debug)]

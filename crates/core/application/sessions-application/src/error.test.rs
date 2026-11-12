@@ -56,16 +56,8 @@ fn exit_codes_follow_the_rule() {
         harp: "a/b".to_string(),
         reason: "separator".to_string(),
     }));
-    let too_long = AppError::Rejected(Report::of(&SessionRejection::HarpTooLong {
-        harp: "x".repeat(30),
-        limit: 24,
-        length: 30,
-    }));
     let none = AppError::Rejected(Report::of(&SessionRejection::NoSession));
-    assert_eq!(
-        (invalid.exit(), too_long.exit()),
-        (Exit::REFUSED, Exit::REFUSED)
-    );
+    assert_eq!(invalid.exit(), Exit::REFUSED);
     assert_eq!(none.exit(), Exit::REFUSED);
     assert_eq!(AppError::Failed(Report::new("x")).exit(), Exit::FAILED);
 }

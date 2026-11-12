@@ -57,7 +57,7 @@ pub struct StartedRun {
     pub session: String,
     pub incarnation: u32,
     /// The session's project directory and harp, as its stream says them now
-    /// (a rename moves its lock with its name); empty until its mint is seen.
+    /// (a harp never changes, S55); empty until its mint is seen.
     pub project_dir: String,
     pub harp: String,
     /// The run's own lock, as its enqueue journaled it: a host that holds it
@@ -210,9 +210,6 @@ impl Pending {
                         harp: minted.harp,
                     },
                 );
-            }
-            SessionEvent::RenamedTo(renamed) => {
-                self.places.entry(text_of(root)).or_default().harp = renamed.harp;
             }
             _ => {}
         }

@@ -62,8 +62,8 @@ pub use sessions::{urgency_word, Urgency};
 pub use sessions::{Child, SessionRef};
 pub use types::{
     BindRequest, Bound, Class, FilePlan, KeepRequest, Kept, ListQuery, PlanItem, Removal,
-    RemoveRequest, RenameRequest, Renamed, SearchQuery, ShowQuery, TitleRequest, Titled,
-    TranscriptQuery, TranscriptRow, REMOVE_VERB,
+    RemoveRequest, SearchQuery, ShowQuery, TitleRequest, Titled, TranscriptQuery, TranscriptRow,
+    REMOVE_VERB,
 };
 
 /// A store's failure, as the use cases fail with it.

@@ -137,23 +137,6 @@ pub struct Titled {
     pub dead_letters: Vec<DeadLetter>,
 }
 
-/// Rename a session (`session edit --name`).
-#[derive(Clone, PartialEq, Eq, Debug, Default)]
-pub struct RenameRequest {
-    pub project: Option<String>,
-    pub harp: String,
-    pub to: String,
-}
-
-/// What a rename did.
-#[derive(Clone, PartialEq, Debug)]
-pub struct Renamed {
-    pub from: String,
-    pub to: String,
-    pub output_dir: String,
-    pub dead_letters: Vec<DeadLetter>,
-}
-
 /// Which sessions' transcripts a listing names.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct TranscriptQuery {

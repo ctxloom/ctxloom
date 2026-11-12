@@ -16,8 +16,8 @@ use angzarr_embedded::{Any, Failure, Payload, Registry, Timestamp};
 
 use crate::{
     AdoptRotations, BindEngineSession, EndRecorded, EngineSessionBound, KeptChanged, MintSession,
-    Origin, RecordEnd, RenameSession, RenamedTo, Rotation, SessionAggregate, SessionCommand,
-    SessionEvent, SessionRejection, SessionState, SetKept, SESSION_DOMAIN,
+    Origin, RecordEnd, Rotation, SessionAggregate, SessionCommand, SessionEvent, SessionRejection,
+    SessionState, SetKept, SESSION_DOMAIN,
 };
 
 pub(crate) const HARP: &str = "amber-swift-owl";
@@ -226,14 +226,6 @@ fn rotation(native_id: &str, transcript_path: &str, rotated_at: Timestamp) -> Ro
         native_id: native_id.to_string(),
         transcript_path: transcript_path.to_string(),
         rotated_at: Some(rotated_at),
-    }
-}
-
-fn rename(harp: &str) -> RenameSession {
-    RenameSession {
-        harp: harp.to_string(),
-        output_dir: format!("/home/Documents/ctxloom/proj/{harp}"),
-        lock: crate::LockEvidence::Free,
     }
 }
 
@@ -719,125 +711,6 @@ fn a_title_on_a_stream_with_no_session_is_refused() {
         Session::new().run(title("x")).unwrap_err(),
         said(&SessionRejection::NoSession)
     );
-}
-
-// ----------------------------------------------------------------- rename
-
-// Go: TestRename; and `session edit --name`'s record "names where the folder
-// went" (session.feature, "--name renames the harp and moves its output
-// folder"). The name's claim is the application's (design, plan 3.1).
-#[test]
-fn a_rename_records_the_new_name_and_where_the_output_went() {
-    let mut session = Session::minted();
-    let events = session.run(rename("bright-keen-hawk")).unwrap();
-    assert_eq!(
-        events,
-        [SessionEvent::RenamedTo(RenamedTo {
-            harp: "bright-keen-hawk".to_string(),
-            output_dir: "/home/Documents/ctxloom/proj/bright-keen-hawk".to_string(),
-        })]
-    );
-    let state = session.state();
-    assert_eq!(state.harp, "bright-keen-hawk");
-    assert_eq!(
-        state.output_dir,
-        "/home/Documents/ctxloom/proj/bright-keen-hawk"
-    );
-    assert_eq!(state.project_dir, "/work/proj", "the rest is untouched");
-}
-
-// Go: TestRename_RefusesUnsafeNewName: the new name becomes a path component.
-#[test]
-fn a_rename_to_an_unsafe_name_is_refused_and_the_name_is_kept() {
-    for (bad, reason) in [
-        ("..", "directory"),
-        ("../..", "separator"),
-        ("../../etc/passwd", "separator"),
-        ("a/b", "separator"),
-        ("a\\b", "separator"),
-        (" lead", "whitespace"),
-        ("nul\0name", "control"),
-        ("", "empty"),
-    ] {
-        let mut session = Session::minted();
-        let before = session.pages().len();
-        let refusal = session.run(rename(bad)).unwrap_err();
-        assert_eq!(
-            refusal,
-            said(&SessionRejection::HarpInvalid {
-                harp: bad.to_string(),
-                reason: reason.to_string(),
-            }),
-            "{bad:?}"
-        );
-        assert_eq!(session.pages().len(), before, "{bad:?} records nothing");
-        assert_eq!(session.state().harp, HARP);
-    }
-}
-
-// Go: harp.ValidateRename and ErrNameTooLong (MaxNameLen 24).
-#[test]
-fn a_rename_past_the_limit_is_refused() {
-    let mut session = Session::minted();
-    let long = "a".repeat(25);
-    assert_eq!(
-        session.run(rename(&long)).unwrap_err(),
-        said(&SessionRejection::HarpTooLong {
-            harp: long,
-            limit: 24,
-            length: 25,
-        })
-    );
-    session.run(rename(&"b".repeat(24))).unwrap();
-}
-
-// Go: Rename onto the same name collides with itself; the claim stream is
-// where uniqueness lives here, so the domain records nothing for it.
-#[test]
-fn a_rename_to_the_name_held_records_nothing() {
-    let mut session = Session::minted();
-    let before = session.pages().len();
-    assert!(session.run(rename(HARP)).unwrap().is_empty());
-    assert_eq!(session.pages().len(), before);
-}
-
-// Owner ruling 91 (per 73e): the session judges a rename on what its lock
-// said. A held lock is a live session, whose engine works in the directory a
-// rename moves: refused, `SessionLive`, nothing recorded.
-#[test]
-fn a_rename_of_a_session_whose_lock_is_held_is_refused_as_live() {
-    let mut session = Session::minted();
-    let before = session.pages().len();
-    let refusal = session
-        .run(RenameSession {
-            lock: crate::LockEvidence::Held,
-            ..rename("bright-keen-hawk")
-        })
-        .unwrap_err();
-    assert_eq!(
-        refusal,
-        said(&SessionRejection::SessionLive {
-            harp: HARP.to_string()
-        })
-    );
-    assert_eq!(session.pages().len(), before, "nothing recorded");
-    assert_eq!(session.state().harp, HARP);
-}
-
-// Owner ruling 91: a free lock (the owner ended) and one that proves nothing
-// (a session from before runs held their lock) do not block a rename.
-#[test]
-fn a_rename_of_a_session_whose_lock_is_free_or_unproven_is_recorded() {
-    for lock in [crate::LockEvidence::Free, crate::LockEvidence::Unproven] {
-        let mut session = Session::minted();
-        let events = session
-            .run(RenameSession {
-                lock,
-                ..rename("bright-keen-hawk")
-            })
-            .unwrap();
-        assert_eq!(events.len(), 1, "{lock:?}");
-    }
 }
 
 // ------------------------------------------------------------------- end

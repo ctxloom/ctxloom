@@ -4,15 +4,12 @@
 sessions-session-exists = session { $harp } already exists
 sessions-no-session = there is no such session
 sessions-harp-invalid = { $harp } cannot be a session name: { $reason }
-sessions-harp-too-long = { $harp } is { $length } characters, the limit for a session name is { $limit }
 sessions-name-malformed = { $name } is not a resource name: { $reason }
 sessions-names-taken = the session name { $harp } is taken
 sessions-project-name-taken = the project name { $harp } is another project's
 sessions-no-claim = nobody holds that session name
 sessions-not-holder = this session does not hold the name { $harp }
 sessions-child-cannot-stop = a child (depth { $depth }) cannot order a stop
-sessions-session-live = session { $harp } is running, and a rename would move its directory from under its engine
-sessions-session-live-fix = wait for the session to end, then rename it
 sessions-not-owner = session { $requester } is not this session's owner, and only its owner may do that
 sessions-session-closed = session { $harp } is closed: it takes no message, clear or new run
 sessions-owner-closed = session { $harp } is closed, and a closed session launches no child

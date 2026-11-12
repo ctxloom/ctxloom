@@ -34,11 +34,6 @@ impl Projection {
         }
     }
 
-    /// The lines folded after this carry `harp` (a rename).
-    pub fn rename(&mut self, harp: &str) {
-        self.harp = harp.to_string();
-    }
-
     /// The lines (newline included) `event`, the stream's page
     /// `page_sequence` recorded at `recorded_at` seconds, adds to the
     /// transcript; none for an event that is not a transcript's (or a page

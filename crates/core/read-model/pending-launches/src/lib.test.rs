@@ -359,11 +359,10 @@ fn a_run_owed_a_runner_carries_its_launchers_lock() {
     assert_eq!(locks, [lock_of(1), lock_of(2)]);
 }
 
-/// Session `n` minted as `harp` in `/work/p{n}`, then renamed `renamed` when
-/// given, as its stream's book.
-fn minted(n: u8, harp: &str, renamed: Option<&str>) -> EventBook {
+/// Session `n` minted as `harp` in `/work/p{n}`, as its stream's book.
+fn minted(n: u8, harp: &str) -> EventBook {
     let (root, _) = session_root(n);
-    let mut pages = vec![page(
+    let pages = vec![page(
         0,
         SessionEvent::SessionMinted(sessions::SessionMinted {
             harp: harp.to_string(),
@@ -378,21 +377,11 @@ fn minted(n: u8, harp: &str, renamed: Option<&str>) -> EventBook {
         })
         .to_any(),
     )];
-    if let Some(to) = renamed {
-        pages.push(page(
-            1,
-            SessionEvent::RenamedTo(sessions::RenamedTo {
-                harp: to.to_string(),
-                output_dir: String::new(),
-            })
-            .to_any(),
-        ));
-    }
     book(SESSION_DOMAIN, root, pages)
 }
 
 // Ruling 93: a run started and not ended is listed with its session's
-// project and CURRENT harp (its lock moves with a rename), until it ends;
+// project and harp (its lock's place), until it ends;
 // and with its own lock, which a host holding it for the run's life lets go
 // only with the run (T3, T18).
 #[test]
@@ -400,7 +389,7 @@ fn a_started_run_is_listed_with_its_sessions_lock_until_it_ends() {
     let (_, session) = session_root(1);
     let run = run_root(&session, 1);
     let mut model = fold(&[
-        minted(1, "amber-swift-owl", Some("bright-keen-hawk")),
+        minted(1, "amber-swift-owl"),
         enqueued(1, 1, RunMode::Interactive),
         later(1, 1, 1, started()),
     ]);
@@ -411,7 +400,7 @@ fn a_started_run_is_listed_with_its_sessions_lock_until_it_ends() {
             session,
             incarnation: 1,
             project_dir: "/work/p1".to_string(),
-            harp: "bright-keen-hawk".to_string(),
+            harp: "amber-swift-owl".to_string(),
             launcher_lock: lock_of(1),
         }]
     );
@@ -429,7 +418,7 @@ fn a_started_run_is_listed_with_its_sessions_lock_until_it_ends() {
 #[test]
 fn a_run_owed_a_runner_is_not_started() {
     let model = fold(&[
-        minted(1, "amber-swift-owl", None),
+        minted(1, "amber-swift-owl"),
         enqueued(1, 1, RunMode::OneShot),
     ]);
     assert!(model.started().is_empty());

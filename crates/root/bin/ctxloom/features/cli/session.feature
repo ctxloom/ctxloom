@@ -31,7 +31,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
     ctxloom session                     (bare: lists)
     ctxloom session list [--state live|ended|unknown]
     ctxloom session show <harp>
-    ctxloom session edit <harp> --name <new>
+    ctxloom session rename <harp> <title>
     ctxloom session keep <harp> [--undo]
     ctxloom session pause|resume|stop <harp>
     ctxloom session send <harp> {inform|wake|steer} "<text>"
@@ -158,52 +158,39 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Then the command succeeds
       And ctxloom says plainly that nothing matched
 
-  Rule: Renaming is a field assignment, so it rides `edit`
+  Rule: A rename sets the title; the harp is permanent
 
-    A session's name is a field on its record, not a thing with a verb of
-    its own. `edit` is the one mutation verb for the noun, and `--name` is
-    the assignment that renames the harp. The backend transcript is
-    unaffected: the session keeps its bound session id and its transcript,
-    and only the name it answers to moves. Its output folder
-    (`<project>/<output.dir>/<harp>`, `ctxloom/` by default, owner rulings
-    89, 106) moves with it, to the new name beside the old, and the record
-    names where it went; a rename whose folder cannot move is refused whole.
+    A session's harp is minted once and never changes (S42), so its name,
+    `projects/{project}/sessions/{session}`, never does either (owner S55,
+    2026-11-12). `session rename <harp> <title>` sets the free-text title
+    shown in its place of the first prompt; the harp, the session's
+    directory, its lock and its output folder (`<project>/<output.dir>/<harp>`)
+    stay where they were. The harp-changing `session edit --name` is gone.
 
     @json-default
-    Scenario: --name renames the harp and moves its output folder
+    Scenario: A rename sets the title, and the harp, its directory and its output folder stay
+      # new: S55, a harp is permanent; replaces "--name renames the harp and moves its output folder".
       Given an initialized ctxloom project
       And a finished session "amber-swift-owl" with a transcript and a summary an older ctxloom left
-      When I run "ctxloom session edit amber-swift-owl --name bright-keen-hawk"
+      When I run 'ctxloom session rename amber-swift-owl "the auth refactor"'
       Then the command succeeds
-      And the output contains "bright-keen-hawk"
-      And the output file "essence.md" of session "bright-keen-hawk" exists
-      And the output file "essence.md" of session "amber-swift-owl" does not exist
+      And the output contains "the auth refactor"
+      And the output file "essence.md" of session "amber-swift-owl" exists
       When I run "ctxloom session list --all"
-      Then the JSON output array "$" contains an object whose "harp" is "bright-keen-hawk"
-      And the JSON output array "$" contains no object whose "harp" is "amber-swift-owl"
+      Then the JSON output array "$" contains an object whose "harp" is "amber-swift-owl"
 
-    Scenario: The old rename verb is gone, not hidden
+    Scenario: The harp-changing edit is gone, not hidden
+      # new: S55; replaces "The old rename verb is gone, not hidden".
       Given an initialized ctxloom project
       And a recorded session "amber-swift-owl"
-      When I run "ctxloom session rename amber-swift-owl bright-keen-hawk"
+      When I run "ctxloom session edit amber-swift-owl --name bright-keen-hawk"
       Then the command fails
       And the output contains "unknown command"
 
-    # A session has no authored document. Its index entry is machine-written
-    # and its title is DERIVED from its transcript, so an editor round-trip
-    # here would offer edits nothing keeps. The bare form says so outright and names the
-    # assignment it does take, rather than exiting 0 having changed nothing.
-    Scenario: A bare edit refuses, because there is no document to open
+    Scenario: Renaming a session nobody recorded fails
+      # new: S55; replaces "Editing a session nobody recorded fails".
       Given an initialized ctxloom project
-      And a recorded session "amber-swift-owl"
-      When I run "ctxloom session edit amber-swift-owl"
-      Then the command fails
-      And the output contains "no editable document"
-      And the output contains "--name"
-
-    Scenario: Editing a session nobody recorded fails
-      Given an initialized ctxloom project
-      When I run "ctxloom session edit no-such-harp --name bright-keen-hawk"
+      When I run 'ctxloom session rename no-such-harp "a title"'
       Then the command fails
       And the output contains "no-such-harp"
 

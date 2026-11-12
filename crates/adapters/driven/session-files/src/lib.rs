@@ -156,54 +156,6 @@ impl SessionFiles for SessionDirs {
         Ok(found)
     }
 
-    fn move_output(&mut self, from: &str, to: &str) -> Result<bool, Report> {
-        let (from, to) = (Path::new(from), Path::new(to));
-        match self.fs.symlink_metadata(from) {
-            Ok(_) => {}
-            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(false),
-            Err(e) => return Err(Report::of(&FilesError::io("stat", from, &e))),
-        }
-        if self.fs.symlink_metadata(to).is_ok() {
-            return Err(Report::of(&FilesError::OutputExists {
-                path: to.display().to_string(),
-            }));
-        }
-        if let Some(parent) = to.parent() {
-            self.fs
-                .create_dir_all(parent, Mode::from_bits(0o755))
-                .map_err(|e| Report::of(&FilesError::io("create", parent, &e)))?;
-        }
-        self.fs
-            .rename(from, to)
-            .map_err(|e| Report::of(&FilesError::io("move", from, &e)))?;
-        Ok(true)
-    }
-
-    fn move_session(&mut self, from: &str, to: &str) -> Result<bool, Report> {
-        let (old, new) = (self.dir(from), self.dir(to));
-        match self.fs.symlink_metadata(&old) {
-            Ok(_) => {}
-            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(false),
-            Err(e) => return Err(Report::of(&FilesError::io("stat", &old, &e))),
-        }
-        if self.fs.symlink_metadata(&new).is_ok() {
-            return Err(Report::of(&FilesError::SessionExists {
-                path: new.display().to_string(),
-            }));
-        }
-        self.fs
-            .rename(&old, &new)
-            .map_err(|e| Report::of(&FilesError::io("move", &old, &e)))?;
-        // The lock moves with the name, so an ended session still reads ended.
-        let (old_lock, new_lock) = (self.lock_path(from), self.lock_path(to));
-        if self.fs.symlink_metadata(&old_lock).is_ok() {
-            self.fs
-                .rename(&old_lock, &new_lock)
-                .map_err(|e| Report::of(&FilesError::io("move", &old_lock, &e)))?;
-        }
-        Ok(true)
-    }
-
     fn destroy_session(&mut self, harp: &str) -> Result<u64, Report> {
         let root = self.dir(harp);
         let mut found = Vec::new();

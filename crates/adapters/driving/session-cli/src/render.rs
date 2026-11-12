@@ -9,7 +9,7 @@ use angzarr_diagnostic::{Arg, Diagnostic};
 use angzarr_presentation::text;
 use serde::Serialize;
 use sessions_application::{
-    stamp, urgency_word, ImportReport, Renamed, TranscriptRow, View, NO_SUMMARY,
+    stamp, urgency_word, ImportReport, Titled, TranscriptRow, View, NO_SUMMARY,
 };
 #[cfg(feature = "session-destroy")]
 use sessions_application::{Class, FilePlan, PlanItem, Removal};
@@ -257,22 +257,20 @@ pub(crate) fn show_text(view: &View, out: &mut dyn Write) -> io::Result<()> {
     Ok(())
 }
 
-/// `session edit`'s answer: the session under both spellings.
+/// `session rename`'s answer: the session, its title and whether it changed.
 #[derive(Serialize)]
-pub(crate) struct EditDoc {
+pub(crate) struct TitleDoc {
     harp: String,
-    previous_harp: String,
-    fields: Vec<&'static str>,
-    output_dir: String,
+    title: String,
+    changed: bool,
 }
 
-impl EditDoc {
-    pub(crate) fn of(renamed: &Renamed) -> EditDoc {
-        EditDoc {
-            harp: renamed.to.clone(),
-            previous_harp: renamed.from.clone(),
-            fields: vec!["name"],
-            output_dir: renamed.output_dir.clone(),
+impl TitleDoc {
+    pub(crate) fn of(titled: &Titled) -> TitleDoc {
+        TitleDoc {
+            harp: titled.harp.clone(),
+            title: titled.title.clone(),
+            changed: titled.changed,
         }
     }
 }

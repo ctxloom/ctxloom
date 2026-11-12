@@ -1112,9 +1112,36 @@ fn preview_only(_: &mut World) {
     red("nothing was applied, and the daemon answered the preview")
 }
 
+/// S55: a title moves nothing. Every planted session's lock is under its
+/// harp, and nothing under the sessions or the output root is named for
+/// anything but a planted harp.
 #[then("the session's directory, lock and output folder were not moved")]
-fn not_moved(_: &mut World) {
-    red("a title change moves nothing")
+fn not_moved(w: &mut World) {
+    let harps = w.lock_free_dead.clone();
+    assert!(!harps.is_empty(), "a session was planted");
+    let project = w.common.project.dir().to_path_buf();
+    for harp in &harps {
+        assert!(
+            crate::tests::files::exists(
+                project
+                    .join(".ctxloom/sessions")
+                    .join(format!("{harp}.lock"))
+            ),
+            "{harp}'s lock is where it was"
+        );
+    }
+    for root in [project.join(".ctxloom/sessions"), project.join("ctxloom")] {
+        for entry in crate::tests::files::children(&root) {
+            let name = entry.file_name().unwrap().to_string_lossy().to_string();
+            assert!(
+                harps
+                    .iter()
+                    .any(|h| name == *h || name.strip_suffix(".lock") == Some(h.as_str())),
+                "{} is named for no planted session",
+                entry.display()
+            );
+        }
+    }
 }
 
 #[then(

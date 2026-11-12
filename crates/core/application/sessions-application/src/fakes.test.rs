@@ -138,41 +138,15 @@ pub struct FakeFiles {
     /// Other files per harp: (rel, bytes).
     pub others: BTreeMap<String, Vec<(String, u64)>>,
     pub fail_destroy: bool,
-    /// Output folders that exist, by path; a move renames one.
-    pub outputs: std::collections::BTreeSet<String>,
-    /// Every move asked for: (from, to).
-    pub moves: Vec<(String, String)>,
-    pub fail_move: bool,
-    /// The session directories that exist, by harp; a session move renames one.
+    /// The session directories that exist, by harp.
     pub sessions: std::collections::BTreeSet<String>,
-    /// Every session-directory move asked for: (from harp, to harp).
-    pub session_moves: Vec<(String, String)>,
-    pub fail_session_move: bool,
     /// Every session directory destroyed whole, by harp.
     pub destroyed_sessions: Vec<String>,
 }
 
 const DIR: &str = "/home/.ctxloom/sessions";
 
-impl FakeFiles {
-    fn moving(&mut self, from: &str, to: &str) -> Result<bool, Report> {
-        self.moves.push((from.to_string(), to.to_string()));
-        if self.fail_move || self.outputs.contains(to) {
-            return Err(Report::new("session-files-output-exists"));
-        }
-        let moved = self.outputs.remove(from);
-        if moved {
-            self.outputs.insert(to.to_string());
-        }
-        Ok(moved)
-    }
-}
-
 impl SessionFiles for FakeFiles {
-    fn move_output(&mut self, from: &str, to: &str) -> Result<bool, Report> {
-        self.moving(from, to)
-    }
-
     fn destroy_session(&mut self, harp: &str) -> Result<u64, Report> {
         if self.fail_destroy {
             return Err(Report::new("fake-files-busy"));
@@ -180,18 +154,6 @@ impl SessionFiles for FakeFiles {
         self.destroyed_sessions.push(harp.to_string());
         self.sessions.remove(harp);
         Ok(self.transcripts.remove(harp).map_or(0, |t| t.len() as u64))
-    }
-
-    fn move_session(&mut self, from: &str, to: &str) -> Result<bool, Report> {
-        self.session_moves.push((from.to_string(), to.to_string()));
-        if self.fail_session_move || self.sessions.contains(to) {
-            return Err(Report::new("session-files-session-exists"));
-        }
-        let moved = self.sessions.remove(from);
-        if moved {
-            self.sessions.insert(to.to_string());
-        }
-        Ok(moved)
     }
 
     fn last_active(&mut self, harp: &str) -> Result<Option<Timestamp>, Report> {

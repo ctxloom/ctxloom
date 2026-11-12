@@ -306,7 +306,7 @@ fn the_fact_allowlists_hold_no_command() {
             url::<runs::QueueTurn>(),
             url::<runs::RequestStop>(),
             url::<sessions::MintSession>(),
-            url::<sessions::RenameSession>(),
+            url::<sessions::SetSessionTitle>(),
             url::<sessions::SetKept>(),
             url::<sessions::StopSession>(),
         ] {

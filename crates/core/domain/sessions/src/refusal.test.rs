@@ -29,18 +29,6 @@ fn table() -> Vec<(TypedRefusal, SessionRejection)> {
             },
         ),
         (
-            TypedRefusal::of(&HarpTooLong {
-                harp: harp(),
-                limit: 24,
-                length: 30,
-            }),
-            SessionRejection::HarpTooLong {
-                harp: harp(),
-                limit: 24,
-                length: 30,
-            },
-        ),
-        (
             TypedRefusal::of(&NamesTaken { harp: harp() }),
             SessionRejection::NamesTaken { harp: harp() },
         ),

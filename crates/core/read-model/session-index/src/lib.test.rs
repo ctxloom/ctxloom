@@ -10,8 +10,8 @@ use angzarr_embedded::{
     Timestamp,
 };
 use sessions::{
-    AdoptRotations, BindEngineSession, EndRecorded, MintSession, Origin, RecordEnd, RenameSession,
-    Rotation, SessionAggregate, SessionCommand, SetKept, SESSION_DOMAIN,
+    AdoptRotations, BindEngineSession, EndRecorded, MintSession, Origin, RecordEnd, Rotation,
+    SessionAggregate, SessionCommand, SetKept, SESSION_DOMAIN,
 };
 
 use super::{SessionIndex, SessionIndexes, SessionRecord};
@@ -218,29 +218,25 @@ fn a_record_is_the_session_its_events_fold() {
     );
 }
 
-// Go: TestRename, and session.feature "--name renames the harp": the list has
-// the new name and not the old.
+// S55 (owner, 2026-11-12, slice 2): a title is the record's; the harp and
+// the places keyed by it stay as they were.
 #[test]
-fn a_renamed_session_is_listed_under_its_new_name() {
+fn a_titled_session_keeps_its_harp_and_carries_its_title() {
     let mut project = Project::new();
     let mut index = SessionIndex::catch_up();
     project.run(&mut index, FIRST, mint("amber-swift-owl"));
+    let before = index.projector().index().find("amber-swift-owl").unwrap();
     project.run(
         &mut index,
         FIRST,
-        RenameSession {
-            harp: "bright-keen-hawk".to_string(),
-            output_dir: "/home/Documents/ctxloom/proj/bright-keen-hawk".to_string(),
-            lock: sessions::LockEvidence::Free,
+        sessions::SetSessionTitle {
+            title: "the auth refactor".to_string(),
         },
     );
-    assert_eq!(harps(&index), ["bright-keen-hawk"]);
-    let index = index.projector().index();
-    assert!(index.find("amber-swift-owl").is_none());
-    assert_eq!(
-        index.find("bright-keen-hawk").unwrap().output_dir,
-        "/home/Documents/ctxloom/proj/bright-keen-hawk"
-    );
+    assert_eq!(harps(&index), ["amber-swift-owl"]);
+    let after = index.projector().index().find("amber-swift-owl").unwrap();
+    assert_eq!(after.title, "the auth refactor");
+    assert_eq!(after.output_dir, before.output_dir);
 }
 
 // Go: TestFindBySessionID_ResolvesCurrentBinding / _ResolvesRotatedAwayID /
@@ -580,36 +576,6 @@ fn a_records_last_capture_is_its_newest_capture_events_instant() {
     project.run_book(&mut index, words(FIRST, "p1", 0, "then"));
     let last = records(&index)[0].last_captured.expect("captured");
     assert_eq!(last.seconds, project.seconds);
-}
-
-// Ruling 87a with defect 2: the lines folded after a rename carry the new
-// name; those before it keep the name they were said under.
-#[test]
-fn a_transcripts_lines_after_a_rename_carry_the_new_name() {
-    let mut project = Project::new();
-    let mut index = SessionIndex::catch_up();
-    project.run(&mut index, FIRST, mint("amber-swift-owl"));
-    project.run_book(&mut index, prompt(FIRST, "p1", "before"));
-    project.run(
-        &mut index,
-        FIRST,
-        RenameSession {
-            harp: "bright-keen-hawk".to_string(),
-            output_dir: String::new(),
-            lock: sessions::LockEvidence::Free,
-        },
-    );
-    project.run_book(&mut index, prompt(FIRST, "p2", "after"));
-    let text = index
-        .projector()
-        .index()
-        .transcript(&id_text(FIRST))
-        .unwrap();
-    let harps: Vec<String> = lines(&text)
-        .iter()
-        .map(|l| l["harp"].as_str().unwrap().to_string())
-        .collect();
-    assert_eq!(harps, ["amber-swift-owl", "bright-keen-hawk"]);
 }
 
 // ------------------------------------------------------------ owner link

@@ -16,7 +16,7 @@ use reclaim_application::{purge_cutoff, ReclaimError, SweepRequest};
 use sessions_application::Timestamp;
 use sessions_application::{
     dead_letter_line, AppError, DeadLetter, ImportRequest, ImportService, KeepRequest, ListQuery,
-    RemovedNothing, RenameRequest, SearchQuery, SessionService, ShowQuery, State, TranscriptQuery,
+    RemovedNothing, SearchQuery, SessionService, ShowQuery, State, TitleRequest, TranscriptQuery,
     View, STATES,
 };
 #[cfg(feature = "session-destroy")]
@@ -24,7 +24,7 @@ use sessions_application::{DestroysAuthored, RemoveRequest, REMOVE_VERB};
 
 use crate::render::{
     conversation_text, import_text, rows_text, show_text, transcripts_text, worktrees_text,
-    EditDoc, ImportDoc, KeepDoc, Row, ShowDoc, TranscriptsDoc,
+    ImportDoc, KeepDoc, Row, ShowDoc, TitleDoc, TranscriptsDoc,
 };
 #[cfg(feature = "session-destroy")]
 use crate::{
@@ -32,7 +32,7 @@ use crate::{
     RemoveArgs, SweepArgs,
 };
 use crate::{
-    CliFault, EditArgs, ListArgs, Session, SessionVerb, Transcript, TranscriptListArgs,
+    CliFault, ListArgs, RenameArgs, Session, SessionVerb, Transcript, TranscriptListArgs,
     TranscriptVerb, Worktrees, WorktreesVerb,
 };
 
@@ -185,7 +185,7 @@ async fn execute<S: SessionService + ImportService + WorktreeUse + SweepConfig>(
             })?;
             Ok(Done::default())
         }
-        Some(SessionVerb::Edit(args)) => edit(service, args, format, out).await,
+        Some(SessionVerb::Rename(args)) => rename(service, args, format, out).await,
         Some(SessionVerb::Keep(args)) => {
             let kept = service
                 .keep(KeepRequest {
@@ -294,32 +294,26 @@ async fn list<S: SessionService>(
     rows(&views, format, out)
 }
 
-async fn edit<S: SessionService>(
+/// `session rename <harp> <title>` (S55): the title set; the harp stays.
+async fn rename<S: SessionService>(
     service: &mut S,
-    args: &EditArgs,
+    args: &RenameArgs,
     format: Format,
     out: &mut dyn Write,
 ) -> Result<Done, Failure> {
-    // Read through `Option`, not emptiness: `--name ""` is a caller asking for
-    // an invalid name and must reach the validator.
-    let Some(to) = &args.name else {
-        return Err(fault(CliFault::EditNothing {
-            harp: args.harp.clone(),
-        }));
-    };
-    let renamed = service
-        .rename(RenameRequest {
+    let titled = service
+        .set_title(TitleRequest {
             project: None,
             harp: args.harp.clone(),
-            to: to.clone(),
+            title: args.title.clone(),
         })
         .await
         .map_err(failure)?;
     wrote(match format {
-        Format::Json => write_json(out, &EditDoc::of(&renamed)),
-        Format::Text => writeln!(out, "renamed {} \u{2192} {}", renamed.from, renamed.to),
+        Format::Json => write_json(out, &TitleDoc::of(&titled)),
+        Format::Text => writeln!(out, "{}: titled {:?}", titled.harp, titled.title),
     })?;
-    Ok(dead_letters(&renamed.dead_letters))
+    Ok(dead_letters(&titled.dead_letters))
 }
 
 /// `session remove`: the destroy (owner ruling 98, the session-destroy

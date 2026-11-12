@@ -1,10 +1,7 @@
-//! What a harp may be called: Go's `harp.Validate` and `ValidateRename`.
+//! What a harp may be called: Go's `harp.Validate`. A harp is minted, never
+//! chosen by a human (S42, S55), so Go's `ValidateRename` bound is gone.
 
 use crate::SessionRejection;
-
-/// The longest name, in characters, a human may rename a session to (Go's
-/// `harp.MaxNameLen`).
-pub const MAX_NAME_LEN: usize = 24;
 
 /// Whether `name` can be a session's name at all (Go's `harp.Validate`): it
 /// becomes a path component, so it is not empty, `.` or `..`, carries no path
@@ -29,21 +26,6 @@ pub fn validate(name: &str) -> Result<(), SessionRejection> {
     }
     if name.trim() != name {
         return Err(invalid("whitespace"));
-    }
-    Ok(())
-}
-
-/// Whether a human may choose `name` (Go's `harp.ValidateRename`): [`validate`]
-/// and at most [`MAX_NAME_LEN`] characters.
-pub fn validate_rename(name: &str) -> Result<(), SessionRejection> {
-    validate(name)?;
-    let length = name.chars().count();
-    if length > MAX_NAME_LEN {
-        return Err(SessionRejection::HarpTooLong {
-            harp: name.to_string(),
-            limit: MAX_NAME_LEN as u64,
-            length: length as u64,
-        });
     }
     Ok(())
 }

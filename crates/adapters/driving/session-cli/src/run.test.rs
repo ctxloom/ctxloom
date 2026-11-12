@@ -11,9 +11,8 @@ use serde_json::{json, Value};
 use sessions_application::{
     dead_letter_sample, AppError, BindRequest, Bound, Captured, Class, FilePlan, ImportReport,
     ImportRequest, ImportService, Imported, KeepRequest, Kept, Left, ListQuery, PendingMessage,
-    PlanItem, Refusal, Removal, RemoveRequest, RenameRequest, Renamed, SearchQuery, SessionRecord,
-    SessionService, ShowQuery, State, TitleRequest, Titled, TranscriptQuery, TranscriptRow, View,
-    Why,
+    PlanItem, Refusal, Removal, RemoveRequest, SearchQuery, SessionRecord, SessionService,
+    ShowQuery, State, TitleRequest, Titled, TranscriptQuery, TranscriptRow, View, Why,
 };
 
 use super::run;
@@ -33,14 +32,12 @@ struct Fake {
     rows: Vec<TranscriptRow>,
     transcript: String,
     removal: Option<Removal>,
-    rename: Option<Result<Renamed, AppError>>,
     dead_letters: bool,
     list: Vec<ListQuery>,
     search: Vec<SearchQuery>,
     show: Vec<ShowQuery>,
     keep: Vec<KeepRequest>,
     remove: Vec<RemoveRequest>,
-    renamed: Vec<RenameRequest>,
     titled: Vec<TitleRequest>,
     transcripts: Vec<TranscriptQuery>,
     report: Option<ImportReport>,
@@ -142,13 +139,6 @@ impl SessionService for Fake {
             changed: true,
             dead_letters: Vec::new(),
         })
-    }
-
-    async fn rename(&mut self, request: RenameRequest) -> Result<Renamed, AppError> {
-        self.renamed.push(request);
-        self.rename.clone().unwrap_or(Err(AppError::NoSession {
-            harp: "x".to_string(),
-        }))
     }
 
     async fn transcripts(
@@ -749,68 +739,6 @@ fn the_harp_changing_edit_is_gone() {
     assert!(Session::augment_args(Command::new("session"))
         .try_get_matches_from(["session", "edit", "amber-swift-owl", "--name", "x"])
         .is_err());
-}
-
-// ------------------------------------------------------------------------ edit
-
-// session.feature: "A bare edit refuses, because there is no document to open".
-#[test]
-fn a_bare_edit_refuses_and_names_the_field_it_takes() {
-    let mut fake = Fake::default();
-    let failure = go(&mut fake, Format::Json, &["edit", "amber-swift-owl"])
-        .result
-        .unwrap_err();
-    assert_eq!(failure.failure.cause.code(), "session-cli-edit-nothing");
-    assert_eq!(failure.failure.exit, Exit::REFUSED);
-    assert!(fake.renamed.is_empty());
-}
-
-// Go: sessionEditResult and "renamed X → Y".
-#[test]
-fn edit_name_renames_and_says_both_names() {
-    let mut fake = Fake {
-        rename: Some(Ok(Renamed {
-            from: "amber-swift-owl".to_string(),
-            to: "bright-keen-hawk".to_string(),
-            output_dir: "/o/bright-keen-hawk".to_string(),
-            dead_letters: Vec::new(),
-        })),
-        ..Fake::default()
-    };
-    let ran = go(
-        &mut fake,
-        Format::Json,
-        &["edit", "amber-swift-owl", "--name", "bright-keen-hawk"],
-    );
-    assert_eq!(
-        json_of(&ran),
-        json!({"harp": "bright-keen-hawk", "previous_harp": "amber-swift-owl", "fields": ["name"], "output_dir": "/o/bright-keen-hawk"})
-    );
-    let ran = go(
-        &mut fake,
-        Format::Text,
-        &["edit", "amber-swift-owl", "--name", "bright-keen-hawk"],
-    );
-    assert_eq!(
-        ran.out,
-        "renamed amber-swift-owl \u{2192} bright-keen-hawk\n"
-    );
-    assert_eq!(fake.renamed[0].to, "bright-keen-hawk");
-}
-
-// `--name ""` is a caller asking for an invalid name and must reach the
-// validator, not look like not passing the flag (Go: Flags().Changed).
-#[test]
-fn an_empty_name_reaches_the_use_case() {
-    let mut fake = Fake::default();
-    let ran = go(
-        &mut fake,
-        Format::Json,
-        &["edit", "amber-swift-owl", "--name", ""],
-    );
-    assert_eq!(fake.renamed.len(), 1);
-    assert_eq!(fake.renamed[0].to, "");
-    assert!(ran.result.is_err());
 }
 
 // ---------------------------------------------------------------------- remove

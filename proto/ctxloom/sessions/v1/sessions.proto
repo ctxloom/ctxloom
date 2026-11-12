@@ -4,8 +4,10 @@ syntax = "proto3";
 // stable id minted at creation (plan 3.1, D5 Q1/Q4), in its project's
 // store. The harp is only its name. Go's session sidecar
 // (`~/.ctxloom/sessions/<harp>/session.yaml`) is folded here event by
-// event: the mint, the engine binding and its rotations, keep, rename and
-// adopt. Lineage, the lifeline and grants
+// event: the mint, the engine binding and its rotations, keep and adopt.
+// A harp never changes (S42); `session rename` sets the title (S55), and
+// the harp-changing RenameSession, RenamedTo, SessionLive, HarpTooLong and
+// LockEvidence are gone (hard migrate, owner 2026-11-12 slice 2). Lineage, the lifeline and grants
 // arrive with the slices that need them (S5 to S10).
 package ctxloom.sessions.v1;
 
@@ -23,7 +25,7 @@ message SessionState {
     aggregate: {domain: "sessions"}
   };
 
-  // The harp: the session's name, which a rename changes.
+  // The harp: the session's own name, minted once and never changed.
   string harp = 1;
   string project_id = 2;
   // The project directory that launched it (Go's project_dir).
@@ -83,20 +85,6 @@ enum Origin {
   ORIGIN_AGENT = 2;
   // An internal one-shot (a distiller, a probe).
   ORIGIN_ONESHOT = 3;
-}
-
-// What a session's liveness lock said when a command was decided on it
-// (owner rulings 73e, 91: the application asks the lock, the aggregate
-// judges what it said).
-enum LockEvidence {
-  // Not asked: judged as proving nothing.
-  LOCK_EVIDENCE_UNSPECIFIED = 0;
-  // A running process holds it: the session is live.
-  LOCK_EVIDENCE_HELD = 1;
-  // It is there and nothing holds it: the session's owner ended.
-  LOCK_EVIDENCE_FREE = 2;
-  // No lock, or one that cannot be tried: proves nothing.
-  LOCK_EVIDENCE_UNPROVEN = 3;
 }
 
 // One displaced binding of a session: the native id and vendor
@@ -186,28 +174,6 @@ message SetSessionTitle {
   string title = 1;
 }
 
-// Rename the session. The harp must be one a human may choose (Go's
-// ValidateRename). The output dir moves as an effect; the new path is
-// recorded with the name.
-message RenameSession {
-  option (io.angzarr.v1.command) = {
-    component: "ctxloom.sessions.v1.SessionState"
-    emits: ["ctxloom.sessions.v1.RenamedTo"]
-    refuses: "ctxloom.sessions.v1.NoSession"
-    refuses: "ctxloom.sessions.v1.HarpInvalid"
-    refuses: "ctxloom.sessions.v1.HarpTooLong"
-    refuses: "ctxloom.sessions.v1.SessionLive"
-  };
-
-  string harp = 1;
-  // The output dir after the move; empty when the session has none.
-  string output_dir = 2;
-  // The EVIDENCE (owner ruling 91, per 73e): what the session's lock said.
-  // A held one refuses the rename (its engine works in the directory a
-  // rename moves); a free or unproven one does not.
-  LockEvidence lock = 3;
-}
-
 // Seed rotations the store never recorded (`session adopt --yes`). Each
 // whose native id is the current binding or already in the lineage is
 // skipped; the lineage stays ordered by rotation instant.
@@ -285,13 +251,6 @@ message TitleSet {
   option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
 
   string title = 1;
-}
-
-message RenamedTo {
-  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
-
-  string harp = 1;
-  string output_dir = 2;
 }
 
 message SessionAdopted {
@@ -420,13 +379,6 @@ message NoSession {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
 }
 
-// A rename of a session that is live: its lock is held (owner ruling 91).
-message SessionLive {
-  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
-
-  string harp = 1;
-}
-
 // A harp that cannot be a session's name; `reason` is one of `empty`,
 // `directory`, `separator`, `control`, `whitespace`.
 message HarpInvalid {
@@ -434,15 +386,6 @@ message HarpInvalid {
 
   string harp = 1;
   string reason = 2;
-}
-
-// A name a human chose that is past the bound.
-message HarpTooLong {
-  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
-
-  string harp = 1;
-  uint64 limit = 2;
-  uint64 length = 3;
 }
 
 // A stop ordered by a child; `depth` is the requester's.

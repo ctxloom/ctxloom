@@ -630,70 +630,44 @@ fn test_transcript_show_of_a_session_with_no_transcript_fails() {
     );
 }
 
-// ---------------------------------------------------------------------- edit
+// -------------------------------------------------------------------- rename
 
-// session.feature: "The old rename verb is gone, not hidden", and "Watching
-// moved under the transcript it watches".
+// session.feature: "A rename sets the title, and the harp, its directory and
+// its output folder stay" (S55): a harp is permanent.
 #[test]
-fn test_the_old_rename_verb_is_gone() {
-    let home = Home::new();
-    home.seed(HARP, &[]);
-    let ran = home.run(&["session", "rename", HARP, "bright-keen-hawk"]);
-    assert_eq!(ran.code, 20, "{}", ran.said());
-    assert!(said(&ran).contains("unknown command"), "{}", ran.said());
-}
-
-// session.feature: "A bare edit refuses, because there is no document to
-// open".
-#[test]
-fn test_a_bare_edit_refuses_and_names_the_field_it_takes() {
-    let home = Home::new();
-    home.seed(HARP, &[]);
-    let ran = home.run(&["session", "edit", HARP]);
-    assert_ne!(ran.code, 0, "{}", ran.said());
-    assert!(
-        said(&ran).contains("no editable document"),
-        "{}",
-        ran.said()
-    );
-    assert!(said(&ran).contains("--name"), "{}", ran.said());
-}
-
-// session.feature: "Editing a session nobody recorded fails".
-#[test]
-fn test_editing_a_session_nobody_recorded_fails_naming_it() {
-    let home = Home::new();
-    let ran = home.run(&[
-        "session",
-        "edit",
-        "no-such-harp",
-        "--name",
-        "bright-keen-hawk",
-    ]);
-    assert_ne!(ran.code, 0, "{}", ran.said());
-    assert!(said(&ran).contains("no-such-harp"), "{}", ran.said());
-}
-
-// session.feature: "--name renames the harp and moves its output folder".
-//
-// GO-DERIVED, BLOCKED ON THE OWNER'S D5 RULING: a rename claims the new name
-// and frees the old (plan 3.1), and the claim streams await review. Red until
-// then: `session edit --name` says renaming is unavailable.
-#[test]
-fn test_edit_name_renames_the_harp_and_moves_its_output_folder() {
+fn test_a_rename_sets_the_title_and_moves_nothing() {
     let home = Home::new();
     home.finished(HARP);
     let essence = home.leave_summary(HARP);
-    let ran = home.run(&["session", "edit", HARP, "--name", "bright-keen-hawk"]);
+    let ran = home.run(&["session", "rename", HARP, "the auth refactor"]);
     assert_eq!(ran.code, 0, "{}", ran.said());
-    assert!(said(&ran).contains("bright-keen-hawk"), "{}", ran.said());
-    assert!(files::exists(
-        home.output_dir("bright-keen-hawk").join("essence.md")
-    ));
-    assert!(!files::exists(&essence));
+    let shown = home
+        .run(&["session", "show", HARP, "--format", "json"])
+        .json();
+    assert_eq!(shown["harp"], HARP);
+    assert_eq!(shown["title"], "the auth refactor");
+    assert!(files::exists(&essence), "the output folder did not move");
     let listed = rows(&home.run(&["session", "list", "--all"]));
-    assert!(harps(&listed).contains(&"bright-keen-hawk".to_string()));
-    assert!(!harps(&listed).contains(&HARP.to_string()));
+    assert_eq!(harps(&listed), [HARP.to_string()]);
+}
+
+// session.feature: "Renaming a session nobody recorded fails".
+#[test]
+fn test_renaming_a_session_nobody_recorded_fails_naming_it() {
+    let home = Home::new();
+    let ran = home.run(&["session", "rename", "no-such-harp", "a title"]);
+    assert_eq!(ran.code, 20, "{}", ran.said());
+    assert!(said(&ran).contains("no-such-harp"), "{}", ran.said());
+}
+
+// session.feature: "The harp-changing edit is gone".
+#[test]
+fn test_the_harp_changing_edit_is_gone() {
+    let home = Home::new();
+    home.seed(HARP, &[]);
+    let ran = home.run(&["session", "edit", HARP, "--name", "bright-keen-hawk"]);
+    assert_eq!(ran.code, 20, "{}", ran.said());
+    assert!(said(&ran).contains("unknown command"), "{}", ran.said());
 }
 
 // ---------------------------------------------------- session_hooks.feature

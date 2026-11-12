@@ -629,7 +629,7 @@ const WATCHED_STUB: &str = r#"here="$(dirname "$0")"
 harp="$CTXLOOM_SESSION_HARP"
 echo "$harp" > "$here/watched-harp"
 ctxloom session list --format json > "$here/live-list" 2> "$here/live-list.err"
-ctxloom session edit "$harp" --name renamed-while-live --format json > "$here/live-rename" 2>&1
+ctxloom session rename "$harp" "titled while live" --format json > "$here/live-rename" 2>&1
 echo "$?" > "$here/live-rename.code"
 ctxloom session remove "$harp" --yes --format json > "$here/live-remove" 2>&1
 echo "$?" > "$here/live-remove.code"
@@ -699,25 +699,20 @@ fn listed_live(w: &mut World) {
     );
 }
 
-#[then("while it ran, renaming its session was refused until the session ends")]
-fn rename_refused_live(w: &mut World) {
+#[then("while it ran, renaming its session set its title and moved nothing")]
+fn rename_titled_live(w: &mut World) {
     let said = w.watched("live-rename");
-    assert_ne!(w.watched("live-rename.code").trim(), "0", "{said}");
-    // PROPOSAL: the typed refusal `SessionLive` (its status is the proto's), code
-    // `sessions-session-live`, its fix saying to wait for the session's end.
-    assert!(said.contains("sessions-session-live"), "{said}");
+    assert_eq!(w.watched("live-rename.code").trim(), "0", "{said}");
+    assert!(said.contains("titled while live"), "{said}");
     assert!(
-        said.contains("\"fix\""),
-        "the envelope carries the fix: {said}"
-    );
-    assert!(
-        !files::exists(
+        files::is_dir(
             w.common
                 .project
                 .dir()
-                .join(".ctxloom/sessions/renamed-while-live")
+                .join(".ctxloom/sessions")
+                .join(w.watched_harp())
         ),
-        "nothing was moved"
+        "its directory stayed under its harp"
     );
 }
 
@@ -743,26 +738,22 @@ fn listed_ended(w: &mut World) {
     );
 }
 
-#[then("after it ended, renaming it moves its session's directory and lock with its name")]
-fn rename_moves_directory(w: &mut World) {
+#[then("after it ended, its session's directory and lock are still under its harp")]
+fn still_under_its_harp(w: &mut World) {
     let harp = w.watched_harp();
     let sessions = w.common.project.dir().join(".ctxloom/sessions");
-    let ran = w.run_now(&["session", "edit", &harp, "--name", "renamed-after-end"]);
-    assert_eq!(ran.code, 0, "{}", ran.said());
     assert!(
-        !files::exists(sessions.join(&harp)),
-        "the old directory is gone (defect 2): a later session could claim it"
+        files::is_dir(sessions.join(&harp).join("home")),
+        "the directory is under its harp"
     );
-    assert!(
-        files::is_dir(sessions.join("renamed-after-end/home")),
-        "the directory moved with the name"
-    );
-    let listed = w.run_now(&["session", "list", "--format", "json"]);
+    let shown = w.run_now(&["session", "show", &harp, "--format", "json"]);
+    assert_eq!(shown.code, 0, "{}", shown.said());
+    let doc: Value = serde_json::from_str(&shown.stdout).expect("json");
+    assert_eq!(doc["title"], "titled while live", "{}", shown.stdout);
     assert_eq!(
-        listed_state(&listed.stdout, "renamed-after-end").as_deref(),
-        Some("ended"),
-        "its lock moved with it, so it still reads ended: {}",
-        listed.stdout
+        doc["state"], "ended",
+        "its lock is where it was: {}",
+        shown.stdout
     );
 }
 

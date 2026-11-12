@@ -140,19 +140,6 @@ pub trait SessionFiles {
     /// worktrees and the scratch).
     fn survey(&mut self, harp: &str) -> Result<Vec<FileItem>, Report>;
 
-    /// Move a session's output directory from `from` to `to` (a rename
-    /// moves it beside itself, to the new name): `false` when there is
-    /// nothing at `from` to move. A move, never a copy then a delete, and
-    /// refused whole when something is already at `to`.
-    fn move_output(&mut self, from: &str, to: &str) -> Result<bool, Report>;
-
-    /// Move the session directory of `from` (a harp), and its lock file
-    /// beside it, to `to`'s (defect 2: a rename leaves no directory behind
-    /// for a later session to claim): `false` when there is no directory at
-    /// `from`. A move, never a copy; refused whole when something is already
-    /// at `to`.
-    fn move_session(&mut self, from: &str, to: &str) -> Result<bool, Report>;
-
     /// Remove `harp`'s session directory whole, and its lock file beside it
     /// (owner ruling 94b: a destroy leaves nothing of the session); the bytes
     /// freed. Nothing there is not a failure.

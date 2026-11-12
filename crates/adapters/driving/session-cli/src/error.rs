@@ -10,9 +10,6 @@ use cli_support::{Exit, ExitClass};
 pub enum CliFault {
     /// A `--state` that is not a state (Go: `checkSessionState`).
     BadState { value: String, states: String },
-    /// A bare `edit`: a session has no document to open, and no field was
-    /// named (Go: `runSessionEdit`).
-    EditNothing { harp: String },
     /// The runtime commands block on could not start.
     Runtime { ext_err_txt: String },
     /// The answer could not be written.
@@ -26,7 +23,7 @@ impl ExitClass for CliFault {
     /// content, or failed (10).
     fn exit(&self) -> Exit {
         match self {
-            CliFault::BadState { .. } | CliFault::EditNothing { .. } => Exit::REFUSED,
+            CliFault::BadState { .. } => Exit::REFUSED,
             CliFault::Runtime { .. } | CliFault::Output { .. } | CliFault::SweepFailed { .. } => {
                 Exit::FAILED
             }
@@ -44,7 +41,6 @@ impl Diagnostic for CliFault {
     fn code(&self) -> &str {
         match self {
             CliFault::BadState { .. } => code!("bad-state"),
-            CliFault::EditNothing { .. } => code!("edit-nothing"),
             CliFault::Runtime { .. } => code!("runtime"),
             CliFault::Output { .. } => code!("output"),
             CliFault::SweepFailed { .. } => code!("sweep-failed"),
@@ -57,7 +53,6 @@ impl Diagnostic for CliFault {
                 ("value", value.as_str().into()),
                 ("states", states.as_str().into()),
             ],
-            CliFault::EditNothing { harp } => vec![("harp", harp.as_str().into())],
             CliFault::Runtime { ext_err_txt } | CliFault::Output { ext_err_txt } => {
                 vec![("ext_err_txt", ext_err_txt.as_str().into())]
             }
@@ -79,9 +74,6 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(CliFault::BadState {
             value: "running".to_string(),
             states: "live, ended, unknown".to_string(),
-        }),
-        Box::new(CliFault::EditNothing {
-            harp: "amber-swift-owl".to_string(),
         }),
         Box::new(CliFault::Runtime {
             ext_err_txt: "no timer".to_string(),

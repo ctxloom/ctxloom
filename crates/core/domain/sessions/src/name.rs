@@ -23,8 +23,7 @@ const SESSIONS: &str = "sessions";
 
 /// The UUIDv5 of `name` in [`NAMESPACE`].
 pub fn root_of(name: &str) -> uuid::Uuid {
-    let _ = name;
-    uuid::Uuid::nil()
+    uuid::Uuid::new_v5(&NAMESPACE, name.as_bytes())
 }
 
 fn wire(id: uuid::Uuid) -> angzarr_embedded::v1::Uuid {
@@ -81,8 +80,12 @@ impl ProjectName {
 
     /// `name` read as `projects/{project}`.
     pub fn parse(name: &str) -> Result<ProjectName, SessionRejection> {
-        let _ = segment;
-        Err(malformed(name, "red"))
+        match name.split('/').collect::<Vec<_>>()[..] {
+            [PROJECTS, project] => Ok(ProjectName {
+                project: segment(name, project)?,
+            }),
+            _ => Err(malformed(name, "shape")),
+        }
     }
 
     /// The project's harp.
@@ -108,8 +111,7 @@ impl ProjectName {
 
 impl fmt::Display for ProjectName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let _ = (PROJECTS, &self.project);
-        write!(f, "")
+        write!(f, "{PROJECTS}/{}", self.project)
     }
 }
 
@@ -126,7 +128,13 @@ impl SessionName {
 
     /// `name` read as `projects/{project}/sessions/{session}`.
     pub fn parse(name: &str) -> Result<SessionName, SessionRejection> {
-        Err(malformed(name, "red"))
+        match name.split('/').collect::<Vec<_>>()[..] {
+            [PROJECTS, project, SESSIONS, session] => Ok(SessionName {
+                project: segment(name, project)?,
+                session: segment(name, session)?,
+            }),
+            _ => Err(malformed(name, "shape")),
+        }
     }
 
     /// The project's harp.
@@ -164,8 +172,7 @@ impl SessionName {
 
 impl fmt::Display for SessionName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let _ = (SESSIONS, &self.session);
-        write!(f, "")
+        write!(f, "{PROJECTS}/{}/{SESSIONS}/{}", self.project, self.session)
     }
 }
 

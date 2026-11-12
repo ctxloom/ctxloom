@@ -14,8 +14,9 @@
 //! interval, whichever is first (another process's commit reaches no
 //! in-process signal, so the poll stays, S-N4). The daemon exits when asked
 //! (`daemon stop`), when another daemon's discovery replaced its own (it
-//! lost the election), or once it has hosted nothing and had nothing to do
-//! for its idle time.
+//! lost the election), or once it has hosted nothing, had nothing to do and
+//! known no run started and not ended (M9: any process's) for its idle
+//! time.
 
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -267,8 +268,21 @@ async fn run<E: run_ports::Edge, T: run_ports::TokenSource>(
         if busy || launcher.hosting() > 0 {
             quiet_since = Instant::now();
         } else if quiet_since.elapsed() >= pace.idle {
-            said(say, "idle: exiting");
-            return Ok(());
+            // M9: a run any process started and has not ended (an
+            // interactive session the CLI runs) keeps it, once the runs
+            // whose owner is gone are ended; asked only at the idle limit,
+            // which is when it matters.
+            match launcher.live_runs(core.store(), core.catalog()).await {
+                Ok(0) => {
+                    said(say, "idle: exiting");
+                    return Ok(());
+                }
+                Ok(_) => quiet_since = Instant::now(),
+                Err(detail) => {
+                    said(say, &format!("the live runs cannot be read: {detail}"));
+                    quiet_since = Instant::now();
+                }
+            }
         }
         // The push: a commit through this process's store handles (the
         // daemon's own writes, its listener's hooks) wakes the next round at

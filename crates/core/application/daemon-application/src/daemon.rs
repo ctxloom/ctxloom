@@ -6,7 +6,7 @@ use std::sync::Arc;
 use angzarr_embedded::v1::Uuid;
 use angzarr_embedded::{Catalog, CatchUp, Failure, Processed, ReadStore, Store, Watch};
 use daemon_board::Boards;
-use pending_launches::PendingModel;
+use pending_launches::{PendingLaunch, PendingModel, StartedRun};
 use pending_messages::PendingMessages;
 use run_ports::{
     ChildControl, ChildMessage, ChildObservation, ChildSpec, Edge, FailureClass, HeldLock,
@@ -209,8 +209,14 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
         store: &S,
         catalog: &Catalog,
     ) -> Result<usize, String> {
-        let _ = (store, catalog);
-        Ok(self.hosted.len())
+        let started = self.caught_up_launches(store, catalog).await?.1;
+        let theirs: Vec<StartedRun> = started
+            .iter()
+            .filter(|run| !self.hosted.values().any(|hosted| hosted.who.run == run.run))
+            .cloned()
+            .collect();
+        let swept = self.swept(&[], &theirs).await?;
+        Ok(started.len().saturating_sub(swept.len()))
     }
 
     /// The engines it can host a child on, by name.
@@ -240,6 +246,17 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
         store: &S,
         catalog: &Catalog,
     ) -> Result<Vec<Swept>, String> {
+        let (owed, started) = self.caught_up_launches(store, catalog).await?;
+        self.swept(&owed, &started).await
+    }
+
+    /// The runs owed a runner, and the runs started and not ended, as the
+    /// store holds them now.
+    async fn caught_up_launches<S: ReadStore + Store + Processed>(
+        &mut self,
+        store: &S,
+        catalog: &Catalog,
+    ) -> Result<(Vec<PendingLaunch>, Vec<StartedRun>), String> {
         let caught = self
             .launches
             .step(store, catalog)
@@ -248,12 +265,18 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
         if let Some((_, failure)) = caught.failures().first() {
             return Err(failure.to_string());
         }
-        let (owed, started) = {
-            let pending = self.launches.projector().pending();
-            (pending.launches(), pending.started())
-        };
+        let pending = self.launches.projector().pending();
+        Ok((pending.launches(), pending.started()))
+    }
+
+    /// Of `owed` and `started`, the runs whose owner is gone, ended and said.
+    async fn swept(
+        &mut self,
+        owed: &[PendingLaunch],
+        started: &[StartedRun],
+    ) -> Result<Vec<Swept>, String> {
         let swept = Sweeper::new(Arc::clone(&self.edge), Arc::clone(&self.run_locks))
-            .sweep(&owed, &started)
+            .sweep(owed, started)
             .await
             .map_err(|e| angzarr_diagnostic::Diagnostic::code(&e).to_string())?;
         for run in &swept {

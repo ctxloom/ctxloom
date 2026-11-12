@@ -682,8 +682,8 @@ impl<E: Edge> Sweeper<E> {
     fn owner_lost(&self, run: &StartedRun) -> bool {
         let session = !run.harp.is_empty()
             && self.locks.session(&run.project_dir, &run.harp) == run_ports::LockProbe::Free;
-        // RED: a host's lock is not judged yet.
-        let host = run.launcher_lock.is_empty() && run.launcher_lock.len() > 1;
+        let host = !run.launcher_lock.is_empty()
+            && self.locks.probe(&run.launcher_lock) == run_ports::LockProbe::Free;
         session || host
     }
 

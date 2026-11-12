@@ -189,9 +189,7 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
     }
 
     fn engine(&self, name: &str) -> Option<HostedEngine> {
-        // RED: the first engine, whatever the name.
-        let _ = name;
-        self.engines.first().cloned()
+        self.engines.iter().find(|e| e.name() == name).cloned()
     }
 
     /// The daemon's FIRST step (T18): every run the store holds caught up,
@@ -204,12 +202,9 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
         store: &S,
         catalog: &Catalog,
     ) -> Result<Vec<Swept>, String> {
-        // RED: no sweep at the start yet.
-        let _ = (store, catalog);
-        Ok(Vec::new())
+        self.sweep(store, catalog).await
     }
 
-    #[allow(dead_code)]
     async fn sweep<S: ReadStore + Store + Processed>(
         &mut self,
         store: &S,

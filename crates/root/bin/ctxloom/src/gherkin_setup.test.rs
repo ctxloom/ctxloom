@@ -75,8 +75,8 @@ impl World {
         self.common.project.write_home(
             ".gitconfig",
             &format!(
-                "{held}[url \"file://{}\"]\n\tinsteadOf = {url}.git\n\tinsteadOf = {url}\n",
-                bare.display()
+                "{held}[url \"{}\"]\n\tinsteadOf = {url}.git\n\tinsteadOf = {url}\n",
+                files::file_url(&bare)
             ),
         );
     }

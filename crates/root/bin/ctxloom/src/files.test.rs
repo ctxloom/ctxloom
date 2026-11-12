@@ -41,6 +41,17 @@ pub(crate) fn keeps_exec_bits() -> bool {
     false
 }
 
+/// The `file://` URL of the absolute `path`, as git reads one and a person
+/// writes one: `file:///a/b` on unix; `file:///C:/a/b` on Windows, whose path
+/// is spelled with `/` in a URL.
+pub(crate) fn file_url(path: &Path) -> String {
+    let shown = path.display().to_string();
+    match os::host().flavor() {
+        os::Flavor::Unix => format!("file://{shown}"),
+        os::Flavor::Windows => format!("file:///{}", shown.replace('\\', "/")),
+    }
+}
+
 /// The host's own filesystem (no root), for real paths.
 pub(crate) fn fs() -> Arc<dyn Fs> {
     let os = os::host();

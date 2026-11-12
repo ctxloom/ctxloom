@@ -695,3 +695,57 @@ mod git_identity {
         assert_eq!(asked("[core]\n\tpager = cat\n"), None);
     }
 }
+
+// Owner ruling 166: the user's acceptance of claude's bypass-permissions
+// warning is read from her own claude settings, `$CLAUDE_CONFIG_DIR` when set,
+// else `~/.claude`: `true` there is an acceptance; none, or no file, is not.
+mod bypass_acceptance {
+    use std::sync::Arc;
+
+    use process_env::EnvSnapshot;
+
+    use super::super::claude_bypass_accepted;
+    use crate::fixtures::{mkdirs, put_mode, root};
+    use crate::Wiring;
+
+    const ACCEPTED: &str = r#"{"skipDangerousModePermissionPrompt": true}"#;
+
+    /// The answer under a home whose `.claude/settings.json` is `in_home` and
+    /// a `CLAUDE_CONFIG_DIR` whose settings are `in_config_dir`, when set.
+    fn asked(in_home: Option<&str>, in_config_dir: Option<Option<&str>>) -> bool {
+        let dir = root();
+        let home = dir.root().join("home");
+        let config = dir.root().join("config");
+        mkdirs(home.join(".claude"));
+        mkdirs(&config);
+        if let Some(text) = in_home {
+            put_mode(home.join(".claude/settings.json"), text, 0o644);
+        }
+        let mut pairs = vec![("HOME", home.to_str().unwrap().to_string())];
+        if let Some(text) = in_config_dir {
+            if let Some(text) = text {
+                put_mode(config.join("settings.json"), text, 0o644);
+            }
+            pairs.push(("CLAUDE_CONFIG_DIR", config.to_str().unwrap().to_string()));
+        }
+        let env = EnvSnapshot::of(pairs.iter().map(|(k, v)| (*k, v.as_str())));
+        let wiring = Wiring::new(Arc::new(env)).unwrap();
+        claude_bypass_accepted(&wiring)
+    }
+
+    #[test]
+    fn test_her_own_acceptance_is_read_from_her_home() {
+        assert!(asked(Some(ACCEPTED), None));
+        assert!(!asked(
+            Some(r#"{"skipDangerousModePermissionPrompt": false}"#),
+            None
+        ));
+        assert!(!asked(None, None));
+    }
+
+    #[test]
+    fn test_a_config_dir_she_named_is_where_claude_reads_it() {
+        assert!(asked(None, Some(Some(ACCEPTED))));
+        assert!(!asked(Some(ACCEPTED), Some(None)));
+    }
+}

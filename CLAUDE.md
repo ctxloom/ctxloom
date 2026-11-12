@@ -243,7 +243,16 @@ MERGED into what is there (`Engine::merges` names the files an engine merges
 into, and the launcher hands their bytes in `PrepareRequest::existing` with
 the run's `cwd`; one that is not a JSON object is left as it is). It is
 claude's undocumented state: a release that changes it shows the onboarding
-again (visible, not harmful). The session home's `ctxloom-hooks.json` calls `ctxloom
+again (visible, not harmful). The session home's user-scope `settings.json`
+also carries `skipDangerousModePermissionPrompt: true` when, and only when,
+the user's own claude settings say it (owner ruling 166: claude's config dir
+as claude finds it, `$CLAUDE_CONFIG_DIR` else `~/.claude`, read by the
+wiring's `claude_bypass_accepted` and told to `Claude::accepting_bypass`):
+a fresh config dir would otherwise ask again for the bypass-permissions
+warning she accepted, whose default answer ends the session; nothing else of
+her settings crosses. The terminal session (claude's and opencode's TUI) is
+also given `TERM` and `COLORTERM`, without which it draws in no colour; a
+child's turn is given neither. The session home's `ctxloom-hooks.json` calls `ctxloom
 hook claude-code execute <Event>`. The interactive home registers the session,
 turn, message, tool-batch and compaction (`PreCompact`, `PostCompact`) events.
 A one-shot CHILD's home (owner ruling 51) registers the per-turn ones only:

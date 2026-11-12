@@ -1149,3 +1149,84 @@ fn the_terminal_session_is_told_the_terminal_and_its_colours() {
     assert!(!turn.env.contains_key("TERM"), "{:?}", turn.env.keys());
     assert!(!turn.env.contains_key("COLORTERM"), "{:?}", turn.env.keys());
 }
+
+/// A session-home `prepare` by a Claude told whether the user has accepted
+/// claude's bypass-permissions warning in her own settings.
+fn prepare_accepting(accepted: bool, session_home: run_ports::SessionHome) -> run_ports::Prepared {
+    Claude::new()
+        .accepting_bypass(accepted)
+        .prepare(&PrepareRequest {
+            home: "/h".to_string(),
+            context: "c".to_string(),
+            offered: Vec::new(),
+            interactive: true,
+            cwd: None,
+            existing: BTreeMap::new(),
+            permissions: Some(r#"{"defaultMode":"bypassPermissions"}"#.to_string()),
+            session_home,
+        })
+        .unwrap()
+}
+
+// Owner ruling 166: the session home is a fresh config dir, so claude would
+// ask again for the bypass-permissions warning the user already accepted in
+// her own settings (its default answer, "No, exit", ends the session). Her
+// acceptance, and nothing else of her settings, is carried into the home's
+// user-scope settings beside the agent's permissions; a user who never
+// accepted it is asked, as before.
+#[test]
+fn the_users_acceptance_of_the_bypass_warning_is_carried_into_the_session_home() {
+    let carried = file_of(
+        &prepare_accepting(true, run_ports::SessionHome::Session),
+        "settings.json",
+    )
+    .unwrap();
+    assert_eq!(
+        surface_ports::Json::parse(&carried).unwrap(),
+        surface_ports::Json::parse(
+            r#"{"permissions":{"defaultMode":"bypassPermissions"},"skipDangerousModePermissionPrompt":true}"#
+        )
+        .unwrap()
+    );
+    let asked = file_of(
+        &prepare_accepting(false, run_ports::SessionHome::Session),
+        "settings.json",
+    )
+    .unwrap();
+    assert!(
+        !asked.contains("skipDangerousModePermissionPrompt"),
+        "{asked}"
+    );
+    // Under `session_home: host` the config dir is her own, which already
+    // holds what she accepted: nothing of it is written anywhere.
+    let host = prepare_accepting(true, run_ports::SessionHome::Host);
+    for file in &host.files {
+        let text = String::from_utf8_lossy(&file.bytes);
+        assert!(
+            !text.contains("skipDangerousModePermissionPrompt"),
+            "{}",
+            file.rel
+        );
+    }
+}
+
+// Only a `true` is an acceptance: anything else, or a file that does not
+// read, is none.
+#[test]
+fn only_a_true_skip_in_the_users_settings_is_an_acceptance() {
+    use crate::drive::accepts_bypass;
+    assert!(accepts_bypass(
+        r#"{"skipDangerousModePermissionPrompt": true, "x": 1}"#
+    ));
+    for text in [
+        r#"{"skipDangerousModePermissionPrompt": false}"#,
+        r#"{"skipDangerousModePermissionPrompt": "true"}"#,
+        r#"{"permissions": {"skipDangerousModePermissionPrompt": true}}"#,
+        r#"{}"#,
+        "[true]",
+        "not json",
+        "",
+    ] {
+        assert!(!accepts_bypass(text), "{text}");
+    }
+}

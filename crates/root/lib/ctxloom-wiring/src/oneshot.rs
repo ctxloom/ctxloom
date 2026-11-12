@@ -144,7 +144,10 @@ impl<'a> OneShots<'a> {
         // The engines' callbacks run this binary, by its file name, and its
         // directory leads their PATH (owner ruling 163).
         let program = crate::program::running();
-        let claude: Arc<dyn Engine> = Arc::new(engine_claude::Claude::calling(&program.name));
+        let claude: Arc<dyn Engine> = Arc::new(
+            engine_claude::Claude::calling(&program.name)
+                .accepting_bypass(claude_bypass_accepted(wiring)),
+        );
         let opencode: Arc<dyn Engine> = Arc::new(engine_opencode::Opencode::calling(&program.name));
         // The run locks: this run's own, and those another process's runs
         // are judged by (rulings 86, 92, 93).
@@ -213,6 +216,25 @@ pub(crate) fn git_user(wiring: &Wiring, project_dir: &Path) -> Option<run_ports:
         name: user.name,
         email: user.email,
     })
+}
+
+/// Whether the user accepted claude's bypass-permissions warning in her own
+/// claude settings (owner ruling 166): the `settings.json` of claude's config
+/// dir as claude finds it, `$CLAUDE_CONFIG_DIR` when set, else `~/.claude`.
+/// No home, no file, or one that does not read is no acceptance.
+pub(crate) fn claude_bypass_accepted(wiring: &Wiring) -> bool {
+    let env = wiring.env();
+    let dir = match env.non_empty("CLAUDE_CONFIG_DIR") {
+        Some(dir) => std::path::PathBuf::from(dir),
+        None => match env.non_empty("HOME") {
+            Some(home) => Path::new(home).join(".claude"),
+            None => return false,
+        },
+    };
+    wiring
+        .fs()
+        .read_to_string(&dir.join("settings.json"))
+        .is_ok_and(|text| engine_claude::accepts_bypass(&text))
 }
 
 /// The run's hook listener over the core's edge: `Handle` on the run's loopback port

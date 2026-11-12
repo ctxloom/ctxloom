@@ -1049,8 +1049,9 @@ fn j000200_scaffold(w: &mut World, engine: &str) {
 
 common_steps!();
 
-/// Run one feature file with this World; whether it passed.
-pub(super) fn run(file: &Path) -> bool {
+/// Run one feature file with this World: whether it passed, and each
+/// scenario's outcome.
+pub(super) fn run(file: &Path) -> super::gherkin_common::FeatureRun {
     super::gherkin_common::run_feature::<World>(file)
 }
 

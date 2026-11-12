@@ -763,7 +763,8 @@ fn still_registered(w: &mut World) {
 
 common_steps!();
 
-/// Run one feature file with this World; whether it passed.
-pub(super) fn run(file: &std::path::Path) -> bool {
+/// Run one feature file with this World: whether it passed, and each
+/// scenario's outcome.
+pub(super) fn run(file: &std::path::Path) -> super::gherkin_common::FeatureRun {
     super::gherkin_common::run_feature::<World>(file)
 }

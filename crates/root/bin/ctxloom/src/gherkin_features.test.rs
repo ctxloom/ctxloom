@@ -8,34 +8,62 @@
 //! The features run concurrently, a thread each up to the machine's cores
 //! (each cucumber run also runs 4 scenarios at once). `GHERKIN_ONLY=<text>`
 //! runs only the features whose path contains it.
+//!
+//! `GHERKIN_RATCHET=<absolute file>` asks for the scenario list instead of a
+//! verdict: every scenario run, one line each, sorted, `red\t<id>` or
+//! `green\t<id>` (the id is `gherkin_common::scenario_id`'s, a failure no
+//! scenario owns the feature's `outside_id`), is written to the file, and the
+//! test passes whatever failed. `just closeout-ratchet` (scripts/
+//! closeout-ratchet.sh) judges that list against its base branch's; nothing
+//! else sets it.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-use super::gherkin_common::{feature_files, features_dir, is_pending_feature, world_of};
+use super::gherkin_common::{
+    feature_files, features_dir, is_pending_feature, outside_id, world_of, FeatureRun,
+};
 use super::host_var;
 use crate::tests::files;
 
-/// Run one feature with its World; whether it passed. A pending feature is
-/// skipped; a pending scenario is left out by the World's run
-/// (`gherkin_common::run_feature`).
-fn run_one(rel: &str) -> Result<(), String> {
+/// Run one feature with its World: whether it passed, and each scenario's
+/// outcome. A pending feature is skipped; a pending scenario is left out by
+/// the World's run (`gherkin_common::run_feature`).
+fn run_one(rel: &str) -> Result<FeatureRun, String> {
     let path = features_dir().join(rel);
     let text = files::read(&path).map_err(|e| format!("{rel}: {e}"))?;
     if is_pending_feature(&text) {
-        return Ok(());
+        return Ok(FeatureRun {
+            passed: true,
+            scenarios: Vec::new(),
+        });
     }
-    let passed = match world_of(&text).map_err(|e| format!("{rel}: {e}"))? {
-        "base" => super::gherkin::run(&path),
-        "surfaces" => super::gherkin_surfaces::run(&path),
-        "isolation" => super::gherkin_isolation::run(&path),
-        other => return Err(format!("{rel}: unknown world {other}")),
-    };
-    if passed {
-        Ok(())
-    } else {
-        Err(format!("{rel}: a scenario failed (its output is above)"))
+    match world_of(&text).map_err(|e| format!("{rel}: {e}"))? {
+        "base" => Ok(super::gherkin::run(&path)),
+        "surfaces" => Ok(super::gherkin_surfaces::run(&path)),
+        "isolation" => Ok(super::gherkin_isolation::run(&path)),
+        other => Err(format!("{rel}: unknown world {other}")),
     }
+}
+
+/// The scenario list `GHERKIN_RATCHET` asks for: a line per scenario,
+/// `red\t<id>` or `green\t<id>`, sorted, each id once (red if any run of it
+/// failed).
+fn scenario_list(outcomes: &[(String, bool)]) -> String {
+    let mut red = std::collections::BTreeSet::new();
+    let mut all = std::collections::BTreeSet::new();
+    for (id, passed) in outcomes {
+        all.insert(id.as_str());
+        if !passed {
+            red.insert(id.as_str());
+        }
+    }
+    all.into_iter()
+        .map(|id| {
+            let word = if red.contains(id) { "red" } else { "green" };
+            format!("{word}\t{id}\n")
+        })
+        .collect()
 }
 
 #[test]
@@ -43,6 +71,7 @@ fn every_feature_runs() {
     let only = host_var("GHERKIN_ONLY")
         .map(|v| v.to_string_lossy().into_owned())
         .unwrap_or_default();
+    let ratchet = host_var("GHERKIN_RATCHET").map(std::path::PathBuf::from);
     let features: Vec<String> = feature_files()
         .into_iter()
         .filter(|f| f.contains(&only))
@@ -50,6 +79,7 @@ fn every_feature_runs() {
     assert!(!features.is_empty(), "no feature matches {only:?}");
     let next = AtomicUsize::new(0);
     let failures = Mutex::new(Vec::new());
+    let outcomes = Mutex::new(Vec::new());
     let threads = std::thread::available_parallelism()
         .map(usize::from)
         .unwrap_or(4)
@@ -59,12 +89,30 @@ fn every_feature_runs() {
             scope.spawn(|| loop {
                 let i = next.fetch_add(1, Ordering::SeqCst);
                 let Some(rel) = features.get(i) else { break };
-                if let Err(e) = run_one(rel) {
+                let (failed, seen) = match run_one(rel) {
+                    Ok(run) if run.passed => (None, run.scenarios),
+                    Ok(run) => (
+                        Some(format!("{rel}: a scenario failed (its output is above)")),
+                        run.scenarios,
+                    ),
+                    Err(e) => (Some(e), vec![(outside_id(rel), false)]),
+                };
+                outcomes.lock().expect("not poisoned").extend(seen);
+                if let Some(e) = failed {
                     failures.lock().expect("not poisoned").push(e);
                 }
             });
         }
     });
+    if let Some(file) = ratchet {
+        assert!(
+            file.is_absolute(),
+            "GHERKIN_RATCHET must be absolute: {file:?}"
+        );
+        let outcomes = outcomes.into_inner().expect("not poisoned");
+        files::put(&file, scenario_list(&outcomes));
+        return;
+    }
     let mut failures = failures.into_inner().expect("not poisoned");
     failures.sort();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
@@ -82,10 +130,73 @@ fn a_pending_scenario_is_left_out_and_its_neighbours_run() {
     };
     let path = project.dir().join("f.feature");
     files::put(&path, feature("@pending"));
-    assert!(super::gherkin::run(&path), "the pending scenarios ran");
+    assert!(
+        super::gherkin::run(&path).passed,
+        "the pending scenarios ran"
+    );
     files::put(&path, feature("@other"));
     assert!(
-        !super::gherkin::run(&path),
+        !super::gherkin::run(&path).passed,
         "a step no World has passed: the check above proves nothing"
     );
+}
+
+/// Each scenario is named by its feature, its Rule and its own name, and an
+/// outline's example by the row it ran; a scenario's outcome is its own.
+#[test]
+fn each_scenario_has_a_stable_id_and_its_own_outcome() {
+    let project = super::library::Project::bare();
+    let path = project.dir().join("ids.feature");
+    files::put(
+        &path,
+        "Feature: f\n  Scenario: plain\n    Given an empty project directory\n\n  Scenario Outline: outline <what>\n    Given <step>\n\n    Examples:\n      | what | step |\n      | ok | an empty project directory |\n      | bad | a step no World has |\n\n  Rule: r\n    Scenario: ruled\n      Given a step no World has\n",
+    );
+    let run = super::gherkin::run(&path);
+    assert!(!run.passed);
+    let feature = path.display().to_string();
+    let mut got = run.scenarios;
+    got.sort();
+    let mut want = vec![
+        (format!("{feature} :: plain"), true),
+        (format!("{feature} :: r :: ruled"), false),
+        (
+            format!("{feature} :: outline ok :: | ok | an empty project directory |"),
+            true,
+        ),
+        (
+            format!("{feature} :: outline bad :: | bad | a step no World has |"),
+            false,
+        ),
+    ];
+    want.sort();
+    assert_eq!(got, want);
+}
+
+/// A feature that cannot run is red outside its scenarios.
+#[test]
+fn a_feature_that_does_not_parse_is_red_outside_a_scenario() {
+    let project = super::library::Project::bare();
+    let path = project.dir().join("bad.feature");
+    files::put(
+        &path,
+        "Scenario: s, no Feature\n  Given an empty project directory\n",
+    );
+    let run = super::gherkin::run(&path);
+    assert!(!run.passed);
+    assert_eq!(
+        run.scenarios,
+        vec![(outside_id(&path.display().to_string()), false)]
+    );
+}
+
+/// The list is sorted, each id once, red where any run of it failed.
+#[test]
+fn the_scenario_list_is_sorted_and_says_red_or_green() {
+    let outcomes = [
+        ("b".to_string(), true),
+        ("a".to_string(), false),
+        ("c".to_string(), true),
+        ("c".to_string(), false),
+    ];
+    assert_eq!(scenario_list(&outcomes), "red\ta\ngreen\tb\nred\tc\n");
 }

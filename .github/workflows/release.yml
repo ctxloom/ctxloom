@@ -23,8 +23,6 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - ci/binaries # TEMPORARY: registers the workflow so it can be dispatched off main
   workflow_dispatch:
 
 permissions:

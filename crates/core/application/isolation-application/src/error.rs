@@ -18,6 +18,15 @@ pub enum IsolationError {
         spared: u64,
         skipped: u64,
     },
+    /// `session remove` of a session holding a worktree it cannot prove
+    /// safe to remove (spared: work in it; skipped: its owner not proven
+    /// ended, or its repository unresolved). A session goes whole or not at
+    /// all, so nothing was removed.
+    KeepsSession {
+        harp: String,
+        spared: u64,
+        skipped: u64,
+    },
     /// A backend that is none of the engines.
     UnknownBackend { backend: String, available: String },
     /// A `--runtime` that is none of the runtimes ctxloom knows.
@@ -47,6 +56,7 @@ impl ExitClass for IsolationError {
         match self {
             IsolationError::Adapter(_) => Exit::FAILED,
             IsolationError::NothingRemoved { .. }
+            | IsolationError::KeepsSession { .. }
             | IsolationError::UnknownBackend { .. }
             | IsolationError::UnknownRuntime { .. }
             | IsolationError::NoPruneRuntime
@@ -69,6 +79,7 @@ impl Diagnostic for IsolationError {
         match self {
             IsolationError::NoSession { .. } => code!("no-session"),
             IsolationError::NothingRemoved { .. } => code!("nothing-removed"),
+            IsolationError::KeepsSession { .. } => code!("keeps-session"),
             IsolationError::UnknownBackend { .. } => code!("unknown-backend"),
             IsolationError::UnknownRuntime { .. } => code!("unknown-runtime"),
             IsolationError::NoPruneRuntime => code!("no-prune-runtime"),
@@ -83,6 +94,11 @@ impl Diagnostic for IsolationError {
         match self {
             IsolationError::NoSession { harp } => vec![("harp", harp.as_str().into())],
             IsolationError::NothingRemoved {
+                harp,
+                spared,
+                skipped,
+            }
+            | IsolationError::KeepsSession {
                 harp,
                 spared,
                 skipped,
@@ -129,6 +145,11 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             harp: "amber-swift-owl".to_string(),
             spared: 1,
             skipped: 2,
+        }),
+        Box::new(IsolationError::KeepsSession {
+            harp: "amber-swift-owl".to_string(),
+            spared: 1,
+            skipped: 0,
         }),
         Box::new(IsolationError::UnknownBackend {
             backend: "bogus".to_string(),

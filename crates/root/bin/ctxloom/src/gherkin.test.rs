@@ -631,11 +631,22 @@ fn sweep_skipped(w: &mut World, running: String, unproven: String) {
     }
 }
 
+/// Whether the store still records `harp`: its transcript is its events
+/// (ruling 87a), so the machine-written bulk is the session's record, and
+/// `session show` finds it.
+fn recorded(w: &World, harp: &str) -> bool {
+    w.common
+        .project
+        .run(&["session", "show", harp, "--format", "json"])
+        .code
+        == 0
+}
+
 #[then(expr = "the machine-written bulk of {string} is gone")]
 fn bulk_gone(w: &mut World, harp: String) {
     assert!(
-        !files::exists(w.session_dir(&harp).join("transcripts/transcript.jsonl")),
-        "{harp}'s transcript is still there: {}",
+        !recorded(w, &harp),
+        "{harp} is still recorded: {}",
         w.ran().said()
     );
 }
@@ -643,8 +654,8 @@ fn bulk_gone(w: &mut World, harp: String) {
 #[then(expr = "the machine-written bulk of {string} is still there")]
 fn bulk_still_there(w: &mut World, harp: String) {
     assert!(
-        files::exists(w.session_dir(&harp).join("transcripts/transcript.jsonl")),
-        "{harp}'s transcript is gone: {}",
+        recorded(w, &harp),
+        "{harp} is no longer recorded: {}",
         w.ran().said()
     );
 }

@@ -3,6 +3,8 @@
 
 isolation-application-no-session = no session named { $harp }
 isolation-application-nothing-removed = ctxloom: removed no worktree for { $harp } ({ $spared } spared, { $skipped } skipped) - nothing was provably safe to remove
+isolation-application-keeps-session = refusing to remove session { $harp }: { $spared } of its worktrees are spared and { $skipped } skipped, and a session is removed whole or not at all. Nothing was removed.
+isolation-application-keeps-session-fix = commit or discard the work in each spared worktree, or wait for the session to end, then remove it again
 isolation-application-unknown-backend = unknown backend "{ $backend }" (available: { $available })
 isolation-application-unknown-runtime = unknown container runtime "{ $runtime }" ({ $known })
 isolation-application-no-prune-runtime = container prune: no container runtime is available to prune

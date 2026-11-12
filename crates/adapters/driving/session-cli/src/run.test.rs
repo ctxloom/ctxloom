@@ -43,7 +43,12 @@ struct Fake {
     report: Option<ImportReport>,
     imports: usize,
     wt_report: Option<isolation_application::Report>,
+    /// What an applied worktree question answers, when it differs from the
+    /// plan (`wt_report`): a removal's outcome.
+    wt_applied: Option<isolation_application::Report>,
     wt_asked: Vec<(Option<String>, bool)>,
+    /// Every worktree question and every removal, in the order asked.
+    log: Vec<&'static str>,
     /// Answer every worktree question with a refusal that is not "no session".
     wt_fails: bool,
     /// `session_purge_age` as the fake configuration has it.
@@ -66,6 +71,11 @@ impl isolation_application::WorktreeUse for Fake {
         apply: bool,
     ) -> Result<isolation_application::Report, isolation_application::IsolationError> {
         self.wt_asked.push((harp.map(str::to_string), apply));
+        self.log.push(if apply {
+            "worktrees apply"
+        } else {
+            "worktrees plan"
+        });
         if self.wt_fails {
             return Err(isolation_application::IsolationError::NothingRemoved {
                 harp: harp.unwrap_or_default().to_string(),
@@ -73,11 +83,14 @@ impl isolation_application::WorktreeUse for Fake {
                 skipped: 0,
             });
         }
-        self.wt_report
-            .clone()
-            .ok_or(isolation_application::IsolationError::NoSession {
-                harp: harp.unwrap_or_default().to_string(),
-            })
+        let answer = if apply {
+            self.wt_applied.clone().or_else(|| self.wt_report.clone())
+        } else {
+            self.wt_report.clone()
+        };
+        answer.ok_or(isolation_application::IsolationError::NoSession {
+            harp: harp.unwrap_or_default().to_string(),
+        })
     }
 }
 
@@ -122,6 +135,11 @@ impl SessionService for Fake {
     }
 
     async fn remove(&mut self, request: RemoveRequest) -> Result<Removal, AppError> {
+        self.log.push(if request.yes {
+            "remove apply"
+        } else {
+            "remove plan"
+        });
         self.remove.push(request);
         self.removal.clone().ok_or(AppError::NoSession {
             harp: "x".to_string(),
@@ -1548,58 +1566,63 @@ fn a_sweep_that_failed_while_acting_exits_nonzero_but_a_report_of_a_failure_does
 
 // ------------------------------------------ remove reaps the session's worktrees
 
-// j001300 / session.feature "Emptying a session ...": `session remove` covers
-// the scratch worktrees living inside the session, through the worktree leaf's
-// own verdicts.
-#[test]
-fn remove_with_yes_reaps_the_sessions_scratch_worktrees_and_reports_them() {
-    use isolation_application::Verdict;
-    let mut fake = Fake {
+// session_worktrees.feature "Purging a session takes its worktrees only when
+// it can prove that safe" (F2): `session remove` classifies the session's
+// scratch worktrees first, changing nothing; a session goes whole or not at
+// all, so one it cannot prove safe refuses the removal; otherwise the
+// worktrees go, through the worktree leaf, and only then the session.
+
+/// A removal of a session whose one worktree is planned `planned` and, once
+/// applied, comes to `applied`.
+fn holding(
+    planned: isolation_application::Verdict,
+    applied: isolation_application::Verdict,
+) -> Fake {
+    Fake {
         removal: Some(plan(true)),
         wt_report: Some(wt_report(
-            vec![
-                checkout("amber-swift-owl", "clean", Verdict::Reaped, ""),
-                checkout(
-                    "amber-swift-owl",
-                    "wip",
-                    Verdict::Spared,
-                    "has uncommitted changes",
-                ),
-            ],
+            vec![checkout("amber-swift-owl", "clean", planned, "")],
+            false,
+        )),
+        wt_applied: Some(wt_report(
+            vec![checkout("amber-swift-owl", "clean", applied, "")],
             true,
         )),
         ..Fake::default()
-    };
+    }
+}
+
+#[test]
+fn remove_with_yes_removes_the_clean_worktrees_and_only_then_destroys_the_session() {
+    use isolation_application::Verdict;
+    let mut fake = holding(Verdict::Reapable, Verdict::Reaped);
     let ran = go(
         &mut fake,
         Format::Text,
         &["remove", "amber-swift-owl", "--yes"],
     );
     assert_eq!(
-        fake.wt_asked,
-        vec![(Some("amber-swift-owl".to_string()), true)]
+        fake.log,
+        [
+            "worktrees plan",
+            "remove plan",
+            "worktrees apply",
+            "remove apply"
+        ]
     );
     assert!(ran.out.contains("ctxloom-wt-clean"), "{}", ran.out);
     assert!(
-        ran.out.contains("removed 1, spared 1, skipped 0"),
+        ran.out.contains("removed 1, spared 0, skipped 0"),
         "{}",
         ran.out
     );
-    // The removal itself succeeded; a spared checkout is not a failure of it.
     assert!(without_authored(ran.result.unwrap()).is_empty());
 }
 
 #[test]
 fn remove_with_yes_carries_the_worktree_report_in_json() {
     use isolation_application::Verdict;
-    let mut fake = Fake {
-        removal: Some(plan(true)),
-        wt_report: Some(wt_report(
-            vec![checkout("amber-swift-owl", "clean", Verdict::Reaped, "")],
-            true,
-        )),
-        ..Fake::default()
-    };
+    let mut fake = holding(Verdict::Reapable, Verdict::Reaped);
     let doc = json_of(&go(
         &mut fake,
         Format::Json,
@@ -1608,6 +1631,92 @@ fn remove_with_yes_carries_the_worktree_report_in_json() {
     assert_eq!(doc["applied"], true);
     assert_eq!(doc["worktrees"]["reaped"], 1);
     assert_eq!(doc["worktrees"]["worktrees"][0]["verdict"], "reaped");
+}
+
+/// What a refused removal came to: its failure's code and exit, and what it
+/// asked.
+fn refused(fake: &mut Fake, words: &[&str]) -> (String, Exit, String) {
+    let ran = go(fake, Format::Json, words);
+    let Err(failure) = ran.result else {
+        panic!("the removal is refused: {}", ran.out)
+    };
+    (
+        failure.failure.cause.code().to_string(),
+        failure.failure.exit,
+        ran.out,
+    )
+}
+
+// The safety scenario: a worktree holding uncommitted work keeps its whole
+// session. Nothing is applied: no worktree removed, the session not destroyed.
+#[test]
+fn a_spared_worktree_refuses_the_whole_removal_and_nothing_is_applied() {
+    use isolation_application::Verdict;
+    let mut fake = Fake {
+        removal: Some(plan(true)),
+        wt_report: Some(wt_report(
+            vec![
+                checkout("amber-swift-owl", "clean", Verdict::Reapable, ""),
+                checkout(
+                    "amber-swift-owl",
+                    "wip",
+                    Verdict::Spared,
+                    "has uncommitted changes",
+                ),
+            ],
+            false,
+        )),
+        ..Fake::default()
+    };
+    let (code, exit, out) = refused(&mut fake, &["remove", "amber-swift-owl", "--yes"]);
+    assert_eq!(code, "isolation-application-keeps-session");
+    assert_eq!(exit, Exit::REFUSED);
+    assert!(out.contains("ctxloom-wt-wip"), "{out}");
+    assert_eq!(fake.log, ["worktrees plan", "remove plan"]);
+}
+
+// A worktree whose owner is not proven ended is never looked at, so it
+// cannot be proven safe either: --even-if-live (the session's override) does
+// not reach it.
+#[test]
+fn a_skipped_worktree_refuses_the_whole_removal_even_if_live() {
+    use isolation_application::Verdict;
+    for words in [
+        &["remove", "amber-swift-owl", "--yes"][..],
+        &["remove", "amber-swift-owl", "--yes", "--even-if-live"][..],
+    ] {
+        let mut fake = holding(Verdict::Skipped, Verdict::Skipped);
+        let (code, _, out) = refused(&mut fake, words);
+        assert_eq!(code, "isolation-application-keeps-session", "{words:?}");
+        assert!(out.contains("skipped"), "{out}");
+        assert_eq!(fake.log, ["worktrees plan", "remove plan"], "{words:?}");
+    }
+}
+
+// A preview refuses as the removal would: its report names the worktree.
+#[test]
+fn a_preview_of_a_removal_a_worktree_keeps_is_refused() {
+    use isolation_application::Verdict;
+    let mut fake = holding(Verdict::Spared, Verdict::Spared);
+    let (code, _, _) = refused(&mut fake, &["remove", "amber-swift-owl"]);
+    assert_eq!(code, "isolation-application-keeps-session");
+    assert_eq!(fake.log, ["worktrees plan", "remove plan"]);
+}
+
+// A worktree that went dirty between the plan and its removal is left by the
+// leaf; the session is then not destroyed.
+#[test]
+fn a_worktree_left_at_its_removal_keeps_the_session() {
+    use isolation_application::Verdict;
+    let mut fake = holding(Verdict::Reapable, Verdict::Spared);
+    let (code, _, out) = refused(&mut fake, &["remove", "amber-swift-owl", "--yes"]);
+    assert_eq!(code, "isolation-application-keeps-session");
+    assert!(out.contains("spared"), "{out}");
+    assert_eq!(
+        fake.log,
+        ["worktrees plan", "remove plan", "worktrees apply"],
+        "never destroyed"
+    );
 }
 
 #[test]
@@ -1644,7 +1753,7 @@ fn a_removal_of_a_session_with_no_directory_still_succeeds() {
         &["remove", "amber-swift-owl", "--yes"],
     );
     assert!(ran.result.is_ok());
-    assert_eq!(fake.wt_asked.len(), 1);
+    assert_eq!(fake.log, ["worktrees plan", "remove plan", "remove apply"]);
 }
 
 #[test]
@@ -1659,33 +1768,30 @@ fn remove_without_yes_only_previews_the_worktrees() {
         ..Fake::default()
     };
     let ran = go(&mut fake, Format::Text, &["remove", "amber-swift-owl"]);
-    assert_eq!(
-        fake.wt_asked,
-        vec![(Some("amber-swift-owl".to_string()), false)]
-    );
+    assert_eq!(fake.log, ["worktrees plan", "remove plan"]);
     assert!(ran.out.contains("reapable"), "{}", ran.out);
     assert_eq!(without_authored(ran.result.unwrap()).len(), 1);
 }
 
+// A session the sessions use case refuses (its retention, its keep, its
+// lock) reaps nothing, and its report still names the worktrees it holds.
 #[test]
-fn a_refused_removal_reaps_nothing() {
-    let mut refused = plan(false);
-    refused.refusal = Some(Refusal::Retained {
+fn a_refused_removal_reaps_nothing_and_names_its_worktrees() {
+    use isolation_application::Verdict;
+    let mut fake = holding(Verdict::Skipped, Verdict::Skipped);
+    let mut refusal = plan(false);
+    refusal.refusal = Some(Refusal::Retained {
         harp: "amber-swift-owl".to_string(),
         detail: "it ended an hour ago".to_string(),
     });
-    let mut fake = Fake {
-        removal: Some(refused),
-        wt_report: Some(wt_report(Vec::new(), true)),
-        ..Fake::default()
-    };
-    let ran = go(
-        &mut fake,
-        Format::Json,
-        &["remove", "amber-swift-owl", "--yes"],
+    fake.removal = Some(refusal);
+    let (code, _, out) = refused(&mut fake, &["remove", "amber-swift-owl", "--yes"]);
+    assert_eq!(
+        code, "sessions-application-refused-retained",
+        "the session's own"
     );
-    assert!(ran.result.is_err());
-    assert!(fake.wt_asked.is_empty(), "{:?}", fake.wt_asked);
+    assert!(out.contains("ctxloom-wt-clean"), "{out}");
+    assert_eq!(fake.log, ["worktrees plan", "remove plan"]);
 }
 
 #[test]
@@ -1701,6 +1807,7 @@ fn a_worktree_failure_during_a_removal_is_reported_not_swallowed() {
         &["remove", "amber-swift-owl", "--yes"],
     );
     assert!(ran.result.is_err());
+    assert!(!fake.log.contains(&"remove apply"), "{:?}", fake.log);
 }
 
 // The sweep's purge-age rule: `--purge-older-than`, else `session_purge_age`;

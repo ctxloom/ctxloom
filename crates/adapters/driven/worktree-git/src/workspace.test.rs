@@ -286,6 +286,19 @@ fn a_session_is_known_by_its_directory() {
     assert!(!ws.session_known("../escape").unwrap());
 }
 
+// A session whose directory was never written (one that wrote nothing in
+// it, as the test seed's) is still known by the lock it left beside it: the
+// file its state is read from.
+#[test]
+fn a_session_is_known_by_its_lock_alone() {
+    let f = Fixture::new();
+    mkdirs(f.home.join(".ctxloom/sessions"));
+    put(f.home.join(".ctxloom/sessions/amber-swift-owl.lock"), "");
+    let ws = f.adapter();
+    assert!(ws.session_known("amber-swift-owl").unwrap());
+    assert!(!ws.session_known("nobody").unwrap());
+}
+
 // Go: unsafeToRemove: dirty, untracked and ignored-only content all make a
 // tree unsafe; an unreadable state is never clean.
 #[test]

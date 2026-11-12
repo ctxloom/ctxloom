@@ -1,4 +1,5 @@
-# Written for the new design; awaits product plan step 4 (docs/plans/ctxloom-features.md).
+# world: base
+# Written for the new design (product plan step 4, docs/plans/ctxloom-features.md).
 # Ported from cli/session.feature
 # Ported from journeys/j001300_closeout.feature
 # NOT ported: `session worktrees purge` and the `--reap` switch: a session's
@@ -6,7 +7,6 @@
 #   §8). j001300's doctor rows (foreign worktrees, gitignore, harp durability)
 #   are doctor's. The listing names each owner by the state its lock proves
 #   (alive, dead, indeterminate), not by a pid.
-@pending
 Feature: session worktrees - the scratch checkouts a session left behind
 
   A session's scratch worktrees can be listed on their own, and go only with

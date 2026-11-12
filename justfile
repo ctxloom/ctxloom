@@ -128,6 +128,9 @@ install:
         chmod 0755 "$wrapper.new"
         mv -f "$wrapper.new" "$wrapper"
         echo "ok   wrote $wrapper"
+        # A recipe is a child process: it cannot clear the calling shell's
+        # command hash, which may still map ctxloom to Go's binary.
+        echo "note run 'rehash' (zsh) or 'hash -r' (bash) in shells that ran ctxloom before"
     fi
 
 # Install the Rust ctxloom on Windows (owner ruling: the exe on PATH and a

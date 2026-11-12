@@ -1,5 +1,7 @@
-//! The name-claim aggregate: one stream per (project, harp text), holding
-//! which session has the name (D5 Q1, owner-approved).
+//! The name-claim aggregate: one stream per session name, holding which
+//! session has it (D5 Q1). Its root is the name's ([`crate::SessionName::root`],
+//! owner 2026-11-12, slice 2 B3/re-root): the session's own stream root, in
+//! the `session-names` domain, so a name is unique because a stream is.
 
 use angzarr_embedded::markup::{Context, Failed, PageContext, Refuses};
 use angzarr_embedded_macros::{aggregate, applies, handles_cmd};
@@ -9,25 +11,6 @@ use crate::{
     ClaimName, Claimed, NameClaimCommand, NameClaimEvent, NameClaimState, NamesTaken, NoClaim,
     NotHolder, ReleaseName, Released, SessionRejection,
 };
-
-/// The namespace every project's name-claim namespace derives from: the
-/// UUIDv5 of `ctxloom:project:` and the project id's text, in the URL
-/// namespace. OWNER-APPROVED and FIXED: imported session ids and claim roots
-/// are derived from it, so changing it orphans every imported stream.
-pub fn project_namespace(project_id: &str) -> uuid::Uuid {
-    uuid::Uuid::new_v5(
-        &uuid::Uuid::NAMESPACE_URL,
-        format!("ctxloom:project:{project_id}").as_bytes(),
-    )
-}
-
-/// The root of the claim stream for the name `harp` in project `project_id`:
-/// UUIDv5 of the harp text in [`project_namespace`], so a name is unique in a
-/// project because a stream is (plan 3.1). FIXED, as above.
-pub fn claim_root(project_id: &str, harp: &str) -> angzarr_embedded::v1::Uuid {
-    let id = uuid::Uuid::new_v5(&project_namespace(project_id), harp.as_bytes());
-    angzarr_embedded::v1::Uuid::from_bytes(*id.as_bytes())
-}
 
 /// The claim aggregate: one name, folded from its stream.
 #[derive(Clone, Debug, Default)]

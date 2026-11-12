@@ -1594,7 +1594,6 @@ fn the_user_launches_a_child_of_an_owner() {
         engine: "claude-code".to_string(),
         prompt: "port the parser".to_string(),
         delegation_limit: 4,
-        session: String::new(),
     }))
     .unwrap();
     assert!(launched.recorded);
@@ -1617,7 +1616,6 @@ fn the_user_launches_a_child_of_an_owner() {
         engine: "claude-code".to_string(),
         prompt: String::new(),
         delegation_limit: 1,
-        session: String::new(),
     }))
     .unwrap_err();
     assert_eq!(limited.code(), "sessions-delegation-limit");
@@ -1638,7 +1636,6 @@ fn a_childs_id_is_the_uuid_v5_of_its_name() {
         engine: "claude-code".to_string(),
         prompt: String::new(),
         delegation_limit: 4,
-        session: String::new(),
     }))
     .unwrap();
     let derived = sessions::SessionName::new("calm-quiet-heron", "lone-wolf-pup")
@@ -1669,7 +1666,6 @@ fn a_launch_in_a_project_with_no_harp_is_refused() {
         engine: "claude-code".to_string(),
         prompt: String::new(),
         delegation_limit: 4,
-        session: String::new(),
     }))
     .unwrap_err();
     assert_eq!(refused.code(), "sessions-application-no-project-harp");

@@ -280,13 +280,15 @@ pub struct Mint {
 pub fn launch(owner: &SessionRef, launched: &ChildLaunched, output_dir: &str) -> Option<Mint> {
     let child = launched.child.as_ref()?;
     let key = |what: &str| format!("{what}:{}:{}", owner.session, child.session);
+    let session = session_cover(&child.session)?;
     Some(Mint {
         claim: Keyed {
             project_id: child.project_id.clone(),
+            // The name's claim is rooted where its session is: the UUIDv5 of
+            // the name (slice 2 B3/re-root).
             cover: Cover {
                 domain: NAMES_DOMAIN.to_string(),
-                root: Some(sessions::claim_root(&child.project_id, &launched.harp)),
-                edition: None,
+                ..session.clone()
             },
             key: key("claim"),
             command: ClaimName {
@@ -297,7 +299,7 @@ pub fn launch(owner: &SessionRef, launched: &ChildLaunched, output_dir: &str) ->
         },
         mint: Keyed {
             project_id: child.project_id.clone(),
-            cover: session_cover(&child.session)?,
+            cover: session,
             key: key("mint"),
             command: MintSession {
                 harp: launched.harp.clone(),

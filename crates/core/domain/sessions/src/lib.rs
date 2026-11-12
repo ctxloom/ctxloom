@@ -1,7 +1,9 @@
-//! The sessions domain. A session is one aggregate: its stream's root is a
-//! stable id minted at creation, and the harp is only its name (plan 3.1,
-//! D5 Q1). The name is kept unique by a claim stream of its own, domain
-//! `session-names`, one per (project, harp text).
+//! The sessions domain. A session is one aggregate: its stream's root is the
+//! UUIDv5 of its resource name, `projects/{project}/sessions/{session}`
+//! ([`SessionName`], owner 2026-11-12, slice 2 B3/re-root), both harps
+//! minted once and never changed. The name is kept unique by a claim stream
+//! of its own at the same root, domain `session-names` (a destroyed
+//! session's name stays claimed).
 //!
 //! The domain types, their wire conversions, their `DomainMessage` impls and
 //! the [`SessionCommand`] and [`SessionEvent`] payloads are generated from
@@ -56,8 +58,8 @@ pub use daemon::{command_id, keyed_book, urgency_word};
 pub use generated::*;
 pub use harp::validate;
 pub use name::{project_id_root, root_of, ProjectName, SessionName, NAMESPACE};
-pub use names::{claim_root, project_namespace, NameClaimAggregate};
-pub use projects::{project_name_root, project_root, ProjectAggregate, ProjectNameAggregate};
+pub use names::NameClaimAggregate;
+pub use projects::{ProjectAggregate, ProjectNameAggregate};
 pub use refusal::NotOurs;
 #[cfg(any(test, feature = "test-support"))]
 pub use rejection::diagnostic_samples;

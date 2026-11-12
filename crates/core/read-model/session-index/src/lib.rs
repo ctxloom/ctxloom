@@ -238,9 +238,11 @@ impl SessionIndex {
 
     /// The record of the session folded from the stream rooted at `root`.
     fn record_of(&self, root: &[u8], session: &SessionAggregate) -> SessionRecord {
+        let record = record_of(root, session);
         SessionRecord {
             last_captured: self.transcripts.get(root).and_then(|t| t.last),
-            ..record_of(root, session)
+            name: self.name_of(&record),
+            ..record
         }
     }
 
@@ -310,7 +312,8 @@ impl SessionIndex {
     /// no harp.
     pub fn name_of(&self, record: &SessionRecord) -> String {
         self.project_harp(&record.project_id)
-            .map(|project| format!("projects/{project}/sessions/{}", record.harp))
+            .and_then(|project| sessions::SessionName::new(project, &record.harp).ok())
+            .map(|name| name.to_string())
             .unwrap_or_default()
     }
 
@@ -324,8 +327,8 @@ impl SessionIndex {
 
     /// The session `record` as its resource message (S32): what a `Get` of
     /// it returns, as far as the store says (its state is its lock's, which
-    /// no read model knows, so it is left unspecified; its title waits for
-    /// `SetSessionTitle`, S55).
+    /// no read model knows, so it is left unspecified), its title the one
+    /// `session rename` set (S55) beside the first-prompt summary.
     pub fn resource(&self, record: &SessionRecord) -> daemon_proto::v1::Session {
         let summary = self
             .transcript(&record.id)
@@ -353,6 +356,7 @@ impl SessionIndex {
                 .map(|child| self.name_of_ref(child))
                 .collect(),
             incarnation: record.incarnation,
+            title: record.title.clone(),
             ..daemon_proto::v1::Session::default()
         }
     }

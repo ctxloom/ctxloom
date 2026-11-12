@@ -44,9 +44,7 @@ pub use error::{AppError, DestroysAuthored, Refusal, RemovedNothing, CATALOGS, E
 pub use go_sidecar::{
     decode as decode_go_sidecar, GoEndReason, GoEntry, GoRotation, GoRunEnd, GoSidecarError,
 };
-pub use import::{
-    imported_id, ImportReport, ImportRequest, ImportService, Imported, Importer, Left, Why,
-};
+pub use import::{ImportReport, ImportRequest, ImportService, Imported, Importer, Left, Why};
 pub use orchestrate::{
     urgencies_of, ClearRequest, CloseRequest, LaunchRequest, Ordered, SendRequest,
 };

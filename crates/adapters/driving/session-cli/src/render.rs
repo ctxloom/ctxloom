@@ -1,7 +1,7 @@
 //! The rows and documents the commands answer with, in both formats. The
 //! JSON keys are D16's: Go 0.7's `harp, summary, state, start, end` plus the
-//! plan's additions, each left out when empty as Go leaves its `omitempty`
-//! ones. Times are RFC 3339 in json and `2006-01-02 15:04:05` (UTC) in text.
+//! plan's additions (the resource `name`, slice 2 B3), each left out when
+//! empty as Go leaves its `omitempty` ones. Times are RFC 3339 in json and `2006-01-02 15:04:05` (UTC) in text.
 
 use std::io::{self, Write};
 
@@ -18,6 +18,10 @@ use sessions_application::{Class, FilePlan, PlanItem, Removal};
 #[derive(Serialize)]
 pub(crate) struct Row {
     harp: String,
+    /// Its resource name, `projects/{project}/sessions/{session}` (slice 2
+    /// B3); left out while its project has no harp.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    name: String,
     summary: String,
     state: &'static str,
     start: String,
@@ -37,6 +41,7 @@ impl Row {
     pub(crate) fn of(view: &View) -> Row {
         Row {
             harp: view.record.harp.clone(),
+            name: view.record.name.clone(),
             summary: view.summary(),
             state: view.state.as_str(),
             start: stamp::rfc3339(view.record.started_at),
@@ -102,6 +107,9 @@ pub(crate) fn rows_text(views: &[View], out: &mut dyn Write) -> io::Result<()> {
 pub(crate) struct ShowDoc {
     id: String,
     harp: String,
+    /// Its resource name (slice 2 B3); left out while its project has none.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    name: String,
     project: String,
     project_id: String,
     state: &'static str,
@@ -156,6 +164,7 @@ impl ShowDoc {
         ShowDoc {
             id: record.id.clone(),
             harp: record.harp.clone(),
+            name: record.name.clone(),
             project: record.project_dir.clone(),
             project_id: record.project_id.clone(),
             state: view.state.as_str(),

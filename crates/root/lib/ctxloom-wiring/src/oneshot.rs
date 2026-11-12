@@ -32,7 +32,6 @@ use run_launcher::{Launcher, Orders};
 use run_ports::{BoxFuture, Edge, Engine, HookCertificate, HookServer, Limits, Serving};
 use runs_application::{AppError as CoreError, Enqueuer};
 use session_files::SessionDirs;
-use system::System;
 
 use crate::signals::{self, Heard};
 use crate::{InProcessCore, Wiring};
@@ -129,6 +128,13 @@ impl<'a> OneShots<'a> {
         };
         let project =
             tell_project(wiring.fs(), environment, HarpNames).map_err(RunError::Project)?;
+        // Named at its resolution, before any session of it is minted (slice
+        // 2 M1): a session's name, and so its stable id, holds its harp.
+        let project_harp = wiring
+            .named_project()
+            .await
+            .map_err(|e| RunError::Project(angzarr_diagnostic::Report::of(&e)))?
+            .harp;
         let unmade = |cause: &dyn std::fmt::Display| {
             RunError::Session(CoreError::Failed {
                 reason: cause.to_string(),
@@ -173,14 +179,13 @@ impl<'a> OneShots<'a> {
             planner: Box::new(library),
             identity: Box::new(Told(project)),
             names: Box::new(HarpNames),
-            ids: Box::new(System),
             enqueuer,
             launcher,
             dirs: Box::new(SessionDirs::new(wiring.fs(), project_dir.clone())),
             orders,
             place: Place {
                 project_dir: path_text(&project_dir),
-                project_harp: String::new(),
+                project_harp,
                 output_root: path_text(&output_root),
                 program_dir: program.dir.clone(),
                 user_home: wiring.user_home().map(|home| path_text(&home)),

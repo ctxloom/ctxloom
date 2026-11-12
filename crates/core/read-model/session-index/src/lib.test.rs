@@ -687,7 +687,7 @@ fn handle_sync_answers_the_session_as_its_resource_named_by_both_harps() {
     });
     let project = Cover {
         domain: sessions::PROJECTS_DOMAIN.to_string(),
-        root: Some(sessions::project_root("calm-otter")),
+        root: Some(sessions::project_id_root("calm-otter")),
         edition: None,
     };
     let kernel = Kernel::new(&registry);
@@ -746,7 +746,7 @@ fn project_book(harp: Option<&str>, next_sequence: u64) -> angzarr_embedded::v1:
     EventBook {
         cover: Some(Cover {
             domain: sessions::PROJECTS_DOMAIN.to_string(),
-            root: Some(sessions::project_root("calm-otter")),
+            root: Some(sessions::project_id_root("calm-otter")),
             edition: None,
         }),
         pages,

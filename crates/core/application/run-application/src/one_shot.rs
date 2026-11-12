@@ -24,15 +24,15 @@ use angzarr_diagnostic::Diagnostic;
 use angzarr_embedded::v1::{Cover, Uuid};
 use angzarr_embedded::{Catalog, CommandBookExt, Failure, Payload, Processed, ReadStore, Store};
 use library_application::{AppError as PlanError, Flags, Notice, Outcome, Previewed, RunRequest};
-use ports::{CommandIds, Names, Project, ProjectIdentity};
+use ports::{Names, Project, ProjectIdentity};
 use run_launcher::{Launched, Launcher, Order, Orders, Outcome as Turn};
 use run_ports::{CertMint, Edge, HookServer, LoginLinks, RunnerLauncher, SessionRecords};
 use runs_application::{
     AppError as CoreError, EnqueueError, EnqueueRequest, Enqueued, Enqueuer, Evidence,
 };
 use sessions::{
-    claim_root, ClaimName, MintSession, NameClaimCommand, NameClaimEvent, Origin, ReleaseName,
-    ResumeSession, SessionCommand, SessionEvent, SessionRejection, SessionState, NAMES_DOMAIN,
+    ClaimName, MintSession, NameClaimCommand, NameClaimEvent, Origin, ReleaseName, ResumeSession,
+    SessionCommand, SessionEvent, SessionName, SessionRejection, SessionState, NAMES_DOMAIN,
     SESSION_DOMAIN,
 };
 
@@ -170,7 +170,6 @@ pub struct Runs<K: Core, T: run_ports::TokenSource, L: RunnerLauncher, R: Sessio
     pub(crate) planner: Box<dyn Planner>,
     pub(crate) identity: Box<dyn ProjectIdentity>,
     pub(crate) names: Box<dyn Names>,
-    pub(crate) ids: Box<dyn CommandIds>,
     pub(crate) enqueuer: Enqueuer<K::Edge, T>,
     pub(crate) launcher: Launcher<K::Edge, L, R>,
     pub(crate) dirs: Box<dyn SessionRecords>,
@@ -273,7 +272,6 @@ pub struct Parts<K: Core, T: run_ports::TokenSource, L: RunnerLauncher, R: Sessi
     pub planner: Box<dyn Planner>,
     pub identity: Box<dyn ProjectIdentity>,
     pub names: Box<dyn Names>,
-    pub ids: Box<dyn CommandIds>,
     pub enqueuer: Enqueuer<K::Edge, T>,
     pub launcher: Launcher<K::Edge, L, R>,
     /// The session directories, asked whether a harp's exists (defect 3).
@@ -317,7 +315,6 @@ where
             planner: parts.planner,
             identity: parts.identity,
             names: parts.names,
-            ids: parts.ids,
             enqueuer: parts.enqueuer,
             launcher: parts.launcher,
             dirs: parts.dirs,
@@ -409,7 +406,7 @@ where
     async fn resumable(&mut self, harp: &str) -> Result<Resume, RunError> {
         let refuse = RunError::Resume;
         self.launch().await?;
-        let project = self.identity.for_write(None).map_err(RunError::Project)?;
+        self.identity.for_write(None).map_err(RunError::Project)?;
         let edge = self.core.edge();
         let failed = |e: &dyn std::fmt::Display| {
             RunError::Session(CoreError::Failed {
@@ -419,7 +416,7 @@ where
         let mut holder = None;
         for any in event_bodies(
             &edge
-                .events(&claim_cover(&project, harp), 0)
+                .events(&self.claim_cover(harp).map_err(no_name)?, 0)
                 .await
                 .map_err(|e| failed(&e))?,
         ) {
@@ -569,16 +566,7 @@ where
     ) -> Result<(Box<dyn run_ports::Serving>, Started), RunError> {
         let engine = chosen_engine(&previewed.plan, request);
         let settings = settings_of(&previewed.plan, &engine);
-        // A resume owes its session the next incarnation before its run is
-        // enqueued (owner ruling 115), so a refused resume has burned no run
-        // stream; a new session is minted after (its first incarnation).
-        let (session, incarnation) = match &resume {
-            Some(resume) => (resume.session.clone(), self.owe(resume, &engine).await?),
-            None => {
-                let id = uuid::Uuid::from_slice(&self.ids.command_id().value).unwrap_or_default();
-                (id.hyphenated().to_string(), 1)
-            }
-        };
+        let (session, incarnation, chosen) = self.placing(resume.as_ref(), &engine).await?;
         let enqueued = match self
             .enqueue(
                 &previewed,
@@ -609,9 +597,12 @@ where
                 return Err(error);
             }
         };
-        let made = match &resume {
-            Some(resume) => Ok(resume.harp.clone()),
-            None => self.make(&session, &engine, interactive).await,
+        let made = match (&resume, chosen) {
+            (Some(resume), _) => Ok(resume.harp.clone()),
+            (None, Some(chosen)) => self.make(&session, chosen, &engine, interactive).await,
+            (None, None) => Err(RunError::Session(CoreError::Failed {
+                reason: "no name was chosen".to_string(),
+            })),
         };
         let harp = match made {
             Ok(harp) => harp,
@@ -814,11 +805,96 @@ where
     async fn make(
         &mut self,
         session: &str,
+        chosen: Chosen,
         engine: &str,
         interactive: bool,
     ) -> Result<String, RunError> {
         let project = self.identity.for_write(None).map_err(RunError::Project)?;
-        self.mint(&project, session, engine, interactive).await
+        self.mint(&project, session, chosen, engine, interactive)
+            .await
+    }
+
+    /// Where the run is placed before it is enqueued: its session's id, its
+    /// incarnation, and a new session's harp. A resume owes its session the
+    /// next incarnation first (owner ruling 115), so a refused resume has
+    /// burned no run stream; a new session's stable id is the UUIDv5 of its
+    /// name (slice 2 B3), so its harp is chosen now and claimed after the
+    /// enqueue, with its first incarnation.
+    async fn placing(
+        &mut self,
+        resume: Option<&Resume>,
+        engine: &str,
+    ) -> Result<(String, u32, Option<Chosen>), RunError> {
+        if let Some(resume) = resume {
+            return Ok((
+                resume.session.clone(),
+                self.owe(resume, engine).await?,
+                None,
+            ));
+        }
+        let chosen = self.choose().await?;
+        let session = self.name_of(&chosen.harp).map_err(no_name)?.uid();
+        Ok((session, 1, Some(chosen)))
+    }
+
+    /// The claim stream of the name `harp`: its name's root (slice 2 B3), the
+    /// session's own.
+    fn claim_cover(&self, harp: &str) -> Result<Cover, SessionRejection> {
+        Ok(Cover {
+            domain: NAMES_DOMAIN.to_string(),
+            root: Some(self.name_of(harp)?.root()),
+            edition: None,
+        })
+    }
+
+    /// The resource name of the session `harp` of this run's project (slice
+    /// 2 B3): its project's harp, named at the project's resolution, and its
+    /// own.
+    fn name_of(&self, harp: &str) -> Result<SessionName, SessionRejection> {
+        SessionName::new(&self.place.project_harp, harp)
+    }
+
+    /// Whether `harp`'s claim stream holds no claim now.
+    async fn unclaimed(&self, harp: &str) -> Result<bool, RunError> {
+        let pages = self
+            .core
+            .edge()
+            .events(&self.claim_cover(harp).map_err(no_name)?, 0)
+            .await
+            .map_err(|e| {
+                RunError::Session(CoreError::Failed {
+                    reason: e.to_string(),
+                })
+            })?;
+        let mut held = false;
+        for any in event_bodies(&pages) {
+            match NameClaimEvent::from_any(any) {
+                Ok(NameClaimEvent::Claimed(_)) => held = true,
+                Ok(NameClaimEvent::Released(_)) => held = false,
+                Err(_) => {}
+            }
+        }
+        Ok(!held)
+    }
+
+    /// The harp a new session is minted on, chosen before its run is
+    /// enqueued (its stable id is its name's): the first fresh harp whose
+    /// directory is not there (defect 3) and whose name nobody holds; else
+    /// the last tried, marked taken, so the run it is enqueued for ends
+    /// refused `NamesTaken` and claims nothing.
+    async fn choose(&mut self) -> Result<Chosen, RunError> {
+        let mut last = None;
+        for _ in 0..NAME_TRIES {
+            let harp = self.names.project_id();
+            if !self.dirs.exists(&harp) && self.unclaimed(&harp).await? {
+                return Ok(Chosen { harp, free: true });
+            }
+            last = Some(harp);
+        }
+        Ok(Chosen {
+            harp: last.unwrap_or_default(),
+            free: false,
+        })
     }
 
     /// End the enqueued `run` of `session` that `error` stopped before its
@@ -989,67 +1065,59 @@ where
         }
     }
 
-    /// Claim a name and mint the session on it: the session's id text and its
-    /// harp. A name already claimed (the claim refused `NamesTaken`, read by
-    /// the refusal's type) is tried again with another, and so is one whose
-    /// directory exists (defect 3: however the store came to have no claim on
-    /// it), without claiming it. A mint refused after its name was claimed
-    /// gives the name back (review finding 7), best effort: the mint's
-    /// refusal is the error.
+    /// Claim the chosen name and mint the session on it: its harp. A name
+    /// taken (by its directory, or a claim another run made since it was
+    /// chosen: the claim refused `NamesTaken`, read by the refusal's type) is
+    /// the run's refusal. A mint refused after its name was claimed gives
+    /// the name back (review finding 7), best effort: the mint's refusal is
+    /// the error.
     async fn mint(
         &mut self,
         project: &Project,
         session: &str,
+        chosen: Chosen,
         engine: &str,
         interactive: bool,
     ) -> Result<String, RunError> {
         let edge = self.core.edge();
-        let session = session.to_string();
-        let mut taken = None;
-        for _ in 0..NAME_TRIES {
-            let harp = self.names.project_id();
-            if self.dirs.exists(&harp) {
-                taken = Some(names_taken(&harp));
-                continue;
-            }
-            let claim = NameClaimCommand::from(ClaimName {
-                project_id: project.id.clone(),
-                harp: harp.clone(),
-                session: session.clone(),
-            });
-            match edge
-                .handle(angzarr_embedded::v1::CommandBook::command_of(
-                    claim_cover(project, &harp),
-                    &claim,
-                ))
-                .await
-            {
-                Ok(_) => {
-                    let minted = self
-                        .mint_on(&edge, project, engine, &session, &harp, interactive)
-                        .await;
-                    if minted.is_err() {
-                        let release = NameClaimCommand::from(ReleaseName {
-                            session: session.clone(),
-                        });
-                        let _ = edge
-                            .handle(angzarr_embedded::v1::CommandBook::command_of(
-                                claim_cover(project, &harp),
-                                &release,
-                            ))
-                            .await;
-                    }
-                    return minted.map(|()| harp);
-                }
-                Err(Failure::Rejected(rejected)) if refused_taken(&rejected) => {
-                    taken = Some(names_taken(&harp));
-                }
-                Err(failure) => return Err(RunError::Session(CoreError::from_failure(failure))),
-            }
+        let Chosen { harp, free } = chosen;
+        if !free {
+            return Err(RunError::Session(names_taken(&harp)));
         }
-        Err(RunError::Session(taken.unwrap_or(CoreError::Failed {
-            reason: "no name was tried".to_string(),
-        })))
+        let claim = NameClaimCommand::from(ClaimName {
+            project_id: project.id.clone(),
+            harp: harp.clone(),
+            session: session.to_string(),
+        });
+        let cover = self.claim_cover(&harp).map_err(no_name)?;
+        match edge
+            .handle(angzarr_embedded::v1::CommandBook::command_of(
+                cover.clone(),
+                &claim,
+            ))
+            .await
+        {
+            Ok(_) => {
+                let minted = self
+                    .mint_on(&edge, project, engine, session, &harp, interactive)
+                    .await;
+                if minted.is_err() {
+                    let release = NameClaimCommand::from(ReleaseName {
+                        session: session.to_string(),
+                    });
+                    let _ = edge
+                        .handle(angzarr_embedded::v1::CommandBook::command_of(
+                            cover, &release,
+                        ))
+                        .await;
+                }
+                minted.map(|()| harp)
+            }
+            Err(Failure::Rejected(rejected)) if refused_taken(&rejected) => {
+                Err(RunError::Session(names_taken(&harp)))
+            }
+            Err(failure) => Err(RunError::Session(CoreError::from_failure(failure))),
+        }
     }
 
     async fn mint_on(
@@ -1173,13 +1241,20 @@ fn session_cover(session: &str) -> Cover {
     }
 }
 
-/// The claim stream of `harp` in `project`.
-fn claim_cover(project: &Project, harp: &str) -> Cover {
-    Cover {
-        domain: NAMES_DOMAIN.to_string(),
-        root: Some(claim_root(&project.id, harp)),
-        edition: None,
-    }
+/// A name that is no session's (its project's harp, or its own, no harp),
+/// as the run's error.
+fn no_name(rejection: SessionRejection) -> RunError {
+    RunError::Session(CoreError::Refused {
+        code: rejection.code().to_string(),
+        args: BTreeMap::new(),
+    })
+}
+
+/// A new session's harp, chosen before its run is enqueued: `free` when
+/// no directory or claim held it then.
+struct Chosen {
+    harp: String,
+    free: bool,
 }
 
 /// Whether a claim was refused because the name is taken: the refusal's

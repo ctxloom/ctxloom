@@ -5,9 +5,9 @@ use angzarr_embedded::v1::Cover;
 use angzarr_embedded::{Failure, Registry};
 
 use crate::{
-    claim_root, project_name_root, project_namespace, project_root, ClaimProjectName, NameProject,
-    ProjectAggregate, ProjectEvent, ProjectNameAggregate, ProjectNameClaimed, ProjectNameEvent,
-    ProjectNamed, SessionRejection, PROJECTS_DOMAIN, PROJECT_NAMES_DOMAIN,
+    project_id_root, ClaimProjectName, NameProject, ProjectAggregate, ProjectEvent, ProjectName,
+    ProjectNameAggregate, ProjectNameClaimed, ProjectNameEvent, ProjectNamed, SessionName,
+    SessionRejection, PROJECTS_DOMAIN, PROJECT_NAMES_DOMAIN,
 };
 
 const PROJECT: &str = "calm-otter";
@@ -32,7 +32,7 @@ fn project() -> Harness<ProjectAggregate> {
         .unwrap();
     let cover = Cover {
         domain: PROJECTS_DOMAIN.to_string(),
-        root: Some(project_root(PROJECT)),
+        root: Some(project_id_root(PROJECT)),
         edition: None,
     };
     Harness::new(registry, cover).with_samples(Samples::starting_at(100))
@@ -45,7 +45,7 @@ fn claim() -> Harness<ProjectNameAggregate> {
         .unwrap();
     let cover = Cover {
         domain: PROJECT_NAMES_DOMAIN.to_string(),
-        root: Some(project_name_root(HARP)),
+        root: Some(ProjectName::new(HARP).unwrap().root()),
         edition: None,
     };
     Harness::new(registry, cover).with_samples(Samples::starting_at(100))
@@ -132,31 +132,19 @@ fn a_project_harp_is_held_by_one_project_for_the_user() {
     assert_eq!(names.state().state().project_id, PROJECT);
 }
 
-// The roots: a project's stream is its namespace, which no claim or imported
-// session in it can be; a project harp's claim is one root per harp, the
-// same whichever project asks, and never a session name claim's.
+// The roots (owner, 2026-11-12, slice 2 re-root): a project's stream is
+// keyed by its id, a project harp's claim by the project's resource name,
+// one per harp whichever project asks; neither is a session's.
 #[test]
-fn the_roots_are_fixed_by_the_project_and_the_harp() {
-    let namespace = project_namespace(PROJECT);
-    assert_eq!(project_root(PROJECT).value, namespace.as_bytes().to_vec());
-    assert_ne!(project_root(PROJECT), project_root("far-heron"));
-    assert_ne!(project_root(PROJECT), claim_root(PROJECT, HARP));
-    assert_eq!(project_name_root(HARP), project_name_root(HARP));
-    assert_ne!(
-        project_name_root(HARP),
-        project_name_root("brisk-copper-moth")
-    );
-    assert_ne!(project_name_root(HARP), claim_root(PROJECT, HARP));
-}
-
-// FIXED: a project harp's claim root is UUIDv5 of the harp in the namespace
-// UUIDv5(URL, "ctxloom:project-names"); changing it frees every harp
-// claimed.
-#[test]
-fn a_project_harps_claim_root_is_fixed() {
-    let namespace = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, b"ctxloom:project-names");
-    let expected = uuid::Uuid::new_v5(&namespace, HARP.as_bytes());
-    assert_eq!(project_name_root(HARP).value, expected.as_bytes().to_vec());
+fn the_roots_are_the_project_id_and_the_projects_name() {
+    let id = uuid::Uuid::new_v5(&crate::NAMESPACE, PROJECT.as_bytes());
+    assert_eq!(project_id_root(PROJECT).value, id.as_bytes().to_vec());
+    assert_ne!(project_id_root(PROJECT), project_id_root("far-heron"));
+    let claim = ProjectName::new(HARP).unwrap().root();
+    let expected = uuid::Uuid::new_v5(&crate::NAMESPACE, b"projects/amber-swift-owl");
+    assert_eq!(claim.value, expected.as_bytes().to_vec());
+    assert_ne!(claim, ProjectName::new("brisk-copper-moth").unwrap().root());
+    assert_ne!(claim, SessionName::new(HARP, HARP).unwrap().root());
 }
 
 // The states round-trip through their wire messages.

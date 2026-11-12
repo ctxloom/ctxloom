@@ -325,7 +325,17 @@ fn launch(
     engine: String,
     name: Option<String>,
 ) -> Result<Ordered, Failure> {
-    let session = uuid::Uuid::now_v7().hyphenated().to_string();
+    // The child's stable id is the UUIDv5 of its name (slice 2 B3), its
+    // owner's project named first (M1): the hand-off is keyed by it.
+    let harp = name.unwrap_or_else(crate::session_name);
+    let project_harp = wiring.name_project().map_err(failed)?.harp;
+    let session = sessions::SessionName::new(&project_harp, &harp)
+        .map_err(|rejection| {
+            failed(CliError::Output {
+                detail: angzarr_diagnostic::Diagnostic::code(&rejection).to_string(),
+            })
+        })?
+        .uid();
     // Keyed as the platform compares names (uppercase on Windows), as a
     // run's environment is (`os::Flavor::env_key`).
     let flavor = env.flavor();
@@ -363,11 +373,10 @@ fn launch(
             .launch_child(LaunchRequest {
                 project: None,
                 owner,
-                harp: name.unwrap_or_else(crate::session_name),
+                harp,
                 engine,
                 prompt,
                 delegation_limit: DELEGATION_LIMIT,
-                session: session.clone(),
             })
             .await
     });

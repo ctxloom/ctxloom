@@ -8,12 +8,12 @@ use std::sync::{Arc, Mutex};
 
 use angzarr_diagnostic::{Diagnostic, Report};
 use angzarr_embedded::testing::MemoryStore;
-use angzarr_embedded::v1::{event_page, CommandBook, Cover, EventPage, Uuid};
+use angzarr_embedded::v1::{event_page, CommandBook, Cover, EventPage};
 use angzarr_embedded::{Answered, Catalog, CommandBookExt, Failure, Rejected, StoreError};
 use library_application::{
     AppError as PlanError, DryRun, FindingRow, Flags, Notice, Outcome, Previewed, RunRequest,
 };
-use ports::{CommandIds, Names, Project, ProjectIdentity};
+use ports::{Names, Project, ProjectIdentity};
 use run_launcher::fakes::{
     names as event_names, run_events, session_events, Credentialed, MemoryRecords, ScriptedEngine,
     ScriptedRunner, TestEdge,
@@ -270,14 +270,6 @@ impl Names for ScriptedNames {
     }
     fn project_id(&mut self) -> String {
         self.0.pop_front().expect("a name was scripted")
-    }
-}
-
-struct FixedIds;
-
-impl CommandIds for FixedIds {
-    fn command_id(&mut self) -> Uuid {
-        Uuid::from_bytes(*uuid::Uuid::now_v7().as_bytes())
     }
 }
 
@@ -693,7 +685,6 @@ fn rig(script: Script) -> Rig {
         names: Box::new(ScriptedNames(
             script.names.iter().map(|n| n.to_string()).collect(),
         )),
-        ids: Box::new(FixedIds),
         enqueuer: Enqueuer::new(Arc::clone(&seen), Arc::new(CountingSource::default())),
         launcher,
         dirs: Box::new(records.clone()),

@@ -21,8 +21,8 @@ use os::Mode;
 use ports::{Clock, CommandIds, Project, ProjectIdentity};
 use session_ports::ProjectStores;
 use sessions::{
-    claim_root, BindEngineSession, ClaimName, MintSession, NameClaimAggregate, NameClaimCommand,
-    Origin, RecordEnd, SessionAggregate, SessionCommand, SetKept, NAMES_DOMAIN, SESSION_DOMAIN,
+    BindEngineSession, ClaimName, MintSession, NameClaimAggregate, NameClaimCommand, Origin,
+    RecordEnd, SessionAggregate, SessionCommand, SetKept, NAMES_DOMAIN, SESSION_DOMAIN,
 };
 use system::System;
 
@@ -68,13 +68,26 @@ impl Wiring {
     }
 
     async fn seed(&self, seed: &Seed) -> Result<String, TestError> {
-        let sessions = self.sessions();
+        let mut sessions = self.sessions();
+        // The project is named first, as a run names it (slice 2 M1): the
+        // session is rooted on its name.
+        let named = sessions
+            .use_cases
+            .name_project(sessions_application::NameProjectRequest {
+                project: seed.project.clone(),
+                harps: crate::fresh_project_harps(),
+            })
+            .await
+            .map_err(|e| seed_error(angzarr_diagnostic::Diagnostic::code(&e)));
         let mut identity = sessions.use_cases.identity;
         let mut stores = sessions.use_cases.stores;
         let project = identity
             .for_write(seed.project.as_deref())
             .map_err(seed_error_of)?;
-        let seeded = self.seed_in(&mut stores, &project, seed).await;
+        let seeded = match named {
+            Ok(named) => self.seed_in(&mut stores, &project, &named.harp, seed).await,
+            Err(error) => Err(error),
+        };
         // Closed, not dropped (ruling 131): the seed's commits are in the
         // file, with no log beside it, when the command exits.
         let closed = stores.close().await.map_err(seed_error);
@@ -88,9 +101,11 @@ impl Wiring {
         &self,
         stores: &mut SqliteStores,
         project: &Project,
+        project_harp: &str,
         seed: &Seed,
     ) -> Result<String, TestError> {
         let store = stores.open(project).await.map_err(seed_error)?;
+        let name = sessions::SessionName::new(project_harp, &seed.harp).map_err(seed_error)?;
         let cwd = self.fs.cwd().map_err(seed_error)?.to_path_buf();
         let output_dir = self.seed_output_dir(&seed.harp)?;
 
@@ -100,7 +115,8 @@ impl Wiring {
             seconds: now.seconds - i64::try_from(ago).unwrap_or(0),
             nanos: 0,
         };
-        let id = *uuid::Uuid::now_v7().as_bytes();
+        // Its stable id is the UUIDv5 of its name (slice 2 B3).
+        let id = *name.id().as_bytes();
         let registry = sessions_application::registry();
         let registry = &registry;
         let session_cover = Cover {
@@ -136,7 +152,7 @@ impl Wiring {
         };
         let started = before(seed.started_ago);
         // The name first, as the real mint takes it (plan 3.1).
-        claim_name(store, &project.id, seed, id, started).await?;
+        claim_name(store, &project.id, seed, &name, started).await?;
         run(
             started,
             MintSession {
@@ -283,13 +299,13 @@ async fn claim_name<S: Store + ReadStore + Processed + Send + Sync>(
     store: &S,
     project_id: &str,
     seed: &Seed,
-    id: [u8; 16],
+    name: &sessions::SessionName,
     started: Timestamp,
 ) -> Result<(), TestError> {
     let claim = NameClaimCommand::from(ClaimName {
         project_id: project_id.to_string(),
         harp: seed.harp.clone(),
-        session: uuid::Uuid::from_bytes(id).to_string(),
+        session: name.uid(),
     });
     let claims = sessions_application::registry();
     Kernel::new(&claims)
@@ -298,7 +314,7 @@ async fn claim_name<S: Store + ReadStore + Processed + Send + Sync>(
             CommandBook {
                 cover: Some(Cover {
                     domain: NAMES_DOMAIN.to_string(),
-                    root: Some(claim_root(project_id, &seed.harp)),
+                    root: Some(name.root()),
                     edition: None,
                 }),
                 page: Some(CommandPage {

@@ -337,10 +337,12 @@ pub fn project_at(id: &str, root: &str) -> Project {
 }
 
 /// The claim stream of `harp` in project `project`.
+/// The claim stream of `harp` under the project harp `project` (its name's
+/// root, slice 2 B3).
 pub fn claim_cover(project: &str, harp: &str) -> Cover {
     Cover {
         domain: sessions::NAMES_DOMAIN.to_string(),
-        root: Some(sessions::claim_root(project, harp)),
+        root: Some(sessions::SessionName::new(project, harp).unwrap().root()),
         edition: None,
     }
 }

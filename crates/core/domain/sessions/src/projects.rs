@@ -1,39 +1,20 @@
 //! A project's harp (owner S54): the `projects` aggregate, one stream per
 //! project holding the harp it was named with, minted once and never
-//! changed; and the `project-names` claim, one stream per harp text, so a
-//! project harp is unique for the user because a stream is.
+//! changed, rooted on the project id ([`crate::project_id_root`]: it mints
+//! the name, so it cannot be rooted on it); and the `project-names` claim,
+//! rooted on the project's resource name ([`crate::ProjectName::root`],
+//! owner 2026-11-12, slice 2 B3/re-root), so a project harp is unique for
+//! the user because a stream is.
 
 use angzarr_embedded::markup::{Context, Failed, PageContext, Refuses};
 use angzarr_embedded_macros::{aggregate, applies, handles_cmd};
 
 use crate::refusal::refuse;
 use crate::{
-    project_namespace, validate, ClaimProjectName, HarpInvalid, NameProject, ProjectCommand,
-    ProjectEvent, ProjectNameClaimed, ProjectNameCommand, ProjectNameEvent, ProjectNameState,
-    ProjectNameTaken, ProjectNamed, ProjectState, SessionRejection,
+    validate, ClaimProjectName, HarpInvalid, NameProject, ProjectCommand, ProjectEvent,
+    ProjectNameClaimed, ProjectNameCommand, ProjectNameEvent, ProjectNameState, ProjectNameTaken,
+    ProjectNamed, ProjectState, SessionRejection,
 };
-
-/// The namespace every project harp's claim root derives from: UUIDv5 of
-/// `ctxloom:project-names` in the URL namespace. FIXED: a claim's root is
-/// derived from it, so changing it frees every harp claimed.
-fn project_names_namespace() -> uuid::Uuid {
-    uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, b"ctxloom:project-names")
-}
-
-/// The root of `project_id`'s project stream: its project namespace itself
-/// ([`project_namespace`], owner-approved and fixed), which no stream rooted
-/// inside it (a claim, an imported session: UUIDv5s IN it) can be.
-pub fn project_root(project_id: &str) -> angzarr_embedded::v1::Uuid {
-    angzarr_embedded::v1::Uuid::from_bytes(*project_namespace(project_id).as_bytes())
-}
-
-/// The root of the claim stream of the project harp `harp`: UUIDv5 of the
-/// harp text in the user's project-names namespace, one per harp for the
-/// user (every project's streams are in the one store, T14).
-pub fn project_name_root(harp: &str) -> angzarr_embedded::v1::Uuid {
-    let id = uuid::Uuid::new_v5(&project_names_namespace(), harp.as_bytes());
-    angzarr_embedded::v1::Uuid::from_bytes(*id.as_bytes())
-}
 
 /// The project aggregate: its harp, folded from its stream.
 #[derive(Clone, Debug, Default)]

@@ -95,6 +95,11 @@ pub(crate) fn registry<N>(
 /// How many fresh harps a project's naming tries before it gives up (S54).
 const PROJECT_HARP_TRIES: usize = 3;
 
+/// Fresh harps a project may be named with, tried in order.
+pub(crate) fn fresh_project_harps() -> Vec<String> {
+    (0..PROJECT_HARP_TRIES).map(|_| session_name()).collect()
+}
+
 /// A newly minted session's harp: two adjectives and a noun.
 pub fn session_name() -> String {
     HarpNames.project_id()
@@ -201,7 +206,15 @@ impl SessionService for Sessions {
 }
 
 impl ImportService for Sessions {
+    /// The import, a project it writes to named with fresh harps when it
+    /// has none (slice 2 M1).
     async fn import(&mut self, request: ImportRequest) -> Result<ImportReport, AppError> {
+        let request = match request.project_harps.is_empty() {
+            true => ImportRequest {
+                project_harps: fresh_project_harps(),
+            },
+            false => request,
+        };
         self.importer.import(request).await
     }
 }
@@ -423,8 +436,10 @@ impl Wiring {
     }
 
     /// Name the project this process is in (S54), once, in the one store:
-    /// its harp, minted from fresh harps, or the one it has. The CLI's
-    /// exposure is a later slice's.
+    /// its harp, minted from fresh harps, or the one it has. Every command
+    /// that mints a session names its project first, at its resolution
+    /// (slice 2 M1: a run, a child's launch, an import, the test seed); the
+    /// daemon's `ResolveProject` is a later step's.
     pub fn name_project(&self) -> Result<sessions_application::ProjectHarp, LibError> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -432,23 +447,25 @@ impl Wiring {
             .map_err(|e: io::Error| LibError::NoRuntime {
                 detail: e.to_string(),
             })?;
+        runtime.block_on(self.named_project())
+    }
+
+    /// [`Wiring::name_project`], on the caller's runtime.
+    pub async fn named_project(&self) -> Result<sessions_application::ProjectHarp, LibError> {
         let mut sessions = self.sessions();
-        let harps = (0..PROJECT_HARP_TRIES).map(|_| session_name()).collect();
-        runtime.block_on(async {
-            let named = sessions
-                .use_cases
-                .name_project(sessions_application::NameProjectRequest {
-                    project: None,
-                    harps,
-                })
-                .await
-                .map_err(|e| LibError::Project(angzarr_diagnostic::Report::of(&e)));
-            // Closed, not dropped (ruling 131).
-            let closed = sessions.close().await;
-            let named = named?;
-            closed.map_err(|e| LibError::Project(angzarr_diagnostic::Report::of(&e)))?;
-            Ok(named)
-        })
+        let named = sessions
+            .use_cases
+            .name_project(sessions_application::NameProjectRequest {
+                project: None,
+                harps: fresh_project_harps(),
+            })
+            .await
+            .map_err(|e| LibError::Project(angzarr_diagnostic::Report::of(&e)));
+        // Closed, not dropped (ruling 131).
+        let closed = sessions.close().await;
+        let named = named?;
+        closed.map_err(|e| LibError::Project(angzarr_diagnostic::Report::of(&e)))?;
+        Ok(named)
     }
 
     /// The one store opened (made, if need be) under the home for `project`

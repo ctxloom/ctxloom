@@ -11,7 +11,7 @@ use ports::{Clock, CommandIds, Delay, Jitter, ProjectIdentity};
 use session_ports::{Liveness, ProjectStores, SessionFiles};
 use sessions::{
     ClearChild, CloseSession, LaunchChild, SendMessage, SessionAggregate, SessionCommand,
-    TargetTrust, Urgency,
+    SessionName, TargetTrust, Urgency,
 };
 
 use crate::bridge::Port;
@@ -61,10 +61,6 @@ pub struct LaunchRequest {
     pub prompt: String,
     /// How many open children the owner may hold.
     pub delegation_limit: u32,
-    /// The child session's stable id, as UUID text: the caller's mint, so
-    /// what it hands the user daemon for the child is keyed by it (D-N45).
-    /// Empty mints one.
-    pub session: String,
 }
 
 /// What an orchestration command did.
@@ -216,10 +212,18 @@ where
             .read
             .find(request.project.as_deref(), &request.owner)
             .await?;
-        let child = match request.session.is_empty() {
-            true => fresh(&self.clock.command_id()),
-            false => request.session.clone(),
-        };
+        // The child's stable id is the UUIDv5 of its name (slice 2 B3), its
+        // owner's project's harp and its own: a project with no harp yet has
+        // minted no session, and launches none.
+        let project_harp =
+            self.project_harp(&project)
+                .await?
+                .ok_or_else(|| AppError::NoProjectHarp {
+                    project_id: project.id.clone(),
+                })?;
+        let child = SessionName::new(&project_harp, &request.harp)
+            .map_err(|rejection| AppError::Rejected(angzarr_diagnostic::Report::of(&rejection)))?
+            .uid();
         let command = LaunchChild {
             child_project_id: project.id.clone(),
             child_session: child.clone(),

@@ -1,7 +1,8 @@
 //! `session import`: Go's `~/.ctxloom/sessions/*/session.yaml` into session
 //! streams, once (D14, plan 9). One-shot and idempotent: a session's stable
-//! id is UUIDv5(project, harp) (D5 Q1), so a rerun finds each stream there and
-//! adds nothing. Go's directories are only read, never written.
+//! id is the UUIDv5 of its resource name, `projects/{project}/sessions/{harp}`
+//! (owner, 2026-11-12, slice 2 re-root; the project named at the import if it
+//! has no harp yet), so a rerun finds each stream there and adds nothing. Go's directories are only read, never written.
 //!
 //! A session of a project is found by its Go `project_dir`: the work root of
 //! the registered project it equals; one registered nowhere is left, named.
@@ -19,8 +20,8 @@ use crate::typed;
 use ports::{Clock, CommandIds, Delay, Jitter, Project, ProjectIdentity};
 use session_ports::{GoSession, GoSessions, ProjectStores};
 use sessions::{
-    claim_root, AdoptRotations, BindEngineSession, ClaimName, MintSession, NameClaimAggregate,
-    NameClaimCommand, Origin, RecordEnd, Rotation, SessionAggregate, SessionCommand,
+    AdoptRotations, BindEngineSession, ClaimName, MintSession, NameClaimAggregate,
+    NameClaimCommand, Origin, RecordEnd, Rotation, SessionAggregate, SessionCommand, SessionName,
     SessionRejection, SetKept, NAMES_DOMAIN, SESSION_DOMAIN,
 };
 
@@ -100,16 +101,6 @@ pub struct ImportReport {
     pub dead_letters: Vec<DeadLetter>,
 }
 
-/// The stable id of the session Go named `harp` in project `project_id`:
-/// UUIDv5 of the harp text in the project's namespace
-/// ([`sessions::project_namespace`]), so the same session imported twice is
-/// the same stream (D5 Q1). OWNER-APPROVED and FIXED: these ids are the
-/// streams' roots, and changing the derivation orphans every imported
-/// session.
-pub fn imported_id(project_id: &str, harp: &str) -> String {
-    uuid::Uuid::new_v5(&sessions::project_namespace(project_id), harp.as_bytes()).to_string()
-}
-
 /// The import a driving adapter calls.
 pub trait ImportService {
     fn import(
@@ -156,14 +147,13 @@ where
 {
     async fn import(&mut self, request: ImportRequest) -> Result<ImportReport, AppError> {
         let ImportRequest { project_harps } = request;
-        let _ = project_harps;
         let mut sessions = self.go.go_sessions().map_err(AppError::Files)?;
         // A directory whose name is no usable harp is not a session.
         sessions.retain(|go| sessions::validate(&go.harp).is_ok());
         let projects = self.identity.every_project().map_err(AppError::Identity)?;
         let mut report = ImportReport::default();
         for go in sessions {
-            let result = self.one(&projects, go, &mut report).await;
+            let result = self.one(&projects, &project_harps, go, &mut report).await;
             if let Err(error) = result {
                 let letters = std::mem::take(&mut self.dead_letters);
                 return Err(match letters.is_empty() {
@@ -196,10 +186,33 @@ where
     C: Clock + CommandIds,
     D: Delay + Jitter + Send,
 {
+    /// The harp `project` was named with, named now with the first of
+    /// `harps` no other project holds when it has none.
+    async fn project_harp(
+        &mut self,
+        project: &Project,
+        harps: &[String],
+    ) -> Result<String, AppError> {
+        let store = self.stores.open(project).await.map_err(crate::failed)?;
+        let mut runner = Runner {
+            registry: &self.registry,
+            clock: &mut Port(&mut self.clock),
+            delay: &mut Port(&mut self.delay),
+            retry: self.retry,
+            dead_letters: &mut self.dead_letters,
+        };
+        Ok(
+            crate::projects::name_in(&mut runner, store, &project.id, harps)
+                .await?
+                .harp,
+        )
+    }
+
     /// Import one Go session, or say why it was left.
     async fn one(
         &mut self,
         projects: &[Project],
+        project_harps: &[String],
         go: GoSession,
         report: &mut ImportReport,
     ) -> Result<(), AppError> {
@@ -231,9 +244,14 @@ where
             }));
             return Ok(());
         };
-        let id = imported_id(&project.id, &harp);
+        // A project is named at its first resolution, before any session of
+        // it is minted (slice 2 M1); the session is rooted on its name.
+        let project_harp = self.project_harp(project, project_harps).await?;
+        let name = SessionName::new(&project_harp, &harp)
+            .map_err(|rejection| AppError::Rejected(Report::of(&rejection)))?;
+        let id = name.uid();
         match self
-            .session(project, &id, &harp, &entry, go.keep_marker)
+            .session(project, &name, &harp, &entry, go.keep_marker)
             .await?
         {
             Step::Left(why) => report.left.push(left(why)),
@@ -257,24 +275,21 @@ where
     async fn session(
         &mut self,
         project: &Project,
-        id: &str,
+        name: &SessionName,
         harp: &str,
         entry: &GoEntry,
         keep_marker: bool,
     ) -> Result<Step, AppError> {
-        let root = uuid::Uuid::parse_str(id).map_err(|e| {
-            AppError::Failed(
-                Report::new("sessions-application-bad-id").arg("ext_err_txt", e.to_string()),
-            )
-        })?;
+        let root = name.id();
+        let id = name.uid();
         let session_cover = Cover {
             domain: SESSION_DOMAIN.to_string(),
-            root: Some(Uuid::from_bytes(*root.as_bytes())),
+            root: Some(name.root()),
             edition: None,
         };
         let claim_cover = Cover {
             domain: NAMES_DOMAIN.to_string(),
-            root: Some(claim_root(&project.id, harp)),
+            root: Some(name.root()),
             edition: None,
         };
         let step_id =
@@ -291,7 +306,7 @@ where
         let claim = NameClaimCommand::from(ClaimName {
             project_id: project.id.clone(),
             harp: harp.to_string(),
-            session: id.to_string(),
+            session: id.clone(),
         });
         let claimed = typed::run::<NameClaimAggregate, _, _, _>(
             &mut runner,

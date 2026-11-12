@@ -25,7 +25,7 @@
 //! owner's ruling on the watch lines. `rename` sets the title (S55): a
 //! harp is permanent, and the harp-changing `edit --name` is gone.
 //!
-//! JSON rows: `harp, summary, state, start, end?, kept?,
+//! JSON rows: `harp, name?, summary, state, start, end?, kept?,
 //! transcript_path?, engine` (D16: Go 0.7's `harp, summary, state, start, end`
 //! plus the plan's additions; the keys that are empty are left out as Go
 //! leaves them).

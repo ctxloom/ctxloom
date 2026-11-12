@@ -17,9 +17,7 @@ use crate::fakes::{
     cover, minted, project_at, ready, FakeClock, FakeDelay, FakeFiles, FakeGo, FakeIdentity,
     FakeLiveness, FakeStores,
 };
-use crate::{
-    imported_id, ImportRequest, ImportService, Importer, ListQuery, Service, SessionService, Why,
-};
+use crate::{ImportRequest, ImportService, Importer, ListQuery, Service, SessionService, Why};
 
 const SCHEMA1: &str = include_str!("../fixtures/go-sidecar/schema1.yaml");
 const SCHEMA2: &str = include_str!("../fixtures/go-sidecar/schema2.yaml");
@@ -28,6 +26,26 @@ const HERE: &str = "jolly-mute-magma";
 const OWL: &str = "amber-swift-owl";
 const MOTH: &str = "brisk-copper-moth";
 const WREN: &str = "calm-dusty-wren";
+/// The harp the import names the project with (its first resolution, slice
+/// 2 M1): the first of the request's.
+const PROJECT_HARP: &str = "calm-quiet-heron";
+
+/// The import, with the harps a project it imports into may be named with.
+fn request() -> ImportRequest {
+    ImportRequest {
+        project_harps: vec![PROJECT_HARP.to_string()],
+    }
+}
+
+/// The resource name of the imported session `harp`.
+fn name(harp: &str) -> sessions::SessionName {
+    sessions::SessionName::new(PROJECT_HARP, harp).unwrap()
+}
+
+/// The stable id of the imported session `harp`: the UUIDv5 of its name.
+fn imported_id(harp: &str) -> String {
+    name(harp).uid()
+}
 
 type Imp = Importer<FakeIdentity, FakeStores, FakeGo, FakeClock, FakeDelay>;
 
@@ -82,15 +100,28 @@ fn listing(imp: Imp) -> Vec<crate::View> {
 
 // ------------------------------------------------------------------ the id
 
-// D5 Q1: UUIDv5(project, harp).
+// Owner, 2026-11-12, slice 2 re-root: an imported session is rooted on its
+// new name, the UUIDv5 of `projects/{project}/sessions/{session}`, its
+// project named at the import (its first resolution).
 #[test]
-fn the_imported_id_is_a_uuid_v5_of_the_project_and_the_harp() {
-    let id = imported_id(HERE, OWL);
-    assert_eq!(id, imported_id(HERE, OWL), "a function of its inputs");
-    assert_ne!(id, imported_id(HERE, MOTH), "per harp");
-    assert_ne!(id, imported_id("brisk-tall-oak", OWL), "per project");
-    let parsed = uuid::Uuid::parse_str(&id).expect("a UUID");
-    assert_eq!(parsed.get_version_num(), 5);
+fn the_imported_id_is_the_uuid_v5_of_its_resource_name() {
+    let mut imp = importer(vec![go(OWL, SCHEMA1, false)]);
+    let report = ready(imp.import(request())).unwrap();
+    assert_eq!(report.imported.len(), 1, "{report:?}");
+    let id = &report.imported[0].id;
+    assert_eq!(
+        *id,
+        uuid::Uuid::new_v5(
+            &sessions::NAMESPACE,
+            b"projects/calm-quiet-heron/sessions/amber-swift-owl"
+        )
+        .to_string()
+    );
+    let views = listing(imp);
+    assert_eq!(
+        views[0].record.name,
+        "projects/calm-quiet-heron/sessions/amber-swift-owl"
+    );
 }
 
 // ------------------------------------------------------------------ the import
@@ -98,7 +129,7 @@ fn the_imported_id_is_a_uuid_v5_of_the_project_and_the_harp() {
 #[test]
 fn each_go_session_is_imported_into_the_project_whose_root_is_its_directory() {
     let mut imp = importer(three());
-    let report = ready(imp.import(ImportRequest::default())).unwrap();
+    let report = ready(imp.import(request())).unwrap();
     let mut got: Vec<(String, String, String)> = report
         .imported
         .iter()
@@ -107,7 +138,7 @@ fn each_go_session_is_imported_into_the_project_whose_root_is_its_directory() {
     got.sort();
     let mut want: Vec<(String, String, String)> = [OWL, MOTH, WREN]
         .iter()
-        .map(|h| (h.to_string(), HERE.to_string(), imported_id(HERE, h)))
+        .map(|h| (h.to_string(), HERE.to_string(), imported_id(h)))
         .collect();
     want.sort();
     assert_eq!(got, want);
@@ -119,7 +150,7 @@ fn each_go_session_is_imported_into_the_project_whose_root_is_its_directory() {
 #[test]
 fn the_listing_after_an_import_is_the_listing_go_gives() {
     let mut imp = importer(three());
-    ready(imp.import(ImportRequest::default())).unwrap();
+    ready(imp.import(request())).unwrap();
     let views = listing(imp);
     let by = |harp: &str| {
         views
@@ -131,7 +162,7 @@ fn the_listing_after_an_import_is_the_listing_go_gives() {
     };
 
     let owl = by(OWL);
-    assert_eq!(owl.id, imported_id(HERE, OWL));
+    assert_eq!(owl.id, imported_id(OWL));
     assert_eq!(owl.engine, "claude-code");
     assert_eq!(owl.project_dir, "/work/proj");
     assert_eq!(
@@ -192,13 +223,13 @@ fn the_listing_after_an_import_is_the_listing_go_gives() {
 #[test]
 fn a_rerun_adds_nothing() {
     let mut imp = importer(three());
-    ready(imp.import(ImportRequest::default())).unwrap();
+    ready(imp.import(request())).unwrap();
     let heads = |imp: &Imp| -> Vec<u64> {
         let store: &MemoryStore = imp.stores.stores.get(HERE).expect("a store");
         [OWL, MOTH, WREN]
             .iter()
             .map(|h| {
-                let id = uuid::Uuid::parse_str(&imported_id(HERE, h)).unwrap();
+                let id = uuid::Uuid::parse_str(&imported_id(h)).unwrap();
                 let cover = cover_of(id);
                 let stream = StreamRef::try_from(&cover).unwrap();
                 ready(EventStore::head(store, stream))
@@ -209,7 +240,7 @@ fn a_rerun_adds_nothing() {
     };
     let before = heads(&imp);
     assert!(before.iter().all(|n| *n > 0));
-    let again = ready(imp.import(ImportRequest::default())).unwrap();
+    let again = ready(imp.import(request())).unwrap();
     assert!(again.imported.is_empty(), "{again:?}");
     let mut already = again.already.clone();
     already.sort();
@@ -238,7 +269,7 @@ fn cover_of(id: uuid::Uuid) -> angzarr_embedded::v1::Cover {
 #[test]
 fn an_imported_session_holds_its_name() {
     let mut imp = importer(vec![go(OWL, SCHEMA1, false)]);
-    ready(imp.import(ImportRequest::default())).unwrap();
+    ready(imp.import(request())).unwrap();
     let store = imp.stores.stores.get(HERE).expect("a store");
     let mut registry = angzarr_embedded::Registry::new();
     registry
@@ -246,13 +277,13 @@ fn an_imported_session_holds_its_name() {
         .unwrap();
     let claim_cover = angzarr_embedded::v1::Cover {
         domain: sessions::NAMES_DOMAIN.to_string(),
-        root: Some(sessions::claim_root(HERE, OWL)),
+        root: Some(name(OWL).root()),
         edition: None,
     };
     let (claim, _) =
         ready(Kernel::new(&registry).load::<NameClaimAggregate, _>(store, &claim_cover)).unwrap();
     let state: &NameClaimState = claim.state().state();
-    assert_eq!(state.session, imported_id(HERE, OWL));
+    assert_eq!(state.session, imported_id(OWL));
 }
 
 // D5 Q1: a name another session holds is not taken: the Go session is left,
@@ -272,7 +303,7 @@ fn a_name_another_session_holds_leaves_the_go_session() {
         let book = angzarr_embedded::v1::CommandBook {
             cover: Some(angzarr_embedded::v1::Cover {
                 domain: sessions::NAMES_DOMAIN.to_string(),
-                root: Some(sessions::claim_root(HERE, OWL)),
+                root: Some(name(OWL).root()),
                 edition: None,
             }),
             page: Some(angzarr_embedded::v1::CommandPage {
@@ -309,7 +340,7 @@ fn a_name_another_session_holds_leaves_the_go_session() {
         .unwrap();
         let _ = cover(9);
     }
-    let report = ready(imp.import(ImportRequest::default())).unwrap();
+    let report = ready(imp.import(request())).unwrap();
     assert!(report.imported.is_empty());
     assert_eq!(report.left.len(), 1);
     assert_eq!(report.left[0].harp, OWL);
@@ -325,7 +356,7 @@ fn a_name_another_session_holds_leaves_the_go_session() {
 fn a_go_session_of_a_directory_no_project_holds_is_left_named() {
     let elsewhere = SCHEMA1.replace("/work/proj", "/work/elsewhere");
     let mut imp = importer(vec![go(OWL, &elsewhere, false), go(MOTH, SCHEMA2, false)]);
-    let report = ready(imp.import(ImportRequest::default())).unwrap();
+    let report = ready(imp.import(request())).unwrap();
     assert_eq!(report.imported.len(), 1);
     assert_eq!(report.imported[0].harp, MOTH, "the rest are still imported");
     assert_eq!(
@@ -348,7 +379,7 @@ fn a_directory_whose_name_is_no_harp_is_skipped_not_imported_or_left() {
         go("has:colon", SCHEMA1, false),
         go(MOTH, SCHEMA2, false),
     ]);
-    let report = ready(imp.import(ImportRequest::default())).unwrap();
+    let report = ready(imp.import(request())).unwrap();
     assert_eq!(report.imported.len(), 1);
     assert_eq!(report.imported[0].harp, MOTH);
     assert_eq!(report.left, []);
@@ -359,7 +390,7 @@ fn a_directory_whose_name_is_no_harp_is_skipped_not_imported_or_left() {
 fn a_sidecar_this_build_cannot_read_is_left_and_the_others_still_import() {
     let newer = SCHEMA2.replace("schema_version: 2", "schema_version: 9");
     let mut imp = importer(vec![go(OWL, SCHEMA1, false), go(MOTH, &newer, false)]);
-    let report = ready(imp.import(ImportRequest::default())).unwrap();
+    let report = ready(imp.import(request())).unwrap();
     assert_eq!(report.imported.len(), 1);
     assert!(matches!(
         report.left.as_slice(),
@@ -381,7 +412,7 @@ fn a_sidecar_that_could_not_be_read_from_disk_is_left() {
         keep_marker: false,
     };
     let mut imp = importer(vec![broken, go(MOTH, SCHEMA2, false)]);
-    let report = ready(imp.import(ImportRequest::default())).unwrap();
+    let report = ready(imp.import(request())).unwrap();
     assert_eq!(report.imported.len(), 1);
     assert!(matches!(
         report.left.as_slice(),
@@ -396,14 +427,14 @@ fn a_sidecar_that_could_not_be_read_from_disk_is_left() {
 #[test]
 fn a_keep_marker_file_marks_the_session_kept() {
     let mut imp = importer(vec![go(OWL, SCHEMA1, true)]);
-    ready(imp.import(ImportRequest::default())).unwrap();
+    ready(imp.import(request())).unwrap();
     let views = listing(imp);
     assert!(views[0].record.kept);
 }
 
 fn listed(sidecar: &str, keep_marker: bool) -> crate::View {
     let mut imp = importer(vec![go(OWL, sidecar, keep_marker)]);
-    ready(imp.import(ImportRequest::default())).unwrap();
+    ready(imp.import(request())).unwrap();
     listing(imp).remove(0)
 }
 

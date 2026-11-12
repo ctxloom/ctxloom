@@ -490,9 +490,12 @@ pub(crate) fn entries(doc: &Value, path: &str) -> usize {
     }
 }
 
-/// Go's `the output reports "<path>" containing "<value>"`.
+/// Go's `the output reports "<path>" containing "<value>"`: a list holding
+/// it, or a text holding it (a resource name, slice 2).
 pub(crate) fn contains_value(doc: &Value, path: &str, value: &str) -> bool {
-    at(doc, path)
-        .and_then(Value::as_array)
-        .is_some_and(|a| a.iter().any(|e| e.as_str() == Some(value)))
+    match at(doc, path) {
+        Some(Value::Array(a)) => a.iter().any(|e| e.as_str() == Some(value)),
+        Some(Value::String(text)) => text.contains(value),
+        _ => false,
+    }
 }

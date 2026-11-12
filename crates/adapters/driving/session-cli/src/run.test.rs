@@ -237,6 +237,28 @@ fn a_row_has_harp_summary_state_start_and_the_engine() {
     assert_eq!(row["engine"], "claude-code");
 }
 
+// Slice 2 B3: a row and a show carry the session's resource name once its
+// project is named; it is left out while it has none.
+#[test]
+fn a_row_and_a_show_carry_the_sessions_name() {
+    let mut named = view("amber-swift-owl", State::Ended);
+    named.record.name = "projects/calm-quiet-heron/sessions/amber-swift-owl".to_string();
+    let mut fake = Fake {
+        views: vec![named],
+        ..Fake::default()
+    };
+    let rows = json_of(&go(&mut fake, Format::Json, &["list"]));
+    assert_eq!(
+        rows[0]["name"],
+        "projects/calm-quiet-heron/sessions/amber-swift-owl"
+    );
+    let shown = json_of(&go(&mut fake, Format::Json, &["show", "amber-swift-owl"]));
+    assert_eq!(
+        shown["name"],
+        "projects/calm-quiet-heron/sessions/amber-swift-owl"
+    );
+}
+
 // Go: end and kept "are omitted when unset" (its purged mark is gone, owner
 // ruling 102); the transcript when it was captured.
 #[test]

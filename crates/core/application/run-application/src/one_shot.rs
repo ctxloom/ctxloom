@@ -146,6 +146,10 @@ pub trait Core {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Place {
     pub project_dir: String,
+    /// The harp the project was named with at its resolution (slice 2 M1),
+    /// before any session of it is minted: a session's name, and so its
+    /// stable id, is this and its own harp.
+    pub project_harp: String,
     pub output_root: String,
     /// The directory of the running ctxloom binary, which leads an
     /// engine's `PATH` (the terminal's and a child's) so a hook's bare

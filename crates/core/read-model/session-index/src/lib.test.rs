@@ -858,6 +858,34 @@ fn a_gone_project_stream_takes_its_harp_with_it() {
     assert_eq!(index.name_of(&record), "");
 }
 
+// Owner, 2026-11-12, slice 2 B3: a record carries its resource name once its
+// project is named (none before), and the resource carries the title set
+// (S55) beside the first-prompt summary.
+#[test]
+fn a_record_carries_its_name_and_the_resource_its_title() {
+    let mut project = Project::new();
+    let mut index = SessionIndex::catch_up();
+    project.run(&mut index, FIRST, mint("amber-swift-owl"));
+    assert_eq!(records(&index)[0].name, "", "no project harp yet");
+    hand(index.projector(), project_book(Some("calm-quiet-heron"), 1));
+    assert_eq!(
+        records(&index)[0].name,
+        "projects/calm-quiet-heron/sessions/amber-swift-owl"
+    );
+    project.run(
+        &mut index,
+        FIRST,
+        sessions::SetSessionTitle {
+            title: "the auth refactor".to_string(),
+        },
+    );
+    let index = index.projector().index();
+    let record = &index.records()[0];
+    let resource = index.resource(record);
+    assert_eq!(resource.title, "the auth refactor");
+    assert_eq!(resource.name, record.name);
+}
+
 /// A fill that records each gap it is asked and reads nothing.
 #[derive(Default)]
 struct Recording(std::sync::Mutex<Vec<(u64, u64)>>);

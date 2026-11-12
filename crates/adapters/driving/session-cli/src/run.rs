@@ -221,7 +221,10 @@ async fn execute<S: SessionService + ImportService + WorktreeUse + SweepConfig>(
         #[cfg(feature = "session-destroy")]
         Some(SessionVerb::Sweep(args)) => sweep(service, args, format, out).await,
         Some(SessionVerb::Import) => {
-            let report = service.import(ImportRequest {}).await.map_err(failure)?;
+            let report = service
+                .import(ImportRequest::default())
+                .await
+                .map_err(failure)?;
             wrote(match format {
                 Format::Json => write_json(out, &ImportDoc::of(&report)),
                 Format::Text => import_text(&report, out),

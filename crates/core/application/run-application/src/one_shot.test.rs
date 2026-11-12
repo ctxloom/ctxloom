@@ -611,11 +611,15 @@ impl Script {
     }
 }
 
+/// The harp the composition root named the run's project with (slice 2 M1).
+const PROJECT_HARP: &str = "calm-quiet-heron";
+
 /// Where the scripted run is, its user's home the one the composition root
 /// resolves from the script's environment on unix.
 fn place(script: &Script) -> Place {
     Place {
         project_dir: "/work/proj".to_string(),
+        project_harp: PROJECT_HARP.to_string(),
         output_root: "/home/u/Documents/ctxloom/proj".to_string(),
         program_dir: script.program_dir.to_string(),
         user_home: script
@@ -759,6 +763,13 @@ async fn a_one_shot_answers_with_the_engines_reply_on_a_session_of_its_own() {
     assert_eq!(answer.answer, "THE-ANSWER");
     assert_eq!(answer.harp, "amber-swift-owl");
     assert_eq!(answer.engine, "fake");
+    // Slice 2 B3: the session's stable id is the UUIDv5 of its name.
+    assert_eq!(
+        answer.session,
+        sessions::SessionName::new(PROJECT_HARP, "amber-swift-owl")
+            .unwrap()
+            .uid()
+    );
     // The session was minted on the name, once, and its run ran and ended.
     let events = session_events(&rig.edge, &answer.session).await;
     assert!(events
@@ -1212,7 +1223,11 @@ async fn claim_events(edge: &TestEdge, harp: &str) -> Vec<String> {
     use run_ports::Edge;
     let cover = angzarr_embedded::v1::Cover {
         domain: sessions::NAMES_DOMAIN.to_string(),
-        root: Some(sessions::claim_root("calm-otter", harp)),
+        root: Some(
+            sessions::SessionName::new(PROJECT_HARP, harp)
+                .unwrap()
+                .root(),
+        ),
         edition: None,
     };
     edge.events(&cover, 0)
@@ -1239,7 +1254,11 @@ async fn claim(edge: &TestEdge, harp: &str, session: &str) {
     });
     let cover = angzarr_embedded::v1::Cover {
         domain: sessions::NAMES_DOMAIN.to_string(),
-        root: Some(sessions::claim_root("calm-otter", harp)),
+        root: Some(
+            sessions::SessionName::new(PROJECT_HARP, harp)
+                .unwrap()
+                .root(),
+        ),
         edition: None,
     };
     edge.handle(angzarr_embedded::v1::CommandBook::command_of(cover, &claim))

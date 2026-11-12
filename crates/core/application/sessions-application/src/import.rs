@@ -28,7 +28,12 @@ use crate::{decode_go_sidecar, AppError, DeadLetter, GoEntry, GoSidecarError};
 
 /// Import Go's sessions.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
-pub struct ImportRequest {}
+pub struct ImportRequest {
+    /// The harps a project the import writes to is named with, when it has
+    /// none yet (slice 2 M1: a project is named at its first resolution):
+    /// fresh ones the caller minted, tried in order.
+    pub project_harps: Vec<String>,
+}
 
 /// A session imported: where, and its stable id.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -150,7 +155,8 @@ where
     D: Delay + Jitter + Send,
 {
     async fn import(&mut self, request: ImportRequest) -> Result<ImportReport, AppError> {
-        let ImportRequest {} = request;
+        let ImportRequest { project_harps } = request;
+        let _ = project_harps;
         let mut sessions = self.go.go_sessions().map_err(AppError::Files)?;
         // A directory whose name is no usable harp is not a session.
         sessions.retain(|go| sessions::validate(&go.harp).is_ok());

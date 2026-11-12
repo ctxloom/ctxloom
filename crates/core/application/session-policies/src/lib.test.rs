@@ -235,10 +235,10 @@ fn a_launch_mints_the_child_in_the_target_store_for_its_owner() {
     let mint = launch(&at(OWNER), &launched(), "/out/kid").unwrap();
     assert_eq!(mint.claim.project_id, "far-heron");
     assert_eq!(mint.claim.key, format!("claim:{OWNER}:{CHILD}"));
-    assert_eq!(
-        mint.claim.cover.root,
-        Some(sessions::claim_root("far-heron", "kid"))
-    );
+    // Slice 2 B3: the name's claim is rooted where its session is, on the
+    // UUIDv5 of the name.
+    assert_eq!(mint.claim.cover.root, mint.mint.cover.root);
+    assert_eq!(mint.claim.cover.domain, sessions::NAMES_DOMAIN);
     assert_eq!(mint.claim.command.session, CHILD);
     assert_eq!(mint.mint.key, format!("mint:{OWNER}:{CHILD}"));
     assert_eq!(mint.mint.cover, session_cover(CHILD).unwrap());

@@ -1147,8 +1147,24 @@ fn not_moved(w: &mut World) {
 #[then(
     regex = r#"^the output reports "([^"]+)" as the project's harp and the session's, "([^"]+)"$"#
 )]
-fn six_word_name(_: &mut World, _path: String, _shape: String) {
-    red("a session's name is its project's harp and its own")
+fn six_word_name(w: &mut World, path: String, shape: String) {
+    // Slice 2 B3: `projects/<project harp>/sessions/<harp>`, the project's
+    // harp being one minted for it (a harp: no `/`, never empty).
+    let ran = w.common.ran();
+    let doc: serde_json::Value = serde_json::from_str(&ran.stdout)
+        .unwrap_or_else(|e| panic!("not json ({e}): {}", ran.said()));
+    let name = crate::tests::library::reports_as(&doc, &path);
+    let (before, after) = shape
+        .split_once("<project harp>")
+        .expect("the shape names the project harp");
+    let project = name
+        .strip_prefix(before)
+        .and_then(|rest| rest.strip_suffix(after))
+        .unwrap_or_else(|| panic!("{path} is {name:?}, not {shape:?}: {}", ran.said()));
+    assert!(
+        !project.is_empty() && !project.contains('/'),
+        "{project:?} is no harp"
+    );
 }
 
 #[then(regex = r#"^its lock is "([^"]+)", inside its directory$"#)]

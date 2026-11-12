@@ -180,6 +180,7 @@ impl<'a> OneShots<'a> {
             orders,
             place: Place {
                 project_dir: path_text(&project_dir),
+                project_harp: String::new(),
                 output_root: path_text(&output_root),
                 program_dir: program.dir.clone(),
                 user_home: wiring.user_home().map(|home| path_text(&home)),

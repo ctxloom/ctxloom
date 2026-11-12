@@ -90,6 +90,9 @@ pub struct SessionRecord {
     pub children: Vec<Child>,
     /// The title `session rename` set (S55); empty when none is.
     pub title: String,
+    /// Its resource name, `projects/{project}/sessions/{session}` (slice 2
+    /// B3); empty while its project has no harp.
+    pub name: String,
 }
 
 /// One index of a project's sessions.
@@ -424,6 +427,7 @@ fn record_of(root: &[u8], session: &SessionAggregate) -> SessionRecord {
         closed: state.closed,
         children: state.children.clone(),
         title: state.title.clone(),
+        name: String::new(),
     }
 }
 

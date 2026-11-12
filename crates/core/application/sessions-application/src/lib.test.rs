@@ -1586,6 +1586,7 @@ fn the_user_closes_a_session_and_it_takes_no_more_messages() {
 fn the_user_launches_a_child_of_an_owner() {
     let mut svc = service();
     svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
+    ready(svc.name_project(name_request(&["calm-quiet-heron"]))).unwrap();
     let launched = ready(svc.launch_child(crate::LaunchRequest {
         project: None,
         owner: "amber-swift-owl".to_string(),
@@ -1622,13 +1623,14 @@ fn the_user_launches_a_child_of_an_owner() {
     assert_eq!(limited.code(), "sessions-delegation-limit");
 }
 
-// D-N45: the caller may name the child's stable id (what it hands the daemon
-// for the child is keyed by it); it is the child the owner holds.
+// Owner, 2026-11-12, slice 2 B3: a child's stable id is the UUIDv5 of its
+// name, its owner's project's harp and its own, so the caller that hands the
+// daemon the child keyed by it derives the same.
 #[test]
-fn a_launch_takes_the_childs_id_the_caller_names() {
+fn a_childs_id_is_the_uuid_v5_of_its_name() {
     let mut svc = service();
     svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
-    let named = "0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b0b";
+    ready(svc.name_project(name_request(&["calm-quiet-heron"]))).unwrap();
     let launched = ready(svc.launch_child(crate::LaunchRequest {
         project: None,
         owner: "amber-swift-owl".to_string(),
@@ -1636,10 +1638,13 @@ fn a_launch_takes_the_childs_id_the_caller_names() {
         engine: "claude-code".to_string(),
         prompt: String::new(),
         delegation_limit: 4,
-        session: named.to_string(),
+        session: String::new(),
     }))
     .unwrap();
-    assert_eq!(launched.id, named);
+    let derived = sessions::SessionName::new("calm-quiet-heron", "lone-wolf-pup")
+        .unwrap()
+        .uid();
+    assert_eq!(launched.id, derived);
     let view = ready(svc.show(ShowQuery {
         project: None,
         harp: "amber-swift-owl".to_string(),
@@ -1647,8 +1652,61 @@ fn a_launch_takes_the_childs_id_the_caller_names() {
     .unwrap();
     assert_eq!(
         view.record.children[0].session.as_ref().unwrap().session,
-        named
+        derived
     );
+}
+
+// Slice 2 M1: a project is named before any session of it is minted, so a
+// launch in a project with no harp is refused, launching nothing.
+#[test]
+fn a_launch_in_a_project_with_no_harp_is_refused() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
+    let refused = ready(svc.launch_child(crate::LaunchRequest {
+        project: None,
+        owner: "amber-swift-owl".to_string(),
+        harp: "lone-wolf-pup".to_string(),
+        engine: "claude-code".to_string(),
+        prompt: String::new(),
+        delegation_limit: 4,
+        session: String::new(),
+    }))
+    .unwrap_err();
+    assert_eq!(refused.code(), "sessions-application-no-project-harp");
+}
+
+// Owner, 2026-11-12, slice 2 re-root: the projects stream, which mints the
+// harp, is rooted on the project id; the harp's claim on the project's
+// resource name, `projects/{harp}`.
+#[test]
+fn a_projects_stream_is_rooted_on_its_id_and_its_harps_claim_on_its_name() {
+    use angzarr_embedded::Kernel;
+    let mut svc = service();
+    ready(svc.name_project(name_request(&["calm-quiet-heron"]))).unwrap();
+    let registry = crate::registry();
+    let store = svc.store(HERE);
+    let projects = angzarr_embedded::v1::Cover {
+        domain: sessions::PROJECTS_DOMAIN.to_string(),
+        root: Some(sessions::project_id_root(HERE)),
+        edition: None,
+    };
+    let (project, _) =
+        ready(Kernel::new(&registry).load::<sessions::ProjectAggregate, _>(store, &projects))
+            .unwrap();
+    assert_eq!(project.state().state().harp, "calm-quiet-heron");
+    let claim = angzarr_embedded::v1::Cover {
+        domain: sessions::PROJECT_NAMES_DOMAIN.to_string(),
+        root: Some(
+            sessions::ProjectName::new("calm-quiet-heron")
+                .unwrap()
+                .root(),
+        ),
+        edition: None,
+    };
+    let (claim, _) =
+        ready(Kernel::new(&registry).load::<sessions::ProjectNameAggregate, _>(store, &claim))
+            .unwrap();
+    assert_eq!(claim.state().state().project_id, HERE);
 }
 
 // M1: the user asks a session to clear; the clear is recorded by its id.

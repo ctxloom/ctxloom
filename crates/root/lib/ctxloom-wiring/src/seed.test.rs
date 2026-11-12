@@ -221,7 +221,7 @@ fn a_go_session_of_the_project_is_imported() {
         0o644,
     );
     let mut sessions = wiring.sessions();
-    let report = block(sessions.import(ImportRequest {})).unwrap();
+    let report = block(sessions.import(ImportRequest::default())).unwrap();
     let harps: Vec<&str> = report.imported.iter().map(|i| i.harp.as_str()).collect();
     assert_eq!(harps, ["amber-swift-owl"], "{report:?}");
 }

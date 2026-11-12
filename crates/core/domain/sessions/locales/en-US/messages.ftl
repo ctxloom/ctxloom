@@ -5,6 +5,7 @@ sessions-session-exists = session { $harp } already exists
 sessions-no-session = there is no such session
 sessions-harp-invalid = { $harp } cannot be a session name: { $reason }
 sessions-harp-too-long = { $harp } is { $length } characters, the limit for a session name is { $limit }
+sessions-name-malformed = { $name } is not a resource name: { $reason }
 sessions-names-taken = the session name { $harp } is taken
 sessions-project-name-taken = the project name { $harp } is another project's
 sessions-no-claim = nobody holds that session name

@@ -14,6 +14,9 @@ pub enum SessionRejection {
     /// `directory`, `separator`, `control`, `whitespace` (Go's
     /// `harp.Validate`).
     HarpInvalid { harp: String, reason: String },
+    /// A resource name that is not one (owner, 2026-11-12, slice 2 B3):
+    /// `reason` is `shape`, or the harp grammar's for the segment.
+    NameMalformed { name: String, reason: String },
     /// A name a human chose that is past the bound (Go's `MaxNameLen`).
     HarpTooLong {
         harp: String,
@@ -78,6 +81,7 @@ impl Diagnostic for SessionRejection {
             SessionRejection::NoSession => code!("no-session"),
             SessionRejection::HarpInvalid { .. } => code!("harp-invalid"),
             SessionRejection::HarpTooLong { .. } => code!("harp-too-long"),
+            SessionRejection::NameMalformed { .. } => code!("name-malformed"),
             SessionRejection::NamesTaken { .. } => code!("names-taken"),
             SessionRejection::ProjectNameTaken { .. } => code!("project-name-taken"),
             SessionRejection::NoClaim => code!("no-claim"),
@@ -136,6 +140,10 @@ impl Diagnostic for SessionRejection {
                 ("harp", harp.as_str().into()),
                 ("reason", reason.as_str().into()),
             ],
+            SessionRejection::NameMalformed { name, reason } => vec![
+                ("name", name.as_str().into()),
+                ("reason", reason.as_str().into()),
+            ],
             SessionRejection::HarpTooLong {
                 harp,
                 limit,
@@ -173,6 +181,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             harp: harp(),
             limit: 24,
             length: 30,
+        }),
+        Box::new(SessionRejection::NameMalformed {
+            name: "projects/calm-otter/owl".to_string(),
+            reason: "shape".to_string(),
         }),
         Box::new(SessionRejection::NamesTaken { harp: harp() }),
         Box::new(SessionRejection::ProjectNameTaken { harp: harp() }),

@@ -1,0 +1,3 @@
+# Go's fixture tree and golden, byte for byte: their sizes are the
+# golden's, so no checkout may turn a line ending into CRLF.
+* -text

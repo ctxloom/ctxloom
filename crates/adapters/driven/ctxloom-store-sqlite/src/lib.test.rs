@@ -7,19 +7,42 @@ use session_ports::ProjectStores;
 
 use super::Stores;
 
+/// `path`, absolute and spelled the unix way (`/home/u`), as this host
+/// spells it (`C:\home\u` on Windows): the home the adapter is handed and
+/// the paths it shows back. A fixture's own write may stay unix-spelled, since
+/// the rooted filesystem re-roots both spellings at one place.
+fn at(path: &str) -> String {
+    os::host().flavor().from_top(path)
+}
+
+/// Whether the host lets a file still open be unlinked (unix), which the
+/// held-store tests observe a reuse by; elsewhere the asking test is skipped
+/// and says so, `SKIP <test>: <why>`.
+fn unlinks_open_files() -> bool {
+    if os::host().flavor() == os::Flavor::Unix {
+        return true;
+    }
+    let test = std::thread::current();
+    eprintln!(
+        "SKIP {}: it unlinks the open database, which only unix allows",
+        test.name().unwrap_or("a test")
+    );
+    false
+}
+
 #[test]
 fn test_a_project_s_database_is_ctxloom_db_in_its_directory() {
-    let stores = Stores::new(Arc::new(Rooted::temp().unwrap()), "/home/u");
+    let stores = Stores::new(Arc::new(Rooted::temp().unwrap()), at("/home/u"));
     assert_eq!(
         stores.path("jolly-mute-magma").unwrap(),
-        Path::new("/home/u/.ctxloom/projects/jolly-mute-magma/ctxloom.db")
+        Path::new(&at("/home/u/.ctxloom/projects/jolly-mute-magma/ctxloom.db"))
     );
 }
 
 #[tokio::test]
 async fn test_open_makes_the_directory_and_the_database_under_the_home() {
     let fs = Arc::new(Rooted::temp().unwrap());
-    let stores = Stores::new(fs.clone(), "/home/u");
+    let stores = Stores::new(fs.clone(), at("/home/u"));
     stores.open("jolly-mute-magma").await.unwrap();
     let db = Path::new("/home/u/.ctxloom/projects/jolly-mute-magma/ctxloom.db");
     assert!(fs.exists(db).unwrap());
@@ -42,7 +65,7 @@ fn project(id: &str) -> ports::Project {
 #[tokio::test]
 async fn test_open_existing_finds_no_store_and_makes_none() {
     let fs = Arc::new(Rooted::temp().unwrap());
-    let mut stores = super::SqliteStores::new(fs.clone(), "/home/u");
+    let mut stores = super::SqliteStores::new(fs.clone(), at("/home/u"));
     assert!(
         ProjectStores::open_existing(&mut stores, &project("jolly-mute-magma"))
             .await
@@ -56,7 +79,7 @@ async fn test_open_existing_finds_no_store_and_makes_none() {
 #[tokio::test]
 async fn test_open_makes_the_store_and_a_later_open_existing_finds_it() {
     let fs = Arc::new(Rooted::temp().unwrap());
-    let mut stores = super::SqliteStores::new(fs.clone(), "/home/u");
+    let mut stores = super::SqliteStores::new(fs.clone(), at("/home/u"));
     ProjectStores::open(&mut stores, &project("jolly-mute-magma"))
         .await
         .unwrap();
@@ -66,7 +89,7 @@ async fn test_open_makes_the_store_and_a_later_open_existing_finds_it() {
         ))
         .unwrap());
     // Another handle, as another process's read: the file is there.
-    let mut reader = super::SqliteStores::new(fs, "/home/u");
+    let mut reader = super::SqliteStores::new(fs, at("/home/u"));
     assert!(
         ProjectStores::open_existing(&mut reader, &project("jolly-mute-magma"))
             .await
@@ -80,7 +103,7 @@ async fn test_open_makes_the_store_and_a_later_open_existing_finds_it() {
 #[tokio::test]
 async fn test_each_project_has_its_own_store() {
     let fs = Arc::new(Rooted::temp().unwrap());
-    let mut stores = super::SqliteStores::new(fs, "/home/u");
+    let mut stores = super::SqliteStores::new(fs, at("/home/u"));
     ProjectStores::open(&mut stores, &project("jolly-mute-magma"))
         .await
         .unwrap();
@@ -103,11 +126,11 @@ async fn test_each_project_has_its_own_store() {
 #[tokio::test]
 async fn test_a_read_only_store_is_replaced_when_a_write_asks() {
     let fs = Arc::new(Rooted::temp().unwrap());
-    let mut first = super::SqliteStores::new(fs.clone(), "/home/u");
+    let mut first = super::SqliteStores::new(fs.clone(), at("/home/u"));
     ProjectStores::open(&mut first, &project("jolly-mute-magma"))
         .await
         .unwrap();
-    let mut stores = super::SqliteStores::new(fs, "/home/u");
+    let mut stores = super::SqliteStores::new(fs, at("/home/u"));
     assert!(
         ProjectStores::open_existing(&mut stores, &project("jolly-mute-magma"))
             .await
@@ -134,10 +157,16 @@ use os::Mode;
 
 #[test]
 fn test_the_path_is_the_home_the_app_dir_projects_the_id_and_the_file_name() {
-    let stores = Stores::new(Arc::new(Rooted::temp().unwrap()), "/h");
+    let stores = Stores::new(Arc::new(Rooted::temp().unwrap()), at("/h"));
     let path = stores.path("p").unwrap();
     let parts: Vec<_> = path.iter().map(|p| p.to_str().unwrap()).collect();
-    assert_eq!(parts, ["/", "h", ".ctxloom", "projects", "p", "ctxloom.db"]);
+    let home = at("/h");
+    let mut want: Vec<&str> = Path::new(&home)
+        .iter()
+        .map(|p| p.to_str().unwrap())
+        .collect();
+    want.extend([".ctxloom", "projects", "p", "ctxloom.db"]);
+    assert_eq!(parts, want);
     // asking where a database is makes nothing
     assert_eq!(stores.path("p").unwrap(), path);
 }
@@ -147,10 +176,11 @@ fn test_the_path_is_the_home_the_app_dir_projects_the_id_and_the_file_name() {
 /// leave the projects directory).
 #[test]
 fn test_an_unsafe_project_id_is_refused_with_a_coded_diagnostic() {
-    let stores = Stores::new(Arc::new(Rooted::temp().unwrap()), "/h");
+    let stores = Stores::new(Arc::new(Rooted::temp().unwrap()), at("/h"));
+    let absolute = at("/etc");
     let cases = [
         ("", "project-dir-id-empty"),
-        ("/etc", "project-dir-id-absolute"),
+        (absolute.as_str(), "project-dir-id-absolute"),
         ("../x", "project-dir-id-separator"),
         ("a/b", "project-dir-id-separator"),
         ("a\\b", "project-dir-id-separator"),
@@ -177,7 +207,7 @@ fn test_an_unsafe_project_id_is_refused_with_a_coded_diagnostic() {
 #[tokio::test]
 async fn test_an_unsafe_project_id_opens_nothing_and_makes_nothing() {
     let fs = Arc::new(Rooted::temp().unwrap());
-    let stores = Stores::new(fs.clone(), "/h");
+    let stores = Stores::new(fs.clone(), at("/h"));
     let error = stores.open("../x").await.err().expect("refused");
     assert_eq!(error.code(), "project-dir-id-separator");
     let error = stores.open_existing("../x").await.err().expect("refused");
@@ -192,7 +222,7 @@ async fn test_an_unsafe_project_id_opens_nothing_and_makes_nothing() {
 #[tokio::test]
 async fn test_the_port_refuses_an_unsafe_project_id_too() {
     let fs = Arc::new(Rooted::temp().unwrap());
-    let mut stores = super::SqliteStores::new(fs.clone(), "/h");
+    let mut stores = super::SqliteStores::new(fs.clone(), at("/h"));
     assert!(ProjectStores::open(&mut stores, &project("a/b"))
         .await
         .is_err());
@@ -214,7 +244,7 @@ fn test_the_path_is_relative_to_a_relative_home() {
 #[tokio::test]
 async fn test_open_twice_is_the_same_database_and_finds_it_the_second_time() {
     let fs = Arc::new(Rooted::temp().unwrap());
-    let stores = Stores::new(fs.clone(), "/home/u");
+    let stores = Stores::new(fs.clone(), at("/home/u"));
     stores.open("p").await.unwrap();
     stores.open("p").await.unwrap();
     assert!(stores.open_existing("p").await.unwrap().is_some());
@@ -228,7 +258,7 @@ async fn test_open_existing_with_the_directory_but_no_database_finds_none_and_ma
         Mode::from_bits(0o755),
     )
     .unwrap();
-    let stores = Stores::new(fs.clone(), "/home/u");
+    let stores = Stores::new(fs.clone(), at("/home/u"));
     assert!(stores.open_existing("p").await.unwrap().is_none());
     assert!(!fs
         .exists(Path::new("/home/u/.ctxloom/projects/p/ctxloom.db"))
@@ -246,7 +276,7 @@ async fn test_a_home_whose_app_dir_is_a_file_cannot_hold_a_store() {
         file_system::Perms::Exact(Mode::from_bits(0o644)),
     )
     .unwrap();
-    let stores = Stores::new(fs, "/home/u");
+    let stores = Stores::new(fs, at("/home/u"));
     let Err(StoreOpenError::Open(error @ OpenError::CreateDir { .. })) = stores.open("p").await
     else {
         panic!("the directory cannot be made");
@@ -254,14 +284,14 @@ async fn test_a_home_whose_app_dir_is_a_file_cannot_hold_a_store() {
     let OpenError::CreateDir { path, .. } = &error else {
         unreachable!()
     };
-    assert_eq!(path, "/home/u/.ctxloom/projects/p");
+    assert_eq!(*path, at("/home/u/.ctxloom/projects/p"));
     assert_eq!(error.code(), "sqlite-store-opener-create-dir");
 }
 
 #[tokio::test]
 async fn test_a_store_held_to_write_is_not_replaced_by_a_read_and_each_id_is_apart() {
     let fs = Arc::new(Rooted::temp().unwrap());
-    let mut stores = super::SqliteStores::new(fs.clone(), "/home/u");
+    let mut stores = super::SqliteStores::new(fs.clone(), at("/home/u"));
     ProjectStores::open(&mut stores, &project("a"))
         .await
         .unwrap();
@@ -287,7 +317,7 @@ async fn test_a_store_held_to_write_is_not_replaced_by_a_read_and_each_id_is_apa
 async fn test_the_project_port_places_the_store_by_id_not_by_the_projects_store_field() {
     // `Project.store` (taskloom's state.db) is ignored: ours is ctxloom.db
     let fs = Arc::new(Rooted::temp().unwrap());
-    let mut stores = super::SqliteStores::new(fs.clone(), "/home/u");
+    let mut stores = super::SqliteStores::new(fs.clone(), at("/home/u"));
     let mut elsewhere = project("p");
     elsewhere.store = std::path::PathBuf::from("/elsewhere/state.db");
     ProjectStores::open(&mut stores, &elsewhere).await.unwrap();
@@ -308,12 +338,15 @@ async fn test_the_project_port_places_the_store_by_id_not_by_the_projects_store_
 /// its ledger only its first migration. Frozen in testdata.
 const PRE_EMBEDDED: &[u8] = include_bytes!("../testdata/pre-embedded.db");
 
-const DB_DIR: &str = "/home/u/.ctxloom/projects/jolly-mute-magma";
+/// The project's database directory, as the adapter shows it.
+fn db_dir() -> String {
+    at("/home/u/.ctxloom/projects/jolly-mute-magma")
+}
 
 fn earlier_store(fs: &Rooted) -> Vec<u8> {
-    fs.create_dir_all(Path::new(DB_DIR), Mode::from_bits(0o755))
+    fs.create_dir_all(Path::new(&db_dir()), Mode::from_bits(0o755))
         .unwrap();
-    let db = Path::new(DB_DIR).join("ctxloom.db");
+    let db = Path::new(&db_dir()).join("ctxloom.db");
     fs.write_atomic(
         &db,
         PRE_EMBEDDED,
@@ -340,12 +373,21 @@ async fn test_a_store_that_predates_the_embedded_store_is_refused_to_write_and_t
 ) {
     let fs = Arc::new(Rooted::temp().unwrap());
     let before = earlier_store(&fs);
-    let stores = Stores::new(fs.clone(), "/home/u");
+    let stores = Stores::new(fs.clone(), at("/home/u"));
     let expected = vec![
-        ("path".to_string(), format!("{DB_DIR}/ctxloom.db")),
+        (
+            "path".to_string(),
+            Path::new(&db_dir())
+                .join("ctxloom.db")
+                .display()
+                .to_string(),
+        ),
         (
             "backup".to_string(),
-            format!("{DB_DIR}/ctxloom.db.pre-embedded"),
+            Path::new(&db_dir())
+                .join("ctxloom.db.pre-embedded")
+                .display()
+                .to_string(),
         ),
     ];
     let error = stores
@@ -372,7 +414,7 @@ async fn test_a_store_that_predates_the_embedded_store_is_refused_to_write_and_t
         "to read"
     );
     assert_eq!(
-        fs.read(&Path::new(DB_DIR).join("ctxloom.db")).unwrap(),
+        fs.read(&Path::new(&db_dir()).join("ctxloom.db")).unwrap(),
         before,
         "the file as it was: not migrated"
     );
@@ -382,7 +424,7 @@ async fn test_a_store_that_predates_the_embedded_store_is_refused_to_write_and_t
 async fn test_the_port_refuses_a_store_that_predates_the_embedded_store_and_holds_nothing() {
     let fs = Arc::new(Rooted::temp().unwrap());
     earlier_store(&fs);
-    let mut stores = super::SqliteStores::new(fs.clone(), "/home/u");
+    let mut stores = super::SqliteStores::new(fs.clone(), at("/home/u"));
     let wanted = project("jolly-mute-magma");
     let error = ProjectStores::open(&mut stores, &wanted)
         .await
@@ -423,7 +465,7 @@ fn beside(fs: &Rooted, project: &str) -> Vec<&'static str> {
 #[tokio::test]
 async fn test_a_closed_store_leaves_nothing_beside_its_file_and_reopens_whole() {
     let fs = Arc::new(Rooted::temp().unwrap());
-    let mut stores = super::SqliteStores::new(fs.clone(), "/home/u");
+    let mut stores = super::SqliteStores::new(fs.clone(), at("/home/u"));
     // Opened to write: made and migrated, the migrations' commits in the log.
     ProjectStores::open(&mut stores, &project("p"))
         .await
@@ -435,7 +477,7 @@ async fn test_a_closed_store_leaves_nothing_beside_its_file_and_reopens_whole() 
         "closed: nothing beside"
     );
     // What was written is in the file: it opens, read-only, as a store.
-    let reopened = Stores::new(fs.clone(), "/home/u")
+    let reopened = Stores::new(fs.clone(), at("/home/u"))
         .open_existing("p")
         .await
         .unwrap()
@@ -448,7 +490,7 @@ async fn test_a_closed_store_leaves_nothing_beside_its_file_and_reopens_whole() 
 #[tokio::test]
 async fn test_a_store_given_up_for_another_project_s_is_closed_before_the_next_opens() {
     let fs = Arc::new(Rooted::temp().unwrap());
-    let mut stores = super::SqliteStores::new(fs.clone(), "/home/u");
+    let mut stores = super::SqliteStores::new(fs.clone(), at("/home/u"));
     ProjectStores::open(&mut stores, &project("a"))
         .await
         .unwrap();
@@ -467,14 +509,14 @@ async fn test_a_store_given_up_for_another_project_s_is_closed_before_the_next_o
 #[tokio::test]
 async fn test_a_store_held_to_read_is_closed_before_it_is_reopened_to_write() {
     let fs = Arc::new(Rooted::temp().unwrap());
-    Stores::new(fs.clone(), "/home/u")
+    Stores::new(fs.clone(), at("/home/u"))
         .open("p")
         .await
         .unwrap()
         .close()
         .await
         .unwrap();
-    let mut stores = super::SqliteStores::new(fs.clone(), "/home/u");
+    let mut stores = super::SqliteStores::new(fs.clone(), at("/home/u"));
     assert!(ProjectStores::open_existing(&mut stores, &project("p"))
         .await
         .unwrap()
@@ -500,8 +542,11 @@ const HELD_DB: &str = "/home/u/.ctxloom/projects/p/ctxloom.db";
 
 #[tokio::test]
 async fn test_a_second_open_to_write_of_the_held_project_reuses_its_store() {
+    if !unlinks_open_files() {
+        return;
+    }
     let fs = Arc::new(Rooted::temp().unwrap());
-    let mut stores = super::SqliteStores::new(fs.clone(), "/home/u");
+    let mut stores = super::SqliteStores::new(fs.clone(), at("/home/u"));
     ProjectStores::open(&mut stores, &project("p"))
         .await
         .unwrap();
@@ -518,8 +563,11 @@ async fn test_a_second_open_to_write_of_the_held_project_reuses_its_store() {
 
 #[tokio::test]
 async fn test_a_read_of_the_held_project_reuses_its_store() {
+    if !unlinks_open_files() {
+        return;
+    }
     let fs = Arc::new(Rooted::temp().unwrap());
-    let mut stores = super::SqliteStores::new(fs.clone(), "/home/u");
+    let mut stores = super::SqliteStores::new(fs.clone(), at("/home/u"));
     ProjectStores::open(&mut stores, &project("p"))
         .await
         .unwrap();

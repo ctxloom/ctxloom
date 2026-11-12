@@ -14,6 +14,42 @@ const IDENTITY: &str = "ctxloom+git://example.test/o/r//bundles/demo";
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 const NEXT: &str = "fedcba9876543210fedcba9876543210fedcba98";
 
+/// `path`, absolute and spelled the unix way (`/proj`), as this host spells
+/// it (`C:\proj` on Windows): what the adapter is handed and shows back. A
+/// fixture's own write may stay unix-spelled, since the rooted filesystem
+/// re-roots both spellings at one place.
+fn host_path(path: &str) -> String {
+    os::host().flavor().from_top(path)
+}
+
+/// `bits` where the host keeps modes (unix); none on Windows, which keeps
+/// none.
+fn kept(bits: u32) -> Option<u32> {
+    (os::host().flavor() == os::Flavor::Unix).then_some(bits)
+}
+
+/// `read` is `want`: the same files with the same bytes, and the same
+/// execute bits where the host keeps them (unix). Elsewhere every file reads
+/// back as one the host would run, so the bits are not compared, and the
+/// test says so: `SKIP <test> (its execute bits): <why>`.
+fn assert_same_tree(read: &RepoTree, want: &RepoTree) {
+    if os::host().flavor() == os::Flavor::Unix {
+        assert_eq!(read, want);
+        return;
+    }
+    let test = std::thread::current();
+    eprintln!(
+        "SKIP {} (its execute bits): the host keeps none, every file is one it would run",
+        test.name().unwrap_or("a test")
+    );
+    let bytes = |tree: &RepoTree| -> BTreeMap<String, Vec<u8>> {
+        tree.iter()
+            .map(|(path, file)| (path.clone(), file.data.clone()))
+            .collect()
+    };
+    assert_eq!(bytes(read), bytes(want));
+}
+
 fn cache_path(path: &str) -> CachePath {
     CachePath::new(path.split('/').map(str::to_string).collect()).expect("plain names")
 }
@@ -34,7 +70,7 @@ fn slot(identity: &str) -> BundleSlot {
 
 fn files() -> (ProjectFiles, Arc<Rooted>) {
     let fs = Arc::new(Rooted::temp().expect("a temporary root"));
-    let files = ProjectFiles::new(fs.clone(), PathBuf::from("/proj/.ctxloom"));
+    let files = ProjectFiles::new(fs.clone(), PathBuf::from(host_path("/proj/.ctxloom")));
     (files, fs)
 }
 
@@ -80,13 +116,16 @@ fn test_the_registry_is_read_when_there_and_written_atomically_into_a_made_direc
         files.read_registry(),
         Ok(Some("schema_version: 1\n".to_string()))
     );
-    assert_eq!(files.registry_path(), "/proj/.ctxloom/remotes.yaml");
+    assert_eq!(
+        files.registry_path(),
+        host_path("/proj/.ctxloom/remotes.yaml")
+    );
     let dir = fs
         .metadata(Path::new("/proj/.ctxloom"))
         .expect("the app dir");
     assert_eq!(
         dir.mode.map(|m| m.bits() & 0o700),
-        Some(0o700),
+        kept(0o700),
         "usable by its owner"
     );
     files
@@ -102,7 +141,7 @@ fn test_the_registry_is_read_when_there_and_written_atomically_into_a_made_direc
 fn test_the_lock_is_a_file_of_its_own() {
     let (files, _) = files();
     assert_eq!(files.read_lock(), Ok(None));
-    assert_eq!(files.lock_path(), "/proj/.ctxloom/lock.yaml");
+    assert_eq!(files.lock_path(), host_path("/proj/.ctxloom/lock.yaml"));
     files.write_lock("schema_version: 3\n").expect("writes");
     assert_eq!(
         files.read_lock(),
@@ -136,11 +175,13 @@ fn test_an_installed_tree_is_read_back_with_its_modes_and_without_its_marker() {
         .read_installed(&slot(IDENTITY), SHA)
         .expect("reads")
         .expect("a tree");
-    assert_eq!(read, demo_tree("A\n"));
+    assert_same_tree(&read, &demo_tree("A\n"));
     assert!(!read.contains_key(IDENTITY_MARKER));
     assert_eq!(
         files.installed_path(&slot(IDENTITY), SHA),
-        format!("/proj/.ctxloom/cache/bundles/example.test/o/r/demo/{SHA}")
+        host_path(&format!(
+            "/proj/.ctxloom/cache/bundles/example.test/o/r/demo/{SHA}"
+        ))
     );
 }
 
@@ -194,10 +235,13 @@ fn test_a_tree_is_kept_exactly_under_the_segments_it_is_handed() {
     assert!(files.exists(&format!("{at}/bundle.yaml")));
     assert!(files.exists(&format!("{at}/{IDENTITY_MARKER}")));
     assert!(files.is_installed(&handed, SHA));
-    assert_eq!(files.installed_path(&handed, SHA), at);
-    assert_eq!(
-        files.read_installed(&handed, SHA).expect("reads"),
-        Some(demo_tree("A\n"))
+    assert_eq!(files.installed_path(&handed, SHA), host_path(&at));
+    assert_same_tree(
+        &files
+            .read_installed(&handed, SHA)
+            .expect("reads")
+            .expect("a tree"),
+        &demo_tree("A\n"),
     );
     // The same bundle path in another repository is another place.
     let elsewhere = BundleSlot {
@@ -274,7 +318,7 @@ fn test_an_authored_bundle_is_found_read_and_removed_whole() {
     );
     assert_eq!(
         files.local_bundle("demo"),
-        Ok(Some(format!("{root}/bundle.yaml")))
+        Ok(Some(host_path(&format!("{root}/bundle.yaml"))))
     );
     let read = files.read_local_bundle("demo").expect("reads");
     let paths: Vec<&str> = read.keys().map(String::as_str).collect();
@@ -323,10 +367,10 @@ fn test_a_copy_into_a_project_lands_in_its_content_tree() {
     let (files, fs) = files();
     put(&fs, "/other/.ctxloom/.keep", "");
     let landed = files
-        .copy_bundle("/other", "demo", &contents(), false)
+        .copy_bundle(&host_path("/other"), "demo", &contents(), false)
         .expect("copies");
     let dest = "/other/.ctxloom/content/bundles/v2/demo";
-    assert_eq!(landed, CopyOutcome::Copied(dest.to_string()));
+    assert_eq!(landed, CopyOutcome::Copied(host_path(dest)));
     assert_eq!(
         fs.read(Path::new(&format!("{dest}/fragments/example.md")))
             .expect("a file"),
@@ -342,14 +386,14 @@ fn test_a_copy_into_an_app_dir_or_a_plain_directory() {
     fs.create_dir_all(Path::new("/plain"), Mode::from_bits(0o755))
         .expect("a directory");
     assert_eq!(
-        files.copy_bundle("/x/.ctxloom", "demo", &contents(), false),
-        Ok(CopyOutcome::Copied(
-            "/x/.ctxloom/content/bundles/v2/demo".to_string()
-        ))
+        files.copy_bundle(&host_path("/x/.ctxloom"), "demo", &contents(), false),
+        Ok(CopyOutcome::Copied(host_path(
+            "/x/.ctxloom/content/bundles/v2/demo"
+        )))
     );
     assert_eq!(
-        files.copy_bundle("/plain", "demo", &contents(), false),
-        Ok(CopyOutcome::Copied("/plain/demo".to_string()))
+        files.copy_bundle(&host_path("/plain"), "demo", &contents(), false),
+        Ok(CopyOutcome::Copied(host_path("/plain/demo")))
     );
 }
 
@@ -358,18 +402,19 @@ fn test_a_copy_onto_a_bundle_is_refused_unless_forced_and_force_replaces_it_whol
     let (files, fs) = files();
     fs.create_dir_all(Path::new("/plain"), Mode::from_bits(0o755))
         .expect("a directory");
+    let plain = host_path("/plain");
     files
-        .copy_bundle("/plain", "demo", &contents(), false)
+        .copy_bundle(&plain, "demo", &contents(), false)
         .expect("copies");
     put(&fs, "/plain/demo/stale.md", "stale");
     assert_eq!(
-        files.copy_bundle("/plain", "demo", &contents(), false),
-        Ok(CopyOutcome::Exists("/plain/demo".to_string()))
+        files.copy_bundle(&plain, "demo", &contents(), false),
+        Ok(CopyOutcome::Exists(host_path("/plain/demo")))
     );
     assert!(files.exists("/plain/demo/stale.md"), "refused: untouched");
     assert_eq!(
-        files.copy_bundle("/plain", "demo", &contents(), true),
-        Ok(CopyOutcome::Copied("/plain/demo".to_string()))
+        files.copy_bundle(&plain, "demo", &contents(), true),
+        Ok(CopyOutcome::Copied(host_path("/plain/demo")))
     );
     assert!(
         !files.exists("/plain/demo/stale.md"),
@@ -386,10 +431,10 @@ fn test_a_copy_onto_the_bundles_own_directory_is_refused() {
         "d: 1\n",
     );
     assert_eq!(
-        files.copy_bundle("/proj", "demo", &contents(), true),
-        Ok(CopyOutcome::Itself(
-            "/proj/.ctxloom/content/bundles/v2/demo".to_string()
-        ))
+        files.copy_bundle(&host_path("/proj"), "demo", &contents(), true),
+        Ok(CopyOutcome::Itself(host_path(
+            "/proj/.ctxloom/content/bundles/v2/demo"
+        )))
     );
     assert_eq!(
         files.read_local_bundle("demo").expect("reads")["bundle.yaml"],
@@ -437,10 +482,10 @@ fn test_a_copy_onto_the_bundle_itself_is_known_by_another_spelling_of_its_place(
     fs.create_dir_all(Path::new("/proj/sub"), Mode::from_bits(0o755))
         .expect("a directory");
     assert_eq!(
-        files.copy_bundle("/proj/sub/..", "demo", &contents(), false),
-        Ok(CopyOutcome::Itself(
-            "/proj/sub/../.ctxloom/content/bundles/v2/demo".to_string()
-        ))
+        files.copy_bundle(&host_path("/proj/sub/.."), "demo", &contents(), false),
+        Ok(CopyOutcome::Itself(host_path(
+            "/proj/sub/../.ctxloom/content/bundles/v2/demo"
+        )))
     );
 }
 

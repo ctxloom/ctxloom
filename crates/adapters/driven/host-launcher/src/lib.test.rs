@@ -278,16 +278,18 @@ fn the_command_runs_in_exactly_the_environment_it_is_given() {
 
 #[test]
 fn a_program_that_is_not_there_never_started_and_will_not_next_time() {
-    let launch = launch(&TurnCommand::new("/no/such/program"), &limits());
+    let missing = os::fixture("/no/such/program");
+    let launch = launch(&TurnCommand::new(missing.to_str().unwrap()), &limits());
     let Launch::NotStarted(failure) = &launch else {
         panic!("{launch:?}")
     };
     assert!(failure.deterministic);
-    assert!(
-        failure.detail.contains("No such file"),
-        "{}",
-        failure.detail
-    );
+    // The system's own words for a program that is not there.
+    let words = std::process::Command::new(&missing)
+        .spawn()
+        .expect_err("no such program")
+        .to_string();
+    assert!(failure.detail.contains(&words), "{}", failure.detail);
     assert!(matches!(
         launch.events().as_slice(),
         [LaunchEvent::LaunchFailed {

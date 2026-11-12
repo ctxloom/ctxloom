@@ -13,7 +13,7 @@ mod error;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use ctxloom_ports::{Change, ContentRepo, Failure, Put, TreeFiles, UserFiles};
@@ -41,7 +41,7 @@ impl ContentFs {
     pub fn new(fs: Arc<dyn Fs>, app_dir: &Path) -> ContentFs {
         ContentFs {
             fs,
-            root: app_dir.join(BUNDLES_BELOW_APP_DIR),
+            root: join_rel(app_dir, BUNDLES_BELOW_APP_DIR),
         }
     }
 
@@ -170,22 +170,22 @@ impl ContentRepo for ContentFs {
     }
 
     fn read_tree(&self, name: &str) -> Result<TreeFiles, Failure> {
-        let climbs = name.is_empty()
-            || Path::new(name).is_absolute()
-            || name.split('/').any(|part| part == ".." || part == ".");
-        if climbs {
+        if climbs(name) {
             return Err(Box::new(ContentError::BadName {
                 name: name.to_string(),
             }));
         }
-        let top = self.root.join(name);
+        let top = join_rel(&self.root, name);
         let mut files = TreeFiles::new();
         self.collect(&top, &top, &mut files)?;
         Ok(files)
     }
 
     fn manifest_path(&self, name: &str) -> String {
-        self.root.join(name).join(MANIFEST).display().to_string()
+        join_rel(&self.root, name)
+            .join(MANIFEST)
+            .display()
+            .to_string()
     }
 
     fn executable_files(&self, name: &str) -> Result<BTreeSet<String>, Failure> {
@@ -246,11 +246,25 @@ impl ContentRepo for ContentFs {
     }
 
     fn bundle_dir(&self, name: &str) -> String {
-        self.root.join(name).display().to_string()
+        join_rel(&self.root, name).display().to_string()
     }
 }
 
 /// `rel` (slash separated) below `top`.
+/// Whether `name` is no bundle's path below the root: empty, with a `.` step,
+/// or anything but plain names once the host has read it as a path (a `..`
+/// step, a root: `/x`, and on Windows `\x` or `C:x`, which a join would put
+/// outside the root, as it would an absolute path).
+fn climbs(name: &str) -> bool {
+    name.is_empty()
+        || name.split('/').any(|part| part == ".")
+        || Path::new(name)
+            .components()
+            .any(|part| !matches!(part, Component::Normal(_) | Component::CurDir))
+}
+
+/// `rel`, a `/`-separated path, below `top`, a step at a time, so the host's
+/// own separator joins each step (as the path is shown).
 fn join_rel(top: &Path, rel: &str) -> PathBuf {
     rel.split('/')
         .fold(top.to_path_buf(), |path, part| path.join(part))

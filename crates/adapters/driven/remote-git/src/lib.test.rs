@@ -57,14 +57,26 @@ fn identity() -> Vec<(&'static str, OsString)> {
 fn repo(url: &str) -> Repository {
     let path = url.split_once("://").map_or(url, |(_, rest)| rest);
     let path = path.strip_suffix(".git").unwrap_or(path);
+    // A `:` (a port's, a Windows drive's) is no part of a name every host can
+    // make a directory of.
     let segments = path
         .split('/')
         .filter(|s| !s.is_empty())
-        .map(str::to_string)
+        .map(|s| s.replace(':', "_"))
         .collect();
     Repository {
         url: url.to_string(),
         cache: CachePath::new(segments).expect("plain names"),
+    }
+}
+
+/// The `file://` URL git reads for the absolute `path`: `file:///a/b`, and
+/// on Windows `file:///C:/a/b`.
+fn file_url_of(path: &Path) -> String {
+    let shown = path.display().to_string();
+    match os::host().flavor() {
+        os::Flavor::Unix => format!("file://{shown}"),
+        os::Flavor::Windows => format!("file:///{}", shown.replace('\\', "/")),
     }
 }
 
@@ -90,7 +102,7 @@ impl Origin {
     }
 
     fn url(&self) -> String {
-        format!("file://{}", self.bare.display())
+        file_url_of(&self.bare)
     }
 
     /// A commit writing these files (an execute bit where `true`); its sha.
@@ -105,6 +117,16 @@ impl Origin {
             }
         }
         git(&self.work, &["add", "-A"]);
+        // The bit is committed as asked, on a host that keeps none on disk
+        // too (Windows, where git takes no mode from the file).
+        for (path, _, executable) in files {
+            let chmod = if *executable {
+                "--chmod=+x"
+            } else {
+                "--chmod=-x"
+            };
+            git(&self.work, &["update-index", chmod, path]);
+        }
         git(&self.work, &["commit", "-q", "-m", "commit"]);
         git(&self.work, &["push", "-q", "origin", "main"]);
         git(&self.work, &["rev-parse", "HEAD"])
@@ -209,7 +231,7 @@ fn test_refresh_clones_what_is_not_there_and_a_failed_clone_leaves_nothing_behin
     demo(&origin);
     let c = cache();
     c.remotes.refresh(&repo(&origin.url())).expect("clones");
-    let missing = format!("file://{}/nowhere.git", origin.root.root().display());
+    let missing = file_url_of(&origin.root.root().join("nowhere.git"));
     let refused = c
         .remotes
         .ensure(&repo(&missing))
@@ -548,6 +570,19 @@ fn test_a_clone_is_kept_exactly_under_the_segments_it_is_handed() {
     assert!(why.ends_with("is not cloned yet"), "{why}");
 }
 
+// A file URL is the path as git reads one in a URL, on either host.
+#[test]
+fn test_a_file_url_spells_the_path_with_slashes_from_the_top() {
+    assert_eq!(
+        file_url(os::Flavor::Unix, Path::new("/srv/r.git")),
+        "file:///srv/r.git"
+    );
+    assert_eq!(
+        file_url(os::Flavor::Windows, Path::new(r"C:\Users\u\r.git")),
+        "file:///C:/Users/u/r.git"
+    );
+}
+
 // remote.go resolveLocalRepoURL
 #[test]
 fn test_a_path_is_the_file_url_of_the_repository_there() {
@@ -557,7 +592,7 @@ fn test_a_path_is_the_file_url_of_the_repository_there() {
         .remotes
         .local_repository(origin.bare.to_str().expect("utf-8"))
         .expect("a repository");
-    assert_eq!(url, format!("file://{}", canonical(&origin.bare).display()));
+    assert_eq!(url, file_url_of(&canonical(&origin.bare)));
     assert!(c
         .remotes
         .local_repository(origin.work.to_str().expect("utf-8"))

@@ -122,7 +122,13 @@ fn a_program_that_cannot_be_started_has_failed() {
     else {
         panic!("should fail");
     };
-    assert!(detail.contains("ermission"), "{detail}");
+    // The system's own words for a directory run as a program (a permission
+    // refused, on unix and Windows alike).
+    let refused = std::process::Command::new(&path)
+        .spawn()
+        .expect_err("a directory is no program");
+    assert_eq!(refused.kind(), std::io::ErrorKind::PermissionDenied);
+    assert!(detail.contains(&refused.to_string()), "{detail}");
 }
 
 #[test]

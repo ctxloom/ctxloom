@@ -1387,6 +1387,18 @@ cargo-mutants but the `mutants-staged` gate recipe, which `mutants-batch`
 drives. A failing gate is a finding: fix the cause and commit again; never
 `--no-verify`, and never weaken a gate to get through.
 
+No commit carries an attribution trailer (owner ruling 170), and the
+`commit-msg` hook holds every commit to it: `just commit-msg-check <file>`
+(the private `_no-trailers` in `gates/gates.just`) refuses a message with a
+`Co-Authored-By:` trailer line, in any case, on any line (the subject and
+body too, leading space and a space before the colon allowed; prose that
+only names the words passes), printing `FAIL commit-msg: the message
+carries an attribution trailer ...` and each offending line by number; a
+pass is one `ok   commit-msg (message)` line. What follows git's scissors
+line (`commit -v`'s diff) is not judged. Its self-test is
+`scripts/commit-msg.selftest.sh` (`just selftest`). A clone installs the
+hook with `just hooks-install` once more (`gates/MIGRATING.md`).
+
 1. **fmt** formats the staged `*.rs` files in the index (`just
    fmt-staged`) rather than refusing an unformatted commit. A fully staged
    file's working copy gets the same content; a partially staged file's

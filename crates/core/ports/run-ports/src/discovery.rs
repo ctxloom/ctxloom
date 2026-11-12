@@ -15,6 +15,9 @@
 
 use std::fmt;
 
+use prost::Message;
+
+use crate::hook::parse_endpoint;
 use crate::tls::PublicCert;
 use crate::token::Token;
 
@@ -52,15 +55,33 @@ pub struct Discovery {
 impl Discovery {
     /// The file's bytes: one `ctxloom.daemon.v1.Discovery`.
     pub fn encode(&self) -> Vec<u8> {
-        Vec::new()
+        daemon_proto::v1::Discovery {
+            format: DISCOVERY_FORMAT,
+            pid: self.pid,
+            endpoint: self.endpoint.clone(),
+            certificate: self.cert.der().to_vec(),
+            bearer: self.bearer.to_text(),
+            started_at: None,
+            stamp: self.stamp.clone(),
+        }
+        .encode_to_vec()
     }
 
     /// The discovery `bytes` hold; `None` when they hold none (not the
     /// message, another format, an endpoint that is not one, an empty or
     /// garbled certificate, a bearer that is not 64 hex, no stamp).
     pub fn decode(bytes: &[u8]) -> Option<Discovery> {
-        let _ = bytes;
-        None
+        let wire = daemon_proto::v1::Discovery::decode(bytes).ok()?;
+        if wire.format != DISCOVERY_FORMAT || wire.stamp.is_empty() {
+            return None;
+        }
+        Some(Discovery {
+            stamp: wire.stamp,
+            pid: wire.pid,
+            endpoint: parse_endpoint(&wire.endpoint).ok()?.url(),
+            cert: PublicCert::from_der(wire.certificate).ok()?,
+            bearer: Token::from_text(&wire.bearer).ok()?,
+        })
     }
 }
 
@@ -71,7 +92,7 @@ impl fmt::Debug for Discovery {
             .field("pid", &self.pid)
             .field("endpoint", &self.endpoint)
             .field("cert", &self.cert)
-            .field("bearer", &self.bearer.to_text())
+            .field("bearer", &"<redacted>")
             .finish()
     }
 }

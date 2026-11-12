@@ -76,10 +76,19 @@ impl DaemonFiles {
         )
     }
 
-    /// Advertise `discovery`, 0600, in a 0700 directory.
-    pub(crate) fn publish(&self, discovery: &Discovery) -> std::io::Result<()> {
+    /// The daemon's directory, made if missing and held to 0700 whoever made
+    /// it (the election's lock may have, with the default mode; an older
+    /// install's may be wider). Windows has no modes (M8).
+    fn private_dir(&self) -> std::io::Result<()> {
         self.fs
             .create_dir_all(&self.dir, Mode::from_bits(DIR_MODE))?;
+        self.fs
+            .set_permissions(&self.dir, Mode::from_bits(DIR_MODE))
+    }
+
+    /// Advertise `discovery`, 0600, in a 0700 directory.
+    pub(crate) fn publish(&self, discovery: &Discovery) -> std::io::Result<()> {
+        self.private_dir()?;
         self.fs.write_atomic(
             &self.path(DISCOVERY_FILE),
             &discovery.encode(),

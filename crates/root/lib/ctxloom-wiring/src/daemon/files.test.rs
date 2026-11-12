@@ -63,6 +63,23 @@ fn the_discovery_is_published_private_and_withdrawn() {
     files.withdraw();
 }
 
+// The election's lock makes the directory first, with the default mode: the
+// publish holds it to 0700 all the same.
+#[test]
+fn the_discovery_is_published_into_a_private_directory_whoever_made_it() {
+    let (root, home) = home();
+    let files = files(&root, &home);
+    let _held = files.elect(Duration::ZERO).expect("elected");
+    files.publish(&sample()).unwrap();
+    if os::host().flavor() == os::Flavor::Unix {
+        let fs = fixtures::fs();
+        assert_eq!(
+            fs.metadata(files.dir()).unwrap().mode.unwrap().bits(),
+            0o700
+        );
+    }
+}
+
 #[test]
 fn a_stop_is_asked_seen_and_forgotten() {
     let (root, home) = home();

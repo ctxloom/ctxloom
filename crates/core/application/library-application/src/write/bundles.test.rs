@@ -407,6 +407,64 @@ fn test_export_copies_the_whole_tree_under_the_bundles_own_name() {
     assert!(!mem.user_file("exported/demo/bundle.yaml").unwrap().1);
 }
 
+// Owner ruling 2026-11-12: an export's executables are the sidecar's, never
+// a mode on disk.
+#[test]
+fn test_an_export_makes_executable_what_the_sidecar_declares_and_nothing_else() {
+    let tree: &[(&str, &str)] = &[
+        ENVELOPE,
+        (
+            "skills/s/SKILL.md",
+            "---\nname: s\ndescription: d\n---\nbody",
+        ),
+        ("skills/s/run.sh", "#!/bin/sh\n"),
+        ("skills/.s.meta.yaml", "executable:\n  - run.sh\n"),
+    ];
+    let (library, mem) = Setup {
+        bundles: &[("demo", tree)],
+        layers: &[CONFIG],
+        executable: &["skills/s/SKILL.md"],
+        ..Setup::default()
+    }
+    .fixture();
+    library
+        .bundle_export(&plain(), "demo", "exported", "")
+        .result
+        .unwrap();
+    assert!(mem.user_file("exported/demo/skills/s/run.sh").unwrap().1);
+    assert!(!mem.user_file("exported/demo/skills/s/SKILL.md").unwrap().1);
+}
+
+// Owner ruling 2026-11-12: the sidecar an import brings is the source of
+// its executables, never the modes of the files imported.
+#[test]
+fn test_an_import_makes_executable_what_its_sidecar_declares_and_nothing_else() {
+    let (library, mem) = Setup {
+        layers: &[CONFIG],
+        ..Setup::default()
+    }
+    .fixture();
+    mem.put_user("in/mine/bundle.yaml", ENVELOPE.1.as_bytes(), true);
+    mem.put_user(
+        "in/mine/skills/s/SKILL.md",
+        b"---\nname: s\ndescription: d\n---\nbody",
+        true,
+    );
+    mem.put_user("in/mine/skills/s/run.sh", b"#!/bin/sh\n", false);
+    mem.put_user(
+        "in/mine/skills/.s.meta.yaml",
+        b"executable:\n  - run.sh\n",
+        false,
+    );
+    library
+        .bundle_import(&plain(), "in/mine", false)
+        .result
+        .unwrap();
+    assert!(mem.file("mine", "skills/s/run.sh").unwrap().1);
+    assert!(!mem.file("mine", "skills/s/SKILL.md").unwrap().1);
+    assert!(!mem.file("mine", "bundle.yaml").unwrap().1);
+}
+
 #[test]
 fn test_export_with_an_output_path_names_the_tree_outright() {
     let (library, mem) = world();

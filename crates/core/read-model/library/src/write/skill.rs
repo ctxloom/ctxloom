@@ -10,7 +10,7 @@ use angzarr_yaml::edit::Document;
 use angzarr_yaml::Value;
 
 use super::yamledit::drop_key;
-use crate::frontmatter::meta_path_for_name;
+use crate::frontmatter::{is_meta_path, meta_path_for_name, stem_of};
 use crate::BundleError;
 
 /// The description `skill create` writes when none is given.
@@ -62,8 +62,24 @@ pub fn executable_files(sidecar: Option<&str>) -> Vec<String> {
 /// the sidecar's `executable:` is the whole of it, never a mode bit (owner
 /// ruling 2026-11-12). A listed file the tree does not hold is not one.
 pub fn declared_executables(files: &crate::tree::Files) -> BTreeSet<String> {
-    let _ = files;
-    BTreeSet::new()
+    let mut out = BTreeSet::new();
+    for (path, bytes) in files {
+        let Some(rest) = path.strip_prefix("skills/") else {
+            continue;
+        };
+        if rest.contains('/') || !is_meta_path(rest) {
+            continue;
+        }
+        let name = stem_of(rest);
+        let text = String::from_utf8_lossy(bytes);
+        for listed in executable_files(Some(&text)) {
+            let file = format!("{}/{listed}", package_dir(&name));
+            if files.contains_key(&file) {
+                out.insert(file);
+            }
+        }
+    }
+    out
 }
 
 fn unwritable(error: angzarr_yaml::edit::EditError) -> BundleError {

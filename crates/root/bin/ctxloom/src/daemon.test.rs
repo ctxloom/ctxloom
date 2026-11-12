@@ -606,3 +606,97 @@ fn a_daemon_whose_discovery_file_names_another_exits_and_leaves_it() {
     );
     assert!(world.log().contains("another daemon"), "{}", world.log());
 }
+
+/// A daemon child killed when dropped, so a failing test leaves none
+/// behind where `World`'s own stop cannot reach it.
+struct Killed(std::process::Child);
+
+impl Drop for Killed {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// The test-support variable naming the single-instance lock's directory.
+const INSTANCE_DIR: &str = "CTXLOOM_TEST_INSTANCE_DIR";
+
+// One daemon per OS user: a client whose ctxloom home is not the serving
+// daemon's (two homes on one account, the account's lock shared) is refused,
+// exit 20, naming both homes, and starts no second daemon; the daemon serves
+// on.
+#[test]
+fn a_client_on_another_ctxloom_home_is_refused_naming_both_and_starts_no_daemon() {
+    let world = World::new();
+    let account = world.project.home().join("account");
+    let other = world.project.home().join("other-home");
+    files::put(other.join(".keep"), b"");
+    let account_text = account.to_str().unwrap();
+    let other_text = other.to_str().unwrap();
+    let mut env = ENV.to_vec();
+    env.push((INSTANCE_DIR, account_text));
+    let mut daemon = Killed(
+        world
+            .project
+            .start_with(&env, &["daemon", "serve", "--idle-seconds", "30"]),
+    );
+    world.until("the discovery file at the account's place", |_| {
+        files::read_bytes(account.join("daemon.discovery"))
+            .ok()
+            .filter(|b| !b.is_empty())
+    });
+    let home = world.project.home().to_str().unwrap().to_string();
+    let mut elsewhere = env.clone();
+    elsewhere.push(("CTXLOOM_HOME", other_text));
+    for verb in ["status", "stop"] {
+        let ran = world
+            .project
+            .run_with(&elsewhere, &["daemon", verb, "--format", "json"]);
+        assert_eq!(ran.code, 20, "{verb}: {}", ran.said());
+        assert!(
+            ran.stderr.contains(&home) && ran.stderr.contains(other_text),
+            "{verb} names both homes: {}",
+            ran.said()
+        );
+    }
+    assert!(
+        !files::exists(other.join(".ctxloom/daemon/daemon.discovery")),
+        "no second daemon"
+    );
+    let status = world
+        .project
+        .run_with(&env, &["daemon", "status", "--format", "json"]);
+    assert_eq!(
+        status.json()["serving"],
+        Value::Bool(true),
+        "{}",
+        status.said()
+    );
+    let _ = world.project.run_with(&env, &["daemon", "stop"]);
+    assert_eq!(
+        exited_within(&mut daemon.0, Duration::from_secs(20)),
+        Some(0),
+        "its log:\n{}",
+        world.log()
+    );
+}
+
+// The replaced-lock gap closed: a daemon whose single-instance lock file is
+// removed and made again under it no longer excludes anyone, so it exits
+// (and a client then starts one that holds the new file).
+#[test]
+fn a_daemon_whose_lock_file_is_replaced_exits() {
+    let world = World::new();
+    let (mut daemon, _) = served(&world);
+    let lock = world.project.home().join(".ctxloom/daemon/daemon.lock");
+    assert!(files::exists(&lock), "the lock file is made");
+    files::remove(&lock);
+    files::put(&lock, b"");
+    let code = exited_within(&mut daemon, Duration::from_secs(20));
+    assert_eq!(code, Some(0), "it exits; its log:\n{}", world.log());
+    assert!(
+        world.log().contains("single-instance lock"),
+        "{}",
+        world.log()
+    );
+}

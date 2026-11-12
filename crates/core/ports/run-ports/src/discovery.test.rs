@@ -11,6 +11,7 @@ fn sample() -> Discovery {
         endpoint: "https://127.0.0.1:40123".to_string(),
         cert: PublicCert::from_der(vec![0x30, 0x03, 0x01, 0x02, 0x03]).unwrap(),
         bearer: Token::from_text(BEARER).unwrap(),
+        home: "/home/u".to_string(),
     }
 }
 
@@ -23,6 +24,7 @@ fn wire() -> daemon_proto::v1::Discovery {
         bearer: BEARER.to_string(),
         started_at: None,
         stamp: "v0.1.0-abc1234".to_string(),
+        home: "/home/u".to_string(),
     }
 }
 
@@ -58,6 +60,8 @@ fn anything_unreadable_is_no_discovery() {
         with(|m| m.bearer = "not hex".to_string()),
         with(|m| m.bearer = BEARER.to_uppercase()),
         with(|m| m.stamp = String::new()),
+        // One daemon per OS account: a file naming no home is unreadable.
+        with(|m| m.home = String::new()),
     ] {
         assert_eq!(Discovery::decode(&bad), None, "{bad:?}");
     }

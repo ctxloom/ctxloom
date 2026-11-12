@@ -38,7 +38,7 @@ use run_ports::{CertMint, CertNames, ChildObservation, Discovery, SessionRecords
 use runs_application::UserGate;
 use session_files::SessionDirs;
 
-use super::files::DaemonFiles;
+use super::files::{DaemonFiles, Instance};
 use crate::{InProcessCore, Projectors};
 
 /// How long a daemon starting waits for the single-instance lock.
@@ -50,6 +50,8 @@ const INSTANCE_WAIT: Duration = Duration::from_secs(5);
 pub(crate) struct Place {
     pub(crate) stamp: String,
     pub(crate) home: PathBuf,
+    /// The single-instance lock's path (`instance_lock_path`).
+    pub(crate) instance_lock: PathBuf,
     pub(crate) temp: PathBuf,
     pub(crate) os: String,
     pub(crate) user_home: Option<PathBuf>,
@@ -82,13 +84,14 @@ pub(crate) fn serve(
     let Place {
         stamp,
         home,
+        instance_lock,
         temp,
         os,
         user_home,
     } = place;
     let home = home.as_path();
-    let files = DaemonFiles::new(Arc::clone(&fs), home);
-    let Some(_held) = files.hold_instance(INSTANCE_WAIT) else {
+    let files = DaemonFiles::with_instance(Arc::clone(&fs), home, instance_lock);
+    let Some(held) = files.hold_instance(INSTANCE_WAIT) else {
         return Err("another daemon holds the single-instance lock".to_string());
     };
     files.clear_stop();
@@ -163,6 +166,7 @@ pub(crate) fn serve(
             endpoint: endpoint.clone(),
             cert: certificate.public().clone(),
             bearer,
+            home: home.display().to_string(),
         };
         files.publish(&own).map_err(|e| e.to_string())?;
         said(&say, &format!("serving at {endpoint}"));
@@ -171,7 +175,7 @@ pub(crate) fn serve(
         if let Err(detail) = launcher.start_up(core.store(), core.catalog()).await {
             said(&say, &format!("the start's sweep failed: {detail}"));
         }
-        let result = run(&mut launcher, &core, (&files, &own), pace, &say).await;
+        let result = run(&mut launcher, &core, (&files, &own, &held), pace, &say).await;
         files.withdraw_own(&own);
         launcher.end_all();
         drop(launcher);
@@ -226,19 +230,27 @@ fn launcher(
     })
 }
 
-/// Tick until the daemon is asked to stop, another daemon's discovery
-/// replaced its own (`own`, in `files`), or it has had nothing to do for its
-/// idle time. A discovery file that is gone is published again: the daemon
+/// Tick until the daemon is asked to stop, its single-instance lock file
+/// is no longer the one it holds (`held`: removed or replaced, so it
+/// excludes nobody), another daemon's discovery replaced its own (`own`, in
+/// `files`), or it has had nothing to do for its idle time. A discovery file that is gone is published again: the daemon
 /// still holds the single-instance lock, and a client finds it by the file (M11).
 async fn run<E: run_ports::Edge, T: run_ports::TokenSource>(
     launcher: &mut Daemon<E, T>,
     core: &InProcessCore<SqliteStore>,
-    (files, own): (&DaemonFiles, &Discovery),
+    (files, own, held): (&DaemonFiles, &Discovery, &Instance),
     pace: Pace,
     say: &Say,
 ) -> Result<(), String> {
     let mut quiet_since = Instant::now();
     loop {
+        if !files.still_holds(held) {
+            said(
+                say,
+                "the single-instance lock file was replaced or removed: exiting",
+            );
+            return Ok(());
+        }
         match advertised(own, files.discovery().as_ref()) {
             Advertised::Ours => {}
             Advertised::Gone => match files.publish(own) {

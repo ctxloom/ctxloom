@@ -409,6 +409,7 @@ fn discovered(endpoint: &str) -> run_ports::Discovery {
         endpoint: endpoint.to_string(),
         cert: run_ports::PublicCert::from_env_value(A_CERT).unwrap(),
         bearer: run_ports::Token::from_bytes([9; 32]),
+        home: "/home/u".to_string(),
     }
 }
 
@@ -456,6 +457,7 @@ async fn a_daemon(
         endpoint: format!("https://127.0.0.1:{}", listener.local_addr().port()),
         cert: certificate.public().clone(),
         bearer: bearer.clone(),
+        home: "/home/u".to_string(),
     };
     (listener, discovery)
 }

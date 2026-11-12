@@ -54,4 +54,10 @@ message Discovery {
   // (`ctxloom version`), never the package version. A client whose stamp
   // differs treats the daemon as another build (M3's skew rule).
   string stamp = 7;
+
+  // The ctxloom home the daemon serves (`CTXLOOM_HOME` as it resolved it,
+  // else the account's home): there is ONE daemon per OS account, so a
+  // client whose ctxloom home is another is refused, naming both, and never
+  // served by a second daemon. A file naming none is unreadable.
+  string home = 8;
 }

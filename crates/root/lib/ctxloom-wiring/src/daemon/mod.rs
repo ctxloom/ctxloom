@@ -31,7 +31,7 @@ use serde::Serialize;
 use sessions_application::{ClearRequest, CloseRequest, LaunchRequest, Ordered, SendRequest};
 
 use crate::{LibError, Wiring};
-use files::DaemonFiles;
+use files::{instance_lock_path, DaemonFiles};
 
 /// The noun.
 pub(crate) const NOUN: &str = "daemon";
@@ -287,7 +287,7 @@ pub(crate) fn run(
         .unwrap_or_else(|_| unreachable!("the command line parsed {NOUN}"));
     let format = call.format();
     let wiring = Wiring::new(Arc::clone(env)).map_err(failed)?;
-    let files = DaemonFiles::new(wiring.fs(), wiring.home());
+    let files = files_of(&wiring);
     let ordered = match verb {
         DaemonVerb::Serve {
             idle_seconds,
@@ -447,6 +447,7 @@ fn be_the_daemon(
     let place = serve::Place {
         stamp: stamp.to_string(),
         home: wiring.home().to_path_buf(),
+        instance_lock: instance_lock(wiring),
         temp: env.temp_dir().to_path_buf(),
         os: wiring.os_name().to_string(),
         user_home: wiring.user_home(),
@@ -454,6 +455,31 @@ fn be_the_daemon(
     serve::serve(wiring.fs(), place, pace, say)
         .map_err(|detail| failed(LibError::NoRuntime { detail }))?;
     Ok(Exit::OK)
+}
+
+/// The single-instance lock of `wiring`'s account ([`instance_lock_path`]),
+/// a test's override first.
+fn instance_lock(wiring: &Wiring) -> PathBuf {
+    instance_lock_path(wiring.home(), instance_override(wiring.env()).as_deref())
+}
+
+/// The directory a test names for the single-instance lock
+/// ([`files::INSTANCE_DIR_VARIABLE`]); compiled out of the shipped binary.
+#[cfg(feature = "test-support")]
+fn instance_override(env: &EnvSnapshot) -> Option<PathBuf> {
+    env.non_empty(files::INSTANCE_DIR_VARIABLE)
+        .map(PathBuf::from)
+}
+
+/// The shipped binary has no override: the account's place alone.
+#[cfg(not(feature = "test-support"))]
+fn instance_override(_: &EnvSnapshot) -> Option<PathBuf> {
+    None
+}
+
+/// The daemon files of `wiring`'s home, its account's single-instance lock.
+fn files_of(wiring: &Wiring) -> DaemonFiles {
+    DaemonFiles::with_instance(wiring.fs(), wiring.home(), instance_lock(wiring))
 }
 
 /// Whether a daemon serves, and where.
@@ -516,9 +542,7 @@ fn live(found: &run_ports::Discovery) -> bool {
 /// names: a stale file names a port nobody serves).
 pub(crate) fn discovery(env: &Arc<EnvSnapshot>) -> Option<run_ports::Discovery> {
     let wiring = Wiring::new(Arc::clone(env)).ok()?;
-    DaemonFiles::new(wiring.fs(), wiring.home())
-        .discovery()
-        .filter(live)
+    files_of(&wiring).discovery().filter(live)
 }
 
 /// Make sure the user's daemon serves: spawn one when none is live, and
@@ -528,7 +552,7 @@ pub(crate) fn discovery(env: &Arc<EnvSnapshot>) -> Option<run_ports::Discovery> 
 /// spawned is not this command's failure (what it recorded stands; the next
 /// client spawns one).
 fn ensure(wiring: &Wiring, env: &EnvSnapshot) {
-    let files = DaemonFiles::new(wiring.fs(), wiring.home());
+    let files = files_of(wiring);
     if files.discovery().is_some_and(|found| live(&found)) {
         return;
     }

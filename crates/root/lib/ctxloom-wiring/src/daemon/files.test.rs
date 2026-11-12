@@ -5,7 +5,7 @@ use std::time::Duration;
 use file_system::Rooted;
 use run_ports::{Discovery, PublicCert, Token};
 
-use super::DaemonFiles;
+use super::{instance_lock_path, DaemonFiles};
 use crate::fixtures;
 
 fn home() -> (Rooted, std::path::PathBuf) {
@@ -25,6 +25,7 @@ fn sample() -> Discovery {
         endpoint: "https://127.0.0.1:4242".to_string(),
         cert: PublicCert::from_der(vec![0x30, 0x00]).unwrap(),
         bearer: Token::from_bytes([7; 32]),
+        home: "/home/u".to_string(),
     }
 }
 
@@ -166,4 +167,66 @@ fn a_hand_off_is_the_users_alone_and_taken_once() {
     assert_eq!(files.take_hand_off(CHILD), None, "withdrawn");
     assert!(files.hand_off("../escape", &sent).is_err());
     assert_eq!(files.take_hand_off("../escape"), None);
+}
+
+// One daemon per OS account: the single-instance lock is where
+// `instance_lock_path` says, a test's override first, and the discovery file
+// is beside it; the rest stays under the ctxloom home.
+#[test]
+fn the_instance_lock_is_where_the_override_says_and_the_discovery_beside_it() {
+    let (root, home) = home();
+    let shared = root.root().join("instance");
+    assert_eq!(
+        instance_lock_path(&home, None),
+        home.join(".ctxloom/daemon/daemon.lock")
+    );
+    assert_eq!(
+        instance_lock_path(&home, Some(&shared)),
+        shared.join("daemon.lock")
+    );
+    let files = DaemonFiles::with_instance(
+        fixtures::fs(),
+        &home,
+        instance_lock_path(&home, Some(&shared)),
+    );
+    files.publish(&sample()).unwrap();
+    let fs = fixtures::fs();
+    assert!(fs.exists(&shared.join("daemon.discovery")).unwrap());
+    assert!(!fs
+        .exists(&home.join(".ctxloom/daemon/daemon.discovery"))
+        .unwrap());
+    assert_eq!(files.dir(), home.join(".ctxloom/daemon"));
+}
+
+// Two ctxloom homes of one account share its one lock: one holder.
+#[test]
+fn two_homes_on_one_instance_lock_are_one_holder() {
+    let (root, home) = home();
+    let other = root.root().join("other");
+    let lock = instance_lock_path(&home, Some(&root.root().join("instance")));
+    let first = DaemonFiles::with_instance(fixtures::fs(), &home, lock.clone());
+    let second = DaemonFiles::with_instance(fixtures::fs(), &other, lock);
+    let _held = first
+        .hold_instance(Duration::ZERO)
+        .expect("the first holds it");
+    assert!(second.hold_instance(Duration::ZERO).is_none());
+}
+
+// The replaced-lock gap: a lock file removed, or replaced, under its holder
+// excludes nobody, so the holder is told it no longer holds the lock.
+#[test]
+fn a_lock_file_replaced_or_removed_under_its_holder_is_no_longer_held() {
+    let (root, home) = home();
+    let files = files(&root, &home);
+    let fs = fixtures::fs();
+    let lock = home.join(".ctxloom/daemon/daemon.lock");
+    let held = files.hold_instance(Duration::ZERO).expect("held");
+    assert!(files.still_holds(&held), "its own file is there");
+    fs.remove_file(&lock).unwrap();
+    assert!(!files.still_holds(&held), "removed");
+    let replaced = files
+        .hold_instance(Duration::ZERO)
+        .expect("a new file, a new lock");
+    assert!(!files.still_holds(&held), "replaced by another");
+    assert!(files.still_holds(&replaced));
 }

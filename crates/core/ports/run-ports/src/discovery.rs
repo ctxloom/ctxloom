@@ -51,6 +51,8 @@ pub struct Discovery {
     pub cert: PublicCert,
     /// The user bearer (T12), minted at the daemon's start.
     pub bearer: Token,
+    /// The ctxloom home the daemon serves: a client on another is refused.
+    pub home: String,
 }
 
 impl Discovery {
@@ -64,13 +66,14 @@ impl Discovery {
             bearer: self.bearer.to_text(),
             started_at: None,
             stamp: self.stamp.clone(),
+            home: self.home.clone(),
         }
         .encode_to_vec()
     }
 
     /// The discovery `bytes` hold; `None` when they hold none (not the
     /// message, another format, an endpoint that is not one, an empty or
-    /// garbled certificate, a bearer that is not 64 hex, no stamp).
+    /// garbled certificate, a bearer that is not 64 hex, no stamp, no home).
     pub fn decode(bytes: &[u8]) -> Option<Discovery> {
         let wire = daemon_proto::v1::Discovery::decode(bytes).ok()?;
         if wire.format != DISCOVERY_FORMAT || wire.stamp.is_empty() {
@@ -82,6 +85,7 @@ impl Discovery {
             endpoint: parse_endpoint(&wire.endpoint).ok()?.url(),
             cert: PublicCert::from_der(wire.certificate).ok()?,
             bearer: Token::from_text(&wire.bearer).ok()?,
+            home: wire.home,
         })
     }
 }
@@ -94,6 +98,7 @@ impl fmt::Debug for Discovery {
             .field("endpoint", &self.endpoint)
             .field("cert", &self.cert)
             .field("bearer", &"<redacted>")
+            .field("home", &self.home)
             .finish()
     }
 }

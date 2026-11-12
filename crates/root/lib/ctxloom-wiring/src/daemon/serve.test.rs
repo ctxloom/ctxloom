@@ -99,6 +99,7 @@ fn a_daemon_keeps_its_advertisement_republishes_a_gone_one_and_yields_to_another
         endpoint: "https://127.0.0.1:4242".to_string(),
         cert: run_ports::PublicCert::from_der(vec![0x30, 0x00]).unwrap(),
         bearer: run_ports::Token::from_bytes([7; 32]),
+        home: "/home/u".to_string(),
     };
     assert_eq!(advertised(&own, Some(&own)), Advertised::Ours);
     assert_eq!(advertised(&own, None), Advertised::Gone);

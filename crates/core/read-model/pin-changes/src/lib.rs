@@ -29,7 +29,7 @@ pub use item::{diff_items, fingerprint};
 pub struct TreeFile {
     pub data: Vec<u8>,
     /// Whether the file is executable: declared so by its package's sidecar,
-    /// or committed so.
+    /// the whole of it on every OS (owner ruling 2026-11-12).
     pub executable: bool,
 }
 

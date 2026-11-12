@@ -284,17 +284,20 @@ impl Deps {
     }
 }
 
-/// A tree as the disclosure reads it: committed executability only.
+/// A tree as the disclosure reads it: a file is executable when its skill's
+/// sidecar declares it, on every OS, never by the mode a publisher committed
+/// (owner ruling 2026-11-12).
 pub(crate) fn disclosed(tree: &RepoTree) -> Tree {
-    tree.iter()
-        .map(|(path, file)| {
-            (
-                path.clone(),
-                TreeFile {
-                    data: file.data.clone(),
-                    executable: file.executable,
-                },
-            )
+    let files: library::tree::Files = tree
+        .iter()
+        .map(|(path, file)| (path.clone(), file.data.clone()))
+        .collect();
+    let declared = library::write::skill::declared_executables(&files);
+    files
+        .into_iter()
+        .map(|(path, data)| {
+            let executable = declared.contains(&path);
+            (path, TreeFile { data, executable })
         })
         .collect()
 }

@@ -16,9 +16,6 @@ use file_system::{Fs, Perms};
 use os::Mode;
 use run_ports::{Discovery, DAEMON_DIR, DAEMON_LOCK_FILE, DISCOVERY_FILE};
 
-/// The stop request's file: present, the daemon drains and exits.
-const STOP_FILE: &str = "stop";
-
 /// The daemon's log: what it says while nobody reads its stderr.
 pub(crate) const LOG_FILE: &str = "daemon.log";
 
@@ -182,27 +179,6 @@ impl DaemonFiles {
         if self.discovery().as_ref() == Some(own) {
             self.withdraw();
         }
-    }
-
-    /// Ask the daemon to drain and exit.
-    pub(crate) fn request_stop(&self) -> std::io::Result<()> {
-        self.fs
-            .create_dir_all(&self.dir, Mode::from_bits(DIR_MODE))?;
-        self.fs.write_atomic(
-            &self.path(STOP_FILE),
-            b"stop\n",
-            Perms::Exact(Mode::from_bits(FILE_MODE)),
-        )
-    }
-
-    /// Whether a stop was asked.
-    pub(crate) fn stop_requested(&self) -> bool {
-        self.fs.exists(&self.path(STOP_FILE)).unwrap_or(false)
-    }
-
-    /// Forget a stop request (a daemon that obeyed it, or one starting).
-    pub(crate) fn clear_stop(&self) {
-        let _ = self.fs.remove_file(&self.path(STOP_FILE));
     }
 
     /// Where the hand-off of the child `session` is; none for a name that is

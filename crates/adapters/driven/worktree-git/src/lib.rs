@@ -27,7 +27,7 @@ mod workspace;
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{WorktreeError, EN_US};
-pub use git::{Git, GitError, User, DEFAULT_TIMEOUT};
+pub use git::{Git, GitError, User, VcsIdentity, DEFAULT_TIMEOUT};
 pub use workspace::{branch_of, checkout_name, sanitize, GitWorkspaces, EXCLUDE_HEADER};
 
 #[cfg(test)]

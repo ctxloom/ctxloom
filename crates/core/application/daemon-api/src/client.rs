@@ -105,6 +105,86 @@ impl ExitClass for SkewError {
     }
 }
 
+/// Why a client's call came to nothing: refused (its typed refusal, in
+/// its own crate's words, a decline), or the call failed.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CallError {
+    Refused(crate::refusal::Rejection),
+    Call(Called),
+}
+
+impl From<Called> for CallError {
+    fn from(called: Called) -> CallError {
+        let rejection = match &called {
+            Called::Refused { refusal, .. } => crate::rejection_of(refusal),
+            _ => None,
+        };
+        match rejection {
+            Some(rejection) => CallError::Refused(rejection),
+            None => CallError::Call(called),
+        }
+    }
+}
+
+impl fmt::Display for CallError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        angzarr_diagnostic::display(self, f)
+    }
+}
+
+impl std::error::Error for CallError {}
+
+impl Diagnostic for CallError {
+    fn code(&self) -> &str {
+        match self {
+            CallError::Refused(crate::refusal::Rejection::Api(api)) => api.code(),
+            CallError::Refused(crate::refusal::Rejection::Sessions(ours)) => ours.code(),
+            CallError::Call(called) => called.code(),
+        }
+    }
+
+    fn args(&self) -> Vec<(&str, Arg)> {
+        match self {
+            CallError::Refused(crate::refusal::Rejection::Api(api)) => api.args(),
+            CallError::Refused(crate::refusal::Rejection::Sessions(ours)) => ours.args(),
+            CallError::Call(called) => called.args(),
+        }
+    }
+}
+
+/// A refusal is a decline (20); a call that failed, a failure (10).
+impl ExitClass for CallError {
+    fn exit(&self) -> Exit {
+        match self {
+            CallError::Refused(_) => Exit::REFUSED,
+            CallError::Call(_) => Exit::FAILED,
+        }
+    }
+}
+
+/// `daemon stop`: ask the daemon to stop (S12), refused while it hosts live
+/// runs unless `even_if_live`.
+pub async fn stop<A: DaemonApi>(
+    api: &A,
+    even_if_live: bool,
+) -> Result<daemon_proto::v1::Daemon, CallError> {
+    let request = daemon_proto::v1::StopDaemonRequest {
+        name: "daemon".to_string(),
+        even_if_live,
+        ..daemon_proto::v1::StopDaemonRequest::default()
+    };
+    Ok(api.stop_daemon(request).await?)
+}
+
+/// Register-or-recheck the client's project (owner, 2026-11-12): what the
+/// daemon names it, or why it refused.
+pub async fn resolve<A: DaemonApi>(
+    api: &A,
+    request: daemon_proto::v1::ResolveProjectRequest,
+) -> Result<daemon_proto::v1::Project, CallError> {
+    Ok(api.resolve_project(request).await?)
+}
+
 /// One value of every diagnostic here.
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) fn samples() -> Vec<Box<dyn Diagnostic>> {

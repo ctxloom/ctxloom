@@ -642,3 +642,14 @@ fn a_messages_urgency_is_the_childs_within_its_turn() {
         ChildUrgency::Wake
     );
 }
+
+// GetDaemon (slice 2 step 5): the runs it hosts, each by its session and
+// its run.
+#[tokio::test]
+async fn the_hosted_runs_are_named_by_session_and_run() {
+    let world = World::hosting().await;
+    assert_eq!(
+        world.daemon.hosted_runs(),
+        [(CHILD.to_string(), daemon_board::run_text(CHILD, 1))]
+    );
+}

@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 const PACKAGE: &str = "ctxloom.daemon.v1";
 
 /// angzarr's `refusal_status` extension of `MessageOptions`.
-const REFUSAL_STATUS_FIELD: u64 = 50104;
+const STATUS_EXTENSION: u64 = 50104;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     angzarr_build::wire(
@@ -185,7 +185,7 @@ fn declared(message: &[u8]) -> Result<Option<(String, u64)>, String> {
             (7, Field::Bytes(options)) => {
                 let mut options = Wire(options);
                 while let Some((number, field)) = options.field()? {
-                    if let (REFUSAL_STATUS_FIELD, Field::Varint(value)) = (number, field) {
+                    if let (STATUS_EXTENSION, Field::Varint(value)) = (number, field) {
                         status = Some(value);
                     }
                 }

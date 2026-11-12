@@ -19,8 +19,8 @@ mod client;
 mod refusal;
 mod server;
 
-pub use client::{reconcile, Reconciled, SkewError};
-pub use refusal::{rejection_of, ApiError, ApiRefusal, ApiRejection};
+pub use client::{reconcile, resolve, stop, CallError, Reconciled, SkewError};
+pub use refusal::{rejection_of, ApiError, ApiRefusal, ApiRejection, Rejection};
 pub use server::{About, Answer, Api, Calls, Harps, Hosting, Parts, SessionStates};
 
 /// This crate's en-US messages, its name first.

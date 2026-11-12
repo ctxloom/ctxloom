@@ -199,6 +199,15 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
         self.hosted.len()
     }
 
+    /// The runs it hosts, each as its session's stable id and its run's
+    /// root (text), in run order: what `GetDaemon` names.
+    pub fn hosted_runs(&self) -> Vec<(String, String)> {
+        self.hosted
+            .iter()
+            .map(|(run, hosted)| (hosted.at.session.clone(), run.clone()))
+            .collect()
+    }
+
     /// How many runs are started and not ended (M9): every run the store
     /// holds whose runner started, the CLI's interactive sessions and
     /// one-shots as well as the children it hosts, once those whose owner is

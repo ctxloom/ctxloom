@@ -93,18 +93,22 @@ held-projection.workspace = true
 session-policies.workspace = true
 # The daemon's one launcher (T18), which the root only composes.
 daemon-application.workspace = true
+daemon-api.workspace = true
+daemon-api-grpc.workspace = true
+daemon-client.workspace = true
+daemon-ports.workspace = true
 embedded-edge.workspace = true
 hook-sink-grpc.workspace = true
 angzarr-embedded-host.workspace = true
-# Only the seed uses the session-ports directly.
-session-ports = { workspace = true, optional = true }
+# The seed, and the daemon's API (a session's lock state).
+session-ports.workspace = true
+daemon-proto.workspace = true
 # The test-only commands' sample list and the daemon's answers.
 serde.workspace = true
 
 [dev-dependencies]
 # A projection's view, decoded (S32).
 prost.workspace = true
-daemon-proto.workspace = true
 fixture-program.workspace = true
 # Builds this crate's own `test-support` feature for its tests (the seed, bind
 # and session tests need it) without turning it on for the `ctxloom` binary:
@@ -130,7 +134,6 @@ session-destroy = ["session-cli/session-destroy"]
 test-support = [
     "ctxloom-store-sqlite/test-support",
     "ctxloom-cli/test-support",
-    "dep:session-ports",
     "dep:engine-mock",
     "library-application/test-support",
     "engine-opencode/test-support",

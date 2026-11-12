@@ -233,6 +233,46 @@ impl Git {
     }
 }
 
+/// A repository's identity as a project registers it (owner, 2026-11-12):
+/// its git common directory (a worktree's is its primary checkout's) and
+/// its root commit. Both are empty outside git.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct VcsIdentity {
+    pub git_common_dir: String,
+    /// `git rev-list --max-parents=0 HEAD`; of several roots (a merged
+    /// history), the lexically least, so every client picks the same one.
+    pub root_commit: String,
+}
+
+impl Git {
+    /// The identity of the repository at `dir` (empty outside git, or in a
+    /// repository with no commit yet: no root commit then).
+    pub fn vcs_identity(&self, dir: &Path) -> VcsIdentity {
+        let Ok(common) = self.run(
+            dir,
+            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        ) else {
+            return VcsIdentity::default();
+        };
+        let root_commit = self
+            .run(dir, &["rev-list", "--max-parents=0", "HEAD"])
+            .ok()
+            .and_then(|roots| {
+                roots
+                    .lines()
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty())
+                    .min()
+                    .map(str::to_string)
+            })
+            .unwrap_or_default();
+        VcsIdentity {
+            git_common_dir: common.trim().to_string(),
+            root_commit,
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "git.test.rs"]
 mod tests;

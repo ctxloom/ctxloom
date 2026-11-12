@@ -111,6 +111,12 @@ kind = "dev"
 reason = "test-only: mints the per-run certificates the fake TLS listener is served with, by the same mint the run uses"
 
 [[exception]]
+from = "daemon-client"
+to = "hook-tls"
+kind = "dev"
+reason = "test-only: mints the certificate the fake daemon is served with, by the same mint the daemon uses"
+
+[[exception]]
 from = "daemon-api-grpc"
 to = "run-ports"
 kind = "dev"

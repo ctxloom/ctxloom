@@ -96,6 +96,10 @@ struct Loop {
 }
 
 impl Hosting for Loop {
+    fn endpoint(&self) -> String {
+        "https://127.0.0.1:5000".to_string()
+    }
+
     fn hosted(&self) -> Vec<v1::HostedRun> {
         self.hosted.lock().unwrap().clone()
     }
@@ -149,7 +153,6 @@ fn fixture(harps: Vec<&'static str>) -> Fixture {
         harps: Arc::new(Offered(harps)),
         about: About {
             pid: 4242,
-            endpoint: "https://127.0.0.1:5000".to_string(),
             version: "0.1.0+abc".to_string(),
             start_time: Timestamp {
                 seconds: 7,
@@ -377,7 +380,7 @@ async fn resolve_project_with_no_project_or_a_bad_name_is_refused() {
 }
 
 // GetProject reads the warm index: the project by its harp, its
-// registration with it; one nothing holds is NOT_FOUND.
+// registration with it; one nothing holds is not found.
 #[tokio::test]
 async fn get_project_answers_the_registered_project() {
     let f = fixture(vec!["calm-quiet-heron"]);
@@ -406,7 +409,7 @@ async fn get_project_answers_the_registered_project() {
 }
 
 // GetSession: a session by its name, from the warm index, its state its
-// lock's; one nothing holds, NOT_FOUND; a name that is none, INVALID.
+// lock's; one nothing holds is not found; a name that is none, invalid.
 #[tokio::test]
 async fn get_session_answers_the_session_by_its_name() {
     let f = fixture(vec!["calm-quiet-heron"]);

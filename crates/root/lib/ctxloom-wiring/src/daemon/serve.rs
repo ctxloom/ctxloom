@@ -94,7 +94,6 @@ pub(crate) fn serve(
     let Some(held) = files.hold_instance(INSTANCE_WAIT) else {
         return Err("another daemon holds the single-instance lock".to_string());
     };
-    files.clear_stop();
     let say: Say = Arc::new(Mutex::new(say));
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -116,66 +115,48 @@ pub(crate) fn serve(
             kept.clone()
         })
         .await;
-        let edge = core.edge();
-        // The user bearer (T12): minted at each start, advertised in the
-        // discovery file alone.
-        let bearer = OsTokenSource.mint();
-        let names = CertNames::new(
-            vec![
-                IpAddr::V4(Ipv4Addr::LOCALHOST),
-                IpAddr::V6(Ipv6Addr::LOCALHOST),
-            ],
-            Vec::new(),
-        );
-        let certificate = hook_tls::Minter::lasting(
-            hook_tls::SystemClock,
-            run_ports::DAEMON_CERT_LIFETIME_SECONDS,
-        )
-        .mint(&names)
-        .map_err(|e| code(&e))?;
-        let listener = HookListener::serve_tcp_gated(
-            Arc::clone(&edge),
-            UserGate::new(&bearer),
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
-            TlsIdentity::from_pem(certificate.public().to_pem(), certificate.key_pem()),
-        )
-        .await
-        .map_err(|e| code(&e))?;
-        let endpoint = run_ports::endpoint_url("127.0.0.1", listener.local_addr().port())
-            .map_err(|e| code(&e))?;
-        let mut launcher = launcher(
+        // What the loop shares with the API's use cases (slice 2 step 5).
+        let shared = Arc::new(Shared::new(kept.index.clone().unwrap_or_default()));
+        let started = start(
             &fs,
             (home, &temp),
-            &edge,
+            &core,
             &kept,
-            Told {
-                home: home.to_string_lossy().into_owned(),
-                program_dir: std::env::current_exe()
-                    .ok()
-                    .and_then(|exe| exe.parent().map(|dir| dir.display().to_string())),
-                os,
-                user_home: user_home.map(|home| home.to_string_lossy().into_owned()),
-                endpoint: endpoint.clone(),
-                cert: certificate.public().clone(),
-            },
-            Arc::clone(&say),
-        );
-        let own = Discovery {
-            stamp,
-            pid: std::process::id(),
-            endpoint: endpoint.clone(),
-            cert: certificate.public().clone(),
-            bearer,
-            home: home.display().to_string(),
+            (os, user_home, stamp, pace),
+            (&files, &shared),
+            &say,
+        )
+        .await;
+        let (listener, mut launcher, own) = match started {
+            Ok(started) => started,
+            Err(detail) => {
+                // A start that fails before it serves closes its store as
+                // every exit does (ruling 131): what holds it is let go first.
+                drop(shared);
+                drop(kept);
+                said(&say, &format!("the start failed: {detail}"));
+                match core.close().await {
+                    Ok(()) => said(&say, "the store is closed"),
+                    Err(unclosed) => said(&say, &format!("the store did not close: {unclosed}")),
+                }
+                return Err(detail);
+            }
         };
-        files.publish(&own).map_err(|e| e.to_string())?;
+        let endpoint = own.endpoint.clone();
         said(&say, &format!("serving at {endpoint}"));
         // The launcher's first step (T18): the runs other processes, and a
         // killed daemon, left are swept before anything is hosted.
         if let Err(detail) = launcher.start_up(core.store(), core.catalog()).await {
             said(&say, &format!("the start's sweep failed: {detail}"));
         }
-        let result = run(&mut launcher, &core, (&files, &own, &held), pace, &say).await;
+        let result = run(
+            &mut launcher,
+            &core,
+            (&files, &own, &held),
+            (pace, &shared),
+            &say,
+        )
+        .await;
         files.withdraw_own(&own);
         // Every holder of the store let go before the close (ruling 131):
         // the launcher (its edge and its folds), the edge, the listener's
@@ -186,8 +167,8 @@ pub(crate) fn serve(
         // core.
         launcher.end_all();
         drop(launcher);
-        drop(edge);
         let _ = listener.stop().await;
+        drop(shared);
         drop(kept);
         said(&say, "exited");
         // Closed, not dropped (ruling 131).
@@ -196,6 +177,107 @@ pub(crate) fn serve(
         }
         result
     })
+}
+
+/// The daemon started (its bearer and certificate minted, its listener
+/// serving the coordinator and the `Ctxloom` service, the launcher
+/// composed, the discovery file published): the listener, the launcher and
+/// its own advertisement. On a failure what it started is let go (the
+/// listener stopped) before it answers, so its caller can close the store.
+async fn start(
+    fs: &Arc<dyn Fs>,
+    (home, temp): (&Path, &Path),
+    core: &InProcessCore<SqliteStore>,
+    kept: &Projectors,
+    (os, user_home, stamp, pace): (String, Option<PathBuf>, String, Pace),
+    (files, shared): (&DaemonFiles, &Arc<Shared>),
+    say: &Say,
+) -> Result<(HookListener, Daemon<CoreEdge, OsTokenSource>, Discovery), String> {
+    let code = |e: &dyn angzarr_diagnostic::Diagnostic| e.code().to_string();
+    let edge = core.edge();
+    // The user bearer (T12): minted at each start, advertised in the
+    // discovery file alone.
+    let bearer = OsTokenSource.mint();
+    let names = CertNames::new(
+        vec![
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            IpAddr::V6(Ipv6Addr::LOCALHOST),
+        ],
+        Vec::new(),
+    );
+    let certificate = hook_tls::Minter::lasting(
+        hook_tls::SystemClock,
+        run_ports::DAEMON_CERT_LIFETIME_SECONDS,
+    )
+    .mint(&names)
+    .map_err(|e| code(&e))?;
+    let started_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX));
+    let calls: Arc<dyn daemon_api::Calls> = Arc::new(daemon_api::Api::new(daemon_api::Parts {
+        edge: Arc::clone(&edge),
+        index: kept.index.clone().unwrap_or_default(),
+        hosting: Arc::clone(shared) as Arc<dyn daemon_api::Hosting>,
+        states: Arc::new(Locks(Arc::clone(fs))),
+        harps: Arc::new(FreshHarps),
+        about: daemon_api::About {
+            pid: std::process::id(),
+            version: stamp.clone(),
+            start_time: angzarr_embedded::Timestamp {
+                seconds: started_at,
+                nanos: 0,
+            },
+            idle_limit_seconds: pace.idle.as_secs(),
+        },
+    }));
+    let listener = HookListener::serve_tcp_beside(
+        Arc::clone(&edge),
+        UserGate::new(&bearer),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        TlsIdentity::from_pem(certificate.public().to_pem(), certificate.key_pem()),
+        Some(daemon_api_grpc::service(calls, UserGate::new(&bearer))),
+    )
+    .await
+    .map_err(|e| code(&e))?;
+    let endpoint = match run_ports::endpoint_url("127.0.0.1", listener.local_addr().port()) {
+        Ok(endpoint) => endpoint,
+        Err(e) => {
+            let _ = listener.stop().await;
+            return Err(code(&e));
+        }
+    };
+    shared.serving_at(&endpoint);
+    let launcher = launcher(
+        fs,
+        (home, temp),
+        &edge,
+        kept,
+        Told {
+            home: home.to_string_lossy().into_owned(),
+            program_dir: std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(|dir| dir.display().to_string())),
+            os,
+            user_home: user_home.map(|home| home.to_string_lossy().into_owned()),
+            endpoint: endpoint.clone(),
+            cert: certificate.public().clone(),
+        },
+        Arc::clone(say),
+    );
+    let own = Discovery {
+        stamp,
+        pid: std::process::id(),
+        endpoint,
+        cert: certificate.public().clone(),
+        bearer,
+        home: home.display().to_string(),
+    };
+    if let Err(e) = files.publish(&own) {
+        drop(launcher);
+        let _ = listener.stop().await;
+        return Err(format!("the discovery file cannot be written: {e}"));
+    }
+    Ok((listener, launcher, own))
 }
 
 /// The edge of the daemon's core, which the launcher writes through.
@@ -247,11 +329,15 @@ async fn run<E: run_ports::Edge, T: run_ports::TokenSource>(
     launcher: &mut Daemon<E, T>,
     core: &InProcessCore<SqliteStore>,
     (files, own, held): (&DaemonFiles, &Discovery, &Instance),
-    pace: Pace,
+    (pace, shared): (Pace, &Arc<Shared>),
     say: &Say,
 ) -> Result<(), String> {
     let mut quiet_since = Instant::now();
+    // Asked to stop through its API (`StopDaemon`): drain, its hosted
+    // engines ended first when asked `even_if_live` (S12).
+    let mut stopping = false;
     loop {
+        shared.tell(launcher.hosted_runs(), quiet_since);
         if !files.still_holds(held) {
             said(
                 say,
@@ -276,9 +362,15 @@ async fn run<E: run_ports::Edge, T: run_ports::TokenSource>(
                 return Ok(());
             }
         }
-        let draining = files.stop_requested();
+        if let Some(end_hosted) = shared.take_stop() {
+            if end_hosted {
+                said(say, "asked to stop even if live: ending what it hosts");
+                launcher.end_all();
+            }
+            stopping = true;
+        }
+        let draining = stopping;
         if draining && launcher.hosting() == 0 {
-            files.clear_stop();
             return Ok(());
         }
         // Armed before the round reads (S-N2): a commit during it is not
@@ -309,6 +401,110 @@ async fn run<E: run_ports::Edge, T: run_ports::TokenSource>(
         // once; another process's (a CLI command's) is seen by the poll on
         // `change_token` (S-N4: the required fallback).
         let _ = tokio::time::timeout(pace.poll, commit).await;
+    }
+}
+
+/// What the loop shares with its API's use cases (slice 2 step 5): where
+/// it serves, what it hosts and since when it has been quiet, as of its
+/// last round, and whether it was asked to stop.
+struct Shared {
+    index: session_index::SessionIndexes,
+    state: Mutex<Round>,
+}
+
+#[derive(Default)]
+struct Round {
+    endpoint: String,
+    /// Each hosted run's session id and run root.
+    hosted: Vec<(String, String)>,
+    quiet_since: Option<Instant>,
+    /// Asked to stop; `true` to end what it hosts first.
+    stop: Option<bool>,
+}
+
+impl Shared {
+    fn new(index: session_index::SessionIndexes) -> Shared {
+        Shared {
+            index,
+            state: Mutex::new(Round::default()),
+        }
+    }
+
+    fn round(&self) -> std::sync::MutexGuard<'_, Round> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn serving_at(&self, endpoint: &str) {
+        self.round().endpoint = endpoint.to_string();
+    }
+
+    fn tell(&self, hosted: Vec<(String, String)>, quiet_since: Instant) {
+        let mut round = self.round();
+        round.hosted = hosted;
+        round.quiet_since = Some(quiet_since);
+    }
+
+    fn take_stop(&self) -> Option<bool> {
+        self.round().stop.take()
+    }
+}
+
+impl daemon_api::Hosting for Shared {
+    fn endpoint(&self) -> String {
+        self.round().endpoint.clone()
+    }
+
+    fn hosted(&self) -> Vec<daemon_proto::v1::HostedRun> {
+        let hosted = self.round().hosted.clone();
+        let index = self.index.index();
+        hosted
+            .into_iter()
+            .map(|(session, run)| {
+                let record = index.find_by_id(&session).unwrap_or_default();
+                let project = index.project_harp(&record.project_id).unwrap_or_default();
+                daemon_proto::v1::HostedRun {
+                    session: index.name_of(&record),
+                    harp: record.harp,
+                    run: format!("projects/{project}/runs/{run}"),
+                    kind: daemon_proto::v1::RunKind::Child as i32,
+                }
+            })
+            .collect()
+    }
+
+    fn idle_seconds(&self) -> u64 {
+        self.round()
+            .quiet_since
+            .map_or(0, |since| since.elapsed().as_secs())
+    }
+
+    fn stop(&self, end_hosted: bool) {
+        let mut round = self.round();
+        round.stop = Some(end_hosted || round.stop.unwrap_or(false));
+    }
+}
+
+/// A session's state, from its liveness lock in its project.
+struct Locks(Arc<dyn Fs>);
+
+impl daemon_api::SessionStates for Locks {
+    fn state(&self, project_dir: &str, harp: &str) -> session_index::State {
+        use session_ports::{Liveness, LockState};
+        let mut locks = liveness::LockFiles::new(Arc::clone(&self.0), project_dir);
+        match locks.lock_state(harp) {
+            LockState::Held => session_index::State::Live,
+            LockState::Free => session_index::State::Ended,
+            LockState::Unproven => session_index::State::Unknown,
+        }
+    }
+}
+
+/// Fresh project harps, minted as a CLI command's are.
+struct FreshHarps;
+
+impl daemon_api::Harps for FreshHarps {
+    fn fresh(&self) -> Vec<String> {
+        crate::fresh_project_harps()
     }
 }
 

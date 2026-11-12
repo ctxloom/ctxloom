@@ -121,7 +121,13 @@ enum DaemonVerb {
     /// Say whether a daemon serves, and where
     Status,
     /// Ask the daemon to drain and exit
-    Stop,
+    Stop {
+        /// Stop it even while it hosts live runs, ending them first
+        #[arg(long)]
+        even_if_live: bool,
+    },
+    /// Register this project with the daemon, or recheck it
+    Resolve,
     /// Send a session a message
     Send {
         /// The session's name
@@ -295,6 +301,17 @@ pub(crate) fn run(
         DaemonVerb::Serve { .. } => None,
         _ => serving(&wiring, &files)?,
     };
+    // M3: a daemon of another version is stopped, idle, or refuses this
+    // command, busy, before it writes anything.
+    if matches!(
+        verb,
+        DaemonVerb::Send { .. }
+            | DaemonVerb::Close { .. }
+            | DaemonVerb::Clear { .. }
+            | DaemonVerb::Launch { .. }
+    ) {
+        reconciled(&files, serving.as_ref(), own_stamp(env, stamp))?;
+    }
     let ordered = match verb {
         DaemonVerb::Serve {
             idle_seconds,
@@ -310,14 +327,15 @@ pub(crate) fn run(
             output(render(out, format, &status(serving)))?;
             return Ok(Exit::OK);
         }
-        DaemonVerb::Stop => {
-            if serving.is_some() {
-                files.request_stop().map_err(|e| {
-                    failed(CliError::Output {
-                        detail: e.to_string(),
-                    })
-                })?;
+        DaemonVerb::Stop { even_if_live } => {
+            if let Some(found) = serving {
+                block_on(daemon_api::stop(&client_of(&found), even_if_live))?.map_err(called)?;
             }
+            return Ok(Exit::OK);
+        }
+        DaemonVerb::Resolve => {
+            let project = resolve(&wiring, env, stamp)?;
+            output(render(out, format, &Resolved(project)))?;
             return Ok(Exit::OK);
         }
         DaemonVerb::Send {
@@ -367,6 +385,135 @@ pub(crate) fn run(
     ensure(&wiring, env);
     output(render(out, format, &Done::from(ordered)))?;
     Ok(Exit::OK)
+}
+
+/// How long one call to the daemon may take.
+const CALL_WAIT: Duration = Duration::from_secs(5);
+
+/// How long a client waits for a daemon of another version it stopped to
+/// exit (M3).
+const STOPPED_WAIT: Duration = Duration::from_secs(8);
+
+/// The daemon `found` names, as a client calls it.
+fn client_of(found: &run_ports::Discovery) -> daemon_client::DaemonClient {
+    daemon_client::DaemonClient::new(found, CALL_WAIT)
+}
+
+/// `future`, on a runtime of its own.
+fn block_on<T>(future: impl std::future::Future<Output = T>) -> Result<T, Failure> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map(|runtime| runtime.block_on(future))
+        .map_err(|e| {
+            failed(LibError::NoRuntime {
+                detail: e.to_string(),
+            })
+        })
+}
+
+/// A client's call that came to nothing, as the command's failure.
+fn called(error: daemon_api::CallError) -> Failure {
+    let exit = error.exit();
+    Failure::new(error, exit)
+}
+
+/// The stamp this client compares with the daemon's (M3): the binary's,
+/// or, under test-support, the one a test names.
+#[cfg(feature = "test-support")]
+fn own_stamp<'a>(env: &'a EnvSnapshot, stamp: &'a str) -> &'a str {
+    env.utf8(STAMP_VARIABLE)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(stamp)
+}
+
+#[cfg(not(feature = "test-support"))]
+fn own_stamp<'a>(_: &'a EnvSnapshot, stamp: &'a str) -> &'a str {
+    stamp
+}
+
+/// The variable a test names a client's stamp by (M3's skew, on demand).
+#[cfg(feature = "test-support")]
+const STAMP_VARIABLE: &str = "CTXLOOM_TEST_STAMP";
+
+/// M3: the serving daemon `found`, reconciled with this client's stamp
+/// `own`: of another version and idle, it is stopped and waited out (the
+/// next `ensure` starts this one's); busy, the command is refused.
+fn reconciled(
+    files: &DaemonFiles,
+    found: Option<&run_ports::Discovery>,
+    own: &str,
+) -> Result<(), Failure> {
+    let Some(found) = found else {
+        return Ok(());
+    };
+    let outcome = block_on(daemon_api::reconcile(&client_of(found), own, &found.stamp))?;
+    match outcome {
+        Ok(daemon_api::Reconciled::Same) => Ok(()),
+        Ok(daemon_api::Reconciled::Stopped) => {
+            let deadline = Instant::now() + STOPPED_WAIT;
+            while Instant::now() < deadline && files.discovery().is_some_and(|d| live(&d)) {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Ok(())
+        }
+        Err(skew) => {
+            let exit = skew.exit();
+            Err(Failure::new(skew, exit))
+        }
+    }
+}
+
+/// `resolve`: this project registered with the daemon, or rechecked
+/// (owner, 2026-11-12), the daemon made sure of first (M3 included).
+fn resolve(
+    wiring: &Wiring,
+    env: &Arc<EnvSnapshot>,
+    stamp: &str,
+) -> Result<daemon_proto::v1::Project, Failure> {
+    let files = files_of(wiring);
+    reconciled(
+        &files,
+        serving(wiring, &files)?.as_ref(),
+        own_stamp(env, stamp),
+    )?;
+    ensure(wiring, env);
+    let Some(found) = serving(wiring, &files)? else {
+        return Err(failed(LibError::NoRuntime {
+            detail: "no ctxloom daemon could be started".to_string(),
+        }));
+    };
+    let request = wiring.registration().unwrap_or_default();
+    block_on(daemon_api::resolve(&client_of(&found), request))?.map_err(called)
+}
+
+/// What `resolve` answers: the project the daemon named.
+struct Resolved(daemon_proto::v1::Project);
+
+#[derive(Serialize)]
+struct ResolvedJson<'a> {
+    name: &'a str,
+    root: &'a str,
+    uid: &'a str,
+    git_common_dir: &'a str,
+    root_commit: &'a str,
+}
+
+impl Render for Resolved {
+    fn json(&self) -> impl Serialize + '_ {
+        let p = &self.0;
+        ResolvedJson {
+            name: &p.name,
+            root: &p.root,
+            uid: &p.uid,
+            git_common_dir: &p.git_common_dir,
+            root_commit: &p.root_commit,
+        }
+    }
+
+    fn text(&self, out: &mut dyn Write) -> std::io::Result<()> {
+        writeln!(out, "{} ({})", self.0.name, self.0.root)
+    }
 }
 
 /// `launch`: the child's id minted here, the environment a child may be

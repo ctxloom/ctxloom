@@ -236,6 +236,8 @@ pub fn catalog_sources() -> Vec<angzarr_presentation::Source> {
         project_dir::EN_US,
         duration_text::EN_US,
         ctxloom_store_sqlite::EN_US,
+        daemon_api::EN_US,
+        daemon_ports::EN_US,
         ctxloom_store_sqlite::OPENER_EN_US,
         session_files::EN_US,
     ];
@@ -433,6 +435,33 @@ impl Wiring {
             return Ok(());
         };
         Stores::new(Arc::clone(&self.fs), self.home.clone()).refuse_per_project(&project.id)
+    }
+
+    /// What this process registers with the daemon (owner, 2026-11-12,
+    /// project registration): its project's id (taskloom's identity, so a
+    /// worktree is its primary checkout's), its root, the repository's
+    /// common dir and root commit (worktree-git's, empty outside git), and
+    /// its working directory. `None` outside any project.
+    pub(crate) fn registration(&self) -> Option<daemon_proto::v1::ResolveProjectRequest> {
+        use ports::ProjectIdentity as _;
+        let mut identity = registry(Arc::clone(&self.fs), self.environment(), HarpNames);
+        let project = identity.for_write(None).ok()?;
+        let root = project
+            .root
+            .unwrap_or_else(|| self.project_dir().display().to_string());
+        let vcs = oneshot::identity_git(self).vcs_identity(std::path::Path::new(&root));
+        Some(daemon_proto::v1::ResolveProjectRequest {
+            name: String::new(),
+            cwd: self
+                .env
+                .cwd()
+                .map(|cwd| cwd.display().to_string())
+                .unwrap_or_default(),
+            project_id: project.id,
+            root,
+            git_common_dir: vcs.git_common_dir,
+            root_commit: vcs.root_commit,
+        })
     }
 
     /// Name the project this process is in (S54), once, in the one store:

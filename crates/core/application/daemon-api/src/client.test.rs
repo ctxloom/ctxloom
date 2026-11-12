@@ -7,7 +7,7 @@ use daemon_ports::{Any, Called, DaemonApi};
 use daemon_proto::v1;
 use exit_code::{Exit, ExitClass};
 
-use super::{reconcile, Reconciled, SkewError};
+use super::{reconcile, resolve, stop, CallError, Reconciled, SkewError};
 
 /// A daemon that hosts `hosted`, answers `stop` as told, and keeps what it
 /// was asked.
@@ -40,8 +40,7 @@ impl DaemonApi for Daemon {
         Ok(self.about())
     }
 
-    async fn stop_daemon(&self, request: v1::StopDaemonRequest) -> Result<v1::Daemon, Called> {
-        assert!(!request.even_if_live, "a client never ends live runs");
+    async fn stop_daemon(&self, _: v1::StopDaemonRequest) -> Result<v1::Daemon, Called> {
         self.asked.lock().unwrap().push("stop");
         match &self.stop {
             Some(called) => Err(called.clone()),
@@ -49,8 +48,21 @@ impl DaemonApi for Daemon {
         }
     }
 
-    async fn resolve_project(&self, _: v1::ResolveProjectRequest) -> Result<v1::Project, Called> {
-        unreachable!()
+    async fn resolve_project(&self, r: v1::ResolveProjectRequest) -> Result<v1::Project, Called> {
+        match r.name.as_str() {
+            "" => Ok(v1::Project {
+                name: "projects/calm-otter".to_string(),
+                ..v1::Project::default()
+            }),
+            _ => Err(Called::Refused {
+                code: 9,
+                refusal: Any::from_msg(&sessions_proto::v1::ProjectHarpMismatch {
+                    project: "projects/calm-otter".to_string(),
+                    expected: "far-heron".to_string(),
+                })
+                .unwrap(),
+            }),
+        }
     }
 
     async fn get_project(&self, _: v1::GetProjectRequest) -> Result<v1::Project, Called> {
@@ -151,4 +163,60 @@ async fn a_daemon_that_cannot_be_asked_fails() {
     let failed = reconcile(&daemon, "0.2.0+b", "0.1.0+a").await.unwrap_err();
     assert_eq!(failed, SkewError::Call(Called::Unauthenticated));
     assert_eq!(failed.exit(), Exit::FAILED);
+}
+
+// `daemon stop`: a refusal is told in its crate's words, a decline.
+#[tokio::test]
+async fn a_refused_stop_is_told_in_its_words_and_declines() {
+    let hosting = v1::DaemonHosting {
+        runs: 1,
+        harps: vec!["brisk-copper-moth".to_string()],
+    };
+    let daemon = Daemon {
+        stop: Some(Called::Refused {
+            code: 9,
+            refusal: Any::from_msg(&hosting).unwrap(),
+        }),
+        ..Daemon::default()
+    };
+    let refused = stop(&daemon, false).await.unwrap_err();
+    assert_eq!(
+        angzarr_diagnostic::Diagnostic::code(&refused),
+        "daemon-api-daemon-hosting"
+    );
+    assert_eq!(refused.exit(), Exit::REFUSED);
+    assert!(stop(&Daemon::default(), false).await.is_ok());
+    let failed = stop(
+        &Daemon {
+            stop: Some(Called::Unauthenticated),
+            ..Daemon::default()
+        },
+        false,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(failed, CallError::Call(Called::Unauthenticated));
+    assert_eq!(failed.exit(), Exit::FAILED);
+}
+
+// A registration's refusal is the sessions domain's, told in its words.
+#[tokio::test]
+async fn a_refused_registration_is_the_sessions_domains() {
+    let daemon = Daemon::default();
+    let named = resolve(&daemon, v1::ResolveProjectRequest::default()).await;
+    assert_eq!(named.unwrap().name, "projects/calm-otter");
+    let refused = resolve(
+        &daemon,
+        v1::ResolveProjectRequest {
+            name: "projects/far-heron".to_string(),
+            ..v1::ResolveProjectRequest::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        angzarr_diagnostic::Diagnostic::code(&refused),
+        "sessions-project-harp-mismatch"
+    );
+    assert_eq!(refused.exit(), Exit::REFUSED);
 }

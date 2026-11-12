@@ -3,7 +3,9 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use super::{environment, is_local, local_variables, Git, GitError, User, DEFAULT_TIMEOUT};
+use super::{
+    environment, is_local, local_variables, Git, GitError, User, VcsIdentity, DEFAULT_TIMEOUT,
+};
 use crate::fixtures::{env, exists, fs, put, root, runs_scripts, slurp};
 
 /// A "git" that is a script, in a directory of its own.
@@ -292,4 +294,47 @@ esac"#,
             email: "a@x".to_string(),
         }
     );
+}
+
+// Project registration (owner, 2026-11-12): a repository's common directory
+// and its root commit; of several roots, the lexically least.
+#[test]
+fn a_repositorys_identity_is_its_common_dir_and_its_least_root_commit() {
+    if !runs_scripts() {
+        return;
+    }
+    let (dir, _, _) = stub(
+        r#"case "$*" in
+  "rev-parse --path-format=absolute --git-common-dir") echo "/work/calm/.git" ;;
+  "rev-list --max-parents=0 HEAD") printf 'bbbb\naaaa\n' ;;
+  *) exit 1 ;;
+esac"#,
+    );
+    let git = Git::new(fs(), dir.root().join("git"), DEFAULT_TIMEOUT, env());
+    assert_eq!(
+        git.vcs_identity(dir.root()),
+        VcsIdentity {
+            git_common_dir: "/work/calm/.git".to_string(),
+            root_commit: "aaaa".to_string(),
+        }
+    );
+}
+
+// Outside git: an empty identity; a repository with no commit, no root.
+#[test]
+fn outside_git_the_identity_is_empty() {
+    if !runs_scripts() {
+        return;
+    }
+    let (dir, _, _) = stub("exit 128");
+    let git = Git::new(fs(), dir.root().join("git"), DEFAULT_TIMEOUT, env());
+    assert_eq!(git.vcs_identity(dir.root()), VcsIdentity::default());
+    let (dir, _, _) = stub(
+        r#"case "$*" in
+  rev-parse*) echo "/work/new/.git" ;;
+  *) exit 128 ;;
+esac"#,
+    );
+    let git = Git::new(fs(), dir.root().join("git"), DEFAULT_TIMEOUT, env());
+    assert_eq!(git.vcs_identity(dir.root()).root_commit, "");
 }

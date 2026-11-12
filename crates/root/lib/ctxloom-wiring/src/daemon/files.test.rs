@@ -107,14 +107,9 @@ fn the_discovery_is_published_into_a_private_directory_whoever_made_it() {
 }
 
 #[test]
-fn a_stop_is_asked_seen_and_forgotten() {
+fn the_log_is_in_the_daemons_directory() {
     let (root, home) = home();
     let files = files(&root, &home);
-    assert!(!files.stop_requested());
-    files.request_stop().unwrap();
-    assert!(files.stop_requested());
-    files.clear_stop();
-    assert!(!files.stop_requested());
     assert!(files.log_path().ends_with(".ctxloom/daemon/daemon.log"));
 }
 

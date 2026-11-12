@@ -90,10 +90,13 @@ struct RpcStatus {
 
 /// What `status`, answered to `method`, came to.
 pub fn called(method: &str, status: &Status) -> Called {
-    if let Some(refusal) = RpcStatus::decode(status.details())
-        .ok()
-        .and_then(|rpc| rpc.details.into_iter().next())
-    {
+    // A typed refusal is the one detail that is no `google.rpc.ErrorInfo`
+    // (angzarr's own statuses, UNAUTHENTICATED's among them, carry one).
+    if let Some(refusal) = RpcStatus::decode(status.details()).ok().and_then(|rpc| {
+        rpc.details
+            .into_iter()
+            .find(|any| !any.type_url.ends_with("/google.rpc.ErrorInfo"))
+    }) {
         return Called::Refused {
             code: status.code() as i32,
             refusal,

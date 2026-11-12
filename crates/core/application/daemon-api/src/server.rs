@@ -34,6 +34,8 @@ const EVERY_PROJECT: &str = "projects/-";
 
 /// What the daemon's loop knows of itself.
 pub trait Hosting: Send + Sync {
+    /// Where it serves (`https://127.0.0.1:<port>`), once its port is bound.
+    fn endpoint(&self) -> String;
     /// The runs it hosts now (live), each with its session's name.
     fn hosted(&self) -> Vec<v1::HostedRun>;
     /// How long it has had nothing to do.
@@ -56,7 +58,6 @@ pub trait Harps: Send + Sync {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct About {
     pub pid: u32,
-    pub endpoint: String,
     /// The binary's full versionator stamp (M3).
     pub version: String,
     pub start_time: Timestamp,
@@ -152,7 +153,7 @@ impl<E: Edge> Api<E> {
         v1::Daemon {
             name: DAEMON.to_string(),
             pid: about.pid,
-            endpoint: about.endpoint.clone(),
+            endpoint: self.parts.hosting.endpoint(),
             start_time: Some(about.start_time),
             version: about.version.clone(),
             runs: self.parts.hosting.hosted(),

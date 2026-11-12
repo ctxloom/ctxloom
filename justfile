@@ -81,6 +81,54 @@ build:
             "$1/scripts/plain-engines-check.sh" "$2/debug/ctxloom" &&
             "$1/scripts/plain-destroy-check.sh" "$2/debug/ctxloom"' build {{TOP}} "$target" "${terse[@]}"
 
+# Install the Rust ctxloom beside the Go one (owner ruling 164): the PLAIN
+# binary (no test-support, no session-destroy; held to that by the same two
+# checks `just build` runs), in the profile `just build` uses (the workspace
+# defines no release profile of its own), as
+# ~/.local/lib/ctxloom-rs/ctxloom-rs, and the wrapper ~/.local/bin/ctxloom-rs
+# that runs it with its own home, ~/.ctxloom-rs. Its hooks call `ctxloom-rs`,
+# the running binary's file name (ruling 163), which leads the engine's PATH.
+# Idempotent: a file already as it should be is left alone and said so. One
+# line per action.
+[group('install')]
+[doc("Build the plain binary and install it as ~/.local/bin/ctxloom-rs (home ~/.ctxloom-rs)")]
+[no-exit-message]
+install-rs:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    terse=(-q --message-format=short)
+    [ "${VERBOSE:-}" = 1 ] && terse=()
+    target=${CARGO_TARGET_DIR:-{{TOP}}/target}
+    built="$target/debug/ctxloom"
+    just --justfile {{TOP}}/justfile _run install-rs-build ctxloom cargo \
+        bash -c 'cargo build "${@:4}" --manifest-path "$1/Cargo.toml" --package ctxloom --bin ctxloom &&
+            "$1/scripts/plain-engines-check.sh" "$2" &&
+            "$1/scripts/plain-destroy-check.sh" "$2"' install-rs {{TOP}} "$built" "${terse[@]}"
+    lib="$HOME/.local/lib/ctxloom-rs"
+    program="$lib/ctxloom-rs"
+    wrapper="$HOME/.local/bin/ctxloom-rs"
+    mkdir -p "$lib" "$HOME/.local/bin"
+    if cmp -s "$built" "$program"; then
+        echo "ok   unchanged $program"
+    else
+        # Beside it, then renamed over it: a running ctxloom-rs keeps its file.
+        install -m 0755 "$built" "$program.new"
+        mv -f "$program.new" "$program"
+        echo "ok   installed $program"
+    fi
+    text='#!/bin/sh
+    export CTXLOOM_HOME="$HOME/.ctxloom-rs"
+    exec "$HOME/.local/lib/ctxloom-rs/ctxloom-rs" "$@"'
+    text=$(sed 's/^    //' <<< "$text")
+    if [ -f "$wrapper" ] && [ "$(cat "$wrapper")" = "$text" ] && [ "$(stat -c %a "$wrapper")" = 755 ]; then
+        echo "ok   unchanged $wrapper"
+    else
+        printf '%s\n' "$text" > "$wrapper.new"
+        chmod 0755 "$wrapper.new"
+        mv -f "$wrapper.new" "$wrapper"
+        echo "ok   wrote $wrapper"
+    fi
+
 # Install the arch-lint binary at the pinned ctxloom-lib commit, unless it is
 # there; and refuse a pin that differs from the one Cargo.toml has.
 [private]

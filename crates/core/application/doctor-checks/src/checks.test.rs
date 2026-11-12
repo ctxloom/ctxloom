@@ -54,7 +54,7 @@ fn private_state_git_can_see_warns_naming_it() {
 fn a_launched_ctxloom_mcp_server_is_named_with_the_by_hand_remedy() {
     let bad =
         r#"{"mcpServers":{"ctxloom":{"command":"/usr/local/bin/ctxloom","args":["mcp","serve"]}}}"#;
-    let check = checks::mcp_invocation(&files(".mcp.json", bad));
+    let check = checks::mcp_invocation(&files(".mcp.json", bad), "ctxloom");
     assert_eq!(check.status, Status::Warn);
     assert!(check.detail.contains(".mcp.json") && check.detail.contains("entry from"));
     assert!(check.remedy.contains("by hand"));
@@ -69,16 +69,16 @@ fn a_launched_ctxloom_mcp_server_is_named_with_the_by_hand_remedy() {
 fn an_endpoint_url_launches_nothing() {
     let good = r#"{"mcpServers":{"ctxloom":{"type":"http","url":"http://127.0.0.1:4242/mcp"}}}"#;
     assert_eq!(
-        checks::mcp_invocation(&files(".mcp.json", good)).status,
+        checks::mcp_invocation(&files(".mcp.json", good), "ctxloom").status,
         Status::Ok
     );
     let other = r#"{"mcpServers":{"ctxloom":{"command":"other","args":["mcp","serve"]}}}"#;
     assert_eq!(
-        checks::mcp_invocation(&files(".mcp.json", other)).status,
+        checks::mcp_invocation(&files(".mcp.json", other), "ctxloom").status,
         Status::Ok
     );
     assert_eq!(
-        checks::mcp_invocation(&files(".mcp.json", "not json")).status,
+        checks::mcp_invocation(&files(".mcp.json", "not json"), "ctxloom").status,
         Status::Ok
     );
 }
@@ -193,8 +193,8 @@ fn registered_hooks_are_ok_and_none_is_info() {
         ".claude/settings.json",
         r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"ctxloom hook claude-code execute SessionStart"}]}]}}"#,
     );
-    assert_eq!(checks::hooks(&on).status, Status::Ok);
-    assert_eq!(checks::hooks(&[]).status, Status::Info);
+    assert_eq!(checks::hooks(&on, "ctxloom").status, Status::Ok);
+    assert_eq!(checks::hooks(&[], "ctxloom").status, Status::Info);
 }
 
 /// The variables a launch exports.

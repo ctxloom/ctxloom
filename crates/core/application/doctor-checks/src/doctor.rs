@@ -44,6 +44,9 @@ pub struct Doctor {
     /// then none of her files is read.
     user_home: Option<String>,
     version: String,
+    /// The running binary's file name (owner ruling 163): a hook or server
+    /// entry running it is ctxloom's, as one running `ctxloom` is.
+    program: String,
 }
 
 impl Doctor {
@@ -64,6 +67,17 @@ impl Doctor {
             auth,
             user_home: user_home.map(str::to_string),
             version: version.to_string(),
+            program: "ctxloom".to_string(),
+        }
+    }
+
+    /// This doctor, reading an entry that runs `program` (the running
+    /// binary's file name, as the composition root resolved it) as
+    /// ctxloom's, besides one that runs `ctxloom`.
+    pub fn calling(self, program: &str) -> Doctor {
+        Doctor {
+            program: program.to_string(),
+            ..self
         }
     }
 
@@ -143,7 +157,11 @@ impl Doctor {
         let settings = self.present(&self.settings_paths());
         let mut stale = Vec::new();
         for (file, text) in &settings {
-            stale.extend(hooks::stale(text).into_iter().map(|s| (file.clone(), s)));
+            stale.extend(
+                hooks::stale(text, &self.program)
+                    .into_iter()
+                    .map(|s| (file.clone(), s)),
+            );
         }
         let mcp = self.present(&self.mcp_paths());
         let mcp_and_settings: Vec<(String, String)> =
@@ -172,9 +190,9 @@ impl Doctor {
                 checks::agents(config.as_deref()),
                 checks::credentials(&layers, &self.auth),
                 checks::version(&self.version),
-                checks::hooks(&settings),
+                checks::hooks(&settings, &self.program),
                 checks::gitignore(gitignore.as_deref(), &unignored),
-                checks::mcp_invocation(&mcp_and_settings),
+                checks::mcp_invocation(&mcp_and_settings, &self.program),
                 checks::stale_hooks(&stale),
                 checks::ingestion(),
             ],
@@ -229,7 +247,7 @@ impl Doctor {
             let Some(text) = self.text(&path) else {
                 continue;
             };
-            let Some((fixed, gone)) = hooks::strip(&text) else {
+            let Some((fixed, gone)) = hooks::strip(&text, &self.program) else {
                 continue;
             };
             self.files.write_file(&path, fixed.as_bytes(), true)?;

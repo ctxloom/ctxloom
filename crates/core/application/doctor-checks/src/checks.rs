@@ -262,13 +262,14 @@ pub fn version(version: &str) -> Check {
     )
 }
 
-/// `HOOKS-TRUST-d4`: whether ctxloom's hooks are registered with the engine.
-pub fn hooks(settings: &[(String, String)]) -> Check {
+/// `HOOKS-TRUST-d4`: whether ctxloom's hooks (by `ctxloom` or by `name`, the
+/// running binary's file name) are registered with the engine.
+pub fn hooks(settings: &[(String, String)], name: &str) -> Check {
     const M: &str = "DOCTOR-CHECK-HOOKS-TRUST-d4";
     const N: &str = "hooks";
     let registered = settings
         .iter()
-        .any(|(_, text)| crate::hooks::registered(text));
+        .any(|(_, text)| crate::hooks::registered(text, name));
     if registered {
         return row(
             M,
@@ -345,12 +346,13 @@ pub fn gitignore(text: Option<&str>, unignored: &[&str]) -> Check {
 /// server. ctxloom ships no stdio MCP server, so the engine waits on a
 /// handshake that never arrives. No record of this machine writing the entry
 /// is read yet (S9 ports the records): the remedy is the by-hand one.
-pub fn mcp_invocation(files: &[(String, String)]) -> Check {
+/// ctxloom is `ctxloom` or `name`, the running binary's file name.
+pub fn mcp_invocation(files: &[(String, String)], name: &str) -> Check {
     const M: &str = "DOCTOR-CHECK-MCP-INVOCATION-g7";
     const N: &str = "MCP invocation";
     let bad: Vec<&str> = files
         .iter()
-        .filter(|(_, text)| crate::hooks::launches_ctxloom_mcp(text))
+        .filter(|(_, text)| crate::hooks::launches_ctxloom_mcp(text, name))
         .map(|(path, _)| path.as_str())
         .collect();
     let Some(first) = bad.first() else {

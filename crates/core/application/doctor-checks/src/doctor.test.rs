@@ -217,6 +217,30 @@ fn fix_removes_the_stale_entries_of_the_project_and_the_user_and_then_the_row_is
     );
 }
 
+// Owner ruling 163: a doctor told the running binary's name reads an entry
+// running it as ctxloom's: its stale ones are found and fixed, its live ones
+// are the hooks row's.
+#[test]
+fn a_doctor_calling_another_program_reads_and_fixes_that_programs_entries() {
+    let mem = project();
+    let settings = r#"{"hooks":{"SessionStart":[{"hooks":[{"command":"ctxloom-other hook inject-context abc"},{"command":"ctxloom-other hook claude-code execute SessionStart"}]}]}}"#;
+    mem.files.lock().unwrap().insert(
+        "/work/.claude/settings.json".to_string(),
+        settings.to_string(),
+    );
+    let doctor = doctor(&mem, true).calling("ctxloom-other");
+    let report = doctor.report(false);
+    assert_eq!(status(&report, "DOCTOR-CHECK-STALE-HOOKS-n5"), Status::Warn);
+    assert_eq!(status(&report, "DOCTOR-CHECK-HOOKS-TRUST-d4"), Status::Ok);
+    assert_eq!(doctor.fix().unwrap().len(), 1);
+    let kept = mem.files.lock().unwrap()["/work/.claude/settings.json"].clone();
+    assert!(
+        kept.contains("ctxloom-other hook claude-code execute SessionStart")
+            && !kept.contains("inject-context"),
+        "{kept}"
+    );
+}
+
 // The identity is git's answer where ctxloom runs, in her own environment
 // (handtest D2): a `.gitconfig` in the doctor's home, which is ctxloom's home
 // (`CTXLOOM_HOME`), is not read for it, either way.

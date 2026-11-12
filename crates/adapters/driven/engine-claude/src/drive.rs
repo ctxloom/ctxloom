@@ -153,7 +153,7 @@ impl Engine for Claude {
             },
             HomeFile {
                 rel: HOOKS_FILE.to_string(),
-                bytes: hooks_settings(request)?.into_bytes(),
+                bytes: hooks_settings(request, &self.program)?.into_bytes(),
             },
         ];
         if request.session_home == SessionHome::Session {
@@ -290,8 +290,8 @@ fn user_settings(request: &PrepareRequest) -> Result<String, EngineError> {
 /// agent's permissions are this file's `permissions` there (the one key, so
 /// it never overwrites the hooks), with the cost ruling 145 avoids in the
 /// session home: one invalid value in them disables the hooks too.
-fn hooks_settings(request: &PrepareRequest) -> Result<String, EngineError> {
-    let hooks = crate::hooks::home_settings(request.interactive);
+fn hooks_settings(request: &PrepareRequest, program: &str) -> Result<String, EngineError> {
+    let hooks = crate::hooks::home_settings(request.interactive, program);
     let permissions = document(request)?.filter(|_| request.session_home == SessionHome::Host);
     let Some(permissions) = permissions else {
         return Ok(hooks);

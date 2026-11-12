@@ -42,6 +42,9 @@ pub struct Mock {
     /// surface and exports nothing to it).
     exports_skills: bool,
     codec: Codec,
+    /// The program its callbacks run: the running binary's file name (owner
+    /// ruling 163).
+    program: String,
 }
 
 /// The events `mock-lossy` drops: two, so a report that groups several is
@@ -57,6 +60,16 @@ impl Mock {
             lost_hooks: &[],
             exports_skills: true,
             codec: Codec,
+            program: surface_ports::CALLBACK_PROGRAM.to_string(),
+        }
+    }
+
+    /// This mock, its callbacks calling `program` (the running binary's file
+    /// name, as the composition root resolved it).
+    pub fn calling(self, program: &str) -> Mock {
+        Mock {
+            program: program.to_string(),
+            ..self
         }
     }
 
@@ -84,9 +97,7 @@ impl Mock {
         Mock {
             name: "mock-launch",
             full: false,
-            lost_hooks: &[],
-            exports_skills: true,
-            codec: Codec,
+            ..Mock::standard()
         }
     }
 }
@@ -107,8 +118,8 @@ fn safe(name: &str) -> bool {
 /// The hook as the mock's native hook file spells it.
 /// The mock's native events are the unified ones, so a callback executes the
 /// event it is filed under.
-fn hook_json(engine: &str, event: &str, hook: &Hook) -> Json {
-    let hook = &hook.installed_as(engine, event);
+fn hook_json(engine: &str, event: &str, hook: &Hook, program: &str) -> Json {
+    let hook = &hook.installed_as(engine, event, program);
     let mut members = hook.json_members();
     if !hook.tool.is_empty() {
         members.push(("tool", Json::text(hook.tool.as_str())));
@@ -189,7 +200,7 @@ impl EngineSurfaces for Mock {
                             event.clone(),
                             Json::Array(
                                 list.iter()
-                                    .map(|h| hook_json(self.name, event, h))
+                                    .map(|h| hook_json(self.name, event, h, &self.program))
                                     .collect(),
                             ),
                         )
@@ -251,7 +262,7 @@ impl EngineSurfaces for Mock {
             Json::Object(events) => events.iter().any(|(_, list)| {
                 list.as_array().is_some_and(|l| {
                     l.iter().any(|h| {
-                        h.get("command").and_then(Json::as_str) == Some("ctxloom")
+                        h.get("command").and_then(Json::as_str) == Some(self.program.as_str())
                             && h.get("args")
                                 .and_then(Json::as_array)
                                 .and_then(|a| a.first())

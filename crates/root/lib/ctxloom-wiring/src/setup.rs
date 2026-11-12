@@ -96,7 +96,10 @@ impl SetupUseCases {
             // Her own HOME for her files, never ctxloom's home.
             wiring.env().home().and_then(std::ffi::OsStr::to_str),
             env!("CARGO_PKG_VERSION"),
-        );
+        )
+        // An entry running this binary, by its file name, is ctxloom's too
+        // (owner ruling 163).
+        .calling(&crate::program::running().name);
         let init = Init::new(
             Arc::new(ScaffoldFs::new(Arc::clone(&fs), &around.cwd)),
             user,

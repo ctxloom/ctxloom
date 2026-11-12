@@ -49,19 +49,21 @@ fn words(command: &str) -> Vec<String> {
     words
 }
 
-/// Whether `program` is ctxloom itself, by its file name.
-fn is_ctxloom(program: &str) -> bool {
-    let name = program.rsplit(['/', '\\']).next().unwrap_or_default();
-    name == "ctxloom" || name == "ctxloom.exe"
+/// Whether `program` is ctxloom itself, by its file name: `ctxloom`, or
+/// `name`, the running binary's own (owner ruling 163).
+fn is_ctxloom(program: &str, name: &str) -> bool {
+    let file = program.rsplit(['/', '\\']).next().unwrap_or_default();
+    file == "ctxloom" || file == "ctxloom.exe" || (!name.is_empty() && file == name)
 }
 
-/// `ctxloom hook <sub> ...`: the subcommand and whether the line is the live
-/// `hook <engine> execute ...` form, when `command` runs one.
-fn hook_sub(command: &str) -> Option<(String, bool)> {
+/// `ctxloom hook <sub> ...` (or `name hook <sub> ...`): the subcommand and
+/// whether the line is the live `hook <engine> execute ...` form, when
+/// `command` runs one.
+fn hook_sub(command: &str, name: &str) -> Option<(String, bool)> {
     let words = words(command);
     match words.as_slice() {
         [program, hook, sub, rest @ ..]
-            if is_ctxloom(program) && hook == "hook" && !sub.starts_with('-') =>
+            if is_ctxloom(program, name) && hook == "hook" && !sub.starts_with('-') =>
         {
             Some((sub.clone(), rest.first().is_some_and(|v| v == LIVE_VERB)))
         }
@@ -96,26 +98,31 @@ fn entries(doc: &Value) -> Vec<(String, String)> {
     found
 }
 
-fn stale_of(event: &str, command: &str) -> Option<Stale> {
-    let (sub, live) = hook_sub(command)?;
+fn stale_of(event: &str, command: &str, name: &str) -> Option<Stale> {
+    let (sub, live) = hook_sub(command, name)?;
     (!live).then(|| Stale {
         event: event.to_string(),
         sub,
     })
 }
 
-/// Whether the settings register any ctxloom hook.
-pub fn registered(text: &str) -> bool {
-    parse(text).is_some_and(|doc| entries(&doc).iter().any(|(_, c)| hook_sub(c).is_some()))
+/// Whether the settings register any hook of ctxloom's (by `ctxloom` or by
+/// `name`, the running binary's file name).
+pub fn registered(text: &str, name: &str) -> bool {
+    parse(text).is_some_and(|doc| {
+        entries(&doc)
+            .iter()
+            .any(|(_, c)| hook_sub(c, name).is_some())
+    })
 }
 
-/// The stale entries of a settings file.
-pub fn stale(text: &str) -> Vec<Stale> {
+/// The stale entries of a settings file, ctxloom's by `ctxloom` or by `name`.
+pub fn stale(text: &str, name: &str) -> Vec<Stale> {
     parse(text)
         .map(|doc| {
             entries(&doc)
                 .iter()
-                .filter_map(|(event, command)| stale_of(event, command))
+                .filter_map(|(event, command)| stale_of(event, command, name))
                 .collect()
         })
         .unwrap_or_default()
@@ -123,8 +130,9 @@ pub fn stale(text: &str) -> Vec<Stale> {
 
 /// The settings with the stale entries gone and nothing else touched (a
 /// group left with no hook goes, and an event left with no group), and which
-/// went; none where there is nothing stale.
-pub fn strip(text: &str) -> Option<(String, Vec<Stale>)> {
+/// went; none where there is nothing stale. ctxloom's are by `ctxloom` or by
+/// `name`.
+pub fn strip(text: &str, name: &str) -> Option<(String, Vec<Stale>)> {
     let mut doc = parse(text)?;
     let mut gone = Vec::new();
     let events = doc.get_mut("hooks")?.as_object_mut()?;
@@ -141,7 +149,7 @@ pub fn strip(text: &str) -> Option<(String, Vec<Stale>)> {
                     .get("command")
                     .and_then(Value::as_str)
                     .unwrap_or_default();
-                match stale_of(event, command) {
+                match stale_of(event, command, name) {
                     Some(stale) => {
                         gone.push(stale);
                         false
@@ -167,8 +175,8 @@ pub fn strip(text: &str) -> Option<(String, Vec<Stale>)> {
 }
 
 /// Whether a settings document's `mcpServers.ctxloom` launches a process
-/// (`command`, no `url`) running `ctxloom mcp ...`.
-pub fn launches_ctxloom_mcp(text: &str) -> bool {
+/// (`command`, no `url`) running `ctxloom mcp ...` (or `name mcp ...`).
+pub fn launches_ctxloom_mcp(text: &str, name: &str) -> bool {
     let Some(doc) = parse(text) else { return false };
     let Some(entry) = doc.get("mcpServers").and_then(|s| s.get("ctxloom")) else {
         return false;
@@ -184,5 +192,5 @@ pub fn launches_ctxloom_mcp(text: &str) -> bool {
         .and_then(Value::as_array)
         .and_then(|args| args.first())
         .and_then(Value::as_str);
-    is_ctxloom(command) && first_arg == Some("mcp")
+    is_ctxloom(command, name) && first_arg == Some("mcp")
 }

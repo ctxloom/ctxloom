@@ -17,6 +17,7 @@ mod isolation;
 mod library;
 mod oneshot;
 mod process_env;
+mod program;
 #[cfg(feature = "test-support")]
 mod seed;
 mod sessions;

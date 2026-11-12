@@ -180,19 +180,22 @@ fn test_the_binary_reports_the_diagnostics_of_every_crate_composed_in() {
     // A crate with diagnostics joins the binary's samples (CLAUDE.md), and
     // this list: a crate left out of `diagnostic_samples()` is missed here.
     // "angzarr-ports" is the store's own error the opener carries
-    // (`OpenError::Store`), sampled with the opener's.
+    // (`OpenError::Store`), sampled with the opener's. "ctxloom" is the
+    // binary's own (an unusable version stamp).
     let composed = [
         "angzarr-ports",
         "cache-files",
         "config-files",
         "container-cli",
         "content-fs",
+        "ctxloom",
         "ctxloom-cli",
         "ctxloom-wiring",
         "deps",
         "deps-application",
         "duration-text",
         "editor-process",
+        "engine-opencode",
         "hook-cli",
         "hook-listener",
         "hook-tls",

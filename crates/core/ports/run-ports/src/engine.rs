@@ -75,6 +75,11 @@ pub struct Prepared {
     /// Names to copy from the user's engine configuration into the home: the
     /// allowlist met with what was offered.
     pub copy_in: Vec<String>,
+    /// Files to write under the home only when it has none there yet: a seed
+    /// of the user's own state, written once (the launcher's, as the
+    /// `.gitconfig`'s); one already there, which the engine of an earlier run
+    /// may have rewritten, is left as it is.
+    pub seeds: Vec<HomeFile>,
     /// The context file's absolute path.
     pub context_path: String,
 }
@@ -91,6 +96,10 @@ pub struct TurnRequest {
     pub resume: Option<String>,
     /// The caller's environment: the engine passes on only what it allows.
     pub env: BTreeMap<String, String>,
+    /// The user's own home, as the composition root resolved it once (the
+    /// platform's home variable: `HOME`, `USERPROFILE` on Windows); none
+    /// when unset. What `session_home: host` gives the engine.
+    pub user_home: Option<String>,
     pub cwd: Option<String>,
     /// The model to run; empty names none, and the engine passes no flag.
     pub model: String,
@@ -111,6 +120,7 @@ impl fmt::Debug for TurnRequest {
             .field("context_path", &self.context_path)
             .field("resume", &self.resume)
             .field("env", &crate::hook::RedactedEnv(&self.env))
+            .field("user_home", &self.user_home)
             .field("cwd", &self.cwd)
             .field("model", &self.model)
             .field("effort", &self.effort)
@@ -218,6 +228,23 @@ impl Credentials {
     };
 }
 
+/// What the plan resolved for a run on an engine, which the engine may
+/// advise on ([`Engine::advise`]): the agent (empty with none), the model and
+/// the effort (empty: none set) and the permissions document (JSON text as
+/// written; none, no document).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Planned {
+    pub agent: String,
+    pub model: String,
+    pub effort: String,
+    pub permissions: Option<String>,
+}
+
+/// An engine's word on a plan (owner ruling 168): a diagnostic of the
+/// engine's own crate (its code, args and en-US message, and a `-fix` when
+/// there is one), said as a notice. Never a refusal: the run goes on.
+pub type Advice = Box<dyn angzarr_diagnostic::Diagnostic + Send + Sync>;
+
 /// An agent engine's contribution to running a child.
 pub trait Engine: Send + Sync {
     /// The engine's name.
@@ -238,6 +265,13 @@ pub trait Engine: Send + Sync {
     #[cfg_attr(test, mutants::skip)]
     fn credentials(&self) -> Credentials {
         Credentials::default()
+    }
+
+    /// What the engine has to say of what the plan resolved for it (owner
+    /// ruling 168): zero or more notices, said on `run --dry-run` and at the
+    /// launch, never a refusal. An engine with nothing to say says nothing.
+    fn advise(&self, _planned: &Planned) -> Vec<Advice> {
+        Vec::new()
     }
 
     /// The command of the human's terminal run.

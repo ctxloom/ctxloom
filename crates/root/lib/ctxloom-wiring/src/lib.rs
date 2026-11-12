@@ -234,6 +234,7 @@ pub fn catalog_sources() -> Vec<angzarr_presentation::Source> {
     ]);
     sources.extend(hook_listener::CATALOGS);
     sources.push(hook_tls::EN_US);
+    sources.push(engine_opencode::EN_US);
     sources
 }
 
@@ -277,6 +278,26 @@ impl Wiring {
 
     pub(crate) fn home(&self) -> &std::path::Path {
         &self.home
+    }
+
+    /// The user's own home: the platform's home variable (`HOME`, and
+    /// `USERPROFILE` on Windows, Go's `os.UserHomeDir`), as [`Wiring::new`]
+    /// falls back to it; none when unset or empty. The one place her home is
+    /// resolved: her login, her claude and opencode settings, and the home a
+    /// `session_home: host` engine is given are found under it.
+    pub(crate) fn user_home(&self) -> Option<PathBuf> {
+        self.env.home().map(PathBuf::from)
+    }
+
+    /// The operating system's name the run's platform rules are keyed by
+    /// (`std::env::consts::OS`), as the environment's flavor says: `windows`
+    /// for a Windows flavor (so a test can give one on any host), the host's
+    /// own name otherwise.
+    pub(crate) fn os_name(&self) -> &'static str {
+        match self.env.flavor() {
+            os::Flavor::Windows => run_ports::WINDOWS,
+            os::Flavor::Unix => std::env::consts::OS,
+        }
     }
 
     /// The environment the process was launched in.

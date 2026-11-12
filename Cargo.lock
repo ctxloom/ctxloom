@@ -1271,6 +1271,7 @@ dependencies = [
 name = "engine-opencode"
 version = "0.1.0"
 dependencies = [
+ "angzarr-diagnostic",
  "file-system",
  "fixture-program",
  "mutants",
@@ -2366,6 +2367,7 @@ dependencies = [
  "exit-code",
  "library",
  "mutants",
+ "run-ports",
  "serde",
  "serde_json",
 ]

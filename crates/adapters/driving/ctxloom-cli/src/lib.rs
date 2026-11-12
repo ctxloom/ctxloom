@@ -25,7 +25,7 @@ pub use commands::{shaped, BARE_RUNS_DEFAULT, PROG};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{CliError, EN_US};
-pub use extension::{Call, Extension, Failure, NoExtension};
+pub use extension::{Call, Exit, Extension, Failure, NoExtension};
 pub use run::{run, Context, Services};
 
 #[cfg(test)]

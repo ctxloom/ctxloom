@@ -114,7 +114,10 @@ pub(crate) fn build(
     .with_write_ports(ports)
     .with_companions(Arc::new(ProcessCompanions::new(ProcessProbe::standard(
         Arc::clone(wiring.env()),
-    ))));
+    ))))
+    // The engines a plan is shown to, for what they say of it (owner ruling
+    // 168): the real ones, as the run drives them.
+    .with_engines(advising_engines());
     // ctxloom's default content, built in (owner rulings 110, 111).
     let library = if builtins_withheld(wiring.env()) {
         library
@@ -125,6 +128,16 @@ pub(crate) fn build(
         Some(remotes) => library.with_remotes(remotes),
         None => library,
     })
+}
+
+/// The engines whose word on a run's plan is said (`Engine::advise`): those
+/// the run drives. A test engine advises nothing, and is not asked.
+fn advising_engines() -> Vec<Arc<dyn run_ports::Engine>> {
+    let program = &crate::program::running().name;
+    vec![
+        Arc::new(engine_claude::Claude::calling(program)),
+        Arc::new(engine_opencode::Opencode::calling(program)),
+    ]
 }
 
 /// Under `test-support`, `CTXLOOM_TEST_NO_BUILTINS` withholds the built-in

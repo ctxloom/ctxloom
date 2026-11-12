@@ -122,6 +122,7 @@ test-support = [
     "dep:serde",
     "dep:engine-mock",
     "library-application/test-support",
+    "engine-opencode/test-support",
 ]
 
 [lints]

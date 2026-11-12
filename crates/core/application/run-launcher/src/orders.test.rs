@@ -9,6 +9,7 @@ fn order(harp: &str) -> Order {
         context: "ctx".to_string(),
         prompt: "p".to_string(),
         env: BTreeMap::new(),
+        user_home: None,
         cwd: None,
         interactive: false,
         model: String::new(),
@@ -58,6 +59,7 @@ fn an_order_renders_its_env_keys_and_never_the_bearer() {
             ("CTXLOOM_BEARER".to_string(), "run.TOPSECRET".to_string()),
             ("PATH".to_string(), "/bin".to_string()),
         ]),
+        user_home: None,
         cwd: None,
         interactive: true,
         model: String::new(),
@@ -70,7 +72,7 @@ fn an_order_renders_its_env_keys_and_never_the_bearer() {
     };
     assert_eq!(
         format!("{order:?}"),
-        r#"Order { harp: "h", engine: "e", context: "c", prompt: "p", env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "<redacted>"}, cwd: None, interactive: true, model: "", effort: "", permissions: None, settings: EngineSettings { command: "", session_home: Session, auth: Builtin, env: [] }, owned: [], git_user: None, resume: None }"#
+        r#"Order { harp: "h", engine: "e", context: "c", prompt: "p", env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "<redacted>"}, user_home: None, cwd: None, interactive: true, model: "", effort: "", permissions: None, settings: EngineSettings { command: "", session_home: Session, auth: Builtin, env: [] }, owned: [], git_user: None, resume: None }"#
     );
 }
 

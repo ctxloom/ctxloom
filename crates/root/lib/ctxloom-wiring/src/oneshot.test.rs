@@ -198,6 +198,43 @@ fn the_run_environment_names_the_resolved_home() {
     assert_eq!(env.get("PATH").map(String::as_str), Some("/bin"));
 }
 
+// On Windows a variable's name is compared case-insensitively, and PATH is
+// usually spelled `Path`: the run's environment keys every name as the
+// platform compares it, so the run's PATH, the engines' allowlists and the
+// permits find it.
+#[test]
+fn on_windows_the_run_environment_keys_each_name_as_the_platform_compares_it() {
+    let caller = EnvSnapshot::of([
+        ("USERPROFILE", r"C:\Users\u"),
+        ("Path", r"C:\Windows;C:\bin"),
+        ("SystemRoot", r"C:\Windows"),
+        ("ctxloom_permit_acme_token", "t"),
+    ])
+    .with_flavor(os::Flavor::Windows);
+    let env = run_env(&caller, Path::new(r"C:\Users\u\.ctxloom-rs"));
+    let names: Vec<&str> = env.keys().map(String::as_str).collect();
+    assert_eq!(
+        names,
+        [
+            "CTXLOOM_HOME",
+            "CTXLOOM_PERMIT_ACME_TOKEN",
+            "PATH",
+            "SYSTEMROOT",
+            "USERPROFILE"
+        ]
+    );
+    assert_eq!(env["PATH"], r"C:\Windows;C:\bin");
+}
+
+// On unix a name is its own: `Path` and `PATH` are two variables.
+#[test]
+fn on_unix_the_run_environment_keeps_each_name_as_it_is() {
+    let caller = EnvSnapshot::of([("Path", "/x"), ("PATH", "/bin")]).with_flavor(os::Flavor::Unix);
+    let env = run_env(&caller, Path::new("/home/u"));
+    assert_eq!(env["Path"], "/x");
+    assert_eq!(env["PATH"], "/bin");
+}
+
 // The second gap of the listener spike: the run waits for its engine in a
 // BLOCKING call, so a task spawned on the run's runtime (the listener) must
 // make progress while it waits. The test forces the interleaving: the
@@ -743,9 +780,135 @@ mod bypass_acceptance {
         assert!(!asked(None, None));
     }
 
+    // On Windows her home is USERPROFILE (the one home resolution,
+    // `Wiring::user_home`), never a HOME Git Bash set.
+    #[test]
+    fn test_on_windows_her_acceptance_is_read_under_her_profile() {
+        let dir = root();
+        let profile = dir.root().join("profile");
+        mkdirs(profile.join(".claude"));
+        put_mode(profile.join(".claude/settings.json"), ACCEPTED, 0o644);
+        let env = EnvSnapshot::of([
+            ("USERPROFILE", profile.to_str().unwrap()),
+            ("HOME", dir.root().join("msys").to_str().unwrap()),
+        ])
+        .with_flavor(os::Flavor::Windows);
+        let wiring = Wiring::new(Arc::new(env)).unwrap();
+        assert!(claude_bypass_accepted(&wiring));
+    }
+
     #[test]
     fn test_a_config_dir_she_named_is_where_claude_reads_it() {
         assert!(asked(None, Some(Some(ACCEPTED))));
         assert!(!asked(Some(ACCEPTED), Some(None)));
+    }
+}
+
+// Owner ruling 167: the session home is seeded with the user's own opencode
+// `model.json`, read where opencode keeps it (`$XDG_STATE_HOME/opencode`,
+// else `~/.local/state/opencode`), as it is; none, or one that does not read,
+// is none.
+mod opencode_recent_models {
+    use std::sync::Arc;
+
+    use process_env::EnvSnapshot;
+
+    use super::super::opencode_recent_models;
+    use crate::fixtures::{mkdirs, put_mode, root};
+    use crate::Wiring;
+
+    const HERS: &str = r#"{"recent":[{"providerID":"openrouter","modelID":"m"}]}"#;
+
+    /// The answer under a home whose `.local/state/opencode/model.json` is
+    /// `in_home` and an `XDG_STATE_HOME` whose `opencode/model.json` is
+    /// `in_state_home`, when set.
+    fn asked(in_home: Option<&str>, in_state_home: Option<Option<&str>>) -> Option<Vec<u8>> {
+        let dir = root();
+        let home = dir.root().join("home");
+        let state = dir.root().join("state");
+        mkdirs(home.join(".local/state/opencode"));
+        mkdirs(state.join("opencode"));
+        if let Some(text) = in_home {
+            put_mode(home.join(".local/state/opencode/model.json"), text, 0o644);
+        }
+        let mut pairs = vec![("HOME", home.to_str().unwrap().to_string())];
+        if let Some(text) = in_state_home {
+            if let Some(text) = text {
+                put_mode(state.join("opencode/model.json"), text, 0o644);
+            }
+            pairs.push(("XDG_STATE_HOME", state.to_str().unwrap().to_string()));
+        }
+        let env = EnvSnapshot::of(pairs.iter().map(|(k, v)| (*k, v.as_str())));
+        let wiring = Wiring::new(Arc::new(env)).unwrap();
+        opencode_recent_models(&wiring)
+    }
+
+    #[test]
+    fn test_hers_is_read_from_her_home_as_it_is() {
+        assert_eq!(asked(Some(HERS), None), Some(HERS.as_bytes().to_vec()));
+        assert_eq!(asked(None, None), None);
+    }
+
+    #[test]
+    fn test_a_state_home_she_named_is_where_opencode_keeps_it() {
+        assert_eq!(
+            asked(None, Some(Some(HERS))),
+            Some(HERS.as_bytes().to_vec())
+        );
+        assert_eq!(asked(Some(HERS), Some(None)), None);
+    }
+
+    // On Windows her home is USERPROFILE (the one home resolution,
+    // `Wiring::user_home`), never a HOME Git Bash set.
+    #[test]
+    fn test_on_windows_hers_is_read_under_her_profile() {
+        let dir = root();
+        let profile = dir.root().join("profile");
+        mkdirs(profile.join(".local/state/opencode"));
+        put_mode(
+            profile.join(".local/state/opencode/model.json"),
+            HERS,
+            0o644,
+        );
+        let env = EnvSnapshot::of([
+            ("USERPROFILE", profile.to_str().unwrap()),
+            ("HOME", dir.root().join("msys").to_str().unwrap()),
+        ])
+        .with_flavor(os::Flavor::Windows);
+        let wiring = Wiring::new(Arc::new(env)).unwrap();
+        assert_eq!(
+            opencode_recent_models(&wiring),
+            Some(HERS.as_bytes().to_vec())
+        );
+    }
+
+    // On Windows a state home is absolute with a drive (`C:\\...`), as the
+    // Windows flavor's OS name says: there, not under her profile.
+    #[test]
+    fn test_on_windows_a_state_home_with_a_drive_is_where_opencode_keeps_it() {
+        let wiring = Wiring::new(Arc::new(
+            EnvSnapshot::of([("USERPROFILE", r"C:\Users\u"), ("XDG_STATE_HOME", r"D:\s")])
+                .with_flavor(os::Flavor::Windows),
+        ))
+        .unwrap();
+        assert_eq!(wiring.os_name(), "windows");
+        // Nothing is there to read; the file asked for is the state home's.
+        assert_eq!(opencode_recent_models(&wiring), None);
+        assert_eq!(
+            engine_opencode::user_model_file(Some(r"C:\Users\u"), Some(r"D:\s"), wiring.os_name())
+                .as_deref(),
+            Some(r"D:\s/opencode/model.json")
+        );
+    }
+
+    #[test]
+    fn test_one_that_does_not_read_is_none() {
+        let dir = root();
+        let home = dir.root().join("home");
+        // A directory where the file would be: there, and unreadable as one.
+        mkdirs(home.join(".local/state/opencode/model.json"));
+        let env = EnvSnapshot::of([("HOME", home.to_str().unwrap())]);
+        let wiring = Wiring::new(Arc::new(env)).unwrap();
+        assert_eq!(opencode_recent_models(&wiring), None);
     }
 }

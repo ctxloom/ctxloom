@@ -8,6 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+angzarr-diagnostic.workspace = true
 run-ports.workspace = true
 surface-ports.workspace = true
 
@@ -16,6 +17,10 @@ fixture-program.workspace = true
 file-system = { workspace = true, features = ["test-support"] }
 mutants.workspace = true
 os = { workspace = true, features = ["test-support"] }
+
+[features]
+# `diagnostic_samples`, for the binary's catalog test.
+test-support = []
 
 [lints]
 workspace = true

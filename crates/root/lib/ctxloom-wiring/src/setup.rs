@@ -76,7 +76,12 @@ pub(crate) struct SetupUseCases {
 }
 
 impl SetupUseCases {
-    pub(crate) fn build(wiring: &Wiring, deps: Rc<Deps>) -> Result<SetupUseCases, LibError> {
+    /// The use cases of the binary stamped `version` (doctor reports it).
+    pub(crate) fn build(
+        wiring: &Wiring,
+        deps: Rc<Deps>,
+        version: &str,
+    ) -> Result<SetupUseCases, LibError> {
         let fs = wiring.fs();
         let home = wiring.home().to_path_buf();
         let (around, app) = wiring.locate();
@@ -95,7 +100,7 @@ impl SetupUseCases {
             Auth::new(Arc::new(ProcessEnv::from_snapshot(wiring.env()))),
             // Her own HOME for her files, never ctxloom's home.
             wiring.env().home().and_then(std::ffi::OsStr::to_str),
-            env!("CARGO_PKG_VERSION"),
+            version,
         )
         // An entry running this binary, by its file name, is ctxloom's too
         // (owner ruling 163).

@@ -517,6 +517,43 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output reports "settings.permissions.value.edit" as "deny"
       And the output reports "settings.permissions.source" as "agent"
 
+    # Owner ruling 168: an opencode agent with no model lets opencode choose
+    # its own, and its fallback can be a model with no tool support ("no
+    # endpoints found that support tool use"). The engine says so, a notice
+    # and never a refusal, on the dry run as at the launch; with a model, or on
+    # claude-code, it says nothing.
+    Scenario: A dry run of an opencode agent without a model says opencode will choose its own
+      # new: owner ruling 168 (2026-11-11)
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        agents:
+          bare:
+            engine: opencode
+          chosen:
+            engine: opencode
+            engines:
+              opencode:
+                model: openrouter/anthropic/claude-sonnet-4
+          claude:
+            engine: claude-code
+        """
+      When I run "ctxloom run --dry-run --agent bare hello --format text"
+      Then the command succeeds
+      And the output contains "opencode will choose its own model for agent bare"
+      And the output contains "agents.bare.engines.opencode.model"
+      And the output contains "fix: ctxloom agent edit bare --engine opencode --model <provider/model>"
+      When I run "ctxloom run --dry-run --agent bare hello --format json"
+      Then the command succeeds
+      And the output contains "opencode will choose its own model for agent bare"
+      When I run "ctxloom run --dry-run --agent chosen hello --format text"
+      Then the command succeeds
+      And the output does not contain "will choose its own model"
+      When I run "ctxloom run --dry-run --agent claude hello --format text"
+      Then the command succeeds
+      And the output does not contain "will choose its own model"
+
     # Owner ruling 135 (replacing ruling 125's refusal): a hand-written claude
     # block is claude's, so a word ctxloom does not know, the retired `mode`
     # key among them, is shown and passed on, never refused.

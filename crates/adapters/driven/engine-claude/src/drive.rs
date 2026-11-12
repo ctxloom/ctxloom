@@ -59,8 +59,11 @@ const PROGRAM: &str = "claude";
 /// turn's hook processes need (owner ruling 51): ctxloom's home by name (their
 /// `HOME` is the session home, ruling 112), the session's harp, and the run's
 /// listener (the endpoint, the bearer, the hook principal's secret, the run
-/// and the listener's public certificate). The user's `HOME` and every other
-/// variable stay behind.
+/// and the listener's public certificate). On Windows,
+/// what a program needs to start (`run_ports::WINDOWS_STARTUP_VARIABLES`) and
+/// the user's profile directories (`run_ports::WINDOWS_PROFILE_VARIABLES`),
+/// relocated into the session home as `HOME` is; none of them is set on
+/// unix. The user's `HOME` and every other variable stay behind.
 pub const ENV_ALLOWLIST: &[&str] = &[
     "PATH",
     "LANG",
@@ -75,6 +78,16 @@ pub const ENV_ALLOWLIST: &[&str] = &[
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
     "NODE_EXTRA_CA_CERTS",
+    "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "WINDIR",
+    "TEMP",
+    "TMP",
+    "PATHEXT",
+    "COMSPEC",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "ANTHROPIC_API_KEY",
     run_ports::HOME_VARIABLE,
@@ -106,6 +119,16 @@ pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = &[
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
     "NODE_EXTRA_CA_CERTS",
+    "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "WINDIR",
+    "TEMP",
+    "TMP",
+    "PATHEXT",
+    "COMSPEC",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
@@ -182,6 +205,7 @@ impl Engine for Claude {
         Ok(Prepared {
             files,
             copy_in: copy_in(COPY_IN_ALLOWLIST, &request.offered),
+            seeds: Vec::new(),
             context_path: format!("{}/{CONTEXT_PROMPT_FILE}", request.home),
         })
     }
@@ -453,12 +477,18 @@ fn environment(
     // HOME is the session home (owner ruling 112, parity with opencode): what
     // the engine's tools keep under `~` lands in the session's own directory,
     // never in the project. Under `session_home: host` it is the user's own.
+    // On Windows its profile variables are relocated with it (node's
+    // `os.homedir()` reads USERPROFILE there); under `host` they are passed
+    // on as they are. Her home is the one the composition root resolved.
     let (home, config_dir) = match settings.session_home {
-        SessionHome::Session => (request.home.clone(), request.home.clone()),
+        SessionHome::Session => {
+            env.extend(run_ports::session_profile(&request.home, &request.env));
+            (request.home.clone(), request.home.clone())
+        }
         SessionHome::Host => {
             let home = request
-                .env
-                .get("HOME")
+                .user_home
+                .as_ref()
                 .filter(|home| !home.is_empty())
                 .ok_or_else(|| EngineError::NoHostHome {
                     engine: NAME.to_string(),

@@ -11,7 +11,8 @@ use run_ports::{Engine, PrepareRequest};
 use surface_ports::{HookCodec, Json};
 
 use crate::{
-    plugin, Codec, Opencode, CONFIG_FILE, CONTEXT_FILE, PLUGIN, PLUGIN_FILE, PRESEED_LOCK,
+    plugin, user_model_file, Codec, Opencode, CONFIG_FILE, CONTEXT_FILE, MODEL_SEED, PLUGIN,
+    PLUGIN_FILE, PRESEED_LOCK,
 };
 
 /// Whether this host runs the tests' fake programs: unix, the one flavor
@@ -157,7 +158,93 @@ fn test_a_session_home_holds_the_context_the_plugin_and_the_preseed_and_nothing_
         );
         assert_eq!(home.context_path, format!("{HOME}/{CONTEXT_FILE}"));
         assert!(home.copy_in.is_empty(), "nothing of the user's crosses");
+        assert!(home.seeds.is_empty(), "no model.json of hers was told");
     }
+}
+
+/// The home an opencode told the user's `model.json` (`model`) prepares,
+/// under `session_home`.
+fn seeded(model: Option<&[u8]>, session_home: run_ports::SessionHome) -> run_ports::Prepared {
+    Opencode::new()
+        .seeding_model(model.map(<[u8]>::to_vec))
+        .prepare(&PrepareRequest {
+            home: HOME.to_string(),
+            context: String::new(),
+            offered: Vec::new(),
+            interactive: true,
+            cwd: None,
+            existing: Default::default(),
+            permissions: None,
+            session_home,
+        })
+        .unwrap()
+}
+
+// Owner ruling 167: the session's relocated state directory would leave
+// opencode no recent model of hers, and it would pick one itself; the user's
+// own `model.json` is the home's SEED (written once, by the launcher), exactly
+// as read, where the relocated `XDG_STATE_HOME` finds it, and never a file the
+// home is rewritten with; nothing else of her state crosses.
+#[test]
+fn test_her_model_json_seeds_the_relocated_state_directory_as_read() {
+    const HERS: &[u8] =
+        br#"{"recent":[{"providerID":"openrouter","modelID":"meta-llama/llama-3.3-70b-instruct:free"}],"favorite":[],"variant":{}}"#;
+    let home = seeded(Some(HERS), run_ports::SessionHome::Session);
+    assert_eq!(MODEL_SEED, "xdg/state/opencode/model.json");
+    assert_eq!(
+        home.seeds,
+        [run_ports::HomeFile {
+            rel: MODEL_SEED.to_string(),
+            bytes: HERS.to_vec(),
+        }]
+    );
+    assert!(home.files.iter().all(|f| f.rel != MODEL_SEED));
+    assert!(home.copy_in.is_empty());
+}
+
+#[test]
+fn test_with_no_model_json_of_hers_nothing_is_seeded() {
+    assert!(seeded(None, run_ports::SessionHome::Session)
+        .seeds
+        .is_empty());
+}
+
+// Under `session_home: host` opencode's state directory is her own, so there
+// is nothing to seed.
+#[test]
+fn test_under_a_host_home_nothing_is_seeded() {
+    assert!(seeded(Some(b"{}"), run_ports::SessionHome::Host)
+        .seeds
+        .is_empty());
+}
+
+// opencode 1.18.4 keeps it in `<XDG_STATE_HOME, else ~/.local/state>/opencode`
+// on every platform (xdg-basedir, no platform branch); a variable that is not
+// an absolute path is not taken, as the login's directory is not.
+#[test]
+fn test_her_model_json_is_where_opencode_keeps_it() {
+    assert_eq!(
+        user_model_file(Some("/home/u"), None, "linux").as_deref(),
+        Some("/home/u/.local/state/opencode/model.json")
+    );
+    assert_eq!(
+        user_model_file(Some("/home/u"), Some("/xdg/state"), "linux").as_deref(),
+        Some("/xdg/state/opencode/model.json")
+    );
+    assert_eq!(
+        user_model_file(None, Some("/xdg/state"), "linux").as_deref(),
+        Some("/xdg/state/opencode/model.json")
+    );
+    assert_eq!(
+        user_model_file(Some("/home/u"), Some("relative"), "linux").as_deref(),
+        Some("/home/u/.local/state/opencode/model.json")
+    );
+    assert_eq!(
+        user_model_file(Some("/home/u"), Some(""), "linux").as_deref(),
+        Some("/home/u/.local/state/opencode/model.json")
+    );
+    assert_eq!(user_model_file(None, None, "linux"), None);
+    assert_eq!(user_model_file(Some(""), None, "linux"), None);
 }
 
 // The probe: opencode installs `@opencode-ai/plugin` into a config directory
@@ -484,4 +571,17 @@ fn test_the_plugin_for_another_program_spawns_that_program() {
     );
     let (args, _, _) = delivered(&dir, 0);
     assert_eq!(args, "hook opencode execute chat.message");
+}
+
+// On Windows an XDG_STATE_HOME with a drive is absolute, and moves it.
+#[test]
+fn test_on_windows_a_state_home_with_a_drive_is_where_it_is() {
+    assert_eq!(
+        user_model_file(Some(r"C:\Users\u"), Some(r"D:\state"), "windows").as_deref(),
+        Some(r"D:\state/opencode/model.json")
+    );
+    assert_eq!(
+        user_model_file(Some(r"C:\Users\u"), Some("/state"), "windows").as_deref(),
+        Some(r"C:\Users\u/.local/state/opencode/model.json")
+    );
 }

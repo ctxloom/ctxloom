@@ -114,8 +114,22 @@ impl LoginLinks for Links {
     }
 }
 
+/// The home the composition root would resolve from `vars` on unix.
+fn home_of<'a>(vars: &[(&str, &'a str)]) -> Option<&'a str> {
+    vars.iter()
+        .find(|(name, _)| *name == "HOME")
+        .map(|(_, value)| *value)
+}
+
 fn shared(links: &mut Links, vars: &[(&str, &str)], os: &str) -> Option<Notice> {
-    share_login(links, &CLAUDE.into(), &env(vars), os, "amber-swift-owl")
+    share_login(
+        links,
+        &CLAUDE.into(),
+        &env(vars),
+        home_of(vars),
+        os,
+        "amber-swift-owl",
+    )
 }
 
 fn said(notice: Option<Notice>) -> (String, String) {
@@ -356,6 +370,7 @@ fn opencode_on(links: &mut Links, os: &str) -> Option<Notice> {
         links,
         &OPENCODE.into(),
         &env(&[("HOME", "/home/u")]),
+        Some("/home/u"),
         os,
         "amber-swift-owl",
     )
@@ -438,6 +453,7 @@ fn an_engine_with_no_login_file_shares_nothing() {
         &mut links,
         &none.into(),
         &env(&[("HOME", "/home/u")]),
+        Some("/home/u"),
         "linux",
         "h",
     );
@@ -450,6 +466,7 @@ fn opencode_shared(links: &mut Links, vars: &[(&str, &str)]) -> Option<Notice> {
         links,
         &OPENCODE.into(),
         &env(vars),
+        home_of(vars),
         "linux",
         "amber-swift-owl",
     )
@@ -517,6 +534,7 @@ fn a_configured_login_that_is_missing_is_said_even_when_logins_are_optional() {
         &mut links,
         &settings.credentials(OPENCODE),
         &env(&[("HOME", "/home/u")]),
+        Some("/home/u"),
         "linux",
         "amber-swift-owl",
     ));
@@ -538,6 +556,7 @@ fn every_notice_says_the_engines_own_way_to_sign_in() {
         &mut links,
         &never.into(),
         &env(&[("HOME", "/home/u")]),
+        Some("/home/u"),
         "plan9",
         "h",
     );
@@ -557,7 +576,73 @@ fn every_notice_says_the_engines_own_way_to_sign_in() {
 // anything else is under the home.
 #[test]
 fn a_login_path_is_resolved_against_the_home_only_where_it_is_not_absolute() {
-    assert_eq!(resolve("/h", "~/a/b"), "/h/a/b");
-    assert_eq!(resolve("/h", "/etc/c.json"), "/etc/c.json");
-    assert_eq!(resolve("/h", ".acme/c.json"), "/h/.acme/c.json");
+    assert_eq!(resolve("/h", "~/a/b", "linux"), "/h/a/b");
+    assert_eq!(resolve("/h", "/etc/c.json", "linux"), "/etc/c.json");
+    assert_eq!(resolve("/h", ".acme/c.json", "linux"), "/h/.acme/c.json");
+}
+
+// The login is found under the home the composition root resolved (on
+// Windows, USERPROFILE), never under whatever HOME the environment holds (Git
+// Bash sets one of its own there).
+#[test]
+fn the_login_is_found_under_the_home_given_not_the_environment_s_home() {
+    let mut links = Links::with_opencode_login("/users/her/.local/share/opencode/auth.json");
+    let notice = share_login(
+        &mut links,
+        &OPENCODE.into(),
+        &env(&[("HOME", "/msys/home/her")]),
+        Some("/users/her"),
+        "linux",
+        "amber-swift-owl",
+    );
+    assert!(notice.is_none(), "{notice:?}");
+    assert_eq!(
+        links.made,
+        [(
+            "amber-swift-owl".to_string(),
+            "home/xdg/data/opencode/auth.json".to_string(),
+            "/users/her/.local/share/opencode/auth.json".to_string(),
+        )]
+    );
+}
+
+// On Windows a configured login file is absolute with a drive and a root, or
+// as a UNC path, and is itself; anything else is under the home.
+#[test]
+fn on_windows_a_login_path_with_a_drive_or_a_share_is_itself() {
+    let home = r"C:\Users\u";
+    assert_eq!(
+        resolve(home, r"D:\team\auth.json", "windows"),
+        r"D:\team\auth.json"
+    );
+    assert_eq!(
+        resolve(home, "D:/team/auth.json", "windows"),
+        "D:/team/auth.json"
+    );
+    assert_eq!(
+        resolve(home, r"\\server\share\auth.json", "windows"),
+        r"\\server\share\auth.json"
+    );
+    assert_eq!(
+        resolve(home, "team/auth.json", "windows"),
+        r"C:\Users\u/team/auth.json"
+    );
+}
+
+// On Windows an XDG_DATA_HOME with a drive is absolute, so the login is found
+// where it moves opencode's data directory, not under the home.
+#[test]
+fn on_windows_a_data_home_with_a_drive_moves_the_login() {
+    let mut links = Links::with_opencode_login(r"D:\data/opencode/auth.json");
+    let notice = share_login(
+        &mut links,
+        &OPENCODE.into(),
+        &env(&[("XDG_DATA_HOME", r"D:\data")]),
+        Some(r"C:\Users\u"),
+        "windows",
+        "amber-swift-owl",
+    );
+    assert!(notice.is_none(), "{notice:?}");
+    assert_eq!(links.made.len(), 1, "{:?}", links.made);
+    assert_eq!(links.made[0].2, r"D:\data/opencode/auth.json");
 }

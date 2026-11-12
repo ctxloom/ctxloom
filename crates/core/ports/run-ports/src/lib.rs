@@ -13,6 +13,7 @@ mod edge;
 mod engine;
 mod git;
 mod hook;
+mod host;
 mod launcher;
 mod locks;
 mod login;
@@ -27,14 +28,18 @@ mod token;
 pub use bind::{bind_for, BindPlan, BindRefusal, ContainerRuntime, PlatformFacts, Probe, Runtime};
 pub use edge::{Arrival, Edge, Unserved};
 pub use engine::{
-    copy_in, Credentials, Engine, EngineError, FailureClass, HomeFile, PrepareRequest, Prepared,
-    TurnOutcome, TurnRequest, HOME_VARIABLE,
+    copy_in, Advice, Credentials, Engine, EngineError, FailureClass, HomeFile, Planned,
+    PrepareRequest, Prepared, TurnOutcome, TurnRequest, HOME_VARIABLE,
 };
 pub use git::{git_config, GitUser, GIT_CONFIG_FILE};
 pub use hook::{
     endpoint_url, hook_environment, parse_endpoint, Bearer, BearerError, Dial, EndpointError,
     RedactedEnv, BEARER_VARIABLE, ENDPOINT_VARIABLE, HARP_VARIABLE, HOOK_VARIABLES, RUN_VARIABLE,
     SESSION_VARIABLE, TLS_CERT_VARIABLE,
+};
+pub use host::{
+    is_absolute, search_path_led_by, search_path_separator, session_profile, WINDOWS,
+    WINDOWS_PROFILE_VARIABLES, WINDOWS_STARTUP_VARIABLES,
 };
 pub use launcher::{
     Exit, Launch, LaunchEvent, LaunchFailure, Limits, RunnerLauncher, Running, TurnCommand,

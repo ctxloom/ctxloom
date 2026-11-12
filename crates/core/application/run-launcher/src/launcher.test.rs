@@ -278,6 +278,40 @@ async fn an_engine_is_handed_the_home_files_it_merges_into() {
     );
 }
 
+// Owner ruling 167: what an engine seeds its home with (opencode's: the
+// user's `model.json`) is written once, as the `.gitconfig` is; one already
+// there (the engine of an earlier run may have rewritten it) is left as it is.
+#[tokio::test]
+async fn an_engines_seed_is_written_once_and_one_there_is_left_as_it_is() {
+    use run_ports::SessionRecords;
+    let mut first = rig(
+        crate::fakes::Seeding(ScriptedEngine::answering("A", None)),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    );
+    enqueued(&first.edge, SESSION, HARP).await;
+    first.step().await;
+    assert_eq!(
+        first.records.text(HARP, "home/seed.json").as_deref(),
+        std::str::from_utf8(crate::fakes::SEED).ok()
+    );
+
+    let mut kept = rig(
+        crate::fakes::Seeding(ScriptedEngine::answering("A", None)),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    );
+    kept.records
+        .write(HARP, "home/seed.json", b"PICKED-IN-THE-SESSION")
+        .unwrap();
+    enqueued(&kept.edge, SESSION, HARP).await;
+    kept.step().await;
+    assert_eq!(
+        kept.records.text(HARP, "home/seed.json").as_deref(),
+        Some("PICKED-IN-THE-SESSION")
+    );
+}
+
 #[tokio::test]
 async fn no_known_git_identity_seeds_no_gitconfig() {
     let mut rig = rig(
@@ -1592,4 +1626,63 @@ async fn a_sweep_that_finds_the_runner_started_since_records_nothing() {
     sweeper.step(&edge.store, edge.catalog()).await.unwrap();
     assert!(ends(&edge).await.is_empty(), "the started run is not ended");
     assert!(closed(&edge).await.is_empty());
+}
+
+/// An engine that tells its command the user's home it was asked with (as
+/// `FAKE_USER_HOME`), and is otherwise `0`.
+struct TellsUserHome(ScriptedEngine);
+
+impl run_ports::Engine for TellsUserHome {
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+    fn prepare(
+        &self,
+        request: &run_ports::PrepareRequest,
+    ) -> Result<run_ports::Prepared, run_ports::EngineError> {
+        self.0.prepare(request)
+    }
+    fn drive_turn(
+        &self,
+        request: &run_ports::TurnRequest,
+    ) -> Result<run_ports::TurnCommand, run_ports::EngineError> {
+        self.0.drive_turn(request).map(|mut command| {
+            if let Some(home) = &request.user_home {
+                command
+                    .env
+                    .insert("FAKE_USER_HOME".to_string(), home.clone());
+            }
+            command
+        })
+    }
+    fn finish_turn(&self, output: &run_ports::TurnOutput) -> TurnOutcome {
+        self.0.finish_turn(output)
+    }
+    fn drive_interactive(
+        &self,
+        request: &run_ports::TurnRequest,
+    ) -> Result<run_ports::TurnCommand, run_ports::EngineError> {
+        self.0.drive_interactive(request)
+    }
+}
+
+// The user's home the composition root resolved (USERPROFILE on Windows)
+// reaches the engine from the order as it was placed: a `session_home: host`
+// engine is given it, never the environment's HOME.
+#[tokio::test]
+async fn the_users_home_reaches_the_engine_as_the_order_placed_it() {
+    let mut placed = order("fake");
+    placed.user_home = Some(r"C:\Users\her".to_string());
+    let mut rig = rig(
+        TellsUserHome(ScriptedEngine::answering("A", None)),
+        ScriptedRunner::exits(0),
+        orders_with(placed),
+    );
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    let command = rig.runner.seen.lock().unwrap()[0].clone();
+    assert_eq!(
+        command.env.get("FAKE_USER_HOME").map(String::as_str),
+        Some(r"C:\Users\her")
+    );
 }

@@ -1,8 +1,21 @@
 //! `version.feature`: `version --format json` is `{name, version,
-//! lock_protocol}`, and every spelling of version agrees.
+//! lock_protocol}`, and every spelling of version agrees. The version is the
+//! build's stamp (build.rs): its shape and its version are asserted, never a
+//! literal, since a dirty tree's stamp carries its build's time.
 
 use super::Env;
+use crate::stamp;
 use crate::tests::files;
+
+/// `version` is a whole stamp, of the version Cargo.toml (and VERSION) say.
+fn assert_stamped(version: &str) {
+    assert!(stamp::valid(version), "not a version stamp: {version:?}");
+    let semver = format!("v{}-", env!("CARGO_PKG_VERSION"));
+    assert!(
+        version.starts_with(&semver),
+        "{version:?} is not {semver}..."
+    );
+}
 
 /// What ctxloom's lock reaper requires of a running binary, at least.
 const LOCK_PROTOCOL_FLOOR: u64 = 2;
@@ -19,7 +32,7 @@ fn test_version_in_json_is_name_version_and_lock_protocol() {
     sorted.sort_unstable();
     assert_eq!(sorted, ["lock_protocol", "name", "version"], "{doc}");
     assert_eq!(doc["name"], "ctxloom");
-    assert_eq!(doc["version"], env!("CARGO_PKG_VERSION"));
+    assert_stamped(doc["version"].as_str().expect("a string"));
     let protocol = doc["lock_protocol"].as_u64().expect("an integer");
     assert!(protocol >= LOCK_PROTOCOL_FLOOR, "{doc}");
     assert_eq!(ran.stderr, "");
@@ -30,12 +43,17 @@ fn test_version_in_json_is_name_version_and_lock_protocol() {
 #[test]
 fn test_every_spelling_of_version_agrees() {
     let env = Env::new();
-    let version = env!("CARGO_PKG_VERSION");
 
     // The VS Code extension's probe: Go's cobra line.
     let flag = env.run(&["--version"]);
     assert_eq!(flag.code, 0, "{}", flag.said());
-    assert_eq!(flag.stdout, format!("ctxloom version {version}\n"));
+    let version = flag
+        .stdout
+        .strip_prefix("ctxloom version ")
+        .and_then(|rest| rest.strip_suffix('\n'))
+        .unwrap_or_else(|| panic!("not cobra's line: {:?}", flag.stdout))
+        .to_string();
+    assert_stamped(&version);
     assert_eq!(flag.stderr, "");
 
     let text = env.run(&["version", "--format", "text"]);

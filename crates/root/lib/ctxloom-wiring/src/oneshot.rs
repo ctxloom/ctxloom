@@ -148,7 +148,10 @@ impl<'a> OneShots<'a> {
             engine_claude::Claude::calling(&program.name)
                 .accepting_bypass(claude_bypass_accepted(wiring)),
         );
-        let opencode: Arc<dyn Engine> = Arc::new(engine_opencode::Opencode::calling(&program.name));
+        let opencode: Arc<dyn Engine> = Arc::new(
+            engine_opencode::Opencode::calling(&program.name)
+                .seeding_model(opencode_recent_models(wiring)),
+        );
         // The run locks: this run's own, and those another process's runs
         // are judged by (rulings 86, 92, 93).
         let run_locks: Arc<dyn run_ports::RunLocks> =
@@ -179,10 +182,11 @@ impl<'a> OneShots<'a> {
                 project_dir: path_text(&project_dir),
                 output_root: path_text(&output_root),
                 program_dir: program.dir.clone(),
+                user_home: wiring.user_home().map(|home| path_text(&home)),
             },
             env: run_env(env, wiring.home()),
             links: Box::new(SessionDirs::new(wiring.fs(), project_dir.clone())),
-            os: std::env::consts::OS.to_string(),
+            os: wiring.os_name().to_string(),
             hooks,
             certs: Box::new(hook_tls::Minter::new(hook_tls::SystemClock)),
             locks: Box::new(liveness::LockFiles::new(wiring.fs(), project_dir.clone())),
@@ -220,14 +224,14 @@ pub(crate) fn git_user(wiring: &Wiring, project_dir: &Path) -> Option<run_ports:
 
 /// Whether the user accepted claude's bypass-permissions warning in her own
 /// claude settings (owner ruling 166): the `settings.json` of claude's config
-/// dir as claude finds it, `$CLAUDE_CONFIG_DIR` when set, else `~/.claude`.
+/// dir as claude finds it, `$CLAUDE_CONFIG_DIR` when set, else `~/.claude`
+/// (her home as [`Wiring::user_home`] resolves it, `USERPROFILE` on Windows).
 /// No home, no file, or one that does not read is no acceptance.
 pub(crate) fn claude_bypass_accepted(wiring: &Wiring) -> bool {
-    let env = wiring.env();
-    let dir = match env.non_empty("CLAUDE_CONFIG_DIR") {
+    let dir = match wiring.env().non_empty("CLAUDE_CONFIG_DIR") {
         Some(dir) => std::path::PathBuf::from(dir),
-        None => match env.non_empty("HOME") {
-            Some(home) => Path::new(home).join(".claude"),
+        None => match wiring.user_home() {
+            Some(home) => home.join(".claude"),
             None => return false,
         },
     };
@@ -235,6 +239,21 @@ pub(crate) fn claude_bypass_accepted(wiring: &Wiring) -> bool {
         .fs()
         .read_to_string(&dir.join("settings.json"))
         .is_ok_and(|text| engine_claude::accepts_bypass(&text))
+}
+
+/// The user's own opencode `model.json`, as read (owner ruling 167): where
+/// opencode keeps it ([`engine_opencode::user_model_file`]), in the caller's
+/// environment, under her home as [`Wiring::user_home`] resolves it
+/// (`USERPROFILE` on Windows). No home, no file, or one that does not read is
+/// none, said nothing of: opencode runs without it, as on a machine where it
+/// never ran.
+pub(crate) fn opencode_recent_models(wiring: &Wiring) -> Option<Vec<u8>> {
+    let env = wiring.env();
+    let state = env.non_empty("XDG_STATE_HOME").and_then(|v| v.to_str());
+    let home = wiring.user_home();
+    let home = home.as_deref().and_then(Path::to_str);
+    let file = engine_opencode::user_model_file(home, state, wiring.os_name())?;
+    wiring.fs().read(Path::new(&file)).ok()
 }
 
 /// The run's hook listener over the core's edge: `Handle` on the run's loopback port
@@ -287,9 +306,20 @@ impl Serving for Live {
 /// The environment a run is given: the caller's, and ctxloom's home named by
 /// [`run_ports::HOME_VARIABLE`], so an engine that is given it (the
 /// interactive one) can pass it on to its hook processes, which run without
-/// `HOME`.
+/// `HOME`. Each name is keyed as the platform compares names
+/// (`os::Flavor::env_key`: as it is on unix, uppercase on Windows, where
+/// `Path` and `PATH` are one variable), so the run's `PATH`, the engines'
+/// allowlists, the names ctxloom owns and the permits, all written in
+/// uppercase, find the caller's variable whatever its spelling. The spelling
+/// is not kept: on Windows it means nothing to the engine, whose environment
+/// is looked up as case-insensitively as it was set.
 fn run_env(env: &EnvSnapshot, home: &Path) -> BTreeMap<String, String> {
-    let mut vars: BTreeMap<String, String> = env.vars_utf8().into_iter().collect();
+    let flavor = env.flavor();
+    let mut vars: BTreeMap<String, String> = env
+        .vars_utf8()
+        .into_iter()
+        .map(|(name, value)| (flavor.env_key(&name), value))
+        .collect();
     vars.insert(
         run_ports::HOME_VARIABLE.to_string(),
         home.to_string_lossy().into_owned(),

@@ -14,6 +14,7 @@ angzarr-yaml.workspace = true
 ctxloom-ports.workspace = true
 deps-ports.workspace = true
 library.workspace = true
+run-ports.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

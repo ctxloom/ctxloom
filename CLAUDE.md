@@ -218,6 +218,16 @@ Crates:
   `engine-claude`; `adapters/driving/run-cli`; and `adapters/driven/hook-tls` (the
 per-run listener certificate's mint, see the credentials paragraph below).
 
+An engine may advise on a plan (owner ruling 168): `Engine::advise(&Planned)
+-> Vec<Advice>` is shown what the plan resolved for it (`run_ports::Planned`:
+the agent, model, effort and permissions document) and answers zero or more
+diagnostics of its own crate (`Advice`, a boxed `Diagnostic`: code, args,
+en-US message, an optional `-fix`), said as notices and never a refusal; by
+default it says nothing (claude-code). The library asks the plan's engine in
+`launch_of`, beside the runtime-weakening notice
+(`Library::with_engines`, the wiring's real engines;
+`Notice::Engine`), so a dry run and a launch, which plans through the same
+dry run, say them alike, text and json.
 An engine's hooks are its adapter's: `ctxloom hook <engine> execute
 <NativeHookName>` (hidden) resolves the engine through `surface_ports::Registry`
 and its `HookCodec` decodes the payload. The settings an older ctxloom wrote
@@ -226,7 +236,23 @@ An engine's `HOME` is its session home (owner ruling 112, claude's as
 opencode's, a terminal's and a child's turn alike; under `session_home: host`
 the user's own), so what its tools keep under `~` lands in
 `.ctxloom/sessions/<harp>/home/`, never in the project; the cost: they see
-none of the user's dotfiles. ctxloom's home reaches its hook processes as
+none of the user's dotfiles. On Windows the session home is also its
+`USERPROFILE` (node's `os.homedir()` reads it there), and `APPDATA` and
+`LOCALAPPDATA` are `<home>/AppData/Roaming` and `<home>/AppData/Local`
+(`run_ports::WINDOWS_PROFILE_VARIABLES`, `session_profile`; under `host`
+the user's own, passed on); the system's `SYSTEMROOT`, `SYSTEMDRIVE`,
+`WINDIR`, `TEMP`, `TMP`, `PATHEXT` and `COMSPEC` pass on as they are
+(`WINDOWS_STARTUP_VARIABLES`). Every one is on all four allowlists and none
+is set on unix. The run's environment is keyed as the platform compares
+names (the wiring's `run_env`, `os::Flavor::env_key`: uppercase on Windows,
+so `Path` is `PATH` to the allowlists, the run's `PATH` and the permits; the
+spelling is not kept). The user's own home is resolved ONCE, the
+platform's home variable (`HOME`, `USERPROFILE` on Windows; the wiring's
+`Wiring::user_home`), and carried as a value (`Place::user_home`,
+`Order`/`TurnRequest::user_home`): her login is found under it, her claude
+and opencode settings read from it, and a `session_home: host` engine given
+it; nothing reads the environment's `HOME` for it (Git Bash sets its own).
+ctxloom's home reaches its hook processes as
 `CTXLOOM_HOME` (`run_ports::HOME_VARIABLE`; the wiring takes it as the home
 FIRST, before `HOME`, and names the resolved home in a run's env; both
 allowlists pass it on). The session home is seeded, once (one there is left
@@ -271,7 +297,9 @@ tells the adapters as a value when it builds them (`Claude::calling`,
 (`ctxloom hook <verb>` in a bundle or ctxloom's own package) is installed
 running it (`Hook::installed_as`). An engine's `PATH` (the terminal's and a
 child's) is the directory of the running binary (`Place::program_dir`, the
-same resolution's directory), then the inherited `PATH`, so the bare name is
+same resolution's directory), then the inherited `PATH`, joined as the
+platform joins it (`run_ports::search_path_led_by`: `;` on Windows, the
+directory quoted if it holds one; `:` elsewhere), so the bare name is
 this binary. The session's own shell also sees that directory first, so a
 sibling program in it shadows the user's others (intended). Only the running
 binary's entries are its wiring (`manage hooks check`, a surface's
@@ -563,7 +591,7 @@ ignored with the same notice (said from the launch, `Launched::ignored`). A
 name the adapter merely passes through (`LANG`) stays permittable, as does an
 XDG base under `session_home: host` (passed through, not relocated). Claude
 stays token-only on Windows (ruling 82); `session_home: host` sets `CLAUDE_CONFIG_DIR`
-to `$HOME/.claude` (no `HOME` is `run-ports-engine-no-host-home`), links no
+to `<her home>/.claude` (no home is `run-ports-engine-no-host-home`), links no
 login there; the hooks still fire, because the launch (the terminal's and a
 child's turn) passes `--settings <session dir>/ctxloom-hooks.json` (the ctxloom-owned file `prepare` writes,
 in both home modes, never into the user's `~/.claude`; claude adds its hooks to the
@@ -1031,7 +1059,19 @@ every XDG base and `OPENCODE_CONFIG_DIR` in the session home, the npm pre-seed
 (`node_modules/` and a `package-lock.json` naming `@opencode-ai/plugin`) in the
 home and in `xdg/config/opencode`, no `OPENCODE_*` or XDG variable of the
 caller's (`OPENCODE_PURE` would skip the plugin); `session_home: host` keeps
-the user's dirs and still adds the session home as a config dir. Auth mirrors
+the user's dirs and still adds the session home as a config dir. The
+relocated state directory is seeded, once (owner ruling 167, 2026-11-11; one
+there is left as it is, so a pick made in the session stays), with the
+user's own `model.json` as read (`$XDG_STATE_HOME/opencode` when absolute,
+else `~/.local/state/opencode`, on every platform: `engine_opencode::
+user_model_file`, read by the wiring's `opencode_recent_models` and told to
+`Opencode::seeding_model`), at `home/xdg/state/opencode/model.json`
+(`MODEL_SEED`): with no configured model and no `-m`, opencode 1.18.4 starts
+on the first of its `recent` it still knows, and without it picked a model
+itself. It is a `Prepared::seeds` entry, which the launcher writes only where
+the home has none (as the `.gitconfig`); under `host` nothing is seeded, and
+none of hers, or one that does not read, is none, said nothing of. Nothing
+else of her opencode state crosses. Auth mirrors
 claude's (owner ruling 69): opencode's login is `auth.json` in its data
 directory (`$XDG_DATA_HOME/opencode` when that is absolute, else
 `~/.local/share/opencode`), which an OAuth provider's refresh rewrites in
@@ -1052,7 +1092,12 @@ claude's. The bundle (1.18.4, read not run) writes `auth.json` with
 `writeFile` and `chmod`, no rename, so a refresh writes through the link: not
 verified live. Accepted residual: a primary and a human-run opencode
 refreshing at the same instant may race (no cross-process lock; as claude).
-An effort level is not passed (no flag verified). At rest
+An effort level is not passed (no flag verified). An agent with no
+model lets opencode choose its own, whose fallback can be a model with no
+tool support (owner ruling 168), so the plan says so: the notice
+`engine-opencode-no-model`, naming `agents.<agent>.engines.opencode.model`,
+its fix `ctxloom agent edit <agent> --engine opencode --model
+<provider/model>` (never a refusal; a run with no agent is told nothing). At rest
 opencode carries its context alone (an `AGENTS.md` section). Costs: no
 per-delta capture; one hook process per forwarded event; the plugin's own
 logic is tested under node (`home.test.rs`, j001000), so those tests need node
@@ -1189,12 +1234,40 @@ words (its permissions document) and enforced by the engine; a claude
 own, a follow-up not built. `runtime` stays engine-neutral, as process
 isolation.
 
+## The version is VERSION's, stamped by versionator
+
+`VERSION` (the version, no prefix) and `.versionator.yaml` (prefix `v`,
+`dirty.ignoreUntracked: true`, and `updates:` keeping the binary's
+`crates/root/bin/ctxloom/Cargo.toml` `package.version` in step) hold it;
+`just show-version`, `set-version <v>`, `bump-patch|minor|major` and `bump`
+change it (and record it in Cargo.lock; no release recipe: a human cuts
+releases). The binary's `build.rs` runs versionator (v0.3.0 or newer: `go
+install github.com/benjaminabbitt/versionator@v0.3.0`) and passes the stamp to
+rustc as `CTXLOOM_VERSION_STAMP`, so THE BUILD NEEDS VERSIONATOR ON PATH: none,
+or a stamp not of the shape, fails it, naming why. The stamp is the Go
+family's: a clean tree `v<MAJOR.MINOR.PATCH[-pre]>-<ShortHash>` (stable, so
+clean builds cache), a tree with a TRACKED change that then
+`-<YYYYMMDDTHHMMSS, the build's UTC time>-dirty` (each dirty build its own; an
+untracked file is not a change). Its pieces are pure functions in
+`src/stamp.rs`, which build.rs includes. The build re-runs on a commit, a
+checkout, a staged change or an edit to a tracked file (the git directory
+read through a worktree's `.git` file), and at every build of a dirty tree.
+`ctxloom version`, `--version` and doctor's version row say the stamp, and the
+binary refuses to start with one not of the shape (`ctxloom-unstamped`, exit
+10). cargo-mutants copies `.git` (`copy_vcs`) so a mutant's build can stamp.
+
 ## Use `just`
 
 `just --list` shows the public recipes by group; `just install` (group
 `install`) builds the plain binary and installs it as
 `~/.local/lib/ctxloom/ctxloom` with the wrapper `~/.local/bin/ctxloom` (ahead of a Go ctxloom in `~/go/bin` on PATH)
-(`CTXLOOM_HOME="$HOME/.ctxloom-rs"`), idempotently, one line per action. The checks are `just build`,
+(`CTXLOOM_HOME="$HOME/.ctxloom-rs"`), idempotently, one line per action. On
+Windows, under Git Bash, `just install-windows` builds the plain binary and
+installs it as `%LOCALAPPDATA%\Programs\ctxloom\ctxloom.exe`, sets the user
+variable `CTXLOOM_HOME` to `%USERPROFILE%\.ctxloom-rs` with `setx` (only when
+the registry's value differs), and says how to add the directory to the user
+`Path` when it is not on PATH (no registry edit for it); unverified on
+Windows. The checks are `just build`,
 `just test` (cargo-nextest, the one test runner, mutation included, owner
 ruling 144; required: a missing nextest fails the gate),
 `just lint` (clippy, warnings denied), `just lint-deps` (cargo-deny) and

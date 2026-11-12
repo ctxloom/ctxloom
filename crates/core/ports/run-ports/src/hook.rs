@@ -194,8 +194,7 @@ impl Bearer {
     /// The user bearer (T12): `token`'s 64 hexadecimal digits alone, as the
     /// daemon's discovery file holds it. It names no run.
     pub fn user(token: &Token) -> Bearer {
-        let _ = token;
-        Bearer(String::new())
+        Bearer(token.to_text())
     }
 
     /// The run text and token of a bearer's text, or why it holds none. The

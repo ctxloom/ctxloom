@@ -33,7 +33,7 @@ use daemon_application::{
 use file_system::Fs;
 use hook_listener::{HookListener, TlsIdentity};
 use run_ports::{CertMint, CertNames, ChildObservation, Discovery, SessionRecords, TokenSource};
-use runs_application::OrchestratorGate;
+use runs_application::UserGate;
 use session_files::SessionDirs;
 
 use super::files::DaemonFiles;
@@ -130,7 +130,7 @@ pub(crate) fn serve(
         .map_err(|e| code(&e))?;
         let listener = HookListener::serve_tcp_gated(
             Arc::clone(&edge),
-            OrchestratorGate::new(Arc::clone(&edge)),
+            UserGate::new(&bearer),
             SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
             TlsIdentity::from_pem(certificate.public().to_pem(), certificate.key_pem()),
         )

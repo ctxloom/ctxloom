@@ -158,8 +158,17 @@ impl HookSink {
     /// daemon has one principal, the user: a hook presents her bearer, never
     /// its run's. No discovery is `fallback` alone.
     pub fn rediscovered(discovery: Option<run_ports::Discovery>, fallback: HookSink) -> HookSink {
-        let _ = discovery;
-        fallback
+        match discovery {
+            None => fallback,
+            Some(discovery) => HookSink::Rediscovered {
+                daemon: GrpcSink::new(
+                    discovery.endpoint,
+                    Bearer::user(&discovery.bearer),
+                    discovery.cert,
+                ),
+                fallback: Box::new(fallback),
+            },
+        }
     }
 }
 

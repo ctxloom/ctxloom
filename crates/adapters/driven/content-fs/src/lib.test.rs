@@ -245,6 +245,17 @@ fn test_a_name_that_climbs_is_refused() {
     assert_eq!(err.code(), "content-fs-bad-name");
 }
 
+// The execute-bit listing reads the disk as the tree does, so it refuses the
+// same names: nothing outside the root is walked.
+#[test]
+fn test_a_name_that_climbs_has_no_executable_files_read() {
+    let (_fs, repo) = fixture_repo();
+    for bad in ["../../etc", "", "a/./b", "/abs"] {
+        let err = repo.executable_files(bad).expect_err(bad);
+        assert_eq!(err.code(), "content-fs-bad-name", "{bad}");
+    }
+}
+
 // skill.go skillManifestMode: a skill file is executable when any execute bit
 // is set on disk, whatever a sidecar declares; the listing is read off the
 // directory.
@@ -612,7 +623,7 @@ fn test_apply_removes_a_link_itself_when_it_is_the_last_part() {
 #[test]
 fn test_a_bundle_name_that_climbs_is_refused_for_every_write() {
     let (_fs, repo) = empty_repo();
-    for bad in ["../x", "/abs", "", "a/../b"] {
+    for bad in ["../x", "/abs", "", "a/../b", "a\\..\\b", "C:x", "\\abs"] {
         assert_eq!(
             repo.apply(bad, &[]).unwrap_err().code(),
             "content-fs-bad-name",

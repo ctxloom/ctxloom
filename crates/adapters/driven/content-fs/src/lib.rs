@@ -189,7 +189,12 @@ impl ContentRepo for ContentFs {
     }
 
     fn executable_files(&self, name: &str) -> Result<BTreeSet<String>, Failure> {
-        let top = self.root.join(name);
+        if climbs(name) {
+            return Err(Box::new(ContentError::BadName {
+                name: name.to_string(),
+            }));
+        }
+        let top = join_rel(&self.root, name);
         let mut found = BTreeSet::new();
         self.executables(&top, &top, &mut found)?;
         Ok(found)

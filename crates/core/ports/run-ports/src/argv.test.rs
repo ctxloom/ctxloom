@@ -176,3 +176,31 @@ fn a_command_too_long_is_said_with_its_code_and_args() {
         "{argument}"
     );
 }
+
+// An environment string is `NAME=value` with its NUL: `BIG=` and a value of
+// MAX_ARG_STRLEN - 5 bytes is the longest that fits, one byte more does not.
+#[test]
+fn on_linux_an_environment_string_fits_exactly_up_to_the_limit() {
+    let with_value = |n: usize| {
+        let mut command = session("claude", "hello");
+        command.env.insert("BIG".to_string(), "v".repeat(n));
+        command
+    };
+    assert_eq!(
+        check_command_line("linux", &with_value(MAX_ARG_STRLEN - 5)),
+        Ok(())
+    );
+    assert!(check_command_line("linux", &with_value(MAX_ARG_STRLEN - 4)).is_err());
+}
+
+// A batch command's argument counts as every unit doubled plus its two
+// quotes: the program quoted, then each argument after a space.
+#[test]
+fn a_windows_batch_argument_counts_twice_its_units_and_two_quotes() {
+    let mut command = TurnCommand::new("claude.cmd");
+    command.args = vec!["abc".to_string()];
+    assert_eq!(
+        windows_command_line(&command),
+        ("claude.cmd".len() + 2) + 1 + (2 * 3 + 2)
+    );
+}

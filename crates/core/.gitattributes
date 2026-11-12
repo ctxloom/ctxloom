@@ -1,6 +1,0 @@
-# The core's text is checked out with LF line ends on every OS. Its prompts,
-# templates and fixtures are compiled in (`include_str!`) and compared byte
-# for byte; a Windows checkout's CRLF (git's `core.autocrlf`) would put a
-# carriage return in every line ctxloom writes from them, and in the bytes the
-# tests pin. Binary files are detected and left as they are.
-* text=auto eol=lf

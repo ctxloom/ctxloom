@@ -11,7 +11,10 @@ use crate::commands::tests::World;
 use crate::Commands;
 
 fn commands() -> Commands {
-    Commands::new(Arc::new(crate::tests::host_snapshot()))
+    Commands::new(
+        Arc::new(crate::tests::host_snapshot()),
+        crate::tests::VERSION,
+    )
 }
 
 /// Run `line` as the command line would: the nouns parsed, then handed over.

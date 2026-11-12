@@ -51,6 +51,9 @@ use ::process_env::EnvSnapshot;
 use super::{LibError, Wiring};
 use crate::fixtures::{canonical, exists, fs, mkdirs, put_mode, remove_dir, root, unix};
 
+/// The version stamp the wiring's tests build their commands with.
+pub(crate) const VERSION: &str = "v0.1.0-abc1234";
+
 /// The process's environment is one: tests that set it take this first, and
 /// tests that read it read it through `host_snapshot`, never while an `Env`
 /// holds it changed (one with PATH unset finds no `git`).

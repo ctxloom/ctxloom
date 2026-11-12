@@ -757,3 +757,185 @@ fn handle_sync_answers_the_session_as_its_resource_named_by_both_harps() {
     ready(caught.step(&store, registry.catalog())).unwrap();
     assert_eq!(index.index().records().len(), 1, "folded once");
 }
+
+/// The projects' stream of calm-otter, naming it `harp`, as the store hands
+/// it; `pages` none for a gone stream, else its one event.
+fn project_book(harp: Option<&str>, next_sequence: u64) -> angzarr_embedded::v1::EventBook {
+    use angzarr_embedded::v1::{event_page, EventBook, EventPage};
+    let pages = harp
+        .map(|harp| {
+            vec![EventPage {
+                sequence: 0,
+                body: Some(event_page::Body::Event(
+                    sessions::ProjectEvent::ProjectNamed(sessions::ProjectNamed {
+                        project_id: "calm-otter".to_string(),
+                        harp: harp.to_string(),
+                    })
+                    .to_any(),
+                )),
+                meta: None,
+            }]
+        })
+        .unwrap_or_default();
+    EventBook {
+        cover: Some(Cover {
+            domain: sessions::PROJECTS_DOMAIN.to_string(),
+            root: Some(sessions::project_root("calm-otter")),
+            edition: None,
+        }),
+        pages,
+        snapshot: None,
+        next_sequence,
+    }
+}
+
+fn hand(index: &SessionIndexes, book: angzarr_embedded::v1::EventBook) {
+    use angzarr_embedded::angzarr_router::hpb::ProjectRequest;
+    use angzarr_embedded::ProjectorHandler;
+    ready(index.dispatch(&ProjectRequest { events: Some(book) })).unwrap();
+}
+
+// S32, S42: the session as its resource message: named by its project's harp
+// and its own, its summary its title, its times, kept and closed, its
+// incarnation, its owner and its children by their names.
+#[test]
+fn a_session_is_its_resource_with_its_owner_and_children_named() {
+    let mut project = Project::new();
+    let mut index = SessionIndex::catch_up();
+    project.run(&mut index, FIRST, mint("boss"));
+    project.run(
+        &mut index,
+        FIRST,
+        sessions::LaunchChild {
+            child_project_id: "calm-otter".to_string(),
+            child_session: id_text(SECOND),
+            child_root: "/work/proj".to_string(),
+            harp: "kid".to_string(),
+            engine: "claude-code".to_string(),
+            trust: sessions::TargetTrust {
+                same_project: true,
+                trusted: true,
+            },
+            delegation_limit: 1,
+            requester: None,
+            prompt: String::new(),
+        },
+    );
+    project.run(
+        &mut index,
+        SECOND,
+        MintSession {
+            depth: 1,
+            owner: Some(sessions::SessionRef {
+                project_id: "calm-otter".to_string(),
+                session: id_text(FIRST),
+            }),
+            ..mint("kid")
+        },
+    );
+    project.run_book(&mut index, prompt(SECOND, "p1", "Fix the build"));
+    project.run(&mut index, SECOND, SetKept { kept: true });
+    project.run(
+        &mut index,
+        SECOND,
+        RecordEnd {
+            at: Timestamp {
+                seconds: 900,
+                nanos: 0,
+            },
+        },
+    );
+    project.run(
+        &mut index,
+        SECOND,
+        sessions::CloseSession {
+            cause: "done".to_string(),
+            requester: None,
+        },
+    );
+    hand(index.projector(), project_book(Some("calm-quiet-heron"), 1));
+    let held = index.projector().index();
+    let child = held.resource(&held.find_by_id(&id_text(SECOND)).unwrap());
+    assert_eq!(child.name, "projects/calm-quiet-heron/sessions/kid");
+    assert_eq!(child.summary, "Fix the build");
+    assert!(child.start_time.is_some());
+    assert_eq!(child.end_time.map(|t| t.seconds), Some(900));
+    assert!(child.kept);
+    assert!(child.closed);
+    assert_eq!(child.incarnation, 1);
+    assert_eq!(child.owner, "projects/calm-quiet-heron/sessions/boss");
+    let owner = held.resource(&held.find_by_id(&id_text(FIRST)).unwrap());
+    assert_eq!(owner.children, ["projects/calm-quiet-heron/sessions/kid"]);
+    assert!(!owner.kept && !owner.closed);
+}
+
+// A project stream gone (purged: no page at 0) takes its harp with it, and
+// a session's name is empty again; a book with no page that is not at 0
+// changes nothing.
+#[test]
+fn a_gone_project_stream_takes_its_harp_with_it() {
+    let mut index = SessionIndex::new();
+    let record = SessionRecord {
+        project_id: "calm-otter".to_string(),
+        harp: "amber-swift-owl".to_string(),
+        ..SessionRecord::default()
+    };
+    index
+        .project(&project_book(Some("calm-quiet-heron"), 1))
+        .unwrap();
+    index.project(&project_book(None, 1)).unwrap();
+    assert_eq!(
+        index.name_of(&record),
+        "projects/calm-quiet-heron/sessions/amber-swift-owl"
+    );
+    index.project(&project_book(None, 0)).unwrap();
+    assert_eq!(index.name_of(&record), "");
+}
+
+/// A fill that records each gap it is asked and reads nothing.
+#[derive(Default)]
+struct Recording(std::sync::Mutex<Vec<(u64, u64)>>);
+
+impl held_projection::Fill for Recording {
+    fn pages<'a>(
+        &'a self,
+        _: &'a angzarr_embedded::v1::Cover,
+        from: u64,
+        to: u64,
+    ) -> angzarr_embedded::angzarr_ports::BoxFuture<
+        'a,
+        Result<Vec<angzarr_embedded::v1::EventPage>, angzarr_embedded::StoreError>,
+    > {
+        self.0.lock().unwrap().push((from, to));
+        Box::pin(async { Ok(Vec::new()) })
+    }
+}
+
+// S32: a model made filled reads a gap through its fill: a session's book
+// that starts past where the model is asks for the pages before it.
+#[test]
+fn a_filled_model_reads_a_gap_through_its_fill() {
+    use angzarr_embedded::angzarr_router::hpb::ProjectRequest;
+    use angzarr_embedded::ProjectorHandler;
+    let fill = std::sync::Arc::new(Recording::default());
+    let model = crate::SessionIndexes::filled(fill.clone());
+    let late = angzarr_embedded::v1::EventBook {
+        cover: Some(angzarr_embedded::v1::Cover {
+            domain: sessions::SESSION_DOMAIN.to_string(),
+            root: Some(angzarr_embedded::v1::Uuid::from_bytes([7; 16])),
+            edition: None,
+        }),
+        pages: vec![angzarr_embedded::v1::EventPage {
+            sequence: 2,
+            body: None,
+            meta: None,
+        }],
+        snapshot: None,
+        next_sequence: 3,
+    };
+    angzarr_embedded::testing::block_on_ready(
+        model.dispatch(&ProjectRequest { events: Some(late) }),
+    )
+    .unwrap();
+    assert_eq!(*fill.0.lock().unwrap(), [(0, 2)]);
+}

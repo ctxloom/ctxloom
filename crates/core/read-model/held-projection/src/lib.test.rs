@@ -228,3 +228,71 @@ fn a_book_from_0_with_no_record_of_its_first_event_is_folded_afresh() {
     hand(&held, bare(1));
     assert_eq!(folded(&held), [(1, 0)]);
 }
+
+/// A model that counts every page it is handed and never starts afresh.
+#[derive(Default)]
+struct Counted(usize);
+
+impl Model for Counted {
+    const NAME: &'static str = "counted";
+
+    fn project(&mut self, book: &EventBook) -> Result<(), PayloadError> {
+        self.0 += book.pages.len();
+        Ok(())
+    }
+
+    fn view(&self, _: &Cover) -> Option<Any> {
+        None
+    }
+}
+
+fn hand_counted(held: &Held<Counted>, book: EventBook) {
+    block_on_ready(held.dispatch(&ProjectRequest { events: Some(book) })).unwrap();
+}
+
+// A book from 0 handed again (the catch-up after the kernel) reaches the
+// model only for what it was not handed: its first event's record tells it
+// is the same stream.
+#[test]
+fn a_stream_handed_again_from_0_reaches_the_model_once() {
+    let held = Held::<Counted>::default();
+    hand_counted(&held, book(1, 0..2, "a"));
+    hand_counted(&held, book(1, 0..3, "a"));
+    assert_eq!(counted(&held), 3);
+}
+
+// A first event with a cause but no instant (or the other way) still tells
+// the stream apart: only one with neither is unknown.
+#[test]
+fn a_first_event_with_either_record_is_known() {
+    for (cause, instant) in [(true, false), (false, true)] {
+        let held = Held::<Counted>::default();
+        let mut first = book(1, 0..2, "a");
+        let meta = first.pages[0].meta.as_mut().unwrap();
+        if !cause {
+            meta.causation = None;
+        }
+        if !instant {
+            meta.recorded_at = None;
+        }
+        hand_counted(&held, first.clone());
+        hand_counted(&held, first);
+        assert_eq!(counted(&held), 2, "cause {cause}, instant {instant}");
+    }
+}
+
+// An event the model cannot read is the port's bug, naming its type.
+#[test]
+fn a_bug_names_the_type_the_model_could_not_read() {
+    let error = PayloadError::UnknownType {
+        type_url: "/nothing.Known".to_string(),
+    };
+    let coded = super::bug(&error);
+    assert!(format!("{coded:?}").contains("/nothing.Known"), "{coded:?}");
+}
+
+fn counted(held: &Held<Counted>) -> usize {
+    let lock = held.lock();
+    let model: &Counted = &lock;
+    model.0
+}

@@ -348,3 +348,51 @@ fn the_projection_of_a_session_stream_is_its_state() {
     let state = sessions_proto::v1::SessionState::decode(view.value.as_slice()).unwrap();
     assert_eq!(state.harp, boards.board().session(ID).unwrap().harp);
 }
+
+/// A fill that records each gap it is asked and reads nothing.
+#[derive(Default)]
+struct Recording(std::sync::Mutex<Vec<(u64, u64)>>);
+
+impl held_projection::Fill for Recording {
+    fn pages<'a>(
+        &'a self,
+        _: &'a angzarr_embedded::v1::Cover,
+        from: u64,
+        to: u64,
+    ) -> angzarr_embedded::angzarr_ports::BoxFuture<
+        'a,
+        Result<Vec<angzarr_embedded::v1::EventPage>, angzarr_embedded::StoreError>,
+    > {
+        self.0.lock().unwrap().push((from, to));
+        Box::pin(async { Ok(Vec::new()) })
+    }
+}
+
+// S32: a model made filled reads a gap through its fill: a session's book
+// that starts past where the model is asks for the pages before it.
+#[test]
+fn a_filled_model_reads_a_gap_through_its_fill() {
+    use angzarr_embedded::angzarr_router::hpb::ProjectRequest;
+    use angzarr_embedded::ProjectorHandler;
+    let fill = std::sync::Arc::new(Recording::default());
+    let model = crate::Boards::filled(fill.clone());
+    let late = angzarr_embedded::v1::EventBook {
+        cover: Some(angzarr_embedded::v1::Cover {
+            domain: sessions::SESSION_DOMAIN.to_string(),
+            root: Some(angzarr_embedded::v1::Uuid::from_bytes([7; 16])),
+            edition: None,
+        }),
+        pages: vec![angzarr_embedded::v1::EventPage {
+            sequence: 2,
+            body: None,
+            meta: None,
+        }],
+        snapshot: None,
+        next_sequence: 3,
+    };
+    angzarr_embedded::testing::block_on_ready(
+        model.dispatch(&ProjectRequest { events: Some(late) }),
+    )
+    .unwrap();
+    assert_eq!(*fill.0.lock().unwrap(), [(0, 2)]);
+}

@@ -897,6 +897,9 @@ mod hung_git {
 
     #[test]
     fn a_directory_whose_git_hangs_is_not_called_repository_free() {
+        if !runs_scripts() {
+            return;
+        }
         let origin = Origin::new();
         let c = cache();
         let (_stub, remotes) = hung(&c);
@@ -908,6 +911,9 @@ mod hung_git {
 
     #[test]
     fn a_read_whose_git_hangs_fails_at_the_limit() {
+        if !runs_scripts() {
+            return;
+        }
         let origin = Origin::new();
         demo(&origin);
         let c = cache();
@@ -919,6 +925,9 @@ mod hung_git {
 
     #[test]
     fn a_publish_whose_git_hangs_fails_and_clears_its_working_clone() {
+        if !runs_scripts() {
+            return;
+        }
         let origin = Origin::new();
         demo(&origin);
         let c = cache();

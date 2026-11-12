@@ -9,6 +9,23 @@ use std::sync::Arc;
 use file_system::{Fs, Kind, Open, Perms, Rooted};
 use os::Mode;
 
+/// Whether this host runs the tests' fake programs: unix, the one flavor
+/// `fixture_program::install_program` does not refuse as `Unsupported`, with
+/// the `sh` (and links) they need. Elsewhere the asking test is skipped and
+/// says so on stderr, `SKIP <test>: <why>`, never silently; the same test
+/// runs unchanged on unix.
+pub(crate) fn runs_scripts() -> bool {
+    if os::host().flavor() == os::Flavor::Unix {
+        return true;
+    }
+    let test = std::thread::current();
+    eprintln!(
+        "SKIP {}: its fake programs are sh scripts (unix only)",
+        test.name().unwrap_or("a test")
+    );
+    false
+}
+
 /// The host's own filesystem (no root), for real paths.
 pub(crate) fn fs() -> Arc<dyn Fs> {
     let os = os::host();
@@ -47,12 +64,25 @@ pub(crate) fn put_mode(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>, mode: u3
 /// A program that runs `text`, a script for `sh`: written beside the program
 /// and linked to a shim, so no file the test wrote is exec'd (ETXTBSY). The
 /// only way a test makes a file to run; its directory made.
+///
+/// Where the host cannot run one (`install_program` refuses `Unsupported`,
+/// off unix) it panics with [`UNSUPPORTED`] and the reason: a plain test asks
+/// [`runs_scripts`] first and never gets here, and the feature runner calls
+/// the scenario whose step did skipped (`gherkin_common::run_feature`).
 pub(crate) fn put_program(path: impl AsRef<Path>, text: &str) {
     if let Some(parent) = path.as_ref().parent() {
         mkdirs(parent);
     }
-    fixture_program::install_program(&*fs(), path.as_ref(), text).expect("a program");
+    match fixture_program::install_program(&*fs(), path.as_ref(), text) {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::Unsupported => panic!("{UNSUPPORTED}{e}"),
+        Err(e) => panic!("a program: {e:?}"),
+    }
 }
+
+/// How [`put_program`]'s panic begins where the host runs no fake program:
+/// what follows it is the reason a skipped scenario is said with.
+pub(crate) const UNSUPPORTED: &str = "unsupported on this host: ";
 
 pub(crate) fn set_mode(path: impl AsRef<Path>, mode: u32) {
     fs().set_permissions(path.as_ref(), Mode::from_bits(mode))

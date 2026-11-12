@@ -1230,6 +1230,31 @@ a doc test failed, 121 nextest failed otherwise (`nextest exited <code>` in
 the log); 100 and 120 are red tests, 101 and 121 are refused on every
 branch (`scripts/tests-exit.selftest.sh`).
 
+## CI (`.github/workflows/ci.yml`)
+
+GitHub Actions, modelled on angzarr-platform's: every action pinned to a
+commit, every tool to a version (just, cargo-nextest, cargo-deny by
+taiki-e/install-action; protoc 3.21.12 by checksum; node 22; ltk from the Go
+ctxloom's go-final, for `ltk-rules-check.sh`), the gates' logs dumped and
+uploaded on a failure. Linux (`ubuntu-24.04`) runs every gate but mutation
+(closeout's): `just build`, `fmt-check`, `lint`, `lint-os`, `lint-deps`,
+`test`, `check-windows`, `selftest`. Windows (`windows-latest`, MSVC, Git
+Bash) runs `just build` and `just test` natively, the whole workspace. Every
+dependency is a public https git pin, so no credential is needed. For
+Windows, nextest's setup script runs under `sh` (`cfg(windows)` entry in
+`.config/nextest.toml`; the unix one is unchanged), and the plain-binary
+checks find `ctxloom.exe` and give it a USERPROFILE, TEMP and SYSTEMROOT.
+
+A test that needs a fake program (an `sh` script through
+`fixture_program::install_program`, which refuses `Unsupported` off unix),
+or runs `sh` or `node`, starts `if !runs_scripts() { return; }`: each crate's
+test fixtures hold the same `runs_scripts()`, which off unix prints `SKIP
+<test>: <why>` on stderr (the test named by its thread) and answers false, so
+a skip is never silent and the test runs unchanged on unix. A feature
+scenario skips the same way: `files::put_program` panics with
+`files::UNSUPPORTED`, and the feature runner says `SKIP <scenario>: <why>`
+and counts it failed nowhere.
+
 ## The pre-commit gates are in gates/; the justfile gives their parameters
 
 The gates and their recipes are `gates/gates.just` and

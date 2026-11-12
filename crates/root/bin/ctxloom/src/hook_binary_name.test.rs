@@ -72,6 +72,9 @@ fn project() -> Project {
 
 #[test]
 fn test_a_one_shot_of_a_renamed_binary_registers_hooks_that_call_it_and_they_resolve() {
+    if !files::runs_scripts() {
+        return;
+    }
     let project = project();
     let bin = project.home().join("bin");
     files::put_program(bin.join("claude"), CHILD);

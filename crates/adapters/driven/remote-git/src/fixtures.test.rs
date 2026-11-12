@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use file_system::{Fs, Kind, Perms, Rooted};
-use os::{Flavor, Mode};
+use os::Mode;
 use process_env::EnvSnapshot;
 
 /// The host's own filesystem (no root), for real paths.
@@ -22,9 +22,21 @@ pub(crate) fn root() -> Rooted {
     Rooted::temp().unwrap()
 }
 
-/// Whether the host runs shell scripts: a test that writes one asks.
+/// Whether this host runs the tests' fake programs: unix, the one flavor
+/// `fixture_program::install_program` does not refuse as `Unsupported`, with
+/// the `sh` (and links) they need. Elsewhere the asking test is skipped and
+/// says so on stderr, `SKIP <test>: <why>`, never silently; the same test
+/// runs unchanged on unix.
 pub(crate) fn runs_scripts() -> bool {
-    os::host().flavor() == Flavor::Unix
+    if os::host().flavor() == os::Flavor::Unix {
+        return true;
+    }
+    let test = std::thread::current();
+    eprintln!(
+        "SKIP {}: its fake programs are sh scripts (unix only)",
+        test.name().unwrap_or("a test")
+    );
+    false
 }
 
 pub(crate) fn mkdirs(path: impl AsRef<Path>) {

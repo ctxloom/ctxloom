@@ -14,6 +14,23 @@ use crate::{
     plugin, Codec, Opencode, CONFIG_FILE, CONTEXT_FILE, PLUGIN, PLUGIN_FILE, PRESEED_LOCK,
 };
 
+/// Whether this host runs the tests' fake programs: unix, the one flavor
+/// `fixture_program::install_program` does not refuse as `Unsupported`, with
+/// the `sh` (and links) they need. Elsewhere the asking test is skipped and
+/// says so on stderr, `SKIP <test>: <why>`, never silently; the same test
+/// runs unchanged on unix.
+pub(crate) fn runs_scripts() -> bool {
+    if os::host().flavor() == os::Flavor::Unix {
+        return true;
+    }
+    let test = std::thread::current();
+    eprintln!(
+        "SKIP {}: its fake programs are sh scripts (unix only)",
+        test.name().unwrap_or("a test")
+    );
+    false
+}
+
 const HOME: &str = "/p/.ctxloom/sessions/h/home";
 
 fn prepared(interactive: bool) -> run_ports::Prepared {
@@ -307,6 +324,9 @@ fn delivered(dir: &Rooted, n: usize) -> (String, String, String) {
 // node's builtins alone, which both have).
 #[test]
 fn test_the_plugin_forwards_each_event_that_records_once_in_order_and_drains_on_dispose() {
+    if !runs_scripts() {
+        return;
+    }
     let dir = Rooted::temp().unwrap();
     let plugin = put(&dir, "/home/plugins/ctxloom.js", PLUGIN);
     let steps = put(&dir, "/steps.json", &steps());
@@ -425,6 +445,9 @@ fn test_a_home_prepared_by_an_opencode_calling_another_program_runs_that_program
 // it finds it on its PATH.
 #[test]
 fn test_the_plugin_for_another_program_spawns_that_program() {
+    if !runs_scripts() {
+        return;
+    }
     let dir = Rooted::temp().unwrap();
     let plugin = put(&dir, "/home/plugins/ctxloom.js", &plugin("ctxloom-other"));
     let prompt = Json::parse(&fixture("chat_message")).unwrap();

@@ -1,0 +1,144 @@
+# The gates, on every push and pull request (modelled on angzarr-platform's
+# ci.yml). On Linux every gate but mutation (closeout's, never CI's): the
+# justfile's build, lint (lint-arch and lint-path-deps with it), lint-os,
+# check-windows and selftest, and gates/gates.just's fmt-check, lint-deps and
+# test. On Windows, natively, build and test: the whole workspace's tests run,
+# and a test whose fake programs are sh scripts says `SKIP <test>: <why>`
+# (CLAUDE.md, "CI").
+#
+# A plain checkout: every dependency outside this repository is a public git
+# dependency over https, pinned by commit (Cargo.toml), so no credential is
+# needed. The gates are in the repository (gates/).
+#
+# Every action is pinned to a commit, its release in the comment; every tool
+# to a version: the repository's own pins where it has one (rust-toolchain.toml,
+# .config/nextest.toml's recommended nextest, the justfile's arch-lint rev,
+# the Containerfile's cargo-deny and node), else the version the gates are run
+# with locally (just 1.40.0, protoc 3.21.12, ltk at f36e8df of go-final).
+
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  PROTOC_VERSION: "21.12"
+
+jobs:
+  linux:
+    name: gates (linux)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
+    env:
+      TOOLS: just@1.40.0,cargo-nextest@0.9.146,cargo-deny@0.20.2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The default too: `just selftest` runs the gates on fixture workspaces
+      # outside the checkout, which rust-toolchain.toml does not reach.
+      - name: Toolchain (rust-toolchain.toml, also the default) and the Windows target
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup default "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
+          rustup target add x86_64-pc-windows-gnu
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: ${{ env.TOOLS }}
+      - name: protoc (angzarr-build's codegen)
+        run: |
+          cd "$RUNNER_TEMP"
+          zip="protoc-$PROTOC_VERSION-linux-x86_64.zip"
+          curl -fsSL -o "$zip" "https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/$zip"
+          echo "3a4c1e5f2516c639d3079b1586e703fc7bcfa2136d58bda24d1d54f949c315e8  $zip" | sha256sum -c -
+          unzip -q "$zip" -d protoc
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+      # The opencode plugin's tests run it under node.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      # ltk, for `just selftest`'s ltk-rules-check.sh: it lives in the Go
+      # ctxloom (go-final), the commit the rules were last checked with.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.9"
+          cache: false
+      - name: ltk
+        run: go install github.com/ctxloom/ctxloom/cmd/ltk@f36e8dfb21e4f0179a86acc36f39939320f7fff9
+      - name: Tool versions
+        run: |
+          just --version; cargo nextest --version; cargo deny --version
+          protoc --version; node --version; jq --version; ltk --version
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # The arch-lint binary `just lint-arch` installs at the justfile's
+      # arch_lint_rev (`_arch-lint-ready`), outside cargo's target.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ctxloom-arch-lint
+          key: arch-lint-${{ runner.os }}-${{ hashFiles('justfile') }}
+      - run: just build
+      - run: just fmt-check
+      - run: just lint
+      - run: just lint-os
+      - run: just lint-deps
+      - run: just test
+      - run: just check-windows
+      - run: just selftest
+      - name: The gates' logs
+        if: failure()
+        run: shopt -s nullglob; for log in target/logs/*.log; do echo "::group::$log"; cat "$log"; echo "::endgroup::"; done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: gate-logs-linux
+          path: target/logs/
+          if-no-files-found: ignore
+
+  windows:
+    name: build and test (windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      TOOLS: just@1.40.0,cargo-nextest@0.9.146
+    steps:
+      # Some test paths are longer than Windows' 260 characters.
+      - name: Long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain (rust-toolchain.toml, the MSVC host)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: ${{ env.TOOLS }}
+      - name: protoc (angzarr-build's codegen)
+        run: |
+          cd "$RUNNER_TEMP"
+          zip="protoc-$PROTOC_VERSION-win64.zip"
+          curl -fsSL -o "$zip" "https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/$zip"
+          echo "71852a30cf62975358edfcbbff93086e8857a079c8e4d6904881aa968d65c7f9  $zip" | sha256sum -c -
+          7z x -bso0 -oprotoc "$zip"
+          cygpath -w "$PWD/protoc/bin" >> "$GITHUB_PATH"
+      # jq: the build's plain-binary checks and nextest's setup script read
+      # cargo's JSON with it (the runner image has it).
+      - name: Tool versions
+        run: just --version; cargo nextest --version; protoc --version; jq --version; sh --version | head -n 1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: just build
+      - run: just test
+      - name: The gates' logs
+        if: failure()
+        run: shopt -s nullglob; for log in target/logs/*.log; do echo "::group::$log"; cat "$log"; echo "::endgroup::"; done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: gate-logs-windows
+          path: target/logs/
+          if-no-files-found: ignore

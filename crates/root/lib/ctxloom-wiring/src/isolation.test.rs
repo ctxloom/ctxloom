@@ -12,7 +12,7 @@ use process_env::EnvSnapshot;
 use isolation_ports::Backends;
 
 use super::{Engines, Registered};
-use crate::fixtures::{fs, mkdirs, put_mode, root, unix};
+use crate::fixtures::{fs, mkdirs, put_mode, root, runs_scripts};
 
 const LOADOUT: &str =
     "#!/bin/sh\ncase \"$1\" in\n  loadout) printf 'init:\\n  tooling: \"acme-tools\"\\n';;\nesac\n";
@@ -64,7 +64,7 @@ fn registered(names: &[&str], register: &[&str]) -> (file_system::Rooted, Regist
 
 #[test]
 fn a_registered_companion_declares_its_tooling() {
-    if !unix() {
+    if !runs_scripts() {
         return;
     }
     let (_temp, companions) = registered(&["acme"], &["acme"]);
@@ -76,7 +76,7 @@ fn a_registered_companion_declares_its_tooling() {
 
 #[test]
 fn a_companion_nobody_registered_declares_nothing() {
-    if !unix() {
+    if !runs_scripts() {
         return;
     }
     let (_temp, companions) = registered(&["acme"], &[]);

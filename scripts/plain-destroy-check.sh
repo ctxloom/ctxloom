@@ -16,10 +16,22 @@
 # Silent on a pass; on a failure the first line is the summary, then what the
 # binary said; exit 1.
 set -euo pipefail
-bin=$(realpath "${1:?usage: plain-destroy-check.sh <ctxloom binary>}")
+bin=${1:?usage: plain-destroy-check.sh <ctxloom binary>}
+# Windows names the binary <name>.exe (cargo's target/debug/ctxloom.exe).
+[ -f "$bin.exe" ] && bin=$bin.exe
+bin=$(realpath "$bin")
 home=$(mktemp -d)
 trap 'rm -rf "$home"' EXIT
-ctxloom() { (cd "$home" && env -i PATH="$PATH" HOME="$home" TMPDIR="$home" "$bin" "$@"); }
+# On Windows (SYSTEMROOT set; never on unix, where nothing is added) the
+# binary's home is USERPROFILE and its temporary directory TEMP or TMP, in
+# Windows' own form, and a Windows program needs SYSTEMROOT and WINDIR.
+windows=()
+root=${SYSTEMROOT:-${SystemRoot:-}}
+if [ -n "$root" ]; then
+    native=$(cygpath -w "$home")
+    windows=(USERPROFILE="$native" TEMP="$native" TMP="$native" SYSTEMROOT="$root" WINDIR="$root")
+fi
+ctxloom() { (cd "$home" && env -i PATH="$PATH" HOME="$home" TMPDIR="$home" "${windows[@]}" "$bin" "$@"); }
 
 help=$(ctxloom session --help 2>&1) || true
 for verb in remove purge sweep; do

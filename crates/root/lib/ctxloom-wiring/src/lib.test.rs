@@ -49,7 +49,7 @@ use std::sync::Arc;
 use ::process_env::EnvSnapshot;
 
 use super::{LibError, Wiring};
-use crate::fixtures::{canonical, exists, fs, mkdirs, put_mode, remove_dir, root, unix};
+use crate::fixtures::{canonical, exists, fs, mkdirs, put_mode, remove_dir, root, runs_scripts};
 
 /// The process's environment is one: tests that set it take this first, and
 /// tests that read it read it through `host_snapshot`, never while an `Env`
@@ -357,7 +357,7 @@ fn executable(dir: &Path, name: &str, mode: u32) {
 
 #[test]
 fn test_programs_are_found_on_the_path_in_its_order_and_only_if_executable_files() {
-    if !unix() {
+    if !runs_scripts() {
         return;
     }
     let mut env = Env::new("path");
@@ -387,7 +387,7 @@ fn test_programs_are_found_on_the_path_in_its_order_and_only_if_executable_files
 
 #[test]
 fn test_a_name_with_a_separator_is_that_file_and_the_path_is_not_searched() {
-    if !unix() {
+    if !runs_scripts() {
         return;
     }
     let mut env = Env::new("pathfile");

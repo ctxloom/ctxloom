@@ -82,3 +82,32 @@ fn test_an_empty_list_takes_the_key_and_the_sidecar_with_it() {
     );
     assert!(with_executable(Some("executable: [unclosed\n"), &["a".to_string()]).is_err());
 }
+
+// Owner ruling 2026-11-12: a file's executability comes ONLY from its skill
+// sidecar's `executable:` list, on every OS; no mode is read.
+#[test]
+fn test_a_bundles_executables_are_what_its_skills_sidecars_declare() {
+    let files: crate::tree::Files = [
+        ("bundle.yaml", "schema_version: 4\n"),
+        ("skills/reviewer/SKILL.md", "---\nname: reviewer\n---\n"),
+        ("skills/reviewer/scripts/run.sh", "echo\n"),
+        ("skills/reviewer/notes.md", "n\n"),
+        (
+            "skills/.reviewer.meta.yaml",
+            "executable:\n  - scripts/run.sh\n  - gone.sh\n",
+        ),
+        ("skills/plain/SKILL.md", "---\nname: plain\n---\n"),
+        ("skills/plain/run.sh", "echo\n"),
+        // A sidecar that does not parse declares nothing.
+        ("skills/.plain.meta.yaml", "executable: [\n"),
+        // Only a skill's sidecar says: a fragment's says nothing of this.
+        ("fragments/.f.meta.yaml", "executable:\n  - x\n"),
+        ("fragments/x", "x"),
+    ]
+    .into_iter()
+    .map(|(path, text)| (path.to_string(), text.as_bytes().to_vec()))
+    .collect();
+    let declared: Vec<String> = declared_executables(&files).into_iter().collect();
+    // A listed file not in the tree is no file of it.
+    assert_eq!(declared, ["skills/reviewer/scripts/run.sh"]);
+}

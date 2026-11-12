@@ -4,6 +4,8 @@
 //! and notes and which files are executable. A file's mode bit is not
 //! portable; the sidecar's `executable:` is the whole of it (plan §8.2).
 
+use std::collections::BTreeSet;
+
 use angzarr_yaml::edit::Document;
 use angzarr_yaml::Value;
 
@@ -53,6 +55,15 @@ pub fn executable_files(sidecar: Option<&str>) -> Vec<String> {
             })
         })
         .unwrap_or_default()
+}
+
+/// The files of a bundle's tree (`files`, by path in the bundle) that its
+/// skills' sidecars declare executable, by path in the bundle: on every OS
+/// the sidecar's `executable:` is the whole of it, never a mode bit (owner
+/// ruling 2026-11-12). A listed file the tree does not hold is not one.
+pub fn declared_executables(files: &crate::tree::Files) -> BTreeSet<String> {
+    let _ = files;
+    BTreeSet::new()
 }
 
 fn unwritable(error: angzarr_yaml::edit::EditError) -> BundleError {

@@ -256,7 +256,6 @@ async fn the_start_sweeps_a_killed_daemons_child_and_ends_it_once() {
         incarnation: 1,
         harp: "kid".to_string(),
         depth: 0,
-        principal: runs_application::Principal::Runner,
     };
     let _ = enqueued;
     runs_application::Facts::new(Arc::clone(&edge))

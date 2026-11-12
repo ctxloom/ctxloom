@@ -1593,8 +1593,6 @@ async fn an_interactive_run_is_handed_the_listener_endpoint_and_the_hook_bearer(
         panic!("first event is the enqueue: {events:?}");
     };
     assert_eq!(enqueued.hook_credential_hash, token.hash().as_bytes());
-    assert_ne!(enqueued.runner_credential_hash, token.hash().as_bytes());
-    assert_ne!(enqueued.model_credential_hash, token.hash().as_bytes());
 }
 
 // Ruling 51 (with 27 and 29): a one-shot is its own owner, so its CHILD's turn
@@ -1637,8 +1635,6 @@ async fn a_childs_turn_is_handed_its_own_listener_endpoint_and_hook_bearer() {
         panic!("first event is the enqueue: {events:?}");
     };
     assert_eq!(enqueued.hook_credential_hash, token.hash().as_bytes());
-    assert_ne!(enqueued.runner_credential_hash, token.hash().as_bytes());
-    assert_ne!(enqueued.model_credential_hash, token.hash().as_bytes());
 }
 
 // NEW-DESIGN: a primary run launched from inside another interactive session

@@ -11,20 +11,13 @@ pub struct RunState {
     pub session: String,
     pub incarnation: u32,
     pub mode: Option<RunMode>,
-    /// SHA-256 of the RUNNER principal's token; the token itself is never
-    /// journaled (D29).
-    pub runner_credential_hash: Vec<u8>,
-    /// SHA-256 of the MODEL principal's token. Always different from the
-    /// runner's, so a token names exactly one principal (owner ruling
-    /// 2026-11-04, item 16).
-    pub model_credential_hash: Vec<u8>,
-    /// SHA-256 of the HOOK principal's token (owner ruling 2026-11-09): the
-    /// engine's hook processes (interactive or one-shot) present it, and its allowlist is
-    /// the capture facts alone. Empty on a run enqueued before it existed,
-    /// which no token matches.
+    /// SHA-256 of the hook bearer's token (owner ruling 2026-11-09): the
+    /// engine's hook processes (interactive or one-shot) present it to the
+    /// CLI run's own listener; the token itself is never journaled (D29).
+    /// Empty on a run enqueued before it existed, which no token matches.
     pub hook_credential_hash: Vec<u8>,
-    /// Set by the fold of `RunEnded`, for every token, the owner's included,
-    /// whatever the cause (D29).
+    /// Set by the fold of `RunEnded`, whatever the cause (D29): the hook
+    /// bearer dies with its run.
     pub credential_revoked: bool,
     pub runner_attached: bool,
     /// What the launcher said of the runner it started (runtime, workspace,
@@ -73,8 +66,6 @@ fn fold(state: &mut RunState, event: &RunEvent, sequence: u64) {
             state.session = enqueued.session.clone();
             state.incarnation = enqueued.incarnation;
             state.mode = Some(enqueued.mode);
-            state.runner_credential_hash = enqueued.runner_credential_hash.clone();
-            state.model_credential_hash = enqueued.model_credential_hash.clone();
             state.hook_credential_hash = enqueued.hook_credential_hash.clone();
         }
         RunEvent::RunnerAttachedRecorded(_) => state.runner_attached = true,

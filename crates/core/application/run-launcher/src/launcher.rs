@@ -49,7 +49,7 @@ use run_ports::{
     Edge, Engine, FailureClass, Limits, PrepareRequest, RunnerLauncher, SessionRecords,
     TurnCommand, TurnOutcome, TurnRequest,
 };
-use runs_application::{Facts, Identity, Observation, Principal, RunnerFact};
+use runs_application::{Facts, Identity, Observation, RunnerFact};
 
 use crate::error::LaunchError;
 use crate::orders::{Order, Orders};
@@ -220,7 +220,6 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             incarnation: launch.incarnation,
             harp: order.harp.clone(),
             depth: 0,
-            principal: Principal::Runner,
         };
         let mut ignored = Vec::new();
         let prepared = self.prepare(&order, &mut ignored);

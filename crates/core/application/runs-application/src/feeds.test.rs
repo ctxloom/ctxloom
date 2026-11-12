@@ -6,7 +6,7 @@ use std::sync::Arc;
 use run_ports::Edge;
 
 use crate::fakes::{fact_book, World};
-use crate::{AppError, Cursor, Feeds, Why};
+use crate::{Cursor, Feeds};
 
 async fn fact(world: &World, id: &str, turn: u64) {
     let book = fact_book(
@@ -27,7 +27,7 @@ async fn a_follow_reads_from_its_cursor_and_moves_past_what_it_read() {
     let world = World::new().await;
     let feeds = Feeds::new(Arc::clone(&world.edge));
     let mut follow = feeds.follow(
-        world.me.credential.clone(),
+        world.me.identity.clone(),
         Cursor::start(&world.me.identity.run_cover()),
     );
     let first = follow.next().await.unwrap();
@@ -46,7 +46,7 @@ async fn a_dropped_follow_resumes_from_its_cursor_with_no_gap_and_no_duplicate()
     let world = World::new().await;
     let feeds = Feeds::new(Arc::clone(&world.edge));
     let mut follow = feeds.follow(
-        world.me.credential.clone(),
+        world.me.identity.clone(),
         Cursor::start(&world.me.identity.run_cover()),
     );
     fact(&world, "t1", 1).await;
@@ -57,28 +57,10 @@ async fn a_dropped_follow_resumes_from_its_cursor_with_no_gap_and_no_duplicate()
 
     fact(&world, "t2", 2).await;
     fact(&world, "t3", 3).await;
-    let mut resumed = feeds.follow(world.me.credential.clone(), saved);
+    let mut resumed = feeds.follow(world.me.identity.clone(), saved);
     let more = resumed.next().await.unwrap();
     assert_eq!(more.iter().map(|p| p.sequence).collect::<Vec<_>>(), [2, 3]);
     assert!(resumed.next().await.unwrap().is_empty());
-}
-
-// NEW-DESIGN (D29; listener plan 4.1 `still_valid`): a follow re-identifies on
-// every poll, so a run's end ends its feed (a token dies with its run).
-#[tokio::test]
-async fn a_follow_ends_unauthenticated_once_its_run_has_ended() {
-    let world = World::new().await;
-    let feeds = Feeds::new(Arc::clone(&world.edge));
-    let mut follow = feeds.follow(
-        world.me.credential.clone(),
-        Cursor::start(&world.me.identity.run_cover()),
-    );
-    follow.next().await.unwrap();
-    world.end(&world.me).await;
-    assert_eq!(
-        follow.next().await.unwrap_err(),
-        AppError::Unauthenticated(Why::Revoked)
-    );
 }
 
 // NEW-DESIGN (listener plan 4.3, old Q6: "denied reads answered as an absent
@@ -103,7 +85,7 @@ async fn following_a_stream_the_caller_does_not_own_yields_nothing() {
     let world = World::new().await;
     let feeds = Feeds::new(Arc::clone(&world.edge));
     let mut follow = feeds.follow(
-        world.me.credential.clone(),
+        world.me.identity.clone(),
         Cursor::start(&world.other.identity.run_cover()),
     );
     assert!(follow.next().await.unwrap().is_empty());
@@ -120,30 +102,4 @@ fn a_cursor_is_one_streams_position_and_nothing_wider() {
     };
     assert_eq!(cursor.cover().domain, "runs");
     assert_eq!(Cursor::start(&cursor.cover()).next_sequence, 0);
-}
-
-// NEW-DESIGN, owner ruling 2026-11-04 (item 16): reads are not facts and carry
-// no authority, so the model principal reads its own run like the runner does
-// (roster-style calls are reads, no event), and still only its own.
-#[tokio::test]
-async fn the_model_principal_reads_its_own_stream_and_no_other() {
-    let world = World::new().await;
-    let feeds = Feeds::new(Arc::clone(&world.edge));
-    let mine = world.me.model_identity.run_cover();
-    let theirs = world.other.identity.run_cover();
-    assert_eq!(
-        feeds
-            .read(&world.me.model_identity, &mine, 0)
-            .await
-            .unwrap()
-            .len(),
-        1
-    );
-    assert!(feeds
-        .read(&world.me.model_identity, &theirs, 0)
-        .await
-        .unwrap()
-        .is_empty());
-    let mut follow = feeds.follow(world.me.model_credential.clone(), Cursor::start(&mine));
-    assert_eq!(follow.next().await.unwrap().len(), 1);
 }

@@ -19,10 +19,7 @@ use crate::{
     TurnCompletedRecorded, TurnFailed, TurnFailedRecorded, TurnQueued, TurnStarted,
     TurnStartedRecorded,
 };
-use crate::{
-    AlreadyEnqueued, CredentialHashInvalid, CredentialsNotDistinct, Ended, NoRun, NotItsStream,
-    TurnInFlight,
-};
+use crate::{AlreadyEnqueued, CredentialHashInvalid, Ended, NoRun, NotItsStream, TurnInFlight};
 use crate::{
     CredentialEvidence, FileOnlyCredential, LaunchRefused, NoCredential, NoPrompt, Refusal,
     RunMode, UnknownEngine,
@@ -108,23 +105,13 @@ impl RunAggregate {
     }
 }
 
-/// The enqueue: once, on its own derived stream, with a distinct digest for
-/// each principal's token.
+/// The enqueue: once, on its own derived stream, with the hook bearer's
+/// digest.
 fn decide_enqueue(ctx: &Context, cmd: EnqueueRun) -> Result<RunEnqueued, RunRejection> {
     if ctx.command.had_prior_events {
         return Err(RunRejection::AlreadyEnqueued);
     }
-    digest(&cmd.runner_credential_hash)?;
-    digest(&cmd.model_credential_hash)?;
     digest(&cmd.hook_credential_hash)?;
-    let (runner, model, hook) = (
-        &cmd.runner_credential_hash,
-        &cmd.model_credential_hash,
-        &cmd.hook_credential_hash,
-    );
-    if runner == model || runner == hook || model == hook {
-        return Err(RunRejection::CredentialsNotDistinct);
-    }
     if ctx.root() != Some(&run_root(&cmd.session, cmd.incarnation)) {
         return Err(RunRejection::NotItsStream);
     }
@@ -133,8 +120,6 @@ fn decide_enqueue(ctx: &Context, cmd: EnqueueRun) -> Result<RunEnqueued, RunReje
         session: cmd.session,
         incarnation: cmd.incarnation,
         mode: cmd.mode,
-        runner_credential_hash: cmd.runner_credential_hash,
-        model_credential_hash: cmd.model_credential_hash,
         hook_credential_hash: cmd.hook_credential_hash,
         launcher_lock: cmd.launcher_lock,
     })
@@ -231,7 +216,6 @@ pub(crate) fn enqueue_refusal(
         [
             AlreadyEnqueued => AlreadyEnqueued,
             CredentialHashInvalid{length} => CredentialHashInvalid,
-            CredentialsNotDistinct => CredentialsNotDistinct,
             NotItsStream => NotItsStream,
             NoCredential{engine, variables} => NoCredential,
             FileOnlyCredential{engine, variables} => FileOnlyCredential,
@@ -281,7 +265,6 @@ impl RunAggregate {
         refuses(
             AlreadyEnqueued,
             CredentialHashInvalid,
-            CredentialsNotDistinct,
             NotItsStream,
             NoCredential,
             FileOnlyCredential,

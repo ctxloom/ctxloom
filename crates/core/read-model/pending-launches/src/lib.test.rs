@@ -54,8 +54,6 @@ fn enqueued(n: u8, incarnation: u32, mode: RunMode) -> EventBook {
         session,
         incarnation,
         mode,
-        runner_credential_hash: vec![1; 32],
-        model_credential_hash: vec![2; 32],
         hook_credential_hash: vec![3; 32],
         launcher_lock: lock_of(n),
     });

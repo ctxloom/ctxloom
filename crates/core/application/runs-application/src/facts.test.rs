@@ -8,7 +8,7 @@ use angzarr_embedded::v1::{DeliveryOutcome, Uuid};
 use angzarr_embedded::Answered;
 
 use crate::fakes::{uuid, World, SESSION_ME};
-use crate::{AppError, Facts, Identity, ModelFact, Principal, Recorded, RunnerFact};
+use crate::{Facts, Identity, ModelFact, Recorded, RunnerFact};
 
 fn identity() -> Identity {
     Identity {
@@ -21,7 +21,6 @@ fn identity() -> Identity {
         incarnation: 1,
         harp: "amber-swift-owl".to_string(),
         depth: 0,
-        principal: Principal::Runner,
     }
 }
 
@@ -160,10 +159,7 @@ fn the_engine_session_bind_is_identified_by_session_and_native_id() {
 // addresses the caller's own run.
 #[test]
 fn claims_are_identified_by_run_and_turn() {
-    let who = Identity {
-        principal: Principal::Model,
-        ..identity()
-    };
+    let who = identity();
     let summary = ModelFact::SummaryReported(runs::SummaryReported {
         turn: 3,
         ordinal: 2,
@@ -306,62 +302,14 @@ async fn a_fact_the_kernel_dead_letters_is_parked_and_its_letter_is_in_the_store
     assert_eq!(letters[0].stream, who.run_cover());
 }
 
-// NEW-DESIGN, owner ruling 2026-11-04 (item 16, fail closed): a fact is
-// recorded only by its author. Every fact, offered by the OTHER principal, is
-// hidden, nothing is sent to the kernel and nothing is written.
+// NEW-DESIGN, owner ruling 2026-11-04 (item 16): claims are facts the model
+// makes, applied once and then DUPLICATE, on the run's stream. They are
+// advisory: the run does not end.
 #[tokio::test]
-async fn a_fact_of_the_other_principal_is_denied_and_nothing_is_sent() {
+async fn a_claim_is_recorded_and_ends_nothing() {
     let world = World::new().await;
     let facts = Facts::new(Arc::clone(&world.edge));
-    // Defence in depth: the types keep a model call site from building a runner
-    // fact, yet a runner fact offered with the model's identity (and a claim
-    // with the runner's) is still hidden, and nothing is sent.
-    let runner_facts = RunnerFact::samples();
-    let claims = ModelFact::samples();
-    for fact in runner_facts {
-        let other = &world.me.model_identity;
-        denied_and_unwritten(&world, &facts, other, fact).await;
-    }
-    for fact in claims {
-        let other = &world.me.identity;
-        denied_and_unwritten(&world, &facts, other, fact).await;
-    }
-}
-
-/// `fact` offered by `other`, who is not its author: hidden, nothing sent and
-/// nothing written to the run or the session.
-async fn denied_and_unwritten<F: crate::Fact>(
-    world: &World,
-    facts: &Facts<crate::fakes::KernelEdge>,
-    other: &Identity,
-    fact: F,
-) {
-    let served = world.edge.served();
-    let run_before = world.edge.pages(&other.run_cover()).await.len();
-    let session_before = world.edge.pages(&other.session_cover()).await.len();
-    let book = fact.book(other);
-    let denied = facts.record(other, fact).await.unwrap_err();
-    assert!(
-        matches!(denied, AppError::Denied(run_ports::Unserved::Hidden { .. })),
-        "{book:?}"
-    );
-    assert_eq!(world.edge.served(), served, "{book:?}");
-    assert_eq!(world.edge.pages(&other.run_cover()).await.len(), run_before);
-    assert_eq!(
-        world.edge.pages(&other.session_cover()).await.len(),
-        session_before
-    );
-}
-
-// NEW-DESIGN, owner ruling 2026-11-04 (item 16): claims are facts the MODEL
-// records, applied once and then DUPLICATE, on the run's stream. They are
-// advisory: the run does not end and the runner's own token still identifies.
-#[tokio::test]
-async fn a_claim_is_recorded_by_the_model_and_ends_nothing() {
-    use crate::{Gate, RunsGate};
-    let world = World::new().await;
-    let facts = Facts::new(Arc::clone(&world.edge));
-    let who = &world.me.model_identity;
+    let who = &world.me.identity;
     let claims = [
         ModelFact::SummaryReported(runs::SummaryReported {
             turn: 1,
@@ -381,9 +329,10 @@ async fn a_claim_is_recorded_by_the_model_and_ends_nothing() {
         );
         assert_eq!(facts.record(who, claim).await, Ok(Recorded::Duplicate));
     }
-    let gate = RunsGate::new(Arc::clone(&world.edge));
-    assert!(gate.identify(&world.me.credential).await.is_ok());
-    assert!(gate.identify(&world.me.model_credential).await.is_ok());
+    let run = crate::gate::run_state(&*world.edge, &who.run)
+        .await
+        .unwrap();
+    assert!(!run.credential_revoked, "the run is still live");
 }
 
 // NEW-DESIGN, owner ruling 2026-11-04 (item 16, totality): every AgentFact
@@ -434,7 +383,7 @@ async fn every_agent_fact_applies_in_every_state() {
         }
         for fact in ModelFact::samples() {
             let url = fact.type_url();
-            outcomes.push((url, facts.record(&me.model_identity, fact).await));
+            outcomes.push((url, facts.record(&me.identity, fact).await));
         }
         for (url, outcome) in outcomes {
             assert!(
@@ -534,15 +483,4 @@ async fn an_observation_lands_on_the_sessions_stream_once_and_only_for_the_runne
         world.edge.pages(&who.session_cover()).await.len(),
         before + 1
     );
-
-    let served = world.edge.served();
-    let denied = facts
-        .observe(&world.me.model_identity, &observation)
-        .await
-        .unwrap_err();
-    assert!(matches!(
-        denied,
-        AppError::Denied(run_ports::Unserved::Hidden { .. })
-    ));
-    assert_eq!(world.edge.served(), served, "nothing was sent");
 }

@@ -26,7 +26,7 @@ use angzarr_embedded::{
 use run_ports::{Arrival, Edge, Token, TokenSource, Unserved};
 use sha2::{Digest, Sha256};
 
-use crate::{Credential, Identity, Principal};
+use crate::Identity;
 
 /// The kernel's race re-run cap in these tests, and so how many lost races
 /// `lose_every_race` scripts: the kernel parks a fact at the cap by writing its
@@ -230,17 +230,10 @@ pub(crate) fn fact_book(
     }
 }
 
-/// One caller: a session with one live run and its TWO tokens (owner ruling
-/// 2026-11-04, item 16). `identity`, `credential` and `token` are the RUNNER
-/// principal's; the `model_*` are the model principal's.
+/// One caller: a session with one live run and its hook bearer's token.
 pub(crate) struct Party {
     pub(crate) identity: Identity,
-    pub(crate) credential: Credential,
-    pub(crate) token: Token,
-    pub(crate) model_identity: Identity,
-    pub(crate) model_credential: Credential,
-    pub(crate) model_token: Token,
-    /// The hook principal's secret (journaled as a hash, like the others).
+    /// The hook bearer's secret (journaled as a hash).
     pub(crate) hook_token: Token,
 }
 
@@ -295,8 +288,6 @@ impl World {
         ))
         .await
         .unwrap();
-        let token = Token::from_bytes([n; 32]);
-        let model_token = Token::from_bytes([n + 100; 32]);
         let hook_token = Token::from_bytes([n + 200; 32]);
         let run_root = runs::run_root(session, 1);
         let run_cover = Cover {
@@ -310,8 +301,6 @@ impl World {
                 session: session.to_string(),
                 incarnation: 1,
                 mode: runs::RunMode::Interactive,
-                runner_credential_hash: Sha256::digest(token.as_bytes()).to_vec(),
-                model_credential_hash: Sha256::digest(model_token.as_bytes()).to_vec(),
                 hook_credential_hash: Sha256::digest(hook_token.as_bytes()).to_vec(),
                 prompt_given: true,
                 engine: "claude-code".to_string(),
@@ -334,24 +323,9 @@ impl World {
             incarnation: 1,
             harp: harp.to_string(),
             depth,
-            principal: Principal::Runner,
         };
         Party {
-            model_identity: Identity {
-                principal: Principal::Model,
-                ..identity.clone()
-            },
             identity,
-            credential: Credential {
-                token: token.clone(),
-                run: run_root.clone(),
-            },
-            token,
-            model_credential: Credential {
-                token: model_token.clone(),
-                run: run_root,
-            },
-            model_token,
             hook_token,
         }
     }

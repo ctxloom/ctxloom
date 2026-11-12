@@ -9,10 +9,10 @@ use std::sync::Arc;
 
 use angzarr_embedded::v1::CommandBook;
 use angzarr_embedded::CommandBookExt;
-use run_ports::{Edge, Unserved};
+use run_ports::Edge;
 
 use crate::error::AppError;
-use crate::identity::{Identity, Principal};
+use crate::identity::Identity;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum AgentRequest {
@@ -48,19 +48,11 @@ impl<E: Edge> AgentRequests<E> {
     }
 
     /// Send `request` on `who`'s own session, with `who`'s identity stamped.
-    /// Requests are the MODEL principal's: a runner identity is `Denied`
-    /// (hidden) and nothing is sent (owner ruling 2026-11-04, item 16).
     pub async fn request(
         &self,
         who: &Identity,
         request: AgentRequest,
     ) -> Result<Requested, AppError> {
-        // Requests are the model's: the runner speaks in observations.
-        if who.principal != Principal::Model {
-            return Err(AppError::Denied(Unserved::Hidden {
-                domain: sessions::SESSION_DOMAIN.to_string(),
-            }));
-        }
         // The requester is the identity, never a field of the request.
         let (command, cover) = match request {
             AgentRequest::Stop { reason } => (

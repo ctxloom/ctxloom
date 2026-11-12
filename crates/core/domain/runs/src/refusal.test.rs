@@ -31,10 +31,6 @@ fn table() -> Vec<(TypedRefusal, RunRejection)> {
             RunRejection::NotItsStream,
         ),
         (
-            TypedRefusal::of(&CredentialsNotDistinct {}),
-            RunRejection::CredentialsNotDistinct,
-        ),
-        (
             TypedRefusal::of(&NoCredential {
                 engine: "claude-code".to_string(),
                 variables: "A, B".to_string(),

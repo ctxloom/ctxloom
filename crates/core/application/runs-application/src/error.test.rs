@@ -1,4 +1,4 @@
-use crate::{diagnostic_samples, AppError, Why, EN_US};
+use crate::{diagnostic_samples, AppError, EN_US};
 
 #[test]
 fn every_diagnostic_has_a_message_using_exactly_its_args() {
@@ -28,16 +28,6 @@ fn every_diagnostic_has_a_message_using_exactly_its_args() {
     }
 }
 
-// NEW-DESIGN (listener plan 4.3: a bad, stale or missing credential is
-// UNAUTHENTICATED and says nothing of which): the caller-visible form of
-// every `Why` is the same.
-#[test]
-fn an_unauthenticated_error_says_the_same_whatever_the_reason() {
-    let said = |why| AppError::Unauthenticated(why).to_string();
-    assert_eq!(said(Why::UnknownRun), said(Why::Mismatch));
-    assert_eq!(said(Why::Mismatch), said(Why::Revoked));
-}
-
 // NEW-DESIGN: an error is its code and args, and the catalog test has samples.
 #[test]
 fn an_error_displays_its_code_and_the_samples_are_not_empty() {
@@ -48,7 +38,7 @@ fn an_error_displays_its_code_and_the_samples_are_not_empty() {
         failed.to_string(),
         "runs-application-failed reason=unavailable"
     );
-    assert_eq!(diagnostic_samples().len(), 4);
+    assert_eq!(diagnostic_samples().len(), 3);
 }
 
 // The refusals of every domain the edge serves are told by their stable code

@@ -20,8 +20,6 @@ use crate::{
 
 const SESSION: &str = "5f0c7a52-1111-5111-8111-000000000001";
 // Two principals per run (owner ruling 2026-11-04, item 16): a hash each.
-const RUNNER_HASH: [u8; 32] = [0xab; 32];
-const MODEL_HASH: [u8; 32] = [0xcd; 32];
 const HOOK_HASH: [u8; 32] = [0xef; 32];
 
 pub(crate) type Said = (String, BTreeMap<String, String>);
@@ -141,8 +139,6 @@ fn enqueue() -> EnqueueRun {
         session: SESSION.to_string(),
         incarnation: 1,
         mode: RunMode::Interactive,
-        runner_credential_hash: RUNNER_HASH.to_vec(),
-        model_credential_hash: MODEL_HASH.to_vec(),
         hook_credential_hash: HOOK_HASH.to_vec(),
         prompt_given: true,
         engine: "claude-code".to_string(),
@@ -216,9 +212,8 @@ fn exited(code: i32) -> RunExited {
     RunExited { code, signal: 0 }
 }
 
-// NEW-DESIGN (plan 3.3, D29; owner ruling 2026-11-04, item 16: two principals
-// per run): the event holds a hash for each principal and nothing else of
-// either credential; the fold keeps both for `identify`.
+// NEW-DESIGN (plan 3.3, D29): the event holds the hook bearer's hash and
+// nothing else of the credential; the fold keeps it for the run's listener.
 #[test]
 fn enqueue_records_the_session_incarnation_mode_and_the_hash_of_the_token() {
     let mut run = Run::new();
@@ -228,12 +223,8 @@ fn enqueue_records_the_session_incarnation_mode_and_the_hash_of_the_token() {
     };
     assert_eq!(enqueued.session, SESSION);
     assert_eq!(enqueued.incarnation, 1);
-    assert_eq!(enqueued.runner_credential_hash, RUNNER_HASH.to_vec());
-    assert_eq!(enqueued.model_credential_hash, MODEL_HASH.to_vec());
     assert_eq!(enqueued.hook_credential_hash, HOOK_HASH.to_vec());
     let state = run.state();
-    assert_eq!(state.runner_credential_hash, RUNNER_HASH.to_vec());
-    assert_eq!(state.model_credential_hash, MODEL_HASH.to_vec());
     assert_eq!(state.hook_credential_hash, HOOK_HASH.to_vec());
     assert!(!state.credential_revoked);
 }
@@ -251,61 +242,25 @@ fn enqueue_journals_the_lock_its_launcher_holds() {
     assert_eq!(enqueued.launcher_lock, launcher_lock());
 }
 
-// NEW-DESIGN (D29: "only its SHA-256 goes in the event"), for each principal's
-// hash.
+// NEW-DESIGN (D29: "only its SHA-256 goes in the event"), for the hook
+// bearer's hash.
 #[test]
 fn enqueue_refuses_a_credential_hash_that_is_not_a_sha256_digest() {
     let shorts = [
         EnqueueRun {
-            runner_credential_hash: vec![1, 2, 3],
-            ..enqueue()
-        },
-        EnqueueRun {
-            model_credential_hash: vec![1, 2, 3, 4],
-            ..enqueue()
-        },
-        EnqueueRun {
             hook_credential_hash: vec![1, 2, 3, 4, 5],
             ..enqueue()
         },
+        EnqueueRun {
+            hook_credential_hash: Vec::new(),
+            ..enqueue()
+        },
     ];
-    for (short, length) in shorts.into_iter().zip(["3", "4", "5"]) {
+    for (short, length) in shorts.into_iter().zip(["5", "0"]) {
         let mut run = Run::new();
         let (code, args) = run.command(short).unwrap_err();
         assert_eq!(code, "runs-credential-hash-invalid");
         assert_eq!(args["length"], length);
-        assert_eq!(run.event_count(), 0);
-    }
-}
-
-// NEW-DESIGN, owner ruling 2026-11-04 (item 16, fail closed): a token must
-// name exactly ONE principal, so an enqueue whose two hashes are equal is
-// refused and journals nothing.
-#[test]
-fn enqueue_refuses_one_hash_for_both_principals() {
-    let mut run = Run::new();
-    let same = EnqueueRun {
-        model_credential_hash: RUNNER_HASH.to_vec(),
-        ..enqueue()
-    };
-    let (code, _) = run.command(same).unwrap_err();
-    assert_eq!(code, "runs-credentials-not-distinct");
-    assert_eq!(run.event_count(), 0);
-}
-
-// NEW-DESIGN, owner ruling 2026-11-09 (item 16): the hook principal's token
-// names exactly one principal too, so a hook hash equal to either of the others
-// is refused and journals nothing.
-#[test]
-fn enqueue_refuses_a_hook_hash_equal_to_another_principals() {
-    for same in [RUNNER_HASH, MODEL_HASH] {
-        let mut run = Run::new();
-        let cmd = EnqueueRun {
-            hook_credential_hash: same.to_vec(),
-            ..enqueue()
-        };
-        let (code, _) = run.command(cmd).unwrap_err();
-        assert_eq!(code, "runs-credentials-not-distinct");
         assert_eq!(run.event_count(), 0);
     }
 }

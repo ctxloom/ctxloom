@@ -5,10 +5,7 @@ use std::sync::Arc;
 use run_ports::Edge;
 
 use crate::fakes::{command_book, uuid, CountingSource, KernelEdge, SESSION_ME};
-use crate::{
-    Credential, CredentialEvidence, EnqueueError, EnqueueRequest, Enqueuer, Evidence, Gate,
-    Principal, RunsGate,
-};
+use crate::{CredentialEvidence, EnqueueError, EnqueueRequest, Enqueuer, Evidence};
 
 fn request() -> EnqueueRequest {
     EnqueueRequest {
@@ -47,9 +44,10 @@ async fn minted(edge: &KernelEdge) {
     .unwrap();
 }
 
-// NEW-DESIGN (D29, plan 5.3: "only its SHA-256 goes in the event"; owner
-// ruling 2026-11-04, item 16: two principals): the run's stream holds the
-// digest of EACH of the two tokens and no byte sequence equal to either token.
+// NEW-DESIGN (D29, plan 5.3: "only its SHA-256 goes in the event"): the
+// run's stream holds the hook bearer's digest and no byte sequence equal to
+// its token, in bytes or in text. The enqueue mints that one token (the
+// separation model, slice 2: no runner's or model's token).
 #[tokio::test]
 async fn the_enqueue_journals_the_digest_and_never_the_token() {
     let edge = Arc::new(KernelEdge::new());
@@ -71,63 +69,10 @@ async fn the_enqueue_journals_the_digest_and_never_the_token() {
             _ => Vec::new(),
         })
         .collect();
-    for token in [&enqueued.runner_token, &enqueued.model_token] {
-        let digest = token.hash();
-        assert!(
-            stored.windows(32).any(|w| w == digest.as_bytes()),
-            "the digest is journaled"
-        );
-        assert!(
-            !stored.windows(32).any(|w| w == token.as_bytes()),
-            "the token is not"
-        );
-    }
-}
-
-// NEW-DESIGN, owner ruling 2026-11-04 (item 16): the enqueue mints TWO
-// distinct tokens, and each identifies the run it enqueued as its own
-// principal (mint, journal and identify agree).
-#[tokio::test]
-async fn each_returned_token_identifies_the_new_run_as_its_own_principal() {
-    let edge = Arc::new(KernelEdge::new());
-    minted(&edge).await;
-    let enqueuer = Enqueuer::new(Arc::clone(&edge), Arc::new(CountingSource::default()));
-    let enqueued = enqueuer.enqueue(request()).await.unwrap();
-    assert_ne!(enqueued.runner_token, enqueued.model_token);
-    let gate = RunsGate::new(Arc::clone(&edge));
-    for (token, principal) in [
-        (&enqueued.runner_token, Principal::Runner),
-        (&enqueued.model_token, Principal::Model),
-    ] {
-        let credential = Credential {
-            token: token.clone(),
-            run: enqueued.run.clone(),
-        };
-        let identity = gate.identify(&credential).await.unwrap();
-        assert_eq!(identity.principal, principal);
-        assert_eq!(identity.run, enqueued.run);
-    }
-}
-
-// NEW-DESIGN, owner ruling 2026-11-04 (item 16, fail closed): a token source
-// that hands out the same token twice would make one token two principals; the
-// run refuses the enqueue and journals nothing.
-#[tokio::test]
-async fn a_source_that_repeats_a_token_cannot_enqueue() {
-    struct Stuck;
-    impl run_ports::TokenSource for Stuck {
-        fn mint(&self) -> run_ports::Token {
-            run_ports::Token::from_bytes([9; 32])
-        }
-    }
-    let edge = Arc::new(KernelEdge::new());
-    minted(&edge).await;
-    let enqueuer = Enqueuer::new(Arc::clone(&edge), Arc::new(Stuck));
-    let refused = enqueuer.enqueue(request()).await.unwrap_err();
-    assert_eq!(
-        refused,
-        EnqueueError::Refused(runs::RunRejection::CredentialsNotDistinct)
-    );
+    let contains = |needle: &[u8]| stored.windows(needle.len()).any(|w| w == needle);
+    assert!(contains(enqueued.hook_token.hash().as_bytes()));
+    assert!(!contains(enqueued.hook_token.as_bytes()));
+    assert!(!contains(enqueued.hook_token.to_text().as_bytes()));
 }
 
 // NEW-DESIGN (plan 5.3: a token PER RUN): two enqueues mint two different
@@ -141,48 +86,10 @@ async fn each_enqueue_mints_its_own_token_and_a_repeat_changes_nothing() {
     let first = enqueuer.enqueue(request()).await.unwrap();
     let repeat = enqueuer.enqueue(request()).await;
     assert!(repeat.is_err(), "runs-already-enqueued");
-    assert_ne!(first.runner_token, run_ports::Token::from_bytes([0; 32]));
+    assert_ne!(first.hook_token, run_ports::Token::from_bytes([0; 32]));
 }
 
-// NEW-DESIGN, owner ruling 2026-11-09 (item 16): the enqueue mints a THIRD
-// token for the hook principal, journals only its digest, and the other two
-// principals' gate does not take it for theirs (the hook's allowlist is the
-// gate track's).
-#[tokio::test]
-async fn the_enqueue_mints_a_third_hook_token_journaled_as_a_digest_only() {
-    let edge = Arc::new(KernelEdge::new());
-    minted(&edge).await;
-    let enqueuer = Enqueuer::new(Arc::clone(&edge), Arc::new(CountingSource::default()));
-    let enqueued = enqueuer.enqueue(request()).await.unwrap();
-    assert_ne!(enqueued.hook_token, enqueued.runner_token);
-    assert_ne!(enqueued.hook_token, enqueued.model_token);
-    let cover = angzarr_embedded::v1::Cover {
-        domain: runs::RUN_DOMAIN.to_string(),
-        root: Some(enqueued.run.clone()),
-        edition: None,
-    };
-    let stored: Vec<u8> = edge
-        .pages(&cover)
-        .await
-        .into_iter()
-        .flat_map(|page| match page.body {
-            Some(angzarr_embedded::v1::event_page::Body::Event(any)) => any.value,
-            _ => Vec::new(),
-        })
-        .collect();
-    let contains = |needle: &[u8]| stored.windows(needle.len()).any(|w| w == needle);
-    assert!(contains(enqueued.hook_token.hash().as_bytes()));
-    assert!(!contains(enqueued.hook_token.as_bytes()));
-    assert!(!contains(enqueued.hook_token.to_text().as_bytes()));
-    let credential = Credential {
-        token: enqueued.hook_token.clone(),
-        run: enqueued.run.clone(),
-    };
-    let gate = RunsGate::new(Arc::clone(&edge));
-    assert!(gate.identify(&credential).await.is_err());
-}
-
-// NEW-DESIGN: the tokens' text never appears in how the enqueue renders
+// NEW-DESIGN: the token's text never appears in how the enqueue renders
 // itself (Debug), the one place the secret could leak from the launching
 // code's value.
 #[tokio::test]
@@ -192,13 +99,7 @@ async fn the_enqueued_value_never_renders_a_secret() {
     let enqueuer = Enqueuer::new(Arc::clone(&edge), Arc::new(CountingSource::default()));
     let enqueued = enqueuer.enqueue(request()).await.unwrap();
     let shown = format!("{enqueued:?}");
-    for token in [
-        &enqueued.runner_token,
-        &enqueued.model_token,
-        &enqueued.hook_token,
-    ] {
-        assert!(!shown.contains(&token.to_text()));
-    }
+    assert!(!shown.contains(&enqueued.hook_token.to_text()));
 }
 
 // Rulings 73e, 73f: the evidence reaches the run's decision, and the refusal

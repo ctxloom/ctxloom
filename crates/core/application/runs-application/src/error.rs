@@ -11,22 +11,8 @@ use runs::RunRejection;
 use sessions::SessionRejection;
 use trees::TreeRejection;
 
-/// Why a credential did not identify. For the AUDIT only: the caller is told
-/// nothing of which (plan 5.3; listener plan 4.3: "never the token").
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Why {
-    /// No run by that id, or no run at that stream.
-    UnknownRun,
-    /// The token does not hash to the run's credential.
-    Mismatch,
-    /// The run has ended: every token, the owner's included, is revoked (D29).
-    Revoked,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum AppError {
-    /// The credential did not identify.
-    Unauthenticated(Why),
     /// Authorized as far as the credential goes, but the request is for a
     /// stream, type or domain the identity may not reach: answered as an
     /// unknown domain is (the real reason is for the host's log).
@@ -108,7 +94,6 @@ impl fmt::Display for AppError {
 impl Diagnostic for AppError {
     fn code(&self) -> &str {
         match self {
-            AppError::Unauthenticated(_) => code!("unauthenticated"),
             AppError::Denied(_) => code!("denied"),
             AppError::Refused { .. } => code!("refused"),
             AppError::Failed { .. } => code!("failed"),
@@ -117,7 +102,6 @@ impl Diagnostic for AppError {
 
     fn args(&self) -> Vec<(&str, Arg)> {
         match self {
-            AppError::Unauthenticated(_) => Vec::new(),
             // What the caller may be told: the unknown domain it asked for.
             AppError::Denied(Unserved::Hidden { domain }) => {
                 vec![("domain", domain.as_str().into())]
@@ -139,7 +123,6 @@ pub const EN_US: (&str, &str) = (
 #[cfg(any(test, feature = "test-support"))]
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     vec![
-        Box::new(AppError::Unauthenticated(Why::Revoked)),
         Box::new(AppError::Denied(Unserved::Hidden {
             domain: "runs".to_string(),
         })),

@@ -1,8 +1,9 @@
-//! The gate-side stamping seam (D28 S-f): the listener resolves a credential
-//! to an [`Identity`] and stamps the requester it names into every command the
-//! owner rule guards, whatever the payload said; the session aggregate judges
-//! it. The daemon's listener (a later part) calls this on each command its
-//! orchestration scope admits; nothing reads a requester from a payload.
+//! The requester stamping seam (D28 S-f): a command the owner rule guards
+//! gets the requester an [`Identity`] names, a plain address, whatever the
+//! payload said; the session aggregate judges it (a tree rule, not a
+//! permission: one principal, the user, since slice 2). Where the daemon
+//! takes the run and session it stamps from is the transport's (not yet
+//! placed: the daemon's gate admits the user and stamps nothing).
 
 use sessions::{
     ClearChild, CloseSession, LaunchChild, SendMessage, SessionCommand, SessionRef, StopSession,

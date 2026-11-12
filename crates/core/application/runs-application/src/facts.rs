@@ -17,16 +17,13 @@ use angzarr_embedded::{Answered, Any, Failure, KernelError};
 use run_ports::{Arrival, Edge, Unserved};
 
 use crate::error::AppError;
-use crate::identity::{Identity, Principal};
+use crate::identity::Identity;
 
-/// A fact of one principal: what [`Facts::record`] takes. Implemented by
-/// [`RunnerFact`] and [`ModelFact`] only; each is authored by exactly one
-/// principal, so a call site holding a model's credential cannot even
-/// construct what only the runner may observe (owner ruling 2026-11-04).
+/// A fact of a run: what [`Facts::record`] takes. Implemented by
+/// [`RunnerFact`] (what the runner observed) and [`ModelFact`] (what the
+/// model claimed): a provenance, not a permission (one principal, the user,
+/// since slice 2).
 pub trait Fact: Clone + std::fmt::Debug + Send + Sync {
-    /// The only principal that may record this kind of fact.
-    const AUTHOR: Principal;
-
     /// The fact as the `CommandBook` the edge takes.
     fn book(&self, who: &Identity) -> CommandBook;
 }
@@ -266,16 +263,12 @@ impl ModelFact {
 }
 
 impl Fact for RunnerFact {
-    const AUTHOR: Principal = Principal::Runner;
-
     fn book(&self, who: &Identity) -> CommandBook {
         RunnerFact::book(self, who)
     }
 }
 
 impl Fact for ModelFact {
-    const AUTHOR: Principal = Principal::Model;
-
     fn book(&self, who: &Identity) -> CommandBook {
         ModelFact::book(self, who)
     }
@@ -304,20 +297,13 @@ impl<E: Edge> Facts<E> {
         Facts { edge }
     }
 
-    /// Record `fact` on a stream `who` owns, if `who` is the fact's author
-    /// ([`Fact::AUTHOR`]); another principal's fact is `Denied` (hidden)
-    /// and nothing is sent (defence in depth: the types already keep a model
-    /// call site from building a runner fact). The answer is the kernel's: a
+    /// Record `fact` on a stream `who` owns. The answer is the kernel's: a
     /// fact it dead-letters (a handler bug, a race lost to the cap, or a
     /// rejection, which the kernel since 7873207 treats as its handler's bug)
     /// is `Parked`, and the letter is the kernel's, kept in the store; this
     /// crate files none.
     pub async fn record<F: Fact>(&self, who: &Identity, fact: F) -> Result<Recorded, AppError> {
         let book = fact.book(who);
-        if who.principal != F::AUTHOR {
-            let domain = book.cover.map(|c| c.domain).unwrap_or_default();
-            return Err(AppError::Denied(Unserved::Hidden { domain }));
-        }
         match self.edge.serve(book, Arrival::Loopback).await {
             Ok(answered) => Recorded::of(&answered).ok_or_else(|| AppError::Failed {
                 reason: "the kernel gave no delivery outcome".to_string(),
@@ -333,18 +319,13 @@ impl<E: Edge> Facts<E> {
 
 impl<E: Edge> Facts<E> {
     /// Record what the engine's hooks observed (or the launcher, standing in
-    /// for them on a run it drives itself) on `who`'s own session stream. The
-    /// observation is the RUNNER's: another principal's is `Denied`.
+    /// for them on a run it drives itself) on `who`'s own session stream.
     pub async fn observe(
         &self,
         who: &Identity,
         observation: &crate::Observation,
     ) -> Result<Recorded, AppError> {
         let book = observation.book(&who.session);
-        if who.principal != Principal::Runner {
-            let domain = book.cover.map(|c| c.domain).unwrap_or_default();
-            return Err(AppError::Denied(Unserved::Hidden { domain }));
-        }
         match self.edge.serve(book, Arrival::Loopback).await {
             Ok(answered) => Recorded::of(&answered).ok_or_else(|| AppError::Failed {
                 reason: "the kernel gave no delivery outcome".to_string(),

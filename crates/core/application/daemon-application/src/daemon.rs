@@ -13,9 +13,7 @@ use run_ports::{
     PrepareRequest, PublicCert, RunLocks, TokenSource, TurnOutcome,
 };
 use runs::{RunMode, TurnUrgency};
-use runs_application::{
-    EnqueueError, EnqueueRequest, Enqueuer, Facts, Identity, Principal, RunnerFact,
-};
+use runs_application::{EnqueueError, EnqueueRequest, Enqueuer, Facts, Identity, RunnerFact};
 use session_index::SessionIndexes;
 use session_policies::{plan, Fed, RunAt, Scene, Sent, Step};
 use sessions::Urgency;
@@ -488,7 +486,6 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
             incarnation: at.incarnation,
             harp: harp.to_string(),
             depth: 1,
-            principal: Principal::Runner,
         };
         let started = self.spawn_child(
             &hosted_engine,

@@ -1,6 +1,7 @@
-//! The run's enqueue, which mints its three credentials (D29; owner ruling
-//! 2026-11-04, item 16): each token is returned once, only its SHA-256 is
-//! journaled.
+//! The run's enqueue, which mints its hook bearer's token (D29): returned
+//! once, only its SHA-256 journaled. It is the CLI run's own listener's
+//! authentication (slice 2, the separation model: one principal, the user,
+//! so no runner's or model's token).
 
 use std::sync::Arc;
 
@@ -82,18 +83,14 @@ pub enum EnqueueError {
     Failed(AppError),
 }
 
-/// What the enqueue gives back: the run's root and its three tokens, shown once.
-/// The runner's goes to the runner's 0600 file (launcher, S6); the model's to a
-/// separate file only the model-side adapter reads (S6, S10). Owner ruling
-/// 2026-11-04, item 16: two principals per run. The hook's goes into the
-/// engine's environment (the terminal session's or a one-shot child's) and
-/// nowhere else (owner rulings 2026-11-09, items 16 and 51); like the others it is held by the launching code
-/// alone, and `Token`'s `Debug` is redacted.
+/// What the enqueue gives back: the run's root and its hook token, shown
+/// once. It goes into the engine's environment (the terminal session's or a
+/// one-shot child's) and nowhere else (owner rulings 2026-11-09, items 16 and
+/// 51); it is held by the launching code alone, and `Token`'s `Debug` is
+/// redacted.
 #[derive(Debug)]
 pub struct Enqueued {
     pub run: Uuid,
-    pub runner_token: Token,
-    pub model_token: Token,
     pub hook_token: Token,
 }
 
@@ -108,8 +105,6 @@ impl<E: Edge, T: TokenSource> Enqueuer<E, T> {
     }
 
     pub async fn enqueue(&self, request: EnqueueRequest) -> Result<Enqueued, EnqueueError> {
-        let runner_token = self.source.mint();
-        let model_token = self.source.mint();
         let hook_token = self.source.mint();
         let run = runs::run_root(&request.session, request.incarnation);
         let cover = Cover {
@@ -117,13 +112,11 @@ impl<E: Edge, T: TokenSource> Enqueuer<E, T> {
             root: Some(run.clone()),
             edition: None,
         };
-        // Only the digests are journaled (D29); the run refuses equal ones.
+        // Only the digest is journaled (D29).
         let enqueue = runs::EnqueueRun {
             session: request.session,
             incarnation: request.incarnation,
             mode: request.mode,
-            runner_credential_hash: runner_token.hash().as_bytes().to_vec(),
-            model_credential_hash: model_token.hash().as_bytes().to_vec(),
             hook_credential_hash: hook_token.hash().as_bytes().to_vec(),
             prompt_given: request.evidence.prompt_given,
             engine: request.evidence.engine,
@@ -134,12 +127,7 @@ impl<E: Edge, T: TokenSource> Enqueuer<E, T> {
         };
         let book = CommandBook::command_of(cover, &runs::RunCommand::from(enqueue));
         self.edge.handle(book).await.map_err(refused)?;
-        Ok(Enqueued {
-            run,
-            runner_token,
-            model_token,
-            hook_token,
-        })
+        Ok(Enqueued { run, hook_token })
     }
 }
 

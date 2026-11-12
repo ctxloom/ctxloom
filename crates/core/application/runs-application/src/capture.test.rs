@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 use surface_ports::{HookEvent, MessageDisplay, ToolCall, ToolStatus};
 
 use crate::fakes::{uuid, World, SESSION_ME, SESSION_OTHER};
-use crate::{delivery_budget, observe, Allowlist, Capture, Observation, Recorded};
+use crate::{delivery_budget, observe, Capture, Observation, Recorded};
 
 const S: &str = SESSION_ME;
 
@@ -437,25 +437,6 @@ fn an_observation_is_a_fact_on_the_session_stream_keyed_by_its_id() {
         observation.external_id(&session)
     );
     assert_eq!(fact.payload.unwrap().type_url, observation.type_url());
-}
-
-// The hook is launched by the runner and holds the runner's credential: its
-// facts are the runner's, and the model's credential cannot forge them.
-#[test]
-fn the_runner_may_record_observations_and_the_model_may_not() {
-    let all = [
-        turn_start("p1", "x"),
-        delta("m1", 0, true, "x"),
-        batch(&[("a", "Bash", "{}", "")]),
-        turn_end(),
-        session_end(),
-        compaction("compaction_before", "p1"),
-    ];
-    for observation in all.iter().flat_map(observe) {
-        let url = observation.type_url();
-        assert!(Allowlist::runner().permits_fact(&url), "runner: {url}");
-        assert!(!Allowlist::model().permits_fact(&url), "model: {url}");
-    }
 }
 
 // ---------------------------------------------------------- delivery policy

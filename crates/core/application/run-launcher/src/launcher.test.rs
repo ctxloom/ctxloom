@@ -1318,7 +1318,6 @@ async fn as_the_runner(edge: &Arc<TestEdge>, fact: runs_application::RunnerFact)
         incarnation: 1,
         harp: HARP.to_string(),
         depth: 0,
-        principal: runs_application::Principal::Runner,
     };
     runs_application::Facts::new(Arc::clone(edge))
         .record(&who, fact)

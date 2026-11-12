@@ -1,8 +1,9 @@
 //! What a hook process of a run's engine (the terminal session's, or a
 //! one-shot child's: owner ruling 51) is told (owner rulings 2026-11-08 item 9
 //! and 2026-11-09 item 16): where the run's listener is (a URL) and
-//! the bearer that is its hook-only credential, in three environment
-//! variables. Pure: the endpoint URL and the variables are computed from what
+//! the bearer that is that listener's authentication, in three environment
+//! variables. The bearer keeps non-user callers off the socket; it separates
+//! nothing among the user's own processes (the separation model). Pure: the endpoint URL and the variables are computed from what
 //! they are given (the bound port is injected, never read here).
 //!
 //! The bearer is a SECRET. It is a composite `<run-id>.<64 hex>`, so the gate
@@ -22,7 +23,7 @@ use crate::token::{Token, TokenError};
 
 /// The variable that names the run's listener: the listener's URL (`https://<host>:<port>`).
 pub const ENDPOINT_VARIABLE: &str = "CTXLOOM_ENDPOINT";
-/// The variable that holds the hook principal's bearer: the secret.
+/// The variable that holds the run's hook bearer: the secret.
 pub const BEARER_VARIABLE: &str = "CTXLOOM_BEARER";
 /// The variable that names the run (UUID text): not a secret.
 pub const RUN_VARIABLE: &str = "CTXLOOM_RUN";

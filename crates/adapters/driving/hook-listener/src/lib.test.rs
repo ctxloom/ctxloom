@@ -174,7 +174,6 @@ struct World {
     other_session: Uuid,
     other_run: Uuid,
     bearer: String,
-    runner_bearer: String,
     /// Where the listener last served.
     addr: Mutex<Option<SocketAddr>>,
 }
@@ -255,9 +254,6 @@ impl World {
         let bearer = Bearer::compose(&run_text(&mine.run), &mine.hook_token)
             .expose()
             .to_string();
-        let runner_bearer = Bearer::compose(&run_text(&mine.run), &mine.runner_token)
-            .expose()
-            .to_string();
         World {
             edge,
             run: mine.run,
@@ -265,7 +261,6 @@ impl World {
             other_session: uuid(OTHER_SESSION),
             other_run: other.run,
             bearer,
-            runner_bearer,
             addr: Mutex::new(None),
         }
     }
@@ -383,16 +378,12 @@ async fn a_credential_that_does_not_identify_is_unauthenticated_and_writes_nothi
     let run_text = world.bearer.rsplit_once('.').unwrap().0.to_string();
     let wrong = format!("Bearer {run_text}.{}", "ee".repeat(32));
     let unknown_run = format!("Bearer 00000000-0000-4000-8000-000000000000.{secret}");
-    let cases: [(&str, Option<String>); 7] = [
+    let cases: [(&str, Option<String>); 6] = [
         ("no authorization", None),
         ("a wrong secret", Some(wrong)),
         ("an unknown run", Some(unknown_run)),
         ("not a bearer text", Some("Bearer garbage".to_string())),
         ("the secret alone", Some(format!("Bearer {secret}"))),
-        (
-            "the runner's bearer",
-            Some(format!("Bearer {}", world.runner_bearer)),
-        ),
         ("another scheme", Some("Basic dXNlcjpwYXNz".to_string())),
     ];
     for (what, authorization) in cases {

@@ -80,8 +80,6 @@ fn on_run(n: u8, incarnation: u32, first: u64, turns: &[&[&str]]) -> EventBook {
             session: text.clone(),
             incarnation,
             mode: RunMode::OneShot,
-            runner_credential_hash: vec![1; 32],
-            model_credential_hash: vec![2; 32],
             hook_credential_hash: vec![3; 32],
             launcher_lock: String::new(),
         }));

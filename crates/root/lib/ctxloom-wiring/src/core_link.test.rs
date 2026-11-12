@@ -11,10 +11,7 @@ use angzarr_embedded::v1::{Cover, Uuid};
 use angzarr_embedded::{CommandBookExt, Failure, KernelError, Malformed};
 use embedded_edge::EmbeddedEdge;
 use run_ports::{Arrival, Edge, Token, TokenSource, Unserved};
-use runs_application::{
-    Admission, AppError, Credential, EnqueueRequest, Enqueuer, Facts, Gate, Identity, Recorded,
-    RunnerFact, RunsGate, Why,
-};
+use runs_application::{EnqueueRequest, Enqueuer, Facts, Identity, Recorded, RunnerFact};
 
 use crate::{run_id, InProcessCore, Projectors};
 
@@ -36,11 +33,8 @@ type TheEdge = EmbeddedEdge<crate::CoreStores<FaultyStore<MemoryStore>>>;
 struct World {
     core: Core,
     store: FaultyStore<MemoryStore>,
-    /// The runner principal's credential and identity.
-    credential: Credential,
+    /// The run, as the use cases address it.
     identity: Identity,
-    /// The model principal's (owner ruling 2026-11-04, item 16).
-    model_credential: Credential,
 }
 
 impl World {
@@ -83,24 +77,17 @@ impl World {
             })
             .await
             .unwrap();
-        let credential = Credential {
-            token: enqueued.runner_token,
-            run: enqueued.run.clone(),
-        };
-        let model_credential = Credential {
-            token: enqueued.model_token,
+        let identity = Identity {
             run: enqueued.run,
+            session: Uuid::from_bytes(*uuid::Uuid::parse_str(SESSION).unwrap().as_bytes()),
+            incarnation: 1,
+            harp: "amber-swift-owl".to_string(),
+            depth: 0,
         };
-        let identity = RunsGate::new(Arc::clone(&edge))
-            .identify(&credential)
-            .await
-            .unwrap();
         World {
             core,
             store,
-            credential,
             identity,
-            model_credential,
         }
     }
 
@@ -192,56 +179,6 @@ async fn a_fact_at_the_race_cap_is_parked_over_app_serve_in() {
         facts.record(&world.identity, exited()).await,
         Ok(Recorded::Parked)
     );
-    assert_eq!(
-        world
-            .edge()
-            .events(&world.identity.run_cover(), 0)
-            .await
-            .unwrap()
-            .len(),
-        before
-    );
-}
-
-// NEW-DESIGN (D29; item 16): the run's end, recorded by the fact, revokes BOTH
-// principals' tokens over the real App: the next request with either is refused.
-#[tokio::test]
-async fn the_token_is_refused_once_the_runs_end_is_recorded() {
-    let world = World::new().await;
-    let facts = Facts::new(world.edge());
-    facts.record(&world.identity, exited()).await.unwrap();
-    let admission = Admission::new(world.edge());
-    let book = exited().book(&world.identity);
-    for credential in [&world.credential, &world.model_credential] {
-        let refused = admission
-            .admit(Arrival::Ip, credential, book.clone())
-            .await
-            .unwrap_err();
-        assert_eq!(refused, AppError::Unauthenticated(Why::Revoked));
-    }
-}
-
-// NEW-DESIGN, owner ruling 2026-11-04 (item 16, fail closed): over the real
-// App, the model's token cannot record the runner's exit, and the run lives on.
-#[tokio::test]
-async fn the_models_token_cannot_record_an_exit_over_app_serve_in() {
-    let world = World::new().await;
-    let admission = Admission::new(world.edge());
-    let before = world
-        .edge()
-        .events(&world.identity.run_cover(), 0)
-        .await
-        .unwrap()
-        .len();
-    let denied = admission
-        .admit(
-            Arrival::Ip,
-            &world.model_credential,
-            exited().book(&world.identity),
-        )
-        .await
-        .unwrap_err();
-    assert!(matches!(denied, AppError::Denied(Unserved::Hidden { .. })));
     assert_eq!(
         world
             .edge()

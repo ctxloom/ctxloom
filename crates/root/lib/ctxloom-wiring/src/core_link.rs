@@ -1,6 +1,6 @@
 //! The core served in process (S5): the kernel's `App` over a store, the
 //! exposure map, and the `embedded-edge` adapter over it, so `Facts`,
-//! `AgentRequests`, `Feeds` and `Admission` run against the real
+//! `AgentRequests` and `Feeds` run against the real
 //! `App::serve_in`. No transport: UDS, TCP and gRPC are not here.
 //! `core_link.test.rs` runs the wiring.
 //!

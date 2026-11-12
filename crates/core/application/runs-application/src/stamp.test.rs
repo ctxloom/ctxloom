@@ -6,7 +6,7 @@ use sessions::{
     StopSession, TargetTrust, Urgency,
 };
 
-use crate::identity::{Identity, Principal};
+use crate::identity::Identity;
 use crate::stamped;
 
 fn forged() -> Option<SessionRef> {
@@ -23,7 +23,6 @@ fn who() -> Identity {
         incarnation: 1,
         harp: "owl".to_string(),
         depth: 0,
-        principal: Principal::Model,
     }
 }
 

@@ -72,11 +72,11 @@ enum TurnFailureClass {
 // region commands
 
 // Enqueue the run for `session`'s `incarnation`, with the SHA-256 of each of
-// the THREE tokens the application minted (D29; owner rulings 2026-11-04 item
-// 16 and 2026-11-09 item 16): one for the runner principal, one for the model
-// principal, one for the hook principal, so the model's credential cannot
-// forge a runner fact and a hook's can sign capture facts alone. Only the
-// hashes are ever journaled, and they must differ. The policy session to run sends it on
+// the hook bearer's token the application minted (D29; owner ruling
+// 2026-11-09 item 16): the CLI run's own listener's authentication, which
+// keeps non-user callers off that socket. Only its hash is ever journaled.
+// The runner's and the model's tokens are gone (the separation model, slice
+// 2: one principal, the user; fields 4 and 5 are reserved). The policy session to run sends it on
 // `IncarnationOwed`.
 message EnqueueRun {
   option (io.angzarr.v1.command) = {
@@ -84,7 +84,6 @@ message EnqueueRun {
     emits: ["ctxloom.runs.v1.RunEnqueued"]
     refuses: "ctxloom.runs.v1.AlreadyEnqueued"
     refuses: "ctxloom.runs.v1.CredentialHashInvalid"
-    refuses: "ctxloom.runs.v1.CredentialsNotDistinct"
     refuses: "ctxloom.runs.v1.NotItsStream"
     refuses: "ctxloom.runs.v1.NoCredential"
     refuses: "ctxloom.runs.v1.FileOnlyCredential"
@@ -96,11 +95,13 @@ message EnqueueRun {
   string session = 1;
   uint32 incarnation = 2;
   RunMode mode = 3;
-  bytes runner_credential_hash = 4;
-  bytes model_credential_hash = 5;
-  // SHA-256 of the HOOK principal's token: the third credential, which the
-  // interactive engine's hook processes present for the capture facts alone.
-  // Required: a SHA-256 digest distinct from the other two.
+  // The runner's and the model's credential hashes (the separation model:
+  // theatre, deleted).
+  reserved 4, 5;
+  reserved "runner_credential_hash", "model_credential_hash";
+  // SHA-256 of the hook bearer's token: what the run's engine's hook
+  // processes present to the CLI run's own listener. Required: a SHA-256
+  // digest.
   bytes hook_credential_hash = 6;
 
   // The EVIDENCE of the pre-launch checks (owner rulings 73e, 73f): what the
@@ -297,8 +298,8 @@ message LaunchOrphaned {
 }
 
 // The model's CLAIMS (owner ruling 2026-11-04, item 16): what the model said or
-// produced, recorded as facts by the MODEL principal, never the runner's.
-// Advisory: a claim changes no transition. `turn` and `ordinal` are stamped by
+// produced, recorded as facts. Advisory (a provenance, not a permission: one
+// principal, the user, since slice 2): a claim changes no transition. `turn` and `ordinal` are stamped by
 // the runner side, never chosen by the model, and the external id derives from
 // them (`report:<run>:<turn>:<ordinal>`, `final:<run>:<turn>`). References
 // (run, turn, text_ref), not embedded authority.
@@ -337,11 +338,12 @@ message RunEnqueued {
   string session = 1;
   uint32 incarnation = 2;
   RunMode mode = 3;
-  bytes runner_credential_hash = 4;
-  bytes model_credential_hash = 5;
-  // SHA-256 of the HOOK principal's token: the third credential, which the
-  // interactive engine's hook processes present for the capture facts alone.
-  // Empty on a run enqueued before it existed.
+  // The runner's and the model's credential hashes (deleted, slice 2).
+  reserved 4, 5;
+  reserved "runner_credential_hash", "model_credential_hash";
+  // SHA-256 of the hook bearer's token, which the run's engine's hook
+  // processes present to the CLI run's own listener. Empty on a run enqueued
+  // before it existed.
   bytes hook_credential_hash = 6;
   // The run's lock file, which its launcher holds until the runner is started
   // (rulings 86, 92); empty on a run enqueued before it existed: never judged
@@ -487,12 +489,6 @@ message CredentialHashInvalid {
 
 // An enqueue on a stream whose root is not the run's derived root.
 message NotItsStream {
-  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
-}
-
-// The runner's and the model's credential hashes are the same, so a token
-// would not name one principal (fail closed).
-message CredentialsNotDistinct {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
 }
 

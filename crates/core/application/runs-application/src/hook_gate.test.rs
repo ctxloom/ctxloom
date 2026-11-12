@@ -76,16 +76,6 @@ async fn a_wrong_secret_does_not_identify() {
 }
 
 #[tokio::test]
-async fn the_runners_and_the_models_tokens_are_not_the_hooks() {
-    let world = World::new().await;
-    let gate = gate(&world);
-    for token in [&world.me.token, &world.me.model_token] {
-        let credential = bearer(&world.me.identity.run, token);
-        assert!(gate.identify(ARRIVAL, Some(&credential)).await.is_err());
-    }
-}
-
-#[tokio::test]
 async fn another_runs_hook_secret_does_not_identify_for_this_run() {
     let world = World::new().await;
     let credential = bearer(&world.me.identity.run, &world.other.hook_token);
@@ -181,7 +171,7 @@ async fn the_hook_owns_its_own_sessions_stream_and_no_other() {
 // Owner additions (1): each run has its own hook token, and one run's token
 // is nothing on another run's stream, whichever run stays live.
 #[test]
-fn two_runs_hook_tokens_are_distinct_from_each_other_and_from_the_runs_other_tokens() {
+fn two_runs_hook_tokens_are_distinct() {
     let world = tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap()
@@ -189,10 +179,6 @@ fn two_runs_hook_tokens_are_distinct_from_each_other_and_from_the_runs_other_tok
     let all = [
         world.me.hook_token.to_text(),
         world.other.hook_token.to_text(),
-        world.me.token.to_text(),
-        world.other.token.to_text(),
-        world.me.model_token.to_text(),
-        world.other.model_token.to_text(),
     ];
     let distinct: std::collections::BTreeSet<_> = all.iter().collect();
     assert_eq!(distinct.len(), all.len());

@@ -72,6 +72,7 @@ where
         Ok(index
             .records()
             .into_iter()
+            .filter(|record| record.project_id == project.id)
             .map(|record| Held {
                 transcript: index.transcript(&record.id),
                 record,

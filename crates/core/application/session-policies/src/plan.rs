@@ -160,8 +160,7 @@ impl<'a> Scene<'a> {
     fn sessions(&self) -> impl Iterator<Item = (&'a str, &'a SessionState)> + '_ {
         self.board
             .sessions()
-            // RED: every project's.
-            .filter(|_| true)
+            .filter(|(_, session)| session.project_id == self.project_id)
     }
 }
 

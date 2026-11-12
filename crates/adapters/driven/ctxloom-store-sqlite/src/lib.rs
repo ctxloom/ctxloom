@@ -83,9 +83,14 @@ impl Stores {
     /// read from it or imported, and it is left as it is. An unsafe id is
     /// refused as [`Stores::per_project`] refuses it.
     pub fn refuse_per_project(&self, project: &str) -> Result<(), StoreOpenError> {
-        // RED: not refused yet.
-        let _path = self.per_project(project)?;
-        Ok(())
+        let path = self.per_project(project)?;
+        match self.fs.exists(&path) {
+            Ok(true) => Err(StoreOpenError::PerProjectStore {
+                path: path.display().to_string(),
+            }),
+            // Unreadable is no proof of a store: the open says what is wrong.
+            Ok(false) | Err(_) => Ok(()),
+        }
     }
 
     /// The store, read-only: `None` where there is no database, and nothing

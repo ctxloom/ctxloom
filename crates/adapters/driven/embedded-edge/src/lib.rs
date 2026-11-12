@@ -123,9 +123,7 @@ impl<R: Stores<Key = ()>> Edge for EmbeddedEdge<R> {
         projectors: Vec<String>,
         arrival: Arrival,
     ) -> Result<SyncAnswered, Unserved> {
-        // RED: every SIMPLE request is hidden.
-        let _ = (hidden(&self.exposed, &book, arrival), &projectors);
-        if let Some(domain) = book.cover.as_ref().map(|c| c.domain.clone()) {
+        if let Some(domain) = hidden(&self.exposed, &book, arrival) {
             return Err(Unserved::Hidden { domain });
         }
         let cover = book.cover.clone();

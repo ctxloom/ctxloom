@@ -145,9 +145,10 @@ impl<M: Model> Guarded<M> {
                     .seen
                     .get(&key)
                     .is_none_or(|seen| seen.first != fingerprint));
-        // RED: no page is passed over yet.
-        let _ = (afresh, self.seen.get(&key).map(|seen| seen.next));
-        let next = first.sequence;
+        let next = match afresh {
+            true => 0,
+            false => self.seen.get(&key).map_or(0, |seen| seen.next),
+        };
         if first.sequence > next {
             return Ok(Admitted::Gap {
                 from: next,
@@ -265,9 +266,9 @@ impl<M: Model> ProjectorHandler for Held<M> {
                 self.guarded().admit(&whole).map_err(|e| bug(&e))?;
             }
         }
-        // RED: no view yet.
-        let _ = cover;
-        Ok(ProjectResponse { projection: None })
+        Ok(ProjectResponse {
+            projection: self.guarded().model.view(&cover),
+        })
     }
 }
 

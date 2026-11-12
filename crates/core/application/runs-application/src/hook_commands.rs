@@ -135,9 +135,11 @@ impl<E: Edge> Commands for EdgeCommands<E> {
     ) -> BoxFuture<'a, Result<Synced, EdgeFailure>> {
         let _ = caller;
         Box::pin(async move {
-            // RED: not the edge's yet.
-            let _ = projectors;
-            match self.edge.serve_sync(book, Vec::new(), Arrival::Ip).await {
+            match self
+                .edge
+                .serve_sync(book, projectors, Arrival::Loopback)
+                .await
+            {
                 Ok(synced) => Ok(Synced {
                     answered: Answered {
                         events: synced.answered.events,

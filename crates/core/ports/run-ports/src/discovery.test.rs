@@ -1,48 +1,76 @@
+use prost::Message;
+
 use super::*;
+
+const BEARER: &str = "4f1c2a7b9e0d3c6a5b8f7e1d2c3b4a5968778695a4b3c2d1e0f1a2b3c4d5e6f7";
 
 fn sample() -> Discovery {
     Discovery {
-        version: "0.1.0".to_string(),
+        stamp: "v0.1.0-abc1234".to_string(),
         pid: 4242,
         endpoint: "https://127.0.0.1:40123".to_string(),
         cert: PublicCert::from_der(vec![0x30, 0x03, 0x01, 0x02, 0x03]).unwrap(),
+        bearer: Token::from_text(BEARER).unwrap(),
     }
 }
 
-#[test]
-fn a_discovery_round_trips_through_its_text() {
-    let text = sample().encode();
-    assert_eq!(
-        text,
-        "ctxloom-daemon 1\nversion 0.1.0\npid 4242\nendpoint https://127.0.0.1:40123\ncert MAMBAgM=\n"
-    );
-    assert_eq!(Discovery::decode(&text), Some(sample()));
+fn wire() -> daemon_proto::v1::Discovery {
+    daemon_proto::v1::Discovery {
+        format: 1,
+        pid: 4242,
+        endpoint: "https://127.0.0.1:40123".to_string(),
+        certificate: vec![0x30, 0x03, 0x01, 0x02, 0x03],
+        bearer: BEARER.to_string(),
+        started_at: None,
+        stamp: "v0.1.0-abc1234".to_string(),
+    }
 }
 
+// The file is the proto message, in protobuf's binary encoding (S5).
 #[test]
-fn an_unknown_key_is_passed_over() {
-    let text = format!("{}later something\n", sample().encode());
-    assert_eq!(Discovery::decode(&text), Some(sample()));
+fn a_discovery_is_the_proto_message_and_round_trips() {
+    let bytes = sample().encode();
+    assert_eq!(
+        daemon_proto::v1::Discovery::decode(bytes.as_slice()).unwrap(),
+        wire()
+    );
+    assert_eq!(Discovery::decode(&bytes), Some(sample()));
+    assert_eq!(Discovery::decode(&wire().encode_to_vec()), Some(sample()));
 }
 
 #[test]
 fn anything_unreadable_is_no_discovery() {
-    let good = sample().encode();
+    let with = |change: fn(&mut daemon_proto::v1::Discovery)| {
+        let mut message = wire();
+        change(&mut message);
+        message.encode_to_vec()
+    };
     for bad in [
-        String::new(),
-        good.replace("ctxloom-daemon 1", "ctxloom-daemon 2"),
-        good.replace("pid 4242\n", ""),
-        good.replace("version 0.1.0\n", ""),
-        good.replace("cert MAMBAgM=\n", ""),
-        good.replace("endpoint https://127.0.0.1:40123\n", ""),
-        good.replace("pid 4242", "pid many"),
-        good.replace("https://", "http://"),
-        good.replace(":40123", ":0"),
-        good.replace("MAMBAgM=", "not base64!"),
-        good.replace("pid 4242", "pid4242"),
+        Vec::new(),
+        vec![0xff, 0xff, 0xff],
+        with(|m| m.format = 0),
+        with(|m| m.format = 2),
+        with(|m| m.endpoint = "http://127.0.0.1:40123".to_string()),
+        with(|m| m.endpoint = "https://127.0.0.1:0".to_string()),
+        with(|m| m.endpoint = String::new()),
+        with(|m| m.certificate = Vec::new()),
+        with(|m| m.bearer = String::new()),
+        with(|m| m.bearer = "not hex".to_string()),
+        with(|m| m.bearer = BEARER.to_uppercase()),
+        with(|m| m.stamp = String::new()),
     ] {
         assert_eq!(Discovery::decode(&bad), None, "{bad:?}");
     }
+}
+
+// The bearer is the user's: a Debug never shows it.
+#[test]
+fn a_discoverys_debug_withholds_the_bearer() {
+    let shown = format!("{:?}", sample());
+    assert!(!shown.contains(BEARER), "{shown}");
+    assert!(shown.contains("redacted"), "{shown}");
+    assert!(shown.contains("v0.1.0-abc1234"), "{shown}");
+    assert!(shown.contains("https://127.0.0.1:40123"), "{shown}");
 }
 
 #[test]
@@ -54,5 +82,6 @@ fn the_daemons_certificate_lasts_about_a_month() {
 fn the_files_live_under_the_ctxloom_home() {
     assert_eq!(DAEMON_DIR, ".ctxloom/daemon");
     assert_eq!(DAEMON_LOCK_FILE, "daemon.lock");
-    assert_eq!(DISCOVERY_FILE, "daemon.endpoint");
+    assert_eq!(DISCOVERY_FILE, "daemon.discovery");
+    assert_eq!(DISCOVERY_FORMAT, 1);
 }

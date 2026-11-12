@@ -225,6 +225,7 @@ fn urgency_of(word: &str) -> Result<sessions::Urgency, Failure> {
 /// Run the `daemon` noun's verb.
 pub(crate) fn run(
     env: &Arc<EnvSnapshot>,
+    stamp: &str,
     call: &Call<'_>,
     catalog: &Catalog,
     out: &mut dyn Write,
@@ -248,7 +249,7 @@ pub(crate) fn run(
                 idle: Duration::from_secs(idle_seconds),
                 poll: Duration::from_millis(poll_ms.max(1)),
             };
-            return be_the_daemon(&wiring, env, &files, pace);
+            return be_the_daemon(&wiring, env, stamp, &files, pace);
         }
         DaemonVerb::Status => {
             output(render(out, format, &status(&files)))?;
@@ -390,11 +391,13 @@ fn launch(
 fn be_the_daemon(
     wiring: &Wiring,
     env: &EnvSnapshot,
+    stamp: &str,
     files: &DaemonFiles,
     pace: serve::Pace,
 ) -> Result<Exit, Failure> {
     let say = logger(wiring.fs(), files.log_path());
     let place = serve::Place {
+        stamp: stamp.to_string(),
         home: wiring.home().to_path_buf(),
         temp: env.temp_dir().to_path_buf(),
         os: wiring.os_name().to_string(),
@@ -413,7 +416,7 @@ fn status(files: &DaemonFiles) -> Status {
         serving,
         endpoint: found.as_ref().map(|d| d.endpoint.clone()),
         pid: found.as_ref().map(|d| d.pid),
-        version: found.map(|d| d.version),
+        version: found.map(|d| d.stamp),
     }
 }
 

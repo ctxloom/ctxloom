@@ -420,7 +420,7 @@ impl Extension for Commands {
             );
         }
         if noun == crate::daemon::NOUN {
-            return crate::daemon::run(&self.env, call, catalog, out);
+            return crate::daemon::run(&self.env, &self.version, call, catalog, out);
         }
         // A hook answers its engine whatever the store (it never fails the
         // engine); every other command in a project that still has a store

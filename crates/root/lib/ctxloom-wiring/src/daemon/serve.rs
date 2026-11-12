@@ -32,7 +32,7 @@ use daemon_application::{
 };
 use file_system::Fs;
 use hook_listener::{HookListener, TlsIdentity};
-use run_ports::{CertMint, CertNames, ChildObservation, Discovery, SessionRecords};
+use run_ports::{CertMint, CertNames, ChildObservation, Discovery, SessionRecords, TokenSource};
 use runs_application::OrchestratorGate;
 use session_files::SessionDirs;
 
@@ -43,8 +43,10 @@ use crate::{InProcessCore, Projectors};
 const ELECTION_WAIT: Duration = Duration::from_secs(5);
 
 /// Where the daemon is: the ctxloom home, the temporary root, the
-/// operating system's name and the user's own home (`Wiring::user_home`).
+/// operating system's name, the user's own home (`Wiring::user_home`) and
+/// the binary's full version stamp (M3).
 pub(crate) struct Place {
+    pub(crate) stamp: String,
     pub(crate) home: PathBuf,
     pub(crate) temp: PathBuf,
     pub(crate) os: String,
@@ -76,6 +78,7 @@ pub(crate) fn serve(
     say: Box<dyn FnMut(&str) + Send>,
 ) -> Result<(), String> {
     let Place {
+        stamp,
         home,
         temp,
         os,
@@ -109,6 +112,9 @@ pub(crate) fn serve(
         })
         .await;
         let edge = core.edge();
+        // The user bearer (T12): minted at each start, advertised in the
+        // discovery file alone.
+        let bearer = OsTokenSource.mint();
         let names = CertNames::new(
             vec![
                 IpAddr::V4(Ipv4Addr::LOCALHOST),
@@ -151,10 +157,11 @@ pub(crate) fn serve(
         );
         files
             .publish(&Discovery {
-                version: env!("CARGO_PKG_VERSION").to_string(),
+                stamp,
                 pid: std::process::id(),
                 endpoint: endpoint.clone(),
                 cert: certificate.public().clone(),
+                bearer,
             })
             .map_err(|e| e.to_string())?;
         said(&say, &format!("serving at {endpoint}"));

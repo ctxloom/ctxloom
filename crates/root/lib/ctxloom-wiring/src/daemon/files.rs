@@ -29,8 +29,9 @@ const HAND_OFF_HEADER: &str = "ctxloom-launch-env 1";
 /// The daemon's directory: the user's alone.
 const DIR_MODE: u32 = 0o700;
 
-/// The discovery file: the user's alone (it names no secret, but nobody else
-/// has reason to read it).
+/// The discovery file: the user's alone (it holds the user bearer; other
+/// users are what the mode keeps out). On Windows the platform sets no mode:
+/// the profile directory's inherited ACL stands (M8).
 const FILE_MODE: u32 = 0o600;
 
 /// The daemon's files of one home.
@@ -81,15 +82,15 @@ impl DaemonFiles {
             .create_dir_all(&self.dir, Mode::from_bits(DIR_MODE))?;
         self.fs.write_atomic(
             &self.path(DISCOVERY_FILE),
-            discovery.encode().as_bytes(),
+            &discovery.encode(),
             Perms::Exact(Mode::from_bits(FILE_MODE)),
         )
     }
 
     /// What the discovery file says, if it says it.
     pub(crate) fn discovery(&self) -> Option<Discovery> {
-        let text = self.fs.read_to_string(&self.path(DISCOVERY_FILE)).ok()?;
-        Discovery::decode(&text)
+        let bytes = self.fs.read(&self.path(DISCOVERY_FILE)).ok()?;
+        Discovery::decode(&bytes)
     }
 
     /// Withdraw the advertisement (a daemon that exits).

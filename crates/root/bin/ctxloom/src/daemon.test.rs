@@ -398,3 +398,94 @@ fn the_daemon_noun_is_hidden_and_a_stop_with_no_daemon_does_nothing() {
     // A usage error is refused, 20 (ruling 152).
     assert_eq!(bad.code, 20, "{}", bad.said());
 }
+
+/// A protobuf varint at `at`: its value and the index after it.
+fn varint(bytes: &[u8], mut at: usize) -> Option<(u64, usize)> {
+    let mut value = 0u64;
+    for shift in (0..64).step_by(7) {
+        let byte = *bytes.get(at)?;
+        at += 1;
+        value |= u64::from(byte & 0x7f) << shift;
+        if byte & 0x80 == 0 {
+            return Some((value, at));
+        }
+    }
+    None
+}
+
+/// The bytes of the length-delimited field `number` of a protobuf message
+/// (varint and length-delimited fields only, as the discovery holds).
+fn field(bytes: &[u8], number: u64) -> Option<Vec<u8>> {
+    let mut at = 0;
+    while at < bytes.len() {
+        let (tag, next) = varint(bytes, at)?;
+        at = match tag & 7 {
+            0 => varint(bytes, next)?.1,
+            2 => {
+                let (len, start) = varint(bytes, next)?;
+                let end = start + usize::try_from(len).ok()?;
+                if tag >> 3 == number {
+                    return bytes.get(start..end).map(<[u8]>::to_vec);
+                }
+                end
+            }
+            _ => return None,
+        };
+    }
+    None
+}
+
+// The discovery file (slice 2: T12, S5, M3): protobuf, 0600 in a 0700
+// directory, naming the binary's own full stamp (never the package
+// version alone) and a fresh 64-hex user bearer at each start; the old
+// `daemon.endpoint` line file is gone.
+#[test]
+fn a_serving_daemon_advertises_its_stamp_and_a_new_bearer_in_a_private_discovery_file() {
+    let world = World::new();
+    let stamp = world.ok(&["version", "--format", "json"])["version"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let dir = world.project.home().join(".ctxloom/daemon");
+    let path = dir.join("daemon.discovery");
+    let started = |world: &World| {
+        let daemon = world
+            .project
+            .start_with(&ENV, &["daemon", "serve", "--idle-seconds", "30"]);
+        let bytes = world.until("the discovery file", |_| {
+            files::read_bytes(&path).ok().filter(|b| !b.is_empty())
+        });
+        (daemon, bytes)
+    };
+    let stop = |world: &World, mut daemon: std::process::Child| {
+        let _ = world.run(&["daemon", "stop"]);
+        let _ = daemon.wait();
+    };
+    let (daemon, first) = started(&world);
+    assert_eq!(
+        field(&first, 7).as_deref(),
+        Some(stamp.as_bytes()),
+        "the stamp {stamp} is named"
+    );
+    assert!(
+        !files::exists(dir.join("daemon.endpoint")),
+        "no line file is written"
+    );
+    if os::host().flavor() == os::Flavor::Unix {
+        assert_eq!(files::mode_of(&path), Some(0o600));
+        assert_eq!(files::mode_of(&dir), Some(0o700));
+    }
+    let bearer_of = |bytes: &[u8]| field(bytes, 5).expect("a bearer field");
+    let bearer = bearer_of(&first);
+    assert!(bearer.iter().all(|b| b.is_ascii_hexdigit()), "{bearer:?}");
+    let log = world.log();
+    assert!(
+        !log.contains(std::str::from_utf8(&bearer).unwrap()),
+        "the log never holds the bearer"
+    );
+    stop(&world, daemon);
+    world.until("the daemon gone", |w| (!w.serving()).then_some(()));
+    let (daemon, second) = started(&world);
+    assert_ne!(bearer_of(&second), bearer, "each start mints a new bearer");
+    stop(&world, daemon);
+}

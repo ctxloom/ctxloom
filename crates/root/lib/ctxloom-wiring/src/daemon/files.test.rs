@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use file_system::Rooted;
-use run_ports::{Discovery, PublicCert};
+use run_ports::{Discovery, PublicCert, Token};
 
 use super::DaemonFiles;
 use crate::fixtures;
@@ -20,10 +20,11 @@ fn files(_root: &Rooted, home: &std::path::Path) -> DaemonFiles {
 
 fn sample() -> Discovery {
     Discovery {
-        version: "0.1.0".to_string(),
+        stamp: "v0.1.0-abc1234".to_string(),
         pid: 7,
         endpoint: "https://127.0.0.1:4242".to_string(),
         cert: PublicCert::from_der(vec![0x30, 0x00]).unwrap(),
+        bearer: Token::from_bytes([7; 32]),
     }
 }
 

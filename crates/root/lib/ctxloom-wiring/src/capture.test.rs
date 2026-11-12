@@ -404,10 +404,11 @@ async fn a_hook_records_on_its_runs_session_with_no_session_directory() {
 
 fn discovered(endpoint: &str) -> run_ports::Discovery {
     run_ports::Discovery {
-        version: "0.1.0".to_string(),
+        stamp: "v0.1.0-abc1234".to_string(),
         pid: 1,
         endpoint: endpoint.to_string(),
         cert: run_ports::PublicCert::from_env_value(A_CERT).unwrap(),
+        bearer: run_ports::Token::from_bytes([9; 32]),
     }
 }
 

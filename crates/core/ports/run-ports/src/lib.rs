@@ -35,6 +35,7 @@ pub use child::{
 };
 pub use discovery::{
     Discovery, DAEMON_CERT_LIFETIME_SECONDS, DAEMON_DIR, DAEMON_LOCK_FILE, DISCOVERY_FILE,
+    DISCOVERY_FORMAT,
 };
 pub use edge::{Arrival, Edge, SyncAnswered, Unserved};
 pub use engine::{

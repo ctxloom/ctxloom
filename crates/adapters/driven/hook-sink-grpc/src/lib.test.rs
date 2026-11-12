@@ -18,6 +18,9 @@ use hook_tls::{Clock, Minter, SystemClock};
 use run_ports::{Bearer, CertMint, CertNames, Delivery, FactSink, HookCertificate, Token};
 use tonic::transport::{Identity, ServerTlsConfig};
 use tonic::{Request, Response, Status};
+use tonic_health::pb::health_server::HealthServer;
+use tonic_health::server::{HealthReporter, HealthService};
+use tonic_health::ServingStatus;
 
 use super::*;
 
@@ -188,7 +191,7 @@ fn serve_as(answer: Answer, serving: Serving<'_>) -> Running {
 
 /// A fake serving the health check alone, answering `status` (TLS, the
 /// run's certificate).
-fn serve_health(status: i32) -> (Running, Arc<Mutex<Vec<Option<String>>>>) {
+fn serve_health(status: ServingStatus) -> (Running, Arc<Mutex<Vec<Option<String>>>>) {
     let seen = Arc::new(Mutex::new(Vec::new()));
     let health = FakeHealth {
         status,
@@ -197,58 +200,36 @@ fn serve_health(status: i32) -> (Running, Arc<Mutex<Vec<Option<String>>>>) {
     (serve_with(None, Serving::Tls(cert()), Some(health)), seen)
 }
 
-/// `grpc.health.v1.Health`'s Check, by hand (as the sink's client is): it
-/// answers `status` and keeps each call's `authorization` metadata.
-#[derive(Clone)]
+/// tonic-health's own `grpc.health.v1.Health` server, its overall status
+/// `status`, keeping each call's `authorization` metadata.
 struct FakeHealth {
-    status: i32,
+    status: ServingStatus,
     seen: Arc<Mutex<Vec<Option<String>>>>,
 }
 
-impl tonic::server::NamedService for FakeHealth {
-    const NAME: &'static str = "grpc.health.v1.Health";
-}
-
-/// The Check's handler.
-struct Check(i32);
-
-impl tonic::server::UnaryService<health::HealthCheckRequest> for Check {
-    type Response = health::HealthCheckResponse;
-    type Future = tonic::codegen::BoxFuture<Response<health::HealthCheckResponse>, Status>;
-
-    fn call(&mut self, _: Request<health::HealthCheckRequest>) -> Self::Future {
-        let status = self.0;
-        Box::pin(async move { Ok(Response::new(health::HealthCheckResponse { status })) })
-    }
-}
-
-impl tonic::codegen::Service<tonic::codegen::http::Request<tonic::body::Body>> for FakeHealth {
-    type Response = tonic::codegen::http::Response<tonic::body::Body>;
-    type Error = std::convert::Infallible;
-    type Future = tonic::codegen::BoxFuture<Self::Response, Self::Error>;
-
-    fn poll_ready(
-        &mut self,
-        _: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        std::task::Poll::Ready(Ok(()))
-    }
-
-    fn call(&mut self, request: tonic::codegen::http::Request<tonic::body::Body>) -> Self::Future {
-        let auth = request
-            .headers()
-            .get("authorization")
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_string);
-        self.seen.lock().unwrap().push(auth);
-        let status = self.status;
-        Box::pin(async move {
-            let codec =
-                health::Prost::<health::HealthCheckResponse, health::HealthCheckRequest>::default();
-            Ok(tonic::server::Grpc::new(codec)
-                .unary(Check(status), request)
-                .await)
-        })
+impl FakeHealth {
+    /// The server, its overall status set: made on the serving runtime.
+    async fn server(
+        self,
+    ) -> tonic::service::interceptor::InterceptedService<
+        HealthServer<HealthService>,
+        impl tonic::service::Interceptor + Clone,
+    > {
+        let reporter = HealthReporter::new();
+        reporter.set_service_status("", self.status).await;
+        let seen = self.seen;
+        HealthServer::with_interceptor(
+            HealthService::from_health_reporter(reporter),
+            move |request: Request<()>| {
+                let auth = request
+                    .metadata()
+                    .get("authorization")
+                    .and_then(|v| v.to_str().ok())
+                    .map(str::to_string);
+                seen.lock().unwrap().push(auth);
+                Ok(request)
+            },
+        )
     }
 }
 
@@ -284,6 +265,10 @@ fn serve_with(answer: Option<Answer>, serving: Serving<'_>, health: Option<FakeH
         ready_tx.send(()).unwrap();
         let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
         runtime.block_on(async {
+            let health = match health {
+                Some(health) => Some(health.server().await),
+                None => None,
+            };
             let mut builder = tonic::transport::Server::builder();
             if let Some(identity) = tls {
                 builder = builder
@@ -316,9 +301,20 @@ fn serve_with(answer: Option<Answer>, serving: Serving<'_>, health: Option<FakeH
 
 const BUDGET: Duration = Duration::from_secs(5);
 
-/// The health check's SERVING and NOT_SERVING.
-const SERVING: i32 = 1;
-const NOT_SERVING: i32 = 2;
+const SERVING: ServingStatus = ServingStatus::Serving;
+const NOT_SERVING: ServingStatus = ServingStatus::NotServing;
+
+// The health check is tonic-health's (the owner, after step 3/4): its
+// messages and client, never a hand-written copy of them.
+#[test]
+fn the_health_check_is_tonic_healths_not_a_hand_written_one() {
+    let lib = include_str!("lib.rs");
+    assert!(
+        !lib.contains("mod health;"),
+        "no hand-written health module"
+    );
+    assert!(lib.contains("tonic_health"), "the client is tonic-health's");
+}
 
 // T16, M11: liveness is the standard health check over the pinned
 // certificate, and presents no bearer.

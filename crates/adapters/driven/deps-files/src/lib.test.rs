@@ -1,10 +1,10 @@
 //! The project's files over a rooted filesystem.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Arc;
 
-use deps_ports::{BundleSlot, CachePath, CopyOutcome, DepsFiles, RepoFile, RepoTree};
+use deps_ports::{BundleSlot, CachePath, CopyOutcome, DepsFiles, RepoTree};
 use file_system::{Fs, Rooted};
 use os::Mode;
 
@@ -26,28 +26,6 @@ fn host_path(path: &str) -> String {
 /// none.
 fn kept(bits: u32) -> Option<u32> {
     (os::host().flavor() == os::Flavor::Unix).then_some(bits)
-}
-
-/// `read` is `want`: the same files with the same bytes, and the same
-/// execute bits where the host keeps them (unix). Elsewhere every file reads
-/// back as one the host would run, so the bits are not compared, and the
-/// test says so: `SKIP <test> (its execute bits): <why>`.
-fn assert_same_tree(read: &RepoTree, want: &RepoTree) {
-    if os::host().flavor() == os::Flavor::Unix {
-        assert_eq!(read, want);
-        return;
-    }
-    let test = std::thread::current();
-    eprintln!(
-        "SKIP {} (its execute bits): the host keeps none, every file is one it would run",
-        test.name().unwrap_or("a test")
-    );
-    let bytes = |tree: &RepoTree| -> BTreeMap<String, Vec<u8>> {
-        tree.iter()
-            .map(|(path, file)| (path.clone(), file.data.clone()))
-            .collect()
-    };
-    assert_eq!(bytes(read), bytes(want));
 }
 
 fn cache_path(path: &str) -> CachePath {
@@ -82,26 +60,23 @@ fn put(fs: &Rooted, path: &str, text: &str) {
         .expect("a file");
 }
 
-fn tree(files: &[(&str, &str, bool)]) -> RepoTree {
+fn tree(files: &[(&str, &str)]) -> RepoTree {
     files
         .iter()
-        .map(|(path, text, executable)| {
-            (
-                path.to_string(),
-                RepoFile {
-                    data: text.as_bytes().to_vec(),
-                    executable: *executable,
-                },
-            )
-        })
+        .map(|(path, text)| (path.to_string(), text.as_bytes().to_vec()))
         .collect()
+}
+
+/// Nothing written executable.
+fn none() -> BTreeSet<String> {
+    BTreeSet::new()
 }
 
 fn demo_tree(text: &str) -> RepoTree {
     tree(&[
-        ("bundle.yaml", "version: 1\n", false),
-        ("fragments/a.md", text, false),
-        ("scripts/run.sh", "#!/bin/sh\n", true),
+        ("bundle.yaml", "version: 1\n"),
+        ("fragments/a.md", text),
+        ("scripts/run.sh", "#!/bin/sh\n"),
     ])
 }
 
@@ -162,12 +137,12 @@ fn test_a_file_that_cannot_be_read_is_an_error_not_an_absence() {
 }
 
 #[test]
-fn test_an_installed_tree_is_read_back_with_its_modes_and_without_its_marker() {
+fn test_an_installed_tree_is_read_back_without_its_marker() {
     let (files, _) = files();
     assert!(!files.is_installed(&slot(IDENTITY), SHA));
     assert_eq!(files.read_installed(&slot(IDENTITY), SHA), Ok(None));
     files
-        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"))
+        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"), &none())
         .expect("installs");
     assert!(files.is_installed(&slot(IDENTITY), SHA));
     assert!(!files.is_installed(&slot(IDENTITY), NEXT));
@@ -175,7 +150,7 @@ fn test_an_installed_tree_is_read_back_with_its_modes_and_without_its_marker() {
         .read_installed(&slot(IDENTITY), SHA)
         .expect("reads")
         .expect("a tree");
-    assert_same_tree(&read, &demo_tree("A\n"));
+    assert_eq!(&read, &demo_tree("A\n"));
     assert!(!read.contains_key(IDENTITY_MARKER));
     assert_eq!(
         files.installed_path(&slot(IDENTITY), SHA),
@@ -185,18 +160,44 @@ fn test_an_installed_tree_is_read_back_with_its_modes_and_without_its_marker() {
     );
 }
 
+// Owner ruling 2026-11-12: the files the application names (its sidecars'
+// declaration) are written executable, a convenience for running them; the
+// rest are not, and no mode is read back.
+#[test]
+fn test_an_install_writes_executable_the_files_it_is_told_and_no_others() {
+    let (files, fs) = files();
+    let told: BTreeSet<String> = ["scripts/run.sh".to_string()].into();
+    files
+        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"), &told)
+        .expect("installs");
+    let mode = |rel: &str| {
+        fs.metadata(Path::new(&format!(
+            "/proj/.ctxloom/cache/bundles/example.test/o/r/demo/{SHA}/{rel}"
+        )))
+        .expect("written")
+        .mode
+        .map(|m| m.bits() & 0o777)
+    };
+    assert_eq!(mode("scripts/run.sh"), kept(0o755));
+    assert_eq!(mode("fragments/a.md"), kept(0o644));
+    assert_eq!(
+        files.read_installed(&slot(IDENTITY), SHA),
+        Ok(Some(demo_tree("A\n")))
+    );
+}
+
 #[test]
 fn test_installing_a_new_commit_replaces_what_was_installed_for_the_identity() {
     let (files, _) = files();
     files
-        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"))
+        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"), &none())
         .expect("installs");
     let other = "ctxloom+git://example.test/o/r//bundles/other";
     files
-        .install(&slot(other), SHA, &demo_tree("O\n"))
+        .install(&slot(other), SHA, &demo_tree("O\n"), &none())
         .expect("installs");
     files
-        .install(&slot(IDENTITY), NEXT, &demo_tree("B\n"))
+        .install(&slot(IDENTITY), NEXT, &demo_tree("B\n"), &none())
         .expect("installs");
     assert!(
         !files.is_installed(&slot(IDENTITY), SHA),
@@ -209,13 +210,13 @@ fn test_installing_a_new_commit_replaces_what_was_installed_for_the_identity() {
     );
     // Installing again at the same commit replaces its contents.
     files
-        .install(&slot(IDENTITY), NEXT, &demo_tree("C\n"))
+        .install(&slot(IDENTITY), NEXT, &demo_tree("C\n"), &none())
         .expect("installs");
     let read = files
         .read_installed(&slot(IDENTITY), NEXT)
         .expect("reads")
         .expect("a tree");
-    assert_eq!(read["fragments/a.md"].data, b"C\n");
+    assert_eq!(read["fragments/a.md"], b"C\n");
 }
 
 // The application works the place out of the address; the adapter keeps a
@@ -229,14 +230,14 @@ fn test_a_tree_is_kept_exactly_under_the_segments_it_is_handed() {
         bundle: cache_path("team/rules"),
     };
     files
-        .install(&handed, SHA, &demo_tree("A\n"))
+        .install(&handed, SHA, &demo_tree("A\n"), &none())
         .expect("installs");
     let at = format!("/proj/.ctxloom/cache/bundles/srv/r/team/rules/{SHA}");
     assert!(files.exists(&format!("{at}/bundle.yaml")));
     assert!(files.exists(&format!("{at}/{IDENTITY_MARKER}")));
     assert!(files.is_installed(&handed, SHA));
     assert_eq!(files.installed_path(&handed, SHA), host_path(&at));
-    assert_same_tree(
+    assert_eq!(
         &files
             .read_installed(&handed, SHA)
             .expect("reads")
@@ -259,13 +260,13 @@ fn test_pruning_removes_what_the_lock_does_not_name_and_says_which_identities_we
     let other = "ctxloom+git://example.test/o/r//bundles/other";
     let third = "ctxloom+git://example.test/p/q//bundles/third";
     files
-        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"))
+        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"), &none())
         .expect("installs");
     files
-        .install(&slot(other), SHA, &demo_tree("O\n"))
+        .install(&slot(other), SHA, &demo_tree("O\n"), &none())
         .expect("installs");
     files
-        .install(&slot(third), SHA, &demo_tree("T\n"))
+        .install(&slot(third), SHA, &demo_tree("T\n"), &none())
         .expect("installs");
     let gone = files
         .prune(&[(IDENTITY.to_string(), SHA.to_string())])
@@ -283,7 +284,7 @@ fn test_pruning_removes_what_the_lock_does_not_name_and_says_which_identities_we
 fn test_pruning_a_commit_of_a_kept_identity_removes_it_without_naming_the_identity() {
     let (files, fs) = files();
     files
-        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"))
+        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"), &none())
         .expect("installs");
     // A second tree of the same identity, as a half-finished move would leave.
     let beside = format!("/proj/.ctxloom/cache/bundles/example.test/o/r/demo/{NEXT}");
@@ -447,7 +448,7 @@ fn test_a_copy_onto_the_bundles_own_directory_is_refused() {
 fn test_a_commit_is_named_by_its_abbreviation_too() {
     let (files, fs) = files();
     files
-        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"))
+        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"), &none())
         .expect("installs");
     let short = "/proj/.ctxloom/cache/bundles/example.test/o/r/demo/abc1234";
     put(&fs, &format!("{short}/bundle.yaml"), "v: 2\n");
@@ -463,7 +464,7 @@ fn test_a_commit_is_named_by_its_abbreviation_too() {
 fn test_pruning_everything_leaves_the_cache_root() {
     let (files, _) = files();
     files
-        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"))
+        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"), &none())
         .expect("installs");
     let gone = files.prune(&[]).expect("prunes");
     assert_eq!(gone, vec![IDENTITY.to_string()]);
@@ -502,7 +503,7 @@ fn test_installing_a_commit_replaces_the_trees_of_other_commits_by_any_abbreviat
         IDENTITY,
     );
     files
-        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"))
+        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"), &none())
         .expect("installs");
     assert!(!files.exists(&format!("{base}/abc1234")));
     assert!(

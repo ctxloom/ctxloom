@@ -141,8 +141,7 @@ fn test_a_forced_pull_reinstalls_each_reference_at_its_pin() {
         .installed_at(&demo_ref(), &sha)
         .expect("the pinned tree");
     assert!(
-        String::from_utf8_lossy(&tree["fragments/demo-frag.md"].data)
-            .contains("Demo fragment content.")
+        String::from_utf8_lossy(&tree["fragments/demo-frag.md"]).contains("Demo fragment content.")
     );
 }
 
@@ -774,19 +773,15 @@ fn test_a_profile_naming_the_built_in_bundle_pulls_nothing() {
 // skills' sidecars declare, never the mode a publisher committed.
 #[test]
 fn test_the_disclosure_takes_executability_from_the_sidecar_alone() {
-    use deps_ports::{RepoFile, RepoTree};
-    let file = |data: &str, executable: bool| RepoFile {
-        data: data.as_bytes().to_vec(),
-        executable,
-    };
+    use deps_ports::RepoTree;
     let tree: RepoTree = [
-        ("bundle.yaml", file(ENVELOPE.1, false)),
-        ("skills/s/SKILL.md", file("---\nname: s\n---\n", true)),
-        ("skills/s/go", file("#!/bin/sh\n", false)),
-        ("skills/.s.meta.yaml", file("executable:\n  - go\n", false)),
+        ("bundle.yaml", ENVELOPE.1),
+        ("skills/s/SKILL.md", "---\nname: s\n---\n"),
+        ("skills/s/go", "#!/bin/sh\n"),
+        ("skills/.s.meta.yaml", "executable:\n  - go\n"),
     ]
     .into_iter()
-    .map(|(path, f)| (path.to_string(), f))
+    .map(|(path, text)| (path.to_string(), text.as_bytes().to_vec()))
     .collect();
     let disclosed = super::disclosed(&tree);
     let executable: Vec<&str> = disclosed

@@ -2,7 +2,7 @@
 //! catalog under `<remote>/<bundle>`, a short reference is spelled out, and
 //! a search reaches what the registered remotes publish.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use deps_ports::{Failure, InstalledBundle, RemoteHit, RemoteLibrary, RemoteSearch};
@@ -70,7 +70,6 @@ fn kit() -> InstalledBundle {
         sha: "a".repeat(40),
         path: ".ctxloom/cache/bundles/kit".to_string(),
         files,
-        executable: BTreeSet::new(),
     }
 }
 

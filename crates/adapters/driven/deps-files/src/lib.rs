@@ -100,8 +100,14 @@ impl DepsFiles for ProjectFiles {
         installed::is_installed(self, slot, sha)
     }
 
-    fn install(&self, slot: &BundleSlot, sha: &str, tree: &RepoTree) -> Result<(), Why> {
-        installed::install(self, slot, sha, tree)
+    fn install(
+        &self,
+        slot: &BundleSlot,
+        sha: &str,
+        tree: &RepoTree,
+        executable: &std::collections::BTreeSet<String>,
+    ) -> Result<(), Why> {
+        installed::install(self, slot, sha, tree, executable)
     }
 
     fn installed_path(&self, slot: &BundleSlot, sha: &str) -> String {

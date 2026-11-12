@@ -59,8 +59,13 @@ fn test_the_files_say_where_they_are() {
 fn test_a_prune_names_only_identities_no_tree_of_which_is_kept() {
     let files = FakeFiles::default();
     let tree = RepoTree::new();
-    files.install(&slot("kept"), "a", &tree).expect("installs");
-    files.install(&slot("gone"), "b", &tree).expect("installs");
+    let none = std::collections::BTreeSet::new();
+    files
+        .install(&slot("kept"), "a", &tree, &none)
+        .expect("installs");
+    files
+        .install(&slot("gone"), "b", &tree, &none)
+        .expect("installs");
     // `kept` is locked at a commit other than the installed one.
     let gone = files
         .prune(&[("kept".to_string(), "other".to_string())])

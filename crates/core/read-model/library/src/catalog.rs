@@ -30,10 +30,9 @@ pub struct RemoteOrigin {
     pub url: String,
     /// The commit it is pinned at.
     pub sha: String,
-    /// Its files, by path relative to the bundle.
+    /// Its files, by path relative to the bundle (what is executable is
+    /// its skills' sidecars' to say).
     pub files: std::collections::BTreeMap<String, Vec<u8>>,
-    /// The ones committed executable.
-    pub executable: std::collections::BTreeSet<String>,
 }
 
 /// The bundles of a project.

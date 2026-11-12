@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use ctxloom_ports::{Change, ContentRepo, Failure, TreeFiles};
 use deps_ports::{
     BundleSlot, CopyOutcome, DepsFiles, Endpoint, Forge, ForgeRepo, Opened, PullRequest, Remotes,
-    RepoFile, RepoTree, Repository, Why,
+    RepoTree, Repository, Why,
 };
 
 use crate::Deps;
@@ -20,7 +20,7 @@ pub const BUNDLES: &str = deps_ports::BUNDLES_IN_REPOSITORY;
 #[derive(Clone)]
 struct Commit {
     sha: String,
-    files: BTreeMap<String, (Vec<u8>, bool)>,
+    files: BTreeMap<String, Vec<u8>>,
 }
 
 #[derive(Default)]
@@ -76,17 +76,6 @@ impl FakeRemotes {
 
     /// A commit on `main` that writes `files` over the last one's tree.
     pub fn commit(&self, url: &str, files: &[(&str, &str)]) -> String {
-        self.commit_modes(
-            url,
-            &files
-                .iter()
-                .map(|(p, t)| (*p, *t, false))
-                .collect::<Vec<_>>(),
-        )
-    }
-
-    /// As [`commit`](FakeRemotes::commit), each file with its execute bit.
-    pub fn commit_modes(&self, url: &str, files: &[(&str, &str, bool)]) -> String {
         let mut repos = self.repos();
         let repo = repos.get_mut(url).expect("a served repository");
         let mut tree = repo
@@ -94,8 +83,8 @@ impl FakeRemotes {
             .last()
             .map(|c| c.files.clone())
             .unwrap_or_default();
-        for (path, text, executable) in files {
-            tree.insert((*path).to_string(), (text.as_bytes().to_vec(), *executable));
+        for (path, text) in files {
+            tree.insert((*path).to_string(), text.as_bytes().to_vec());
         }
         let sha = format!("{:040x}", repo.commits.len() + 1);
         repo.commits.push(Commit {
@@ -171,7 +160,7 @@ impl FakeRemotes {
             .find(|c| Some(&c.sha) == repo.branches.get("main"))?;
         tip.files
             .get(path)
-            .map(|(data, _)| String::from_utf8_lossy(data).into_owned())
+            .map(|data| String::from_utf8_lossy(data).into_owned())
     }
 
     fn cloned<T>(&self, url: &str, read: impl FnOnce(&Repo) -> Result<T, Why>) -> Result<T, Why> {
@@ -275,16 +264,9 @@ impl Remotes for FakeRemotes {
             let tree: RepoTree = commit
                 .files
                 .iter()
-                .filter_map(|(path, (data, executable))| {
-                    path.strip_prefix(&prefix).map(|rel| {
-                        (
-                            rel.to_string(),
-                            RepoFile {
-                                data: data.clone(),
-                                executable: *executable,
-                            },
-                        )
-                    })
+                .filter_map(|(path, data)| {
+                    path.strip_prefix(&prefix)
+                        .map(|rel| (rel.to_string(), data.clone()))
                 })
                 .collect();
             Ok((!tree.is_empty()).then_some(tree))
@@ -344,7 +326,7 @@ impl Remotes for FakeRemotes {
             let repo = &repos[url];
             repo.commits.last().is_some_and(|tip| {
                 refs.iter()
-                    .all(|(p, t)| tip.files.get(*p).is_some_and(|(d, _)| d == t.as_bytes()))
+                    .all(|(p, t)| tip.files.get(*p).is_some_and(|d| d == t.as_bytes()))
             })
         };
         if unchanged {
@@ -359,6 +341,8 @@ struct FilesState {
     registry: Option<String>,
     lock: Option<String>,
     installed: BTreeMap<(String, String), RepoTree>,
+    /// The files each install was told to write executable.
+    installed_executable: BTreeMap<(String, String), BTreeSet<String>>,
     local: BTreeMap<String, BTreeMap<String, Vec<u8>>>,
     directories: BTreeSet<String>,
     placed: BTreeMap<String, BTreeMap<String, Vec<u8>>>,
@@ -438,6 +422,15 @@ impl FakeFiles {
             .cloned()
     }
 
+    /// The files the install of `identity` at `sha` wrote executable.
+    pub fn installed_executable(&self, identity: &str, sha: &str) -> BTreeSet<String> {
+        self.state()
+            .installed_executable
+            .get(&(identity.to_string(), sha.to_string()))
+            .cloned()
+            .unwrap_or_default()
+    }
+
     pub fn installed_identities(&self) -> Vec<(String, String)> {
         self.state().installed.keys().cloned().collect()
     }
@@ -485,16 +478,22 @@ impl DepsFiles for FakeFiles {
         self.installed_at(&slot.identity, sha).is_some()
     }
 
-    fn install(&self, slot: &BundleSlot, sha: &str, tree: &RepoTree) -> Result<(), Why> {
+    fn install(
+        &self,
+        slot: &BundleSlot,
+        sha: &str,
+        tree: &RepoTree,
+        executable: &BTreeSet<String>,
+    ) -> Result<(), Why> {
         let identity = &slot.identity;
         let mut state = self.state();
         if state.fail_install {
             return Err("disk full".to_string());
         }
         state.installed.retain(|(i, _), _| i != identity);
-        state
-            .installed
-            .insert((identity.to_string(), sha.to_string()), tree.clone());
+        let key = (identity.to_string(), sha.to_string());
+        state.installed.insert(key.clone(), tree.clone());
+        state.installed_executable.insert(key, executable.clone());
         Ok(())
     }
 

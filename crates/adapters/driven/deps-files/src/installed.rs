@@ -1,8 +1,9 @@
 //! The trees installed from remotes.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use deps_ports::{BundleSlot, RepoFile, RepoTree, Why};
+use deps_ports::{BundleSlot, RepoTree, Why};
 use file_system::Perms;
 use os::Mode;
 
@@ -50,6 +51,7 @@ pub(crate) fn install(
     slot: &BundleSlot,
     sha: &str,
     tree: &RepoTree,
+    executable: &BTreeSet<String>,
 ) -> Result<(), Why> {
     let base = bundle_dir(files, slot);
     files
@@ -63,7 +65,7 @@ pub(crate) fn install(
         .fs
         .make_temp_dir(&base, ".install-")
         .map_err(|e| e.to_string())?;
-    let written = write_tree(files, &staging, &slot.identity, tree);
+    let written = write_tree(files, &staging, &slot.identity, tree, executable);
     if let Err(why) = written {
         let _ = files.fs.remove_dir_all(&staging);
         return Err(why);
@@ -85,8 +87,9 @@ fn write_tree(
     dir: &Path,
     identity: &str,
     tree: &RepoTree,
+    executable: &BTreeSet<String>,
 ) -> Result<(), Why> {
-    for (path, file) in tree {
+    for (path, data) in tree {
         let at = dir.join(path);
         if let Some(parent) = at.parent() {
             files
@@ -94,10 +97,15 @@ fn write_tree(
                 .create_dir_all(parent, Mode::from_bits(0o755))
                 .map_err(|e| e.to_string())?;
         }
-        let mode = if file.executable { 0o755 } else { 0o644 };
+        // A convenience for running them, never read back as the truth.
+        let mode = if executable.contains(path) {
+            0o755
+        } else {
+            0o644
+        };
         files
             .fs
-            .write_atomic(&at, &file.data, Perms::Exact(Mode::from_bits(mode)))
+            .write_atomic(&at, data, Perms::Exact(Mode::from_bits(mode)))
             .map_err(|e| e.to_string())?;
     }
     files
@@ -158,14 +166,8 @@ fn collect(files: &ProjectFiles, top: &Path, dir: &Path, tree: &mut RepoTree) ->
                 if relative == IDENTITY_MARKER {
                     continue;
                 }
-                let meta = files.fs.metadata(&path).map_err(|e| e.to_string())?;
-                tree.insert(
-                    relative,
-                    RepoFile {
-                        data: files.fs.read(&path).map_err(|e| e.to_string())?,
-                        executable: meta.executable,
-                    },
-                );
+                // No mode is read back (owner ruling 2026-11-12).
+                tree.insert(relative, files.fs.read(&path).map_err(|e| e.to_string())?);
             }
             _ => {}
         }

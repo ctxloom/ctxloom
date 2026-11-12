@@ -263,7 +263,7 @@ fn test_a_branch_is_its_remote_tracking_tip_whatever_the_clone_has_checked_out()
         .read_bundle(&repo(&origin.url()), &second, "demo")
         .expect("reads")
         .expect("a bundle");
-    assert_eq!(tree["fragments/a.md"].data, b"A2\n");
+    assert_eq!(tree["fragments/a.md"], b"A2\n");
 }
 
 #[test]
@@ -384,9 +384,10 @@ fn test_the_default_branch_is_what_the_remote_head_points_at_else_main_or_master
     );
 }
 
-// remotetree: a bundle's files with the execute bit the publisher committed
+// remotetree: a bundle's files with their bytes; no committed mode is read
+// (owner ruling 2026-11-12: a skill's sidecar says what is executable).
 #[test]
-fn test_a_bundle_is_read_at_a_commit_with_its_bytes_and_modes() {
+fn test_a_bundle_is_read_at_a_commit_with_its_bytes() {
     let origin = Origin::new();
     let first = demo(&origin);
     let c = cache();
@@ -402,8 +403,7 @@ fn test_a_bundle_is_read_at_a_commit_with_its_bytes_and_modes() {
         paths,
         vec!["bundle.yaml", "fragments/a.md", "scripts/run.sh"]
     );
-    assert_eq!(tree["fragments/a.md"].data, b"A\n");
-    assert!(tree["scripts/run.sh"].executable && !tree["bundle.yaml"].executable);
+    assert_eq!(tree["fragments/a.md"], b"A\n");
     assert_eq!(
         c.remotes
             .read_bundle(&repo(&url), &first, "absent")
@@ -422,13 +422,13 @@ fn test_a_bundle_is_read_at_a_commit_with_its_bytes_and_modes() {
         .read_bundle(&repo(&url), &first, "demo")
         .expect("reads")
         .expect("a bundle");
-    assert_eq!(earlier["fragments/a.md"].data, b"A\n");
+    assert_eq!(earlier["fragments/a.md"], b"A\n");
     let later = c
         .remotes
         .read_bundle(&repo(&url), &second, "demo")
         .expect("reads")
         .expect("a bundle");
-    assert_eq!(later["fragments/a.md"].data, b"A2\n");
+    assert_eq!(later["fragments/a.md"], b"A2\n");
 }
 
 #[test]
@@ -450,7 +450,7 @@ fn test_binary_bytes_survive_and_a_link_is_not_a_file_of_the_tree() {
         .read_bundle(&repo(&origin.url()), &sha, "demo")
         .expect("reads")
         .expect("a bundle");
-    assert_eq!(tree["blob.bin"].data, vec![0u8, 1, 2, 255, b'\n', 0, b'\n']);
+    assert_eq!(tree["blob.bin"], vec![0u8, 1, 2, 255, b'\n', 0, b'\n']);
     assert!(!tree.contains_key("link"));
 }
 

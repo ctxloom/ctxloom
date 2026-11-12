@@ -6,7 +6,7 @@ use deps::address::cache_segments;
 use deps::reference::RemoteRef;
 use std::collections::BTreeMap;
 
-use deps_ports::{BundleSlot, CachePath, Remotes, RepoTree, Repository, Why};
+use deps_ports::{BundleSlot, CachePath, DepsFiles, Remotes, RepoTree, Repository, Why};
 
 /// The repository at `url` and where its clone is cached; why it has no place
 /// if its address names no repository.
@@ -96,6 +96,19 @@ pub(crate) fn slot_of(identity: &str) -> Result<BundleSlot, Why> {
     let remote = RemoteRef::parse(identity)
         .ok_or_else(|| format!("{identity} is not a remote bundle reference"))?;
     slot(&remote)
+}
+
+/// Install `tree` for `slot` at `sha`, its sidecars' declared files written
+/// executable (owner ruling 2026-11-12: the declaration is the whole of it;
+/// the mode written is a convenience for running them, never read back).
+pub(crate) fn install(
+    files: &dyn DepsFiles,
+    slot: &BundleSlot,
+    sha: &str,
+    tree: &RepoTree,
+) -> Result<(), Why> {
+    let executable = library::write::skill::declared_executables(tree);
+    files.install(slot, sha, tree, &executable)
 }
 
 #[cfg(test)]

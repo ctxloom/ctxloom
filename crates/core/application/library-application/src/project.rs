@@ -283,7 +283,6 @@ impl Library {
                             url: bundle.url,
                             sha: bundle.sha,
                             files: bundle.files,
-                            executable: bundle.executable,
                         },
                     );
                     entries.push(Entry {

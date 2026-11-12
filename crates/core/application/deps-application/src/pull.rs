@@ -202,8 +202,12 @@ impl Deps {
                 pin.hash.get(..7).unwrap_or(&pin.hash)
             ));
         }
-        self.files
-            .install(&cache::slot(&remote)?, &pin.hash, &tree)?;
+        cache::install(
+            self.files.as_ref(),
+            &cache::slot(&remote)?,
+            &pin.hash,
+            &tree,
+        )?;
         Ok(tree)
     }
 
@@ -288,12 +292,8 @@ impl Deps {
 /// sidecar declares it, on every OS, never by the mode a publisher committed
 /// (owner ruling 2026-11-12).
 pub(crate) fn disclosed(tree: &RepoTree) -> Tree {
-    let files: library::tree::Files = tree
-        .iter()
-        .map(|(path, file)| (path.clone(), file.data.clone()))
-        .collect();
-    let declared = library::write::skill::declared_executables(&files);
-    files
+    let declared = library::write::skill::declared_executables(tree);
+    tree.clone()
         .into_iter()
         .map(|(path, data)| {
             let executable = declared.contains(&path);

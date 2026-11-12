@@ -163,7 +163,7 @@ impl Deps {
                 ByAddress(self.remotes.as_ref())
                     .read_bundle(&pin.url, &pin.hash, &remote.bundle)
                     .and_then(|tree| tree.ok_or_else(|| "no such bundle".to_string()))
-                    .and_then(|tree| self.files.install(&slot, &pin.hash, &tree))
+                    .and_then(|tree| cache::install(self.files.as_ref(), &slot, &pin.hash, &tree))
             });
             if let Err(detail) = outcome {
                 notices.push(Notice::with_fix(

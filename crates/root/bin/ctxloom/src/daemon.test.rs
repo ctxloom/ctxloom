@@ -489,3 +489,120 @@ fn a_serving_daemon_advertises_its_stamp_and_a_new_bearer_in_a_private_discovery
     assert_ne!(bearer_of(&second), bearer, "each start mints a new bearer");
     stop(&world, daemon);
 }
+
+/// A daemon started by hand (`daemon serve`) and its discovery file's bytes,
+/// once it has advertised itself.
+fn served(world: &World) -> (std::process::Child, Vec<u8>) {
+    let path = world
+        .project
+        .home()
+        .join(".ctxloom/daemon/daemon.discovery");
+    let daemon = world
+        .project
+        .start_with(&ENV, &["daemon", "serve", "--idle-seconds", "30"]);
+    let bytes = world.until("the discovery file", |_| {
+        files::read_bytes(&path).ok().filter(|b| !b.is_empty())
+    });
+    (daemon, bytes)
+}
+
+/// `daemon`'s exit, waited for at most `within`; none if it still runs.
+fn exited_within(daemon: &mut std::process::Child, within: Duration) -> Option<i32> {
+    let deadline = Instant::now() + within;
+    while Instant::now() < deadline {
+        if let Ok(Some(status)) = daemon.try_wait() {
+            return Some(status.code().unwrap_or(-1));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    None
+}
+
+/// Send `signal` (`-STOP`, `-CONT`) to `pid`.
+fn signal(pid: u32, signal: &str) {
+    let sent = std::process::Command::new("kill")
+        .args([signal, &pid.to_string()])
+        .status()
+        .expect("kill runs");
+    assert!(sent.success(), "kill {signal} {pid}");
+}
+
+// T16, M11: liveness is the health check over the pinned certificate, not
+// the election's lock: a daemon that holds the lock but does not answer
+// (stopped) is not serving.
+#[test]
+fn a_daemon_that_holds_the_election_but_does_not_answer_is_not_serving() {
+    if !files::runs_scripts() {
+        return;
+    }
+    let world = World::new();
+    let (mut daemon, _) = served(&world);
+    assert!(world.serving(), "it answers");
+    signal(daemon.id(), "-STOP");
+    let status = world.run(&["daemon", "status", "--format", "json"]);
+    signal(daemon.id(), "-CONT");
+    assert_eq!(status.code, 0, "{}", status.said());
+    assert_eq!(
+        status.json()["serving"],
+        Value::Bool(false),
+        "{}",
+        status.said()
+    );
+    let _ = world.run(&["daemon", "stop"]);
+    let _ = daemon.wait();
+}
+
+// M11: the lock is the election alone. A daemon whose discovery file is
+// removed still holds the election, so it advertises itself again (it no
+// longer exits for want of one).
+#[test]
+fn a_daemon_whose_discovery_file_is_removed_advertises_itself_again() {
+    let world = World::new();
+    let (mut daemon, first) = served(&world);
+    let path = world
+        .project
+        .home()
+        .join(".ctxloom/daemon/daemon.discovery");
+    files::remove(&path);
+    let again = world.until("the discovery file again", |_| {
+        files::read_bytes(&path).ok().filter(|b| !b.is_empty())
+    });
+    assert_eq!(again, first, "the same daemon, advertised again");
+    assert_eq!(
+        exited_within(&mut daemon, Duration::ZERO),
+        None,
+        "it serves on"
+    );
+    assert!(world.serving());
+    let _ = world.run(&["daemon", "stop"]);
+    let _ = daemon.wait();
+}
+
+// M11: a daemon whose discovery file names ANOTHER daemon has lost the
+// election, so it exits, and leaves the other's file as it is.
+#[test]
+fn a_daemon_whose_discovery_file_names_another_exits_and_leaves_it() {
+    let world = World::new();
+    let (mut daemon, first) = served(&world);
+    let path = world
+        .project
+        .home()
+        .join(".ctxloom/daemon/daemon.discovery");
+    // Another daemon's: the same file with another bearer.
+    let bearer = field(&first, 5).expect("a bearer");
+    let at = first
+        .windows(bearer.len())
+        .position(|w| w == bearer.as_slice())
+        .expect("the bearer's bytes");
+    let mut another = first.clone();
+    another[at] = if another[at] == b'0' { b'1' } else { b'0' };
+    files::put(&path, &another);
+    let code = exited_within(&mut daemon, Duration::from_secs(20));
+    assert_eq!(code, Some(0), "it exits; its log:\n{}", world.log());
+    assert_eq!(
+        files::read_bytes(&path).unwrap(),
+        another,
+        "the other's is left"
+    );
+    assert!(world.log().contains("another daemon"), "{}", world.log());
+}

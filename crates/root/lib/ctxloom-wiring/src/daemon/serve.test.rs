@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use daemon_application::{ChildHomes, Ears, HandOffs};
 use run_ports::{ChildObservation, Exit};
 
-use super::{said, HandOffFiles, Homes, Pumps, Say};
+use super::{advertised, said, Advertised, HandOffFiles, Homes, Pumps, Say};
 use crate::daemon::files::DaemonFiles;
 use crate::fixtures;
 
@@ -86,4 +86,30 @@ fn a_line_said_reaches_the_log() {
     })));
     said(&say, "serving");
     assert_eq!(*lines.lock().unwrap(), ["serving"]);
+}
+
+// M11: the lock is the election alone; the discovery file is how a daemon
+// is found. Its own is left be, one gone is published again (it still holds
+// the election), and another daemon's means this one lost it.
+#[test]
+fn a_daemon_keeps_its_advertisement_republishes_a_gone_one_and_yields_to_anothers() {
+    let own = run_ports::Discovery {
+        stamp: "v0.1.0-abc1234".to_string(),
+        pid: 7,
+        endpoint: "https://127.0.0.1:4242".to_string(),
+        cert: run_ports::PublicCert::from_der(vec![0x30, 0x00]).unwrap(),
+        bearer: run_ports::Token::from_bytes([7; 32]),
+    };
+    assert_eq!(advertised(&own, Some(&own)), Advertised::Ours);
+    assert_eq!(advertised(&own, None), Advertised::Gone);
+    let another = run_ports::Discovery {
+        bearer: run_ports::Token::from_bytes([8; 32]),
+        ..own.clone()
+    };
+    assert_eq!(advertised(&own, Some(&another)), Advertised::Replaced);
+    let moved = run_ports::Discovery {
+        endpoint: "https://127.0.0.1:4343".to_string(),
+        ..own.clone()
+    };
+    assert_eq!(advertised(&own, Some(&moved)), Advertised::Replaced);
 }

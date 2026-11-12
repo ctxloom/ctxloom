@@ -14,7 +14,7 @@ mod files;
 mod serve;
 
 use std::collections::BTreeMap;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -54,6 +54,32 @@ const DAEMON_ENV: [&str; 8] = [
 
 /// How long a client waits for a daemon it spawned to advertise itself.
 const SPAWN_WAIT: Duration = Duration::from_secs(15);
+
+/// S16: how long a hook spends, in all, reaching a daemon (rediscovering
+/// it, or spawning one and waiting) and delivering, before it fails open.
+#[allow(dead_code)] // RED: used once built.
+const HOOK_BOUND: Duration = Duration::from_secs(10);
+
+/// What a delivery is left of [`HOOK_BOUND`] after the longest spawn wait.
+#[allow(dead_code)] // RED: used once built.
+const DELIVERY_MARGIN: Duration = Duration::from_secs(2);
+
+/// The environment a spawned daemon is given of its spawner's `vars`
+/// (D-N45): what it needs to run, named as `flavor` compares names (so
+/// Windows' `Path` is `PATH`), and ctxloom's `home` as the spawner resolved
+/// it. Nothing else of the spawner's crosses: a child's environment is its
+/// launcher's (S6).
+fn daemon_env<N: AsRef<OsStr>, V: AsRef<OsStr>>(
+    flavor: os::Flavor,
+    vars: impl IntoIterator<Item = (N, V)>,
+    home: &Path,
+) -> Vec<(OsString, OsString)> {
+    let _ = (flavor, home);
+    vars.into_iter()
+        .filter(|(name, _)| DAEMON_ENV.iter().any(|kept| name.as_ref() == *kept))
+        .map(|(name, value)| (name.as_ref().to_os_string(), value.as_ref().to_os_string()))
+        .collect()
+}
 
 /// The variable a client passes on as the spawned daemon's idle time, in
 /// seconds (the tests' short one).
@@ -488,9 +514,7 @@ fn ensure(wiring: &Wiring, env: &EnvSnapshot) {
     // The daemon's own environment is what it needs to run, nothing more: a
     // child's is its launcher's (S6, D-N45), so no spawner's credential
     // lives in the daemon.
-    let kept = env
-        .vars()
-        .filter(|(name, _)| DAEMON_ENV.iter().any(|kept| name == kept));
+    let kept = daemon_env(env.flavor(), env.vars(), wiring.home());
     command
         .env_clear()
         .envs(kept)
@@ -549,3 +573,7 @@ pub(crate) fn child_plan(
         .result
         .map_err(|e| code(&e))
 }
+
+#[cfg(test)]
+#[path = "mod.test.rs"]
+mod tests;

@@ -264,6 +264,27 @@ async fn run<E: run_ports::Edge, T: run_ports::TokenSource>(
     }
 }
 
+/// What a serving daemon's discovery file says of it, at a tick.
+#[allow(dead_code)] // RED: used once built.
+#[derive(Debug, PartialEq, Eq)]
+enum Advertised {
+    /// Its own advertisement: nothing to do.
+    Ours,
+    /// None (removed, or its home's directory removed): it advertises
+    /// itself again, since it still holds the election.
+    Gone,
+    /// Another daemon's: it lost the election (its lock file was replaced),
+    /// so it exits.
+    Replaced,
+}
+
+/// What `found` (the file now) is to the daemon that advertised `own`.
+#[allow(dead_code)] // RED: used once built.
+fn advertised(own: &Discovery, found: Option<&Discovery>) -> Advertised {
+    let _ = (own, found);
+    Advertised::Ours
+}
+
 /// A child's plan: its project's dry run, as a ctxloom process in that
 /// project would make it (`child_plan`).
 struct Plans {

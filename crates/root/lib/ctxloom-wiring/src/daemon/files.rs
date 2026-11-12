@@ -107,6 +107,13 @@ impl DaemonFiles {
         let _ = self.fs.remove_file(&self.path(DISCOVERY_FILE));
     }
 
+    /// Withdraw the advertisement only while it is still `own`: a daemon
+    /// whose file another daemon's replaced leaves that one's alone.
+    #[allow(dead_code)] // RED: used once built.
+    pub(crate) fn withdraw_own(&self, own: &Discovery) {
+        let _ = own;
+    }
+
     /// Ask the daemon to drain and exit.
     pub(crate) fn request_stop(&self) -> std::io::Result<()> {
         self.fs

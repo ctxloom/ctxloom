@@ -63,6 +63,25 @@ fn the_discovery_is_published_private_and_withdrawn() {
     files.withdraw();
 }
 
+// M11: a daemon that exits takes its own advertisement down, and never one
+// another daemon published over it.
+#[test]
+fn a_daemon_withdraws_its_own_advertisement_and_never_anothers() {
+    let (root, home) = home();
+    let files = files(&root, &home);
+    let other = Discovery {
+        pid: 8,
+        bearer: Token::from_bytes([8; 32]),
+        ..sample()
+    };
+    files.publish(&sample()).unwrap();
+    files.withdraw_own(&other);
+    assert_eq!(files.discovery(), Some(sample()), "another's is left");
+    files.withdraw_own(&sample());
+    assert_eq!(files.discovery(), None, "its own is withdrawn");
+    files.withdraw_own(&sample());
+}
+
 // The election's lock makes the directory first, with the default mode: the
 // publish holds it to 0700 all the same.
 #[test]

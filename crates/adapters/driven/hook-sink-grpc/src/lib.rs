@@ -32,6 +32,16 @@
 //!
 //! The bearer is a secret: the sink's `Debug` withholds it, and every detail
 //! it produces has the bearer's text scrubbed out.
+//!
+//! [`serving`] is the liveness of a listener (T16): the standard
+//! `grpc.health.v1.Health` Check, over the same pinned certificate, presenting
+//! no bearer (angzarr's server answers it outside its gate). A listener
+//! whose certificate is not the pinned one never hears a call, so a stale
+//! port another process took is never handed anything.
+
+// RED: used by `serving` once it is built.
+#[allow(dead_code)]
+mod health;
 
 use std::fmt;
 use std::time::Duration;
@@ -246,6 +256,16 @@ fn chain(error: &dyn std::error::Error) -> String {
         source = cause.source();
     }
     text
+}
+
+/// Whether the listener at the URL `endpoint` answers the standard health
+/// check SERVING within `within`, over TLS pinning `cert` as its sole root.
+/// No bearer is presented. Anything else (no connection, another
+/// certificate, no health service, NOT_SERVING, the deadline passing) is
+/// not serving.
+pub fn serving(endpoint: &str, cert: &PublicCert, within: Duration) -> bool {
+    let _ = (endpoint, cert, within);
+    false
 }
 
 #[cfg(test)]

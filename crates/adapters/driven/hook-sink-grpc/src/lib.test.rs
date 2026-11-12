@@ -183,6 +183,76 @@ fn serve(answer: Answer) -> Running {
 }
 
 fn serve_as(answer: Answer, serving: Serving<'_>) -> Running {
+    serve_with(Some(answer), serving, None)
+}
+
+/// A fake serving the health check alone, answering `status` (TLS, the
+/// run's certificate).
+fn serve_health(status: i32) -> (Running, Arc<Mutex<Vec<Option<String>>>>) {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let health = FakeHealth {
+        status,
+        seen: Arc::clone(&seen),
+    };
+    (serve_with(None, Serving::Tls(cert()), Some(health)), seen)
+}
+
+/// `grpc.health.v1.Health`'s Check, by hand (as the sink's client is): it
+/// answers `status` and keeps each call's `authorization` metadata.
+#[derive(Clone)]
+struct FakeHealth {
+    status: i32,
+    seen: Arc<Mutex<Vec<Option<String>>>>,
+}
+
+impl tonic::server::NamedService for FakeHealth {
+    const NAME: &'static str = "grpc.health.v1.Health";
+}
+
+/// The Check's handler.
+struct Check(i32);
+
+impl tonic::server::UnaryService<health::HealthCheckRequest> for Check {
+    type Response = health::HealthCheckResponse;
+    type Future = tonic::codegen::BoxFuture<Response<health::HealthCheckResponse>, Status>;
+
+    fn call(&mut self, _: Request<health::HealthCheckRequest>) -> Self::Future {
+        let status = self.0;
+        Box::pin(async move { Ok(Response::new(health::HealthCheckResponse { status })) })
+    }
+}
+
+impl tonic::codegen::Service<tonic::codegen::http::Request<tonic::body::Body>> for FakeHealth {
+    type Response = tonic::codegen::http::Response<tonic::body::Body>;
+    type Error = std::convert::Infallible;
+    type Future = tonic::codegen::BoxFuture<Self::Response, Self::Error>;
+
+    fn poll_ready(
+        &mut self,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, request: tonic::codegen::http::Request<tonic::body::Body>) -> Self::Future {
+        let auth = request
+            .headers()
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
+        self.seen.lock().unwrap().push(auth);
+        let status = self.status;
+        Box::pin(async move {
+            let codec =
+                health::Prost::<health::HealthCheckResponse, health::HealthCheckRequest>::default();
+            Ok(tonic::server::Grpc::new(codec)
+                .unary(Check(status), request)
+                .await)
+        })
+    }
+}
+
+fn serve_with(answer: Option<Answer>, serving: Serving<'_>, health: Option<FakeHealth>) -> Running {
     let tls = match serving {
         Serving::Tls(cert) => Some(Identity::from_pem(cert.public().to_pem(), cert.key_pem())),
         Serving::Plain => None,
@@ -193,11 +263,11 @@ fn serve_as(answer: Answer, serving: Serving<'_>) -> Running {
     let (stop, stopped) = mpsc::channel::<()>();
     let (ready_tx, ready) = mpsc::channel();
     let (url_tx, url_rx) = mpsc::channel();
-    let fake = Fake {
+    let fake = answer.map(|answer| Fake {
         answer,
         seen: Arc::clone(&seen),
         arrived: arrived_tx,
-    };
+    });
     let thread = std::thread::spawn(move || {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -221,7 +291,8 @@ fn serve_as(answer: Answer, serving: Serving<'_>) -> Running {
                     .unwrap();
             }
             let server = builder
-                .add_service(CommandHandlerCoordinatorServiceServer::new(fake))
+                .add_optional_service(fake.map(CommandHandlerCoordinatorServiceServer::new))
+                .add_optional_service(health)
                 .serve_with_incoming(incoming);
             let stopped = async move {
                 let _ = tokio::task::spawn_blocking(move || stopped.recv()).await;
@@ -244,6 +315,65 @@ fn serve_as(answer: Answer, serving: Serving<'_>) -> Running {
 }
 
 const BUDGET: Duration = Duration::from_secs(5);
+
+/// The health check's SERVING and NOT_SERVING.
+const SERVING: i32 = 1;
+const NOT_SERVING: i32 = 2;
+
+// T16, M11: liveness is the standard health check over the pinned
+// certificate, and presents no bearer.
+#[test]
+fn a_listener_answering_serving_over_the_pinned_certificate_serves() {
+    let (server, seen) = serve_health(SERVING);
+    assert!(serving(&server.url, cert().public(), BUDGET));
+    assert_eq!(*seen.lock().unwrap(), vec![None], "no bearer is presented");
+}
+
+#[test]
+fn a_listener_answering_not_serving_does_not_serve() {
+    let (server, _) = serve_health(NOT_SERVING);
+    assert!(!serving(&server.url, cert().public(), BUDGET));
+}
+
+#[test]
+fn a_listener_whose_certificate_is_not_the_pinned_one_does_not_serve_and_hears_nothing() {
+    let (server, seen) = serve_health(SERVING);
+    assert!(!serving(&server.url, own_cert().public(), BUDGET));
+    assert!(seen.lock().unwrap().is_empty(), "no call reached it");
+}
+
+#[test]
+fn a_port_nobody_listens_on_does_not_serve() {
+    assert!(!serving(&closed_url(), own_cert().public(), BUDGET));
+}
+
+#[test]
+fn a_listener_with_no_health_service_does_not_serve() {
+    let server = serve(Answer::Result(DeliveryOutcome::Applied));
+    assert!(!serving(&server.url, cert().public(), BUDGET));
+}
+
+#[test]
+fn a_plaintext_endpoint_is_never_checked() {
+    let (server, seen) = serve_health(SERVING);
+    let plain = server.url.replace("https://", "http://");
+    assert!(!serving(&plain, cert().public(), BUDGET));
+    assert!(seen.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_listener_that_never_answers_is_not_serving_once_the_deadline_passes() {
+    // A TLS port that accepts and never completes a handshake.
+    let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("https://127.0.0.1:{}", silent.local_addr().unwrap().port());
+    let started = Instant::now();
+    assert!(!serving(
+        &url,
+        own_cert().public(),
+        Duration::from_millis(300)
+    ));
+    assert!(started.elapsed() < Duration::from_secs(3), "bounded");
+}
 
 #[test]
 fn an_applied_fact_is_applied_and_carries_the_bearer() {

@@ -686,7 +686,7 @@ a full commit. The angzarr pins are one line, one per family member:
 - angzarr-build `7547415e` (the markup generator, `angzarr-build` and
   `angzarr-codegen`, its own repository);
 - angzarr-platform `f9f1c7cb`;
-- taskloom's crates `096a3dbb` and ctxloom-lib's `e0ac4a08`, built on the
+- taskloom's crates `096a3dbb` and ctxloom-lib's `d7e783a9`, built on the
   same line,
 
 so moving one moves all. The lock holds one of every angzarr crate. The platform crates (`os`, `file-system`, `file-lock`) are

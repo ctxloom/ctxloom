@@ -479,6 +479,11 @@ fn test_notices_are_said_as_a_json_line_or_as_words_with_their_fix() {
     assert_eq!(json.code(), 0);
     let line: serde_json::Value = serde_json::from_str(json.err.trim_end()).unwrap();
     assert_eq!(line["prog"], "ctxloom");
+    // The line names the notice's own code (ctxloom-lib d7e783a).
+    assert!(
+        line["code"].as_str().is_some_and(|code| !code.is_empty()),
+        "{line}"
+    );
     assert!(line["warning"]
         .as_str()
         .unwrap()

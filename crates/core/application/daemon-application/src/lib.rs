@@ -31,3 +31,7 @@ pub use run_launcher::{Sweeper, Swept};
 #[cfg(test)]
 #[path = "daemon.test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "hosted.test.rs"]
+mod hosted;

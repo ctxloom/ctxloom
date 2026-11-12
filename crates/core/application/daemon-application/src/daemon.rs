@@ -117,7 +117,7 @@ pub struct Ports<E: Edge, T: TokenSource> {
 }
 
 /// A message's urgency as a child takes it, within a turn of `turn`.
-fn child_urgency(message: Urgency, turn: TurnUrgency) -> run_ports::Urgency {
+pub(crate) fn child_urgency(message: Urgency, turn: TurnUrgency) -> run_ports::Urgency {
     match (message, turn) {
         (Urgency::Inform, _) => run_ports::Urgency::Inform,
         (_, TurnUrgency::Steer) | (Urgency::Steer, _) => run_ports::Urgency::Steer,
@@ -129,6 +129,20 @@ fn child_urgency(message: Urgency, turn: TurnUrgency) -> run_ports::Urgency {
 fn root_of(text: &str) -> Uuid {
     let id = uuid::Uuid::parse_str(text).unwrap_or_default();
     Uuid::from_bytes(*id.as_bytes())
+}
+
+/// Whether a catch-up's step handed anything.
+fn handed(step: &Result<Option<angzarr_embedded::Caught>, angzarr_embedded::KernelError>) -> bool {
+    matches!(step, Ok(Some(caught)) if !caught.handed().is_empty())
+}
+
+/// Whether either catch-up was handed anything: the store changed.
+// Equivalent under `&&`: the board and the pending messages fold the same
+// sources (sessions, runs), so either is handed a book exactly when the
+// other is.
+#[cfg_attr(test, mutants::skip)]
+fn any_handed(board: bool, pending: bool) -> bool {
+    board || pending
 }
 
 fn failure_class(class: FailureClass) -> runs::TurnFailureClass {
@@ -251,9 +265,7 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
         let board = self.board.step_if_changed(store, catalog).await;
         let pending = self.pending.step_if_changed(store, catalog).await;
         let _ = self.index.step_if_changed(store, catalog).await;
-        let changed = matches!(board, Ok(Some(ref caught)) if !caught.handed().is_empty())
-            || matches!(pending, Ok(Some(ref caught)) if !caught.handed().is_empty());
-        if changed {
+        if any_handed(handed(&board), handed(&pending)) {
             self.refused.clear();
         }
         for (project_id, step) in self.plan() {

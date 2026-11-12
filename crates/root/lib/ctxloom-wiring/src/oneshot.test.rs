@@ -53,16 +53,20 @@ mod told {
         }
     }
 
-    const PROJECT: &str = "/work/proj";
+    /// `path`, absolute and spelled the unix way, as the host spells it
+    /// (`C:\\work\\proj` on Windows): the fixture's paths are the host's.
+    fn at(path: &str) -> String {
+        os::host().flavor().from_top(path)
+    }
 
     fn world() -> (Arc<Rooted>, Environment) {
-        let fs = Arc::new(Rooted::temp_with_cwd(Path::new(PROJECT)).unwrap());
-        fs.create_dir_all(Path::new(PROJECT), Mode::from_bits(0o755))
+        let fs = Arc::new(Rooted::temp_with_cwd(Path::new(&at("/work/proj"))).unwrap());
+        fs.create_dir_all(Path::new(&at("/work/proj")), Mode::from_bits(0o755))
             .unwrap();
-        fs.create_dir_all(Path::new("/home/u"), Mode::from_bits(0o755))
+        fs.create_dir_all(Path::new(&at("/home/u")), Mode::from_bits(0o755))
             .unwrap();
         let env = Environment {
-            home: Some("/home/u".into()),
+            home: Some(at("/home/u").into()),
             root: None,
             project_id: None,
         };
@@ -90,12 +94,12 @@ mod told {
         let (fs, env) = world();
         let project = tell_project(fs.clone(), env, Scripted(["jolly-mute-magma"].into())).unwrap();
         assert_eq!(project.id, "jolly-mute-magma");
-        assert_eq!(project.root.as_deref(), Some(PROJECT));
+        assert_eq!(project.root.as_deref(), Some(at("/work/proj").as_str()));
         assert_eq!(
-            text(&fs, "/work/proj/.ctxloom/project-id").as_deref(),
+            text(&fs, &at("/work/proj/.ctxloom/project-id")).as_deref(),
             Some("jolly-mute-magma\n")
         );
-        assert!(!fs.exists(Path::new("/work/proj/.project-id")).unwrap());
+        assert!(!fs.exists(Path::new(&at("/work/proj/.project-id"))).unwrap());
     }
 
     #[test]
@@ -110,22 +114,22 @@ mod told {
         // No second name is scripted: none may be drawn.
         let again = tell_project(fs.clone(), env, Scripted(VecDeque::new())).unwrap();
         assert_eq!(again.id, "jolly-mute-magma");
-        assert!(!fs.exists(Path::new("/work/proj/.project-id")).unwrap());
+        assert!(!fs.exists(Path::new(&at("/work/proj/.project-id"))).unwrap());
     }
 
     #[test]
     fn a_legacy_root_marker_keeps_its_id_and_is_adopted_into_ctxloom() {
         let (fs, env) = world();
-        mark(&fs, "/work/proj/.project-id", "calm-otter");
+        mark(&fs, &at("/work/proj/.project-id"), "calm-otter");
         let project = tell_project(fs.clone(), env, Scripted(VecDeque::new())).unwrap();
         assert_eq!(project.id, "calm-otter");
         assert_eq!(
-            text(&fs, "/work/proj/.ctxloom/project-id").as_deref(),
+            text(&fs, &at("/work/proj/.ctxloom/project-id")).as_deref(),
             Some("calm-otter\n")
         );
         // The root marker is left where it is.
         assert_eq!(
-            text(&fs, "/work/proj/.project-id").as_deref(),
+            text(&fs, &at("/work/proj/.project-id")).as_deref(),
             Some("calm-otter\n")
         );
     }
@@ -133,8 +137,8 @@ mod told {
     #[test]
     fn markers_that_disagree_are_refused_with_the_registrys_code() {
         let (fs, env) = world();
-        mark(&fs, "/work/proj/.project-id", "calm-otter");
-        mark(&fs, "/work/proj/.ctxloom/project-id", "bold-heron");
+        mark(&fs, &at("/work/proj/.project-id"), "calm-otter");
+        mark(&fs, &at("/work/proj/.ctxloom/project-id"), "bold-heron");
         let refused = tell_project(fs, env, Scripted(VecDeque::new())).unwrap_err();
         assert_eq!(refused.code(), "project-registry-marker-conflict");
     }
@@ -689,11 +693,20 @@ mod git_identity {
             .non_empty("PATH")
             .and_then(|p| p.to_str().map(String::from))
             .unwrap_or_default();
-        let env = EnvSnapshot::of([
-            ("HOME", home.to_str().unwrap()),
-            ("PATH", path.as_str()),
-            ("GIT_CONFIG_NOSYSTEM", "1"),
-        ]);
+        // Her home by the host's home variable; on Windows git also needs
+        // the system root to start.
+        let mut pairs = vec![
+            (
+                crate::fixtures::home_var(),
+                home.to_str().unwrap().to_string(),
+            ),
+            ("PATH", path),
+            ("GIT_CONFIG_NOSYSTEM", "1".to_string()),
+        ];
+        if let Some(root) = host.utf8("SYSTEMROOT") {
+            pairs.push(("SYSTEMROOT", root.to_string()));
+        }
+        let env = EnvSnapshot::of(pairs);
         let wiring = Wiring::new(Arc::new(env)).unwrap();
         git_user(&wiring, &project)
     }
@@ -758,7 +771,10 @@ mod bypass_acceptance {
         if let Some(text) = in_home {
             put_mode(home.join(".claude/settings.json"), text, 0o644);
         }
-        let mut pairs = vec![("HOME", home.to_str().unwrap().to_string())];
+        let mut pairs = vec![(
+            crate::fixtures::home_var(),
+            home.to_str().unwrap().to_string(),
+        )];
         if let Some(text) = in_config_dir {
             if let Some(text) = text {
                 put_mode(config.join("settings.json"), text, 0o644);
@@ -831,7 +847,10 @@ mod opencode_recent_models {
         if let Some(text) = in_home {
             put_mode(home.join(".local/state/opencode/model.json"), text, 0o644);
         }
-        let mut pairs = vec![("HOME", home.to_str().unwrap().to_string())];
+        let mut pairs = vec![(
+            crate::fixtures::home_var(),
+            home.to_str().unwrap().to_string(),
+        )];
         if let Some(text) = in_state_home {
             if let Some(text) = text {
                 put_mode(state.join("opencode/model.json"), text, 0o644);
@@ -907,7 +926,7 @@ mod opencode_recent_models {
         let home = dir.root().join("home");
         // A directory where the file would be: there, and unreadable as one.
         mkdirs(home.join(".local/state/opencode/model.json"));
-        let env = EnvSnapshot::of([("HOME", home.to_str().unwrap())]);
+        let env = EnvSnapshot::of([(crate::fixtures::home_var(), home.to_str().unwrap())]);
         let wiring = Wiring::new(Arc::new(env)).unwrap();
         assert_eq!(opencode_recent_models(&wiring), None);
     }

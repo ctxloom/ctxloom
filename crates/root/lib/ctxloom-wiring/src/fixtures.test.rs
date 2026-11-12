@@ -36,6 +36,38 @@ pub(crate) fn runs_scripts() -> bool {
     false
 }
 
+/// The variable the host's user home is read from: `HOME` on unix,
+/// `USERPROFILE` on Windows (`os::Flavor::home_var`). A test's world names its
+/// home by it, so the wiring finds the test's home and never the host's.
+pub(crate) fn home_var() -> &'static str {
+    os::host().flavor().home_var()
+}
+
+/// The variable the host's temporary directory is read from first
+/// (`std::env::temp_dir`): `TMPDIR` on unix, `TMP` on Windows.
+pub(crate) fn temp_var() -> &'static str {
+    match os::host().flavor() {
+        os::Flavor::Unix => "TMPDIR",
+        os::Flavor::Windows => "TMP",
+    }
+}
+
+/// Whether this host lets a process remove its own working directory: unix
+/// does, Windows refuses while any process is in it ("being used by another
+/// process"). Elsewhere the asking test is skipped and says so on stderr,
+/// `SKIP <test>: <why>`, as [`runs_scripts`] does.
+pub(crate) fn removes_its_cwd() -> bool {
+    if os::host().flavor() == os::Flavor::Unix {
+        return true;
+    }
+    let test = std::thread::current();
+    eprintln!(
+        "SKIP {}: Windows does not remove a process's working directory",
+        test.name().unwrap_or("a test")
+    );
+    false
+}
+
 pub(crate) fn mkdirs(path: impl AsRef<Path>) {
     fs().create_dir_all(path.as_ref(), Mode::from_bits(0o777))
         .unwrap();

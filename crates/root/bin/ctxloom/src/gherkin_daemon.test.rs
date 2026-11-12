@@ -12,9 +12,201 @@
 //! stub that FAILS, naming itself: nothing is implemented. Each stub becomes
 //! a real step with the milestone that builds what it asserts.
 
+use std::path::PathBuf;
+use std::process::Child;
+use std::time::{Duration, Instant};
+
 use cucumber::{given, then, when};
+use serde_json::Value;
 
 use super::World;
+use crate::tests::files;
+
+/// The variable a client gives the daemon it spawns as its idle time.
+const IDLE_VARIABLE: &str = "CTXLOOM_DAEMON_IDLE_SECONDS";
+
+/// The idle time of a daemon a scenario starts, in seconds: short, so a
+/// scenario's wait for it is.
+const IDLE_SECONDS: u64 = 2;
+
+/// What a scenario started: the daemon, and the run that keeps it busy. A
+/// World drops this FIRST (its first field), before its home is removed:
+/// the run is released and waited for, the daemon killed outright (T3: it
+/// is kill-tolerant) and reaped.
+#[derive(Default)]
+pub(super) struct State {
+    pub(super) daemon: Option<Child>,
+    run: Option<Child>,
+    /// The file whose presence lets the stub engine end.
+    release: Option<PathBuf>,
+}
+
+impl Drop for State {
+    fn drop(&mut self) {
+        if let Some(release) = &self.release {
+            files::put(release, "go");
+        }
+        if let Some(mut run) = self.run.take() {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while Instant::now() < deadline && matches!(run.try_wait(), Ok(None)) {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            let _ = run.kill();
+            let _ = run.wait();
+        }
+        if let Some(mut daemon) = self.daemon.take() {
+            let _ = daemon.kill();
+            let _ = daemon.wait();
+        }
+    }
+}
+
+/// The discovery file of the scenario's home.
+fn discovery_path(w: &World) -> PathBuf {
+    w.common
+        .project
+        .home()
+        .join(".ctxloom/daemon/daemon.discovery")
+}
+
+fn daemon_log_text(w: &World) -> String {
+    files::read(w.common.project.home().join(".ctxloom/daemon/daemon.log")).unwrap_or_default()
+}
+
+/// The scenario's environment, as `(name, value)` pairs.
+fn env_of(w: &World) -> Vec<(String, String)> {
+    w.common.env.clone()
+}
+
+/// `ctxloom args` in the project, now, with the scenario's environment.
+fn run_now(w: &World, args: &[&str]) -> crate::tests::Ran {
+    let env = env_of(w);
+    let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    w.common.project.run_with(&env, args)
+}
+
+/// Whether `daemon status` says a daemon serves (its health check).
+fn serving_now(w: &World) -> bool {
+    let status = run_now(w, &["daemon", "status", "--format", "json"]);
+    assert_eq!(status.code, 0, "{}", status.said());
+    status.json()["serving"] == Value::Bool(true)
+}
+
+/// Start `ctxloom daemon serve` with the scenario's short idle time, and
+/// wait for it to answer.
+fn start_daemon(w: &mut World) {
+    let env = env_of(w);
+    let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let idle = IDLE_SECONDS.to_string();
+    let daemon = w
+        .common
+        .project
+        .start_with(&env, &["daemon", "serve", "--idle-seconds", &idle]);
+    w.daemon_spec.daemon = Some(daemon);
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !serving_now(w) {
+        assert!(
+            Instant::now() < deadline,
+            "the daemon never served; its log:\n{}",
+            daemon_log_text(w)
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// The project's config: one agent on claude-code, the default.
+const PROJECT_CONFIG: &str =
+    "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\ndefault_agent: dev\n";
+
+/// Point claude-code at the stub `body` in the scenario's home (it runs
+/// with `$here` its own directory); the stub's directory.
+fn stub_claude(w: &mut World, body: &str) -> PathBuf {
+    let dir = w.common.project.home().join("fake-claude");
+    files::put_program(dir.join("claude"), body);
+    w.common
+        .project
+        .write(".ctxloom/config.yaml", PROJECT_CONFIG);
+    w.common.project.write_home(
+        ".ctxloom/config.yaml",
+        &format!(
+            "schema_version: 9\neditor:\n  command: \"true\"\nengines:\n  claude-code:\n    command: {}\n",
+            dir.join("claude").display()
+        ),
+    );
+    dir
+}
+
+/// The interactive session's stub: it says it started, then runs until
+/// released (bounded, so a lost scenario ends anyway).
+const INTERACTIVE_STUB: &str = r#"here=$(dirname "$0")
+: > "$here/started"
+i=0
+while [ ! -e "$here/release" ] && [ "$i" -lt 600 ]; do sleep 0.1; i=$((i+1)); done
+"#;
+
+/// An interactive session the CLI runs (`ctxloom run` at a terminal, the
+/// test's stand-in for one), started and not ended: its run is in the one
+/// store, and its locks are held by the command (M9).
+fn interactive_session(w: &mut World) {
+    let dir = stub_claude(w, INTERACTIVE_STUB);
+    w.daemon_spec.release = Some(dir.join("release"));
+    let mut env = env_of(w);
+    env.push(("CTXLOOM_TEST_TERMINAL".to_string(), "1".to_string()));
+    let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    w.daemon_spec.run = Some(w.common.project.start_with(&env, &["run"]));
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !files::exists(dir.join("started")) {
+        assert!(
+            Instant::now() < deadline,
+            "the session's engine never started"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// A hosted child's stub (engine-claude's streaming child): an init, a
+/// result for each message, until its input ends.
+const CHILD_STUB: &str = r#"here=$(dirname "$0")
+printf '{"type":"system","subtype":"init","cwd":"/work","session_id":"S1","tools":[]}\n'
+while IFS= read -r line; do
+  : > "$here/child-turn"
+  printf '{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"S1"}\n'
+done
+"#;
+
+/// A child the daemon hosts: launched by the user for a seeded owner, and
+/// seen to take its first turn.
+fn hosted_child(w: &mut World) {
+    let dir = stub_claude(w, CHILD_STUB);
+    let seeded = run_now(w, &["test", "seed-session", "amber-quiet-heron"]);
+    assert_eq!(seeded.code, 0, "{}", seeded.said());
+    let mut env = env_of(w);
+    env.push(("ANTHROPIC_API_KEY".to_string(), "a-key".to_string())); // gitleaks:allow
+    let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let launched = w.common.project.run_with(
+        &env,
+        &[
+            "daemon",
+            "launch",
+            "--owner",
+            "amber-quiet-heron",
+            "--name",
+            "brisk-copper-moth",
+            "--prompt",
+            "a task",
+        ],
+    );
+    assert_eq!(launched.code, 0, "{}", launched.said());
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !files::exists(dir.join("child-turn")) {
+        assert!(
+            Instant::now() < deadline,
+            "the child never took its turn; the daemon's log:\n{}",
+            daemon_log_text(w)
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
 
 /// A step of the daemon's spec that nothing implements yet.
 fn red(step: &str) -> ! {
@@ -72,8 +264,11 @@ fn alices_daemon_idle(_: &mut World) {
 }
 
 #[given("no ctxloom daemon is serving for this home")]
-fn none_serving(_: &mut World) {
-    red("no ctxloom daemon is serving for this home")
+fn none_serving(w: &mut World) {
+    // A fresh home: no daemon has advertised itself there, and one a
+    // command starts idles out at once.
+    assert!(!files::exists(discovery_path(w)), "a fresh home");
+    w.common.set_env(IDLE_VARIABLE, IDLE_SECONDS.to_string());
 }
 
 #[given("the discovery file names a daemon that no longer runs")]
@@ -97,13 +292,23 @@ fn serving_hosting(_: &mut World, _child: String) {
 }
 
 #[given("a ctxloom daemon is serving for this home, and has nothing running, hosted or open")]
-fn serving_idle(_: &mut World) {
-    red("a ctxloom daemon is serving for this home, and has nothing to do")
+fn serving_idle(w: &mut World) {
+    start_daemon(w);
 }
 
 #[given(regex = r"^a ctxloom daemon is serving for this home, with (.+)$")]
-fn serving_busy(_: &mut World, _busy: String) {
-    red("a ctxloom daemon is serving for this home, with something to do")
+fn serving_busy(w: &mut World, busy: String) {
+    match busy.as_str() {
+        "an interactive session running" => {
+            interactive_session(w);
+            start_daemon(w);
+        }
+        "a child it hosts" => {
+            start_daemon(w);
+            hosted_child(w);
+        }
+        _ => red("a ctxloom daemon is serving for this home, with something to do"),
+    }
 }
 
 #[given(regex = r"^the daemon will be killed outright (.+)$")]
@@ -152,7 +357,8 @@ fn her_idle_passes(_: &mut World) {
 
 #[when("the daemon's idle time passes")]
 fn idle_passes(_: &mut World) {
-    red("the daemon's idle time passes")
+    // Its idle time, and a margin for its poll and its last round.
+    std::thread::sleep(Duration::from_secs(IDLE_SECONDS + 2));
 }
 
 #[when(expr = "two commands are run at once, {string} and {string}")]
@@ -333,8 +539,10 @@ fn nothing_opened(_: &mut World) {
 }
 
 #[then("no ctxloom daemon was started")]
-fn none_started(_: &mut World) {
-    red("no ctxloom daemon was started")
+fn none_started(w: &mut World) {
+    let dir = w.common.project.home().join(".ctxloom/daemon");
+    assert!(!files::exists(discovery_path(w)), "nothing advertised");
+    assert!(!files::exists(dir.join("daemon.log")), "no daemon logged");
 }
 
 #[then(
@@ -382,13 +590,40 @@ fn old_bearer_refused(_: &mut World) {
 }
 
 #[then("the daemon has exited, and nothing says it serves")]
-fn daemon_exited(_: &mut World) {
-    red("the daemon has exited, and nothing says it serves")
+fn daemon_exited(w: &mut World) {
+    let Some(daemon) = w.daemon_spec.daemon.as_mut() else {
+        red("the daemon has exited (a daemon this scenario did not start)")
+    };
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let code = loop {
+        if let Some(status) = daemon.try_wait().expect("the daemon is waited for") {
+            break status.code();
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the daemon still runs; its log:\n{}",
+            daemon_log_text(w)
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(code, Some(0), "{}", daemon_log_text(w));
+    assert!(!serving_now(w), "nothing says it serves");
 }
 
 #[then("the daemon still serves")]
-fn still_serves(_: &mut World) {
-    red("the daemon still serves")
+fn still_serves(w: &mut World) {
+    let daemon = w
+        .daemon_spec
+        .daemon
+        .as_mut()
+        .expect("the scenario started a daemon");
+    assert_eq!(
+        daemon.try_wait().expect("the daemon is waited for"),
+        None,
+        "it exited; its log:\n{}",
+        daemon_log_text(w)
+    );
+    assert!(serving_now(w), "{}", daemon_log_text(w));
 }
 
 #[then("the hook exits 0, and says nothing was left unrecorded")]

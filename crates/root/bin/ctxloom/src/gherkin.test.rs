@@ -40,6 +40,8 @@ struct Planted {
 #[derive(cucumber::World)]
 #[world(init = Self::new)]
 struct World {
+    /// What a daemon scenario started: dropped first, before the home goes.
+    daemon_spec: daemon_spec::State,
     common: Common,
     planted: Vec<Planted>,
     seeded: bool,
@@ -104,6 +106,7 @@ impl CommonWorld for World {
 impl World {
     fn new() -> World {
         World {
+            daemon_spec: daemon_spec::State::default(),
             common: Common::new(),
             planted: Vec::new(),
             seeded: false,

@@ -170,7 +170,6 @@ fn is_execute_form(args: Option<&Json>) -> bool {
 /// Whether the settings document registers a callback of the binary
 /// `program` in any event.
 pub(crate) fn has_callback(doc: &Json, program: &str) -> bool {
-    let _ = program;
     let Some(Json::Object(events)) = doc.get("hooks") else {
         return false;
     };
@@ -182,7 +181,7 @@ pub(crate) fn has_callback(doc: &Json, program: &str) -> bool {
                     .and_then(Json::as_array)
                     .is_some_and(|hooks| {
                         hooks.iter().any(|hook| {
-                            hook.get("command").and_then(Json::as_str) == Some("ctxloom")
+                            hook.get("command").and_then(Json::as_str) == Some(program)
                                 && is_execute_form(hook.get("args"))
                         })
                     })

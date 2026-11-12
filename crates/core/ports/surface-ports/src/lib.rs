@@ -122,7 +122,7 @@ impl Hook {
     pub fn installed_as(&self, engine: &str, native: &str, program: &str) -> Hook {
         let mut hook = self.clone();
         if self.is_callback() {
-            let _ = program;
+            hook.command = program.to_string();
             hook.args = Hook::callback_args(engine, native);
         }
         hook

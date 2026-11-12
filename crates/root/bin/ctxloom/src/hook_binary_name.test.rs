@@ -175,10 +175,16 @@ fn test_a_renamed_binary_materializes_hooks_and_a_statusline_that_call_it_and_ch
     );
     let check = project.run(&["manage", "hooks", "check", "--format", "json"]);
     assert_eq!(check.code, 0, "{}", check.said());
-    assert!(
-        !check.stdout.contains("\"hooks_present\":false")
-            && !check.stdout.contains("\"hooks_present\": false"),
-        "the renamed binary's hooks are its wiring: {}",
-        check.said()
+    let claude = check.json()["backends"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|row| row["backend"] == "claude-code")
+        .cloned()
+        .unwrap_or_else(|| panic!("a claude-code row: {}", check.said()));
+    assert_eq!(
+        (&claude["hooks_present"], &claude["statusline"]),
+        (&Value::Bool(true), &Value::Bool(true)),
+        "the renamed binary's hooks are its wiring: {claude}"
     );
 }

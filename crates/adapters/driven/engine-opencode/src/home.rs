@@ -24,9 +24,11 @@ const COMMAND_LINE: &str = "const COMMAND = \"ctxloom\"";
 /// The plugin, running `program` (the running binary's file name, owner
 /// ruling 163) for each event, the name a JSON string (a JavaScript one).
 pub fn plugin(program: &str) -> String {
-    let _ = program;
-    let _ = COMMAND_LINE;
-    PLUGIN.to_string()
+    PLUGIN.replacen(
+        COMMAND_LINE,
+        &format!("const COMMAND = {}", Json::text(program).pretty()),
+        1,
+    )
 }
 
 /// The lock that tells opencode's install its plugin package is already

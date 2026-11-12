@@ -52,9 +52,8 @@ fn words(command: &str) -> Vec<String> {
 /// Whether `program` is ctxloom itself, by its file name: `ctxloom`, or
 /// `name`, the running binary's own (owner ruling 163).
 fn is_ctxloom(program: &str, name: &str) -> bool {
-    let _ = name;
     let file = program.rsplit(['/', '\\']).next().unwrap_or_default();
-    file == "ctxloom" || file == "ctxloom.exe"
+    file == "ctxloom" || file == "ctxloom.exe" || (!name.is_empty() && file == name)
 }
 
 /// `ctxloom hook <sub> ...` (or `name hook <sub> ...`): the subcommand and

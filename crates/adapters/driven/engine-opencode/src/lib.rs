@@ -4,7 +4,9 @@
 //! its process. ctxloom writes one into each session home (`plugins/ctxloom.js`,
 //! found through `OPENCODE_CONFIG_DIR`, [`home`]), and it forwards what
 //! opencode's bus says of the session, one event at a time and in order, by
-//! running `ctxloom hook opencode execute <Event>` with the event on stdin.
+//! running `ctxloom hook opencode execute <Event>` with the event on stdin
+//! (`ctxloom` being the running binary's file name, owner ruling 163:
+//! [`Opencode::calling`]).
 //! [`Codec`] reads those payloads into the unified hook event.
 //!
 //! The drive half (`drive`) runs a child's turn as `opencode run --format

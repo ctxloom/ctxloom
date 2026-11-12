@@ -41,8 +41,7 @@ pub const SETTINGS_FILE: &str = ".claude/settings.json";
 /// file name, owner ruling 163): bare, so it resolves on `PATH` wherever the
 /// file is read.
 pub fn statusline(program: &str) -> String {
-    let _ = program;
-    "ctxloom hook claude-code execute statusline".to_string()
+    format!("{program} hook {NAME} execute statusline")
 }
 
 /// Claude Code.

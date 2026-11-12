@@ -250,13 +250,25 @@ A one-shot CHILD's home (owner ruling 51) registers the per-turn ones only:
 `UserPromptSubmit`, `PostToolBatch`, `MessageDisplay`, `Stop`, `PreCompact`,
 `PostCompact`; never `SessionStart` or `SessionEnd`, which `claude -p` fires
 once per PROCESS (every turn), and whose slow hook claude cancels. The hook
-command is the bare `ctxloom`, so an engine's `PATH` (the terminal's and a
+command is the bare FILE NAME of the running binary (owner rulings 163, 164;
+`ctxloom` for a binary of that name, `ctxloom-rs` for the one `just
+install-rs` installs): claude's hooks and statusline, at rest and in a session
+home, and opencode's plugin's `COMMAND` all run it. The wiring resolves it
+ONCE (`ctxloom-wiring`'s `program::running`, from `std::env::current_exe`,
+which on Linux is `/proc/self/exe`, a symlink's target and never the link; the
+authored `ctxloom`, `surface_ports::CALLBACK_PROGRAM`, when it cannot) and
+tells the adapters as a value when it builds them (`Claude::calling`,
+`Opencode::calling`, `Mock::calling`, `Doctor::calling`); an authored callback
+(`ctxloom hook <verb>` in a bundle or ctxloom's own package) is installed
+running it (`Hook::installed_as`). An engine's `PATH` (the terminal's and a
 child's) is the directory of the running binary (`Place::program_dir`, the
-wiring's `current_exe` parent), then the inherited `PATH`. Two consequences:
-the session's own shell also sees that directory first, so a sibling program in
-it shadows the user's others (intended); and the binary must be named `ctxloom`
-for the hooks to resolve it (a renamed binary still leads `PATH` but the bare
-name finds nothing there: a known limit, not worked around).
+same resolution's directory), then the inherited `PATH`, so the bare name is
+this binary. The session's own shell also sees that directory first, so a
+sibling program in it shadows the user's others (intended). Only the running
+binary's entries are its wiring (`manage hooks check`, a surface's
+`hooks_present` and `statusline`); doctor reads an entry running `ctxloom` or
+the running binary's name as ctxloom's. The CLI's own help and fix texts
+still say `ctxloom`.
 The launcher records `RunnerStarted{runtime, workspace, pid}` AFTER the spawn,
 with the pid the spawn gave (`RunnerLauncher::launch` answers a `Running`, the
 launcher records, `Running::finish` waits), and the pending launches clear on
@@ -978,8 +990,9 @@ wiring's `engines()` and driven by the launcher, always: it is a real engine).
 opencode has no hook commands; its hooks are plugins in its own process. Every
 session home (`OPENCODE_CONFIG_DIR`) gets `plugins/ctxloom.js` (`PLUGIN`, node
 builtins only), which forwards opencode's bus events (v2 `{id,type,properties}`)
-and the `chat.message` trigger, serially and in order, by spawning `ctxloom hook
-opencode execute <Event>` with the event on stdin, plus what it alone knows
+and the `chat.message` trigger, serially and in order, by spawning `<program> hook
+opencode execute <Event>` (the running binary's file name, `home::plugin`)
+with the event on stdin, plus what it alone knows
 under `ctxloom` (the prompt a step message answers, a compaction's trigger and
 summary text). Its queue and dedupe live on `globalThis` (opencode may
 instantiate a plugin twice in one process), it drops sub-agent sessions (a
@@ -1141,9 +1154,12 @@ says it is refused (`library::config::schema::HOME_ONLY` and
 `take_home_only`, a `breaks the schema` violation naming the home config,
 exit 20; under `--degraded` it is said and dropped, never read). Doctor's
 stale-hooks check (`DOCTOR-CHECK-STALE-HOOKS-n5`, doctor-checks' `hooks.rs`)
-calls a hook entry Rust-era when it is EXACTLY `ctxloom hook <engine> execute
-<Event>` (one command line, or `command: ctxloom` with the words in `args`, as
-`prepare` and the surface write it), and Go-era otherwise (`ctxloom hook
+calls a hook entry Rust-era when it is EXACTLY `<name> hook <engine> execute
+<Event>`, `<name>` the running binary's file name (ruling 163) or bare
+`ctxloom` (one command line, or `command: <name>` with the words in `args`,
+as `prepare` and the surface write it), and Go-era otherwise, whatever its
+program (a binary named `ctxloom-rs` still leaves `ctxloom hook stamp-plan`
+alone) (`ctxloom hook
 stamp-plan`, `session-bind`, the older `hook <verb> --engine` ...). Under
 `present` each Go-era entry is an `info` row of its own,
 `DOCTOR-CHECK-GO-ERA-HOOK-n6` ("Go-era hook, left alone", its event, command
@@ -1166,7 +1182,10 @@ isolation.
 
 ## Use `just`
 
-`just --list` shows the public recipes by group. The checks are `just build`,
+`just --list` shows the public recipes by group; `just install-rs` (group
+`install`) builds the plain binary and installs it as
+`~/.local/lib/ctxloom-rs/ctxloom-rs` with the wrapper `~/.local/bin/ctxloom-rs`
+(`CTXLOOM_HOME="$HOME/.ctxloom-rs"`), idempotently, one line per action. The checks are `just build`,
 `just test` (cargo-nextest, the one test runner, mutation included, owner
 ruling 144; required: a missing nextest fails the gate),
 `just lint` (clippy, warnings denied), `just lint-deps` (cargo-deny) and

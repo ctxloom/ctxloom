@@ -20,7 +20,7 @@ const SETTINGS: &str = r#"{
 
 #[test]
 fn only_ctxloom_hooks_that_are_gone_are_go_era() {
-    let found = go_era(SETTINGS);
+    let found = go_era(SETTINGS, "ctxloom");
     assert_eq!(found.len(), 1);
     assert_eq!(
         (found[0].event.as_str(), found[0].sub.as_str()),
@@ -34,13 +34,13 @@ fn a_live_hook_and_a_foreign_program_are_not_go_era() {
         {"type":"command","command":"ctxloom hook claude-code execute SessionStart"},
         {"type":"command","command":"my-tool hook inject-context"},
         {"type":"command","command":"/usr/bin/ctxloom hook claude-code execute statusline"}]}]}}"#;
-    assert!(go_era(live).is_empty());
-    assert!(strip(live).is_none());
+    assert!(go_era(live, "ctxloom").is_empty());
+    assert!(strip(live, "ctxloom").is_none());
 }
 
 #[test]
 fn strip_takes_exactly_the_stale_entry() {
-    let (fixed, gone) = strip(SETTINGS).expect("something to strip");
+    let (fixed, gone) = strip(SETTINGS, "ctxloom").expect("something to strip");
     assert_eq!(gone.len(), 1);
     assert!(!fixed.contains("inject-context --part"));
     assert_eq!(fixed.matches("my-tool hook inject-context").count(), 1);
@@ -53,30 +53,34 @@ fn strip_takes_exactly_the_stale_entry() {
 fn a_group_and_an_event_left_empty_go() {
     let only =
         r#"{"hooks":{"SessionStart":[{"hooks":[{"command":"ctxloom hook inject-context abc"}]}]}}"#;
-    let (fixed, _) = strip(only).unwrap();
+    let (fixed, _) = strip(only, "ctxloom").unwrap();
     let doc: serde_json::Value = serde_json::from_str(&fixed).unwrap();
     assert_eq!(doc["hooks"], serde_json::json!({}));
 }
 
 #[test]
 fn registered_means_any_ctxloom_hook_entry() {
-    assert!(registered(SETTINGS));
+    assert!(registered(SETTINGS, "ctxloom"));
     assert!(!registered(
-        r#"{"hooks":{"Stop":[{"hooks":[{"command":"my-tool hook x"}]}]}}"#
+        r#"{"hooks":{"Stop":[{"hooks":[{"command":"my-tool hook x"}]}]}}"#,
+        "ctxloom"
     ));
-    assert!(!registered("not json"));
+    assert!(!registered("not json", "ctxloom"));
 }
 
 #[test]
 fn only_a_launched_ctxloom_mcp_is_a_launch() {
     assert!(launches_ctxloom_mcp(
-        r#"{"mcpServers":{"ctxloom":{"command":"ctxloom","args":["mcp","serve"]}}}"#
+        r#"{"mcpServers":{"ctxloom":{"command":"ctxloom","args":["mcp","serve"]}}}"#,
+        "ctxloom"
     ));
     assert!(!launches_ctxloom_mcp(
-        r#"{"mcpServers":{"ctxloom":{"command":"ctxloom","args":["run"]}}}"#
+        r#"{"mcpServers":{"ctxloom":{"command":"ctxloom","args":["run"]}}}"#,
+        "ctxloom"
     ));
     assert!(!launches_ctxloom_mcp(
-        r#"{"mcpServers":{"other":{"command":"ctxloom","args":["mcp"]}}}"#
+        r#"{"mcpServers":{"other":{"command":"ctxloom","args":["mcp"]}}}"#,
+        "ctxloom"
     ));
 }
 
@@ -88,7 +92,7 @@ fn the_retired_neutral_verbs_are_go_era() {
         {"type":"command","command":"ctxloom hook session-start"},
         {"type":"command","command":"ctxloom hook skill-mates --engine claude-code"},
         {"type":"command","command":"ctxloom hook hud"}]}]}}"#;
-    let subs: Vec<String> = go_era(old).into_iter().map(|s| s.sub).collect();
+    let subs: Vec<String> = go_era(old, "ctxloom").into_iter().map(|s| s.sub).collect();
     assert_eq!(subs, ["session-start", "skill-mates", "hud"]);
 }
 
@@ -102,15 +106,15 @@ fn a_rust_era_entry_is_exactly_the_execute_form() {
         {"command":"ctxloom hook claude-code execute Stop"},
         {"command":"'/opt/bin/ctxloom' hook opencode execute Stop"},
         {"command":"ctxloom","args":["hook","claude-code","execute","Stop"]}]}]}}"#;
-    assert!(go_era(rust).is_empty());
-    assert!(strip(rust).is_none());
+    assert!(go_era(rust, "ctxloom").is_empty());
+    assert!(strip(rust, "ctxloom").is_none());
     let go = r#"{"hooks":{"Stop":[{"hooks":[
         {"command":"ctxloom hook stamp-plan"},
         {"command":"ctxloom hook claude-code execute"},
         {"command":"ctxloom hook claude-code execute Stop --more"},
         {"command":"ctxloom hook claude-code other Stop"},
         {"command":"ctxloom","args":["hook","session-start","--engine","claude-code"]}]}]}}"#;
-    let subs: Vec<String> = go_era(go).into_iter().map(|s| s.sub).collect();
+    let subs: Vec<String> = go_era(go, "ctxloom").into_iter().map(|s| s.sub).collect();
     assert_eq!(
         subs,
         [
@@ -130,14 +134,43 @@ fn an_entry_in_args_form_is_read_and_stripped() {
     let args = r#"{"hooks":{"Stop":[{"hooks":[
         {"command":"ctxloom","args":["hook","claude-code","execute","Stop"]},
         {"command":"ctxloom","args":["hook","hud"]}]}]}}"#;
-    assert!(registered(args));
-    let (fixed, gone) = strip(args).expect("the Go-era entry");
+    assert!(registered(args, "ctxloom"));
+    let (fixed, gone) = strip(args, "ctxloom").expect("the Go-era entry");
     assert_eq!(gone.len(), 1);
     assert_eq!(gone[0].sub, "hud");
     assert!(fixed.contains("\"execute\""), "{fixed}");
     assert!(!fixed.contains("\"hud\""), "{fixed}");
     // a command that is not ctxloom is not ours, whatever its args
     assert!(!registered(
-        r#"{"hooks":{"Stop":[{"hooks":[{"command":"my-tool","args":["hook","x"]}]}]}}"#
+        r#"{"hooks":{"Stop":[{"hooks":[{"command":"my-tool","args":["hook","x"]}]}]}}"#,
+        "ctxloom"
+    ));
+}
+
+// Owner ruling 163: the running binary's own name is ctxloom too, for every
+// reading of its entries; `ctxloom` stays ctxloom's. Ruling 162: its
+// Rust-era form is `<name> hook <engine> execute <Event>`; anything else it
+// runs is Go-era.
+#[test]
+fn an_entry_running_the_binarys_own_name_is_ctxloom() {
+    let settings = r#"{"hooks":{"SessionStart":[{"hooks":[
+        {"type":"command","command":"ctxloom-other hook inject-context"},
+        {"type":"command","command":"/home/a/.local/lib/x/ctxloom-other hook claude-code execute SessionStart"},
+        {"type":"command","command":"ctxloom hook hud"}]}]}}"#;
+    let subs: Vec<String> = go_era(settings, "ctxloom-other")
+        .into_iter()
+        .map(|s| s.sub)
+        .collect();
+    assert_eq!(subs, ["inject-context", "hud"]);
+    let (fixed, gone) = strip(settings, "ctxloom-other").unwrap();
+    assert_eq!(gone.len(), 2);
+    assert!(fixed.contains("ctxloom-other hook claude-code execute SessionStart"));
+    let live = r#"{"hooks":{"Stop":[{"hooks":[{"command":"ctxloom-other hook claude-code execute Stop"}]}]}}"#;
+    assert!(registered(live, "ctxloom-other"));
+    assert!(!registered(live, "ctxloom"), "another program's entry");
+    assert!(go_era(live, "ctxloom-other").is_empty());
+    assert!(launches_ctxloom_mcp(
+        r#"{"mcpServers":{"ctxloom":{"command":"ctxloom-other","args":["mcp"]}}}"#,
+        "ctxloom-other"
     ));
 }

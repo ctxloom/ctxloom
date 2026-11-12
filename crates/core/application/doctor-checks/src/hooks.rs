@@ -51,18 +51,22 @@ fn words(command: &str) -> Vec<String> {
     words
 }
 
-/// Whether `program` is ctxloom itself, by its file name.
-fn is_ctxloom(program: &str) -> bool {
-    let name = program.rsplit(['/', '\\']).next().unwrap_or_default();
-    name == "ctxloom" || name == "ctxloom.exe"
+/// Whether `program` is ctxloom itself, by its file name: `ctxloom`, or
+/// `name`, the running binary's own (owner ruling 163).
+fn is_ctxloom(program: &str, name: &str) -> bool {
+    let file = program.rsplit(['/', '\\']).next().unwrap_or_default();
+    file == "ctxloom" || file == "ctxloom.exe" || (!name.is_empty() && file == name)
 }
 
-/// `ctxloom hook <sub> ...`: the subcommand and whether the words are
-/// exactly the Rust-era `hook <engine> execute <Event>`, when they run one.
-fn hook_sub(words: &[String]) -> Option<(String, bool)> {
+/// `ctxloom hook <sub> ...` (or `name hook <sub> ...`): the subcommand and
+/// whether the words are exactly the Rust-era `hook <engine> execute
+/// <Event>`, when they run one. The program alone never makes an entry
+/// Rust-era: a Go-era `ctxloom hook stamp-plan` stays Go's whatever this
+/// binary is named.
+fn hook_sub(words: &[String], name: &str) -> Option<(String, bool)> {
     match words {
         [program, hook, sub, rest @ ..]
-            if is_ctxloom(program) && hook == "hook" && !sub.starts_with('-') =>
+            if is_ctxloom(program, name) && hook == "hook" && !sub.starts_with('-') =>
         {
             let rust_era = matches!(rest, [verb, event]
                 if verb == LIVE_VERB && !event.is_empty() && !event.starts_with('-'));
@@ -118,26 +122,32 @@ fn entries(doc: &Value) -> Vec<(String, Vec<String>)> {
     found
 }
 
-fn go_era_of(event: &str, words: &[String]) -> Option<Stale> {
-    let (sub, rust_era) = hook_sub(words)?;
+fn go_era_of(event: &str, words: &[String], name: &str) -> Option<Stale> {
+    let (sub, rust_era) = hook_sub(words, name)?;
     (!rust_era).then(|| Stale {
         event: event.to_string(),
         sub,
     })
 }
 
-/// Whether the settings register any ctxloom hook.
-pub fn registered(text: &str) -> bool {
-    parse(text).is_some_and(|doc| entries(&doc).iter().any(|(_, w)| hook_sub(w).is_some()))
+/// Whether the settings register any hook of ctxloom's (by `ctxloom` or by
+/// `name`, the running binary's file name).
+pub fn registered(text: &str, name: &str) -> bool {
+    parse(text).is_some_and(|doc| {
+        entries(&doc)
+            .iter()
+            .any(|(_, w)| hook_sub(w, name).is_some())
+    })
 }
 
-/// The Go-era entries of a settings file.
-pub fn go_era(text: &str) -> Vec<Stale> {
+/// The Go-era entries of a settings file, ctxloom's by `ctxloom` or by
+/// `name`.
+pub fn go_era(text: &str, name: &str) -> Vec<Stale> {
     parse(text)
         .map(|doc| {
             entries(&doc)
                 .iter()
-                .filter_map(|(event, words)| go_era_of(event, words))
+                .filter_map(|(event, words)| go_era_of(event, words, name))
                 .collect()
         })
         .unwrap_or_default()
@@ -147,7 +157,7 @@ pub fn go_era(text: &str) -> Vec<Stale> {
 /// group left with no hook goes, and an event left with no group), and which
 /// went; none where there is none. The caller strips only once Go ctxloom
 /// is retired (`legacy.go`).
-pub fn strip(text: &str) -> Option<(String, Vec<Stale>)> {
+pub fn strip(text: &str, name: &str) -> Option<(String, Vec<Stale>)> {
     let mut doc = parse(text)?;
     let mut gone = Vec::new();
     let events = doc.get_mut("hooks")?.as_object_mut()?;
@@ -163,7 +173,7 @@ pub fn strip(text: &str) -> Option<(String, Vec<Stale>)> {
                 if hook.get("command").and_then(Value::as_str).is_none() {
                     return true;
                 }
-                match go_era_of(event, &hook_words(hook)) {
+                match go_era_of(event, &hook_words(hook), name) {
                     Some(stale) => {
                         gone.push(stale);
                         false
@@ -189,8 +199,8 @@ pub fn strip(text: &str) -> Option<(String, Vec<Stale>)> {
 }
 
 /// Whether a settings document's `mcpServers.ctxloom` launches a process
-/// (`command`, no `url`) running `ctxloom mcp ...`.
-pub fn launches_ctxloom_mcp(text: &str) -> bool {
+/// (`command`, no `url`) running `ctxloom mcp ...` (or `name mcp ...`).
+pub fn launches_ctxloom_mcp(text: &str, name: &str) -> bool {
     let Some(doc) = parse(text) else { return false };
     let Some(entry) = doc.get("mcpServers").and_then(|s| s.get("ctxloom")) else {
         return false;
@@ -206,5 +216,5 @@ pub fn launches_ctxloom_mcp(text: &str) -> bool {
         .and_then(Value::as_array)
         .and_then(|args| args.first())
         .and_then(Value::as_str);
-    is_ctxloom(command) && first_arg == Some("mcp")
+    is_ctxloom(command, name) && first_arg == Some("mcp")
 }

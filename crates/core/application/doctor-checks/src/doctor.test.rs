@@ -315,6 +315,63 @@ fn fix_removes_the_stale_entries_of_the_project_and_the_user_and_then_the_row_is
     );
 }
 
+// Owner ruling 163: a doctor told the running binary's name reads an entry
+// running it as ctxloom's: its stale ones are found and fixed, its live ones
+// are the hooks row's.
+#[test]
+fn a_doctor_calling_another_program_reads_and_fixes_that_programs_entries() {
+    // its Go-era entries are stale once Go is retired (ruling 162)
+    let mem = retired(project());
+    let settings = r#"{"hooks":{"SessionStart":[{"hooks":[{"command":"ctxloom-other hook inject-context abc"},{"command":"ctxloom-other hook claude-code execute SessionStart"}]}]}}"#;
+    mem.files.lock().unwrap().insert(
+        "/work/.claude/settings.json".to_string(),
+        settings.to_string(),
+    );
+    let doctor = doctor(&mem, true).calling("ctxloom-other");
+    let report = doctor.report(false);
+    assert_eq!(status(&report, "DOCTOR-CHECK-STALE-HOOKS-n5"), Status::Warn);
+    assert_eq!(status(&report, "DOCTOR-CHECK-HOOKS-TRUST-d4"), Status::Ok);
+    assert_eq!(doctor.fix().unwrap().len(), 1);
+    let kept = mem.files.lock().unwrap()["/work/.claude/settings.json"].clone();
+    assert!(
+        kept.contains("ctxloom-other hook claude-code execute SessionStart")
+            && !kept.contains("inject-context"),
+        "{kept}"
+    );
+}
+
+// Rulings 162 and 163: the binary named `ctxloom-rs` still reads a bare
+// `ctxloom` entry as ctxloom's, but `ctxloom hook stamp-plan` is not the
+// Rust-era form: while Go is present it is Go's, reported and left alone, and
+// --fix never strips it; the binary's own Rust-era entry is kept too.
+#[test]
+fn a_binary_named_ctxloom_rs_leaves_gos_stamp_plan_alone_while_go_is_present() {
+    let mem = project();
+    let settings = r#"{"hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"command":"ctxloom hook stamp-plan"}]}],"SessionStart":[{"hooks":[{"command":"ctxloom-rs hook claude-code execute SessionStart"}]}]}}"#;
+    mem.files.lock().unwrap().insert(
+        "/home/u/.claude/settings.json".to_string(),
+        settings.to_string(),
+    );
+    let doctor = doctor(&mem, true).calling("ctxloom-rs");
+    let report = doctor.report(false);
+    assert_eq!(status(&report, "DOCTOR-CHECK-STALE-HOOKS-n5"), Status::Ok);
+    assert_eq!(status(&report, "DOCTOR-CHECK-HOOKS-TRUST-d4"), Status::Ok);
+    let go: Vec<&crate::Check> = report
+        .checks
+        .iter()
+        .filter(|c| c.marker == "DOCTOR-CHECK-GO-ERA-HOOK-n6")
+        .collect();
+    assert_eq!(go.len(), 1, "{go:?}");
+    assert!(go[0]
+        .detail
+        .contains("PostToolUse runs `ctxloom hook stamp-plan`"));
+    assert!(doctor.fix().unwrap().is_empty());
+    assert_eq!(
+        mem.files.lock().unwrap()["/home/u/.claude/settings.json"],
+        settings
+    );
+}
+
 // The identity is git's answer where ctxloom runs, in her own environment
 // (handtest D2): a `.gitconfig` in the doctor's home, which is ctxloom's home
 // (`CTXLOOM_HOME`), is not read for it, either way.
